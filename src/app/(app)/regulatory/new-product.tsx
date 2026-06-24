@@ -1,0 +1,102 @@
+"use client";
+
+import * as React from "react";
+import { useFormState } from "react-dom";
+import { useRouter } from "next/navigation";
+import { Plus, Loader2, AlertCircle } from "lucide-react";
+import { createRegulatoryProduct, type ActionResult } from "@/lib/actions/regulatory-actions";
+import { Button } from "@/components/ui/button";
+import { Sheet } from "@/components/ui/sheet";
+import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
+import { PRODUCT_TYPE, PRIORITY, REGULATORY_STATUS, ROLE_LABELS } from "@/lib/labels";
+
+interface UserOption {
+  id: string;
+  name: string;
+  role: string;
+}
+
+export function NewProductButton({ users }: { users: UserOption[] }) {
+  const router = useRouter();
+  const [open, setOpen] = React.useState(false);
+  const [state, formAction] = useFormState<ActionResult | undefined, FormData>(
+    createRegulatoryProduct,
+    undefined,
+  );
+  const [submitting, setSubmitting] = React.useState(false);
+
+  React.useEffect(() => {
+    if (state?.ok) {
+      setOpen(false);
+      setSubmitting(false);
+      router.refresh();
+      if (state.id) router.push(`/regulatory/${state.id}`);
+    } else if (state?.error) {
+      setSubmitting(false);
+    }
+  }, [state, router]);
+
+  const userOptions = users.map((u) => ({
+    value: u.id,
+    label: `${u.name} — ${ROLE_LABELS[u.role] ?? u.role}`,
+  }));
+
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>
+        <Plus className="h-4 w-4" />
+        Nouveau dossier
+      </Button>
+
+      <Sheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Nouveau dossier réglementaire"
+        description="Le workflow en 17 étapes est créé automatiquement."
+        width="lg"
+      >
+        <form
+          action={(fd) => {
+            setSubmitting(true);
+            formAction(fd);
+          }}
+          className="space-y-4"
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <TextField label="DCI" name="dci" required placeholder="Ex. Atorvastatine" />
+            <TextField label="Nom commercial envisagé" name="brandName" placeholder="Ex. Adventor" />
+            <TextField label="Dosage" name="dosage" placeholder="20 mg" />
+            <TextField label="Forme pharmaceutique" name="pharmaceuticalForm" placeholder="Comprimé pelliculé" />
+            <TextField label="Classe thérapeutique" name="therapeuticClass" placeholder="Hypolipémiant" />
+            <TextField label="Fournisseur / Laboratoire" name="partnerLab" placeholder="Ex. Pharma Lab" />
+            <TextField label="Pays d'origine" name="countryOfOrigin" placeholder="Inde" />
+            <SelectField label="Type de produit" name="productType" options={optionsFromMap(PRODUCT_TYPE)} defaultValue="IMPORTED" />
+            <SelectField label="Priorité" name="priority" options={optionsFromMap(PRIORITY)} defaultValue="MEDIUM" />
+            <SelectField label="Statut initial" name="status" options={optionsFromMap(REGULATORY_STATUS)} defaultValue="PRE_SUBMISSION" />
+            <SelectField label="Responsable" name="responsibleId" options={userOptions} placeholder="—" />
+            <SelectField label="Assistante assignée" name="assistantId" options={userOptions} placeholder="—" />
+            <TextField label="Date cible d'enregistrement" name="targetDate" type="date" className="col-span-2" />
+          </div>
+          <TextAreaField label="Commentaires" name="comments" placeholder="Notes internes…" />
+
+          {state?.error && (
+            <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4" />
+              {state.error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Annuler
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Créer le dossier
+            </Button>
+          </div>
+        </form>
+      </Sheet>
+    </>
+  );
+}
