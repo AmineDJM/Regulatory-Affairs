@@ -1,0 +1,33 @@
+# Render Blueprint — deploys the Streamlit edition of AMD Internal OS.
+#
+# How to use:
+#   1. Push this file (already on branch claude/hopeful-goodall-phd0nb).
+#   2. In Render: New +  →  Blueprint  →  connect this GitHub repo.
+#   3. IMPORTANT: select the branch  claude/hopeful-goodall-phd0nb
+#   4. Apply. Render builds and starts the service automatically.
+#
+# Render's filesystem is writable, so the SQLite DB is created and seeded on
+# first boot. Note: the free plan's disk is ephemeral — data resets on each
+# deploy / cold start. For durable data, add a Render Disk (see commented block)
+# and set AMD_DB_PATH to a path on that disk.
+
+services:
+  - type: web
+    name: amd-internal-os
+    runtime: python
+    rootDir: streamlit_app
+    plan: free
+    healthCheckPath: /_stcore/health
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+    # Uncomment for persistent data (requires a paid instance type):
+    # disk:
+    #   name: amd-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # and add:
+    #   - key: AMD_DB_PATH
+    #     value: /var/data/amd.db

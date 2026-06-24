@@ -105,6 +105,37 @@ responsable.
 
 ---
 
+## ☁️ Déploiement — Render (recommandé)
+
+Un **Blueprint** [`render.yaml`](../render.yaml) est fourni à la racine du dépôt.
+
+1. Pousser le dépôt sur GitHub (déjà fait).
+2. Sur [dashboard.render.com](https://dashboard.render.com) : **New +  →  Blueprint**.
+3. Connecter ce dépôt et **sélectionner la branche `claude/hopeful-goodall-phd0nb`**.
+4. **Apply** — Render lit `render.yaml`, installe les dépendances et démarre l'app.
+
+Réglages appliqués automatiquement par le blueprint :
+
+| Paramètre | Valeur |
+|-----------|--------|
+| Root Directory | `streamlit_app` |
+| Build Command | `pip install -r requirements.txt` |
+| Start Command | `streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true` |
+| Health check | `/_stcore/health` |
+| Python | 3.12.7 |
+| Plan | Free |
+
+> **Création manuelle (si tu n'utilises pas le Blueprint)** : New + → **Web Service** →
+> connecter le repo → Root Directory `streamlit_app`, Build `pip install -r requirements.txt`,
+> Start `streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true`.
+
+> ⚠️ Plan gratuit : disque **éphémère** (la base SQLite est re-créée + peuplée à chaque cold start)
+> et mise en veille après ~15 min d'inactivité (1er accès ensuite ~50 s). Pour des données
+> **persistantes**, ajoute un *Render Disk* et `AMD_DB_PATH` (bloc commenté dans `render.yaml`),
+> ou branche un Postgres externe.
+
+---
+
 ## ☁️ Déploiement — Streamlit Community Cloud (gratuit)
 
 1. Poussez le dépôt sur GitHub.
