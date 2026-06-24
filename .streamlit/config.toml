@@ -1,0 +1,12 @@
+# Streamlit configuration — kept at the repository root because the app's
+# entrypoint lives in a subdirectory (streamlit_app/app.py). Streamlit Community
+# Cloud reads the config from the repo root in that case.
+[theme]
+primaryColor = "#1e293b"
+backgroundColor = "#f8fafc"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#0f172a"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
