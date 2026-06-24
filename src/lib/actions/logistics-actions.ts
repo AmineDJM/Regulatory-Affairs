@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { LogisticsStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
@@ -13,7 +13,7 @@ export async function createLogistics(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "LOGISTICS", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "LOGISTICS", "CREATE")) return { ok: false, error: "Non autorisé." };
 
   const product = fdStr(formData, "product");
   if (!product) return { ok: false, error: "Le produit est obligatoire." };
@@ -55,7 +55,7 @@ export async function createLogistics(
 
 export async function updateLogisticsStatus(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "LOGISTICS", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "LOGISTICS", "UPDATE")) return { ok: false, error: "Non autorisé." };
 
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Commande introuvable." };

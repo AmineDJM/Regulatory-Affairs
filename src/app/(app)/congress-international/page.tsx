@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
@@ -11,7 +11,7 @@ import { CongressIntlTable, type CongressIntlRow } from "./congress-intl-table";
 
 export default async function CongressInternationalPage() {
   const user = await requireModule("CONGRESS_INTERNATIONAL");
-  const canCreate = can(user.role, "CONGRESS_INTERNATIONAL", "CREATE");
+  const canCreate = userCan(user, "CONGRESS_INTERNATIONAL", "CREATE");
 
   const items = await prisma.congressInternational.findMany({ orderBy: { startDate: "desc" } });
   const rows: CongressIntlRow[] = items.map((c) => ({

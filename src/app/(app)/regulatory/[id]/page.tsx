@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { addRegulatoryComment } from "@/lib/actions/regulatory-actions";
@@ -54,9 +54,9 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
     }),
   ]);
 
-  const canUpdate = can(user.role, "REGULATORY", "UPDATE");
-  const canUpload = can(user.role, "REGULATORY", "UPLOAD");
-  const canDelete = can(user.role, "REGULATORY", "DELETE");
+  const canUpdate = userCan(user, "REGULATORY", "UPDATE");
+  const canUpload = userCan(user, "REGULATORY", "UPLOAD");
+  const canDelete = userCan(user, "REGULATORY", "DELETE");
 
   const steps: StepItem[] = product.steps.map((s) => ({
     id: s.id,

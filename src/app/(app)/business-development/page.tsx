@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { can, scopeBusinessDevelopment } from "@/lib/rbac";
+import { userCan, scopeBusinessDevelopment } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
@@ -14,8 +14,8 @@ import { BDPipeline } from "./bd-pipeline";
 
 export default async function BusinessDevelopmentPage() {
   const user = await requireModule("BUSINESS_DEVELOPMENT");
-  const canCreate = can(user.role, "BUSINESS_DEVELOPMENT", "CREATE");
-  const canUpdate = can(user.role, "BUSINESS_DEVELOPMENT", "UPDATE");
+  const canCreate = userCan(user, "BUSINESS_DEVELOPMENT", "CREATE");
+  const canUpdate = userCan(user, "BUSINESS_DEVELOPMENT", "UPDATE");
 
   const items = await prisma.businessDevelopmentOpportunity.findMany({
     where: scopeBusinessDevelopment(user),

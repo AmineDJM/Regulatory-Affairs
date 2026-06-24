@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import {
-  can,
+  userCan,
   scopeRegulatory,
   scopeSales,
   scopeMedicalVisits,
@@ -37,23 +37,23 @@ export async function getDashboardData(user: SessionUser) {
 
   const tasks: Promise<void>[] = [];
 
-  if (can(user.role, "REGULATORY", "VIEW"))
+  if (userCan(user, "REGULATORY", "VIEW"))
     tasks.push(regulatorySection(user, now).then((r) => void (result.regulatory = r)));
-  if (can(user.role, "LOGISTICS", "VIEW"))
+  if (userCan(user, "LOGISTICS", "VIEW"))
     tasks.push(logisticsSection(now).then((r) => void (result.logistics = r)));
-  if (can(user.role, "SALES", "VIEW"))
+  if (userCan(user, "SALES", "VIEW"))
     tasks.push(salesSection(user).then((r) => void (result.sales = r)));
-  if (can(user.role, "SPONSORING", "VIEW"))
+  if (userCan(user, "SPONSORING", "VIEW"))
     tasks.push(sponsoringSection().then((r) => void (result.sponsoring = r)));
-  if (can(user.role, "BUDGETS", "VIEW"))
+  if (userCan(user, "BUDGETS", "VIEW"))
     tasks.push(budgetsSection().then((r) => void (result.budgets = r)));
-  if (can(user.role, "MEDICAL", "VIEW"))
+  if (userCan(user, "MEDICAL", "VIEW"))
     tasks.push(medicalSection(user, now).then((r) => void (result.medical = r)));
-  if (can(user.role, "BUSINESS_DEVELOPMENT", "VIEW"))
+  if (userCan(user, "BUSINESS_DEVELOPMENT", "VIEW"))
     tasks.push(bdSection(user).then((r) => void (result.bd = r)));
   if (
-    can(user.role, "CONGRESS_INTERNATIONAL", "VIEW") ||
-    can(user.role, "CONGRESS_NATIONAL", "VIEW")
+    userCan(user, "CONGRESS_INTERNATIONAL", "VIEW") ||
+    userCan(user, "CONGRESS_NATIONAL", "VIEW")
   )
     tasks.push(congressSection(user, now).then((r) => void (result.congress = r)));
 
@@ -218,14 +218,14 @@ async function bdSection(user: SessionUser) {
 
 async function congressSection(user: SessionUser, now: Date) {
   const tasks: Promise<number>[] = [];
-  if (can(user.role, "CONGRESS_INTERNATIONAL", "VIEW")) {
+  if (userCan(user, "CONGRESS_INTERNATIONAL", "VIEW")) {
     tasks.push(
       prisma.congressInternational.count({
         where: { startDate: { gte: now }, status: { not: "CANCELLED" } },
       }),
     );
   } else tasks.push(Promise.resolve(0));
-  if (can(user.role, "CONGRESS_NATIONAL", "VIEW")) {
+  if (userCan(user, "CONGRESS_NATIONAL", "VIEW")) {
     tasks.push(
       prisma.congressNational.count({ where: { date: { gte: now }, status: { not: "CANCELLED" } } }),
     );

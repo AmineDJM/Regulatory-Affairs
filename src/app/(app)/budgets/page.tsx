@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
@@ -12,7 +12,7 @@ import { BudgetsTable, type BudgetRow } from "./budgets-table";
 
 export default async function BudgetsPage() {
   const user = await requireModule("BUDGETS");
-  const canCreate = can(user.role, "BUDGETS", "CREATE");
+  const canCreate = userCan(user, "BUDGETS", "CREATE");
   const year = new Date().getFullYear();
 
   const lines = await prisma.budgetLine.findMany({ orderBy: [{ year: "desc" }, { department: "asc" }] });

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { InfluenceLevel, Priority, VisitStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -14,7 +14,7 @@ export async function createDoctor(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom du médecin est obligatoire." };
 
@@ -50,7 +50,7 @@ export async function createVisit(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
 
   const doctorId = fdStr(formData, "doctorId");
   const delegateId = user.role === "MEDICAL_DELEGATE" ? user.id : fdStr(formData, "delegateId") ?? user.id;

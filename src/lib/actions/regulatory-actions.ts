@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { Priority, ProductType, RegulatoryStatus, StepStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -26,7 +26,7 @@ export async function createRegulatoryProduct(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "REGULATORY", "CREATE")) {
+  if (!userCan(user, "REGULATORY", "CREATE")) {
     return { ok: false, error: "Création non autorisée." };
   }
 

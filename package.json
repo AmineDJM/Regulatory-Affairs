@@ -13,11 +13,12 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "tsx prisma/seed.ts",
+    "db:deploy": "prisma migrate deploy",
+    "db:bootstrap": "tsx prisma/bootstrap.ts",
     "db:reset": "prisma migrate reset --force"
   },
   "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/bootstrap.ts"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",

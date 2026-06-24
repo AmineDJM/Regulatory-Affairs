@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
@@ -11,7 +11,7 @@ import { SponsoringTable, type SponsoringRow } from "./sponsoring-table";
 
 export default async function SponsoringPage() {
   const user = await requireModule("SPONSORING");
-  const canCreate = can(user.role, "SPONSORING", "CREATE");
+  const canCreate = userCan(user, "SPONSORING", "CREATE");
 
   const requests = await prisma.sponsoringRequest.findMany({
     orderBy: { requestDate: "desc" },

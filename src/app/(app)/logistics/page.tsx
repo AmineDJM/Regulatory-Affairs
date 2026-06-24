@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
@@ -12,7 +12,7 @@ import { LogisticsTable, type LogisticsRow } from "./logistics-table";
 
 export default async function LogisticsPage() {
   const user = await requireModule("LOGISTICS");
-  const canCreate = can(user.role, "LOGISTICS", "CREATE");
+  const canCreate = userCan(user, "LOGISTICS", "CREATE");
   const now = new Date();
   const weekAhead = new Date(now.getTime() + 7 * 86400000);
 

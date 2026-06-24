@@ -1,0 +1,51 @@
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { clientIp, parseDevice } from "@/lib/device";
+
+const NO_CONTENT = new NextResponse(null, { status: 204 });
+
+/** Receives page-view beacons: { path, durationMs }. Enriched with device/IP
+ * and the geolocation already resolved on the user's session (no extra lookup). */
+export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user) return NO_CONTENT;
+
+  let body: { path?: string; durationMs?: number } = {};
+  try {
+    body = JSON.parse((await req.text()) || "{}");
+  } catch {
+    return NO_CONTENT;
+  }
+
+  const path = String(body.path ?? "").slice(0, 200);
+  if (!path || path.startsWith("/api")) return NO_CONTENT;
+  const duration = Number(body.durationMs);
+  const durationMs = Number.isFinite(duration) && duration > 0 ? Math.min(Math.round(duration), 86_400_000) : null;
+
+  const ua = req.headers.get("user-agent");
+  const ip = clientIp(req.headers);
+  const { device, os, browser } = parseDevice(ua);
+  const moduleKey = path.split("/").filter(Boolean)[0] ?? null;
+
+  let country: string | null = null;
+  let city: string | null = null;
+  if (session.user.sid) {
+    const s = await prisma.userSession
+      .findUnique({ where: { id: session.user.sid }, select: { country: true, city: true } })
+      .catch(() => null);
+    country = s?.country ?? null;
+    city = s?.city ?? null;
+  }
+
+  await prisma.activityLog
+    .create({
+      data: {
+        userId: session.user.id, type: "PAGE_VIEW", path, module: moduleKey,
+        durationMs, ipAddress: ip, country, city, device, os, browser, userAgent: ua,
+      },
+    })
+    .catch(() => undefined);
+
+  return NO_CONTENT;
+}

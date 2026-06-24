@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { BudgetCategory } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles } from "@/lib/notify";
@@ -20,7 +20,7 @@ export async function createBudget(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "BUDGETS", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "BUDGETS", "CREATE")) return { ok: false, error: "Non autorisé." };
 
   const label = fdStr(formData, "label");
   if (!label) return { ok: false, error: "La ligne budgétaire est obligatoire." };

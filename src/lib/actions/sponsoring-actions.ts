@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { Priority, SponsoringStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
@@ -17,7 +17,7 @@ export async function createSponsoring(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "SPONSORING", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "SPONSORING", "CREATE")) return { ok: false, error: "Non autorisé." };
 
   const institution = fdStr(formData, "institution");
   if (!institution) return { ok: false, error: "L'institution est obligatoire." };
@@ -72,7 +72,7 @@ export async function createSponsoring(
 
 export async function decideSponsoring(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "SPONSORING", "VALIDATE")) return { ok: false, error: "Validation non autorisée." };
+  if (!userCan(user, "SPONSORING", "VALIDATE")) return { ok: false, error: "Validation non autorisée." };
 
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
-import { can, scopeRegulatory, scopeBusinessDevelopment } from "@/lib/rbac";
+import { userCan, scopeRegulatory, scopeBusinessDevelopment } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { accessibleDocumentWhere } from "@/lib/queries/documents";
 import { PageHeader } from "@/components/shared/page-header";
@@ -24,31 +24,31 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
   const contains = { contains: q, mode: "insensitive" as const };
 
   const [regulatory, sponsoring, logistics, bd, documents] = await Promise.all([
-    can(user.role, "REGULATORY", "VIEW")
+    userCan(user, "REGULATORY", "VIEW")
       ? prisma.regulatoryProduct.findMany({
           where: { AND: [scopeRegulatory(user), { OR: [{ dci: contains }, { reference: contains }, { brandName: contains }] }] },
           take: 8,
         })
       : [],
-    can(user.role, "SPONSORING", "VIEW")
+    userCan(user, "SPONSORING", "VIEW")
       ? prisma.sponsoringRequest.findMany({
           where: { OR: [{ institution: contains }, { reference: contains }, { doctor: contains }] },
           take: 8,
         })
       : [],
-    can(user.role, "LOGISTICS", "VIEW")
+    userCan(user, "LOGISTICS", "VIEW")
       ? prisma.logisticsOrder.findMany({
           where: { OR: [{ product: contains }, { reference: contains }, { supplier: contains }] },
           take: 8,
         })
       : [],
-    can(user.role, "BUSINESS_DEVELOPMENT", "VIEW")
+    userCan(user, "BUSINESS_DEVELOPMENT", "VIEW")
       ? prisma.businessDevelopmentOpportunity.findMany({
           where: { AND: [scopeBusinessDevelopment(user), { OR: [{ name: contains }, { dci: contains }] }] },
           take: 8,
         })
       : [],
-    can(user.role, "DOCUMENTS", "VIEW")
+    userCan(user, "DOCUMENTS", "VIEW")
       ? prisma.document.findMany({ where: { AND: [await accessibleDocumentWhere(user), { name: contains }] }, take: 8 })
       : [],
   ]);

@@ -1,7 +1,7 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
-  can,
+  userCan,
   scopeRegulatory,
   scopeMedicalDoctors,
   scopeMedicalVisits,
@@ -40,7 +40,7 @@ export async function canAccessEntity(
   action: Action = "VIEW",
 ): Promise<boolean> {
   const module = ENTITY_MODULE[entityType];
-  if (!can(user.role, module, action)) return false;
+  if (!userCan(user, module, action)) return false;
 
   switch (entityType) {
     case "REGULATORY_PRODUCT": {

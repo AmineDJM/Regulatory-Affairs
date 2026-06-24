@@ -2,7 +2,7 @@ import type { EntityType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ENTITY_MODULE } from "@/lib/entity-access";
 import {
-  can,
+  userCan,
   scopeRegulatory,
   scopeMedicalDoctors,
   scopeMedicalVisits,
@@ -36,7 +36,7 @@ export async function accessibleDocumentWhere(
 
   for (const entityType of ALL_ENTITY_TYPES) {
     const module = ENTITY_MODULE[entityType];
-    if (!can(user.role, module, "VIEW")) continue;
+    if (!userCan(user, module, "VIEW")) continue;
 
     // Row-scoped poles: narrow to the entity ids the user may see.
     if (entityType === "REGULATORY_PRODUCT" || entityType === "REGULATORY_STEP") {

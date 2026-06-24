@@ -295,6 +295,11 @@ model User {
   region       String? // for medical delegates / sales
   lastLoginAt  DateTime?
 
+  // Auth hardening: bump tokenVersion to invalidate all existing JWTs;
+  // force a password change on next login.
+  tokenVersion       Int     @default(0)
+  mustChangePassword Boolean @default(false)
+
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
 
@@ -318,6 +323,12 @@ model User {
   auditLogs     AuditLog[]
   comments      Comment[]
   documents     Document[]
+
+  // Admin-managed dynamic access + activity + sessions
+  access       UserAccess[]
+  rowGrants    RowGrant[]
+  sessions     UserSession[]
+  activityLogs ActivityLog[]
 
   @@index([role])
   @@index([departmentId])
@@ -771,4 +782,97 @@ model AuditLog {
   @@index([module])
   @@index([entityType, entityId])
   @@index([createdAt])
+}
+
+// ───────────────────────── Dynamic access control ─────────────────────────
+
+enum AccessScope {
+  ALL // sees every row of the module
+  ASSIGNED // sees only rows explicitly granted / owned
+}
+
+/// Per-user, per-module access override. When a row exists it fully replaces the
+/// role default for that module, so an admin can grant/revoke a tab and tune
+/// exactly which actions a user may perform.
+model UserAccess {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module      String // Module key (REGULATORY, SALES, …)
+  canView     Boolean     @default(true)
+  canCreate   Boolean     @default(false)
+  canUpdate   Boolean     @default(false)
+  canDelete   Boolean     @default(false)
+  canValidate Boolean     @default(false)
+  canExport   Boolean     @default(false)
+  canUpload   Boolean     @default(false)
+  scope       AccessScope @default(ASSIGNED)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([userId, module])
+  @@index([userId])
+}
+
+/// Explicit grant of a single row (line) to a user. Combined with UserAccess
+/// scope = ASSIGNED, this lets the admin hand-pick which lines a user can see.
+model RowGrant {
+  id         String     @id @default(cuid())
+  userId     String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entityType EntityType
+  entityId   String
+  createdAt  DateTime   @default(now())
+
+  @@unique([userId, entityType, entityId])
+  @@index([userId, entityType])
+}
+
+// ───────────────────────── Sessions & activity ─────────────────────────
+
+/// A revocable session. The JWT carries this row's `id`; server-side checks
+/// reject revoked/expired sessions, giving the admin real token control.
+model UserSession {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress String?
+  country   String?
+  city      String?
+  device    String?
+  browser   String?
+  os        String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+  lastSeenAt DateTime @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  @@index([userId])
+  @@index([revokedAt])
+}
+
+/// Fine-grained activity: page views, logins, and time-on-page (from a client
+/// beacon), enriched with device, IP and geolocation.
+model ActivityLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type       String // PAGE_VIEW | LOGIN | LOGOUT
+  path       String?
+  module     String?
+  durationMs Int? // time spent on the page
+  ipAddress  String?
+  country    String?
+  city       String?
+  region     String?
+  device     String? // desktop | mobile | tablet
+  browser    String?
+  os         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type])
+  @@index([path])
 }

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import type { UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
@@ -16,7 +16,7 @@ export async function createUser(
   formData: FormData,
 ): Promise<ActionResult> {
   const admin = await requireUser();
-  if (!can(admin.role, "ADMIN", "CREATE")) return { ok: false, error: "Réservé aux administrateurs." };
+  if (!userCan(admin, "ADMIN", "CREATE")) return { ok: false, error: "Réservé aux administrateurs." };
 
   const email = fdStr(formData, "email")?.toLowerCase();
   const name = fdStr(formData, "name");
@@ -39,6 +39,8 @@ export async function createUser(
       title: fdStr(formData, "title"),
       region: fdStr(formData, "region"),
       avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
+      // New accounts must set their own password on first login.
+      mustChangePassword: true,
     },
   });
   await recordAudit({
@@ -51,7 +53,7 @@ export async function createUser(
 
 export async function toggleUserActive(formData: FormData): Promise<ActionResult> {
   const admin = await requireUser();
-  if (!can(admin.role, "ADMIN", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(admin, "ADMIN", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id || id === admin.id) return { ok: false, error: "Action invalide." };
 
@@ -69,7 +71,7 @@ export async function toggleUserActive(formData: FormData): Promise<ActionResult
 
 export async function updateUserRole(formData: FormData): Promise<ActionResult> {
   const admin = await requireUser();
-  if (!can(admin.role, "ADMIN", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(admin, "ADMIN", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   const role = fdStr(formData, "role") as UserRole;
   if (!id || !role) return { ok: false, error: "Paramètres manquants." };

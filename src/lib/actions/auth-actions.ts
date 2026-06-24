@@ -1,7 +1,10 @@
 "use server";
 
 import { AuthError } from "next-auth";
-import { signIn, signOut } from "@/auth";
+import bcrypt from "bcryptjs";
+import { auth, signIn, signOut } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { recordAudit } from "@/lib/audit";
 
 /** Server action used by the login form. Returns an error string on failure. */
 export async function authenticate(
@@ -25,5 +28,55 @@ export async function authenticate(
 }
 
 export async function doSignOut() {
+  // Revoke the current session so its token can't be reused.
+  const session = await auth();
+  const sid = session?.user?.sid;
+  if (sid) {
+    await prisma.userSession
+      .update({ where: { id: sid }, data: { revokedAt: new Date() } })
+      .catch(() => undefined);
+  }
   await signOut({ redirectTo: "/login" });
+}
+
+/** Self-service password change. Clears mustChangePassword and revokes all
+ * sessions (forces a fresh login with the new password). */
+export async function changePassword(
+  _prev: string | undefined,
+  formData: FormData,
+): Promise<string | undefined> {
+  const session = await auth();
+  if (!session?.user) return "Session expirée.";
+
+  const current = String(formData.get("current") ?? "");
+  const next = String(formData.get("next") ?? "");
+  const confirm = String(formData.get("confirm") ?? "");
+
+  if (next.length < 8) return "Le nouveau mot de passe doit faire au moins 8 caractères.";
+  if (next !== confirm) return "La confirmation ne correspond pas.";
+
+  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
+  if (!user) return "Utilisateur introuvable.";
+  if (!(await bcrypt.compare(current, user.passwordHash))) {
+    return "Mot de passe actuel incorrect.";
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash: await bcrypt.hash(next, 10), mustChangePassword: false },
+  });
+  // Invalidate every existing session for this user.
+  await prisma.userSession.updateMany({
+    where: { userId: user.id, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  await recordAudit({
+    actorId: user.id,
+    action: "UPDATE",
+    module: "Authentification",
+    summary: "Changement de mot de passe",
+  });
+
+  await signOut({ redirectTo: "/login?changed=1" });
+  return undefined;
 }

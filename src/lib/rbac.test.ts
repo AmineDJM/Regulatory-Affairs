@@ -1,83 +1,122 @@
 import { describe, expect, it } from "vitest";
+import type { EntityType, UserRole } from "@prisma/client";
 import {
-  can,
+  PERMISSIONS,
   accessibleModules,
+  can,
+  defaultScope,
   hasGlobalView,
+  scopeMedicalDoctors,
   scopeRegulatory,
   scopeSales,
-  scopeMedicalDoctors,
-  canValidate,
+  userCan,
+  type Action,
+  type EffectiveAccess,
+  type Module,
+  type SessionUser,
 } from "./rbac";
 
-describe("module permissions (can)", () => {
-  it("grants Super Admin every action on every module", () => {
+/** Build an in-memory effective access (mirrors what getAccess resolves). */
+function mkAccess(
+  modules: Partial<Record<Module, { actions: Action[]; scope: "ALL" | "ASSIGNED" }>>,
+  grants: Partial<Record<EntityType, string[]>> = {},
+): EffectiveAccess {
+  const m = new Map();
+  for (const [k, v] of Object.entries(modules)) {
+    m.set(k, { actions: new Set(v!.actions), scope: v!.scope });
+  }
+  const rg = new Map();
+  for (const [k, v] of Object.entries(grants)) rg.set(k, new Set(v));
+  return { modules: m, rowGrants: rg };
+}
+
+function mkUser(id: string, role: UserRole, access: EffectiveAccess): SessionUser {
+  return { id, role, access };
+}
+
+/** Resolve role defaults the way getAccess would (for testing userCan/scope). */
+function fromRole(role: UserRole): EffectiveAccess {
+  const modules: Partial<Record<Module, { actions: Action[]; scope: "ALL" | "ASSIGNED" }>> = {};
+  for (const [mod, actions] of Object.entries(PERMISSIONS[role])) {
+    if (actions.includes("VIEW")) {
+      modules[mod as Module] = { actions, scope: defaultScope(role, mod as Module) };
+    }
+  }
+  return mkAccess(modules);
+}
+
+describe("role-default permissions (can)", () => {
+  it("grants Super Admin everything", () => {
     expect(can("SUPER_ADMIN", "REGULATORY", "DELETE")).toBe(true);
     expect(can("SUPER_ADMIN", "ADMIN", "CREATE")).toBe(true);
   });
-
-  it("lets the Head of Regulatory manage Regulatory but not Sales", () => {
-    expect(can("HEAD_OF_REGULATORY", "REGULATORY", "VALIDATE")).toBe(true);
-    expect(can("HEAD_OF_REGULATORY", "SALES", "VIEW")).toBe(false);
-  });
-
-  it("restricts a Regulatory Assistant to contribute-level access", () => {
-    expect(can("REGULATORY_ASSISTANT", "REGULATORY", "VIEW")).toBe(true);
+  it("restricts a Regulatory Assistant to contribute-level", () => {
     expect(can("REGULATORY_ASSISTANT", "REGULATORY", "UPDATE")).toBe(true);
     expect(can("REGULATORY_ASSISTANT", "REGULATORY", "DELETE")).toBe(false);
     expect(can("REGULATORY_ASSISTANT", "REGULATORY", "VALIDATE")).toBe(false);
   });
-
-  it("prevents a Viewer from creating anything", () => {
+  it("prevents a Viewer from creating", () => {
     expect(can("VIEWER", "REGULATORY", "CREATE")).toBe(false);
     expect(can("VIEWER", "DASHBOARD", "VIEW")).toBe(true);
   });
 });
 
-describe("navigation (accessibleModules)", () => {
-  it("hides modules a role cannot view", () => {
-    const sales = accessibleModules("SALES_USER");
-    expect(sales).toContain("SALES");
-    expect(sales).toContain("DASHBOARD");
-    expect(sales).not.toContain("ADMIN");
-    expect(sales).not.toContain("REGULATORY");
+describe("effective access (userCan / accessibleModules)", () => {
+  it("reflects role defaults when there is no override", () => {
+    const u = mkUser("s1", "SALES_USER", fromRole("SALES_USER"));
+    expect(userCan(u, "SALES", "VIEW")).toBe(true);
+    expect(userCan(u, "REGULATORY", "VIEW")).toBe(false);
+    const mods = accessibleModules(u);
+    expect(mods).toContain("SALES");
+    expect(mods).not.toContain("ADMIN");
   });
 
-  it("exposes everything to Super Admin", () => {
-    expect(accessibleModules("SUPER_ADMIN")).toHaveLength(13);
+  it("honours an admin override that revokes an action", () => {
+    // Admin grants VIEW only on REGULATORY (no UPDATE), scope ALL.
+    const u = mkUser("a1", "REGULATORY_ASSISTANT", mkAccess({ REGULATORY: { actions: ["VIEW"], scope: "ALL" } }));
+    expect(userCan(u, "REGULATORY", "VIEW")).toBe(true);
+    expect(userCan(u, "REGULATORY", "UPDATE")).toBe(false);
+  });
+
+  it("honours an admin override that grants extra access beyond the role", () => {
+    // A viewer explicitly granted SALES create.
+    const u = mkUser("v1", "VIEWER", mkAccess({ SALES: { actions: ["VIEW", "CREATE"], scope: "ALL" } }));
+    expect(userCan(u, "SALES", "CREATE")).toBe(true);
+    expect(accessibleModules(u)).toContain("SALES");
   });
 });
 
 describe("row-level scoping", () => {
-  it("gives the Head of Regulatory an unrestricted scope", () => {
-    expect(scopeRegulatory({ id: "u1", role: "HEAD_OF_REGULATORY" })).toEqual({});
+  it("returns an unrestricted scope for ALL", () => {
+    const head = mkUser("h1", "HEAD_OF_REGULATORY", fromRole("HEAD_OF_REGULATORY"));
+    expect(scopeRegulatory(head)).toEqual({});
     expect(hasGlobalView("DIRECTION")).toBe(true);
   });
 
-  it("limits a Regulatory Assistant to their assigned lines only", () => {
-    const scope = scopeRegulatory({ id: "u-assistant", role: "REGULATORY_ASSISTANT" });
+  it("limits ASSIGNED scope to owned + granted rows", () => {
+    const asst = mkUser(
+      "u-asst",
+      "REGULATORY_ASSISTANT",
+      mkAccess({ REGULATORY: { actions: ["VIEW"], scope: "ASSIGNED" } }, { REGULATORY_PRODUCT: ["row-123"] }),
+    );
+    const scope = scopeRegulatory(asst) as { OR: unknown[] };
     expect(scope).toHaveProperty("OR");
-    const or = (scope as { OR: unknown[] }).OR;
-    expect(JSON.stringify(or)).toContain("u-assistant");
+    const json = JSON.stringify(scope.OR);
+    expect(json).toContain("u-asst"); // owner/assignee conditions
+    expect(json).toContain("row-123"); // explicit grant
   });
 
-  it("returns a match-nothing scope for roles without regulatory access", () => {
-    expect(scopeRegulatory({ id: "u2", role: "SALES_USER" })).toEqual({ id: "__none__" });
+  it("returns match-nothing when the module is not accessible", () => {
+    const u = mkUser("x1", "SALES_USER", fromRole("SALES_USER"));
+    expect(scopeRegulatory(u)).toEqual({ id: "__none__" });
   });
 
-  it("limits a sales user to their own sales", () => {
-    expect(scopeSales({ id: "s1", role: "SALES_USER" })).toEqual({ salesUserId: "s1" });
-    expect(scopeSales({ id: "h1", role: "HEAD_OF_SALES" })).toEqual({});
-  });
-
-  it("limits a medical delegate to their own doctors", () => {
-    expect(scopeMedicalDoctors({ id: "d1", role: "MEDICAL_DELEGATE" })).toEqual({ delegateId: "d1" });
-    expect(scopeMedicalDoctors({ id: "m1", role: "MEDICAL_PROMOTION_MANAGER" })).toEqual({});
-  });
-});
-
-describe("validation rights", () => {
-  it("allows Direction to validate sponsoring, not a sales user", () => {
-    expect(canValidate("DIRECTION", "SPONSORING")).toBe(true);
-    expect(canValidate("SALES_USER", "SPONSORING")).toBe(false);
+  it("scopes sales and medical by ownership", () => {
+    const su = mkUser("s1", "SALES_USER", fromRole("SALES_USER"));
+    expect(scopeSales(su)).toEqual({ OR: [{ salesUserId: "s1" }] });
+    const del = mkUser("d1", "MEDICAL_DELEGATE", fromRole("MEDICAL_DELEGATE"));
+    expect(scopeMedicalDoctors(del)).toEqual({ OR: [{ delegateId: "d1" }] });
+    const mgr = mkUser("m1", "MEDICAL_PROMOTION_MANAGER", fromRole("MEDICAL_PROMOTION_MANAGER"));
+    expect(scopeMedicalDoctors(mgr)).toEqual({});
   });
 });

@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
@@ -11,7 +11,7 @@ import { CongressNationalTable, type CongressNationalRow } from "./congress-nati
 
 export default async function CongressNationalPage() {
   const user = await requireModule("CONGRESS_NATIONAL");
-  const canCreate = can(user.role, "CONGRESS_NATIONAL", "CREATE");
+  const canCreate = userCan(user, "CONGRESS_NATIONAL", "CREATE");
 
   const items = await prisma.congressNational.findMany({ orderBy: { date: "desc" } });
   const rows: CongressNationalRow[] = items.map((c) => ({

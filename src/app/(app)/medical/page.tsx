@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { can, scopeMedicalDoctors, scopeMedicalVisits } from "@/lib/rbac";
+import { userCan, scopeMedicalDoctors, scopeMedicalVisits } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -12,7 +12,7 @@ import { VisitsTable, type VisitRow } from "./visits-table";
 
 export default async function MedicalPage() {
   const user = await requireModule("MEDICAL");
-  const canCreate = can(user.role, "MEDICAL", "CREATE");
+  const canCreate = userCan(user, "MEDICAL", "CREATE");
   const isManager = user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN" || user.role === "DIRECTION";
 
   const [doctors, visits, delegates] = await Promise.all([

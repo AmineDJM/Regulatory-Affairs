@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,9 +35,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
     createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
   }));
 
-  const canValidate = can(user.role, "SPONSORING", "VALIDATE");
-  const canUpload = can(user.role, "SPONSORING", "UPLOAD");
-  const canDelete = can(user.role, "SPONSORING", "DELETE");
+  const canValidate = userCan(user, "SPONSORING", "VALIDATE");
+  const canUpload = userCan(user, "SPONSORING", "UPLOAD");
+  const canDelete = userCan(user, "SPONSORING", "DELETE");
 
   return (
     <div className="space-y-5">

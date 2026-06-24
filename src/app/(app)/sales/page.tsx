@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { can, scopeSales } from "@/lib/rbac";
+import { userCan, scopeSales } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
@@ -11,7 +11,7 @@ import { ImportSalesButton } from "./import-sales";
 
 export default async function SalesPage() {
   const user = await requireModule("SALES");
-  const canCreate = can(user.role, "SALES", "CREATE");
+  const canCreate = userCan(user, "SALES", "CREATE");
   const where = scopeSales(user);
 
   const sales = await prisma.sale.findMany({

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
@@ -12,7 +12,7 @@ export async function createSale(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "SALES", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "SALES", "CREATE")) return { ok: false, error: "Non autorisé." };
 
   const product = fdStr(formData, "product");
   const client = fdStr(formData, "client");
@@ -60,7 +60,7 @@ export async function importSales(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "SALES", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "SALES", "CREATE")) return { ok: false, error: "Non autorisé." };
 
   const csv = fdStr(formData, "csv");
   if (!csv) return { ok: false, error: "Aucune donnée CSV." };

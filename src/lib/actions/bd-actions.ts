@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { BDStatus, BDType, Priority } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -14,7 +14,7 @@ export async function createBD(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "BUSINESS_DEVELOPMENT", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "BUSINESS_DEVELOPMENT", "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de l'opportunité est obligatoire." };
 

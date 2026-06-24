@@ -1,47 +1,35 @@
-import type { UserRole } from "@prisma/client";
+import { cache } from "react";
+import type { AccessScope, EntityType, Prisma, UserRole } from "@prisma/client";
+import { prisma } from "./prisma";
+
+// `cache` is a React Server Components API; fall back to identity outside an
+// RSC render (e.g. unit tests) so the module loads everywhere.
+const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
+  typeof cache === "function" ? (cache as never) : (fn) => fn;
 
 /**
- * RBAC for AMD Internal OS.
+ * Access control for AMD Internal OS — two layers, both enforced server-side:
  *
- * Two layers, both enforced server-side:
- *  1. Module/action permissions — `can(role, module, action)` driven by a
- *     static, type-safe matrix (PERMISSIONS).
- *  2. Row-level scoping — `scope*` helpers return Prisma `where` fragments so a
- *     user only ever receives rows they are allowed to see. Unauthorised rows
- *     are *never sent to the client*, they are filtered in the database query.
+ *  1. Role defaults (PERMISSIONS) provide a baseline.
+ *  2. Per-user overrides (UserAccess) + per-row grants (RowGrant), fully managed
+ *     by an admin, take precedence. `getAccess` resolves the *effective* access
+ *     for a user (cached per request); `userCan` and the `scope*` helpers read
+ *     that resolved access so the UI and the database queries always reflect
+ *     exactly what the admin granted.
  */
 
 export const MODULES = [
-  "DASHBOARD",
-  "REGULATORY",
-  "SPONSORING",
-  "BUDGETS",
-  "CONGRESS_INTERNATIONAL",
-  "CONGRESS_NATIONAL",
-  "SALES",
-  "LOGISTICS",
-  "MEDICAL",
-  "BUSINESS_DEVELOPMENT",
-  "DOCUMENTS",
-  "NOTIFICATIONS",
-  "ADMIN",
+  "DASHBOARD", "REGULATORY", "SPONSORING", "BUDGETS", "CONGRESS_INTERNATIONAL",
+  "CONGRESS_NATIONAL", "SALES", "LOGISTICS", "MEDICAL", "BUSINESS_DEVELOPMENT",
+  "DOCUMENTS", "NOTIFICATIONS", "ADMIN",
 ] as const;
-
 export type Module = (typeof MODULES)[number];
 
 export const ACTIONS = [
-  "VIEW",
-  "CREATE",
-  "UPDATE",
-  "DELETE",
-  "VALIDATE",
-  "EXPORT",
-  "UPLOAD",
+  "VIEW", "CREATE", "UPDATE", "DELETE", "VALIDATE", "EXPORT", "UPLOAD",
 ] as const;
-
 export type Action = (typeof ACTIONS)[number];
 
-/** Convenience action bundles. */
 const ALL: Action[] = [...ACTIONS];
 const READ: Action[] = ["VIEW", "EXPORT"];
 const CONTRIBUTE: Action[] = ["VIEW", "CREATE", "UPDATE", "UPLOAD", "EXPORT"];
@@ -49,184 +37,195 @@ const MANAGE: Action[] = ["VIEW", "CREATE", "UPDATE", "DELETE", "VALIDATE", "EXP
 
 type RoleMatrix = Partial<Record<Module, Action[]>>;
 
-/**
- * The permission matrix. A missing module entry means *no access at all* —
- * the module is hidden from navigation and its data is unreachable.
- */
+/** Role defaults. A missing module entry means no baseline access. */
 export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   SUPER_ADMIN: Object.fromEntries(MODULES.map((m) => [m, ALL])) as RoleMatrix,
-
   DIRECTION: {
-    DASHBOARD: READ,
-    REGULATORY: [...READ, "VALIDATE"],
-    SPONSORING: [...READ, "VALIDATE"],
-    BUDGETS: [...READ, "VALIDATE"],
-    CONGRESS_INTERNATIONAL: [...READ, "VALIDATE"],
-    CONGRESS_NATIONAL: [...READ, "VALIDATE"],
-    SALES: READ,
-    LOGISTICS: READ,
-    MEDICAL: READ,
-    BUSINESS_DEVELOPMENT: [...READ, "VALIDATE"],
-    DOCUMENTS: READ,
-    NOTIFICATIONS: ["VIEW"],
-    ADMIN: ["VIEW", "EXPORT"], // can audit, cannot edit users
+    DASHBOARD: READ, REGULATORY: [...READ, "VALIDATE"], SPONSORING: [...READ, "VALIDATE"],
+    BUDGETS: [...READ, "VALIDATE"], CONGRESS_INTERNATIONAL: [...READ, "VALIDATE"],
+    CONGRESS_NATIONAL: [...READ, "VALIDATE"], SALES: READ, LOGISTICS: READ, MEDICAL: READ,
+    BUSINESS_DEVELOPMENT: [...READ, "VALIDATE"], DOCUMENTS: READ, NOTIFICATIONS: ["VIEW"],
+    ADMIN: ["VIEW", "EXPORT"],
   },
-
   HEAD_OF_REGULATORY: {
-    DASHBOARD: READ,
-    REGULATORY: MANAGE,
-    DOCUMENTS: CONTRIBUTE,
-    BUDGETS: READ,
-    NOTIFICATIONS: ["VIEW"],
+    DASHBOARD: READ, REGULATORY: MANAGE, DOCUMENTS: CONTRIBUTE, BUDGETS: READ, NOTIFICATIONS: ["VIEW"],
   },
-
   REGULATORY_ASSISTANT: {
-    DASHBOARD: READ,
-    REGULATORY: CONTRIBUTE, // but row-level scoped to assigned DCI
-    DOCUMENTS: CONTRIBUTE,
-    NOTIFICATIONS: ["VIEW"],
+    DASHBOARD: READ, REGULATORY: CONTRIBUTE, DOCUMENTS: CONTRIBUTE, NOTIFICATIONS: ["VIEW"],
   },
-
   HEAD_OF_SALES: {
-    DASHBOARD: READ,
-    SALES: MANAGE,
-    LOGISTICS: READ,
-    DOCUMENTS: CONTRIBUTE,
-    NOTIFICATIONS: ["VIEW"],
+    DASHBOARD: READ, SALES: MANAGE, LOGISTICS: READ, DOCUMENTS: CONTRIBUTE, NOTIFICATIONS: ["VIEW"],
   },
-
-  SALES_USER: {
-    DASHBOARD: READ,
-    SALES: CONTRIBUTE, // row-level scoped to own sales
-    NOTIFICATIONS: ["VIEW"],
-  },
-
+  SALES_USER: { DASHBOARD: READ, SALES: CONTRIBUTE, NOTIFICATIONS: ["VIEW"] },
   LOGISTICS_MANAGER: {
-    DASHBOARD: READ,
-    LOGISTICS: MANAGE,
-    DOCUMENTS: CONTRIBUTE,
-    SALES: READ,
-    NOTIFICATIONS: ["VIEW"],
+    DASHBOARD: READ, LOGISTICS: MANAGE, DOCUMENTS: CONTRIBUTE, SALES: READ, NOTIFICATIONS: ["VIEW"],
   },
-
   MEDICAL_PROMOTION_MANAGER: {
-    DASHBOARD: READ,
-    MEDICAL: MANAGE,
-    CONGRESS_NATIONAL: CONTRIBUTE,
-    DOCUMENTS: CONTRIBUTE,
-    NOTIFICATIONS: ["VIEW"],
+    DASHBOARD: READ, MEDICAL: MANAGE, CONGRESS_NATIONAL: CONTRIBUTE, DOCUMENTS: CONTRIBUTE, NOTIFICATIONS: ["VIEW"],
   },
-
-  MEDICAL_DELEGATE: {
-    DASHBOARD: READ,
-    MEDICAL: CONTRIBUTE, // row-level scoped to own doctors/visits
-    NOTIFICATIONS: ["VIEW"],
-  },
-
+  MEDICAL_DELEGATE: { DASHBOARD: READ, MEDICAL: CONTRIBUTE, NOTIFICATIONS: ["VIEW"] },
   BUSINESS_DEVELOPMENT_MANAGER: {
-    DASHBOARD: READ,
-    BUSINESS_DEVELOPMENT: MANAGE,
-    DOCUMENTS: CONTRIBUTE,
-    NOTIFICATIONS: ["VIEW"],
+    DASHBOARD: READ, BUSINESS_DEVELOPMENT: MANAGE, DOCUMENTS: CONTRIBUTE, NOTIFICATIONS: ["VIEW"],
   },
-
   FINANCE_BUDGET_MANAGER: {
-    DASHBOARD: READ,
-    BUDGETS: MANAGE,
-    SPONSORING: READ,
-    SALES: READ,
-    LOGISTICS: READ,
-    DOCUMENTS: READ,
-    NOTIFICATIONS: ["VIEW"],
+    DASHBOARD: READ, BUDGETS: MANAGE, SPONSORING: READ, SALES: READ, LOGISTICS: READ,
+    DOCUMENTS: READ, NOTIFICATIONS: ["VIEW"],
   },
-
-  VIEWER: {
-    DASHBOARD: ["VIEW"],
-    DOCUMENTS: ["VIEW"],
-    NOTIFICATIONS: ["VIEW"],
-  },
+  VIEWER: { DASHBOARD: ["VIEW"], DOCUMENTS: ["VIEW"], NOTIFICATIONS: ["VIEW"] },
 };
 
-/** Does this role have the given action on the given module? */
-export function can(role: UserRole, module: Module, action: Action): boolean {
-  return PERMISSIONS[role]?.[module]?.includes(action) ?? false;
-}
-
-/** Modules a role can at least view — used to build the sidebar. */
-export function accessibleModules(role: UserRole): Module[] {
-  return MODULES.filter((m) => can(role, m, "VIEW"));
-}
-
-/** Roles that see every row in every module they can access. */
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];
-
 export function hasGlobalView(role: UserRole): boolean {
   return GLOBAL_VIEW_ROLES.includes(role);
 }
 
-// ─────────────────────── Row-level scoping (Prisma where) ───────────────────────
+/** Role-default check (baseline, ignores per-user overrides). */
+export function can(role: UserRole, module: Module, action: Action): boolean {
+  return PERMISSIONS[role]?.[module]?.includes(action) ?? false;
+}
 
+/** Default row scope for a role on a module (ALL vs only assigned rows). */
+export function defaultScope(role: UserRole, module: Module): AccessScope {
+  if (hasGlobalView(role)) return "ALL";
+  const assigned: Partial<Record<Module, UserRole[]>> = {
+    REGULATORY: ["REGULATORY_ASSISTANT"],
+    SALES: ["SALES_USER"],
+    MEDICAL: ["MEDICAL_DELEGATE"],
+  };
+  return assigned[module]?.includes(role) ? "ASSIGNED" : "ALL";
+}
+
+// ───────────────────────── Effective (resolved) access ─────────────────────────
+
+export interface EffectiveModuleAccess {
+  actions: Set<Action>;
+  scope: AccessScope;
+}
+export interface EffectiveAccess {
+  modules: Map<Module, EffectiveModuleAccess>;
+  rowGrants: Map<EntityType, Set<string>>;
+}
 export interface SessionUser {
   id: string;
   role: UserRole;
+  access: EffectiveAccess;
 }
 
 /**
- * Regulatory scope.
- *  - Super Admin / Direction / Head of Regulatory → all lines.
- *  - Regulatory Assistant → only lines where they are responsible, assistant,
- *    or explicitly assigned. Everything else is *fully hidden*.
+ * Resolve a user's effective access: per-user UserAccess overrides win over the
+ * role default for a module; row grants are loaded for assigned-scope checks.
+ * Cached per request so repeated `scope*`/`userCan` calls hit the DB once.
  */
-export function scopeRegulatory(user: SessionUser) {
-  if (hasGlobalView(user.role) || user.role === "HEAD_OF_REGULATORY") return {};
-  if (user.role === "REGULATORY_ASSISTANT") {
-    return {
-      OR: [
-        { responsibleId: user.id },
-        { assistantId: user.id },
-        { assignedUsers: { some: { id: user.id } } },
-      ],
-    };
-  }
-  // No regulatory access → match nothing.
-  return { id: "__none__" };
+export const getAccess = perRequest(
+  async (userId: string, role: UserRole): Promise<EffectiveAccess> => {
+    const [overrides, grants] = await Promise.all([
+      prisma.userAccess.findMany({ where: { userId } }),
+      prisma.rowGrant.findMany({ where: { userId }, select: { entityType: true, entityId: true } }),
+    ]);
+
+    const overrideMap = new Map(overrides.map((o) => [o.module as Module, o]));
+    const modules = new Map<Module, EffectiveModuleAccess>();
+
+    for (const module of MODULES) {
+      const ov = overrideMap.get(module);
+      if (ov) {
+        if (!ov.canView) continue; // explicitly no access to this tab
+        const actions = new Set<Action>(["VIEW"]);
+        if (ov.canCreate) actions.add("CREATE");
+        if (ov.canUpdate) actions.add("UPDATE");
+        if (ov.canDelete) actions.add("DELETE");
+        if (ov.canValidate) actions.add("VALIDATE");
+        if (ov.canExport) actions.add("EXPORT");
+        if (ov.canUpload) actions.add("UPLOAD");
+        modules.set(module, { actions, scope: ov.scope });
+      } else {
+        const def = PERMISSIONS[role]?.[module];
+        if (def?.includes("VIEW")) {
+          modules.set(module, { actions: new Set(def), scope: defaultScope(role, module) });
+        }
+      }
+    }
+
+    const rowGrants = new Map<EntityType, Set<string>>();
+    for (const g of grants) {
+      if (!rowGrants.has(g.entityType)) rowGrants.set(g.entityType, new Set());
+      rowGrants.get(g.entityType)!.add(g.entityId);
+    }
+
+    return { modules, rowGrants };
+  },
+);
+
+/** Does the user's effective access permit this action on this module? */
+export function userCan(user: SessionUser, module: Module, action: Action): boolean {
+  return user.access.modules.get(module)?.actions.has(action) ?? false;
 }
 
-/** Medical doctors: delegates only see their own; managers see all. */
-export function scopeMedicalDoctors(user: SessionUser) {
-  if (hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER") return {};
-  if (user.role === "MEDICAL_DELEGATE") return { delegateId: user.id };
-  return { id: "__none__" };
+/** Modules the user can at least view — drives the sidebar. */
+export function accessibleModules(user: SessionUser): Module[] {
+  return MODULES.filter((m) => user.access.modules.has(m));
 }
 
-/** Medical visits: same logic as doctors. */
-export function scopeMedicalVisits(user: SessionUser) {
-  if (hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER") return {};
-  if (user.role === "MEDICAL_DELEGATE") return { delegateId: user.id };
-  return { id: "__none__" };
+export function moduleScope(user: SessionUser, module: Module): AccessScope | null {
+  return user.access.modules.get(module)?.scope ?? null;
 }
 
-/** Sales: a sales user only sees their own sales lines. */
-export function scopeSales(user: SessionUser) {
-  if (
-    hasGlobalView(user.role) ||
-    user.role === "HEAD_OF_SALES" ||
-    user.role === "LOGISTICS_MANAGER" ||
-    user.role === "FINANCE_BUDGET_MANAGER"
-  ) {
-    return {};
-  }
-  if (user.role === "SALES_USER") return { salesUserId: user.id };
-  return { id: "__none__" };
+// ─────────────────────── Row-level scoping (Prisma where) ───────────────────────
+
+function grantsFor(user: SessionUser, entityType: EntityType): string[] {
+  return [...(user.access.rowGrants.get(entityType) ?? [])];
 }
 
-/** Business development: managers + direction see all; otherwise none. */
-export function scopeBusinessDevelopment(user: SessionUser) {
-  if (hasGlobalView(user.role) || user.role === "BUSINESS_DEVELOPMENT_MANAGER") return {};
-  return { id: "__none__" };
+export function scopeRegulatory(user: SessionUser): Prisma.RegulatoryProductWhereInput {
+  const m = user.access.modules.get("REGULATORY");
+  if (!m) return { id: "__none__" };
+  if (m.scope === "ALL") return {};
+  const ors: Prisma.RegulatoryProductWhereInput[] = [
+    { responsibleId: user.id },
+    { assistantId: user.id },
+    { assignedUsers: { some: { id: user.id } } },
+  ];
+  const ids = grantsFor(user, "REGULATORY_PRODUCT");
+  if (ids.length) ors.push({ id: { in: ids } });
+  return { OR: ors };
 }
 
-/** True when a role may validate (approve/refuse) in a module. */
-export function canValidate(role: UserRole, module: Module): boolean {
-  return can(role, module, "VALIDATE");
+export function scopeMedicalDoctors(user: SessionUser): Prisma.MedicalDoctorWhereInput {
+  const m = user.access.modules.get("MEDICAL");
+  if (!m) return { id: "__none__" };
+  if (m.scope === "ALL") return {};
+  const ors: Prisma.MedicalDoctorWhereInput[] = [{ delegateId: user.id }];
+  const ids = grantsFor(user, "DOCTOR");
+  if (ids.length) ors.push({ id: { in: ids } });
+  return { OR: ors };
+}
+
+export function scopeMedicalVisits(user: SessionUser): Prisma.MedicalVisitWhereInput {
+  const m = user.access.modules.get("MEDICAL");
+  if (!m) return { id: "__none__" };
+  if (m.scope === "ALL") return {};
+  const ors: Prisma.MedicalVisitWhereInput[] = [{ delegateId: user.id }];
+  const ids = grantsFor(user, "VISIT");
+  if (ids.length) ors.push({ id: { in: ids } });
+  return { OR: ors };
+}
+
+export function scopeSales(user: SessionUser): Prisma.SaleWhereInput {
+  const m = user.access.modules.get("SALES");
+  if (!m) return { id: "__none__" };
+  if (m.scope === "ALL") return {};
+  const ors: Prisma.SaleWhereInput[] = [{ salesUserId: user.id }];
+  const ids = grantsFor(user, "SALE");
+  if (ids.length) ors.push({ id: { in: ids } });
+  return { OR: ors };
+}
+
+export function scopeBusinessDevelopment(user: SessionUser): Prisma.BusinessDevelopmentOpportunityWhereInput {
+  const m = user.access.modules.get("BUSINESS_DEVELOPMENT");
+  if (!m) return { id: "__none__" };
+  if (m.scope === "ALL") return {};
+  const ors: Prisma.BusinessDevelopmentOpportunityWhereInput[] = [{ ownerId: user.id }];
+  const ids = grantsFor(user, "BD_OPPORTUNITY");
+  if (ids.length) ors.push({ id: { in: ids } });
+  return { OR: ors };
 }

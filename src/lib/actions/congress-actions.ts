@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { CongressStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
@@ -13,7 +13,7 @@ export async function createCongressInternational(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "CONGRESS_INTERNATIONAL", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "CONGRESS_INTERNATIONAL", "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom du congrès est obligatoire." };
 
@@ -46,7 +46,7 @@ export async function createCongressNational(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!can(user.role, "CONGRESS_NATIONAL", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "CONGRESS_NATIONAL", "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
 

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Check } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { can } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate, cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,9 +34,9 @@ export default async function LogisticsDetailPage({ params }: { params: { id: st
     createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
   }));
 
-  const canUpdate = can(user.role, "LOGISTICS", "UPDATE");
-  const canUpload = can(user.role, "LOGISTICS", "UPLOAD");
-  const canDelete = can(user.role, "LOGISTICS", "DELETE");
+  const canUpdate = userCan(user, "LOGISTICS", "UPDATE");
+  const canUpload = userCan(user, "LOGISTICS", "UPLOAD");
+  const canDelete = userCan(user, "LOGISTICS", "DELETE");
 
   const milestones = [
     { label: "Commande", planned: order.orderDate, real: order.orderDate },

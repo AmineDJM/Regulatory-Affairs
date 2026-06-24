@@ -7,13 +7,6 @@ import { authenticate } from "@/lib/actions/auth-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
-const DEMO_ACCOUNTS = [
-  { label: "Direction", email: "direction@adventum.dz" },
-  { label: "Resp. Regulatory", email: "regulatory@adventum.dz" },
-  { label: "Assistante Reg.", email: "assistante1@adventum.dz" },
-  { label: "Logistique", email: "logistique@adventum.dz" },
-];
-
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
@@ -69,26 +62,9 @@ export function LoginForm() {
         <SubmitButton />
       </form>
 
-      <div className="rounded-lg border border-dashed border-border bg-muted/40 p-3">
-        <p className="mb-2 text-xs font-medium text-muted-foreground">
-          Comptes de démonstration (mot de passe&nbsp;: <code>password123</code>)
-        </p>
-        <div className="flex flex-wrap gap-1.5">
-          {DEMO_ACCOUNTS.map((acc) => (
-            <button
-              key={acc.email}
-              type="button"
-              onClick={() => {
-                setEmail(acc.email);
-                setPassword("password123");
-              }}
-              className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
-            >
-              {acc.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <p className="text-center text-xs text-muted-foreground">
+        Accès créés par votre administrateur. Mot de passe oublié&nbsp;? Contactez-le.
+      </p>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { can, scopeRegulatory } from "@/lib/rbac";
+import { userCan, scopeRegulatory } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { RegulatoryTable, type RegulatoryRow } from "./regulatory-table";
@@ -7,7 +7,7 @@ import { NewProductButton } from "./new-product";
 
 export default async function RegulatoryPage() {
   const user = await requireModule("REGULATORY");
-  const canCreate = can(user.role, "REGULATORY", "CREATE");
+  const canCreate = userCan(user, "REGULATORY", "CREATE");
 
   const products = await prisma.regulatoryProduct.findMany({
     where: scopeRegulatory(user),
