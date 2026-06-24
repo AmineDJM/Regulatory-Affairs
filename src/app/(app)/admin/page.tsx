@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Settings2, Activity } from "lucide-react";
+import { Settings2, Activity, Columns3 } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -42,6 +42,11 @@ export default async function AdminPage() {
         <Link href="/admin/activity">
           <Button variant="outline"><Activity className="h-4 w-4" /> Activité</Button>
         </Link>
+        {canManage && (
+          <Link href="/admin/fields">
+            <Button variant="outline"><Columns3 className="h-4 w-4" /> Champs personnalisés</Button>
+          </Link>
+        )}
         {canManage && (
           <CreateRecordButton
             label="Nouvel utilisateur"

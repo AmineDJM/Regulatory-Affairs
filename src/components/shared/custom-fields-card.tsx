@@ -1,0 +1,117 @@
+"use client";
+
+import * as React from "react";
+import { usePathname } from "next/navigation";
+import { Loader2, Check } from "lucide-react";
+import { saveCustomValues } from "@/lib/actions/custom-field-actions";
+import { Button } from "@/components/ui/button";
+import { Input, Select, Label } from "@/components/ui/input";
+
+export interface CustomFieldDefDTO {
+  id: string;
+  key: string;
+  label: string;
+  type: string; // TEXT | NUMBER | DATE | BOOLEAN | SELECT
+  options: string | null;
+}
+
+interface Props {
+  entityType: string;
+  entityId: string;
+  defs: CustomFieldDefDTO[];
+  values: Record<string, unknown>;
+  canEdit: boolean;
+}
+
+function toDateValue(v: unknown): string {
+  if (!v) return "";
+  const d = new Date(String(v));
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
+export function CustomFieldsCard({ entityType, entityId, defs, values, canEdit }: Props) {
+  const pathname = usePathname();
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+
+  if (defs.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Aucun champ personnalisé. Un administrateur peut en ajouter dans Administration → Champs personnalisés.
+      </p>
+    );
+  }
+
+  if (!canEdit) {
+    return (
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+        {defs.map((d) => (
+          <div key={d.id}>
+            <p className="text-xs text-muted-foreground">{d.label}</p>
+            <p className="font-medium">
+              {d.type === "BOOLEAN" ? (values[d.key] ? "Oui" : "Non") : String(values[d.key] ?? "—") || "—"}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <form
+      action={async (fd) => {
+        setSaving(true);
+        await saveCustomValues(fd);
+        setSaving(false);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 1500);
+      }}
+      className="space-y-3"
+    >
+      <input type="hidden" name="entityType" value={entityType} />
+      <input type="hidden" name="entityId" value={entityId} />
+      <input type="hidden" name="path" value={pathname} />
+      <div className="grid grid-cols-2 gap-3">
+        {defs.map((d) => {
+          const v = values[d.key];
+          const name = `cf_${d.key}`;
+          if (d.type === "BOOLEAN") {
+            return (
+              <label key={d.id} className="col-span-2 flex items-center gap-2 text-sm">
+                <input type="checkbox" name={name} defaultChecked={Boolean(v)} className="h-4 w-4 rounded border-input" />
+                {d.label}
+              </label>
+            );
+          }
+          return (
+            <div key={d.id} className="space-y-1">
+              <Label htmlFor={name}>{d.label}</Label>
+              {d.type === "SELECT" ? (
+                <Select id={name} name={name} defaultValue={String(v ?? "")}>
+                  <option value="">—</option>
+                  {(d.options ?? "").split(",").map((o) => o.trim()).filter(Boolean).map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </Select>
+              ) : (
+                <Input
+                  id={name}
+                  name={name}
+                  type={d.type === "NUMBER" ? "number" : d.type === "DATE" ? "date" : "text"}
+                  step={d.type === "NUMBER" ? "any" : undefined}
+                  defaultValue={d.type === "DATE" ? toDateValue(v) : (v as string) ?? ""}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex justify-end">
+        <Button type="submit" size="sm" disabled={saving}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
+          {saved ? "Enregistré" : "Enregistrer"}
+        </Button>
+      </div>
+    </form>
+  );
+}

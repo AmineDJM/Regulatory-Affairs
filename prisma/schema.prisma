@@ -337,6 +337,7 @@ model User {
 // ───────────────────────────── Regulatory ─────────────────────────────
 
 model RegulatoryProduct {
+  custom Json? // admin-defined dynamic fields
   id                String           @id @default(cuid())
   reference         String           @unique // human readable ID, e.g. REG-2026-001
   dci               String // molecule / active ingredient
@@ -397,6 +398,7 @@ model RegulatoryStep {
 // ───────────────────────────── Sponsoring ─────────────────────────────
 
 model SponsoringRequest {
+  custom Json? // admin-defined dynamic fields
   id                  String           @id @default(cuid())
   reference           String           @unique
   requestDate         DateTime         @default(now())
@@ -433,6 +435,7 @@ model SponsoringRequest {
 // ───────────────────────────── Budgets ─────────────────────────────
 
 model BudgetLine {
+  custom Json? // admin-defined dynamic fields
   id              String         @id @default(cuid())
   year            Int
   month           Int? // 1-12, null = annual line
@@ -460,6 +463,7 @@ model BudgetLine {
 // ───────────────────────────── Congresses ─────────────────────────────
 
 model CongressInternational {
+  custom Json? // admin-defined dynamic fields
   id                String         @id @default(cuid())
   name              String
   country           String?
@@ -491,6 +495,7 @@ model CongressInternational {
 }
 
 model CongressNational {
+  custom Json? // admin-defined dynamic fields
   id               String         @id @default(cuid())
   name             String
   city             String?
@@ -519,6 +524,7 @@ model CongressNational {
 // ───────────────────────────── Sales ─────────────────────────────
 
 model Sale {
+  custom Json? // admin-defined dynamic fields
   id               String        @id @default(cuid())
   date             DateTime      @default(now())
   product          String
@@ -555,6 +561,7 @@ model Sale {
 // ───────────────────────────── Logistics PCH ─────────────────────────────
 
 model LogisticsOrder {
+  custom Json? // admin-defined dynamic fields
   id                 String          @id @default(cuid())
   reference          String          @unique
   product            String
@@ -599,6 +606,7 @@ model LogisticsOrder {
 // ───────────────────────────── Medical promotion ─────────────────────────────
 
 model MedicalDoctor {
+  custom Json? // admin-defined dynamic fields
   id                  String         @id @default(cuid())
   name                String
   specialty           String?
@@ -631,6 +639,7 @@ model MedicalDoctor {
 }
 
 model MedicalVisit {
+  custom Json? // admin-defined dynamic fields
   id              String      @id @default(cuid())
   date            DateTime
   doctorId        String?
@@ -680,6 +689,7 @@ model MedicalDelegatePlan {
 // ───────────────────────────── Business development ─────────────────────────────
 
 model BusinessDevelopmentOpportunity {
+  custom Json? // admin-defined dynamic fields
   id               String   @id @default(cuid())
   name             String
   dci              String?
@@ -875,4 +885,33 @@ model ActivityLog {
   @@index([userId, createdAt])
   @@index([type])
   @@index([path])
+}
+
+
+// ───────────────────────── Custom fields (dynamic columns) ─────────────────────────
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+}
+
+/// Admin-defined extra field for a module. Values are stored in each record's
+/// `custom` JSON column keyed by `key`.
+model CustomFieldDef {
+  id         String          @id @default(cuid())
+  entityType EntityType
+  key        String // machine key used inside the record's `custom` JSON
+  label      String
+  type       CustomFieldType @default(TEXT)
+  options    String? // comma-separated choices for SELECT
+  order      Int             @default(0)
+  active     Boolean         @default(true)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@unique([entityType, key])
+  @@index([entityType])
 }

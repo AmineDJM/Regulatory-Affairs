@@ -15,6 +15,8 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { StepTimeline, type StepItem } from "./step-timeline";
 import { StatusEditor } from "./status-editor";
+import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
+import { getFieldDefs } from "@/lib/custom-fields";
 import { PRIORITY, REGULATORY_STATUS, PRODUCT_TYPE } from "@/lib/labels";
 import { formatDate, formatDateTime } from "@/lib/utils";
 
@@ -41,7 +43,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
   });
   if (!product) notFound();
 
-  const [documents, comments] = await Promise.all([
+  const [documents, comments, fieldDefs] = await Promise.all([
     prisma.document.findMany({
       where: { entityType: "REGULATORY_PRODUCT", entityId: product.id },
       include: { uploadedBy: { select: { name: true } } },
@@ -52,6 +54,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
       include: { author: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
     }),
+    getFieldDefs("REGULATORY_PRODUCT"),
   ]);
 
   const canUpdate = userCan(user, "REGULATORY", "UPDATE");
@@ -125,6 +128,19 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
               <Info label="Responsable" value={product.responsible?.name} />
               <Info label="Assistante" value={product.assistant?.name} />
               <Info label="Date cible" value={product.targetDate ? formatDate(product.targetDate) : null} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Champs personnalisés</CardTitle></CardHeader>
+            <CardContent>
+              <CustomFieldsCard
+                entityType="REGULATORY_PRODUCT"
+                entityId={product.id}
+                defs={fieldDefs.map((d) => ({ id: d.id, key: d.key, label: d.label, type: d.type, options: d.options }))}
+                values={(product.custom as Record<string, unknown>) ?? {}}
+                canEdit={canUpdate}
+              />
             </CardContent>
           </Card>
 
