@@ -7,6 +7,11 @@
 Interface premium (type Linear / Notion / Airtable), rapide, responsive et sécurisée, avec
 un contrôle d'accès fin **RBAC + row-level** appliqué côté serveur.
 
+> 🐍 **Deux éditions disponibles :**
+> - **Next.js + PostgreSQL** (ce dossier racine) — production, déploiement Vercel/Supabase.
+> - **Streamlit + SQLite** ([`streamlit_app/`](streamlit_app/)) — lancement immédiat en Python,
+>   base autonome. Voir [`streamlit_app/README.md`](streamlit_app/README.md).
+
 ---
 
 ## ✨ Fonctionnalités

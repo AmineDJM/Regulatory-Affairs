@@ -1,0 +1,17 @@
+# virtualenv
+.venv/
+
+# python caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# local SQLite database (auto-created + seeded on first run)
+amd.db
+
+# uploaded files (local storage adapter)
+uploads/
+
+# streamlit secrets
+.streamlit/secrets.toml
