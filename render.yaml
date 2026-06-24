@@ -1,33 +1,49 @@
-# Render Blueprint — deploys the Streamlit edition of AMD Internal OS.
+# Render Blueprint — deploys the Next.js app (AMD Internal OS) + a managed
+# PostgreSQL database.
 #
 # How to use:
-#   1. Push this file (already on branch claude/hopeful-goodall-phd0nb).
-#   2. In Render: New +  →  Blueprint  →  connect this GitHub repo.
-#   3. IMPORTANT: select the branch  claude/hopeful-goodall-phd0nb
-#   4. Apply. Render builds and starts the service automatically.
+#   1. In Render: New +  →  Blueprint  →  connect this GitHub repo.
+#   2. IMPORTANT: select the branch  claude/hopeful-goodall-phd0nb
+#   3. When prompted, set ADMIN_EMAIL and ADMIN_PASSWORD (your first login).
+#   4. Apply. Render provisions Postgres, runs migrations, creates your admin,
+#      builds and starts the app. No demo data — you fill it in.
 #
-# Render's filesystem is writable, so the SQLite DB is created and seeded on
-# first boot. Note: the free plan's disk is ephemeral — data resets on each
-# deploy / cold start. For durable data, add a Render Disk (see commented block)
-# and set AMD_DB_PATH to a path on that disk.
+# Notes:
+#   - Free Postgres expires after ~30 days and the free web service sleeps after
+#     inactivity (first hit ~50s). Upgrade the plans for always-on + durable DB.
+
+databases:
+  - name: amd-postgres
+    plan: free
+    databaseName: amd_internal_os
 
 services:
   - type: web
     name: amd-internal-os
-    runtime: python
-    rootDir: streamlit_app
+    runtime: node
     plan: free
-    healthCheckPath: /_stcore/health
-    buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    healthCheckPath: /login
+    # Build installs deps, applies migrations, creates the Super Admin (idempotent),
+    # then builds Next.js. DATABASE_URL is injected from the database below.
+    buildCommand: npm install && npx prisma generate && npx prisma migrate deploy && npm run db:bootstrap && npx next build
+    startCommand: npx next start -p $PORT
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.7"
-    # Uncomment for persistent data (requires a paid instance type):
-    # disk:
-    #   name: amd-data
-    #   mountPath: /var/data
-    #   sizeGB: 1
-    # and add:
-    #   - key: AMD_DB_PATH
-    #     value: /var/data/amd.db
+      - key: DATABASE_URL
+        fromDatabase:
+          name: amd-postgres
+          property: connectionString
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: AUTH_TRUST_HOST
+        value: "true"
+      - key: NODE_VERSION
+        value: "20"
+      - key: MAX_UPLOAD_MB
+        value: "25"
+      # Your first login — set these in the Render dashboard when prompted.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        sync: false

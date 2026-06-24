@@ -88,48 +88,53 @@ npm install
 cp .env.example .env
 #   → renseignez DATABASE_URL et AUTH_SECRET (openssl rand -base64 32)
 
-# 3. Base de données : migrations + données de démonstration
-npm run db:migrate     # applique le schéma
-npm run db:seed        # crée les comptes & données de démo
+# 3. Base de données : migrations + compte admin initial (aucune donnée de démo)
+npm run db:migrate
+ADMIN_EMAIL="vous@exemple.com" ADMIN_PASSWORD="MotDePasse123!" npm run db:bootstrap
 
 # 4. Lancement
 npm run dev            # http://localhost:3000
 ```
 
-### Comptes de démonstration
+### Premier compte
 
-Tous les comptes utilisent le mot de passe **`password123`** :
+**Aucune donnée simulée** : `db:bootstrap` crée uniquement votre **Super Admin** (depuis
+`ADMIN_EMAIL` / `ADMIN_PASSWORD`, défaut `admin@adventum.dz` / `ChangeMe123!`).
 
-| Email | Rôle |
-|-------|------|
-| `direction@adventum.dz` | Direction (voit tous les pôles) |
-| `regulatory@adventum.dz` | Head of Regulatory (toutes les molécules) |
-| `assistante1@adventum.dz` | Assistante (uniquement ses DCI assignées) |
-| `assistante2@adventum.dz` | Assistante (autres DCI) |
-| `logistique@adventum.dz` | Responsable Logistique |
-| `commercial1@adventum.dz` | Commercial (ses ventes uniquement) |
-| `delegue1@adventum.dz` | Délégué médical Alger (ses médecins/visites) |
-| `bd@adventum.dz` | Manager Business Development |
-| `finance@adventum.dz` | Responsable Budget |
-| `superadmin@adventum.dz` | Super Admin |
+Connectez-vous, puis dans **Administration** :
 
-> Connectez-vous avec `assistante1` puis `regulatory` pour constater le **masquage des lignes** Regulatory.
+- **créez les comptes** de votre équipe (mot de passe temporaire, changé à la 1ʳᵉ connexion) ;
+- **attribuez/retirez les accès** par onglet, par action et par **ligne** pour chaque utilisateur
+  (page « Gérer » d'un utilisateur → matrice d'accès) ;
+- suivez **connexions, pages visitées, temps, appareil, IP/localisation** et gérez les **sessions**.
 
 ---
 
-## ☁️ Déploiement (Vercel + Supabase)
+## ☁️ Déploiement — Render (recommandé)
 
-1. **Base de données** — créez un projet [Supabase](https://supabase.com) et récupérez la chaîne
-   de connexion (pooler, port 6543). Renseignez `DATABASE_URL`.
-2. **Vercel** — importez le repo. Variables d'environnement à définir :
-   - `DATABASE_URL`
-   - `AUTH_SECRET` (`openssl rand -base64 32`)
-   - `NEXTAUTH_URL` (URL de production)
-   - *(optionnel)* `STORAGE_*` pour le stockage S3/R2/Supabase, `MAX_UPLOAD_MB`, `SMTP_*`
-3. **Migrations** — appliquez le schéma sur la base de prod :
+Un **Blueprint** [`render.yaml`](render.yaml) provisionne **l'app Next.js + une base PostgreSQL gérée**,
+applique les migrations et crée ton compte Super Admin (aucune donnée de démo).
+
+1. Sur [dashboard.render.com](https://dashboard.render.com) : **New +  →  Blueprint**.
+2. Connecte ce dépôt et **sélectionne la branche `claude/hopeful-goodall-phd0nb`**.
+3. Renseigne les variables demandées : **`ADMIN_EMAIL`**, **`ADMIN_PASSWORD`** (ta première connexion),
+   `ADMIN_NAME`. (`DATABASE_URL` et `AUTH_SECRET` sont gérés automatiquement.)
+4. **Apply**. Render crée la base, exécute `prisma migrate deploy` + `db:bootstrap`, build et démarre.
+
+→ Ouvre l'URL → connecte-toi avec `ADMIN_EMAIL` / `ADMIN_PASSWORD` → crée tes comptes dans **Administration**.
+
+> ⚠️ Plan gratuit : la base Postgres expire après ~30 jours et le service se met en veille
+> (1ᵉʳ accès ensuite ~50 s). Passe en plan payant pour une base durable + service always-on.
+
+### Vercel + Postgres (alternative)
+
+1. Base **Postgres** (Neon/Supabase) → `DATABASE_URL`.
+2. **Vercel** : importer le repo. Variables : `DATABASE_URL`, `AUTH_SECRET` (`openssl rand -base64 32`),
+   `AUTH_TRUST_HOST=true`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`.
+3. Migrations + admin :
    ```bash
    DATABASE_URL=... npx prisma migrate deploy
-   DATABASE_URL=... npm run db:seed   # optionnel : données de démo
+   DATABASE_URL=... ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run db:bootstrap
    ```
 4. Le `build` exécute automatiquement `prisma generate`.
 
@@ -152,7 +157,8 @@ balisé). La couche métier (upload contrôlé, versioning, permissions, downloa
 | `npm run typecheck` | Vérification TypeScript |
 | `npm run test` | Tests (Vitest) |
 | `npm run db:migrate` | Migrations de développement |
-| `npm run db:seed` | Données de démonstration |
+| `npm run db:deploy` | Applique les migrations (prod) |
+| `npm run db:bootstrap` | Crée le Super Admin initial |
 | `npm run db:reset` | Réinitialise la base |
 
 ---
@@ -182,7 +188,7 @@ src/
 │   └── queries/         # requêtes agrégées (dashboard, documents)
 └── prisma/
     ├── schema.prisma    # 22 modèles, enums, index, relations
-    └── seed.ts          # données de démonstration
+    └── bootstrap.ts     # crée le Super Admin initial (aucune donnée de démo)
 ```
 
 ---
