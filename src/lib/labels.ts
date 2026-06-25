@@ -445,6 +445,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring", icon: "HandCoins", group: "Pôles" },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles" },
   { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
+  { module: "FINANCES", label: "Espace comptable", href: "/comptabilite", icon: "Calculator", group: "Pôles" },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles" },
   { module: "CONGRESS_INTERNATIONAL", label: "Congrès internationaux", href: "/congress-international", icon: "Globe", group: "Pôles" },
   { module: "CONGRESS_NATIONAL", label: "Congrès nationaux", href: "/congress-national", icon: "MapPin", group: "Pôles" },
