@@ -938,7 +938,11 @@ model ActivityLog {
   country    String?
   city       String?
   region     String?
-  device     String? // desktop | mobile | tablet
+  latitude   Float? // géoloc précise du navigateur (avec consentement)
+  longitude  Float?
+  accuracy   Float? // précision en mètres
+  geoSource  String? // gps | ip
+  device     String? // desktop | mobile | tablet (+ modèle si fourni)
   browser    String?
   os         String?
   userAgent  String?

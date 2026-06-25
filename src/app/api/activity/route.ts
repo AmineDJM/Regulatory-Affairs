@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NO_CONTENT;
 
-  let body: { path?: string; durationMs?: number } = {};
+  let body: { path?: string; durationMs?: number; lat?: number; lng?: number; accuracy?: number; dev?: string } = {};
   try {
     body = JSON.parse((await req.text()) || "{}");
   } catch {
@@ -28,6 +28,13 @@ export async function POST(req: NextRequest) {
   const { device, os, browser } = parseDevice(ua);
   const moduleKey = path.split("/").filter(Boolean)[0] ?? null;
 
+  // Precise browser geolocation (consented) takes precedence over IP geolocation.
+  const lat = Number(body.lat);
+  const lng = Number(body.lng);
+  const acc = Number(body.accuracy);
+  const hasGeo = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+  const devHint = body.dev ? String(body.dev).slice(0, 60) : null;
+
   let country: string | null = null;
   let city: string | null = null;
   if (session.user.sid) {
@@ -42,7 +49,13 @@ export async function POST(req: NextRequest) {
     .create({
       data: {
         userId: session.user.id, type: "PAGE_VIEW", path, module: moduleKey,
-        durationMs, ipAddress: ip, country, city, device, os, browser, userAgent: ua,
+        durationMs, ipAddress: ip, country, city,
+        latitude: hasGeo ? lat : null,
+        longitude: hasGeo ? lng : null,
+        accuracy: hasGeo && Number.isFinite(acc) ? acc : null,
+        geoSource: hasGeo ? "gps" : country ? "ip" : null,
+        device: devHint ? `${device} · ${devHint}` : device,
+        os, browser, userAgent: ua,
       },
     })
     .catch(() => undefined);

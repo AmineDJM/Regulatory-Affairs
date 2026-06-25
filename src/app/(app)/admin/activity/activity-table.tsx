@@ -20,6 +20,8 @@ export interface ActivityRow {
   browser: string;
   os: string;
   location: string;
+  lat: number | null;
+  lng: number | null;
   ip: string;
   duration: string;
   durationValue: number;
@@ -35,7 +37,17 @@ export function ActivityTable({ rows }: { rows: ActivityRow[] }) {
     { key: "duration", header: "Temps", align: "right", sortable: true, accessor: (r) => r.durationValue, render: (r) => r.duration },
     { key: "device", header: "Appareil", sortable: true, accessor: (r) => r.device },
     { key: "browser", header: "Navigateur", accessor: (r) => `${r.browser} · ${r.os}` },
-    { key: "location", header: "Localisation", accessor: (r) => r.location },
+    {
+      key: "location", header: "Localisation", accessor: (r) => r.location,
+      render: (r) =>
+        r.lat != null && r.lng != null ? (
+          <a href={`https://www.google.com/maps?q=${r.lat},${r.lng}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+            {r.location} ↗
+          </a>
+        ) : (
+          <span>{r.location || "—"}</span>
+        ),
+    },
     { key: "ip", header: "IP", accessor: (r) => r.ip },
   ];
   return (

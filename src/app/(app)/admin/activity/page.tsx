@@ -30,10 +30,15 @@ export default async function ActivityPage() {
 
   const rows: ActivityRow[] = logs.map((l) => {
     const d = fmtDuration(l.durationMs);
+    const gps = l.latitude != null && l.longitude != null;
+    const location = gps
+      ? `GPS ${l.latitude!.toFixed(4)}, ${l.longitude!.toFixed(4)}${l.accuracy ? ` (±${Math.round(l.accuracy)} m)` : ""}`
+      : [l.city, l.country].filter(Boolean).join(", ");
     return {
       id: l.id, user: l.user?.name ?? "—", type: l.type, path: l.path ?? "",
       device: l.device ?? "—", browser: l.browser ?? "—", os: l.os ?? "—",
-      location: [l.city, l.country].filter(Boolean).join(", "), ip: l.ipAddress ?? "",
+      location, ip: l.ipAddress ?? "",
+      lat: gps ? l.latitude! : null, lng: gps ? l.longitude! : null,
       duration: d.label, durationValue: d.value, createdAt: l.createdAt.toISOString(),
     };
   });
