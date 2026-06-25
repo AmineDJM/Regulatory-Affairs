@@ -5,6 +5,7 @@ import { prisma } from "./prisma";
 export const CUSTOM_ENTITY_TYPES: EntityType[] = [
   "REGULATORY_PRODUCT", "SPONSORING", "BUDGET", "CONGRESS_INTERNATIONAL",
   "CONGRESS_NATIONAL", "SALE", "LOGISTICS", "DOCTOR", "VISIT", "BD_OPPORTUNITY",
+  "FINANCE_TRANSACTION", "EMPLOYEE",
 ];
 
 export type CustomValues = Record<string, unknown>;
@@ -31,6 +32,8 @@ export async function readCustomValues(entityType: EntityType, id: string): Prom
     case "DOCTOR": row = await prisma.medicalDoctor.findUnique({ where: { id }, select }); break;
     case "VISIT": row = await prisma.medicalVisit.findUnique({ where: { id }, select }); break;
     case "BD_OPPORTUNITY": row = await prisma.businessDevelopmentOpportunity.findUnique({ where: { id }, select }); break;
+    case "FINANCE_TRANSACTION": row = await prisma.financeTransaction.findUnique({ where: { id }, select }); break;
+    case "EMPLOYEE": row = await prisma.employee.findUnique({ where: { id }, select }); break;
     default: return {};
   }
   return (row?.custom as CustomValues) ?? {};
@@ -50,6 +53,8 @@ export async function writeCustomValues(entityType: EntityType, id: string, cust
     case "DOCTOR": await prisma.medicalDoctor.update({ where: { id }, data }); break;
     case "VISIT": await prisma.medicalVisit.update({ where: { id }, data }); break;
     case "BD_OPPORTUNITY": await prisma.businessDevelopmentOpportunity.update({ where: { id }, data }); break;
+    case "FINANCE_TRANSACTION": await prisma.financeTransaction.update({ where: { id }, data }); break;
+    case "EMPLOYEE": await prisma.employee.update({ where: { id }, data }); break;
   }
 }
 

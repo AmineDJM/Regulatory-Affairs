@@ -199,6 +199,9 @@ enum EntityType {
   VISIT
   DELEGATE_PLAN
   BD_OPPORTUNITY
+  FINANCE_TRANSACTION
+  EMPLOYEE
+  PAYROLL
 }
 
 enum DocumentCategory {
@@ -914,4 +917,126 @@ model CustomFieldDef {
 
   @@unique([entityType, key])
   @@index([entityType])
+}
+
+// ───────────────────────────── Finances ─────────────────────────────
+
+enum FinanceDirection {
+  IN // encaissement (recette, apport, prêt reçu)
+  OUT // décaissement (dépense, salaire, remboursement)
+}
+
+enum FinanceCategory {
+  RECETTE // recette / vente / encaissement client
+  CCA // compte courant associé (apport)
+  PRET // emprunt reçu
+  REMBOURSEMENT // remboursement d'emprunt
+  SALAIRE // charges de personnel / paie
+  LOYER
+  VOYAGE // déplacements, missions
+  EVENEMENT // table ronde, congrès, sponsoring payé
+  BUREAUTIQUE // bureautique, mobilier, matériel
+  FOURNISSEUR // achats fournisseurs / marchandises
+  CHARGES // charges diverses (élec, eau, internet, assurance)
+  IMPOT // impôts & taxes
+  BANQUE // frais bancaires
+  AUTRE
+}
+
+enum FinanceMethod {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+  CARD
+  OTHER
+}
+
+enum FinanceStatus {
+  PENDING // prévu / à régler
+  SETTLED // réalisé (impacte la trésorerie)
+  CANCELLED
+}
+
+enum PayrollStatus {
+  DRAFT
+  VALIDATED
+  PAID
+}
+
+/// General ledger entry — the simplified accounting book + treasury source.
+model FinanceTransaction {
+  custom      Json?
+  id          String           @id @default(cuid())
+  reference   String           @unique // FIN-2026-001
+  date        DateTime         @default(now())
+  direction   FinanceDirection
+  category    FinanceCategory
+  label       String
+  amount      Decimal          @db.Decimal(14, 2)
+  method      FinanceMethod    @default(BANK_TRANSFER)
+  account     String           @default("Banque") // Caisse, Banque, …
+  counterparty String? // client / fournisseur / bénéficiaire
+  invoiceRef  String?
+  status      FinanceStatus    @default(SETTLED)
+  notes       String?
+
+  employeeId  String?
+  employee    Employee?        @relation(fields: [employeeId], references: [id])
+
+  createdById String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([date])
+  @@index([direction])
+  @@index([category])
+  @@index([status])
+  @@index([account])
+}
+
+/// Employee record for payroll.
+model Employee {
+  custom     Json?
+  id         String   @id @default(cuid())
+  fullName   String
+  position   String?
+  department String?
+  email      String?
+  phone      String?
+  iban       String?
+  baseSalary Decimal  @default(0) @db.Decimal(12, 2)
+  hireDate   DateTime?
+  isActive   Boolean  @default(true)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  payrolls     PayrollEntry[]
+  transactions FinanceTransaction[]
+
+  @@index([isActive])
+}
+
+/// Monthly payslip. When PAID it links to a FinanceTransaction (treasury OUT).
+model PayrollEntry {
+  id         String        @id @default(cuid())
+  employeeId String
+  employee   Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  year       Int
+  month      Int
+  gross      Decimal       @default(0) @db.Decimal(12, 2)
+  bonuses    Decimal       @default(0) @db.Decimal(12, 2)
+  deductions Decimal       @default(0) @db.Decimal(12, 2)
+  net        Decimal       @default(0) @db.Decimal(12, 2)
+  status     PayrollStatus @default(DRAFT)
+  paidDate   DateTime?
+  transactionId String?
+  notes      String?
+  createdById String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([employeeId, year, month])
+  @@index([year, month])
+  @@index([status])
 }

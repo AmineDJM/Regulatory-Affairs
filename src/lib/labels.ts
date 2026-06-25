@@ -245,7 +245,52 @@ export const CONFIDENTIALITY: Record<string, Display> = {
   CONFIDENTIAL: { label: "Confidentiel", tone: "danger" },
 };
 
+export const FINANCE_DIRECTION: Record<string, Display> = {
+  IN: { label: "Encaissement", tone: "success" },
+  OUT: { label: "Décaissement", tone: "danger" },
+};
+
+export const FINANCE_CATEGORY: Record<string, string> = {
+  RECETTE: "Recette / Vente",
+  CCA: "Compte courant associé",
+  PRET: "Emprunt reçu",
+  REMBOURSEMENT: "Remboursement emprunt",
+  SALAIRE: "Salaires / Personnel",
+  LOYER: "Loyer",
+  VOYAGE: "Voyages / Déplacements",
+  EVENEMENT: "Événement / Table ronde",
+  BUREAUTIQUE: "Bureautique / Mobilier",
+  FOURNISSEUR: "Achats fournisseurs",
+  CHARGES: "Charges (élec, eau, internet…)",
+  IMPOT: "Impôts & taxes",
+  BANQUE: "Frais bancaires",
+  AUTRE: "Autre",
+};
+
+export const FINANCE_METHOD: Record<string, string> = {
+  CASH: "Espèces",
+  BANK_TRANSFER: "Virement",
+  CHEQUE: "Chèque",
+  CARD: "Carte",
+  OTHER: "Autre",
+};
+
+export const FINANCE_STATUS: Record<string, Display> = {
+  PENDING: { label: "Prévu", tone: "warning" },
+  SETTLED: { label: "Réalisé", tone: "success" },
+  CANCELLED: { label: "Annulé", tone: "danger" },
+};
+
+export const PAYROLL_STATUS: Record<string, Display> = {
+  DRAFT: { label: "Brouillon", tone: "neutral" },
+  VALIDATED: { label: "Validé", tone: "info" },
+  PAID: { label: "Payé", tone: "success" },
+};
+
 export const ENTITY_TYPE_LABELS: Record<string, string> = {
+  FINANCE_TRANSACTION: "Finances",
+  EMPLOYEE: "Employé",
+  PAYROLL: "Paie",
   REGULATORY_PRODUCT: "Regulatory",
   REGULATORY_STEP: "Étape Regulatory",
   SPONSORING: "Sponsoring",
@@ -302,6 +347,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring", icon: "HandCoins", group: "Pôles" },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles" },
+  { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
   { module: "CONGRESS_INTERNATIONAL", label: "Congrès internationaux", href: "/congress-international", icon: "Globe", group: "Pôles" },
   { module: "CONGRESS_NATIONAL", label: "Congrès nationaux", href: "/congress-national", icon: "MapPin", group: "Pôles" },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
