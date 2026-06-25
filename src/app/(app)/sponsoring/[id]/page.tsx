@@ -65,9 +65,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               <Info label="Type" value={req.type} />
               <Info label="Ville" value={req.city} />
               <Info label="Produit" value={req.product} />
-              <Info label="Montant demandé" value={req.amountRequested ? formatCurrency(toNumber(req.amountRequested)) : null} />
-              <Info label="Montant proposé" value={req.amountProposed ? formatCurrency(toNumber(req.amountProposed)) : null} />
-              <Info label="Montant accordé" value={req.amountGranted ? formatCurrency(toNumber(req.amountGranted)) : null} />
+              <Info label="Budget demandé (intéressé)" value={req.amountRequested ? formatCurrency(toNumber(req.amountRequested)) : null} />
+              <Info label="Budget suggéré (délégué)" value={req.amountProposed ? formatCurrency(toNumber(req.amountProposed)) : null} />
+              <Info label="Budget accordé (direction)" value={req.amountGranted ? formatCurrency(toNumber(req.amountGranted)) : null} />
               <Info label="Demandeur" value={req.requester?.name} />
               <Info label="Validé par" value={req.validatedBy} />
               <Info label="Date validation" value={req.validationDate ? formatDate(req.validationDate) : null} />
@@ -75,6 +75,12 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                 <p className="text-xs text-muted-foreground">Description</p>
                 <p className="font-medium">{req.description || "—"}</p>
               </div>
+              {req.comments && (
+                <div className="col-span-full">
+                  <p className="text-xs text-muted-foreground">Appréciation / recommandation</p>
+                  <p className="font-medium">{req.comments}</p>
+                </div>
+              )}
               {req.finalDecision && (
                 <div className="col-span-full">
                   <p className="text-xs text-muted-foreground">Décision finale</p>
@@ -99,6 +105,11 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               <Badge tone="neutral">{docItems.length}</Badge>
             </CardHeader>
             <CardContent className="space-y-4">
+              {(req.status === "ACCEPTED" || req.status === "PAID") && !documents.some((d) => d.category === "INVOICE") && (
+                <div className="rounded-lg bg-warning/10 px-3 py-2 text-xs font-medium text-warning">
+                  Sponsoring accordé — pensez à joindre la <strong>facture</strong> (catégorie « Facture / Invoice »).
+                </div>
+              )}
               {canUpload && <DocumentUpload entityType="SPONSORING" entityId={req.id} categories={SPONSORING_DOC_CATEGORIES} />}
               <DocumentList documents={docItems} canDelete={canDelete} path={`/sponsoring/${req.id}`} />
             </CardContent>

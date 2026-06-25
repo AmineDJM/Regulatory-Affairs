@@ -10,11 +10,12 @@ import { Icon } from "@/components/ui/icon";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { createTask } from "@/lib/actions/task-actions";
-import { requestLeave } from "@/lib/actions/hr-actions";
+import { requestLeave, requestAdvance } from "@/lib/actions/hr-actions";
 import { NAVIGATION, ROLE_LABELS, PRIORITY, LEAVE_TYPE } from "@/lib/labels";
 import { formatDateTime } from "@/lib/utils";
 import { TaskList, type TaskItem } from "./task-list";
 import { MyLeaves, type LeaveItem } from "./my-leaves";
+import { MyAdvances, type AdvanceItem } from "./my-advances";
 
 export default async function MonEspacePage() {
   const user = await requireModule("WORKSPACE");
@@ -42,6 +43,9 @@ export default async function MonEspacePage() {
     id: l.id, type: l.type, startDate: l.startDate.toISOString(), endDate: l.endDate.toISOString(),
     days: Number(l.days), status: l.status,
   }));
+  const myAdvances: AdvanceItem[] = data.myAdvances.map((a) => ({
+    id: a.id, amount: Number(a.amount), reason: a.reason, status: a.status, createdAt: a.createdAt.toISOString(),
+  }));
 
   const userOptions = users.map((u) => ({ value: u.id, label: u.name }));
   const moduleOptions = quickLinks.map((n) => ({ value: n.module, label: n.label }));
@@ -56,10 +60,15 @@ export default async function MonEspacePage() {
   ];
 
   const leaveFields: FieldDef[] = [
-    { type: "select", name: "type", label: "Type de congé", options: optionsFromMap(LEAVE_TYPE), defaultValue: "ANNUAL", full: true },
+    { type: "select", name: "type", label: "Type (congé, maladie, arrêt exceptionnel…)", options: optionsFromMap(LEAVE_TYPE), defaultValue: "ANNUAL", full: true },
     { type: "date", name: "startDate", label: "Du", required: true },
     { type: "date", name: "endDate", label: "Au", required: true },
     { type: "number", name: "days", label: "Nombre de jours (optionnel)" },
+    { type: "textarea", name: "reason", label: "Motif" },
+  ];
+
+  const advanceFields: FieldDef[] = [
+    { type: "number", name: "amount", label: "Montant souhaité (DZD)", required: true, full: true },
     { type: "textarea", name: "reason", label: "Motif" },
   ];
 
@@ -72,8 +81,12 @@ export default async function MonEspacePage() {
         <CreateRecordButton label="Nouvelle tâche" title="Créer une tâche" width="md"
           description="Une to-do pour vous ou à déléguer." action={createTask} fields={taskFields} />
         {data.employee && (
-          <CreateRecordButton label="Demander un congé" title="Demande de congé" width="md"
-            description="Votre demande sera soumise aux RH pour validation." action={requestLeave} fields={leaveFields} />
+          <>
+            <CreateRecordButton label="Demander un congé" title="Demande de congé / absence" width="md"
+              description="Congé annuel, maladie, arrêt exceptionnel… Soumis aux RH pour validation." action={requestLeave} fields={leaveFields} />
+            <CreateRecordButton label="Demander une avance" title="Avance sur salaire" width="md"
+              description="Soumise aux RH, puis réglée par la comptabilité." action={requestAdvance} fields={advanceFields} />
+          </>
         )}
       </PageHeader>
 
@@ -96,38 +109,42 @@ export default async function MonEspacePage() {
         </section>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-2">
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes congés</h2>
-          {data.employee ? (
+      {data.employee ? (
+        <div className="grid gap-3 lg:grid-cols-2">
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes congés</h2>
             <MyLeaves leaves={myLeaves} />
-          ) : (
-            <Card><CardContent className="p-4 text-sm text-muted-foreground">
-              Aucune fiche employé n'est liée à votre compte. Demandez à l'administrateur de la créer pour activer les congés.
-            </CardContent></Card>
-          )}
-        </section>
+          </section>
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes avances sur salaire</h2>
+            <MyAdvances advances={myAdvances} />
+          </section>
+        </div>
+      ) : (
+        <Card><CardContent className="p-4 text-sm text-muted-foreground">
+          Aucune fiche employé n'est liée à votre compte. Demandez à l'administrateur de la créer pour activer les congés et les avances sur salaire.
+        </CardContent></Card>
+      )}
 
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Activité récente</h2>
-          <Card>
-            <CardContent className="p-0">
-              {data.activity.length === 0 ? (
-                <p className="p-4 text-sm text-muted-foreground">Aucune activité enregistrée.</p>
-              ) : (
-                <ul className="divide-y divide-border">
-                  {data.activity.map((a) => (
-                    <li key={a.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                      <span className="truncate text-foreground">{a.module ?? a.path ?? "—"}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(a.createdAt)}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        </section>
-      </div>
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Activité récente</h2>
+        <Card>
+          <CardContent className="p-0">
+            {data.activity.length === 0 ? (
+              <p className="p-4 text-sm text-muted-foreground">Aucune activité enregistrée.</p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {data.activity.map((a) => (
+                  <li key={a.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                    <span className="truncate text-foreground">{a.module ?? a.path ?? "—"}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(a.createdAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </section>
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Accès rapides</h2>

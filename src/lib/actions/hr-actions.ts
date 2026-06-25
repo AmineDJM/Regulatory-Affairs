@@ -252,3 +252,135 @@ export async function cancelLeave(formData: FormData): Promise<ActionResult> {
   revalidatePath("/mon-espace");
   return { ok: true };
 }
+
+// ─────────────────────────── Avance sur salaire ───────────────────────────
+
+async function nextFinanceRef(): Promise<string> {
+  const year = new Date().getFullYear();
+  const count = await prisma.financeTransaction.count({ where: { reference: { startsWith: `FIN-${year}-` } } });
+  return `FIN-${year}-${String(count + 1).padStart(3, "0")}`;
+}
+
+/** Request a salary advance (self-service, or RH on behalf of an employee). */
+export async function requestAdvance(
+  _prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "WORKSPACE", "CREATE")) return { ok: false, error: "Non autorisé." };
+
+  const explicitId = fdStr(formData, "employeeId");
+  const isRh = userCan(user, "RH", "CREATE");
+  const employee = explicitId && isRh
+    ? await prisma.employee.findUnique({ where: { id: explicitId } })
+    : await prisma.employee.findUnique({ where: { userId: user.id } });
+  if (!employee) {
+    return { ok: false, error: "Aucune fiche employé n'est liée à votre compte. Contactez l'administrateur." };
+  }
+
+  const amount = fdNum(formData, "amount");
+  if (!amount || amount <= 0) return { ok: false, error: "Montant invalide." };
+
+  const created = await prisma.salaryAdvance.create({
+    data: { employeeId: employee.id, amount, reason: fdStr(formData, "reason"), createdById: user.id },
+  });
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Ressources humaines",
+    entityType: "SALARY_ADVANCE", entityId: created.id,
+    summary: `Demande d'avance — ${employee.fullName}`,
+  });
+  revalidatePath("/mon-espace");
+  revalidatePath("/rh");
+  return { ok: true, id: created.id };
+}
+
+/** Approve or reject a pending salary advance (RH). */
+export async function decideAdvance(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "RH", "VALIDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  const decision = fdStr(formData, "decision"); // APPROVED | REJECTED
+  if (!id || (decision !== "APPROVED" && decision !== "REJECTED")) {
+    return { ok: false, error: "Paramètres manquants." };
+  }
+  const adv = await prisma.salaryAdvance.findUnique({ where: { id }, include: { employee: true } });
+  if (!adv) return { ok: false, error: "Demande introuvable." };
+  if (adv.status !== "PENDING") return { ok: false, error: "Cette demande a déjà été traitée." };
+
+  await prisma.salaryAdvance.update({
+    where: { id },
+    data: { status: decision, decidedById: user.id, decidedAt: new Date(), decisionNote: fdStr(formData, "note") },
+  });
+  if (adv.employee.userId) {
+    await prisma.notification.create({
+      data: {
+        userId: adv.employee.userId, type: "GENERIC",
+        title: decision === "APPROVED" ? "Avance approuvée" : "Avance refusée",
+        body: `Votre demande d'avance sur salaire a été ${decision === "APPROVED" ? "approuvée" : "refusée"}.`,
+        link: "/mon-espace",
+      },
+    }).catch(() => undefined);
+  }
+  await recordAudit({
+    actorId: user.id, action: decision === "APPROVED" ? "VALIDATE" : "REFUSE", module: "Ressources humaines",
+    entityType: "SALARY_ADVANCE", entityId: id,
+    summary: `Avance ${decision === "APPROVED" ? "approuvée" : "refusée"} — ${adv.employee.fullName}`,
+  });
+  revalidatePath("/rh");
+  revalidatePath("/mon-espace");
+  return { ok: true };
+}
+
+/** Settle an approved advance → records a treasury OUT transaction (Comptabilité/Finances). */
+export async function payAdvance(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Réservé à la comptabilité (Finances)." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const adv = await prisma.salaryAdvance.findUnique({ where: { id }, include: { employee: true } });
+  if (!adv) return { ok: false, error: "Demande introuvable." };
+  if (adv.status === "PAID") return { ok: true };
+  if (adv.status !== "APPROVED") return { ok: false, error: "L'avance doit d'abord être approuvée." };
+
+  const tx = await prisma.financeTransaction.create({
+    data: {
+      reference: await nextFinanceRef(), date: new Date(), direction: "OUT", category: "AVANCE",
+      label: `Avance sur salaire — ${adv.employee.fullName}`, amount: adv.amount, method: "BANK_TRANSFER",
+      account: "Banque", counterparty: adv.employee.fullName, status: "SETTLED",
+      employeeId: adv.employeeId, createdById: user.id,
+    },
+  });
+  await prisma.salaryAdvance.update({
+    where: { id }, data: { status: "PAID", paidDate: new Date(), transactionId: tx.id },
+  });
+  await recordAudit({
+    actorId: user.id, action: "VALIDATE", module: "Ressources humaines", entityType: "SALARY_ADVANCE",
+    entityId: id, summary: `Avance réglée — ${adv.employee.fullName}`,
+  });
+  revalidatePath("/rh");
+  revalidatePath("/mon-espace");
+  revalidatePath("/finances");
+  return { ok: true };
+}
+
+/** Cancel a still-pending advance (by its author or an RH manager). */
+export async function cancelAdvance(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const adv = await prisma.salaryAdvance.findUnique({ where: { id }, include: { employee: true } });
+  if (!adv) return { ok: false, error: "Demande introuvable." };
+  const isOwner = adv.employee.userId === user.id;
+  const isRh = userCan(user, "RH", "UPDATE");
+  if (!isOwner && !isRh) return { ok: false, error: "Non autorisé." };
+  if (adv.status !== "PENDING") return { ok: false, error: "Seule une demande en attente peut être annulée." };
+
+  await prisma.salaryAdvance.update({ where: { id }, data: { status: "CANCELLED" } });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "SALARY_ADVANCE",
+    entityId: id, field: "status", newValue: "CANCELLED", summary: "Avance annulée",
+  });
+  revalidatePath("/rh");
+  revalidatePath("/mon-espace");
+  return { ok: true };
+}

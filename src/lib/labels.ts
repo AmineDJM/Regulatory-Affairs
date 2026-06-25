@@ -256,6 +256,7 @@ export const FINANCE_CATEGORY: Record<string, string> = {
   PRET: "Emprunt reçu",
   REMBOURSEMENT: "Remboursement emprunt",
   SALAIRE: "Salaires / Personnel",
+  AVANCE: "Avance sur salaire",
   LOYER: "Loyer",
   VOYAGE: "Voyages / Déplacements",
   EVENEMENT: "Événement / Table ronde",
@@ -320,12 +321,21 @@ export const TASK_STATUS: Record<string, Display> = {
   CANCELLED: { label: "Annulé", tone: "danger" },
 };
 
+export const ADVANCE_STATUS: Record<string, Display> = {
+  PENDING: { label: "En attente", tone: "warning" },
+  APPROVED: { label: "Approuvée", tone: "info" },
+  REJECTED: { label: "Refusée", tone: "danger" },
+  PAID: { label: "Réglée", tone: "success" },
+  CANCELLED: { label: "Annulée", tone: "neutral" },
+};
+
 export const ENTITY_TYPE_LABELS: Record<string, string> = {
   FINANCE_TRANSACTION: "Finances",
   EMPLOYEE: "Employé",
   PAYROLL: "Paie",
   LEAVE_REQUEST: "Congé",
   TASK: "Tâche",
+  SALARY_ADVANCE: "Avance sur salaire",
   REGULATORY_PRODUCT: "Regulatory",
   REGULATORY_STEP: "Étape Regulatory",
   SPONSORING: "Sponsoring",

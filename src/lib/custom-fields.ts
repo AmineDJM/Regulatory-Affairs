@@ -5,7 +5,7 @@ import { prisma } from "./prisma";
 export const CUSTOM_ENTITY_TYPES: EntityType[] = [
   "REGULATORY_PRODUCT", "SPONSORING", "BUDGET", "CONGRESS_INTERNATIONAL",
   "CONGRESS_NATIONAL", "SALE", "LOGISTICS", "DOCTOR", "VISIT", "BD_OPPORTUNITY",
-  "FINANCE_TRANSACTION", "EMPLOYEE", "LEAVE_REQUEST", "TASK",
+  "FINANCE_TRANSACTION", "EMPLOYEE", "LEAVE_REQUEST", "TASK", "SALARY_ADVANCE",
 ];
 
 export type CustomValues = Record<string, unknown>;
@@ -36,6 +36,7 @@ export async function readCustomValues(entityType: EntityType, id: string): Prom
     case "EMPLOYEE": row = await prisma.employee.findUnique({ where: { id }, select }); break;
     case "LEAVE_REQUEST": row = await prisma.leaveRequest.findUnique({ where: { id }, select }); break;
     case "TASK": row = await prisma.task.findUnique({ where: { id }, select }); break;
+    case "SALARY_ADVANCE": row = await prisma.salaryAdvance.findUnique({ where: { id }, select }); break;
     default: return {};
   }
   return (row?.custom as CustomValues) ?? {};
@@ -59,6 +60,7 @@ export async function writeCustomValues(entityType: EntityType, id: string, cust
     case "EMPLOYEE": await prisma.employee.update({ where: { id }, data }); break;
     case "LEAVE_REQUEST": await prisma.leaveRequest.update({ where: { id }, data }); break;
     case "TASK": await prisma.task.update({ where: { id }, data }); break;
+    case "SALARY_ADVANCE": await prisma.salaryAdvance.update({ where: { id }, data }); break;
   }
 }
 

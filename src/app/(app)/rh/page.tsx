@@ -16,12 +16,19 @@ import { createEmployee } from "@/lib/actions/hr-actions";
 import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, toNumber, daysUntil } from "@/lib/utils";
 import { LeaveApprovals, type PendingLeave } from "./leave-approvals";
+import { AdvanceApprovals, type AdvanceRow } from "./advance-approvals";
 
 export default async function RhPage() {
   const user = await requireModule("RH");
   const canCreate = userCan(user, "RH", "CREATE");
   const canValidate = userCan(user, "RH", "VALIDATE");
+  const canPayFinance = userCan(user, "FINANCES", "UPDATE");
   const data = await getRhData();
+
+  const advanceRows: AdvanceRow[] = data.advances.map((a) => ({
+    id: a.id, employee: a.employee.fullName, amount: Number(a.amount),
+    reason: a.reason, status: a.status, createdAt: a.createdAt.toISOString(),
+  }));
 
   const linkableUsers = await prisma.user.findMany({
     where: { isActive: true, employee: { is: null } },
@@ -65,10 +72,11 @@ export default async function RhPage() {
         )}
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <KpiCard label="Effectif" value={data.stats.total} icon="Users" />
         <KpiCard label="Actifs" value={data.stats.active} icon="UserCheck" tone="success" />
         <KpiCard label="Congés en attente" value={data.stats.pending} icon="Hourglass" tone={data.stats.pending > 0 ? "warning" : "default"} />
+        <KpiCard label="Avances en attente" value={data.stats.advances} icon="Banknote" tone={data.stats.advances > 0 ? "warning" : "default"} />
         <KpiCard label="Contrats à échéance" value={data.stats.expiring} icon="CalendarClock" tone={data.stats.expiring > 0 ? "danger" : "default"} hint="≤ 60 jours" />
         <KpiCard label="Masse salariale" value={formatCurrency(data.stats.masseSalariale)} icon="Wallet" tone="info" hint="base mensuelle" />
       </div>
@@ -77,6 +85,13 @@ export default async function RhPage() {
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Demandes de congés à traiter</h2>
           <LeaveApprovals leaves={pendingLeaves} />
+        </section>
+      )}
+
+      {(canValidate || canPayFinance) && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Avances sur salaire</h2>
+          <AdvanceApprovals rows={advanceRows} canPay={canPayFinance} />
         </section>
       )}
 

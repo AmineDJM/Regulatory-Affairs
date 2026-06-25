@@ -204,6 +204,7 @@ enum EntityType {
   PAYROLL
   LEAVE_REQUEST
   TASK
+  SALARY_ADVANCE
 }
 
 enum DocumentCategory {
@@ -308,6 +309,14 @@ enum TaskStatus {
   CANCELLED
 }
 
+enum AdvanceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+  CANCELLED
+}
+
 // ───────────────────────────── Core / identity ─────────────────────────────
 
 model Department {
@@ -369,10 +378,11 @@ model User {
   activityLogs ActivityLog[]
 
   // RH & espace de travail
-  employee       Employee?      @relation("UserEmployee")
-  tasksAssigned  Task[]         @relation("TaskAssignee")
-  tasksCreated   Task[]         @relation("TaskCreator")
-  leaveDecisions LeaveRequest[] @relation("LeaveDecider")
+  employee         Employee?       @relation("UserEmployee")
+  tasksAssigned    Task[]          @relation("TaskAssignee")
+  tasksCreated     Task[]          @relation("TaskCreator")
+  leaveDecisions   LeaveRequest[]  @relation("LeaveDecider")
+  advanceDecisions SalaryAdvance[] @relation("AdvanceDecider")
 
   @@index([role])
   @@index([departmentId])
@@ -972,6 +982,7 @@ enum FinanceCategory {
   PRET // emprunt reçu
   REMBOURSEMENT // remboursement d'emprunt
   SALAIRE // charges de personnel / paie
+  AVANCE // avance sur salaire
   LOYER
   VOYAGE // déplacements, missions
   EVENEMENT // table ronde, congrès, sponsoring payé
@@ -1071,6 +1082,7 @@ model Employee {
   payrolls      PayrollEntry[]
   transactions  FinanceTransaction[]
   leaveRequests LeaveRequest[]
+  advances      SalaryAdvance[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1129,6 +1141,30 @@ model Task {
   @@index([assignedToId, status])
   @@index([createdById])
   @@index([dueDate])
+  @@index([status])
+}
+
+/// Demande d'avance sur salaire. Validée par les RH, réglée par la Comptabilité
+/// (crée alors une écriture de trésorerie OUT) et déductible d'un futur bulletin.
+model SalaryAdvance {
+  custom        Json?
+  id            String        @id @default(cuid())
+  employeeId    String
+  employee      Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  amount        Decimal       @db.Decimal(12, 2)
+  reason        String?
+  status        AdvanceStatus @default(PENDING)
+  decidedById   String?
+  decidedBy     User?         @relation("AdvanceDecider", fields: [decidedById], references: [id])
+  decidedAt     DateTime?
+  decisionNote  String?
+  transactionId String? // écriture Finances générée au paiement
+  paidDate      DateTime?
+  createdById   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([employeeId])
   @@index([status])
 }
 

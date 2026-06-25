@@ -31,6 +31,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   PAYROLL: "FINANCES",
   LEAVE_REQUEST: "RH",
   TASK: "WORKSPACE",
+  SALARY_ADVANCE: "RH",
 };
 
 /**

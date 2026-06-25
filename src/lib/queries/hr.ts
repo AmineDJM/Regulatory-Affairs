@@ -3,7 +3,7 @@ import { toNumber } from "@/lib/utils";
 
 /** Personalised workspace data for the signed-in user ("Mon espace"). */
 export async function getMyWorkspace(userId: string) {
-  const [employee, myTasks, delegated, myLeaves, activity] = await Promise.all([
+  const [employee, myTasks, delegated, myLeaves, myAdvances, activity] = await Promise.all([
     prisma.employee.findUnique({
       where: { userId },
       select: { id: true, leaveBalanceDays: true, contractType: true, contractEnd: true, position: true, department: true },
@@ -24,6 +24,11 @@ export async function getMyWorkspace(userId: string) {
       orderBy: { startDate: "desc" },
       take: 12,
     }),
+    prisma.salaryAdvance.findMany({
+      where: { employee: { userId } },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
     prisma.activityLog.findMany({
       where: { userId, type: "PAGE_VIEW" },
       orderBy: { createdAt: "desc" },
@@ -34,17 +39,20 @@ export async function getMyWorkspace(userId: string) {
   const now = Date.now();
   const overdue = myTasks.filter((t) => t.dueDate && t.dueDate.getTime() < now).length;
   const pendingLeaves = myLeaves.filter((l) => l.status === "PENDING").length;
+  const pendingAdvances = myAdvances.filter((a) => a.status === "PENDING").length;
 
   return {
     employee,
     myTasks,
     delegated,
     myLeaves,
+    myAdvances,
     activity,
     stats: {
       openTasks: myTasks.length,
       overdue,
       pendingLeaves,
+      pendingAdvances,
       leaveBalance: employee ? toNumber(employee.leaveBalanceDays) : null,
     },
   };
@@ -56,7 +64,7 @@ export async function getRhData() {
   const in60 = new Date();
   in60.setDate(now.getDate() + 60);
 
-  const [employees, pendingLeaves, recentLeaves] = await Promise.all([
+  const [employees, pendingLeaves, recentLeaves, advances] = await Promise.all([
     prisma.employee.findMany({
       orderBy: [{ isActive: "desc" }, { fullName: "asc" }],
       include: { user: { select: { id: true, email: true } }, _count: { select: { leaveRequests: true } } },
@@ -71,6 +79,11 @@ export async function getRhData() {
       include: { employee: { select: { fullName: true } } },
       orderBy: { decidedAt: "desc" },
       take: 15,
+    }),
+    prisma.salaryAdvance.findMany({
+      where: { status: { in: ["PENDING", "APPROVED"] } },
+      include: { employee: { select: { id: true, fullName: true } } },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
 
@@ -91,6 +104,7 @@ export async function getRhData() {
     employees,
     pendingLeaves,
     recentLeaves,
+    advances,
     contractsExpiring,
     byDepartment,
     stats: {
@@ -98,6 +112,7 @@ export async function getRhData() {
       active: active.length,
       pending: pendingLeaves.length,
       expiring: contractsExpiring.length,
+      advances: advances.filter((a) => a.status === "PENDING").length,
       masseSalariale,
     },
   };

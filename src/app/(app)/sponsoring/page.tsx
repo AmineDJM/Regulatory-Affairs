@@ -40,7 +40,7 @@ export default async function SponsoringPage() {
           <CreateRecordButton
             label="Nouvelle demande"
             title="Nouvelle demande de sponsoring"
-            description="Au-delà de 100 000 DZD, la demande est routée vers la Direction."
+            description="Renseignez le budget demandé et votre budget suggéré. Vous pourrez joindre un justificatif (optionnel) sur l'écran suivant. Au-delà de 100 000 DZD, la demande est routée vers la Direction."
             action={createSponsoring}
             redirectBase="/sponsoring"
             fields={[
@@ -48,11 +48,13 @@ export default async function SponsoringPage() {
               { type: "text", name: "doctor", label: "Médecin concerné" },
               { type: "text", name: "specialty", label: "Spécialité" },
               { type: "text", name: "city", label: "Ville" },
-              { type: "text", name: "type", label: "Type de sponsoring", placeholder: "Congrès, formation…" },
+              { type: "text", name: "type", label: "Type (congrès, table ronde…)", placeholder: "Congrès, formation…" },
               { type: "text", name: "product", label: "Produit concerné" },
-              { type: "number", name: "amountRequested", label: "Montant demandé (DZD)" },
+              { type: "number", name: "amountRequested", label: "Budget demandé par l'intéressé (DZD)" },
+              { type: "number", name: "amountProposed", label: "Budget suggéré par le délégué (DZD)" },
               { type: "select", name: "strategicImportance", label: "Importance stratégique", options: optionsFromMap(PRIORITY), defaultValue: "MEDIUM" },
               { type: "textarea", name: "description", label: "Description de la demande" },
+              { type: "textarea", name: "comments", label: "Appréciation personnelle / recommandation" },
             ]}
           />
         )}
