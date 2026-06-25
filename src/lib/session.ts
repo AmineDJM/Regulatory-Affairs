@@ -1,9 +1,13 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Session } from "next-auth";
 import type { UserRole } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "./prisma";
 import { getAccess, userCan, type Action, type EffectiveAccess, type Module } from "./rbac";
+
+/** Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. */
+export const IMPERSONATE_COOKIE = "amd_impersonate";
 
 export interface CurrentUser {
   id: string;
@@ -13,6 +17,8 @@ export interface CurrentUser {
   access: EffectiveAccess;
   sid?: string;
   mustChangePassword: boolean;
+  /** Présent quand un Super Admin visualise l'OS « comme » cet utilisateur. */
+  impersonatedBy?: { id: string; name: string };
 }
 
 async function build(session: Session | null): Promise<CurrentUser | null> {
@@ -30,6 +36,32 @@ async function build(session: Session | null): Promise<CurrentUser | null> {
     prisma.userSession
       .update({ where: { id: sid }, data: { lastSeenAt: new Date() } })
       .catch(() => undefined);
+  }
+
+  // « Vue exacte » : un Super Admin peut visualiser l'OS exactement comme un autre
+  // utilisateur. Le cookie n'est honoré QUE si la session réelle est Super Admin —
+  // un cookie forgé par un non-admin est donc sans effet.
+  if (session.user.role === "SUPER_ADMIN") {
+    const targetId = cookies().get(IMPERSONATE_COOKIE)?.value;
+    if (targetId && targetId !== session.user.id) {
+      const target = await prisma.user.findUnique({
+        where: { id: targetId },
+        select: { id: true, name: true, email: true, role: true, isActive: true },
+      });
+      if (target && target.isActive) {
+        const targetAccess = await getAccess(target.id, target.role);
+        return {
+          id: target.id,
+          name: target.name,
+          email: target.email,
+          role: target.role,
+          access: targetAccess,
+          sid,
+          mustChangePassword: false,
+          impersonatedBy: { id: session.user.id, name: session.user.name ?? "Administrateur" },
+        };
+      }
+    }
   }
 
   const access = await getAccess(session.user.id, session.user.role);

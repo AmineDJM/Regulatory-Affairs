@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { ImpersonateButton } from "./impersonate-button";
 import { prisma } from "@/lib/prisma";
 import { PERMISSIONS, defaultScope, MODULES, type Action, type Module } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -83,9 +84,9 @@ export default async function AdminUserPage({ params }: { params: { id: string }
         <ArrowLeft className="h-4 w-4" /> Retour à l’administration
       </Link>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Avatar name={target.name} color={target.avatarColor} size="lg" />
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">{target.name}</h1>
           <p className="text-sm text-muted-foreground">
             {target.email} · {ROLE_LABELS[target.role] ?? target.role}
@@ -96,6 +97,9 @@ export default async function AdminUserPage({ params }: { params: { id: string }
             )}
           </p>
         </div>
+        {admin.role === "SUPER_ADMIN" && target.isActive && target.id !== admin.id && (
+          <ImpersonateButton userId={target.id} />
+        )}
       </div>
 
       <Card>

@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { ActivityTracker } from "@/components/layout/activity-tracker";
 import { CommandPalette } from "@/components/layout/command-palette";
+import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
 import { prisma } from "@/lib/prisma";
 
 export default async function AppLayout({
@@ -27,6 +28,7 @@ export default async function AppLayout({
       <CommandPalette navItems={navItems} />
       <Sidebar items={navItems} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {user.impersonatedBy && <ImpersonationBanner adminName={user.impersonatedBy.name} viewedName={user.name} />}
         <Topbar navItems={navItems} user={user} unreadCount={unreadCount} />
         <main className="flex-1 overflow-y-auto px-4 py-6 lg:px-8">
           <div className="mx-auto max-w-[1400px] space-y-6">{children}</div>
