@@ -61,6 +61,17 @@ export const REGULATORY_STATUS: Record<string, Display> = {
   CLOSED: { label: "Clôturé", tone: "success" },
 };
 
+/** Statut SIMPLIFIÉ visible par le fournisseur dans le portail externe. */
+export const EXTERNAL_REGULATORY_STATUS: Record<string, Display> = {
+  IN_PREPARATION: { label: "Dossier en préparation", tone: "info" },
+  SUBMITTED: { label: "Dossier déposé", tone: "info" },
+  UNDER_REVIEW: { label: "En cours d'examen", tone: "warning" },
+  INFO_REQUESTED: { label: "Compléments demandés", tone: "warning" },
+  APPROVED: { label: "Enregistrement obtenu", tone: "success" },
+  ON_HOLD: { label: "En attente", tone: "neutral" },
+  CLOSED: { label: "Clôturé", tone: "neutral" },
+};
+
 export const STEP_STATUS: Record<string, Display> = {
   NOT_STARTED: { label: "Non commencé", tone: "neutral" },
   IN_PROGRESS: { label: "En cours", tone: "info" },
@@ -421,6 +432,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   BD_PROJECT: "Projet BD",
   FEEDBACK: "Feedback",
   VALIDATION_REQUEST: "Validation",
+  SUPPLIER: "Fournisseur",
 };
 
 export const FEEDBACK_STATUS: Record<string, Display> = {

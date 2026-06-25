@@ -17,8 +17,10 @@ import { StepTimeline, type StepItem } from "./step-timeline";
 import { StatusEditor } from "./status-editor";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { getFieldDefs } from "@/lib/custom-fields";
+import { suggestedExternalStatus } from "@/lib/regulatory-external";
 import { PRIORITY, REGULATORY_STATUS, PRODUCT_TYPE } from "@/lib/labels";
 import { formatDate, formatDateTime } from "@/lib/utils";
+import { SupplierViewCard } from "./supplier-view-card";
 
 const REG_DOC_CATEGORIES = [
   "CTD_FULL", "MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5",
@@ -43,7 +45,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
   });
   if (!product) notFound();
 
-  const [documents, comments, fieldDefs] = await Promise.all([
+  const [documents, comments, fieldDefs, suppliers] = await Promise.all([
     prisma.document.findMany({
       where: { entityType: "REGULATORY_PRODUCT", entityId: product.id },
       include: { uploadedBy: { select: { name: true } } },
@@ -55,7 +57,19 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
       orderBy: { createdAt: "desc" },
     }),
     getFieldDefs("REGULATORY_PRODUCT"),
+    prisma.supplier.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
+
+  const supplierViewValues = {
+    supplierId: product.supplierId ?? "",
+    portalVisible: product.portalVisible,
+    externalStatus: product.externalStatus ?? "",
+    externalComment: product.externalComment ?? "",
+    externalNextStep: product.externalNextStep ?? "",
+    externalActionExpected: product.externalActionExpected ?? "",
+    externalDeadline: product.externalDeadline ? product.externalDeadline.toISOString().slice(0, 10) : "",
+    externalNotify: product.externalNotify,
+  };
 
   const canUpdate = userCan(user, "REGULATORY", "UPDATE");
   const canUpload = userCan(user, "REGULATORY", "UPLOAD");
@@ -188,6 +202,22 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                 />
               )}
               <DocumentList documents={docItems} canDelete={canDelete} path={`/regulatory/${product.id}`} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle>Vue fournisseur (portail)</CardTitle>
+              {product.portalVisible && <Badge tone="success" dot={false}>Publié</Badge>}
+            </CardHeader>
+            <CardContent>
+              <SupplierViewCard
+                productId={product.id}
+                suppliers={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+                values={supplierViewValues}
+                suggestedStatus={suggestedExternalStatus(product.status)}
+                canUpdate={canUpdate}
+              />
             </CardContent>
           </Card>
 

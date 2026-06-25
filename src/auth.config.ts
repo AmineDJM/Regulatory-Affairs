@@ -17,6 +17,11 @@ export const authConfig = {
       const isLoggedIn = !!auth?.user;
       const isOnLogin = nextUrl.pathname.startsWith("/login");
 
+      // Le portail fournisseur est EXTERNE : il a sa propre authentification
+      // (cookie de session SupplierUser, vérifié au niveau page via requireSupplier).
+      // Il ne doit jamais être soumis à l'auth interne NextAuth.
+      if (nextUrl.pathname.startsWith("/portail")) return true;
+
       if (isOnLogin) {
         if (isLoggedIn) {
           return Response.redirect(new URL("/dashboard", nextUrl));

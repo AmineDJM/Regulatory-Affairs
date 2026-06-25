@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Settings2, Activity, Columns3, MessageSquare, ShieldCheck } from "lucide-react";
+import { Settings2, Activity, Columns3, MessageSquare, ShieldCheck, Factory } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -49,6 +49,9 @@ export default async function AdminPage() {
             </Link>
             <Link href="/admin/feedback">
               <Button variant="outline"><MessageSquare className="h-4 w-4" /> Feedbacks</Button>
+            </Link>
+            <Link href="/admin/suppliers">
+              <Button variant="outline"><Factory className="h-4 w-4" /> Fournisseurs</Button>
             </Link>
           </>
         )}

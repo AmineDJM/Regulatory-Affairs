@@ -72,6 +72,19 @@ enum StepStatus {
   LATE
 }
 
+/// Statut SIMPLIFIÉ montré au fournisseur dans le portail externe.
+/// Volontairement distinct du statut interne : l'équipe Regulatory contrôle
+/// exactement ce que le fournisseur voit.
+enum ExternalRegulatoryStatus {
+  IN_PREPARATION // Dossier en préparation
+  SUBMITTED // Dossier déposé
+  UNDER_REVIEW // En cours d'examen
+  INFO_REQUESTED // Compléments demandés au fournisseur
+  APPROVED // Enregistrement obtenu
+  ON_HOLD // En attente
+  CLOSED // Clôturé
+}
+
 enum RegulatoryStepType {
   PRE_SUBMISSION
   CTD_PREPARATION
@@ -232,6 +245,7 @@ enum EntityType {
   DRIVER_MISSION
   FEEDBACK
   VALIDATION_REQUEST
+  SUPPLIER
 }
 
 enum DocumentCategory {
@@ -526,6 +540,20 @@ model RegulatoryProduct {
 
   steps RegulatoryStep[]
 
+  // ─── Vue fournisseur (portail externe) — pilotée par l'équipe Regulatory ───
+  // Le fournisseur ne voit QUE ces champs externes, jamais le statut/les notes
+  // internes, et uniquement si portalVisible = true.
+  supplierId             String?
+  supplier               Supplier?                 @relation(fields: [supplierId], references: [id])
+  portalVisible          Boolean                   @default(false)
+  externalStatus         ExternalRegulatoryStatus?
+  externalComment        String?
+  externalNextStep       String?
+  externalActionExpected String?
+  externalDeadline       DateTime?
+  externalNotify         Boolean                   @default(false)
+  externalUpdatedAt      DateTime?
+
   createdById String?
   updatedById String?
   createdAt   DateTime @default(now())
@@ -536,6 +564,7 @@ model RegulatoryProduct {
   @@index([responsibleId])
   @@index([assistantId])
   @@index([dci])
+  @@index([supplierId])
 }
 
 model RegulatoryStep {
@@ -1686,6 +1715,44 @@ model ValidationStep {
 
   @@index([validatorId, status])
   @@index([requestId])
+}
+
+// ─────────────── Portail Fournisseur (comptes externes isolés) ───────────────
+// Comptes EXTERNES, totalement séparés des utilisateurs internes (table dédiée,
+// session dédiée). Un fournisseur ne voit QUE ses propres produits, et seulement
+// les champs externes exposés par l'équipe Regulatory.
+
+model Supplier {
+  id           String   @id @default(cuid())
+  name         String
+  country      String?
+  contactEmail String?
+  active       Boolean  @default(true)
+  notes        String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users    SupplierUser[]
+  products RegulatoryProduct[]
+
+  @@index([active])
+}
+
+model SupplierUser {
+  id           String    @id @default(cuid())
+  supplierId   String
+  supplier     Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  email        String    @unique
+  name         String
+  passwordHash String
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([supplierId])
 }
 
 // ─────────────── Feedback utilisateur ───────────────
