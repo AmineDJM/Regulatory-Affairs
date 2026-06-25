@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, X, Loader2, Banknote } from "lucide-react";
+import { Check, X, Loader2 } from "lucide-react";
 import { decideSponsoring } from "@/lib/actions/sponsoring-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label } from "@/components/ui/input";
@@ -23,7 +23,7 @@ export function DecisionPanel({ id }: { id: string }) {
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="decision" value={decision ?? ""} />
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
           onClick={() => setDecision("ACCEPTED")}
@@ -42,21 +42,13 @@ export function DecisionPanel({ id }: { id: string }) {
         >
           <X className="h-4 w-4" /> Refuser
         </button>
-        <button
-          type="button"
-          onClick={() => setDecision("PAID")}
-          className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-medium transition-colors ${
-            decision === "PAID" ? "border-success bg-success/10 text-success" : "border-border hover:bg-secondary"
-          }`}
-        >
-          <Banknote className="h-4 w-4" /> Payé
-        </button>
       </div>
 
-      {(decision === "ACCEPTED" || decision === "PAID") && (
+      {decision === "ACCEPTED" && (
         <div className="space-y-1">
-          <Label htmlFor="amountGranted">Montant accordé (DZD)</Label>
+          <Label htmlFor="amountGranted">Budget accordé (DZD)</Label>
           <Input id="amountGranted" name="amountGranted" type="number" step="any" required />
+          <p className="text-xs text-muted-foreground">Un ordre de dépense sera transmis au comptable pour règlement.</p>
         </div>
       )}
 

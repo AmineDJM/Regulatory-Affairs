@@ -7,6 +7,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
+import { createExpenseOrder } from "@/lib/expense-orders";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 // Above this amount (DZD) a sponsoring requires Direction validation.
@@ -81,20 +82,33 @@ export async function decideSponsoring(formData: FormData): Promise<ActionResult
   const before = await prisma.sponsoringRequest.findUnique({ where: { id } });
   if (!before) return { ok: false, error: "Demande introuvable." };
 
-  const decision = fdStr(formData, "decision") as SponsoringStatus; // ACCEPTED | REFUSED | PAID
+  const decision = fdStr(formData, "decision") as SponsoringStatus; // ACCEPTED | REFUSED
   const amountGranted = fdNum(formData, "amountGranted");
 
   await prisma.sponsoringRequest.update({
     where: { id },
     data: {
       status: decision,
-      amountGranted: decision === "ACCEPTED" || decision === "PAID" ? amountGranted : 0,
+      amountGranted: decision === "ACCEPTED" ? amountGranted : 0,
       finalDecision: fdStr(formData, "finalDecision"),
       validatedBy: user.name,
       validationDate: new Date(),
       updatedById: user.id,
     },
   });
+
+  // Direction accepts a spend → emit an ordre de dépense for the comptable.
+  if (decision === "ACCEPTED" && amountGranted && amountGranted > 0) {
+    await createExpenseOrder({
+      label: `Sponsoring ${before.reference} — ${before.institution}`,
+      amount: amountGranted,
+      category: "EVENEMENT",
+      beneficiary: before.institution,
+      sourceType: "SPONSORING",
+      sourceId: id,
+      requestedById: user.id,
+    });
+  }
 
   await recordAudit({
     actorId: user.id,

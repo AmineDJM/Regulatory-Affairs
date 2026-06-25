@@ -205,6 +205,7 @@ enum EntityType {
   LEAVE_REQUEST
   TASK
   SALARY_ADVANCE
+  EXPENSE_ORDER
 }
 
 enum DocumentCategory {
@@ -317,6 +318,12 @@ enum AdvanceStatus {
   CANCELLED
 }
 
+enum ExpenseOrderStatus {
+  PENDING // émis par la validation, en attente d'exécution par le comptable
+  PAID // réglé → écriture de trésorerie générée
+  CANCELLED
+}
+
 // ───────────────────────────── Core / identity ─────────────────────────────
 
 model Department {
@@ -383,6 +390,7 @@ model User {
   tasksCreated     Task[]          @relation("TaskCreator")
   leaveDecisions   LeaveRequest[]  @relation("LeaveDecider")
   advanceDecisions SalaryAdvance[] @relation("AdvanceDecider")
+  expenseOrders    ExpenseOrder[]  @relation("ExpenseOrderRequester")
 
   @@index([role])
   @@index([departmentId])
@@ -1166,6 +1174,34 @@ model SalaryAdvance {
 
   @@index([employeeId])
   @@index([status])
+}
+
+/// Ordre de dépense : émis automatiquement quand la Direction valide une dépense
+/// (sponsoring accepté, avance approuvée…). Le comptable l'exécute, ce qui génère
+/// l'écriture de trésorerie OUT et marque la source comme payée.
+model ExpenseOrder {
+  custom        Json?
+  id            String             @id @default(cuid())
+  reference     String             @unique // OD-2026-001
+  label         String
+  beneficiary   String?
+  amount        Decimal            @db.Decimal(14, 2)
+  category      FinanceCategory    @default(AUTRE)
+  status        ExpenseOrderStatus @default(PENDING)
+  dueDate       DateTime?
+  notes         String?
+  sourceType    EntityType? // SPONSORING, SALARY_ADVANCE…
+  sourceId      String?
+  requestedById String?
+  requestedBy   User?              @relation("ExpenseOrderRequester", fields: [requestedById], references: [id])
+  paidById      String?
+  transactionId String?
+  paidDate      DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([status])
+  @@index([sourceType, sourceId])
 }
 
 /// Monthly payslip. When PAID it links to a FinanceTransaction (treasury OUT).

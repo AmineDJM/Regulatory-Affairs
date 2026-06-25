@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Users } from "lucide-react";
+import { Users, ReceiptText } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
 import { getFinanceData } from "@/lib/queries/finance";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -23,10 +24,17 @@ export default async function FinancesPage() {
   const user = await requireModule("FINANCES");
   const canCreate = userCan(user, "FINANCES", "CREATE");
   const data = await getFinanceData();
+  const pendingOrders = await prisma.expenseOrder.count({ where: { status: "PENDING" } });
 
   return (
     <div className="space-y-6">
       <PageHeader title="Finances" description="Trésorerie, livre comptable et paie — la situation financière en temps réel.">
+        <Link href="/finances/ordres-de-depense">
+          <Button variant="outline">
+            <ReceiptText className="h-4 w-4" /> Ordres de dépense
+            {pendingOrders > 0 && <span className="ml-1 rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">{pendingOrders}</span>}
+          </Button>
+        </Link>
         <Link href="/finances/paie"><Button variant="outline"><Users className="h-4 w-4" /> Paie</Button></Link>
         {canCreate && (
           <>

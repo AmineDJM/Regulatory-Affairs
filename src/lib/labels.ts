@@ -329,6 +329,12 @@ export const ADVANCE_STATUS: Record<string, Display> = {
   CANCELLED: { label: "Annulée", tone: "neutral" },
 };
 
+export const EXPENSE_ORDER_STATUS: Record<string, Display> = {
+  PENDING: { label: "À régler", tone: "warning" },
+  PAID: { label: "Réglé", tone: "success" },
+  CANCELLED: { label: "Annulé", tone: "neutral" },
+};
+
 export const ENTITY_TYPE_LABELS: Record<string, string> = {
   FINANCE_TRANSACTION: "Finances",
   EMPLOYEE: "Employé",
@@ -336,6 +342,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   LEAVE_REQUEST: "Congé",
   TASK: "Tâche",
   SALARY_ADVANCE: "Avance sur salaire",
+  EXPENSE_ORDER: "Ordre de dépense",
   REGULATORY_PRODUCT: "Regulatory",
   REGULATORY_STEP: "Étape Regulatory",
   SPONSORING: "Sponsoring",

@@ -32,6 +32,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   LEAVE_REQUEST: "RH",
   TASK: "WORKSPACE",
   SALARY_ADVANCE: "RH",
+  EXPENSE_ORDER: "FINANCES",
 };
 
 /**

@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Check, X, Banknote } from "lucide-react";
-import { decideAdvance, payAdvance } from "@/lib/actions/hr-actions";
+import { Loader2, Check, X } from "lucide-react";
+import { decideAdvance } from "@/lib/actions/hr-actions";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -34,20 +34,7 @@ function DecideButton({ id, decision, label, icon: IconCmp, danger }: { id: stri
   );
 }
 
-function PayButton({ id }: { id: string }) {
-  const [saving, setSaving] = React.useState(false);
-  return (
-    <form action={async (fd) => { setSaving(true); await payAdvance(fd); setSaving(false); }} className="inline">
-      <input type="hidden" name="id" value={id} />
-      <button type="submit" disabled={saving}
-        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-secondary disabled:opacity-50">
-        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Banknote className="h-3.5 w-3.5" />} Régler
-      </button>
-    </form>
-  );
-}
-
-export function AdvanceApprovals({ rows, canPay }: { rows: AdvanceRow[]; canPay: boolean }) {
+export function AdvanceApprovals({ rows }: { rows: AdvanceRow[] }) {
   if (rows.length === 0) {
     return <EmptyState icon="Banknote" title="Aucune avance en cours" description="Les demandes d'avance sur salaire à traiter apparaîtront ici." />;
   }
@@ -80,7 +67,7 @@ export function AdvanceApprovals({ rows, canPay }: { rows: AdvanceRow[]; canPay:
                       <DecideButton id={r.id} decision="REJECTED" label="Refuser" icon={X} danger />
                     </>
                   )}
-                  {r.status === "APPROVED" && (canPay ? <PayButton id={r.id} /> : <Badge tone="warning" dot={false}>À régler</Badge>)}
+                  {r.status === "APPROVED" && <Badge tone="info" dot={false}>Ordre transmis au comptable</Badge>}
                 </div>
               </TableCell>
             </TableRow>

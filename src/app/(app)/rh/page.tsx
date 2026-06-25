@@ -22,7 +22,6 @@ export default async function RhPage() {
   const user = await requireModule("RH");
   const canCreate = userCan(user, "RH", "CREATE");
   const canValidate = userCan(user, "RH", "VALIDATE");
-  const canPayFinance = userCan(user, "FINANCES", "UPDATE");
   const data = await getRhData();
 
   const advanceRows: AdvanceRow[] = data.advances.map((a) => ({
@@ -88,10 +87,11 @@ export default async function RhPage() {
         </section>
       )}
 
-      {(canValidate || canPayFinance) && (
+      {canValidate && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Avances sur salaire</h2>
-          <AdvanceApprovals rows={advanceRows} canPay={canPayFinance} />
+          <p className="text-xs text-muted-foreground">Une fois approuvée, un ordre de dépense est transmis au comptable pour règlement.</p>
+          <AdvanceApprovals rows={advanceRows} />
         </section>
       )}
 

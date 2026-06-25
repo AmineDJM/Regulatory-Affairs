@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit, recordFieldChanges } from "@/lib/audit";
+import { createExpenseOrder } from "@/lib/expense-orders";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
 /** Inclusive calendar-day count between two dates (min 1). */
@@ -255,12 +256,6 @@ export async function cancelLeave(formData: FormData): Promise<ActionResult> {
 
 // ─────────────────────────── Avance sur salaire ───────────────────────────
 
-async function nextFinanceRef(): Promise<string> {
-  const year = new Date().getFullYear();
-  const count = await prisma.financeTransaction.count({ where: { reference: { startsWith: `FIN-${year}-` } } });
-  return `FIN-${year}-${String(count + 1).padStart(3, "0")}`;
-}
-
 /** Request a salary advance (self-service, or RH on behalf of an employee). */
 export async function requestAdvance(
   _prev: ActionResult | undefined,
@@ -321,6 +316,20 @@ export async function decideAdvance(formData: FormData): Promise<ActionResult> {
       },
     }).catch(() => undefined);
   }
+
+  // Approval → emit an ordre de dépense for the comptable (who settles it).
+  if (decision === "APPROVED") {
+    await createExpenseOrder({
+      label: `Avance sur salaire — ${adv.employee.fullName}`,
+      amount: Number(adv.amount),
+      category: "AVANCE",
+      beneficiary: adv.employee.fullName,
+      sourceType: "SALARY_ADVANCE",
+      sourceId: id,
+      requestedById: user.id,
+    });
+  }
+
   await recordAudit({
     actorId: user.id, action: decision === "APPROVED" ? "VALIDATE" : "REFUSE", module: "Ressources humaines",
     entityType: "SALARY_ADVANCE", entityId: id,
@@ -328,38 +337,6 @@ export async function decideAdvance(formData: FormData): Promise<ActionResult> {
   });
   revalidatePath("/rh");
   revalidatePath("/mon-espace");
-  return { ok: true };
-}
-
-/** Settle an approved advance → records a treasury OUT transaction (Comptabilité/Finances). */
-export async function payAdvance(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Réservé à la comptabilité (Finances)." };
-  const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Demande introuvable." };
-  const adv = await prisma.salaryAdvance.findUnique({ where: { id }, include: { employee: true } });
-  if (!adv) return { ok: false, error: "Demande introuvable." };
-  if (adv.status === "PAID") return { ok: true };
-  if (adv.status !== "APPROVED") return { ok: false, error: "L'avance doit d'abord être approuvée." };
-
-  const tx = await prisma.financeTransaction.create({
-    data: {
-      reference: await nextFinanceRef(), date: new Date(), direction: "OUT", category: "AVANCE",
-      label: `Avance sur salaire — ${adv.employee.fullName}`, amount: adv.amount, method: "BANK_TRANSFER",
-      account: "Banque", counterparty: adv.employee.fullName, status: "SETTLED",
-      employeeId: adv.employeeId, createdById: user.id,
-    },
-  });
-  await prisma.salaryAdvance.update({
-    where: { id }, data: { status: "PAID", paidDate: new Date(), transactionId: tx.id },
-  });
-  await recordAudit({
-    actorId: user.id, action: "VALIDATE", module: "Ressources humaines", entityType: "SALARY_ADVANCE",
-    entityId: id, summary: `Avance réglée — ${adv.employee.fullName}`,
-  });
-  revalidatePath("/rh");
-  revalidatePath("/mon-espace");
-  revalidatePath("/finances");
   return { ok: true };
 }
 
