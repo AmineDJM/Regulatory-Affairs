@@ -287,10 +287,45 @@ export const PAYROLL_STATUS: Record<string, Display> = {
   PAID: { label: "Payé", tone: "success" },
 };
 
+export const CONTRACT_TYPE: Record<string, string> = {
+  CDI: "CDI",
+  CDD: "CDD",
+  INTERIM: "Intérim",
+  STAGE: "Stage",
+  FREELANCE: "Freelance / Prestation",
+  OTHER: "Autre",
+};
+
+export const LEAVE_TYPE: Record<string, string> = {
+  ANNUAL: "Congé annuel",
+  SICK: "Maladie",
+  UNPAID: "Sans solde",
+  MATERNITY: "Maternité / Paternité",
+  SPECIAL: "Événement familial",
+  RECOVERY: "Récupération",
+  OTHER: "Autre",
+};
+
+export const LEAVE_STATUS: Record<string, Display> = {
+  PENDING: { label: "En attente", tone: "warning" },
+  APPROVED: { label: "Approuvé", tone: "success" },
+  REJECTED: { label: "Refusé", tone: "danger" },
+  CANCELLED: { label: "Annulé", tone: "neutral" },
+};
+
+export const TASK_STATUS: Record<string, Display> = {
+  TODO: { label: "À faire", tone: "neutral" },
+  IN_PROGRESS: { label: "En cours", tone: "info" },
+  DONE: { label: "Terminé", tone: "success" },
+  CANCELLED: { label: "Annulé", tone: "danger" },
+};
+
 export const ENTITY_TYPE_LABELS: Record<string, string> = {
   FINANCE_TRANSACTION: "Finances",
   EMPLOYEE: "Employé",
   PAYROLL: "Paie",
+  LEAVE_REQUEST: "Congé",
+  TASK: "Tâche",
   REGULATORY_PRODUCT: "Regulatory",
   REGULATORY_STEP: "Étape Regulatory",
   SPONSORING: "Sponsoring",
@@ -343,11 +378,13 @@ export interface NavItem {
 }
 
 export const NAVIGATION: NavItem[] = [
+  { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", group: "Pilotage" },
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring", icon: "HandCoins", group: "Pôles" },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles" },
   { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
+  { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles" },
   { module: "CONGRESS_INTERNATIONAL", label: "Congrès internationaux", href: "/congress-international", icon: "Globe", group: "Pôles" },
   { module: "CONGRESS_NATIONAL", label: "Congrès nationaux", href: "/congress-national", icon: "MapPin", group: "Pôles" },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
