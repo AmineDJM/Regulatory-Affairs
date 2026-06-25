@@ -419,6 +419,36 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   DELEGATE_PLAN: "Plan de tournée",
   BD_OPPORTUNITY: "Business Development",
   BD_PROJECT: "Projet BD",
+  FEEDBACK: "Feedback",
+  VALIDATION_REQUEST: "Validation",
+};
+
+export const FEEDBACK_STATUS: Record<string, Display> = {
+  NEW: { label: "À traiter", tone: "warning" },
+  SEEN: { label: "Vu", tone: "info" },
+  IN_PROGRESS: { label: "En cours", tone: "info" },
+  DONE: { label: "Traité", tone: "success" },
+};
+
+export const VALIDATION_STATUS: Record<string, Display> = {
+  PENDING: { label: "En attente", tone: "warning" },
+  APPROVED: { label: "Validé", tone: "success" },
+  REJECTED: { label: "Refusé", tone: "danger" },
+  CHANGES_REQUESTED: { label: "Modif. demandée", tone: "info" },
+  CANCELLED: { label: "Annulé", tone: "neutral" },
+};
+
+export const VALIDATION_STEP_STATE: Record<string, Display> = {
+  PENDING: { label: "En attente", tone: "warning" },
+  APPROVED: { label: "Validé", tone: "success" },
+  REJECTED: { label: "Refusé", tone: "danger" },
+  CHANGES_REQUESTED: { label: "Modif. demandée", tone: "info" },
+  SKIPPED: { label: "Ignoré", tone: "neutral" },
+};
+
+export const VALIDATION_MODE: Record<string, string> = {
+  SEQUENTIAL: "Séquentiel",
+  PARALLEL: "Parallèle",
 };
 
 export const NOTIFICATION_TYPE: Record<string, Display> = {
@@ -459,6 +489,7 @@ export interface NavItem {
 }
 
 export const NAVIGATION: NavItem[] = [
+  { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail", icon: "CircleCheckBig", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", group: "Pilotage" },
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
@@ -473,9 +504,11 @@ export const NAVIGATION: NavItem[] = [
   { module: "LOGISTICS", label: "Logistique PCH", href: "/logistics", icon: "Truck", group: "Pôles" },
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
+  { module: "VALIDATIONS", label: "Validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
   { module: "DRIVE", label: "Drive", href: "/drive", icon: "HardDrive", group: "Transverse" },
   { module: "ADMIN_REQUESTS", label: "Demandes administratives", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "DOCUMENTS", label: "Documents", href: "/documents", icon: "FolderOpen", group: "Transverse" },
   { module: "NOTIFICATIONS", label: "Notifications", href: "/notifications", icon: "Bell", group: "Transverse" },
+  { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   { module: "ADMIN", label: "Administration", href: "/admin", icon: "Settings", group: "Système" },
 ];

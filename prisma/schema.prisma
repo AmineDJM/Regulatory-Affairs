@@ -230,6 +230,8 @@ enum EntityType {
   DRIVE_NODE
   ADMIN_REQUEST
   DRIVER_MISSION
+  FEEDBACK
+  VALIDATION_REQUEST
 }
 
 enum DocumentCategory {
@@ -399,6 +401,14 @@ enum DriverMissionStatus {
   CANCELLED
 }
 
+/// Suivi des retours utilisateurs (feedback) côté admin.
+enum FeedbackStatus {
+  NEW // à traiter
+  SEEN // vu
+  IN_PROGRESS // en cours
+  DONE // traité
+}
+
 // ───────────────────────────── Core / identity ─────────────────────────────
 
 model Department {
@@ -478,6 +488,11 @@ model User {
   adminRequestsValidating AdministrativeRequest[] @relation("ReqValidator")
   adminApprovals          AdminApproval[]         @relation("ApprovalValidator")
   driverMissions          DriverMission[]         @relation("MissionDriver")
+
+  // Validations transversales + feedback
+  validationRequests ValidationRequest[] @relation("ValidationRequester")
+  validationSteps    ValidationStep[]    @relation("ValidationStepValidator")
+  feedbacks          Feedback[]          @relation("UserFeedback")
 
   @@index([role])
   @@index([departmentId])
@@ -1569,4 +1584,124 @@ model PayrollEntry {
   @@unique([employeeId, year, month])
   @@index([year, month])
   @@index([status])
+}
+
+// ─────────────── Validation Center (règles configurables par le Super Admin) ───────────────
+// Système de validation transversal : le Super Admin définit DES RÈGLES (qui valide
+// quoi, selon module / type / montant / département / rôle / priorité / catégorie),
+// et chaque demande de validation est routée vers 1 ou 2 validateurs, en séquentiel
+// ou en parallèle. Réutilisable par n'importe quel module.
+
+enum ValidationMode {
+  SEQUENTIAL // validateur 1 puis validateur 2
+  PARALLEL // les deux en même temps
+}
+
+enum ValidationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+  CANCELLED
+}
+
+enum ValidationStepState {
+  PENDING
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+  SKIPPED
+}
+
+model ValidationRule {
+  id            String         @id @default(cuid())
+  name          String
+  module        String? // module concerné (null = tous)
+  objectType    String? // type d'objet (PURCHASE, PAYMENT, SPONSORING, LEAVE…) (null = tous)
+  description   String?
+  minAmount     Decimal?       @db.Decimal(16, 2)
+  maxAmount     Decimal?       @db.Decimal(16, 2)
+  department    String?
+  requesterRole UserRole? // rôle du demandeur (null = tous)
+  priority      Priority? // priorité ciblée (null = toutes)
+  category      String?
+  validator1Id  String?
+  validator2Id  String?
+  mode          ValidationMode @default(SEQUENTIAL)
+  active        Boolean        @default(true)
+  sortOrder     Int            @default(0)
+  createdById   String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  requests ValidationRequest[]
+
+  @@index([active])
+  @@index([module])
+}
+
+model ValidationRequest {
+  id           String           @id @default(cuid())
+  reference    String           @unique // VAL-2026-001
+  ruleId       String?
+  rule         ValidationRule?  @relation(fields: [ruleId], references: [id])
+  module       String
+  objectType   String?
+  title        String
+  description  String?
+  amount       Decimal?         @db.Decimal(16, 2)
+  department   String?
+  priority     Priority         @default(MEDIUM)
+  category     String?
+  link         String? // URL vers l'objet source (pour ouvrir directement)
+  entityType   EntityType?
+  entityId     String?
+  requesterId  String
+  requester    User             @relation("ValidationRequester", fields: [requesterId], references: [id])
+  mode         ValidationMode   @default(SEQUENTIAL)
+  status       ValidationStatus @default(PENDING)
+  currentOrder Int              @default(1) // étape active en mode séquentiel
+  deadline     DateTime?
+  decidedAt    DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  steps ValidationStep[]
+
+  @@index([status])
+  @@index([requesterId])
+}
+
+model ValidationStep {
+  id          String              @id @default(cuid())
+  requestId   String
+  request     ValidationRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  order       Int
+  validatorId String
+  validator   User                @relation("ValidationStepValidator", fields: [validatorId], references: [id])
+  status      ValidationStepState @default(PENDING)
+  reason      String?
+  decidedAt   DateTime?
+  createdAt   DateTime            @default(now())
+
+  @@index([validatorId, status])
+  @@index([requestId])
+}
+
+// ─────────────── Feedback utilisateur ───────────────
+
+model Feedback {
+  id          String         @id @default(cuid())
+  userId      String
+  user        User           @relation("UserFeedback", fields: [userId], references: [id])
+  module      String? // module concerné (optionnel)
+  message     String
+  status      FeedbackStatus @default(NEW)
+  handledById String?
+  adminNote   String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([status])
+  @@index([userId])
 }

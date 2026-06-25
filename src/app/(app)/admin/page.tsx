@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Settings2, Activity, Columns3 } from "lucide-react";
+import { Settings2, Activity, Columns3, MessageSquare, ShieldCheck } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -42,6 +42,16 @@ export default async function AdminPage() {
         <Link href="/admin/activity">
           <Button variant="outline"><Activity className="h-4 w-4" /> Activité</Button>
         </Link>
+        {admin.role === "SUPER_ADMIN" && (
+          <>
+            <Link href="/admin/validations">
+              <Button variant="outline"><ShieldCheck className="h-4 w-4" /> Validations</Button>
+            </Link>
+            <Link href="/admin/feedback">
+              <Button variant="outline"><MessageSquare className="h-4 w-4" /> Feedbacks</Button>
+            </Link>
+          </>
+        )}
         {canManage && (
           <Link href="/admin/fields">
             <Button variant="outline"><Columns3 className="h-4 w-4" /> Champs personnalisés</Button>

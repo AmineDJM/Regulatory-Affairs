@@ -1,0 +1,73 @@
+import { requireModule } from "@/lib/session";
+import { accessibleModules } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+import { submitFeedback } from "@/lib/actions/feedback-actions";
+import { PageHeader } from "@/components/shared/page-header";
+import { EmptyState } from "@/components/shared/empty-state";
+import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
+import { StatusBadge } from "@/components/shared/status-badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { NAVIGATION, FEEDBACK_STATUS } from "@/lib/labels";
+import { formatDateTime } from "@/lib/utils";
+
+export default async function FeedbackPage() {
+  const user = await requireModule("WORKSPACE");
+
+  const mods = accessibleModules(user);
+  const seen = new Set<string>();
+  const moduleOptions = NAVIGATION
+    .filter((n) => mods.includes(n.module) && !seen.has(n.module) && seen.add(n.module))
+    .map((n) => ({ value: n.label, label: n.label }));
+
+  const myFeedbacks = await prisma.feedback.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+
+  const fields: FieldDef[] = [
+    { type: "select", name: "module", label: "Module concerné (optionnel)", options: moduleOptions, placeholder: "—", full: true },
+    { type: "textarea", name: "message", label: "Votre message", required: true, full: true, placeholder: "Un problème, une idée, une difficulté, une amélioration souhaitée…" },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title="Feedback"
+        description="Un problème, une idée, une amélioration ? Envoyez-moi un retour directement depuis votre compte."
+      >
+        <CreateRecordButton
+          label="Envoyer un feedback"
+          title="Envoyer un feedback"
+          description="Message libre. Indiquez le module concerné si pertinent."
+          width="md"
+          action={submitFeedback}
+          fields={fields}
+        />
+      </PageHeader>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes feedbacks envoyés</h2>
+        {myFeedbacks.length === 0 ? (
+          <EmptyState icon="MessageSquarePlus" title="Aucun feedback pour le moment" description="Vos retours apparaîtront ici, avec leur statut de traitement." />
+        ) : (
+          <div className="space-y-2">
+            {myFeedbacks.map((f) => (
+              <Card key={f.id}>
+                <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <p className="whitespace-pre-wrap text-sm">{f.message}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {f.module ? `${f.module} · ` : ""}{formatDateTime(f.createdAt)}
+                    </p>
+                  </div>
+                  <StatusBadge map={FEEDBACK_STATUS} value={f.status} />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
