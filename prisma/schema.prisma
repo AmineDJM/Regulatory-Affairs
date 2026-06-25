@@ -186,6 +186,26 @@ enum BDStatus {
   ABANDONED
 }
 
+/// Statut stratégique d'un projet Business Development (Projet → Gamme → Produit).
+enum BdProjectStatus {
+  IDEA // Idée
+  TO_ANALYZE // À analyser
+  IN_PROGRESS // En cours
+  AWAITING_SUPPLIER // En attente fournisseur
+  AWAITING_INTERNAL // En attente interne
+  RECOMMENDATION_READY // Recommandation prête
+  VALIDATED // Validé
+  ABANDONED // Abandonné
+  CLOSED // Clôturé
+}
+
+/// Mode d'approvisionnement envisagé pour un produit BD.
+enum BdSourcing {
+  MANUFACTURED // Fabriqué (localement)
+  IMPORTED // Importé
+  TO_STUDY // À étudier
+}
+
 enum EntityType {
   REGULATORY_PRODUCT
   REGULATORY_STEP
@@ -199,6 +219,7 @@ enum EntityType {
   VISIT
   DELEGATE_PLAN
   BD_OPPORTUNITY
+  BD_PROJECT
   FINANCE_TRANSACTION
   EMPLOYEE
   PAYROLL
@@ -425,6 +446,7 @@ model User {
   visits                  MedicalVisit[]
   delegatePlans           MedicalDelegatePlan[]
   bdOpportunities         BusinessDevelopmentOpportunity[]
+  bdProjects              BdProject[]                      @relation("BdProjectOwner")
   budgetLines             BudgetLine[]
   logisticsOrders         LogisticsOrder[]
 
@@ -847,6 +869,91 @@ model BusinessDevelopmentOpportunity {
   @@index([status])
   @@index([priority])
   @@index([ownerId])
+}
+
+// ─────────────── Business Development : Projet → Gamme → Produit ───────────────
+// Tableau stratégique : un projet regroupe des gammes, chaque gamme des produits
+// (DCI) porteurs des données marché / investissement / revenus. Modèle simple et
+// granulaire (pas un CRM lourd) ; tout est saisi manuellement par l'équipe.
+
+model BdProject {
+  custom      Json? // champs dynamiques définis par l'admin
+  id          String          @id @default(cuid())
+  name        String
+  status      BdProjectStatus @default(IDEA)
+  description String?
+  comment     String?
+
+  ownerId String?
+  owner   User?     @relation("BdProjectOwner", fields: [ownerId], references: [id])
+  ranges  BdRange[]
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([ownerId])
+}
+
+model BdRange {
+  id        String  @id @default(cuid())
+  name      String // Gamme (ex. Oncologie, Cardiologie)
+  comment   String?
+  sortOrder Int     @default(0)
+
+  projectId String
+  project   BdProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  products  BdProduct[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+model BdProduct {
+  custom    Json?
+  id        String     @id @default(cuid())
+  dci       String // DCI / produit
+  brandName String?
+  dosage    String?
+  form      String? // forme galénique
+  sourcing  BdSourcing @default(TO_STUDY)
+  sortOrder Int        @default(0)
+
+  // Marché
+  marketSizeDzd     Decimal? @db.Decimal(18, 2)
+  marketSizeUsd     Decimal? @db.Decimal(18, 2)
+  unitPrice         Decimal? @db.Decimal(14, 2)
+  totalMarketVolume Decimal? @db.Decimal(18, 2)
+
+  // Concurrence (texte libre : listes saisies manuellement)
+  competitors      String?
+  competitorShares String?
+  competitorVolume String?
+  competitorPrice  String?
+
+  // Plan d'affaires sur 3 ans
+  investmentY1 Decimal? @db.Decimal(18, 2)
+  investmentY2 Decimal? @db.Decimal(18, 2)
+  investmentY3 Decimal? @db.Decimal(18, 2)
+  revenueY1    Decimal? @db.Decimal(18, 2)
+  revenueY2    Decimal? @db.Decimal(18, 2)
+  revenueY3    Decimal? @db.Decimal(18, 2)
+
+  comment String?
+
+  rangeId String
+  range   BdRange @relation(fields: [rangeId], references: [id], onDelete: Cascade)
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([rangeId])
 }
 
 // ───────────────────────────── Cross-cutting ─────────────────────────────

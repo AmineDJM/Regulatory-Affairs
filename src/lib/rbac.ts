@@ -241,6 +241,18 @@ export function scopeBusinessDevelopment(user: SessionUser): Prisma.BusinessDeve
   return { OR: ors };
 }
 
+/** Projets BD (Projet → Gamme → Produit) : scope ALL voit tout ; sinon le
+ *  propriétaire du projet + les projets explicitement accordés (RowGrant). */
+export function scopeBdProject(user: SessionUser): Prisma.BdProjectWhereInput {
+  const m = user.access.modules.get("BUSINESS_DEVELOPMENT");
+  if (!m) return { id: "__none__" };
+  if (m.scope === "ALL") return {};
+  const ors: Prisma.BdProjectWhereInput[] = [{ ownerId: user.id }];
+  const ids = grantsFor(user, "BD_PROJECT");
+  if (ids.length) ors.push({ id: { in: ids } });
+  return { OR: ors };
+}
+
 /** Admin requests scope: a manager (scope ALL) sees all; others see the ones they
  *  requested, are concerned by, are assigned to, or must validate. */
 export function scopeAdminRequests(user: SessionUser): Prisma.AdministrativeRequestWhereInput {

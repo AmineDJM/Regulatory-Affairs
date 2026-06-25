@@ -204,6 +204,25 @@ export const BD_STATUS: Record<string, Display> = {
   ABANDONED: { label: "Abandonné", tone: "danger" },
 };
 
+/** Statuts stratégiques d'un projet Business Development (Projet → Gamme → Produit). */
+export const BD_PROJECT_STATUS: Record<string, Display> = {
+  IDEA: { label: "Idée", tone: "neutral" },
+  TO_ANALYZE: { label: "À analyser", tone: "info" },
+  IN_PROGRESS: { label: "En cours", tone: "info" },
+  AWAITING_SUPPLIER: { label: "En attente fournisseur", tone: "warning" },
+  AWAITING_INTERNAL: { label: "En attente interne", tone: "warning" },
+  RECOMMENDATION_READY: { label: "Recommandation prête", tone: "purple" },
+  VALIDATED: { label: "Validé", tone: "success" },
+  ABANDONED: { label: "Abandonné", tone: "danger" },
+  CLOSED: { label: "Clôturé", tone: "neutral" },
+};
+
+export const BD_SOURCING: Record<string, string> = {
+  MANUFACTURED: "Fabriqué",
+  IMPORTED: "Importé",
+  TO_STUDY: "À étudier",
+};
+
 export const DOCUMENT_CATEGORY: Record<string, string> = {
   CTD_FULL: "CTD complet",
   MODULE_1: "Module 1",
@@ -399,6 +418,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   VISIT: "Visite",
   DELEGATE_PLAN: "Plan de tournée",
   BD_OPPORTUNITY: "Business Development",
+  BD_PROJECT: "Projet BD",
 };
 
 export const NOTIFICATION_TYPE: Record<string, Display> = {
