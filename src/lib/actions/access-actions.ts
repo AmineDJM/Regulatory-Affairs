@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import type { AccessScope, EntityType } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, MODULES, type Module } from "@/lib/rbac";
+import { userCan, MODULES } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
@@ -186,5 +186,3 @@ export async function revokeAllSessions(formData: FormData): Promise<ActionResul
   revalidatePath(`/admin/users/${userId}`);
   return { ok: true };
 }
-
-export const ALL_MODULES: Module[] = [...MODULES];
