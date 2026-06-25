@@ -335,6 +335,47 @@ export const EXPENSE_ORDER_STATUS: Record<string, Display> = {
   CANCELLED: { label: "Annulé", tone: "neutral" },
 };
 
+export const ADMIN_REQUEST_TYPE: Record<string, string> = {
+  TRAVEL: "Déplacement / Hôtel / Billet",
+  MAIL: "Courrier / Document officiel",
+  SIGNATURE: "Signature / Cachet / Scan",
+  PURCHASE: "Achat interne / Fournitures",
+  QUOTE: "Devis fournisseur",
+  PAYMENT: "Paiement / Facture",
+  DRIVER: "Mission chauffeur",
+  GUEST_VISA: "Visa / Professeur / Invité",
+  HR_SIMPLE: "Demande RH",
+  OTHER: "Autre",
+};
+
+export const ADMIN_REQUEST_STATUS: Record<string, Display> = {
+  NEW: { label: "Nouvelle", tone: "info" },
+  IN_PROGRESS: { label: "En cours", tone: "info" },
+  AWAITING_VALIDATION: { label: "Attente validation", tone: "warning" },
+  AWAITING_EXTERNAL: { label: "Attente externe", tone: "warning" },
+  AWAITING_PAYMENT: { label: "Attente paiement", tone: "warning" },
+  AWAITING_DOCUMENT: { label: "Attente document", tone: "warning" },
+  BLOCKED: { label: "Bloquée", tone: "danger" },
+  DONE: { label: "Terminée", tone: "success" },
+  CANCELLED: { label: "Annulée", tone: "neutral" },
+};
+
+export const ADMIN_APPROVAL_STATUS: Record<string, Display> = {
+  PENDING: { label: "En attente", tone: "warning" },
+  APPROVED: { label: "Validé", tone: "success" },
+  REJECTED: { label: "Refusé", tone: "danger" },
+  CHANGES_REQUESTED: { label: "Modif. demandée", tone: "info" },
+};
+
+export const DRIVER_MISSION_STATUS: Record<string, Display> = {
+  NEW: { label: "Nouvelle", tone: "neutral" },
+  ACCEPTED: { label: "Acceptée", tone: "info" },
+  EN_ROUTE: { label: "En route", tone: "info" },
+  DONE: { label: "Terminée", tone: "success" },
+  PROBLEM: { label: "Problème", tone: "danger" },
+  CANCELLED: { label: "Annulée", tone: "neutral" },
+};
+
 export const ENTITY_TYPE_LABELS: Record<string, string> = {
   FINANCE_TRANSACTION: "Finances",
   EMPLOYEE: "Employé",
@@ -344,6 +385,8 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   SALARY_ADVANCE: "Avance sur salaire",
   EXPENSE_ORDER: "Ordre de dépense",
   DRIVE_NODE: "Fichier / Dossier",
+  ADMIN_REQUEST: "Demande administrative",
+  DRIVER_MISSION: "Mission chauffeur",
   REGULATORY_PRODUCT: "Regulatory",
   REGULATORY_STEP: "Étape Regulatory",
   SPONSORING: "Sponsoring",
@@ -410,6 +453,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
   { module: "DRIVE", label: "Drive", href: "/drive", icon: "HardDrive", group: "Transverse" },
+  { module: "ADMIN_REQUESTS", label: "Demandes administratives", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "DOCUMENTS", label: "Documents", href: "/documents", icon: "FolderOpen", group: "Transverse" },
   { module: "NOTIFICATIONS", label: "Notifications", href: "/notifications", icon: "Bell", group: "Transverse" },
   { module: "ADMIN", label: "Administration", href: "/admin", icon: "Settings", group: "Système" },

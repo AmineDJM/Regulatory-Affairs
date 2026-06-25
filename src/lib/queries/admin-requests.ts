@@ -1,0 +1,70 @@
+import type { Prisma, AdminRequestStatus, AdminRequestType } from "@prisma/client";
+import { scopeAdminRequests, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+
+const REQ_INCLUDE = {
+  requester: { select: { name: true } },
+  assignedTo: { select: { name: true } },
+  validator: { select: { name: true } },
+} as const;
+
+export async function getRequestList(user: SessionUser, filters: { status?: string; type?: string }) {
+  const and: Prisma.AdministrativeRequestWhereInput[] = [scopeAdminRequests(user)];
+  if (filters.status) and.push({ status: filters.status as AdminRequestStatus });
+  if (filters.type) and.push({ type: filters.type as AdminRequestType });
+  return prisma.administrativeRequest.findMany({
+    where: { AND: and },
+    include: REQ_INCLUDE,
+    orderBy: [{ createdAt: "desc" }],
+    take: 200,
+  });
+}
+
+export async function getAssistantData(user: SessionUser) {
+  const now = new Date();
+  const scope = scopeAdminRequests(user);
+  const [requests, missions] = await Promise.all([
+    prisma.administrativeRequest.findMany({ where: scope, include: REQ_INCLUDE, orderBy: { createdAt: "desc" }, take: 300 }),
+    prisma.driverMission.findMany({
+      where: { status: { in: ["NEW", "ACCEPTED", "EN_ROUTE", "PROBLEM"] } },
+      include: { assignedTo: { select: { name: true } }, request: { select: { reference: true } } },
+      orderBy: { createdAt: "desc" }, take: 100,
+    }),
+  ]);
+  const terminal = ["DONE", "CANCELLED"];
+  const open = requests.filter((r) => !terminal.includes(r.status));
+  const stats = {
+    nouvelles: requests.filter((r) => r.status === "NEW").length,
+    urgentes: open.filter((r) => r.priority === "HIGH" || r.priority === "CRITICAL").length,
+    enRetard: open.filter((r) => r.deadline && r.deadline < now).length,
+    attenteValidation: requests.filter((r) => r.status === "AWAITING_VALIDATION").length,
+    attentePaiement: requests.filter((r) => r.status === "AWAITING_PAYMENT").length,
+    attenteExterne: requests.filter((r) => r.status === "AWAITING_EXTERNAL").length,
+    attenteDoc: requests.filter((r) => r.status === "AWAITING_DOCUMENT").length,
+    bloquees: requests.filter((r) => r.status === "BLOCKED").length,
+    missions: missions.length,
+    ouvertes: open.length,
+  };
+  return { requests, open, missions, stats };
+}
+
+export async function getApprovals(user: SessionUser) {
+  const manager = hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "VALIDATE");
+  const where: Prisma.AdminApprovalWhereInput = manager ? { status: "PENDING" } : { status: "PENDING", validatorId: user.id };
+  return prisma.adminApproval.findMany({
+    where,
+    include: { request: { select: { id: true, reference: true, title: true, type: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+export async function getDriverMissions(user: SessionUser) {
+  const manager = hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE");
+  const where: Prisma.DriverMissionWhereInput = manager ? {} : { assignedToId: user.id };
+  return prisma.driverMission.findMany({
+    where,
+    include: { request: { select: { id: true, reference: true } }, assignedTo: { select: { name: true } } },
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    take: 200,
+  });
+}

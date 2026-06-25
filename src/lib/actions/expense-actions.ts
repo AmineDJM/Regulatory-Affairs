@@ -44,6 +44,10 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
     await prisma.salaryAdvance.update({
       where: { id: order.sourceId }, data: { status: "PAID", paidDate: new Date(), transactionId: tx.id },
     }).catch(() => undefined);
+  } else if (order.sourceType === "ADMIN_REQUEST" && order.sourceId) {
+    await prisma.administrativeRequest.update({
+      where: { id: order.sourceId }, data: { status: "IN_PROGRESS" },
+    }).catch(() => undefined);
   }
 
   if (order.requestedById) {

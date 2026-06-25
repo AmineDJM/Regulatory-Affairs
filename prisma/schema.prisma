@@ -207,6 +207,8 @@ enum EntityType {
   SALARY_ADVANCE
   EXPENSE_ORDER
   DRIVE_NODE
+  ADMIN_REQUEST
+  DRIVER_MISSION
 }
 
 enum DocumentCategory {
@@ -335,6 +337,47 @@ enum DriveAccess {
   EDIT
 }
 
+enum AdminRequestType {
+  TRAVEL // Déplacement / Hôtel / Billet
+  MAIL // Courrier / Document officiel
+  SIGNATURE // Signature / Cachet / Scan / Impression
+  PURCHASE // Achat interne / Fournitures
+  QUOTE // Devis fournisseur
+  PAYMENT // Paiement / Facture / Prestataire
+  DRIVER // Mission chauffeur / Akila / Coursier
+  GUEST_VISA // Visa / Professeur / Invité / Partenaire
+  HR_SIMPLE // Demande RH simple
+  OTHER
+}
+
+enum AdminRequestStatus {
+  NEW
+  IN_PROGRESS
+  AWAITING_VALIDATION
+  AWAITING_EXTERNAL
+  AWAITING_PAYMENT
+  AWAITING_DOCUMENT
+  BLOCKED
+  DONE
+  CANCELLED
+}
+
+enum AdminApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+}
+
+enum DriverMissionStatus {
+  NEW
+  ACCEPTED
+  EN_ROUTE
+  DONE
+  PROBLEM
+  CANCELLED
+}
+
 // ───────────────────────────── Core / identity ─────────────────────────────
 
 model Department {
@@ -344,7 +387,8 @@ model Department {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users User[]
+  users         User[]
+  adminRequests AdministrativeRequest[]
 }
 
 model User {
@@ -404,6 +448,14 @@ model User {
   expenseOrders    ExpenseOrder[]  @relation("ExpenseOrderRequester")
   driveNodes       DriveNode[]     @relation("DriveOwner")
   driveShares      DriveShare[]    @relation("DriveShareUser")
+
+  // Demandes administratives
+  adminRequests           AdministrativeRequest[] @relation("ReqRequester")
+  adminRequestsConcerned  AdministrativeRequest[] @relation("ReqConcerned")
+  adminRequestsAssigned   AdministrativeRequest[] @relation("ReqAssignee")
+  adminRequestsValidating AdministrativeRequest[] @relation("ReqValidator")
+  adminApprovals          AdminApproval[]         @relation("ApprovalValidator")
+  driverMissions          DriverMission[]         @relation("MissionDriver")
 
   @@index([role])
   @@index([departmentId])
@@ -1291,6 +1343,101 @@ model DriveShare {
 
   @@unique([nodeId, userId])
   @@index([userId])
+}
+
+// ───────────────────── Centre de demandes administratives ─────────────────────
+
+/// Demande administrative transverse (« Bureau de Donna »). Tout ce qu'on demande à
+/// l'assistante devient une demande ; documents/commentaires/validations/missions/
+/// paiements s'y rattachent. Champs spécifiques au type stockés dans `fields`.
+model AdministrativeRequest {
+  custom           Json?
+  id               String             @id @default(cuid())
+  reference        String             @unique // REQ-2026-001
+  title            String
+  type             AdminRequestType
+  subtype          String?
+  status           AdminRequestStatus @default(NEW)
+  priority         Priority           @default(MEDIUM)
+  description      String?
+  deadline         DateTime?
+  fields           Json? // champs spécifiques au type de demande
+  requesterId      String?
+  requester        User?              @relation("ReqRequester", fields: [requesterId], references: [id])
+  concernedUserId  String?
+  concerned        User?              @relation("ReqConcerned", fields: [concernedUserId], references: [id])
+  assignedToId     String?
+  assignedTo       User?              @relation("ReqAssignee", fields: [assignedToId], references: [id])
+  validatorId      String?
+  validator        User?              @relation("ReqValidator", fields: [validatorId], references: [id])
+  departmentId     String?
+  department       Department?        @relation(fields: [departmentId], references: [id])
+  confidentiality  Confidentiality    @default(INTERNAL)
+  linkedEntityType EntityType?
+  linkedEntityId   String?
+  blockedReason    String?
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  createdById      String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  approvals AdminApproval[]
+  missions  DriverMission[]
+
+  @@index([status])
+  @@index([type])
+  @@index([assignedToId])
+  @@index([requesterId])
+  @@index([priority])
+  @@index([deadline])
+}
+
+/// Demande de validation rattachée à une demande administrative.
+model AdminApproval {
+  id            String                @id @default(cuid())
+  requestId     String
+  request       AdministrativeRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  requestedById String?
+  validatorId   String?
+  validator     User?                 @relation("ApprovalValidator", fields: [validatorId], references: [id])
+  status        AdminApprovalStatus   @default(PENDING)
+  comment       String?
+  amount        Decimal?              @db.Decimal(14, 2)
+  currency      String                @default("DZD")
+  decidedAt     DateTime?
+  createdAt     DateTime              @default(now())
+
+  @@index([requestId])
+  @@index([validatorId, status])
+}
+
+/// Mission chauffeur / coursier (Akila), autonome ou rattachée à une demande.
+model DriverMission {
+  id            String                 @id @default(cuid())
+  requestId     String?
+  request       AdministrativeRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  title         String
+  assignedToId  String?
+  assignedTo    User?                  @relation("MissionDriver", fields: [assignedToId], references: [id])
+  startLocation String?
+  destination   String?
+  address       String?
+  contactName   String?
+  contactPhone  String?
+  instructions  String?
+  deadline      DateTime?
+  status        DriverMissionStatus    @default(NEW)
+  proofType     String?
+  proofComment  String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdById   String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  @@index([assignedToId, status])
+  @@index([requestId])
 }
 
 /// Monthly payslip. When PAID it links to a FinanceTransaction (treasury OUT).
