@@ -1,0 +1,143 @@
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { Search, Loader2, CornerDownLeft } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
+import type { NavItem } from "@/lib/labels";
+
+interface SearchResult { id: string; group: string; title: string; subtitle: string; href: string; icon: string }
+type Item = { kind: "nav"; label: string; href: string; icon: string } | ({ kind: "result" } & SearchResult);
+
+export function CommandPalette({ navItems }: { navItems: NavItem[] }) {
+  const router = useRouter();
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [results, setResults] = React.useState<SearchResult[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [active, setActive] = React.useState(0);
+  const reqRef = React.useRef(0);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  // Open via ⌘K / Ctrl+K and via a global custom event (topbar search box).
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setOpen((o) => !o);
+      }
+    }
+    function onOpen() { setOpen(true); }
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("amd:open-palette", onOpen);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("amd:open-palette", onOpen); };
+  }, []);
+
+  React.useEffect(() => {
+    if (open) { setQuery(""); setResults([]); setActive(0); setTimeout(() => inputRef.current?.focus(), 0); }
+  }, [open]);
+
+  // Debounced server search.
+  React.useEffect(() => {
+    if (query.trim().length < 2) { setResults([]); setLoading(false); return; }
+    const id = ++reqRef.current;
+    setLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`);
+        const json = await res.json();
+        if (id === reqRef.current) { setResults(json.results ?? []); setActive(0); }
+      } catch { /* ignore */ } finally { if (id === reqRef.current) setLoading(false); }
+    }, 160);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const navMatches = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const items = q ? navItems.filter((n) => n.label.toLowerCase().includes(q)) : navItems;
+    return items.slice(0, q ? 5 : 12);
+  }, [query, navItems]);
+
+  const items: Item[] = React.useMemo(() => [
+    ...navMatches.map((n) => ({ kind: "nav" as const, label: n.label, href: n.href, icon: n.icon })),
+    ...results.map((r) => ({ kind: "result" as const, ...r })),
+  ], [navMatches, results]);
+
+  function go(item: Item) {
+    setOpen(false);
+    const href = item.href;
+    if (href.startsWith("/api/")) window.location.href = href;
+    else router.push(href);
+  }
+
+  function onInputKey(e: React.KeyboardEvent) {
+    if (e.key === "Escape") setOpen(false);
+    else if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.min(a + 1, items.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+    else if (e.key === "Enter" && items[active]) { e.preventDefault(); go(items[active]); }
+  }
+
+  if (!open) return null;
+
+  let idx = -1;
+  const groups = new Map<string, Item[]>();
+  if (navMatches.length) groups.set("Aller à", items.filter((i) => i.kind === "nav"));
+  for (const r of results) {
+    const k = r.group;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push({ kind: "result", ...r });
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 p-4 pt-[12vh]" onClick={() => setOpen(false)}>
+      <div className="w-full max-w-xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 border-b border-border px-3">
+          <Search className="h-4 w-4 text-muted-foreground" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={onInputKey}
+            placeholder="Rechercher ou aller à…"
+            className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          />
+          {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          <kbd className="hidden rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground sm:block">Esc</kbd>
+        </div>
+
+        <div className="max-h-[55vh] overflow-y-auto p-2">
+          {items.length === 0 ? (
+            <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+              {query.trim().length < 2 ? "Tapez pour rechercher dans tout le logiciel." : "Aucun résultat."}
+            </p>
+          ) : (
+            [...groups.entries()].map(([group, gItems]) => (
+              <div key={group} className="mb-1">
+                <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{group}</p>
+                {gItems.map((item) => {
+                  idx++;
+                  const i = idx;
+                  return (
+                    <button
+                      key={`${group}-${item.kind === "nav" ? item.href : item.id}-${i}`}
+                      onMouseEnter={() => setActive(i)}
+                      onClick={() => go(item)}
+                      className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm ${i === active ? "bg-secondary" : "hover:bg-secondary/60"}`}
+                    >
+                      <Icon name={item.icon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{item.kind === "nav" ? item.label : item.title}</span>
+                        {item.kind === "result" && item.subtitle && <span className="block truncate text-xs text-muted-foreground">{item.subtitle}</span>}
+                      </span>
+                      {i === active && <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                    </button>
+                  );
+                })}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

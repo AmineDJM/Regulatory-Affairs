@@ -5,6 +5,7 @@ import { NAVIGATION } from "@/lib/labels";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { ActivityTracker } from "@/components/layout/activity-tracker";
+import { CommandPalette } from "@/components/layout/command-palette";
 import { prisma } from "@/lib/prisma";
 
 export default async function AppLayout({
@@ -23,6 +24,7 @@ export default async function AppLayout({
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <ActivityTracker />
+      <CommandPalette navItems={navItems} />
       <Sidebar items={navItems} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar navItems={navItems} user={user} unreadCount={unreadCount} />

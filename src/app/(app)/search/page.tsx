@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
-import { userCan, scopeRegulatory, scopeBusinessDevelopment } from "@/lib/rbac";
-import { prisma } from "@/lib/prisma";
-import { accessibleDocumentWhere } from "@/lib/queries/documents";
+import { globalSearch, type SearchResult } from "@/lib/queries/search";
+import { Icon } from "@/components/ui/icon";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,103 +14,47 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
   if (!q) {
     return (
       <div className="space-y-5">
-        <PageHeader title="Recherche" />
-        <EmptyState icon="Search" title="Saisissez un terme de recherche" description="DCI, dossier, institution, document…" />
+        <PageHeader title="Recherche" description="Astuce : ⌘K ouvre la recherche partout." />
+        <EmptyState icon="Search" title="Saisissez un terme de recherche" description="DCI, dossier, institution, fichier, employé, écriture…" />
       </div>
     );
   }
 
-  const contains = { contains: q, mode: "insensitive" as const };
-
-  const [regulatory, sponsoring, logistics, bd, documents] = await Promise.all([
-    userCan(user, "REGULATORY", "VIEW")
-      ? prisma.regulatoryProduct.findMany({
-          where: { AND: [scopeRegulatory(user), { OR: [{ dci: contains }, { reference: contains }, { brandName: contains }] }] },
-          take: 8,
-        })
-      : [],
-    userCan(user, "SPONSORING", "VIEW")
-      ? prisma.sponsoringRequest.findMany({
-          where: { OR: [{ institution: contains }, { reference: contains }, { doctor: contains }] },
-          take: 8,
-        })
-      : [],
-    userCan(user, "LOGISTICS", "VIEW")
-      ? prisma.logisticsOrder.findMany({
-          where: { OR: [{ product: contains }, { reference: contains }, { supplier: contains }] },
-          take: 8,
-        })
-      : [],
-    userCan(user, "BUSINESS_DEVELOPMENT", "VIEW")
-      ? prisma.businessDevelopmentOpportunity.findMany({
-          where: { AND: [scopeBusinessDevelopment(user), { OR: [{ name: contains }, { dci: contains }] }] },
-          take: 8,
-        })
-      : [],
-    userCan(user, "DOCUMENTS", "VIEW")
-      ? prisma.document.findMany({ where: { AND: [await accessibleDocumentWhere(user), { name: contains }] }, take: 8 })
-      : [],
-  ]);
-
-  const total = regulatory.length + sponsoring.length + logistics.length + bd.length + documents.length;
+  const results = await globalSearch(user, q, 12);
+  const groups = new Map<string, SearchResult[]>();
+  for (const r of results) {
+    if (!groups.has(r.group)) groups.set(r.group, []);
+    groups.get(r.group)!.push(r);
+  }
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Recherche" description={`${total} résultat${total > 1 ? "s" : ""} pour « ${q} »`} />
-
-      {total === 0 ? (
+      <PageHeader title="Recherche" description={`${results.length} résultat${results.length > 1 ? "s" : ""} pour « ${q} »`} />
+      {results.length === 0 ? (
         <EmptyState icon="SearchX" title="Aucun résultat" description="Essayez un autre terme." />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          <ResultGroup title="Regulatory" count={regulatory.length}>
-            {regulatory.map((r) => (
-              <ResultLink key={r.id} href={`/regulatory/${r.id}`} title={r.dci} subtitle={`${r.reference} · ${r.brandName ?? ""}`} />
-            ))}
-          </ResultGroup>
-          <ResultGroup title="Sponsoring" count={sponsoring.length}>
-            {sponsoring.map((r) => (
-              <ResultLink key={r.id} href={`/sponsoring/${r.id}`} title={r.institution} subtitle={`${r.reference} · ${r.doctor ?? ""}`} />
-            ))}
-          </ResultGroup>
-          <ResultGroup title="Logistique PCH" count={logistics.length}>
-            {logistics.map((r) => (
-              <ResultLink key={r.id} href={`/logistics/${r.id}`} title={r.product} subtitle={`${r.reference} · ${r.supplier ?? ""}`} />
-            ))}
-          </ResultGroup>
-          <ResultGroup title="Business Development" count={bd.length}>
-            {bd.map((r) => (
-              <ResultLink key={r.id} href={`/business-development`} title={r.name} subtitle={r.dci ?? ""} />
-            ))}
-          </ResultGroup>
-          <ResultGroup title="Documents" count={documents.length}>
-            {documents.map((d) => (
-              <ResultLink key={d.id} href={`/api/documents/${d.id}`} title={d.name} subtitle="Télécharger" />
-            ))}
-          </ResultGroup>
+          {[...groups.entries()].map(([group, items]) => (
+            <Card key={group}>
+              <CardHeader className="flex-row items-center justify-between">
+                <CardTitle>{group}</CardTitle>
+                <Badge tone="neutral">{items.length}</Badge>
+              </CardHeader>
+              <CardContent className="divide-y divide-border">
+                {items.map((r) => (
+                  <Link key={`${group}-${r.id}`} href={r.href} className="flex items-center gap-2.5 py-2 hover:bg-secondary/40">
+                    <Icon name={r.icon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">{r.title}</span>
+                      {r.subtitle && <span className="block truncate text-xs text-muted-foreground">{r.subtitle}</span>}
+                    </span>
+                  </Link>
+                ))}
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
     </div>
-  );
-}
-
-function ResultGroup({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
-  if (count === 0) return null;
-  return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between">
-        <CardTitle>{title}</CardTitle>
-        <Badge tone="neutral">{count}</Badge>
-      </CardHeader>
-      <CardContent className="divide-y divide-border">{children}</CardContent>
-    </Card>
-  );
-}
-
-function ResultLink({ href, title, subtitle }: { href: string; title: string; subtitle: string }) {
-  return (
-    <Link href={href} className="block py-2 hover:bg-secondary/40">
-      <p className="text-sm font-medium">{title}</p>
-      {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-    </Link>
   );
 }

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Bell, Menu, Search, X } from "lucide-react";
 import { Icon } from "@/components/ui/icon";
 import { UserMenu } from "@/components/layout/user-menu";
@@ -16,17 +16,10 @@ interface TopbarProps {
 }
 
 export function Topbar({ navItems, user, unreadCount }: TopbarProps) {
-  const router = useRouter();
   const pathname = usePathname();
-  const [query, setQuery] = React.useState("");
   const [drawerOpen, setDrawerOpen] = React.useState(false);
 
   React.useEffect(() => setDrawerOpen(false), [pathname]);
-
-  function onSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (query.trim()) router.push(`/search?q=${encodeURIComponent(query.trim())}`);
-  }
 
   return (
     <>
@@ -39,15 +32,15 @@ export function Topbar({ navItems, user, unreadCount }: TopbarProps) {
           <Menu className="h-5 w-5" />
         </button>
 
-        <form onSubmit={onSearch} className="relative w-full max-w-md">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Recherche globale (DCI, dossier, document…)"
-            className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        </form>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent("amd:open-palette"))}
+          className="flex h-9 w-full max-w-md items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm text-muted-foreground shadow-sm hover:bg-secondary/40"
+        >
+          <Search className="h-4 w-4 shrink-0" />
+          <span className="flex-1 text-left">Rechercher partout…</span>
+          <kbd className="hidden rounded border border-border px-1.5 py-0.5 text-[10px] sm:block">⌘K</kbd>
+        </button>
 
         <div className="ml-auto flex items-center gap-1.5">
           <Link
