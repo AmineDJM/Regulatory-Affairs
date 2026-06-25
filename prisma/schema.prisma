@@ -206,6 +206,7 @@ enum EntityType {
   TASK
   SALARY_ADVANCE
   EXPENSE_ORDER
+  DRIVE_NODE
 }
 
 enum DocumentCategory {
@@ -324,6 +325,16 @@ enum ExpenseOrderStatus {
   CANCELLED
 }
 
+enum DriveNodeType {
+  FOLDER
+  FILE
+}
+
+enum DriveAccess {
+  VIEW
+  EDIT
+}
+
 // ───────────────────────────── Core / identity ─────────────────────────────
 
 model Department {
@@ -391,6 +402,8 @@ model User {
   leaveDecisions   LeaveRequest[]  @relation("LeaveDecider")
   advanceDecisions SalaryAdvance[] @relation("AdvanceDecider")
   expenseOrders    ExpenseOrder[]  @relation("ExpenseOrderRequester")
+  driveNodes       DriveNode[]     @relation("DriveOwner")
+  driveShares      DriveShare[]    @relation("DriveShareUser")
 
   @@index([role])
   @@index([departmentId])
@@ -1206,6 +1219,78 @@ model ExpenseOrder {
 
   @@index([status])
   @@index([sourceType, sourceId])
+}
+
+// ───────────────────────────── Drive (stockage interne) ─────────────────────────────
+
+/// Nœud de l'arborescence Drive : dossier ou fichier. Le contenu binaire vit dans
+/// FileBlob (chiffré, adressé par contenu) ; l'historique dans FileVersion.
+model DriveNode {
+  custom      Json?
+  id          String        @id @default(cuid())
+  name        String
+  type        DriveNodeType
+  parentId    String?
+  parent      DriveNode?    @relation("DriveTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    DriveNode[]   @relation("DriveTree")
+  ownerId     String?
+  owner       User?         @relation("DriveOwner", fields: [ownerId], references: [id])
+  mimeType    String? // version courante (fichier)
+  size        Int           @default(0) // octets de la version courante ; 0 pour un dossier
+  isTrashed   Boolean       @default(false)
+  versions    FileVersion[]
+  shares      DriveShare[]
+  createdById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([parentId])
+  @@index([ownerId])
+  @@index([isTrashed])
+}
+
+/// Contenu binaire chiffré (AES-256-GCM), dédupliqué par empreinte du clair (SHA-256).
+model FileBlob {
+  id        String        @id @default(cuid())
+  sha256    String        @unique
+  size      Int
+  iv        Bytes // nonce AES-GCM
+  data      Bytes // contenu chiffré
+  refCount  Int           @default(0)
+  createdAt DateTime      @default(now())
+  versions  FileVersion[]
+}
+
+/// Version d'un fichier (historique). Pointe vers un FileBlob partagé.
+model FileVersion {
+  id          String    @id @default(cuid())
+  nodeId      String
+  node        DriveNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  blobId      String
+  blob        FileBlob  @relation(fields: [blobId], references: [id])
+  version     Int
+  size        Int
+  mimeType    String?
+  note        String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([nodeId, version])
+  @@index([nodeId])
+}
+
+/// Partage d'un nœud avec un utilisateur précis (droits VIEW/EDIT).
+model DriveShare {
+  id        String      @id @default(cuid())
+  nodeId    String
+  node      DriveNode   @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation("DriveShareUser", fields: [userId], references: [id], onDelete: Cascade)
+  access    DriveAccess @default(VIEW)
+  createdAt DateTime    @default(now())
+
+  @@unique([nodeId, userId])
+  @@index([userId])
 }
 
 /// Monthly payslip. When PAID it links to a FinanceTransaction (treasury OUT).

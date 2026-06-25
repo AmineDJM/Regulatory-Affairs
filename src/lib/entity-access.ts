@@ -33,6 +33,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   TASK: "WORKSPACE",
   SALARY_ADVANCE: "RH",
   EXPENSE_ORDER: "FINANCES",
+  DRIVE_NODE: "DRIVE",
 };
 
 /**
