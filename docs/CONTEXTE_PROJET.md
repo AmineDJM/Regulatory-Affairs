@@ -122,6 +122,15 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, Dashboard), **P
 - **Logistique PCH (`/logistics`)** — import / expéditions fournisseurs.
 - **PCH — Marchés (`/pch`)** — voir §6.
 - **Stocks PCH (`/stocks`)** — mouvements (entrée/sortie/ajustement) + niveau courant par produit.
+- **Rapports terrain (`/field-reports`)** — **rapports vocaux IA** des délégués : *Parler → transcription
+  (Whisper/OpenAI) → analyse IA (Claude → champs structurés) → relecture/correction → pièces jointes
+  (photos, carte de visite, PDF) → validation*. **L'IA ne valide jamais seule.** Champs extraits :
+  médecin, établissement, spécialité, produits, intérêt, objection, question médicale, demandes
+  (document/sponsoring/prise en charge), concurrent, opportunité, **signalement qualité/PV (confirmation
+  renforcée)**, prochaine action, synthèse. Modèle `FieldReport` + `FieldReportAttachment`. Délégué = ses
+  rapports ; manager/Direction = tous + **synthèse agrégée** (objections, questions, concurrents,
+  opportunités, qualité/PV, prochaines actions, top produits). Sans clé : workflow 100 % utilisable en
+  saisie manuelle, l'IA s'active dès `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` sur Render.
 - **Promotion médicale (`/medical`)** — **annuaire structuré : Spécialité → Secteur (Hôpital / Libéral /
   les deux) → médecins**, chacun avec **titre/grade** (Professeur, Maître-assistant…), **influence**
   (jusqu'à KOL) et **potentiel de prescription**. Spécialités = liste de référence gérée (modèle
@@ -235,7 +244,7 @@ d'un **Chef de produit** → **analyse + budget proposé (chef de produit)** →
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope**.
+→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports**.
 
 > Au prochain déploiement Render, `migrate deploy` applique automatiquement celles en attente.
 

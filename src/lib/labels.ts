@@ -234,6 +234,12 @@ export const STOCK_DIRECTION: Record<string, Display> = {
   ADJUST: { label: "Ajustement", tone: "neutral" },
 };
 
+export const FIELD_REPORT_STATUS: Record<string, Display> = {
+  DRAFT: { label: "Brouillon", tone: "warning" },
+  VALIDATED: { label: "Validé", tone: "success" },
+  ARCHIVED: { label: "Archivé", tone: "neutral" },
+};
+
 export const VISIT_STATUS: Record<string, Display> = {
   PLANNED: { label: "Prévu", tone: "info" },
   COMPLETED: { label: "Réalisé", tone: "success" },
@@ -661,6 +667,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
   { module: "STOCKS", label: "Stocks PCH", href: "/stocks", icon: "Boxes", group: "Pôles" },
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles" },
+  { module: "MEDICAL", label: "Rapports terrain", href: "/field-reports", icon: "Mic", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
   { module: "VALIDATIONS", label: "Validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
   { module: "DRIVE", label: "Drive", href: "/drive", icon: "HardDrive", group: "Transverse" },

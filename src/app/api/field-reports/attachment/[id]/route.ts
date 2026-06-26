@@ -1,0 +1,33 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+import { getBlob } from "@/lib/drive-storage";
+import { managesReports } from "@/lib/queries/field-reports";
+
+export const dynamic = "force-dynamic";
+
+/** Sert une pièce jointe de rapport — auteur du rapport ou manager. */
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const user = await getCurrentUser();
+  if (!user || !userCan(user, "MEDICAL", "VIEW")) return new NextResponse(null, { status: 403 });
+
+  const att = await prisma.fieldReportAttachment.findUnique({
+    where: { id: params.id },
+    select: { blobId: true, name: true, mime: true, report: { select: { delegateId: true } } },
+  });
+  if (!att) return new NextResponse(null, { status: 404 });
+  if (!(managesReports(user) || att.report.delegateId === user.id)) return new NextResponse(null, { status: 403 });
+
+  const bytes = await getBlob(att.blobId);
+  if (!bytes) return new NextResponse(null, { status: 404 });
+  const dl = req.nextUrl.searchParams.get("dl") === "1";
+  return new NextResponse(new Uint8Array(bytes), {
+    headers: {
+      "Content-Type": att.mime || "application/octet-stream",
+      "Content-Disposition": `${dl ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(att.name)}`,
+      "Content-Length": String(bytes.length),
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
