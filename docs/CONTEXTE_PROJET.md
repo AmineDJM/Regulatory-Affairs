@@ -103,7 +103,13 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, Dashboard), **P
   champs personnalisés. **Catégorie Médicament / Dispositif médical** (badge). **Vue fournisseur**
   (pilote ce que le portail externe expose).
 - **Sponsoring** — workflow demandes (budget demandé/suggéré/accordé, justificatif, facture).
-- **Budgets**, **Finances** (trésorerie, livre, **paie**, **ordres de dépense**), **Espace comptable
+- **Budgets (`/budgets`)** — **enveloppe budgétaire** : la Direction (rôle DIRECTION = MANAGE) définit un
+  **budget total** sur une période, le répartit en **catégories** qu'elle crée (allocation chacune), et la
+  **consommation réelle** est calculée depuis les dépenses (FinanceTransaction OUT) **attribuées** à chaque
+  catégorie, sur une **période sélectionnable** (timeline Du/Au). Barres de progression, santé
+  (Maîtrisé/À surveiller/Dépassé), non-alloué, **dépenses non attribuées** avec attribution en un clic.
+  Modèles `BudgetEnvelope` + `BudgetCategoryLine` (+ `FinanceTransaction.budgetCategoryId`). L'ancien
+  `BudgetLine` reste en base (legacy). **Finances** (trésorerie, livre, **paie**, **ordres de dépense**), **Espace comptable
   (`/comptabilite`)** — synthèse légère (à régler, recettes attendues, résultat mensuel), pas de compta complète.
 - **RH (`/rh`)** — employés, contrats, congés, avances.
 - **Congrès internationaux (`/congress-international`)** & **Événements nationaux (`/congress-national`)** —
@@ -217,7 +223,7 @@ d'un **Chef de produit** → **analyse + budget proposé (chef de produit)** →
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging** → **medical_specialty_structure** → **employee_hr_documents**.
+→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope**.
 
 > Au prochain déploiement Render, `migrate deploy` applique automatiquement celles en attente.
 

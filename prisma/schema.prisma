@@ -745,6 +745,42 @@ model BudgetLine {
   @@index([status])
 }
 
+// Enveloppe budgétaire : un budget TOTAL défini par la Direction pour une période,
+// réparti en catégories (BudgetCategoryLine). La consommation est calculée à partir
+// des dépenses réelles (FinanceTransaction OUT) attribuées à chaque catégorie.
+model BudgetEnvelope {
+  id          String               @id @default(cuid())
+  name        String
+  periodStart DateTime
+  periodEnd   DateTime
+  totalAmount Decimal              @default(0) @db.Decimal(14, 2)
+  notes       String?
+  isActive    Boolean              @default(true)
+  categories  BudgetCategoryLine[]
+  createdById String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([isActive])
+  @@index([periodStart])
+}
+
+// Catégorie créée par la Direction au sein d'une enveloppe, avec son allocation.
+model BudgetCategoryLine {
+  id           String               @id @default(cuid())
+  envelopeId   String
+  envelope     BudgetEnvelope       @relation(fields: [envelopeId], references: [id], onDelete: Cascade)
+  name         String
+  allocated    Decimal              @default(0) @db.Decimal(14, 2)
+  color        String?
+  notes        String?
+  transactions FinanceTransaction[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@index([envelopeId])
+}
+
 // ───────────────────────────── Congresses ─────────────────────────────
 
 model CongressInternational {
@@ -1419,6 +1455,10 @@ model FinanceTransaction {
   employeeId String?
   employee   Employee? @relation(fields: [employeeId], references: [id])
 
+  // Attribution d'une dépense à une catégorie budgétaire (enveloppe Direction).
+  budgetCategoryId String?
+  budgetCategory   BudgetCategoryLine? @relation(fields: [budgetCategoryId], references: [id], onDelete: SetNull)
+
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1428,6 +1468,7 @@ model FinanceTransaction {
   @@index([category])
   @@index([status])
   @@index([account])
+  @@index([budgetCategoryId])
 }
 
 /// Employee record — shared by RH (dossiers, congés, contrats) and Paie.
