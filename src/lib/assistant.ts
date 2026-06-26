@@ -18,10 +18,11 @@
  * affiche « IA non configurée ».
  */
 
-import type { AdminRequestType, Priority } from "@prisma/client";
+import type { AdminRequestType, CongressRequestStatus, Priority } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { notifyUser } from "@/lib/notify";
+import { notifyUser, notifyRoles } from "@/lib/notify";
+import { findDirectConversation } from "@/lib/messaging";
 import {
   callClaude, aiConfigured,
   type ClaudeMessage, type ClaudeContentBlock, type ClaudeToolDef,
@@ -64,7 +65,29 @@ export type AssistantActionPayload =
       concernedId?: string | null;
       concernedName?: string | null;
       deadline?: string | null;
+      startDate?: string | null;
+      endDate?: string | null;
       priority?: string | null;
+    }
+  | {
+      kind: "send_message";
+      recipientId?: string | null;
+      recipientName?: string | null;
+      body: string;
+    }
+  | {
+      kind: "create_congress_request";
+      scope: "INTL" | "NATIONAL";
+      name: string;
+      specialty?: string | null;
+      city?: string | null;
+      country?: string | null;
+      startDate?: string | null;
+      endDate?: string | null;
+      estimatedBudget?: number | null;
+      doctorId?: string | null;
+      doctorName?: string | null;
+      note?: string | null;
     };
 
 export type AssistantActionKind = AssistantActionPayload["kind"];
@@ -187,7 +210,7 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "create_admin_request",
     description:
-      "PROPOSE la création d'une demande administrative (déplacement/billet, courrier, signature, achat, devis, paiement, mission chauffeur, visa/invité, RH simple, autre). N'exécute rien : confirmation requise. Pour un billet d'avion pour un invité, utiliser type=TRAVEL et détailler passager, trajet et dates dans la description.",
+      "PROPOSE la création d'une demande administrative (déplacement/billet, courrier, signature, achat, devis, paiement, mission chauffeur, visa/invité, RH simple, autre). N'exécute rien : confirmation requise. Pour un billet d'avion pour un invité, utiliser type=TRAVEL, détailler passager et trajet dans la description, et renseigner startDate/endDate.",
     input_schema: {
       type: "object",
       properties: {
@@ -196,13 +219,49 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
           enum: ["TRAVEL", "MAIL", "SIGNATURE", "PURCHASE", "QUOTE", "PAYMENT", "DRIVER", "GUEST_VISA", "HR_SIMPLE", "OTHER"],
         },
         title: { type: "string", description: "Titre court de la demande." },
-        description: { type: "string", description: "Tous les détails (passager, trajet, dates, montant estimé…)." },
+        description: { type: "string", description: "Tous les détails (passager, trajet, montant estimé…)." },
         assigneeName: { type: "string", description: "Collègue chargé de traiter la demande (ex. assistante de direction)." },
         concernedName: { type: "string", description: "Personne concernée par la demande, si différente." },
+        startDate: { type: "string", description: "Date de début / départ au format AAAA-MM-JJ." },
+        endDate: { type: "string", description: "Date de fin / retour au format AAAA-MM-JJ." },
         deadline: { type: "string", description: "Échéance au format AAAA-MM-JJ." },
         priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
       },
       required: ["type", "title"],
+    },
+  },
+  {
+    name: "send_message",
+    description:
+      "PROPOSE l'envoi d'un message interne (messagerie) à un collègue. N'exécute rien : confirmation requise. Résoudre le destinataire avec search_people d'abord. Réservé aux utilisateurs ayant la messagerie.",
+    input_schema: {
+      type: "object",
+      properties: {
+        recipientName: { type: "string", description: "Nom du collègue destinataire." },
+        body: { type: "string", description: "Texte du message à envoyer." },
+      },
+      required: ["recipientName", "body"],
+    },
+  },
+  {
+    name: "create_congress_request",
+    description:
+      "PROPOSE une demande de prise en charge de congrès (scope NATIONAL ou INTL), au stade préliminaire (validation Direction ensuite). N'exécute rien : confirmation requise. Réservé aux utilisateurs ayant le module congrès correspondant. Pour un médecin invité, le retrouver avec search_doctors (jamais d'invention).",
+    input_schema: {
+      type: "object",
+      properties: {
+        scope: { type: "string", enum: ["NATIONAL", "INTL"], description: "National ou international." },
+        name: { type: "string", description: "Nom de l'événement / congrès." },
+        specialty: { type: "string", description: "Spécialité concernée." },
+        city: { type: "string", description: "Ville." },
+        country: { type: "string", description: "Pays (international)." },
+        startDate: { type: "string", description: "Date de début AAAA-MM-JJ." },
+        endDate: { type: "string", description: "Date de fin AAAA-MM-JJ." },
+        estimatedBudget: { type: "number", description: "Budget estimé en DZD." },
+        doctorName: { type: "string", description: "Médecin invité (optionnel), tel que retrouvé via search_doctors." },
+        note: { type: "string", description: "Précisions / motif." },
+      },
+      required: ["scope", "name"],
     },
   },
 ];
@@ -234,9 +293,11 @@ ${buildContext(user)}
 
 CE QUE TU PEUX FAIRE :
 - Répondre aux questions sur le travail de l'utilisateur et sur l'application (modules, démarches, statuts).
-- Agir pour lui : créer une tâche, créer une demande administrative (billet/déplacement, courrier, signature,
-  achat, devis, paiement, mission chauffeur, visa/invité, RH). Tu PROPOSES l'action ; le système l'exécute
-  seulement après que l'utilisateur a cliqué « Confirmer ». Ne prétends jamais qu'une action est déjà faite.
+- Agir pour lui (dans la limite de SES droits) : créer une tâche, créer une demande administrative
+  (billet/déplacement, courrier, signature, achat, devis, paiement, mission chauffeur, visa/invité, RH),
+  envoyer un message interne à un collègue, créer une demande de prise en charge de congrès (national ou
+  international). Tu PROPOSES l'action ; le système l'exécute seulement après que l'utilisateur a cliqué
+  « Confirmer ». Ne prétends jamais qu'une action est déjà faite : dis « je prépare… », pas « c'est fait ».
 
 RÈGLES IMPÉRATIVES :
 - Fonde TOUJOURS tes réponses sur les outils de lecture ; n'invente JAMAIS un médecin, un produit, un
@@ -244,11 +305,21 @@ RÈGLES IMPÉRATIVES :
   dis-le clairement et préfixe l'élément incertain par « à confirmer ».
 - Respecte les droits : si un outil renvoie « accès non autorisé », explique que ce domaine n'est pas dans
   les permissions de l'utilisateur, sans contourner.
-- Avant d'assigner une tâche/demande à quelqu'un, utilise search_people pour retrouver le bon collègue.
-- Pour un billet pour un invité (ex. « billet pour le Pr X de Alger vers Rio du 2 au 5 janvier 2027 »),
-  utilise create_admin_request type=TRAVEL : titre court + description complète (passager, trajet, dates).
+- Avant d'assigner une tâche/demande à quelqu'un ou d'envoyer un message, utilise search_people pour
+  retrouver le bon collègue. Pour un congrès lié à un médecin, utilise search_doctors (jamais d'invention).
+- DATES — sois prudent : la date du jour est indiquée dans le contexte. Quand une date demandée est DÉJÀ
+  PASSÉE (antérieure à aujourd'hui), SIGNALE-LE clairement dans ta réponse et demande à l'utilisateur de
+  confirmer ou de corriger AVANT de proposer l'action. Renseigne toujours les dates au format AAAA-MM-JJ
+  dans les champs prévus (startDate/endDate) pour qu'elles soient vérifiées.
+- Pour un billet (ex. « billet pour le Pr X, Alger → Paris du 10 au 15 janvier »), utilise
+  create_admin_request type=TRAVEL : titre court, description (passager, trajet) et startDate/endDate.
 - Pour tout sujet qualité ou pharmacovigilance, reste prudent et demande confirmation renforcée à l'humain ;
   ne crée rien automatiquement.
+
+STYLE DE RÉPONSE — IMPÉRATIF :
+- Écris en TEXTE SIMPLE, lisible, SANS Markdown : PAS d'astérisques (** ou *), PAS de dièses (#), PAS de
+  tableaux, PAS de balises de code. Pour mettre en avant, écris normalement ; pour une liste, utilise des
+  tirets « - » en début de ligne. Les emojis sobres sont autorisés.
 - Sois concret, professionnel et bref. Réponds en français. Les montants sont en DZD.`;
 }
 
@@ -407,6 +478,26 @@ function isoDate(s: string): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Ajoute un avertissement si une date ISO (AAAA-MM-JJ) est déjà passée. */
+function pastWarning(label: string, iso: string | null, warnings: string[]): void {
+  if (iso && iso < todayIso()) warnings.push(`${label} (${iso}) est déjà passée — à confirmer ou corriger avant d'envoyer.`);
+}
+
+/** Résout un médecin unique dans le périmètre de l'utilisateur (jamais inventé). */
+async function findDoctor(query: string, user: CurrentUser): Promise<{ id: string; name: string } | null> {
+  const q = query.trim();
+  if (!q || !userCan(user, "MEDICAL", "VIEW")) return null;
+  const d = await prisma.medicalDoctor.findFirst({
+    where: { AND: [scopeMedicalDoctors(user), { name: { contains: q, mode: "insensitive" } }] },
+    select: { id: true, name: true, title: true },
+  });
+  return d ? { id: d.id, name: doctorDisplayName(d) } : null;
+}
+
 export async function buildProposal(toolName: string, input: Record<string, unknown>, user: CurrentUser): Promise<ProposedAction | { error: string }> {
   const warnings: string[] = [];
 
@@ -456,8 +547,13 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (!title) return { error: "Titre de demande manquant." };
     const assignee = await resolve("Responsable", asStr(input, "assigneeName"));
     const concerned = await resolve("Personne concernée", asStr(input, "concernedName"));
+    const startDate = asStr(input, "startDate") ? isoDate(asStr(input, "startDate")) : null;
+    const endDate = asStr(input, "endDate") ? isoDate(asStr(input, "endDate")) : null;
     const deadline = asStr(input, "deadline") ? isoDate(asStr(input, "deadline")) : null;
     const priority = asStr(input, "priority") ? normPriority(asStr(input, "priority")) : null;
+    pastWarning("La date de début", startDate, warnings);
+    pastWarning("La date de fin", endDate, warnings);
+    pastWarning("L'échéance", deadline, warnings);
     const fields = [
       { label: "Type", value: ADMIN_REQUEST_TYPE[type] ?? type },
       { label: "Objet", value: title },
@@ -465,6 +561,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (asStr(input, "description")) fields.push({ label: "Détails", value: asStr(input, "description") });
     if (assignee.name) fields.push({ label: "À traiter par", value: assignee.name });
     if (concerned.name) fields.push({ label: "Concerne", value: concerned.name });
+    if (startDate || endDate) fields.push({ label: "Dates", value: [startDate, endDate].filter(Boolean).join(" → ") });
     if (deadline) fields.push({ label: "Échéance", value: deadline });
     if (priority) fields.push({ label: "Priorité", value: PRIORITY[priority]?.label ?? priority });
     return {
@@ -472,7 +569,64 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
       payload: {
         kind: "create_admin_request", type, title, description: asStr(input, "description") || null,
         assigneeId: assignee.id, assigneeName: assignee.name, concernedId: concerned.id, concernedName: concerned.name,
-        deadline, priority,
+        deadline, startDate, endDate, priority,
+      },
+    };
+  }
+
+  if (toolName === "send_message") {
+    if (!userCan(user, "MESSAGING", "VIEW")) return { error: "Vous n'avez pas accès à la messagerie." };
+    const body = asStr(input, "body");
+    if (!body) return { error: "Le message est vide." };
+    const recipient = await resolve("Destinataire", asStr(input, "recipientName"));
+    if (!recipient.id) return { error: `Destinataire « ${asStr(input, "recipientName")} » introuvable ou ambigu — précisez le bon collègue (search_people).` };
+    return {
+      kind: "send_message", module: "MESSAGING", title: "Envoyer un message", warnings,
+      fields: [
+        { label: "À", value: recipient.name ?? "" },
+        { label: "Message", value: body },
+      ],
+      payload: { kind: "send_message", recipientId: recipient.id, recipientName: recipient.name, body },
+    };
+  }
+
+  if (toolName === "create_congress_request") {
+    const scope = asStr(input, "scope").toUpperCase() === "INTL" ? "INTL" : "NATIONAL";
+    const mod: Module = scope === "INTL" ? "CONGRESS_INTERNATIONAL" : "CONGRESS_NATIONAL";
+    if (!userCan(user, mod, "CREATE")) return { error: `Vous n'avez pas accès aux demandes de congrès ${scope === "INTL" ? "internationaux" : "nationaux"}.` };
+    const name = asStr(input, "name");
+    if (!name) return { error: "Nom de l'événement manquant." };
+    const startDate = asStr(input, "startDate") ? isoDate(asStr(input, "startDate")) : null;
+    const endDate = asStr(input, "endDate") ? isoDate(asStr(input, "endDate")) : null;
+    pastWarning("La date de début", startDate, warnings);
+    pastWarning("La date de fin", endDate, warnings);
+    const budgetRaw = input.estimatedBudget;
+    const estimatedBudget = typeof budgetRaw === "number" && Number.isFinite(budgetRaw) ? budgetRaw : null;
+    let doctorId: string | null = null, doctorName: string | null = null;
+    const doctorQuery = asStr(input, "doctorName");
+    if (doctorQuery) {
+      const d = await findDoctor(doctorQuery, user);
+      if (d) { doctorId = d.id; doctorName = d.name; }
+      else warnings.push(`Médecin « ${doctorQuery} » introuvable dans votre périmètre — la demande sera créée sans médecin lié.`);
+    }
+    const fields = [
+      { label: "Type", value: scope === "INTL" ? "Congrès international" : "Congrès / événement national" },
+      { label: "Événement", value: name },
+    ];
+    if (asStr(input, "specialty")) fields.push({ label: "Spécialité", value: asStr(input, "specialty") });
+    const place = [asStr(input, "city"), scope === "INTL" ? asStr(input, "country") : ""].filter(Boolean).join(", ");
+    if (place) fields.push({ label: "Lieu", value: place });
+    if (startDate || endDate) fields.push({ label: "Dates", value: [startDate, endDate].filter(Boolean).join(" → ") });
+    if (doctorName) fields.push({ label: "Médecin", value: doctorName });
+    if (estimatedBudget !== null) fields.push({ label: "Budget estimé", value: `${estimatedBudget.toLocaleString("fr-FR")} DZD` });
+    if (asStr(input, "note")) fields.push({ label: "Note", value: asStr(input, "note") });
+    return {
+      kind: "create_congress_request", module: mod, title: "Créer une demande de congrès", fields, warnings,
+      payload: {
+        kind: "create_congress_request", scope, name,
+        specialty: asStr(input, "specialty") || null, city: asStr(input, "city") || null,
+        country: scope === "INTL" ? (asStr(input, "country") || null) : null,
+        startDate, endDate, estimatedBudget, doctorId, doctorName, note: asStr(input, "note") || null,
       },
     };
   }
@@ -513,6 +667,7 @@ export async function runAssistant(user: CurrentUser, history: ChatTurn[]): Prom
   const tools = [...READ_TOOLS, ...WRITE_TOOLS];
   const trace: string[] = [];
 
+  try {
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const res = await callClaude(messages, { system, tools, maxTokens: 1400, temperature: 0.2 });
     if (!res.ok || !res.content) {
@@ -556,6 +711,10 @@ export async function runAssistant(user: CurrentUser, history: ChatTurn[]): Prom
   }
 
   return { configured: true, ok: true, reply: "Je n'ai pas pu finaliser la demande en peu d'étapes. Reformulez en précisant l'objectif.", trace };
+  } catch (err) {
+    console.error("[assistant] runAssistant failed", err);
+    return { configured: true, ok: false, reply: "", trace, error: "Une erreur est survenue côté assistant. Reformulez votre demande ou réessayez dans un instant." };
+  }
 }
 
 // ───────────────────────────── Exécution (après confirmation) ─────────────────────────────
@@ -634,11 +793,16 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     const assignedToId = await activeUserId(payload.assigneeId);
     const concernedUserId = await activeUserId(payload.concernedId);
     const reference = await nextRequestRef();
+    const extraFields: Record<string, string> = {};
+    if (payload.startDate) extraFields.dateDebut = payload.startDate;
+    if (payload.endDate) extraFields.dateFin = payload.endDate;
     const created = await prisma.administrativeRequest.create({
       data: {
         reference, title, type,
         description: payload.description?.trim() || null,
-        priority: priorityOf(payload.priority), deadline: dateValue(payload.deadline),
+        priority: priorityOf(payload.priority),
+        deadline: dateValue(payload.deadline) ?? dateValue(payload.startDate),
+        fields: Object.keys(extraFields).length ? extraFields : undefined,
         assignedToId, concernedUserId, requesterId: user.id, createdById: user.id,
       },
       select: { id: true },
@@ -651,6 +815,62 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
       entityId: created.id, summary: `Demande ${reference} — ${title} créée via l'assistant`,
     });
     return { ok: true, message: `Demande ${reference} — « ${title} » créée.`, link: `/demandes/${created.id}`, revalidate: ["/demandes", "/demandes/assistant"] };
+  }
+
+  if (payload?.kind === "send_message") {
+    if (!userCan(user, "MESSAGING", "CREATE")) return { ok: false, error: "Vous n'avez pas le droit d'envoyer un message." };
+    const body = (payload.body ?? "").trim().slice(0, 8000);
+    if (!body) return { ok: false, error: "Message vide." };
+    const recipientId = await activeUserId(payload.recipientId);
+    if (!recipientId || recipientId === user.id) return { ok: false, error: "Destinataire invalide." };
+
+    let convId = await findDirectConversation(user.id, recipientId);
+    if (!convId) {
+      const conv = await prisma.conversation.create({
+        data: { type: "DIRECT", createdById: user.id, members: { create: [{ userId: user.id }, { userId: recipientId }] } },
+        select: { id: true },
+      });
+      convId = conv.id;
+    }
+    const msg = await prisma.message.create({ data: { conversationId: convId, senderId: user.id, kind: "TEXT", body }, select: { createdAt: true } });
+    await prisma.conversation.update({ where: { id: convId }, data: { lastMessageAt: msg.createdAt } });
+    await prisma.conversationMember.updateMany({ where: { conversationId: convId, userId: user.id }, data: { lastReadAt: msg.createdAt } });
+    await notifyUser({ userId: recipientId, type: "GENERIC", title: "Nouveau message", body: body.slice(0, 80), link: "/messages" });
+    await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", entityId: convId, summary: `Message envoyé via l'assistant à ${payload.recipientName ?? "un collègue"}` });
+    return { ok: true, message: `Message envoyé à ${payload.recipientName ?? "votre collègue"}.`, link: "/messages", revalidate: ["/messages"] };
+  }
+
+  if (payload?.kind === "create_congress_request") {
+    const scope = payload.scope === "INTL" ? "INTL" : "NATIONAL";
+    const mod: Module = scope === "INTL" ? "CONGRESS_INTERNATIONAL" : "CONGRESS_NATIONAL";
+    if (!userCan(user, mod, "CREATE")) return { ok: false, error: "Vous n'avez pas le droit de créer cette demande de congrès." };
+    const name = (payload.name ?? "").trim();
+    if (!name) return { ok: false, error: "Nom de l'événement manquant." };
+
+    let invitedDoctorIds: string[] = [];
+    if (payload.doctorId) {
+      const d = await prisma.medicalDoctor.findFirst({ where: { AND: [scopeMedicalDoctors(user), { id: payload.doctorId }] }, select: { id: true } });
+      if (d) invitedDoctorIds = [d.id];
+    }
+    const common = {
+      name, specialty: payload.specialty?.trim() || null,
+      estimatedBudget: payload.estimatedBudget ?? null,
+      invitedDoctorIds, participantIds: [] as string[],
+      requesterId: user.id, requestStatus: "AWAITING_PRELIMINARY" as CongressRequestStatus, createdById: user.id,
+    };
+    const created = scope === "INTL"
+      ? await prisma.congressInternational.create({
+          data: { ...common, country: payload.country?.trim() || null, city: payload.city?.trim() || null, startDate: dateValue(payload.startDate), endDate: dateValue(payload.endDate) },
+          select: { id: true },
+        })
+      : await prisma.congressNational.create({
+          data: { ...common, city: payload.city?.trim() || null, date: dateValue(payload.startDate), eventType: "CONGRESS" },
+          select: { id: true },
+        });
+    const path = scope === "INTL" ? "/congress-international" : "/congress-national";
+    await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", entityType: scope === "INTL" ? "CONGRESS_INTERNATIONAL" : "CONGRESS_NATIONAL", entityId: created.id, summary: `Demande de congrès « ${name} » créée via l'assistant` });
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Demande de congrès à valider (préliminaire)", body: name, link: `${path}/${created.id}` });
+    return { ok: true, message: `Demande de congrès « ${name} » créée (en attente de validation préliminaire de la Direction).`, link: `${path}/${created.id}`, revalidate: [path] };
   }
 
   return { ok: false, error: "Action non reconnue." };

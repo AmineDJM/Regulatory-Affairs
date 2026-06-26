@@ -27,7 +27,18 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.task.deleteMany({ where: { title: { startsWith: MARK } } });
   await prisma.administrativeRequest.deleteMany({ where: { title: { startsWith: MARK } } });
-  await prisma.auditLog.deleteMany({ where: { module: "Assistant IA", summary: { contains: MARK } } });
+  await prisma.congressNational.deleteMany({ where: { name: { startsWith: MARK } } });
+  await prisma.congressInternational.deleteMany({ where: { name: { startsWith: MARK } } });
+  await prisma.message.deleteMany({ where: { body: { startsWith: MARK } } });
+  if (bob && carla) {
+    const conv = await prisma.conversation.findFirst({
+      where: { type: "DIRECT", AND: [{ members: { some: { userId: bob.id } } }, { members: { some: { userId: carla.id } } }] },
+      select: { id: true },
+    });
+    if (conv) await prisma.conversation.delete({ where: { id: conv.id } }); // cascade membres/messages
+  }
+  await prisma.notification.deleteMany({ where: { body: { startsWith: MARK } } });
+  await prisma.auditLog.deleteMany({ where: { module: "Assistant IA" } });
   await prisma.$disconnect();
 });
 
@@ -131,5 +142,60 @@ describe("Exécution après confirmation — ré-autorisation + audit", () => {
     expect(req.requesterId).toBe(bob.id);
     expect(req.assignedToId).toBe(carla.id);
     expect(req.type).toBe("TRAVEL");
+  });
+});
+
+describe("Assistant — prudence sur les dates passées", () => {
+  it("signale une date de départ déjà passée", async () => {
+    const p = (await buildProposal("create_admin_request", { type: "TRAVEL", title: `${MARK} Billet passé`, startDate: "2020-01-10", endDate: "2020-01-15" }, bob)) as ProposedAction;
+    expect("error" in p).toBe(false);
+    expect(p.warnings.join(" ")).toMatch(/passée/i);
+  });
+  it("ne signale pas une date future", async () => {
+    const future = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+    const p = (await buildProposal("create_admin_request", { type: "TRAVEL", title: `${MARK} Billet futur`, startDate: future }, bob)) as ProposedAction;
+    expect(p.warnings.join(" ")).not.toMatch(/passée/i);
+  });
+});
+
+describe("Assistant — envoyer un message (MESSAGING)", () => {
+  it("résout le destinataire par son nom", async () => {
+    const p = (await buildProposal("send_message", { recipientName: "Carla", body: `${MARK} bonjour` }, bob)) as ProposedAction;
+    expect("error" in p).toBe(false);
+    expect(p.kind).toBe("send_message");
+    expect(p.payload.kind === "send_message" && p.payload.recipientId).toBe(carla.id);
+  });
+  it("refuse si l'utilisateur n'a pas la messagerie", async () => {
+    const stripped: CurrentUser = { ...bob, access: { modules: new Map(), rowGrants: new Map() } as EffectiveAccess };
+    const r = await performAction(stripped, { kind: "send_message", recipientId: carla.id, recipientName: "Carla", body: `${MARK} x` });
+    expect(r.ok).toBe(false);
+  });
+  it("crée une conversation directe + message après confirmation", async () => {
+    const r = await performAction(bob, { kind: "send_message", recipientId: carla.id, recipientName: "Carla Meziane", body: `${MARK} message test` });
+    expect(r.ok).toBe(true);
+    const msg = await prisma.message.findFirst({ where: { body: { startsWith: MARK }, senderId: bob.id } });
+    expect(msg).not.toBeNull();
+    const conv = await prisma.conversation.findFirst({
+      where: { type: "DIRECT", AND: [{ members: { some: { userId: bob.id } } }, { members: { some: { userId: carla.id } } }] },
+      select: { id: true },
+    });
+    expect(conv).not.toBeNull();
+  });
+});
+
+describe("Assistant — demande de congrès (RBAC par module)", () => {
+  it("refuse pour un rôle sans le module congrès", async () => {
+    const p = await buildProposal("create_congress_request", { scope: "NATIONAL", name: `${MARK} Congrès` }, bob);
+    expect("error" in p).toBe(true);
+  });
+  it("propose puis crée la demande pour un délégué", async () => {
+    const p = (await buildProposal("create_congress_request", { scope: "NATIONAL", name: `${MARK} Congrès Alger`, city: "Alger" }, carla)) as ProposedAction;
+    expect("error" in p).toBe(false);
+    expect(p.kind).toBe("create_congress_request");
+    const r = await performAction(carla, { kind: "create_congress_request", scope: "NATIONAL", name: `${MARK} Congrès Alger`, city: "Alger" });
+    expect(r.ok).toBe(true);
+    const cn = await prisma.congressNational.findFirst({ where: { name: { startsWith: MARK } } });
+    expect(cn?.requesterId).toBe(carla.id);
+    expect(cn?.requestStatus).toBe("AWAITING_PRELIMINARY");
   });
 });

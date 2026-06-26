@@ -113,17 +113,23 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA*
   `/rh/[id]` (dépôt de documents, traitement des demandes, pièce jointe). Accès strict : un employé ne
   voit que ses propres documents (route `/api/rh/document/[id]` contrôlée).
 - **Assistant IA (`/assistant`)** — chatbot interne (boucle agent Claude). Comprend l'app + les données
-  de l'utilisateur **filtrées par ses droits RBAC**, répond aux questions et **prépare des actions**
-  (créer une tâche, créer une demande administrative — ex. « Demande à Radia un billet pour le Pr Mouffok
-  Alger→Rio du 2 au 5 janvier 2027 » → propose une demande `TRAVEL` assignée au bon collègue). **Outils de
-  lecture** exécutés automatiquement (annuaire interne, mes tâches/demandes, médecins/produits/events —
-  tous scopés) ; **outils d'écriture** jamais exécutés par l'IA : interceptés et renvoyés en **carte de
-  confirmation** (« Confirmer chaque action avant exécution »). L'exécution (`performAction`) est
-  **ré-autorisée** côté serveur (jamais sur la confiance du client) et **journalisée** (module « Assistant
-  IA »). Clé `ANTHROPIC_API_KEY` serveur uniquement ; sans clé → bannière « IA non configurée ». L'IA
-  n'invente jamais un médecin/produit/établissement (sinon « à confirmer »). Code : `src/lib/assistant.ts`
-  (contexte + system prompt + outils + boucle + `performAction`), `src/lib/ai.ts` (`callClaude` tool-use),
-  `src/lib/actions/assistant-actions.ts` (boundary `use server` : `assistantChat`, `executeAssistantAction`).
+  de l'utilisateur **filtrées par ses droits RBAC**, répond aux questions et **prépare des actions**.
+  **Outils de lecture** exécutés automatiquement (annuaire interne, mes tâches/demandes, médecins/produits/
+  events — tous scopés). **Outils d'écriture** jamais exécutés par l'IA : interceptés et renvoyés en **carte
+  de confirmation** (« Confirmer chaque action avant exécution »). Actions disponibles (chacune gardée par
+  le module correspondant) : **créer une tâche** (WORKSPACE), **créer une demande administrative** (TRAVEL,
+  etc. — ex. billet pour un invité, avec dates), **envoyer un message** interne à un collègue (MESSAGING →
+  DM + message), **créer une demande de congrès** national/international (CONGRESS_* → demande préliminaire
+  + notif Direction). L'exécution (`performAction`) est **ré-autorisée** côté serveur (jamais sur la
+  confiance du client) et **journalisée** (module « Assistant IA »).
+  **Garde-fous :** clé `ANTHROPIC_API_KEY` serveur uniquement ; sans clé → bannière « IA non configurée ».
+  N'invente jamais un médecin/produit/établissement/personne (sinon « à confirmer »). **Dates** : la date du
+  jour est dans le contexte ; toute date **passée** déclenche un avertissement sur la carte (`pastWarning`)
+  et l'IA doit la signaler. **Sortie en texte simple** (pas de Markdown) — prompt + nettoyage client
+  `cleanReply`. **Robustesse :** la boucle + les server actions ne lèvent jamais (résultat structuré, fini
+  le « Appel à l'assistant impossible ») ; `callClaude` a un timeout + 3 tentatives (retry 429/5xx/529).
+  Code : `src/lib/assistant.ts` (contexte + system prompt + outils + boucle + `performAction`), `src/lib/ai.ts`
+  (`callClaude` tool-use), `src/lib/actions/assistant-actions.ts` (boundary `use server`).
 - **Dashboard** — KPIs & graphiques.
 
 ### Pôles

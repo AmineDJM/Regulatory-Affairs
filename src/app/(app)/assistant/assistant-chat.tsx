@@ -33,6 +33,17 @@ const SUGGESTIONS = [
 let counter = 1;
 const nextId = () => counter++;
 
+/** Nettoie un éventuel Markdown résiduel (l'assistant doit répondre en texte simple). */
+function cleanReply(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "$1")        // **gras**
+    .replace(/__(.+?)__/g, "$1")              // __gras__
+    .replace(/`{1,3}([^`]+)`{1,3}/g, "$1")    // `code`
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")        // # titres
+    .replace(/^(\s*)[*]\s+/gm, "$1- ")          // puces * → -
+    .trim();
+}
+
 export function AssistantChat({ userName, configured }: { userName: string; configured: boolean }) {
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
@@ -207,7 +218,7 @@ function MessageBubble({
         )}
         {msg.content && (
           <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-secondary px-4 py-2.5 text-sm leading-relaxed">
-            {msg.content}
+            {cleanReply(msg.content)}
           </div>
         )}
         {msg.proposal && (

@@ -127,36 +127,47 @@ export async function callClaude(messages: ClaudeMessage[], opts: CallOptions = 
 
   const base = process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
   const model = opts.model ?? aiModel();
+  const payload = JSON.stringify({
+    model,
+    max_tokens: opts.maxTokens ?? 1400,
+    temperature: opts.temperature ?? 0.2,
+    ...(opts.system ? { system: opts.system } : {}),
+    ...(opts.tools?.length ? { tools: opts.tools } : {}),
+    messages,
+  });
 
-  try {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: opts.maxTokens ?? 1400,
-        temperature: opts.temperature ?? 0.2,
-        ...(opts.system ? { system: opts.system } : {}),
-        ...(opts.tools?.length ? { tools: opts.tools } : {}),
-        messages,
-      }),
-    });
+  // Jusqu'à 3 tentatives : on réessaie sur surcharge / limite de débit (429, 529,
+  // 500/502/503) et sur timeout réseau, avec un léger backoff. Chaque appel est
+  // borné par un timeout pour ne jamais bloquer la requête serveur indéfiniment.
+  const MAX_ATTEMPTS = 3;
+  let lastError = "Appel à l'IA impossible (réseau).";
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/v1/messages`, {
+        method: "POST",
+        headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: payload,
+        signal: AbortSignal.timeout(60_000),
+      });
 
-    if (!res.ok) {
+      if (res.ok) {
+        const data = (await res.json()) as { content?: ClaudeContentBlock[]; stop_reason?: string };
+        return { ok: true, configured: true, stopReason: data.stop_reason, content: data.content ?? [] };
+      }
+
       const body = await res.text().catch(() => "");
       console.error("[ai] anthropic tools error", res.status, body.slice(0, 300));
-      return { ok: false, configured: true, error: `Erreur IA (HTTP ${res.status}).` };
+      const retryable = res.status === 429 || res.status === 529 || res.status >= 500;
+      lastError = `Erreur IA (HTTP ${res.status}).`;
+      if (!retryable || attempt === MAX_ATTEMPTS) return { ok: false, configured: true, error: lastError };
+    } catch (err) {
+      console.error(`[ai] tools call failed (attempt ${attempt})`, err);
+      lastError = "Appel à l'IA impossible (réseau ou délai dépassé).";
+      if (attempt === MAX_ATTEMPTS) return { ok: false, configured: true, error: lastError };
     }
-    const data = (await res.json()) as { content?: ClaudeContentBlock[]; stop_reason?: string };
-    return { ok: true, configured: true, stopReason: data.stop_reason, content: data.content ?? [] };
-  } catch (err) {
-    console.error("[ai] tools call failed", err);
-    return { ok: false, configured: true, error: "Appel à l'IA impossible (réseau)." };
+    await new Promise((r) => setTimeout(r, 600 * attempt)); // backoff léger
   }
+  return { ok: false, configured: true, error: lastError };
 }
 
 // ─────────────────────────── Speech-to-text (Whisper / OpenAI) ───────────────────────────
