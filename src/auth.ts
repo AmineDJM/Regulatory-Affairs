@@ -27,8 +27,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
-        const user = await prisma.user.findUnique({
-          where: { email: email.toLowerCase() },
+        // Recherche insensible à la casse : un compte dont l'email contient une
+        // majuscule (données importées/anciennes) doit pouvoir se connecter — sinon
+        // aucun changement de mot de passe ne le débloquerait.
+        const user = await prisma.user.findFirst({
+          where: { email: { equals: email, mode: "insensitive" } },
+          orderBy: { createdAt: "asc" },
         });
         if (!user || !user.isActive) return null;
 
