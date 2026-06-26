@@ -59,6 +59,16 @@ describe("role-default permissions (can)", () => {
     expect(can("VIEWER", "REGULATORY", "CREATE")).toBe(false);
     expect(can("VIEWER", "DASHBOARD", "VIEW")).toBe(true);
   });
+  it("lets Direction validate every pôle (validate-everything)", () => {
+    const validatable: Module[] = [
+      "REGULATORY", "SPONSORING", "BUDGETS", "FINANCES", "CONGRESS_INTERNATIONAL",
+      "CONGRESS_NATIONAL", "SALES", "LOGISTICS", "PCH", "STOCKS", "MEDICAL",
+      "BUSINESS_DEVELOPMENT", "VALIDATIONS",
+    ];
+    for (const m of validatable) {
+      expect(can("DIRECTION", m, "VALIDATE")).toBe(true);
+    }
+  });
 });
 
 describe("effective access (userCan / accessibleModules)", () => {
