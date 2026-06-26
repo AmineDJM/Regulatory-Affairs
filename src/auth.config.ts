@@ -22,6 +22,11 @@ export const authConfig = {
       // Il ne doit jamais être soumis à l'auth interne NextAuth.
       if (nextUrl.pathname.startsWith("/portail")) return true;
 
+      // Page publique d'inscription aux événements (lien partageable, sans compte)
+      // + image QR publique (jeton non devinable ; le check-in lui-même reste protégé).
+      if (nextUrl.pathname.startsWith("/inscription")) return true;
+      if (nextUrl.pathname.startsWith("/api/events/qr")) return true;
+
       if (isOnLogin) {
         if (isLoggedIn) {
           return Response.redirect(new URL("/dashboard", nextUrl));

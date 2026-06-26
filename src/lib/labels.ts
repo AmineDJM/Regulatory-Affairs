@@ -234,6 +234,50 @@ export const STOCK_DIRECTION: Record<string, Display> = {
   ADJUST: { label: "Ajustement", tone: "neutral" },
 };
 
+export const EVENT_TYPE: Record<string, string> = {
+  CONGRESS: "Congrès",
+  SEMINAR: "Séminaire",
+  ROUND_TABLE: "Table ronde",
+  HOSPITAL_STAFF: "Staff hospitalier",
+  SYMPOSIUM: "Symposium",
+  WEBINAR: "Webinaire",
+  TRAINING: "Formation",
+  SCIENTIFIC_DAY: "Journée scientifique",
+  OTHER: "Autre",
+};
+
+export const EVENT_SCOPE: Record<string, string> = { NATIONAL: "National", INTERNATIONAL: "International" };
+export const EVENT_FORMAT: Record<string, string> = { PRESENTIAL: "Présentiel", WEBINAR: "Webinaire", HYBRID: "Hybride" };
+
+export const EVENT_STATUS: Record<string, Display> = {
+  DRAFT: { label: "Brouillon", tone: "neutral" },
+  AWAITING_VALIDATION: { label: "Attente validation", tone: "warning" },
+  VALIDATED: { label: "Validé", tone: "info" },
+  PREPARATION: { label: "En préparation", tone: "info" },
+  REGISTRATION_OPEN: { label: "Inscriptions ouvertes", tone: "success" },
+  FULL: { label: "Complet", tone: "warning" },
+  COMPLETED: { label: "Terminé", tone: "success" },
+  CANCELLED: { label: "Annulé", tone: "danger" },
+};
+
+export const PARTICIPANT_ROLE: Record<string, string> = {
+  DOCTOR: "Médecin",
+  PROFESSOR: "Professeur",
+  HEAD_OF_SERVICE: "Chef de service",
+  PHARMACIST: "Pharmacien",
+  OTHER: "Autre",
+};
+
+export const REGISTRATION_STATUS: Record<string, Display> = {
+  REGISTERED: { label: "Inscrit", tone: "info" },
+  CONFIRMED: { label: "Confirmé", tone: "success" },
+  PENDING: { label: "En attente", tone: "warning" },
+  REJECTED: { label: "Refusé", tone: "danger" },
+  PRESENT: { label: "Présent", tone: "success" },
+  ABSENT: { label: "Absent", tone: "neutral" },
+  CANCELLED: { label: "Annulé", tone: "danger" },
+};
+
 export const FIELD_REPORT_STATUS: Record<string, Display> = {
   DRAFT: { label: "Brouillon", tone: "warning" },
   VALIDATED: { label: "Validé", tone: "success" },
@@ -662,6 +706,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles" },
   { module: "CONGRESS_INTERNATIONAL", label: "Congrès internationaux", href: "/congress-international", icon: "Globe", group: "Pôles" },
   { module: "CONGRESS_NATIONAL", label: "Congrès nationaux", href: "/congress-national", icon: "MapPin", group: "Pôles" },
+  { module: "EVENTS", label: "Events", href: "/events", icon: "Ticket", group: "Pôles" },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
   { module: "LOGISTICS", label: "Logistique PCH", href: "/logistics", icon: "Truck", group: "Pôles" },
   { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },

@@ -118,6 +118,13 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, Dashboard), **P
 - **RH (`/rh`)** — employés, contrats, congés, avances.
 - **Congrès internationaux (`/congress-international`)** & **Événements nationaux (`/congress-national`)** —
   voir §6.
+- **Events (`/events`)** — gestion d'événements de bout en bout : congrès, séminaires, staffs, webinars,
+  symposiums… Statuts (Brouillon → Inscriptions ouvertes → Complet → Terminé). **Billetterie** : lien
+  d'inscription **public partageable** (`/inscription/[id]`, exempté de l'auth), formulaire, **QR code par
+  participant** (lib `qrcode`, route publique `/api/events/qr/[token]`), **check-in** (scan QR →
+  `/events/[id]/checkin?token=` → « Présent », + recherche/marquage manuel), statuts participant, taux de
+  présence, répartition par spécialité/rôle, **export CSV**. Lien Meet/Zoom/Teams **manuel** (auto Google
+  à venir). Modèles `Event` + `EventRegistration`. Module RBAC `EVENTS` (managers médicaux + Direction).
 - **Ventes (`/sales`)** — CA, import CSV. **Type Produit / Service** + client externe + description service.
 - **Logistique PCH (`/logistics`)** — import / expéditions fournisseurs.
 - **PCH — Marchés (`/pch`)** — voir §6.
@@ -244,7 +251,7 @@ d'un **Chef de produit** → **analyse + budget proposé (chef de produit)** →
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports**.
+→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events**.
 
 > Au prochain déploiement Render, `migrate deploy` applique automatiquement celles en attente.
 

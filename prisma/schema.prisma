@@ -602,6 +602,9 @@ model User {
   // Rapports terrain (vocaux) des délégués
   fieldReports FieldReport[] @relation("FieldReportDelegate")
 
+  // Événements organisés
+  eventsResponsible Event[] @relation("EventResponsible")
+
   @@index([role])
   @@index([departmentId])
 }
@@ -2349,4 +2352,118 @@ model FieldReportAttachment {
   createdAt DateTime    @default(now())
 
   @@index([reportId])
+}
+
+// ─────────────────────────── Module Events / Billetterie ───────────────────────────
+// Gestion de bout en bout des événements (congrès, séminaires, staffs, webinars…) :
+// inscriptions (formulaire public + lien), QR code par participant, check-in,
+// présence et statistiques. Relié à Promotion médicale, budgets et sponsoring.
+
+enum EventType {
+  CONGRESS
+  SEMINAR
+  ROUND_TABLE
+  HOSPITAL_STAFF
+  SYMPOSIUM
+  WEBINAR
+  TRAINING
+  SCIENTIFIC_DAY
+  OTHER
+}
+
+enum EventScope {
+  NATIONAL
+  INTERNATIONAL
+}
+
+enum EventFormat {
+  PRESENTIAL
+  WEBINAR
+  HYBRID
+}
+
+enum EventStatus {
+  DRAFT
+  AWAITING_VALIDATION
+  VALIDATED
+  PREPARATION
+  REGISTRATION_OPEN
+  FULL
+  COMPLETED
+  CANCELLED
+}
+
+enum ParticipantRole {
+  DOCTOR
+  PROFESSOR
+  HEAD_OF_SERVICE
+  PHARMACIST
+  OTHER
+}
+
+enum RegistrationStatus {
+  REGISTERED
+  CONFIRMED
+  PENDING
+  REJECTED
+  PRESENT
+  ABSENT
+  CANCELLED
+}
+
+model Event {
+  id             String      @id @default(cuid())
+  name           String
+  type           EventType   @default(CONGRESS)
+  scope          EventScope  @default(NATIONAL)
+  format         EventFormat @default(PRESENTIAL)
+  status         EventStatus @default(DRAFT)
+  startDate      DateTime?
+  endDate        DateTime?
+  location       String?
+  city           String?
+  country        String?
+  specialty      String?
+  products       String?
+  description    String?
+  capacity       Int?
+  estimatedBudget Decimal?   @db.Decimal(14, 2)
+  meetingLink    String? // lien Meet / Zoom / Teams (manuel)
+  responsibleId  String?
+  responsible    User?       @relation("EventResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+  participantIds String[]    @default([]) // participants Adventum (users)
+
+  registrations EventRegistration[]
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([startDate])
+  @@index([type])
+}
+
+model EventRegistration {
+  id          String             @id @default(cuid())
+  eventId     String
+  event       Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  firstName   String
+  lastName    String
+  specialty   String?
+  institution String?
+  city        String?
+  email       String?
+  phone       String?
+  role        ParticipantRole    @default(DOCTOR)
+  comment     String?
+  status      RegistrationStatus @default(REGISTERED)
+  qrToken     String             @unique @default(cuid()) // jeton unique pour le QR / check-in
+  checkedInAt DateTime?
+  source      String? // "public" (formulaire) ou "internal"
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([eventId])
+  @@index([status])
 }
