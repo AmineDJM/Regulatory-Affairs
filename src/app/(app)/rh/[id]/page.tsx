@@ -12,7 +12,9 @@ import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS, PAYROLL_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/utils";
+import { getEmployeeHrDossier } from "@/lib/queries/hr-documents";
 import { EmployeeForm, type EmployeeFormValues } from "./employee-form";
+import { HrDossier } from "./hr-dossier";
 
 const d10 = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : "");
 
@@ -31,10 +33,11 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
   });
   if (!employee) notFound();
 
-  const [fieldDefs, otherEmployees, unlinkedUsers] = await Promise.all([
+  const [fieldDefs, otherEmployees, unlinkedUsers, hrDossier] = await Promise.all([
     getFieldDefs("EMPLOYEE"),
     prisma.employee.findMany({ where: { id: { not: employee.id } }, select: { id: true, fullName: true }, orderBy: { fullName: "asc" } }),
     prisma.user.findMany({ where: { isActive: true, employee: { is: null } }, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
+    getEmployeeHrDossier(employee.id),
   ]);
 
   const managerOptions = otherEmployees.map((e) => ({ value: e.id, label: e.fullName }));
@@ -117,6 +120,15 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
               />
             </CardContent>
           </Card>
+
+          {canUpdate && (
+            <Card>
+              <CardHeader><CardTitle>Documents & demandes RH</CardTitle></CardHeader>
+              <CardContent>
+                <HrDossier employeeId={employee.id} documents={hrDossier.documents} requests={hrDossier.requests} />
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader><CardTitle>Historique des congés</CardTitle></CardHeader>

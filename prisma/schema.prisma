@@ -1431,6 +1431,39 @@ model FinanceTransaction {
 }
 
 /// Employee record — shared by RH (dossiers, congés, contrats) and Paie.
+// ─────────────── Dossier RH employé (documents & demandes d'attestation) ───────────────
+
+enum HrDocumentCategory {
+  CONTRACT // contrat de travail
+  AMENDMENT // avenant
+  PAYSLIP // bulletin de paie
+  WORK_CERTIFICATE // attestation de travail
+  CNAS_CERTIFICATE // attestation / affiliation CNAS
+  SALARY_STATEMENT // relevé des émoluments
+  DOMICILIATION // attestation de domiciliation de salaire
+  ID_DOCUMENT // pièce d'identité
+  DIPLOMA // diplôme
+  MEDICAL // certificat médical
+  OTHER
+}
+
+enum HrRequestType {
+  WORK_CERTIFICATE // attestation de travail
+  CNAS_CERTIFICATE // attestation CNAS
+  SALARY_STATEMENT // relevé des émoluments
+  DOMICILIATION // domiciliation de salaire
+  LEAVE_CERTIFICATE // attestation de congé
+  OTHER
+}
+
+enum HrRequestStatus {
+  PENDING // soumise
+  IN_PROGRESS // en préparation
+  READY // prête (document disponible)
+  DELIVERED // remise à l'employé
+  REJECTED
+}
+
 model Employee {
   custom     Json?
   id         String    @id @default(cuid())
@@ -1468,6 +1501,8 @@ model Employee {
   transactions  FinanceTransaction[]
   leaveRequests LeaveRequest[]
   advances      SalaryAdvance[]
+  documents     EmployeeDocument[]
+  hrRequests    HrDocumentRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1476,6 +1511,49 @@ model Employee {
   @@index([department])
   @@index([managerId])
   @@index([contractEnd])
+}
+
+// Document RH rattaché à un employé (contrat, bulletin PDF, attestation…),
+// stocké chiffré (FileBlob). Visible par l'employé dans son dossier.
+model EmployeeDocument {
+  id                String             @id @default(cuid())
+  employeeId        String
+  employee          Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  category          HrDocumentCategory @default(OTHER)
+  name              String
+  blobId            String
+  mime              String
+  size              Int
+  period            String? // ex. « 2026-01 » pour un bulletin
+  visibleToEmployee Boolean            @default(true)
+  uploadedById      String?
+  createdAt         DateTime           @default(now())
+
+  // Lien optionnel : ce document répond à une demande d'attestation.
+  requestId String?            @unique
+  request   HrDocumentRequest? @relation("RequestFulfilment", fields: [requestId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId])
+  @@index([category])
+}
+
+// Demande d'attestation faite par l'employé (travail, CNAS, relevé des émoluments…),
+// traitée par les RH qui peuvent y attacher le document généré.
+model HrDocumentRequest {
+  id          String            @id @default(cuid())
+  employeeId  String
+  employee    Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type        HrRequestType     @default(WORK_CERTIFICATE)
+  status      HrRequestStatus   @default(PENDING)
+  details     String? // précisions du demandeur
+  hrNote      String? // note des RH
+  handledById String?
+  fulfilment  EmployeeDocument? @relation("RequestFulfilment")
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([employeeId])
+  @@index([status])
 }
 
 /// Demande de congé / absence avec circuit de validation.

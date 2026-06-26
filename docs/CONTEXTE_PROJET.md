@@ -91,6 +91,11 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, Dashboard), **P
 - **Mon espace (`/mon-espace`)** — tâches perso, congés/absences, avances sur salaire (self-service),
   activité, accès rapides.
 - **Messagerie (`/messages`)** — messagerie interne complète (voir §6). Badge non-lus live (topbar + sidebar).
+- **Mon dossier RH (`/mon-dossier`)** — espace RH employé : ses **documents RH** (contrats, bulletins,
+  attestations déposés en PDF par les RH, chiffrés, téléchargeables) + ses **demandes d'attestation**
+  (travail, CNAS, relevé des émoluments, domiciliation…) avec suivi de statut. Côté RH, gestion sur
+  `/rh/[id]` (dépôt de documents, traitement des demandes, pièce jointe). Accès strict : un employé ne
+  voit que ses propres documents (route `/api/rh/document/[id]` contrôlée).
 - **Dashboard** — KPIs & graphiques.
 
 ### Pôles
@@ -212,7 +217,7 @@ d'un **Chef de produit** → **analyse + budget proposé (chef de produit)** →
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging** → **medical_specialty_structure**.
+→ **messaging** → **medical_specialty_structure** → **employee_hr_documents**.
 
 > Au prochain déploiement Render, `migrate deploy` applique automatiquement celles en attente.
 

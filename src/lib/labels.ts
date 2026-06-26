@@ -418,6 +418,37 @@ export const CONTRACT_TYPE: Record<string, string> = {
   OTHER: "Autre",
 };
 
+export const HR_DOCUMENT_CATEGORY: Record<string, string> = {
+  CONTRACT: "Contrat de travail",
+  AMENDMENT: "Avenant",
+  PAYSLIP: "Bulletin de paie",
+  WORK_CERTIFICATE: "Attestation de travail",
+  CNAS_CERTIFICATE: "Attestation CNAS",
+  SALARY_STATEMENT: "Relevé des émoluments",
+  DOMICILIATION: "Domiciliation de salaire",
+  ID_DOCUMENT: "Pièce d'identité",
+  DIPLOMA: "Diplôme",
+  MEDICAL: "Certificat médical",
+  OTHER: "Autre",
+};
+
+export const HR_REQUEST_TYPE: Record<string, string> = {
+  WORK_CERTIFICATE: "Attestation de travail",
+  CNAS_CERTIFICATE: "Attestation CNAS",
+  SALARY_STATEMENT: "Relevé des émoluments",
+  DOMICILIATION: "Domiciliation de salaire",
+  LEAVE_CERTIFICATE: "Attestation de congé",
+  OTHER: "Autre demande",
+};
+
+export const HR_REQUEST_STATUS: Record<string, Display> = {
+  PENDING: { label: "Soumise", tone: "warning" },
+  IN_PROGRESS: { label: "En préparation", tone: "info" },
+  READY: { label: "Prête", tone: "success" },
+  DELIVERED: { label: "Remise", tone: "neutral" },
+  REJECTED: { label: "Refusée", tone: "danger" },
+};
+
 export const LEAVE_TYPE: Record<string, string> = {
   ANNUAL: "Congé annuel",
   SICK: "Maladie",
@@ -615,6 +646,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail", icon: "CircleCheckBig", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage" },
   { module: "MESSAGING", label: "Messagerie", href: "/messages", icon: "MessagesSquare", group: "Pilotage" },
+  { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", group: "Pilotage" },
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring", icon: "HandCoins", group: "Pôles" },
