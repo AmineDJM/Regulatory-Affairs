@@ -107,7 +107,11 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, Dashboard), **P
 - **Logistique PCH (`/logistics`)** — import / expéditions fournisseurs.
 - **PCH — Marchés (`/pch`)** — voir §6.
 - **Stocks PCH (`/stocks`)** — mouvements (entrée/sortie/ajustement) + niveau courant par produit.
-- **Promotion médicale (`/medical`)** — médecins (par spécialité, délégué), visites.
+- **Promotion médicale (`/medical`)** — **annuaire structuré : Spécialité → Secteur (Hôpital / Libéral /
+  les deux) → médecins**, chacun avec **titre/grade** (Professeur, Maître-assistant…), **influence**
+  (jusqu'à KOL) et **potentiel de prescription**. Spécialités = liste de référence gérée (modèle
+  `MedicalSpecialty`). Le nom de spécialité est **dénormalisé** sur le médecin → la cascade Congrès
+  (spécialité → médecins) continue de fonctionner sans changement. Visites & tournées conservées.
 - **Business Development (`/business-development`)** — **grand tableau stratégique Projet → Gamme →
   Produit** (≈20 colonnes : marché DZD/USD, prix, volumes, concurrents, investissements & revenus
   estimés A1-A3), colonnes gelées, recherche/filtres/tri, édition de cellule en place, export CSV,
@@ -208,7 +212,7 @@ d'un **Chef de produit** → **analyse + budget proposé (chef de produit)** →
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging**.
+→ **messaging** → **medical_specialty_structure**.
 
 > Au prochain déploiement Render, `migrate deploy` applique automatiquement celles en attente.
 

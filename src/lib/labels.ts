@@ -248,6 +248,44 @@ export const INFLUENCE_LEVEL: Record<string, Display> = {
   KEY_OPINION_LEADER: { label: "Leader d'opinion", tone: "purple" },
 };
 
+export const MEDICAL_SECTOR: Record<string, Display> = {
+  HOSPITAL: { label: "Hôpital / Public", tone: "info" },
+  LIBERAL: { label: "Libéral / Privé", tone: "purple" },
+  BOTH: { label: "Public + Privé", tone: "neutral" },
+};
+
+export const DOCTOR_TITLE: Record<string, string> = {
+  PROFESSEUR: "Professeur",
+  MAITRE_CONFERENCES: "Maître de conférences",
+  MAITRE_ASSISTANT: "Maître-assistant",
+  PRATICIEN_SPECIALISTE: "Praticien spécialiste",
+  ASSISTANT: "Assistant",
+  RESIDENT: "Résident",
+  GENERALISTE: "Médecin généraliste",
+  PHARMACIEN: "Pharmacien",
+  AUTRE: "Autre",
+};
+
+/** Préfixe d'affichage devant le nom (Pr. Mouffok, Dr. …). */
+export const DOCTOR_TITLE_PREFIX: Record<string, string> = {
+  PROFESSEUR: "Pr.",
+  MAITRE_CONFERENCES: "Dr.",
+  MAITRE_ASSISTANT: "Dr.",
+  PRATICIEN_SPECIALISTE: "Dr.",
+  ASSISTANT: "Dr.",
+  RESIDENT: "Dr.",
+  GENERALISTE: "Dr.",
+  PHARMACIEN: "",
+  AUTRE: "",
+};
+
+/** Nom affiché d'un médecin avec son préfixe de titre (« Pr. Mouffok »). Helper
+ *  pur partagé serveur + client (à ne pas exporter depuis un module "use client"). */
+export function doctorDisplayName(d: { title: string; name: string }): string {
+  const prefix = DOCTOR_TITLE_PREFIX[d.title] ?? "";
+  return prefix ? `${prefix} ${d.name}` : d.name;
+}
+
 export const BD_TYPE: Record<string, string> = {
   GENERIC: "Générique",
   BIOSIMILAR: "Biosimilaire",

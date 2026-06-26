@@ -1,13 +1,78 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { InfluenceLevel, Priority, VisitStatus } from "@prisma/client";
+import type { DoctorTitle, InfluenceLevel, MedicalSector, Priority, VisitStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+
+const SECTORS: MedicalSector[] = ["HOSPITAL", "LIBERAL", "BOTH"];
+const TITLES: DoctorTitle[] = [
+  "PROFESSEUR", "MAITRE_CONFERENCES", "MAITRE_ASSISTANT", "PRATICIEN_SPECIALISTE",
+  "ASSISTANT", "RESIDENT", "GENERALISTE", "PHARMACIEN", "AUTRE",
+];
+
+/** Résout le nom d'une spécialité (dénormalisé sur le médecin → la cascade
+ *  Congrès qui lit `doctor.specialty` continue de fonctionner sans changement). */
+async function specialtyName(id: string | null): Promise<string | null> {
+  if (!id) return null;
+  const s = await prisma.medicalSpecialty.findUnique({ where: { id }, select: { name: true } });
+  return s?.name ?? null;
+}
+
+function parseSector(v: string | null): MedicalSector {
+  return v && SECTORS.includes(v as MedicalSector) ? (v as MedicalSector) : "LIBERAL";
+}
+function parseTitle(v: string | null): DoctorTitle {
+  return v && TITLES.includes(v as DoctorTitle) ? (v as DoctorTitle) : "AUTRE";
+}
+
+// ─────────────────────────── Spécialités ───────────────────────────
+
+export async function createSpecialty(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
+  const name = fdStr(formData, "name");
+  if (!name) return { ok: false, error: "Le nom de la spécialité est obligatoire." };
+  const existing = await prisma.medicalSpecialty.findFirst({ where: { name: { equals: name, mode: "insensitive" } }, select: { id: true } });
+  if (existing) return { ok: false, error: "Cette spécialité existe déjà." };
+  const created = await prisma.medicalSpecialty.create({
+    data: { name, color: fdStr(formData, "color"), notes: fdStr(formData, "notes"), createdById: user.id },
+  });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Promotion médicale", summary: `Spécialité « ${name} »` });
+  revalidatePath("/medical");
+  return { ok: true, id: created.id };
+}
+
+export async function updateSpecialty(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  const name = fdStr(formData, "name");
+  if (!id || !name) return { ok: false, error: "Paramètres manquants." };
+  await prisma.medicalSpecialty.update({ where: { id }, data: { name, color: fdStr(formData, "color"), notes: fdStr(formData, "notes") } });
+  // Re-synchronise le libellé dénormalisé sur les médecins rattachés.
+  await prisma.medicalDoctor.updateMany({ where: { specialtyId: id }, data: { specialty: name } });
+  revalidatePath("/medical");
+  return { ok: true };
+}
+
+export async function deleteSpecialty(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  // Le FK est SetNull : les médecins basculent en « Sans spécialité » (non supprimés).
+  await prisma.medicalDoctor.updateMany({ where: { specialtyId: id }, data: { specialty: null } });
+  await prisma.medicalSpecialty.delete({ where: { id } });
+  revalidatePath("/medical");
+  return { ok: true };
+}
+
+// ─────────────────────────── Médecins ───────────────────────────
 
 export async function createDoctor(
   _prev: ActionResult | undefined,
@@ -20,11 +85,16 @@ export async function createDoctor(
 
   // A delegate owns the doctors they create; a manager may assign one.
   const delegateId = user.role === "MEDICAL_DELEGATE" ? user.id : fdStr(formData, "delegateId") ?? null;
+  const specialtyId = fdStr(formData, "specialtyId");
+  const sName = await specialtyName(specialtyId);
 
   const created = await prisma.medicalDoctor.create({
     data: {
       name,
-      specialty: fdStr(formData, "specialty"),
+      title: parseTitle(fdStr(formData, "title")),
+      specialtyId,
+      specialty: sName ?? fdStr(formData, "specialty"),
+      sector: parseSector(fdStr(formData, "sector")),
       institution: fdStr(formData, "institution"),
       city: fdStr(formData, "city"),
       region: fdStr(formData, "region"),
@@ -33,6 +103,7 @@ export async function createDoctor(
       influenceLevel: (fdStr(formData, "influenceLevel") as InfluenceLevel) ?? "MEDIUM",
       prescriptionPotential: (fdStr(formData, "prescriptionPotential") as Priority) ?? "MEDIUM",
       targetProducts: fdStr(formData, "targetProducts"),
+      comments: fdStr(formData, "comments"),
       delegateId,
       createdById: user.id,
     },
@@ -43,6 +114,49 @@ export async function createDoctor(
   });
   revalidatePath("/medical");
   return { ok: true, id: created.id };
+}
+
+export async function updateDoctor(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Médecin introuvable." };
+  if (!(await canAccessEntity(user, "DOCTOR", id, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+  const before = await prisma.medicalDoctor.findUnique({ where: { id } });
+  if (!before) return { ok: false, error: "Médecin introuvable." };
+
+  const name = fdStr(formData, "name") ?? before.name;
+  const specialtyId = fdStr(formData, "specialtyId");
+  const sName = await specialtyName(specialtyId);
+  // Un manager (vue globale) peut réassigner le délégué ; un délégué reste propriétaire.
+  const isManager = user.role !== "MEDICAL_DELEGATE";
+
+  await prisma.medicalDoctor.update({
+    where: { id },
+    data: {
+      name,
+      title: parseTitle(fdStr(formData, "title")),
+      specialtyId,
+      specialty: sName ?? (specialtyId ? before.specialty : fdStr(formData, "specialty")),
+      sector: parseSector(fdStr(formData, "sector")),
+      institution: fdStr(formData, "institution"),
+      city: fdStr(formData, "city"),
+      region: fdStr(formData, "region"),
+      phone: fdStr(formData, "phone"),
+      email: fdStr(formData, "email"),
+      influenceLevel: (fdStr(formData, "influenceLevel") as InfluenceLevel) ?? before.influenceLevel,
+      prescriptionPotential: (fdStr(formData, "prescriptionPotential") as Priority) ?? before.prescriptionPotential,
+      targetProducts: fdStr(formData, "targetProducts"),
+      comments: fdStr(formData, "comments"),
+      ...(isManager ? { delegateId: fdStr(formData, "delegateId") } : {}),
+      updatedById: user.id,
+    },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Promotion médicale",
+    entityType: "DOCTOR", entityId: id, summary: `Médecin « ${name} » mis à jour`,
+  });
+  revalidatePath("/medical");
+  return { ok: true };
 }
 
 export async function createVisit(

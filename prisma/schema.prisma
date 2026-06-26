@@ -241,6 +241,26 @@ enum InfluenceLevel {
   KEY_OPINION_LEADER
 }
 
+// Secteur d'exercice d'un médecin au sein d'une spécialité.
+enum MedicalSector {
+  HOSPITAL // Hôpital / secteur public
+  LIBERAL // Cabinet / clinique privée
+  BOTH // Exerce dans les deux
+}
+
+// Grade / titre du praticien (contexte algérien).
+enum DoctorTitle {
+  PROFESSEUR // Professeur (Pr.)
+  MAITRE_CONFERENCES // Maître de conférences
+  MAITRE_ASSISTANT // Maître-assistant
+  PRATICIEN_SPECIALISTE // Praticien spécialiste
+  ASSISTANT // Assistant
+  RESIDENT // Résident
+  GENERALISTE // Médecin généraliste
+  PHARMACIEN // Pharmacien
+  AUTRE
+}
+
 enum BDType {
   GENERIC
   BIOSIMILAR
@@ -913,11 +933,31 @@ model LogisticsOrder {
 
 // ───────────────────────────── Medical promotion ─────────────────────────────
 
+// Spécialité médicale (Cardiologie, Oncologie…) — liste de référence gérée par
+// le manager Promotion médicale. Chaque médecin est rattaché à une spécialité et
+// exerce dans un secteur (hôpital / libéral / les deux).
+model MedicalSpecialty {
+  id          String          @id @default(cuid())
+  name        String          @unique
+  color       String? // accent visuel
+  notes       String?
+  doctors     MedicalDoctor[]
+  createdById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([name])
+}
+
 model MedicalDoctor {
   custom                Json? // admin-defined dynamic fields
   id                    String         @id @default(cuid())
   name                  String
-  specialty             String?
+  title                 DoctorTitle    @default(AUTRE) // grade : Professeur, etc.
+  specialty             String? // libellé libre hérité (fallback si non rattaché)
+  specialtyId           String?
+  specialtyRef          MedicalSpecialty? @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  sector                MedicalSector  @default(LIBERAL)
   institution           String? // hôpital / clinique
   city                  String?
   region                String?
@@ -942,6 +982,8 @@ model MedicalDoctor {
   updatedAt   DateTime @updatedAt
 
   @@index([delegateId])
+  @@index([specialtyId])
+  @@index([sector])
   @@index([region])
   @@index([city])
 }
