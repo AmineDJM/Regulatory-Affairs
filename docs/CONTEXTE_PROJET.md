@@ -1,0 +1,260 @@
+# AMD Internal OS — Contexte & état du projet
+
+> Document de référence durable. Objectif : qu'on puisse reprendre le projet (ou
+> le confier à un tiers / une autre IA pour brainstorming) **sans rien perdre**.
+> Tenu à jour au fil des évolutions.
+
+---
+
+## 1. Vision
+
+**AMD Internal OS** est le logiciel interne unique (ERP / « OS d'entreprise ») d'**Adventum Pharma**
+(laboratoire pharmaceutique algérien). Principes :
+
+- Gérer **100 % de l'entreprise** dans un seul outil connecté, **100 % digitalisé & data-driven**.
+- **Aucune donnée simulée** : l'admin et les utilisateurs saisissent manuellement.
+- **Accès ultra-granulaire contrôlé par l'admin** : par utilisateur × onglet × action × ligne.
+- **Tout est relié** (un module alimente l'autre).
+- Devise = **DZD**. Contexte fiscal algérien (G50, IRG, IBS, CNAS, CASNOS).
+- Client institutionnel principal = **PCH** (Pharmacie Centrale des Hôpitaux — marchés publics).
+- Réglementaire = enregistrement **AMM / ANPP**.
+- Ambition : l'unique environnement de travail des employés (à terme : messagerie, drive, éditeur intégrés).
+
+---
+
+## 2. Stack & déploiement
+
+- **Next.js 14.2.x** App Router, React Server Components, **Server Actions**, TypeScript strict.
+- **Prisma 5.22 + PostgreSQL**. **NextAuth v5 (beta)** — Credentials, JWT, trustHost, bcrypt.
+- **Tailwind** + UI kit maison (Card, Sheet, Table, DataTable, Button, Input/Select/Textarea,
+  Badge, StatusBadge, KpiCard, EmptyState, Icon via lucide, CommentThread, DocumentUpload/List,
+  CreateRecordButton avec FieldDef).
+- **Déploiement : Render** (Web Service + PostgreSQL managé). `prisma migrate deploy` au déploiement.
+- **Branche de travail : `claude/hopeful-goodall-phd0nb`** (ne jamais pousser ailleurs sans accord ;
+  pas de PR sauf demande explicite).
+- Dernier commit au moment de la rédaction : `345bf22`.
+
+---
+
+## 3. Architecture & patterns clés
+
+- **RBAC dynamique à 2 couches** (toujours appliqué côté serveur) :
+  - `PERMISSIONS` = matrice par rôle (baseline).
+  - `UserAccess` = override par utilisateur ; `RowGrant` = accès par ligne.
+  - `getAccess()` (caché par requête) résout l'accès *effectif* ; `userCan()`, `defaultScope()`,
+    et les helpers `scope*()` (fragments Prisma `where`) lisent cet accès.
+  - `hasGlobalView` = [SUPER_ADMIN, DIRECTION].
+  - `requireModule(module, action)` garde chaque page ; `requireUser()` pour les actions.
+- **Fichiers `"use server"` : n'exporter QUE des fonctions async** (un export non-async a déjà
+  causé un crash en prod — leçon retenue).
+- **Migrations** : `prisma migrate dev` est interactif (bloqué). On fait
+  `prisma migrate diff --from-url $DATABASE_URL --to-schema-datamodel prisma/schema.prisma --script`
+  → écrire dans `prisma/migrations/<timestamp>_<nom>/migration.sql` → `prisma migrate deploy`.
+- **Drive chiffré** : AES-256-GCM, adressage par contenu (SHA-256), `Bytes` Postgres, clé maître
+  dérivée de `NEXTAUTH_SECRET`.
+- **Document/Comment polymorphes** via `(entityType, entityId)` — réutilisés par chaque module.
+- **Pattern Ordre de dépense** : validation → `createExpenseOrder()` → le comptable règle →
+  `FinanceTransaction` OUT + source marquée payée.
+- **Custom fields** (colonnes dynamiques admin) via `custom Json?` + `CUSTOM_ENTITY_TYPES`.
+- **Audit** (`recordAudit`) + **notifications** (`notifyUser`, `notifyRoles`).
+
+---
+
+## 4. Rôles (UserRole)
+
+`SUPER_ADMIN`, `DIRECTION`, `HEAD_OF_REGULATORY`, `REGULATORY_ASSISTANT`, `HEAD_OF_SALES`,
+`SALES_USER`, `LOGISTICS_MANAGER`, `MEDICAL_PROMOTION_MANAGER`, `MEDICAL_DELEGATE`,
+**`PRODUCT_MANAGER` (Chef de produit)**, `BUSINESS_DEVELOPMENT_MANAGER`, `FINANCE_BUDGET_MANAGER`, `VIEWER`.
+
+> Le Super Admin gère tout via la **matrice d'accès** (admin/users/[id]). Penser à créer au moins
+> un compte **Chef de produit** (pour la validation des congrès) et à accorder les modules **PCH/STOCKS**
+> aux bons profils.
+
+---
+
+## 5. Modules livrés (25 routes)
+
+Groupes : **Pilotage** (Mon travail, Mon espace, Dashboard), **Pôles**, **Transverse**, **Système**.
+
+### Pilotage
+- **Mon travail (`/mon-travail`)** — *Action Center*. Agrège selon les droits : tâches, demandes admin
+  à traiter, validations en attente, paiements à régler (comptable), dossiers Regulatory à mettre à
+  jour, congés à décider (RH), **congrès à valider/analyser**, notifications. Vues : en retard / bientôt
+  / urgent. Chaque ligne ouvre l'élément.
+- **Mon espace (`/mon-espace`)** — tâches perso, congés/absences, avances sur salaire (self-service),
+  activité, accès rapides.
+- **Dashboard** — KPIs & graphiques.
+
+### Pôles
+- **Regulatory (`/regulatory`)** — dossiers AMM/ANPP, workflow 17 étapes, documents, commentaires,
+  champs personnalisés. **Catégorie Médicament / Dispositif médical** (badge). **Vue fournisseur**
+  (pilote ce que le portail externe expose).
+- **Sponsoring** — workflow demandes (budget demandé/suggéré/accordé, justificatif, facture).
+- **Budgets**, **Finances** (trésorerie, livre, **paie**, **ordres de dépense**), **Espace comptable
+  (`/comptabilite`)** — synthèse légère (à régler, recettes attendues, résultat mensuel), pas de compta complète.
+- **RH (`/rh`)** — employés, contrats, congés, avances.
+- **Congrès internationaux (`/congress-international`)** & **Événements nationaux (`/congress-national`)** —
+  voir §6.
+- **Ventes (`/sales`)** — CA, import CSV. **Type Produit / Service** + client externe + description service.
+- **Logistique PCH (`/logistics`)** — import / expéditions fournisseurs.
+- **PCH — Marchés (`/pch`)** — voir §6.
+- **Stocks PCH (`/stocks`)** — mouvements (entrée/sortie/ajustement) + niveau courant par produit.
+- **Promotion médicale (`/medical`)** — médecins (par spécialité, délégué), visites.
+- **Business Development (`/business-development`)** — **grand tableau stratégique Projet → Gamme →
+  Produit** (≈20 colonnes : marché DZD/USD, prix, volumes, concurrents, investissements & revenus
+  estimés A1-A3), colonnes gelées, recherche/filtres/tri, édition de cellule en place, export CSV,
+  page détail projet (statuts Idée→…→Validé/Abandonné/Clôturé). Ancien pipeline d'opportunités conservé
+  sous `/business-development/opportunites`.
+
+### Transverse
+- **Validations (`/validations`)** — *Validation Center* configurable par le Super Admin (voir §6).
+- **Drive (`/drive`)** — stockage chiffré, **visionneuses PDF / Word (mammoth) / Excel (SheetJS) /
+  PowerPoint (JSZip, texte) / images / vidéo / audio / texte**.
+- **Demandes administratives (`/demandes`)** — « Bureau de Donna » : 10 types, validations, ordres
+  de dépense, missions chauffeur.
+- **Documents**, **Notifications**, **Feedback (`/feedback`)** — retour libre utilisateur → `/admin/feedback`.
+
+### Système
+- **Admin (`/admin`)** — comptes, **matrice d'accès** (onglet × action × ligne), sessions révocables,
+  activité, journal d'audit, **champs personnalisés**, **/admin/validations** (règles), **/admin/feedback**,
+  **/admin/suppliers** (comptes portail fournisseur). **Vue exacte** (impersonation, voir §6).
+- **Recherche globale** (RBAC-aware) + palette **⌘K**.
+
+### Externe (hors OS interne)
+- **Portail Fournisseur (`/portail`)** — voir §6 (auth séparée, isolation stricte).
+
+---
+
+## 6. Workflows critiques (détails à ne pas perdre)
+
+### Congrès (demande de prise en charge — double validation)
+`Demande (délégué/superviseur + budget estimé)` → **validation PRÉLIMINAIRE (Direction)** + assignation
+d'un **Chef de produit** → **analyse + budget proposé (chef de produit)** → **validation DÉFINITIVE
+(Direction)** → **ordre de dépense** (catégorie Événement) émis dans l'espace comptable.
+- Formulaire : **médecins invités via cascade Spécialité → médecins** (issus de Promotion médicale),
+  **participants Adventum** (multi-sélection users), budget estimé. National : **type d'événement**
+  (congrès, séminaire, table ronde, webinaire, atelier, symposium, staff…).
+- Deux budgets conservés côte à côte (demandeur / chef de produit). Délégués (scope ASSIGNED) ne
+  voient que leurs demandes ; Direction valide ; chef de produit analyse. Vérifié bout-en-bout.
+
+### PCH — Marchés publics
+- **Appel d'offres gagné** = une ligne (réf auto `AO-année-n`, produits, fournisseur, pays, quantité,
+  valeur, client=PCH par défaut, statut : pas encore commencé / en cours / terminé).
+- **Caution obligatoire** : montant, déposée O/N, dates début/fin, alertes (expirée / < 30 j).
+- Sous-lignes = **bons de commande** PCH (réf, qté, valeur, statut, date réception, date paiement).
+- Page liste + page détail (gestion des bons).
+
+### Validation Center (configurable Super Admin)
+- Le Super Admin définit des **règles** : module, type d'objet, montant min/max, département, rôle du
+  demandeur, priorité, catégorie → routage vers **1 ou 2 validateurs**, en **séquentiel ou parallèle**.
+- `/admin/validations` (config), `/validations` (« Mes validations » : Valider / Refuser / Demander
+  modification — motif obligatoire). Notifications + audit. Moteur : `lib/validation.ts`.
+
+### Portail Fournisseur (externe sécurisé) — **contraintes de sécurité à préserver**
+- **Comptes externes totalement séparés** : tables `Supplier` / `SupplierUser`, **auth distincte**
+  (cookie HMAC scopé `/portail`, revalidé en base à chaque requête), middleware NextAuth exempté
+  pour `/portail`. Un cookie portail ne donne **aucun** accès interne, et inversement.
+- Le fournisseur ne voit **QUE** : ses propres produits marqués `portalVisible`, et **seulement les
+  champs externes** (statut externe simplifié ≠ statut interne, prochaine étape, action attendue,
+  deadline, commentaire externe, dernière MAJ). **Jamais** : autres fournisseurs, statut/notes internes,
+  documents, autres modules. IDs cuid non séquentiels. Comptes désactivables. Connexions journalisées.
+- Côté Regulatory : carte « Vue fournisseur » sur le dossier (fournisseur associé, visible O/N, statut
+  externe, etc.). Mapping suggéré interne→externe surchargeable.
+
+### Vue exacte (impersonation)
+- Le Super Admin visualise l'OS **exactement comme** un utilisateur (mêmes onglets/droits/données).
+  Cookie `amd_impersonate` honoré **uniquement si la session réelle est Super Admin** (pas d'escalade).
+  Bandeau permanent + « Quitter ». Démarrage/arrêt journalisés.
+
+---
+
+## 7. Migrations (appliquées en local ; s'appliquent au déploiement Render)
+
+Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
+dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
+**supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**.
+
+> Au prochain déploiement Render, `migrate deploy` applique automatiquement celles en attente.
+
+---
+
+## 8. Vérification (commandes)
+
+```bash
+# Postgres local (machine de travail uniquement, base jetable — PAS Render)
+su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/amd_pgdata -o '-p 5432' start"
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/amd_internal_os?schema=public"
+
+npx tsc --noEmit                 # typecheck
+npm run build                    # build prod
+npx vitest run                   # 10 tests unitaires (rbac)
+# Smoke runtime : npm run start (prod) + login curl/Playwright, puis nettoyage des comptes tmp-*.
+```
+
+**Pièges sandbox connus :**
+- `prisma generate` : ajouter `NODE_OPTIONS="--unhandled-rejections=warn"` (un appel réseau de
+  télémétrie est coupé par le proxy et faisait planter la génération).
+- `npm install …` **élague `playwright-core`** (non listé dans package.json) → le réinstaller
+  `--no-save` avant un test Playwright.
+- Sortie HTTPS via proxy agent (CA `/root/.ccr/ca-bundle.crt`). `registry.npmjs.org` est en noProxy.
+
+---
+
+## 9. En attente / différé
+
+- **Messagerie e-mail Infomaniak** + **éditeur Office collaboratif** : **bloqués par l'infra** du
+  sandbox (IMAP/SMTP non joignables, sidecar Docker incompatible Render-only). À câbler au déploiement.
+- **Annotations PDF** (pdf.js) : différé (dépendance/worker à intégrer proprement).
+- **Application mobile (PWA / stores)** : **gardé de côté** à la demande. Reco retenue = PWA d'abord
+  (installable iOS/Android sans store), puis éventuellement wrapper **Capacitor/TWA** pour les stores ;
+  **éviter un rebuild React Native**. L'UI est déjà responsive (tiroir mobile). Manque : manifeste +
+  service worker + icônes.
+
+---
+
+## 10. Grand chantier à venir : données de référence (analyse d'architecture)
+
+L'utilisateur va importer dans les prochains jours : **+600 000 produits / 7 800 sociétés pharma**
+(certifs, numéros, mails), la **nomenclature algérienne**, **IQVIA 2025 & 2026**, les **achats PCH 2025**.
+
+**Constat clé :** la plateforme est conçue pour des **données opérationnelles** (centaines→milliers de
+lignes). Ces datasets sont des **référentiels (master data)** à une **toute autre échelle**. Limites
+actuelles à lever **avant** l'import :
+1. **`DataTable` est entièrement côté client** (charge toutes les lignes au navigateur) et les requêtes
+   sont plafonnées (`take: 200/500`). → Impossible avec 600k.
+2. **Recherche globale en `ILIKE %terme%`** (séquentiel) → lente sur 600k sans index trigramme.
+3. **Aucun pipeline d'import en masse** (seul l'import CSV des ventes existe) ni **worker/cron**.
+
+**Recommandation (fondation à construire d'abord) :**
+- Un espace **« Référentiels »** avec modules dédiés en lecture/recherche : **Fournisseurs Monde**,
+  **Produits Monde**, **Nomenclature DZ**, **Marché IQVIA**, **Achats PCH 2025**.
+- **Pagination + recherche côté serveur** (index `pg_trgm`/full-text Postgres) en remplacement du
+  DataTable client pour les grosses tables.
+- **Pipeline d'import par lots** (CSV/Excel streamé, validation, déduplication, mapping, progression) —
+  via **worker Render**, pas une server action.
+- **Tâches de fond / cron** : imports longs, alertes d'expiration (GMP, AMM, **cautions**), rapports.
+- **NE PAS** verser les 600k produits dans le module BD actuel (tableau manuel hiérarchique) — les
+  relier au BD à la place.
+
+**La valeur = la connexion :** IQVIA → tailles de marché/scoring BD automatiques ; Nomenclature DZ →
+« déjà enregistré ? concurrence ? » pour BD/Regulatory ; Fournisseurs Monde → sourcing BD + choix labo
+Regulatory + Portail fournisseur ; Achats PCH 2025 → PCH/Stocks/Ventes/prévisions.
+
+---
+
+## 11. Autres lacunes fonctionnelles identifiées (priorisées)
+
+Reporting/BI consolidé + exports PDF/Excel + rapports planifiés • messagerie e-mail (+ notifications
+e-mail/SMS) • **veille des appels d'offres PCH à venir** (le module PCH ne gère que les marchés gagnés) •
+suivi des échéances documentaires (GMP/AMM/cautions) avec alertes • contrats/conventions/licences •
+objectifs commerciaux vs réalisé • lots & péremptions / qualité ; pharmacovigilance si post-market •
+export comptable (G50…) • couverture de tests à renforcer (10 tests unitaires, pas d'E2E auto).
+
+---
+
+## 12. Contraintes opérationnelles permanentes
+
+- Développer **uniquement** sur `claude/hopeful-goodall-phd0nb`. Pas de push ailleurs sans accord.
+- **Pas de PR** sauf demande explicite.
+- Dépôt GitHub en scope : `aminedjm/regulatory-affairs`.
+- Tout doit être **réel et vérifié** (typecheck + build + tests + smoke), **aucune simulation**.
