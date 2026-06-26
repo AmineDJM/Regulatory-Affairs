@@ -81,6 +81,84 @@ export async function askClaude(prompt: string, opts: AskOptions = {}): Promise<
   }
 }
 
+// ─────────────────────────── Tool-use (boucle agent — Chatbot) ───────────────────────────
+
+export interface ClaudeToolDef {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+export type ClaudeContentBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
+
+export interface ClaudeMessage {
+  role: "user" | "assistant";
+  content: string | ClaudeContentBlock[];
+}
+
+export interface ClaudeRawResult {
+  ok: boolean;
+  configured: boolean;
+  stopReason?: string;
+  content?: ClaudeContentBlock[];
+  error?: string;
+}
+
+interface CallOptions {
+  system?: string;
+  tools?: ClaudeToolDef[];
+  maxTokens?: number;
+  temperature?: number;
+  model?: string;
+}
+
+/**
+ * Appel bas niveau à l'API Messages avec support des outils (function calling) et
+ * d'un historique multi-tours. Utilisé par la boucle agent de l'assistant : on lui
+ * passe la conversation + les définitions d'outils, il renvoie les blocs bruts
+ * (texte et/ou `tool_use`) et le `stop_reason` pour piloter la boucle. Serveur uniquement.
+ */
+export async function callClaude(messages: ClaudeMessage[], opts: CallOptions = {}): Promise<ClaudeRawResult> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return { ok: false, configured: false, error: "Clé ANTHROPIC_API_KEY non configurée." };
+
+  const base = process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
+  const model = opts.model ?? aiModel();
+
+  try {
+    const res = await fetch(`${base.replace(/\/$/, "")}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: opts.maxTokens ?? 1400,
+        temperature: opts.temperature ?? 0.2,
+        ...(opts.system ? { system: opts.system } : {}),
+        ...(opts.tools?.length ? { tools: opts.tools } : {}),
+        messages,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error("[ai] anthropic tools error", res.status, body.slice(0, 300));
+      return { ok: false, configured: true, error: `Erreur IA (HTTP ${res.status}).` };
+    }
+    const data = (await res.json()) as { content?: ClaudeContentBlock[]; stop_reason?: string };
+    return { ok: true, configured: true, stopReason: data.stop_reason, content: data.content ?? [] };
+  } catch (err) {
+    console.error("[ai] tools call failed", err);
+    return { ok: false, configured: true, error: "Appel à l'IA impossible (réseau)." };
+  }
+}
+
 // ─────────────────────────── Speech-to-text (Whisper / OpenAI) ───────────────────────────
 
 export function sttConfigured(): boolean {

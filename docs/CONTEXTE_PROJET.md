@@ -58,9 +58,10 @@
   `FinanceTransaction` OUT + source marquée payée.
 - **Custom fields** (colonnes dynamiques admin) via `custom Json?` + `CUSTOM_ENTITY_TYPES`.
 - **Audit** (`recordAudit`) + **notifications** (`notifyUser`, `notifyRoles`).
-- **Couche IA** (`lib/ai.ts`) — wrapper Claude **serveur uniquement** (`askClaude`, `aiConfigured`).
-  La clé `ANTHROPIC_API_KEY` n'est **jamais** exposée au client ; sans clé, renvoie `configured:false`
-  et l'UI affiche « IA non configurée ». Réutilisé par Process Intelligence, et à venir Voix & Chatbot.
+- **Couche IA** (`lib/ai.ts`) — wrappers Claude **serveur uniquement** (`askClaude` texte ; `callClaude`
+  multi-tours + outils pour la boucle agent ; `aiConfigured`). La clé `ANTHROPIC_API_KEY` n'est **jamais**
+  exposée au client ; sans clé, renvoie `configured:false` et l'UI affiche « IA non configurée ». Réutilisé
+  par Process Intelligence (synthèse), Voix (analyse rapports) et **Assistant IA / Chatbot** (boucle agent).
   STT vocal retenu = **Whisper / OpenAI** (`OPENAI_API_KEY`, à poser sur Render).
 - **Messagerie — temps réel sans WebSocket** : mutations par **server actions** + **UI optimiste**,
   réception par **polling** (`/api/messaging/sync` ~6 s pour la liste/badge ; `/api/messaging/messages`
@@ -83,9 +84,9 @@
 
 ---
 
-## 5. Modules livrés (26 routes)
+## 5. Modules livrés (27 routes)
 
-Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, Dashboard), **Pôles**, **Transverse**, **Système**.
+Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA**, Mon dossier RH, Dashboard), **Pôles**, **Transverse**, **Système**.
 
 ### Pilotage
 - **Mon travail (`/mon-travail`)** — *Action Center*. Agrège selon les droits : tâches, demandes admin
@@ -100,6 +101,18 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, Dashboard), **P
   (travail, CNAS, relevé des émoluments, domiciliation…) avec suivi de statut. Côté RH, gestion sur
   `/rh/[id]` (dépôt de documents, traitement des demandes, pièce jointe). Accès strict : un employé ne
   voit que ses propres documents (route `/api/rh/document/[id]` contrôlée).
+- **Assistant IA (`/assistant`)** — chatbot interne (boucle agent Claude). Comprend l'app + les données
+  de l'utilisateur **filtrées par ses droits RBAC**, répond aux questions et **prépare des actions**
+  (créer une tâche, créer une demande administrative — ex. « Demande à Radia un billet pour le Pr Mouffok
+  Alger→Rio du 2 au 5 janvier 2027 » → propose une demande `TRAVEL` assignée au bon collègue). **Outils de
+  lecture** exécutés automatiquement (annuaire interne, mes tâches/demandes, médecins/produits/events —
+  tous scopés) ; **outils d'écriture** jamais exécutés par l'IA : interceptés et renvoyés en **carte de
+  confirmation** (« Confirmer chaque action avant exécution »). L'exécution (`performAction`) est
+  **ré-autorisée** côté serveur (jamais sur la confiance du client) et **journalisée** (module « Assistant
+  IA »). Clé `ANTHROPIC_API_KEY` serveur uniquement ; sans clé → bannière « IA non configurée ». L'IA
+  n'invente jamais un médecin/produit/établissement (sinon « à confirmer »). Code : `src/lib/assistant.ts`
+  (contexte + system prompt + outils + boucle + `performAction`), `src/lib/ai.ts` (`callClaude` tool-use),
+  `src/lib/actions/assistant-actions.ts` (boundary `use server` : `assistantChat`, `executeAssistantAction`).
 - **Dashboard** — KPIs & graphiques.
 
 ### Pôles
@@ -253,6 +266,9 @@ dépense → Drive → demandes admin → **BD (project/range/product)** → **v
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
 → **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events**.
 
+> L'**Assistant IA / Chatbot** n'ajoute **aucune migration** (pas de changement de schéma : il lit/écrit
+> des entités existantes — `Task`, `AdministrativeRequest` — et conserve la conversation côté client).
+
 > Au prochain déploiement Render, `migrate deploy` applique automatiquement celles en attente.
 
 ---
@@ -266,7 +282,7 @@ export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/amd_internal_
 
 npx tsc --noEmit                 # typecheck
 npm run build                    # build prod
-npx vitest run                   # 10 tests unitaires (rbac)
+npx vitest run                   # 24 tests (rbac + assistant : RBAC outils, résolution, exécution+audit)
 # Smoke runtime : npm run start (prod) + login curl/Playwright, puis nettoyage des comptes tmp-*.
 ```
 
