@@ -10,7 +10,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
-import { STOCK_DIRECTION } from "@/lib/labels";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { STOCK_DIRECTION, PCH_OPS_TABS } from "@/lib/labels";
 import { formatNumber, formatDate } from "@/lib/utils";
 import { DeleteMovementButton } from "./delete-button";
 
@@ -41,6 +42,8 @@ export default async function StocksPage() {
           />
         )}
       </PageHeader>
+
+      <ModuleTabs tabs={PCH_OPS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-3 gap-3">
         <KpiCard label="Produits suivis" value={stats.products} icon="Boxes" />

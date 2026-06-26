@@ -12,7 +12,8 @@ import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { TrendChart, DonutChart } from "@/components/dashboard/charts";
 import { createTransaction } from "@/lib/actions/finance-actions";
-import { FINANCE_CATEGORY, FINANCE_DIRECTION, FINANCE_METHOD, FINANCE_STATUS } from "@/lib/labels";
+import { FINANCE_CATEGORY, FINANCE_DIRECTION, FINANCE_METHOD, FINANCE_STATUS, FINANCES_TABS } from "@/lib/labels";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { formatCurrency } from "@/lib/utils";
 import { LedgerTable } from "./ledger-table";
 import { RecettesDepensesChart } from "./finance-charts";
@@ -61,6 +62,8 @@ export default async function FinancesPage() {
           </>
         )}
       </PageHeader>
+
+      <ModuleTabs tabs={FINANCES_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       {/* Treasury KPIs */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

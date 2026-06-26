@@ -1501,6 +1501,9 @@ enum HrRequestType {
   SALARY_STATEMENT // relevé des émoluments
   DOMICILIATION // domiciliation de salaire
   LEAVE_CERTIFICATE // attestation de congé
+  LEAVE_TITLE // titre de congé
+  MISSION_ORDER // ordre de mission
+  EXPENSE_REPORT // note de frais
   OTHER
 }
 

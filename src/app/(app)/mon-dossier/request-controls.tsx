@@ -25,17 +25,17 @@ export function NewRequestButton() {
   return (
     <>
       <Button size="sm" onClick={() => { setErr(null); setOpen(true); }}><Plus className="h-4 w-4" /> Nouvelle demande</Button>
-      <Sheet open={open} onClose={() => setOpen(false)} title="Nouvelle demande RH" description="Demandez une attestation. Les RH la prépareront et déposeront le document ici." width="md">
+      <Sheet open={open} onClose={() => setOpen(false)} title="Nouvelle demande RH" description="Attestation, titre de congé, ordre de mission, note de frais… Les RH la traiteront et déposeront le document ici." width="md">
         <form action={onSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Type de document</Label>
+            <Label>Type de demande</Label>
             <Select name="type" defaultValue="WORK_CERTIFICATE">
               {Object.entries(HR_REQUEST_TYPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
           </div>
           <div className="space-y-1.5">
             <Label>Précisions (optionnel)</Label>
-            <Textarea name="details" placeholder="Ex. destinataire, nombre d'exemplaires, langue…" rows={3} />
+            <Textarea name="details" placeholder="Ex. trajet et dates (mission), montant et motif (note de frais), destinataire…" rows={3} />
           </div>
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
           <div className="flex justify-end gap-2">

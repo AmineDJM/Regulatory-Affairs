@@ -61,8 +61,8 @@ export function Sidebar({ items, messagingUnread = 0 }: SidebarProps) {
             </p>
             <ul className="space-y-0.5">
               {groupItems.map((item) => {
-                const active =
-                  pathname === item.href || pathname.startsWith(item.href + "/");
+                const paths = [item.href, ...(item.match ?? [])];
+                const active = paths.some((p) => pathname === p || pathname.startsWith(p + "/"));
                 return (
                   <li key={item.href}>
                     <Link

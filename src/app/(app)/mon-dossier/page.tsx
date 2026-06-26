@@ -18,7 +18,7 @@ export default async function MonDossierPage() {
   if (!dossier) {
     return (
       <div className="space-y-5">
-        <PageHeader title="Mon dossier RH" description="Vos documents RH et vos demandes d'attestation." />
+        <PageHeader title="Mon dossier RH" description="Vos documents RH et vos demandes (attestations, congés, missions, frais)." />
         <EmptyState icon="FileText" title="Aucun dossier RH lié à votre compte" description="Votre compte n'est pas encore rattaché à une fiche employé. Contactez les Ressources humaines." />
       </div>
     );
@@ -27,7 +27,7 @@ export default async function MonDossierPage() {
   const e = dossier.employee;
   return (
     <div className="space-y-5">
-      <PageHeader title="Mon dossier RH" description="Retrouvez vos documents RH et suivez vos demandes d'attestation." />
+      <PageHeader title="Mon dossier RH" description="Retrouvez vos documents RH et suivez vos demandes (attestations, titre de congé, ordre de mission, note de frais…)." />
 
       <div className="grid gap-5 lg:grid-cols-3">
         <Card>
@@ -71,12 +71,12 @@ export default async function MonDossierPage() {
 
       <Card>
         <CardHeader className="flex-row items-center justify-between">
-          <CardTitle>Mes demandes d'attestation</CardTitle>
+          <CardTitle>Mes demandes RH</CardTitle>
           <NewRequestButton />
         </CardHeader>
         <CardContent className="p-0">
           {dossier.requests.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">Aucune demande. Cliquez sur « Nouvelle demande » pour obtenir une attestation de travail, CNAS, relevé des émoluments, etc.</p>
+            <p className="p-4 text-sm text-muted-foreground">Aucune demande. Cliquez sur « Nouvelle demande » pour une attestation (travail, CNAS, émoluments), un titre de congé, un ordre de mission ou une note de frais.</p>
           ) : (
             <ul className="divide-y divide-border">
               {dossier.requests.map((r) => (

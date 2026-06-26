@@ -488,6 +488,9 @@ export const HR_REQUEST_TYPE: Record<string, string> = {
   SALARY_STATEMENT: "Relevé des émoluments",
   DOMICILIATION: "Domiciliation de salaire",
   LEAVE_CERTIFICATE: "Attestation de congé",
+  LEAVE_TITLE: "Titre de congé",
+  MISSION_ORDER: "Ordre de mission",
+  EXPENSE_REPORT: "Note de frais",
   OTHER: "Autre demande",
 };
 
@@ -683,6 +686,13 @@ export const CONV_NOTIFY_LEVEL: Record<string, string> = {
   NONE: "Silencieux",
 };
 
+/** Un onglet d'une entrée fusionnée (sous-module + route). */
+export interface NavTab {
+  module: Module;
+  label: string;
+  href: string;
+}
+
 /** Navigation metadata: maps a sidebar entry to a module + route + icon name. */
 export interface NavItem {
   module: Module;
@@ -690,7 +700,31 @@ export interface NavItem {
   href: string;
   icon: string; // lucide-react icon name
   group: "Pilotage" | "Pôles" | "Transverse" | "Système";
+  /**
+   * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
+   * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
+   * lien est résolu (dans le layout) vers le premier onglet autorisé. Aucune
+   * fonctionnalité n'est retirée : chaque onglet reste sa propre route, gardée par
+   * son propre module.
+   */
+  tabs?: NavTab[];
+  /** Préfixes de chemin additionnels qui activent l'entrée (pour les entrées fusionnées). */
+  match?: string[];
 }
+
+/** Onglets des modules fusionnés — réutilisés par la navigation ET les pages (`ModuleTabs`). */
+export const FINANCES_TABS: NavTab[] = [
+  { module: "FINANCES", label: "Finances", href: "/finances" },
+  { module: "FINANCES", label: "Espace comptable", href: "/comptabilite" },
+];
+export const CONGRESS_TABS: NavTab[] = [
+  { module: "CONGRESS_INTERNATIONAL", label: "Internationaux", href: "/congress-international" },
+  { module: "CONGRESS_NATIONAL", label: "Nationaux", href: "/congress-national" },
+];
+export const PCH_OPS_TABS: NavTab[] = [
+  { module: "LOGISTICS", label: "Logistique", href: "/logistics" },
+  { module: "STOCKS", label: "Stocks", href: "/stocks" },
+];
 
 export const NAVIGATION: NavItem[] = [
   { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail", icon: "CircleCheckBig", group: "Pilotage" },
@@ -702,16 +736,13 @@ export const NAVIGATION: NavItem[] = [
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring", icon: "HandCoins", group: "Pôles" },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles" },
-  { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
-  { module: "FINANCES", label: "Espace comptable", href: "/comptabilite", icon: "Calculator", group: "Pôles" },
+  { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", tabs: FINANCES_TABS },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles" },
-  { module: "CONGRESS_INTERNATIONAL", label: "Congrès internationaux", href: "/congress-international", icon: "Globe", group: "Pôles" },
-  { module: "CONGRESS_NATIONAL", label: "Congrès nationaux", href: "/congress-national", icon: "MapPin", group: "Pôles" },
+  { module: "CONGRESS_INTERNATIONAL", label: "Congrès", href: "/congress-international", icon: "Globe", group: "Pôles", tabs: CONGRESS_TABS },
   { module: "EVENTS", label: "Events", href: "/events", icon: "Ticket", group: "Pôles" },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
-  { module: "LOGISTICS", label: "Logistique PCH", href: "/logistics", icon: "Truck", group: "Pôles" },
+  { module: "LOGISTICS", label: "Logistique & Stocks PCH", href: "/logistics", icon: "Truck", group: "Pôles", tabs: PCH_OPS_TABS },
   { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
-  { module: "STOCKS", label: "Stocks PCH", href: "/stocks", icon: "Boxes", group: "Pôles" },
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles" },
   { module: "MEDICAL", label: "Rapports terrain", href: "/field-reports", icon: "Mic", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },

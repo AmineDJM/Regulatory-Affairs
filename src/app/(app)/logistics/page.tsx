@@ -7,7 +7,8 @@ import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { createLogistics } from "@/lib/actions/logistics-actions";
-import { LOGISTICS_STATUS } from "@/lib/labels";
+import { LOGISTICS_STATUS, PCH_OPS_TABS } from "@/lib/labels";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { LogisticsTable, type LogisticsRow } from "./logistics-table";
 
 export default async function LogisticsPage() {
@@ -58,6 +59,8 @@ export default async function LogisticsPage() {
           />
         )}
       </PageHeader>
+
+      <ModuleTabs tabs={PCH_OPS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Commandes en cours" value={inProgress} icon="Package" />

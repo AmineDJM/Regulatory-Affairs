@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { accessibleModules, userCan } from "@/lib/rbac";
-import { NAVIGATION } from "@/lib/labels";
+import { NAVIGATION, type NavItem } from "@/lib/labels";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { ActivityTracker } from "@/components/layout/activity-tracker";
@@ -18,7 +18,21 @@ export default async function AppLayout({
   const user = await requireUser();
   if (user.mustChangePassword) redirect("/change-password");
   const modules = accessibleModules(user);
-  const navItems = NAVIGATION.filter((n) => modules.includes(n.module));
+  // Entrées fusionnées (`tabs`) : visibles si l'utilisateur a accès à au moins un
+  // onglet ; le lien pointe vers le premier onglet autorisé, et `match` couvre les
+  // chemins de tous les onglets pour le surlignage. Les entrées simples sont
+  // filtrées par leur module, comme avant.
+  const navItems = NAVIGATION.reduce<NavItem[]>((acc, n) => {
+    if (!n.tabs) {
+      if (modules.includes(n.module)) acc.push(n);
+      return acc;
+    }
+    const accessible = n.tabs.filter((t) => modules.includes(t.module));
+    if (accessible.length > 0) {
+      acc.push({ ...n, href: accessible[0].href, match: n.tabs.map((t) => t.href) });
+    }
+    return acc;
+  }, []);
   const canMessage = userCan(user, "MESSAGING", "VIEW");
   const [unreadCount, messagingUnread] = await Promise.all([
     prisma.notification.count({ where: { userId: user.id, isRead: false } }),

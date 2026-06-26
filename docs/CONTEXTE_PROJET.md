@@ -88,6 +88,16 @@
 
 Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA**, Mon dossier RH, Dashboard), **Pôles**, **Transverse**, **Système**.
 
+> **Navigation fusionnée (`ModuleTabs`)** — trois paires sont présentées comme **un seul item de
+> sidebar** avec des **onglets internes**, sans retirer aucune route ni fonctionnalité :
+> **Finances** (Finances · Espace comptable), **Congrès** (Internationaux · Nationaux),
+> **Logistique & Stocks PCH** (Logistique · Stocks). Chaque onglet reste sa propre route gardée par
+> son propre module. Une entrée fusionnée est définie dans `NAVIGATION` via `tabs: NavTab[]` : le
+> layout la montre si l'utilisateur a accès à **au moins un** onglet, résout le lien vers le premier
+> onglet autorisé et renseigne `match` (préfixes des onglets) pour le surlignage. La page affiche
+> `<ModuleTabs>` (composant partagé `src/components/shared/module-tabs.tsx`) avec `show` calculé par
+> `userCan` — RBAC asymétrique : un onglet inaccessible n'apparaît pas (et sa route reste refusée).
+
 ### Pilotage
 - **Mon travail (`/mon-travail`)** — *Action Center*. Agrège selon les droits : tâches, demandes admin
   à traiter, validations en attente, paiements à régler (comptable), dossiers Regulatory à mettre à
@@ -97,8 +107,9 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA*
   activité, accès rapides.
 - **Messagerie (`/messages`)** — messagerie interne complète (voir §6). Badge non-lus live (topbar + sidebar).
 - **Mon dossier RH (`/mon-dossier`)** — espace RH employé : ses **documents RH** (contrats, bulletins,
-  attestations déposés en PDF par les RH, chiffrés, téléchargeables) + ses **demandes d'attestation**
-  (travail, CNAS, relevé des émoluments, domiciliation…) avec suivi de statut. Côté RH, gestion sur
+  attestations déposés en PDF par les RH, chiffrés, téléchargeables) + ses **demandes RH**
+  (`HrRequestType`) : attestation de travail, CNAS, relevé des émoluments, domiciliation, **attestation /
+  titre de congé**, **ordre de mission**, **note de frais**, autre — avec suivi de statut. Côté RH, gestion sur
   `/rh/[id]` (dépôt de documents, traitement des demandes, pièce jointe). Accès strict : un employé ne
   voit que ses propres documents (route `/api/rh/document/[id]` contrôlée).
 - **Assistant IA (`/assistant`)** — chatbot interne (boucle agent Claude). Comprend l'app + les données
@@ -264,7 +275,11 @@ d'un **Chef de produit** → **analyse + budget proposé (chef de produit)** →
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events**.
+→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types**.
+
+> **hr_request_types** : ajoute `LEAVE_TITLE`, `MISSION_ORDER`, `EXPENSE_REPORT` à l'enum `HrRequestType`
+> (`ALTER TYPE … ADD VALUE`). La **fusion de modules** (Finances/Congrès/Logistique-Stocks) est purement
+> présentationnelle : **aucune migration**.
 
 > L'**Assistant IA / Chatbot** n'ajoute **aucune migration** (pas de changement de schéma : il lit/écrit
 > des entités existantes — `Task`, `AdministrativeRequest` — et conserve la conversation côté client).

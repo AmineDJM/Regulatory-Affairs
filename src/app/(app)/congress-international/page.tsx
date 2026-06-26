@@ -3,6 +3,8 @@ import { userCan } from "@/lib/rbac";
 import { getCongressList, getCongressFormData } from "@/lib/queries/congress";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { CONGRESS_TABS } from "@/lib/labels";
 import { CongressRequestButton } from "./congress-request-form";
 import { CongressTable } from "./congress-table";
 
@@ -20,6 +22,8 @@ export default async function CongressInternationalPage() {
       <PageHeader title="Congrès internationaux" description="Demandes de prise en charge des congrès internationaux — validation préliminaire Direction, analyse chef de produit, validation définitive.">
         {canCreate && <CongressRequestButton doctors={form.doctors} users={form.users} />}
       </PageHeader>
+
+      <ModuleTabs tabs={CONGRESS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Demandes" value={rows.length} icon="Globe" />

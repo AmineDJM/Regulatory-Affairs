@@ -92,7 +92,7 @@ export function HrDossier({ employeeId, documents, requests }: { employeeId: str
 
       {/* Demandes */}
       <div>
-        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Demandes d'attestation ({requests.length})</p>
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Demandes RH ({requests.length})</p>
         {requests.length === 0 ? (
           <p className="text-sm text-muted-foreground">Aucune demande.</p>
         ) : (

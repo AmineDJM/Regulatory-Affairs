@@ -1,20 +1,21 @@
 import Link from "next/link";
 import { ReceiptText, Landmark, ArrowRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
 import { getComptaData, type ComptaItem, type ComptaCategoryRow } from "@/lib/queries/compta";
 import { PageHeader } from "@/components/shared/page-header";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FINANCE_CATEGORY } from "@/lib/labels";
+import { FINANCE_CATEGORY, FINANCES_TABS } from "@/lib/labels";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function ComptabilitePage() {
   const user = await requireModule("FINANCES");
-  void user;
   const d = await getComptaData();
 
   return (
@@ -33,6 +34,8 @@ export default async function ComptabilitePage() {
         </Link>
         <Link href="/finances"><Button variant="outline"><Landmark className="h-4 w-4" /> Livre comptable</Button></Link>
       </PageHeader>
+
+      <ModuleTabs tabs={FINANCES_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       {/* Synthèse du mois + worklist */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">

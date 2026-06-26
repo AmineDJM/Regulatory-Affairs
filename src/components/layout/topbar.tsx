@@ -76,7 +76,8 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
             </div>
             <nav className="space-y-0.5 px-3 py-2">
               {navItems.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                const paths = [item.href, ...(item.match ?? [])];
+                const active = paths.some((p) => pathname === p || pathname.startsWith(p + "/"));
                 return (
                   <Link
                     key={item.href}
