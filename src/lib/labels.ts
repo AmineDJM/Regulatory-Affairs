@@ -544,6 +544,26 @@ export const AUDIT_ACTION: Record<string, Display> = {
   REFUSE: { label: "Refus", tone: "danger" },
 };
 
+// ─────────────── Messagerie interne ───────────────
+
+export const CONVERSATION_TYPE: Record<string, Display> = {
+  DIRECT: { label: "Message direct", tone: "info" },
+  GROUP: { label: "Groupe", tone: "purple" },
+  CHANNEL: { label: "Canal", tone: "neutral" },
+};
+
+export const CONV_MEMBER_ROLE: Record<string, string> = {
+  OWNER: "Propriétaire",
+  ADMIN: "Administrateur",
+  MEMBER: "Membre",
+};
+
+export const CONV_NOTIFY_LEVEL: Record<string, string> = {
+  ALL: "Tous les messages",
+  MENTIONS: "Mentions uniquement",
+  NONE: "Silencieux",
+};
+
 /** Navigation metadata: maps a sidebar entry to a module + route + icon name. */
 export interface NavItem {
   module: Module;
@@ -556,6 +576,7 @@ export interface NavItem {
 export const NAVIGATION: NavItem[] = [
   { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail", icon: "CircleCheckBig", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage" },
+  { module: "MESSAGING", label: "Messagerie", href: "/messages", icon: "MessagesSquare", group: "Pilotage" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", group: "Pilotage" },
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring", icon: "HandCoins", group: "Pôles" },

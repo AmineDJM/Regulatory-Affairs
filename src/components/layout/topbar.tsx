@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Bell, Menu, Search, X } from "lucide-react";
 import { Icon } from "@/components/ui/icon";
 import { UserMenu } from "@/components/layout/user-menu";
+import { MessagesIndicator } from "@/components/layout/messages-indicator";
 import { cn } from "@/lib/utils";
 import type { NavItem } from "@/lib/labels";
 
@@ -13,9 +14,11 @@ interface TopbarProps {
   navItems: NavItem[];
   user: { name: string; email: string; role: string };
   unreadCount: number;
+  canMessage: boolean;
+  messagingUnread: number;
 }
 
-export function Topbar({ navItems, user, unreadCount }: TopbarProps) {
+export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnread }: TopbarProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = React.useState(false);
 
@@ -43,6 +46,7 @@ export function Topbar({ navItems, user, unreadCount }: TopbarProps) {
         </button>
 
         <div className="ml-auto flex items-center gap-1.5">
+          {canMessage && <MessagesIndicator initial={messagingUnread} />}
           <Link
             href="/notifications"
             className="relative rounded-lg p-2 text-muted-foreground hover:bg-secondary"

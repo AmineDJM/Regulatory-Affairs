@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
@@ -8,11 +9,31 @@ import type { NavItem } from "@/lib/labels";
 
 interface SidebarProps {
   items: NavItem[];
+  messagingUnread?: number;
 }
 
 const GROUP_ORDER: NavItem["group"][] = ["Pilotage", "Pôles", "Transverse", "Système"];
 
-export function Sidebar({ items }: SidebarProps) {
+/** Badge de non-lus de la messagerie : valeur initiale serveur, puis temps réel via l'évènement global. */
+function MessagesNavBadge({ initial }: { initial: number }) {
+  const [count, setCount] = React.useState(initial);
+  React.useEffect(() => {
+    const onEvent = (e: Event) => {
+      const detail = (e as CustomEvent<{ total: number }>).detail;
+      if (detail && typeof detail.total === "number") setCount(detail.total);
+    };
+    window.addEventListener("amd:messaging-unread", onEvent);
+    return () => window.removeEventListener("amd:messaging-unread", onEvent);
+  }, []);
+  if (count <= 0) return null;
+  return (
+    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-sidebar-accent px-1.5 text-[11px] font-semibold text-sidebar">
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
+export function Sidebar({ items, messagingUnread = 0 }: SidebarProps) {
   const pathname = usePathname();
 
   const groups = GROUP_ORDER.map((group) => ({
@@ -55,6 +76,7 @@ export function Sidebar({ items }: SidebarProps) {
                     >
                       <Icon name={item.icon} className="h-4 w-4 shrink-0" />
                       <span className="truncate">{item.label}</span>
+                      {item.href === "/messages" && <MessagesNavBadge initial={messagingUnread} />}
                     </Link>
                   </li>
                 );

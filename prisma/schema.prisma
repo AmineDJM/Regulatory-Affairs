@@ -510,6 +510,7 @@ model User {
   isActive     Boolean   @default(true)
   region       String? // for medical delegates / sales
   lastLoginAt  DateTime?
+  lastSeenAt   DateTime? // présence messagerie (heartbeat) : « en ligne / actif il y a… »
 
   // Auth hardening: bump tokenVersion to invalidate all existing JWTs;
   // force a password change on next login.
@@ -569,6 +570,14 @@ model User {
   validationRequests ValidationRequest[] @relation("ValidationRequester")
   validationSteps    ValidationStep[]    @relation("ValidationStepValidator")
   feedbacks          Feedback[]          @relation("UserFeedback")
+
+  // Messagerie interne
+  conversationsCreated Conversation[]       @relation("ConvCreator")
+  convMemberships      ConversationMember[] @relation("ConvMemberUser")
+  messagesSent         Message[]            @relation("MessageSender")
+  messageReactions     MessageReaction[]    @relation("ReactionUser")
+  messageMentions      MessageMention[]     @relation("MentionUser")
+  messageBookmarks     MessageBookmark[]    @relation("BookmarkUser")
 
   @@index([role])
   @@index([departmentId])
@@ -1946,5 +1955,166 @@ model Feedback {
   updatedAt   DateTime       @updatedAt
 
   @@index([status])
+  @@index([userId])
+}
+
+// ─────────────────────────── Messagerie interne ───────────────────────────
+// Espace de communication unique de l'entreprise : messages directs, groupes
+// privés et canaux d'équipe. Pensé pour remplacer WhatsApp / e-mail en interne :
+// réactions, fils de discussion, mentions, pièces jointes chiffrées (FileBlob),
+// épinglage, favoris, présence et accusés de lecture. L'accès à une conversation
+// est strictement gouverné par l'appartenance (ConversationMember), pas par un
+// scope RBAC : on ne voit que les conversations dont on est membre.
+
+enum ConversationType {
+  DIRECT // tête-à-tête (1-1)
+  GROUP // groupe privé multi-personnes
+  CHANNEL // canal d'équipe (découvrable, on le rejoint)
+}
+
+enum ConvMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum ConvNotifyLevel {
+  ALL // notifier chaque message
+  MENTIONS // notifier uniquement quand on est mentionné
+  NONE // ne jamais notifier
+}
+
+enum MessageKind {
+  TEXT
+  SYSTEM // « X a créé le groupe », « Y a rejoint le canal »…
+  FILE // message ne portant que des pièces jointes
+}
+
+model Conversation {
+  id          String           @id @default(cuid())
+  type        ConversationType @default(DIRECT)
+  title       String? // nom (groupes & canaux)
+  description String? // sujet / objet (canaux)
+  color       String? // accent visuel de l'avatar
+  icon        String? // icône lucide (canaux)
+  isArchived  Boolean          @default(false)
+  // « Tout est relié » : une conversation peut être rattachée à un objet de l'OS
+  // (dossier réglementaire, marché PCH, congrès…) pour discuter en contexte.
+  refType     EntityType?
+  refId       String?
+
+  createdById   String?
+  createdBy     User?    @relation("ConvCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  members  ConversationMember[]
+  messages Message[]
+
+  @@index([type])
+  @@index([lastMessageAt])
+  @@index([refType, refId])
+}
+
+model ConversationMember {
+  id             String          @id @default(cuid())
+  conversationId String
+  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User            @relation("ConvMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  role           ConvMemberRole  @default(MEMBER)
+  notifyLevel    ConvNotifyLevel @default(ALL)
+  isPinned       Boolean         @default(false) // épinglée en haut de la liste perso
+  isMuted        Boolean         @default(false)
+  lastReadAt     DateTime? // accusé de lecture → compteur de non-lus
+  joinedAt       DateTime        @default(now())
+  leftAt         DateTime? // quitté le canal/groupe (historique conservé)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@index([conversationId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String?
+  sender         User?        @relation("MessageSender", fields: [senderId], references: [id], onDelete: SetNull)
+  kind           MessageKind  @default(TEXT)
+  body           String       @db.Text
+
+  // Fils de discussion : une réponse pointe vers son message parent.
+  parentId String?
+  parent   Message?  @relation("MessageReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies  Message[] @relation("MessageReplies")
+
+  isPinned Boolean @default(false)
+
+  // Partage d'un objet de l'OS directement dans un message.
+  refType  EntityType?
+  refId    String?
+  refLabel String?
+
+  editedAt  DateTime?
+  deletedAt DateTime? // suppression douce → « message supprimé »
+  createdAt DateTime  @default(now())
+
+  reactions   MessageReaction[]
+  attachments MessageAttachment[]
+  mentions    MessageMention[]
+  bookmarks   MessageBookmark[]
+
+  @@index([conversationId, createdAt])
+  @@index([parentId])
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("ReactionUser", fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+model MessageAttachment {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  blobId    String // FileBlob chiffré, adressé par contenu (réutilise le Drive)
+  name      String
+  mime      String
+  size      Int
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
+}
+
+model MessageMention {
+  id        String  @id @default(cuid())
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation("MentionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+}
+
+model MessageBookmark {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("BookmarkUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId])
   @@index([userId])
 }

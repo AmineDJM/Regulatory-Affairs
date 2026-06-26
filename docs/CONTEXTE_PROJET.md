@@ -18,7 +18,8 @@
 - Devise = **DZD**. Contexte fiscal algérien (G50, IRG, IBS, CNAS, CASNOS).
 - Client institutionnel principal = **PCH** (Pharmacie Centrale des Hôpitaux — marchés publics).
 - Réglementaire = enregistrement **AMM / ANPP**.
-- Ambition : l'unique environnement de travail des employés (à terme : messagerie, drive, éditeur intégrés).
+- Ambition : l'unique environnement de travail des employés (Drive ✓, **messagerie interne ✓** ;
+  e-mail & éditeur Office collaboratif à terme).
 
 ---
 
@@ -57,6 +58,12 @@
   `FinanceTransaction` OUT + source marquée payée.
 - **Custom fields** (colonnes dynamiques admin) via `custom Json?` + `CUSTOM_ENTITY_TYPES`.
 - **Audit** (`recordAudit`) + **notifications** (`notifyUser`, `notifyRoles`).
+- **Messagerie — temps réel sans WebSocket** : mutations par **server actions** + **UI optimiste**,
+  réception par **polling** (`/api/messaging/sync` ~6 s pour la liste/badge ; `/api/messaging/messages`
+  ~3,5 s pour le fil actif), pauses si onglet caché. **Présence** via heartbeat (`User.lastSeenAt`) ;
+  **typing** in-memory best-effort (`lib/messaging-typing.ts`, OK mono-instance Render). Pièces jointes
+  réutilisant le **Drive chiffré** (`putBlob`) avec **signature HMAC du blob** (interdit de référencer un
+  blob arbitraire). Accès **gouverné par l'appartenance** (`ConversationMember`), jamais par scope RBAC.
 
 ---
 
@@ -72,9 +79,9 @@
 
 ---
 
-## 5. Modules livrés (25 routes)
+## 5. Modules livrés (26 routes)
 
-Groupes : **Pilotage** (Mon travail, Mon espace, Dashboard), **Pôles**, **Transverse**, **Système**.
+Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, Dashboard), **Pôles**, **Transverse**, **Système**.
 
 ### Pilotage
 - **Mon travail (`/mon-travail`)** — *Action Center*. Agrège selon les droits : tâches, demandes admin
@@ -83,6 +90,7 @@ Groupes : **Pilotage** (Mon travail, Mon espace, Dashboard), **Pôles**, **Trans
   / urgent. Chaque ligne ouvre l'élément.
 - **Mon espace (`/mon-espace`)** — tâches perso, congés/absences, avances sur salaire (self-service),
   activité, accès rapides.
+- **Messagerie (`/messages`)** — messagerie interne complète (voir §6). Badge non-lus live (topbar + sidebar).
 - **Dashboard** — KPIs & graphiques.
 
 ### Pôles
@@ -166,13 +174,41 @@ d'un **Chef de produit** → **analyse + budget proposé (chef de produit)** →
   Cookie `amd_impersonate` honoré **uniquement si la session réelle est Super Admin** (pas d'escalade).
   Bandeau permanent + « Quitter ». Démarrage/arrêt journalisés.
 
+### Messagerie interne (`/messages`)
+- **3 types de conversations** : **message direct** (1-1), **groupe** privé, **canal** d'équipe
+  (découvrable via « Parcourir », on le rejoint). Module `MESSAGING` accordé à **tous les rôles**
+  (chaque employé est joignable), retirable par override admin. **Super Admin compris : pas de
+  lecture par-dessus l'épaule** — l'accès est gouverné par l'appartenance (choix produit pour
+  favoriser l'adoption face à WhatsApp ; la donnée reste en base, propriété de l'entreprise).
+- **Fonctionnalités** : messages texte (markdown léger `**gras**` `_italique_` `` `code` `` + liens),
+  **@mentions** (autocomplétion → notification), **réactions émoji** (quick + palette), **réponses
+  citées** (clic = saut au message), **épinglage** (bandeau), **messages enregistrés/favoris**,
+  **modifier/supprimer** ses messages (modération OWNER/ADMIN), **pièces jointes** (Drive chiffré,
+  images en aperçu, blob signé HMAC), **présence** (en ligne/absent/hors ligne), **« en train
+  d'écrire… »**, **accusés de lecture / non-lus**, **brouillons** (localStorage), recherche, filtres
+  (Tous/Non lus/Épinglées), **épingler/sourdine/niveau de notif** par conversation, gestion des
+  membres & rôles (OWNER/ADMIN/MEMBER), renommer, quitter, archiver. Optimiste + responsive (mobile :
+  bascule liste ↔ fil ; panneau détails plein écran).
+- **Sécurité vérifiée (Playwright, 13/13)** : DM bidirectionnel + réaction + groupe + livraison
+  croisée + badge non-lus ; **un tiers non-membre reçoit 403** sur `/api/messaging/conversation` et
+  `/api/messaging/messages`, et son `typing` est neutralisé. Téléchargement de pièce jointe
+  (`/api/messaging/attachment/[id]`) contrôlé par l'appartenance à la conversation.
+- **Fichiers** : schéma `Conversation/ConversationMember/Message/MessageReaction/MessageAttachment/
+  MessageMention/MessageBookmark` (+ `User.lastSeenAt`) ; `lib/messaging.ts` (accès/présence/signature),
+  `lib/queries/messaging.ts` (DTOs + getters), `lib/actions/messaging-actions.ts`, routes
+  `app/api/messaging/{sync,messages,conversation,bookmarks,typing,upload,attachment}` ; UI
+  `app/(app)/messages/*` (messenger, liste, fil, message, composer, nouvelle conv, détails, format/emoji).
+- **Limite assumée** : temps réel par **polling** (pas de WebSocket/SSE) + typing **in-memory**
+  (mono-instance) → évolution possible vers SSE/Redis si multi-instance.
+
 ---
 
 ## 7. Migrations (appliquées en local ; s'appliquent au déploiement Render)
 
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
-**supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**.
+**supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
+→ **messaging**.
 
 > Au prochain déploiement Render, `migrate deploy` applique automatiquement celles en attente.
 

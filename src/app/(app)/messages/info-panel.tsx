@@ -1,0 +1,248 @@
+"use client";
+
+import * as React from "react";
+import {
+  X, Pin, BellOff, Bell, Hash, Users, UserPlus, LogOut, Archive, Crown, Shield,
+  Loader2, Check, Search, Trash2, Pencil,
+} from "lucide-react";
+import { Avatar } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Input, Textarea, Label, Select } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { ROLE_LABELS, CONV_NOTIFY_LEVEL, CONV_MEMBER_ROLE } from "@/lib/labels";
+import type { ConversationDetailDTO, DirectoryUserDTO } from "@/lib/queries/messaging";
+import {
+  togglePinConversation, toggleMute, setNotifyLevel, updateConversation,
+  addMembers, removeMember, setMemberRole, leaveConversation, archiveConversation,
+} from "@/lib/actions/messaging-actions";
+import { PresenceDot } from "./format";
+
+interface Props {
+  detail: ConversationDetailDTO;
+  directory: DirectoryUserDTO[];
+  selfId: string;
+  onChanged: () => void;
+  onLeft: () => void;
+  onClose: () => void;
+}
+
+const cid = (id: string) => { const f = new FormData(); f.set("conversationId", id); return f; };
+
+export function InfoPanel({ detail, directory, selfId, onChanged, onLeft, onClose }: Props) {
+  const canManage = detail.myRole === "OWNER" || detail.myRole === "ADMIN";
+  const isOwner = detail.myRole === "OWNER";
+  const isDirect = detail.type === "DIRECT";
+  const [editing, setEditing] = React.useState(false);
+  const [title, setTitle] = React.useState(detail.title);
+  const [description, setDescription] = React.useState(detail.description ?? "");
+  const [adding, setAdding] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+
+  const act = async (fn: () => Promise<{ ok: boolean }>) => { setBusy(true); await fn(); setBusy(false); onChanged(); };
+
+  const saveInfo = async () => {
+    const f = cid(detail.id);
+    f.set("title", title);
+    f.set("description", description);
+    if (detail.icon) f.set("icon", detail.icon);
+    if (detail.avatarColor) f.set("color", detail.avatarColor);
+    setBusy(true); await updateConversation(f); setBusy(false); setEditing(false); onChanged();
+  };
+
+  return (
+    <div className="flex h-full w-full flex-col border-l border-border bg-card md:w-80">
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <h2 className="text-sm font-semibold">Détails</h2>
+        <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary"><X className="h-5 w-5" /></button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {/* Identité */}
+        <div className="flex flex-col items-center gap-2 px-4 py-5 text-center">
+          {isDirect ? (
+            <span className="relative">
+              <Avatar name={detail.avatarName} color={detail.avatarColor} size="lg" className="h-16 w-16 text-xl" />
+              <PresenceDot presence={detail.presence} className="absolute bottom-0 right-0 h-4 w-4" />
+            </span>
+          ) : (
+            <span className="flex h-16 w-16 items-center justify-center rounded-2xl text-white" style={{ backgroundColor: detail.avatarColor ?? (detail.type === "CHANNEL" ? "#0f766e" : "#7c3aed") }}>
+              {detail.type === "CHANNEL" ? <Hash className="h-7 w-7" /> : <Users className="h-7 w-7" />}
+            </span>
+          )}
+          {editing ? (
+            <div className="w-full space-y-2 text-left">
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Sujet…" />
+              <div className="flex gap-2">
+                <Button size="sm" disabled={busy} onClick={saveInfo}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer</Button>
+                <Button size="sm" variant="outline" onClick={() => { setEditing(false); setTitle(detail.title); setDescription(detail.description ?? ""); }}>Annuler</Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-lg font-bold">{detail.title}</h3>
+                {canManage && !isDirect && (
+                  <button onClick={() => setEditing(true)} className="rounded p-1 text-muted-foreground hover:bg-secondary"><Pencil className="h-3.5 w-3.5" /></button>
+                )}
+              </div>
+              {detail.description && <p className="text-sm text-muted-foreground">{detail.description}</p>}
+              {!isDirect && <p className="text-xs text-muted-foreground">{detail.type === "CHANNEL" ? "Canal" : "Groupe"} · {detail.memberCount} membres{detail.createdByName ? ` · créé par ${detail.createdByName}` : ""}</p>}
+            </>
+          )}
+        </div>
+
+        {/* Préférences */}
+        <div className="space-y-1 px-3 py-2">
+          <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Préférences</p>
+          <Row icon={Pin} label="Épingler dans ma liste" active={detail.isPinned} onClick={() => act(() => togglePinConversation(cid(detail.id)))} disabled={busy} toggle />
+          <Row icon={detail.isMuted ? BellOff : Bell} label={detail.isMuted ? "Réactiver le son" : "Mettre en sourdine"} active={detail.isMuted} onClick={() => act(() => toggleMute(cid(detail.id)))} disabled={busy} toggle />
+          <div className="flex items-center gap-2 rounded-lg px-2.5 py-2">
+            <Bell className="h-4 w-4 text-muted-foreground" />
+            <span className="flex-1 text-sm">Notifications</span>
+            <Select
+              value={detail.notifyLevel}
+              onChange={(e) => { const f = cid(detail.id); f.set("level", e.target.value); act(() => setNotifyLevel(f)); }}
+              className="h-8 w-40 text-xs"
+            >
+              {Object.entries(CONV_NOTIFY_LEVEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </Select>
+          </div>
+        </div>
+
+        {/* Membres */}
+        {!isDirect && (
+          <div className="px-3 py-2">
+            <div className="flex items-center justify-between px-1 pb-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Membres · {detail.members.length}</p>
+              {canManage && (
+                <button onClick={() => setAdding((v) => !v)} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                  <UserPlus className="h-3.5 w-3.5" /> Ajouter
+                </button>
+              )}
+            </div>
+
+            {adding && (
+              <AddMembers
+                detail={detail}
+                directory={directory}
+                onDone={() => { setAdding(false); onChanged(); }}
+              />
+            )}
+
+            <div className="space-y-0.5">
+              {detail.members.map((m) => (
+                <div key={m.userId} className="group flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-secondary/60">
+                  <span className="relative shrink-0">
+                    <Avatar name={m.name} color={m.avatarColor} size="sm" />
+                    <PresenceDot presence={m.presence} className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-1 truncate text-sm font-medium">
+                      {m.name}{m.userId === selfId && " (vous)"}
+                      {m.memberRole === "OWNER" && <Crown className="h-3 w-3 text-amber-500" />}
+                      {m.memberRole === "ADMIN" && <Shield className="h-3 w-3 text-primary" />}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">{m.title || ROLE_LABELS[m.role]}</p>
+                  </div>
+                  {isOwner && m.userId !== selfId && m.memberRole !== "OWNER" && (
+                    <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        title={m.memberRole === "ADMIN" ? "Rétrograder" : "Promouvoir admin"}
+                        onClick={() => { const f = cid(detail.id); f.set("userId", m.userId); f.set("role", m.memberRole === "ADMIN" ? "MEMBER" : "ADMIN"); act(() => setMemberRole(f)); }}
+                        className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      >
+                        <Shield className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        title="Retirer"
+                        onClick={() => { if (window.confirm(`Retirer ${m.name} ?`)) { const f = cid(detail.id); f.set("userId", m.userId); act(() => removeMember(f)); } }}
+                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Actions de bas de panneau */}
+      {!isDirect && (
+        <div className="space-y-1 border-t border-border p-3">
+          {canManage && (
+            <button
+              onClick={() => { const f = cid(detail.id); f.set("archived", detail.isArchived ? "false" : "true"); act(() => archiveConversation(f)); }}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted-foreground hover:bg-secondary"
+            >
+              <Archive className="h-4 w-4" /> {detail.isArchived ? "Désarchiver" : "Archiver"}
+            </button>
+          )}
+          <button
+            onClick={async () => { if (window.confirm("Quitter cette conversation ?")) { setBusy(true); await leaveConversation(cid(detail.id)); setBusy(false); onLeft(); } }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-destructive hover:bg-destructive/10"
+          >
+            <LogOut className="h-4 w-4" /> Quitter la conversation
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({ icon: IconC, label, active, onClick, disabled, toggle }: { icon: typeof Pin; label: string; active?: boolean; onClick: () => void; disabled?: boolean; toggle?: boolean }) {
+  return (
+    <button onClick={onClick} disabled={disabled} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-secondary disabled:opacity-50">
+      <IconC className={cn("h-4 w-4", active ? "text-primary" : "text-muted-foreground")} />
+      <span className="flex-1">{label}</span>
+      {toggle && <span className={cn("h-4 w-7 rounded-full p-0.5 transition-colors", active ? "bg-primary" : "bg-secondary")}><span className={cn("block h-3 w-3 rounded-full bg-white transition-transform", active && "translate-x-3")} /></span>}
+    </button>
+  );
+}
+
+function AddMembers({ detail, directory, onDone }: { detail: ConversationDetailDTO; directory: DirectoryUserDTO[]; onDone: () => void }) {
+  const memberIds = new Set(detail.members.map((m) => m.userId));
+  const candidates = directory.filter((u) => !memberIds.has(u.id));
+  const [q, setQ] = React.useState("");
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [busy, setBusy] = React.useState(false);
+  const list = candidates.filter((u) => u.name.toLowerCase().includes(q.toLowerCase()));
+
+  const submit = async () => {
+    if (selected.size === 0) return;
+    setBusy(true);
+    const f = cid(detail.id);
+    f.set("members", [...selected].join(","));
+    await addMembers(f);
+    setBusy(false);
+    onDone();
+  };
+
+  return (
+    <div className="mb-2 rounded-xl border border-border p-2">
+      <div className="mb-1 flex items-center gap-2 border-b border-border px-1 pb-1">
+        <Search className="h-3.5 w-3.5 text-muted-foreground" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher…" className="h-7 w-full bg-transparent text-sm focus:outline-none" />
+      </div>
+      <div className="max-h-40 space-y-0.5 overflow-y-auto">
+        {list.map((u) => {
+          const on = selected.has(u.id);
+          return (
+            <button key={u.id} onClick={() => setSelected((s) => { const n = new Set(s); n.has(u.id) ? n.delete(u.id) : n.add(u.id); return n; })} className={cn("flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left", on ? "bg-accent" : "hover:bg-secondary")}>
+              <Avatar name={u.name} color={u.avatarColor} size="sm" />
+              <span className="min-w-0 flex-1 truncate text-sm">{u.name}</span>
+              {on && <Check className="h-4 w-4 text-primary" />}
+            </button>
+          );
+        })}
+        {list.length === 0 && <p className="py-2 text-center text-xs text-muted-foreground">Personne à ajouter.</p>}
+      </div>
+      <Button size="sm" className="mt-2 w-full" disabled={busy || selected.size === 0} onClick={submit}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Ajouter {selected.size > 0 ? `(${selected.size})` : ""}
+      </Button>
+    </div>
+  );
+}
