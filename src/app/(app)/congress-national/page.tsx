@@ -1,50 +1,34 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { prisma } from "@/lib/prisma";
-import { toNumber } from "@/lib/utils";
+import { getCongressList, getCongressFormData } from "@/lib/queries/congress";
 import { PageHeader } from "@/components/shared/page-header";
-import { CreateRecordButton } from "@/components/shared/create-record-button";
-import { optionsFromMap } from "@/components/shared/form-fields";
-import { createCongressNational } from "@/lib/actions/congress-actions";
-import { CONGRESS_STATUS } from "@/lib/labels";
-import { CongressNationalTable, type CongressNationalRow } from "./congress-national-table";
+import { KpiCard } from "@/components/shared/kpi-card";
+import { CongressRequestButton } from "../congress-international/congress-request-form";
+import { CongressTable } from "../congress-international/congress-table";
 
 export default async function CongressNationalPage() {
   const user = await requireModule("CONGRESS_NATIONAL");
   const canCreate = userCan(user, "CONGRESS_NATIONAL", "CREATE");
 
-  const items = await prisma.congressNational.findMany({ orderBy: { date: "desc" } });
-  const rows: CongressNationalRow[] = items.map((c) => ({
-    id: c.id, name: c.name, city: c.city ?? "", hostInstitution: c.hostInstitution ?? "",
-    date: c.date?.toISOString() ?? null, specialty: c.specialty ?? "",
-    budget: c.budget ? toNumber(c.budget) : null, hasBooth: c.hasBooth, hasSymposium: c.hasSymposium, status: c.status,
-  }));
+  const [rows, form] = await Promise.all([getCongressList("NATIONAL", user), getCongressFormData()]);
+
+  const pending = rows.filter((r) => ["AWAITING_PRELIMINARY", "PRELIMINARY_APPROVED", "AWAITING_FINAL"].includes(r.requestStatus)).length;
+  const approved = rows.filter((r) => r.requestStatus === "APPROVED" || r.requestStatus === "COMPLETED").length;
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Congrès nationaux" description="Événements locaux : stands, symposiums, délégués présents.">
-        {canCreate && (
-          <CreateRecordButton
-            label="Nouvel événement"
-            title="Nouvel événement national"
-            action={createCongressNational}
-            fields={[
-              { type: "text", name: "name", label: "Nom de l'événement", required: true, full: true },
-              { type: "text", name: "city", label: "Ville" },
-              { type: "text", name: "hostInstitution", label: "Hôpital / Association" },
-              { type: "date", name: "date", label: "Date" },
-              { type: "text", name: "specialty", label: "Spécialité" },
-              { type: "text", name: "promotedProducts", label: "Produits promus" },
-              { type: "number", name: "budget", label: "Budget (DZD)" },
-              { type: "text", name: "presentDelegates", label: "Délégués présents" },
-              { type: "select", name: "status", label: "Statut", options: optionsFromMap(CONGRESS_STATUS), defaultValue: "CONSIDERED" },
-              { type: "checkbox", name: "hasBooth", label: "Stand" },
-              { type: "checkbox", name: "hasSymposium", label: "Symposium" },
-            ]}
-          />
-        )}
+      <PageHeader title="Événements nationaux" description="Congrès, séminaires, tables rondes, webinaires… Demandes de prise en charge avec validation Direction et analyse chef de produit.">
+        {canCreate && <CongressRequestButton national doctors={form.doctors} users={form.users} />}
       </PageHeader>
-      <CongressNationalTable rows={rows} />
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <KpiCard label="Demandes" value={rows.length} icon="MapPin" />
+        <KpiCard label="En cours" value={pending} icon="Hourglass" tone={pending > 0 ? "warning" : "default"} />
+        <KpiCard label="Pris en charge" value={approved} icon="CheckCircle2" tone="success" />
+        <KpiCard label="Refusées" value={rows.filter((r) => r.requestStatus === "REJECTED").length} icon="XCircle" />
+      </div>
+
+      <CongressTable rows={rows} basePath="/congress-national" showType />
     </div>
   );
 }

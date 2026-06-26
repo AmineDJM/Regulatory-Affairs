@@ -1,9 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { userCan, scopeRegulatory, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, scopeRegulatory, type SessionUser } from "@/lib/rbac";
 import { getPendingValidations } from "@/lib/queries/validations";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import {
-  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS,
+  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS,
 } from "@/lib/labels";
 
 export interface ActionItem {
@@ -120,6 +120,33 @@ export async function getActionCenter(user: SessionUser) {
         key: `leave-${l.id}`, title: `Congé — ${l.employee?.user?.name ?? "Employé"}`, subtitle: `${Number(l.days)} j`,
         module: "Ressources humaines", href: "/rh", kind: "hr", priority: null,
         deadline: l.startDate.toISOString(), owner: l.employee?.user?.name ?? "", ...resolve(LEAVE_STATUS, l.status),
+      });
+    }
+  }
+
+  // 6b. Congrès / événements à valider (Direction) ou à analyser (chef de produit)
+  const congressTone = (s: string): { statusLabel: string; statusTone: BadgeTone } => ({
+    statusLabel: CONGRESS_REQUEST_STATUS[s]?.label ?? s,
+    statusTone: CONGRESS_REQUEST_STATUS[s]?.tone ?? "warning",
+  });
+  for (const cfg of [
+    { module: "CONGRESS_INTERNATIONAL" as const, label: "Congrès internationaux", href: "/congress-international" },
+    { module: "CONGRESS_NATIONAL" as const, label: "Événements nationaux", href: "/congress-national" },
+  ]) {
+    if (!userCan(user, cfg.module, "VIEW")) continue;
+    const canValidate = userCan(user, cfg.module, "VALIDATE") || hasGlobalView(user.role);
+    const or: { requestStatus?: unknown; productManagerId?: string }[] = [{ requestStatus: "PRELIMINARY_APPROVED", productManagerId: user.id }];
+    if (canValidate) or.push({ requestStatus: { in: ["AWAITING_PRELIMINARY", "AWAITING_FINAL"] } });
+    const where = { OR: or } as never;
+    const list = cfg.module === "CONGRESS_INTERNATIONAL"
+      ? await prisma.congressInternational.findMany({ where, orderBy: { createdAt: "desc" }, take: 30 })
+      : await prisma.congressNational.findMany({ where, orderBy: { createdAt: "desc" }, take: 30 });
+    for (const c of list) {
+      items.push({
+        key: `cong-${c.id}`, title: c.name,
+        subtitle: c.requestStatus === "PRELIMINARY_APPROVED" ? "À analyser (chef de produit)" : c.requestStatus === "AWAITING_FINAL" ? "Validation définitive" : "Validation préliminaire",
+        module: cfg.label, href: `${cfg.href}/${c.id}`, kind: "request", priority: null,
+        deadline: null, owner: "", ...congressTone(c.requestStatus),
       });
     }
   }

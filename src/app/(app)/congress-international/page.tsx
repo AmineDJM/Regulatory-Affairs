@@ -1,50 +1,34 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { prisma } from "@/lib/prisma";
-import { toNumber } from "@/lib/utils";
+import { getCongressList, getCongressFormData } from "@/lib/queries/congress";
 import { PageHeader } from "@/components/shared/page-header";
-import { CreateRecordButton } from "@/components/shared/create-record-button";
-import { optionsFromMap } from "@/components/shared/form-fields";
-import { createCongressInternational } from "@/lib/actions/congress-actions";
-import { CONGRESS_STATUS } from "@/lib/labels";
-import { CongressIntlTable, type CongressIntlRow } from "./congress-intl-table";
+import { KpiCard } from "@/components/shared/kpi-card";
+import { CongressRequestButton } from "./congress-request-form";
+import { CongressTable } from "./congress-table";
 
 export default async function CongressInternationalPage() {
   const user = await requireModule("CONGRESS_INTERNATIONAL");
   const canCreate = userCan(user, "CONGRESS_INTERNATIONAL", "CREATE");
 
-  const items = await prisma.congressInternational.findMany({ orderBy: { startDate: "desc" } });
-  const rows: CongressIntlRow[] = items.map((c) => ({
-    id: c.id, name: c.name, country: c.country ?? "", city: c.city ?? "",
-    startDate: c.startDate?.toISOString() ?? null, endDate: c.endDate?.toISOString() ?? null,
-    specialty: c.specialty ?? "", plannedBudget: c.plannedBudget ? toNumber(c.plannedBudget) : null, status: c.status,
-  }));
+  const [rows, form] = await Promise.all([getCongressList("INTL", user), getCongressFormData()]);
+
+  const pending = rows.filter((r) => ["AWAITING_PRELIMINARY", "PRELIMINARY_APPROVED", "AWAITING_FINAL"].includes(r.requestStatus)).length;
+  const approved = rows.filter((r) => r.requestStatus === "APPROVED" || r.requestStatus === "COMPLETED").length;
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Congrès internationaux" description="Organisation et suivi des congrès internationaux Adventum.">
-        {canCreate && (
-          <CreateRecordButton
-            label="Nouveau congrès"
-            title="Nouveau congrès international"
-            action={createCongressInternational}
-            fields={[
-              { type: "text", name: "name", label: "Nom du congrès", required: true, full: true },
-              { type: "text", name: "country", label: "Pays" },
-              { type: "text", name: "city", label: "Ville" },
-              { type: "date", name: "startDate", label: "Date début" },
-              { type: "date", name: "endDate", label: "Date fin" },
-              { type: "text", name: "specialty", label: "Spécialité" },
-              { type: "text", name: "participants", label: "Participants Adventum" },
-              { type: "text", name: "invitedDoctors", label: "Médecins invités" },
-              { type: "text", name: "products", label: "Produits concernés" },
-              { type: "number", name: "plannedBudget", label: "Budget prévu (DZD)" },
-              { type: "select", name: "status", label: "Statut", options: optionsFromMap(CONGRESS_STATUS), defaultValue: "CONSIDERED" },
-            ]}
-          />
-        )}
+      <PageHeader title="Congrès internationaux" description="Demandes de prise en charge des congrès internationaux — validation préliminaire Direction, analyse chef de produit, validation définitive.">
+        {canCreate && <CongressRequestButton doctors={form.doctors} users={form.users} />}
       </PageHeader>
-      <CongressIntlTable rows={rows} />
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <KpiCard label="Demandes" value={rows.length} icon="Globe" />
+        <KpiCard label="En cours" value={pending} icon="Hourglass" tone={pending > 0 ? "warning" : "default"} />
+        <KpiCard label="Pris en charge" value={approved} icon="CheckCircle2" tone="success" />
+        <KpiCard label="Refusées" value={rows.filter((r) => r.requestStatus === "REJECTED").length} icon="XCircle" />
+      </div>
+
+      <CongressTable rows={rows} basePath="/congress-international" />
     </div>
   );
 }

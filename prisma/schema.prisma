@@ -31,6 +31,7 @@ enum UserRole {
   LOGISTICS_MANAGER
   MEDICAL_PROMOTION_MANAGER
   MEDICAL_DELEGATE
+  PRODUCT_MANAGER
   BUSINESS_DEVELOPMENT_MANAGER
   FINANCE_BUDGET_MANAGER
   VIEWER
@@ -139,6 +140,31 @@ enum CongressStatus {
   ORGANIZED
   COMPLETED
   CANCELLED
+}
+
+/// Workflow d'une demande de prise en charge de congrès / événement :
+/// création → validation préliminaire (Direction) → analyse chef de produit →
+/// validation définitive (Direction) → ordre de dépense.
+enum CongressRequestStatus {
+  AWAITING_PRELIMINARY // attente validation préliminaire (Direction)
+  PRELIMINARY_APPROVED // validée préliminairement → analyse chef de produit
+  AWAITING_FINAL // analyse faite → attente validation définitive (Direction)
+  APPROVED // validée définitivement → ordre de dépense émis
+  REJECTED // refusée (à l'une des étapes)
+  CANCELLED
+  COMPLETED // événement réalisé
+}
+
+/// Type d'événement national (pharma).
+enum NationalEventType {
+  CONGRESS // congrès
+  SEMINAR // séminaire
+  ROUND_TABLE // table ronde
+  WEBINAR // webinaire
+  WORKSHOP // atelier
+  SYMPOSIUM // symposium
+  STAFF // staff / réunion service
+  OTHER
 }
 
 enum PaymentStatus {
@@ -678,6 +704,24 @@ model CongressInternational {
   postEventReport  String?
   generatedLeads   String? // opportunités générées
 
+  // ─── Demande de prise en charge (workflow) ───
+  requesterId          String? // délégué / superviseur qui fait la demande
+  requestStatus        CongressRequestStatus @default(AWAITING_PRELIMINARY)
+  estimatedBudget      Decimal?              @db.Decimal(14, 2) // budget estimé par le demandeur
+  invitedDoctorIds     String[]              @default([]) // médecins invités (depuis Promotion médicale)
+  participantIds       String[]              @default([]) // participants Adventum (users)
+  productManagerId     String? // chef de produit assigné à l'analyse
+  productManagerBudget Decimal?              @db.Decimal(14, 2) // budget proposé par le chef de produit
+  productManagerNotes  String?
+  preliminaryById      String?
+  preliminaryAt        DateTime?
+  preliminaryNote      String?
+  finalById            String?
+  finalAt              DateTime?
+  finalNote            String?
+  rejectionReason      String?
+  expenseOrderId       String? // ordre de dépense émis après validation définitive
+
   createdById String?
   updatedById String?
   createdAt   DateTime @default(now())
@@ -685,6 +729,8 @@ model CongressInternational {
 
   @@index([status])
   @@index([startDate])
+  @@index([requestStatus])
+  @@index([requesterId])
 }
 
 model CongressNational {
@@ -705,6 +751,25 @@ model CongressNational {
   status           CongressStatus @default(CONSIDERED)
   finalReport      String?
 
+  // ─── Demande de prise en charge (workflow) ───
+  eventType            NationalEventType     @default(CONGRESS)
+  requesterId          String?
+  requestStatus        CongressRequestStatus @default(AWAITING_PRELIMINARY)
+  estimatedBudget      Decimal?              @db.Decimal(14, 2)
+  invitedDoctorIds     String[]              @default([])
+  participantIds       String[]              @default([])
+  productManagerId     String?
+  productManagerBudget Decimal?              @db.Decimal(14, 2)
+  productManagerNotes  String?
+  preliminaryById      String?
+  preliminaryAt        DateTime?
+  preliminaryNote      String?
+  finalById            String?
+  finalAt              DateTime?
+  finalNote            String?
+  rejectionReason      String?
+  expenseOrderId       String?
+
   createdById String?
   updatedById String?
   createdAt   DateTime @default(now())
@@ -712,6 +777,8 @@ model CongressNational {
 
   @@index([status])
   @@index([date])
+  @@index([requestStatus])
+  @@index([requesterId])
 }
 
 // ───────────────────────────── Sales ─────────────────────────────

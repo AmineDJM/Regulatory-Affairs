@@ -28,6 +28,7 @@ export const ROLE_LABELS: Record<string, string> = {
   LOGISTICS_MANAGER: "Responsable Logistique",
   MEDICAL_PROMOTION_MANAGER: "Manager Promotion Médicale",
   MEDICAL_DELEGATE: "Délégué Médical",
+  PRODUCT_MANAGER: "Chef de produit",
   BUSINESS_DEVELOPMENT_MANAGER: "Manager Business Development",
   FINANCE_BUDGET_MANAGER: "Responsable Finance / Budget",
   VIEWER: "Lecteur",
@@ -155,6 +156,27 @@ export const CONGRESS_STATUS: Record<string, Display> = {
   ORGANIZED: { label: "Organisé", tone: "info" },
   COMPLETED: { label: "Terminé", tone: "success" },
   CANCELLED: { label: "Annulé", tone: "danger" },
+};
+
+export const CONGRESS_REQUEST_STATUS: Record<string, Display> = {
+  AWAITING_PRELIMINARY: { label: "Attente validation préliminaire", tone: "warning" },
+  PRELIMINARY_APPROVED: { label: "Analyse chef de produit", tone: "info" },
+  AWAITING_FINAL: { label: "Attente validation définitive", tone: "warning" },
+  APPROVED: { label: "Validé — pris en charge", tone: "success" },
+  REJECTED: { label: "Refusé", tone: "danger" },
+  CANCELLED: { label: "Annulé", tone: "neutral" },
+  COMPLETED: { label: "Réalisé", tone: "success" },
+};
+
+export const NATIONAL_EVENT_TYPE: Record<string, string> = {
+  CONGRESS: "Congrès",
+  SEMINAR: "Séminaire",
+  ROUND_TABLE: "Table ronde",
+  WEBINAR: "Webinaire",
+  WORKSHOP: "Atelier",
+  SYMPOSIUM: "Symposium",
+  STAFF: "Staff / réunion service",
+  OTHER: "Autre",
 };
 
 export const PAYMENT_STATUS: Record<string, Display> = {

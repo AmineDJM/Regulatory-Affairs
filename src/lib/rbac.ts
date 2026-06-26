@@ -70,9 +70,12 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, LOGISTICS: MANAGE, DOCUMENTS: CONTRIBUTE, SALES: READ, NOTIFICATIONS: ["VIEW"],
   },
   MEDICAL_PROMOTION_MANAGER: {
-    DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: MANAGE, CONGRESS_NATIONAL: CONTRIBUTE, DOCUMENTS: CONTRIBUTE, NOTIFICATIONS: ["VIEW"],
+    DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: MANAGE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, DOCUMENTS: CONTRIBUTE, NOTIFICATIONS: ["VIEW"],
   },
-  MEDICAL_DELEGATE: { DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, NOTIFICATIONS: ["VIEW"] },
+  MEDICAL_DELEGATE: { DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, NOTIFICATIONS: ["VIEW"] },
+  PRODUCT_MANAGER: {
+    DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, CONGRESS_INTERNATIONAL: MANAGE, CONGRESS_NATIONAL: MANAGE, MEDICAL: READ, BUDGETS: READ, DOCUMENTS: CONTRIBUTE, NOTIFICATIONS: ["VIEW"],
+  },
   BUSINESS_DEVELOPMENT_MANAGER: {
     DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUSINESS_DEVELOPMENT: MANAGE, DOCUMENTS: CONTRIBUTE, NOTIFICATIONS: ["VIEW"],
   },
@@ -104,6 +107,8 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
     REGULATORY: ["REGULATORY_ASSISTANT"],
     SALES: ["SALES_USER"],
     MEDICAL: ["MEDICAL_DELEGATE"],
+    CONGRESS_INTERNATIONAL: ["MEDICAL_DELEGATE"],
+    CONGRESS_NATIONAL: ["MEDICAL_DELEGATE"],
   };
   return assigned[module]?.includes(role) ? "ASSIGNED" : "ALL";
 }
@@ -241,6 +246,23 @@ export function scopeBusinessDevelopment(user: SessionUser): Prisma.BusinessDeve
   const ids = grantsFor(user, "BD_OPPORTUNITY");
   if (ids.length) ors.push({ id: { in: ids } });
   return { OR: ors };
+}
+
+/** Congrès internationaux : scope ALL voit tout ; sinon le demandeur + le chef
+ *  de produit assigné (un délégué ne voit que ses propres demandes). */
+export function scopeCongressIntl(user: SessionUser): Prisma.CongressInternationalWhereInput {
+  const m = user.access.modules.get("CONGRESS_INTERNATIONAL");
+  if (!m) return { id: "__none__" };
+  if (m.scope === "ALL") return {};
+  return { OR: [{ requesterId: user.id }, { productManagerId: user.id }] };
+}
+
+/** Congrès / événements nationaux : même logique. */
+export function scopeCongressNational(user: SessionUser): Prisma.CongressNationalWhereInput {
+  const m = user.access.modules.get("CONGRESS_NATIONAL");
+  if (!m) return { id: "__none__" };
+  if (m.scope === "ALL") return {};
+  return { OR: [{ requesterId: user.id }, { productManagerId: user.id }] };
 }
 
 /** Projets BD (Projet → Gamme → Produit) : scope ALL voit tout ; sinon le
