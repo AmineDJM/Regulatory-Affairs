@@ -58,6 +58,10 @@
   `FinanceTransaction` OUT + source marquée payée.
 - **Custom fields** (colonnes dynamiques admin) via `custom Json?` + `CUSTOM_ENTITY_TYPES`.
 - **Audit** (`recordAudit`) + **notifications** (`notifyUser`, `notifyRoles`).
+- **Couche IA** (`lib/ai.ts`) — wrapper Claude **serveur uniquement** (`askClaude`, `aiConfigured`).
+  La clé `ANTHROPIC_API_KEY` n'est **jamais** exposée au client ; sans clé, renvoie `configured:false`
+  et l'UI affiche « IA non configurée ». Réutilisé par Process Intelligence, et à venir Voix & Chatbot.
+  STT vocal retenu = **Whisper / OpenAI** (`OPENAI_API_KEY`, à poser sur Render).
 - **Messagerie — temps réel sans WebSocket** : mutations par **server actions** + **UI optimiste**,
   réception par **polling** (`/api/messaging/sync` ~6 s pour la liste/badge ; `/api/messaging/messages`
   ~3,5 s pour le fil actif), pauses si onglet caché. **Présence** via heartbeat (`User.lastSeenAt`) ;
@@ -138,6 +142,14 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, Dashboard), **P
 - **Documents**, **Notifications**, **Feedback (`/feedback`)** — retour libre utilisateur → `/admin/feedback`.
 
 ### Système
+- **Process Intelligence (`/process-intelligence`)** — **Super Admin uniquement** (module
+  `PROCESS_INTELLIGENCE` ; aucun autre rôle par défaut, l'admin peut l'accorder via UserAccess).
+  Analyse des **lenteurs & blocages** : work items en cours agrégés sur Regulatory, Congrès, Sponsoring,
+  Demandes admin, Validations, Tâches (statut + `updatedAt` → « sans action depuis X j »), étapes les
+  plus lentes, top blocages, validations en attente, **alertes**. Onglet **People & Workload Analyzer**
+  (charge par personne : tâches/demandes/regulatory/validations ouvertes, retards, actions 30 j via
+  AuditLog, charge par département, inactifs). **Synthèse IA** à la demande (`/api/process-intelligence/
+  synthesis`) via `lib/ai.ts` — dégrade proprement en « IA non configurée » sans `ANTHROPIC_API_KEY`.
 - **Admin (`/admin`)** — comptes, **matrice d'accès** (onglet × action × ligne), sessions révocables,
   activité, journal d'audit, **champs personnalisés**, **/admin/validations** (règles), **/admin/feedback**,
   **/admin/suppliers** (comptes portail fournisseur). **Vue exacte** (impersonation, voir §6).

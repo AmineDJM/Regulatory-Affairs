@@ -668,5 +668,6 @@ export const NAVIGATION: NavItem[] = [
   { module: "DOCUMENTS", label: "Documents", href: "/documents", icon: "FolderOpen", group: "Transverse" },
   { module: "NOTIFICATIONS", label: "Notifications", href: "/notifications", icon: "Bell", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
+  { module: "PROCESS_INTELLIGENCE", label: "Process Intelligence", href: "/process-intelligence", icon: "Radar", group: "Système" },
   { module: "ADMIN", label: "Administration", href: "/admin", icon: "Settings", group: "Système" },
 ];
