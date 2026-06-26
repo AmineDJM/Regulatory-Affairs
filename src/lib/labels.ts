@@ -41,6 +41,16 @@ export const PRIORITY: Record<string, Display> = {
   CRITICAL: { label: "Critique", tone: "danger" },
 };
 
+export const REGULATORY_CATEGORY: Record<string, Display> = {
+  MEDICINE: { label: "Médicament", tone: "info" },
+  MEDICAL_DEVICE: { label: "Dispositif médical", tone: "purple" },
+};
+
+export const SALE_TYPE: Record<string, Display> = {
+  PRODUCT: { label: "Produit", tone: "info" },
+  SERVICE: { label: "Service", tone: "purple" },
+};
+
 export const PRODUCT_TYPE: Record<string, string> = {
   IMPORTED: "Importé",
   LOCALLY_MANUFACTURED: "Fabriqué localement",
@@ -201,6 +211,27 @@ export const LOGISTICS_STATUS: Record<string, Display> = {
   CUSTOMS: { label: "Dédouanement", tone: "warning" },
   DELIVERED: { label: "Livré", tone: "success" },
   BLOCKED: { label: "Bloqué", tone: "danger" },
+};
+
+export const PCH_TENDER_STATUS: Record<string, Display> = {
+  NOT_STARTED: { label: "Pas encore commencé", tone: "neutral" },
+  IN_PROGRESS: { label: "En cours", tone: "info" },
+  COMPLETED: { label: "Terminé", tone: "success" },
+  CANCELLED: { label: "Annulé", tone: "danger" },
+};
+
+export const PCH_ORDER_STATUS: Record<string, Display> = {
+  PENDING: { label: "En attente", tone: "warning" },
+  VALIDATED: { label: "Validé", tone: "info" },
+  DELIVERED: { label: "Livré", tone: "success" },
+  PAID: { label: "Payé", tone: "success" },
+  CANCELLED: { label: "Annulé", tone: "danger" },
+};
+
+export const STOCK_DIRECTION: Record<string, Display> = {
+  IN: { label: "Entrée", tone: "success" },
+  OUT: { label: "Sortie", tone: "danger" },
+  ADJUST: { label: "Ajustement", tone: "neutral" },
 };
 
 export const VISIT_STATUS: Record<string, Display> = {
@@ -536,6 +567,8 @@ export const NAVIGATION: NavItem[] = [
   { module: "CONGRESS_NATIONAL", label: "Congrès nationaux", href: "/congress-national", icon: "MapPin", group: "Pôles" },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
   { module: "LOGISTICS", label: "Logistique PCH", href: "/logistics", icon: "Truck", group: "Pôles" },
+  { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
+  { module: "STOCKS", label: "Stocks PCH", href: "/stocks", icon: "Boxes", group: "Pôles" },
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
   { module: "VALIDATIONS", label: "Validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },

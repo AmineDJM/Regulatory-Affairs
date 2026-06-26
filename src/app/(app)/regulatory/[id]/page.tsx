@@ -18,7 +18,7 @@ import { StatusEditor } from "./status-editor";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { getFieldDefs } from "@/lib/custom-fields";
 import { suggestedExternalStatus } from "@/lib/regulatory-external";
-import { PRIORITY, REGULATORY_STATUS, PRODUCT_TYPE } from "@/lib/labels";
+import { PRIORITY, REGULATORY_STATUS, PRODUCT_TYPE, REGULATORY_CATEGORY } from "@/lib/labels";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { SupplierViewCard } from "./supplier-view-card";
 
@@ -114,6 +114,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs text-muted-foreground">{product.reference}</span>
+            <StatusBadge map={REGULATORY_CATEGORY} value={product.category} dot={false} />
             <StatusBadge map={PRIORITY} value={product.priority} />
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">{product.dci}</h1>

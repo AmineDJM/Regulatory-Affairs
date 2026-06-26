@@ -8,7 +8,7 @@ import { createRegulatoryProduct, type ActionResult } from "@/lib/actions/regula
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
-import { PRODUCT_TYPE, PRIORITY, REGULATORY_STATUS, ROLE_LABELS } from "@/lib/labels";
+import { PRODUCT_TYPE, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS } from "@/lib/labels";
 
 interface UserOption {
   id: string;
@@ -63,6 +63,7 @@ export function NewProductButton({ users }: { users: UserOption[] }) {
           className="space-y-4"
         >
           <div className="grid grid-cols-2 gap-3">
+            <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue="MEDICINE" className="col-span-2" />
             <TextField label="DCI" name="dci" required placeholder="Ex. Atorvastatine" />
             <TextField label="Nom commercial envisagé" name="brandName" placeholder="Ex. Adventor" />
             <TextField label="Dosage" name="dosage" placeholder="20 mg" />

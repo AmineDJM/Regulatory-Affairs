@@ -53,6 +53,18 @@ enum ProductType {
   ORIGINATOR // princeps
 }
 
+/// Distinction réglementaire fondamentale : médicament vs dispositif médical.
+enum RegulatoryCategory {
+  MEDICINE // médicament
+  MEDICAL_DEVICE // dispositif médical
+}
+
+/// Une vente peut porter sur un produit ou sur un service.
+enum SaleType {
+  PRODUCT
+  SERVICE
+}
+
 enum RegulatoryStatus {
   PRE_SUBMISSION
   IN_PREPARATION
@@ -196,6 +208,30 @@ enum VisitStatus {
   COMPLETED
   CANCELLED
   POSTPONED
+}
+
+/// Statut d'un appel d'offres PCH gagné (exécution du marché).
+enum PchTenderStatus {
+  NOT_STARTED // pas encore commencé
+  IN_PROGRESS // en cours
+  COMPLETED // terminé
+  CANCELLED
+}
+
+/// Statut d'un bon de commande PCH.
+enum PchOrderStatus {
+  PENDING // reçu, à traiter
+  VALIDATED // validé
+  DELIVERED // livré
+  PAID // payé
+  CANCELLED
+}
+
+/// Sens d'un mouvement de stock à la PCH.
+enum StockDirection {
+  IN // réception / entrée
+  OUT // sortie / livraison
+  ADJUST // ajustement d'inventaire
 }
 
 enum InfluenceLevel {
@@ -542,8 +578,8 @@ model User {
 
 model RegulatoryProduct {
   custom             Json? // admin-defined dynamic fields
-  id                 String           @id @default(cuid())
-  reference          String           @unique // human readable ID, e.g. REG-2026-001
+  id                 String             @id @default(cuid())
+  reference          String             @unique // human readable ID, e.g. REG-2026-001
   dci                String // molecule / active ingredient
   brandName          String? // nom commercial envisagé
   dosage             String?
@@ -551,9 +587,10 @@ model RegulatoryProduct {
   therapeuticClass   String?
   partnerLab         String? // fournisseur / laboratoire partenaire
   countryOfOrigin    String?
-  productType        ProductType      @default(IMPORTED)
-  status             RegulatoryStatus @default(PRE_SUBMISSION)
-  priority           Priority         @default(MEDIUM)
+  category           RegulatoryCategory @default(MEDICINE) // médicament vs dispositif médical
+  productType        ProductType        @default(IMPORTED)
+  status             RegulatoryStatus   @default(PRE_SUBMISSION)
+  priority           Priority           @default(MEDIUM)
   targetDate         DateTime? // date cible d'enregistrement
   comments           String?
 
@@ -787,7 +824,9 @@ model Sale {
   custom             Json? // admin-defined dynamic fields
   id                 String         @id @default(cuid())
   date               DateTime       @default(now())
-  product            String
+  saleType           SaleType       @default(PRODUCT) // produit ou service
+  product            String // désignation (produit ou service)
+  serviceDescription String? // détail si c'est un service
   dci                String?
   dosage             String?
   pharmaceuticalForm String?
@@ -1820,6 +1859,76 @@ model SupplierUser {
   updatedAt    DateTime  @updatedAt
 
   @@index([supplierId])
+}
+
+// ─────────────── PCH — marchés publics (appels d'offres → bons de commande) ───────────────
+// Chaque appel d'offres GAGNÉ devient une ligne ; les bons de commande reçus de
+// la PCH en sont les sous-lignes. Caution obligatoire (marché public).
+
+model PchTender {
+  id              String          @id @default(cuid())
+  reference       String          @unique // référence du marché / appel d'offres
+  title           String?
+  products        String? // produits concernés
+  supplier        String?
+  supplierCountry String?
+  quantity        Int             @default(0)
+  value           Decimal?        @db.Decimal(16, 2)
+  client          String          @default("PCH")
+  status          PchTenderStatus @default(NOT_STARTED)
+  awardDate       DateTime? // date d'attribution
+
+  // Caution (obligatoire)
+  cautionAmount    Decimal?  @db.Decimal(14, 2)
+  cautionDeposited Boolean   @default(false)
+  cautionStart     DateTime?
+  cautionEnd       DateTime?
+
+  notes       String?
+  orders      PchOrder[]
+  createdById String?
+  updatedById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([status])
+}
+
+model PchOrder {
+  id           String         @id @default(cuid())
+  tenderId     String
+  tender       PchTender      @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  reference    String? // n° du bon de commande PCH
+  products     String?
+  quantity     Int            @default(0)
+  value        Decimal?       @db.Decimal(16, 2)
+  status       PchOrderStatus @default(PENDING)
+  receivedDate DateTime?
+  paymentDate  DateTime?
+  notes        String?
+  createdById  String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([tenderId])
+}
+
+// ─────────────── Stocks (suivi des stocks de nos produits à la PCH) ───────────────
+
+model StockMovement {
+  id          String         @id @default(cuid())
+  product     String
+  dci         String?
+  direction   StockDirection @default(IN)
+  quantity    Int            @default(0)
+  date        DateTime       @default(now())
+  location    String         @default("PCH")
+  notes       String?
+  createdById String?
+  createdAt   DateTime       @default(now())
+
+  @@index([product])
+  @@index([date])
 }
 
 // ─────────────── Feedback utilisateur ───────────────

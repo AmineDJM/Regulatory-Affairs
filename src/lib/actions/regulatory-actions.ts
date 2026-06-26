@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Priority, ProductType, RegulatoryStatus, StepStatus } from "@prisma/client";
+import type { Priority, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
@@ -56,6 +56,7 @@ export async function createRegulatoryProduct(
       therapeuticClass: str(formData, "therapeuticClass"),
       partnerLab: str(formData, "partnerLab"),
       countryOfOrigin: str(formData, "countryOfOrigin"),
+      category: (str(formData, "category") as RegulatoryCategory) ?? "MEDICINE",
       productType: (str(formData, "productType") as ProductType) ?? "IMPORTED",
       status: (str(formData, "status") as RegulatoryStatus) ?? "PRE_SUBMISSION",
       priority: (str(formData, "priority") as Priority) ?? "MEDIUM",

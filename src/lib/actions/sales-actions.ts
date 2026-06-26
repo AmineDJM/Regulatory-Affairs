@@ -25,7 +25,9 @@ export async function createSale(
   const created = await prisma.sale.create({
     data: {
       date: fdDate(formData, "date") ?? new Date(),
+      saleType: fdStr(formData, "saleType") === "SERVICE" ? "SERVICE" : "PRODUCT",
       product,
+      serviceDescription: fdStr(formData, "serviceDescription"),
       dci: fdStr(formData, "dci"),
       dosage: fdStr(formData, "dosage"),
       pharmaceuticalForm: fdStr(formData, "pharmaceuticalForm"),

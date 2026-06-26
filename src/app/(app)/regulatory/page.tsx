@@ -30,6 +30,7 @@ export default async function RegulatoryPage() {
       dosage: p.dosage ?? "",
       form: p.pharmaceuticalForm ?? "",
       therapeuticClass: p.therapeuticClass ?? "",
+      category: p.category,
       productType: p.productType,
       status: p.status,
       priority: p.priority,

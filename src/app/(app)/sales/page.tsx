@@ -5,6 +5,8 @@ import { toNumber, formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
+import { optionsFromMap } from "@/components/shared/form-fields";
+import { SALE_TYPE } from "@/lib/labels";
 import { createSale } from "@/lib/actions/sales-actions";
 import { SalesTable, type SaleRow } from "./sales-table";
 import { ImportSalesButton } from "./import-sales";
@@ -24,6 +26,7 @@ export default async function SalesPage() {
   const rows: SaleRow[] = sales.map((s) => ({
     id: s.id,
     date: s.date.toISOString(),
+    saleType: s.saleType,
     product: s.product,
     dci: s.dci ?? "",
     client: s.client,
@@ -55,8 +58,10 @@ export default async function SalesPage() {
               action={createSale}
               fields={[
                 { type: "date", name: "date", label: "Date", required: true },
-                { type: "text", name: "product", label: "Produit", required: true },
-                { type: "text", name: "dci", label: "DCI" },
+                { type: "select", name: "saleType", label: "Nature", options: optionsFromMap(SALE_TYPE), defaultValue: "PRODUCT" },
+                { type: "text", name: "product", label: "Désignation (produit / service)", required: true, full: true },
+                { type: "textarea", name: "serviceDescription", label: "Détail du service (si service)", full: true },
+                { type: "text", name: "dci", label: "DCI (si produit)" },
                 { type: "text", name: "dosage", label: "Dosage" },
                 { type: "text", name: "pharmaceuticalForm", label: "Forme" },
                 { type: "text", name: "client", label: "Client", required: true },

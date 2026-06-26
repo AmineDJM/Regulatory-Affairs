@@ -3,12 +3,13 @@
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { PAYMENT_STATUS, DELIVERY_STATUS } from "@/lib/labels";
+import { PAYMENT_STATUS, DELIVERY_STATUS, SALE_TYPE } from "@/lib/labels";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 
 export interface SaleRow {
   id: string;
   date: string;
+  saleType: string;
   product: string;
   dci: string;
   client: string;
@@ -25,7 +26,9 @@ export interface SaleRow {
 export function SalesTable({ rows }: { rows: SaleRow[] }) {
   const columns: Column<SaleRow>[] = [
     { key: "date", header: "Date", sortable: true, accessor: (r) => r.date, render: (r) => formatDate(r.date) },
-    { key: "product", header: "Produit", sortable: true, accessor: (r) => r.product,
+    { key: "saleType", header: "Nature", sortable: true, accessor: (r) => SALE_TYPE[r.saleType]?.label ?? r.saleType,
+      render: (r) => <StatusBadge map={SALE_TYPE} value={r.saleType} dot={false} /> },
+    { key: "product", header: "Désignation", sortable: true, accessor: (r) => r.product,
       render: (r) => (
         <div>
           <p className="font-medium">{r.product}</p>
