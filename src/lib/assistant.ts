@@ -22,6 +22,7 @@ import type { AdminRequestType, CongressRequestStatus, Priority } from "@prisma/
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
+import { createDossierRecord } from "@/lib/dossiers-core";
 import { findDirectConversation } from "@/lib/messaging";
 import { getMailAccount, listMessages, getMessage, sendMail } from "@/lib/mail";
 import {
@@ -96,6 +97,16 @@ export type AssistantActionPayload =
       doctorId?: string | null;
       doctorName?: string | null;
       note?: string | null;
+    }
+  | {
+      kind: "create_dossier";
+      title: string;
+      description?: string | null;
+      category?: string | null;
+      assigneeId?: string | null;
+      assigneeName?: string | null;
+      priority?: string | null;
+      dueDate?: string | null;
     };
 
 export type AssistantActionKind = AssistantActionPayload["kind"];
@@ -268,6 +279,23 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
         priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
       },
       required: ["type", "title"],
+    },
+  },
+  {
+    name: "create_dossier",
+    description:
+      "PROPOSE l'ouverture d'un DOSSIER DE SUIVI pour un sujet à déléguer et suivre dans le temps (ex. « rechercher des prix d'hôtels », « propositions d'hôtels », « analyse IQVIA », « comparer des billets »). À privilégier quand on confie à quelqu'un une recherche / analyse / veille que l'on veut suivre avec des fichiers et une discussion. N'exécute rien : confirmation requise. Résoudre le responsable avec search_people si un nom est cité.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Sujet du dossier, clair et court." },
+        description: { type: "string", description: "Le brief : ce qui est attendu, le contexte, l'échéance souhaitée." },
+        category: { type: "string", description: "Catégorie libre (Recherche, Hôtels, Billets, Analyse IQVIA, Veille…)." },
+        assigneeName: { type: "string", description: "Nom du responsable à qui confier le dossier (sinon laissé à assigner)." },
+        priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        dueDate: { type: "string", description: "Échéance au format AAAA-MM-JJ." },
+      },
+      required: ["title"],
     },
   },
   {
@@ -679,6 +707,28 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  if (toolName === "create_dossier") {
+    const title = asStr(input, "title");
+    if (!title) return { error: "Sujet du dossier manquant." };
+    const assignee = await resolve("Responsable", asStr(input, "assigneeName"));
+    const due = asStr(input, "dueDate") ? isoDate(asStr(input, "dueDate")) : null;
+    const priority = asStr(input, "priority") ? normPriority(asStr(input, "priority")) : null;
+    const category = asStr(input, "category") || null;
+    const fields = [{ label: "Dossier", value: title }];
+    if (category) fields.push({ label: "Catégorie", value: category });
+    fields.push({ label: "Responsable", value: assignee.name ?? "à assigner" });
+    if (asStr(input, "description")) fields.push({ label: "Brief", value: asStr(input, "description") });
+    if (due) fields.push({ label: "Échéance", value: due });
+    if (priority) fields.push({ label: "Priorité", value: PRIORITY[priority]?.label ?? priority });
+    return {
+      kind: "create_dossier", module: "DOSSIERS", title: "Ouvrir un dossier de suivi", fields, warnings,
+      payload: {
+        kind: "create_dossier", title, description: asStr(input, "description") || null, category,
+        assigneeId: assignee.id, assigneeName: assignee.name, priority, dueDate: due,
+      },
+    };
+  }
+
   if (toolName === "create_admin_request") {
     const type = asStr(input, "type").toUpperCase();
     const validTypes = ["TRAVEL", "MAIL", "SIGNATURE", "PURCHASE", "QUOTE", "PAYMENT", "DRIVER", "GUEST_VISA", "HR_SIMPLE", "OTHER"];
@@ -945,6 +995,25 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
       entityId: created.id, summary: `Tâche « ${title} » créée via l'assistant`,
     });
     return { ok: true, message: `Tâche « ${title} » créée.`, link: "/mon-espace", revalidate: ["/mon-espace", "/mon-travail"] };
+  }
+
+  if (payload?.kind === "create_dossier") {
+    if (!userCan(user, "DOSSIERS", "CREATE")) return { ok: false, error: "Vous n'avez pas le droit d'ouvrir un dossier." };
+    const title = (payload.title ?? "").trim();
+    if (!title) return { ok: false, error: "Sujet du dossier manquant." };
+    const assignedToId = await activeUserId(payload.assigneeId);
+    const { id, reference } = await createDossierRecord(
+      {
+        title,
+        description: payload.description?.trim() || null,
+        category: payload.category?.trim() || null,
+        priority: priorityOf(payload.priority),
+        assignedToId,
+        dueDate: dateValue(payload.dueDate),
+      },
+      user.id,
+    );
+    return { ok: true, message: `Dossier ${reference} ouvert.`, link: `/dossiers/${id}`, revalidate: ["/dossiers", "/mon-travail"] };
   }
 
   if (payload?.kind === "create_admin_request") {

@@ -634,6 +634,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   MEDICAL_INFO_DECLARATION: "Information médicale",
   DIRECTIVE: "Directive",
   SUPPORT_REQUEST: "Demande de support",
+  DOSSIER: "Dossier de suivi",
 };
 
 export const MEDICAL_INFO_STATUS: Record<string, Display> = {
@@ -669,6 +670,14 @@ export const SUPPORT_STATUS: Record<string, Display> = {
   IN_PROGRESS: { label: "Pris en charge", tone: "info" },
   ANSWERED: { label: "Répondu", tone: "success" },
   CLOSED: { label: "Clôturé", tone: "neutral" },
+};
+
+export const DOSSIER_STATUS: Record<string, Display> = {
+  OPEN: { label: "Ouvert", tone: "warning" },
+  IN_PROGRESS: { label: "En cours", tone: "info" },
+  ON_HOLD: { label: "En attente", tone: "neutral" },
+  DONE: { label: "Abouti", tone: "success" },
+  ARCHIVED: { label: "Archivé", tone: "neutral" },
 };
 
 export const FEEDBACK_STATUS: Record<string, Display> = {
@@ -833,6 +842,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   VALIDATIONS: "Validations",
   DIRECTIVES: "Directives",
   SUPPORT: "Demandes de support",
+  DOSSIERS: "Dossiers",
   DOCUMENTS: "Documents",
   DRIVE: "Drive",
   ADMIN_REQUESTS: "Demandes administratives",
@@ -868,6 +878,7 @@ export const NAVIGATION: NavItem[] = [
   // Transverse
   { module: "VALIDATIONS", label: "Validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
   { module: "DRIVE", label: "Documents", href: "/drive", icon: "FolderOpen", group: "Transverse", tabs: DOCS_TABS },
+  { module: "DOSSIERS", label: "Dossiers", href: "/dossiers", icon: "FolderKanban", group: "Transverse" },
   { module: "ADMIN_REQUESTS", label: "Demandes administratives", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "SUPPORT", label: "Demandes de support", href: "/support", icon: "LifeBuoy", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },

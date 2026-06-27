@@ -137,10 +137,13 @@ l'utilisateur y a accès (RBAC asymétrique).
 | Module | Route | Description |
 |---|---|---|
 | **Validations** | `/validations` | **Centre de validation** configurable + **agrégation transverse** de toutes les validations en attente. → [détails](#centre-de-validation-agrégation--configurable) |
-| **Drive** | `/drive` | Stockage **chiffré**, visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), versioning, partage. |
+| **Documents** (Drive + Documents) | `/drive` | Stockage **chiffré**, visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), versioning. **À l'import : choix de la catégorie + qui peut voir / modifier** (par personne). Onglet **Documents** = bibliothèque filtrée par accès. |
+| **Dossiers** | `/dossiers` | **Dossier de suivi** d'un sujet ad hoc (ex. *recherche de prix d'hôtels*, *analyse IQVIA*) : description, **responsable + participants**, statut, **fichiers** (PPT/Excel/PDF) et **fil de discussion**. Créable **manuellement** ou **proposé par l'IA** depuis un chat/e-mail (confirmation requise). |
 | **Demandes administratives** | `/demandes` | « Bureau de l'assistante » : 10 types, validations, ordres de dépense, missions chauffeur. |
 | **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou au **chef de produit**, avec fil + pièces jointes. |
-| **Documents · Notifications · Feedback** | `/documents` `/notifications` `/feedback` | Bibliothèque filtrée par accès · alertes · retour libre utilisateur → admin. |
+| **Feedback** | `/feedback` | Retour libre utilisateur → admin. |
+
+> **Menu simplifié** : modules fusionnés en **onglets** — « Mon espace » (Mon travail · Mon espace · Directives), « Sponsoring & Événements » (Sponsoring · Congrès · Événements), « Documents » (Drive · Documents). **Messagerie** et **Notifications** ne sont plus des entrées de menu : elles restent accessibles via leurs **icônes** dans la barre du haut.
 
 ### Système
 

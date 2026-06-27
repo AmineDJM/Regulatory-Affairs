@@ -3,7 +3,7 @@ import { userCan, hasGlobalView, scopeRegulatory, scopeDirectives, type SessionU
 import { getPendingValidations } from "@/lib/queries/validations";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import {
-  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, DIRECTIVE_STATUS, SUPPORT_STATUS,
+  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, DIRECTIVE_STATUS, SUPPORT_STATUS, DOSSIER_STATUS,
 } from "@/lib/labels";
 
 export interface ActionItem {
@@ -210,6 +210,21 @@ export async function getActionCenter(user: SessionUser) {
         key: `sup-${r.id}`, title: r.subject, subtitle: r.reference, module: "Support",
         href: `/support/${r.id}`, kind: "request", priority: r.priority,
         deadline: null, owner: r.requester?.name ?? "", ...resolve(SUPPORT_STATUS, r.status),
+      });
+    }
+  }
+
+  // 6g. Dossiers de suivi qui me sont confiés (responsable), actifs
+  if (userCan(user, "DOSSIERS", "VIEW")) {
+    const dossiers = await prisma.dossier.findMany({
+      where: { assignedToId: user.id, status: { notIn: ["DONE", "ARCHIVED"] } },
+      orderBy: [{ priority: "desc" }, { dueDate: "asc" }], take: 40,
+    });
+    for (const d of dossiers) {
+      items.push({
+        key: `dos-${d.id}`, title: d.title, subtitle: d.reference, module: "Dossiers",
+        href: `/dossiers/${d.id}`, kind: "request", priority: d.priority,
+        deadline: d.dueDate?.toISOString() ?? null, owner: "", ...resolve(DOSSIER_STATUS, d.status),
       });
     }
   }

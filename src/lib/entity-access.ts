@@ -9,6 +9,7 @@ import {
   scopeBusinessDevelopment,
   scopeBdProject,
   scopeSupport,
+  scopeDossiers,
   type Action,
   type Module,
   type SessionUser,
@@ -45,6 +46,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   MEDICAL_INFO_DECLARATION: "MEDICAL_INFO",
   DIRECTIVE: "DIRECTIVES",
   SUPPORT_REQUEST: "SUPPORT",
+  DOSSIER: "DOSSIERS",
 };
 
 /**
@@ -107,6 +109,13 @@ export async function canAccessEntity(
     case "SUPPORT_REQUEST": {
       const found = await prisma.supportRequest.findFirst({
         where: { id: entityId, ...scopeSupport(user) },
+        select: { id: true },
+      });
+      return Boolean(found);
+    }
+    case "DOSSIER": {
+      const found = await prisma.dossier.findFirst({
+        where: { id: entityId, ...scopeDossiers(user) },
         select: { id: true },
       });
       return Boolean(found);

@@ -340,6 +340,7 @@ enum EntityType {
   MEDICAL_INFO_DECLARATION
   DIRECTIVE
   SUPPORT_REQUEST
+  DOSSIER
 }
 
 enum DocumentCategory {
@@ -641,6 +642,11 @@ model User {
   supportTargeted   SupportRequest[] @relation("SupportTarget")
   supportAssigned   SupportRequest[] @relation("SupportAssignee")
   supportMessages   SupportMessage[] @relation("SupportMsgAuthor")
+
+  // Dossiers de suivi (sujets délégués / suivis)
+  dossiersCreated  Dossier[]        @relation("DossierCreator")
+  dossiersAssigned Dossier[]        @relation("DossierAssignee")
+  dossierMessages  DossierMessage[] @relation("DossierMsgAuthor")
 
   @@index([role])
   @@index([departmentId])
@@ -1134,6 +1140,55 @@ model SupportMessage {
   createdAt DateTime       @default(now())
 
   @@index([requestId])
+}
+
+/// Statut d'un dossier de suivi.
+enum DossierStatus {
+  OPEN // ouvert / à démarrer
+  IN_PROGRESS // en cours
+  ON_HOLD // en attente (d'un retour, d'une info…)
+  DONE // abouti
+  ARCHIVED // archivé
+}
+
+/// Dossier de suivi d'un sujet ad hoc : on délègue une recherche / analyse / tâche
+/// (ex. « rechercher des prix d'hôtels », « analyse IQVIA ») et on suit TOUT au même
+/// endroit : description, responsable + participants, statut, fil de discussion et
+/// pièces (PPT/Excel/PDF/e-mails) via Document(entityType=DOSSIER). Créable manuellement
+/// ou proposé par l'IA depuis un chat / e-mail.
+model Dossier {
+  id             String          @id @default(cuid())
+  reference      String          @unique // DOS-AAAA-NNN
+  title          String
+  description    String?
+  category       String? // Recherche, Hôtels, Billets, Analyse IQVIA, Veille…
+  priority       Priority        @default(MEDIUM)
+  status         DossierStatus   @default(OPEN)
+  createdById    String?
+  createdBy      User?           @relation("DossierCreator", fields: [createdById], references: [id])
+  assignedToId   String? // responsable principal
+  assignedTo     User?           @relation("DossierAssignee", fields: [assignedToId], references: [id])
+  participantIds String[]        @default([]) // collaborateurs additionnels (userIds)
+  dueDate        DateTime?
+  messages       DossierMessage[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([status])
+  @@index([createdById])
+  @@index([assignedToId])
+}
+
+model DossierMessage {
+  id        String   @id @default(cuid())
+  dossierId String
+  dossier   Dossier  @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?    @relation("DossierMsgAuthor", fields: [authorId], references: [id])
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([dossierId])
 }
 
 // ───────────────────────────── Sales ─────────────────────────────
