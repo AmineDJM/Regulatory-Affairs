@@ -183,33 +183,57 @@ export interface TranscriptionResult {
   error?: string;
 }
 
-/** Transcrit un audio en texte via l'API OpenAI Whisper (français). Serveur uniquement. */
+/** Transcrit un audio en texte via l'API OpenAI Whisper (français). Serveur uniquement.
+ *  Réessaie sur 429/5xx (limite de débit transitoire) ; message clair si quota dépassé. */
 export async function transcribeAudio(buffer: Buffer, filename: string, mime: string): Promise<TranscriptionResult> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return { ok: false, configured: false, error: "Clé OPENAI_API_KEY non configurée." };
   const base = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
   const model = process.env.STT_MODEL ?? "whisper-1";
-  try {
-    const form = new FormData();
-    form.append("file", new Blob([buffer], { type: mime || "audio/webm" }), filename || "audio.webm");
-    form.append("model", model);
-    form.append("language", "fr");
-    const res = await fetch(`${base.replace(/\/$/, "")}/audio/transcriptions`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${key}` },
-      body: form,
-    });
-    if (!res.ok) {
+
+  const MAX_ATTEMPTS = 4;
+  let lastError = "Transcription impossible (réseau).";
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const form = new FormData();
+      form.append("file", new Blob([buffer], { type: mime || "audio/webm" }), filename || "audio.webm");
+      form.append("model", model);
+      form.append("language", "fr");
+      const res = await fetch(`${base.replace(/\/$/, "")}/audio/transcriptions`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${key}` },
+        body: form,
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { text?: string };
+        return { ok: true, configured: true, text: (data.text ?? "").trim() };
+      }
       const body = await res.text().catch(() => "");
-      console.error("[ai] whisper error", res.status, body.slice(0, 300));
-      return { ok: false, configured: true, error: `Erreur transcription (HTTP ${res.status}).` };
+      console.error("[ai] whisper error", res.status, body.slice(0, 400));
+      if (res.status === 429) {
+        // 429 = limite de débit OU quota/crédit épuisé. On réessaie les limites
+        // transitoires ; sinon message explicite (la cause la plus fréquente est
+        // l'absence de crédit/facturation sur le compte OpenAI).
+        const quota = /quota|billing|insufficient/i.test(body);
+        lastError = quota
+          ? "Transcription indisponible : quota/crédit OpenAI épuisé. Ajoutez du crédit (ou activez la facturation) sur votre compte OpenAI, puis réessayez."
+          : "Limite de débit OpenAI atteinte (trop de requêtes). Réessayez dans un instant.";
+        if (quota || attempt === MAX_ATTEMPTS) return { ok: false, configured: true, error: lastError };
+      } else if (res.status >= 500) {
+        lastError = `Service de transcription momentanément indisponible (HTTP ${res.status}).`;
+        if (attempt === MAX_ATTEMPTS) return { ok: false, configured: true, error: lastError };
+      } else {
+        return { ok: false, configured: true, error: `Erreur transcription (HTTP ${res.status}).` };
+      }
+    } catch (err) {
+      console.error(`[ai] whisper call failed (attempt ${attempt})`, err);
+      lastError = "Transcription impossible (réseau ou délai dépassé).";
+      if (attempt === MAX_ATTEMPTS) return { ok: false, configured: true, error: lastError };
     }
-    const data = (await res.json()) as { text?: string };
-    return { ok: true, configured: true, text: (data.text ?? "").trim() };
-  } catch (err) {
-    console.error("[ai] whisper call failed", err);
-    return { ok: false, configured: true, error: "Transcription impossible (réseau)." };
+    await new Promise((r) => setTimeout(r, 800 * attempt)); // backoff
   }
+  return { ok: false, configured: true, error: lastError };
 }
 
 // ─────────────────────────── Analyse IA d'un rapport terrain ───────────────────────────
