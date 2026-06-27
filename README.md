@@ -146,6 +146,7 @@ l'utilisateur y a accès (RBAC asymétrique).
 
 | Module | Route | Description |
 |---|---|---|
+| **Adventum Brain** 🧠 | `/adventum-brain` | **Super Admin uniquement — le cockpit qui voit ce que les autres ne voient pas.** Une seule expérience intégrant 6 fonctions. → [détails](#-adventum-brain-cockpit-super-admin) |
 | **Process Intelligence** | `/process-intelligence` | **Super Admin uniquement.** Analyse des **lenteurs & blocages** (work items sans action depuis X jours, étapes les plus lentes, top blocages, alertes), onglet **People & Workload Analyzer** (charge par personne / département), **synthèse IA** à la demande. |
 | **Administration** | `/admin` | Comptes, **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit**, **champs personnalisés**, règles de validation, feedback, comptes portail fournisseur, **Vue exacte** (impersonation). |
 | **Recherche globale** | `/search` | RBAC-aware + **palette ⌘K**. |
@@ -307,6 +308,43 @@ affiche proprement « IA non configurée » — **aucune fonctionnalité ne cass
 - **Process Intelligence** — **synthèse IA** à la demande des lenteurs/blocages (Super Admin).
 
 > Clés : `ANTHROPIC_API_KEY` (Claude), `OPENAI_API_KEY` (Whisper). Posées sur Render, jamais côté client.
+
+---
+
+## 🧠 Adventum Brain (cockpit Super Admin)
+
+**Une seule couche premium, visible du Super Admin uniquement** (`/adventum-brain`). Pas six modules
+séparés : un **cockpit unique** intégrant six fonctions comme une seule expérience.
+
+| Fonction | Où, dans le cockpit |
+|---|---|
+| **War Room** | Vue principale : KPIs (risques critiques, blocages, actions proposées, décisions, signaux terrain) + « Aujourd'hui, ce qui mérite votre attention ». |
+| **Risk Radar** | Le **moteur** : des **détecteurs sur données réelles** produisent des *Risk Cards* (niveau, objet, impact, responsable, cause probable, action recommandée, preuves). |
+| **Root Cause** | **Drawer contextuel** à droite quand on clique un risque — pas une page : ce qui bloque, depuis quand, délai normal, cause probable, preuves, impact, reco. |
+| **Knowledge Graph** | **Fiche 360 relationnelle** (onglet Relations) : pour une molécule/produit, blocs Regulatory · PCH · Médecins/KOL · Events · Terrain — lisible, pas une toile de bulles. |
+| **Autopilot Actions** | Boutons sur les cartes → **mini-confirmation** → exécution. **Ne crée que des objets existants** (Tâche, Notification). Rien n'est exécuté sans confirmation. |
+| **Intelligence Feed** | Onglet Feed : un fil **filtré par importance** (les mêmes signaux, du plus récent au plus ancien) — pas un flux de tout ce qui se passe. |
+
+Plus une **barre de commande IA** (« Pourquoi les congrès sont bloqués ? ») et un **briefing de direction**
+généré à la demande.
+
+**Détecteurs Risk Radar (réels, calculés à la volée — aucune table de risque)** : caution PCH proche
+d'expiration · congrès/sponsoring bloqués (analyse chef de produit en retard) · médecin **KOL** non visité ·
+ordre de dépense non réglé · budget dépassé/à surveiller · information médicale en attente · directive
+échue · fournisseur silencieux · signal qualité/PV terrain.
+
+> **Règle anti-bureaucratie** (appliquée) : Adventum Brain **lit, relie, résume, explique et propose**. Il
+> ne duplique aucun workflow, ne crée aucun formulaire lourd, ne crée un objet (Tâche/Notification) qu'**après
+> confirmation**. But : *le Super Admin voit ce que les autres ne voient pas* — pas ajouter du travail.
+
+> **Aucune migration** : la couche est **100 % lecture** + réutilise Tâches/Notifications existantes.
+
+### Assistant IA du Super Admin (le plus puissant)
+
+Pour le Super Admin, l'Assistant IA a une **vision globale** (tous les comptes, toutes les données) et des
+**outils exclusifs** : `list_accounts` (tous les comptes + charge réelle : tâches ouvertes, demandes à
+traiter), et la capacité de **relancer/piloter n'importe qui** (créer une tâche pour un collaborateur, lui
+envoyer un message) — toujours sous confirmation et journalisé.
 
 ---
 

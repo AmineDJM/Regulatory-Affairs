@@ -236,6 +236,18 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA*
 - **Documents**, **Notifications**, **Feedback (`/feedback`)** — retour libre utilisateur → `/admin/feedback`.
 
 ### Système
+- **Adventum Brain (`/adventum-brain`)** — **Super Admin uniquement** (module `ADVENTUM_BRAIN`, accordé au
+  seul Super Admin via la matrice). **Cockpit unique** intégrant 6 fonctions comme une seule expérience :
+  **War Room** (KPIs + cartes « ce qui mérite votre attention »), **Risk Radar** (`lib/adventum/risks.ts` —
+  détecteurs sur données RÉELLES, calculés à la volée, **aucune table** : caution PCH, congrès/sponsoring
+  bloqués, KOL non visité, ordre de dépense non réglé, budget, info médicale, directive échue, fournisseur
+  silencieux, signal qualité/PV), **Root Cause** (drawer contextuel avec preuves), **Knowledge Graph**
+  (fiche 360 `lib/adventum/relations.ts`), **Autopilot** (`runAutopilot` — ne crée que Tâche/Notification,
+  **après confirmation**, Super Admin only), **Intelligence Feed** (signaux triés par récence). Barre de
+  commande IA (`askBrain` → réutilise `runAssistant`) + briefing (`generateBriefing` → `askClaude`).
+  **Anti-bureaucratie** : lit/relie/résume/explique/propose, ne duplique aucun workflow. **Aucune migration**
+  (100 % lecture + objets existants). **Assistant Super Admin** : outil exclusif `list_accounts` (tous les
+  comptes + charge) + vision globale + relance de n'importe qui (tâche/message) sous confirmation.
 - **Process Intelligence (`/process-intelligence`)** — **Super Admin uniquement** (module
   `PROCESS_INTELLIGENCE` ; aucun autre rôle par défaut, l'admin peut l'accorder via UserAccess).
   Analyse des **lenteurs & blocages** : work items en cours agrégés sur Regulatory, Congrès, Sponsoring,

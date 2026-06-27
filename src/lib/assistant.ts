@@ -217,6 +217,19 @@ const READ_TOOLS: ClaudeToolDef[] = [
   },
 ];
 
+/** Outils EXCLUSIFS au Super Admin — vision globale, tous comptes confondus. */
+const SUPERADMIN_TOOLS: ClaudeToolDef[] = [
+  {
+    name: "list_accounts",
+    description:
+      "RÉSERVÉ AU SUPER ADMIN : liste TOUS les comptes de l'entreprise (nom, fonction, rôle, actif/inactif) avec leur charge réelle (tâches ouvertes, demandes administratives à traiter). À utiliser pour « montre-moi tous les comptes », « qui est surchargé ? », « qui pilote quoi ? ». Le Super Admin peut ensuite relancer n'importe qui (créer une tâche, envoyer un message).",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "Filtre optionnel par nom ou fonction." } },
+    },
+  },
+];
+
 const WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "create_task",
@@ -329,7 +342,14 @@ function systemPrompt(user: CurrentUser): string {
   return `Tu es « Assistant IA », l'assistant interne d'AMD Internal OS, l'outil de gestion d'Adventum Pharma
 (laboratoire pharmaceutique algérien ; devise DZD ; principal client la PCH — Pharmacie Centrale des Hôpitaux).
 Tu aides l'employé à comprendre l'application, à retrouver ses informations et à passer à l'action.
-
+${user.role === "SUPER_ADMIN" ? `
+TU ES L'ASSISTANT DU SUPER ADMIN — le plus puissant de l'application. Tu as une VISION GLOBALE de
+toute l'entreprise (tous les modules, tous les comptes, toutes les données). Tu peux lister tous les
+comptes et leur charge (list_accounts), interroger n'importe quel pôle, et RELANCER/PILOTER n'importe
+qui (créer une tâche pour un collaborateur, lui envoyer un message). Sers le pilotage de l'entreprise :
+détecte les blocages, désigne les responsables, propose des relances. Les actions restent soumises à
+confirmation.
+` : ""}
 CONTEXTE :
 ${buildContext(user)}
 
@@ -548,6 +568,26 @@ export async function executeReadTool(name: string, input: Record<string, unknow
         return `Impossible de lire l'e-mail : ${(e as Error)?.message ?? "erreur de connexion"}.`;
       }
     }
+    case "list_accounts": {
+      if (user.role !== "SUPER_ADMIN") return "Accès réservé au Super Admin.";
+      const q = asStr(input, "query");
+      const [users, openTasks, openReqs] = await Promise.all([
+        prisma.user.findMany({
+          where: q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] } : {},
+          select: { id: true, name: true, role: true, title: true, isActive: true },
+          orderBy: { name: "asc" }, take: 100,
+        }),
+        prisma.task.groupBy({ by: ["assignedToId"], where: { status: { in: ["TODO", "IN_PROGRESS"] } }, _count: true }),
+        prisma.administrativeRequest.groupBy({ by: ["assignedToId"], where: { status: { notIn: ["DONE", "CANCELLED"] } }, _count: true }),
+      ]);
+      const taskMap = new Map(openTasks.map((t) => [t.assignedToId, t._count]));
+      const reqMap = new Map(openReqs.map((r) => [r.assignedToId, r._count]));
+      if (users.length === 0) return "Aucun compte trouvé.";
+      return JSON.stringify(users.map((u) => ({
+        nom: u.name, fonction: u.title ?? (ROLE_LABELS[u.role] ?? u.role), role: ROLE_LABELS[u.role] ?? u.role,
+        actif: u.isActive, tachesOuvertes: taskMap.get(u.id) ?? 0, demandesACharge: reqMap.get(u.id) ?? 0,
+      })));
+    }
     default:
       return `Outil inconnu : ${name}.`;
   }
@@ -563,6 +603,7 @@ const READ_LABEL: Record<string, string> = {
   search_events: "Événements consultés",
   list_emails: "Boîte mail consultée",
   read_email: "E-mail lu",
+  list_accounts: "Tous les comptes consultés",
 };
 
 // ───────────────────────────── Construction d'une action proposée ─────────────────────────────
@@ -787,7 +828,8 @@ export async function runAssistant(user: CurrentUser, history: ChatTurn[]): Prom
   }
 
   const system = systemPrompt(user);
-  const tools = [...READ_TOOLS, ...WRITE_TOOLS];
+  // Le Super Admin dispose d'outils exclusifs (vision globale de tous les comptes).
+  const tools = [...READ_TOOLS, ...(user.role === "SUPER_ADMIN" ? SUPERADMIN_TOOLS : []), ...WRITE_TOOLS];
   const trace: string[] = [];
 
   try {
