@@ -13,7 +13,7 @@ import { formatDateTime } from "@/lib/utils";
 import { AccessMatrix, type ModuleAccessRow } from "./access-matrix";
 import { SessionsList, type SessionItem } from "./sessions-list";
 import { RowGrants } from "./row-grants";
-import { ProfileForm, ResetPasswordForm, ActiveToggle, RevokeAllButton } from "./user-admin-forms";
+import { ProfileForm, ResetPasswordForm, ActiveToggle, RevokeAllButton, RequestOnboardingButton } from "./user-admin-forms";
 
 const MODULE_LABEL: Record<string, string> = Object.fromEntries(
   NAVIGATION.map((n) => [n.module, n.label]),
@@ -116,8 +116,13 @@ export default async function AdminUserPage({ params }: { params: { id: string }
           <CardHeader><CardTitle>Profil</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <ProfileForm user={{ id: target.id, name: target.name, title: target.title ?? "", region: target.region ?? "", role: target.role }} />
-            <div className="border-t border-border pt-3">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-t border-border pt-3">
               <ActiveToggle userId={target.id} isActive={target.isActive} isSelf={target.id === admin.id} />
+              <RequestOnboardingButton
+                userId={target.id}
+                mustOnboard={target.mustOnboard}
+                onboardedAt={target.onboardedAt ? target.onboardedAt.toISOString() : null}
+              />
             </div>
           </CardContent>
         </Card>

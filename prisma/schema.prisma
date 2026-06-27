@@ -550,6 +550,12 @@ model User {
   tokenVersion       Int     @default(0)
   mustChangePassword Boolean @default(false)
 
+  // Onboarding guidé : déclenché à la création d'un compte ou redéclenché par le
+  // Super Admin (« demander le setup à la prochaine connexion »). Vérifié à chaud
+  // (lecture BDD) par le layout, jamais via le JWT — pas de re-login nécessaire.
+  mustOnboard Boolean   @default(false)
+  onboardedAt DateTime?
+
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
 

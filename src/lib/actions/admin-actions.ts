@@ -39,8 +39,10 @@ export async function createUser(
       title: fdStr(formData, "title"),
       region: fdStr(formData, "region"),
       avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
-      // New accounts must set their own password on first login.
+      // New accounts must set their own password on first login, then go
+      // through the guided onboarding (workspace tour + mailbox + profil).
       mustChangePassword: true,
+      mustOnboard: true,
     },
   });
   await recordAudit({

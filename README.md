@@ -188,6 +188,12 @@ Toute action sensible est **ré-autorisée côté serveur** (jamais sur la confi
 - 🛡️ **En-têtes de sécurité** : `X-Frame-Options: SAMEORIGIN`, `Permissions-Policy: camera=(self), microphone=(self), geolocation=(self)`.
 - 🔢 Identifiants **cuid** non séquentiels ; upload contrôlé (extension + taille) ; download protégé par vérification d'accès.
 
+**Parcours de première connexion** : un nouveau compte doit **définir son mot de passe** (`mustChangePassword`),
+puis suit un **onboarding guidé** (`/onboarding`) — coordonnées, **connexion de sa boîte e-mail** et **visite
+des onglets auxquels il a accès** (générée à partir de ses droits réels). Le Super Admin peut **redéclencher le
+setup** d'un compte (« Demander le setup ») depuis sa fiche. Le drapeau `mustOnboard` est **lu à chaud en base**
+par le layout (jamais via le JWT) : la fin du parcours prend effet **immédiatement, sans reconnexion**.
+
 ---
 
 ## 👤 Rôles

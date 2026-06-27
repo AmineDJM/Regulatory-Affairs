@@ -171,6 +171,24 @@ export async function revokeSession(formData: FormData): Promise<ActionResult> {
   return { ok: true };
 }
 
+/**
+ * Super Admin : (re)déclenche l'onboarding guidé d'un compte. À sa prochaine
+ * navigation, l'utilisateur sera redirigé vers le parcours de configuration.
+ */
+export async function requestOnboarding(formData: FormData): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  if (!admin) return { ok: false, error: "Réservé au Super Admin." };
+  const userId = fdStr(formData, "userId");
+  if (!userId) return { ok: false, error: "Utilisateur manquant." };
+  await prisma.user.update({ where: { id: userId }, data: { mustOnboard: true } });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration", entityId: userId,
+    summary: "Setup guidé demandé (à la prochaine connexion)",
+  });
+  revalidatePath(`/admin/users/${userId}`);
+  return { ok: true };
+}
+
 export async function revokeAllSessions(formData: FormData): Promise<ActionResult> {
   const admin = await requireAdmin();
   if (!admin) return { ok: false, error: "Réservé au Super Admin." };

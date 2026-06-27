@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, KeyRound, Check, ShieldAlert, ShieldCheck, LogOut } from "lucide-react";
+import { Loader2, KeyRound, Check, ShieldAlert, ShieldCheck, LogOut, Compass } from "lucide-react";
 import {
-  adminResetPassword, revokeAllSessions, setUserActive, updateUserProfile,
+  adminResetPassword, requestOnboarding, revokeAllSessions, setUserActive, updateUserProfile,
 } from "@/lib/actions/access-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { ROLE_LABELS } from "@/lib/labels";
+import { formatDateTime } from "@/lib/utils";
 
 interface Profile {
   id: string; name: string; title: string; region: string; role: string;
@@ -100,5 +101,37 @@ export function RevokeAllButton({ userId }: { userId: string }) {
         <LogOut className="h-4 w-4" /> Déconnecter partout
       </Button>
     </form>
+  );
+}
+
+export function RequestOnboardingButton({
+  userId, mustOnboard, onboardedAt,
+}: {
+  userId: string;
+  mustOnboard: boolean;
+  onboardedAt: string | null;
+}) {
+  const [saving, setSaving] = React.useState(false);
+  const [requested, setRequested] = React.useState(false);
+  const pending = mustOnboard || requested;
+  return (
+    <div className="space-y-1.5">
+      <form
+        action={async (fd) => { setSaving(true); const r = await requestOnboarding(fd); setSaving(false); if (r.ok) setRequested(true); }}
+      >
+        <input type="hidden" name="userId" value={userId} />
+        <Button type="submit" variant="outline" size="sm" disabled={saving || pending}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Compass className="h-4 w-4" />}
+          {pending ? "Setup demandé" : "Demander le setup"}
+        </Button>
+      </form>
+      <p className="text-xs text-muted-foreground">
+        {pending
+          ? "L’utilisateur sera guidé à sa prochaine navigation."
+          : onboardedAt
+            ? `Onboarding terminé le ${formatDateTime(onboardedAt)}.`
+            : "Relance le parcours de configuration guidé."}
+      </p>
+    </div>
   );
 }

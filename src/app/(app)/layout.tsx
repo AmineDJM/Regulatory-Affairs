@@ -19,6 +19,15 @@ export default async function AppLayout({
 }) {
   const user = await requireUser();
   if (user.mustChangePassword) redirect("/change-password");
+  // Onboarding guidé : lecture à chaud (BDD) plutôt que via le JWT — la fin du
+  // parcours prend effet immédiatement, sans forcer une reconnexion.
+  if (!user.impersonatedBy) {
+    const flags = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { mustOnboard: true },
+    });
+    if (flags?.mustOnboard) redirect("/onboarding");
+  }
   const modules = accessibleModules(user);
   // Entrées fusionnées (`tabs`) : visibles si l'utilisateur a accès à au moins un
   // onglet ; le lien pointe vers le premier onglet autorisé, et `match` couvre les
