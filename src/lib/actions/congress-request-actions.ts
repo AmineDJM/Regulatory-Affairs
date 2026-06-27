@@ -179,9 +179,13 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
     return { ok: true };
   }
 
+  // Le montant accordé par la Direction est **obligatoire** à la validation définitive :
+  // il fait foi pour la déclaration d'information médicale puis l'ordre de dépense.
+  const amount = fdNum(formData, "finalAmount");
+  if (amount === null || amount <= 0) return { ok: false, error: "Le montant accordé est obligatoire pour valider définitivement." };
+
   // Validation définitive → étape « information médicale » (déclaration aux autorités
   // par le pharmacien responsable) AVANT l'émission de l'ordre de dépense au comptable.
-  const amount = Number(c.productManagerBudget ?? c.estimatedBudget ?? 0);
   const decl = await createMedicalInfoDeclaration({
     sourceType: entityFor(t),
     sourceId: id,
@@ -193,7 +197,7 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
 
   await updateCongress(t, id, {
     requestStatus: "APPROVED",
-    finalById: user.id, finalAt: new Date(), finalNote: fdStr(formData, "note"),
+    finalById: user.id, finalAt: new Date(), finalNote: fdStr(formData, "note"), finalAmount: amount,
     status: "VALIDATED",
     updatedById: user.id,
   });

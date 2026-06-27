@@ -1,0 +1,58 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { requireUser } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
+import { recordAudit } from "@/lib/audit";
+import { DEFAULT_ADOPTION_SETTINGS } from "@/lib/adoption";
+import { fdNum, type ActionResult } from "@/lib/actions/types";
+
+/**
+ * Réglage du score d'adoption — **réservé au Super Admin**. Définit librement les
+ * poids de chaque dimension et les seuils de libellé. N'influe que sur la
+ * pondération/segmentation ; le score reste calculé sur des données réelles.
+ */
+export async function saveAdoptionSettings(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+
+  const D = DEFAULT_ADOPTION_SETTINGS;
+  // Poids : entiers ≥ 0 (au moins un poids > 0). Seuils : 0–100, ordonnés.
+  const weight = (k: string, def: number) => {
+    const v = fdNum(formData, k);
+    return v === null ? def : Math.max(0, Math.min(100, Math.round(v)));
+  };
+  const w = {
+    wRegularity: weight("wRegularity", D.weights.regularity),
+    wTime: weight("wTime", D.weights.time),
+    wBreadth: weight("wBreadth", D.weights.breadth),
+    wDiversity: weight("wDiversity", D.weights.diversity),
+    wDurable: weight("wDurable", D.weights.durable),
+    wInteraction: weight("wInteraction", D.weights.interaction),
+    wRecency: weight("wRecency", D.weights.recency),
+  };
+  if (Object.values(w).reduce((s, x) => s + x, 0) <= 0) {
+    return { ok: false, error: "Au moins un poids doit être supérieur à zéro." };
+  }
+  const t = {
+    tChampion: weight("tChampion", D.thresholds.champion),
+    tActive: weight("tActive", D.thresholds.active),
+    tModerate: weight("tModerate", D.thresholds.moderate),
+    tWeak: weight("tWeak", D.thresholds.weak),
+  };
+  if (!(t.tChampion > t.tActive && t.tActive > t.tModerate && t.tModerate > t.tWeak)) {
+    return { ok: false, error: "Les seuils doivent être strictement décroissants (Champion > Actif > Modéré > Faible)." };
+  }
+
+  await prisma.adoptionSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", ...w, ...t, updatedById: admin.id },
+    update: { ...w, ...t, updatedById: admin.id },
+  });
+  // Les snapshots mis en cache deviennent obsolètes → forcer un recalcul à la
+  // prochaine lecture de chaque pastille (réinitialise l'horodatage de fraîcheur).
+  await prisma.user.updateMany({ data: { adoptionScoreAt: null } });
+  await recordAudit({ actorId: admin.id, action: "UPDATE", module: "Administration", summary: "Réglage du score d'adoption (poids/seuils)" });
+  revalidatePath("/admin/adoption");
+  return { ok: true };
+}

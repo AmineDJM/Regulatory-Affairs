@@ -790,9 +790,9 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     const cc = asStr(input, "cc");
     if (cc && !cc.split(",").every((p) => isEmail(p.trim()))) return { error: "Adresse(s) en copie invalide(s)." };
     const account = await getMailAccount(user.id);
-    if (!account) warnings.push("Aucune boîte mail connectée — connectez votre boîte dans Courrier avant d'envoyer.");
+    if (!account) warnings.push(`Aucune boîte mail n'est connectée pour ${user.name}. Ouvrez « Courrier » et connectez votre boîte (une seule fois) ; l'envoi se fera depuis votre propre adresse.`);
     const fields = [
-      { label: "De", value: account?.email ?? "(boîte non connectée)" },
+      { label: "De", value: account?.email ?? `${user.name} — boîte à connecter dans Courrier` },
       { label: "À", value: to },
     ];
     if (cc) fields.push({ label: "Cc", value: cc });

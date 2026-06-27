@@ -557,6 +557,11 @@ model User {
   mustOnboard Boolean   @default(false)
   onboardedAt DateTime?
 
+  // Score d'adoption (snapshot mis en cache) — affiché en pastille dans la barre du
+  // haut. Recalculé sur **données réelles** quand il devient périmé, jamais simulé.
+  adoptionScore   Int?
+  adoptionScoreAt DateTime?
+
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
 
@@ -908,6 +913,7 @@ model CongressInternational {
   finalById            String?
   finalAt              DateTime?
   finalNote            String?
+  finalAmount          Decimal?              @db.Decimal(14, 2) // montant accordé par la Direction à la validation définitive
   rejectionReason      String?
   expenseOrderId       String? // ordre de dépense émis après validation définitive
 
@@ -956,6 +962,7 @@ model CongressNational {
   finalById            String?
   finalAt              DateTime?
   finalNote            String?
+  finalAmount          Decimal?              @db.Decimal(14, 2) // montant accordé par la Direction à la validation définitive
   rejectionReason      String?
   expenseOrderId       String?
 
@@ -2831,6 +2838,40 @@ model RiskSetting {
   eventMinAttendance  Int      @default(5)
   updatedAt           DateTime @updatedAt
   updatedById         String?
+}
+
+/// Réglage du score d'adoption — **poids** de chaque dimension et **seuils** de
+/// libellé, définis librement par le Super Admin. Le score reste calculé sur des
+/// données réelles ; ces valeurs ne font que pondérer/segmenter le résultat.
+/// Valeurs par défaut (en code) si la ligne n'existe pas encore.
+model AdoptionSetting {
+  id           String   @id @default("global")
+  wRegularity  Int      @default(22)
+  wTime        Int      @default(10)
+  wBreadth     Int      @default(15)
+  wDiversity   Int      @default(12)
+  wDurable     Int      @default(15)
+  wInteraction Int      @default(18)
+  wRecency     Int      @default(8)
+  tChampion    Int      @default(80)
+  tActive      Int      @default(60)
+  tModerate    Int      @default(40)
+  tWeak        Int      @default(20)
+  updatedAt    DateTime @updatedAt
+  updatedById  String?
+}
+
+/// Fichiers des **documents** (modèle Document, hors Drive) stockés de façon
+/// **durable** : le contenu vit dans `FileBlob` (chiffré, dédupliqué, en base),
+/// ce qui survit aux redéploiements (le disque local de Render est éphémère).
+/// `key` = clé opaque portée par `Document.fileKey`.
+model StoredFile {
+  key       String   @id
+  blobId    String
+  size      Int
+  createdAt DateTime @default(now())
+
+  @@index([blobId])
 }
 
 /// Journal d'usage de l'IA — alimente le tableau de bord du Centre de contrôle

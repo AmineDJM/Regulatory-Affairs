@@ -113,7 +113,7 @@ export default async function AdminUserPage({ params }: { params: { id: string }
         <Card className="lg:col-span-1">
           <CardHeader><CardTitle>Profil</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <ProfileForm user={{ id: target.id, name: target.name, title: target.title ?? "", region: target.region ?? "", role: target.role }} />
+            <ProfileForm user={{ id: target.id, name: target.name, email: target.email, title: target.title ?? "", region: target.region ?? "", role: target.role }} />
             <div className="flex flex-wrap items-start justify-between gap-3 border-t border-border pt-3">
               <ActiveToggle userId={target.id} isActive={target.isActive} isSelf={target.id === admin.id} />
               <RequestOnboardingButton

@@ -9,6 +9,7 @@ import { CommandPalette } from "@/components/layout/command-palette";
 import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
 import { FloatingAssistant } from "@/components/layout/floating-assistant";
 import { getTotalUnread } from "@/lib/queries/messaging";
+import { getAdoptionBadge } from "@/lib/adoption";
 import { aiConfigured } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
 
@@ -45,9 +46,11 @@ export default async function AppLayout({
     return acc;
   }, []);
   const canMessage = userCan(user, "MESSAGING", "VIEW");
-  const [unreadCount, messagingUnread] = await Promise.all([
+  const [unreadCount, messagingUnread, adoption] = await Promise.all([
     prisma.notification.count({ where: { userId: user.id, isRead: false } }),
     canMessage ? getTotalUnread(user.id) : Promise.resolve(0),
+    // Pastille « score d'adoption » de l'utilisateur courant (snapshot mis en cache).
+    getAdoptionBadge(user.id, user.role).catch(() => null),
   ]);
 
   return (
@@ -57,7 +60,7 @@ export default async function AppLayout({
       <Sidebar items={navItems} messagingUnread={messagingUnread} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {user.impersonatedBy && <ImpersonationBanner adminName={user.impersonatedBy.name} viewedName={user.name} />}
-        <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} />
+        <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} />
         <main className="flex-1 overflow-y-auto px-4 pb-24 pt-6 lg:px-8 lg:pb-8">
           <div className="mx-auto max-w-[1400px] space-y-6">{children}</div>
         </main>

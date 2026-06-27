@@ -137,7 +137,7 @@ l'utilisateur y a accès (RBAC asymétrique).
 | Module | Route | Description |
 |---|---|---|
 | **Validations** | `/validations` | **Centre de validation** configurable + **agrégation transverse** de toutes les validations en attente. → [détails](#centre-de-validation-agrégation--configurable) |
-| **Documents** (Drive + Documents) | `/drive` | Stockage **chiffré**, visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), versioning. **À l'import : choix de la catégorie + qui peut voir / modifier** (par personne). Onglet **Documents** = bibliothèque filtrée par accès. |
+| **Documents** (Drive + Documents) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob` — survit aux redéploiements ; le disque local de Render est éphémère), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), versioning. **À l'import : choix de la catégorie + qui peut voir / modifier** (par personne). Onglet **Documents** = bibliothèque filtrée par accès. |
 | **Dossiers** | `/dossiers` | **Dossier de suivi** d'un sujet ad hoc (ex. *recherche de prix d'hôtels*, *analyse IQVIA*) : description, **responsable + participants**, statut, **fichiers** (PPT/Excel/PDF) et **fil de discussion**. Créable **manuellement**, **proposé par l'IA** depuis un chat (confirmation requise), ou alimenté en **liant un e-mail** directement depuis le **Courrier** (« Lier à un dossier »). |
 | **Demandes administratives** | `/demandes` | « Bureau de l'assistante » : 10 types, validations, ordres de dépense, missions chauffeur. |
 | **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou au **chef de produit**, avec fil + pièces jointes. |
@@ -151,7 +151,7 @@ l'utilisateur y a accès (RBAC asymétrique).
 |---|---|---|
 | **Adventum Brain** 🧠 | `/adventum-brain` | **Super Admin uniquement — le cockpit qui voit ce que les autres ne voient pas.** Une seule expérience intégrant 6 fonctions. → [détails](#-adventum-brain-cockpit-super-admin) |
 | **Process Intelligence** | `/process-intelligence` | **Super Admin uniquement.** Analyse des **lenteurs & blocages** (work items sans action depuis X jours, étapes les plus lentes, top blocages, alertes), onglet **People & Workload Analyzer** (charge par personne / département), **synthèse IA** à la demande. |
-| **Administration** | `/admin` | Comptes, **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit**, **champs personnalisés**, règles de validation, feedback, comptes portail fournisseur, **Vue exacte** (impersonation). |
+| **Administration** | `/admin` | Comptes (création, **modification e-mail/profil/rôle**), **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit chargé à la demande** (paginé, pour garder l'UI légère), **champs personnalisés**, règles de validation, feedback, comptes portail fournisseur, **Vue exacte** (impersonation). |
 | **Recherche globale** | `/search` | RBAC-aware + **palette ⌘K**. |
 
 ### Externe
@@ -209,8 +209,8 @@ par le layout (jamais via le JWT) : la fin du parcours prend effet **immédiatem
 
 | Rôle | Libellé | Portée typique |
 |---|---|---|
-| `SUPER_ADMIN` | Super Admin | Tout + administration + Process Intelligence |
-| `DIRECTION` | Direction | **Vue globale** + valide tous les pôles |
+| `SUPER_ADMIN` | Super Admin | Tout + administration (édition des permissions, comptes, sécurité, IA, Brain, Vue exacte) |
+| `DIRECTION` | Direction | **Pair quasi-administrateur** : accès complet (gérer + valider) à **tous les pôles**, console d'admin en **lecture**. Le Super Admin peut la restreindre (overrides). |
 | `HEAD_OF_REGULATORY` | Responsable Réglementaire | Regulatory (gestion complète) |
 | `REGULATORY_ASSISTANT` | Assistante Réglementaire | Regulatory (lignes assignées) |
 | `HEAD_OF_SALES` | Responsable Ventes | Ventes, PCH, Stocks |
@@ -388,7 +388,7 @@ Mesure, **en temps réel** et sur 30 jours glissants, à quel point chaque perso
 outil quotidien. **Réservé à l'administration**, calculé sur les **données réelles** (aucune simulation), et
 **conçu pour résister au gaming** :
 
-| Dimension | Poids | Anti-triche |
+| Dimension | Poids (défaut) | Anti-triche |
 |---|---|---|
 | **Régularité** | 22 | **Jours distincts** d'activité — un pic d'actions sur une seule journée ne compte que pour 1 jour. |
 | **Interaction** | 18 | Fils, **mentions reçues**, messages — signaux en partie **bilatéraux**, difficiles à simuler seul. |
@@ -400,8 +400,14 @@ outil quotidien. **Réservé à l'administration**, calculé sur les **données 
 
 Score 0–100 + libellé (Champion / Actif / Modéré / Faible / À risque), **tendance** (jours actifs vs période
 précédente), **classement** et **détail dépliable par dimension** pour chaque collaborateur. Moyenne d'équipe,
-nombre de champions et de comptes à risque. Le Super Admin n'est pas mesuré. Agrégats SQL en batch (rapide),
-**aucune migration**.
+nombre de champions et de comptes à risque. Le Super Admin n'est pas mesuré.
+
+- **Poids & seuils configurables** par le Super Admin (modèle `AdoptionSetting`) : importance de chaque dimension
+  et paliers de libellé, librement réglables. Le score reste **normalisé sur le total des poids** (0–100) et
+  **calculé sur des données réelles** — les réglages ne font que pondérer/segmenter.
+- **Pastille personnelle** : chaque employé voit **son propre** score dans un petit cercle coloré en haut, à côté
+  des icônes notifications/messagerie. Snapshot mis en cache (recalculé ≥ 12 h ou après un changement de réglage),
+  pour ne pas alourdir la navigation.
 
 ---
 
@@ -582,6 +588,8 @@ npx prisma migrate deploy
   - Directives : émission, accès, accusé de réception, fil bidirectionnel, archivage, diffusion par rôle (5/5)
   - Demandes de support : émission, scope, prise en charge, réponse, refus d'un tiers, clôture (5/5)
   - OnlyOffice : JWT (aller-retour / falsification / expiration / mauvais secret), types éditables, jetons d'édition Drive **et** Documents isolés (8/8)
+  - Stockage durable des documents : aller-retour octets (écrire → relire), remplacement de clé, suppression (3/3)
+  - Score d'adoption : robustesse au gaming (churn vs travail durable, jours distincts vs volume, bornes 0–100) (3/3)
   - Assistant IA : outils RBAC, résolution, exécution + audit *(skip propre si jeu de démo absent)*
 - Les tests dépendants de la base se **skippent proprement** sans base (CI verte partout).
 

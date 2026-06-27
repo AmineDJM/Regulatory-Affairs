@@ -80,7 +80,7 @@ export function CongressDetailView({
             <Step n={4} title="Validation définitive (Direction)"
               state={st === "APPROVED" || st === "COMPLETED" ? "done" : st === "REJECTED" && d.finalAt ? "rejected" : st === "AWAITING_FINAL" ? "current" : "pending"}>
               {st === "AWAITING_FINAL" ? (
-                canValidate ? <FinalDecision type={d.type} id={d.id} />
+                canValidate ? <FinalDecision type={d.type} id={d.id} suggestedAmount={d.productManagerBudget ?? d.estimatedBudget ?? null} />
                   : <p className="text-sm text-muted-foreground">En attente de la validation définitive.</p>
               ) : st === "APPROVED" || st === "COMPLETED" ? (
                 <div className="space-y-1 text-sm text-muted-foreground">

@@ -1,40 +1,55 @@
-import { writeFile, mkdir, readFile, unlink } from "fs/promises";
+import { readFile } from "fs/promises";
 import path from "path";
+import { prisma } from "./prisma";
+import { putBlob, getBlob, releaseBlob } from "./drive-storage";
 
 /**
- * Storage adapter. In production, point STORAGE_* env vars at an S3-compatible
- * bucket (Supabase Storage / Cloudflare R2 / AWS S3) and implement the SDK
- * calls below. For local/MVP usage, files are written under ./uploads.
+ * Stockage des fichiers de **documents** (modèle Document, hors Drive).
+ *
+ * Le contenu est conservé **en base** (table `FileBlob` : chiffré AES-256-GCM,
+ * dédupliqué), via une table de correspondance `StoredFile` (clé opaque → blob).
+ * C'est **durable** : contrairement au disque local (éphémère sur Render, perdu à
+ * chaque redéploiement → « erreur de téléchargement »), les fichiers survivent.
+ *
+ * Compatibilité : `readFileByKey` retombe sur l'ancien dossier `./uploads` si une
+ * clé n'a pas (encore) d'entrée en base — pour ne pas casser les fichiers locaux.
  */
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads");
-const s3Configured = Boolean(
-  process.env.STORAGE_ENDPOINT && process.env.STORAGE_ACCESS_KEY_ID,
-);
 
 export function isRemoteStorage() {
-  return s3Configured;
+  // Le stockage est désormais la base (durable) ; plus de dépendance disque/S3.
+  return true;
 }
 
+/** Écrit (ou remplace) le contenu d'une clé — durable, chiffré, en base. */
 export async function saveFile(key: string, buffer: Buffer): Promise<void> {
-  if (s3Configured) {
-    // Extension point: upload to S3-compatible storage here.
-    throw new Error("Remote storage adapter not configured in this build.");
-  }
-  const full = path.join(UPLOAD_DIR, key);
-  await mkdir(path.dirname(full), { recursive: true });
-  await writeFile(full, buffer);
+  const { blobId, size } = await putBlob(buffer);
+  const previous = await prisma.storedFile.findUnique({ where: { key }, select: { blobId: true } });
+  await prisma.storedFile.upsert({
+    where: { key },
+    create: { key, blobId, size },
+    update: { blobId, size },
+  });
+  // Si la clé pointait sur un autre blob, on libère l'ancien (ref-count).
+  if (previous && previous.blobId !== blobId) await releaseBlob(previous.blobId);
 }
 
 export async function readFileByKey(key: string): Promise<Buffer> {
+  const stored = await prisma.storedFile.findUnique({ where: { key }, select: { blobId: true } });
+  if (stored) {
+    const bytes = await getBlob(stored.blobId);
+    if (bytes) return bytes;
+  }
+  // Repli : ancien fichier écrit sur le disque local (dev / avant migration).
   return readFile(path.join(UPLOAD_DIR, key));
 }
 
 export async function deleteFileByKey(key: string): Promise<void> {
-  try {
-    await unlink(path.join(UPLOAD_DIR, key));
-  } catch {
-    // ignore missing files
+  const stored = await prisma.storedFile.findUnique({ where: { key }, select: { blobId: true } });
+  if (stored) {
+    await releaseBlob(stored.blobId);
+    await prisma.storedFile.delete({ where: { key } }).catch(() => undefined);
   }
 }
 

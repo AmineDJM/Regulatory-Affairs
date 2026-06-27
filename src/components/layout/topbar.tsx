@@ -16,9 +16,19 @@ interface TopbarProps {
   unreadCount: number;
   canMessage: boolean;
   messagingUnread: number;
+  adoption?: { score: number; tone: string; label: string } | null;
 }
 
-export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnread }: TopbarProps) {
+// Couleur de la pastille du score d'adoption selon le palier atteint.
+const ADOPTION_TONE: Record<string, string> = {
+  success: "bg-success text-success-foreground",
+  info: "bg-primary text-primary-foreground",
+  warning: "bg-warning text-warning-foreground",
+  danger: "bg-destructive text-destructive-foreground",
+  neutral: "bg-muted text-muted-foreground",
+};
+
+export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnread, adoption }: TopbarProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = React.useState(false);
 
@@ -46,6 +56,18 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
         </button>
 
         <div className="ml-auto flex items-center gap-1.5">
+          {adoption && (
+            <div
+              title={`Mon score d'adoption : ${adoption.score}/100${adoption.label ? ` — ${adoption.label}` : ""}`}
+              className={cn(
+                "flex h-8 min-w-8 items-center justify-center rounded-full px-1.5 text-xs font-bold tabular-nums shadow-sm ring-1 ring-black/5",
+                ADOPTION_TONE[adoption.tone] ?? ADOPTION_TONE.neutral,
+              )}
+              aria-label={`Score d'adoption ${adoption.score} sur 100`}
+            >
+              {adoption.score}
+            </div>
+          )}
           {canMessage && <MessagesIndicator initial={messagingUnread} />}
           <Link
             href="/notifications"

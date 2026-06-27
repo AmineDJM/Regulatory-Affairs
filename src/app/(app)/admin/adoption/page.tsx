@@ -2,9 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, Gauge, Trophy, ShieldAlert, Info } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { getAdoptionScores } from "@/lib/adoption";
+import { getAdoptionScores, getAdoptionSettings } from "@/lib/adoption";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdoptionTable } from "./adoption-table";
+import { AdoptionSettingsForm } from "./adoption-settings";
 
 export const metadata = { title: "Score d'adoption — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export default async function AdoptionPage() {
   const admin = await requireModule("ADMIN", "UPDATE");
   if (admin.role !== "SUPER_ADMIN") redirect("/admin");
 
-  const { scores, average, windowDays } = await getAdoptionScores();
+  const [{ scores, average, windowDays }, settings] = await Promise.all([getAdoptionScores(), getAdoptionSettings()]);
   const active = scores.filter((s) => s.isActive);
   const champions = active.filter((s) => s.score >= 80).length;
   const atRisk = active.filter((s) => s.score < 20).length;
@@ -54,6 +55,16 @@ export default async function AdoptionPage() {
           </ul>
         </div>
       </details>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Réglage du score (poids & seuils)</CardTitle>
+          <p className="text-sm text-muted-foreground">Définissez librement l'importance de chaque dimension et les paliers de libellé. Le calcul reste fait sur des données réelles ; ces valeurs ne font que pondérer et segmenter le résultat. Les pastilles se recalculent à la prochaine consultation.</p>
+        </CardHeader>
+        <CardContent>
+          <AdoptionSettingsForm settings={settings} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle>Classement par adoption</CardTitle></CardHeader>

@@ -118,6 +118,22 @@ export async function updateUserProfile(formData: FormData): Promise<ActionResul
   if (!admin) return { ok: false, error: "Réservé au Super Admin." };
   const userId = fdStr(formData, "userId");
   if (!userId) return { ok: false, error: "Utilisateur manquant." };
+
+  const current = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  if (!current) return { ok: false, error: "Utilisateur introuvable." };
+
+  // E-mail (= identifiant de connexion) : normalisé en minuscules, format vérifié,
+  // et **unicité** garantie avant l'écriture. Toute modification est tracée.
+  const rawEmail = fdStr(formData, "email");
+  const email = rawEmail?.toLowerCase().trim();
+  let emailChanged = false;
+  if (email && email !== current.email) {
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { ok: false, error: "Adresse e-mail invalide." };
+    const taken = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+    if (taken && taken.id !== userId) return { ok: false, error: "Cet e-mail est déjà utilisé par un autre compte." };
+    emailChanged = true;
+  }
+
   await prisma.user.update({
     where: { id: userId },
     data: {
@@ -125,8 +141,16 @@ export async function updateUserProfile(formData: FormData): Promise<ActionResul
       title: fdStr(formData, "title"),
       region: fdStr(formData, "region"),
       role: (fdStr(formData, "role") as never) ?? undefined,
+      ...(emailChanged ? { email } : {}),
     },
   });
+  if (emailChanged) {
+    await recordAudit({
+      actorId: admin.id, action: "UPDATE", module: "Administration", entityId: userId,
+      field: "email", oldValue: current.email, newValue: email!,
+      summary: `Changement d'e-mail de connexion → ${email}`,
+    });
+  }
   await recordAudit({
     actorId: admin.id, action: "UPDATE", module: "Administration", entityId: userId,
     summary: "Mise à jour du profil utilisateur",

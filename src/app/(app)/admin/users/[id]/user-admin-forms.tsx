@@ -11,15 +11,22 @@ import { ROLE_LABELS } from "@/lib/labels";
 import { formatDateTime } from "@/lib/utils";
 
 interface Profile {
-  id: string; name: string; title: string; region: string; role: string;
+  id: string; name: string; email: string; title: string; region: string; role: string;
 }
 
 export function ProfileForm({ user }: { user: Profile }) {
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   return (
     <form
-      action={async (fd) => { setSaving(true); await updateUserProfile(fd); setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 1500); }}
+      action={async (fd) => {
+        setSaving(true); setError(null);
+        const r = await updateUserProfile(fd);
+        setSaving(false);
+        if (r.ok) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
+        else setError(r.error ?? "Échec de l'enregistrement.");
+      }}
       className="grid grid-cols-2 gap-3"
     >
       <input type="hidden" name="userId" value={user.id} />
@@ -29,8 +36,13 @@ export function ProfileForm({ user }: { user: Profile }) {
           {Object.entries(ROLE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
       </div>
+      <div className="col-span-2 space-y-1">
+        <Label htmlFor="email">E-mail (identifiant de connexion)</Label>
+        <Input id="email" name="email" type="email" defaultValue={user.email} />
+      </div>
       <div className="space-y-1"><Label htmlFor="title">Fonction</Label><Input id="title" name="title" defaultValue={user.title} /></div>
       <div className="space-y-1"><Label htmlFor="region">Région</Label><Input id="region" name="region" defaultValue={user.region} /></div>
+      {error && <p className="col-span-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
       <div className="col-span-2 flex justify-end">
         <Button type="submit" disabled={saving}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}

@@ -15,25 +15,19 @@ import { optionsFromMap } from "@/components/shared/form-fields";
 import { createUser } from "@/lib/actions/admin-actions";
 import { ROLE_LABELS } from "@/lib/labels";
 import { formatDateTime } from "@/lib/utils";
-import { AuditTable, type AuditRow } from "./audit-table";
+import { AuditPanel } from "./audit-panel";
 
 export default async function AdminPage() {
   const admin = await requireModule("ADMIN");
   const canManage = userCan(admin, "ADMIN", "CREATE");
 
-  const [users, activeSessions, activityCount, auditCount, logs] = await Promise.all([
+  const [users, activeSessions, activityCount, auditCount] = await Promise.all([
     prisma.user.findMany({ orderBy: { createdAt: "asc" }, include: { _count: { select: { access: true } } } }),
     prisma.userSession.count({ where: { revokedAt: null, expiresAt: { gt: new Date() } } }),
     prisma.activityLog.count(),
     prisma.auditLog.count(),
-    prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 150, include: { actor: { select: { name: true } } } }),
   ]);
 
-  const auditRows: AuditRow[] = logs.map((l) => ({
-    id: l.id, createdAt: l.createdAt.toISOString(), actor: l.actor?.name ?? "Système",
-    action: l.action, module: l.module, summary: l.summary ?? "",
-    field: l.field ?? "", oldValue: l.oldValue ?? "", newValue: l.newValue ?? "",
-  }));
   const active = users.filter((u) => u.isActive).length;
 
   return (
@@ -150,7 +144,7 @@ export default async function AdminPage() {
         </Card>
         <div className="space-y-3 lg:col-span-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Journal d’audit ({auditCount})</h2>
-          <AuditTable rows={auditRows} />
+          <AuditPanel count={auditCount} />
         </div>
       </div>
     </div>

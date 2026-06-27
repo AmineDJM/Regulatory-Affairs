@@ -97,11 +97,13 @@ export function ProductAnalysis({ type, id }: { type: string; id: string }) {
   );
 }
 
-/** Validation définitive (Direction) → ordre de dépense. */
-export function FinalDecision({ type, id }: { type: string; id: string }) {
+/** Validation définitive (Direction) → ordre de dépense. Le **montant accordé** est
+ *  obligatoire (prérempli avec la proposition du chef de produit, modifiable). */
+export function FinalDecision({ type, id, suggestedAmount }: { type: string; id: string; suggestedAmount?: number | null }) {
   const { pending, err, run } = useRun();
   const [mode, setMode] = React.useState<null | "approve" | "reject">(null);
   const [note, setNote] = React.useState("");
+  const [amount, setAmount] = React.useState(suggestedAmount != null ? String(suggestedAmount) : "");
 
   if (!mode) {
     return (
@@ -114,13 +116,21 @@ export function FinalDecision({ type, id }: { type: string; id: string }) {
       </div>
     );
   }
+  const amountValid = Number(amount) > 0;
   return (
     <div className="space-y-2">
+      {mode === "approve" && (
+        <>
+          <Label>Montant accordé (DZD) <span className="text-destructive">*</span></Label>
+          <Input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Montant validé par la Direction" />
+          <p className="text-xs text-muted-foreground">Ce montant fait foi pour la déclaration d'information médicale puis l'ordre de dépense.</p>
+        </>
+      )}
       <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === "reject" ? "Motif du refus (obligatoire)…" : "Note (optionnel)…"} className="min-h-[56px]" />
       {err && <p className="text-xs text-destructive">{err}</p>}
       <div className="flex gap-2">
-        <Button size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "reject" && !note.trim())}
-          onClick={() => run(base(type, id, { decision: mode === "approve" ? "APPROVE" : "REJECT", note }), finalDecision, () => setMode(null))}>
+        <Button size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "reject" && !note.trim()) || (mode === "approve" && !amountValid)}
+          onClick={() => run(base(type, id, { decision: mode === "approve" ? "APPROVE" : "REJECT", note, finalAmount: amount }), finalDecision, () => setMode(null))}>
           {pending && <Loader2 className="h-4 w-4 animate-spin" />} Confirmer
         </Button>
         <Button size="sm" variant="ghost" onClick={() => { setMode(null); setNote(""); }}>Annuler</Button>
