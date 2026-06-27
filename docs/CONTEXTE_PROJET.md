@@ -120,6 +120,12 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA*
   (`MailAccount`), couche serveur `src/lib/mail.ts` (imapflow / nodemailer / mailparser), 3 volets
   (dossiers · liste · lecture/composition), aperçu HTML en `iframe` sandbox. Routes serveur
   `/api/mail/{messages,message,attachment}`. *(IMAP/SMTP testables uniquement hors sandbox réseau.)*
+- **Directives (`/directives`)** — **instructions priorisées de la Direction** vers une **personne**
+  (`targetUserId`) ou un **rôle entier** (`targetRole`, diffusion), avec **priorité / échéance / statut**
+  (`DirectiveStatus` : À traiter → Pris en compte → En cours → Traité → Archivé) et un **espace d'échange**
+  (`DirectiveMessage`). Seule la Direction émet/archive ; le destinataire accuse réception, fait évoluer le
+  statut et répond dans le fil. Modèles `Directive` + `DirectiveMessage`, réf. `DIR-AAAA-NNN`. Tout employé
+  a un socle `["VIEW","UPDATE"]` (scope `ASSIGNED` : ne voit que ce qui le concerne) ; surfacé dans *Mon travail*.
 - **Mon dossier RH (`/mon-dossier`)** — espace RH employé : ses **documents RH** (contrats, bulletins,
   attestations déposés en PDF par les RH, chiffrés, téléchargeables) + ses **demandes RH**
   (`HrRequestType`) : attestation de travail, CNAS, relevé des émoluments, domiciliation, **attestation /
@@ -334,7 +340,7 @@ actions `requestBudgetRevision` / `resolveBudgetRevision`.
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types** → **sponsoring_validation_workflow** → **congress_intl_event_type** → **expense_order_budget_revision** → **mail_account** → **medical_info_pharmacist**.
+→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types** → **sponsoring_validation_workflow** → **congress_intl_event_type** → **expense_order_budget_revision** → **mail_account** → **medical_info_pharmacist** → **directives**.
 
 > **hr_request_types** : ajoute `LEAVE_TITLE`, `MISSION_ORDER`, `EXPENSE_REPORT` à l'enum `HrRequestType`
 > (`ALTER TYPE … ADD VALUE`). La **fusion de modules** (Finances/Congrès/Logistique-Stocks) est purement
@@ -345,6 +351,8 @@ dépense → Drive → demandes admin → **BD (project/range/product)** → **v
 > `MEDICAL_INFO_PHARMACIST`, entité `MEDICAL_INFO_DECLARATION`, enums `MedicalInfoStatus` /
 > `DocRequestStatus`, modèles `MedicalInfoDeclaration` + `MedicalInfoDocRequest` (étape de déclaration
 > réglementaire intercalée entre la validation définitive de la Direction et l'ordre de dépense).
+> **directives** : module `DIRECTIVES`, enum `DirectiveStatus`, entité `DIRECTIVE`, modèles
+> `Directive` + `DirectiveMessage` (instructions priorisées Direction → équipes + fil d'échange).
 
 > L'**Assistant IA / Chatbot** n'ajoute **aucune migration** (pas de changement de schéma : il lit/écrit
 > des entités existantes — `Task`, `AdministrativeRequest` — et conserve la conversation côté client).

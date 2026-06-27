@@ -1,9 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { userCan, hasGlobalView, scopeRegulatory, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, scopeRegulatory, scopeDirectives, type SessionUser } from "@/lib/rbac";
 import { getPendingValidations } from "@/lib/queries/validations";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import {
-  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS,
+  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, DIRECTIVE_STATUS,
 } from "@/lib/labels";
 
 export interface ActionItem {
@@ -178,6 +178,21 @@ export async function getActionCenter(user: SessionUser) {
       module: "Information médicale", href: `/information-medicale/${r.declaration.id}`, kind: "request", priority: null,
       deadline: null, owner: "", statusLabel: "À déposer", statusTone: "warning",
     });
+  }
+
+  // 6e. Directives de la Direction qui me concernent (non clôturées)
+  if (userCan(user, "DIRECTIVES", "VIEW")) {
+    const directives = await prisma.directive.findMany({
+      where: { AND: [scopeDirectives(user), { status: { notIn: ["DONE", "ARCHIVED"] } }] },
+      orderBy: [{ priority: "desc" }, { createdAt: "desc" }], take: 40,
+    });
+    for (const d of directives) {
+      items.push({
+        key: `dir-${d.id}`, title: d.title, subtitle: d.reference, module: "Directives",
+        href: `/directives/${d.id}`, kind: "task", priority: d.priority,
+        deadline: d.dueDate?.toISOString() ?? null, owner: "", ...resolve(DIRECTIVE_STATUS, d.status),
+      });
+    }
   }
 
   // 7. Notifications non lues

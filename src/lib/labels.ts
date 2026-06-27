@@ -632,6 +632,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   VALIDATION_REQUEST: "Validation",
   SUPPLIER: "Fournisseur",
   MEDICAL_INFO_DECLARATION: "Information médicale",
+  DIRECTIVE: "Directive",
 };
 
 export const MEDICAL_INFO_STATUS: Record<string, Display> = {
@@ -644,6 +645,14 @@ export const MEDICAL_INFO_STATUS: Record<string, Display> = {
 export const DOC_REQUEST_STATUS: Record<string, Display> = {
   PENDING: { label: "En attente", tone: "warning" },
   FULFILLED: { label: "Déposée", tone: "success" },
+};
+
+export const DIRECTIVE_STATUS: Record<string, Display> = {
+  OPEN: { label: "À traiter", tone: "warning" },
+  ACKNOWLEDGED: { label: "Pris en compte", tone: "info" },
+  IN_PROGRESS: { label: "En cours", tone: "info" },
+  DONE: { label: "Traité", tone: "success" },
+  ARCHIVED: { label: "Archivé", tone: "neutral" },
 };
 
 export const FEEDBACK_STATUS: Record<string, Display> = {
@@ -768,6 +777,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "MESSAGING", label: "Messagerie", href: "/messages", icon: "MessagesSquare", group: "Pilotage" },
   { module: "WORKSPACE", label: "Courrier", href: "/courrier", icon: "Mail", group: "Pilotage" },
   { module: "WORKSPACE", label: "Assistant IA", href: "/assistant", icon: "Sparkles", group: "Pilotage" },
+  { module: "DIRECTIVES", label: "Directives", href: "/directives", icon: "Megaphone", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", group: "Pilotage" },
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },

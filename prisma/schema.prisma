@@ -338,6 +338,7 @@ enum EntityType {
   VALIDATION_REQUEST
   SUPPLIER
   MEDICAL_INFO_DECLARATION
+  DIRECTIVE
 }
 
 enum DocumentCategory {
@@ -622,6 +623,11 @@ model User {
   // Information médicale (déclaration réglementaire)
   medicalInfoDeclarations MedicalInfoDeclaration[] @relation("MedicalInfoPharmacist")
   medicalInfoDocRequests  MedicalInfoDocRequest[]  @relation("MedicalInfoDocTarget")
+
+  // Directives (Direction → équipes)
+  directivesReceived  Directive[]        @relation("DirectiveTarget")
+  directivesAuthored  Directive[]        @relation("DirectiveAuthor")
+  directiveMessages   DirectiveMessage[] @relation("DirectiveMsgAuthor")
 
   @@index([role])
   @@index([departmentId])
@@ -1007,6 +1013,56 @@ model MedicalInfoDocRequest {
   @@index([declarationId])
   @@index([targetUserId])
   @@index([status])
+}
+
+// ───────────────────────── Directives (Direction → équipes) ─────────────────────────
+
+/// Instruction priorisée émise par la Direction vers une personne (targetUserId) ou
+/// un rôle entier (targetRole), avec un espace d'échange (DirectiveMessage).
+enum DirectiveStatus {
+  OPEN // émise, non encore prise en compte
+  ACKNOWLEDGED // accusé de réception par le destinataire
+  IN_PROGRESS // en cours de traitement
+  DONE // traitée
+  ARCHIVED // archivée par la Direction
+}
+
+model Directive {
+  id               String             @id @default(cuid())
+  reference        String             @unique // DIR-AAAA-NNN
+  title            String
+  body             String
+  priority         Priority           @default(MEDIUM)
+  status           DirectiveStatus    @default(OPEN)
+  dueDate          DateTime?
+  // Destinataire : un utilisateur précis OU un rôle (diffusion). Au moins l'un des deux.
+  targetUserId     String?
+  targetUser       User?              @relation("DirectiveTarget", fields: [targetUserId], references: [id])
+  targetRole       UserRole?
+  fromId           String? // émetteur (Direction)
+  from             User?              @relation("DirectiveAuthor", fields: [fromId], references: [id])
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  messages         DirectiveMessage[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([status])
+  @@index([targetUserId])
+  @@index([targetRole])
+  @@index([priority])
+}
+
+model DirectiveMessage {
+  id          String    @id @default(cuid())
+  directiveId String
+  directive   Directive @relation(fields: [directiveId], references: [id], onDelete: Cascade)
+  authorId    String?
+  author      User?     @relation("DirectiveMsgAuthor", fields: [authorId], references: [id])
+  body        String
+  createdAt   DateTime  @default(now())
+
+  @@index([directiveId])
 }
 
 // ───────────────────────────── Sales ─────────────────────────────
