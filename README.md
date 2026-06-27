@@ -176,6 +176,10 @@ getAccess(user)  →  accès EFFECTIF (caché par requête)
    └── scopeRegulatory / scopeSales / scopeMedicalInfo / scopeDirectives / scopeSupport / … → where Prisma
 ```
 
+> **Atterrissage sûr** : si une page est refusée, l'utilisateur est renvoyé vers la **première destination
+> qu'il peut réellement voir** (jamais vers une page qui le refuserait à nouveau) — pas de boucle
+> `ERR_TOO_MANY_REDIRECTS`. S'il n'a accès à rien, une page `/no-access` claire l'invite à contacter l'admin.
+
 > **Exemple** : la Direction voit tout (`hasGlobalView`) ; une **assistante Regulatory** ne voit que les DCI
 > qui lui sont assignées ; un **délégué** ne voit que ses propres demandes de congrès et ses tournées ; un
 > **chef de produit** ne voit l'analyse confidentielle que sur les dossiers qu'il instruit.
@@ -590,6 +594,7 @@ npx prisma migrate deploy
   - OnlyOffice : JWT (aller-retour / falsification / expiration / mauvais secret), types éditables, jetons d'édition Drive **et** Documents isolés (8/8)
   - Stockage durable des documents : aller-retour octets (écrire → relire), remplacement de clé, suppression (3/3)
   - Score d'adoption : robustesse au gaming (churn vs travail durable, jours distincts vs volume, bornes 0–100) (3/3)
+  - Atterrissage sûr (anti-boucle de redirection) : un refus ne renvoie jamais vers une page non visible (4/4)
   - Assistant IA : outils RBAC, résolution, exécution + audit *(skip propre si jeu de démo absent)*
 - Les tests dépendants de la base se **skippent proprement** sans base (CI verte partout).
 

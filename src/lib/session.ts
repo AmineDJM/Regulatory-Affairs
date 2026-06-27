@@ -5,6 +5,7 @@ import type { UserRole } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "./prisma";
 import { getAccess, userCan, type Action, type EffectiveAccess, type Module } from "./rbac";
+import { firstAccessibleHref } from "./labels";
 
 /** Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. */
 export const IMPERSONATE_COOKIE = "amd_impersonate";
@@ -84,9 +85,21 @@ export async function requireUser(): Promise<CurrentUser> {
 }
 
 /**
+ * Première destination de navigation que l'utilisateur peut **réellement voir**.
+ * Sert d'atterrissage sûr en cas de refus : on ne renvoie JAMAIS vers une page qui
+ * le refuserait à nouveau (sinon boucle infinie, ex. un refus de DASHBOARD renvoyé
+ * vers /dashboard). Parcourt la navigation dans l'ordre de la barre latérale.
+ */
+export function safeLanding(user: CurrentUser): string {
+  return firstAccessibleHref((module) => userCan(user, module, "VIEW")) ?? "/no-access";
+}
+
+/**
  * Guards a module page. Redirects unauthenticated users to /login, users who
- * must change their password to /change-password, and unauthorised users to
- * /dashboard. Enforced via the user's *effective* access.
+ * must change their password to /change-password, and unauthorised users to a
+ * **safe landing** (the first tab they can actually see). Enforced via the
+ * user's *effective* access. Never redirects to a page the user can't view —
+ * which would otherwise cause an `ERR_TOO_MANY_REDIRECTS` loop.
  */
 export async function requireModule(
   module: Module,
@@ -95,7 +108,7 @@ export async function requireModule(
   const user = await requireUser();
   if (user.mustChangePassword) redirect("/change-password");
   if (!userCan(user, module, action)) {
-    redirect("/dashboard?denied=" + module);
+    redirect(`${safeLanding(user)}?denied=${module}`);
   }
   return user;
 }

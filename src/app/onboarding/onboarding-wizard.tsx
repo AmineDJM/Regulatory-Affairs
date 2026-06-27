@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   Sparkles, ArrowRight, ArrowLeft, Check, Loader2, Mail, KeyRound, ShieldCheck,
-  AlertCircle, Phone, Rocket, PartyPopper, Compass,
+  AlertCircle, Phone, Rocket, PartyPopper, Compass, Bot, Search, FolderKanban, Wand2,
 } from "lucide-react";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Input, Label } from "@/components/ui/input";
 import { saveOnboardingProfile, completeOnboarding } from "@/lib/actions/onboarding-actions";
 import { connectMailbox } from "@/lib/actions/mail-actions";
 import { cn } from "@/lib/utils";
+import { AssistantPreview, SearchPreview, CourrierPreview, DossierPreview } from "./onboarding-previews";
 
 export interface GuideEntry {
   label: string;
@@ -31,7 +32,7 @@ interface Props {
   guide: GuideEntry[];
 }
 
-type StepId = "welcome" | "profile" | "mailbox" | "workspace" | "done";
+type StepId = "welcome" | "profile" | "mailbox" | "tour" | "workspace" | "done";
 const GROUP_ORDER: GuideEntry["group"][] = ["Pilotage", "Pôles", "Transverse", "Système"];
 
 export function OnboardingWizard(props: Props) {
@@ -43,7 +44,7 @@ export function OnboardingWizard(props: Props) {
   const steps = React.useMemo<StepId[]>(() => {
     const s: StepId[] = ["welcome", "profile"];
     if (canConnectMail && !mailConnected) s.push("mailbox");
-    s.push("workspace", "done");
+    s.push("tour", "workspace", "done");
     return s;
   }, [canConnectMail, mailConnected]);
 
@@ -54,12 +55,14 @@ export function OnboardingWizard(props: Props) {
   const next = () => setIndex((i) => Math.min(i + 1, steps.length - 1));
   const back = () => setIndex((i) => Math.max(i - 1, 0));
 
-  async function finish() {
+  // Termine l'onboarding puis atterrit sur une destination choisie (opérationnel).
+  async function finishTo(href: string) {
     setFinishing(true);
     await completeOnboarding();
     // Rechargement complet : le layout relit `mustOnboard` (désormais faux) en BDD.
-    window.location.href = "/dashboard";
+    window.location.href = href;
   }
+  const finish = () => finishTo(props.guide[0]?.href ?? "/mon-espace");
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-secondary/40 px-4 py-8 [padding-bottom:calc(2rem+env(safe-area-inset-bottom))]">
@@ -106,7 +109,9 @@ export function OnboardingWizard(props: Props) {
                 {[
                   "Complétez vos coordonnées",
                   canConnectMail ? "Connectez votre boîte e-mail professionnelle" : null,
+                  "Prenez en main les outils clés (assistant IA, recherche ⌘K…)",
                   "Découvrez les onglets auxquels vous avez accès",
+                  "Démarrez par une première action concrète",
                 ]
                   .filter(Boolean)
                   .map((t) => (
@@ -131,6 +136,52 @@ export function OnboardingWizard(props: Props) {
 
           {step === "mailbox" && (
             <MailboxStep email={email} displayName={userName} onNext={next} onBack={back} />
+          )}
+
+          {step === "tour" && (
+            <StepShell
+              icon={<Wand2 className="h-7 w-7" />}
+              eyebrow="Découverte"
+              title="Les outils qui vont vous faire gagner du temps"
+              subtitle="Quatre réflexes à connaître. Ils sont présents partout dans l'OS — voici à quoi ils ressemblent."
+            >
+              <div className="space-y-5">
+                <TourFeature
+                  icon={<Bot className="h-4 w-4" />}
+                  title="L'assistant IA, en bas à droite"
+                  text="Demandez en français : « crée une tâche », « envoie un e-mail à Khaled », « résume ce dossier ». Il prépare l'action et attend toujours votre confirmation — il n'invente jamais un nom, un produit ou une date."
+                  preview={<AssistantPreview />}
+                />
+                <TourFeature
+                  icon={<Search className="h-4 w-4" />}
+                  title="Tout trouver avec ⌘K"
+                  text="Tapez ⌘K (ou Ctrl+K) n'importe où pour sauter à un module, un médecin, un dossier… sans cliquer dans les menus."
+                  preview={<SearchPreview />}
+                />
+                <TourFeature
+                  icon={<FolderKanban className="h-4 w-4" />}
+                  title="Un sujet = un dossier de suivi"
+                  text="Recherche de prix, analyse IQVIA, négociation… Centralisez tout (discussion, fichiers Excel/PPT, e-mails) dans un dossier. Vous pouvez en créer un d'un clic, ou demander à l'assistant de le faire."
+                  preview={<DossierPreview />}
+                />
+                {canConnectMail && (
+                  <TourFeature
+                    icon={<Mail className="h-4 w-4" />}
+                    title="Votre courrier, sans quitter l'OS"
+                    text="Lisez et envoyez vos e-mails professionnels depuis l'onglet Courrier. Reliez un e-mail à un dossier en un clic pour tout garder au même endroit."
+                    preview={<CourrierPreview />}
+                  />
+                )}
+              </div>
+              <Footer>
+                <Button variant="outline" size="lg" onClick={back}>
+                  <ArrowLeft className="h-4 w-4" /> Retour
+                </Button>
+                <Button size="lg" onClick={next}>
+                  Continuer <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Footer>
+            </StepShell>
           )}
 
           {step === "workspace" && (
@@ -180,16 +231,42 @@ export function OnboardingWizard(props: Props) {
               icon={<PartyPopper className="h-7 w-7" />}
               eyebrow="C’est prêt"
               title="Votre compte est configuré"
-              subtitle="Vous pouvez commencer à travailler. L’assistant flottant en bas à droite est là si vous avez besoin d’aide à tout moment."
+              subtitle="Lancez-vous directement par une action concrète — ou accédez à votre espace."
             >
+              {/* Démarrage opérationnel : liens directs vers les premières destinations. */}
+              {props.guide.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Commencer maintenant</p>
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                    {props.guide.slice(0, 4).map((g) => (
+                      <button
+                        key={g.href}
+                        onClick={() => finishTo(g.href)}
+                        disabled={finishing}
+                        className="surface flex items-center gap-3 p-3 text-left transition-colors hover:bg-secondary/50 disabled:opacity-60"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+                          <Icon name={g.icon} className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium leading-tight">{g.label}</p>
+                          {g.help && <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{g.help}</p>}
+                        </div>
+                        <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
                 <p className="flex items-center gap-2 font-medium text-foreground">
-                  <ShieldCheck className="h-4 w-4 text-success" /> Astuce
+                  <ShieldCheck className="h-4 w-4 text-success" /> Deux réflexes
                 </p>
-                <p className="mt-1.5">
-                  Tapez <kbd className="rounded border border-border px-1.5 py-0.5 text-xs">⌘K</kbd> (ou Ctrl+K) n’importe où
-                  pour rechercher et naviguer instantanément dans l’OS.
-                </p>
+                <ul className="mt-1.5 space-y-1">
+                  <li>Tapez <kbd className="rounded border border-border px-1.5 py-0.5 text-xs">⌘K</kbd> (ou Ctrl+K) partout pour rechercher et naviguer.</li>
+                  <li>Cliquez la bulle <span className="font-medium text-foreground">assistant</span> en bas à droite pour qu'il agisse à votre place.</li>
+                </ul>
               </div>
               <Footer>
                 <span />
@@ -234,6 +311,29 @@ function StepShell({
 
 function Footer({ children }: { children: React.ReactNode }) {
   return <div className="flex items-center justify-between gap-3 pt-2">{children}</div>;
+}
+
+/** Une fonctionnalité de l'étape « Découverte » : explication + mini-maquette. */
+function TourFeature({
+  icon, title, text, preview,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  text: string;
+  preview: React.ReactNode;
+}) {
+  return (
+    <div className="grid items-center gap-3 sm:grid-cols-2">
+      <div>
+        <p className="flex items-center gap-2 text-sm font-semibold">
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
+          {title}
+        </p>
+        <p className="mt-1.5 text-sm leading-snug text-muted-foreground">{text}</p>
+      </div>
+      {preview}
+    </div>
+  );
 }
 
 function ProfileStep({

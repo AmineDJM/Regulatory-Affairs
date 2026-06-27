@@ -888,3 +888,23 @@ export const NAVIGATION: NavItem[] = [
   { module: "ADMIN", label: "Score d'adoption", href: "/admin/adoption", icon: "Gauge", group: "Système" },
   { module: "ADMIN", label: "Administration", href: "/admin", icon: "Settings", group: "Système" },
 ];
+
+/**
+ * Première destination de navigation que `canView` autorise — pour un atterrissage
+ * **sûr** après un refus (jamais une page qui refuserait à nouveau → anti-boucle
+ * `ERR_TOO_MANY_REDIRECTS`). On ignore les **sous-pages d'admin** (`/admin/…`),
+ * gardées par un contrôle plus strict que VIEW ; « /admin » (VIEW) reste valide.
+ * Renvoie `null` si l'utilisateur ne peut voir aucune destination.
+ */
+export function firstAccessibleHref(canView: (module: Module) => boolean): string | null {
+  for (const n of NAVIGATION) {
+    if (n.href.startsWith("/admin/")) continue;
+    if (n.tabs) {
+      const t = n.tabs.find((tab) => canView(tab.module));
+      if (t) return t.href;
+    } else if (canView(n.module)) {
+      return n.href;
+    }
+  }
+  return null;
+}
