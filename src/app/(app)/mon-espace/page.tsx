@@ -18,6 +18,7 @@ import { MyAdvances, type AdvanceItem } from "./my-advances";
 export default async function MonEspacePage() {
   const user = await requireModule("WORKSPACE");
   const data = await getMyWorkspace(user.id);
+  const canCreateDossier = userCan(user, "DOSSIERS", "CREATE");
 
   const users = await prisma.user.findMany({
     where: { isActive: true },
@@ -97,13 +98,13 @@ export default async function MonEspacePage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes tâches</h2>
-        <TaskList tasks={myTasks} />
+        <TaskList tasks={myTasks} canCreateDossier={canCreateDossier} />
       </section>
 
       {delegated.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches que j'ai déléguées</h2>
-          <TaskList tasks={delegated} showAssignee />
+          <TaskList tasks={delegated} showAssignee canCreateDossier={canCreateDossier} />
         </section>
       )}
 

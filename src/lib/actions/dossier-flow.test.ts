@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { canViewDossier, getDossier } from "@/lib/queries/dossiers";
 import { createDossierRecord } from "@/lib/dossiers-core";
-import { createDossier, updateDossierStatus, postDossierMessage, assignDossier, linkEmailToDossier } from "./dossier-actions";
+import { createDossier, updateDossierStatus, postDossierMessage, assignDossier, linkEmailToDossier, createDossierFromTask } from "./dossier-actions";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -108,6 +108,20 @@ suite("Dossiers — création, visibilité, échange, pilotage, proposition IA",
     const created = await linkEmailToDossier({ newTitle: `${TAG} Suivi e-mail IQVIA`, from: "iqvia@x.com", subject: "Données", body: "PJ" });
     expect(created.ok).toBe(true);
     expect(created.reference).toMatch(/^DOS-\d{4}-\d{3}$/);
+  });
+
+  it("création d'un dossier à partir d'une tâche (reprend le titre)", async () => {
+    const task = await prisma.task.create({ data: { title: `${TAG} Comparer billets`, description: "AF vs TK", assignedToId: creatorId, createdById: creatorId, priority: "HIGH" } });
+    ACTOR = await actorFor(creatorId, "MEDICAL_DELEGATE");
+    const r = await createDossierFromTask(task.id);
+    expect(r.ok).toBe(true);
+    const d = await prisma.dossier.findUniqueOrThrow({ where: { id: r.dossierId! } });
+    expect(d.title).toContain("Comparer billets");
+    expect(d.assignedToId).toBe(creatorId);
+    // Un utilisateur non lié à la tâche ne peut pas la convertir.
+    ACTOR = await actorFor(outsiderId, "MEDICAL_DELEGATE");
+    expect((await createDossierFromTask(task.id)).ok).toBe(false);
+    await prisma.task.delete({ where: { id: task.id } }).catch(() => {});
   });
 
   it("proposition IA : createDossierRecord crée le dossier et notifie", async () => {

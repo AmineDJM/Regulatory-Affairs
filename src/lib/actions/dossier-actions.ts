@@ -177,6 +177,33 @@ export async function linkEmailToDossier(
   return { ok: true, dossierId, reference };
 }
 
+/** Ouvre un dossier de suivi à partir d'une tâche (reprend titre, description, responsable…). */
+export async function createDossierFromTask(taskId: string): Promise<{ ok: boolean; error?: string; dossierId?: string }> {
+  const user = await requireUser();
+  if (!userCan(user, "DOSSIERS", "CREATE")) return { ok: false, error: "Vous ne pouvez pas créer de dossier." };
+  const t = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { id: true, title: true, description: true, assignedToId: true, createdById: true, priority: true, dueDate: true, module: true },
+  });
+  if (!t) return { ok: false, error: "Tâche introuvable." };
+  if (!(hasGlobalView(user.role) || t.assignedToId === user.id || t.createdById === user.id)) {
+    return { ok: false, error: "Non autorisé." };
+  }
+  const { id } = await createDossierRecord(
+    {
+      title: t.title,
+      description: t.description ? `Ouvert à partir d'une tâche.\n\n${t.description}` : "Ouvert à partir d'une tâche.",
+      category: t.module ?? null,
+      priority: t.priority,
+      assignedToId: t.assignedToId ?? null,
+      dueDate: t.dueDate ?? null,
+    },
+    user.id,
+  );
+  revalidate(id);
+  return { ok: true, dossierId: id };
+}
+
 export async function archiveDossier(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");

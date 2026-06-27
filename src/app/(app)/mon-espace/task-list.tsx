@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Play, Check } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Loader2, Play, Check, FolderKanban } from "lucide-react";
 import { updateTaskStatus } from "@/lib/actions/task-actions";
+import { createDossierFromTask } from "@/lib/actions/dossier-actions";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -44,7 +46,28 @@ function StatusButton({
   );
 }
 
-export function TaskList({ tasks, showAssignee = false }: { tasks: TaskItem[]; showAssignee?: boolean }) {
+function CreateDossierButton({ id }: { id: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      title="Ouvrir un dossier de suivi à partir de cette tâche"
+      onClick={async () => {
+        setBusy(true);
+        const r = await createDossierFromTask(id);
+        if (r.ok && r.dossierId) router.push(`/dossiers/${r.dossierId}`);
+        else setBusy(false);
+      }}
+      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
+    >
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderKanban className="h-3.5 w-3.5" />} Dossier
+    </button>
+  );
+}
+
+export function TaskList({ tasks, showAssignee = false, canCreateDossier = false }: { tasks: TaskItem[]; showAssignee?: boolean; canCreateDossier?: boolean }) {
   if (tasks.length === 0) {
     return <EmptyState icon="CheckCheck" title="Aucune tâche en cours" description="Tout est à jour de ce côté." />;
   }
@@ -71,9 +94,10 @@ export function TaskList({ tasks, showAssignee = false }: { tasks: TaskItem[]; s
                 </p>
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 flex-wrap items-center gap-1.5">
               {t.status === "TODO" && <StatusButton id={t.id} status="IN_PROGRESS" label="Démarrer" icon={Play} />}
               {t.status !== "DONE" && <StatusButton id={t.id} status="DONE" label="Terminer" icon={Check} />}
+              {canCreateDossier && <CreateDossierButton id={t.id} />}
             </div>
           </li>
         );
