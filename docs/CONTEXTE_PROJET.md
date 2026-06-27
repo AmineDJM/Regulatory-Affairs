@@ -48,6 +48,14 @@
   - `requireModule(module, action)` garde chaque page ; `requireUser()` pour les actions.
 - **Fichiers `"use server"` : n'exporter QUE des fonctions async** (un export non-async a déjà
   causé un crash en prod — leçon retenue).
+- **Aperçu documents in-app, partout** : `DocumentPreview` (modale) réutilise les viewers du Drive
+  (`office-viewers.tsx`, partagé) — PDF/image (iframe/img), **Word** (mammoth), **Excel** (SheetJS),
+  **PowerPoint** (JSZip, texte) — libs **embarquées, aucune dépendance externe**. Disponible sur toute
+  `DocumentList` (sponsoring, regulatory, congrès…). Route `/api/documents/[id]` sert **inline** par défaut
+  (`?dl=1` = téléchargement).
+- **En-têtes de sécurité** (`next.config.mjs`) : `X-Frame-Options: SAMEORIGIN` (pas `DENY`, sinon l'aperçu
+  PDF en iframe est bloqué) et `Permissions-Policy: camera=(self), microphone=(self), geolocation=(self)`
+  (PAS de liste vide `()`, sinon **micro/caméra désactivés** → rapports vocaux + scan QR cassés).
 - **Migrations** : `prisma migrate dev` est interactif (bloqué). On fait
   `prisma migrate diff --from-url $DATABASE_URL --to-schema-datamodel prisma/schema.prisma --script`
   → écrire dans `prisma/migrations/<timestamp>_<nom>/migration.sql` → `prisma migrate deploy`.

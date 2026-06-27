@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Download, Trash2, FileText, Loader2 } from "lucide-react";
 import { deleteDocument } from "@/lib/actions/document-actions";
+import { DocumentPreview } from "./document-preview";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -81,8 +82,9 @@ export function DocumentList({
             </div>
           </div>
           <StatusBadge map={CONFIDENTIALITY} value={doc.confidentiality} dot={false} />
+          <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} />
           <a
-            href={`/api/documents/${doc.id}`}
+            href={`/api/documents/${doc.id}?dl=1`}
             className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
             title={doc.hasFile ? "Télécharger" : "Métadonnées uniquement"}
           >

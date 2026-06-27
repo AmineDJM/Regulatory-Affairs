@@ -1,7 +1,7 @@
 "use client";
 
 import { Download } from "lucide-react";
-import { DocxView, XlsxView, PptxView } from "./office-viewers";
+import { DocxView, XlsxView, PptxView } from "@/components/documents/office-viewers";
 
 export function FileViewer({ id, name, kind }: { id: string; name: string; kind: string }) {
   const src = `/api/drive/${id}/raw`;

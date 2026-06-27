@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 
 /** Secure document download: authenticates, enforces row-level access, streams. */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } },
 ) {
   const user = await getCurrentUser();
@@ -28,18 +28,20 @@ export async function GET(
 
   try {
     const buffer = await readFileByKey(doc.fileKey);
-    await recordAudit({
-      actorId: user.id,
-      action: "EXPORT",
-      module: "Documents",
-      entityType: doc.entityType,
-      entityId: doc.entityId,
-      summary: `Téléchargement de « ${doc.name} »`,
-    });
+    // Aperçu in-app : on sert le fichier « inline » par défaut (l'iframe/img peut
+    // l'afficher) ; `?dl=1` force le téléchargement. On ne journalise que le téléchargement.
+    const download = req.nextUrl.searchParams.get("dl") === "1";
+    if (download) {
+      await recordAudit({
+        actorId: user.id, action: "EXPORT", module: "Documents",
+        entityType: doc.entityType, entityId: doc.entityId,
+        summary: `Téléchargement de « ${doc.name} »`,
+      });
+    }
     return new NextResponse(buffer as unknown as BodyInit, {
       headers: {
         "Content-Type": doc.mimeType ?? "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${encodeURIComponent(doc.name)}"`,
+        "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${encodeURIComponent(doc.name)}"`,
       },
     });
   } catch {

@@ -11,12 +11,16 @@ const nextConfig = {
       {
         source: "/:path*",
         headers: [
-          { key: "X-Frame-Options", value: "DENY" },
+          // SAMEORIGIN (et non DENY) : protège du clickjacking cross-origin tout en
+          // autorisant l'app à embarquer ses propres fichiers (aperçu PDF in-app).
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           {
+            // `self` (et non liste vide) : autorise micro (rapports vocaux), caméra
+            // (scan QR check-in) et géolocalisation pour NOTRE origine uniquement.
             key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
+            value: "camera=(self), microphone=(self), geolocation=(self)",
           },
         ],
       },
