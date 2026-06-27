@@ -557,6 +557,7 @@ export const ADVANCE_STATUS: Record<string, Display> = {
 
 export const EXPENSE_ORDER_STATUS: Record<string, Display> = {
   PENDING: { label: "À régler", tone: "warning" },
+  REVISION_REQUESTED: { label: "Révision budget demandée", tone: "purple" },
   PAID: { label: "Réglé", tone: "success" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
 };

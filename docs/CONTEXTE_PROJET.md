@@ -233,6 +233,20 @@ dépense** (catégorie Événement) vers l'espace comptable. Le **type** de spon
   `sponsoringAnalysis`, `sponsoringFinal`, `sponsoringAppeal`. Vérifié e2e 3 rôles (délégué/chef de
   produit/Direction) **dont la confidentialité** (15/15).
 
+### Centre de validation (agrégation transverse)
+Le module **Validations** (`/validations`) agrège, en plus de ses circuits génériques configurables,
+**toutes les validations en attente issues des autres modules** (`getCrossModuleValidations`) : demandes
+administratives **escaladées** (`AdminApproval` PENDING — l'assistante « Demander validation » → Direction),
+**sponsoring** et **congrès** en attente de Direction. Chaque ligne renvoie vers la fiche où la décision se
+prend réellement (« Ouvrir pour valider »). C'est le « centre où toutes les validations sont présentes ».
+
+### Ordres de dépense — aller-retour comptable ↔ Direction
+Direction valide → **ordre de dépense** → le **comptable règle** (génère l'écriture de trésorerie). Nouveauté :
+le comptable peut **demander une révision de budget** (manque de fonds) → l'ordre passe
+`REVISION_REQUESTED` et remonte à la **Direction**, qui **ajuste le montant** (l'ordre repart « à régler » au
+nouveau montant) **ou refuse** (montant maintenu). Champs `revisionReason`/`proposedAmount`/`revisionById`,
+actions `requestBudgetRevision` / `resolveBudgetRevision`.
+
 ### PCH — Marchés publics
 - **Appel d'offres gagné** = une ligne (réf auto `AO-année-n`, produits, fournisseur, pays, quantité,
   valeur, client=PCH par défaut, statut : pas encore commencé / en cours / terminé).
@@ -296,7 +310,7 @@ dépense** (catégorie Événement) vers l'espace comptable. Le **type** de spon
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types** → **sponsoring_validation_workflow** → **congress_intl_event_type**.
+→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types** → **sponsoring_validation_workflow** → **congress_intl_event_type** → **expense_order_budget_revision**.
 
 > **hr_request_types** : ajoute `LEAVE_TITLE`, `MISSION_ORDER`, `EXPENSE_REPORT` à l'enum `HrRequestType`
 > (`ALTER TYPE … ADD VALUE`). La **fusion de modules** (Finances/Congrès/Logistique-Stocks) est purement

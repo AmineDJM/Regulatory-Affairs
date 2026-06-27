@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
-import type { SessionUser } from "@/lib/rbac";
+import { hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
 
 export interface PendingValidationItem {
   stepId: string;
@@ -84,12 +84,96 @@ export async function getMyValidationRequests(userId: string): Promise<MyValidat
   }));
 }
 
+// ─────────── Validations transverses : tout ce qui attend MA validation, agrégé ───────────
+
+export interface CrossValidationItem {
+  id: string;
+  reference: string;
+  title: string;
+  module: string;
+  stage: string;
+  amount: number | null;
+  requester: string;
+  createdAt: string;
+  link: string;
+}
+
+const SPO_STAGE: Record<string, string> = { AWAITING_PRELIMINARY: "Préliminaire", AWAITING_FINAL: "Définitive", AWAITING_FINAL_APPEAL: "Définitive (appel)" };
+const CONG_STAGE: Record<string, string> = { AWAITING_PRELIMINARY: "Préliminaire", AWAITING_FINAL: "Définitive" };
+
+/**
+ * Centre de validation : agrège dans un seul endroit TOUTES les validations en
+ * attente de l'utilisateur, issues des autres modules — demandes administratives
+ * escaladées (AdminApproval), sponsoring et congrès en attente de Direction.
+ * Chaque ligne renvoie vers la fiche où la décision se prend réellement.
+ */
+export async function getCrossModuleValidations(user: SessionUser): Promise<CrossValidationItem[]> {
+  const out: CrossValidationItem[] = [];
+  const global = hasGlobalView(user.role);
+
+  // 1) Demandes administratives escaladées (l'assistante « demande validation » → Direction).
+  const approvals = await prisma.adminApproval.findMany({
+    where: { status: "PENDING", validatorId: user.id },
+    include: { request: { include: { requester: { select: { name: true } } } } },
+    orderBy: { createdAt: "asc" }, take: 100,
+  });
+  for (const a of approvals) {
+    out.push({
+      id: `aa-${a.id}`, reference: a.request.reference, title: a.request.title,
+      module: "Demande administrative", stage: "Validation demandée",
+      amount: a.amount === null ? null : toNumber(a.amount),
+      requester: a.request.requester?.name ?? "", createdAt: a.createdAt.toISOString(),
+      link: `/demandes/${a.request.id}`,
+    });
+  }
+
+  // 2) Sponsoring en attente de Direction.
+  if (global || userCan(user, "SPONSORING", "VALIDATE")) {
+    const spo = await prisma.sponsoringRequest.findMany({
+      where: { status: { in: ["AWAITING_PRELIMINARY", "AWAITING_FINAL", "AWAITING_FINAL_APPEAL"] } },
+      include: { requester: { select: { name: true } } }, orderBy: { createdAt: "asc" }, take: 100,
+    });
+    for (const s of spo) out.push({
+      id: `spo-${s.id}`, reference: s.reference, title: s.institution, module: "Sponsoring",
+      stage: SPO_STAGE[s.status] ?? s.status,
+      amount: s.amountProposed ? toNumber(s.amountProposed) : s.amountRequested ? toNumber(s.amountRequested) : null,
+      requester: s.requester?.name ?? "", createdAt: s.createdAt.toISOString(), link: `/sponsoring/${s.id}`,
+    });
+  }
+
+  // 3) Congrès (international + national) en attente de Direction.
+  const congress: { id: string; name: string; requestStatus: string; estimatedBudget: unknown; requesterId: string | null; createdAt: Date; kind: "ci" | "cn" }[] = [];
+  if (global || userCan(user, "CONGRESS_INTERNATIONAL", "VALIDATE")) {
+    const ci = await prisma.congressInternational.findMany({ where: { requestStatus: { in: ["AWAITING_PRELIMINARY", "AWAITING_FINAL"] } }, select: { id: true, name: true, requestStatus: true, estimatedBudget: true, requesterId: true, createdAt: true }, take: 100 });
+    congress.push(...ci.map((c) => ({ ...c, kind: "ci" as const })));
+  }
+  if (global || userCan(user, "CONGRESS_NATIONAL", "VALIDATE")) {
+    const cn = await prisma.congressNational.findMany({ where: { requestStatus: { in: ["AWAITING_PRELIMINARY", "AWAITING_FINAL"] } }, select: { id: true, name: true, requestStatus: true, estimatedBudget: true, requesterId: true, createdAt: true }, take: 100 });
+    congress.push(...cn.map((c) => ({ ...c, kind: "cn" as const })));
+  }
+  if (congress.length) {
+    const ids = [...new Set(congress.map((c) => c.requesterId).filter(Boolean) as string[])];
+    const names = new Map((await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
+    for (const c of congress) out.push({
+      id: `${c.kind}-${c.id}`, reference: c.name, title: c.name,
+      module: c.kind === "ci" ? "Congrès international" : "Congrès national",
+      stage: CONG_STAGE[c.requestStatus] ?? c.requestStatus,
+      amount: c.estimatedBudget ? toNumber(c.estimatedBudget as never) : null,
+      requester: c.requesterId ? names.get(c.requesterId) ?? "" : "",
+      createdAt: c.createdAt.toISOString(), link: `/${c.kind === "ci" ? "congress-international" : "congress-national"}/${c.id}`,
+    });
+  }
+
+  return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 export async function getMyValidations(user: SessionUser) {
-  const [toValidate, myRequests] = await Promise.all([
+  const [toValidate, myRequests, crossModule] = await Promise.all([
     getPendingValidations(user.id),
     getMyValidationRequests(user.id),
+    getCrossModuleValidations(user),
   ]);
-  return { toValidate, myRequests };
+  return { toValidate, myRequests, crossModule };
 }
 
 /** Vue Super Admin : règles + dernières demandes (supervision). */

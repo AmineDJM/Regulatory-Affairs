@@ -2,11 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { notifyUser } from "@/lib/notify";
-import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { notifyUser, notifyRoles } from "@/lib/notify";
+import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 async function nextFinanceRef(): Promise<string> {
   const year = new Date().getFullYear();
@@ -65,6 +65,70 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
   revalidatePath("/sponsoring");
   revalidatePath("/rh");
   revalidatePath("/mon-espace");
+  return { ok: true };
+}
+
+/**
+ * Le comptable demande à la Direction de revoir le budget (manque de fonds) :
+ * l'ordre passe en « Révision budget demandée » et remonte à la Direction.
+ */
+export async function requestBudgetRevision(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Réservé à la comptabilité (Finances)." };
+  const id = fdStr(formData, "id");
+  const reason = fdStr(formData, "reason");
+  if (!id) return { ok: false, error: "Ordre introuvable." };
+  if (!reason) return { ok: false, error: "Indiquez le motif (ex. manque de budget)." };
+  const order = await prisma.expenseOrder.findUnique({ where: { id } });
+  if (!order) return { ok: false, error: "Ordre introuvable." };
+  if (order.status !== "PENDING") return { ok: false, error: "Seul un ordre à régler peut faire l'objet d'une demande de révision." };
+
+  await prisma.expenseOrder.update({
+    where: { id },
+    data: { status: "REVISION_REQUESTED", revisionReason: reason, proposedAmount: fdNum(formData, "proposedAmount"), revisionById: user.id },
+  });
+  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+    type: "VALIDATION_REQUIRED", title: "Ordre de dépense — révision de budget demandée",
+    body: `${order.reference} — ${order.label}`, link: "/finances/ordres-de-depense",
+  });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER", entityId: id, field: "status", newValue: "REVISION_REQUESTED", summary: `Ordre ${order.reference} — révision budget demandée` });
+  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/validations");
+  return { ok: true };
+}
+
+/**
+ * La Direction tranche la demande de révision : soit elle AJUSTE le montant (l'ordre
+ * repart à régler au nouveau montant), soit elle REFUSE (l'ordre repart à régler tel quel).
+ */
+export async function resolveBudgetRevision(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!(hasGlobalView(user.role) || userCan(user, "FINANCES", "VALIDATE") || userCan(user, "BUDGETS", "VALIDATE"))) {
+    return { ok: false, error: "Réservé à la Direction." };
+  }
+  const id = fdStr(formData, "id");
+  const decision = fdStr(formData, "decision"); // ADJUST | REJECT
+  if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
+  const order = await prisma.expenseOrder.findUnique({ where: { id } });
+  if (!order) return { ok: false, error: "Ordre introuvable." };
+  if (order.status !== "REVISION_REQUESTED") return { ok: false, error: "Cet ordre n'attend pas de révision." };
+
+  let newAmount = order.amount;
+  if (decision === "ADJUST") {
+    const amt = fdNum(formData, "amount");
+    if (amt === null || amt <= 0) return { ok: false, error: "Indiquez le nouveau montant accordé." };
+    newAmount = amt as never;
+  }
+  await prisma.expenseOrder.update({
+    where: { id },
+    data: { status: "PENDING", amount: newAmount, notes: fdStr(formData, "comment") ?? order.notes, revisionReason: null, proposedAmount: null, revisionById: null },
+  });
+  if (order.revisionById) {
+    await notifyUser({ userId: order.revisionById, type: "GENERIC", title: decision === "ADJUST" ? "Budget ajusté par la Direction" : "Révision refusée — montant maintenu", body: `${order.reference} — ${order.label}`, link: "/finances/ordres-de-depense" });
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER", entityId: id, field: "amount", newValue: String(newAmount), summary: `Ordre ${order.reference} — révision ${decision === "ADJUST" ? "ajustée" : "refusée"}` });
+  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/validations");
   return { ok: true };
 }
 

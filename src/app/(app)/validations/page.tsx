@@ -18,7 +18,7 @@ import { ValidationDecision } from "./validation-decision";
 
 export default async function ValidationsPage() {
   const user = await requireModule("VALIDATIONS");
-  const { toValidate, myRequests } = await getMyValidations(user);
+  const { toValidate, myRequests, crossModule } = await getMyValidations(user);
 
   const mods = accessibleModules(user);
   const seen = new Set<string>();
@@ -57,7 +57,7 @@ export default async function ValidationsPage() {
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <KpiCard label="À valider" value={toValidate.length} icon="ShieldCheck" tone={toValidate.length > 0 ? "warning" : "default"} />
+        <KpiCard label="À valider" value={toValidate.length + crossModule.length} icon="ShieldCheck" tone={toValidate.length + crossModule.length > 0 ? "warning" : "default"} />
         <KpiCard label="Mes demandes en cours" value={pendingMine} icon="Hourglass" tone="info" />
         <KpiCard label="Total de mes demandes" value={myRequests.length} icon="ListChecks" />
       </div>
@@ -103,6 +103,33 @@ export default async function ValidationsPage() {
           </div>
         )}
       </section>
+
+      {crossModule.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Validations transverses — autres modules ({crossModule.length})</h2>
+          <div className="space-y-2">
+            {crossModule.map((v) => (
+              <Card key={v.id}>
+                <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs text-muted-foreground">{v.reference}</span>
+                      <Badge tone="info" dot={false}>{v.module}</Badge>
+                      <Badge tone="neutral" dot={false}>{v.stage}</Badge>
+                      {v.amount !== null && <span className="text-sm font-semibold">{formatCurrency(v.amount)}</span>}
+                    </div>
+                    <p className="truncate font-medium">{v.title}</p>
+                    <p className="text-xs text-muted-foreground">Demandé par {v.requester || "—"} · {formatDateTime(v.createdAt)}</p>
+                  </div>
+                  <Link href={v.link} className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-secondary">
+                    <ExternalLink className="h-4 w-4" /> Ouvrir pour valider
+                  </Link>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes demandes de validation ({myRequests.length})</h2>

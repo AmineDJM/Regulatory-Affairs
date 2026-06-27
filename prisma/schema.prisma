@@ -450,6 +450,7 @@ enum AdvanceStatus {
 
 enum ExpenseOrderStatus {
   PENDING // émis par la validation, en attente d'exécution par le comptable
+  REVISION_REQUESTED // le comptable demande à la Direction de revoir le budget (manque de fonds)
   PAID // réglé → écriture de trésorerie générée
   CANCELLED
 }
@@ -1723,6 +1724,11 @@ model ExpenseOrder {
   status        ExpenseOrderStatus @default(PENDING)
   dueDate       DateTime?
   notes         String?
+  // Aller-retour comptable ↔ Direction : le comptable peut demander une baisse de
+  // budget (manque de fonds) ; la Direction ajuste le montant ou refuse.
+  revisionReason String? // motif de la demande de révision (comptable)
+  proposedAmount Decimal? @db.Decimal(14, 2) // montant proposé par le comptable
+  revisionById   String? // comptable ayant demandé la révision
   sourceType    EntityType? // SPONSORING, SALARY_ADVANCE…
   sourceId      String?
   requestedById String?

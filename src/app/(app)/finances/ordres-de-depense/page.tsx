@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
@@ -11,6 +11,7 @@ import { OrdersTable, type OrderRow } from "./orders-table";
 export default async function OrdresDepensePage() {
   const user = await requireModule("FINANCES");
   const canSettle = userCan(user, "FINANCES", "UPDATE");
+  const canDirection = hasGlobalView(user.role) || userCan(user, "FINANCES", "VALIDATE") || userCan(user, "BUDGETS", "VALIDATE");
 
   const orders = await prisma.expenseOrder.findMany({
     orderBy: { createdAt: "desc" },
@@ -22,10 +23,12 @@ export default async function OrdresDepensePage() {
     id: o.id, reference: o.reference, label: o.label, beneficiary: o.beneficiary,
     category: o.category, amount: toNumber(o.amount), status: o.status,
     requestedBy: o.requestedBy?.name ?? null, createdAt: o.createdAt.toISOString(),
+    revisionReason: o.revisionReason, proposedAmount: o.proposedAmount ? toNumber(o.proposedAmount) : null,
   });
 
   const pending = orders.filter((o) => o.status === "PENDING");
-  const others = orders.filter((o) => o.status !== "PENDING");
+  const revisions = orders.filter((o) => o.status === "REVISION_REQUESTED");
+  const others = orders.filter((o) => o.status === "PAID" || o.status === "CANCELLED");
   const totalPending = pending.reduce((a, o) => a + toNumber(o.amount), 0);
 
   return (
@@ -43,8 +46,15 @@ export default async function OrdresDepensePage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">À régler</h2>
-        <OrdersTable rows={pending.map(toRow)} canSettle={canSettle} emptyLabel="Aucun ordre à régler" />
+        <OrdersTable rows={pending.map(toRow)} canSettle={canSettle} canDirection={canDirection} emptyLabel="Aucun ordre à régler" />
       </section>
+
+      {revisions.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Révisions de budget demandées ({revisions.length})</h2>
+          <OrdersTable rows={revisions.map(toRow)} canSettle={canSettle} canDirection={canDirection} />
+        </section>
+      )}
 
       {others.length > 0 && (
         <section className="space-y-3">
