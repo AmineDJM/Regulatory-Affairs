@@ -53,9 +53,24 @@
   * {
     @apply border-border;
   }
+  html {
+    /* Empêche un débordement horizontal sur petits écrans + évite le « rubber-band ». */
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
   body {
     @apply bg-background font-sans text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
+    /* UX tactile : pas de flash gris au tap, défilement fluide iOS. */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: none;
+  }
+  /* Cibles tactiles confortables sur mobile (≥ 40px) pour boutons/liens d'action. */
+  @media (pointer: coarse) {
+    button, a[role="button"], [role="tab"] {
+      touch-action: manipulation;
+    }
   }
   /* Refined scrollbars for the data-dense ERP feel */
   ::-webkit-scrollbar {

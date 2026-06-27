@@ -63,33 +63,45 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
         </div>
       </header>
 
-      {/* Mobile drawer */}
+      {/* Tiroir mobile — défilable, groupé, gère l'encoche/barres (safe-area). */}
       {drawerOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setDrawerOpen(false)} />
-          <div className="absolute left-0 top-0 h-full w-72 animate-slide-in bg-sidebar text-sidebar-foreground">
-            <div className="flex h-16 items-center justify-between px-5">
+          <div className="absolute left-0 top-0 flex h-full w-[min(85vw,18rem)] flex-col bg-sidebar text-sidebar-foreground [padding-left:env(safe-area-inset-left)]">
+            <div className="flex h-16 shrink-0 items-center justify-between px-5">
               <span className="text-sm font-semibold">AMD Internal OS</span>
-              <button onClick={() => setDrawerOpen(false)} className="p-1 text-sidebar-muted">
+              <button onClick={() => setDrawerOpen(false)} className="rounded-lg p-2 text-sidebar-muted hover:bg-white/5" aria-label="Fermer le menu">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <nav className="space-y-0.5 px-3 py-2">
-              {navItems.map((item) => {
-                const paths = [item.href, ...(item.match ?? [])];
-                const active = paths.some((p) => pathname === p || pathname.startsWith(p + "/"));
+            <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-1">
+              {GROUP_ORDER.map((group) => {
+                const groupItems = navItems.filter((i) => i.group === group);
+                if (groupItems.length === 0) return null;
                 return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium",
-                      active ? "bg-white/10 text-white" : "text-sidebar-muted hover:bg-white/5",
-                    )}
-                  >
-                    <Icon name={item.icon} className="h-4 w-4" />
-                    {item.label}
-                  </Link>
+                  <div key={group}>
+                    <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-sidebar-muted">{group}</p>
+                    <ul className="space-y-0.5">
+                      {groupItems.map((item) => {
+                        const paths = [item.href, ...(item.match ?? [])];
+                        const active = paths.some((p) => pathname === p || pathname.startsWith(p + "/"));
+                        return (
+                          <li key={item.href}>
+                            <Link
+                              href={item.href}
+                              className={cn(
+                                "flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium",
+                                active ? "bg-white/10 text-white" : "text-sidebar-muted hover:bg-white/5",
+                              )}
+                            >
+                              <Icon name={item.icon} className="h-4 w-4 shrink-0" />
+                              <span className="truncate">{item.label}</span>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
                 );
               })}
             </nav>
@@ -99,3 +111,5 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
     </>
   );
 }
+
+const GROUP_ORDER: NavItem["group"][] = ["Pilotage", "Pôles", "Transverse", "Système"];

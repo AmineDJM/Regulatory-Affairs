@@ -91,11 +91,11 @@ export function CreateRecordButton({
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {fields.map((field) => (
               <div
                 key={field.name}
-                className={cn("space-y-1.5", (field.full || field.type === "textarea") && "col-span-2")}
+                className={cn("space-y-1.5", (field.full || field.type === "textarea") && "sm:col-span-2")}
               >
                 {field.type !== "checkbox" && (
                   <Label htmlFor={field.name}>

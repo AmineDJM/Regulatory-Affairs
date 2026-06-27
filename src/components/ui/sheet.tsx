@@ -53,8 +53,8 @@ export function Sheet({ open, onClose, title, description, children, footer, wid
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
-        {footer && <div className="border-t border-border px-5 py-3">{footer}</div>}
+        <div className="flex-1 overflow-y-auto px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">{children}</div>
+        {footer && <div className="border-t border-border px-5 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">{footer}</div>}
       </div>
     </div>
   );
