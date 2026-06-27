@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
 import { optionsFromMap } from "@/components/shared/form-fields";
-import { PRIORITY } from "@/lib/labels";
+import { PRIORITY, SPONSORING_TYPES } from "@/lib/labels";
 import { SponsoringTable, type SponsoringRow } from "./sponsoring-table";
 
 export default async function SponsoringPage() {
@@ -48,7 +48,7 @@ export default async function SponsoringPage() {
               { type: "text", name: "doctor", label: "Médecin concerné" },
               { type: "text", name: "specialty", label: "Spécialité" },
               { type: "text", name: "city", label: "Ville" },
-              { type: "text", name: "type", label: "Type (congrès, table ronde…)", placeholder: "Congrès, formation…" },
+              { type: "select", name: "type", label: "Type", options: SPONSORING_TYPES.map((t) => ({ value: t, label: t })), defaultValue: "Congrès" },
               { type: "text", name: "product", label: "Produit concerné" },
               { type: "number", name: "amountRequested", label: "Budget demandé par l'intéressé (DZD)" },
               { type: "number", name: "amountProposed", label: "Budget suggéré par le délégué (DZD)" },

@@ -142,6 +142,20 @@ export const SPONSORING_STATUS: Record<string, Display> = {
   CLOSED: { label: "Clôturé", tone: "neutral" },
 };
 
+/** Types de sponsoring proposés en menu déroulant (valeur = libellé stocké). */
+export const SPONSORING_TYPES: string[] = [
+  "Congrès",
+  "Séminaire",
+  "Table ronde",
+  "Formation / Atelier",
+  "Webinaire",
+  "Symposium",
+  "Staff / Réunion de service",
+  "Publication / Documentation",
+  "Équipement / Matériel",
+  "Autre",
+];
+
 export const BUDGET_CATEGORY: Record<string, string> = {
   REGULATORY: "Regulatory",
   SPONSORING: "Sponsoring",

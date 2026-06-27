@@ -183,6 +183,16 @@ describe("Assistant — envoyer un message (MESSAGING)", () => {
   });
 });
 
+describe("Assistant — résolution par fonction (titre de poste)", () => {
+  it("assigne une demande administrative en retrouvant le collègue par sa FONCTION", async () => {
+    // « Responsable Ventes » = titre de Bob → doit se résoudre sans son prénom.
+    const p = (await buildProposal("create_admin_request", { type: "PURCHASE", title: `${MARK} Achat armoire`, assigneeName: "Responsable Ventes" }, carla)) as ProposedAction;
+    expect("error" in p).toBe(false);
+    expect(p.payload.kind === "create_admin_request" && p.payload.assigneeId).toBe(bob.id);
+    expect(p.warnings.length).toBe(0);
+  });
+});
+
 describe("Assistant — demande de congrès (RBAC par module)", () => {
   it("refuse pour un rôle sans le module congrès", async () => {
     const p = await buildProposal("create_congress_request", { scope: "NATIONAL", name: `${MARK} Congrès` }, bob);

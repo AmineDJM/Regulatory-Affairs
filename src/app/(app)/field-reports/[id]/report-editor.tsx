@@ -83,6 +83,13 @@ export function ReportEditor({ detail, doctors }: { detail: FieldReportDetail; d
   // ── Enregistrement audio (MediaRecorder) → transcription serveur (Whisper)
   const startRec = async () => {
     setMsg(null);
+    // L'accès au micro est une question de NAVIGATEUR (contexte sécurisé + permission),
+    // indépendante des clés IA : avec les clés posées, la saisie manuelle puis « Analyser »
+    // fonctionne parfaitement. On guide précisément selon la cause de l'échec.
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setMsg("Le micro nécessite une connexion sécurisée (HTTPS) et un navigateur compatible. Vos clés IA sont bien configurées : saisissez la transcription à la main ci-dessous, puis cliquez « Analyser avec l'IA ».");
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream);
@@ -93,8 +100,15 @@ export function ReportEditor({ detail, doctors }: { detail: FieldReportDetail; d
         await uploadAudio(new Blob(chunks.current, { type: rec.mimeType || "audio/webm" }));
       };
       rec.start(); mr.current = rec; setRecording(true);
-    } catch {
-      setMsg("Micro inaccessible — autorisez le microphone, ou saisissez la transcription à la main.");
+    } catch (e) {
+      const name = (e as DOMException)?.name;
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        setMsg("Le navigateur a refusé le micro. Cliquez sur l'icône de permissions (🔒 / caméra) dans la barre d'adresse, autorisez le micro pour ce site, puis réessayez — ou saisissez la transcription à la main.");
+      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        setMsg("Aucun micro détecté sur cet appareil. Branchez un micro, ou saisissez la transcription à la main puis « Analyser avec l'IA ».");
+      } else {
+        setMsg("Micro inaccessible (ce n'est pas lié aux clés IA, qui sont bien posées). Saisissez la transcription à la main ci-dessous, puis cliquez « Analyser avec l'IA ».");
+      }
     }
   };
   const stopRec = () => { mr.current?.stop(); setRecording(false); };

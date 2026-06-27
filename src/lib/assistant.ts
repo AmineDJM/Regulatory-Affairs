@@ -306,7 +306,17 @@ RÈGLES IMPÉRATIVES :
 - Respecte les droits : si un outil renvoie « accès non autorisé », explique que ce domaine n'est pas dans
   les permissions de l'utilisateur, sans contourner.
 - Avant d'assigner une tâche/demande à quelqu'un ou d'envoyer un message, utilise search_people pour
-  retrouver le bon collègue. Pour un congrès lié à un médecin, utilise search_doctors (jamais d'invention).
+  retrouver le bon collègue (la recherche fonctionne aussi par FONCTION : « assistante de direction »,
+  « chef de produit »…, pas seulement par prénom). Pour un congrès lié à un médecin, utilise search_doctors.
+
+INTERPRÉTATION DES DEMANDES (très important) :
+- « Fais une demande », « crée un ticket », « demande à l'assistante de direction (ou au back-office) de … »,
+  « il me faut un billet / un achat / une signature / un devis / un paiement / une mission chauffeur … » =
+  une DEMANDE ADMINISTRATIVE → utilise create_admin_request. L'assistante de direction GÈRE les demandes
+  administratives : assigne-lui la demande (assigneeName = « assistante de direction » ou son nom) — ne
+  cherche PAS dans la messagerie et n'utilise PAS send_message pour ça.
+- N'utilise send_message QUE si l'utilisateur demande explicitement d'« envoyer un message / écrire / dire /
+  prévenir » un collègue via la messagerie interne.
 - DATES — sois prudent : la date du jour est indiquée dans le contexte. Quand une date demandée est DÉJÀ
   PASSÉE (antérieure à aujourd'hui), SIGNALE-LE clairement dans ta réponse et demande à l'utilisateur de
   confirmer ou de corriger AVANT de proposer l'action. Renseigne toujours les dates au format AAAA-MM-JJ
@@ -335,8 +345,11 @@ interface PersonMatch { id: string; name: string; title: string | null; departme
 async function findPeople(query: string, limit = 8): Promise<PersonMatch[]> {
   const q = query.trim();
   if (!q) return [];
+  // Recherche par NOM **ou par FONCTION** (title) : « l'assistante de direction »,
+  // « le chef de produit »… se résolvent par leur intitulé de poste, pas seulement
+  // par leur prénom.
   const users = await prisma.user.findMany({
-    where: { isActive: true, name: { contains: q, mode: "insensitive" } },
+    where: { isActive: true, OR: [{ name: { contains: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },
     select: { id: true, name: true, title: true, role: true, department: { select: { name: true } } },
     take: limit,
     orderBy: { name: "asc" },
@@ -344,11 +357,13 @@ async function findPeople(query: string, limit = 8): Promise<PersonMatch[]> {
   return users.map((u) => ({ id: u.id, name: u.name, title: u.title, department: u.department?.name ?? null, role: u.role }));
 }
 
-/** Résout un nom en un utilisateur unique pour l'assignation. */
-async function resolvePerson(name: string): Promise<{ id: string; name: string } | { ambiguous: PersonMatch[] } | null> {
-  const matches = await findPeople(name, 8);
+/** Résout un nom OU une fonction en un utilisateur unique pour l'assignation. */
+async function resolvePerson(query: string): Promise<{ id: string; name: string } | { ambiguous: PersonMatch[] } | null> {
+  const q = query.trim().toLowerCase();
+  const matches = await findPeople(query, 8);
   if (matches.length === 0) return null;
-  const exact = matches.filter((m) => m.name.toLowerCase() === name.trim().toLowerCase());
+  // Correspondance exacte sur le nom ou la fonction → prioritaire.
+  const exact = matches.filter((m) => m.name.toLowerCase() === q || (m.title ?? "").toLowerCase() === q);
   if (exact.length === 1) return { id: exact[0].id, name: exact[0].name };
   if (matches.length === 1) return { id: matches[0].id, name: matches[0].name };
   return { ambiguous: matches };
