@@ -212,7 +212,15 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA*
 ### Transverse
 - **Validations (`/validations`)** — *Validation Center* configurable par le Super Admin (voir §6).
 - **Drive (`/drive`)** — stockage chiffré, **visionneuses PDF / Word (mammoth) / Excel (SheetJS) /
-  PowerPoint (JSZip, texte) / images / vidéo / audio / texte**.
+  PowerPoint (JSZip, texte) / images / vidéo / audio / texte**. **Édition Office (OnlyOffice
+  auto-hébergé)** : bouton « Éditer dans Office » sur un fichier Word/Excel/PowerPoint quand
+  `ONLYOFFICE_URL` + `ONLYOFFICE_JWT_SECRET` sont définis. Page `/drive/[id]/edit` (config signée
+  JWT), routes serveur `/api/onlyoffice/{file,callback}` : le Document Server lit le fichier via un
+  **jeton signé** (sans session) et **rappelle** la sauvegarde → création d'une **nouvelle version**
+  Drive. `lib/onlyoffice.ts` (JWT HS256 sans dépendance, types éditables). **Inerte tant que les
+  variables ne sont pas posées.** ⚠️ **Déploiement** : le Document Server doit être un **Web Service
+  public** (le navigateur charge `api.js`) — un *Private Service* Render ne suffit pas ; `APP_URL` doit
+  pointer l'URL publique de l'app (joignable par le Document Server pour le callback).
 - **Demandes administratives (`/demandes`)** — « Bureau de Donna » : 10 types, validations, ordres
   de dépense, missions chauffeur.
 - **Demandes de support (`/support`)** — tout employé adresse une **question**, une demande de

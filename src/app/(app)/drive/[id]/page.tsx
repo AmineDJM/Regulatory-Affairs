@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, Download } from "lucide-react";
+import { ArrowLeft, Download, PencilLine } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { resolveDriveAccess, fileKind } from "@/lib/drive";
+import { onlyofficeConfigured, onlyofficeEditable } from "@/lib/onlyoffice";
 import { getFieldDefs } from "@/lib/custom-fields";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -64,6 +65,11 @@ export default async function DriveFilePage({ params }: { params: { id: string }
           <p className="text-sm text-muted-foreground">{humanSize(node.size)} · {node.mimeType || "fichier"}</p>
         </div>
         <div className="flex items-center gap-2">
+          {canEdit && onlyofficeConfigured() && onlyofficeEditable(node.name) && (
+            <Link href={`/drive/${node.id}/edit`}>
+              <Button><PencilLine className="h-4 w-4" /> Éditer dans Office</Button>
+            </Link>
+          )}
           {canEdit && <UploadButton nodeId={node.id} label="Nouvelle version" />}
           <a href={`/api/drive/${node.id}/raw?dl=1`}>
             <Button variant="outline"><Download className="h-4 w-4" /> Télécharger</Button>
