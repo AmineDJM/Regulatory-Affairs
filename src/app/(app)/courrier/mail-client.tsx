@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label, Select } from "@/components/ui/input";
+import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { sendMailAction, disconnectMailbox } from "@/lib/actions/mail-actions";
 import { listLinkableDossiers, linkEmailToDossier } from "@/lib/actions/dossier-actions";
@@ -72,17 +73,22 @@ export function MailClient({ email }: { email: string }) {
   return (
     <div className={cn("flex overflow-hidden", fullscreen ? "fixed inset-0 z-[60] bg-background" : "surface min-h-0 flex-1")}>
       {/* Dossiers */}
-      <aside className="hidden w-52 shrink-0 flex-col border-r border-border bg-secondary/30 p-2 md:flex">
-        <Button size="sm" className="mb-2 w-full" onClick={() => setCompose({ to: "", cc: "", subject: "", body: "" })}><PenSquare className="h-4 w-4" /> Nouveau message</Button>
-        <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+      <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-gradient-to-b from-secondary/40 to-secondary/10 p-3 md:flex">
+        <button
+          onClick={() => setCompose({ to: "", cc: "", subject: "", body: "" })}
+          className="mb-3 flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-primary to-purple-600 px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:shadow-lg hover:brightness-105 active:scale-95"
+        >
+          <PenSquare className="h-4 w-4" /> Nouveau message
+        </button>
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto">
           {folders.length === 0 && loadingList ? (
             <p className="px-2 py-1 text-xs text-muted-foreground">Chargement…</p>
           ) : folders.map((f) => {
             const Icon = folderIcon(f.role);
             const active = f.path === mailbox;
             return (
-              <button key={f.path} onClick={() => selectFolder(f.path)} className={cn("flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm", active ? "bg-primary/10 font-medium text-primary" : "text-foreground hover:bg-secondary")}>
-                <Icon className="h-4 w-4 shrink-0" /><span className="flex-1 truncate text-left">{folderLabel(f)}</span>
+              <button key={f.path} onClick={() => selectFolder(f.path)} className={cn("flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors", active ? "bg-card font-semibold text-primary shadow-sm ring-1 ring-primary/10" : "text-foreground hover:bg-card/60")}>
+                <Icon className={cn("h-4 w-4 shrink-0", active ? "text-primary" : "text-muted-foreground")} /><span className="flex-1 truncate text-left">{folderLabel(f)}</span>
                 {f.unseen > 0 && <span className="rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{f.unseen}</span>}
               </button>
             );
@@ -111,12 +117,16 @@ export function MailClient({ email }: { email: string }) {
           ) : messages.length === 0 && !err ? (
             <p className="p-8 text-center text-sm text-muted-foreground">Aucun message.</p>
           ) : messages.map((m) => (
-            <button key={m.uid} onClick={() => openMessage(m.uid)} className={cn("flex w-full flex-col gap-0.5 border-b border-border px-3 py-2.5 text-left hover:bg-secondary/50", sel?.uid === m.uid && "bg-secondary", !m.seen && "border-l-2 border-l-primary")}>
-              <div className="flex items-center justify-between gap-2">
-                <span className={cn("truncate text-sm", !m.seen ? "font-semibold" : "")}>{m.from || m.fromAddr || "—"}</span>
-                <span className="shrink-0 text-[11px] text-muted-foreground">{fmtDate(m.date)}</span>
+            <button key={m.uid} onClick={() => openMessage(m.uid)} className={cn("flex w-full items-start gap-3 border-b border-border/60 px-3 py-2.5 text-left transition-colors hover:bg-accent/40", sel?.uid === m.uid ? "bg-accent/60" : !m.seen && "bg-primary/[0.03]")}>
+              <Avatar name={m.from || m.fromAddr || "?"} size="sm" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={cn("truncate text-sm", !m.seen ? "font-semibold text-foreground" : "text-foreground/90")}>{m.from || m.fromAddr || "—"}</span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">{fmtDate(m.date)}</span>
+                </div>
+                <span className={cn("block truncate text-sm", !m.seen ? "font-medium text-foreground" : "text-muted-foreground")}>{m.subject || "(sans objet)"}</span>
               </div>
-              <span className={cn("truncate text-sm", !m.seen ? "font-medium" : "text-muted-foreground")}>{m.subject}</span>
+              {!m.seen && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" />}
             </button>
           ))}
         </div>
@@ -142,10 +152,11 @@ export function MailClient({ email }: { email: string }) {
 function Reader({ msg, mailbox, loading, onBack, onReply }: { msg: MsgDetail; mailbox: string; loading: boolean; onBack: () => void; onReply: () => void }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+      <div className="flex items-center gap-3 border-b border-border bg-gradient-to-r from-accent/30 to-transparent px-4 py-3">
         <button onClick={onBack} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary md:hidden"><ChevronLeft className="h-4 w-4" /></button>
+        <Avatar name={msg.from || msg.fromAddr || "?"} size="md" />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold">{msg.subject}</p>
+          <p className="truncate font-semibold">{msg.subject || "(sans objet)"}</p>
           <p className="truncate text-xs text-muted-foreground">{msg.from} &lt;{msg.fromAddr}&gt; · {fmtDate(msg.date)}</p>
         </div>
         <LinkToDossier msg={msg} />
