@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   BrainCircuit, Sparkles, Loader2, X, AlertCircle, CheckCircle2, ArrowRight,
-  ShieldAlert, Ban, Wand2, Gavel, Activity, Network, Search,
+  ShieldAlert, Ban, Wand2, Gavel, Activity, Network, Search, List, Share2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -276,6 +276,7 @@ function RelationsTab({ suggestions }: { suggestions: string[] }) {
   const [q, setQ] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [res, setRes] = React.useState<ProductRelations | null>(null);
+  const [view, setView] = React.useState<"list" | "graph">("list");
   const search = async (term: string) => {
     const v = term.trim();
     if (!v) return;
@@ -298,20 +299,77 @@ function RelationsTab({ suggestions }: { suggestions: string[] }) {
       )}
       {res && (res.found ? (
         <div className="space-y-3">
-          <Card><CardContent className="py-3"><p className="text-sm text-muted-foreground">Objet central</p><p className="text-lg font-semibold">{res.query}</p>
-            {res.strongRelations.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{res.strongRelations.map((s, i) => <span key={i} className="rounded-full bg-secondary px-2 py-0.5 text-xs"><span className="text-muted-foreground">{s.label} →</span> {s.value}</span>)}</div>}
-          </CardContent></Card>
-          <div className="grid gap-3 md:grid-cols-2">
-            {res.blocks.map((b, i) => (
-              <Card key={i}><CardContent className="py-4">
-                <Link href={b.href} className="flex items-center gap-2 font-semibold hover:text-primary"><Icon name={b.icon} className="h-4 w-4 text-primary" /> {b.module}</Link>
-                <ul className="mt-1.5 space-y-1 text-sm text-muted-foreground">{b.lines.map((l, j) => <li key={j}>{l}</li>)}</ul>
-              </CardContent></Card>
-            ))}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">Objet central</p>
+              <p className="text-lg font-semibold">{res.query}</p>
+            </div>
+            {/* Bascule liste / graphe */}
+            <div className="inline-flex rounded-lg border border-border p-0.5">
+              <button onClick={() => setView("list")} className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium", view === "list" ? "bg-secondary text-foreground" : "text-muted-foreground")}><List className="h-3.5 w-3.5" /> Liste</button>
+              <button onClick={() => setView("graph")} className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium", view === "graph" ? "bg-secondary text-foreground" : "text-muted-foreground")}><Share2 className="h-3.5 w-3.5" /> Graphe</button>
+            </div>
           </div>
+
+          {res.strongRelations.length > 0 && <div className="flex flex-wrap gap-1.5">{res.strongRelations.map((s, i) => <span key={i} className="rounded-full bg-secondary px-2 py-0.5 text-xs"><span className="text-muted-foreground">{s.label} →</span> {s.value}</span>)}</div>}
+
+          {view === "graph" ? (
+            <RelationGraph query={res.query} blocks={res.blocks} />
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {res.blocks.map((b, i) => (
+                <Card key={i}><CardContent className="py-4">
+                  <Link href={b.href} className="flex items-center gap-2 font-semibold hover:text-primary"><Icon name={b.icon} className="h-4 w-4 text-primary" /> {b.module}</Link>
+                  <ul className="mt-1.5 space-y-1 text-sm text-muted-foreground">{b.lines.map((l, j) => <li key={j}>{l}</li>)}</ul>
+                </CardContent></Card>
+              ))}
+            </div>
+          )}
         </div>
       ) : <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">Aucune relation trouvée pour « {res.query} ».</CardContent></Card>)}
     </section>
+  );
+}
+
+/** Vue graphe radiale (Knowledge Graph) : l'objet central relié à chaque module. */
+function RelationGraph({ query, blocks }: { query: string; blocks: ProductRelations["blocks"] }) {
+  const W = 640, H = 380, cx = W / 2, cy = H / 2, R = 132;
+  const n = Math.max(blocks.length, 1);
+  const nodes = blocks.map((b, i) => {
+    const angle = (2 * Math.PI * i) / n - Math.PI / 2;
+    return { ...b, x: cx + R * Math.cos(angle), y: cy + R * Math.sin(angle) };
+  });
+  return (
+    <Card>
+      <CardContent className="overflow-x-auto py-3">
+        <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full min-w-[520px]" role="img" aria-label={`Graphe des relations de ${query}`}>
+          {/* Liens */}
+          {nodes.map((nd, i) => (
+            <line key={`l-${i}`} x1={cx} y1={cy} x2={nd.x} y2={nd.y} stroke="hsl(var(--border))" strokeWidth={1.5} />
+          ))}
+          {/* Noeud central */}
+          <g>
+            <circle cx={cx} cy={cy} r={46} fill="hsl(var(--primary))" />
+            <text x={cx} y={cy - 2} textAnchor="middle" className="fill-primary-foreground text-[12px] font-semibold">{query.length > 14 ? query.slice(0, 13) + "…" : query}</text>
+            <text x={cx} y={cy + 14} textAnchor="middle" className="fill-primary-foreground/80 text-[9px]">objet central</text>
+          </g>
+          {/* Noeuds périphériques (cliquables) */}
+          {nodes.map((nd, i) => {
+            const left = nd.x < cx;
+            return (
+              <a key={`n-${i}`} href={nd.href}>
+                <g className="cursor-pointer">
+                  <circle cx={nd.x} cy={nd.y} r={9} fill="hsl(var(--accent))" stroke="hsl(var(--primary))" strokeWidth={1.5} />
+                  <text x={nd.x + (left ? -14 : 14)} y={nd.y - 1} textAnchor={left ? "end" : "start"} className="fill-foreground text-[11px] font-medium">{nd.module}</text>
+                  <text x={nd.x + (left ? -14 : 14)} y={nd.y + 12} textAnchor={left ? "end" : "start"} className="fill-muted-foreground text-[9px]">{(nd.lines[0] ?? "").slice(0, 26)}</text>
+                </g>
+              </a>
+            );
+          })}
+        </svg>
+        <p className="mt-1 text-center text-xs text-muted-foreground">Cliquez un nœud pour ouvrir le module lié.</p>
+      </CardContent>
+    </Card>
   );
 }
 

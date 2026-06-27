@@ -347,7 +347,7 @@ séparés : un **cockpit unique** intégrant six fonctions comme une seule expé
 | **War Room** | Vue principale : KPIs (risques critiques, blocages, actions proposées, décisions, signaux terrain) + « Aujourd'hui, ce qui mérite votre attention ». |
 | **Risk Radar** | Le **moteur** : des **détecteurs sur données réelles** produisent des *Risk Cards* (niveau, objet, impact, responsable, cause probable, action recommandée, preuves). |
 | **Root Cause** | **Drawer contextuel** à droite quand on clique un risque — pas une page : ce qui bloque, depuis quand, délai normal, cause probable, preuves, impact, reco. |
-| **Knowledge Graph** | **Fiche 360 relationnelle** (onglet Relations) : pour une molécule/produit, blocs Regulatory · PCH · Médecins/KOL · Events · Terrain — lisible, pas une toile de bulles. |
+| **Knowledge Graph** | **Fiche 360 relationnelle** (onglet Relations) : pour une molécule/produit, blocs Regulatory · PCH · Médecins/KOL · Events · Terrain — lisible, pas une toile de bulles. **Bascule liste / graphe** : vue radiale optionnelle (objet central relié à chaque module, nœuds cliquables). |
 | **Autopilot Actions** | Boutons sur les cartes → **mini-confirmation** → exécution. **Ne crée que des objets existants** (Tâche, Notification). Rien n'est exécuté sans confirmation. |
 | **Intelligence Feed** | Onglet Feed : un fil **filtré par importance** (les mêmes signaux, du plus récent au plus ancien) — pas un flux de tout ce qui se passe. |
 
