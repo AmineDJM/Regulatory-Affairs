@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   Inbox, Send as SendIcon, RefreshCw, Loader2, Paperclip, PenSquare, X,
-  ChevronLeft, AlertCircle, Trash2, Mail as MailIcon, Reply,
+  ChevronLeft, AlertCircle, Trash2, Mail as MailIcon, Reply, Maximize2, Minimize2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label } from "@/components/ui/input";
@@ -15,6 +15,7 @@ interface Folder { path: string; name: string; role: string; unseen: number; tot
 interface Envelope { uid: number; subject: string; from: string; fromAddr: string; date: string | null; seen: boolean }
 interface AttMeta { index: number; filename: string; contentType: string; size: number }
 interface MsgDetail { uid: number; subject: string; from: string; fromAddr: string; to: string; date: string | null; html: string | null; text: string | null; attachments: AttMeta[] }
+export interface Contact { name: string; address: string; source?: string }
 
 const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
 const folderIcon = (role: string) => (role === "Sent" ? SendIcon : role === "Trash" ? Trash2 : Inbox);
@@ -30,6 +31,15 @@ export function MailClient({ email }: { email: string }) {
   const [loadingMsg, setLoadingMsg] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [compose, setCompose] = React.useState<null | { to: string; cc: string; subject: string; body: string }>(null);
+  const [fullscreen, setFullscreen] = React.useState(false);
+
+  // Plein écran : verrouille le défilement de la page derrière + sortie au clavier (Échap).
+  React.useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !compose && !sel) setFullscreen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [fullscreen, compose, sel]);
 
   const loadList = React.useCallback(async (mb: string, withFolders = false) => {
     setLoadingList(true); setErr(null); setSel(null);
@@ -58,7 +68,7 @@ export function MailClient({ email }: { email: string }) {
   const selectFolder = (mb: string) => { setMailbox(mb); loadList(mb); };
 
   return (
-    <div className="surface flex min-h-0 flex-1 overflow-hidden">
+    <div className={cn("flex overflow-hidden", fullscreen ? "fixed inset-0 z-[60] bg-background" : "surface min-h-0 flex-1")}>
       {/* Dossiers */}
       <aside className="hidden w-52 shrink-0 flex-col border-r border-border bg-secondary/30 p-2 md:flex">
         <Button size="sm" className="mb-2 w-full" onClick={() => setCompose({ to: "", cc: "", subject: "", body: "" })}><PenSquare className="h-4 w-4" /> Nouveau message</Button>
@@ -85,7 +95,12 @@ export function MailClient({ email }: { email: string }) {
       <div className={cn("flex min-h-0 w-full flex-col border-r border-border md:w-80", sel && "hidden md:flex")}>
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <p className="text-sm font-semibold">{folders.find((f) => f.path === mailbox) ? folderLabel(folders.find((f) => f.path === mailbox)!) : mailbox}</p>
-          <button onClick={() => loadList(mailbox)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary" title="Actualiser"><RefreshCw className={cn("h-4 w-4", loadingList && "animate-spin")} /></button>
+          <div className="flex items-center gap-0.5">
+            <button onClick={() => loadList(mailbox)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary" title="Actualiser"><RefreshCw className={cn("h-4 w-4", loadingList && "animate-spin")} /></button>
+            <button onClick={() => setFullscreen((v) => !v)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary" title={fullscreen ? "Quitter le plein écran (Échap)" : "Plein écran"}>
+              {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {err && !loadingList && <div className="m-3 flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {err}</div>}
@@ -159,6 +174,19 @@ function Composer({ email, initial, onClose }: { email: string; initial: { to: s
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [sent, setSent] = React.useState(false);
+  const [contacts, setContacts] = React.useState<Contact[]>([]);
+  const [showCc, setShowCc] = React.useState(Boolean(initial.cc));
+
+  // Carnet d'adresses (collègues + correspondants récents) chargé une fois.
+  React.useEffect(() => {
+    let alive = true;
+    fetch("/api/mail/contacts", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { contacts: [] }))
+      .then((d) => { if (alive) setContacts(d.contacts ?? []); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
@@ -176,13 +204,73 @@ function Composer({ email, initial, onClose }: { email: string; initial: { to: s
           className="flex min-h-0 flex-1 flex-col gap-2 p-4"
         >
           <p className="text-xs text-muted-foreground">De : {email}</p>
-          <div className="space-y-1"><Label>À</Label><Input name="to" required defaultValue={initial.to} placeholder="destinataire@exemple.com" /></div>
-          <div className="space-y-1"><Label>Cc (optionnel)</Label><Input name="cc" defaultValue={initial.cc} /></div>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label>À</Label>
+              {!showCc && <button type="button" onClick={() => setShowCc(true)} className="text-xs text-primary hover:underline">+ Cc</button>}
+            </div>
+            <AddressInput name="to" defaultValue={initial.to} contacts={contacts} required placeholder="Commencez à taper un nom ou une adresse…" />
+          </div>
+          {showCc && <div className="space-y-1"><Label>Cc</Label><AddressInput name="cc" defaultValue={initial.cc} contacts={contacts} placeholder="cc@exemple.com" /></div>}
           <div className="space-y-1"><Label>Objet</Label><Input name="subject" defaultValue={initial.subject} /></div>
           <div className="flex min-h-0 flex-1 flex-col space-y-1"><Label>Message</Label><Textarea name="body" defaultValue={initial.body} className="min-h-0 flex-1 resize-none" /></div>
           {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {err}</div>}
           <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>Annuler</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendIcon className="h-4 w-4" />} Envoyer</Button></div>
         </form>
+      )}
+    </div>
+  );
+}
+
+/** Champ d'adresse avec autocomplétion (collègues + correspondants récents). Gère
+ *  plusieurs destinataires séparés par des virgules : seul le dernier est complété. */
+function AddressInput({ name, defaultValue, contacts, required, placeholder }: { name: string; defaultValue?: string; contacts: Contact[]; required?: boolean; placeholder?: string }) {
+  const [value, setValue] = React.useState(defaultValue ?? "");
+  const [open, setOpen] = React.useState(false);
+  const [hi, setHi] = React.useState(0);
+
+  const token = (value.split(",").pop() ?? "").trim().toLowerCase();
+  const chosen = new Set(value.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
+  const suggestions = token.length >= 1
+    ? contacts.filter((c) => !chosen.has(c.address) && (c.address.includes(token) || c.name.toLowerCase().includes(token))).slice(0, 8)
+    : [];
+
+  const pick = (addr: string) => {
+    const parts = value.split(",");
+    parts[parts.length - 1] = ` ${addr}`;
+    setValue(parts.join(",").replace(/^\s+/, "") + ", ");
+    setOpen(false); setHi(0);
+  };
+
+  return (
+    <div className="relative">
+      <Input
+        name={name} required={required} autoComplete="off" value={value} placeholder={placeholder}
+        onChange={(e) => { setValue(e.target.value); setOpen(true); setHi(0); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        onKeyDown={(e) => {
+          if (!open || suggestions.length === 0) return;
+          if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(h + 1, suggestions.length - 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
+          else if (e.key === "Enter" || e.key === "Tab") {
+            if (e.key === "Enter") e.preventDefault();
+            pick(suggestions[hi].address);
+          } else if (e.key === "Escape") setOpen(false);
+        }}
+      />
+      {open && suggestions.length > 0 && (
+        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-border bg-background py-1 shadow-lg">
+          {suggestions.map((c, i) => (
+            <li key={c.address}>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); pick(c.address); }}
+                className={cn("flex w-full flex-col px-3 py-1.5 text-left hover:bg-secondary", i === hi && "bg-secondary")}>
+                <span className="truncate text-sm font-medium">{c.name || c.address}</span>
+                {c.name && <span className="truncate text-xs text-muted-foreground">{c.address}{c.source === "interne" ? " · collègue" : ""}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

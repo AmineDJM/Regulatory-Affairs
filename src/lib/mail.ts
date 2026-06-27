@@ -185,18 +185,84 @@ export async function getAttachment(account: MailAccount, mailbox: string, uid: 
 export interface SendOptions { to: string; cc?: string; subject: string; text?: string; html?: string }
 
 export async function sendMail(account: MailAccount, opts: SendOptions): Promise<void> {
-  const transport = nodemailer.createTransport({
-    host: account.smtpHost,
-    port: account.smtpPort,
-    secure: account.smtpPort === 465,
-    auth: { user: account.email, pass: decryptSecret(account.passwordEnc) },
-  });
-  await transport.sendMail({
+  const mail = {
     from: account.displayName ? `"${account.displayName}" <${account.email}>` : account.email,
     to: opts.to,
     cc: opts.cc || undefined,
     subject: opts.subject,
     text: opts.text || undefined,
     html: opts.html || undefined,
+  };
+
+  // 1) Construit le MIME UNE fois — pour envoyer ET archiver la même copie.
+  const builder = nodemailer.createTransport({ streamTransport: true, buffer: true, newline: "windows" });
+  const built = await builder.sendMail(mail);
+  const raw = built.message as Buffer;
+
+  // 2) Envoi SMTP du message construit.
+  const transport = nodemailer.createTransport({
+    host: account.smtpHost,
+    port: account.smtpPort,
+    secure: account.smtpPort === 465,
+    auth: { user: account.email, pass: decryptSecret(account.passwordEnc) },
   });
+  await transport.sendMail({ envelope: built.envelope, raw });
+
+  // 3) Copie dans « Envoyés » (best-effort) — sans ça, le message n'apparaît pas
+  //    dans le dossier Envoyés (l'envoi SMTP seul ne l'y dépose pas).
+  await appendToSent(account, raw).catch((e) => console.error("[mail] append to Sent failed", e));
+}
+
+/** Dépose une copie du message envoyé dans le dossier « Envoyés » de la boîte (IMAP APPEND). */
+async function appendToSent(account: MailAccount, raw: Buffer): Promise<void> {
+  const c = imapClient(account);
+  try {
+    await c.connect();
+    const boxes = await c.list();
+    const sent =
+      boxes.find((b) => b.specialUse === "\\Sent") ||
+      boxes.find((b) => /^(sent|sent items|sent messages|envoy)/i.test(b.name)) ||
+      boxes.find((b) => /sent|envoy/i.test(b.path));
+    if (sent) await c.append(sent.path, raw, ["\\Seen"]);
+  } finally {
+    await c.logout().catch(() => {});
+  }
+}
+
+/**
+ * Contacts récents pour l'autocomplétion de l'adresse : expéditeurs récents (INBOX)
+ * + destinataires récents (Envoyés). Dédupliqués par adresse, en minuscules.
+ */
+export async function listRecentContacts(account: MailAccount, limit = 80): Promise<{ name: string; address: string }[]> {
+  const c = imapClient(account);
+  try {
+    await c.connect();
+    const seen = new Map<string, { name: string; address: string }>();
+    const boxes = await c.list();
+    const sent = boxes.find((b) => b.specialUse === "\\Sent");
+    const sources: { path: string; field: "from" | "to" }[] = [{ path: "INBOX", field: "from" }];
+    if (sent) sources.push({ path: sent.path, field: "to" });
+    for (const src of sources) {
+      try {
+        const lock = await c.getMailboxLock(src.path);
+        try {
+          const status = await c.status(src.path, { messages: true });
+          const total = status.messages ?? 0;
+          if (!total) continue;
+          const start = Math.max(1, total - limit + 1);
+          for await (const msg of c.fetch(`${start}:*`, { envelope: true })) {
+            const addrs = src.field === "from" ? msg.envelope?.from : msg.envelope?.to;
+            for (const a of addrs ?? []) {
+              const address = (a.address || "").toLowerCase().trim();
+              if (!address || seen.has(address)) continue;
+              seen.set(address, { name: a.name || "", address });
+            }
+          }
+        } finally { lock.release(); }
+      } catch { /* on ignore une source en erreur */ }
+    }
+    return [...seen.values()];
+  } finally {
+    await c.logout().catch(() => {});
+  }
 }
