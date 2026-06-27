@@ -213,8 +213,8 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA*
 d'un **Chef de produit** → **analyse + budget proposé (chef de produit)** → **validation DÉFINITIVE
 (Direction)** → **ordre de dépense** (catégorie Événement) émis dans l'espace comptable.
 - Formulaire : **médecins invités via cascade Spécialité → médecins** (issus de Promotion médicale),
-  **participants Adventum** (multi-sélection users), budget estimé. National : **type d'événement**
-  (congrès, séminaire, table ronde, webinaire, atelier, symposium, staff…).
+  **participants Adventum** (multi-sélection users), budget estimé. **National ET international** :
+  **type d'événement** (congrès, séminaire, table ronde, webinaire, atelier, symposium, staff…).
 - Deux budgets conservés côte à côte (demandeur / chef de produit). Délégués (scope ASSIGNED) ne
   voient que leurs demandes ; Direction valide ; chef de produit analyse. Vérifié bout-en-bout.
 
@@ -296,7 +296,7 @@ dépense** (catégorie Événement) vers l'espace comptable. Le **type** de spon
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types** → **sponsoring_validation_workflow**.
+→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types** → **sponsoring_validation_workflow** → **congress_intl_event_type**.
 
 > **hr_request_types** : ajoute `LEAVE_TITLE`, `MISSION_ORDER`, `EXPENSE_REPORT` à l'enum `HrRequestType`
 > (`ALTER TYPE … ADD VALUE`). La **fusion de modules** (Finances/Congrès/Logistique-Stocks) est purement

@@ -817,8 +817,9 @@ model BudgetCategoryLine {
 
 model CongressInternational {
   custom           Json? // admin-defined dynamic fields
-  id               String         @id @default(cuid())
+  id               String            @id @default(cuid())
   name             String
+  eventType        NationalEventType @default(CONGRESS) // type d'événement (congrès, séminaire, formation…)
   country          String?
   city             String?
   startDate        DateTime?

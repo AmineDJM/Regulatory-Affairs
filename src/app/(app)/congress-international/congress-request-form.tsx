@@ -64,13 +64,11 @@ export function CongressRequestButton({ national, doctors, users }: { national?:
           {/* Infos générales */}
           <div className="grid grid-cols-2 gap-3">
             <Field full label="Nom de l'événement" required><Input name="name" required placeholder="Ex. ECCMID 2026" /></Field>
-            {national && (
-              <Field label="Type d'événement">
-                <Select name="eventType" defaultValue="CONGRESS">
-                  {Object.entries(NATIONAL_EVENT_TYPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </Select>
-              </Field>
-            )}
+            <Field label="Type d'événement">
+              <Select name="eventType" defaultValue="CONGRESS">
+                {Object.entries(NATIONAL_EVENT_TYPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </Select>
+            </Field>
             <Field label="Spécialité (thème)"><Input name="specialty" placeholder="Ex. Infectiologie" /></Field>
             {national ? (
               <>

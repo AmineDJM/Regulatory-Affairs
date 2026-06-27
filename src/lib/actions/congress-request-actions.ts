@@ -42,8 +42,12 @@ export async function createCongressRequest(
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
 
+  const eventType: NationalEventType = EVENT_TYPES.includes(fdStr(formData, "eventType") as NationalEventType)
+    ? (fdStr(formData, "eventType") as NationalEventType)
+    : "CONGRESS";
   const common = {
     name,
+    eventType,
     specialty: fdStr(formData, "specialty"),
     estimatedBudget: fdNum(formData, "estimatedBudget"),
     invitedDoctorIds: fdList(formData, "invitedDoctorIds"),
@@ -70,9 +74,6 @@ export async function createCongressRequest(
             city: fdStr(formData, "city"),
             hostInstitution: fdStr(formData, "hostInstitution"),
             date: fdDate(formData, "date"),
-            eventType: (EVENT_TYPES.includes(fdStr(formData, "eventType") as NationalEventType)
-              ? (fdStr(formData, "eventType") as NationalEventType)
-              : "CONGRESS"),
           },
         });
 
