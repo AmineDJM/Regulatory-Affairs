@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Trash2, ChevronRight, HardDrive } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
 import { getDriveListing } from "@/lib/queries/drive";
 import { fileKind } from "@/lib/drive";
 import { PageHeader } from "@/components/shared/page-header";
@@ -37,6 +38,10 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
 
   const canEdit = listing.level === "EDIT";
   const canCreate = userCan(user, "DRIVE", "CREATE");
+  // Personnes avec qui partager à l'import (choix lecteurs/éditeurs).
+  const shareUsers = canCreate
+    ? await prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+    : [];
 
   return (
     <div className="space-y-5">
@@ -44,7 +49,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
         {!trash && canCreate && (
           <>
             <NewFolderButton parentId={folderId} />
-            <UploadButton parentId={folderId} />
+            <UploadButton parentId={folderId} users={shareUsers} />
           </>
         )}
         <Link href={trash ? "/drive" : "/drive?trash=1"}>
@@ -91,10 +96,15 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
                 return (
                   <TableRow key={n.id}>
                     <TableCell>
-                      <Link href={href} className="inline-flex items-center gap-2 font-medium hover:underline">
-                        <Icon name={icon} className={`h-4 w-4 ${isFile ? "text-muted-foreground" : "text-primary"}`} />
-                        <span className="truncate">{n.name}</span>
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link href={href} className="inline-flex items-center gap-2 font-medium hover:underline">
+                          <Icon name={icon} className={`h-4 w-4 ${isFile ? "text-muted-foreground" : "text-primary"}`} />
+                          <span className="truncate">{n.name}</span>
+                        </Link>
+                        {isFile && n.category && (
+                          <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{n.category}</span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{n.owner?.name ?? "—"}</TableCell>
                     <TableCell className="text-right text-muted-foreground">{isFile ? humanSize(n.size) : "—"}</TableCell>

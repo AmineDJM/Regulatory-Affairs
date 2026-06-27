@@ -43,13 +43,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ id: nodeId, version });
   }
 
+  // Classement + permissions choisis à l'import (qui voit / qui modifie).
+  const category = ((form.get("category") as string) || "").trim() || null;
+  const viewers = form.getAll("viewers").map(String).filter(Boolean);
+  const editors = form.getAll("editors").map(String).filter(Boolean);
+
   const node = await prisma.driveNode.create({
     data: {
-      name: file.name, type: "FILE", parentId, ownerId: user.id, mimeType, size, createdById: user.id,
+      name: file.name, type: "FILE", parentId, ownerId: user.id, mimeType, size, category, createdById: user.id,
       versions: { create: { blobId, version: 1, size, mimeType, createdById: user.id } },
     },
     select: { id: true },
   });
-  await recordAudit({ actorId: user.id, action: "UPLOAD", module: "Drive", entityType: "DRIVE_NODE", entityId: node.id, summary: `Fichier « ${file.name} »` });
+
+  // Crée les partages (EDIT prioritaire sur VIEW ; on ignore l'auteur et les IDs invalides).
+  const editorIds = new Set(editors.filter((id) => id !== user.id));
+  const viewerIds = new Set(viewers.filter((id) => id !== user.id && !editorIds.has(id)));
+  const ids = [...editorIds, ...viewerIds];
+  if (ids.length) {
+    const valid = new Set(
+      (await prisma.user.findMany({ where: { id: { in: ids }, isActive: true }, select: { id: true } })).map((u) => u.id),
+    );
+    const shareData = [
+      ...[...editorIds].filter((id) => valid.has(id)).map((userId) => ({ nodeId: node.id, userId, access: "EDIT" as const })),
+      ...[...viewerIds].filter((id) => valid.has(id)).map((userId) => ({ nodeId: node.id, userId, access: "VIEW" as const })),
+    ];
+    if (shareData.length) await prisma.driveShare.createMany({ data: shareData, skipDuplicates: true });
+  }
+
+  await recordAudit({ actorId: user.id, action: "UPLOAD", module: "Drive", entityType: "DRIVE_NODE", entityId: node.id, summary: `Fichier « ${file.name} »${category ? ` · ${category}` : ""}${ids.length ? ` · partagé (${ids.length})` : ""}` });
   return NextResponse.json({ id: node.id });
 }

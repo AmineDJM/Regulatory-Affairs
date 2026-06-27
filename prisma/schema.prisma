@@ -1978,6 +1978,7 @@ model DriveNode {
   owner       User?         @relation("DriveOwner", fields: [ownerId], references: [id])
   mimeType    String? // version courante (fichier)
   size        Int           @default(0) // octets de la version courante ; 0 pour un dossier
+  category    String? // classement choisi à l'import (Contrat, Facture, Réglementaire…)
   isTrashed   Boolean       @default(false)
   versions    FileVersion[]
   shares      DriveShare[]
