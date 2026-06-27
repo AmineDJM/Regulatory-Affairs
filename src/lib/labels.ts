@@ -880,7 +880,6 @@ export const NAVIGATION: NavItem[] = [
   { module: "DRIVE", label: "Documents", href: "/drive", icon: "FolderOpen", group: "Transverse", tabs: DOCS_TABS },
   { module: "DOSSIERS", label: "Dossiers", href: "/dossiers", icon: "FolderKanban", group: "Transverse" },
   { module: "ADMIN_REQUESTS", label: "Demandes administratives", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
-  { module: "SUPPORT", label: "Demandes de support", href: "/support", icon: "LifeBuoy", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   // Système
   { module: "ADVENTUM_BRAIN", label: "Adventum Brain", href: "/adventum-brain", icon: "BrainCircuit", group: "Système" },

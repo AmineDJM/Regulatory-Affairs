@@ -254,6 +254,23 @@ function Composer({ email, initial, onClose }: { email: string; initial: { to: s
   const [sent, setSent] = React.useState(false);
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [showCc, setShowCc] = React.useState(Boolean(initial.cc));
+  // Verrou synchrone : empêche tout double-envoi (double-clic / double soumission)
+  // même avant que l'état `saving` ne soit re-rendu.
+  const inFlight = React.useRef(false);
+
+  async function send(fd: FormData) {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setSaving(true); setErr(null);
+    try {
+      const r = await sendMailAction(fd);
+      if (r.ok) setSent(true);
+      else setErr(r.error ?? "Envoi impossible.");
+    } finally {
+      setSaving(false);
+      inFlight.current = false;
+    }
+  }
 
   // Carnet d'adresses (collègues + correspondants récents) chargé une fois.
   React.useEffect(() => {
@@ -277,10 +294,7 @@ function Composer({ email, initial, onClose }: { email: string; initial: { to: s
           <Button size="sm" variant="outline" onClick={onClose}>Fermer</Button>
         </div>
       ) : (
-        <form
-          action={async (fd) => { setSaving(true); setErr(null); const r = await sendMailAction(fd); setSaving(false); if (r.ok) setSent(true); else setErr(r.error ?? "Envoi impossible."); }}
-          className="flex min-h-0 flex-1 flex-col gap-2 p-4"
-        >
+        <form action={send} className="flex min-h-0 flex-1 flex-col gap-2 p-4">
           <p className="text-xs text-muted-foreground">De : {email}</p>
           <div className="space-y-1">
             <div className="flex items-center justify-between">

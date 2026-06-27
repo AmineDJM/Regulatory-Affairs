@@ -1,19 +1,16 @@
-import Link from "next/link";
 import { requireModule } from "@/lib/session";
 import { accessibleModules, userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getMyWorkspace } from "@/lib/queries/hr";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Icon } from "@/components/ui/icon";
+import { Card, CardContent } from "@/components/ui/card";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { createTask } from "@/lib/actions/task-actions";
 import { requestLeave, requestAdvance } from "@/lib/actions/hr-actions";
-import { NAVIGATION, ROLE_LABELS, PRIORITY, LEAVE_TYPE, WORKSPACE_TABS } from "@/lib/labels";
-import { formatDateTime } from "@/lib/utils";
+import { ROLE_LABELS, PRIORITY, LEAVE_TYPE, WORKSPACE_TABS, MODULE_LABELS } from "@/lib/labels";
 import { TaskList, type TaskItem } from "./task-list";
 import { MyLeaves, type LeaveItem } from "./my-leaves";
 import { MyAdvances, type AdvanceItem } from "./my-advances";
@@ -27,9 +24,6 @@ export default async function MonEspacePage() {
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
-
-  const mods = accessibleModules(user);
-  const quickLinks = NAVIGATION.filter((n) => mods.includes(n.module) && n.module !== "WORKSPACE");
 
   const myTasks: TaskItem[] = data.myTasks.map((t) => ({
     id: t.id, title: t.title, description: t.description, status: t.status,
@@ -49,7 +43,9 @@ export default async function MonEspacePage() {
   }));
 
   const userOptions = users.map((u) => ({ value: u.id, label: u.name }));
-  const moduleOptions = quickLinks.map((n) => ({ value: n.module, label: n.label }));
+  const moduleOptions = accessibleModules(user)
+    .filter((m) => m !== "WORKSPACE")
+    .map((m) => ({ value: m, label: MODULE_LABELS[m] ?? m }));
 
   const taskFields: FieldDef[] = [
     { type: "text", name: "title", label: "Intitulé", required: true, full: true },
@@ -128,39 +124,6 @@ export default async function MonEspacePage() {
         </CardContent></Card>
       )}
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Activité récente</h2>
-        <Card>
-          <CardContent className="p-0">
-            {data.activity.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground">Aucune activité enregistrée.</p>
-            ) : (
-              <ul className="divide-y divide-border">
-                {data.activity.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                    <span className="truncate text-foreground">{a.module ?? a.path ?? "—"}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(a.createdAt)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Accès rapides</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {quickLinks.map((n) => (
-            <Link key={n.module} href={n.href} className="surface flex items-center gap-3 p-4 transition-colors hover:bg-secondary">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Icon name={n.icon} className="h-4 w-4" />
-              </span>
-              <span className="text-sm font-medium">{n.label}</span>
-            </Link>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }

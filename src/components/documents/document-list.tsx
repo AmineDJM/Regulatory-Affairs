@@ -59,51 +59,55 @@ export function DocumentList({
   return (
     <ul className="divide-y divide-border">
       {documents.map((doc) => (
-        <li key={doc.id} className="flex items-center gap-3 py-2.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground">
-            <FileText className="h-4 w-4" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{doc.name}</p>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-              <span>{DOCUMENT_CATEGORY[doc.category] ?? doc.category}</span>
-              <span>·</span>
-              <span>v{doc.version}</span>
-              <span>·</span>
-              <span>{formatBytes(doc.sizeBytes)}</span>
-              <span>·</span>
-              <span>{formatDate(doc.createdAt)}</span>
-              {doc.uploadedBy && (
-                <>
-                  <span>·</span>
-                  <span>{doc.uploadedBy}</span>
-                </>
-              )}
+        <li key={doc.id} className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground">
+              <FileText className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{doc.name}</p>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                <span>{DOCUMENT_CATEGORY[doc.category] ?? doc.category}</span>
+                <span>·</span>
+                <span>v{doc.version}</span>
+                <span>·</span>
+                <span>{formatBytes(doc.sizeBytes)}</span>
+                <span className="hidden sm:inline">·</span>
+                <span className="hidden sm:inline">{formatDate(doc.createdAt)}</span>
+                {doc.uploadedBy && (
+                  <>
+                    <span className="hidden sm:inline">·</span>
+                    <span className="hidden sm:inline">{doc.uploadedBy}</span>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-          <StatusBadge map={CONFIDENTIALITY} value={doc.confidentiality} dot={false} />
-          <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} />
-          <a
-            href={`/api/documents/${doc.id}?dl=1`}
-            className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
-            title={doc.hasFile ? "Télécharger" : "Métadonnées uniquement"}
-          >
-            <Download className="h-4 w-4" />
-          </a>
-          {canDelete && (
-            <button
-              onClick={() => onDelete(doc.id)}
-              disabled={pendingId === doc.id}
-              className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              title="Supprimer"
+          <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
+            <StatusBadge map={CONFIDENTIALITY} value={doc.confidentiality} dot={false} />
+            <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} />
+            <a
+              href={`/api/documents/${doc.id}?dl=1`}
+              className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
+              title={doc.hasFile ? "Télécharger" : "Métadonnées uniquement"}
             >
-              {pendingId === doc.id ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
-            </button>
-          )}
+              <Download className="h-4 w-4" />
+            </a>
+            {canDelete && (
+              <button
+                onClick={() => onDelete(doc.id)}
+                disabled={pendingId === doc.id}
+                className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                title="Supprimer"
+              >
+                {pendingId === doc.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+              </button>
+            )}
+          </div>
         </li>
       ))}
     </ul>

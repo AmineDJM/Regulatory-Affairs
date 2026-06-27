@@ -84,7 +84,7 @@ export function FloatingAssistant({ userName, configured }: { userName: string; 
 
       {/* Panneau */}
       {open && (
-        <div className="fixed inset-x-2 bottom-[calc(5rem+env(safe-area-inset-bottom))] top-16 z-[55] flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl sm:inset-x-auto sm:right-6 sm:top-auto sm:h-[600px] sm:max-h-[80vh] sm:w-[400px]">
+        <div className="fixed inset-x-2 bottom-[calc(5rem+env(safe-area-inset-bottom))] top-16 z-[55] flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl sm:inset-x-auto sm:right-6 sm:top-auto sm:h-[640px] sm:max-h-[85vh] sm:w-[420px]">
           <div className="flex items-center gap-2 border-b border-border bg-gradient-to-br from-primary/90 to-purple-600 px-4 py-2.5 text-primary-foreground">
             <Bot className="h-5 w-5" />
             <p className="text-sm font-semibold">Assistant IA</p>
@@ -95,7 +95,7 @@ export function FloatingAssistant({ userName, configured }: { userName: string; 
           </div>
 
           {suggestion && (
-            <div className="space-y-2 border-b border-border bg-warning/5 p-3">
+            <div className="max-h-[45%] shrink-0 space-y-2 overflow-y-auto border-b border-border bg-warning/5 p-3">
               <p className="flex items-center gap-1.5 text-xs font-semibold text-warning"><MessageSquareWarning className="h-4 w-4" /> Suggestion à partir de vos messages</p>
               {suggestion.summary && <p className="whitespace-pre-wrap text-sm">{cleanReply(suggestion.summary)}</p>}
               {suggestion.proposal && (
