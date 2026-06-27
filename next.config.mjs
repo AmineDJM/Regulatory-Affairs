@@ -3,7 +3,8 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   experimental: {
-    serverComponentsExternalPackages: ["bcryptjs"],
+    // Libs Node serveur uniquement (jamais bundlées côté client) : auth, mail (IMAP/SMTP).
+    serverComponentsExternalPackages: ["bcryptjs", "imapflow", "nodemailer", "mailparser"],
   },
   // Security headers applied to every response.
   async headers() {

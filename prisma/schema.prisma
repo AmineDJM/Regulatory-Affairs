@@ -614,8 +614,30 @@ model User {
   // Événements organisés
   eventsResponsible Event[] @relation("EventResponsible")
 
+  // Boîte mail personnelle connectée (Infomaniak IMAP/SMTP)
+  mailAccount MailAccount? @relation("UserMailAccount")
+
   @@index([role])
   @@index([departmentId])
+}
+
+/// Boîte mail personnelle d'un employé (Infomaniak), connectée à la plateforme.
+/// Le mot de passe d'application est chiffré (AES-256-GCM) ; IMAP (lecture) + SMTP
+/// (envoi) côté serveur uniquement. Un compte par utilisateur.
+model MailAccount {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation("UserMailAccount", fields: [userId], references: [id], onDelete: Cascade)
+  email       String // adresse e-mail (login IMAP/SMTP)
+  displayName String? // nom affiché à l'envoi
+  imapHost    String   @default("mail.infomaniak.com")
+  imapPort    Int      @default(993)
+  smtpHost    String   @default("mail.infomaniak.com")
+  smtpPort    Int      @default(465)
+  passwordEnc String // mot de passe d'application, chiffré (jamais en clair)
+  lastSyncAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // ───────────────────────────── Regulatory ─────────────────────────────
