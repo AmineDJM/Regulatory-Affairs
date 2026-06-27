@@ -164,6 +164,21 @@ export async function getCrossModuleValidations(user: SessionUser): Promise<Cros
     });
   }
 
+  // 4) Information médicale : déclarations en attente du pharmacien responsable.
+  if (global || userCan(user, "MEDICAL_INFO", "VALIDATE")) {
+    const decls = await prisma.medicalInfoDeclaration.findMany({
+      where: { status: { in: ["AWAITING_REVIEW", "DOCS_REQUESTED", "READY"] } },
+      orderBy: { createdAt: "asc" }, take: 100,
+    });
+    const MI_STAGE: Record<string, string> = { AWAITING_REVIEW: "À déclarer", DOCS_REQUESTED: "Pièces demandées", READY: "Prêt à valider" };
+    for (const d of decls) out.push({
+      id: `mi-${d.id}`, reference: d.reference, title: d.label, module: "Information médicale",
+      stage: MI_STAGE[d.status] ?? d.status,
+      amount: d.amount ? toNumber(d.amount) : null,
+      requester: "", createdAt: d.createdAt.toISOString(), link: `/information-medicale/${d.id}`,
+    });
+  }
+
   return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 

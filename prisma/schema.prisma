@@ -34,6 +34,7 @@ enum UserRole {
   PRODUCT_MANAGER
   BUSINESS_DEVELOPMENT_MANAGER
   FINANCE_BUDGET_MANAGER
+  MEDICAL_INFO_PHARMACIST // Pharmacien responsable de l'information médicale
   VIEWER
 }
 
@@ -336,6 +337,7 @@ enum EntityType {
   FEEDBACK
   VALIDATION_REQUEST
   SUPPLIER
+  MEDICAL_INFO_DECLARATION
 }
 
 enum DocumentCategory {
@@ -616,6 +618,10 @@ model User {
 
   // Boîte mail personnelle connectée (Infomaniak IMAP/SMTP)
   mailAccount MailAccount? @relation("UserMailAccount")
+
+  // Information médicale (déclaration réglementaire)
+  medicalInfoDeclarations MedicalInfoDeclaration[] @relation("MedicalInfoPharmacist")
+  medicalInfoDocRequests  MedicalInfoDocRequest[]  @relation("MedicalInfoDocTarget")
 
   @@index([role])
   @@index([departmentId])
@@ -937,6 +943,70 @@ model CongressNational {
   @@index([date])
   @@index([requestStatus])
   @@index([requesterId])
+}
+
+// ─────────────────────── Information médicale (déclaration réglementaire) ───────────────────────
+
+/// Étape obligatoire qui s'intercale APRÈS la validation définitive de la Direction
+/// (sponsoring / congrès) et AVANT l'envoi de l'ordre de dépense au comptable.
+/// Le pharmacien responsable de l'information médicale déclare l'événement aux
+/// autorités, peut exiger des pièces (de la Direction, du comptable, du délégué…),
+/// puis valide — ce qui déclenche enfin l'ordre de dépense.
+enum MedicalInfoStatus {
+  AWAITING_REVIEW // validé par la Direction → en attente du pharmacien
+  DOCS_REQUESTED // des pièces ont été demandées, en attente de dépôt
+  READY // pièces reçues → prêt à valider
+  VALIDATED // validé par le pharmacien → ordre de dépense émis
+}
+
+enum DocRequestStatus {
+  PENDING
+  FULFILLED
+}
+
+model MedicalInfoDeclaration {
+  id             String                  @id @default(cuid())
+  reference      String                  @unique // DIM-2026-001
+  sourceType     EntityType // SPONSORING | CONGRESS_INTERNATIONAL | CONGRESS_NATIONAL
+  sourceId       String
+  label          String // institution / nom de l'événement
+  beneficiary    String? // bénéficiaire (repris pour l'ordre de dépense)
+  amount         Decimal?                @db.Decimal(14, 2) // budget accordé par la Direction
+  requesterId    String? // demandeur d'origine (repris pour l'ordre de dépense)
+  status         MedicalInfoStatus       @default(AWAITING_REVIEW)
+  pharmacistId   String? // pharmacien en charge (assigné)
+  pharmacist     User?                   @relation("MedicalInfoPharmacist", fields: [pharmacistId], references: [id])
+  authorityRef   String? // référence / récépissé de déclaration aux autorités
+  authorityNotes String? // notes de déclaration
+  validatedAt    DateTime?
+  validatedById  String?
+  expenseOrderId String? // ordre de dépense émis après validation du pharmacien
+  requests       MedicalInfoDocRequest[]
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  @@unique([sourceType, sourceId])
+  @@index([status])
+  @@index([pharmacistId])
+}
+
+model MedicalInfoDocRequest {
+  id            String                 @id @default(cuid())
+  declarationId String
+  declaration   MedicalInfoDeclaration @relation(fields: [declarationId], references: [id], onDelete: Cascade)
+  label         String // ce qui est demandé
+  targetUserId  String? // à qui la pièce est demandée (Direction / comptable / délégué…)
+  targetUser    User?                  @relation("MedicalInfoDocTarget", fields: [targetUserId], references: [id])
+  status        DocRequestStatus       @default(PENDING)
+  documentId    String? // Document déposé en réponse (model Document)
+  note          String? // précision du déposant
+  requestedById String?
+  fulfilledAt   DateTime?
+  createdAt     DateTime               @default(now())
+
+  @@index([declarationId])
+  @@index([targetUserId])
+  @@index([status])
 }
 
 // ───────────────────────────── Sales ─────────────────────────────

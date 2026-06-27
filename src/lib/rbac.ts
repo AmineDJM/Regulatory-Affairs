@@ -21,7 +21,7 @@ const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
 export const MODULES = [
   "DASHBOARD", "WORKSPACE", "MESSAGING", "REGULATORY", "SPONSORING", "BUDGETS", "FINANCES", "RH",
   "CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENTS", "SALES", "LOGISTICS", "MEDICAL",
-  "BUSINESS_DEVELOPMENT", "PCH", "STOCKS", "VALIDATIONS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
+  "BUSINESS_DEVELOPMENT", "PCH", "STOCKS", "MEDICAL_INFO", "VALIDATIONS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
   "PROCESS_INTELLIGENCE", "ADMIN",
 ] as const;
 export type Module = (typeof MODULES)[number];
@@ -63,7 +63,7 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     BUDGETS: MANAGE, FINANCES: READ_VALIDATE, RH: MANAGE, CONGRESS_INTERNATIONAL: READ_VALIDATE,
     CONGRESS_NATIONAL: READ_VALIDATE, EVENTS: READ_VALIDATE, SALES: READ_VALIDATE, LOGISTICS: READ_VALIDATE, PCH: READ_VALIDATE,
     STOCKS: READ_VALIDATE, MEDICAL: READ_VALIDATE, BUSINESS_DEVELOPMENT: READ_VALIDATE, DOCUMENTS: READ,
-    NOTIFICATIONS: ["VIEW"], ADMIN: ["VIEW", "EXPORT"],
+    MEDICAL_INFO: READ_VALIDATE, NOTIFICATIONS: ["VIEW"], ADMIN: ["VIEW", "EXPORT"],
   },
   HEAD_OF_REGULATORY: {
     DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, REGULATORY: MANAGE, DOCUMENTS: CONTRIBUTE, BUDGETS: READ, NOTIFICATIONS: ["VIEW"],
@@ -90,7 +90,14 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   },
   FINANCE_BUDGET_MANAGER: {
     DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUDGETS: MANAGE, FINANCES: MANAGE, RH: READ, SPONSORING: READ, SALES: READ, LOGISTICS: READ, PCH: READ, STOCKS: READ,
-    DOCUMENTS: READ, NOTIFICATIONS: ["VIEW"],
+    DOCUMENTS: READ, MEDICAL_INFO: ["VIEW", "UPLOAD"], NOTIFICATIONS: ["VIEW"],
+  },
+  // Pharmacien responsable de l'information médicale : déclare aux autorités les
+  // événements validés définitivement, exige des pièces, puis valide (→ ordre de
+  // dépense). Lecture des pôles événementiels pour instruire ses déclarations.
+  MEDICAL_INFO_PHARMACIST: {
+    DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER,
+    MEDICAL_INFO: MANAGE, SPONSORING: READ, CONGRESS_INTERNATIONAL: READ, CONGRESS_NATIONAL: READ, EVENTS: READ, MEDICAL: READ, DOCUMENTS: CONTRIBUTE, NOTIFICATIONS: ["VIEW"],
   },
   VIEWER: { DASHBOARD: ["VIEW"], WORKSPACE: ["VIEW", "CREATE", "UPDATE"], MESSAGING: MESSAGING_USER, DRIVE: ["VIEW", "EXPORT"], ADMIN_REQUESTS: ["VIEW", "CREATE", "UPLOAD"], DOCUMENTS: ["VIEW"], NOTIFICATIONS: ["VIEW"] },
 };
@@ -112,6 +119,9 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
   if (module === "DRIVE") return "ASSIGNED";
   // Admin requests: a requester sees only their own; the assistant gets scope ALL via admin grant.
   if (module === "ADMIN_REQUESTS") return "ASSIGNED";
+  // Information médicale : le pharmacien responsable voit tout ; les autres (Direction
+  // exceptée via hasGlobalView) ne voient que les déclarations où une pièce leur est demandée.
+  if (module === "MEDICAL_INFO") return role === "MEDICAL_INFO_PHARMACIST" ? "ALL" : "ASSIGNED";
   const assigned: Partial<Record<Module, UserRole[]>> = {
     REGULATORY: ["REGULATORY_ASSISTANT"],
     SALES: ["SALES_USER"],
@@ -284,6 +294,15 @@ export function scopeBdProject(user: SessionUser): Prisma.BdProjectWhereInput {
   const ids = grantsFor(user, "BD_PROJECT");
   if (ids.length) ors.push({ id: { in: ids } });
   return { OR: ors };
+}
+
+/** Information médicale : le pharmacien (scope ALL) voit toutes les déclarations ;
+ *  un autre utilisateur ne voit que celles où une pièce lui est demandée. */
+export function scopeMedicalInfo(user: SessionUser): Prisma.MedicalInfoDeclarationWhereInput {
+  const m = user.access.modules.get("MEDICAL_INFO");
+  if (!m) return { id: "__none__" };
+  if (m.scope === "ALL") return {};
+  return { OR: [{ pharmacistId: user.id }, { requests: { some: { targetUserId: user.id } } }] };
 }
 
 /** Admin requests scope: a manager (scope ALL) sees all; others see the ones they

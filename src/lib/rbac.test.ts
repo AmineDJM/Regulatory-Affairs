@@ -63,11 +63,22 @@ describe("role-default permissions (can)", () => {
     const validatable: Module[] = [
       "REGULATORY", "SPONSORING", "BUDGETS", "FINANCES", "CONGRESS_INTERNATIONAL",
       "CONGRESS_NATIONAL", "SALES", "LOGISTICS", "PCH", "STOCKS", "MEDICAL",
-      "BUSINESS_DEVELOPMENT", "VALIDATIONS",
+      "BUSINESS_DEVELOPMENT", "VALIDATIONS", "MEDICAL_INFO",
     ];
     for (const m of validatable) {
       expect(can("DIRECTION", m, "VALIDATE")).toBe(true);
     }
+  });
+  it("gives the medical-info pharmacist their module + read on event pôles", () => {
+    expect(can("MEDICAL_INFO_PHARMACIST", "MEDICAL_INFO", "VALIDATE")).toBe(true);
+    expect(can("MEDICAL_INFO_PHARMACIST", "MEDICAL_INFO", "CREATE")).toBe(true);
+    expect(can("MEDICAL_INFO_PHARMACIST", "SPONSORING", "VIEW")).toBe(true);
+    expect(can("MEDICAL_INFO_PHARMACIST", "SPONSORING", "VALIDATE")).toBe(false); // ne valide pas le sponsoring lui-même
+    expect(can("MEDICAL_INFO_PHARMACIST", "CONGRESS_INTERNATIONAL", "VIEW")).toBe(true);
+  });
+  it("scopes MEDICAL_INFO to ALL for the pharmacist, ASSIGNED otherwise", () => {
+    expect(defaultScope("MEDICAL_INFO_PHARMACIST", "MEDICAL_INFO")).toBe("ALL");
+    expect(defaultScope("FINANCE_BUDGET_MANAGER", "MEDICAL_INFO")).toBe("ASSIGNED");
   });
 });
 

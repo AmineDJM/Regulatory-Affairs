@@ -31,6 +31,7 @@ export const ROLE_LABELS: Record<string, string> = {
   PRODUCT_MANAGER: "Chef de produit",
   BUSINESS_DEVELOPMENT_MANAGER: "Manager Business Development",
   FINANCE_BUDGET_MANAGER: "Responsable Finance / Budget",
+  MEDICAL_INFO_PHARMACIST: "Pharmacien resp. information médicale",
   VIEWER: "Lecteur",
 };
 
@@ -630,6 +631,19 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   FEEDBACK: "Feedback",
   VALIDATION_REQUEST: "Validation",
   SUPPLIER: "Fournisseur",
+  MEDICAL_INFO_DECLARATION: "Information médicale",
+};
+
+export const MEDICAL_INFO_STATUS: Record<string, Display> = {
+  AWAITING_REVIEW: { label: "À déclarer", tone: "warning" },
+  DOCS_REQUESTED: { label: "Pièces demandées", tone: "info" },
+  READY: { label: "Prêt à valider", tone: "purple" },
+  VALIDATED: { label: "Validé", tone: "success" },
+};
+
+export const DOC_REQUEST_STATUS: Record<string, Display> = {
+  PENDING: { label: "En attente", tone: "warning" },
+  FULFILLED: { label: "Déposée", tone: "success" },
 };
 
 export const FEEDBACK_STATUS: Record<string, Display> = {
@@ -768,6 +782,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles" },
   { module: "MEDICAL", label: "Rapports terrain", href: "/field-reports", icon: "Mic", group: "Pôles" },
+  { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
   { module: "VALIDATIONS", label: "Validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
   { module: "DRIVE", label: "Drive", href: "/drive", icon: "HardDrive", group: "Transverse" },

@@ -7,7 +7,7 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
-import { createExpenseOrder } from "@/lib/expense-orders";
+import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 type CongressType = "INTL" | "NATIONAL";
@@ -179,32 +179,28 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
     return { ok: true };
   }
 
-  // Validation définitive → émission d'un ordre de dépense vers l'espace comptable.
+  // Validation définitive → étape « information médicale » (déclaration aux autorités
+  // par le pharmacien responsable) AVANT l'émission de l'ordre de dépense au comptable.
   const amount = Number(c.productManagerBudget ?? c.estimatedBudget ?? 0);
-  const order = amount > 0
-    ? await createExpenseOrder({
-        label: `Congrès — ${c.name}`,
-        amount,
-        category: "EVENEMENT",
-        beneficiary: c.name,
-        sourceType: entityFor(t),
-        sourceId: id,
-        requestedById: c.requesterId ?? user.id,
-      })
-    : null;
+  const decl = await createMedicalInfoDeclaration({
+    sourceType: entityFor(t),
+    sourceId: id,
+    label: `Congrès — ${c.name}`,
+    beneficiary: c.name,
+    amount,
+    requesterId: c.requesterId ?? user.id,
+  });
 
   await updateCongress(t, id, {
     requestStatus: "APPROVED",
     finalById: user.id, finalAt: new Date(), finalNote: fdStr(formData, "note"),
-    expenseOrderId: order?.id ?? null,
     status: "VALIDATED",
     updatedById: user.id,
   });
   if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: "Congrès validé — pris en charge", body: c.name, link: `${pathFor(t)}/${id}` });
-  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Validation définitive — ${c.name}${order ? ` (ordre ${order.reference})` : ""}` });
+  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Validation définitive — ${c.name} (déclaration ${decl.reference})` });
   revalidatePath(`${pathFor(t)}/${id}`);
-  revalidatePath("/finances/ordres-de-depense");
-  revalidatePath("/comptabilite");
+  revalidatePath("/information-medicale");
   return { ok: true };
 }
 

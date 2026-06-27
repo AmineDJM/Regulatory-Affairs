@@ -7,7 +7,7 @@ import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
-import { createExpenseOrder } from "@/lib/expense-orders";
+import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/sponsoring";
@@ -177,18 +177,16 @@ export async function sponsoringFinal(formData: FormData): Promise<ActionResult>
   const amountGranted = fdNum(formData, "amountGranted");
   if (amountGranted === null || amountGranted < 0) return { ok: false, error: "Le budget final accordé est obligatoire." };
 
-  // Validation définitive → ordre de dépense vers l'espace comptable.
-  const order = amountGranted > 0
-    ? await createExpenseOrder({
-        label: `Sponsoring ${req.reference} — ${req.institution}`,
-        amount: amountGranted,
-        category: "EVENEMENT",
-        beneficiary: req.institution,
-        sourceType: "SPONSORING",
-        sourceId: id,
-        requestedById: req.requesterId ?? user.id,
-      })
-    : null;
+  // Validation définitive → étape « information médicale » (déclaration aux autorités
+  // par le pharmacien responsable) AVANT l'émission de l'ordre de dépense au comptable.
+  const decl = await createMedicalInfoDeclaration({
+    sourceType: "SPONSORING",
+    sourceId: id,
+    label: `Sponsoring ${req.reference} — ${req.institution}`,
+    beneficiary: req.institution,
+    amount: amountGranted,
+    requesterId: req.requesterId ?? user.id,
+  });
 
   await prisma.sponsoringRequest.update({
     where: { id },
@@ -198,15 +196,13 @@ export async function sponsoringFinal(formData: FormData): Promise<ActionResult>
       finalDecision: fdStr(formData, "note"),
       finalById: user.id, finalAt: new Date(),
       validatedBy: user.name, validationDate: new Date(),
-      expenseOrderId: order?.id ?? null,
       updatedById: user.id,
     },
   });
   if (req.requesterId) await notifyUser({ userId: req.requesterId, type: "SPONSORING_VALIDATION", title: "Sponsoring accordé", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
-  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Validation définitive — ${req.reference}${order ? ` (ordre ${order.reference})` : ""}` });
+  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Validation définitive — ${req.reference} (déclaration ${decl.reference})` });
   revalidate(id);
-  revalidatePath("/finances/ordres-de-depense");
-  revalidatePath("/comptabilite");
+  revalidatePath("/information-medicale");
   return { ok: true };
 }
 

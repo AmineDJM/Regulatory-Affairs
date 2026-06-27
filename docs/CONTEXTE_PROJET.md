@@ -84,7 +84,8 @@
 
 `SUPER_ADMIN`, `DIRECTION`, `HEAD_OF_REGULATORY`, `REGULATORY_ASSISTANT`, `HEAD_OF_SALES`,
 `SALES_USER`, `LOGISTICS_MANAGER`, `MEDICAL_PROMOTION_MANAGER`, `MEDICAL_DELEGATE`,
-**`PRODUCT_MANAGER` (Chef de produit)**, `BUSINESS_DEVELOPMENT_MANAGER`, `FINANCE_BUDGET_MANAGER`, `VIEWER`.
+**`PRODUCT_MANAGER` (Chef de produit)**, `BUSINESS_DEVELOPMENT_MANAGER`, `FINANCE_BUDGET_MANAGER`,
+**`MEDICAL_INFO_PHARMACIST` (Pharmacien responsable de l'information médicale)**, `VIEWER`.
 
 > Le Super Admin gère tout via la **matrice d'accès** (admin/users/[id]). Penser à créer au moins
 > un compte **Chef de produit** (pour la validation des congrès) et à accorder les modules **PCH/STOCKS**
@@ -114,6 +115,11 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA*
 - **Mon espace (`/mon-espace`)** — tâches perso, congés/absences, avances sur salaire (self-service),
   activité, accès rapides.
 - **Messagerie (`/messages`)** — messagerie interne complète (voir §6). Badge non-lus live (topbar + sidebar).
+- **Courrier (`/courrier`)** — **webmail Infomaniak intégré** par utilisateur (IMAP lecture + SMTP envoi),
+  une seule entité avec la plateforme. Connexion par **mot de passe d'application** chiffré AES-256-GCM
+  (`MailAccount`), couche serveur `src/lib/mail.ts` (imapflow / nodemailer / mailparser), 3 volets
+  (dossiers · liste · lecture/composition), aperçu HTML en `iframe` sandbox. Routes serveur
+  `/api/mail/{messages,message,attachment}`. *(IMAP/SMTP testables uniquement hors sandbox réseau.)*
 - **Mon dossier RH (`/mon-dossier`)** — espace RH employé : ses **documents RH** (contrats, bulletins,
   attestations déposés en PDF par les RH, chiffrés, téléchargeables) + ses **demandes RH**
   (`HrRequestType`) : attestation de travail, CNAS, relevé des émoluments, domiciliation, **attestation /
@@ -181,6 +187,16 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA*
   (jusqu'à KOL) et **potentiel de prescription**. Spécialités = liste de référence gérée (modèle
   `MedicalSpecialty`). Le nom de spécialité est **dénormalisé** sur le médecin → la cascade Congrès
   (spécialité → médecins) continue de fonctionner sans changement. Visites & tournées conservées.
+- **Information médicale (`/information-medicale`)** — module du **pharmacien responsable de l'information
+  médicale** (`MEDICAL_INFO_PHARMACIST`). Étape réglementaire **intercalée** : à la validation définitive
+  d'un sponsoring / congrès par la Direction, **aucun ordre de dépense n'est encore émis** — une
+  `MedicalInfoDeclaration` (réf. `DIM-AAAA-NNN`) est créée et notifiée au pharmacien. Celui-ci **déclare
+  l'événement aux autorités**, peut **exiger des pièces** de qui il choisit (Direction, comptable,
+  délégué…) — chaque `MedicalInfoDocRequest` notifie le destinataire, qui **dépose** la pièce (apparaît
+  aussi dans *Mon travail* + détail accessible même sans le module via `canViewDeclaration`). Quand le
+  pharmacien **valide**, l'**ordre de dépense est enfin émis** vers le comptable et reporté sur
+  l'événement source (interconnexion). Statuts `MedicalInfoStatus` : À déclarer → Pièces demandées →
+  Prêt à valider → Validé. Agrégé aussi dans le **Centre de validation** et l'**Action Center**.
 - **Business Development (`/business-development`)** — **grand tableau stratégique Projet → Gamme →
   Produit** (≈20 colonnes : marché DZD/USD, prix, volumes, concurrents, investissements & revenus
   estimés A1-A3), colonnes gelées, recherche/filtres/tri, édition de cellule en place, export CSV,
@@ -318,11 +334,17 @@ actions `requestBudgetRevision` / `resolveBudgetRevision`.
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types** → **sponsoring_validation_workflow** → **congress_intl_event_type** → **expense_order_budget_revision**.
+→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types** → **sponsoring_validation_workflow** → **congress_intl_event_type** → **expense_order_budget_revision** → **mail_account** → **medical_info_pharmacist**.
 
 > **hr_request_types** : ajoute `LEAVE_TITLE`, `MISSION_ORDER`, `EXPENSE_REPORT` à l'enum `HrRequestType`
 > (`ALTER TYPE … ADD VALUE`). La **fusion de modules** (Finances/Congrès/Logistique-Stocks) est purement
 > présentationnelle : **aucune migration**.
+
+> **mail_account** : `MailAccount` (boîte mail Infomaniak par utilisateur — IMAP/SMTP, mot de passe
+> d'application chiffré AES-256-GCM). **medical_info_pharmacist** : nouveau rôle
+> `MEDICAL_INFO_PHARMACIST`, entité `MEDICAL_INFO_DECLARATION`, enums `MedicalInfoStatus` /
+> `DocRequestStatus`, modèles `MedicalInfoDeclaration` + `MedicalInfoDocRequest` (étape de déclaration
+> réglementaire intercalée entre la validation définitive de la Direction et l'ordre de dépense).
 
 > L'**Assistant IA / Chatbot** n'ajoute **aucune migration** (pas de changement de schéma : il lit/écrit
 > des entités existantes — `Task`, `AdministrativeRequest` — et conserve la conversation côté client).

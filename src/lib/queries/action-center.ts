@@ -3,7 +3,7 @@ import { userCan, hasGlobalView, scopeRegulatory, type SessionUser } from "@/lib
 import { getPendingValidations } from "@/lib/queries/validations";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import {
-  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS,
+  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS,
 } from "@/lib/labels";
 
 export interface ActionItem {
@@ -149,6 +149,35 @@ export async function getActionCenter(user: SessionUser) {
         deadline: null, owner: "", ...congressTone(c.requestStatus),
       });
     }
+  }
+
+  // 6c. Information médicale — déclarations à instruire (pharmacien responsable)
+  if (userCan(user, "MEDICAL_INFO", "VALIDATE") || hasGlobalView(user.role)) {
+    const decls = await prisma.medicalInfoDeclaration.findMany({
+      where: { status: { in: ["AWAITING_REVIEW", "DOCS_REQUESTED", "READY"] } },
+      orderBy: { createdAt: "desc" }, take: 40,
+    });
+    for (const d of decls) {
+      items.push({
+        key: `mi-${d.id}`, title: d.label, subtitle: d.reference,
+        module: "Information médicale", href: `/information-medicale/${d.id}`, kind: "validation", priority: null,
+        deadline: null, owner: "", ...resolve(MEDICAL_INFO_STATUS, d.status),
+      });
+    }
+  }
+
+  // 6d. Pièces qui me sont demandées au titre de l'information médicale (tout utilisateur)
+  const myDocReqs = await prisma.medicalInfoDocRequest.findMany({
+    where: { targetUserId: user.id, status: "PENDING" },
+    include: { declaration: { select: { id: true, reference: true } } },
+    orderBy: { createdAt: "desc" }, take: 30,
+  });
+  for (const r of myDocReqs) {
+    items.push({
+      key: `midoc-${r.id}`, title: `Pièce à déposer — ${r.label}`, subtitle: r.declaration.reference,
+      module: "Information médicale", href: `/information-medicale/${r.declaration.id}`, kind: "request", priority: null,
+      deadline: null, owner: "", statusLabel: "À déposer", statusTone: "warning",
+    });
   }
 
   // 7. Notifications non lues
