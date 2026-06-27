@@ -291,12 +291,15 @@ La couche IA (`src/lib/ai.ts`) est **serveur uniquement** ; sans clé, elle renv
 affiche proprement « IA non configurée » — **aucune fonctionnalité ne casse**.
 
 - **Assistant IA** (`/assistant`) — **boucle agent Claude**. Comprend l'app et les données de l'utilisateur
-  **filtrées par ses droits**. Les **outils de lecture** (annuaire, tâches, médecins, produits…) sont exécutés
-  automatiquement et **scopés** ; les **outils d'écriture** ne sont **jamais** exécutés par l'IA : ils reviennent
-  en **carte de confirmation**. Actions possibles (chacune gardée par son module) : créer une tâche, créer une
-  demande administrative, **envoyer un message** interne, créer une **demande de congrès**. Exécution
-  **ré-autorisée** + **journalisée**. Garde-fous : n'invente jamais un médecin/produit/personne, **avertit sur
-  les dates passées**, **sortie en texte simple**, **robuste** (timeout + retry 429/5xx, ne lève jamais).
+  **filtrées par ses droits**. Les **outils de lecture** (annuaire, tâches, médecins, produits, **e-mails de sa
+  propre boîte Courrier**…) sont exécutés automatiquement et **scopés** ; les **outils d'écriture** ne sont
+  **jamais** exécutés par l'IA : ils reviennent en **carte de confirmation**. Actions possibles (chacune gardée
+  par son module) : créer une tâche, créer une demande administrative, **envoyer un message** interne,
+  **envoyer un e-mail** (depuis sa boîte), créer une **demande de congrès**. Il peut aussi **lire / résumer /
+  chercher dans ses e-mails** (« résume mes mails », « ai-je reçu un mail de la PCH ? »). Exécution
+  **ré-autorisée** + **journalisée**. Garde-fous : n'invente jamais un médecin/produit/personne **ni une adresse
+  e-mail**, **avertit sur les dates passées**, **sortie en texte simple**, **robuste** (timeout + retry 429/5xx,
+  ne lève jamais).
 - **Rapports terrain vocaux** (`/field-reports`) — *Parler → transcription (**Whisper / OpenAI**) → analyse
   (**Claude** → champs structurés : médecin, objection, question médicale, concurrent, opportunité, signalement
   qualité/PV…) → relecture/correction → validation*. **L'IA ne valide jamais seule.** Synthèse agrégée pour les
@@ -331,6 +334,8 @@ Boîte mail **par utilisateur**, connectée à la plateforme (une seule entité)
 - Connexion par **mot de passe d'application** chiffré **AES-256-GCM** au repos (`MailAccount`).
 - Webmail **3 volets** (dossiers · liste · lecture/composition), aperçu HTML en **iframe sandbox**.
 - Couche serveur `src/lib/mail.ts`, routes `/api/mail/{messages,message,attachment}` (auth + scoping).
+- 🤖 **Connecté à l'Assistant IA** : il peut **lire / résumer / chercher** dans **votre** boîte et **rédiger un
+  e-mail** (envoyé seulement après confirmation) — voir [Assistant IA](#-intelligence-artificielle-claude--whisper).
 
 > Par défaut, les serveurs pointent sur `mail.infomaniak.com` (IMAP 993 / SMTP 465) — modifiables par utilisateur.
 

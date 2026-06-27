@@ -23,6 +23,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { findDirectConversation } from "@/lib/messaging";
+import { getMailAccount, listMessages, getMessage, sendMail } from "@/lib/mail";
 import {
   callClaude, aiConfigured,
   type ClaudeMessage, type ClaudeContentBlock, type ClaudeToolDef,
@@ -73,6 +74,13 @@ export type AssistantActionPayload =
       kind: "send_message";
       recipientId?: string | null;
       recipientName?: string | null;
+      body: string;
+    }
+  | {
+      kind: "send_email";
+      to: string;
+      cc?: string | null;
+      subject: string;
       body: string;
     }
   | {
@@ -188,6 +196,25 @@ const READ_TOOLS: ClaudeToolDef[] = [
       properties: { query: { type: "string", description: "Nom ou ville de l'événement." } },
     },
   },
+  {
+    name: "list_emails",
+    description:
+      "Liste les e-mails récents de la **boîte mail de l'utilisateur** (sa propre boîte connectée dans Courrier). À utiliser pour « résume mes mails », « ai-je reçu un mail de X ? ». Renvoie pour chaque message : uid, expéditeur, adresse, objet, date, lu/non lu. Si aucune boîte n'est connectée, le signaler.",
+    input_schema: {
+      type: "object",
+      properties: { limit: { type: "number", description: "Nombre de messages récents (défaut 15, max 30)." } },
+    },
+  },
+  {
+    name: "read_email",
+    description:
+      "Lit le contenu complet d'un e-mail de la boîte de l'utilisateur, identifié par son `uid` (obtenu via list_emails). Renvoie expéditeur, adresse, destinataires, objet, date, corps texte et noms des pièces jointes.",
+    input_schema: {
+      type: "object",
+      properties: { uid: { type: "number", description: "Identifiant uid du message (depuis list_emails)." } },
+      required: ["uid"],
+    },
+  },
 ];
 
 const WRITE_TOOLS: ClaudeToolDef[] = [
@@ -244,6 +271,21 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
     },
   },
   {
+    name: "send_email",
+    description:
+      "PROPOSE l'envoi d'un e-mail depuis la boîte mail de l'utilisateur (module Courrier). N'exécute rien : confirmation requise. Le destinataire `to` doit être une ADRESSE e-mail (ex. nom@domaine.dz). Pour écrire à un collègue en INTERNE, préférer send_message. Pour répondre à un mail reçu, le lire d'abord avec read_email pour récupérer l'adresse de l'expéditeur.",
+    input_schema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "Adresse e-mail du destinataire." },
+        cc: { type: "string", description: "Adresse(s) en copie, séparées par des virgules (optionnel)." },
+        subject: { type: "string", description: "Objet du mail." },
+        body: { type: "string", description: "Corps du mail (texte)." },
+      },
+      required: ["to", "subject", "body"],
+    },
+  },
+  {
     name: "create_congress_request",
     description:
       "PROPOSE une demande de prise en charge de congrès (scope NATIONAL ou INTL), au stade préliminaire (validation Direction ensuite). N'exécute rien : confirmation requise. Réservé aux utilisateurs ayant le module congrès correspondant. Pour un médecin invité, le retrouver avec search_doctors (jamais d'invention).",
@@ -293,11 +335,15 @@ ${buildContext(user)}
 
 CE QUE TU PEUX FAIRE :
 - Répondre aux questions sur le travail de l'utilisateur et sur l'application (modules, démarches, statuts).
+- Consulter et résumer ses E-MAILS (sa propre boîte connectée dans Courrier) via list_emails / read_email,
+  et chercher un message précis. Tu peux résumer la boîte, repérer ce qui demande une réponse, retrouver un
+  mail d'un expéditeur, etc. — toujours UNIQUEMENT sa boîte à lui.
 - Agir pour lui (dans la limite de SES droits) : créer une tâche, créer une demande administrative
   (billet/déplacement, courrier, signature, achat, devis, paiement, mission chauffeur, visa/invité, RH),
-  envoyer un message interne à un collègue, créer une demande de prise en charge de congrès (national ou
-  international). Tu PROPOSES l'action ; le système l'exécute seulement après que l'utilisateur a cliqué
-  « Confirmer ». Ne prétends jamais qu'une action est déjà faite : dis « je prépare… », pas « c'est fait ».
+  envoyer un message interne à un collègue, ENVOYER UN E-MAIL depuis sa boîte, créer une demande de prise en
+  charge de congrès (national ou international). Tu PROPOSES l'action ; le système l'exécute seulement après
+  que l'utilisateur a cliqué « Confirmer ». Ne prétends jamais qu'une action est déjà faite : dis « je
+  prépare… », pas « c'est fait ».
 
 RÈGLES IMPÉRATIVES :
 - Fonde TOUJOURS tes réponses sur les outils de lecture ; n'invente JAMAIS un médecin, un produit, un
@@ -316,7 +362,11 @@ INTERPRÉTATION DES DEMANDES (très important) :
   administratives : assigne-lui la demande (assigneeName = « assistante de direction » ou son nom) — ne
   cherche PAS dans la messagerie et n'utilise PAS send_message pour ça.
 - N'utilise send_message QUE si l'utilisateur demande explicitement d'« envoyer un message / écrire / dire /
-  prévenir » un collègue via la messagerie interne.
+  prévenir » un collègue via la messagerie INTERNE.
+- E-MAIL vs message interne : send_email envoie un vrai e-mail à une ADRESSE (nom@domaine) depuis la boîte
+  Courrier de l'utilisateur ; send_message écrit à un collègue dans la messagerie interne. Pour « envoie un
+  mail à … », utilise send_email ; si tu n'as pas l'adresse (ex. « réponds à ce mail »), lis d'abord le
+  message avec read_email pour récupérer l'adresse de l'expéditeur. Ne devine jamais une adresse e-mail.
 - DATES — sois prudent : la date du jour est indiquée dans le contexte. Quand une date demandée est DÉJÀ
   PASSÉE (antérieure à aujourd'hui), SIGNALE-LE clairement dans ta réponse et demande à l'utilisateur de
   confirmer ou de corriger AVANT de proposer l'action. Renseigne toujours les dates au format AAAA-MM-JJ
@@ -466,6 +516,38 @@ export async function executeReadTool(name: string, input: Record<string, unknow
         date: e.startDate?.toISOString().slice(0, 10) ?? null, ville: e.city ?? null, inscrits: e._count.registrations,
       })));
     }
+    case "list_emails": {
+      const account = await getMailAccount(user.id);
+      if (!account) return "Aucune boîte mail connectée. L'utilisateur peut connecter sa boîte dans le module Courrier.";
+      const limit = Math.min(typeof input.limit === "number" ? input.limit : 15, 30);
+      try {
+        const msgs = await listMessages(account, "INBOX", limit);
+        if (msgs.length === 0) return "Boîte de réception vide.";
+        return JSON.stringify(msgs.map((m) => ({
+          uid: m.uid, de: m.from || m.fromAddr, adresse: m.fromAddr, objet: m.subject,
+          date: m.date ? m.date.slice(0, 16).replace("T", " ") : null, lu: m.seen,
+        })));
+      } catch (e) {
+        return `Impossible de lire la boîte mail : ${(e as Error)?.message ?? "erreur de connexion"}.`;
+      }
+    }
+    case "read_email": {
+      const account = await getMailAccount(user.id);
+      if (!account) return "Aucune boîte mail connectée.";
+      const uid = typeof input.uid === "number" ? input.uid : Number(asStr(input, "uid"));
+      if (!Number.isFinite(uid)) return "uid manquant ou invalide (l'obtenir d'abord via list_emails).";
+      try {
+        const msg = await getMessage(account, "INBOX", uid);
+        if (!msg) return "E-mail introuvable.";
+        const content = (msg.text || (msg.html ? msg.html.replace(/<[^>]+>/g, " ") : "") || "").replace(/\s+/g, " ").trim().slice(0, 4000);
+        return JSON.stringify({
+          de: msg.from || msg.fromAddr, adresse: msg.fromAddr, a: msg.to, objet: msg.subject,
+          date: msg.date, contenu: content, piecesJointes: msg.attachments.map((a) => a.filename),
+        });
+      } catch (e) {
+        return `Impossible de lire l'e-mail : ${(e as Error)?.message ?? "erreur de connexion"}.`;
+      }
+    }
     default:
       return `Outil inconnu : ${name}.`;
   }
@@ -479,6 +561,8 @@ const READ_LABEL: Record<string, string> = {
   search_doctors: "Annuaire médical consulté",
   search_products: "Produits Regulatory consultés",
   search_events: "Événements consultés",
+  list_emails: "Boîte mail consultée",
+  read_email: "E-mail lu",
 };
 
 // ───────────────────────────── Construction d'une action proposée ─────────────────────────────
@@ -602,6 +686,30 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
         { label: "Message", value: body },
       ],
       payload: { kind: "send_message", recipientId: recipient.id, recipientName: recipient.name, body },
+    };
+  }
+
+  if (toolName === "send_email") {
+    const to = asStr(input, "to");
+    const subject = asStr(input, "subject");
+    const body = asStr(input, "body");
+    const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+    if (!to || !isEmail(to)) return { error: "Adresse e-mail du destinataire manquante ou invalide." };
+    if (!body) return { error: "Le corps de l'e-mail est vide." };
+    const cc = asStr(input, "cc");
+    if (cc && !cc.split(",").every((p) => isEmail(p.trim()))) return { error: "Adresse(s) en copie invalide(s)." };
+    const account = await getMailAccount(user.id);
+    if (!account) warnings.push("Aucune boîte mail connectée — connectez votre boîte dans Courrier avant d'envoyer.");
+    const fields = [
+      { label: "De", value: account?.email ?? "(boîte non connectée)" },
+      { label: "À", value: to },
+    ];
+    if (cc) fields.push({ label: "Cc", value: cc });
+    fields.push({ label: "Objet", value: subject || "(sans objet)" });
+    fields.push({ label: "Message", value: body });
+    return {
+      kind: "send_email", module: "WORKSPACE", title: "Envoyer un e-mail", fields, warnings,
+      payload: { kind: "send_email", to, cc: cc || null, subject, body },
     };
   }
 
@@ -853,6 +961,25 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     await notifyUser({ userId: recipientId, type: "GENERIC", title: "Nouveau message", body: body.slice(0, 80), link: "/messages" });
     await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", entityId: convId, summary: `Message envoyé via l'assistant à ${payload.recipientName ?? "un collègue"}` });
     return { ok: true, message: `Message envoyé à ${payload.recipientName ?? "votre collègue"}.`, link: "/messages", revalidate: ["/messages"] };
+  }
+
+  if (payload?.kind === "send_email") {
+    // L'autorisation est inhérente : on n'envoie que depuis la propre boîte connectée de l'utilisateur.
+    const account = await getMailAccount(user.id);
+    if (!account) return { ok: false, error: "Aucune boîte mail connectée. Connectez votre boîte dans Courrier." };
+    const to = (payload.to ?? "").trim();
+    const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+    if (!isEmail(to)) return { ok: false, error: "Adresse destinataire invalide." };
+    const body = (payload.body ?? "").trim().slice(0, 50000);
+    if (!body) return { ok: false, error: "E-mail vide." };
+    const cc = (payload.cc ?? "").trim();
+    try {
+      await sendMail(account, { to, cc: cc || undefined, subject: (payload.subject ?? "").trim() || "(sans objet)", text: body });
+    } catch (e) {
+      return { ok: false, error: `Envoi impossible : ${(e as Error)?.message ?? "erreur SMTP"}.` };
+    }
+    await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", summary: `E-mail envoyé via l'assistant à ${to}` });
+    return { ok: true, message: `E-mail envoyé à ${to}.`, link: "/courrier", revalidate: ["/courrier"] };
   }
 
   if (payload?.kind === "create_congress_request") {

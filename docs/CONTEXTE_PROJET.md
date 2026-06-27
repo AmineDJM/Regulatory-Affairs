@@ -135,13 +135,16 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA*
 - **Assistant IA (`/assistant`)** — chatbot interne (boucle agent Claude). Comprend l'app + les données
   de l'utilisateur **filtrées par ses droits RBAC**, répond aux questions et **prépare des actions**.
   **Outils de lecture** exécutés automatiquement (annuaire interne, mes tâches/demandes, médecins/produits/
-  events — tous scopés). **Outils d'écriture** jamais exécutés par l'IA : interceptés et renvoyés en **carte
-  de confirmation** (« Confirmer chaque action avant exécution »). Actions disponibles (chacune gardée par
-  le module correspondant) : **créer une tâche** (WORKSPACE), **créer une demande administrative** (TRAVEL,
-  etc. — ex. billet pour un invité, avec dates), **envoyer un message** interne à un collègue (MESSAGING →
-  DM + message), **créer une demande de congrès** national/international (CONGRESS_* → demande préliminaire
-  + notif Direction). L'exécution (`performAction`) est **ré-autorisée** côté serveur (jamais sur la
-  confiance du client) et **journalisée** (module « Assistant IA »).
+  events, **e-mails de sa propre boîte Courrier** via `list_emails`/`read_email` — tous scopés). **Outils
+  d'écriture** jamais exécutés par l'IA : interceptés et renvoyés en **carte de confirmation** (« Confirmer
+  chaque action avant exécution »). Actions disponibles (chacune gardée par le module correspondant) :
+  **créer une tâche** (WORKSPACE), **créer une demande administrative** (TRAVEL, etc. — ex. billet pour un
+  invité, avec dates), **envoyer un message** interne à un collègue (MESSAGING → DM + message), **envoyer un
+  e-mail** depuis sa boîte (`send_email` → SMTP via `lib/mail`, autorisation inhérente = sa propre boîte ;
+  jamais d'adresse devinée ; distinct de la messagerie interne), **créer une demande de congrès**
+  national/international (CONGRESS_* → demande préliminaire + notif Direction). L'exécution (`performAction`)
+  est **ré-autorisée** côté serveur (jamais sur la confiance du client) et **journalisée** (module
+  « Assistant IA »). *(Les outils e-mail s'appuient sur IMAP/SMTP — testables uniquement hors sandbox réseau.)*
   **Garde-fous :** clé `ANTHROPIC_API_KEY` serveur uniquement ; sans clé → bannière « IA non configurée ».
   N'invente jamais un médecin/produit/établissement/personne (sinon « à confirmer »). **Dates** : la date du
   jour est dans le contexte ; toute date **passée** déclenche un avertissement sur la carte (`pastWarning`)
