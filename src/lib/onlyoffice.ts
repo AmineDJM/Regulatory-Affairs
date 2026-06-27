@@ -102,3 +102,18 @@ export function readEditToken(token: string | null | undefined): EditToken | nul
   const p = verifyJwt<EditToken>(token);
   return p && p.kind === "edit" ? p : null;
 }
+
+/** Variante pour les **documents** (modèle Document, hors Drive) : pièces des dossiers,
+ *  Regulatory, etc. Même mécanisme de jeton signé, discriminé par `kind`. */
+export interface DocEditToken {
+  docId: string;
+  userId: string;
+  kind: "docedit";
+}
+export function makeDocEditToken(docId: string, userId: string, expiresInSec = 24 * 3600): string {
+  return signJwt({ docId, userId, kind: "docedit" }, expiresInSec);
+}
+export function readDocEditToken(token: string | null | undefined): DocEditToken | null {
+  const p = verifyJwt<DocEditToken>(token);
+  return p && p.kind === "docedit" ? p : null;
+}

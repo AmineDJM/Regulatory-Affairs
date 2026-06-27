@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SPONSORING_STATUS, PRIORITY } from "@/lib/labels";
 import { DecisionPanel } from "./decision-panel";
 
@@ -163,7 +164,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                 </div>
               )}
               {canUpload && <DocumentUpload entityType="SPONSORING" entityId={req.id} categories={SPONSORING_DOC_CATEGORIES} />}
-              <DocumentList documents={docItems} canDelete={canDelete} path={`/sponsoring/${req.id}`} />
+              <DocumentList documents={docItems} canDelete={canDelete} canEdit={onlyofficeConfigured() && canUpload} path={`/sponsoring/${req.id}`} />
             </CardContent>
           </Card>
           <Card>

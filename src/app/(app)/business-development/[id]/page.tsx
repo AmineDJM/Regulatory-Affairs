@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { CommentThread } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { formatCompact } from "@/lib/utils";
 import { BdStrategicTable } from "../bd-strategic-table";
 import { ProjectEditor, ProjectStatusBadge } from "../project-editor";
@@ -110,7 +111,7 @@ export default async function BdProjectDetailPage({ params }: { params: { id: st
           </CardHeader>
           <CardContent className="space-y-4">
             {canUpload && <DocumentUpload entityType="BD_PROJECT" entityId={project.id} categories={BD_DOC_CATEGORIES} />}
-            <DocumentList documents={docItems} canDelete={canDelete} path={`/business-development/${project.id}`} />
+            <DocumentList documents={docItems} canDelete={canDelete} canEdit={onlyofficeConfigured() && canUpload} path={`/business-development/${project.id}`} />
           </CardContent>
         </Card>
       </div>

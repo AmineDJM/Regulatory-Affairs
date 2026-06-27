@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { DOSSIER_STATUS, PRIORITY } from "@/lib/labels";
 import { DossierStatusControls, DossierAssign, DossierMessageForm } from "./panel";
 
@@ -119,7 +120,7 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><Paperclip className="h-4 w-4" /> Pièces & fichiers</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <DocumentList documents={docItems} canDelete={false} path={`/dossiers/${d.id}`} />
+              <DocumentList documents={docItems} canDelete={false} canEdit={onlyofficeConfigured() && canUpload && !archived} path={`/dossiers/${d.id}`} />
               {canUpload && !archived && <DocumentUpload entityType="DOSSIER" entityId={d.id} categories={DOSSIER_DOC_CATEGORIES} />}
             </CardContent>
           </Card>

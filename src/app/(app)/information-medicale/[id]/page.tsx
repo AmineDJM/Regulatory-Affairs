@@ -9,6 +9,7 @@ import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/util
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { MEDICAL_INFO_STATUS, DOC_REQUEST_STATUS, ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { RequestDocForm, CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton } from "./panels";
 
@@ -131,7 +132,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
             <Card>
               <CardHeader><CardTitle>Documents déposés</CardTitle></CardHeader>
               <CardContent>
-                <DocumentList documents={docItems} canDelete={false} path={`/information-medicale/${decl.id}`} />
+                <DocumentList documents={docItems} canDelete={false} canEdit={onlyofficeConfigured() && canManage} path={`/information-medicale/${decl.id}`} />
               </CardContent>
             </Card>
           )}

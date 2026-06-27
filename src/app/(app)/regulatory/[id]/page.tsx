@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { CommentThread } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { StepTimeline, type StepItem } from "./step-timeline";
 import { StatusEditor } from "./status-editor";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
@@ -202,7 +203,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   categories={REG_DOC_CATEGORIES}
                 />
               )}
-              <DocumentList documents={docItems} canDelete={canDelete} path={`/regulatory/${product.id}`} />
+              <DocumentList documents={docItems} canDelete={canDelete} canEdit={onlyofficeConfigured() && canUpload} path={`/regulatory/${product.id}`} />
             </CardContent>
           </Card>
 

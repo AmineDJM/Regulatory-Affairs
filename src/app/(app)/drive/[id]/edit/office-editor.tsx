@@ -13,7 +13,7 @@ declare global {
   }
 }
 
-export function OfficeEditor({ apiJs, config, name }: { apiJs: string; config: unknown; name: string }) {
+export function OfficeEditor({ apiJs, config, name, backHref = "/drive", backLabel = "Retour au Drive" }: { apiJs: string; config: unknown; name: string; backHref?: string; backLabel?: string }) {
   const editorRef = React.useRef<{ destroyEditor?: () => void } | null>(null);
   const [ready, setReady] = React.useState(false);
 
@@ -34,8 +34,8 @@ export function OfficeEditor({ apiJs, config, name }: { apiJs: string; config: u
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
-        <Link href="/drive" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" /> Retour au Drive
+        <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" /> {backLabel}
         </Link>
         <span className="truncate text-sm font-medium">{name}</span>
         <span className="w-24" />

@@ -1,18 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
-import { onlyofficeConfigured, readEditToken } from "@/lib/onlyoffice";
+import { readFileByKey } from "@/lib/storage";
+import { onlyofficeConfigured, readEditToken, readDocEditToken } from "@/lib/onlyoffice";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Sert le fichier courant au Document Server OnlyOffice (serveur-à-serveur, sans
  * session). L'accès est autorisé par un **jeton signé** émis par la page d'édition
- * (lié au nœud + à l'utilisateur). Personne ne peut récupérer un fichier sans jeton valide.
+ * (lié au nœud/document + à l'utilisateur). Personne ne peut récupérer un fichier
+ * sans jeton valide. Gère le Drive (DriveNode) ET les documents (modèle Document).
  */
 export async function GET(req: NextRequest) {
   if (!onlyofficeConfigured()) return new NextResponse(null, { status: 404 });
-  const payload = readEditToken(req.nextUrl.searchParams.get("token"));
+  const token = req.nextUrl.searchParams.get("token");
+
+  // Document (pièces des dossiers / Regulatory / etc.)
+  const docTok = readDocEditToken(token);
+  if (docTok) {
+    const doc = await prisma.document.findUnique({ where: { id: docTok.docId }, select: { name: true, mimeType: true, fileKey: true } });
+    if (!doc?.fileKey) return new NextResponse(null, { status: 404 });
+    try {
+      const bytes = await readFileByKey(doc.fileKey);
+      return new NextResponse(new Uint8Array(bytes), {
+        headers: {
+          "Content-Type": doc.mimeType ?? "application/octet-stream",
+          "Content-Length": String(bytes.length),
+          "Cache-Control": "private, no-store",
+        },
+      });
+    } catch {
+      return new NextResponse(null, { status: 404 });
+    }
+  }
+
+  const payload = readEditToken(token);
   if (!payload) return new NextResponse(null, { status: 401 });
 
   const node = await prisma.driveNode.findUnique({

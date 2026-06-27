@@ -12,6 +12,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { CommentThread, type CommentItem } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, ADMIN_APPROVAL_STATUS, DRIVER_MISSION_STATUS, PRIORITY, AUDIT_ACTION } from "@/lib/labels";
 import { formatDate, formatDateTime, formatCurrency, toNumber } from "@/lib/utils";
 import { RequestActions } from "./request-actions";
@@ -102,7 +103,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             <CardHeader className="flex-row items-center justify-between"><CardTitle>Documents</CardTitle><Badge tone="neutral">{docItems.length}</Badge></CardHeader>
             <CardContent className="space-y-4">
               {canUpload && <DocumentUpload entityType="ADMIN_REQUEST" entityId={req.id} categories={REQ_DOC_CATEGORIES} />}
-              <DocumentList documents={docItems} canDelete={canManage} path={`/demandes/${req.id}`} />
+              <DocumentList documents={docItems} canDelete={canManage} canEdit={onlyofficeConfigured() && canUpload} path={`/demandes/${req.id}`} />
             </CardContent>
           </Card>
 

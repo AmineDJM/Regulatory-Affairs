@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SUPPORT_CATEGORY, SUPPORT_STATUS, PRIORITY, ROLE_LABELS } from "@/lib/labels";
 import { SupportActions, SupportMessageForm } from "./panel";
 
@@ -106,7 +107,7 @@ export default async function SupportDetailPage({ params }: { params: { id: stri
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><Paperclip className="h-4 w-4" /> Pièces jointes</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <DocumentList documents={docItems} canDelete={false} path={`/support/${r.id}`} />
+              <DocumentList documents={docItems} canDelete={false} canEdit={onlyofficeConfigured() && canUpload && !closed} path={`/support/${r.id}`} />
               {canUpload && !closed && <DocumentUpload entityType="SUPPORT_REQUEST" entityId={r.id} categories={SUPPORT_DOC_CATEGORIES} />}
             </CardContent>
           </Card>

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { LOGISTICS_STATUS } from "@/lib/labels";
 import { StatusUpdate } from "./status-update";
 
@@ -129,7 +130,7 @@ export default async function LogisticsDetailPage({ params }: { params: { id: st
           </CardHeader>
           <CardContent className="space-y-4">
             {canUpload && <DocumentUpload entityType="LOGISTICS" entityId={order.id} categories={LOGISTICS_DOC_CATEGORIES} />}
-            <DocumentList documents={docItems} canDelete={canDelete} path={`/logistics/${order.id}`} />
+            <DocumentList documents={docItems} canDelete={canDelete} canEdit={onlyofficeConfigured() && canUpload} path={`/logistics/${order.id}`} />
           </CardContent>
         </Card>
       </div>

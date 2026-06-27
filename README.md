@@ -438,13 +438,20 @@ Boîte mail **par utilisateur**, connectée à la plateforme (une seule entité)
 
 ## 📝 Édition Office (OnlyOffice auto-hébergé)
 
-Édition **Word / Excel / PowerPoint** directement dans le Drive, **sans dépendance cloud externe**.
+Édition **Word / Excel / PowerPoint** directement dans l'app, **sans dépendance cloud externe** —
+dans le **Drive** comme sur **toutes les pièces jointes des modules** (Regulatory, Dossiers, Sponsoring,
+Demandes, Logistique, BD, Support, Information médicale…).
 
-- Bouton **« Éditer dans Office »** sur les fichiers éditables (page `/drive/[id]/edit`).
+- Bouton **« Éditer dans Office »** (icône crayon) sur les fichiers éditables :
+  - **Drive** → page `/drive/[id]/edit` (versioning `FileVersion`).
+  - **Documents** (pièce d'une entité) → page `/documents/[id]/edit` : le fichier s'ouvre **en plein écran**,
+    modifiable, puis la sauvegarde **incrémente la version** du `Document` (audit module *Documents*). Le bouton
+    n'apparaît qu'aux personnes ayant le **droit de modifier** la pièce (même droit que le téléversement).
+- Aperçu in-app (lecture seule) conservé pour PDF / Word / Excel / PowerPoint / images partout.
 - Config **signée en JWT HS256** (`src/lib/onlyoffice.ts`, sans dépendance) ; le Document Server lit le fichier
-  via un **jeton signé** (`/api/onlyoffice/file`, sans session) et **rappelle** la sauvegarde
-  (`/api/onlyoffice/callback`) → création d'une **nouvelle version** Drive (auditée).
-- **Inerte** tant que les variables ne sont pas posées.
+  via un **jeton signé** discriminé par type (`edit` pour le Drive, `docedit` pour les Documents) sur
+  `/api/onlyoffice/file` (sans session) et **rappelle** la sauvegarde sur `/api/onlyoffice/callback`.
+- **Inerte** tant que les variables ne sont pas posées (aucun bouton « Éditer » ne s'affiche).
 
 > ⚠️ **Déploiement** : le Document Server doit être un **Web Service public** (le navigateur charge `api.js`) —
 > un *Private Service* ne suffit pas. Le `JWT_SECRET` du Document Server **doit être identique** à
@@ -574,7 +581,7 @@ npx prisma migrate deploy
   - Information médicale : déclaration → pièces → validation → **ordre de dépense déféré** (6/6)
   - Directives : émission, accès, accusé de réception, fil bidirectionnel, archivage, diffusion par rôle (5/5)
   - Demandes de support : émission, scope, prise en charge, réponse, refus d'un tiers, clôture (5/5)
-  - OnlyOffice : JWT (aller-retour / falsification / expiration / mauvais secret), types éditables (7/7)
+  - OnlyOffice : JWT (aller-retour / falsification / expiration / mauvais secret), types éditables, jetons d'édition Drive **et** Documents isolés (8/8)
   - Assistant IA : outils RBAC, résolution, exécution + audit *(skip propre si jeu de démo absent)*
 - Les tests dépendants de la base se **skippent proprement** sans base (CI verte partout).
 

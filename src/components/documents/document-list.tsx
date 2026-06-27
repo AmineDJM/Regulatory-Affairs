@@ -37,10 +37,12 @@ function formatBytes(bytes: number | null) {
 export function DocumentList({
   documents,
   canDelete,
+  canEdit,
   path,
 }: {
   documents: DocItem[];
   canDelete?: boolean;
+  canEdit?: boolean;
   path?: string;
 }) {
   const [pendingId, setPendingId] = React.useState<string | null>(null);
@@ -85,7 +87,7 @@ export function DocumentList({
           </div>
           <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
             <StatusBadge map={CONFIDENTIALITY} value={doc.confidentiality} dot={false} />
-            <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} />
+            <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} canEdit={canEdit} />
             <a
               href={`/api/documents/${doc.id}?dl=1`}
               className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"

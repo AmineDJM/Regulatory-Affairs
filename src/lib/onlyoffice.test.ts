@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   onlyofficeConfigured, onlyofficeDocType, onlyofficeEditable, fileExt,
-  signJwt, verifyJwt, makeEditToken, readEditToken,
+  signJwt, verifyJwt, makeEditToken, readEditToken, makeDocEditToken, readDocEditToken,
 } from "./onlyoffice";
 
 const PREV = { url: process.env.ONLYOFFICE_URL, secret: process.env.ONLYOFFICE_JWT_SECRET };
@@ -60,5 +60,15 @@ describe("OnlyOffice — JWT HS256", () => {
     expect(p?.kind).toBe("edit");
     // Un jeton sans kind:"edit" est refusé par readEditToken.
     expect(readEditToken(signJwt({ nodeId: "x", userId: "y" }))).toBeNull();
+  });
+  it("jeton d'édition de document : aller-retour + isolation des types de jetons", () => {
+    const t = makeDocEditToken("doc-7", "user-3");
+    const p = readDocEditToken(t);
+    expect(p?.docId).toBe("doc-7");
+    expect(p?.userId).toBe("user-3");
+    expect(p?.kind).toBe("docedit");
+    // Un jeton Drive (kind:"edit") n'est pas accepté comme jeton de document, et vice-versa.
+    expect(readDocEditToken(makeEditToken("node-1", "user-9"))).toBeNull();
+    expect(readEditToken(makeDocEditToken("doc-7", "user-3"))).toBeNull();
   });
 });
