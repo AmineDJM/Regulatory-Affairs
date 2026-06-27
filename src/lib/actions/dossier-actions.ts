@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { Priority, DossierStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, scopeDossiers, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
@@ -113,6 +113,68 @@ export async function postDossierMessage(formData: FormData): Promise<ActionResu
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Dossiers", entityType: "DOSSIER", entityId: id, summary: `Message — ${d.reference}` });
   revalidate(id);
   return { ok: true };
+}
+
+/** Liste des dossiers auxquels l'utilisateur peut rattacher quelque chose (non archivés). */
+export async function listLinkableDossiers(): Promise<{ id: string; reference: string; title: string }[]> {
+  const user = await requireUser();
+  if (!userCan(user, "DOSSIERS", "VIEW")) return [];
+  return prisma.dossier.findMany({
+    where: { AND: [scopeDossiers(user), { status: { not: "ARCHIVED" } }] },
+    select: { id: true, reference: true, title: true },
+    orderBy: { updatedAt: "desc" },
+    take: 100,
+  });
+}
+
+export interface LinkEmailInput {
+  dossierId?: string | null;
+  newTitle?: string | null;
+  from?: string | null;
+  subject?: string | null;
+  date?: string | null;
+  body?: string | null;
+}
+
+/**
+ * Rattache un e-mail (depuis le Courrier) à un dossier — existant ou créé à la
+ * volée. L'e-mail est journalisé dans le fil du dossier (expéditeur, objet, date,
+ * corps), pour que tout le suivi du sujet reste au même endroit.
+ */
+export async function linkEmailToDossier(
+  input: LinkEmailInput,
+): Promise<{ ok: boolean; error?: string; dossierId?: string; reference?: string }> {
+  const user = await requireUser();
+  if (!userCan(user, "DOSSIERS", "VIEW")) return { ok: false, error: "Non autorisé." };
+
+  let dossierId = input.dossierId ?? null;
+  let reference = "";
+
+  if (!dossierId) {
+    const title = (input.newTitle || input.subject || "").trim();
+    if (!title) return { ok: false, error: "Donnez un intitulé au dossier." };
+    if (!userCan(user, "DOSSIERS", "CREATE")) return { ok: false, error: "Vous ne pouvez pas créer de dossier." };
+    const created = await createDossierRecord({ title, category: "E-mail" }, user.id);
+    dossierId = created.id;
+    reference = created.reference;
+  } else {
+    const d = await prisma.dossier.findUnique({ where: { id: dossierId }, select: { createdById: true, assignedToId: true, participantIds: true, reference: true } });
+    if (!d) return { ok: false, error: "Dossier introuvable." };
+    if (!isMember(user, d)) return { ok: false, error: "Vous n'êtes pas membre de ce dossier." };
+    reference = d.reference;
+  }
+
+  const subject = (input.subject || "(sans objet)").trim();
+  const from = (input.from || "—").trim();
+  const when = input.date ? new Date(input.date).toLocaleString("fr-FR") : "";
+  const body = (input.body || "").trim().slice(0, 6000);
+  const message = `📧 E-mail lié\nDe : ${from}\nObjet : ${subject}${when ? `\nReçu le : ${when}` : ""}\n\n${body || "(corps non disponible)"}`;
+
+  await prisma.dossierMessage.create({ data: { dossierId, authorId: user.id, body: message } });
+  await prisma.dossier.update({ where: { id: dossierId }, data: { updatedAt: new Date() } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Dossiers", entityType: "DOSSIER", entityId: dossierId, summary: `E-mail lié — ${subject}` });
+  revalidate(dossierId);
+  return { ok: true, dossierId, reference };
 }
 
 export async function archiveDossier(formData: FormData): Promise<ActionResult> {

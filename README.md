@@ -104,7 +104,7 @@ l'utilisateur y a accès (RBAC asymétrique).
 | **Mon travail** *(Action Center)* | `/mon-travail` | Agrège, selon les droits : tâches, demandes admin à traiter, validations en attente, paiements à régler, dossiers Regulatory, congés RH, congrès à valider/analyser, **directives**, **pièces de support**, **info médicale**, notifications. Vues en retard / bientôt / urgent. |
 | **Mon espace** | `/mon-espace` | Tâches perso, congés/absences, **avances sur salaire** (self-service), activité, accès rapides. |
 | **Messagerie** | `/messages` | Messagerie interne complète (DM / groupes / canaux). Badge non-lus live. → [détails](#-messagerie-interne-temps-réel) |
-| **Courrier** | `/courrier` | **Webmail Infomaniak** intégré par utilisateur (IMAP + SMTP). → [détails](#-courrier--webmail-infomaniak-intégré) |
+| **Courrier** | `/courrier` | **Webmail Infomaniak** intégré par utilisateur (IMAP + SMTP) + **« Lier à un dossier »** (rattache l'e-mail à un dossier de suivi). → [détails](#-courrier--webmail-infomaniak-intégré) |
 | **Directives** | `/directives` | **Instructions priorisées de la Direction** vers une personne ou un rôle entier, avec échéance, statut et **fil d'échange**. |
 | **Assistant IA** 💬 | **bulle flottante** (partout) | Chatbot interne (boucle agent Claude) **scopé par les droits**, présent sur **toutes les pages** (plus un onglet). **Suggestions proactives** : analyse les messages non lus et propose une action en notification. → [détails](#-intelligence-artificielle-claude--whisper) |
 | **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation de travail, CNAS, relevé d'émoluments, titre de congé, ordre de mission, note de frais…). Accès strict à ses propres documents. |
@@ -138,7 +138,7 @@ l'utilisateur y a accès (RBAC asymétrique).
 |---|---|---|
 | **Validations** | `/validations` | **Centre de validation** configurable + **agrégation transverse** de toutes les validations en attente. → [détails](#centre-de-validation-agrégation--configurable) |
 | **Documents** (Drive + Documents) | `/drive` | Stockage **chiffré**, visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), versioning. **À l'import : choix de la catégorie + qui peut voir / modifier** (par personne). Onglet **Documents** = bibliothèque filtrée par accès. |
-| **Dossiers** | `/dossiers` | **Dossier de suivi** d'un sujet ad hoc (ex. *recherche de prix d'hôtels*, *analyse IQVIA*) : description, **responsable + participants**, statut, **fichiers** (PPT/Excel/PDF) et **fil de discussion**. Créable **manuellement** ou **proposé par l'IA** depuis un chat/e-mail (confirmation requise). |
+| **Dossiers** | `/dossiers` | **Dossier de suivi** d'un sujet ad hoc (ex. *recherche de prix d'hôtels*, *analyse IQVIA*) : description, **responsable + participants**, statut, **fichiers** (PPT/Excel/PDF) et **fil de discussion**. Créable **manuellement**, **proposé par l'IA** depuis un chat (confirmation requise), ou alimenté en **liant un e-mail** directement depuis le **Courrier** (« Lier à un dossier »). |
 | **Demandes administratives** | `/demandes` | « Bureau de l'assistante » : 10 types, validations, ordres de dépense, missions chauffeur. |
 | **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou au **chef de produit**, avec fil + pièces jointes. |
 | **Feedback** | `/feedback` | Retour libre utilisateur → admin. |

@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { canViewDossier, getDossier } from "@/lib/queries/dossiers";
 import { createDossierRecord } from "@/lib/dossiers-core";
-import { createDossier, updateDossierStatus, postDossierMessage, assignDossier } from "./dossier-actions";
+import { createDossier, updateDossierStatus, postDossierMessage, assignDossier, linkEmailToDossier } from "./dossier-actions";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -89,6 +89,25 @@ suite("Dossiers — création, visibilité, échange, pilotage, proposition IA",
     expect((await updateDossierStatus(fdA)).ok).toBe(true);
     const d = await prisma.dossier.findUniqueOrThrow({ where: { id: dossierId } });
     expect(d.status).toBe("IN_PROGRESS");
+  });
+
+  it("lier un e-mail : membre OK (journalisé dans le fil), tiers refusé, ou nouveau dossier", async () => {
+    // Membre → e-mail journalisé dans le fil du dossier existant.
+    ACTOR = await actorFor(assigneeId, "MEDICAL_DELEGATE");
+    const r = await linkEmailToDossier({ dossierId, from: "fournisseur@x.dz", subject: "Devis hôtel", date: new Date().toISOString(), body: "Voici notre offre." });
+    expect(r.ok).toBe(true);
+    const msgs = await prisma.dossierMessage.findMany({ where: { dossierId }, orderBy: { createdAt: "asc" } });
+    expect(msgs.some((m) => m.body.includes("📧 E-mail lié") && m.body.includes("Devis hôtel"))).toBe(true);
+
+    // Tiers (non membre) → refusé.
+    ACTOR = await actorFor(outsiderId, "MEDICAL_DELEGATE");
+    expect((await linkEmailToDossier({ dossierId, subject: "intrus", body: "x" })).ok).toBe(false);
+
+    // Sans dossier → création d'un nouveau dossier à partir de l'e-mail.
+    ACTOR = await actorFor(creatorId, "MEDICAL_DELEGATE");
+    const created = await linkEmailToDossier({ newTitle: `${TAG} Suivi e-mail IQVIA`, from: "iqvia@x.com", subject: "Données", body: "PJ" });
+    expect(created.ok).toBe(true);
+    expect(created.reference).toMatch(/^DOS-\d{4}-\d{3}$/);
   });
 
   it("proposition IA : createDossierRecord crée le dossier et notifie", async () => {

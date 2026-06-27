@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import {
   Inbox, Send as SendIcon, RefreshCw, Loader2, Paperclip, PenSquare, X,
   ChevronLeft, AlertCircle, Trash2, Mail as MailIcon, Reply, Maximize2, Minimize2,
+  FolderKanban, Check, ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea, Label } from "@/components/ui/input";
+import { Input, Textarea, Label, Select } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { sendMailAction, disconnectMailbox } from "@/lib/actions/mail-actions";
+import { listLinkableDossiers, linkEmailToDossier } from "@/lib/actions/dossier-actions";
 
 interface Folder { path: string; name: string; role: string; unseen: number; total: number }
 interface Envelope { uid: number; subject: string; from: string; fromAddr: string; date: string | null; seen: boolean }
@@ -146,6 +148,7 @@ function Reader({ msg, mailbox, loading, onBack, onReply }: { msg: MsgDetail; ma
           <p className="truncate font-semibold">{msg.subject}</p>
           <p className="truncate text-xs text-muted-foreground">{msg.from} &lt;{msg.fromAddr}&gt; · {fmtDate(msg.date)}</p>
         </div>
+        <LinkToDossier msg={msg} />
         <Button size="sm" variant="outline" onClick={onReply}><Reply className="h-4 w-4" /> Répondre</Button>
       </div>
       {msg.attachments.length > 0 && (
@@ -166,6 +169,81 @@ function Reader({ msg, mailbox, loading, onBack, onReply }: { msg: MsgDetail; ma
           <pre className="whitespace-pre-wrap rounded-lg border border-border bg-white p-4 text-sm text-neutral-900">{msg.text || "(message vide)"}</pre>
         )}
       </div>
+    </div>
+  );
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Rattache l'e-mail affiché à un dossier de suivi (existant ou nouveau). */
+function LinkToDossier({ msg }: { msg: MsgDetail }) {
+  const [open, setOpen] = React.useState(false);
+  const [dossiers, setDossiers] = React.useState<{ id: string; reference: string; title: string }[] | null>(null);
+  const [target, setTarget] = React.useState(""); // id d'un dossier, ou "" = nouveau
+  const [newTitle, setNewTitle] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [done, setDone] = React.useState<null | { id: string; reference: string }>(null);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (open && dossiers === null) {
+      listLinkableDossiers().then((d) => { setDossiers(d); setTarget(d[0]?.id ?? ""); }).catch(() => setDossiers([]));
+    }
+  }, [open, dossiers]);
+  // Repart à zéro quand on change de message.
+  React.useEffect(() => { setOpen(false); setDone(null); setErr(null); setNewTitle(""); }, [msg.uid]);
+
+  async function submit() {
+    setBusy(true); setErr(null);
+    const body = msg.text || (msg.html ? stripHtml(msg.html) : "");
+    const r = await linkEmailToDossier({
+      dossierId: target || null,
+      newTitle: target ? null : (newTitle || msg.subject),
+      from: msg.from || msg.fromAddr, subject: msg.subject, date: msg.date, body,
+    });
+    setBusy(false);
+    if (r.ok) setDone({ id: r.dossierId!, reference: r.reference ?? "" });
+    else setErr(r.error ?? "Échec du rattachement.");
+  }
+
+  return (
+    <div className="relative">
+      <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}><FolderKanban className="h-4 w-4" /> <span className="hidden sm:inline">Lier à un dossier</span></Button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-72 rounded-xl border border-border bg-card p-3 shadow-xl">
+          {done ? (
+            <div className="space-y-2 text-sm">
+              <p className="flex items-center gap-1.5 font-medium text-success"><Check className="h-4 w-4" /> E-mail lié{done.reference ? ` à ${done.reference}` : ""}.</p>
+              <a href={`/dossiers/${done.id}`} className="inline-flex items-center gap-1 text-primary hover:underline"><ExternalLink className="h-3.5 w-3.5" /> Ouvrir le dossier</a>
+            </div>
+          ) : dossiers === null ? (
+            <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Chargement…</div>
+          ) : (
+            <div className="space-y-2">
+              <Label>Dossier</Label>
+              <Select value={target} onChange={(e) => setTarget(e.target.value)}>
+                {dossiers.map((d) => <option key={d.id} value={d.id}>{d.reference} — {d.title}</option>)}
+                <option value="">➕ Nouveau dossier…</option>
+              </Select>
+              {target === "" && (
+                <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder={msg.subject || "Intitulé du dossier"} />
+              )}
+              {err && <p className="text-xs text-destructive">{err}</p>}
+              <div className="flex justify-end gap-2 pt-1">
+                <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Annuler</Button>
+                <Button size="sm" onClick={submit} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderKanban className="h-4 w-4" />} Lier</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
