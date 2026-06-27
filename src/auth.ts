@@ -6,6 +6,7 @@ import { authConfig } from "./auth.config";
 import { prisma } from "./lib/prisma";
 import { clientIp, parseDevice } from "./lib/device";
 import { enrichSessionGeo } from "./lib/geo";
+import { checkLockout, recordFailure, clearAttempts } from "./lib/login-throttle";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -27,6 +28,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
+        const emailKey = email.toLowerCase();
+
+        // Contexte requête (IP/appareil) — utile pour le throttling ET la session.
+        const headers = (request as Request | undefined)?.headers;
+        const ua = headers?.get("user-agent") ?? null;
+        const ip = headers ? clientIp(headers) : null;
+        const { device, os, browser } = parseDevice(ua);
+
+        // Anti-bruteforce : si l'identifiant est verrouillé (trop d'échecs),
+        // on refuse sans même tester le mot de passe. Message générique côté UI
+        // (pas d'énumération de comptes) ; le verrouillage expire seul.
+        if ((await checkLockout(emailKey)).locked) return null;
+
         // Recherche insensible à la casse : un compte dont l'email contient une
         // majuscule (données importées/anciennes) doit pouvoir se connecter — sinon
         // aucun changement de mot de passe ne le débloquerait.
@@ -34,16 +48,34 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           where: { email: { equals: email, mode: "insensitive" } },
           orderBy: { createdAt: "asc" },
         });
-        if (!user || !user.isActive) return null;
+        if (!user || !user.isActive) {
+          // On compte aussi les tentatives sur des comptes inexistants/inactifs
+          // (anti credential-stuffing, anti-énumération).
+          await recordFailure(emailKey, ip);
+          return null;
+        }
 
         const valid = await bcrypt.compare(password, user.passwordHash);
-        if (!valid) return null;
+        if (!valid) {
+          const r = await recordFailure(emailKey, ip);
+          if (r.lockedNow) {
+            await prisma.auditLog
+              .create({
+                data: {
+                  actorId: user.id,
+                  action: "LOGIN",
+                  module: "Sécurité",
+                  ipAddress: ip,
+                  summary: `Compte verrouillé après ${r.failures} tentatives échouées : ${emailKey}`,
+                },
+              })
+              .catch(() => undefined);
+          }
+          return null;
+        }
 
-        // Capture device + IP, then create a revocable session row.
-        const headers = (request as Request | undefined)?.headers;
-        const ua = headers?.get("user-agent") ?? null;
-        const ip = headers ? clientIp(headers) : null;
-        const { device, os, browser } = parseDevice(ua);
+        // Connexion réussie : on réinitialise le compteur d'échecs.
+        await clearAttempts(emailKey);
 
         const session = await prisma.userSession.create({
           data: {

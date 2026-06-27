@@ -2722,3 +2722,20 @@ model EventRegistration {
   @@index([eventId])
   @@index([status])
 }
+
+/// Anti-bruteforce / anti-credential-stuffing : suivi des tentatives de connexion
+/// échouées par identifiant (fenêtre glissante). Verrouillage temporaire après N
+/// échecs, réinitialisé à la première connexion réussie. Durée de blocage
+/// croissante en cas d'acharnement. Clé = e-mail tenté (en minuscules).
+model LoginAttempt {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  ipAddress   String? // dernière IP observée (indicatif, journalisation)
+  failures    Int       @default(0)
+  lockedUntil DateTime?
+  lastAttempt DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([ipAddress])
+  @@index([lockedUntil])
+}
