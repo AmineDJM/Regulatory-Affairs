@@ -339,6 +339,7 @@ enum EntityType {
   SUPPLIER
   MEDICAL_INFO_DECLARATION
   DIRECTIVE
+  SUPPORT_REQUEST
 }
 
 enum DocumentCategory {
@@ -628,6 +629,12 @@ model User {
   directivesReceived  Directive[]        @relation("DirectiveTarget")
   directivesAuthored  Directive[]        @relation("DirectiveAuthor")
   directiveMessages   DirectiveMessage[] @relation("DirectiveMsgAuthor")
+
+  // Demandes de support (→ directeur médical / chef de produit)
+  supportRequested  SupportRequest[] @relation("SupportRequester")
+  supportTargeted   SupportRequest[] @relation("SupportTarget")
+  supportAssigned   SupportRequest[] @relation("SupportAssignee")
+  supportMessages   SupportMessage[] @relation("SupportMsgAuthor")
 
   @@index([role])
   @@index([departmentId])
@@ -1063,6 +1070,64 @@ model DirectiveMessage {
   createdAt   DateTime  @default(now())
 
   @@index([directiveId])
+}
+
+// ─────────────────── Demandes de support (→ directeur médical / chef de produit) ───────────────────
+
+/// Demande adressée à une fonction (directeur médical, chef de produit…) : question
+/// médicale/scientifique, demande de support de visite, brochure, document/PDF. Le
+/// destinataire répond dans un fil et peut joindre les pièces demandées (Document).
+enum SupportCategory {
+  QUESTION // question médicale / scientifique
+  SUPPORT_MATERIAL // support / aide à la visite
+  BROCHURE // brochure
+  DOCUMENT // document / PDF
+  OTHER
+}
+
+enum SupportStatus {
+  OPEN // déposée, en attente de prise en charge
+  IN_PROGRESS // prise en charge
+  ANSWERED // répondue (pièces / réponse fournies)
+  CLOSED // clôturée
+}
+
+model SupportRequest {
+  id           String           @id @default(cuid())
+  reference    String           @unique // SUP-AAAA-NNN
+  subject      String
+  body         String
+  category     SupportCategory  @default(QUESTION)
+  priority     Priority         @default(MEDIUM)
+  product      String?
+  status       SupportStatus    @default(OPEN)
+  requesterId  String?
+  requester    User?            @relation("SupportRequester", fields: [requesterId], references: [id])
+  targetRole   UserRole? // fonction visée (directeur médical / chef de produit…)
+  targetUserId String? // ou une personne précise
+  targetUser   User?            @relation("SupportTarget", fields: [targetUserId], references: [id])
+  assignedToId String? // répondant ayant pris en charge
+  assignedTo   User?            @relation("SupportAssignee", fields: [assignedToId], references: [id])
+  messages     SupportMessage[]
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([targetRole])
+  @@index([assignedToId])
+}
+
+model SupportMessage {
+  id        String         @id @default(cuid())
+  requestId String
+  request   SupportRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?          @relation("SupportMsgAuthor", fields: [authorId], references: [id])
+  body      String
+  createdAt DateTime       @default(now())
+
+  @@index([requestId])
 }
 
 // ───────────────────────────── Sales ─────────────────────────────

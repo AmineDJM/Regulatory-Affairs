@@ -215,6 +215,13 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA*
   PowerPoint (JSZip, texte) / images / vidéo / audio / texte**.
 - **Demandes administratives (`/demandes`)** — « Bureau de Donna » : 10 types, validations, ordres
   de dépense, missions chauffeur.
+- **Demandes de support (`/support`)** — tout employé adresse une **question**, une demande de
+  **support de visite**, **brochure** ou **document/PDF** au **directeur médical**, au **chef de produit**
+  ou à une autre **fonction** (`targetRole`) / **personne** (`targetUserId`). Le destinataire prend en
+  charge, répond dans le fil (`SupportMessage`) et **joint les pièces** (`Document` sur
+  `SUPPORT_REQUEST`). Statuts `SupportStatus` (À traiter → Pris en charge → Répondu → Clôturé) ; socle
+  `["VIEW","CREATE","UPDATE","UPLOAD"]` pour tous, scope `ASSIGNED` (émises / reçues / prises en charge) ;
+  surfacé dans *Mon travail*. Réf. `SUP-AAAA-NNN`.
 - **Documents**, **Notifications**, **Feedback (`/feedback`)** — retour libre utilisateur → `/admin/feedback`.
 
 ### Système
@@ -340,7 +347,7 @@ actions `requestBudgetRevision` / `resolveBudgetRevision`.
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types** → **sponsoring_validation_workflow** → **congress_intl_event_type** → **expense_order_budget_revision** → **mail_account** → **medical_info_pharmacist** → **directives**.
+→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types** → **sponsoring_validation_workflow** → **congress_intl_event_type** → **expense_order_budget_revision** → **mail_account** → **medical_info_pharmacist** → **directives** → **support_requests**.
 
 > **hr_request_types** : ajoute `LEAVE_TITLE`, `MISSION_ORDER`, `EXPENSE_REPORT` à l'enum `HrRequestType`
 > (`ALTER TYPE … ADD VALUE`). La **fusion de modules** (Finances/Congrès/Logistique-Stocks) est purement
@@ -353,6 +360,9 @@ dépense → Drive → demandes admin → **BD (project/range/product)** → **v
 > réglementaire intercalée entre la validation définitive de la Direction et l'ordre de dépense).
 > **directives** : module `DIRECTIVES`, enum `DirectiveStatus`, entité `DIRECTIVE`, modèles
 > `Directive` + `DirectiveMessage` (instructions priorisées Direction → équipes + fil d'échange).
+> **support_requests** : module `SUPPORT`, enums `SupportCategory` / `SupportStatus`, entité
+> `SUPPORT_REQUEST`, modèles `SupportRequest` + `SupportMessage` (demandes de support adressées au
+> directeur médical / chef de produit : question, brochure, document — fil + pièces jointes `Document`).
 
 > L'**Assistant IA / Chatbot** n'ajoute **aucune migration** (pas de changement de schéma : il lit/écrit
 > des entités existantes — `Task`, `AdministrativeRequest` — et conserve la conversation côté client).

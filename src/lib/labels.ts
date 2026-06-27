@@ -633,6 +633,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   SUPPLIER: "Fournisseur",
   MEDICAL_INFO_DECLARATION: "Information médicale",
   DIRECTIVE: "Directive",
+  SUPPORT_REQUEST: "Demande de support",
 };
 
 export const MEDICAL_INFO_STATUS: Record<string, Display> = {
@@ -653,6 +654,21 @@ export const DIRECTIVE_STATUS: Record<string, Display> = {
   IN_PROGRESS: { label: "En cours", tone: "info" },
   DONE: { label: "Traité", tone: "success" },
   ARCHIVED: { label: "Archivé", tone: "neutral" },
+};
+
+export const SUPPORT_CATEGORY: Record<string, Display> = {
+  QUESTION: { label: "Question", tone: "info" },
+  SUPPORT_MATERIAL: { label: "Support de visite", tone: "purple" },
+  BROCHURE: { label: "Brochure", tone: "purple" },
+  DOCUMENT: { label: "Document / PDF", tone: "info" },
+  OTHER: { label: "Autre", tone: "neutral" },
+};
+
+export const SUPPORT_STATUS: Record<string, Display> = {
+  OPEN: { label: "À traiter", tone: "warning" },
+  IN_PROGRESS: { label: "Pris en charge", tone: "info" },
+  ANSWERED: { label: "Répondu", tone: "success" },
+  CLOSED: { label: "Clôturé", tone: "neutral" },
 };
 
 export const FEEDBACK_STATUS: Record<string, Display> = {
@@ -797,6 +813,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "VALIDATIONS", label: "Validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
   { module: "DRIVE", label: "Drive", href: "/drive", icon: "HardDrive", group: "Transverse" },
   { module: "ADMIN_REQUESTS", label: "Demandes administratives", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
+  { module: "SUPPORT", label: "Demandes de support", href: "/support", icon: "LifeBuoy", group: "Transverse" },
   { module: "DOCUMENTS", label: "Documents", href: "/documents", icon: "FolderOpen", group: "Transverse" },
   { module: "NOTIFICATIONS", label: "Notifications", href: "/notifications", icon: "Bell", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },

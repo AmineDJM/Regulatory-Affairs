@@ -8,6 +8,7 @@ import {
   scopeSales,
   scopeBusinessDevelopment,
   scopeBdProject,
+  scopeSupport,
   type Action,
   type Module,
   type SessionUser,
@@ -43,6 +44,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   SUPPLIER: "REGULATORY",
   MEDICAL_INFO_DECLARATION: "MEDICAL_INFO",
   DIRECTIVE: "DIRECTIVES",
+  SUPPORT_REQUEST: "SUPPORT",
 };
 
 /**
@@ -98,6 +100,13 @@ export async function canAccessEntity(
     case "BD_PROJECT": {
       const found = await prisma.bdProject.findFirst({
         where: { id: entityId, ...scopeBdProject(user) },
+        select: { id: true },
+      });
+      return Boolean(found);
+    }
+    case "SUPPORT_REQUEST": {
+      const found = await prisma.supportRequest.findFirst({
+        where: { id: entityId, ...scopeSupport(user) },
         select: { id: true },
       });
       return Boolean(found);

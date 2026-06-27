@@ -3,7 +3,7 @@ import { userCan, hasGlobalView, scopeRegulatory, scopeDirectives, type SessionU
 import { getPendingValidations } from "@/lib/queries/validations";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import {
-  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, DIRECTIVE_STATUS,
+  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, DIRECTIVE_STATUS, SUPPORT_STATUS,
 } from "@/lib/labels";
 
 export interface ActionItem {
@@ -191,6 +191,25 @@ export async function getActionCenter(user: SessionUser) {
         key: `dir-${d.id}`, title: d.title, subtitle: d.reference, module: "Directives",
         href: `/directives/${d.id}`, kind: "task", priority: d.priority,
         deadline: d.dueDate?.toISOString() ?? null, owner: "", ...resolve(DIRECTIVE_STATUS, d.status),
+      });
+    }
+  }
+
+  // 6f. Demandes de support qui m'attendent (destinataire / répondant)
+  if (userCan(user, "SUPPORT", "VIEW")) {
+    const reqs = await prisma.supportRequest.findMany({
+      where: {
+        status: { in: ["OPEN", "IN_PROGRESS"] },
+        OR: [{ targetUserId: user.id }, { targetRole: user.role }, { assignedToId: user.id }],
+      },
+      include: { requester: { select: { name: true } } },
+      orderBy: [{ priority: "desc" }, { createdAt: "desc" }], take: 40,
+    });
+    for (const r of reqs) {
+      items.push({
+        key: `sup-${r.id}`, title: r.subject, subtitle: r.reference, module: "Support",
+        href: `/support/${r.id}`, kind: "request", priority: r.priority,
+        deadline: null, owner: r.requester?.name ?? "", ...resolve(SUPPORT_STATUS, r.status),
       });
     }
   }

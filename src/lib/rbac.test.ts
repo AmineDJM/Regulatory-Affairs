@@ -80,6 +80,20 @@ describe("role-default permissions (can)", () => {
     expect(defaultScope("MEDICAL_INFO_PHARMACIST", "MEDICAL_INFO")).toBe("ALL");
     expect(defaultScope("FINANCE_BUDGET_MANAGER", "MEDICAL_INFO")).toBe("ASSIGNED");
   });
+  it("gives every role a baseline for Directives and Support (Direction manages)", () => {
+    const roles: UserRole[] = ["DIRECTION", "MEDICAL_DELEGATE", "PRODUCT_MANAGER", "SALES_USER", "FINANCE_BUDGET_MANAGER", "VIEWER"];
+    for (const r of roles) {
+      expect(can(r, "DIRECTIVES", "VIEW")).toBe(true);
+      expect(can(r, "SUPPORT", "VIEW")).toBe(true);
+      expect(can(r, "SUPPORT", "CREATE")).toBe(true);
+    }
+    // Seule la Direction (et le Super Admin) émet une directive.
+    expect(can("DIRECTION", "DIRECTIVES", "CREATE")).toBe(true);
+    expect(can("MEDICAL_DELEGATE", "DIRECTIVES", "CREATE")).toBe(false);
+    // Portées restreintes par défaut (chacun ne voit que ce qui le concerne).
+    expect(defaultScope("MEDICAL_DELEGATE", "DIRECTIVES")).toBe("ASSIGNED");
+    expect(defaultScope("PRODUCT_MANAGER", "SUPPORT")).toBe("ASSIGNED");
+  });
 });
 
 describe("effective access (userCan / accessibleModules)", () => {
