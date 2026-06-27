@@ -357,7 +357,12 @@ généré à la demande.
 **Détecteurs Risk Radar (réels, calculés à la volée — aucune table de risque)** : caution PCH proche
 d'expiration · congrès/sponsoring bloqués (analyse chef de produit en retard) · médecin **KOL** non visité ·
 ordre de dépense non réglé · budget dépassé/à surveiller · information médicale en attente · directive
-échue · fournisseur silencieux · signal qualité/PV terrain.
+échue · fournisseur silencieux · signal qualité/PV terrain · **rupture / stock bas à la PCH** · **retard de
+livraison** (logistique) · **événement à faible présence** (à l'approche de la date).
+
+> **Réglage des seuils** (Super Admin) : chaque déclencheur est **ajustable** depuis Adventum Brain
+> (jours avant expiration de caution, seuil de stock bas, tolérance de retard, % budget, horizon/présence
+> minimale d'événement…), borné, persisté (`RiskSetting`) et lu à chaud par les détecteurs.
 
 > **Règle anti-bureaucratie** (appliquée) : Adventum Brain **lit, relie, résume, explique et propose**. Il
 > ne duplique aucun workflow, ne crée aucun formulaire lourd, ne crée un objet (Tâche/Notification) qu'**après

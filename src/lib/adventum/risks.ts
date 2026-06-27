@@ -1,6 +1,7 @@
 import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency } from "@/lib/utils";
+import { getRiskThresholds, type RiskThresholds } from "./risk-settings";
 
 /**
  * Adventum Brain — moteur Risk Radar. **Lecture seule, calculé à la volée** (aucune
@@ -57,7 +58,7 @@ async function firstActive(role: UserRole): Promise<{ id: string; name: string }
 
 // ───────────────────────────── Détecteurs ─────────────────────────────
 
-async function pchCautionRisks(): Promise<Risk[]> {
+async function pchCautionRisks(th: RiskThresholds): Promise<Risk[]> {
   const tenders = await prisma.pchTender.findMany({
     where: { status: { not: "COMPLETED" }, cautionEnd: { not: null } },
     select: { id: true, reference: true, supplier: true, cautionEnd: true, cautionDeposited: true, cautionAmount: true },
@@ -66,7 +67,7 @@ async function pchCautionRisks(): Promise<Risk[]> {
   const out: Risk[] = [];
   for (const t of tenders) {
     const left = daysUntil(t.cautionEnd);
-    if (left === null || left > 30) continue;
+    if (left === null || left > th.pchCautionWarnDays) continue;
     const level: RiskLevel = left <= 0 ? "critical" : left <= 7 ? "critical" : left <= 15 ? "high" : "medium";
     out.push({
       id: `pch-caution-${t.id}`, level, category: "PCH", module: "PCH — Marchés",
@@ -93,7 +94,7 @@ async function pchCautionRisks(): Promise<Risk[]> {
 }
 
 type CongressRow = { id: string; name: string; requestStatus: string; updatedAt: Date; productManagerId: string | null; requesterId: string | null };
-async function congressLikeRisks(): Promise<Risk[]> {
+async function congressLikeRisks(th: RiskThresholds): Promise<Risk[]> {
   const [intl, natl] = await Promise.all([
     prisma.congressInternational.findMany({ where: { requestStatus: { in: ["PRELIMINARY_APPROVED", "AWAITING_FINAL"] } }, select: { id: true, name: true, requestStatus: true, updatedAt: true, productManagerId: true, requesterId: true } }),
     prisma.congressNational.findMany({ where: { requestStatus: { in: ["PRELIMINARY_APPROVED", "AWAITING_FINAL"] } }, select: { id: true, name: true, requestStatus: true, updatedAt: true, productManagerId: true, requesterId: true } }),
@@ -105,7 +106,7 @@ async function congressLikeRisks(): Promise<Risk[]> {
   const out: Risk[] = [];
   for (const c of rows) {
     const age = daysSince(c.updatedAt) ?? 0;
-    if (age < 4) continue; // délai normal ~3 j
+    if (age < th.congressStaleDays) continue; // délai normal ~3 j
     const awaitingPm = c.requestStatus === "PRELIMINARY_APPROVED";
     const level: RiskLevel = age >= 10 ? "critical" : age >= 6 ? "high" : "medium";
     const path = c.kind === "ci" ? "/congress-international" : "/congress-national";
@@ -134,7 +135,7 @@ async function congressLikeRisks(): Promise<Risk[]> {
   return out;
 }
 
-async function sponsoringRisks(): Promise<Risk[]> {
+async function sponsoringRisks(th: RiskThresholds): Promise<Risk[]> {
   const rows = await prisma.sponsoringRequest.findMany({
     where: { status: { in: ["PRELIMINARY_APPROVED", "AWAITING_FINAL", "AWAITING_FINAL_APPEAL"] } },
     select: { id: true, reference: true, institution: true, status: true, updatedAt: true, productManagerId: true },
@@ -142,7 +143,7 @@ async function sponsoringRisks(): Promise<Risk[]> {
   const out: Risk[] = [];
   for (const s of rows) {
     const age = daysSince(s.updatedAt) ?? 0;
-    if (age < 4) continue;
+    if (age < th.sponsoringStaleDays) continue;
     const awaitingPm = s.status === "PRELIMINARY_APPROVED";
     const level: RiskLevel = age >= 10 ? "high" : "medium";
     out.push({
@@ -165,7 +166,7 @@ async function sponsoringRisks(): Promise<Risk[]> {
   return out;
 }
 
-async function medicalKolRisks(): Promise<Risk[]> {
+async function medicalKolRisks(th: RiskThresholds): Promise<Risk[]> {
   const doctors = await prisma.medicalDoctor.findMany({
     where: { influenceLevel: { in: ["KEY_OPINION_LEADER", "HIGH"] } },
     select: { id: true, name: true, title: true, specialty: true, targetProducts: true, lastVisit: true, delegateId: true, delegate: { select: { name: true } } },
@@ -174,7 +175,7 @@ async function medicalKolRisks(): Promise<Risk[]> {
   const out: Risk[] = [];
   for (const d of doctors) {
     const age = daysSince(d.lastVisit);
-    if (age !== null && age < 60) continue; // visité récemment → pas un risque
+    if (age !== null && age < th.kolVisitStaleDays) continue; // visité récemment → pas un risque
     const level: RiskLevel = age === null || age >= 90 ? "high" : "medium";
     const since = age === null ? "jamais enregistrée" : `il y a ${age} j`;
     out.push({
@@ -203,13 +204,13 @@ async function medicalKolRisks(): Promise<Risk[]> {
   return out.slice(0, 12);
 }
 
-async function expenseOrderRisks(): Promise<Risk[]> {
+async function expenseOrderRisks(th: RiskThresholds): Promise<Risk[]> {
   const orders = await prisma.expenseOrder.findMany({ where: { status: "PENDING" }, select: { id: true, reference: true, label: true, amount: true, createdAt: true, dueDate: true } });
   const finance = await firstActive("FINANCE_BUDGET_MANAGER");
   const out: Risk[] = [];
   for (const o of orders) {
     const age = daysSince(o.createdAt) ?? 0;
-    if (age < 7) continue;
+    if (age < th.expenseStaleDays) continue;
     const level: RiskLevel = age >= 21 ? "high" : "medium";
     out.push({
       id: `od-${o.id}`, level, category: "FINANCE", module: "Espace comptable",
@@ -229,7 +230,7 @@ async function expenseOrderRisks(): Promise<Risk[]> {
   return out;
 }
 
-async function budgetRisks(): Promise<Risk[]> {
+async function budgetRisks(th: RiskThresholds): Promise<Risk[]> {
   const envelope = await prisma.budgetEnvelope.findFirst({ where: { isActive: true }, orderBy: { periodStart: "desc" }, select: { id: true } });
   if (!envelope) return [];
   const lines = await prisma.budgetCategoryLine.findMany({ where: { envelopeId: envelope.id }, select: { id: true, name: true, allocated: true } });
@@ -240,7 +241,7 @@ async function budgetRisks(): Promise<Risk[]> {
     const agg = await prisma.financeTransaction.aggregate({ where: { budgetCategoryId: l.id, direction: "OUT" }, _sum: { amount: true } });
     const consumed = toNumber(agg._sum.amount ?? 0);
     const ratio = consumed / allocated;
-    if (ratio < 0.85) continue;
+    if (ratio < th.budgetWarnPct / 100) continue;
     const level: RiskLevel = ratio >= 1 ? "critical" : ratio >= 0.95 ? "high" : "medium";
     out.push({
       id: `budget-${l.id}`, level, category: "BUDGET", module: "Budgets",
@@ -260,12 +261,12 @@ async function budgetRisks(): Promise<Risk[]> {
   return out;
 }
 
-async function medicalInfoRisks(): Promise<Risk[]> {
+async function medicalInfoRisks(th: RiskThresholds): Promise<Risk[]> {
   const decls = await prisma.medicalInfoDeclaration.findMany({ where: { status: { in: ["AWAITING_REVIEW", "DOCS_REQUESTED"] } }, select: { id: true, reference: true, label: true, updatedAt: true, pharmacistId: true } });
   const out: Risk[] = [];
   for (const d of decls) {
     const age = daysSince(d.updatedAt) ?? 0;
-    if (age < 5) continue;
+    if (age < th.medicalInfoStaleDays) continue;
     out.push({
       id: `mi-${d.id}`, level: age >= 14 ? "high" : "medium", category: "REGULATORY", module: "Information médicale",
       title: "Déclaration réglementaire en attente", object: `${d.reference} — ${d.label}`,
@@ -302,8 +303,8 @@ async function directiveRisks(): Promise<Risk[]> {
   }));
 }
 
-async function silentSupplierRisks(): Promise<Risk[]> {
-  const cutoff = new Date(Date.now() - 14 * DAY);
+async function silentSupplierRisks(th: RiskThresholds): Promise<Risk[]> {
+  const cutoff = new Date(Date.now() - th.silentSupplierDays * DAY);
   const prods = await prisma.regulatoryProduct.findMany({
     where: { portalVisible: true, supplierId: { not: null }, status: { notIn: ["CLOSED", "DECISION_OBTAINED"] }, OR: [{ externalUpdatedAt: null }, { externalUpdatedAt: { lt: cutoff } }] },
     select: { id: true, dci: true, reference: true, externalUpdatedAt: true, supplier: { select: { name: true } } },
@@ -348,13 +349,134 @@ async function qualitySignalRisks(): Promise<Risk[]> {
   }));
 }
 
-const DETECTORS: (() => Promise<Risk[]>)[] = [
+// Stocks PCH bas / rupture : stock net (entrées − sorties) par produit à la PCH.
+type StockRow = { product: string; net: bigint | number | null; lastdate: Date | null };
+async function pchStockRisks(th: RiskThresholds): Promise<Risk[]> {
+  const rows = await prisma.$queryRaw<StockRow[]>`
+    SELECT product,
+           SUM(CASE WHEN direction='IN' THEN quantity WHEN direction='OUT' THEN -quantity ELSE 0 END) AS net,
+           MAX(date) AS lastdate
+    FROM "StockMovement"
+    WHERE location = 'PCH'
+    GROUP BY product`;
+  const logistics = await firstActive("LOGISTICS_MANAGER");
+  const out: Risk[] = [];
+  for (const r of rows) {
+    const net = typeof r.net === "bigint" ? Number(r.net) : Number(r.net ?? 0);
+    if (net > th.stockLowThreshold) continue;
+    const rupture = net <= 0;
+    out.push({
+      id: `stock-${r.product}`, level: rupture ? "critical" : net <= th.stockLowThreshold / 2 ? "high" : "medium",
+      category: "PCH", module: "Stocks PCH",
+      title: rupture ? "Rupture de stock à la PCH" : "Stock PCH bas", object: r.product,
+      impact: rupture ? "Produit indisponible à la PCH : ventes et engagements exposés." : "Risque de rupture imminente à la PCH.",
+      owner: "Logistique", deadline: null, ageDays: null,
+      probableCause: "Sorties supérieures aux réceptions ; réapprovisionnement non déclenché.",
+      recommendation: rupture ? `Réapprovisionner ${r.product} en urgence.` : `Anticiper le réapprovisionnement de ${r.product}.`,
+      evidence: [`Stock net estimé : ${net} unité·s`, `Seuil bas : ${th.stockLowThreshold}`, r.lastdate ? `Dernier mouvement : ${new Date(r.lastdate).toLocaleDateString("fr-FR")}` : "Aucun mouvement récent"],
+      href: `/stocks`, at: new Date().toISOString(),
+      actions: [
+        { label: "Créer tâche réappro", icon: "ListChecks", payload: { kind: "task", title: `${rupture ? "Réapprovisionner d'urgence" : "Anticiper le réappro"} : ${r.product} (stock net ${net})`, assigneeId: logistics?.id, priority: rupture ? "CRITICAL" : "HIGH", module: "Stocks" } },
+        { label: "Notifier Logistique", icon: "Bell", payload: { kind: "notify", userId: logistics?.id, role: logistics ? undefined : "LOGISTICS_MANAGER", title: rupture ? "Rupture PCH" : "Stock PCH bas", body: `${r.product} — stock net ${net}`, link: `/stocks` } },
+        { label: "Ouvrir stocks", icon: "ExternalLink", href: `/stocks` },
+      ],
+    });
+  }
+  return out;
+}
+
+// Retards de livraison : commandes logistiques dont l'arrivée estimée est dépassée
+// (au-delà de la tolérance) sans livraison, ou bloquées en douane / transit.
+async function deliveryDelayRisks(th: RiskThresholds): Promise<Risk[]> {
+  const grace = new Date(Date.now() - th.deliveryGraceDays * DAY);
+  const orders = await prisma.logisticsOrder.findMany({
+    where: {
+      status: { notIn: ["DELIVERED"] },
+      OR: [{ estimatedArrival: { lt: grace }, pchDeliveryDate: null }, { status: "BLOCKED" }],
+    },
+    select: { id: true, reference: true, product: true, supplier: true, status: true, estimatedArrival: true, ownerId: true },
+    take: 100,
+  });
+  const logistics = await firstActive("LOGISTICS_MANAGER");
+  return orders.map((o) => {
+    const late = daysSince(o.estimatedArrival);
+    const blocked = o.status === "BLOCKED";
+    return {
+      id: `delivery-${o.id}`, level: (blocked || (late ?? 0) >= 14 ? "high" : "medium") as RiskLevel,
+      category: "PCH", module: "Logistique",
+      title: blocked ? "Livraison bloquée" : "Retard de livraison", object: `${o.reference} — ${o.product}`,
+      impact: "Retard d'approvisionnement ; risque de rupture en aval (PCH).",
+      owner: "Logistique", deadline: o.estimatedArrival?.toISOString() ?? null, ageDays: late,
+      probableCause: blocked ? "Commande marquée bloquée (douane / transit)." : "Arrivée estimée dépassée sans livraison enregistrée.",
+      recommendation: "Relancer le transitaire / fournisseur et mettre à jour le statut.",
+      evidence: [
+        `Statut : ${o.status}`,
+        o.estimatedArrival ? `Arrivée estimée : ${o.estimatedArrival.toLocaleDateString("fr-FR")}${late !== null && late > 0 ? ` (retard ${late} j)` : ""}` : "Arrivée estimée non renseignée",
+        o.supplier ? `Fournisseur : ${o.supplier}` : "Fournisseur non renseigné",
+      ],
+      href: `/logistics/${o.id}`, at: (o.estimatedArrival ?? new Date()).toISOString(),
+      actions: [
+        { label: "Créer relance", icon: "ListChecks", payload: { kind: "task", title: `Débloquer la livraison ${o.reference} (${blocked ? "bloquée" : `retard ${late ?? "?"} j`})`, assigneeId: o.ownerId ?? logistics?.id, priority: "HIGH", module: "Logistique" } },
+        { label: "Notifier Logistique", icon: "Bell", payload: { kind: "notify", userId: o.ownerId ?? logistics?.id, role: o.ownerId || logistics ? undefined : "LOGISTICS_MANAGER", title: blocked ? "Livraison bloquée" : "Retard de livraison", body: `${o.reference} — ${o.product}`, link: `/logistics/${o.id}` } },
+        { label: "Ouvrir", icon: "ExternalLink", href: `/logistics/${o.id}` },
+      ],
+    };
+  });
+}
+
+// Événements à faible présence : événements à venir (sous l'horizon) avec trop peu
+// d'inscrits confirmés.
+async function lowAttendanceEventRisks(th: RiskThresholds): Promise<Risk[]> {
+  const horizon = new Date(Date.now() + th.eventHorizonDays * DAY);
+  const events = await prisma.event.findMany({
+    where: {
+      status: { in: ["VALIDATED", "PREPARATION", "REGISTRATION_OPEN"] },
+      startDate: { gte: new Date(), lte: horizon },
+    },
+    select: { id: true, name: true, startDate: true, capacity: true, responsibleId: true, _count: { select: { registrations: { where: { status: { in: ["REGISTERED", "CONFIRMED", "PRESENT"] } } } } } },
+    take: 100,
+  });
+  const out: Risk[] = [];
+  for (const e of events) {
+    const count = e._count.registrations;
+    if (count >= th.eventMinAttendance) continue;
+    const left = daysUntil(e.startDate);
+    out.push({
+      id: `event-att-${e.id}`, level: (left !== null && left <= 2 ? "high" : "medium") as RiskLevel,
+      category: "EVENTS", module: "Events",
+      title: "Événement à faible présence", object: e.name,
+      impact: "Risque d'événement sous-rempli (ROI faible, image).",
+      owner: "Responsable événement", deadline: e.startDate?.toISOString() ?? null, ageDays: null,
+      probableCause: "Peu d'inscriptions confirmées à l'approche de la date.",
+      recommendation: "Relancer les invitations / élargir la cible cette semaine.",
+      evidence: [
+        `${count} inscrit·s confirmé·s (seuil ${th.eventMinAttendance})`,
+        e.capacity ? `Capacité : ${e.capacity}` : "Capacité non renseignée",
+        e.startDate ? `Dans ${left} j (${e.startDate.toLocaleDateString("fr-FR")})` : "Date non renseignée",
+      ],
+      href: `/events/${e.id}`, at: new Date().toISOString(),
+      actions: [
+        { label: "Créer tâche relance", icon: "ListChecks", payload: { kind: "task", title: `Booster les inscriptions : ${e.name} (${count} inscrits)`, assigneeId: e.responsibleId, priority: "HIGH", module: "Events" } },
+        e.responsibleId
+          ? { label: "Notifier responsable", icon: "Bell", payload: { kind: "notify", userId: e.responsibleId, title: "Événement à faible présence", body: `${e.name} — ${count} inscrits`, link: `/events/${e.id}` } }
+          : { label: "Notifier Promotion médicale", icon: "Bell", payload: { kind: "notify", role: "MEDICAL_PROMOTION_MANAGER", title: "Événement à faible présence", body: `${e.name} — ${count} inscrits`, link: `/events/${e.id}` } },
+        { label: "Ouvrir l'événement", icon: "ExternalLink", href: `/events/${e.id}` },
+      ],
+    });
+  }
+  return out;
+}
+
+const DETECTORS: ((th: RiskThresholds) => Promise<Risk[]>)[] = [
   pchCautionRisks, congressLikeRisks, sponsoringRisks, medicalKolRisks, expenseOrderRisks,
   budgetRisks, medicalInfoRisks, directiveRisks, silentSupplierRisks, qualitySignalRisks,
+  pchStockRisks, deliveryDelayRisks, lowAttendanceEventRisks,
 ];
 
-/** Calcule tous les risques (détecteurs en parallèle, tolérants aux pannes), triés par gravité. */
+/** Calcule tous les risques (détecteurs en parallèle, tolérants aux pannes), triés par gravité.
+ *  Les seuils de déclenchement sont ceux réglés par le Super Admin. */
 export async function getRisks(): Promise<Risk[]> {
-  const results = await Promise.all(DETECTORS.map((d) => d().catch((e) => { console.error("[brain] detector failed", e); return [] as Risk[]; })));
+  const th = await getRiskThresholds();
+  const results = await Promise.all(DETECTORS.map((d) => d(th).catch((e) => { console.error("[brain] detector failed", e); return [] as Risk[]; })));
   return results.flat().sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level] || (b.ageDays ?? 0) - (a.ageDays ?? 0));
 }

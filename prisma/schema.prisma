@@ -2756,6 +2756,27 @@ model AiSetting {
   updatedById            String?
 }
 
+/// Seuils de déclenchement du Risk Radar (Adventum Brain), ajustables par le
+/// Super Admin. Une seule ligne (`id = "global"`). Les détecteurs lisent ces
+/// valeurs ; en l'absence de ligne, des valeurs par défaut s'appliquent.
+model RiskSetting {
+  id                  String   @id @default("global")
+  pchCautionWarnDays  Int      @default(30)
+  congressStaleDays   Int      @default(4)
+  sponsoringStaleDays Int      @default(4)
+  expenseStaleDays    Int      @default(7)
+  budgetWarnPct       Int      @default(85)
+  kolVisitStaleDays   Int      @default(60)
+  medicalInfoStaleDays Int     @default(5)
+  silentSupplierDays  Int      @default(14)
+  stockLowThreshold   Int      @default(10)
+  deliveryGraceDays   Int      @default(3)
+  eventHorizonDays    Int      @default(7)
+  eventMinAttendance  Int      @default(5)
+  updatedAt           DateTime @updatedAt
+  updatedById         String?
+}
+
 /// Journal d'usage de l'IA — alimente le tableau de bord du Centre de contrôle
 /// (volume, taux de succès, latence, erreurs) par fonction et par utilisateur.
 /// Best-effort : la journalisation ne doit jamais casser un appel IA.

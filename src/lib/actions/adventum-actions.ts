@@ -10,7 +10,8 @@ import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { runAssistant } from "@/lib/assistant";
 import { getRisks, type AutopilotPayload } from "@/lib/adventum/risks";
 import { getProductRelations, type ProductRelations } from "@/lib/adventum/relations";
-import type { ActionResult } from "@/lib/actions/types";
+import { THRESHOLD_FIELDS, DEFAULT_THRESHOLDS } from "@/lib/adventum/risk-settings";
+import { fdNum, type ActionResult } from "@/lib/actions/types";
 
 const DENIED: ActionResult = { ok: false, error: "Réservé au Super Admin." };
 
@@ -96,4 +97,24 @@ export async function searchRelations(query: string): Promise<{ ok: boolean; rel
   const user = await requireUser();
   if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
   return { ok: true, relations: await getProductRelations(query) };
+}
+
+/** Réglage des seuils du Risk Radar — Super Admin. Valeurs bornées (min/max). */
+export async function updateRiskThresholds(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") return DENIED;
+  const data: Record<string, number> = {};
+  for (const f of THRESHOLD_FIELDS) {
+    let v = Math.round(fdNum(formData, f.key) ?? DEFAULT_THRESHOLDS[f.key]);
+    if (Number.isNaN(v)) v = DEFAULT_THRESHOLDS[f.key];
+    data[f.key] = Math.max(f.min, Math.min(f.max, v));
+  }
+  await prisma.riskSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", ...data, updatedById: user.id },
+    update: { ...data, updatedById: user.id },
+  });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Adventum Brain", summary: "Réglage des seuils du Risk Radar" });
+  revalidatePath("/adventum-brain");
+  return { ok: true };
 }
