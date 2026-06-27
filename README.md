@@ -374,6 +374,29 @@ envoyer un message) — toujours sous confirmation et journalisé.
 
 ---
 
+## 📈 Score d'adoption (Super Admin · `/admin/adoption`)
+
+Mesure, **en temps réel** et sur 30 jours glissants, à quel point chaque personne utilise réellement l'OS comme
+outil quotidien. **Réservé à l'administration**, calculé sur les **données réelles** (aucune simulation), et
+**conçu pour résister au gaming** :
+
+| Dimension | Poids | Anti-triche |
+|---|---|---|
+| **Régularité** | 22 | **Jours distincts** d'activité — un pic d'actions sur une seule journée ne compte que pour 1 jour. |
+| **Interaction** | 18 | Fils, **mentions reçues**, messages — signaux en partie **bilatéraux**, difficiles à simuler seul. |
+| **Travail durable** | 15 | Tâches **réellement terminées**, validations décidées, directives accusées — *créer puis supprimer des tâches ne crédite rien*. |
+| **Étendue** | 15 | Modules réellement utilisés, **rapportés aux droits du rôle** (équitable). |
+| **Diversité** | 12 | Variété des actions concrètes, pas la **répétition** d'une seule. |
+| **Temps d'activité** | 10 | Durée cumulée, **plafonnée** (ignore les onglets oubliés). |
+| **Récence** | 8 | Dernière présence effective (décroissance). |
+
+Score 0–100 + libellé (Champion / Actif / Modéré / Faible / À risque), **tendance** (jours actifs vs période
+précédente), **classement** et **détail dépliable par dimension** pour chaque collaborateur. Moyenne d'équipe,
+nombre de champions et de comptes à risque. Le Super Admin n'est pas mesuré. Agrégats SQL en batch (rapide),
+**aucune migration**.
+
+---
+
 ## 💬 Messagerie interne (temps réel)
 
 Pour favoriser l'adoption face à WhatsApp — **la donnée reste propriété de l'entreprise**.
