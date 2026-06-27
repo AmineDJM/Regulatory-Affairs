@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
-import { accessibleModules } from "@/lib/rbac";
+import { accessibleModules, userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getMyWorkspace } from "@/lib/queries/hr";
 import { PageHeader } from "@/components/shared/page-header";
@@ -9,9 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { createTask } from "@/lib/actions/task-actions";
 import { requestLeave, requestAdvance } from "@/lib/actions/hr-actions";
-import { NAVIGATION, ROLE_LABELS, PRIORITY, LEAVE_TYPE } from "@/lib/labels";
+import { NAVIGATION, ROLE_LABELS, PRIORITY, LEAVE_TYPE, WORKSPACE_TABS } from "@/lib/labels";
 import { formatDateTime } from "@/lib/utils";
 import { TaskList, type TaskItem } from "./task-list";
 import { MyLeaves, type LeaveItem } from "./my-leaves";
@@ -89,6 +90,7 @@ export default async function MonEspacePage() {
           </>
         )}
       </PageHeader>
+      <ModuleTabs tabs={WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Tâches ouvertes" value={data.stats.openTasks} icon="ListTodo" />

@@ -6,6 +6,8 @@ import { userCan } from "@/lib/rbac";
 import { getDriveListing } from "@/lib/queries/drive";
 import { fileKind } from "@/lib/drive";
 import { PageHeader } from "@/components/shared/page-header";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { DOCS_TABS } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -49,6 +51,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
           <Button variant="outline"><Trash2 className="h-4 w-4" /> {trash ? "Mes fichiers" : "Corbeille"}</Button>
         </Link>
       </PageHeader>
+      <ModuleTabs tabs={DOCS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       {/* Breadcrumb */}
       {!trash && (

@@ -4,7 +4,7 @@ import { getCongressList, getCongressFormData } from "@/lib/queries/congress";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { CONGRESS_TABS } from "@/lib/labels";
+import { EVENTS_TABS } from "@/lib/labels";
 import { CongressRequestButton } from "../congress-international/congress-request-form";
 import { CongressTable } from "../congress-international/congress-table";
 
@@ -23,7 +23,7 @@ export default async function CongressNationalPage() {
         {canCreate && <CongressRequestButton national doctors={form.doctors} users={form.users} />}
       </PageHeader>
 
-      <ModuleTabs tabs={CONGRESS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
+      <ModuleTabs tabs={EVENTS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Demandes" value={rows.length} icon="MapPin" />

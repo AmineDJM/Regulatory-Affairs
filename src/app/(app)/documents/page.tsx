@@ -1,7 +1,10 @@
 import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { accessibleDocumentWhere } from "@/lib/queries/documents";
 import { PageHeader } from "@/components/shared/page-header";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { DOCS_TABS } from "@/lib/labels";
 import { DocumentsTable, type DocumentRow } from "./documents-table";
 
 export default async function DocumentsPage() {
@@ -34,6 +37,7 @@ export default async function DocumentsPage() {
         title="Documents"
         description="Bibliothèque documentaire centralisée — tous les fichiers, filtrés selon vos accès."
       />
+      <ModuleTabs tabs={DOCS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
       <DocumentsTable rows={rows} />
     </div>
   );

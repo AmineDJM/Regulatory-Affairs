@@ -4,9 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
 import { optionsFromMap } from "@/components/shared/form-fields";
-import { PRIORITY, SPONSORING_TYPES } from "@/lib/labels";
+import { PRIORITY, SPONSORING_TYPES, EVENTS_TABS } from "@/lib/labels";
 import { SponsoringTable, type SponsoringRow } from "./sponsoring-table";
 
 export default async function SponsoringPage() {
@@ -59,6 +60,7 @@ export default async function SponsoringPage() {
           />
         )}
       </PageHeader>
+      <ModuleTabs tabs={EVENTS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <SponsoringTable rows={rows} />
     </div>

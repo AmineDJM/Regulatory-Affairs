@@ -7,8 +7,9 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { Badge } from "@/components/ui/badge";
-import { EVENT_TYPE, EVENT_FORMAT, EVENT_STATUS } from "@/lib/labels";
+import { EVENT_TYPE, EVENT_FORMAT, EVENT_STATUS, EVENTS_TABS } from "@/lib/labels";
 import { formatDate } from "@/lib/utils";
 import { CreateEventButton } from "./event-form";
 
@@ -31,6 +32,7 @@ export default async function EventsPage() {
       <PageHeader title="Events" description="Congrès, séminaires, staffs, webinars — billetterie, QR codes, check-in et présence.">
         {canCreate && <CreateEventButton responsibles={responsibles} />}
       </PageHeader>
+      <ModuleTabs tabs={EVENTS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Événements" value={events.length} icon="CalendarDays" />

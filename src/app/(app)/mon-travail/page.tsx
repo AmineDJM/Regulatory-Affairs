@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { ArrowRight, Bell } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
 import { getActionCenter, type ActionItem } from "@/lib/queries/action-center";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { PRIORITY, ROLE_LABELS } from "@/lib/labels";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { PRIORITY, ROLE_LABELS, WORKSPACE_TABS } from "@/lib/labels";
 import { formatDate, formatDateTime, daysUntil } from "@/lib/utils";
 
 export default async function MonTravailPage() {
@@ -31,6 +33,7 @@ export default async function MonTravailPage() {
         title={`Mon travail`}
         description={`Bonjour ${user.name.split(" ")[0]} — voici ce qui vous attend aujourd'hui. ${ROLE_LABELS[user.role] ?? ""}`}
       />
+      <ModuleTabs tabs={WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-5">
         <KpiCard label="À faire" value={stats.todo} icon="ListChecks" />

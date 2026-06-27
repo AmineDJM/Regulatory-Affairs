@@ -786,22 +786,78 @@ export const PCH_OPS_TABS: NavTab[] = [
   { module: "LOGISTICS", label: "Logistique", href: "/logistics" },
   { module: "STOCKS", label: "Stocks", href: "/stocks" },
 ];
+// Espace personnel fusionné : travail + tableau de bord perso + directives.
+export const WORKSPACE_TABS: NavTab[] = [
+  { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail" },
+  { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
+  { module: "DIRECTIVES", label: "Directives", href: "/directives" },
+];
+// Sponsoring + congrès (international/national) + événements, sous un seul module.
+export const EVENTS_TABS: NavTab[] = [
+  { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring" },
+  { module: "CONGRESS_INTERNATIONAL", label: "Congrès internationaux", href: "/congress-international" },
+  { module: "CONGRESS_NATIONAL", label: "Congrès nationaux", href: "/congress-national" },
+  { module: "EVENTS", label: "Événements", href: "/events" },
+];
+// Drive (fichiers) + Documents (pièces liées aux dossiers) sous un seul module.
+export const DOCS_TABS: NavTab[] = [
+  { module: "DRIVE", label: "Drive", href: "/drive" },
+  { module: "DOCUMENTS", label: "Documents", href: "/documents" },
+];
 
+/**
+ * Libellé lisible et **stable** par module, indépendant du menu (qui fusionne
+ * désormais plusieurs modules sous une seule entrée). Utilisé par l'administration
+ * (matrice d'accès) pour nommer chaque module, même ceux qui n'ont plus d'entrée
+ * de menu dédiée. Typé `Record<Module, string>` → exhaustivité garantie.
+ */
+export const MODULE_LABELS: Record<Module, string> = {
+  DASHBOARD: "Dashboard",
+  WORKSPACE: "Espace de travail",
+  MESSAGING: "Messagerie",
+  REGULATORY: "Regulatory",
+  SPONSORING: "Sponsoring",
+  BUDGETS: "Budgets",
+  FINANCES: "Finances",
+  RH: "Ressources humaines",
+  CONGRESS_INTERNATIONAL: "Congrès internationaux",
+  CONGRESS_NATIONAL: "Congrès nationaux",
+  EVENTS: "Événements",
+  SALES: "Ventes",
+  LOGISTICS: "Logistique",
+  MEDICAL: "Promotion médicale",
+  BUSINESS_DEVELOPMENT: "Business Development",
+  PCH: "PCH — Marchés",
+  STOCKS: "Stocks PCH",
+  MEDICAL_INFO: "Information médicale",
+  VALIDATIONS: "Validations",
+  DIRECTIVES: "Directives",
+  SUPPORT: "Demandes de support",
+  DOCUMENTS: "Documents",
+  DRIVE: "Drive",
+  ADMIN_REQUESTS: "Demandes administratives",
+  NOTIFICATIONS: "Notifications",
+  PROCESS_INTELLIGENCE: "Process Intelligence",
+  ADVENTUM_BRAIN: "Adventum Brain",
+  ADMIN: "Administration",
+};
+
+// Navigation simplifiée : modules fusionnés en onglets (`tabs`) pour réduire le
+// nombre d'entrées. Messagerie & Notifications ne sont PLUS dans le menu — elles
+// restent accessibles via leurs icônes dans la barre du haut (les routes /messages
+// et /notifications et leurs modules RBAC sont inchangés).
 export const NAVIGATION: NavItem[] = [
-  { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail", icon: "CircleCheckBig", group: "Pilotage" },
-  { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage" },
-  { module: "MESSAGING", label: "Messagerie", href: "/messages", icon: "MessagesSquare", group: "Pilotage" },
+  // Pilotage
+  { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS },
   { module: "WORKSPACE", label: "Courrier", href: "/courrier", icon: "Mail", group: "Pilotage" },
-  { module: "DIRECTIVES", label: "Directives", href: "/directives", icon: "Megaphone", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", group: "Pilotage" },
+  // Pôles
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
-  { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring", icon: "HandCoins", group: "Pôles" },
+  { module: "SPONSORING", label: "Sponsoring & Événements", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles" },
   { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", tabs: FINANCES_TABS },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles" },
-  { module: "CONGRESS_INTERNATIONAL", label: "Congrès", href: "/congress-international", icon: "Globe", group: "Pôles", tabs: CONGRESS_TABS },
-  { module: "EVENTS", label: "Events", href: "/events", icon: "Ticket", group: "Pôles" },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
   { module: "LOGISTICS", label: "Logistique & Stocks PCH", href: "/logistics", icon: "Truck", group: "Pôles", tabs: PCH_OPS_TABS },
   { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
@@ -809,13 +865,13 @@ export const NAVIGATION: NavItem[] = [
   { module: "MEDICAL", label: "Rapports terrain", href: "/field-reports", icon: "Mic", group: "Pôles" },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
+  // Transverse
   { module: "VALIDATIONS", label: "Validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
-  { module: "DRIVE", label: "Drive", href: "/drive", icon: "HardDrive", group: "Transverse" },
+  { module: "DRIVE", label: "Documents", href: "/drive", icon: "FolderOpen", group: "Transverse", tabs: DOCS_TABS },
   { module: "ADMIN_REQUESTS", label: "Demandes administratives", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "SUPPORT", label: "Demandes de support", href: "/support", icon: "LifeBuoy", group: "Transverse" },
-  { module: "DOCUMENTS", label: "Documents", href: "/documents", icon: "FolderOpen", group: "Transverse" },
-  { module: "NOTIFICATIONS", label: "Notifications", href: "/notifications", icon: "Bell", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
+  // Système
   { module: "ADVENTUM_BRAIN", label: "Adventum Brain", href: "/adventum-brain", icon: "BrainCircuit", group: "Système" },
   { module: "PROCESS_INTELLIGENCE", label: "Process Intelligence", href: "/process-intelligence", icon: "Radar", group: "Système" },
   { module: "ADMIN", label: "Contrôle IA", href: "/admin/ai", icon: "Bot", group: "Système" },

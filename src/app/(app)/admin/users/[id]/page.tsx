@@ -8,16 +8,14 @@ import { PERMISSIONS, defaultScope, MODULES, type Action, type Module } from "@/
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import { NAVIGATION, ROLE_LABELS } from "@/lib/labels";
+import { MODULE_LABELS, ROLE_LABELS } from "@/lib/labels";
 import { formatDateTime } from "@/lib/utils";
 import { AccessMatrix, type ModuleAccessRow } from "./access-matrix";
 import { SessionsList, type SessionItem } from "./sessions-list";
 import { RowGrants } from "./row-grants";
 import { ProfileForm, ResetPasswordForm, ActiveToggle, RevokeAllButton, RequestOnboardingButton } from "./user-admin-forms";
 
-const MODULE_LABEL: Record<string, string> = Object.fromEntries(
-  NAVIGATION.map((n) => [n.module, n.label]),
-);
+const MODULE_LABEL: Record<string, string> = MODULE_LABELS;
 const ROW_SCOPED: Module[] = ["REGULATORY", "SALES", "MEDICAL", "BUSINESS_DEVELOPMENT"];
 const ACTION_FR: Record<string, string> = {
   VIEW: "Voir", CREATE: "Créer", UPDATE: "Modifier", DELETE: "Supprimer",
