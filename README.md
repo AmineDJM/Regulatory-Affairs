@@ -185,7 +185,13 @@ Toute action sensible est **ré-autorisée côté serveur** (jamais sur la confi
 - 🪪 **Sessions révocables** en base (déconnexion forcée d'un compte ou d'un appareil depuis l'admin).
 - 👁️ **Vue exacte** (impersonation) honorée **uniquement** si la session réelle est Super Admin.
 - 🧾 **Journal d'audit** complet (qui / quoi / ancienne → nouvelle valeur / date / module).
-- 🛡️ **En-têtes de sécurité** : `X-Frame-Options: SAMEORIGIN`, `Permissions-Policy: camera=(self), microphone=(self), geolocation=(self)`.
+- 🚧 **Anti-bruteforce / credential-stuffing** : suivi des échecs de connexion (`LoginAttempt`, fenêtre glissante),
+  **verrouillage temporaire** après 5 échecs avec **durée croissante** (jusqu'à 2 h), réinitialisé à la 1ʳᵉ réussite ;
+  compte aussi les comptes inexistants (**anti-énumération**) ; message générique côté UI ; **audit** au déclenchement.
+- 🛡️ **En-têtes de sécurité** : `Content-Security-Policy` (`frame-ancestors`, `object-src 'none'`, `base-uri`,
+  `form-action`, `upgrade-insecure-requests`), **HSTS** (2 ans, preload), `X-Frame-Options: SAMEORIGIN`,
+  `Cross-Origin-Opener-Policy: same-origin`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`.
+- 🤖 **Centre de contrôle IA** (Super Admin) : interrupteur général + activation par fonction + journal d'usage → [détails](#centre-de-contrôle-ia-super-admin--adminai).
 - 🔢 Identifiants **cuid** non séquentiels ; upload contrôlé (extension + taille) ; download protégé par vérification d'accès.
 
 **Parcours de première connexion** : un nouveau compte doit **définir son mot de passe** (`mustChangePassword`),
@@ -317,6 +323,17 @@ affiche proprement « IA non configurée » — **aucune fonctionnalité ne cass
 - **Process Intelligence** — **synthèse IA** à la demande des lenteurs/blocages (Super Admin).
 
 > Clés : `ANTHROPIC_API_KEY` (Claude), `OPENAI_API_KEY` (Whisper). Posées sur Render, jamais côté client.
+
+### Centre de contrôle IA (Super Admin · `/admin/ai`)
+
+Pilotage de l'IA **sans toucher au code ni aux variables d'environnement** :
+
+- **Interrupteur général** + **bascule par fonction** (assistant, suggestions proactives, Adventum Brain,
+  Process Intelligence, analyse des rapports terrain, transcription vocale). Chaque point d'entrée IA vérifie
+  `aiFeatureEnabled(...)` avant d'appeler le modèle — coupure **immédiate** (lecture à chaud).
+- **État des clés** (Claude / Whisper) en lecture seule — rappel que les secrets restent côté serveur (Render).
+- **Tableau de bord d'usage** : volume (7 j / 30 j), **taux de succès**, détail **par fonction** (appels, succès,
+  latence moyenne) et **derniers échecs** — alimenté par un journal `AiUsageLog` (best-effort, n'altère jamais un appel).
 
 ---
 

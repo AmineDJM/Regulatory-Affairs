@@ -6,7 +6,8 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
 import { recordAudit } from "@/lib/audit";
-import { analyzeFieldReport } from "@/lib/ai";
+import { analyzeFieldReport, aiModel } from "@/lib/ai";
+import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import type { CurrentUser } from "@/lib/session";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 
@@ -80,8 +81,13 @@ export async function analyzeFieldReportAction(
     await prisma.fieldReport.update({ where: { id }, data: { transcript } });
   }
   if (!transcript) return { ok: false, configured: true, error: "Aucune transcription à analyser." };
+  if (!(await aiFeatureEnabled("field_report"))) {
+    return { ok: false, configured: true, error: "L'analyse IA des rapports est désactivée dans le Centre de contrôle IA." };
+  }
 
+  const t0 = Date.now();
   const r = await analyzeFieldReport(transcript);
+  await logAiUsage({ feature: "field_report", userId: user.id, model: aiModel(), ok: r.ok, latencyMs: Date.now() - t0, errorCode: r.ok ? null : r.error ?? "error" });
   if (!r.ok || !r.data) return { ok: false, configured: r.configured, error: r.error };
 
   const d = r.data;

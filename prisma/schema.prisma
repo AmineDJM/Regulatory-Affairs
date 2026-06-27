@@ -2739,3 +2739,38 @@ model LoginAttempt {
   @@index([ipAddress])
   @@index([lockedUntil])
 }
+
+/// Centre de contrôle IA (réglages globaux, Super Admin uniquement). Une seule
+/// ligne (`id = "global"`). Permet d'activer/couper l'IA globalement ou par
+/// fonction sans toucher au code ni aux variables d'environnement.
+model AiSetting {
+  id                     String   @id @default("global")
+  masterEnabled          Boolean  @default(true) // interrupteur général
+  assistantEnabled       Boolean  @default(true) // chatbot + bulle flottante
+  proactiveNudgesEnabled Boolean  @default(true) // suggestions proactives
+  brainEnabled           Boolean  @default(true) // Adventum Brain (synthèse, copilote)
+  processIntelEnabled    Boolean  @default(true) // Process Intelligence
+  fieldReportAiEnabled   Boolean  @default(true) // analyse IA des rapports terrain
+  voiceTranscriptEnabled Boolean  @default(true) // transcription vocale (Whisper)
+  updatedAt              DateTime @updatedAt
+  updatedById            String?
+}
+
+/// Journal d'usage de l'IA — alimente le tableau de bord du Centre de contrôle
+/// (volume, taux de succès, latence, erreurs) par fonction et par utilisateur.
+/// Best-effort : la journalisation ne doit jamais casser un appel IA.
+model AiUsageLog {
+  id        String   @id @default(cuid())
+  feature   String // assistant | nudge | brain | briefing | process_intel | field_report | voice
+  provider  String   @default("anthropic") // anthropic | openai
+  model     String?
+  userId    String?
+  ok        Boolean
+  latencyMs Int?
+  errorCode String? // ex. "HTTP 429", "disabled", "not_configured"
+  createdAt DateTime @default(now())
+
+  @@index([feature])
+  @@index([createdAt])
+  @@index([userId])
+}

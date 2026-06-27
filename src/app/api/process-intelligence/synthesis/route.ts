@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { askClaude, aiConfigured } from "@/lib/ai";
+import { askClaude, aiConfigured, aiModel } from "@/lib/ai";
+import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { getProcessOverview, getWorkloadAnalysis } from "@/lib/queries/process-intelligence";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,9 @@ export async function GET(req: NextRequest) {
   }
   if (!aiConfigured()) {
     return NextResponse.json({ configured: false });
+  }
+  if (!(await aiFeatureEnabled("process_intel"))) {
+    return NextResponse.json({ configured: true, error: "La synthèse IA est désactivée dans le Centre de contrôle IA." });
   }
 
   const scope = req.nextUrl.searchParams.get("scope") === "people" ? "people" : "overview";

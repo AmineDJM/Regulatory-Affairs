@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { aiConfigured } from "@/lib/ai";
+import { aiConfigured, aiModel } from "@/lib/ai";
+import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { getUnreadDigest } from "@/lib/assistant-nudge";
 import {
   runAssistant, performAction,
@@ -27,7 +28,17 @@ export async function assistantChat(history: ChatTurn[]): Promise<AssistantResul
     if (!userCan(user, "WORKSPACE", "VIEW")) {
       return { configured: true, ok: false, reply: "", trace: [], error: "Non autorisé." };
     }
-    return await runAssistant(user, Array.isArray(history) ? history : []);
+    // Interrupteur du Centre de contrôle IA (Super Admin).
+    if (!(await aiFeatureEnabled("assistant"))) {
+      return { configured: true, ok: false, reply: "", trace: [], error: "L'assistant IA est actuellement désactivé par l'administrateur." };
+    }
+    const t0 = Date.now();
+    const res = await runAssistant(user, Array.isArray(history) ? history : []);
+    await logAiUsage({
+      feature: "assistant", userId: user.id, model: aiModel(),
+      ok: res.ok, latencyMs: Date.now() - t0, errorCode: res.ok ? null : res.error ?? "error",
+    });
+    return res;
   } catch (err) {
     console.error("[assistant] assistantChat failed", err);
     return { configured: true, ok: false, reply: "", trace: [], error: "L'assistant a rencontré un problème. Réessayez dans un instant." };
@@ -54,12 +65,19 @@ export async function assistantNudge(prevSignature: string): Promise<NudgeResult
     // Rien de nouveau depuis la dernière analyse → pas d'appel IA.
     if (digest.signature === prevSignature) return { signature: digest.signature, suggestion: null };
     if (!aiConfigured()) return { signature: digest.signature, suggestion: null };
+    // Suggestions proactives désactivables indépendamment depuis le Centre de contrôle IA.
+    if (!(await aiFeatureEnabled("nudge"))) return { signature: digest.signature, suggestion: null };
 
     const prompt =
       `Messages internes récents NON LUS reçus par l'utilisateur (analyse le contexte global : plusieurs messages peuvent être liés) :\n\n${digest.text}\n\n` +
       `S'il y a UNE action concrète et utile à proposer (créer une tâche, répondre à un collègue, créer une demande administrative, envoyer un e-mail…), prépare-la (un seul outil d'écriture). ` +
       `Sinon réponds EXACTEMENT « RAS ». Sois bref.`;
+    const t0 = Date.now();
     const res = await runAssistant(user, [{ role: "user", content: prompt }]);
+    await logAiUsage({
+      feature: "nudge", userId: user.id, model: aiModel(),
+      ok: res.ok, latencyMs: Date.now() - t0, errorCode: res.ok ? null : res.error ?? "error",
+    });
     if (!res.configured || !res.ok) return { signature: digest.signature, suggestion: null };
     const reply = (res.reply ?? "").trim();
     if (!res.proposal && (reply.length === 0 || /^ras\b/i.test(reply))) return { signature: digest.signature, suggestion: null };

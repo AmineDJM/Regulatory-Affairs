@@ -818,5 +818,6 @@ export const NAVIGATION: NavItem[] = [
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   { module: "ADVENTUM_BRAIN", label: "Adventum Brain", href: "/adventum-brain", icon: "BrainCircuit", group: "Système" },
   { module: "PROCESS_INTELLIGENCE", label: "Process Intelligence", href: "/process-intelligence", icon: "Radar", group: "Système" },
+  { module: "ADMIN", label: "Contrôle IA", href: "/admin/ai", icon: "Bot", group: "Système" },
   { module: "ADMIN", label: "Administration", href: "/admin", icon: "Settings", group: "Système" },
 ];

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Settings2, Activity, Columns3, MessageSquare, ShieldCheck, Factory } from "lucide-react";
+import { Settings2, Activity, Columns3, MessageSquare, ShieldCheck, Factory, Bot } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -44,6 +44,9 @@ export default async function AdminPage() {
         </Link>
         {admin.role === "SUPER_ADMIN" && (
           <>
+            <Link href="/admin/ai">
+              <Button variant="outline"><Bot className="h-4 w-4" /> Contrôle IA</Button>
+            </Link>
             <Link href="/admin/validations">
               <Button variant="outline"><ShieldCheck className="h-4 w-4" /> Validations</Button>
             </Link>
@@ -135,7 +138,7 @@ export default async function AdminPage() {
           <CardContent className="space-y-2.5 text-sm">
             {[["Société", "Adventum Pharma"], ["Devise", "DZD"], ["Création de comptes", "Admin uniquement"],
               ["Mot de passe", "Changement forcé 1ʳᵉ connexion"], ["Politique d’accès", "RBAC + overrides + lignes"],
-              ["Sessions", "Révocables"]].map(([k, v]) => (
+              ["Sessions", "Révocables"], ["Connexion", "Verrouillage anti-bruteforce"], ["IA", "Pilotée (Contrôle IA)"]].map(([k, v]) => (
               <div key={k} className="flex items-center justify-between border-b border-border pb-2 last:border-0">
                 <span className="text-muted-foreground">{k}</span><span className="font-medium">{v}</span>
               </div>

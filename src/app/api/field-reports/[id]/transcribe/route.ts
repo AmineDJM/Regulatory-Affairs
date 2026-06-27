@@ -4,6 +4,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
 import { transcribeAudio } from "@/lib/ai";
+import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { managesReports } from "@/lib/queries/field-reports";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { blobId } = await putBlob(buf);
   await prisma.fieldReport.update({ where: { id: params.id }, data: { audioBlobId: blobId } });
 
+  // L'audio est conservé (chiffré) même si la transcription IA est coupée : le
+  // délégué peut alors saisir/relire son compte rendu manuellement.
+  if (!(await aiFeatureEnabled("voice"))) {
+    return NextResponse.json({ configured: true, error: "La transcription vocale est désactivée dans le Centre de contrôle IA." });
+  }
+
+  const t0 = Date.now();
   const tr = await transcribeAudio(buf, file.name || "audio.webm", file.type || "audio/webm");
+  await logAiUsage({
+    feature: "voice", provider: "openai", model: process.env.STT_MODEL ?? "whisper-1", userId: user.id,
+    ok: tr.ok, latencyMs: Date.now() - t0, errorCode: tr.ok ? null : tr.error ?? "error",
+  });
   if (tr.ok && tr.text) {
     await prisma.fieldReport.update({ where: { id: params.id }, data: { transcript: tr.text } });
     return NextResponse.json({ configured: true, transcript: tr.text });
