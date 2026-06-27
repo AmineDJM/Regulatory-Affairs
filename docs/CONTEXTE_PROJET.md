@@ -132,7 +132,14 @@ Groupes : **Pilotage** (Mon travail, Mon espace, **Messagerie**, **Assistant IA*
   titre de congé**, **ordre de mission**, **note de frais**, autre — avec suivi de statut. Côté RH, gestion sur
   `/rh/[id]` (dépôt de documents, traitement des demandes, pièce jointe). Accès strict : un employé ne
   voit que ses propres documents (route `/api/rh/document/[id]` contrôlée).
-- **Assistant IA (`/assistant`)** — chatbot interne (boucle agent Claude). Comprend l'app + les données
+- **Assistant IA — BULLE FLOTTANTE (partout)** — depuis la refonte adoption, l'assistant n'est plus un onglet
+  mais une **bulle flottante** (`components/layout/floating-assistant.tsx`) montée dans le layout `(app)`,
+  présente sur **toutes les pages** ; page plein écran conservée sur `/assistant` (lien « agrandir »).
+  **Suggestions proactives** (`assistantNudge` + `lib/assistant-nudge.ts`) : sonde les messages internes NON
+  LUS (digest + `signature`), n'appelle l'IA que s'il y a du nouveau (coût maîtrisé), et propose UNE action
+  (réutilise `runAssistant` → `ProposedAction` confirmée via `executeAssistantAction`). Badge clignotant sur la
+  bulle ; gracieux sans clé. Choix produit : auto + notification (l'utilisateur ouvre s'il veut).
+- **Assistant IA (page `/assistant`)** — chatbot interne (boucle agent Claude). Comprend l'app + les données
   de l'utilisateur **filtrées par ses droits RBAC**, répond aux questions et **prépare des actions**.
   **Outils de lecture** exécutés automatiquement (annuaire interne, mes tâches/demandes, médecins/produits/
   events, **e-mails de sa propre boîte Courrier** via `list_emails`/`read_email` — tous scopés). **Outils

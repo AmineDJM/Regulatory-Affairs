@@ -7,7 +7,9 @@ import { Topbar } from "@/components/layout/topbar";
 import { ActivityTracker } from "@/components/layout/activity-tracker";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
+import { FloatingAssistant } from "@/components/layout/floating-assistant";
 import { getTotalUnread } from "@/lib/queries/messaging";
+import { aiConfigured } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
 
 export default async function AppLayout({
@@ -51,6 +53,8 @@ export default async function AppLayout({
           <div className="mx-auto max-w-[1400px] space-y-6">{children}</div>
         </main>
       </div>
+      {/* Assistant flottant — présent partout (remplace l'onglet Assistant IA). */}
+      <FloatingAssistant userName={user.name} configured={aiConfigured()} />
     </div>
   );
 }

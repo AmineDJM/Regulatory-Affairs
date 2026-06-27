@@ -3,10 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { aiConfigured } from "@/lib/ai";
+import { getUnreadDigest } from "@/lib/assistant-nudge";
 import {
   runAssistant, performAction,
-  type AssistantActionPayload, type AssistantResult, type ChatTurn, type ExecuteResult,
+  type AssistantActionPayload, type AssistantResult, type ChatTurn, type ExecuteResult, type ProposedAction,
 } from "@/lib/assistant";
+
+export interface NudgeResult {
+  signature: string;
+  suggestion: { summary: string; proposal?: ProposedAction } | null;
+}
 
 /**
  * Tour de conversation : exécute la boucle agent côté serveur (clé jamais exposée).
@@ -33,6 +40,36 @@ export async function assistantChat(history: ChatTurn[]): Promise<AssistantResul
  * journalise. On applique ensuite la revalidation des pages concernées. Ne lève
  * jamais : renvoie un résultat structuré.
  */
+/**
+ * Suggestion PROACTIVE de l'assistant flottant : analyse les messages internes NON
+ * LUS et propose, le cas échéant, UNE action à confirmer. L'IA n'est appelée que si
+ * le contenu non lu a changé (`prevSignature`) → coût maîtrisé. Gracieux sans clé.
+ * Ne lève jamais.
+ */
+export async function assistantNudge(prevSignature: string): Promise<NudgeResult> {
+  try {
+    const user = await requireUser();
+    const digest = await getUnreadDigest(user.id);
+    if (digest.count === 0) return { signature: "0", suggestion: null };
+    // Rien de nouveau depuis la dernière analyse → pas d'appel IA.
+    if (digest.signature === prevSignature) return { signature: digest.signature, suggestion: null };
+    if (!aiConfigured()) return { signature: digest.signature, suggestion: null };
+
+    const prompt =
+      `Messages internes récents NON LUS reçus par l'utilisateur (analyse le contexte global : plusieurs messages peuvent être liés) :\n\n${digest.text}\n\n` +
+      `S'il y a UNE action concrète et utile à proposer (créer une tâche, répondre à un collègue, créer une demande administrative, envoyer un e-mail…), prépare-la (un seul outil d'écriture). ` +
+      `Sinon réponds EXACTEMENT « RAS ». Sois bref.`;
+    const res = await runAssistant(user, [{ role: "user", content: prompt }]);
+    if (!res.configured || !res.ok) return { signature: digest.signature, suggestion: null };
+    const reply = (res.reply ?? "").trim();
+    if (!res.proposal && (reply.length === 0 || /^ras\b/i.test(reply))) return { signature: digest.signature, suggestion: null };
+    return { signature: digest.signature, suggestion: { summary: reply || "J'ai repéré une action possible à partir de vos messages.", proposal: res.proposal } };
+  } catch (err) {
+    console.error("[assistant] assistantNudge failed", err);
+    return { signature: "0", suggestion: null };
+  }
+}
+
 export async function executeAssistantAction(payload: AssistantActionPayload): Promise<ExecuteResult> {
   try {
     const user = await requireUser();

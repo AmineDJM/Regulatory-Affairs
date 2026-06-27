@@ -106,7 +106,7 @@ l'utilisateur y a accès (RBAC asymétrique).
 | **Messagerie** | `/messages` | Messagerie interne complète (DM / groupes / canaux). Badge non-lus live. → [détails](#-messagerie-interne-temps-réel) |
 | **Courrier** | `/courrier` | **Webmail Infomaniak** intégré par utilisateur (IMAP + SMTP). → [détails](#-courrier--webmail-infomaniak-intégré) |
 | **Directives** | `/directives` | **Instructions priorisées de la Direction** vers une personne ou un rôle entier, avec échéance, statut et **fil d'échange**. |
-| **Assistant IA** | `/assistant` | Chatbot interne (boucle agent Claude) **scopé par les droits** de l'utilisateur, qui prépare des actions à confirmer. → [détails](#-intelligence-artificielle-claude--whisper) |
+| **Assistant IA** 💬 | **bulle flottante** (partout) | Chatbot interne (boucle agent Claude) **scopé par les droits**, présent sur **toutes les pages** (plus un onglet). **Suggestions proactives** : analyse les messages non lus et propose une action en notification. → [détails](#-intelligence-artificielle-claude--whisper) |
 | **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation de travail, CNAS, relevé d'émoluments, titre de congé, ordre de mission, note de frais…). Accès strict à ses propres documents. |
 | **Dashboard** | `/dashboard` | KPIs & graphiques adaptés au rôle. |
 
@@ -291,8 +291,11 @@ si la session réelle est Super Admin (pas d'escalade). Bandeau permanent + « Q
 La couche IA (`src/lib/ai.ts`) est **serveur uniquement** ; sans clé, elle renvoie `configured:false` et l'UI
 affiche proprement « IA non configurée » — **aucune fonctionnalité ne casse**.
 
-- **Assistant IA** (`/assistant`) — **boucle agent Claude**. Comprend l'app et les données de l'utilisateur
-  **filtrées par ses droits**. Les **outils de lecture** (annuaire, tâches, médecins, produits, **e-mails de sa
+- **Assistant IA** — **bulle flottante présente partout** (remplace l'onglet) + page plein écran `/assistant`.
+  **Boucle agent Claude**, comprend l'app et les données de l'utilisateur **filtrées par ses droits**.
+  **Proactif** : quand de nouveaux messages internes non lus arrivent, il les analyse (contexte global, plusieurs
+  messages liés) et **propose une action** en notification discrète sur la bulle — l'IA n'est appelée que s'il y a
+  du nouveau (coût maîtrisé), gracieux sans clé. Les **outils de lecture** (annuaire, tâches, médecins, produits, **e-mails de sa
   propre boîte Courrier**…) sont exécutés automatiquement et **scopés** ; les **outils d'écriture** ne sont
   **jamais** exécutés par l'IA : ils reviennent en **carte de confirmation**. Actions possibles (chacune gardée
   par son module) : créer une tâche, créer une demande administrative, **envoyer un message** interne,

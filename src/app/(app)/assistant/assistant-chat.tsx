@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { assistantChat, executeAssistantAction } from "@/lib/actions/assistant-actions";
 import type { ProposedAction, AssistantActionPayload, ChatTurn } from "@/lib/assistant";
 
-type ActionState = "pending" | "running" | "done" | "cancelled" | "error";
+export type ActionState = "pending" | "running" | "done" | "cancelled" | "error";
 
 interface Msg {
   id: number;
@@ -34,7 +34,7 @@ let counter = 1;
 const nextId = () => counter++;
 
 /** Nettoie un éventuel Markdown résiduel (l'assistant doit répondre en texte simple). */
-function cleanReply(text: string): string {
+export function cleanReply(text: string): string {
   return text
     .replace(/\*\*(.+?)\*\*/g, "$1")        // **gras**
     .replace(/__(.+?)__/g, "$1")              // __gras__
@@ -236,7 +236,7 @@ function MessageBubble({
   );
 }
 
-function ActionCard({
+export function ActionCard({
   proposal, state, result, link, onConfirm, onCancel,
 }: {
   proposal: ProposedAction;
