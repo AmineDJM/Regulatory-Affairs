@@ -29,9 +29,10 @@ export async function POST(req: NextRequest) {
     (typeof body.token === "string" && body.token) ||
     (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
   if (bodyToken) {
-    const verified = verifyJwt<{ status?: number; url?: string } & Record<string, unknown>>(bodyToken);
+    const verified = verifyJwt<{ payload?: Record<string, unknown> } & Record<string, unknown>>(bodyToken);
     if (!verified) return NextResponse.json({ error: 1 });
-    body = verified;
+    // En-tête Authorization → données réelles sous `payload` ; dans le corps → à plat.
+    body = (verified.payload ?? verified) as typeof body;
   }
 
   const status = body.status;
