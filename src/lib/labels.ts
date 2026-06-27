@@ -140,6 +140,13 @@ export const SPONSORING_STATUS: Record<string, Display> = {
   AWAITING_DIRECTION: { label: "Attente Direction", tone: "warning" },
   PAID: { label: "Payé", tone: "success" },
   CLOSED: { label: "Clôturé", tone: "neutral" },
+  AWAITING_PRELIMINARY: { label: "Attente validation préliminaire", tone: "warning" },
+  PRELIMINARY_APPROVED: { label: "Analyse chef de produit", tone: "info" },
+  AWAITING_FINAL: { label: "Attente décision Direction", tone: "warning" },
+  APPROVED: { label: "Accordé", tone: "success" },
+  APPEAL_PENDING: { label: "Appel — réexamen chef de produit", tone: "purple" },
+  AWAITING_FINAL_APPEAL: { label: "Appel — décision Direction", tone: "warning" },
+  CANCELLED: { label: "Annulé", tone: "neutral" },
 };
 
 /** Types de sponsoring proposés en menu déroulant (valeur = libellé stocké). */

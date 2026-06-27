@@ -218,6 +218,21 @@ d'un **Chef de produit** → **analyse + budget proposé (chef de produit)** →
 - Deux budgets conservés côte à côte (demandeur / chef de produit). Délégués (scope ASSIGNED) ne
   voient que leurs demandes ; Direction valide ; chef de produit analyse. Vérifié bout-en-bout.
 
+### Sponsoring (même circuit que les congrès + appel — calqué)
+`Demande (délégué)` → **PRÉLIMINAIRE (Direction)** + désignation **chef de produit** → **analyse + budget
+proposé (chef de produit)** → **DÉFINITIVE (Direction : budget final accordé + commentaire)** → **ordre de
+dépense** (catégorie Événement) vers l'espace comptable. Le **type** de sponsoring est un **menu déroulant**.
+- **Appel du délégué** (après décision) : repart au **chef de produit** pour un **nouvel avis sans budget**
+  (`APPEAL_PENDING` → `AWAITING_FINAL_APPEAL`) → la **Direction tranche définitivement** (« 2ᵉ tour »).
+- **CONFIDENTIALITÉ (impérative)** : l'**analyse et le budget proposé du chef de produit** (et la note de
+  pré-validation) **ne sont JAMAIS visibles par le délégué** — il ne voit que le **budget final accordé +
+  le commentaire de la Direction**. Filtre `canSeeInternal = Direction || chef de produit assigné`
+  (`SponsoringRequest.productManagerNotes/productManagerBudget/preliminaryNote` masqués sinon).
+- Statuts `SponsoringStatus` ajoutés : `AWAITING_PRELIMINARY`, `PRELIMINARY_APPROVED`, `AWAITING_FINAL`,
+  `APPROVED`, `APPEAL_PENDING`, `AWAITING_FINAL_APPEAL`, `CANCELLED`. Actions : `sponsoringPreliminary`,
+  `sponsoringAnalysis`, `sponsoringFinal`, `sponsoringAppeal`. Vérifié e2e 3 rôles (délégué/chef de
+  produit/Direction) **dont la confidentialité** (15/15).
+
 ### PCH — Marchés publics
 - **Appel d'offres gagné** = une ligne (réf auto `AO-année-n`, produits, fournisseur, pays, quantité,
   valeur, client=PCH par défaut, statut : pas encore commencé / en cours / terminé).
@@ -281,7 +296,7 @@ d'un **Chef de produit** → **analyse + budget proposé (chef de produit)** →
 Principales (ordre chronologique) : init → finances → RH/Workspace → sponsoring/avance → ordres de
 dépense → Drive → demandes admin → **BD (project/range/product)** → **validation_center_and_feedback** →
 **supplier_portal** → **congress_request_workflow** → **regulatory_category_sale_type** → **pch_and_stocks**
-→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types**.
+→ **messaging** → **medical_specialty_structure** → **employee_hr_documents** → **budget_envelope** → **field_reports** → **events** → **hr_request_types** → **sponsoring_validation_workflow**.
 
 > **hr_request_types** : ajoute `LEAVE_TITLE`, `MISSION_ORDER`, `EXPENSE_REPORT` à l'enum `HrRequestType`
 > (`ALTER TYPE … ADD VALUE`). La **fusion de modules** (Finances/Congrès/Logistique-Stocks) est purement

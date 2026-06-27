@@ -3,15 +3,25 @@
 import { revalidatePath } from "next/cache";
 import type { Priority, SponsoringStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
-// Above this amount (DZD) a sponsoring requires Direction validation.
-const DIRECTION_THRESHOLD = 100000;
+const PATH = "/sponsoring";
+
+function isDirection(user: SessionUser): boolean {
+  return hasGlobalView(user.role) || userCan(user, "SPONSORING", "VALIDATE");
+}
+
+function revalidate(id: string) {
+  revalidatePath(PATH);
+  revalidatePath(`${PATH}/${id}`);
+}
+
+// ───────────────────────────── Création (→ pré-validation Direction) ─────────────────────────────
 
 export async function createSponsoring(
   _prev: ActionResult | undefined,
@@ -24,12 +34,8 @@ export async function createSponsoring(
   if (!institution) return { ok: false, error: "L'institution est obligatoire." };
 
   const year = new Date().getFullYear();
-  const count = await prisma.sponsoringRequest.count({
-    where: { reference: { startsWith: `SPO-${year}-` } },
-  });
+  const count = await prisma.sponsoringRequest.count({ where: { reference: { startsWith: `SPO-${year}-` } } });
   const reference = `SPO-${year}-${String(count + 1).padStart(3, "0")}`;
-  const amountRequested = fdNum(formData, "amountRequested");
-  const needsDirection = (amountRequested ?? 0) > DIRECTION_THRESHOLD;
 
   const created = await prisma.sponsoringRequest.create({
     data: {
@@ -41,98 +47,192 @@ export async function createSponsoring(
       type: fdStr(formData, "type") ?? "Sponsoring",
       description: fdStr(formData, "description"),
       comments: fdStr(formData, "comments"),
-      amountRequested,
+      amountRequested: fdNum(formData, "amountRequested"),
       amountProposed: fdNum(formData, "amountProposed"),
       product: fdStr(formData, "product"),
       strategicImportance: (fdStr(formData, "strategicImportance") as Priority) ?? "MEDIUM",
-      status: needsDirection ? "AWAITING_DIRECTION" : "RECEIVED",
+      status: "AWAITING_PRELIMINARY",
       requesterId: user.id,
       createdById: user.id,
     },
   });
 
-  await recordAudit({
-    actorId: user.id,
-    action: "CREATE",
-    module: "Sponsoring",
-    entityType: "SPONSORING",
-    entityId: created.id,
-    summary: `Demande ${reference} — ${institution}`,
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${reference} — ${institution}` });
+  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+    type: "SPONSORING_VALIDATION",
+    title: "Sponsoring — validation préliminaire",
+    body: `${reference} — ${institution}`,
+    link: `${PATH}/${created.id}`,
   });
 
-  if (needsDirection) {
-    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
-      type: "SPONSORING_VALIDATION",
-      title: "Sponsoring à valider",
-      body: `${reference} — ${institution} (montant élevé)`,
-      link: `/sponsoring/${created.id}`,
-    });
-  }
-
-  revalidatePath("/sponsoring");
+  revalidatePath(PATH);
   return { ok: true, id: created.id };
 }
 
-export async function decideSponsoring(formData: FormData): Promise<ActionResult> {
+// ───────────────────────────── Validation préliminaire (Direction) ─────────────────────────────
+
+export async function sponsoringPreliminary(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "SPONSORING", "VALIDATE")) return { ok: false, error: "Validation non autorisée." };
-
+  if (!isDirection(user)) return { ok: false, error: "Validation réservée à la Direction." };
   const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Demande introuvable." };
-  const before = await prisma.sponsoringRequest.findUnique({ where: { id } });
-  if (!before) return { ok: false, error: "Demande introuvable." };
+  const decision = fdStr(formData, "decision"); // APPROVE | REJECT
+  if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
 
-  const decision = fdStr(formData, "decision") as SponsoringStatus; // ACCEPTED | REFUSED
-  const amountGranted = fdNum(formData, "amountGranted");
+  const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.status !== "AWAITING_PRELIMINARY") return { ok: false, error: "Cette demande n'est pas en attente de validation préliminaire." };
+
+  if (decision === "REJECT") {
+    const reason = fdStr(formData, "note");
+    if (!reason) return { ok: false, error: "Le motif de refus est obligatoire." };
+    await prisma.sponsoringRequest.update({
+      where: { id },
+      data: { status: "REFUSED", finalDecision: reason, preliminaryById: user.id, preliminaryAt: new Date(), validatedBy: user.name, validationDate: new Date(), updatedById: user.id },
+    });
+    if (req.requesterId) await notifyUser({ userId: req.requesterId, type: "SPONSORING_VALIDATION", title: "Sponsoring refusé", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
+    await recordAudit({ actorId: user.id, action: "REFUSE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Refus préliminaire — ${req.reference}` });
+  } else {
+    const productManagerId = fdStr(formData, "productManagerId");
+    if (!productManagerId) return { ok: false, error: "Sélectionnez le chef de produit qui fera l'analyse." };
+    await prisma.sponsoringRequest.update({
+      where: { id },
+      data: { status: "PRELIMINARY_APPROVED", productManagerId, preliminaryById: user.id, preliminaryAt: new Date(), preliminaryNote: fdStr(formData, "note"), updatedById: user.id },
+    });
+    await notifyUser({ userId: productManagerId, type: "ASSIGNMENT", title: "Sponsoring à analyser", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
+    if (req.requesterId) await notifyUser({ userId: req.requesterId, type: "SPONSORING_VALIDATION", title: "Sponsoring validé (préliminaire)", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
+    await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Validation préliminaire — ${req.reference}` });
+  }
+  revalidate(id);
+  return { ok: true };
+}
+
+// ─────────────────── Analyse chef de produit (avis + budget proposé) — confidentiel ───────────────────
+
+export async function sponsoringAnalysis(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.productManagerId !== user.id && !hasGlobalView(user.role)) return { ok: false, error: "Réservé au chef de produit assigné." };
+
+  const isAppeal = req.status === "APPEAL_PENDING";
+  if (req.status !== "PRELIMINARY_APPROVED" && !isAppeal) return { ok: false, error: "Cette demande n'est pas en phase d'analyse." };
+
+  const notes = fdStr(formData, "productManagerNotes");
+  if (!notes) return { ok: false, error: "Votre avis est obligatoire." };
+
+  // En appel, l'avis est rendu SANS budget (la Direction tranchera).
+  const budget = isAppeal ? null : fdNum(formData, "productManagerBudget");
+  if (!isAppeal && budget === null) return { ok: false, error: "Le budget proposé est obligatoire." };
 
   await prisma.sponsoringRequest.update({
     where: { id },
     data: {
-      status: decision,
-      amountGranted: decision === "ACCEPTED" ? amountGranted : 0,
-      finalDecision: fdStr(formData, "finalDecision"),
-      validatedBy: user.name,
-      validationDate: new Date(),
+      status: isAppeal ? "AWAITING_FINAL_APPEAL" : "AWAITING_FINAL",
+      productManagerNotes: notes,
+      ...(isAppeal ? {} : { productManagerBudget: budget }),
       updatedById: user.id,
     },
   });
-
-  // Direction accepts a spend → emit an ordre de dépense for the comptable.
-  if (decision === "ACCEPTED" && amountGranted && amountGranted > 0) {
-    await createExpenseOrder({
-      label: `Sponsoring ${before.reference} — ${before.institution}`,
-      amount: amountGranted,
-      category: "EVENEMENT",
-      beneficiary: before.institution,
-      sourceType: "SPONSORING",
-      sourceId: id,
-      requestedById: user.id,
-    });
-  }
-
-  await recordAudit({
-    actorId: user.id,
-    action: decision === "REFUSED" ? "REFUSE" : "VALIDATE",
-    module: "Sponsoring",
-    entityType: "SPONSORING",
-    entityId: id,
-    field: "status",
-    oldValue: before.status,
-    newValue: decision,
-    summary: `Décision sur ${before.reference}: ${decision}`,
+  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+    type: "VALIDATION_REQUIRED",
+    title: isAppeal ? "Sponsoring — décision après appel" : "Sponsoring — validation définitive",
+    body: `${req.reference} — analyse chef de produit ${isAppeal ? "(appel) " : ""}terminée`,
+    link: `${PATH}/${id}`,
   });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Analyse chef de produit${isAppeal ? " (appel)" : ""} — ${req.reference}` });
+  revalidate(id);
+  return { ok: true };
+}
 
-  if (before.requesterId) {
-    await notifyUser({
-      userId: before.requesterId,
-      type: "SPONSORING_VALIDATION",
-      title: `Sponsoring ${decision === "REFUSED" ? "refusé" : "accepté"}`,
-      body: `${before.reference} — ${before.institution}`,
-      link: `/sponsoring/${id}`,
-    });
+// ─────────────────── Décision définitive (Direction : budget final + commentaire) ───────────────────
+
+export async function sponsoringFinal(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!isDirection(user)) return { ok: false, error: "Validation réservée à la Direction." };
+  const id = fdStr(formData, "id");
+  const decision = fdStr(formData, "decision"); // APPROVE | REJECT
+  if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
+
+  const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.status !== "AWAITING_FINAL" && req.status !== "AWAITING_FINAL_APPEAL") {
+    return { ok: false, error: "Cette demande n'est pas en attente de décision définitive." };
   }
 
-  revalidatePath("/sponsoring");
-  revalidatePath(`/sponsoring/${id}`);
+  if (decision === "REJECT") {
+    const reason = fdStr(formData, "note");
+    if (!reason) return { ok: false, error: "Le motif de refus est obligatoire." };
+    await prisma.sponsoringRequest.update({
+      where: { id },
+      data: { status: "REFUSED", finalDecision: reason, amountGranted: 0, finalById: user.id, finalAt: new Date(), validatedBy: user.name, validationDate: new Date(), updatedById: user.id },
+    });
+    if (req.requesterId) await notifyUser({ userId: req.requesterId, type: "SPONSORING_VALIDATION", title: "Sponsoring refusé (définitif)", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
+    await recordAudit({ actorId: user.id, action: "REFUSE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Refus définitif — ${req.reference}` });
+    revalidate(id);
+    return { ok: true };
+  }
+
+  const amountGranted = fdNum(formData, "amountGranted");
+  if (amountGranted === null || amountGranted < 0) return { ok: false, error: "Le budget final accordé est obligatoire." };
+
+  // Validation définitive → ordre de dépense vers l'espace comptable.
+  const order = amountGranted > 0
+    ? await createExpenseOrder({
+        label: `Sponsoring ${req.reference} — ${req.institution}`,
+        amount: amountGranted,
+        category: "EVENEMENT",
+        beneficiary: req.institution,
+        sourceType: "SPONSORING",
+        sourceId: id,
+        requestedById: req.requesterId ?? user.id,
+      })
+    : null;
+
+  await prisma.sponsoringRequest.update({
+    where: { id },
+    data: {
+      status: "APPROVED",
+      amountGranted,
+      finalDecision: fdStr(formData, "note"),
+      finalById: user.id, finalAt: new Date(),
+      validatedBy: user.name, validationDate: new Date(),
+      expenseOrderId: order?.id ?? null,
+      updatedById: user.id,
+    },
+  });
+  if (req.requesterId) await notifyUser({ userId: req.requesterId, type: "SPONSORING_VALIDATION", title: "Sponsoring accordé", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
+  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Validation définitive — ${req.reference}${order ? ` (ordre ${order.reference})` : ""}` });
+  revalidate(id);
+  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/comptabilite");
+  return { ok: true };
+}
+
+// ───────────────────────────── Appel du délégué (→ nouvel avis chef de produit) ─────────────────────────────
+
+export async function sponsoringAppeal(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  // L'appel est ouvert au demandeur (délégué) une fois la décision rendue.
+  if (req.requesterId !== user.id && !hasGlobalView(user.role)) return { ok: false, error: "Seul le demandeur peut faire appel." };
+  if (req.status !== "APPROVED" && req.status !== "REFUSED") return { ok: false, error: "L'appel n'est possible qu'après la décision de la Direction." };
+
+  const reason = fdStr(formData, "reason");
+  if (!reason) return { ok: false, error: "Précisez le motif de votre appel." };
+
+  await prisma.sponsoringRequest.update({
+    where: { id },
+    data: { status: "APPEAL_PENDING", appealById: user.id, appealAt: new Date(), appealReason: reason, appealCount: { increment: 1 }, updatedById: user.id },
+  });
+  // Repart au chef de produit pour un nouvel avis (sans budget) ; la Direction est informée.
+  if (req.productManagerId) await notifyUser({ userId: req.productManagerId, type: "ASSIGNMENT", title: "Sponsoring — appel à réexaminer", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
+  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "SPONSORING_VALIDATION", title: "Sponsoring — appel du délégué", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Appel du délégué — ${req.reference}` });
+  revalidate(id);
   return { ok: true };
 }

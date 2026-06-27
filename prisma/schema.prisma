@@ -126,6 +126,14 @@ enum SponsoringStatus {
   AWAITING_DIRECTION
   PAID
   CLOSED
+  // Circuit de validation (calqué congrès) + appel
+  AWAITING_PRELIMINARY // attente validation préliminaire (Direction)
+  PRELIMINARY_APPROVED // validée préliminairement → analyse chef de produit
+  AWAITING_FINAL // analyse faite → attente validation définitive (Direction)
+  APPROVED // validée définitivement → ordre de dépense émis
+  APPEAL_PENDING // appel du délégué → nouvel avis du chef de produit (sans budget)
+  AWAITING_FINAL_APPEAL // avis d'appel rendu → décision définitive (Direction)
+  CANCELLED
 }
 
 enum BudgetCategory {
@@ -708,10 +716,27 @@ model SponsoringRequest {
   strategicImportance Priority         @default(MEDIUM)
   product             String? // produit concerné
   expectedRoi         String?
-  finalDecision       String?
+  finalDecision       String? // commentaire final de la Direction (visible par le délégué)
   validatedBy         String?
   validationDate      DateTime?
-  comments            String?
+  comments            String? // appréciation / recommandation du délégué
+
+  // Circuit de validation (calqué sur les congrès) — préliminaire (Direction) →
+  // analyse chef de produit (avis + budget proposé, CONFIDENTIELS vis-à-vis du délégué)
+  // → décision définitive (Direction : budget final + commentaire) → appel possible.
+  preliminaryById      String?
+  preliminaryAt        DateTime?
+  preliminaryNote      String? // note interne de pré-validation (non visible par le délégué)
+  productManagerId     String?
+  productManagerBudget Decimal?  @db.Decimal(12, 2) // budget proposé par le chef de produit — CONFIDENTIEL
+  productManagerNotes  String? // avis du chef de produit — CONFIDENTIEL (jamais montré au délégué)
+  finalById            String?
+  finalAt              DateTime?
+  expenseOrderId       String? // ordre de dépense émis à la validation définitive
+  appealById           String?
+  appealAt             DateTime?
+  appealReason         String? // motif de l'appel du délégué
+  appealCount          Int       @default(0)
 
   createdById String?
   updatedById String?
@@ -721,6 +746,7 @@ model SponsoringRequest {
   @@index([status])
   @@index([strategicImportance])
   @@index([requesterId])
+  @@index([productManagerId])
 }
 
 // ───────────────────────────── Budgets ─────────────────────────────
