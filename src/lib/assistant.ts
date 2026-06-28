@@ -21,7 +21,7 @@
 import type { AdminRequestType, CongressRequestStatus, Priority } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { notifyUser, notifyRoles } from "@/lib/notify";
+import { notifyUser, notifyRoles, broadcastNotification, type BroadcastAudience } from "@/lib/notify";
 import { createDossierRecord } from "@/lib/dossiers-core";
 import { findDirectConversation } from "@/lib/messaging";
 import { getMailAccount, listMessages, getMessage, sendMail } from "@/lib/mail";
@@ -107,6 +107,16 @@ export type AssistantActionPayload =
       assigneeName?: string | null;
       priority?: string | null;
       dueDate?: string | null;
+    }
+  | {
+      kind: "create_notification";
+      audience: BroadcastAudience;
+      role?: string | null;
+      userIds?: string[];
+      recipientNames?: string | null;
+      title: string;
+      body?: string | null;
+      link?: string | null;
     };
 
 export type AssistantActionKind = AssistantActionPayload["kind"];
@@ -241,6 +251,27 @@ const SUPERADMIN_TOOLS: ClaudeToolDef[] = [
   },
 ];
 
+// Outils d'ÉCRITURE réservés au Super Admin (interceptés + confirmés, comme les autres).
+const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
+  {
+    name: "create_notification",
+    description:
+      "RÉSERVÉ AU SUPER ADMIN : PROPOSE l'envoi d'une NOTIFICATION (diffusion) — à TOUS les comptes actifs, à un RÔLE précis, ou à des PERSONNES précises. N'exécute rien : confirmation requise. Pour des personnes précises, donner leurs noms séparés par des virgules (les résoudre via search_people si besoin). Pour un rôle, donner le libellé du rôle (ex. « Délégué médical », « Coordination », « Comptable »). La notification arrive dans la cloche + en push sur le téléphone des destinataires.",
+    input_schema: {
+      type: "object",
+      properties: {
+        audience: { type: "string", enum: ["ALL", "ROLE", "USERS"], description: "ALL = tous les comptes actifs ; ROLE = un rôle ; USERS = des personnes précises." },
+        role: { type: "string", description: "Si audience=ROLE : libellé ou code du rôle ciblé." },
+        recipientNames: { type: "string", description: "Si audience=USERS : noms des destinataires, séparés par des virgules." },
+        title: { type: "string", description: "Titre de la notification." },
+        body: { type: "string", description: "Texte du message (optionnel)." },
+        link: { type: "string", description: "Lien interne optionnel (ex. /mon-espace, /notifications)." },
+      },
+      required: ["audience", "title"],
+    },
+  },
+];
+
 const WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "create_task",
@@ -349,7 +380,7 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
   },
 ];
 
-const WRITE_TOOL_NAMES = new Set(WRITE_TOOLS.map((t) => t.name));
+const WRITE_TOOL_NAMES = new Set([...WRITE_TOOLS, ...SUPERADMIN_WRITE_TOOLS].map((t) => t.name));
 
 // ───────────────────────────── Contexte + system prompt ─────────────────────────────
 
@@ -374,9 +405,10 @@ ${user.role === "SUPER_ADMIN" ? `
 TU ES L'ASSISTANT DU SUPER ADMIN — le plus puissant de l'application. Tu as une VISION GLOBALE de
 toute l'entreprise (tous les modules, tous les comptes, toutes les données). Tu peux lister tous les
 comptes et leur charge (list_accounts), interroger n'importe quel pôle, et RELANCER/PILOTER n'importe
-qui (créer une tâche pour un collaborateur, lui envoyer un message). Sers le pilotage de l'entreprise :
-détecte les blocages, désigne les responsables, propose des relances. Les actions restent soumises à
-confirmation.
+qui (créer une tâche pour un collaborateur, lui envoyer un message). Tu peux aussi DIFFUSER UNE
+NOTIFICATION (create_notification) à tous les comptes, à un rôle précis, ou à des personnes précises
+(elle arrive dans la cloche + en push sur leur téléphone). Sers le pilotage de l'entreprise : détecte les
+blocages, désigne les responsables, propose des relances. Les actions restent soumises à confirmation.
 ` : ""}
 CONTEXTE :
 ${buildContext(user)}
@@ -845,7 +877,62 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  if (toolName === "create_notification") {
+    if (user.role !== "SUPER_ADMIN") return { error: "Seul le Super Admin peut diffuser des notifications." };
+    const title = asStr(input, "title");
+    if (!title) return { error: "Titre de la notification manquant." };
+    const audience = asStr(input, "audience").toUpperCase();
+    if (!["ALL", "ROLE", "USERS"].includes(audience)) return { error: "Audience invalide (ALL, ROLE ou USERS)." };
+    const body = asStr(input, "body") || null;
+    const link = asStr(input, "link") || null;
+
+    const fields = [{ label: "Titre", value: title }];
+    let role: string | null = null;
+    const userIds: string[] = [];
+    let recipientNames: string | null = null;
+
+    if (audience === "ROLE") {
+      role = normalizeRole(asStr(input, "role"));
+      if (!role) return { error: "Rôle ciblé manquant ou inconnu — précisez le rôle (ex. « Délégué médical »)." };
+      fields.push({ label: "Audience", value: `Rôle : ${ROLE_LABELS[role as keyof typeof ROLE_LABELS] ?? role}` });
+    } else if (audience === "USERS") {
+      const names = asStr(input, "recipientNames").split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+      if (names.length === 0) return { error: "Aucun destinataire précisé (audience=USERS)." };
+      const resolvedNames: string[] = [];
+      for (const n of names) {
+        const r = await resolve("Destinataire", n);
+        if (r.id) { userIds.push(r.id); resolvedNames.push(r.name ?? n); }
+      }
+      if (userIds.length === 0) return { error: "Aucun destinataire valide trouvé — précisez les noms (search_people)." };
+      recipientNames = resolvedNames.join(", ");
+      fields.push({ label: "Audience", value: `${userIds.length} personne(s) : ${recipientNames}` });
+    } else {
+      fields.push({ label: "Audience", value: "Tous les comptes actifs" });
+    }
+    if (body) fields.push({ label: "Message", value: body });
+    if (link) fields.push({ label: "Lien", value: link });
+
+    return {
+      kind: "create_notification", module: "ADMIN", title: "Diffuser une notification", fields, warnings,
+      payload: { kind: "create_notification", audience: audience as BroadcastAudience, role, userIds, recipientNames, title, body, link },
+    };
+  }
+
   return { error: `Action non prise en charge : ${toolName}.` };
+}
+
+/** Normalise un rôle (libellé FR ou code) vers un code de rôle interne, ou null. */
+function normalizeRole(raw: string): string | null {
+  const s = raw.trim();
+  if (!s) return null;
+  const codes = Object.keys(ROLE_LABELS);
+  const upper = s.toUpperCase().replace(/[\s-]+/g, "_");
+  const byCode = codes.find((k) => k.toUpperCase() === upper);
+  if (byCode) return byCode;
+  const lower = s.toLowerCase();
+  const byLabel = codes.find((k) => (ROLE_LABELS[k as keyof typeof ROLE_LABELS] ?? "").toLowerCase() === lower);
+  if (byLabel) return byLabel;
+  return codes.find((k) => (ROLE_LABELS[k as keyof typeof ROLE_LABELS] ?? "").toLowerCase().includes(lower)) ?? null;
 }
 
 // ───────────────────────────── Boucle agent ─────────────────────────────
@@ -879,7 +966,11 @@ export async function runAssistant(user: CurrentUser, history: ChatTurn[]): Prom
 
   const system = systemPrompt(user);
   // Le Super Admin dispose d'outils exclusifs (vision globale de tous les comptes).
-  const tools = [...READ_TOOLS, ...(user.role === "SUPER_ADMIN" ? SUPERADMIN_TOOLS : []), ...WRITE_TOOLS];
+  const tools = [
+    ...READ_TOOLS,
+    ...(user.role === "SUPER_ADMIN" ? [...SUPERADMIN_TOOLS, ...SUPERADMIN_WRITE_TOOLS] : []),
+    ...WRITE_TOOLS,
+  ];
   const trace: string[] = [];
 
   try {
@@ -1124,6 +1215,27 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", entityType: scope === "INTL" ? "CONGRESS_INTERNATIONAL" : "CONGRESS_NATIONAL", entityId: created.id, summary: `Demande de congrès « ${name} » créée via l'assistant` });
     await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Demande de congrès à valider (préliminaire)", body: name, link: `${path}/${created.id}` });
     return { ok: true, message: `Demande de congrès « ${name} » créée (en attente de validation préliminaire de la Direction).`, link: `${path}/${created.id}`, revalidate: [path] };
+  }
+
+  if (payload?.kind === "create_notification") {
+    // Diffusion réservée au Super Admin (revérifiée ici, jamais sur la confiance du client).
+    if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Seul le Super Admin peut diffuser des notifications." };
+    const title = (payload.title ?? "").trim();
+    if (!title) return { ok: false, error: "Titre de la notification manquant." };
+    const count = await broadcastNotification({
+      audience: payload.audience,
+      role: payload.role ?? undefined,
+      userIds: payload.userIds ?? undefined,
+      title,
+      body: payload.body?.trim() || undefined,
+      link: payload.link?.trim() || undefined,
+    });
+    if (count === 0) return { ok: false, error: "Aucun destinataire correspondant — rien n'a été envoyé." };
+    const who = payload.audience === "ALL" ? "tous les comptes"
+      : payload.audience === "ROLE" ? `le rôle ${ROLE_LABELS[(payload.role ?? "") as keyof typeof ROLE_LABELS] ?? payload.role}`
+      : (payload.recipientNames ?? "les destinataires choisis");
+    await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", summary: `Notification « ${title} » diffusée via l'assistant à ${count} destinataire(s) (${who})` });
+    return { ok: true, message: `Notification envoyée à ${count} destinataire(s) — ${who}.`, link: "/notifications", revalidate: ["/notifications"] };
   }
 
   return { ok: false, error: "Action non reconnue." };

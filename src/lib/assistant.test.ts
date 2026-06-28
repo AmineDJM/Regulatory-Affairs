@@ -111,6 +111,19 @@ d("Construction d'action proposée (confirmation)", () => {
     const p = await buildProposal("create_admin_request", { type: "FOO", title: "X" }, bob);
     expect("error" in p).toBe(true);
   });
+
+  it("create_notification est refusé à un non Super Admin", async () => {
+    const p = await buildProposal("create_notification", { audience: "ALL", title: `${MARK} Annonce` }, bob);
+    expect("error" in p).toBe(true);
+  });
+
+  it("create_notification (Super Admin) propose une diffusion à tous", async () => {
+    const sa: CurrentUser = { ...bob, role: "SUPER_ADMIN" };
+    const p = (await buildProposal("create_notification", { audience: "ALL", title: `${MARK} Annonce`, body: "Test" }, sa)) as ProposedAction;
+    expect("error" in p).toBe(false);
+    expect(p.kind).toBe("create_notification");
+    expect(p.payload.kind === "create_notification" && p.payload.audience).toBe("ALL");
+  });
 });
 
 d("Exécution après confirmation — ré-autorisation + audit", () => {
