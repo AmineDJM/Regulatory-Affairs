@@ -1,0 +1,262 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { requireUser } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+import { genSlug, genPublicToken, canManageMeeting, appBaseUrlForMeet } from "@/lib/meetings";
+import { summarizeMeetingTranscript } from "@/lib/ai";
+import { notifyUser } from "@/lib/notify";
+import { releaseBlob } from "@/lib/drive-storage";
+import { recordAudit } from "@/lib/audit";
+import { fdStr, fdBool, fdDate, type ActionResult } from "@/lib/actions/types";
+
+const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
+
+/** Charge une réunion + ses participants et vérifie le droit de gestion (organisateur/vue globale). */
+async function loadManaged(id: string) {
+  const user = await requireUser();
+  const meeting = await prisma.meeting.findUnique({
+    where: { id },
+    include: { participants: { select: { userId: true } } },
+  });
+  if (!meeting) return { error: "Réunion introuvable." as const };
+  if (!canManageMeeting(user, meeting)) return { error: "Action réservée à l'organisateur." as const };
+  return { user, meeting };
+}
+
+/** Crée une réunion planifiée et invite des participants. */
+export async function createMeeting(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MESSAGING", "CREATE")) return DENIED;
+  const title = fdStr(formData, "title");
+  if (!title) return { ok: false, error: "Titre de la réunion requis." };
+  const description = fdStr(formData, "description");
+  const scheduledAt = fdDate(formData, "scheduledAt");
+  const withVideo = formData.get("withVideo") === null ? true : fdBool(formData, "withVideo");
+  const participantIds = [...new Set(formData.getAll("participantIds").map(String).filter(Boolean))].filter((id) => id !== user.id);
+
+  const valid = participantIds.length
+    ? (await prisma.user.findMany({ where: { id: { in: participantIds }, isActive: true }, select: { id: true } })).map((u) => u.id)
+    : [];
+
+  const meeting = await prisma.meeting.create({
+    data: {
+      title, description: description ?? null, slug: genSlug(), publicToken: genPublicToken(),
+      kind: "MEETING", status: "SCHEDULED", withVideo, scheduledAt,
+      organizerId: user.id,
+      participants: { create: valid.map((userId) => ({ userId })) },
+    },
+    select: { id: true },
+  });
+
+  await Promise.all(valid.map((userId) =>
+    notifyUser({ userId, type: "GENERIC", title: "Invitation à une réunion", body: title, link: `/meetings/${meeting.id}` }),
+  ));
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Réunions", entityId: meeting.id, summary: `Réunion « ${title} » créée` });
+  revalidatePath("/meetings");
+  return { ok: true, id: meeting.id };
+}
+
+/** Marque la réunion « en cours » (au moment où l'organisateur la démarre). */
+export async function setMeetingLive(formData: FormData): Promise<ActionResult> {
+  const res = await loadManaged(fdStr(formData, "id") ?? "");
+  if ("error" in res) return { ok: false, error: res.error };
+  if (res.meeting.status === "ENDED") return { ok: false, error: "Réunion terminée." };
+  if (res.meeting.status !== "LIVE") {
+    await prisma.meeting.update({ where: { id: res.meeting.id }, data: { status: "LIVE", startedAt: res.meeting.startedAt ?? new Date() } });
+  }
+  revalidatePath(`/meetings/${res.meeting.id}`);
+  return { ok: true };
+}
+
+/** Clôt la réunion. */
+export async function endMeeting(formData: FormData): Promise<ActionResult> {
+  const res = await loadManaged(fdStr(formData, "id") ?? "");
+  if ("error" in res) return { ok: false, error: res.error };
+  await prisma.meeting.update({ where: { id: res.meeting.id }, data: { status: "ENDED", endedAt: new Date() } });
+  await recordAudit({ actorId: res.user.id, action: "UPDATE", module: "Réunions", entityId: res.meeting.id, summary: "Réunion clôturée" });
+  revalidatePath(`/meetings/${res.meeting.id}`);
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
+/**
+ * Lance un APPEL depuis une conversation : crée une réunion instantanée avec les membres
+ * de la conversation et poste le lien de la salle dans le fil. Renvoie l'id de la réunion.
+ */
+export async function startCall(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MESSAGING", "CREATE")) return DENIED;
+  const conversationId = fdStr(formData, "conversationId");
+  if (!conversationId) return { ok: false, error: "Conversation introuvable." };
+  const withVideo = formData.get("withVideo") === null ? true : fdBool(formData, "withVideo");
+
+  // L'appelant doit être membre de la conversation.
+  const me = await prisma.conversationMember.findFirst({ where: { conversationId, userId: user.id, leftAt: null }, select: { id: true } });
+  if (!me) return DENIED;
+  const members = await prisma.conversationMember.findMany({ where: { conversationId, leftAt: null }, select: { userId: true } });
+  const others = members.map((m) => m.userId).filter((id) => id !== user.id);
+
+  const meeting = await prisma.meeting.create({
+    data: {
+      title: withVideo ? "Appel vidéo" : "Appel audio", slug: genSlug(), publicToken: genPublicToken(),
+      kind: "CALL", status: "LIVE", withVideo, startedAt: new Date(), conversationId,
+      organizerId: user.id,
+      participants: { create: others.map((userId) => ({ userId })) },
+    },
+    select: { id: true },
+  });
+
+  // Message dans le fil avec le lien interne de la salle.
+  const base = appBaseUrlForMeet();
+  const link = `${base}/meetings/${meeting.id}`;
+  const icon = withVideo ? "📹" : "📞";
+  const msg = await prisma.message.create({
+    data: {
+      conversationId, senderId: user.id, kind: "SYSTEM",
+      body: `${icon} ${user.name} a démarré un ${withVideo ? "appel vidéo" : "appel audio"}. Rejoindre : ${link}`,
+    },
+    select: { createdAt: true },
+  });
+  await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: msg.createdAt } });
+  await prisma.conversationMember.updateMany({ where: { conversationId, userId: user.id }, data: { lastReadAt: msg.createdAt } });
+
+  await Promise.all(others.map((userId) =>
+    notifyUser({ userId, type: "GENERIC", title: `${icon} Appel entrant`, body: `${user.name} vous appelle`, link: `/meetings/${meeting.id}` }),
+  ));
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Réunions", entityId: meeting.id, summary: `Appel ${withVideo ? "vidéo" : "audio"} lancé` });
+  revalidatePath("/messages");
+  return { ok: true, id: meeting.id };
+}
+
+/** Ajoute des participants à une réunion. */
+export async function addMeetingParticipants(formData: FormData): Promise<ActionResult> {
+  const res = await loadManaged(fdStr(formData, "id") ?? "");
+  if ("error" in res) return { ok: false, error: res.error };
+  const ids = [...new Set(formData.getAll("participantIds").map(String).filter(Boolean))].filter((id) => id !== res.meeting.organizerId);
+  if (ids.length === 0) return { ok: false, error: "Aucun participant à ajouter." };
+  const valid = (await prisma.user.findMany({ where: { id: { in: ids }, isActive: true }, select: { id: true } })).map((u) => u.id);
+  await prisma.meetingParticipant.createMany({ data: valid.map((userId) => ({ meetingId: res.meeting.id, userId })), skipDuplicates: true });
+  await Promise.all(valid.map((userId) =>
+    notifyUser({ userId, type: "GENERIC", title: "Invitation à une réunion", body: res.meeting.title, link: `/meetings/${res.meeting.id}` }),
+  ));
+  revalidatePath(`/meetings/${res.meeting.id}`);
+  return { ok: true };
+}
+
+/** Retire un participant. */
+export async function removeMeetingParticipant(formData: FormData): Promise<ActionResult> {
+  const res = await loadManaged(fdStr(formData, "id") ?? "");
+  if ("error" in res) return { ok: false, error: res.error };
+  const userId = fdStr(formData, "userId");
+  if (userId) await prisma.meetingParticipant.deleteMany({ where: { meetingId: res.meeting.id, userId } });
+  revalidatePath(`/meetings/${res.meeting.id}`);
+  return { ok: true };
+}
+
+/** Enregistre une transcription saisie/collée manuellement (sans audio). */
+export async function saveMeetingTranscript(formData: FormData): Promise<ActionResult> {
+  const res = await loadManaged(fdStr(formData, "id") ?? "");
+  if ("error" in res) return { ok: false, error: res.error };
+  const transcript = fdStr(formData, "transcript");
+  if (!transcript) return { ok: false, error: "Transcription vide." };
+  await prisma.meeting.update({ where: { id: res.meeting.id }, data: { transcript } });
+  revalidatePath(`/meetings/${res.meeting.id}`);
+  return { ok: true };
+}
+
+/**
+ * Génère le compte rendu IA + des tâches proposées à partir de la transcription stockée.
+ * Les noms de personnes désignées sont rapprochés des participants (jamais inventés).
+ */
+export async function summarizeMeeting(formData: FormData): Promise<ActionResult> {
+  const res = await loadManaged(fdStr(formData, "id") ?? "");
+  if ("error" in res) return { ok: false, error: res.error };
+  const full = await prisma.meeting.findUnique({
+    where: { id: res.meeting.id },
+    select: { transcript: true, participants: { select: { user: { select: { id: true, name: true } } } }, organizer: { select: { id: true, name: true } } },
+  });
+  const transcript = full?.transcript?.trim();
+  if (!transcript) return { ok: false, error: "Aucune transcription à analyser. Enregistrez l'audio ou collez le texte d'abord." };
+
+  const r = await summarizeMeetingTranscript(transcript);
+  if (!r.ok || !r.data) return { ok: false, error: r.configured ? (r.error ?? "Compte rendu impossible.") : "L'IA n'est pas configurée (ANTHROPIC_API_KEY)." };
+
+  // Annuaire des personnes connues de la réunion pour rapprocher un nom → un compte.
+  const people = [full?.organizer, ...(full?.participants ?? []).map((p) => p.user)].filter(Boolean) as { id: string; name: string }[];
+  const matchPerson = (name?: string): string | null => {
+    if (!name) return null;
+    const n = name.trim().toLowerCase();
+    if (!n) return null;
+    return people.find((p) => p.name.toLowerCase() === n)?.id
+      ?? people.find((p) => p.name.toLowerCase().includes(n) || n.includes(p.name.toLowerCase()))?.id
+      ?? null;
+  };
+
+  await prisma.$transaction([
+    prisma.meeting.update({ where: { id: res.meeting.id }, data: { summary: r.data.summary } }),
+    prisma.meetingTaskProposal.deleteMany({ where: { meetingId: res.meeting.id, status: "PROPOSED" } }),
+    ...(r.data.tasks.length
+      ? [prisma.meetingTaskProposal.createMany({
+          data: r.data.tasks.map((t) => ({ meetingId: res.meeting.id, title: t.title, description: t.description ?? null, assigneeId: matchPerson(t.assignee) })),
+        })]
+      : []),
+  ]);
+  await recordAudit({ actorId: res.user.id, action: "UPDATE", module: "Réunions", entityId: res.meeting.id, summary: `Compte rendu IA généré (${r.data.tasks.length} tâche(s) proposée(s))` });
+  revalidatePath(`/meetings/${res.meeting.id}`);
+  return { ok: true, message: `Compte rendu généré — ${r.data.tasks.length} tâche(s) proposée(s).` };
+}
+
+/** Transforme une tâche proposée en vraie tâche (Mon espace) assignée. */
+export async function acceptMeetingProposal(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const proposalId = fdStr(formData, "proposalId");
+  if (!proposalId) return { ok: false, error: "Proposition introuvable." };
+  const proposal = await prisma.meetingTaskProposal.findUnique({
+    where: { id: proposalId },
+    include: { meeting: { include: { participants: { select: { userId: true } } } } },
+  });
+  if (!proposal) return { ok: false, error: "Proposition introuvable." };
+  if (!canManageMeeting(user, proposal.meeting)) return DENIED;
+  if (proposal.status === "ACCEPTED") return { ok: false, error: "Déjà transformée en tâche." };
+
+  const assignedToId = proposal.assigneeId ?? proposal.meeting.organizerId;
+  const task = await prisma.task.create({
+    data: { title: proposal.title, description: proposal.description, assignedToId, createdById: user.id },
+    select: { id: true },
+  });
+  await prisma.meetingTaskProposal.update({ where: { id: proposalId }, data: { status: "ACCEPTED", createdTaskId: task.id } });
+  if (assignedToId !== user.id) {
+    await notifyUser({ userId: assignedToId, type: "ASSIGNMENT", title: "Nouvelle tâche (réunion)", body: proposal.title, link: "/mon-espace" });
+  }
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Réunions", entityType: "TASK", entityId: task.id, summary: `Tâche « ${proposal.title} » créée depuis une réunion` });
+  revalidatePath(`/meetings/${proposal.meetingId}`);
+  revalidatePath("/mon-espace");
+  return { ok: true };
+}
+
+/** Écarte une tâche proposée. */
+export async function dismissMeetingProposal(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const proposalId = fdStr(formData, "proposalId");
+  if (!proposalId) return { ok: false, error: "Proposition introuvable." };
+  const proposal = await prisma.meetingTaskProposal.findUnique({ where: { id: proposalId }, include: { meeting: { include: { participants: { select: { userId: true } } } } } });
+  if (!proposal) return { ok: false, error: "Proposition introuvable." };
+  if (!canManageMeeting(user, proposal.meeting)) return DENIED;
+  await prisma.meetingTaskProposal.update({ where: { id: proposalId }, data: { status: "DISMISSED" } });
+  revalidatePath(`/meetings/${proposal.meetingId}`);
+  return { ok: true };
+}
+
+/** Supprime une réunion (et libère l'audio éventuel). */
+export async function deleteMeeting(formData: FormData): Promise<ActionResult> {
+  const res = await loadManaged(fdStr(formData, "id") ?? "");
+  if ("error" in res) return { ok: false, error: res.error };
+  const full = await prisma.meeting.findUnique({ where: { id: res.meeting.id }, select: { audioBlobId: true, title: true } });
+  await prisma.meeting.delete({ where: { id: res.meeting.id } });
+  if (full?.audioBlobId) await releaseBlob(full.audioBlobId).catch(() => {});
+  await recordAudit({ actorId: res.user.id, action: "DELETE", module: "Réunions", entityId: res.meeting.id, summary: `Réunion « ${full?.title ?? ""} » supprimée` });
+  revalidatePath("/meetings");
+  return { ok: true };
+}

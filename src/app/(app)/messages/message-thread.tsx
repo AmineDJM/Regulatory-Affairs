@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, Hash, Users, Info, Pin, ChevronDown, ChevronUp, X } from "lucide-react";
+import { ArrowLeft, Hash, Users, Info, Pin, ChevronDown, ChevronUp, X, Phone, Video, Loader2 } from "lucide-react";
+import { startCall } from "@/lib/actions/meeting-actions";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import type { ConversationDetailDTO, ConvMemberDTO, MessageDTO } from "@/lib/queries/messaging";
@@ -95,6 +96,7 @@ export function MessageThread({
             </p>
           </div>
         </button>
+        <CallButtons conversationId={detail.id} />
         <button onClick={onToggleInfo} className="rounded-lg p-2 text-muted-foreground hover:bg-secondary" title="Détails"><Info className="h-5 w-5" /></button>
       </div>
 
@@ -181,6 +183,34 @@ export function MessageThread({
         onCancelReply={() => setReplyTo(null)}
         onSend={onSend}
       />
+    </div>
+  );
+}
+
+/** Lance un appel audio/vidéo (Jitsi) depuis la conversation et ouvre la salle. */
+function CallButtons({ conversationId }: { conversationId: string }) {
+  const [busy, setBusy] = React.useState<"audio" | "video" | null>(null);
+
+  async function call(video: boolean) {
+    setBusy(video ? "video" : "audio");
+    const fd = new FormData();
+    fd.set("conversationId", conversationId);
+    fd.set("withVideo", video ? "true" : "false");
+    const r = await startCall(fd);
+    setBusy(null);
+    if (r.ok && r.id) window.open(`/meetings/${r.id}`, "_blank", "noopener");
+  }
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <button onClick={() => call(false)} disabled={busy !== null} title="Appel audio"
+        className="rounded-lg p-2 text-muted-foreground hover:bg-secondary disabled:opacity-60">
+        {busy === "audio" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Phone className="h-5 w-5" />}
+      </button>
+      <button onClick={() => call(true)} disabled={busy !== null} title="Appel vidéo"
+        className="rounded-lg p-2 text-muted-foreground hover:bg-secondary disabled:opacity-60">
+        {busy === "video" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Video className="h-5 w-5" />}
+      </button>
     </div>
   );
 }

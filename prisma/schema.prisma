@@ -659,6 +659,11 @@ model User {
   // Notifications push (Web Push / PWA) — un abonnement par appareil/navigateur.
   pushSubscriptions PushSubscription[] @relation("UserPushSubs")
 
+  // Appels & réunions (Jitsi) — réunions organisées, participations, tâches assignées.
+  meetingsOrganized    Meeting[]             @relation("MeetingOrganizer")
+  meetingParticipations MeetingParticipant[] @relation("MeetingParticipant")
+  meetingTaskProposals MeetingTaskProposal[] @relation("MeetingTaskAssignee")
+
   @@index([role])
   @@index([departmentId])
 }
@@ -2928,4 +2933,92 @@ model AiUsageLog {
   @@index([feature])
   @@index([createdAt])
   @@index([userId])
+}
+
+// ───────────────────────── Appels & réunions (Jitsi) ─────────────────────────
+// Une « réunion » = une salle Jitsi (meet.jit.si, gratuit, zéro config). Un « appel »
+// dans la messagerie est une réunion instantanée lancée depuis une conversation.
+// Restitution facultative : enregistrement (audio) → transcription → compte rendu IA →
+// tâches proposées (acceptables en vraies tâches). Tout reste inerte si l'IA/STT
+// n'est pas configurée — la salle Jitsi, elle, fonctionne toujours.
+
+enum MeetingStatus {
+  SCHEDULED // planifiée (à venir)
+  LIVE // en cours
+  ENDED // terminée
+}
+
+enum MeetingKind {
+  MEETING // réunion classique (module Réunions)
+  CALL // appel lancé depuis la messagerie
+}
+
+enum MeetingTaskStatus {
+  PROPOSED // proposée par l'IA à partir du compte rendu
+  ACCEPTED // transformée en tâche
+  DISMISSED // écartée
+}
+
+model Meeting {
+  id          String        @id @default(cuid())
+  title       String
+  description String?
+  // Salle Jitsi (nom unique, stable → lien permanent) + jeton du lien externe public.
+  slug        String        @unique
+  publicToken String        @unique
+  kind        MeetingKind   @default(MEETING)
+  status      MeetingStatus @default(SCHEDULED)
+  withVideo   Boolean       @default(true) // appel vidéo (sinon audio seul)
+
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  endedAt     DateTime?
+
+  organizerId String
+  organizer   User   @relation("MeetingOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
+
+  // Conversation d'origine (pour les appels lancés depuis la messagerie).
+  conversationId String?
+
+  // Restitution IA (facultative).
+  transcript  String? @db.Text
+  summary     String? @db.Text
+  audioBlobId String? // blob audio de l'enregistrement (storage chiffré)
+
+  participants MeetingParticipant[]
+  proposals    MeetingTaskProposal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizerId])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+model MeetingParticipant {
+  id        String   @id @default(cuid())
+  meetingId String
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("MeetingParticipant", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([meetingId, userId])
+  @@index([userId])
+}
+
+model MeetingTaskProposal {
+  id          String            @id @default(cuid())
+  meetingId   String
+  meeting     Meeting           @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  assigneeId  String?
+  assignee    User?             @relation("MeetingTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  status      MeetingTaskStatus @default(PROPOSED)
+  createdTaskId String? // tâche créée si acceptée
+  createdAt   DateTime          @default(now())
+
+  @@index([meetingId])
 }

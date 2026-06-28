@@ -298,3 +298,60 @@ export async function analyzeFieldReport(transcript: string): Promise<FieldAnaly
   if (!data) return { ok: false, configured: true, error: "Réponse IA non exploitable." };
   return { ok: true, configured: true, data };
 }
+
+// ───────────────────────── Compte rendu de réunion ─────────────────────────
+
+const MEETING_SYSTEM = `Tu rédiges le COMPTE RENDU d'une réunion interne d'Adventum Pharma (laboratoire algérien,
+devise DZD), à partir de sa transcription en français. Tu renvoies UNIQUEMENT un objet JSON valide (sans
+texte autour) avec ces clés :
+- "summary" : compte rendu clair et structuré en français (points clés, décisions, échéances), en quelques
+  phrases ou puces séparées par des retours à la ligne. Reste factuel.
+- "tasks" : tableau des actions à entreprendre déduites de la réunion. Chaque élément = un objet
+  { "title": "...", "description": "...", "assignee": "..." }. "assignee" = nom de la personne désignée
+  dans la réunion (chaîne vide si personne n'est nommé). 0 à 8 tâches, uniquement celles réellement évoquées.
+RÈGLES : n'invente jamais une décision, un chiffre ou une personne absente de la transcription. Si rien
+n'est exploitable, renvoie summary="" et tasks=[].`;
+
+export interface MeetingTaskSuggestion {
+  title: string;
+  description?: string;
+  assignee?: string;
+}
+export interface MeetingSummary {
+  summary: string;
+  tasks: MeetingTaskSuggestion[];
+}
+export interface MeetingSummaryResult {
+  ok: boolean;
+  configured: boolean;
+  data?: MeetingSummary;
+  error?: string;
+}
+
+/** Produit un compte rendu + des tâches proposées à partir d'une transcription de réunion. */
+export async function summarizeMeetingTranscript(transcript: string): Promise<MeetingSummaryResult> {
+  if (!aiConfigured()) return { ok: false, configured: false, error: "Clé ANTHROPIC_API_KEY non configurée." };
+  const clean = transcript.trim();
+  if (!clean) return { ok: false, configured: true, error: "Transcription vide." };
+  const r = await askClaude(`Transcription de la réunion :\n"""${clean.slice(0, 12000)}"""\n\nRenvoie le JSON (summary + tasks).`, {
+    system: MEETING_SYSTEM,
+    maxTokens: 1500,
+    temperature: 0.2,
+  });
+  if (!r.ok || !r.text) return { ok: false, configured: r.configured, error: r.error ?? "Compte rendu impossible." };
+  const start = r.text.indexOf("{");
+  const end = r.text.lastIndexOf("}");
+  if (start === -1 || end <= start) return { ok: false, configured: true, error: "Réponse IA non exploitable." };
+  try {
+    const parsed = JSON.parse(r.text.slice(start, end + 1)) as Partial<MeetingSummary>;
+    const tasks = Array.isArray(parsed.tasks)
+      ? parsed.tasks
+          .filter((t): t is MeetingTaskSuggestion => Boolean(t && typeof t.title === "string" && t.title.trim()))
+          .slice(0, 8)
+          .map((t) => ({ title: String(t.title).trim(), description: t.description ? String(t.description).trim() : undefined, assignee: t.assignee ? String(t.assignee).trim() : undefined }))
+      : [];
+    return { ok: true, configured: true, data: { summary: (parsed.summary ?? "").trim(), tasks } };
+  } catch {
+    return { ok: false, configured: true, error: "Réponse IA non exploitable." };
+  }
+}

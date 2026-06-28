@@ -27,6 +27,10 @@ export const authConfig = {
       if (nextUrl.pathname.startsWith("/inscription")) return true;
       if (nextUrl.pathname.startsWith("/api/events/qr")) return true;
 
+      // Lien de réunion EXTERNE partageable (Jitsi) : invité sans compte, jeton non
+      // devinable. La salle est gérée par Jitsi ; aucune donnée interne n'est exposée.
+      if (nextUrl.pathname.startsWith("/meet/")) return true;
+
       if (isOnLogin) {
         if (isLoggedIn) {
           return Response.redirect(new URL("/dashboard", nextUrl));
