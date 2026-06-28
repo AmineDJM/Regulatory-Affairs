@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { createTask } from "@/lib/actions/task-actions";
+import { createTask, requestTask } from "@/lib/actions/task-actions";
 import { requestLeave, requestAdvance } from "@/lib/actions/hr-actions";
 import { ROLE_LABELS, PRIORITY, LEAVE_TYPE, WORKSPACE_TABS, MODULE_LABELS } from "@/lib/labels";
 import { TaskList, type TaskItem } from "./task-list";
@@ -20,21 +20,26 @@ export default async function MonEspacePage() {
   const data = await getMyWorkspace(user.id);
   const canCreateDossier = userCan(user, "DOSSIERS", "CREATE");
 
-  const users = await prisma.user.findMany({
-    where: { isActive: true },
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
+  const [users, requested] = await Promise.all([
+    prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    // Tâches **demandées** à l'utilisateur (à accepter / refuser), comme des DM.
+    prisma.task.findMany({
+      where: { assignedToId: user.id, status: "REQUESTED" },
+      include: { createdBy: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
-  const myTasks: TaskItem[] = data.myTasks.map((t) => ({
+  // Course / livraison : on remonte aussi adresse + horodatages pour le suivi de durée.
+  const toItem = (t: (typeof data.myTasks)[number]): TaskItem => ({
     id: t.id, title: t.title, description: t.description, status: t.status,
     priority: t.priority, dueDate: t.dueDate ? t.dueDate.toISOString() : null, module: t.module,
-  }));
-  const delegated: TaskItem[] = data.delegated.map((t) => ({
-    id: t.id, title: t.title, description: t.description, status: t.status,
-    priority: t.priority, dueDate: t.dueDate ? t.dueDate.toISOString() : null, module: t.module,
-    assignee: t.assignedTo?.name ?? null,
-  }));
+    address: t.address, startedAt: t.startedAt ? t.startedAt.toISOString() : null,
+    completedAt: t.completedAt ? t.completedAt.toISOString() : null, expectedMinutes: t.expectedMinutes,
+  });
+  const myTasks: TaskItem[] = data.myTasks.map(toItem);
+  const delegated: TaskItem[] = data.delegated.map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
+  const requestedTasks: TaskItem[] = requested.map((t) => ({ ...toItem(t), requestedBy: t.createdBy?.name ?? null }));
   const myLeaves: LeaveItem[] = data.myLeaves.map((l) => ({
     id: l.id, type: l.type, startDate: l.startDate.toISOString(), endDate: l.endDate.toISOString(),
     days: Number(l.days), status: l.status,
@@ -55,6 +60,18 @@ export default async function MonEspacePage() {
     { type: "select", name: "priority", label: "Priorité", options: optionsFromMap(PRIORITY), defaultValue: "MEDIUM" },
     { type: "date", name: "dueDate", label: "Échéance" },
     { type: "select", name: "module", label: "Module concerné", options: moduleOptions, placeholder: "—" },
+    { type: "text", name: "address", label: "Adresse / lieu (course, livraison)", full: true, placeholder: "ex. PCH, Route de…, Alger" },
+    { type: "number", name: "expectedMinutes", label: "Durée estimée (min, pour détecter un retard)" },
+  ];
+
+  // Demande de tâche à un collègue (acceptée / refusée), comme un DM.
+  const requestFields: FieldDef[] = [
+    { type: "text", name: "title", label: "Que demandez-vous ?", required: true, full: true },
+    { type: "textarea", name: "description", label: "Détails" },
+    { type: "select", name: "assignedToId", label: "À qui ?", options: userOptions.filter((o) => o.value !== user.id), placeholder: "Choisir une personne" },
+    { type: "select", name: "priority", label: "Priorité", options: optionsFromMap(PRIORITY), defaultValue: "MEDIUM" },
+    { type: "date", name: "dueDate", label: "Pour le (optionnel)" },
+    { type: "text", name: "address", label: "Adresse / lieu (si déplacement)", full: true },
   ];
 
   const leaveFields: FieldDef[] = [
@@ -77,7 +94,9 @@ export default async function MonEspacePage() {
         description={`Votre espace de travail — ${ROLE_LABELS[user.role] ?? user.role}.`}
       >
         <CreateRecordButton label="Nouvelle tâche" title="Créer une tâche" width="md"
-          description="Une to-do pour vous ou à déléguer." action={createTask} fields={taskFields} />
+          description="Une to-do pour vous ou à déléguer. Ajoutez une adresse pour une course (suivi de durée)." action={createTask} fields={taskFields} />
+        <CreateRecordButton label="Demander une tâche" title="Demander une tâche à un collègue" width="md"
+          description="Le destinataire l'accepte ou la refuse (comme un message). Elle apparaît dans ses « Tâches demandées »." action={requestTask} fields={requestFields} />
         {data.employee && (
           <>
             <CreateRecordButton label="Demander un congé" title="Demande de congé / absence" width="md"
@@ -95,6 +114,13 @@ export default async function MonEspacePage() {
         <KpiCard label="Congés en attente" value={data.stats.pendingLeaves} icon="Hourglass" tone={data.stats.pendingLeaves > 0 ? "warning" : "default"} />
         <KpiCard label="Solde congés" value={data.stats.leaveBalance === null ? "—" : `${data.stats.leaveBalance} j`} icon="Plane" tone="info" />
       </div>
+
+      {requestedTasks.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches demandées ({requestedTasks.length})</h2>
+          <TaskList tasks={requestedTasks} />
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes tâches</h2>

@@ -543,10 +543,12 @@ export const LEAVE_STATUS: Record<string, Display> = {
 };
 
 export const TASK_STATUS: Record<string, Display> = {
+  REQUESTED: { label: "Demandée", tone: "warning" },
   TODO: { label: "À faire", tone: "neutral" },
   IN_PROGRESS: { label: "En cours", tone: "info" },
   DONE: { label: "Terminé", tone: "success" },
   CANCELLED: { label: "Annulé", tone: "danger" },
+  DECLINED: { label: "Refusée", tone: "danger" },
 };
 
 export const ADVANCE_STATUS: Record<string, Display> = {
