@@ -35,6 +35,7 @@ enum UserRole {
   BUSINESS_DEVELOPMENT_MANAGER
   FINANCE_BUDGET_MANAGER
   MEDICAL_INFO_PHARMACIST // Pharmacien responsable de l'information médicale
+  COORDINATOR // Coordination / coursier-acheteur : courses, livraisons, achats (espace restreint)
   VIEWER
 }
 
@@ -439,10 +440,12 @@ enum LeaveStatus {
 }
 
 enum TaskStatus {
+  REQUESTED // tâche demandée (ex. depuis un message) — en attente d'acceptation
   TODO
   IN_PROGRESS
   DONE
   CANCELLED
+  DECLINED // demande de tâche refusée par le destinataire
 }
 
 enum AdvanceStatus {
@@ -652,6 +655,9 @@ model User {
   dossiersCreated  Dossier[]        @relation("DossierCreator")
   dossiersAssigned Dossier[]        @relation("DossierAssignee")
   dossierMessages  DossierMessage[] @relation("DossierMsgAuthor")
+
+  // Notifications push (Web Push / PWA) — un abonnement par appareil/navigateur.
+  pushSubscriptions PushSubscription[] @relation("UserPushSubs")
 
   @@index([role])
   @@index([departmentId])
@@ -1958,6 +1964,12 @@ model Task {
   relatedEntityType EntityType?
   relatedEntityId   String?
   completedAt       DateTime?
+  // Tâches « course / livraison » (coordinateur-coursier) : lieu à atteindre + suivi
+  // de durée. `startedAt` = départ effectif ; durée = completedAt − startedAt ;
+  // retard = durée > expectedMinutes (si défini).
+  address           String? // adresse / lieu (ouvre un lien Maps)
+  startedAt         DateTime? // départ effectif (« je pars »)
+  expectedMinutes   Int? // durée estimée en minutes (détection de retard)
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
@@ -2872,6 +2884,31 @@ model StoredFile {
   createdAt DateTime @default(now())
 
   @@index([blobId])
+}
+
+/// Réglages d'instance modifiables par le Super Admin (limites de taille d'upload, etc.).
+/// Ligne unique « global » ; valeurs par défaut (en code) si absente.
+model AppSetting {
+  id               String   @id @default("global")
+  maxUploadMb      Int      @default(25) // pièces jointes des modules (Documents)
+  maxDriveUploadMb Int      @default(100) // fichiers du Drive
+  updatedAt        DateTime @updatedAt
+  updatedById      String?
+}
+
+/// Abonnement Web Push (PWA) d'un appareil/navigateur d'un utilisateur, pour les
+/// notifications poussées sur le téléphone. Secrets propres au navigateur (pas sensibles).
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation("UserPushSubs", fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 /// Journal d'usage de l'IA — alimente le tableau de bord du Centre de contrôle

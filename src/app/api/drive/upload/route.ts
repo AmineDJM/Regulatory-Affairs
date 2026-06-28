@@ -4,6 +4,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
 import { validateDriveUpload } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
 import { resolveDriveAccess } from "@/lib/drive";
 import { recordAudit } from "@/lib/audit";
 
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
   const parentId = (form.get("parentId") as string) || null;
   const nodeId = (form.get("nodeId") as string) || null;
 
-  const err = validateDriveUpload(file.name, file.size);
+  const err = validateDriveUpload(file.name, file.size, (await getAppSettings()).maxDriveUploadMb);
   if (err) return NextResponse.json({ error: err }, { status: 400 });
 
   // Editability: a new version requires EDIT on the node; a new file requires EDIT on its parent.

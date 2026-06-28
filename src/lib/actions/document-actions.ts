@@ -6,6 +6,7 @@ import type { Confidentiality, DocumentCategory, EntityType } from "@prisma/clie
 import { requireUser } from "@/lib/session";
 import { canAccessEntity, ENTITY_MODULE } from "@/lib/entity-access";
 import { saveFile, validateUpload, deleteFileByKey } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
 import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -34,7 +35,7 @@ export async function uploadDocument(
   }
   if (!file || file.size === 0) return { ok: false, error: "Aucun fichier sélectionné." };
 
-  const validationError = validateUpload(file.name, file.size);
+  const validationError = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
   if (validationError) return { ok: false, error: validationError };
 
   const key = `${entityType}/${entityId}/${randomUUID()}__${file.name}`;

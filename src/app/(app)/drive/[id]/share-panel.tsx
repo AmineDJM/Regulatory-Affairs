@@ -2,13 +2,56 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, UserPlus, X } from "lucide-react";
+import { Loader2, UserPlus } from "lucide-react";
 import { shareNode, unshareNode } from "@/lib/actions/drive-actions";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 
 export interface ShareItem { userId: string; name: string; access: string }
+
+/** Ligne d'un partage : l'accès est **modifiable** (Lecture / Éditeur / Aucun accès). */
+function ShareRow({ nodeId, share, canEdit }: { nodeId: string; share: ShareItem; canEdit: boolean }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+
+  async function change(value: string) {
+    setBusy(true);
+    const fd = new FormData();
+    fd.set("nodeId", nodeId);
+    fd.set("userId", share.userId);
+    if (value === "NONE") {
+      await unshareNode(fd);
+    } else {
+      fd.set("access", value);
+      await shareNode(fd);
+    }
+    setBusy(false);
+    router.refresh();
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-2 text-sm">
+      <span className="min-w-0 truncate">{share.name}</span>
+      {canEdit ? (
+        <span className="flex items-center gap-1.5">
+          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          <Select
+            value={share.access}
+            onChange={(e) => change(e.target.value)}
+            disabled={busy}
+            className="h-8 w-32 text-xs"
+          >
+            <option value="VIEW">Lecture</option>
+            <option value="EDIT">Éditeur</option>
+            <option value="NONE">Aucun accès</option>
+          </Select>
+        </span>
+      ) : (
+        <span className="text-xs text-muted-foreground">{share.access === "EDIT" ? "Éditeur" : "Lecture"}</span>
+      )}
+    </li>
+  );
+}
 
 export function SharePanel({
   nodeId, users, shares, canEdit,
@@ -27,21 +70,7 @@ export function SharePanel({
         <p className="text-sm text-muted-foreground">Pas encore partagé.</p>
       ) : (
         <ul className="space-y-1.5">
-          {shares.map((s) => (
-            <li key={s.userId} className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-2">
-                {s.name}
-                <Badge tone={s.access === "EDIT" ? "info" : "neutral"} dot={false}>{s.access === "EDIT" ? "Édition" : "Lecture"}</Badge>
-              </span>
-              {canEdit && (
-                <form action={async (fd) => { await unshareNode(fd); router.refresh(); }}>
-                  <input type="hidden" name="nodeId" value={nodeId} />
-                  <input type="hidden" name="userId" value={s.userId} />
-                  <button type="submit" title="Retirer" className="text-muted-foreground hover:text-destructive"><X className="h-4 w-4" /></button>
-                </form>
-              )}
-            </li>
-          ))}
+          {shares.map((s) => <ShareRow key={s.userId} nodeId={nodeId} share={s} canEdit={canEdit} />)}
         </ul>
       )}
 
@@ -59,7 +88,7 @@ export function SharePanel({
           </div>
           <Select name="access" defaultValue="VIEW" className="h-9 w-28 text-sm">
             <option value="VIEW">Lecture</option>
-            <option value="EDIT">Édition</option>
+            <option value="EDIT">Éditeur</option>
           </Select>
           <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}</Button>
         </form>

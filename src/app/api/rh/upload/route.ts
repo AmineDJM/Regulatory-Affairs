@@ -5,6 +5,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
 import { validateUpload } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
   const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { id: true, userId: true } });
   if (!employee) return NextResponse.json({ error: "Employé introuvable." }, { status: 404 });
 
-  const err = validateUpload(file.name, file.size);
+  const err = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
   if (err) return NextResponse.json({ error: err }, { status: 400 });
 
   const catRaw = (form.get("category") as string) || "OTHER";

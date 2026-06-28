@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { putBlob } from "@/lib/drive-storage";
 import { validateUpload } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
 import { canAccessConversation, signBlob } from "@/lib/messaging";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Conversation non autorisée." }, { status: 403 });
   }
 
-  const err = validateUpload(file.name, file.size);
+  const err = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
   if (err) return NextResponse.json({ error: err }, { status: 400 });
 
   const buf = Buffer.from(await file.arrayBuffer());

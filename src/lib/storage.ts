@@ -58,12 +58,15 @@ const ALLOWED_EXTENSIONS = [
   "png", "jpg", "jpeg", "gif", "webp", "zip", "txt",
 ];
 
-export function validateUpload(filename: string, sizeBytes: number): string | null {
+export function validateUpload(
+  filename: string,
+  sizeBytes: number,
+  maxMb = Number(process.env.MAX_UPLOAD_MB ?? "25"),
+): string | null {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   if (!ALLOWED_EXTENSIONS.includes(ext)) {
     return `Type de fichier non autorisé (.${ext}).`;
   }
-  const maxMb = Number(process.env.MAX_UPLOAD_MB ?? "25");
   if (sizeBytes > maxMb * 1024 * 1024) {
     return `Fichier trop volumineux (max ${maxMb} Mo).`;
   }
@@ -80,13 +83,16 @@ const BLOCKED_DRIVE_EXTENSIONS = new Set([
 
 /** Validation des imports **Drive** : refuse seulement les exécutables, et applique
  *  une limite de taille plus large (configurable). */
-export function validateDriveUpload(filename: string, sizeBytes: number): string | null {
+export function validateDriveUpload(
+  filename: string,
+  sizeBytes: number,
+  maxMb = Number(process.env.MAX_DRIVE_UPLOAD_MB ?? process.env.MAX_UPLOAD_MB ?? "100"),
+): string | null {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   if (BLOCKED_DRIVE_EXTENSIONS.has(ext)) {
     return `Pour des raisons de sécurité, les fichiers exécutables (.${ext}) ne sont pas autorisés.`;
   }
   if (sizeBytes <= 0) return "Fichier vide.";
-  const maxMb = Number(process.env.MAX_DRIVE_UPLOAD_MB ?? process.env.MAX_UPLOAD_MB ?? "100");
   if (sizeBytes > maxMb * 1024 * 1024) {
     return `Fichier trop volumineux (max ${maxMb} Mo).`;
   }

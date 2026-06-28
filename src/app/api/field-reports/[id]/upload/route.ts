@@ -4,6 +4,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
 import { validateUpload } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
 import { managesReports } from "@/lib/queries/field-reports";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const form = await req.formData();
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "Fichier manquant." }, { status: 400 });
-  const err = validateUpload(file.name, file.size);
+  const err = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
   if (err) return NextResponse.json({ error: err }, { status: 400 });
 
   const buf = Buffer.from(await file.arrayBuffer());

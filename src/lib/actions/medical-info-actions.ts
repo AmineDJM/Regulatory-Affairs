@@ -10,6 +10,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { saveFile, validateUpload } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/information-medicale";
@@ -89,7 +90,7 @@ export async function fulfillDocRequest(_prev: ActionResult | undefined, formDat
 
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) return { ok: false, error: "Aucun fichier sélectionné." };
-  const validationError = validateUpload(file.name, file.size);
+  const validationError = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
   if (validationError) return { ok: false, error: validationError };
 
   const key = `MEDICAL_INFO_DECLARATION/${r.declarationId}/${randomUUID()}__${file.name}`;

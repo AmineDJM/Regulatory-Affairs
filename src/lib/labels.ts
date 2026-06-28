@@ -32,6 +32,7 @@ export const ROLE_LABELS: Record<string, string> = {
   BUSINESS_DEVELOPMENT_MANAGER: "Manager Business Development",
   FINANCE_BUDGET_MANAGER: "Responsable Finance / Budget",
   MEDICAL_INFO_PHARMACIST: "Pharmacien resp. information médicale",
+  COORDINATOR: "Coordination / Coursier",
   VIEWER: "Lecteur",
 };
 

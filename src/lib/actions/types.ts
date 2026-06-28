@@ -3,6 +3,7 @@ export interface ActionResult {
   ok: boolean;
   error?: string;
   id?: string;
+  message?: string;
 }
 
 /** Helpers for parsing FormData values inside server actions. */
