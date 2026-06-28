@@ -70,3 +70,20 @@ export async function saveAdoptionSettings(formData: FormData): Promise<ActionRe
   revalidatePath("/admin/adoption");
   return { ok: true };
 }
+
+/**
+ * Remet à **zéro** les temps d'activité enregistrés (champ `durationMs` des relevés) —
+ * réservé au Super Admin. On ne supprime aucun relevé (l'audit appareil/géoloc/page reste
+ * intact) : seule la durée est remise à 0, pour repartir sur le **nouveau** comptage précis
+ * (temps réellement au premier plan). Les pastilles se recalculent ensuite. Données réelles,
+ * aucune valeur fabriquée.
+ */
+export async function resetActivityTime(): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const res = await prisma.activityLog.updateMany({ data: { durationMs: 0 } });
+  await prisma.user.updateMany({ data: { adoptionScoreAt: null } });
+  await recordAudit({ actorId: admin.id, action: "UPDATE", module: "Administration", summary: `Temps d'activité remis à zéro (${res.count} relevés)` });
+  revalidatePath("/admin/adoption");
+  return { ok: true, message: `Temps d'activité remis à zéro (${res.count} relevés). Le nouveau comptage précis prend le relais.` };
+}

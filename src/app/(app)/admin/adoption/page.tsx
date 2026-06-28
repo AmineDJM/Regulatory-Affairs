@@ -7,7 +7,7 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { ADMIN_TABS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdoptionTable } from "./adoption-table";
-import { AdoptionSettingsForm } from "./adoption-settings";
+import { AdoptionSettingsForm, ResetActivityTimeButton } from "./adoption-settings";
 
 export const metadata = { title: "Score d'adoption — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -50,7 +50,7 @@ export default async function AdoptionPage() {
             <li><strong>Travail durable (15)</strong> — tâches réellement <em>terminées</em>, validations décidées, directives accusées : créer puis supprimer des tâches ne crédite rien.</li>
             <li><strong>Étendue (15)</strong> — modules réellement utilisés (rapporté aux droits du rôle).</li>
             <li><strong>Diversité (12)</strong> — variété des actions concrètes, pas la répétition d'une seule.</li>
-            <li><strong>Temps d'activité (10)</strong> — durée cumulée (plafonnée pour ignorer les onglets oubliés).</li>
+            <li><strong>Temps d'activité (10)</strong> — durée réellement passée <em>au premier plan</em> : on ne compte que lorsque l'onglet est visible, la fenêtre focalisée et l'utilisateur actif (les onglets en arrière-plan ou oubliés ne comptent pas).</li>
             <li><strong>Récence (8)</strong> — dernière présence effective.</li>
           </ul>
         </div>
@@ -61,8 +61,13 @@ export default async function AdoptionPage() {
           <CardTitle>Réglage du score (poids & seuils)</CardTitle>
           <p className="text-sm text-muted-foreground">Définissez librement l'importance de chaque dimension et les paliers de libellé. Le calcul reste fait sur des données réelles ; ces valeurs ne font que pondérer et segmenter le résultat. Les pastilles se recalculent à la prochaine consultation.</p>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <AdoptionSettingsForm settings={settings} />
+          <div className="border-t border-border pt-4">
+            <p className="mb-1 text-sm font-medium">Temps d'activité</p>
+            <p className="mb-2 text-xs text-muted-foreground">Le comptage du temps a changé : il ne retient désormais que le temps réellement au premier plan. Les anciennes durées (imprécises) peuvent être remises à zéro pour repartir proprement — les relevés eux-mêmes (appareil, géoloc, page) sont conservés.</p>
+            <ResetActivityTimeButton />
+          </div>
         </CardContent>
       </Card>
 

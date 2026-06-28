@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Check, SlidersHorizontal, RotateCcw } from "lucide-react";
-import { saveAdoptionSettings } from "@/lib/actions/adoption-actions";
+import { Loader2, Check, SlidersHorizontal, RotateCcw, TimerReset } from "lucide-react";
+import { saveAdoptionSettings, resetActivityTime } from "@/lib/actions/adoption-actions";
 import {
   ADOPTION_WEIGHT_FIELDS, ADOPTION_THRESHOLD_FIELDS, ADOPTION_TARGET_FIELDS, DEFAULT_ADOPTION_SETTINGS,
   type AdoptionSettings,
@@ -99,5 +99,30 @@ export function AdoptionSettingsForm({ settings }: { settings: AdoptionSettings 
         </Button>
       </div>
     </form>
+  );
+}
+
+/** Remet à zéro les temps d'activité (Super Admin) pour repartir sur le comptage précis. */
+export function ResetActivityTimeButton() {
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState<string | null>(null);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  async function run() {
+    if (!window.confirm("Remettre à zéro les temps d'activité de tous les comptes ?\n\nLes relevés (appareil, géoloc, page) sont conservés ; seule la durée est remise à 0. Le nouveau comptage précis (temps au premier plan) prend le relais. Action irréversible.")) return;
+    setBusy(true); setErr(null); setMsg(null);
+    const r = await resetActivityTime();
+    setBusy(false);
+    if (r.ok) setMsg(r.message ?? "Temps d'activité remis à zéro."); else setErr(r.error ?? "Échec.");
+  }
+
+  return (
+    <div className="space-y-2">
+      <Button type="button" variant="outline" onClick={run} disabled={busy}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <TimerReset className="h-4 w-4" />} Remettre les temps d'activité à zéro
+      </Button>
+      {msg && <p className="rounded-lg bg-success/10 px-3 py-2 text-sm text-success">{msg}</p>}
+      {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+    </div>
   );
 }
