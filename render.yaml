@@ -47,3 +47,10 @@ services:
         sync: false
       - key: ADMIN_NAME
         sync: false
+      # Notifications push (PWA) — collez les 2 clés VAPID générées (sinon push inerte).
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false

@@ -1,6 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
+import { EnablePushButton } from "@/components/layout/push-register";
 import { NotificationsList, type NotificationItem } from "./notifications-list";
 
 export default async function NotificationsPage() {
@@ -24,7 +25,9 @@ export default async function NotificationsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Notifications" description="Échéances, validations, retards et assignations qui vous concernent." />
+      <PageHeader title="Notifications" description="Échéances, validations, retards et assignations qui vous concernent.">
+        <EnablePushButton />
+      </PageHeader>
       <NotificationsList items={items} />
     </div>
   );

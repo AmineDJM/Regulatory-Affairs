@@ -1,5 +1,6 @@
 import type { NotificationType, UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { sendPushToUser } from "@/lib/push";
 
 interface NotifyInput {
   userId: string;
@@ -9,13 +10,15 @@ interface NotifyInput {
   link?: string;
 }
 
-/** Create an internal notification for a user (best-effort). */
+/** Create an internal notification for a user (best-effort) + push sur ses appareils. */
 export async function notifyUser(input: NotifyInput) {
   try {
     await prisma.notification.create({ data: input });
   } catch (err) {
     console.error("[notify] failed", err);
   }
+  // Push (PWA) — best-effort, inerte si VAPID non configuré.
+  await sendPushToUser(input.userId, { title: input.title, body: input.body, url: input.link ?? "/" });
 }
 
 export type BroadcastAudience = "ALL" | "ROLE" | "USERS";
@@ -50,6 +53,8 @@ export async function broadcastNotification(opts: {
     await prisma.notification.createMany({
       data: ids.map((userId) => ({ userId, type: "GENERIC" as NotificationType, title: opts.title, body: opts.body, link: opts.link })),
     });
+    // Push (PWA) sur les appareils de chaque destinataire — best-effort.
+    await Promise.all(ids.map((userId) => sendPushToUser(userId, { title: opts.title, body: opts.body, url: opts.link ?? "/" })));
     return ids.length;
   } catch (err) {
     console.error("[notify] broadcast failed", err);
@@ -71,6 +76,7 @@ export async function notifyRoles(
     await prisma.notification.createMany({
       data: users.map((u) => ({ ...input, userId: u.id })),
     });
+    await Promise.all(users.map((u) => sendPushToUser(u.id, { title: input.title, body: input.body, url: input.link ?? "/" })));
   } catch (err) {
     console.error("[notify] failed (roles)", err);
   }

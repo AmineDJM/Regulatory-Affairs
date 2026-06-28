@@ -6,6 +6,8 @@ export const metadata: Metadata = {
   description:
     "Logiciel interne centralisé pour la gestion des pôles Regulatory, Sponsoring, Budgets, Congrès, Ventes, Logistique PCH, Promotion médicale et Business Development d'Adventum Pharma.",
   applicationName: "AMD Internal OS",
+  manifest: "/manifest.webmanifest",
+  icons: { icon: "/icon.svg", apple: "/icon.svg" },
   // Confort mobile : ressemble à une app installée, n'altère pas numéros/dates.
   appleWebApp: { capable: true, statusBarStyle: "default", title: "AMD OS" },
   formatDetection: { telephone: false, date: false, address: false, email: false },

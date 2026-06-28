@@ -8,6 +8,7 @@ import { ActivityTracker } from "@/components/layout/activity-tracker";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
 import { FloatingAssistant } from "@/components/layout/floating-assistant";
+import { PushRegister } from "@/components/layout/push-register";
 import { getTotalUnread } from "@/lib/queries/messaging";
 import { getAdoptionBadge } from "@/lib/adoption";
 import { aiConfigured } from "@/lib/ai";
@@ -67,6 +68,8 @@ export default async function AppLayout({
       </div>
       {/* Assistant flottant — présent partout (remplace l'onglet Assistant IA). */}
       <FloatingAssistant userName={user.name} configured={aiConfigured()} />
+      {/* Notifications push (PWA) : enregistre le service worker + (ré)abonne l'appareil. */}
+      <PushRegister />
     </div>
   );
 }
