@@ -63,12 +63,18 @@ export interface AdoptionWeights {
 export interface AdoptionThresholds {
   champion: number; active: number; moderate: number; weak: number;
 }
-export interface AdoptionSettings { weights: AdoptionWeights; thresholds: AdoptionThresholds }
+/** Cibles « 100 % » par dimension : combien il faut pour atteindre le plein sous-score. */
+export interface AdoptionTargets {
+  activeDays: number; timeHours: number; diversity: number; durable: number; interaction: number; modules: number;
+}
+export interface AdoptionSettings { weights: AdoptionWeights; thresholds: AdoptionThresholds; targets: AdoptionTargets }
 
 /** Valeurs par défaut (somme des poids = 100) — utilisées si la ligne n'existe pas. */
 export const DEFAULT_ADOPTION_SETTINGS: AdoptionSettings = {
   weights: { regularity: 22, time: 10, breadth: 15, diversity: 12, durable: 15, interaction: 18, recency: 8 },
   thresholds: { champion: 80, active: 60, moderate: 40, weak: 20 },
+  // modules=0 → cible automatique selon les droits du rôle (équitable).
+  targets: { activeDays: 18, timeHours: 10, diversity: 8, durable: 12, interaction: 40, modules: 0 },
 };
 
 /** Métadonnées des dimensions, pour le formulaire de réglage (rendu générique). */
@@ -87,8 +93,17 @@ export const ADOPTION_THRESHOLD_FIELDS: { key: keyof AdoptionThresholds; label: 
   { key: "moderate", label: "Modéré ≥" },
   { key: "weak", label: "Faible ≥" },
 ];
+/** Cibles « 100 % » réglables : combien d'heures / d'actions / de jours = plein sous-score. */
+export const ADOPTION_TARGET_FIELDS: { key: keyof AdoptionTargets; label: string; unit: string; help: string }[] = [
+  { key: "timeHours", label: "Temps d'activité", unit: "heures", help: "Heures au PREMIER PLAN (onglet visible & actif) sur 30 j pour 100 %." },
+  { key: "activeDays", label: "Régularité", unit: "jours / 30", help: "Jours distincts d'activité pour 100 %." },
+  { key: "diversity", label: "Diversité d'actions", unit: "types", help: "Types d'actions concrètes distincts pour 100 %." },
+  { key: "durable", label: "Travail durable", unit: "contributions", help: "Tâches terminées + validations + directives accusées pour 100 %." },
+  { key: "interaction", label: "Interaction", unit: "points", help: "Points d'interaction (fils ×3, mentions ×4, messages ×0,5) pour 100 %." },
+  { key: "modules", label: "Étendue (modules)", unit: "modules (0 = auto)", help: "Modules utilisés pour 100 %. 0 = cible automatique selon le rôle." },
+];
 
-/** Lit les réglages (poids + seuils) ; valeurs par défaut si absent / souci BDD. */
+/** Lit les réglages (poids + seuils + cibles) ; valeurs par défaut si absent / souci BDD. */
 export async function getAdoptionSettings(): Promise<AdoptionSettings> {
   try {
     const row = await prisma.adoptionSetting.findUnique({ where: { id: "global" } });
@@ -96,6 +111,7 @@ export async function getAdoptionSettings(): Promise<AdoptionSettings> {
     return {
       weights: { regularity: row.wRegularity, time: row.wTime, breadth: row.wBreadth, diversity: row.wDiversity, durable: row.wDurable, interaction: row.wInteraction, recency: row.wRecency },
       thresholds: { champion: row.tChampion, active: row.tActive, moderate: row.tModerate, weak: row.tWeak },
+      targets: { activeDays: row.tgtActiveDays, timeHours: row.tgtTimeHours, diversity: row.tgtDiversity, durable: row.tgtDurable, interaction: row.tgtInteraction, modules: row.tgtModules },
     };
   } catch {
     return DEFAULT_ADOPTION_SETTINGS;
@@ -139,16 +155,20 @@ function buildScore(u: ScoredUser, m: UserMetrics, settings: AdoptionSettings): 
   const recency = clamp01(1 - (sinceSeenDays - 1) / 20); // 1 si ≤1j, 0 à ≥21j
   // Interaction : volume plafonné (anti-spam) + signaux bilatéraux mieux pondérés.
   const interaction = Math.min(m.msg, 60) * 0.5 + m.conv * 3 + m.ment * 4;
-  const targetModules = roleModuleTarget(u.role);
   const W = settings.weights;
+  // Cibles « 100 % » réglées par le Super Admin (garde-fous : jamais 0 → pas de division/0).
+  const T = settings.targets;
+  const tg = (v: number, def: number) => (Number.isFinite(v) && v > 0 ? v : def);
+  const targetModules = T.modules > 0 ? T.modules : roleModuleTarget(u.role);
+  const engagedHours = m.engagedMin / 60;
 
   const comps: AdoptionComponent[] = [
-    { key: "regularity", label: "Régularité", weight: W.regularity, score: Math.round(clamp01(m.activeDays / 18) * 100), detail: `${m.activeDays} jour·s actif·s / 30` },
-    { key: "time", label: "Temps d'activité", weight: W.time, score: Math.round(clamp01(m.engagedMin / 600) * 100), detail: `${Math.round(m.engagedMin / 60)} h cumulée·s` },
-    { key: "breadth", label: "Étendue (modules)", weight: W.breadth, score: Math.round(clamp01(m.modBreadth / targetModules) * 100), detail: `${m.modBreadth} module·s utilisé·s` },
-    { key: "diversity", label: "Diversité d'actions", weight: W.diversity, score: Math.round(clamp01(m.diversity / 8) * 100), detail: `${m.diversity} type·s d'action` },
-    { key: "durable", label: "Travail durable", weight: W.durable, score: Math.round(clamp01(m.durable / 12) * 100), detail: `${m.durable} contribution·s abouties` },
-    { key: "interaction", label: "Interaction", weight: W.interaction, score: Math.round(clamp01(interaction / 40) * 100), detail: `${m.conv} fil·s · ${m.ment} mention·s · ${m.msg} msg` },
+    { key: "regularity", label: "Régularité", weight: W.regularity, score: Math.round(clamp01(m.activeDays / tg(T.activeDays, 18)) * 100), detail: `${m.activeDays} jour·s actif·s / ${tg(T.activeDays, 18)}` },
+    { key: "time", label: "Temps d'activité", weight: W.time, score: Math.round(clamp01(engagedHours / tg(T.timeHours, 10)) * 100), detail: `${engagedHours.toFixed(1)} h / ${tg(T.timeHours, 10)} h (premier plan)` },
+    { key: "breadth", label: "Étendue (modules)", weight: W.breadth, score: Math.round(clamp01(m.modBreadth / targetModules) * 100), detail: `${m.modBreadth} / ${targetModules} module·s` },
+    { key: "diversity", label: "Diversité d'actions", weight: W.diversity, score: Math.round(clamp01(m.diversity / tg(T.diversity, 8)) * 100), detail: `${m.diversity} / ${tg(T.diversity, 8)} type·s d'action` },
+    { key: "durable", label: "Travail durable", weight: W.durable, score: Math.round(clamp01(m.durable / tg(T.durable, 12)) * 100), detail: `${m.durable} / ${tg(T.durable, 12)} contribution·s` },
+    { key: "interaction", label: "Interaction", weight: W.interaction, score: Math.round(clamp01(interaction / tg(T.interaction, 40)) * 100), detail: `${m.conv} fil·s · ${m.ment} mention·s · ${m.msg} msg` },
     { key: "recency", label: "Récence", weight: W.recency, score: Math.round(recency * 100), detail: m.lastSeen ? `vu il y a ${Math.max(0, Math.round(sinceSeenDays))} j` : "jamais vu" },
   ];
 

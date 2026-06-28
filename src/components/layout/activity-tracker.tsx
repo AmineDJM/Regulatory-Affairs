@@ -3,14 +3,11 @@
 import * as React from "react";
 import { usePathname } from "next/navigation";
 
-interface Geo {
-  lat: number;
-  lng: number;
-  acc: number;
-}
+interface Geo { lat: number; lng: number; acc: number }
 
-/** Logs a page-view with time-on-page, precise geolocation and device when available. */
+/** Envoie un relevé d'activité : temps RÉEL au premier plan, géoloc et appareil. */
 function send(path: string, durationMs: number, geo: Geo | null, dev: string | null) {
+  if (durationMs < 1000) return; // ignore le bruit (< 1 s)
   try {
     const data = JSON.stringify({ path, durationMs, lat: geo?.lat, lng: geo?.lng, accuracy: geo?.acc, dev });
     if (typeof navigator !== "undefined" && navigator.sendBeacon) {
@@ -23,62 +20,110 @@ function send(path: string, durationMs: number, geo: Geo | null, dev: string | n
   }
 }
 
-type UAData = {
-  getHighEntropyValues?: (hints: string[]) => Promise<{ platform?: string; model?: string; platformVersion?: string }>;
-};
+type UAData = { getHighEntropyValues?: (h: string[]) => Promise<{ platform?: string; model?: string }> };
 
+// Inactivité après 60 s sans interaction → on ne compte plus le temps (présence passive).
+const IDLE_MS = 60_000;
+// Cadence de mesure (settle de l'accumulateur + détection d'inactivité) et de flush.
+const TICK_MS = 10_000;
+const FLUSH_MS = 120_000;
+
+/**
+ * Mesure le temps **réellement engagé** sur chaque page : on ne compte que lorsque
+ * l'onglet est au PREMIER PLAN — c'est-à-dire **visible** (Page Visibility), **focalisé**
+ * (`document.hasFocus()`) ET **non inactif** (interaction < 60 s). Le temps en arrière-plan,
+ * onglet masqué ou fenêtre non focalisée n'est jamais comptabilisé. Alimente le score
+ * d'adoption (dimension « Temps d'activité ») de façon précise et difficile à truquer.
+ */
 export function ActivityTracker() {
   const pathname = usePathname();
-  const ref = React.useRef({ path: pathname, start: Date.now() });
   const geoRef = React.useRef<Geo | null>(null);
   const devRef = React.useRef<string | null>(null);
 
-  // Request precise geolocation (browser consent) + high-entropy device once per session.
+  // Accumulateur de temps actif pour la page courante.
+  const pathRef = React.useRef(pathname);
+  const activeMs = React.useRef(0);
+  const activeSince = React.useRef<number | null>(null);
+  const lastInput = React.useRef(Date.now());
+
+  // Géoloc précise (consentie) + appareil haute entropie, une fois.
   React.useEffect(() => {
     if (typeof navigator !== "undefined" && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
-        },
-        () => {
-          /* denied or unavailable → IP-based geolocation remains the fallback */
-        },
+        (pos) => { geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy }; },
+        () => { /* refusé → géoloc IP en repli */ },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 },
       );
     }
     const uad = (navigator as Navigator & { userAgentData?: UAData }).userAgentData;
-    uad?.getHighEntropyValues?.(["model", "platform", "platformVersion"])
-      .then((v) => {
-        devRef.current = [v.platform, v.model].filter(Boolean).join(" ").trim() || null;
-      })
-      .catch(() => undefined);
+    uad?.getHighEntropyValues?.(["model", "platform"]).then((v) => {
+      devRef.current = [v.platform, v.model].filter(Boolean).join(" ").trim() || null;
+    }).catch(() => undefined);
   }, []);
 
-  // On navigation, log the page we are leaving with its dwell time.
   React.useEffect(() => {
-    const prev = ref.current;
-    if (prev.path !== pathname) {
-      send(prev.path, Date.now() - prev.start, geoRef.current, devRef.current);
-      ref.current = { path: pathname, start: Date.now() };
-    }
-  }, [pathname]);
+    const isActive = () =>
+      document.visibilityState === "visible" && document.hasFocus() && Date.now() - lastInput.current < IDLE_MS;
 
-  // On tab close / hide, flush the current page.
-  React.useEffect(() => {
-    const flush = () => {
-      const p = ref.current;
-      send(p.path, Date.now() - p.start, geoRef.current, devRef.current);
+    const pause = () => {
+      if (activeSince.current !== null) {
+        activeMs.current += Date.now() - activeSince.current;
+        activeSince.current = null;
+      }
     };
-    const onVis = () => {
-      if (document.visibilityState === "hidden") flush();
+    const resume = () => {
+      if (activeSince.current === null && isActive()) activeSince.current = Date.now();
     };
-    window.addEventListener("beforeunload", flush);
-    document.addEventListener("visibilitychange", onVis);
+    const settle = () => { pause(); resume(); };
+
+    const flush = (path: string) => {
+      pause();
+      const ms = activeMs.current;
+      activeMs.current = 0;
+      if (ms >= 1000) send(path, ms, geoRef.current, devRef.current);
+      resume();
+    };
+
+    // Démarre la mesure pour la page courante.
+    pathRef.current = pathname;
+    activeMs.current = 0;
+    activeSince.current = null;
+    lastInput.current = Date.now();
+    resume();
+
+    const onInput = () => { lastInput.current = Date.now(); resume(); };
+    const onVisibility = () => { if (document.visibilityState === "hidden") flush(pathRef.current); else settle(); };
+    const onFocus = () => settle();
+    const onBlur = () => pause();
+    const onPageHide = () => flush(pathRef.current);
+
+    const inputs: (keyof DocumentEventMap)[] = ["pointerdown", "keydown", "scroll", "touchstart", "mousemove", "wheel"];
+    inputs.forEach((e) => document.addEventListener(e, onInput, { passive: true }));
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onPageHide);
+
+    // Battement : settle l'accumulateur (détecte l'inactivité) et flush périodiquement.
+    let sinceFlush = 0;
+    const timer = window.setInterval(() => {
+      settle();
+      sinceFlush += TICK_MS;
+      if (sinceFlush >= FLUSH_MS) { flush(pathRef.current); sinceFlush = 0; }
+    }, TICK_MS);
+
     return () => {
-      window.removeEventListener("beforeunload", flush);
-      document.removeEventListener("visibilitychange", onVis);
+      flush(pathRef.current); // flush du temps de la page qu'on quitte
+      window.clearInterval(timer);
+      inputs.forEach((e) => document.removeEventListener(e, onInput));
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onPageHide);
     };
-  }, []);
+  }, [pathname]);
 
   return null;
 }

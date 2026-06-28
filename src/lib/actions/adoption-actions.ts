@@ -44,10 +44,24 @@ export async function saveAdoptionSettings(formData: FormData): Promise<ActionRe
     return { ok: false, error: "Les seuils doivent être strictement décroissants (Champion > Actif > Modéré > Faible)." };
   }
 
+  // Cibles « 100 % » : entiers ≥ 1 (sauf modules où 0 = cible auto par rôle), plafonnées.
+  const tgt = (k: string, def: number, min = 1, max = 1000) => {
+    const v = fdNum(formData, k);
+    return v === null ? def : Math.max(min, Math.min(max, Math.round(v)));
+  };
+  const g = {
+    tgtTimeHours: tgt("tgtTimeHours", D.targets.timeHours, 1, 720),
+    tgtActiveDays: tgt("tgtActiveDays", D.targets.activeDays, 1, 30),
+    tgtDiversity: tgt("tgtDiversity", D.targets.diversity, 1, 50),
+    tgtDurable: tgt("tgtDurable", D.targets.durable, 1, 500),
+    tgtInteraction: tgt("tgtInteraction", D.targets.interaction, 1, 1000),
+    tgtModules: tgt("tgtModules", D.targets.modules, 0, 30),
+  };
+
   await prisma.adoptionSetting.upsert({
     where: { id: "global" },
-    create: { id: "global", ...w, ...t, updatedById: admin.id },
-    update: { ...w, ...t, updatedById: admin.id },
+    create: { id: "global", ...w, ...t, ...g, updatedById: admin.id },
+    update: { ...w, ...t, ...g, updatedById: admin.id },
   });
   // Les snapshots mis en cache deviennent obsolètes → forcer un recalcul à la
   // prochaine lecture de chaque pastille (réinitialise l'horodatage de fraîcheur).

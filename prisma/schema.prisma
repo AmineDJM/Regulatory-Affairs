@@ -2874,6 +2874,14 @@ model AdoptionSetting {
   tActive      Int      @default(60)
   tModerate    Int      @default(40)
   tWeak        Int      @default(20)
+  // Cibles « 100 % » par dimension (réglables par le Super Admin) : combien d'heures /
+  // d'actions / de jours sont nécessaires pour atteindre le plein sous-score.
+  tgtActiveDays  Int @default(18) // jours actifs (sur 30) pour 100 % de régularité
+  tgtTimeHours   Int @default(10) // heures d'activité (premier plan) pour 100 % de temps
+  tgtDiversity   Int @default(8) // types d'actions distincts pour 100 % de diversité
+  tgtDurable     Int @default(12) // contributions abouties pour 100 % de travail durable
+  tgtInteraction Int @default(40) // points d'interaction pour 100 % d'interaction
+  tgtModules     Int @default(0) // modules utilisés pour 100 % d'étendue (0 = auto par rôle)
   updatedAt    DateTime @updatedAt
   updatedById  String?
 }

@@ -4,7 +4,7 @@ import * as React from "react";
 import { Loader2, Check, SlidersHorizontal, RotateCcw } from "lucide-react";
 import { saveAdoptionSettings } from "@/lib/actions/adoption-actions";
 import {
-  ADOPTION_WEIGHT_FIELDS, ADOPTION_THRESHOLD_FIELDS, DEFAULT_ADOPTION_SETTINGS,
+  ADOPTION_WEIGHT_FIELDS, ADOPTION_THRESHOLD_FIELDS, ADOPTION_TARGET_FIELDS, DEFAULT_ADOPTION_SETTINGS,
   type AdoptionSettings,
 } from "@/lib/adoption";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,11 @@ const FIELD_KEY: Record<string, string> = {
   regularity: "wRegularity", time: "wTime", breadth: "wBreadth", diversity: "wDiversity",
   durable: "wDurable", interaction: "wInteraction", recency: "wRecency",
   champion: "tChampion", active: "tActive", moderate: "tModerate", weak: "tWeak",
+};
+// Champs « cibles » → nom de l'input (clé de colonne tgt*).
+const TARGET_NAME: Record<string, string> = {
+  timeHours: "tgtTimeHours", activeDays: "tgtActiveDays", diversity: "tgtDiversity",
+  durable: "tgtDurable", interaction: "tgtInteraction", modules: "tgtModules",
 };
 
 /** Réglage (Super Admin) des poids et seuils du score d'adoption. */
@@ -56,6 +61,19 @@ export function AdoptionSettingsForm({ settings }: { settings: AdoptionSettings 
                 value={weights[f.key]}
                 onChange={(e) => setWeights((w) => ({ ...w, [f.key]: Number(e.target.value) }))}
               />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-1 text-sm font-medium">Objectifs « 100 % » par dimension</p>
+        <p className="mb-2 text-xs text-muted-foreground">Combien d'heures / d'actions / de jours sont nécessaires pour atteindre le plein sous-score. Les heures de temps d'activité ne comptent que lorsque l'onglet est au <strong>premier plan</strong> (visible &amp; actif).</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {ADOPTION_TARGET_FIELDS.map((f) => (
+            <div key={f.key} className="space-y-1">
+              <Label htmlFor={TARGET_NAME[f.key]} title={f.help}>{f.label} <span className="text-muted-foreground">({f.unit})</span></Label>
+              <Input id={TARGET_NAME[f.key]} name={TARGET_NAME[f.key]} type="number" min="0" step="1" defaultValue={settings.targets[f.key]} title={f.help} />
             </div>
           ))}
         </div>
