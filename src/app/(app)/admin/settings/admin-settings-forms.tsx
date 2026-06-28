@@ -136,3 +136,73 @@ export function BroadcastComposer({ roles, users }: { roles: Opt[]; users: UserL
     </form>
   );
 }
+
+interface Mailbox { userId: string; email: string; name: string }
+interface DiagResult { ok: boolean; category: string; label: string; raw: string; host: string; email: string }
+
+const DIAG_TONE: Record<string, string> = {
+  OK: "border-success/40 bg-success/10 text-success",
+  TOO_MANY_CONNECTIONS: "border-warning/40 bg-warning/10 text-warning",
+  COMMAND_FAILED: "border-warning/40 bg-warning/10 text-warning",
+  AUTH_FAILED: "border-destructive/40 bg-destructive/10 text-destructive",
+  IP_BLOCKED: "border-destructive/40 bg-destructive/10 text-destructive",
+  TIMEOUT: "border-border bg-secondary/40 text-foreground",
+  OTHER: "border-border bg-secondary/40 text-foreground",
+};
+
+/** Teste une connexion IMAP réelle et affiche l'erreur brute + la cause probable. */
+export function MailDiagnosticPanel({ mailboxes }: { mailboxes: Mailbox[] }) {
+  const [userId, setUserId] = React.useState(mailboxes[0]?.userId ?? "");
+  const [busy, setBusy] = React.useState(false);
+  const [res, setRes] = React.useState<DiagResult | null>(null);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  if (mailboxes.length === 0) {
+    return <p className="text-sm text-muted-foreground">Aucune boîte mail connectée pour le moment. Demandez à un utilisateur de connecter sa boîte dans « Courrier », puis revenez tester ici.</p>;
+  }
+
+  async function run() {
+    setBusy(true); setErr(null); setRes(null);
+    try {
+      const r = await fetch("/api/admin/mail-diagnostic", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId }),
+      });
+      const data = await r.json();
+      if (!r.ok) { setErr(data?.error ?? "Diagnostic impossible."); return; }
+      setRes(data as DiagResult);
+    } catch { setErr("Diagnostic impossible (réseau)."); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[16rem] flex-1 space-y-1">
+          <Label htmlFor="diag-mailbox">Boîte à tester</Label>
+          <Select id="diag-mailbox" value={userId} onChange={(e) => setUserId(e.target.value)}>
+            {mailboxes.map((m) => <option key={m.userId} value={m.userId}>{m.name} — {m.email}</option>)}
+          </Select>
+        </div>
+        <Button type="button" onClick={run} disabled={busy || !userId}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Tester la connexion
+        </Button>
+      </div>
+
+      {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+
+      {res && (
+        <div className={`space-y-2 rounded-lg border px-3 py-3 text-sm ${DIAG_TONE[res.category] ?? DIAG_TONE.OTHER}`}>
+          <p className="font-semibold">{res.ok ? "✓ " : "✗ "}{res.category}</p>
+          <p>{res.label}</p>
+          <p className="text-xs opacity-80">Serveur : {res.host} · {res.email}</p>
+          {res.raw && (
+            <div>
+              <p className="text-xs font-medium opacity-80">Message brut du serveur :</p>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background/60 p-2 text-[11px] text-foreground">{res.raw}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

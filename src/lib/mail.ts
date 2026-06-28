@@ -103,6 +103,58 @@ export function friendlyMailError(e: unknown): string {
   return msg || "Connexion à la boîte mail impossible.";
 }
 
+/** Catégorise une erreur IMAP en cause probable (pour le diagnostic admin). */
+export type MailDiagCategory =
+  | "OK" | "TOO_MANY_CONNECTIONS" | "AUTH_FAILED" | "IP_BLOCKED" | "TIMEOUT" | "COMMAND_FAILED" | "OTHER";
+
+export interface MailDiagnostic {
+  ok: boolean;
+  category: MailDiagCategory;
+  label: string;
+  raw: string; // message d'erreur BRUT renvoyé par le serveur (Infomaniak)
+  host: string;
+  email: string;
+}
+
+const DIAG_LABEL: Record<MailDiagCategory, string> = {
+  OK: "Connexion réussie — la boîte répond normalement.",
+  TOO_MANY_CONNECTIONS: "Limite de connexions simultanées atteinte (throttling fournisseur). Se débloque seul ; réessayez dans quelques secondes.",
+  AUTH_FAILED: "Identifiants refusés. Vérifiez l'adresse et le mot de passe d'application (2FA → mot de passe dédié).",
+  IP_BLOCKED: "L'adresse IP du serveur semble bloquée par le fournisseur. Ouvrir un ticket Infomaniak pour la débloquer.",
+  TIMEOUT: "Le serveur n'a pas répondu à temps (réseau / surcharge). Réessayez.",
+  COMMAND_FAILED: "Commande refusée (« command failed ») — le plus souvent une limite de connexions, parfois une IP bloquée.",
+  OTHER: "Erreur non catégorisée — voir le message brut ci-dessous.",
+};
+
+function classifyMailError(e: unknown): MailDiagCategory {
+  const m = String((e as Error)?.message ?? "").toLowerCase();
+  if (/too many|connection limit|maximum.*connection|throttl|rate/.test(m)) return "TOO_MANY_CONNECTIONS";
+  if (/auth|login failed|invalid cred|password|denied|authenticationfailed|\[auth/.test(m)) return "AUTH_FAILED";
+  if (/blocked|blacklist|spamhaus|banned|access denied|not allowed from|your ip/.test(m)) return "IP_BLOCKED";
+  if (/timeout|timed out|econnreset|etimedout|socket|closed|connect|enotfound|ehostunreach/.test(m)) return "TIMEOUT";
+  if (/command failed/.test(m)) return "COMMAND_FAILED";
+  return "OTHER";
+}
+
+/**
+ * Diagnostic : tente une connexion IMAP réelle et renvoie l'erreur BRUTE d'Infomaniak +
+ * sa cause probable. N'effectue aucune action sur la boîte (juste connect + status + logout).
+ */
+export async function mailDiagnostic(account: { email: string; passwordEnc: string; imapHost: string; imapPort: number }): Promise<MailDiagnostic> {
+  const base = { host: account.imapHost, email: account.email };
+  const c = imapClient(account);
+  try {
+    await c.connect();
+    await c.status("INBOX", { messages: true }).catch(() => undefined);
+    await c.logout().catch(() => {});
+    return { ok: true, category: "OK", label: DIAG_LABEL.OK, raw: "", ...base };
+  } catch (e) {
+    await c.logout().catch(() => {});
+    const category = classifyMailError(e);
+    return { ok: false, category, label: DIAG_LABEL[category], raw: String((e as Error)?.message ?? e ?? "erreur inconnue").slice(0, 600), ...base };
+  }
+}
+
 /**
  * Ouvre **une seule** connexion IMAP, exécute `fn`, puis se déconnecte — avec un
  * **réessai** en cas d'erreur transitoire (limite de connexions, coupure). Réduit la
