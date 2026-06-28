@@ -5,8 +5,11 @@ import type { DriveAccess } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { releaseBlob } from "@/lib/drive-storage";
+import { putBlob, releaseBlob } from "@/lib/drive-storage";
 import { resolveDriveAccess } from "@/lib/drive";
+import { blankOffice, isOfficeKind } from "@/lib/office-templates";
+import { convertConfigured, convertDocument } from "@/lib/office-convert";
+import { makeEditToken, appBaseUrl, onlyofficeEditable, fileExt } from "@/lib/onlyoffice";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
@@ -167,4 +170,82 @@ export async function unshareNode(formData: FormData): Promise<ActionResult> {
   await prisma.driveShare.deleteMany({ where: { nodeId, userId } });
   revalidatePath(`/drive/${nodeId}`);
   return { ok: true };
+}
+
+/**
+ * Crée un document Office **vierge** (Word / Excel / PowerPoint) dans le Drive, puis
+ * renvoie son id pour l'ouvrir dans l'éditeur OnlyOffice. Le fichier est un vrai OOXML
+ * valide généré côté serveur (sans dépendance), donc téléchargeable même sans OnlyOffice.
+ */
+export async function createOfficeNode(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "DRIVE", "CREATE")) return DENIED;
+  const kind = fdStr(formData, "kind");
+  if (!kind || !isOfficeKind(kind)) return { ok: false, error: "Type de document invalide." };
+  const parentId = fdStr(formData, "parentId");
+  if (parentId && (await resolveDriveAccess(user, parentId)) !== "EDIT") return DENIED;
+
+  const { data, ext, mime } = blankOffice(kind);
+  const base = (fdStr(formData, "name") ?? "Document").replace(/\.(docx|xlsx|pptx)$/i, "").trim() || "Document";
+  const name = `${base}.${ext}`;
+
+  const { blobId, size } = await putBlob(data);
+  const node = await prisma.driveNode.create({
+    data: {
+      name, type: "FILE", parentId: parentId ?? null, ownerId: user.id, createdById: user.id, mimeType: mime, size,
+      versions: { create: { blobId, version: 1, size, mimeType: mime, createdById: user.id } },
+    },
+    select: { id: true },
+  });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Drive", entityType: "DRIVE_NODE", entityId: node.id, summary: `Nouveau document « ${name} »` });
+  revalidatePath("/drive");
+  return { ok: true, id: node.id };
+}
+
+/**
+ * Convertit un fichier Office du Drive (docx / xlsx / pptx) en **PDF** via OnlyOffice,
+ * et range le PDF dans le Drive (à côté de la source si possible). Renvoie l'id du PDF.
+ */
+export async function convertNodeToPdf(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "DRIVE", "CREATE")) return DENIED;
+  if (!convertConfigured()) return { ok: false, error: "Conversion PDF indisponible (éditeur Office non configuré)." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Fichier introuvable." };
+  if ((await resolveDriveAccess(user, id)) === "NONE") return DENIED;
+
+  const node = await prisma.driveNode.findUnique({
+    where: { id },
+    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+  });
+  if (!node || node.type !== "FILE") return { ok: false, error: "Fichier introuvable." };
+  if (!onlyofficeEditable(node.name)) return { ok: false, error: "Ce type de fichier ne peut pas être converti." };
+  const version = node.versions[0];
+  if (!version) return { ok: false, error: "Aucun contenu à convertir." };
+
+  // URL signée que le Document Server peut télécharger (serveur-à-serveur).
+  const token = makeEditToken(id, user.id, 300);
+  const srcUrl = `${appBaseUrl()}/api/onlyoffice/file?token=${token}`;
+  let pdf: Buffer;
+  try {
+    pdf = await convertDocument({ srcUrl, fromExt: fileExt(node.name), outputType: "pdf", key: `topdf_${id}_${version.version}` });
+  } catch (e) {
+    console.error("[drive] conversion PDF échouée", e);
+    return { ok: false, error: "La conversion a échoué. Réessayez plus tard." };
+  }
+
+  const pdfName = `${node.name.replace(/\.[a-z0-9]+$/i, "")}.pdf`;
+  // À côté de la source si on peut éditer son dossier, sinon à la racine (chez soi).
+  const parentId = node.parentId && (await resolveDriveAccess(user, node.parentId)) === "EDIT" ? node.parentId : null;
+  const { blobId, size } = await putBlob(pdf);
+  const created = await prisma.driveNode.create({
+    data: {
+      name: pdfName, type: "FILE", parentId, ownerId: user.id, createdById: user.id, mimeType: "application/pdf", size,
+      versions: { create: { blobId, version: 1, size, mimeType: "application/pdf", createdById: user.id } },
+    },
+    select: { id: true },
+  });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Drive", entityType: "DRIVE_NODE", entityId: created.id, summary: `PDF généré depuis « ${node.name} »` });
+  revalidatePath("/drive");
+  return { ok: true, id: created.id };
 }

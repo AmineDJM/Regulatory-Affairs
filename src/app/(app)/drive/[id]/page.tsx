@@ -2,9 +2,12 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Download, PencilLine } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { resolveDriveAccess, fileKind } from "@/lib/drive";
 import { onlyofficeConfigured, onlyofficeEditable } from "@/lib/onlyoffice";
+import { convertConfigured } from "@/lib/office-convert";
+import { ConvertPdfButton } from "./convert-pdf-button";
 import { getFieldDefs } from "@/lib/custom-fields";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +72,9 @@ export default async function DriveFilePage({ params }: { params: { id: string }
             <Link href={`/drive/${node.id}/edit`}>
               <Button><PencilLine className="h-4 w-4" /> Éditer dans Office</Button>
             </Link>
+          )}
+          {convertConfigured() && onlyofficeEditable(node.name) && userCan(user, "DRIVE", "CREATE") && (
+            <ConvertPdfButton id={node.id} />
           )}
           {canEdit && <UploadButton nodeId={node.id} label="Nouvelle version" />}
           <a href={`/api/drive/${node.id}/raw?dl=1`}>

@@ -6,6 +6,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getDriveListing } from "@/lib/queries/drive";
 import { fileKind } from "@/lib/drive";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { DOCS_TABS } from "@/lib/labels";
@@ -16,6 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatDateTime } from "@/lib/utils";
 import { UploadButton } from "./upload-button";
 import { NewFolderButton } from "./new-folder-button";
+import { NewOfficeButton } from "./new-office-button";
 import { NodeActions } from "./node-actions";
 
 const KIND_ICON: Record<string, string> = { pdf: "FileText", image: "Image", video: "Video", audio: "Music", office: "FileSpreadsheet", text: "FileText", other: "File" };
@@ -67,6 +69,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
         {!trash && canCreate && (
           <>
             <NewFolderButton parentId={folderId} />
+            <NewOfficeButton parentId={folderId} officeEnabled={onlyofficeConfigured()} />
             <UploadButton parentId={folderId} users={shareUsers} />
           </>
         )}
