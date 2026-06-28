@@ -82,65 +82,123 @@ const addrStr = (a?: { name?: string; address?: string }[] | null): { label: str
   return { label: first?.name || first?.address || "", addr: first?.address || "" };
 };
 
-/** Teste la connexion IMAP (login). Renvoie null si OK, sinon un message d'erreur. */
+/** Erreur IMAP transitoire (limite de connexions / coupure réseau) → on peut réessayer. */
+function isTransientMailError(e: unknown): boolean {
+  const m = String((e as Error)?.message ?? "").toLowerCase();
+  return /command failed|timeout|timed out|econnreset|socket|closed|too many|connection limit|temporar|try again|unavailable|busy|throttl/.test(m);
+}
+
+/** Message d'erreur clair pour l'utilisateur (la plupart des soucis viennent du fournisseur). */
+export function friendlyMailError(e: unknown): string {
+  const msg = String((e as Error)?.message ?? "");
+  const low = msg.toLowerCase();
+  if (/too many|connection limit|maximum.*connection|throttl/.test(low))
+    return "Trop de connexions simultanées vers la boîte mail (limite du fournisseur). Patientez quelques secondes puis réessayez.";
+  if (/auth|login|invalid cred|password|denied/.test(low))
+    return "Identifiants refusés par le serveur de messagerie. Vérifiez l'adresse et le mot de passe d'application Infomaniak.";
+  if (/timeout|timed out|socket|econnreset|closed|connect/.test(low))
+    return "Le serveur de messagerie n'a pas répondu à temps. Réessayez dans un instant.";
+  if (/command failed/.test(low))
+    return "La boîte mail a momentanément refusé la commande (souvent une limite de connexions côté fournisseur, ou l'adresse IP du serveur temporairement bloquée). Réessayez dans quelques secondes.";
+  return msg || "Connexion à la boîte mail impossible.";
+}
+
+/**
+ * Ouvre **une seule** connexion IMAP, exécute `fn`, puis se déconnecte — avec un
+ * **réessai** en cas d'erreur transitoire (limite de connexions, coupure). Réduit la
+ * pression sur le fournisseur (cause la plus fréquente des « command failed »).
+ */
+async function withClient<T>(
+  account: { email: string; passwordEnc: string; imapHost: string; imapPort: number },
+  fn: (c: ImapFlow) => Promise<T>,
+  retries = 1,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const c = imapClient(account);
+    try {
+      await c.connect();
+      return await fn(c);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries && isTransientMailError(e)) {
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      throw e;
+    } finally {
+      await c.logout().catch(() => {});
+    }
+  }
+  throw lastErr;
+}
+
+/** Teste la connexion IMAP (login). Renvoie null si OK, sinon un message d'erreur clair. */
 export async function testImap(account: { email: string; passwordEnc: string; imapHost: string; imapPort: number }): Promise<string | null> {
-  const c = imapClient(account);
   try {
-    await c.connect();
-    await c.logout();
+    await withClient(account, async () => undefined);
     return null;
   } catch (e) {
-    return (e as Error)?.message ?? "Connexion IMAP impossible.";
+    return friendlyMailError(e);
   }
 }
 
-export async function listMailboxes(account: MailAccount): Promise<MailboxInfo[]> {
-  const c = imapClient(account);
+async function readBoxes(c: ImapFlow): Promise<MailboxInfo[]> {
+  const boxes = await c.list();
+  const out: MailboxInfo[] = [];
+  for (const b of boxes) {
+    if (b.flags?.has("\\Noselect")) continue;
+    let unseen = 0, total = 0;
+    try { const st = await c.status(b.path, { unseen: true, messages: true }); unseen = st.unseen ?? 0; total = st.messages ?? 0; } catch { /* ignore */ }
+    out.push({ path: b.path, name: b.name, role: b.specialUse?.replace("\\", "") ?? "", unseen, total });
+  }
+  return out;
+}
+
+async function readEnvelopes(c: ImapFlow, mailbox: string, limit: number): Promise<MailEnvelope[]> {
+  const lock = await c.getMailboxLock(mailbox);
   try {
-    await c.connect();
-    const boxes = await c.list();
-    const out: MailboxInfo[] = [];
-    for (const b of boxes) {
-      if (b.flags?.has("\\Noselect")) continue;
-      let unseen = 0, total = 0;
-      try { const st = await c.status(b.path, { unseen: true, messages: true }); unseen = st.unseen ?? 0; total = st.messages ?? 0; } catch { /* ignore */ }
-      out.push({ path: b.path, name: b.name, role: b.specialUse?.replace("\\", "") ?? "", unseen, total });
+    const status = await c.status(mailbox, { messages: true });
+    const total = status.messages ?? 0;
+    if (total === 0) return [];
+    const start = Math.max(1, total - limit + 1);
+    const out: MailEnvelope[] = [];
+    for await (const msg of c.fetch(`${start}:*`, { uid: true, envelope: true, flags: true, internalDate: true })) {
+      const f = addrStr(msg.envelope?.from);
+      const d = msg.internalDate ?? msg.envelope?.date;
+      out.push({
+        uid: msg.uid,
+        subject: msg.envelope?.subject || "(sans objet)",
+        from: f.label, fromAddr: f.addr,
+        date: d ? new Date(d).toISOString() : null,
+        seen: msg.flags?.has("\\Seen") ?? false,
+      });
     }
-    return out;
-  } finally { await c.logout().catch(() => {}); }
+    return out.reverse(); // plus récents d'abord
+  } finally { lock.release(); }
+}
+
+export async function listMailboxes(account: MailAccount): Promise<MailboxInfo[]> {
+  return withClient(account, readBoxes);
 }
 
 export async function listMessages(account: MailAccount, mailbox = "INBOX", limit = 30): Promise<MailEnvelope[]> {
-  const c = imapClient(account);
-  try {
-    await c.connect();
-    const lock = await c.getMailboxLock(mailbox);
-    try {
-      const status = await c.status(mailbox, { messages: true });
-      const total = status.messages ?? 0;
-      if (total === 0) return [];
-      const start = Math.max(1, total - limit + 1);
-      const out: MailEnvelope[] = [];
-      for await (const msg of c.fetch(`${start}:*`, { uid: true, envelope: true, flags: true, internalDate: true })) {
-        const f = addrStr(msg.envelope?.from);
-        const d = msg.internalDate ?? msg.envelope?.date;
-        out.push({
-          uid: msg.uid,
-          subject: msg.envelope?.subject || "(sans objet)",
-          from: f.label, fromAddr: f.addr,
-          date: d ? new Date(d).toISOString() : null,
-          seen: msg.flags?.has("\\Seen") ?? false,
-        });
-      }
-      return out.reverse(); // plus récents d'abord
-    } finally { lock.release(); }
-  } finally { await c.logout().catch(() => {}); }
+  return withClient(account, (c) => readEnvelopes(c, mailbox, limit));
+}
+
+/** Charge la boîte (et éventuellement les dossiers) en **une seule** connexion IMAP. */
+export async function loadInbox(
+  account: MailAccount, mailbox = "INBOX", limit = 30, withFolders = false,
+): Promise<{ messages: MailEnvelope[]; mailboxes?: MailboxInfo[] }> {
+  return withClient(account, async (c) => {
+    const messages = await readEnvelopes(c, mailbox, limit);
+    const mailboxes = withFolders ? await readBoxes(c) : undefined;
+    return { messages, mailboxes };
+  });
 }
 
 export async function getMessage(account: MailAccount, mailbox: string, uid: number): Promise<MailMessage | null> {
-  const c = imapClient(account);
-  try {
-    await c.connect();
+  return withClient(account, async (c) => {
     const lock = await c.getMailboxLock(mailbox);
     try {
       const msg = await c.fetchOne(String(uid), { source: true, flags: true }, { uid: true });
@@ -161,7 +219,7 @@ export async function getMessage(account: MailAccount, mailbox: string, uid: num
         attachments: (parsed.attachments ?? []).map((a, i) => ({ index: i, filename: a.filename || `piece-${i + 1}`, contentType: a.contentType || "application/octet-stream", size: a.size || 0 })),
       };
     } finally { lock.release(); }
-  } finally { await c.logout().catch(() => {}); }
+  });
 }
 
 export async function getAttachment(account: MailAccount, mailbox: string, uid: number, index: number): Promise<{ filename: string; contentType: string; content: Buffer } | null> {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { getMailAccount, listMessages, listMailboxes } from "@/lib/mail";
+import { getMailAccount, loadInbox, friendlyMailError } from "@/lib/mail";
 
 export const dynamic = "force-dynamic";
 
@@ -15,13 +15,11 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(100, Number(req.nextUrl.searchParams.get("limit") || 30));
   const withFolders = req.nextUrl.searchParams.get("folders") === "1";
   try {
-    const [messages, mailboxes] = await Promise.all([
-      listMessages(account, mailbox, limit),
-      withFolders ? listMailboxes(account) : Promise.resolve(undefined),
-    ]);
+    // Une seule connexion IMAP (messages + dossiers) → moins de pression sur le fournisseur.
+    const { messages, mailboxes } = await loadInbox(account, mailbox, limit, withFolders);
     return NextResponse.json({ email: account.email, mailbox, messages, mailboxes });
   } catch (e) {
     console.error("[mail] list failed", e);
-    return NextResponse.json({ error: (e as Error)?.message ?? "Connexion à la boîte impossible." }, { status: 502 });
+    return NextResponse.json({ error: friendlyMailError(e) }, { status: 502 });
   }
 }

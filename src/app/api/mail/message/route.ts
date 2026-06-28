@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { getMailAccount, getMessage } from "@/lib/mail";
+import { getMailAccount, getMessage, friendlyMailError } from "@/lib/mail";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +20,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ message });
   } catch (e) {
     console.error("[mail] read failed", e);
-    return NextResponse.json({ error: (e as Error)?.message ?? "Lecture impossible." }, { status: 502 });
+    return NextResponse.json({ error: friendlyMailError(e) }, { status: 502 });
   }
 }
