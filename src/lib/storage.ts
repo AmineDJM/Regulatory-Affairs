@@ -69,3 +69,26 @@ export function validateUpload(filename: string, sizeBytes: number): string | nu
   }
   return null;
 }
+
+// Le **Drive** est un stockage général : on accepte la quasi-totalité des fichiers
+// (documents, médias, archives…) et on bloque seulement les **exécutables/scripts**.
+const BLOCKED_DRIVE_EXTENSIONS = new Set([
+  "exe", "msi", "bat", "cmd", "com", "scr", "pif", "cpl", "jar", "js", "mjs", "cjs",
+  "vbs", "vbe", "ws", "wsf", "wsh", "ps1", "psm1", "sh", "bash", "app", "dmg",
+  "deb", "rpm", "apk", "dll", "sys", "scf", "lnk", "reg", "hta", "jse", "msc", "gadget",
+]);
+
+/** Validation des imports **Drive** : refuse seulement les exécutables, et applique
+ *  une limite de taille plus large (configurable). */
+export function validateDriveUpload(filename: string, sizeBytes: number): string | null {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (BLOCKED_DRIVE_EXTENSIONS.has(ext)) {
+    return `Pour des raisons de sécurité, les fichiers exécutables (.${ext}) ne sont pas autorisés.`;
+  }
+  if (sizeBytes <= 0) return "Fichier vide.";
+  const maxMb = Number(process.env.MAX_DRIVE_UPLOAD_MB ?? process.env.MAX_UPLOAD_MB ?? "100");
+  if (sizeBytes > maxMb * 1024 * 1024) {
+    return `Fichier trop volumineux (max ${maxMb} Mo).`;
+  }
+  return null;
+}

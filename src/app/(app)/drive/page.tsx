@@ -36,12 +36,30 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
   const listing = await getDriveListing(user, folderId, trash);
   if (!listing) notFound();
 
-  const canEdit = listing.level === "EDIT";
-  const canCreate = userCan(user, "DRIVE", "CREATE");
+  // Droit de créer/importer DANS le dossier courant (à la racine : on crée chez soi).
+  const canEditHere = listing.level === "EDIT";
+  const canCreate = userCan(user, "DRIVE", "CREATE") && canEditHere;
   // Personnes avec qui partager à l'import (choix lecteurs/éditeurs).
   const shareUsers = canCreate
     ? await prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [];
+  // Dossiers de destination pour « Déplacer » (ceux que l'utilisateur peut éditer).
+  const moveTargets = trash
+    ? []
+    : [
+        { id: "", name: "Racine (Drive)" },
+        ...(await prisma.driveNode.findMany({
+          where: {
+            type: "FOLDER", isTrashed: false,
+            ...(user.role === "SUPER_ADMIN"
+              ? {}
+              : { OR: [{ ownerId: user.id }, { shares: { some: { userId: user.id, access: "EDIT" } } }] }),
+          },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+          take: 300,
+        })),
+      ];
 
   return (
     <div className="space-y-5">
@@ -110,7 +128,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
                     <TableCell className="text-right text-muted-foreground">{isFile ? humanSize(n.size) : "—"}</TableCell>
                     <TableCell className="text-muted-foreground">{formatDateTime(n.updatedAt)}</TableCell>
                     <TableCell className="text-right">
-                      <NodeActions id={n.id} name={n.name} isFile={isFile} canEdit={canEdit} trash={trash} />
+                      <NodeActions id={n.id} name={n.name} isFile={isFile} canEdit={n.canEdit} trash={trash} moveTargets={n.canEdit && !trash ? moveTargets : undefined} />
                     </TableCell>
                   </TableRow>
                 );

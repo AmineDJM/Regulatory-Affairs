@@ -13,6 +13,23 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
 
+/** IDs d'un nœud **et de tout son sous-arbre** (dossiers → enfants), pour cascader
+ *  corbeille / restauration / suppression sur l'ensemble du dossier. */
+async function collectSubtree(rootId: string): Promise<string[]> {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  let frontier = [rootId];
+  while (frontier.length) {
+    const batch = frontier.filter((id) => !seen.has(id));
+    if (batch.length === 0) break;
+    batch.forEach((id) => seen.add(id));
+    ids.push(...batch);
+    const children = await prisma.driveNode.findMany({ where: { parentId: { in: batch } }, select: { id: true } });
+    frontier = children.map((c) => c.id);
+  }
+  return ids;
+}
+
 export async function createFolder(
   _prev: ActionResult | undefined,
   formData: FormData,
@@ -75,8 +92,10 @@ export async function trashNode(formData: FormData): Promise<ActionResult> {
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Élément introuvable." };
   if ((await resolveDriveAccess(user, id)) !== "EDIT") return DENIED;
-  await prisma.driveNode.update({ where: { id }, data: { isTrashed: true } });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Drive", entityType: "DRIVE_NODE", entityId: id, field: "isTrashed", newValue: "true", summary: "Mis à la corbeille" });
+  // Cascade : un dossier mis à la corbeille y emmène tout son contenu.
+  const ids = await collectSubtree(id);
+  await prisma.driveNode.updateMany({ where: { id: { in: ids } }, data: { isTrashed: true } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Drive", entityType: "DRIVE_NODE", entityId: id, field: "isTrashed", newValue: "true", summary: ids.length > 1 ? `Mis à la corbeille (${ids.length} éléments)` : "Mis à la corbeille" });
   revalidatePath("/drive");
   return { ok: true };
 }
@@ -86,29 +105,34 @@ export async function restoreNode(formData: FormData): Promise<ActionResult> {
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Élément introuvable." };
   if ((await resolveDriveAccess(user, id)) !== "EDIT") return DENIED;
-  await prisma.driveNode.update({ where: { id }, data: { isTrashed: false } });
+  const node = await prisma.driveNode.findUnique({ where: { id }, select: { parentId: true } });
+  // Restaure le dossier ET tout son sous-arbre.
+  const ids = await collectSubtree(id);
+  await prisma.driveNode.updateMany({ where: { id: { in: ids } }, data: { isTrashed: false } });
+  // Si le parent est lui-même à la corbeille (ou supprimé), on restaure à la racine.
+  if (node?.parentId) {
+    const parent = await prisma.driveNode.findUnique({ where: { id: node.parentId }, select: { isTrashed: true } });
+    if (!parent || parent.isTrashed) await prisma.driveNode.update({ where: { id }, data: { parentId: null } });
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Drive", entityType: "DRIVE_NODE", entityId: id, field: "isTrashed", newValue: "false", summary: "Restauré" });
   revalidatePath("/drive");
   return { ok: true };
 }
 
-/** Permanent delete (file, or empty folder) — releases the underlying blobs. */
+/** Permanent delete (file or folder, recursively) — releases all underlying blobs. */
 export async function deleteNode(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Élément introuvable." };
   if ((await resolveDriveAccess(user, id)) !== "EDIT") return DENIED;
-  const node = await prisma.driveNode.findUnique({
-    where: { id },
-    select: { type: true, name: true, _count: { select: { children: true } }, versions: { select: { blobId: true } } },
-  });
+  const node = await prisma.driveNode.findUnique({ where: { id }, select: { name: true } });
   if (!node) return { ok: false, error: "Élément introuvable." };
-  if (node.type === "FOLDER" && node._count.children > 0) {
-    return { ok: false, error: "Videz le dossier avant de le supprimer définitivement." };
-  }
-  const blobIds = node.versions.map((v) => v.blobId);
-  await prisma.driveNode.delete({ where: { id } }); // cascade les versions
-  for (const b of blobIds) await releaseBlob(b);
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "Drive", entityType: "DRIVE_NODE", entityId: id, summary: `Supprimé « ${node.name} »` });
+  // Récupère les blobs de TOUT le sous-arbre avant suppression (sinon blobs orphelins).
+  const ids = await collectSubtree(id);
+  const versions = await prisma.fileVersion.findMany({ where: { nodeId: { in: ids } }, select: { blobId: true } });
+  await prisma.driveNode.delete({ where: { id } }); // cascade enfants + versions
+  for (const v of versions) await releaseBlob(v.blobId);
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Drive", entityType: "DRIVE_NODE", entityId: id, summary: `Supprimé « ${node.name} »${ids.length > 1 ? ` (${ids.length} éléments)` : ""}` });
   revalidatePath("/drive");
   return { ok: true };
 }

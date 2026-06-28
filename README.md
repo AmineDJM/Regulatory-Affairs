@@ -137,7 +137,7 @@ l'utilisateur y a accès (RBAC asymétrique).
 | Module | Route | Description |
 |---|---|---|
 | **Validations** | `/validations` | **Centre de validation** configurable + **agrégation transverse** de toutes les validations en attente. → [détails](#centre-de-validation-agrégation--configurable) |
-| **Documents** (Drive + Documents) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob` — survit aux redéploiements ; le disque local de Render est éphémère), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), versioning. **À l'import : choix de la catégorie + qui peut voir / modifier** (par personne). Onglet **Documents** = bibliothèque filtrée par accès. |
+| **Documents** (Drive + Documents) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob` — survit aux redéploiements ; le disque local de Render est éphémère), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), versioning. **Imports larges** (documents, médias, archives ; seuls les exécutables sont refusés), **déplacer**, **corbeille en cascade** (dossier + contenu, restauration/suppression récursives), **actions d'édition résolues par fichier** (jamais affichées sur un fichier qu'on ne peut pas modifier). **À l'import : choix de la catégorie + qui peut voir / modifier** (par personne). Onglet **Documents** = bibliothèque filtrée par accès. |
 | **Dossiers** | `/dossiers` | **Dossier de suivi** d'un sujet ad hoc (ex. *recherche de prix d'hôtels*, *analyse IQVIA*) : description, **responsable + participants**, statut, **fichiers** (PPT/Excel/PDF) et **fil de discussion**. Créable **manuellement**, **proposé par l'IA** depuis un chat (confirmation requise), ou alimenté en **liant un e-mail** directement depuis le **Courrier** (« Lier à un dossier »). |
 | **Demandes administratives** | `/demandes` | « Bureau de l'assistante » : 10 types, validations, ordres de dépense, missions chauffeur. |
 | **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou au **chef de produit**, avec fil + pièces jointes. |
@@ -593,6 +593,7 @@ npx prisma migrate deploy
   - Demandes de support : émission, scope, prise en charge, réponse, refus d'un tiers, clôture (5/5)
   - OnlyOffice : JWT (aller-retour / falsification / expiration / mauvais secret), types éditables, jetons d'édition Drive **et** Documents isolés (8/8)
   - Stockage durable des documents : aller-retour octets (écrire → relire), remplacement de clé, suppression (3/3)
+  - Drive : validation des imports (accepte documents/médias, refuse les exécutables, taille) (3/3)
   - Score d'adoption : robustesse au gaming (churn vs travail durable, jours distincts vs volume, bornes 0–100) (3/3)
   - Atterrissage sûr (anti-boucle de redirection) : un refus ne renvoie jamais vers une page non visible (4/4)
   - Assistant IA : outils RBAC, résolution, exécution + audit *(skip propre si jeu de démo absent)*

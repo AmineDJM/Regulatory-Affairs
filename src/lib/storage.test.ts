@@ -1,6 +1,26 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { saveFile, readFileByKey, deleteFileByKey } from "./storage";
+import { saveFile, readFileByKey, deleteFileByKey, validateDriveUpload } from "./storage";
+
+/** Pur (sans base) : le Drive accepte les fichiers généraux, refuse les exécutables. */
+describe("validateDriveUpload — Drive = stockage général", () => {
+  it("accepte documents et médias courants", () => {
+    expect(validateDriveUpload("rapport.pdf", 1000)).toBeNull();
+    expect(validateDriveUpload("demo.mp4", 1000)).toBeNull();
+    expect(validateDriveUpload("audio.mp3", 1000)).toBeNull();
+    expect(validateDriveUpload("archive.zip", 1000)).toBeNull();
+    expect(validateDriveUpload("deck.pptx", 1000)).toBeNull();
+  });
+  it("refuse les exécutables / scripts", () => {
+    expect(validateDriveUpload("virus.exe", 1000)).toBeTruthy();
+    expect(validateDriveUpload("script.sh", 1000)).toBeTruthy();
+    expect(validateDriveUpload("macro.js", 1000)).toBeTruthy();
+  });
+  it("refuse les fichiers vides et trop volumineux", () => {
+    expect(validateDriveUpload("x.pdf", 0)).toBeTruthy();
+    expect(validateDriveUpload("huge.pdf", 999 * 1024 * 1024)).toBeTruthy();
+  });
+});
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
