@@ -798,11 +798,12 @@ export const PCH_OPS_TABS: NavTab[] = [
   { module: "LOGISTICS", label: "Logistique", href: "/logistics" },
   { module: "STOCKS", label: "Stocks", href: "/stocks" },
 ];
-// Espace personnel fusionné : travail + tableau de bord perso + directives.
+// Espace personnel fusionné : travail + tableau de bord perso + directives + dossiers.
 export const WORKSPACE_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
   { module: "DIRECTIVES", label: "Directives", href: "/directives" },
+  { module: "DOSSIERS", label: "Dossiers", href: "/dossiers" },
 ];
 // Sponsoring + congrès (international/national) + événements, sous un seul module.
 export const EVENTS_TABS: NavTab[] = [
@@ -815,6 +816,22 @@ export const EVENTS_TABS: NavTab[] = [
 export const DOCS_TABS: NavTab[] = [
   { module: "DRIVE", label: "Drive", href: "/drive" },
   { module: "DOCUMENTS", label: "Documents", href: "/documents" },
+];
+// Promotion médicale + rapports terrain des délégués, sous le module Médical.
+export const MEDICAL_TABS: NavTab[] = [
+  { module: "MEDICAL", label: "Promotion médicale", href: "/medical" },
+  { module: "MEDICAL", label: "Rapports terrain", href: "/field-reports" },
+];
+// Adventum Brain + Process Intelligence, dans un seul cockpit Super Admin.
+export const BRAIN_TABS: NavTab[] = [
+  { module: "ADVENTUM_BRAIN", label: "Adventum Brain", href: "/adventum-brain" },
+  { module: "PROCESS_INTELLIGENCE", label: "Process Intelligence", href: "/process-intelligence" },
+];
+// Administration : console + Contrôle de l'IA + Score d'adoption.
+export const ADMIN_TABS: NavTab[] = [
+  { module: "ADMIN", label: "Administration", href: "/admin" },
+  { module: "ADMIN", label: "Contrôle de l'IA", href: "/admin/ai" },
+  { module: "ADMIN", label: "Score d'adoption", href: "/admin/adoption" },
 ];
 
 /**
@@ -874,23 +891,18 @@ export const NAVIGATION: NavItem[] = [
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
   { module: "LOGISTICS", label: "Logistique & Stocks PCH", href: "/logistics", icon: "Truck", group: "Pôles", tabs: PCH_OPS_TABS },
   { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
-  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles" },
-  { module: "MEDICAL", label: "Rapports terrain", href: "/field-reports", icon: "Mic", group: "Pôles" },
+  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", tabs: MEDICAL_TABS },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
   // Transverse
   { module: "MESSAGING", label: "Réunions & appels", href: "/meetings", icon: "Video", group: "Transverse" },
   { module: "VALIDATIONS", label: "Validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
   { module: "DRIVE", label: "Documents", href: "/drive", icon: "FolderOpen", group: "Transverse", tabs: DOCS_TABS },
-  { module: "DOSSIERS", label: "Dossiers", href: "/dossiers", icon: "FolderKanban", group: "Transverse" },
   { module: "ADMIN_REQUESTS", label: "Demandes administratives", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   // Système
-  { module: "ADVENTUM_BRAIN", label: "Adventum Brain", href: "/adventum-brain", icon: "BrainCircuit", group: "Système" },
-  { module: "PROCESS_INTELLIGENCE", label: "Process Intelligence", href: "/process-intelligence", icon: "Radar", group: "Système" },
-  { module: "ADMIN", label: "Contrôle IA", href: "/admin/ai", icon: "Bot", group: "Système" },
-  { module: "ADMIN", label: "Score d'adoption", href: "/admin/adoption", icon: "Gauge", group: "Système" },
-  { module: "ADMIN", label: "Administration", href: "/admin", icon: "Settings", group: "Système" },
+  { module: "ADVENTUM_BRAIN", label: "Adventum Brain", href: "/adventum-brain", icon: "BrainCircuit", group: "Système", tabs: BRAIN_TABS },
+  { module: "ADMIN", label: "Administration", href: "/admin", icon: "Settings", group: "Système", tabs: ADMIN_TABS },
 ];
 
 /**

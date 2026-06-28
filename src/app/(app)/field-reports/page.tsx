@@ -7,7 +7,9 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FIELD_REPORT_STATUS } from "@/lib/labels";
+import { FIELD_REPORT_STATUS, MEDICAL_TABS } from "@/lib/labels";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { userCan } from "@/lib/rbac";
 import { formatDate } from "@/lib/utils";
 import { NewReportButton } from "./new-report-button";
 
@@ -26,6 +28,7 @@ export default async function FieldReportsPage() {
       <PageHeader title="Rapports terrain" description="Comptes rendus de visite des délégués — dictés à la voix, structurés par l'IA, relus et validés.">
         <NewReportButton />
       </PageHeader>
+      <ModuleTabs tabs={MEDICAL_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       {isManager && agg && (
         <section className="space-y-4">

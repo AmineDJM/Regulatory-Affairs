@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
 import { getProcessOverview } from "@/lib/queries/process-intelligence";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { BRAIN_TABS } from "@/lib/labels";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,11 +18,12 @@ export const dynamic = "force-dynamic";
 const ageTone = (d: number) => (d >= 21 ? "text-destructive" : d >= 14 ? "text-warning" : "text-muted-foreground");
 
 export default async function ProcessIntelligencePage() {
-  await requireModule("PROCESS_INTELLIGENCE");
+  const user = await requireModule("PROCESS_INTELLIGENCE");
   const o = await getProcessOverview();
 
   return (
     <div className="space-y-5">
+      <ModuleTabs tabs={BRAIN_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
       <PageHeader title="Process Intelligence" description="Où la société ralentit : durées par étape, blocages, dossiers sans action et validations en attente. Réservé au Super Admin." />
       <PiTabs />
 

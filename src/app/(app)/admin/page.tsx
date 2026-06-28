@@ -13,7 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { createUser } from "@/lib/actions/admin-actions";
-import { ROLE_LABELS } from "@/lib/labels";
+import { ROLE_LABELS, ADMIN_TABS } from "@/lib/labels";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { formatDateTime } from "@/lib/utils";
 import { AuditPanel } from "./audit-panel";
 
@@ -82,6 +83,7 @@ export default async function AdminPage() {
           />
         )}
       </PageHeader>
+      <ModuleTabs tabs={ADMIN_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(admin, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Utilisateurs" value={users.length} icon="Users" />

@@ -1,9 +1,11 @@
-import Link from "next/link";
-import { ArrowLeft, BrainCircuit, KeyRound, CheckCircle2, XCircle, Activity, Mic } from "lucide-react";
+import { BrainCircuit, KeyRound, CheckCircle2, XCircle, Activity, Mic } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { aiConfigured, sttConfigured, aiModel } from "@/lib/ai";
 import { getAiSettings } from "@/lib/ai-settings";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { ADMIN_TABS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber, formatDateTime } from "@/lib/utils";
@@ -23,7 +25,7 @@ const FEATURE_LABEL: Record<string, string> = {
 };
 
 export default async function AiControlCenterPage() {
-  await requireModule("ADMIN", "UPDATE");
+  const user = await requireModule("ADMIN", "UPDATE");
   const settings = await getAiSettings();
 
   const since30 = new Date(Date.now() - 30 * 86400000);
@@ -60,9 +62,7 @@ export default async function AiControlCenterPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Retour à l'administration
-      </Link>
+      <ModuleTabs tabs={ADMIN_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="flex items-center gap-3">
         <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><BrainCircuit className="h-6 w-6" /></span>

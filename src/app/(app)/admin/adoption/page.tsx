@@ -1,8 +1,10 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Gauge, Trophy, ShieldAlert, Info } from "lucide-react";
+import { Gauge, Trophy, ShieldAlert, Info } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
 import { getAdoptionScores, getAdoptionSettings } from "@/lib/adoption";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { ADMIN_TABS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdoptionTable } from "./adoption-table";
 import { AdoptionSettingsForm } from "./adoption-settings";
@@ -21,9 +23,7 @@ export default async function AdoptionPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Retour à l'administration
-      </Link>
+      <ModuleTabs tabs={ADMIN_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(admin, t.module, "VIEW") }))} />
 
       <div className="flex items-center gap-3">
         <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Gauge className="h-6 w-6" /></span>

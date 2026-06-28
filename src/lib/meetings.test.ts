@@ -39,15 +39,15 @@ describe("meetings helpers", () => {
 
   it("accès : organisateur, participant et vue globale ; refus sinon", () => {
     const meeting = { organizerId: "org", participants: [{ userId: "part" }] };
-    expect(canViewMeeting(mkUser("org", "DELEGATE"), meeting)).toBe(true);
-    expect(canViewMeeting(mkUser("part", "DELEGATE"), meeting)).toBe(true);
-    expect(canViewMeeting(mkUser("autre", "DELEGATE"), meeting)).toBe(false);
+    expect(canViewMeeting(mkUser("org", "MEDICAL_DELEGATE"), meeting)).toBe(true);
+    expect(canViewMeeting(mkUser("part", "MEDICAL_DELEGATE"), meeting)).toBe(true);
+    expect(canViewMeeting(mkUser("autre", "MEDICAL_DELEGATE"), meeting)).toBe(false);
     // Vue globale (Direction / Super Admin) voit tout.
     expect(canViewMeeting(mkUser("dir", "DIRECTION"), meeting)).toBe(true);
 
     // Gestion : organisateur ou vue globale uniquement.
-    expect(canManageMeeting(mkUser("org", "DELEGATE"), meeting)).toBe(true);
-    expect(canManageMeeting(mkUser("part", "DELEGATE"), meeting)).toBe(false);
+    expect(canManageMeeting(mkUser("org", "MEDICAL_DELEGATE"), meeting)).toBe(true);
+    expect(canManageMeeting(mkUser("part", "MEDICAL_DELEGATE"), meeting)).toBe(false);
     expect(canManageMeeting(mkUser("dir", "SUPER_ADMIN"), meeting)).toBe(true);
   });
 });
