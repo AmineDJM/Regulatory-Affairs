@@ -138,6 +138,71 @@ export async function analyzeFieldReportAction(
   };
 }
 
+/**
+ * Soumission **simplifiée** (délégué) : enregistre la transcription, laisse l'IA
+ * comprendre et classer SEULE (best-effort, jamais bloquant), puis valide. Le délégué
+ * n'a aucun champ structuré à remplir ; la Direction voit ensuite le classement complet.
+ */
+export async function submitFieldReport(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Rapport introuvable." };
+  if (!(await canEdit(user, id))) return { ok: false, error: "Non autorisé." };
+
+  const transcript = fdStr(formData, "transcript");
+  if (!transcript) return { ok: false, error: "Dictez ou saisissez d'abord votre compte rendu." };
+
+  await prisma.fieldReport.update({
+    where: { id },
+    data: {
+      transcript,
+      visitDate: fdDate(formData, "visitDate") ?? undefined,
+      doctorId: fdStr(formData, "doctorId"),
+    },
+  });
+
+  // L'IA classe seule (best-effort) : on n'empêche jamais l'envoi si l'IA échoue/est coupée.
+  if (await aiFeatureEnabled("field_report").catch(() => false)) {
+    try {
+      const t0 = Date.now();
+      const r = await analyzeFieldReport(transcript);
+      await logAiUsage({ feature: "field_report", userId: user.id, model: aiModel(), ok: r.ok, latencyMs: Date.now() - t0, errorCode: r.ok ? null : r.error ?? "error" });
+      if (r.ok && r.data) {
+        const d = r.data;
+        let doctorId = fdStr(formData, "doctorId") ?? undefined;
+        if (!doctorId && d.doctorName) {
+          const match = await prisma.medicalDoctor.findFirst({
+            where: { name: { contains: d.doctorName.replace(/^(pr\.?|dr\.?|professeur|docteur)\s+/i, "").trim(), mode: "insensitive" } },
+            select: { id: true },
+          });
+          doctorId = match?.id ?? undefined;
+        }
+        await prisma.fieldReport.update({
+          where: { id },
+          data: {
+            doctorId,
+            doctorName: d.doctorName || null, institution: d.institution || null, specialty: d.specialty || null,
+            products: d.products || null, interest: d.interest || null, objection: d.objection || null,
+            medicalQuestion: d.medicalQuestion || null, documentRequest: d.documentRequest || null,
+            sponsoringRequest: d.sponsoringRequest || null, careRequest: d.careRequest || null,
+            competitorInfo: d.competitorInfo || null, opportunity: d.opportunity || null,
+            qualitySignal: d.qualitySignal || null, nextAction: d.nextAction || null,
+            summary: d.summary || null, aiNotes: d.aiNotes || null,
+          },
+        });
+      }
+    } catch (e) {
+      console.error("[field-report] auto-analyse échouée (envoi quand même)", e);
+    }
+  }
+
+  await prisma.fieldReport.update({ where: { id }, data: { status: "VALIDATED", validatedAt: new Date() } });
+  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Rapports terrain", summary: "Compte rendu de visite envoyé (classé par l'IA)" });
+  revalidatePath(`/field-reports/${id}`);
+  revalidatePath("/field-reports");
+  return { ok: true };
+}
+
 export async function validateFieldReport(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");

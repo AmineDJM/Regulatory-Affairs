@@ -4,9 +4,10 @@ import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { scopeMedicalDoctors } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getFieldReportDetail } from "@/lib/queries/field-reports";
+import { getFieldReportDetail, managesReports } from "@/lib/queries/field-reports";
 import { PageHeader } from "@/components/shared/page-header";
 import { ReportEditor } from "./report-editor";
+import { SimpleReportEditor } from "./simple-report-editor";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,9 @@ export default async function FieldReportPage({ params }: { params: { id: string
   const user = await requireModule("MEDICAL");
   const detail = await getFieldReportDetail(user, params.id);
   if (!detail) notFound();
+  // Le délégué a une vue ultra-simple (parler → envoyer, l'IA classe seule) ; la
+  // Direction / le chef de produit gardent la vue analytique complète.
+  const isManager = managesReports(user);
 
   const doctors = await prisma.medicalDoctor.findMany({
     where: scopeMedicalDoctors(user),
@@ -28,10 +32,16 @@ export default async function FieldReportPage({ params }: { params: { id: string
         <ArrowLeft className="h-4 w-4" /> Rapports terrain
       </Link>
       <PageHeader
-        title="Rapport de visite"
-        description={detail.delegateName ? `Délégué : ${detail.delegateName} · Parlez, l'IA structure, vous relisez et validez.` : "Parlez, l'IA structure, vous relisez et validez."}
+        title={isManager ? "Rapport de visite" : "Mon compte rendu de visite"}
+        description={
+          isManager
+            ? (detail.delegateName ? `Délégué : ${detail.delegateName} · classé par l'IA, relecture et validation.` : "Classé par l'IA — relecture et validation.")
+            : "Parlez (ou écrivez), envoyez. L'IA comprend et classe tout pour la Direction."
+        }
       />
-      <ReportEditor detail={detail} doctors={doctors} />
+      {isManager
+        ? <ReportEditor detail={detail} doctors={doctors} />
+        : <SimpleReportEditor detail={detail} doctors={doctors} />}
     </div>
   );
 }
