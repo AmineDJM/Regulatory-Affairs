@@ -2981,6 +2981,8 @@ model Meeting {
   scheduledAt DateTime?
   startedAt   DateTime?
   endedAt     DateTime?
+  // Rappel automatique ~30 min avant le début (envoyé une seule fois).
+  reminderSentAt DateTime?
 
   organizerId String
   organizer   User   @relation("MeetingOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
