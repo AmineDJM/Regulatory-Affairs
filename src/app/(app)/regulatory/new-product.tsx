@@ -8,6 +8,7 @@ import { createRegulatoryProduct, type ActionResult } from "@/lib/actions/regula
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
+import { DciAssociationField } from "./dci-field";
 import { PRODUCT_TYPE, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS } from "@/lib/labels";
 
 interface UserOption {
@@ -64,8 +65,8 @@ export function NewProductButton({ users }: { users: UserOption[] }) {
         >
           <div className="grid grid-cols-2 gap-3">
             <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue="MEDICINE" className="col-span-2" />
-            <TextField label="DCI" name="dci" required placeholder="Ex. Atorvastatine" />
-            <TextField label="Nom commercial envisagé" name="brandName" placeholder="Ex. Adventor" />
+            <DciAssociationField />
+            <TextField label="Nom commercial envisagé" name="brandName" placeholder="Ex. Adventor" className="col-span-2" />
             <TextField label="Dosage" name="dosage" placeholder="20 mg" />
             <TextField label="Forme pharmaceutique" name="pharmaceuticalForm" placeholder="Comprimé pelliculé" />
             <TextField label="Classe thérapeutique" name="therapeuticClass" placeholder="Hypolipémiant" />

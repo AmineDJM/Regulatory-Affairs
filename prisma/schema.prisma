@@ -697,7 +697,8 @@ model RegulatoryProduct {
   checklist          Json?
   id                 String             @id @default(cuid())
   reference          String             @unique // human readable ID, e.g. REG-2026-001
-  dci                String // molecule / active ingredient
+  dci                String // DCI canonique : molécule unique OU association (« A + B + C »)
+  molecules          Json? // liste structurée des molécules (association double/triple…)
   brandName          String? // nom commercial envisagé
   dosage             String?
   pharmaceuticalForm String?

@@ -97,6 +97,13 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
 
   const doneSteps = product.steps.filter((s) => s.status === "DONE").length;
 
+  // DCI : molécule unique ou association (double/triple…).
+  const molecules = Array.isArray(product.molecules)
+    ? (product.molecules as unknown[]).map((m) => String(m)).filter(Boolean)
+    : [];
+  const associationLabel =
+    molecules.length === 2 ? "Association double" : molecules.length === 3 ? "Association triple" : molecules.length > 3 ? `Association (${molecules.length} molécules)` : null;
+
   return (
     <div className="space-y-5">
       <Link
@@ -112,6 +119,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
             <span className="font-mono text-xs text-muted-foreground">{product.reference}</span>
             <StatusBadge map={REGULATORY_CATEGORY} value={product.category} dot={false} />
             <StatusBadge map={PRIORITY} value={product.priority} />
+            {associationLabel && <Badge tone="info" dot={false}>{associationLabel}</Badge>}
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">{product.dci}</h1>
           {product.brandName && <p className="text-muted-foreground">{product.brandName}</p>}
@@ -130,6 +138,16 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
               <CardTitle>Informations du dossier</CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+              {molecules.length > 1 && (
+                <div className="col-span-2 sm:col-span-3">
+                  <p className="text-xs text-muted-foreground">Molécules de l'association</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {molecules.map((m, i) => (
+                      <span key={i} className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium">{m}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
               <Info label="Dosage" value={product.dosage} />
               <Info label="Forme" value={product.pharmaceuticalForm} />
               <Info label="Classe thérapeutique" value={product.therapeuticClass} />

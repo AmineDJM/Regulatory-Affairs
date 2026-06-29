@@ -35,7 +35,13 @@ export async function createRegulatoryProduct(
     return { ok: false, error: "Création non autorisée." };
   }
 
-  const dci = str(formData, "dci");
+  // DCI : molécule unique OU association (double/triple…). Le formulaire envoie une
+  // ou plusieurs entrées « molecule » ; la DCI canonique est leur concaténation.
+  const molecules = formData
+    .getAll("molecule")
+    .map((m) => String(m).trim())
+    .filter(Boolean);
+  const dci = molecules.length ? molecules.join(" + ") : str(formData, "dci");
   if (!dci) return { ok: false, error: "La DCI est obligatoire." };
 
   const year = new Date().getFullYear();
@@ -55,6 +61,7 @@ export async function createRegulatoryProduct(
     data: {
       reference,
       dci,
+      molecules: molecules.length > 1 ? (molecules as unknown as Prisma.InputJsonValue) : undefined,
       brandName: str(formData, "brandName"),
       dosage: str(formData, "dosage"),
       pharmaceuticalForm: str(formData, "pharmaceuticalForm"),
