@@ -2,30 +2,76 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Send, AlertCircle, Play, Pause, CheckCircle2, Archive, Users, Trash2 } from "lucide-react";
-import { updateDossierStatus, archiveDossier, postDossierMessage, assignDossier, deleteDossierMessage } from "@/lib/actions/dossier-actions";
+import { Loader2, Send, AlertCircle, Play, Pause, CheckCircle2, Archive, Users, Trash2, Pencil, Check, X } from "lucide-react";
+import { updateDossierStatus, archiveDossier, postDossierMessage, assignDossier, deleteDossierMessage, editDossierMessage } from "@/lib/actions/dossier-actions";
 import { Button } from "@/components/ui/button";
 import { Textarea, Select, Label } from "@/components/ui/input";
 import type { ActionResult } from "@/lib/actions/types";
 
 interface UserLite { id: string; name: string }
 
-/** Supprime un message du fil d'un dossier (auteur / responsable / admin). */
-export function DossierMessageDelete({ id, mine }: { id: string; mine?: boolean }) {
+/**
+ * Bulle d'un message du fil « Suivi & discussion » : affichage, et — pour l'auteur,
+ * le responsable/créateur ou le Super Admin/Direction — modification en ligne et
+ * suppression.
+ */
+export function DossierMessageItem({
+  id, body, author, createdAt, mine, canManage,
+}: { id: string; body: string; author: string; createdAt: string; mine: boolean; canManage: boolean }) {
   const router = useRouter();
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(body);
   const [busy, setBusy] = React.useState(false);
-  async function run() {
+
+  async function save() {
+    if (!draft.trim()) return;
+    setBusy(true);
+    const fd = new FormData(); fd.set("id", id); fd.set("body", draft);
+    await editDossierMessage(fd);
+    setBusy(false); setEditing(false); router.refresh();
+  }
+  async function remove() {
     if (!window.confirm("Supprimer ce message ?")) return;
     setBusy(true);
     const fd = new FormData(); fd.set("id", id);
     await deleteDossierMessage(fd);
     setBusy(false); router.refresh();
   }
+
   return (
-    <button type="button" onClick={run} disabled={busy} title="Supprimer"
-      className={`rounded p-0.5 ${mine ? "text-primary-foreground/70 hover:text-primary-foreground" : "text-muted-foreground hover:text-destructive"}`}>
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-    </button>
+    <div className={`group max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
+      {editing ? (
+        <div className="space-y-1.5">
+          <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy}
+            className="min-h-[56px] bg-background text-foreground" />
+          <div className="flex justify-end gap-1.5">
+            <button type="button" onClick={() => { setEditing(false); setDraft(body); }} disabled={busy}
+              className="rounded p-1 text-muted-foreground hover:bg-background/40" title="Annuler"><X className="h-3.5 w-3.5" /></button>
+            <button type="button" onClick={save} disabled={busy || !draft.trim()}
+              className="rounded p-1 text-success hover:bg-background/40" title="Enregistrer">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="whitespace-pre-wrap">{body}</p>
+      )}
+      <p className={`mt-1 flex items-center gap-1.5 text-[11px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+        <span>{author} · {createdAt}</span>
+        {canManage && !editing && (
+          <span className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+            <button type="button" onClick={() => { setDraft(body); setEditing(true); }} title="Modifier"
+              className={`rounded p-0.5 ${mine ? "text-primary-foreground/70 hover:text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" onClick={remove} disabled={busy} title="Supprimer"
+              className={`rounded p-0.5 ${mine ? "text-primary-foreground/70 hover:text-primary-foreground" : "text-muted-foreground hover:text-destructive"}`}>
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            </button>
+          </span>
+        )}
+      </p>
+    </div>
   );
 }
 

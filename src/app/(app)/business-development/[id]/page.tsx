@@ -9,6 +9,7 @@ import { getBdProject } from "@/lib/queries/bd";
 import { addBdProjectComment } from "@/lib/actions/bd-project-actions";
 import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { PageHeader } from "@/components/shared/page-header";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -71,6 +72,7 @@ export default async function BdProjectDetailPage({ params }: { params: { id: st
         {canUpdate && (
           <ProjectEditor id={project.id} name={project.name} status={project.status} description={project.description} comment={project.comment} />
         )}
+        <SuperAdminDeleteButton kind="BD_PROJECT" id={project.id} name={project.name} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">

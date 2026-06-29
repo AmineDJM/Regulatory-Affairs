@@ -6,6 +6,7 @@ import { scopeMedicalDoctors } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getFieldReportDetail, managesReports } from "@/lib/queries/field-reports";
 import { PageHeader } from "@/components/shared/page-header";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { ReportEditor } from "./report-editor";
 import { SimpleReportEditor } from "./simple-report-editor";
 
@@ -38,7 +39,9 @@ export default async function FieldReportPage({ params }: { params: { id: string
             ? (detail.delegateName ? `Délégué : ${detail.delegateName} · classé par l'IA, relecture et validation.` : "Classé par l'IA — relecture et validation.")
             : "Parlez (ou écrivez), envoyez. L'IA comprend et classe tout pour la Direction."
         }
-      />
+      >
+        <SuperAdminDeleteButton kind="FIELD_REPORT" id={detail.id} name={detail.delegateName ? `Rapport — ${detail.delegateName}` : "Rapport de visite"} enabled={user.role === "SUPER_ADMIN"} />
+      </PageHeader>
       {isManager
         ? <ReportEditor detail={detail} doctors={doctors} />
         : <SimpleReportEditor detail={detail} doctors={doctors} />}

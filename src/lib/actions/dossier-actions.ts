@@ -234,3 +234,23 @@ export async function deleteDossierMessage(formData: FormData): Promise<ActionRe
   revalidate(msg.dossierId);
   return { ok: true };
 }
+
+/** Modifie un message du fil (auteur, responsable/créateur ou Super Admin/Direction). */
+export async function editDossierMessage(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  const body = fdStr(formData, "body");
+  if (!id) return { ok: false, error: "Message introuvable." };
+  if (!body || !body.trim()) return { ok: false, error: "Le message ne peut pas être vide." };
+  const msg = await prisma.dossierMessage.findUnique({
+    where: { id },
+    select: { authorId: true, dossierId: true, dossier: { select: { createdById: true, assignedToId: true, participantIds: true } } },
+  });
+  if (!msg) return { ok: false, error: "Message introuvable." };
+  const allowed = msg.authorId === user.id || isManager(user, msg.dossier);
+  if (!allowed) return { ok: false, error: "Modification non autorisée." };
+  await prisma.dossierMessage.update({ where: { id }, data: { body: body.trim() } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Dossiers", entityType: "DOSSIER", entityId: msg.dossierId, summary: "Message de dossier modifié" });
+  revalidate(msg.dossierId);
+  return { ok: true };
+}

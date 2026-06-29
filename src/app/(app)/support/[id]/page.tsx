@@ -13,6 +13,7 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SUPPORT_CATEGORY, SUPPORT_STATUS, PRIORITY, ROLE_LABELS } from "@/lib/labels";
 import { SupportActions, SupportMessageForm } from "./panel";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 
 export const dynamic = "force-dynamic";
 
@@ -57,9 +58,12 @@ export default async function SupportDetailPage({ params }: { params: { id: stri
             <span className="font-mono">{r.reference}</span> · de {r.requester?.name ?? "—"} → {target}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <StatusBadge map={SUPPORT_CATEGORY} value={r.category} dot={false} />
-          <StatusBadge map={SUPPORT_STATUS} value={r.status} />
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <StatusBadge map={SUPPORT_CATEGORY} value={r.category} dot={false} />
+            <StatusBadge map={SUPPORT_STATUS} value={r.status} />
+          </div>
+          <SuperAdminDeleteButton kind="SUPPORT_REQUEST" id={r.id} name={`${r.reference} — ${r.subject}`} enabled={user.role === "SUPER_ADMIN"} />
         </div>
       </div>
 

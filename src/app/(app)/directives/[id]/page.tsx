@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DIRECTIVE_STATUS, PRIORITY, ROLE_LABELS } from "@/lib/labels";
 import { StatusActions, MessageForm } from "./panel";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 
 export const dynamic = "force-dynamic";
 
@@ -37,9 +38,12 @@ export default async function DirectiveDetailPage({ params }: { params: { id: st
             <span className="font-mono">{d.reference}</span> · de {d.from?.name ?? "Direction"} → {target}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <StatusBadge map={PRIORITY} value={d.priority} dot={false} />
-          <StatusBadge map={DIRECTIVE_STATUS} value={d.status} />
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <StatusBadge map={PRIORITY} value={d.priority} dot={false} />
+            <StatusBadge map={DIRECTIVE_STATUS} value={d.status} />
+          </div>
+          <SuperAdminDeleteButton kind="DIRECTIVE" id={d.id} name={`${d.reference} — ${d.title}`} enabled={user.role === "SUPER_ADMIN"} />
         </div>
       </div>
 

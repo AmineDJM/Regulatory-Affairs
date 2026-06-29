@@ -13,7 +13,7 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { DOSSIER_STATUS, PRIORITY } from "@/lib/labels";
-import { DossierStatusControls, DossierAssign, DossierMessageForm, DossierMessageDelete } from "./panel";
+import { DossierStatusControls, DossierAssign, DossierMessageForm, DossierMessageItem } from "./panel";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 
 export const dynamic = "force-dynamic";
@@ -107,13 +107,14 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
                     const mine = m.authorId === user.id;
                     return (
                       <li key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                        <div className={`group max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
-                          <p className="whitespace-pre-wrap">{m.body}</p>
-                          <p className={`mt-1 flex items-center gap-1.5 text-[11px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                            <span>{m.author?.name ?? "—"} · {formatDateTime(m.createdAt.toISOString())}</span>
-                            {(mine || manage) && <span className="opacity-0 transition group-hover:opacity-100"><DossierMessageDelete id={m.id} mine={mine} /></span>}
-                          </p>
-                        </div>
+                        <DossierMessageItem
+                          id={m.id}
+                          body={m.body}
+                          author={m.author?.name ?? "—"}
+                          createdAt={formatDateTime(m.createdAt.toISOString())}
+                          mine={mine}
+                          canManage={mine || manage}
+                        />
                       </li>
                     );
                   })}

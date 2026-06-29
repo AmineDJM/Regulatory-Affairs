@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { deleteFileByKey } from "@/lib/storage";
+import { releaseBlob } from "@/lib/drive-storage";
 
 export interface DeleteResult {
   ok: boolean;
@@ -26,7 +27,18 @@ type DeletableKind =
   | "EMPLOYEE"
   | "DOSSIER"
   | "ADMIN_REQUEST"
-  | "MEETING";
+  | "MEETING"
+  | "FIELD_REPORT"
+  | "SALE"
+  | "DOCTOR"
+  | "BD_OPPORTUNITY"
+  | "BD_PROJECT"
+  | "DIRECTIVE"
+  | "SUPPORT_REQUEST"
+  | "FINANCE_TRANSACTION"
+  | "EXPENSE_ORDER"
+  | "SUPPLIER"
+  | "MEDICAL_INFO_DECLARATION";
 
 interface KindSpec {
   label: string; // libellé du type (« dossier réglementaire »)
@@ -125,6 +137,150 @@ const REGISTRY: Record<DeletableKind, KindSpec> = {
     },
     async remove(id) {
       await prisma.meeting.delete({ where: { id } });
+    },
+  },
+  FIELD_REPORT: {
+    label: "rapport terrain",
+    module: "Promotion médicale",
+    redirect: "/field-reports",
+    async describe(id) {
+      const r = await prisma.fieldReport.findUnique({ where: { id }, select: { doctorName: true, institution: true, visitDate: true } });
+      return r ? `${r.doctorName || r.institution || "Rapport"} — ${r.visitDate.toLocaleDateString("fr-FR")}` : null;
+    },
+    async remove(id) {
+      const r = await prisma.fieldReport.findUnique({ where: { id }, select: { audioBlobId: true } });
+      await prisma.fieldReport.delete({ where: { id } });
+      if (r?.audioBlobId) await releaseBlob(r.audioBlobId).catch(() => {});
+    },
+  },
+  SALE: {
+    label: "vente",
+    module: "Ventes",
+    redirect: "/sales",
+    entityType: "SALE",
+    async describe(id) {
+      const r = await prisma.sale.findUnique({ where: { id }, select: { product: true, client: true } });
+      return r ? `${r.product} — ${r.client}` : null;
+    },
+    async remove(id) {
+      await prisma.sale.delete({ where: { id } });
+    },
+  },
+  DOCTOR: {
+    label: "médecin",
+    module: "Médical",
+    redirect: "/medical",
+    entityType: "DOCTOR",
+    async describe(id) {
+      const r = await prisma.medicalDoctor.findUnique({ where: { id }, select: { name: true } });
+      return r ? r.name : null;
+    },
+    async remove(id) {
+      await prisma.medicalDoctor.delete({ where: { id } });
+    },
+  },
+  BD_OPPORTUNITY: {
+    label: "opportunité (Business Development)",
+    module: "Business Development",
+    redirect: "/business-development",
+    entityType: "BD_OPPORTUNITY",
+    async describe(id) {
+      const r = await prisma.businessDevelopmentOpportunity.findUnique({ where: { id }, select: { name: true } });
+      return r ? r.name : null;
+    },
+    async remove(id) {
+      await prisma.businessDevelopmentOpportunity.delete({ where: { id } });
+    },
+  },
+  BD_PROJECT: {
+    label: "projet (Business Development)",
+    module: "Business Development",
+    redirect: "/business-development",
+    entityType: "BD_PROJECT",
+    async describe(id) {
+      const r = await prisma.bdProject.findUnique({ where: { id }, select: { name: true } });
+      return r ? r.name : null;
+    },
+    async remove(id) {
+      await prisma.bdProject.delete({ where: { id } });
+    },
+  },
+  DIRECTIVE: {
+    label: "directive",
+    module: "Directives",
+    redirect: "/directives",
+    entityType: "DIRECTIVE",
+    async describe(id) {
+      const r = await prisma.directive.findUnique({ where: { id }, select: { reference: true, title: true } });
+      return r ? `${r.reference} — ${r.title}` : null;
+    },
+    async remove(id) {
+      await prisma.directive.delete({ where: { id } });
+    },
+  },
+  SUPPORT_REQUEST: {
+    label: "demande de support",
+    module: "Support",
+    redirect: "/support",
+    entityType: "SUPPORT_REQUEST",
+    async describe(id) {
+      const r = await prisma.supportRequest.findUnique({ where: { id }, select: { reference: true, subject: true } });
+      return r ? `${r.reference} — ${r.subject}` : null;
+    },
+    async remove(id) {
+      await prisma.supportRequest.delete({ where: { id } });
+    },
+  },
+  FINANCE_TRANSACTION: {
+    label: "écriture comptable",
+    module: "Finances",
+    redirect: "/finances",
+    entityType: "FINANCE_TRANSACTION",
+    async describe(id) {
+      const r = await prisma.financeTransaction.findUnique({ where: { id }, select: { reference: true, label: true } });
+      return r ? `${r.reference} — ${r.label}` : null;
+    },
+    async remove(id) {
+      await prisma.financeTransaction.delete({ where: { id } });
+    },
+  },
+  EXPENSE_ORDER: {
+    label: "ordre de dépense",
+    module: "Finances",
+    redirect: "/finances/ordres-de-depense",
+    entityType: "EXPENSE_ORDER",
+    async describe(id) {
+      const r = await prisma.expenseOrder.findUnique({ where: { id }, select: { reference: true, label: true } });
+      return r ? `${r.reference} — ${r.label}` : null;
+    },
+    async remove(id) {
+      await prisma.expenseOrder.delete({ where: { id } });
+    },
+  },
+  SUPPLIER: {
+    label: "fournisseur",
+    module: "Administration",
+    redirect: "/admin/suppliers",
+    entityType: "SUPPLIER",
+    async describe(id) {
+      const r = await prisma.supplier.findUnique({ where: { id }, select: { name: true } });
+      return r ? r.name : null;
+    },
+    async remove(id) {
+      await prisma.supplier.delete({ where: { id } });
+    },
+  },
+  MEDICAL_INFO_DECLARATION: {
+    label: "déclaration d'information médicale",
+    module: "Information médicale",
+    redirect: "/information-medicale",
+    entityType: "MEDICAL_INFO_DECLARATION",
+    async describe(id) {
+      const r = await prisma.medicalInfoDeclaration.findUnique({ where: { id }, select: { reference: true, label: true } });
+      return r ? `${r.reference} — ${r.label}` : null;
+    },
+    async remove(id) {
+      await prisma.medicalInfoDeclaration.delete({ where: { id } });
     },
   },
 };
