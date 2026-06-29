@@ -855,6 +855,7 @@ export const DOCS_TABS: NavTab[] = [
 export const MEDICAL_TABS: NavTab[] = [
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical" },
   { module: "MEDICAL", label: "Rapports terrain", href: "/field-reports" },
+  { module: "PROMO_MATERIAL", label: "Matériel promotionnel", href: "/promo-material" },
 ];
 // Adventum Brain + Process Intelligence, dans un seul cockpit Super Admin.
 export const BRAIN_TABS: NavTab[] = [
@@ -926,13 +927,13 @@ export const NAVIGATION: NavItem[] = [
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
   { module: "LOGISTICS", label: "Logistique & Stocks PCH", href: "/logistics", icon: "Truck", group: "Pôles", tabs: PCH_OPS_TABS },
   { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
-  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", tabs: MEDICAL_TABS },
+  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", tabs: MEDICAL_TABS, match: ["/promo-material"] },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
-  { module: "PROMO_MATERIAL", label: "Matériel promotionnel", href: "/promo-material", icon: "Megaphone", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
-  // Transverse
+  // Transverse — « Validations » n'a plus d'entrée de menu : les validations en
+  // attente remontent dans « Mon espace » (Mon travail / Action Center). La route
+  // /validations et son module restent actifs.
   { module: "MESSAGING", label: "Réunions & appels", href: "/meetings", icon: "Video", group: "Transverse" },
-  { module: "VALIDATIONS", label: "Validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
   { module: "DRIVE", label: "Documents", href: "/drive", icon: "FolderOpen", group: "Transverse", tabs: DOCS_TABS },
   { module: "ADMIN_REQUESTS", label: "Demandes administratives", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
