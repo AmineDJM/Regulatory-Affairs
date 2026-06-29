@@ -4,12 +4,12 @@ import { headers } from "next/headers";
 import { ArrowLeft, Users, Sparkles, ListChecks, FileText, CircleUser } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { roomUrl, publicMeetUrl, appBaseUrlForMeet, canViewMeeting, canManageMeeting } from "@/lib/meetings";
+import { publicMeetUrl, appBaseUrlForMeet, canViewMeeting, canManageMeeting } from "@/lib/meetings";
 import { aiConfigured } from "@/lib/ai";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { JitsiRoom } from "@/components/meetings/jitsi-room";
+import { MeetJoin } from "./meet-join";
 import { formatDateTime } from "@/lib/utils";
 import { MeetingRecorder } from "./meeting-recorder";
 import { TranscriptPanel, ProposalActions, ShareLink, ManageBar } from "./meeting-panels";
@@ -46,7 +46,6 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
   if (!canViewMeeting(user, meeting)) notFound();
   const canManage = canManageMeeting(user, meeting);
 
-  const url = roomUrl(meeting.slug, { display: user.name, video: meeting.withVideo });
   const base = externalBase();
   const shareUrl = base ? publicMeetUrl(meeting.publicToken, base) : "";
   const openProposals = meeting.proposals.filter((p) => p.status === "PROPOSED");
@@ -65,7 +64,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          <JitsiRoom url={url} title={meeting.title} />
+          <MeetJoin meetingId={meeting.id} meetLink={meeting.meetLink} canManage={canManage} />
 
           {/* Compte rendu IA */}
           {meeting.summary && (

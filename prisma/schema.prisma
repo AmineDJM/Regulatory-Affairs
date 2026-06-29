@@ -2977,6 +2977,9 @@ model Meeting {
   kind        MeetingKind   @default(MEETING)
   status      MeetingStatus @default(SCHEDULED)
   withVideo   Boolean       @default(true) // appel vidéo (sinon audio seul)
+  // Lien de réunion externe (Google Meet / Teams / Zoom…). S'il est présent, on l'utilise
+  // comme lien « Rejoindre » à la place de l'embed Jitsi (Jitsi reste dans le code).
+  meetLink    String?
 
   scheduledAt DateTime?
   startedAt   DateTime?

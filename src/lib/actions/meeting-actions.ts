@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { genSlug, genPublicToken, canManageMeeting, appBaseUrlForMeet } from "@/lib/meetings";
+import { genSlug, genPublicToken, canManageMeeting, appBaseUrlForMeet, roomUrl } from "@/lib/meetings";
 import { summarizeMeetingTranscript } from "@/lib/ai";
 import { notifyUser } from "@/lib/notify";
 import { releaseBlob } from "@/lib/drive-storage";
@@ -12,6 +12,25 @@ import { recordAudit } from "@/lib/audit";
 import { fdStr, fdBool, fdDate, type ActionResult } from "@/lib/actions/types";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
+
+/** Normalise un lien de réunion (ajoute https:// si absent ; null si vide/invalide). */
+function normalizeLink(raw: string | null): string | null {
+  if (!raw) return null;
+  let url = raw.trim();
+  if (!url) return null;
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  try { new URL(url); return url.slice(0, 500); } catch { return null; }
+}
+
+/** Définit / met à jour le lien de réunion (organisateur). */
+export async function setMeetingLink(formData: FormData): Promise<ActionResult> {
+  const res = await loadManaged(fdStr(formData, "id") ?? "");
+  if ("error" in res) return { ok: false, error: res.error };
+  const meetLink = normalizeLink(fdStr(formData, "meetLink"));
+  await prisma.meeting.update({ where: { id: res.meeting.id }, data: { meetLink } });
+  revalidatePath(`/meetings/${res.meeting.id}`);
+  return { ok: true };
+}
 
 /** Charge une réunion + ses participants et vérifie le droit de gestion (organisateur/vue globale). */
 async function loadManaged(id: string) {
@@ -34,6 +53,7 @@ export async function createMeeting(_prev: ActionResult | undefined, formData: F
   const description = fdStr(formData, "description");
   const scheduledAt = fdDate(formData, "scheduledAt");
   const withVideo = formData.get("withVideo") === null ? true : fdBool(formData, "withVideo");
+  const meetLink = normalizeLink(fdStr(formData, "meetLink"));
   const participantIds = [...new Set(formData.getAll("participantIds").map(String).filter(Boolean))].filter((id) => id !== user.id);
 
   const valid = participantIds.length
@@ -43,7 +63,7 @@ export async function createMeeting(_prev: ActionResult | undefined, formData: F
   const meeting = await prisma.meeting.create({
     data: {
       title, description: description ?? null, slug: genSlug(), publicToken: genPublicToken(),
-      kind: "MEETING", status: "SCHEDULED", withVideo, scheduledAt,
+      kind: "MEETING", status: "SCHEDULED", withVideo, scheduledAt, meetLink,
       organizerId: user.id,
       participants: { create: valid.map((userId) => ({ userId })) },
     },
@@ -98,10 +118,13 @@ export async function startCall(formData: FormData): Promise<ActionResult> {
   const members = await prisma.conversationMember.findMany({ where: { conversationId, leftAt: null }, select: { userId: true } });
   const others = members.map((m) => m.userId).filter((id) => id !== user.id);
 
+  const slug = genSlug();
   const meeting = await prisma.meeting.create({
     data: {
-      title: withVideo ? "Appel vidéo" : "Appel audio", slug: genSlug(), publicToken: genPublicToken(),
+      title: withVideo ? "Appel vidéo" : "Appel audio", slug, publicToken: genPublicToken(),
       kind: "CALL", status: "LIVE", withVideo, startedAt: new Date(), conversationId,
+      // Les appels gardent Jitsi sous le capot, présenté comme un simple lien « Rejoindre ».
+      meetLink: roomUrl(slug, { video: withVideo }),
       organizerId: user.id,
       participants: { create: others.map((userId) => ({ userId })) },
     },

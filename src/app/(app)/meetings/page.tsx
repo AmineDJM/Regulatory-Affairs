@@ -43,7 +43,7 @@ export default async function MeetingsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Réunions & appels" description="Réunions vidéo/audio (Jitsi), liens externes partageables, comptes rendus et tâches générés par l'IA.">
+      <PageHeader title="Réunions & appels" description="Réunions et appels via un simple lien (Meet, Teams, Zoom…), comptes rendus et tâches générés par l'IA.">
         <NewMeetingButton users={users} />
       </PageHeader>
 

@@ -57,6 +57,11 @@ export function NewMeetingButton({ users }: { users: UserOption[] }) {
             <Label htmlFor="description">Objet (optionnel)</Label>
             <Textarea id="description" name="description" rows={2} placeholder="Ordre du jour, contexte…" />
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="meetLink">Lien de la réunion (Google Meet, Teams, Zoom…)</Label>
+            <Input id="meetLink" name="meetLink" type="url" placeholder="https://meet.google.com/xxx-xxxx-xxx" />
+            <p className="text-xs text-muted-foreground">Collez le lien de la réunion. Les participants cliqueront simplement dessus pour rejoindre.</p>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="scheduledAt">Date / heure (optionnel)</Label>
