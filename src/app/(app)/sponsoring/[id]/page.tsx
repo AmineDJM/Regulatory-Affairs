@@ -47,7 +47,8 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
     createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
   }));
 
-  const canUpload = userCan(user, "SPONSORING", "UPLOAD");
+  // Le demandeur (délégué) peut toujours joindre des pièces à SA demande.
+  const canUpload = userCan(user, "SPONSORING", "UPLOAD") || isRequester;
   const canDelete = userCan(user, "SPONSORING", "DELETE");
 
   const showPanel =

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ExternalLink, FileText, ShieldPlus, CheckCircle2, Clock } from "lucide-react";
 import { requireUser } from "@/lib/session";
-import { hasGlobalView, userCan } from "@/lib/rbac";
+import { hasGlobalView, userCan, scopeCongressIntl, scopeCongressNational } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getDeclaration, canViewDeclaration, sourceLink } from "@/lib/queries/medical-info";
 import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
@@ -24,6 +24,19 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
   const canManage = hasGlobalView(user.role) || userCan(user, "MEDICAL_INFO", "VALIDATE");
   const isValidated = decl.status === "VALIDATED";
   const link = sourceLink(decl.sourceType, decl.sourceId);
+  // On ne montre le lien vers l'événement source que s'il est RÉELLEMENT ouvrable
+  // par cet utilisateur (sinon la page source renvoyait un 404 — hors portée).
+  let canOpenSource = false;
+  if (link) {
+    if (hasGlobalView(user.role)) canOpenSource = true;
+    else if (decl.sourceType === "SPONSORING") canOpenSource = userCan(user, "SPONSORING", "VIEW");
+    else if (decl.sourceType === "CONGRESS_INTERNATIONAL")
+      canOpenSource = userCan(user, "CONGRESS_INTERNATIONAL", "VIEW") &&
+        (await prisma.congressInternational.count({ where: { id: decl.sourceId, ...scopeCongressIntl(user) } })) > 0;
+    else if (decl.sourceType === "CONGRESS_NATIONAL")
+      canOpenSource = userCan(user, "CONGRESS_NATIONAL", "VIEW") &&
+        (await prisma.congressNational.count({ where: { id: decl.sourceId, ...scopeCongressNational(user) } })) > 0;
+  }
   const amount = decl.amount != null ? toNumber(decl.amount) : null;
   const pendingCount = decl.requests.filter((r) => r.status === "PENDING").length;
 
@@ -78,7 +91,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
               <Row label="Pharmacien responsable" value={decl.pharmacist?.name ?? "Non assigné"} />
               <Row label="Créé le" value={formatDate(decl.createdAt.toISOString())} />
               {isValidated && decl.validatedAt && <Row label="Validé le" value={formatDateTime(decl.validatedAt.toISOString())} />}
-              {link && (
+              {link && canOpenSource && (
                 <div className="pt-1">
                   <Link href={link} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
                     <ExternalLink className="h-3.5 w-3.5" /> Voir l'événement source

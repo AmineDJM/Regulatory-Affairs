@@ -54,6 +54,23 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
  * module permission and row-level scope, so a user can never read/modify a row
  * outside their assignment even if they guess the id.
  */
+/** Le demandeur d'une demande de sponsoring/congrès en est-il le requester ? */
+async function isRequestOwner(user: SessionUser, entityType: EntityType, entityId: string): Promise<boolean> {
+  if (entityType === "SPONSORING") {
+    const r = await prisma.sponsoringRequest.findUnique({ where: { id: entityId }, select: { requesterId: true } });
+    return r?.requesterId === user.id;
+  }
+  if (entityType === "CONGRESS_INTERNATIONAL") {
+    const r = await prisma.congressInternational.findUnique({ where: { id: entityId }, select: { requesterId: true } });
+    return r?.requesterId === user.id;
+  }
+  if (entityType === "CONGRESS_NATIONAL") {
+    const r = await prisma.congressNational.findUnique({ where: { id: entityId }, select: { requesterId: true } });
+    return r?.requesterId === user.id;
+  }
+  return false;
+}
+
 export async function canAccessEntity(
   user: SessionUser,
   entityType: EntityType,
@@ -61,6 +78,18 @@ export async function canAccessEntity(
   action: Action = "VIEW",
 ): Promise<boolean> {
   const module = ENTITY_MODULE[entityType];
+
+  // Le DEMANDEUR d'une demande de sponsoring/congrès peut toujours consulter et
+  // joindre des pièces à SA propre demande (devis, programme…), même si son rôle
+  // n'a pas le droit UPLOAD du module.
+  if (
+    (action === "VIEW" || action === "UPLOAD") &&
+    (entityType === "SPONSORING" || entityType === "CONGRESS_INTERNATIONAL" || entityType === "CONGRESS_NATIONAL") &&
+    (await isRequestOwner(user, entityType, entityId))
+  ) {
+    return true;
+  }
+
   if (!userCan(user, module, action)) return false;
 
   switch (entityType) {

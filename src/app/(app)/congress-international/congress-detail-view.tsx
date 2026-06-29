@@ -1,7 +1,11 @@
 import Link from "next/link";
+import type { EntityType } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { DocumentUpload } from "@/components/documents/document-upload";
+import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { CONGRESS_REQUEST_STATUS, NATIONAL_EVENT_TYPE, EXPENSE_ORDER_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import type { CongressDetail } from "@/lib/queries/congress";
@@ -9,13 +13,21 @@ import { PreliminaryDecision, ProductAnalysis, FinalDecision } from "./congress-
 
 type PM = { id: string; name: string };
 
+const CONGRESS_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
+
 export function CongressDetailView({
-  detail, canValidate, canAnalyze, productManagers,
+  detail, canValidate, canAnalyze, productManagers, entityType, entityId, documents, canUpload, canDelete, path,
 }: {
   detail: CongressDetail;
   canValidate: boolean;
   canAnalyze: boolean;
   productManagers: PM[];
+  entityType: EntityType;
+  entityId: string;
+  documents: DocItem[];
+  canUpload: boolean;
+  canDelete: boolean;
+  path: string;
 }) {
   const d = detail;
   const st = d.requestStatus;
@@ -104,8 +116,15 @@ export function CongressDetailView({
         </Card>
       </div>
 
-      {/* Médecins + participants */}
+      {/* Documents + médecins + participants */}
       <div className="space-y-5">
+        <Card>
+          <CardHeader className="flex-row items-center justify-between"><CardTitle>Documents</CardTitle><Badge tone="neutral" dot={false}>{documents.length}</Badge></CardHeader>
+          <CardContent className="space-y-4">
+            {canUpload && <DocumentUpload entityType={entityType} entityId={entityId} categories={CONGRESS_DOC_CATEGORIES} />}
+            <DocumentList documents={documents} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload} path={path} />
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader className="flex-row items-center justify-between"><CardTitle>Médecins invités</CardTitle><Badge tone="neutral" dot={false}>{d.doctors.length}</Badge></CardHeader>
           <CardContent>
