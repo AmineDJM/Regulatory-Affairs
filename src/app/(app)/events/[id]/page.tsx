@@ -14,6 +14,7 @@ import { EVENT_TYPE, EVENT_SCOPE, EVENT_FORMAT, EVENT_STATUS, PARTICIPANT_ROLE }
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { EditEventButton } from "../event-form";
 import { RegistrationsManager } from "./registrations-manager";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
       <PageHeader title={e.name} description={`${EVENT_TYPE[e.type]} · ${EVENT_SCOPE[e.scope]} · ${EVENT_FORMAT[e.format]}`}>
         <StatusBadge map={EVENT_STATUS} value={e.status} />
         {canManage && <EditEventButton event={e} responsibles={responsibles} canDelete={canDelete} />}
+        <SuperAdminDeleteButton kind="EVENT" id={e.id} name={e.name} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
 
       <div className="grid gap-5 lg:grid-cols-3">

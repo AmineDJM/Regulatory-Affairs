@@ -13,6 +13,7 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SPONSORING_STATUS, PRIORITY } from "@/lib/labels";
 import { DecisionPanel } from "./decision-panel";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 
 const SPONSORING_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -71,7 +72,10 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
           <h1 className="text-2xl font-semibold tracking-tight">{req.institution}</h1>
           {req.doctor && <p className="text-muted-foreground">{req.doctor} · {req.specialty}</p>}
         </div>
-        <StatusBadge map={SPONSORING_STATUS} value={req.status} />
+        <div className="flex flex-col items-end gap-2">
+          <StatusBadge map={SPONSORING_STATUS} value={req.status} />
+          <SuperAdminDeleteButton kind="SPONSORING" id={req.id} name={`${req.reference} — ${req.institution}`} enabled={user.role === "SUPER_ADMIN"} />
+        </div>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">

@@ -13,6 +13,7 @@ import { MeetJoin } from "./meet-join";
 import { formatDateTime } from "@/lib/utils";
 import { MeetingRecorder } from "./meeting-recorder";
 import { TranscriptPanel, ProposalActions, ShareLink, ManageBar } from "./meeting-panels";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
       <PageHeader title={meeting.title} description={meeting.description ?? undefined}>
         <Badge tone={STATUS[meeting.status]?.tone ?? "neutral"} dot={false}>{STATUS[meeting.status]?.label ?? meeting.status}</Badge>
         {canManage && <ManageBar meetingId={meeting.id} status={meeting.status} />}
+        <SuperAdminDeleteButton kind="MEETING" id={meeting.id} name={meeting.title} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
 
       <div className="grid gap-5 lg:grid-cols-3">

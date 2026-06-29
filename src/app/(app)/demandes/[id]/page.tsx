@@ -18,6 +18,7 @@ import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, ADMIN_APPROVAL_STATUS, DRIVER
 import { formatDate, formatDateTime, formatCurrency, toNumber } from "@/lib/utils";
 import { RequestActions } from "./request-actions";
 import { ApprovalButtons } from "../approval-buttons";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -69,7 +70,10 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">{req.title}</h1>
         </div>
-        <StatusBadge map={ADMIN_REQUEST_STATUS} value={req.status} />
+        <div className="flex flex-col items-end gap-2">
+          <StatusBadge map={ADMIN_REQUEST_STATUS} value={req.status} />
+          <SuperAdminDeleteButton kind="ADMIN_REQUEST" id={req.id} name={`${req.reference} — ${req.title}`} enabled={user.role === "SUPER_ADMIN"} />
+        </div>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">

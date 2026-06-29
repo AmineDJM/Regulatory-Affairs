@@ -18,6 +18,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { RegulatoryProcess, RegulatoryChecklist } from "./anpp-process";
 import { regProgress, regChecklistProgress, type RegWorkflowState, type RegChecklistState } from "@/lib/regulatory-workflow";
 import { StatusEditor } from "./status-editor";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { getFieldDefs } from "@/lib/custom-fields";
 import { suggestedExternalStatus } from "@/lib/regulatory-external";
@@ -124,11 +125,14 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
           <h1 className="text-2xl font-semibold tracking-tight">{product.dci}</h1>
           {product.brandName && <p className="text-muted-foreground">{product.brandName}</p>}
         </div>
-        {canUpdate ? (
-          <StatusEditor id={product.id} status={product.status} priority={product.priority} />
-        ) : (
-          <StatusBadge map={REGULATORY_STATUS} value={product.status} />
-        )}
+        <div className="flex flex-col items-end gap-2">
+          {canUpdate ? (
+            <StatusEditor id={product.id} status={product.status} priority={product.priority} />
+          ) : (
+            <StatusBadge map={REGULATORY_STATUS} value={product.status} />
+          )}
+          <SuperAdminDeleteButton kind="REGULATORY_PRODUCT" id={product.id} name={`${product.reference} — ${product.dci}`} enabled={user.role === "SUPER_ADMIN"} />
+        </div>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">

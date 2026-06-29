@@ -14,6 +14,7 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { DOSSIER_STATUS, PRIORITY } from "@/lib/labels";
 import { DossierStatusControls, DossierAssign, DossierMessageForm, DossierMessageDelete } from "./panel";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 
 export const dynamic = "force-dynamic";
 
@@ -66,9 +67,12 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
             {d.assignedTo && <> · responsable {d.assignedTo.name}</>}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {d.category && <Badge tone="neutral" dot={false}>{d.category}</Badge>}
-          <StatusBadge map={DOSSIER_STATUS} value={d.status} />
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            {d.category && <Badge tone="neutral" dot={false}>{d.category}</Badge>}
+            <StatusBadge map={DOSSIER_STATUS} value={d.status} />
+          </div>
+          <SuperAdminDeleteButton kind="DOSSIER" id={d.id} name={`${d.reference} — ${d.title}`} enabled={user.role === "SUPER_ADMIN"} />
         </div>
       </div>
 

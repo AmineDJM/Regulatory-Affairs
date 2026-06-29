@@ -15,6 +15,7 @@ import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/util
 import { getEmployeeHrDossier } from "@/lib/queries/hr-documents";
 import { EmployeeForm, type EmployeeFormValues } from "./employee-form";
 import { HrDossier } from "./hr-dossier";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 
 const d10 = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : "");
 
@@ -82,7 +83,10 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
             {employee.position || "Poste non défini"}{employee.department ? ` · ${employee.department}` : ""}
           </p>
         </div>
-        {employee.isActive ? <Badge tone="success" dot={false}>Actif</Badge> : <Badge tone="danger" dot={false}>Inactif</Badge>}
+        <div className="flex flex-col items-end gap-2">
+          {employee.isActive ? <Badge tone="success" dot={false}>Actif</Badge> : <Badge tone="danger" dot={false}>Inactif</Badge>}
+          <SuperAdminDeleteButton kind="EMPLOYEE" id={employee.id} name={employee.fullName} enabled={user.role === "SUPER_ADMIN"} />
+        </div>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
