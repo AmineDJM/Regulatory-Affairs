@@ -342,6 +342,7 @@ enum EntityType {
   DIRECTIVE
   SUPPORT_REQUEST
   DOSSIER
+  PROMO_MATERIAL
 }
 
 enum DocumentCategory {
@@ -377,6 +378,11 @@ enum DocumentCategory {
   PRESENTATION
   POST_EVENT_REPORT
   SUPPLIER_OFFER
+  PURCHASE_ORDER // bon de commande
+  PAYMENT_SLIP // bordereau de paiement
+  PAYMENT_RECEIPT // quittance / reçu de paiement
+  PROMO_MATERIAL_FILE // matériel promotionnel (maquette / final)
+  AD_VISA // visa publicitaire / référence de dépôt
   OTHER
 }
 
@@ -2456,6 +2462,66 @@ model StockMovement {
   @@index([product])
   @@index([productId])
   @@index([date])
+}
+
+// ─────────────── Matériel promotionnel (workflow multi-acteurs) ───────────────
+// Circuit : Marketing (initiateur) → Assistante de direction → Finances →
+// Information médicale → Direction → agence. Devis, bon de commande, bordereau de
+// paiement, quittance, matériel, visa publicitaire, facture & règlement.
+enum PromoMaterialStatus {
+  PROSPECTION_REQUESTED // Marketing a demandé la prospection d'agences (reçu comme demande administrative)
+  QUOTES_UPLOADED // l'assistante a déposé les devis
+  AGENCY_CHOSEN // Marketing a choisi l'agence/devis et demandé la création du bon de commande
+  BC_FINANCE_REVIEW // l'assistante a déposé le BC et sollicité la validation des finances
+  BC_VALIDATED // les finances ont validé/signé le bon de commande
+  BC_SENT // l'assistante a validé le BC et l'a transmis à l'agence (hors plateforme)
+  PAYMENT_INITIATED // l'information médicale a initié le bordereau de paiement
+  PAYMENT_DONE // les finances ont effectué le paiement (quittance)
+  MATERIAL_PRODUCED // matériel réalisé par l'agence, déposé par Marketing
+  CONFORMITY_REVIEW // l'information médicale vérifie la conformité / le dépôt
+  VISA_OBTAINED // référence + visa publicitaire obtenus (déposés par l'information médicale)
+  BAT_PRINTING // retour Marketing pour BAT / impression
+  FINAL_MATERIAL // matériel final déposé par Marketing
+  INVOICED // l'agence a émis la facture finale + bon de livraison
+  SETTLED // les finances ont réglé
+  CANCELLED
+}
+
+model PromoMaterial {
+  id          String              @id @default(cuid())
+  reference   String              @unique // MP-2026-001
+  title       String
+  description String?
+  status      PromoMaterialStatus @default(PROSPECTION_REQUESTED)
+
+  requesterId String? // Marketing — initiateur
+  assistantId String? // Assistante de direction en charge
+
+  chosenAgency  String? // agence retenue
+  chosenAmount  Decimal? @db.Decimal(14, 2) // montant du devis retenu
+  amount        Decimal? @db.Decimal(14, 2) // budget global (si distinct)
+  bcReference   String? // n° de bon de commande
+  visaReference String? // référence + visa publicitaire
+  authorityRef  String? // référence de dépôt aux autorités
+
+  bcValidatedAt        DateTime?
+  paymentInitiatedAt   DateTime?
+  paymentDoneAt        DateTime?
+  financeReminderAt    DateTime? // dernière relance des finances
+  financeReminderCount Int       @default(0)
+
+  paymentOrderId    String? // ordre de dépense — bordereau de paiement (information médicale → finances)
+  settlementOrderId String? // ordre de dépense — règlement final (facture agence)
+  adminRequestId    String? // demande administrative liée (visibilité assistante)
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([assistantId])
 }
 
 // ─────────────── Feedback utilisateur ───────────────

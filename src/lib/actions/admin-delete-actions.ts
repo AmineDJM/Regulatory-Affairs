@@ -38,7 +38,8 @@ type DeletableKind =
   | "FINANCE_TRANSACTION"
   | "EXPENSE_ORDER"
   | "SUPPLIER"
-  | "MEDICAL_INFO_DECLARATION";
+  | "MEDICAL_INFO_DECLARATION"
+  | "PROMO_MATERIAL";
 
 interface KindSpec {
   label: string; // libellé du type (« dossier réglementaire »)
@@ -281,6 +282,19 @@ const REGISTRY: Record<DeletableKind, KindSpec> = {
     },
     async remove(id) {
       await prisma.medicalInfoDeclaration.delete({ where: { id } });
+    },
+  },
+  PROMO_MATERIAL: {
+    label: "dossier de matériel promotionnel",
+    module: "Matériel promotionnel",
+    redirect: "/promo-material",
+    entityType: "PROMO_MATERIAL",
+    async describe(id) {
+      const r = await prisma.promoMaterial.findUnique({ where: { id }, select: { reference: true, title: true } });
+      return r ? `${r.reference} — ${r.title}` : null;
+    },
+    async remove(id) {
+      await prisma.promoMaterial.delete({ where: { id } });
     },
   },
 };

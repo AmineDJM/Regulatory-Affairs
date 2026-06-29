@@ -2,8 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { userCan, hasGlobalView, scopeRegulatory, scopeDirectives, type SessionUser } from "@/lib/rbac";
 import { getPendingValidations } from "@/lib/queries/validations";
 import { toNumber, formatCurrency } from "@/lib/utils";
+import type { PromoMaterialStatus } from "@prisma/client";
 import {
-  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, DIRECTIVE_STATUS, SUPPORT_STATUS, DOSSIER_STATUS,
+  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, PROMO_MATERIAL_STATUS, DIRECTIVE_STATUS, SUPPORT_STATUS, DOSSIER_STATUS,
 } from "@/lib/labels";
 
 export interface ActionItem {
@@ -166,6 +167,28 @@ export async function getActionCenter(user: SessionUser) {
         key: `mi-${d.id}`, title: d.label, subtitle: d.reference,
         module: "Information médicale", href: `/information-medicale/${d.id}`, kind: "validation", priority: null,
         deadline: null, owner: "", ...resolve(MEDICAL_INFO_STATUS, d.status),
+      });
+    }
+  }
+
+  // 6d. Matériel promotionnel — étape en attente de l'acteur courant.
+  if (userCan(user, "PROMO_MATERIAL", "VIEW")) {
+    const global = hasGlobalView(user.role);
+    const mine = new Set<PromoMaterialStatus>();
+    if (userCan(user, "PROMO_MATERIAL", "VALIDATE") || global) ["PROSPECTION_REQUESTED", "AGENCY_CHOSEN", "BC_VALIDATED", "FINAL_MATERIAL"].forEach((s) => mine.add(s as PromoMaterialStatus));
+    if (user.role === "FINANCE_BUDGET_MANAGER" || global) ["BC_FINANCE_REVIEW", "PAYMENT_INITIATED", "INVOICED"].forEach((s) => mine.add(s as PromoMaterialStatus));
+    if (user.role === "MEDICAL_INFO_PHARMACIST" || global) ["BC_SENT", "CONFORMITY_REVIEW"].forEach((s) => mine.add(s as PromoMaterialStatus));
+    if (global) mine.add("MATERIAL_PRODUCED");
+    const marketing: PromoMaterialStatus[] = ["QUOTES_UPLOADED", "PAYMENT_DONE", "VISA_OBTAINED", "BAT_PRINTING"];
+    const or: { status: { in: PromoMaterialStatus[] }; requesterId?: string }[] = [];
+    if (mine.size) or.push({ status: { in: [...mine] } });
+    or.push(global ? { status: { in: marketing } } : { status: { in: marketing }, requesterId: user.id });
+    const promos = await prisma.promoMaterial.findMany({ where: { OR: or }, orderBy: { createdAt: "desc" }, take: 40 });
+    for (const p of promos) {
+      items.push({
+        key: `pm-${p.id}`, title: p.title, subtitle: p.reference,
+        module: "Matériel promotionnel", href: `/promo-material/${p.id}`, kind: "validation", priority: null,
+        deadline: null, owner: "", ...resolve(PROMO_MATERIAL_STATUS, p.status),
       });
     }
   }

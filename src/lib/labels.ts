@@ -431,6 +431,11 @@ export const DOCUMENT_CATEGORY: Record<string, string> = {
   PRESENTATION: "Présentation",
   POST_EVENT_REPORT: "Rapport post-événement",
   SUPPLIER_OFFER: "Offre fournisseur",
+  PURCHASE_ORDER: "Bon de commande",
+  PAYMENT_SLIP: "Bordereau de paiement",
+  PAYMENT_RECEIPT: "Quittance / reçu",
+  PROMO_MATERIAL_FILE: "Matériel promotionnel",
+  AD_VISA: "Visa publicitaire",
   OTHER: "Autre",
 };
 
@@ -639,7 +644,34 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   DIRECTIVE: "Directive",
   SUPPORT_REQUEST: "Demande de support",
   DOSSIER: "Dossier de suivi",
+  PROMO_MATERIAL: "Matériel promotionnel",
 };
+
+export const PROMO_MATERIAL_STATUS: Record<string, Display> = {
+  PROSPECTION_REQUESTED: { label: "Prospection demandée", tone: "warning" },
+  QUOTES_UPLOADED: { label: "Devis déposés", tone: "info" },
+  AGENCY_CHOSEN: { label: "Agence choisie", tone: "info" },
+  BC_FINANCE_REVIEW: { label: "BC — validation finances", tone: "warning" },
+  BC_VALIDATED: { label: "BC validé", tone: "purple" },
+  BC_SENT: { label: "BC transmis à l'agence", tone: "purple" },
+  PAYMENT_INITIATED: { label: "Bordereau de paiement", tone: "warning" },
+  PAYMENT_DONE: { label: "Paiement effectué", tone: "info" },
+  MATERIAL_PRODUCED: { label: "Matériel réalisé", tone: "info" },
+  CONFORMITY_REVIEW: { label: "Vérification conformité", tone: "warning" },
+  VISA_OBTAINED: { label: "Visa publicitaire obtenu", tone: "purple" },
+  BAT_PRINTING: { label: "BAT / impression", tone: "info" },
+  FINAL_MATERIAL: { label: "Matériel final", tone: "info" },
+  INVOICED: { label: "Facturé", tone: "warning" },
+  SETTLED: { label: "Réglé", tone: "success" },
+  CANCELLED: { label: "Annulé", tone: "danger" },
+};
+
+/** Ordre du circuit (hors annulation) — pour la frise de suivi. */
+export const PROMO_MATERIAL_FLOW: string[] = [
+  "PROSPECTION_REQUESTED", "QUOTES_UPLOADED", "AGENCY_CHOSEN", "BC_FINANCE_REVIEW", "BC_VALIDATED",
+  "BC_SENT", "PAYMENT_INITIATED", "PAYMENT_DONE", "MATERIAL_PRODUCED", "CONFORMITY_REVIEW",
+  "VISA_OBTAINED", "BAT_PRINTING", "FINAL_MATERIAL", "INVOICED", "SETTLED",
+];
 
 export const MEDICAL_INFO_STATUS: Record<string, Display> = {
   AWAITING_REVIEW: { label: "À déclarer", tone: "warning" },
@@ -857,6 +889,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   PCH: "PCH — Marchés",
   STOCKS: "Stocks PCH",
   MEDICAL_INFO: "Information médicale",
+  PROMO_MATERIAL: "Matériel promotionnel",
   VALIDATIONS: "Validations",
   DIRECTIVES: "Directives",
   SUPPORT: "Demandes de support",
@@ -891,6 +924,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", tabs: MEDICAL_TABS },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
+  { module: "PROMO_MATERIAL", label: "Matériel promotionnel", href: "/promo-material", icon: "Megaphone", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
   // Transverse
   { module: "MESSAGING", label: "Réunions & appels", href: "/meetings", icon: "Video", group: "Transverse" },

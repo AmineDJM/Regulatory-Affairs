@@ -47,6 +47,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   DIRECTIVE: "DIRECTIVES",
   SUPPORT_REQUEST: "SUPPORT",
   DOSSIER: "DOSSIERS",
+  PROMO_MATERIAL: "PROMO_MATERIAL",
 };
 
 /**
