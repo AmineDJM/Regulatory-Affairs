@@ -9,8 +9,9 @@ import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PROMO_MATERIAL_STATUS } from "@/lib/labels";
+import { PROMO_MATERIAL_STATUS, MEDICAL_TABS } from "@/lib/labels";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +42,8 @@ export default async function PromoMaterialPage() {
           <CreateRecordButton label="Nouvelle demande" title="Demande de matériel promotionnel" description="Marketing — demande de prospection d'agences." width="md" action={createPromoMaterial} redirectBase="/promo-material" fields={createFields} />
         )}
       </PageHeader>
+
+      <ModuleTabs tabs={MEDICAL_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-3 gap-3">
         <KpiCard label="Dossiers" value={items.length} icon="Megaphone" />
