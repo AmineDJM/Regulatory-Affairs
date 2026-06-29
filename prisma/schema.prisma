@@ -344,6 +344,7 @@ enum EntityType {
   SUPPORT_REQUEST
   DOSSIER
   PROMO_MATERIAL
+  HR_REQUEST
 }
 
 enum DocumentCategory {
@@ -1846,6 +1847,8 @@ enum HrRequestType {
   LEAVE_TITLE // titre de congé
   MISSION_ORDER // ordre de mission
   EXPENSE_REPORT // note de frais
+  EXCEPTIONAL_EXIT // sortie exceptionnelle (autorisation d'absence ponctuelle)
+  SICK_LEAVE // arrêt maladie (avec justificatif)
   OTHER
 }
 

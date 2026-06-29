@@ -521,6 +521,8 @@ export const HR_REQUEST_TYPE: Record<string, string> = {
   LEAVE_TITLE: "Titre de congé",
   MISSION_ORDER: "Ordre de mission",
   EXPENSE_REPORT: "Note de frais",
+  EXCEPTIONAL_EXIT: "Sortie exceptionnelle",
+  SICK_LEAVE: "Arrêt maladie",
   OTHER: "Autre demande",
 };
 
@@ -646,6 +648,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   SUPPORT_REQUEST: "Demande de support",
   DOSSIER: "Dossier de suivi",
   PROMO_MATERIAL: "Matériel promotionnel",
+  HR_REQUEST: "Demande RH",
 };
 
 export const PROMO_MATERIAL_STATUS: Record<string, Display> = {

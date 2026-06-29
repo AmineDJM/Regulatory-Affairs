@@ -129,7 +129,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
             <Card>
               <CardHeader><CardTitle>Documents & demandes RH</CardTitle></CardHeader>
               <CardContent>
-                <HrDossier employeeId={employee.id} documents={hrDossier.documents} requests={hrDossier.requests} />
+                <HrDossier employeeId={employee.id} documents={hrDossier.documents} requests={hrDossier.requests} currentUserId={user.id} />
               </CardContent>
             </Card>
           )}

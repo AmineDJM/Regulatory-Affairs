@@ -10,7 +10,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
-const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "OTHER"];
+const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
 
 /** Demande d'attestation par l'employé (acte côté « Mon dossier RH »). */
@@ -35,6 +35,30 @@ export async function requestHrDocument(formData: FormData): Promise<ActionResul
   revalidatePath("/mon-dossier");
   revalidatePath("/rh");
   return { ok: true, id: created.id };
+}
+
+/** Échange dans une demande RH : le demandeur ou les RH y répondent (fil de discussion). */
+export async function addHrRequestComment(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "requestId");
+  const body = fdStr(formData, "body");
+  if (!id || !body) return { ok: false, error: "Message vide." };
+  const req = await prisma.hrDocumentRequest.findUnique({ where: { id }, include: { employee: { select: { userId: true, fullName: true } } } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  const isOwner = req.employee.userId === user.id;
+  const isHr = userCan(user, "RH", "UPDATE");
+  if (!(isOwner || isHr)) return { ok: false, error: "Non autorisé." };
+
+  await prisma.comment.create({ data: { entityType: "HR_REQUEST", entityId: id, body, authorId: user.id } });
+  // Notifie l'autre partie.
+  if (isHr && req.employee.userId) {
+    await notifyUser({ userId: req.employee.userId, type: "GENERIC", title: "Réponse des RH à votre demande", body, link: "/mon-dossier" });
+  } else if (isOwner) {
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Message sur une demande RH", body: `${req.employee.fullName} : ${body}`, link: `/rh/${req.employeeId}` });
+  }
+  revalidatePath("/mon-dossier");
+  revalidatePath(`/rh/${req.employeeId}`);
+  return { ok: true };
 }
 
 /** Traitement d'une demande par les RH (statut + note). */

@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
 import { formatDate } from "@/lib/utils";
 import { processHrRequest, deleteEmployeeDocument } from "@/lib/actions/hr-document-actions";
+import { HrRequestThread } from "@/components/shared/hr-request-thread";
 import type { HrDocumentDTO, HrRequestDTO } from "@/lib/queries/hr-documents";
 
 const REQ_TO_CAT: Record<string, string> = {
@@ -20,7 +21,7 @@ const REQ_TO_CAT: Record<string, string> = {
   OTHER: "OTHER",
 };
 
-export function HrDossier({ employeeId, documents, requests }: { employeeId: string; documents: HrDocumentDTO[]; requests: HrRequestDTO[] }) {
+export function HrDossier({ employeeId, documents, requests, currentUserId }: { employeeId: string; documents: HrDocumentDTO[]; requests: HrRequestDTO[]; currentUserId: string }) {
   const router = useRouter();
   const [category, setCategory] = React.useState("PAYSLIP");
   const [period, setPeriod] = React.useState("");
@@ -97,7 +98,7 @@ export function HrDossier({ employeeId, documents, requests }: { employeeId: str
           <p className="text-sm text-muted-foreground">Aucune demande.</p>
         ) : (
           <ul className="space-y-2">
-            {requests.map((r) => <RequestRow key={r.id} req={r} employeeId={employeeId} onFulfil={upload} busy={busy} />)}
+            {requests.map((r) => <RequestRow key={r.id} req={r} employeeId={employeeId} onFulfil={upload} busy={busy} currentUserId={currentUserId} />)}
           </ul>
         )}
       </div>
@@ -105,7 +106,7 @@ export function HrDossier({ employeeId, documents, requests }: { employeeId: str
   );
 }
 
-function RequestRow({ req, onFulfil, busy }: { req: HrRequestDTO; employeeId: string; onFulfil: (file: File, opts: { category: string; requestId: string }) => void; busy: boolean }) {
+function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: HrRequestDTO; employeeId: string; onFulfil: (file: File, opts: { category: string; requestId: string }) => void; busy: boolean; currentUserId: string }) {
   const router = useRouter();
   const [status, setStatus] = React.useState(req.status);
   const [note, setNote] = React.useState(req.hrNote ?? "");
@@ -143,6 +144,7 @@ function RequestRow({ req, onFulfil, busy }: { req: HrRequestDTO; employeeId: st
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => fileRef.current?.click()}><Paperclip className="h-4 w-4" /> Joindre le document & marquer prêt</Button>
         <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFulfil(f, { category: REQ_TO_CAT[req.type] ?? "OTHER", requestId: req.id }); e.target.value = ""; }} />
       </div>
+      <HrRequestThread requestId={req.id} documents={req.documents} comments={req.comments} canManage currentUserId={currentUserId} path={`/rh/${employeeId}`} />
     </li>
   );
 }

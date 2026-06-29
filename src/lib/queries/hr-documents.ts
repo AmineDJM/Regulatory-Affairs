@@ -1,5 +1,7 @@
 import type { HrDocumentCategory, HrRequestType, HrRequestStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import type { DocItem } from "@/components/documents/document-list";
+import type { CommentItem } from "@/components/shared/comment-thread";
 
 /** Lecture du dossier RH employé (documents + demandes d'attestation). */
 
@@ -21,6 +23,8 @@ export interface HrRequestDTO {
   hrNote: string | null;
   createdAt: string;
   fulfilmentDocId: string | null;
+  documents: DocItem[];
+  comments: CommentItem[];
 }
 
 export interface MyHrDossier {
@@ -42,7 +46,24 @@ function mapDoc(d: { id: string; category: HrDocumentCategory; name: string; mim
 }
 
 function mapReq(r: { id: string; type: HrRequestType; status: HrRequestStatus; details: string | null; hrNote: string | null; createdAt: Date; fulfilment: { id: string } | null }): HrRequestDTO {
-  return { id: r.id, type: r.type, status: r.status, details: r.details, hrNote: r.hrNote, createdAt: r.createdAt.toISOString(), fulfilmentDocId: r.fulfilment?.id ?? null };
+  return { id: r.id, type: r.type, status: r.status, details: r.details, hrNote: r.hrNote, createdAt: r.createdAt.toISOString(), fulfilmentDocId: r.fulfilment?.id ?? null, documents: [], comments: [] };
+}
+
+/** Charge les pièces jointes + le fil d'échange de chaque demande RH (groupés par demande). */
+async function attachThreads(requests: HrRequestDTO[]): Promise<void> {
+  const ids = requests.map((r) => r.id);
+  if (ids.length === 0) return;
+  const [documents, comments] = await Promise.all([
+    prisma.document.findMany({ where: { entityType: "HR_REQUEST", entityId: { in: ids } }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
+    prisma.comment.findMany({ where: { entityType: "HR_REQUEST", entityId: { in: ids } }, include: { author: { select: { name: true } } }, orderBy: { createdAt: "asc" } }),
+  ]);
+  const byReq = new Map(requests.map((r) => [r.id, r]));
+  for (const d of documents) {
+    byReq.get(d.entityId)?.documents.push({ id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes, confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null, createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey) });
+  }
+  for (const c of comments) {
+    byReq.get(c.entityId)?.comments.push({ id: c.id, author: c.author?.name ?? "Utilisateur", authorId: c.authorId, body: c.body, createdAt: c.createdAt.toISOString(), editedAt: c.editedAt?.toISOString() ?? null });
+  }
 }
 
 /** Dossier RH de l'utilisateur connecté (ou null s'il n'a pas de fiche employé). */
@@ -55,6 +76,8 @@ export async function getMyHrDossier(userId: string): Promise<MyHrDossier | null
     },
   });
   if (!employee) return null;
+  const requests = employee.hrRequests.map(mapReq);
+  await attachThreads(requests);
   return {
     employee: {
       id: employee.id,
@@ -66,7 +89,7 @@ export async function getMyHrDossier(userId: string): Promise<MyHrDossier | null
       cnasNumber: employee.cnasNumber,
     },
     documents: employee.documents.map(mapDoc),
-    requests: employee.hrRequests.map(mapReq),
+    requests,
   };
 }
 
@@ -76,7 +99,9 @@ export async function getEmployeeHrDossier(employeeId: string) {
     prisma.employeeDocument.findMany({ where: { employeeId }, orderBy: { createdAt: "desc" } }),
     prisma.hrDocumentRequest.findMany({ where: { employeeId }, orderBy: { createdAt: "desc" }, include: { fulfilment: { select: { id: true } } } }),
   ]);
-  return { documents: documents.map(mapDoc), requests: requests.map(mapReq) };
+  const reqs = requests.map(mapReq);
+  await attachThreads(reqs);
+  return { documents: documents.map(mapDoc), requests: reqs };
 }
 
 export interface HrQueueItem extends HrRequestDTO {

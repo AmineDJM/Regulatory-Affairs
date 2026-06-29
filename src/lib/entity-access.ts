@@ -48,6 +48,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   SUPPORT_REQUEST: "SUPPORT",
   DOSSIER: "DOSSIERS",
   PROMO_MATERIAL: "PROMO_MATERIAL",
+  HR_REQUEST: "RH",
 };
 
 /**
@@ -96,6 +97,13 @@ export async function canAccessEntity(
   // joindre et gérer les pièces du dossier promo lié.
   if (entityType === "PROMO_MATERIAL" && user.role === "DIRECTION_ASSISTANT") {
     return true;
+  }
+
+  // Demande RH : l'employé demandeur peut consulter et joindre des pièces à SA
+  // demande (justificatif, arrêt maladie…), même sans droit sur le module RH.
+  if (entityType === "HR_REQUEST" && (action === "VIEW" || action === "UPLOAD" || action === "UPDATE")) {
+    const req = await prisma.hrDocumentRequest.findUnique({ where: { id: entityId }, select: { employee: { select: { userId: true } } } });
+    if (req?.employee?.userId === user.id) return true;
   }
 
   if (!userCan(user, module, action)) return false;

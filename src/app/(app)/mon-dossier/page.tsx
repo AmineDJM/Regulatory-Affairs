@@ -8,6 +8,7 @@ import { FileText, Download } from "lucide-react";
 import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE } from "@/lib/labels";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { NewRequestButton, CancelRequestButton } from "./request-controls";
+import { HrRequestThread } from "@/components/shared/hr-request-thread";
 
 export const dynamic = "force-dynamic";
 
@@ -80,22 +81,25 @@ export default async function MonDossierPage() {
           ) : (
             <ul className="divide-y divide-border">
               {dossier.requests.map((r) => (
-                <li key={r.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{HR_REQUEST_TYPE[r.type]}</span>
-                      <StatusBadge map={HR_REQUEST_STATUS} value={r.status} />
+                <li key={r.id} className="space-y-2 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{HR_REQUEST_TYPE[r.type]}</span>
+                        <StatusBadge map={HR_REQUEST_STATUS} value={r.status} />
+                      </div>
+                      {r.details && <p className="text-xs text-muted-foreground">{r.details}</p>}
+                      {r.hrNote && <p className="text-xs text-muted-foreground">RH : {r.hrNote}</p>}
+                      <p className="text-[11px] text-muted-foreground">Demandée le {formatDateTime(r.createdAt)}</p>
                     </div>
-                    {r.details && <p className="text-xs text-muted-foreground">{r.details}</p>}
-                    {r.hrNote && <p className="text-xs text-muted-foreground">RH : {r.hrNote}</p>}
-                    <p className="text-[11px] text-muted-foreground">Demandée le {formatDateTime(r.createdAt)}</p>
+                    {r.fulfilmentDocId && (
+                      <a href={`/api/rh/document/${r.fulfilmentDocId}?dl=1`} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">
+                        <Download className="h-4 w-4" /> Document
+                      </a>
+                    )}
+                    {r.status === "PENDING" && <CancelRequestButton id={r.id} />}
                   </div>
-                  {r.fulfilmentDocId && (
-                    <a href={`/api/rh/document/${r.fulfilmentDocId}?dl=1`} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">
-                      <Download className="h-4 w-4" /> Document
-                    </a>
-                  )}
-                  {r.status === "PENDING" && <CancelRequestButton id={r.id} />}
+                  <HrRequestThread requestId={r.id} documents={r.documents} comments={r.comments} canManage={false} currentUserId={user.id} path="/mon-dossier" />
                 </li>
               ))}
             </ul>
