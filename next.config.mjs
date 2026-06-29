@@ -5,6 +5,12 @@ const nextConfig = {
   experimental: {
     // Libs Node serveur uniquement (jamais bundlées côté client) : auth, mail (IMAP/SMTP).
     serverComponentsExternalPackages: ["bcryptjs", "imapflow", "nodemailer", "mailparser"],
+    // Téléversements via Server Action (documents Regulatory/Congrès/Dossiers…) : Next
+    // plafonne le corps à 1 Mo par défaut, ce qui rendait inopérante la limite réglée par
+    // l'admin. On lève ce plafond à 256 Mo ; la VRAIE limite reste celle définie par le
+    // Super Admin (AppSetting → validateUpload). Les très gros fichiers passent par le Drive
+    // (routes en flux, jusqu'à la limite Drive configurée).
+    serverActions: { bodySizeLimit: "256mb" },
   },
   // Security headers applied to every response.
   async headers() {

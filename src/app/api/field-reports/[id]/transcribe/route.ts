@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
 import { transcribeAudio } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
+import { getAppSettings } from "@/lib/settings";
 import { managesReports } from "@/lib/queries/field-reports";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const form = await req.formData();
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "Audio manquant." }, { status: 400 });
-  const maxMb = Number(process.env.MAX_UPLOAD_MB ?? "25");
+  const maxMb = (await getAppSettings()).maxUploadMb;
   if (file.size > maxMb * 1024 * 1024) return NextResponse.json({ error: `Audio trop volumineux (max ${maxMb} Mo).` }, { status: 400 });
 
   const buf = Buffer.from(await file.arrayBuffer());

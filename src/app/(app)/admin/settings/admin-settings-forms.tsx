@@ -29,11 +29,13 @@ export function AdminLimitsForm({ settings }: { settings: AppSettings }) {
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label htmlFor="maxUploadMb">Documents / pièces jointes — taille max (Mo)</Label>
-          <Input id="maxUploadMb" name="maxUploadMb" type="number" min="1" max="2048" defaultValue={settings.maxUploadMb} />
+          <Input id="maxUploadMb" name="maxUploadMb" type="number" min="1" max="256" defaultValue={settings.maxUploadMb} />
+          <p className="text-xs text-muted-foreground">S'applique à TOUS les documents (Regulatory, Congrès, Dossiers, RH, médical…). Jusqu'à 256 Mo ; au-delà, passez par le Drive.</p>
         </div>
         <div className="space-y-1">
           <Label htmlFor="maxDriveUploadMb">Drive — taille max (Mo)</Label>
           <Input id="maxDriveUploadMb" name="maxDriveUploadMb" type="number" min="1" max="2048" defaultValue={settings.maxDriveUploadMb} />
+          <p className="text-xs text-muted-foreground">Fichiers du Drive (gros transferts en flux), jusqu'à 2 048 Mo.</p>
         </div>
       </div>
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
