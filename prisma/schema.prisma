@@ -720,7 +720,8 @@ model RegulatoryProduct {
   // Row-level access: only these users (plus privileged roles) see the line.
   assignedUsers User[]  @relation("RegulatoryAssignedUsers")
 
-  steps RegulatoryStep[]
+  steps          RegulatoryStep[]
+  stockMovements StockMovement[] // mouvements de stock PCH rattachés à ce produit
 
   // ─── Vue fournisseur (portail externe) — pilotée par l'équipe Regulatory ───
   // Le fournisseur ne voit QUE ces champs externes, jamais le statut/les notes
@@ -2439,18 +2440,21 @@ model PchOrder {
 // ─────────────── Stocks (suivi des stocks de nos produits à la PCH) ───────────────
 
 model StockMovement {
-  id          String         @id @default(cuid())
-  product     String
+  id          String             @id @default(cuid())
+  product     String // libellé du produit (instantané ; repris du produit Regulatory si lié)
+  productId   String? // produit Regulatory associé (source de vérité du catalogue produits)
+  productRef  RegulatoryProduct? @relation(fields: [productId], references: [id])
   dci         String?
-  direction   StockDirection @default(IN)
-  quantity    Int            @default(0)
-  date        DateTime       @default(now())
-  location    String         @default("PCH")
+  direction   StockDirection     @default(IN)
+  quantity    Int                @default(0)
+  date        DateTime           @default(now())
+  location    String             @default("PCH")
   notes       String?
   createdById String?
-  createdAt   DateTime       @default(now())
+  createdAt   DateTime           @default(now())
 
   @@index([product])
+  @@index([productId])
   @@index([date])
 }
 

@@ -1,47 +1,25 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { getStockData } from "@/lib/queries/stock";
-import { createStockMovement } from "@/lib/actions/stock-actions";
+import { getStockData, getProductOptions } from "@/lib/queries/stock";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { StatusBadge } from "@/components/shared/status-badge";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CreateRecordButton } from "@/components/shared/create-record-button";
-import { optionsFromMap } from "@/components/shared/form-fields";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { STOCK_DIRECTION, PCH_OPS_TABS } from "@/lib/labels";
+import { PCH_OPS_TABS } from "@/lib/labels";
 import { formatNumber, formatDate } from "@/lib/utils";
-import { DeleteMovementButton } from "./delete-button";
+import { StockMovements } from "./stock-movements";
 
 export default async function StocksPage() {
   const user = await requireModule("STOCKS");
   const canCreate = userCan(user, "STOCKS", "CREATE");
+  const canEdit = userCan(user, "STOCKS", "UPDATE");
   const canDelete = userCan(user, "STOCKS", "DELETE");
-  const { movements, levels, stats } = await getStockData();
+  const [{ movements, levels, stats }, products] = await Promise.all([getStockData(), getProductOptions()]);
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Stocks PCH" description="Suivi des niveaux de stock de nos produits à la PCH : entrées, sorties et niveau courant par produit.">
-        {canCreate && (
-          <CreateRecordButton
-            label="Nouveau mouvement"
-            title="Mouvement de stock"
-            width="md"
-            action={createStockMovement}
-            fields={[
-              { type: "text", name: "product", label: "Produit", required: true, full: true },
-              { type: "text", name: "dci", label: "DCI" },
-              { type: "select", name: "direction", label: "Type", options: optionsFromMap(STOCK_DIRECTION), defaultValue: "IN" },
-              { type: "number", name: "quantity", label: "Quantité", required: true },
-              { type: "date", name: "date", label: "Date" },
-              { type: "text", name: "location", label: "Lieu", defaultValue: "PCH" },
-              { type: "textarea", name: "notes", label: "Notes", full: true },
-            ]}
-          />
-        )}
-      </PageHeader>
+      <PageHeader title="Stocks PCH" description="Suivi des niveaux de stock de nos produits à la PCH : entrées, sorties et niveau courant par produit." />
 
       <ModuleTabs tabs={PCH_OPS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
@@ -80,34 +58,7 @@ export default async function StocksPage() {
         )}
       </section>
 
-      {movements.length > 0 && (
-        <Card>
-          <CardHeader><CardTitle>Historique des mouvements ({movements.length})</CardTitle></CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead><TableHead>Produit</TableHead><TableHead>Type</TableHead>
-                  <TableHead className="text-right">Quantité</TableHead><TableHead>Lieu</TableHead><TableHead>Notes</TableHead>{canDelete && <TableHead></TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {movements.map((m) => (
-                  <TableRow key={m.id}>
-                    <TableCell className="text-muted-foreground">{formatDate(m.date)}</TableCell>
-                    <TableCell className="font-medium">{m.product}{m.dci && <span className="text-xs text-muted-foreground"> · {m.dci}</span>}</TableCell>
-                    <TableCell><StatusBadge map={STOCK_DIRECTION} value={m.direction} dot={false} /></TableCell>
-                    <TableCell className="text-right">{formatNumber(m.quantity)}</TableCell>
-                    <TableCell className="text-muted-foreground">{m.location}</TableCell>
-                    <TableCell className="text-muted-foreground">{m.notes || "—"}</TableCell>
-                    {canDelete && <TableCell className="text-right"><DeleteMovementButton id={m.id} /></TableCell>}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
+      <StockMovements movements={movements} products={products} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete} />
     </div>
   );
 }
