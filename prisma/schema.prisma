@@ -384,6 +384,7 @@ enum DocumentCategory {
   PAYMENT_RECEIPT // quittance / reçu de paiement
   PROMO_MATERIAL_FILE // matériel promotionnel (maquette / final)
   AD_VISA // visa publicitaire / référence de dépôt
+  ID_DOCUMENT // pièce d'identité (personne prise en charge)
   OTHER
 }
 
@@ -941,6 +942,7 @@ model CongressInternational {
   finalAmount          Decimal?              @db.Decimal(14, 2) // montant accordé par la Direction à la validation définitive
   rejectionReason      String?
   expenseOrderId       String? // ordre de dépense émis après validation définitive
+  beneficiaries        Json? // personnes prises en charge : [{ id, name, role }] (pièces d'identité = Documents catégorie ID_DOCUMENT, stepKey = id)
 
   createdById String?
   updatedById String?
@@ -990,6 +992,7 @@ model CongressNational {
   finalAmount          Decimal?              @db.Decimal(14, 2) // montant accordé par la Direction à la validation définitive
   rejectionReason      String?
   expenseOrderId       String?
+  beneficiaries        Json? // personnes prises en charge : [{ id, name, role }] (pièces d'identité = Documents catégorie ID_DOCUMENT, stepKey = id)
 
   createdById String?
   updatedById String?
@@ -2040,6 +2043,7 @@ model ExpenseOrder {
   category      FinanceCategory    @default(AUTRE)
   status        ExpenseOrderStatus @default(PENDING)
   dueDate       DateTime?
+  requiresInvoice Boolean          @default(false) // facture obligatoire avant règlement (dépenses événementielles)
   notes         String?
   // Aller-retour comptable ↔ Direction : le comptable peut demander une baisse de
   // budget (manque de fonds) ; la Direction ajuste le montant ou refuse.

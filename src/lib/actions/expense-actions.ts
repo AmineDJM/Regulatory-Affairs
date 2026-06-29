@@ -25,6 +25,21 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
   if (order.status === "PAID") return { ok: true };
   if (order.status !== "PENDING") return { ok: false, error: "Cet ordre a été annulé." };
 
+  // Facture obligatoire pour les dépenses événementielles : joindre la facture
+  // (à l'ordre ou au dossier source) avant de régler, sinon la demander.
+  if (order.requiresInvoice) {
+    const invoice = await prisma.document.count({
+      where: {
+        category: "INVOICE",
+        OR: [
+          { entityType: "EXPENSE_ORDER", entityId: order.id },
+          ...(order.sourceType && order.sourceId ? [{ entityType: order.sourceType, entityId: order.sourceId }] : []),
+        ],
+      },
+    });
+    if (invoice === 0) return { ok: false, error: "Facture obligatoire : joignez la facture à l'ordre (ou au dossier source) avant de régler, ou demandez-la au demandeur." };
+  }
+
   const tx = await prisma.financeTransaction.create({
     data: {
       reference: await nextFinanceRef(), date: new Date(), direction: "OUT",
@@ -65,6 +80,29 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
   revalidatePath("/sponsoring");
   revalidatePath("/rh");
   revalidatePath("/mon-espace");
+  return { ok: true };
+}
+
+/** Le comptable demande la facture au demandeur (dépense événementielle sans facture). */
+export async function requestInvoice(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "FINANCES", "UPDATE") && !hasGlobalView(user.role)) return { ok: false, error: "Réservé à la comptabilité (Finances)." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Ordre introuvable." };
+  const order = await prisma.expenseOrder.findUnique({ where: { id } });
+  if (!order) return { ok: false, error: "Ordre introuvable." };
+
+  if (order.requestedById) {
+    await notifyUser({
+      userId: order.requestedById, type: "ASSIGNMENT", title: "Facture demandée",
+      body: `${order.reference} — ${order.label} : merci de joindre la facture pour règlement.`,
+      link: "/finances/ordres-de-depense",
+    });
+  } else {
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "ASSIGNMENT", title: "Facture demandée", body: `${order.reference} — ${order.label}`, link: "/finances/ordres-de-depense" });
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER", entityId: id, summary: `Facture demandée — ${order.reference}` });
+  revalidatePath("/finances/ordres-de-depense");
   return { ok: true };
 }
 

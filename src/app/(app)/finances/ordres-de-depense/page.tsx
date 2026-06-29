@@ -19,11 +19,28 @@ export default async function OrdresDepensePage() {
     take: 300,
   });
 
+  // Présence d'une facture (catégorie INVOICE) sur l'ordre ou son dossier source.
+  const orderIds = orders.map((o) => o.id);
+  const sourceFilters = orders
+    .filter((o) => o.sourceType && o.sourceId)
+    .map((o) => ({ entityType: o.sourceType!, entityId: o.sourceId! }));
+  const invoiceDocs = await prisma.document.findMany({
+    where: {
+      category: "INVOICE",
+      OR: [{ entityType: "EXPENSE_ORDER", entityId: { in: orderIds } }, ...sourceFilters],
+    },
+    select: { entityType: true, entityId: true },
+  });
+  const invoiceSet = new Set(invoiceDocs.map((d) => `${d.entityType}:${d.entityId}`));
+  const hasInvoice = (o: (typeof orders)[number]) =>
+    invoiceSet.has(`EXPENSE_ORDER:${o.id}`) || Boolean(o.sourceType && o.sourceId && invoiceSet.has(`${o.sourceType}:${o.sourceId}`));
+
   const toRow = (o: (typeof orders)[number]): OrderRow => ({
     id: o.id, reference: o.reference, label: o.label, beneficiary: o.beneficiary,
     category: o.category, amount: toNumber(o.amount), status: o.status,
     requestedBy: o.requestedBy?.name ?? null, createdAt: o.createdAt.toISOString(),
     revisionReason: o.revisionReason, proposedAmount: o.proposedAmount ? toNumber(o.proposedAmount) : null,
+    requiresInvoice: o.requiresInvoice, hasInvoice: hasInvoice(o),
   });
 
   const pending = orders.filter((o) => o.status === "PENDING");

@@ -1,10 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Banknote, X, TrendingDown, Check, AlertCircle } from "lucide-react";
-import { settleExpenseOrder, cancelExpenseOrder, requestBudgetRevision, resolveBudgetRevision } from "@/lib/actions/expense-actions";
+import { useRouter } from "next/navigation";
+import { Loader2, Banknote, X, TrendingDown, Check, AlertCircle, FileText } from "lucide-react";
+import { settleExpenseOrder, cancelExpenseOrder, requestBudgetRevision, resolveBudgetRevision, requestInvoice } from "@/lib/actions/expense-actions";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
+import { DocumentUpload } from "@/components/documents/document-upload";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label } from "@/components/ui/input";
@@ -25,6 +27,33 @@ export interface OrderRow {
   createdAt: string;
   revisionReason: string | null;
   proposedAmount: number | null;
+  requiresInvoice: boolean;
+  hasInvoice: boolean;
+}
+
+/** Facture obligatoire : joindre la facture à l'ordre, ou la demander au demandeur. */
+function InvoiceControl({ id, hasInvoice }: { id: string; hasInvoice: boolean }) {
+  const router = useRouter();
+  const [open, setOpen] = React.useState(false);
+  if (hasInvoice) {
+    return <span className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success"><FileText className="h-3.5 w-3.5" /> Facture</span>;
+  }
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-md border border-warning/50 px-2 py-1 text-xs font-medium text-warning hover:bg-warning/10">
+        <AlertCircle className="h-3.5 w-3.5" /> Facture requise
+      </button>
+      <Sheet open={open} onClose={() => { setOpen(false); router.refresh(); }} title="Facture obligatoire" description="Joignez la facture pour pouvoir régler cet ordre, ou demandez-la au demandeur." width="md">
+        <div className="space-y-4">
+          <DocumentUpload entityType="EXPENSE_ORDER" entityId={id} categories={["INVOICE", "OTHER"]} />
+          <div className="flex items-center justify-between border-t border-border pt-3">
+            <SubmitForm action={requestInvoice} id={id}><MiniBtn tone="purple"><AlertCircle className="h-3.5 w-3.5" /> Demander la facture</MiniBtn></SubmitForm>
+            <Button type="button" variant="outline" onClick={() => { setOpen(false); router.refresh(); }}>Fermer</Button>
+          </div>
+        </div>
+      </Sheet>
+    </>
+  );
 }
 
 function SubmitForm({ action, id, extra, children, className }: { action: (fd: FormData) => Promise<ActionResult>; id: string; extra?: Record<string, string>; children: React.ReactNode; className?: string }) {
@@ -140,6 +169,7 @@ export function OrdersTable({ rows, canSettle, canDirection = false, emptyLabel 
                 <TableCell className="text-right">
                   {r.status === "PENDING" && canSettle ? (
                     <div className="flex items-center justify-end gap-1.5">
+                      {r.requiresInvoice && <InvoiceControl id={r.id} hasInvoice={r.hasInvoice} />}
                       <SubmitForm action={settleExpenseOrder} id={r.id}><MiniBtn tone="success"><Banknote className="h-3.5 w-3.5" /> Régler</MiniBtn></SubmitForm>
                       <RevisionRequest id={r.id} />
                       <SubmitForm action={cancelExpenseOrder} id={r.id}><MiniBtn tone="danger"><X className="h-3.5 w-3.5" /> Annuler</MiniBtn></SubmitForm>

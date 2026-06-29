@@ -10,6 +10,7 @@ import { CONGRESS_REQUEST_STATUS, NATIONAL_EVENT_TYPE, EXPENSE_ORDER_STATUS } fr
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import type { CongressDetail } from "@/lib/queries/congress";
 import { PreliminaryDecision, ProductAnalysis, FinalDecision } from "./congress-workflow";
+import { BeneficiariesCard } from "./beneficiaries-card";
 
 type PM = { id: string; name: string };
 
@@ -116,7 +117,7 @@ export function CongressDetailView({
         </Card>
       </div>
 
-      {/* Documents + médecins + participants */}
+      {/* Documents + personnes prises en charge + médecins + participants */}
       <div className="space-y-5">
         <Card>
           <CardHeader className="flex-row items-center justify-between"><CardTitle>Documents</CardTitle><Badge tone="neutral" dot={false}>{documents.length}</Badge></CardHeader>
@@ -125,6 +126,14 @@ export function CongressDetailView({
             <DocumentList documents={documents} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload} path={path} />
           </CardContent>
         </Card>
+
+        <BeneficiariesCard
+          entityType={entityType}
+          entityId={entityId}
+          beneficiaries={d.beneficiaries}
+          idDocCount={documents.filter((doc) => doc.category === "ID_DOCUMENT").length}
+          canManage={canUpload}
+        />
         <Card>
           <CardHeader className="flex-row items-center justify-between"><CardTitle>Médecins invités</CardTitle><Badge tone="neutral" dot={false}>{d.doctors.length}</Badge></CardHeader>
           <CardContent>
