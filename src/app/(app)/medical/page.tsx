@@ -1,6 +1,6 @@
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
-import { getMedicalData } from "@/lib/queries/medical";
+import { getMedicalData, getDelegatePlans } from "@/lib/queries/medical";
 import { createVisit } from "@/lib/actions/medical-actions";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -10,6 +10,7 @@ import { VISIT_STATUS, doctorDisplayName, MEDICAL_TABS } from "@/lib/labels";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { MedicalDirectory } from "./medical-directory";
 import { VisitsTable, type VisitRow } from "./visits-table";
+import { DelegatePlans } from "./delegate-plans";
 
 export default async function MedicalPage() {
   const user = await requireModule("MEDICAL");
@@ -18,7 +19,7 @@ export default async function MedicalPage() {
   const canDelete = userCan(user, "MEDICAL", "DELETE");
   const isManager = hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER";
 
-  const data = await getMedicalData(user);
+  const [data, plans] = await Promise.all([getMedicalData(user), getDelegatePlans(user)]);
   const allDoctors = data.groups.flatMap((g) => g.doctors).sort((a, b) => a.name.localeCompare(b.name));
   const delegateOptions = data.delegates.map((d) => ({ value: d.id, label: d.name }));
 
@@ -64,6 +65,15 @@ export default async function MedicalPage() {
         </div>
         <VisitsTable rows={visitRows} />
       </section>
+
+      <DelegatePlans
+        plans={plans}
+        delegates={delegateOptions}
+        canCreate={canCreate}
+        canEdit={canEdit}
+        canDelete={canDelete}
+        isManager={isManager}
+      />
     </div>
   );
 }

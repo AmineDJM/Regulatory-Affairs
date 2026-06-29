@@ -97,6 +97,44 @@ function mapDoctor(d: {
   };
 }
 
+export interface DelegatePlanDTO {
+  id: string;
+  delegateId: string | null;
+  delegateName: string | null;
+  weekStart: string;
+  region: string | null;
+  productTarget: string | null;
+  visitsTarget: number;
+  keyDoctorsTarget: number;
+  achievedVisits: number;
+  managerComment: string | null;
+}
+
+/**
+ * Plans de tournée : le manager / la Direction voient tous les plans, le délégué
+ * ne voit que les siens. Ordonnés par période décroissante.
+ */
+export async function getDelegatePlans(user: SessionUser): Promise<DelegatePlanDTO[]> {
+  const isManager = hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER";
+  const plans = await prisma.medicalDelegatePlan.findMany({
+    where: isManager ? {} : { delegateId: user.id },
+    orderBy: { weekStart: "desc" },
+    include: { delegate: { select: { name: true } } },
+  });
+  return plans.map((p) => ({
+    id: p.id,
+    delegateId: p.delegateId,
+    delegateName: p.delegate?.name ?? null,
+    weekStart: p.weekStart.toISOString(),
+    region: p.region,
+    productTarget: p.productTarget,
+    visitsTarget: p.visitsTarget,
+    keyDoctorsTarget: p.keyDoctorsTarget,
+    achievedVisits: p.achievedVisits,
+    managerComment: p.managerComment,
+  }));
+}
+
 export async function getMedicalData(user: SessionUser): Promise<MedicalData> {
   const isManager = hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER";
 
