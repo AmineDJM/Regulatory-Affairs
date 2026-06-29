@@ -4,6 +4,8 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getFinanceData } from "@/lib/queries/finance";
+import { getComptaData } from "@/lib/queries/compta";
+import { ComptaCockpit } from "./compta-cockpit";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -12,8 +14,7 @@ import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { TrendChart, DonutChart } from "@/components/dashboard/charts";
 import { createTransaction } from "@/lib/actions/finance-actions";
-import { FINANCE_CATEGORY, FINANCE_DIRECTION, FINANCE_METHOD, FINANCE_STATUS, FINANCES_TABS } from "@/lib/labels";
-import { ModuleTabs } from "@/components/shared/module-tabs";
+import { FINANCE_CATEGORY, FINANCE_DIRECTION, FINANCE_METHOD, FINANCE_STATUS } from "@/lib/labels";
 import { formatCurrency } from "@/lib/utils";
 import { LedgerTable } from "./ledger-table";
 import { RecettesDepensesChart } from "./finance-charts";
@@ -24,12 +25,12 @@ const DONUT_COLORS = ["#dc2626", "#d97706", "#7c3aed", "#2563eb", "#0891b2", "#d
 export default async function FinancesPage() {
   const user = await requireModule("FINANCES");
   const canCreate = userCan(user, "FINANCES", "CREATE");
-  const data = await getFinanceData();
+  const [data, compta] = await Promise.all([getFinanceData(), getComptaData()]);
   const pendingOrders = await prisma.expenseOrder.count({ where: { status: "PENDING" } });
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Finances" description="Trésorerie, livre comptable et paie — la situation financière en temps réel.">
+      <PageHeader title="Finances" description="Cockpit du DAF : règlements à exécuter, recettes à encaisser, trésorerie, livre comptable et paie — tout au même endroit.">
         <Link href="/finances/ordres-de-depense">
           <Button variant="outline">
             <ReceiptText className="h-4 w-4" /> Ordres de dépense
@@ -63,8 +64,6 @@ export default async function FinancesPage() {
         )}
       </PageHeader>
 
-      <ModuleTabs tabs={FINANCES_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
-
       {/* Treasury KPIs */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <KpiCard label="Solde trésorerie" value={formatCurrency(data.totalBalance)} icon="Landmark" tone={data.totalBalance >= 0 ? "success" : "danger"} />
@@ -84,6 +83,9 @@ export default async function FinancesPage() {
           ))}
         </div>
       )}
+
+      {/* Espace comptable intégré : ce que le DAF doit traiter */}
+      <ComptaCockpit d={compta} />
 
       {/* Charts */}
       <div className="grid gap-3 lg:grid-cols-2">

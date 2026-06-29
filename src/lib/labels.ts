@@ -786,11 +786,7 @@ export interface NavItem {
   match?: string[];
 }
 
-/** Onglets des modules fusionnés — réutilisés par la navigation ET les pages (`ModuleTabs`). */
-export const FINANCES_TABS: NavTab[] = [
-  { module: "FINANCES", label: "Finances", href: "/finances" },
-  { module: "FINANCES", label: "Espace comptable", href: "/comptabilite" },
-];
+// (L'« Espace comptable » a été fusionné dans la page Finances : plus d'onglets.)
 export const CONGRESS_TABS: NavTab[] = [
   { module: "CONGRESS_INTERNATIONAL", label: "Internationaux", href: "/congress-international" },
   { module: "CONGRESS_NATIONAL", label: "Nationaux", href: "/congress-national" },
@@ -887,7 +883,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Sponsoring & Événements", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles" },
-  { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", tabs: FINANCES_TABS },
+  { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles" },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
   { module: "LOGISTICS", label: "Logistique & Stocks PCH", href: "/logistics", icon: "Truck", group: "Pôles", tabs: PCH_OPS_TABS },
