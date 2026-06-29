@@ -48,7 +48,7 @@ async function notifyAssistant(pm: { id: string; reference: string; title: strin
   const body = `${pm.reference} — ${pm.title}`;
   const link = `${PATH}/${pm.id}`;
   if (pm.assistantId) await notifyUser({ userId: pm.assistantId, type: "ASSIGNMENT", title, body, link });
-  else await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "ASSIGNMENT", title, body, link });
+  else await notifyRoles(["DIRECTION_ASSISTANT", "DIRECTION", "SUPER_ADMIN"], { type: "ASSIGNMENT", title, body, link });
 }
 async function notifyRequester(pm: { id: string; reference: string; title: string; requesterId: string | null }, title: string) {
   if (!pm.requesterId) return;

@@ -94,6 +94,22 @@ describe("role-default permissions (can)", () => {
     expect(defaultScope("MEDICAL_DELEGATE", "DIRECTIVES")).toBe("ASSIGNED");
     expect(defaultScope("PRODUCT_MANAGER", "SUPPORT")).toBe("ASSIGNED");
   });
+  it("reserves Administration and Adventum Brain to the Super Admin only", () => {
+    const others: UserRole[] = ["DIRECTION", "DIRECTION_ASSISTANT", "HEAD_OF_REGULATORY", "FINANCE_BUDGET_MANAGER", "MEDICAL_INFO_PHARMACIST", "MEDICAL_PROMOTION_MANAGER", "VIEWER"];
+    for (const r of others) {
+      expect(can(r, "ADMIN", "VIEW")).toBe(false);
+      expect(can(r, "ADVENTUM_BRAIN", "VIEW")).toBe(false);
+      expect(can(r, "PROCESS_INTELLIGENCE", "VIEW")).toBe(false);
+    }
+    expect(can("SUPER_ADMIN", "ADMIN", "VIEW")).toBe(true);
+    expect(can("SUPER_ADMIN", "ADVENTUM_BRAIN", "VIEW")).toBe(true);
+  });
+  it("gives the Direction Assistant full admin-requests (ALL) + the promo-material assistant role", () => {
+    expect(can("DIRECTION_ASSISTANT", "ADMIN_REQUESTS", "VALIDATE")).toBe(true);
+    expect(defaultScope("DIRECTION_ASSISTANT", "ADMIN_REQUESTS")).toBe("ALL");
+    expect(can("DIRECTION_ASSISTANT", "PROMO_MATERIAL", "VALIDATE")).toBe(true);
+    expect(can("DIRECTION_ASSISTANT", "ADMIN", "VIEW")).toBe(false);
+  });
 });
 
 describe("effective access (userCan / accessibleModules)", () => {
