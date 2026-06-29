@@ -127,11 +127,20 @@ export async function callClaude(messages: ClaudeMessage[], opts: CallOptions = 
 
   const base = process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
   const model = opts.model ?? aiModel();
+  // Prompt caching (GA) du préfixe STABLE system+outils. La boucle agent de
+  // l'assistant rappelle l'API plusieurs fois avec le même system et les mêmes
+  // outils ; en posant un point de cache `cache_control` sur le bloc system (qui,
+  // dans l'ordre de rendu outils→system→messages, couvre AUSSI les outils), les
+  // tours suivants — et les messages suivants dans la fenêtre de 5 min — relisent
+  // ce préfixe à ~0,1× du coût et surtout bien plus vite (latence réduite).
+  const system = opts.system
+    ? [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }]
+    : undefined;
   const payload = JSON.stringify({
     model,
     max_tokens: opts.maxTokens ?? 1400,
     temperature: opts.temperature ?? 0.2,
-    ...(opts.system ? { system: opts.system } : {}),
+    ...(system ? { system } : {}),
     ...(opts.tools?.length ? { tools: opts.tools } : {}),
     messages,
   });
