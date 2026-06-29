@@ -116,13 +116,15 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER,
     MEDICAL_INFO: MANAGE, SPONSORING: READ, CONGRESS_INTERNATIONAL: READ, CONGRESS_NATIONAL: READ, EVENTS: READ, MEDICAL: READ, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
   },
-  // Assistante de Direction : pilote l'ensemble des **demandes administratives**
-  // (gestion complète, portée ALL) et tient le rôle d'**assistante** du circuit
-  // Matériel promotionnel (VALIDATE). Elle n'a PAS accès à Administration ni à
-  // Adventum Brain (réservés au Super Admin).
+  // Assistante de Direction : **tout passe par les Demandes administratives**
+  // (gestion complète, portée ALL). Elle pilote AUSSI le circuit Matériel
+  // promotionnel mais SANS accès au module dédié : ses étapes (devis, bon de
+  // commande, transmission à l'agence, facture) sont surfacées directement dans
+  // la demande administrative liée (cf. entity-access : accès aux pièces du
+  // dossier promo lié). Pas d'accès à Administration ni à Adventum Brain.
   DIRECTION_ASSISTANT: {
     DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER,
-    ADMIN_REQUESTS: MANAGE, PROMO_MATERIAL: ["VIEW", "CREATE", "UPDATE", "UPLOAD", "VALIDATE", "EXPORT"],
+    ADMIN_REQUESTS: MANAGE,
     DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
   },
   // Coordination / coursier-acheteur : **espace restreint** — pas de congrès,

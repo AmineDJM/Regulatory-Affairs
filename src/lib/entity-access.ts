@@ -91,6 +91,13 @@ export async function canAccessEntity(
     return true;
   }
 
+  // L'Assistante de Direction pilote le circuit Matériel promotionnel depuis les
+  // Demandes administratives, SANS accès au module dédié : elle peut consulter,
+  // joindre et gérer les pièces du dossier promo lié.
+  if (entityType === "PROMO_MATERIAL" && user.role === "DIRECTION_ASSISTANT") {
+    return true;
+  }
+
   if (!userCan(user, module, action)) return false;
 
   switch (entityType) {

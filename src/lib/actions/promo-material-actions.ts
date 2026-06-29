@@ -17,7 +17,9 @@ const PATH = "/promo-material";
 // = par rôle ; Direction = vue globale (peut débloquer n'importe quelle étape).
 
 function isAssistant(user: SessionUser): boolean {
-  return userCan(user, "PROMO_MATERIAL", "VALIDATE") || hasGlobalView(user.role);
+  // L'assistante de direction pilote ses étapes depuis les Demandes administratives
+  // (elle n'a pas accès au module promo) ; la Direction/Super Admin peut suppléer.
+  return user.role === "DIRECTION_ASSISTANT" || hasGlobalView(user.role);
 }
 function isFinance(user: SessionUser): boolean {
   return user.role === "FINANCE_BUDGET_MANAGER" || hasGlobalView(user.role);
@@ -36,6 +38,12 @@ async function nextPromoRef(): Promise<string> {
   const year = new Date().getFullYear();
   const count = await prisma.promoMaterial.count({ where: { reference: { startsWith: `MP-${year}-` } } });
   return `MP-${year}-${String(count + 1).padStart(3, "0")}`;
+}
+
+async function nextRequestRef(): Promise<string> {
+  const year = new Date().getFullYear();
+  const count = await prisma.administrativeRequest.count({ where: { reference: { startsWith: `REQ-${year}-` } } });
+  return `REQ-${year}-${String(count + 1).padStart(3, "0")}`;
 }
 
 function revalidate(id: string) {
@@ -75,15 +83,30 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
   const title = fdStr(formData, "title");
   if (!title) return { ok: false, error: "Le titre / la campagne est obligatoire." };
 
+  const reference = await nextPromoRef();
+  // Demande administrative liée : l'assistante de direction pilote ses étapes
+  // (devis, BC, transmission, facture) depuis « Demandes administratives ».
+  const req = await prisma.administrativeRequest.create({
+    data: {
+      reference: await nextRequestRef(),
+      title: `Matériel promotionnel — ${title}`,
+      type: "QUOTE",
+      status: "NEW",
+      description: fdStr(formData, "description") ?? "Demande de prospection d'agences (matériel promotionnel).",
+      requesterId: user.id,
+      assignedToId: fdStr(formData, "assistantId"),
+    },
+  });
   const pm = await prisma.promoMaterial.create({
     data: {
-      reference: await nextPromoRef(),
+      reference,
       title,
       description: fdStr(formData, "description"),
       amount: fdNum(formData, "amount") ?? null,
       assistantId: fdStr(formData, "assistantId"),
       status: "PROSPECTION_REQUESTED",
       requesterId: user.id,
+      adminRequestId: req.id,
       createdById: user.id,
       updatedById: user.id,
     },
@@ -91,6 +114,7 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
   await notifyAssistant(pm, "Matériel promotionnel — prospection d'agences demandée");
   await audit(user, pm.id, "CREATE", `Matériel promotionnel créé — ${pm.reference}`);
   revalidate(pm.id);
+  revalidatePath("/demandes");
   return { ok: true, id: pm.id };
 }
 
@@ -388,6 +412,7 @@ export async function settle(formData: FormData): Promise<ActionResult> {
     : null;
 
   await prisma.promoMaterial.update({ where: { id }, data: { status: "SETTLED", settlementOrderId: order?.id ?? null, updatedById: user.id } });
+  if (pm.adminRequestId) await prisma.administrativeRequest.update({ where: { id: pm.adminRequestId }, data: { status: "DONE" } }).catch(() => {});
   await notifyRequester(pm, "Matériel promotionnel — dossier réglé et clôturé");
   await audit(user, id, "VALIDATE", `Règlement final${order ? ` (ordre ${order.reference})` : ""}`);
   revalidate(id);
@@ -417,6 +442,7 @@ export async function cancelPromoMaterial(formData: FormData): Promise<ActionRes
   if (pm.status === "SETTLED" || pm.status === "CANCELLED") return { ok: false, error: "Dossier déjà clôturé." };
 
   await prisma.promoMaterial.update({ where: { id }, data: { status: "CANCELLED", updatedById: user.id } });
+  if (pm.adminRequestId) await prisma.administrativeRequest.update({ where: { id: pm.adminRequestId }, data: { status: "CANCELLED" } }).catch(() => {});
   await audit(user, id, "UPDATE", "Dossier annulé");
   revalidate(id);
   return { ok: true };

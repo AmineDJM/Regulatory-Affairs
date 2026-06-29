@@ -38,20 +38,19 @@ suite("Matériel promotionnel — circuit complet (Marketing → Assistante → 
       prisma.user.create({ data: { name: `${TAG}${s}`, email: `${TAG}${s}@t.dz`, role, passwordHash: "x" } });
     const [a, b, c, d, e] = await Promise.all([
       mk("mkt", "MEDICAL_PROMOTION_MANAGER"),
-      mk("asst", "VIEWER"),
+      mk("asst", "DIRECTION_ASSISTANT"),
       mk("fin", "FINANCE_BUDGET_MANAGER"),
       mk("med", "MEDICAL_INFO_PHARMACIST"),
       mk("dir", "DIRECTION"),
     ]);
     mkt = a.id; asst = b.id; fin = c.id; med = d.id; dir = e.id;
-    // L'assistante : accès PROMO_MATERIAL avec VALIDATE (attribué par l'admin).
-    await prisma.userAccess.create({ data: { userId: asst, module: "PROMO_MATERIAL", canView: true, canValidate: true, scope: "ALL" } });
   });
 
   afterAll(async () => {
     await prisma.expenseOrder.deleteMany({ where: { sourceType: "PROMO_MATERIAL", sourceId: pmId } }).catch(() => {});
     await prisma.comment.deleteMany({ where: { entityType: "PROMO_MATERIAL", entityId: pmId } }).catch(() => {});
     await prisma.promoMaterial.deleteMany({ where: { reference: { startsWith: "MP-" }, title: { contains: TAG } } }).catch(() => {});
+    await prisma.administrativeRequest.deleteMany({ where: { title: { contains: TAG } } }).catch(() => {});
     await prisma.userAccess.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
     await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
@@ -74,13 +73,13 @@ suite("Matériel promotionnel — circuit complet (Marketing → Assistante → 
   });
 
   it("Assistante dépose les devis → Marketing choisit l'agence → Assistante transmet le BC", async () => {
-    ACTOR = await actorFor(asst, "VIEWER");
+    ACTOR = await actorFor(asst, "DIRECTION_ASSISTANT");
     expect((await submitQuotes(form({ id: pmId }))).ok).toBe(true);
 
     ACTOR = await actorFor(mkt, "MEDICAL_PROMOTION_MANAGER");
     expect((await chooseAgency(form({ id: pmId, chosenAgency: "Agence Pub DZ", chosenAmount: "118000" }))).ok).toBe(true);
 
-    ACTOR = await actorFor(asst, "VIEWER");
+    ACTOR = await actorFor(asst, "DIRECTION_ASSISTANT");
     expect((await submitBcForFinance(form({ id: pmId, bcReference: "BC-2026-9" }))).ok).toBe(true);
     const pm = await prisma.promoMaterial.findUniqueOrThrow({ where: { id: pmId } });
     expect(pm.status).toBe("BC_FINANCE_REVIEW");
@@ -90,7 +89,7 @@ suite("Matériel promotionnel — circuit complet (Marketing → Assistante → 
   it("Finances valident le BC → Assistante le transmet à l'agence", async () => {
     ACTOR = await actorFor(fin, "FINANCE_BUDGET_MANAGER");
     expect((await validateBc(form({ id: pmId }))).ok).toBe(true);
-    ACTOR = await actorFor(asst, "VIEWER");
+    ACTOR = await actorFor(asst, "DIRECTION_ASSISTANT");
     expect((await confirmBcSent(form({ id: pmId }))).ok).toBe(true);
     expect((await prisma.promoMaterial.findUniqueOrThrow({ where: { id: pmId } })).status).toBe("BC_SENT");
   });
@@ -123,7 +122,7 @@ suite("Matériel promotionnel — circuit complet (Marketing → Assistante → 
     ACTOR = await actorFor(mkt, "MEDICAL_PROMOTION_MANAGER");
     expect((await startBat(form({ id: pmId }))).ok).toBe(true);
     expect((await submitFinalMaterial(form({ id: pmId }))).ok).toBe(true);
-    ACTOR = await actorFor(asst, "VIEWER");
+    ACTOR = await actorFor(asst, "DIRECTION_ASSISTANT");
     expect((await recordInvoice(form({ id: pmId }))).ok).toBe(true);
 
     ACTOR = await actorFor(fin, "FINANCE_BUDGET_MANAGER");

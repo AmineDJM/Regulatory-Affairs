@@ -14,13 +14,15 @@ import { CommentThread, type CommentItem } from "@/components/shared/comment-thr
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, ADMIN_APPROVAL_STATUS, DRIVER_MISSION_STATUS, PRIORITY, AUDIT_ACTION } from "@/lib/labels";
+import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, ADMIN_APPROVAL_STATUS, DRIVER_MISSION_STATUS, PRIORITY, AUDIT_ACTION, PROMO_MATERIAL_STATUS } from "@/lib/labels";
 import { formatDate, formatDateTime, formatCurrency, toNumber } from "@/lib/utils";
 import { RequestActions } from "./request-actions";
 import { ApprovalButtons } from "../approval-buttons";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { PromoActionPanel } from "../../promo-material/[id]/promo-panels";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
+const PROMO_DOC_CATEGORIES = ["QUOTE", "PURCHASE_ORDER", "PAYMENT_SLIP", "PAYMENT_RECEIPT", "PROMO_MATERIAL_FILE", "AD_VISA", "INVOICE", "DELIVERY_NOTE", "SUPPORTING_DOC", "OTHER"];
 
 export default async function RequestDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("ADMIN_REQUESTS");
@@ -48,6 +50,15 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
     prisma.auditLog.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, orderBy: { createdAt: "desc" }, take: 30, include: { actor: { select: { name: true } } } }),
     canManage ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([] as { id: string; name: string }[]),
   ]);
+
+  // Dossier Matériel promotionnel lié : l'assistante le pilote ici (sans accès au module).
+  const promo = await prisma.promoMaterial.findFirst({ where: { adminRequestId: req.id } });
+  const isPromoAssistant = hasGlobalView(user.role) || user.role === "DIRECTION_ASSISTANT";
+  const promoDocs = promo
+    ? await prisma.document.findMany({ where: { entityType: "PROMO_MATERIAL", entityId: promo.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } })
+    : [];
+  const promoDocItems: DocItem[] = promoDocs.map((d) => ({ id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes, confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null, createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey) }));
+  const promoAmount = promo ? (promo.chosenAmount != null ? toNumber(promo.chosenAmount) : promo.amount != null ? toNumber(promo.amount) : null) : null;
 
   const labels = fieldLabels(req.type);
   const fields = (req.fields as Record<string, unknown> | null) ?? {};
@@ -111,6 +122,42 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
               <DocumentList documents={docItems} canDelete={canManage} canEdit={onlyofficeConfigured() && canUpload} path={`/demandes/${req.id}`} />
             </CardContent>
           </Card>
+
+          {promo && (
+            <Card className="border-primary/40">
+              <CardHeader className="flex-row items-center justify-between">
+                <CardTitle>Matériel promotionnel</CardTitle>
+                <StatusBadge map={PROMO_MATERIAL_STATUS} value={promo.status} dot={false} />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+                  <Info label="Agence retenue" value={promo.chosenAgency} />
+                  <Info label="Montant" value={promoAmount != null ? formatCurrency(promoAmount) : null} />
+                  <Info label="N° bon de commande" value={promo.bcReference} />
+                </div>
+                {isPromoAssistant && (
+                  <>
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Pièces du dossier (devis, bon de commande, facture…)</p>
+                      <DocumentUpload entityType="PROMO_MATERIAL" entityId={promo.id} categories={PROMO_DOC_CATEGORIES} />
+                      <DocumentList documents={promoDocItems} canDelete canEdit={onlyofficeConfigured()} path={`/demandes/${req.id}`} />
+                    </div>
+                    <PromoActionPanel
+                      id={promo.id}
+                      status={promo.status}
+                      flags={{ isMarketing: false, isAssistant: true, isFinance: false, isMedicalInfo: false, isDirection: hasGlobalView(user.role) }}
+                      chosenAgency={promo.chosenAgency}
+                      bcReference={promo.bcReference}
+                      visaReference={promo.visaReference}
+                      authorityRef={promo.authorityRef}
+                      amount={promoAmount}
+                      reminderCount={promo.financeReminderCount}
+                    />
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader><CardTitle>Commentaires</CardTitle></CardHeader>

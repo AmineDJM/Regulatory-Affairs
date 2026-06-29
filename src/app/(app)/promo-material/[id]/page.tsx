@@ -48,7 +48,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   const isDirection = hasGlobalView(user.role);
   const flags = {
     isMarketing: pm.requesterId === user.id || isDirection,
-    isAssistant: userCan(user, "PROMO_MATERIAL", "VALIDATE") || isDirection,
+    isAssistant: user.role === "DIRECTION_ASSISTANT" || isDirection,
     isFinance: user.role === "FINANCE_BUDGET_MANAGER" || isDirection,
     isMedicalInfo: user.role === "MEDICAL_INFO_PHARMACIST" || isDirection,
     isDirection,

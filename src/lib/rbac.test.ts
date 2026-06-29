@@ -104,10 +104,11 @@ describe("role-default permissions (can)", () => {
     expect(can("SUPER_ADMIN", "ADMIN", "VIEW")).toBe(true);
     expect(can("SUPER_ADMIN", "ADVENTUM_BRAIN", "VIEW")).toBe(true);
   });
-  it("gives the Direction Assistant full admin-requests (ALL) + the promo-material assistant role", () => {
+  it("gives the Direction Assistant full admin-requests (ALL) but NO promo-material module access", () => {
     expect(can("DIRECTION_ASSISTANT", "ADMIN_REQUESTS", "VALIDATE")).toBe(true);
     expect(defaultScope("DIRECTION_ASSISTANT", "ADMIN_REQUESTS")).toBe("ALL");
-    expect(can("DIRECTION_ASSISTANT", "PROMO_MATERIAL", "VALIDATE")).toBe(true);
+    // Elle pilote le matériel promo depuis les Demandes administratives, sans accès au module.
+    expect(can("DIRECTION_ASSISTANT", "PROMO_MATERIAL", "VIEW")).toBe(false);
     expect(can("DIRECTION_ASSISTANT", "ADMIN", "VIEW")).toBe(false);
   });
 });
