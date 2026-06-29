@@ -125,3 +125,17 @@ export async function canAccessEntity(
       return true;
   }
 }
+
+/**
+ * Peut-on **modérer** le contenu (commentaires, pièces jointes, messages) d'un objet ?
+ * Règle unifiée : quiconque peut **éditer** l'objet parent — c'est-à-dire l'administrateur
+ * (vue globale, périmètre ALL) ou son responsable/contributeur — peut nettoyer ce qui y a
+ * été envoyé. L'auteur d'un élément garde toujours la main sur le sien (vérifié à part).
+ */
+export async function canModerateEntity(
+  user: SessionUser,
+  entityType: EntityType,
+  entityId: string,
+): Promise<boolean> {
+  return canAccessEntity(user, entityType, entityId, "UPDATE");
+}

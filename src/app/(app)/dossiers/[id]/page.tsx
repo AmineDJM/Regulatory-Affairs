@@ -13,7 +13,7 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { DOSSIER_STATUS, PRIORITY } from "@/lib/labels";
-import { DossierStatusControls, DossierAssign, DossierMessageForm } from "./panel";
+import { DossierStatusControls, DossierAssign, DossierMessageForm, DossierMessageDelete } from "./panel";
 
 export const dynamic = "force-dynamic";
 
@@ -103,9 +103,12 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
                     const mine = m.authorId === user.id;
                     return (
                       <li key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                        <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
+                        <div className={`group max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
                           <p className="whitespace-pre-wrap">{m.body}</p>
-                          <p className={`mt-1 text-[11px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{m.author?.name ?? "—"} · {formatDateTime(m.createdAt.toISOString())}</p>
+                          <p className={`mt-1 flex items-center gap-1.5 text-[11px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                            <span>{m.author?.name ?? "—"} · {formatDateTime(m.createdAt.toISOString())}</span>
+                            {(mine || manage) && <span className="opacity-0 transition group-hover:opacity-100"><DossierMessageDelete id={m.id} mine={mine} /></span>}
+                          </p>
                         </div>
                       </li>
                     );
@@ -120,7 +123,7 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><Paperclip className="h-4 w-4" /> Pièces & fichiers</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <DocumentList documents={docItems} canDelete={false} canEdit={onlyofficeConfigured() && canUpload && !archived} path={`/dossiers/${d.id}`} />
+              <DocumentList documents={docItems} canDelete={(manage || canUpload) && !archived} canEdit={onlyofficeConfigured() && canUpload && !archived} path={`/dossiers/${d.id}`} />
               {canUpload && !archived && <DocumentUpload entityType="DOSSIER" entityId={d.id} categories={DOSSIER_DOC_CATEGORIES} />}
             </CardContent>
           </Card>

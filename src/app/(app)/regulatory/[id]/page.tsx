@@ -6,6 +6,7 @@ import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { addRegulatoryComment } from "@/lib/actions/regulatory-actions";
+import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
@@ -183,11 +184,18 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                 comments={comments.map((c) => ({
                   id: c.id,
                   author: c.author?.name ?? "Utilisateur",
+                  authorId: c.authorId,
                   body: c.body,
                   createdAt: c.createdAt.toISOString(),
+                  editedAt: c.editedAt?.toISOString() ?? null,
                 }))}
                 action={addRegulatoryComment}
                 hiddenFields={{ productId: product.id }}
+                currentUserId={user.id}
+                canModerate={canUpdate}
+                updateAction={updateComment}
+                deleteAction={deleteComment}
+                path={`/regulatory/${product.id}`}
               />
             </CardContent>
           </Card>

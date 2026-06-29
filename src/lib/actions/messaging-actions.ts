@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { EntityType, type ConvMemberRole, type ConvNotifyLevel } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
 import {
@@ -253,9 +253,14 @@ export async function deleteMessage(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const msg = await prisma.message.findUnique({ where: { id }, select: { senderId: true, conversationId: true } });
   if (!msg) return { ok: false, error: "Message introuvable." };
-  const membership = await getActiveMembership(user.id, msg.conversationId);
-  if (!membership) return DENIED;
-  if (msg.senderId !== user.id && !canManage(membership.role)) return DENIED;
+  // L'admin (vue globale) peut modérer n'importe quel message ; sinon, l'expéditeur ou un
+  // propriétaire/admin de la conversation.
+  const admin = hasGlobalView(user.role);
+  if (!admin) {
+    const membership = await getActiveMembership(user.id, msg.conversationId);
+    if (!membership) return DENIED;
+    if (msg.senderId !== user.id && !canManage(membership.role)) return DENIED;
+  }
   await prisma.message.update({ where: { id }, data: { deletedAt: new Date(), isPinned: false } });
   revalidatePath("/messages");
   return { ok: true };

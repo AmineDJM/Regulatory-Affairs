@@ -216,3 +216,21 @@ export async function archiveDossier(formData: FormData): Promise<ActionResult> 
   revalidate(id);
   return { ok: true };
 }
+
+/** Supprime un message du fil d'un dossier (auteur, responsable du dossier ou admin). */
+export async function deleteDossierMessage(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Message introuvable." };
+  const msg = await prisma.dossierMessage.findUnique({
+    where: { id },
+    select: { authorId: true, dossierId: true, dossier: { select: { createdById: true, assignedToId: true, participantIds: true } } },
+  });
+  if (!msg) return { ok: false, error: "Message introuvable." };
+  const allowed = msg.authorId === user.id || isManager(user, msg.dossier);
+  if (!allowed) return { ok: false, error: "Suppression non autorisée." };
+  await prisma.dossierMessage.delete({ where: { id } });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Dossiers", entityType: "DOSSIER", entityId: msg.dossierId, summary: "Message de dossier supprimé" });
+  revalidate(msg.dossierId);
+  return { ok: true };
+}

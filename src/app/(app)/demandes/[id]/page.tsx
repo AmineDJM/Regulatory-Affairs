@@ -6,6 +6,7 @@ import { userCan, hasGlobalView, scopeAdminRequests } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { fieldLabels } from "@/lib/admin-requests";
 import { addRequestComment } from "@/lib/actions/admin-request-actions";
+import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -51,7 +52,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   const fields = (req.fields as Record<string, unknown> | null) ?? {};
   const fieldEntries = Object.entries(labels).filter(([k]) => fields[k] !== undefined && fields[k] !== "");
   const docItems: DocItem[] = documents.map((d) => ({ id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes, confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null, createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey) }));
-  const commentItems: CommentItem[] = comments.map((c) => ({ id: c.id, author: c.author?.name ?? "Utilisateur", body: c.body, createdAt: c.createdAt.toISOString() }));
+  const commentItems: CommentItem[] = comments.map((c) => ({ id: c.id, author: c.author?.name ?? "Utilisateur", authorId: c.authorId, body: c.body, createdAt: c.createdAt.toISOString(), editedAt: c.editedAt?.toISOString() ?? null }));
 
   return (
     <div className="space-y-5">
@@ -109,7 +110,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
 
           <Card>
             <CardHeader><CardTitle>Commentaires</CardTitle></CardHeader>
-            <CardContent><CommentThread comments={commentItems} action={addRequestComment} hiddenFields={{ requestId: req.id }} /></CardContent>
+            <CardContent><CommentThread comments={commentItems} action={addRequestComment} hiddenFields={{ requestId: req.id }} currentUserId={user.id} canModerate={canManage} updateAction={updateComment} deleteAction={deleteComment} path={`/demandes/${req.id}`} /></CardContent>
           </Card>
         </div>
 

@@ -86,7 +86,13 @@ export async function deleteDocument(id: string, path?: string): Promise<ActionR
   const doc = await prisma.document.findUnique({ where: { id } });
   if (!doc) return { ok: false, error: "Document introuvable." };
 
-  if (!(await canAccessEntity(user, doc.entityType, doc.entityId, "DELETE"))) {
+  // Peut supprimer : la personne qui l'a téléversé, OU l'admin / le responsable de l'objet
+  // parent (quiconque peut l'éditer), OU un détenteur du droit de suppression du module.
+  const allowed =
+    doc.uploadedById === user.id ||
+    (await canAccessEntity(user, doc.entityType, doc.entityId, "UPDATE")) ||
+    (await canAccessEntity(user, doc.entityType, doc.entityId, "DELETE"));
+  if (!allowed) {
     return { ok: false, error: "Suppression non autorisée." };
   }
 

@@ -7,6 +7,7 @@ import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { getBdProject } from "@/lib/queries/bd";
 import { addBdProjectComment } from "@/lib/actions/bd-project-actions";
+import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -97,9 +98,14 @@ export default async function BdProjectDetailPage({ params }: { params: { id: st
           <CardHeader><CardTitle>Commentaires</CardTitle></CardHeader>
           <CardContent>
             <CommentThread
-              comments={comments.map((c) => ({ id: c.id, author: c.author?.name ?? "Utilisateur", body: c.body, createdAt: c.createdAt.toISOString() }))}
+              comments={comments.map((c) => ({ id: c.id, author: c.author?.name ?? "Utilisateur", authorId: c.authorId, body: c.body, createdAt: c.createdAt.toISOString(), editedAt: c.editedAt?.toISOString() ?? null }))}
               action={addBdProjectComment}
               hiddenFields={{ projectId: project.id }}
+              currentUserId={user.id}
+              canModerate={canUpdate}
+              updateAction={updateComment}
+              deleteAction={deleteComment}
+              path={`/business-development/${project.id}`}
             />
           </CardContent>
         </Card>

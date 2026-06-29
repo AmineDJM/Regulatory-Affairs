@@ -2,13 +2,32 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Send, AlertCircle, Play, Pause, CheckCircle2, Archive, Users } from "lucide-react";
-import { updateDossierStatus, archiveDossier, postDossierMessage, assignDossier } from "@/lib/actions/dossier-actions";
+import { Loader2, Send, AlertCircle, Play, Pause, CheckCircle2, Archive, Users, Trash2 } from "lucide-react";
+import { updateDossierStatus, archiveDossier, postDossierMessage, assignDossier, deleteDossierMessage } from "@/lib/actions/dossier-actions";
 import { Button } from "@/components/ui/button";
 import { Textarea, Select, Label } from "@/components/ui/input";
 import type { ActionResult } from "@/lib/actions/types";
 
 interface UserLite { id: string; name: string }
+
+/** Supprime un message du fil d'un dossier (auteur / responsable / admin). */
+export function DossierMessageDelete({ id, mine }: { id: string; mine?: boolean }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  async function run() {
+    if (!window.confirm("Supprimer ce message ?")) return;
+    setBusy(true);
+    const fd = new FormData(); fd.set("id", id);
+    await deleteDossierMessage(fd);
+    setBusy(false); router.refresh();
+  }
+  return (
+    <button type="button" onClick={run} disabled={busy} title="Supprimer"
+      className={`rounded p-0.5 ${mine ? "text-primary-foreground/70 hover:text-primary-foreground" : "text-muted-foreground hover:text-destructive"}`}>
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+    </button>
+  );
+}
 
 function useAction() {
   const router = useRouter();
