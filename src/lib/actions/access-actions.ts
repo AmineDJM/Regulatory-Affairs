@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import type { AccessScope, EntityType } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, MODULES } from "@/lib/rbac";
+import { userCan, MODULES, type Module } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
@@ -59,6 +59,54 @@ export async function saveAccessMatrix(formData: FormData): Promise<ActionResult
     entityId: userId, summary: "Mise à jour des accès (matrice)",
   });
   revalidatePath(`/admin/users/${userId}`);
+  return { ok: true };
+}
+
+/**
+ * Vue « par module » (façon Google Drive) : enregistre, pour UN module, les accès
+ * de plusieurs comptes d'un coup. Le formulaire porte `module`, la liste `userId`,
+ * et pour chaque compte `mode_<userId>` (DEFAULT|CUSTOM|BLOCKED), les cases
+ * `act_<userId>_<ACTION>` et `scope_<userId>`.
+ */
+export async function saveModuleAccess(formData: FormData): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  if (!admin) return { ok: false, error: "Réservé au Super Admin." };
+  const module = fdStr(formData, "module") as Module | null;
+  if (!module || !MODULES.includes(module)) return { ok: false, error: "Module manquant." };
+  const userIds = formData.getAll("userId").map(String).filter(Boolean);
+
+  for (const userId of userIds) {
+    const mode = fdStr(formData, `mode_${userId}`) ?? "DEFAULT";
+    if (mode === "DEFAULT") {
+      await prisma.userAccess.deleteMany({ where: { userId, module } });
+      continue;
+    }
+    const blocked = mode === "BLOCKED";
+    const get = (a: string) => !blocked && formData.get(`act_${userId}_${a}`) === "on";
+    const scope = (fdStr(formData, `scope_${userId}`) as AccessScope) ?? "ASSIGNED";
+    await prisma.userAccess.upsert({
+      where: { userId_module: { userId, module } },
+      create: {
+        userId, module,
+        canView: !blocked,
+        canCreate: get("CREATE"), canUpdate: get("UPDATE"), canDelete: get("DELETE"),
+        canValidate: get("VALIDATE"), canExport: get("EXPORT"), canUpload: get("UPLOAD"),
+        scope,
+      },
+      update: {
+        canView: !blocked,
+        canCreate: get("CREATE"), canUpdate: get("UPDATE"), canDelete: get("DELETE"),
+        canValidate: get("VALIDATE"), canExport: get("EXPORT"), canUpload: get("UPLOAD"),
+        scope,
+      },
+    });
+  }
+
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Accès du module ${module} mis à jour (${userIds.length} comptes)`,
+  });
+  revalidatePath("/admin/access");
   return { ok: true };
 }
 

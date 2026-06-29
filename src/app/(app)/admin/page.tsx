@@ -39,6 +39,9 @@ export default async function AdminPage() {
         </Link>
         {admin.role === "SUPER_ADMIN" && (
           <>
+            <Link href="/admin/access">
+              <Button variant="outline"><ShieldCheck className="h-4 w-4" /> Accès par module</Button>
+            </Link>
             <Link href="/admin/settings">
               <Button variant="outline"><Settings2 className="h-4 w-4" /> Réglages & diffusion</Button>
             </Link>
