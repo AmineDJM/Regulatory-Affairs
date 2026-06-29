@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { CommentThread } from "@/components/shared/comment-thread";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { addMedicalInfoComment } from "@/lib/actions/medical-info-actions";
 import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
@@ -89,7 +90,10 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
             {amount != null && <> · {formatCurrency(amount)}</>}
           </p>
         </div>
-        <StatusBadge map={MEDICAL_INFO_STATUS} value={decl.status} />
+        <div className="flex shrink-0 items-center gap-2">
+          <StatusBadge map={MEDICAL_INFO_STATUS} value={decl.status} />
+          <SuperAdminDeleteButton kind="MEDICAL_INFO_DECLARATION" id={decl.id} name={decl.reference} enabled={user.role === "SUPER_ADMIN"} />
+        </div>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
