@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Send, Upload, Trash2, ShieldCheck, AlertCircle, FileText, BadgeCheck } from "lucide-react";
 import {
-  requestDocument, cancelDocRequest, fulfillDocRequest, validateDeclaration, recordAuthorityDeclaration,
+  requestDocument, cancelDocRequest, fulfillDocRequest, validateDeclaration, validateDeclarationByDirection, recordAuthorityDeclaration,
 } from "@/lib/actions/medical-info-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
@@ -110,25 +110,55 @@ export function AuthorityForm({ id, authorityRef, authorityNotes }: { id: string
   );
 }
 
-// ───────────── Pharmacien : validation finale → ordre de dépense ─────────────
+// ───────────── Pharmacien : validation → transmission à la Direction ─────────────
 
-export function ValidateButton({ id, hasPending, amount }: { id: string; hasPending: boolean; amount: number | null }) {
+export function ValidateButton({ id, hasPending }: { id: string; hasPending: boolean; amount?: number | null }) {
   const { saving, err, run } = useAction();
   const [confirm, setConfirm] = React.useState(false);
   return (
     <div className="space-y-2">
       {hasPending && <p className="text-xs text-warning">Des pièces sont encore en attente de dépôt. Vous pouvez tout de même valider si vous l'estimez complet.</p>}
       <p className="text-xs text-muted-foreground">
-        {amount && amount > 0
-          ? `La validation déclenche l'ordre de dépense (${amount.toLocaleString("fr-FR")} DZD) vers le comptable.`
-          : "Aucun budget associé : la validation clôt simplement la déclaration."}
+        Votre validation transmet la déclaration à la <strong>Direction</strong>, qui donnera la validation finale (pour le comptable).
       </p>
       <Err msg={err} />
       {!confirm ? (
-        <Button onClick={() => setConfirm(true)} disabled={saving}><BadgeCheck className="h-4 w-4" /> Valider la déclaration</Button>
+        <Button onClick={() => setConfirm(true)} disabled={saving}><BadgeCheck className="h-4 w-4" /> Valider et transmettre à la Direction</Button>
       ) : (
         <div className="flex gap-2">
           <Button onClick={() => { const fd = new FormData(); fd.set("id", id); run(() => validateDeclaration(fd)); }} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Confirmer
+          </Button>
+          <Button variant="ghost" onClick={() => setConfirm(false)} disabled={saving}>Annuler</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ───────────── Direction : validation finale → ordre de dépense (comptable) ─────────────
+
+export function DirectionValidateButton({ id, amount }: { id: string; amount: number | null }) {
+  const { saving, err, run } = useAction();
+  const [confirm, setConfirm] = React.useState(false);
+  const [comment, setComment] = React.useState("");
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        {amount && amount > 0
+          ? `Votre validation déclenche l'ordre de dépense (${amount.toLocaleString("fr-FR")} DZD) vers le comptable.`
+          : "Aucun budget associé : la validation clôt simplement la déclaration."}
+      </p>
+      <div className="space-y-1">
+        <Label>Commentaire (facultatif)</Label>
+        <Textarea value={comment} onChange={(e) => setComment(e.target.value)} className="min-h-[56px]" placeholder="Observation de la Direction à destination du comptable / des parties prenantes…" />
+      </div>
+      <Err msg={err} />
+      {!confirm ? (
+        <Button onClick={() => setConfirm(true)} disabled={saving}><BadgeCheck className="h-4 w-4" /> Valider pour le comptable</Button>
+      ) : (
+        <div className="flex gap-2">
+          <Button onClick={() => { const fd = new FormData(); fd.set("id", id); if (comment.trim()) fd.set("comment", comment); run(() => validateDeclarationByDirection(fd)); }} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Confirmer la validation
           </Button>
           <Button variant="ghost" onClick={() => setConfirm(false)} disabled={saving}>Annuler</Button>

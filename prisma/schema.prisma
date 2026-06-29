@@ -1005,7 +1005,8 @@ enum MedicalInfoStatus {
   AWAITING_REVIEW // validé par la Direction → en attente du pharmacien
   DOCS_REQUESTED // des pièces ont été demandées, en attente de dépôt
   READY // pièces reçues → prêt à valider
-  VALIDATED // validé par le pharmacien → ordre de dépense émis
+  AWAITING_DIRECTION // validé par le pharmacien → en attente de la validation finale de la Direction (pour le comptable)
+  VALIDATED // validé par la Direction → ordre de dépense émis (comptable)
 }
 
 enum DocRequestStatus {
@@ -1027,7 +1028,9 @@ model MedicalInfoDeclaration {
   pharmacist     User?                   @relation("MedicalInfoPharmacist", fields: [pharmacistId], references: [id])
   authorityRef   String? // référence / récépissé de déclaration aux autorités
   authorityNotes String? // notes de déclaration
-  validatedAt    DateTime?
+  pharmacistValidatedAt   DateTime? // validé par le pharmacien (PRIM) → passe à la Direction
+  pharmacistValidatedById String?
+  validatedAt    DateTime? // validation FINALE par la Direction → ordre de dépense au comptable
   validatedById  String?
   expenseOrderId String? // ordre de dépense émis après validation du pharmacien
   requests       MedicalInfoDocRequest[]

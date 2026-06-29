@@ -151,10 +151,14 @@ export async function getActionCenter(user: SessionUser) {
     }
   }
 
-  // 6c. Information médicale — déclarations à instruire (pharmacien responsable)
+  // 6c. Information médicale — déclarations à instruire (pharmacien responsable) ou
+  //     en attente de validation finale de la Direction (AWAITING_DIRECTION → vue globale).
   if (userCan(user, "MEDICAL_INFO", "VALIDATE") || hasGlobalView(user.role)) {
+    const miStatuses: ("AWAITING_REVIEW" | "DOCS_REQUESTED" | "READY" | "AWAITING_DIRECTION")[] = hasGlobalView(user.role)
+      ? ["AWAITING_REVIEW", "DOCS_REQUESTED", "READY", "AWAITING_DIRECTION"]
+      : ["AWAITING_REVIEW", "DOCS_REQUESTED", "READY"];
     const decls = await prisma.medicalInfoDeclaration.findMany({
-      where: { status: { in: ["AWAITING_REVIEW", "DOCS_REQUESTED", "READY"] } },
+      where: { status: { in: miStatuses } },
       orderBy: { createdAt: "desc" }, take: 40,
     });
     for (const d of decls) {

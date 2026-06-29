@@ -164,13 +164,18 @@ export async function getCrossModuleValidations(user: SessionUser): Promise<Cros
     });
   }
 
-  // 4) Information médicale : déclarations en attente du pharmacien responsable.
+  // 4) Information médicale : déclarations en attente du pharmacien responsable
+  //    (stades PRIM) ou de la validation finale de la Direction (AWAITING_DIRECTION,
+  //    réservée aux profils à vue globale).
   if (global || userCan(user, "MEDICAL_INFO", "VALIDATE")) {
+    const statuses: ("AWAITING_REVIEW" | "DOCS_REQUESTED" | "READY" | "AWAITING_DIRECTION")[] = global
+      ? ["AWAITING_REVIEW", "DOCS_REQUESTED", "READY", "AWAITING_DIRECTION"]
+      : ["AWAITING_REVIEW", "DOCS_REQUESTED", "READY"];
     const decls = await prisma.medicalInfoDeclaration.findMany({
-      where: { status: { in: ["AWAITING_REVIEW", "DOCS_REQUESTED", "READY"] } },
+      where: { status: { in: statuses } },
       orderBy: { createdAt: "asc" }, take: 100,
     });
-    const MI_STAGE: Record<string, string> = { AWAITING_REVIEW: "À déclarer", DOCS_REQUESTED: "Pièces demandées", READY: "Prêt à valider" };
+    const MI_STAGE: Record<string, string> = { AWAITING_REVIEW: "À déclarer", DOCS_REQUESTED: "Pièces demandées", READY: "Prêt à valider", AWAITING_DIRECTION: "Validation Direction" };
     for (const d of decls) out.push({
       id: `mi-${d.id}`, reference: d.reference, title: d.label, module: "Information médicale",
       stage: MI_STAGE[d.status] ?? d.status,

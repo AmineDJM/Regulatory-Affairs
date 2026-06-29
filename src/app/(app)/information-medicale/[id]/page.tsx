@@ -9,9 +9,12 @@ import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/util
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { CommentThread } from "@/components/shared/comment-thread";
+import { addMedicalInfoComment } from "@/lib/actions/medical-info-actions";
+import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { MEDICAL_INFO_STATUS, DOC_REQUEST_STATUS, ENTITY_TYPE_LABELS } from "@/lib/labels";
-import { RequestDocForm, CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton } from "./panels";
+import { RequestDocForm, CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton, DirectionValidateButton } from "./panels";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +26,8 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
 
   const canManage = hasGlobalView(user.role) || userCan(user, "MEDICAL_INFO", "VALIDATE");
   const isValidated = decl.status === "VALIDATED";
+  const isAwaitingDirection = decl.status === "AWAITING_DIRECTION";
+  const isDirection = hasGlobalView(user.role);
   const link = sourceLink(decl.sourceType, decl.sourceId);
   // On ne montre le lien vers l'événement source que s'il est RÉELLEMENT ouvrable
   // par cet utilisateur (sinon la page source renvoyait un 404 — hors portée).
@@ -40,7 +45,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
   const amount = decl.amount != null ? toNumber(decl.amount) : null;
   const pendingCount = decl.requests.filter((r) => r.status === "PENDING").length;
 
-  const [documents, users] = await Promise.all([
+  const [documents, users, comments] = await Promise.all([
     prisma.document.findMany({
       where: { entityType: "MEDICAL_INFO_DECLARATION", entityId: decl.id },
       include: { uploadedBy: { select: { name: true } } },
@@ -49,6 +54,11 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
     canManage
       ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } })
       : Promise.resolve([]),
+    prisma.comment.findMany({
+      where: { entityType: "MEDICAL_INFO_DECLARATION", entityId: decl.id },
+      include: { author: { select: { name: true } } },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
 
   const docItems: DocItem[] = documents.map((d) => ({
@@ -57,6 +67,10 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
     createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
   }));
   const docById = new Map(documents.map((d) => [d.id, d.name]));
+  const commentItems = comments.map((c) => ({
+    id: c.id, author: c.author?.name ?? "Utilisateur", authorId: c.authorId, body: c.body,
+    createdAt: c.createdAt.toISOString(), editedAt: c.editedAt?.toISOString() ?? null,
+  }));
 
   return (
     <div className="space-y-5">
@@ -90,7 +104,8 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
               <Row label="Bénéficiaire" value={decl.beneficiary ?? "—"} />
               <Row label="Pharmacien responsable" value={decl.pharmacist?.name ?? "Non assigné"} />
               <Row label="Créé le" value={formatDate(decl.createdAt.toISOString())} />
-              {isValidated && decl.validatedAt && <Row label="Validé le" value={formatDateTime(decl.validatedAt.toISOString())} />}
+              {decl.pharmacistValidatedAt && <Row label="Validé (pharmacien) le" value={formatDateTime(decl.pharmacistValidatedAt.toISOString())} />}
+              {isValidated && decl.validatedAt && <Row label="Validé (Direction) le" value={formatDateTime(decl.validatedAt.toISOString())} />}
               {link && canOpenSource && (
                 <div className="pt-1">
                   <Link href={link} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
@@ -149,6 +164,23 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
               </CardContent>
             </Card>
           )}
+
+          {/* Espace de discussion (pharmacien · Direction · parties prenantes) */}
+          <Card>
+            <CardHeader><CardTitle>Commentaires & échanges</CardTitle></CardHeader>
+            <CardContent>
+              <CommentThread
+                comments={commentItems}
+                action={addMedicalInfoComment}
+                hiddenFields={{ declarationId: decl.id }}
+                currentUserId={user.id}
+                canModerate={canManage}
+                updateAction={updateComment}
+                deleteAction={deleteComment}
+                path={`/information-medicale/${decl.id}`}
+              />
+            </CardContent>
+          </Card>
         </div>
 
         {/* Colonne latérale : actions du pharmacien */}
@@ -163,24 +195,44 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
                 <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldPlus className="h-4 w-4" /> Déclaration aux autorités</CardTitle></CardHeader>
                 <CardContent><AuthorityForm id={decl.id} authorityRef={decl.authorityRef} authorityNotes={decl.authorityNotes} /></CardContent>
               </Card>
-              <Card className="border-success/40">
-                <CardHeader><CardTitle className="flex items-center gap-2 text-base"><CheckCircle2 className="h-4 w-4 text-success" /> Validation</CardTitle></CardHeader>
-                <CardContent><ValidateButton id={decl.id} hasPending={pendingCount > 0} amount={amount} /></CardContent>
-              </Card>
+              {!isAwaitingDirection && (
+                <Card className="border-success/40">
+                  <CardHeader><CardTitle className="flex items-center gap-2 text-base"><CheckCircle2 className="h-4 w-4 text-success" /> Validation (pharmacien)</CardTitle></CardHeader>
+                  <CardContent><ValidateButton id={decl.id} hasPending={pendingCount > 0} /></CardContent>
+                </Card>
+              )}
             </>
+          )}
+
+          {/* Direction : validation finale → ordre de dépense (comptable) */}
+          {isDirection && isAwaitingDirection && (
+            <Card className="border-success/50">
+              <CardHeader><CardTitle className="flex items-center gap-2 text-base"><CheckCircle2 className="h-4 w-4 text-success" /> Validation finale (Direction)</CardTitle></CardHeader>
+              <CardContent><DirectionValidateButton id={decl.id} amount={amount} /></CardContent>
+            </Card>
+          )}
+
+          {/* Validé par le pharmacien → en attente de la Direction (vue des autres) */}
+          {isAwaitingDirection && !isDirection && (
+            <Card className="border-warning/40">
+              <CardContent className="flex items-start gap-2 py-5 text-sm text-muted-foreground">
+                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                Validé par le pharmacien responsable. En attente de la <strong>validation finale de la Direction</strong> (pour le comptable).
+              </CardContent>
+            </Card>
           )}
 
           {isValidated && (
             <Card className="border-success/40">
               <CardContent className="space-y-2 py-5 text-sm">
                 <p className="flex items-center gap-2 font-medium text-success"><CheckCircle2 className="h-5 w-5" /> Déclaration validée</p>
-                <p className="text-muted-foreground">L'événement a été déclaré et validé par le pharmacien responsable.{amount && amount > 0 ? " L'ordre de dépense a été transmis au comptable." : ""}</p>
+                <p className="text-muted-foreground">L'événement a été validé par le pharmacien responsable puis par la Direction.{amount && amount > 0 ? " L'ordre de dépense a été transmis au comptable." : ""}</p>
                 {decl.authorityRef && <p className="text-muted-foreground">Référence autorités : <span className="font-medium text-foreground">{decl.authorityRef}</span></p>}
               </CardContent>
             </Card>
           )}
 
-          {!canManage && !isValidated && (
+          {!canManage && !isValidated && !isAwaitingDirection && (
             <Card>
               <CardContent className="flex items-start gap-2 py-5 text-sm text-muted-foreground">
                 <Clock className="mt-0.5 h-4 w-4 shrink-0" />

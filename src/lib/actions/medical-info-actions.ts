@@ -11,6 +11,7 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
+import { getDeclaration, canViewDeclaration } from "@/lib/queries/medical-info";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/information-medicale";
@@ -137,8 +138,13 @@ export async function recordAuthorityDeclaration(formData: FormData): Promise<Ac
   return { ok: true };
 }
 
-// ───────────── Validation finale (pharmacien) → ordre de dépense au comptable ─────────────
+// ───────────── Validation pharmacien (PRIM) → transmission à la Direction ─────────────
 
+/**
+ * Le pharmacien responsable valide son instruction : la déclaration ne part PAS
+ * directement au comptable mais à la Direction, qui donnera la validation finale
+ * (pour le comptable). L'ordre de dépense n'est émis qu'à l'étape Direction.
+ */
 export async function validateDeclaration(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!canManage(user)) return { ok: false, error: "Validation réservée au pharmacien responsable." };
@@ -147,6 +153,45 @@ export async function validateDeclaration(formData: FormData): Promise<ActionRes
   const decl = await prisma.medicalInfoDeclaration.findUnique({ where: { id } });
   if (!decl) return { ok: false, error: "Déclaration introuvable." };
   if (decl.status === "VALIDATED") return { ok: false, error: "Déclaration déjà validée." };
+  if (decl.status === "AWAITING_DIRECTION") return { ok: false, error: "Déjà transmise à la Direction pour validation finale." };
+
+  await prisma.medicalInfoDeclaration.update({
+    where: { id },
+    data: { status: "AWAITING_DIRECTION", pharmacistValidatedAt: new Date(), pharmacistValidatedById: user.id },
+  });
+  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+    type: "VALIDATION_REQUIRED",
+    title: "Information médicale — validation finale requise (Direction)",
+    body: `${decl.reference} — ${decl.label}`,
+    link: `${PATH}/${id}`,
+  });
+  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: id, summary: `Validation pharmacien — transmise à la Direction (${decl.reference})` });
+  revalidate(id);
+  return { ok: true };
+}
+
+// ───────────── Validation finale (Direction) → ordre de dépense au comptable ─────────────
+
+/**
+ * La Direction donne la validation finale « pour le comptable », avec un commentaire
+ * facultatif (versé dans l'espace de discussion). C'est ICI qu'est émis l'ordre de
+ * dépense, qui part alors au comptable.
+ */
+export async function validateDeclarationByDirection(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!hasGlobalView(user.role)) return { ok: false, error: "Validation finale réservée à la Direction." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const decl = await prisma.medicalInfoDeclaration.findUnique({ where: { id } });
+  if (!decl) return { ok: false, error: "Déclaration introuvable." };
+  if (decl.status === "VALIDATED") return { ok: false, error: "Déclaration déjà validée." };
+  if (decl.status !== "AWAITING_DIRECTION") return { ok: false, error: "La déclaration doit d'abord être validée par le pharmacien responsable." };
+
+  // Commentaire de validation (facultatif) → espace de discussion.
+  const comment = fdStr(formData, "comment");
+  if (comment) {
+    await prisma.comment.create({ data: { entityType: "MEDICAL_INFO_DECLARATION", entityId: id, body: comment, authorId: user.id } });
+  }
 
   // Émission de l'ordre de dépense (si un budget a été accordé) → part au comptable.
   const amount = Number(decl.amount ?? 0);
@@ -172,10 +217,26 @@ export async function validateDeclaration(formData: FormData): Promise<ActionRes
     else if (decl.sourceType === "CONGRESS_INTERNATIONAL") await prisma.congressInternational.update({ where: { id: decl.sourceId }, data: { expenseOrderId: order.id } });
     else if (decl.sourceType === "CONGRESS_NATIONAL") await prisma.congressNational.update({ where: { id: decl.sourceId }, data: { expenseOrderId: order.id } });
   }
-  if (decl.requesterId) await notifyUser({ userId: decl.requesterId, type: "GENERIC", title: "Information médicale — événement déclaré et validé", body: `${decl.reference} — ${decl.label}`, link: `${PATH}/${id}` });
-  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: id, summary: `Validation pharmacien — ${decl.reference}${order ? ` (ordre ${order.reference})` : ""}` });
+  if (decl.requesterId) await notifyUser({ userId: decl.requesterId, type: "GENERIC", title: "Information médicale — événement validé par la Direction", body: `${decl.reference} — ${decl.label}`, link: `${PATH}/${id}` });
+  if (decl.pharmacistId && decl.pharmacistId !== user.id) await notifyUser({ userId: decl.pharmacistId, type: "GENERIC", title: "Information médicale — validé par la Direction", body: `${decl.reference} — ${decl.label}`, link: `${PATH}/${id}` });
+  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: id, summary: `Validation Direction — ${decl.reference}${order ? ` (ordre ${order.reference})` : ""}` });
   revalidate(id);
   revalidatePath("/finances/ordres-de-depense");
   revalidatePath("/comptabilite");
+  return { ok: true };
+}
+
+// ───────────── Espace de discussion (parties prenantes) ─────────────
+
+/** Ajoute un commentaire à la déclaration (toute personne pouvant la consulter). */
+export async function addMedicalInfoComment(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const declarationId = fdStr(formData, "declarationId");
+  const body = fdStr(formData, "body");
+  if (!declarationId || !body) return { ok: false, error: "Commentaire vide." };
+  const decl = await getDeclaration(declarationId);
+  if (!decl || !canViewDeclaration(user, decl)) return { ok: false, error: "Action non autorisée." };
+  await prisma.comment.create({ data: { entityType: "MEDICAL_INFO_DECLARATION", entityId: declarationId, body, authorId: user.id } });
+  revalidate(declarationId);
   return { ok: true };
 }

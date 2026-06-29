@@ -11,7 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, scopeMedicalInfo, type SessionUser } from "@/lib/rbac";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { canViewDeclaration, getDeclaration } from "@/lib/queries/medical-info";
-import { requestDocument, fulfillDocRequest, validateDeclaration } from "./medical-info-actions";
+import { requestDocument, fulfillDocRequest, validateDeclaration, validateDeclarationByDirection } from "./medical-info-actions";
 
 // Probe DB once; skip the whole suite cleanly when unreachable (CI without a DB).
 let dbOk = false;
@@ -25,18 +25,19 @@ async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentU
   return { id, name: u.name, email: u.email, role, access, mustChangePassword: false };
 }
 
-suite("PRIM — circuit information médicale (déclaration → pièces → validation → ordre)", () => {
-  let pharmacistId = "", delegateId = "", otherId = "", sponsoringId = "", declId = "";
+suite("PRIM — circuit information médicale (déclaration → pièces → pharmacien → Direction → ordre)", () => {
+  let pharmacistId = "", delegateId = "", otherId = "", directionId = "", sponsoringId = "", declId = "";
 
   beforeAll(async () => {
     const mk = (suffix: string, role: SessionUser["role"]) =>
       prisma.user.create({ data: { name: `${TAG}${suffix}`, email: `${TAG}${suffix}@t.dz`, role, passwordHash: "x" } });
-    const [ph, dg, ot] = await Promise.all([
+    const [ph, dg, ot, dir] = await Promise.all([
       mk("pharm", "MEDICAL_INFO_PHARMACIST"),
       mk("deleg", "MEDICAL_DELEGATE"),
       mk("other", "SALES_USER"),
+      mk("dir", "DIRECTION"),
     ]);
-    pharmacistId = ph.id; delegateId = dg.id; otherId = ot.id;
+    pharmacistId = ph.id; delegateId = dg.id; otherId = ot.id; directionId = dir.id;
 
     const spo = await prisma.sponsoringRequest.create({
       data: { reference: `${TAG}SPO`, institution: "Hôpital Test", type: "Congrès", status: "APPROVED", amountGranted: 50000, requesterId: delegateId },
@@ -48,6 +49,7 @@ suite("PRIM — circuit information médicale (déclaration → pièces → vali
     await prisma.expenseOrder.deleteMany({ where: { reference: { startsWith: "OD-" }, label: { contains: TAG } } }).catch(() => {});
     await prisma.medicalInfoDeclaration.deleteMany({ where: { OR: [{ reference: { contains: "DIM-" }, sourceId: sponsoringId }] } }).catch(() => {});
     await prisma.document.deleteMany({ where: { entityType: "MEDICAL_INFO_DECLARATION", entityId: declId } }).catch(() => {});
+    await prisma.comment.deleteMany({ where: { entityType: "MEDICAL_INFO_DECLARATION", entityId: declId } }).catch(() => {});
     await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
     await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
@@ -116,18 +118,43 @@ suite("PRIM — circuit information médicale (déclaration → pièces → vali
     expect(r.ok).toBe(false);
   });
 
-  it("le pharmacien valide → ordre de dépense créé MAINTENANT et reporté sur le sponsoring", async () => {
+  it("le pharmacien valide → transmis à la Direction (AWAITING_DIRECTION), AUCUN ordre encore", async () => {
     ACTOR = await actorFor(pharmacistId, "MEDICAL_INFO_PHARMACIST");
     const fd = new FormData(); fd.set("id", declId);
     const r = await validateDeclaration(fd);
     expect(r.ok).toBe(true);
     const decl = await prisma.medicalInfoDeclaration.findUniqueOrThrow({ where: { id: declId } });
+    expect(decl.status).toBe("AWAITING_DIRECTION");
+    expect(decl.pharmacistValidatedById).toBe(pharmacistId);
+    expect(decl.expenseOrderId).toBeNull();
+    const orders = await prisma.expenseOrder.findMany({ where: { sourceType: "SPONSORING", sourceId: sponsoringId } });
+    expect(orders).toHaveLength(0); // toujours déféré : l'ordre n'est émis qu'à l'étape Direction
+  });
+
+  it("un pharmacien NE peut PAS donner la validation finale Direction (réservée à la vue globale)", async () => {
+    ACTOR = await actorFor(pharmacistId, "MEDICAL_INFO_PHARMACIST");
+    const fd = new FormData(); fd.set("id", declId);
+    const r = await validateDeclarationByDirection(fd);
+    expect(r.ok).toBe(false);
+    const decl = await prisma.medicalInfoDeclaration.findUniqueOrThrow({ where: { id: declId } });
+    expect(decl.status).toBe("AWAITING_DIRECTION"); // inchangé
+  });
+
+  it("la Direction valide pour le comptable → ordre de dépense créé et reporté sur le sponsoring + commentaire", async () => {
+    ACTOR = await actorFor(directionId, "DIRECTION");
+    const fd = new FormData(); fd.set("id", declId); fd.set("comment", "Validé — RAS");
+    const r = await validateDeclarationByDirection(fd);
+    expect(r.ok).toBe(true);
+    const decl = await prisma.medicalInfoDeclaration.findUniqueOrThrow({ where: { id: declId } });
     expect(decl.status).toBe("VALIDATED");
+    expect(decl.validatedById).toBe(directionId);
     expect(decl.expenseOrderId).toBeTruthy();
     const orders = await prisma.expenseOrder.findMany({ where: { sourceType: "SPONSORING", sourceId: sponsoringId } });
     expect(orders).toHaveLength(1);
     expect(Number(orders[0].amount)).toBe(50000);
     const spo = await prisma.sponsoringRequest.findUniqueOrThrow({ where: { id: sponsoringId } });
     expect(spo.expenseOrderId).toBe(orders[0].id); // interconnexion
+    const comments = await prisma.comment.findMany({ where: { entityType: "MEDICAL_INFO_DECLARATION", entityId: declId } });
+    expect(comments.length).toBeGreaterThanOrEqual(1);
   });
 });
