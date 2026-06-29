@@ -142,48 +142,79 @@ function classifyMailError(e: unknown): MailDiagCategory {
  */
 export async function mailDiagnostic(account: { email: string; passwordEnc: string; imapHost: string; imapPort: number }): Promise<MailDiagnostic> {
   const base = { host: account.imapHost, email: account.email };
-  const c = imapClient(account);
-  try {
-    await c.connect();
-    await c.status("INBOX", { messages: true }).catch(() => undefined);
-    await c.logout().catch(() => {});
-    return { ok: true, category: "OK", label: DIAG_LABEL.OK, raw: "", ...base };
-  } catch (e) {
-    await c.logout().catch(() => {});
-    const category = classifyMailError(e);
-    return { ok: false, category, label: DIAG_LABEL[category], raw: String((e as Error)?.message ?? e ?? "erreur inconnue").slice(0, 600), ...base };
-  }
+  // Sérialisé par compte (comme les autres opérations) pour ne pas créer une
+  // connexion concurrente qui fausserait le diagnostic. Pas de réessai : on veut
+  // l'erreur BRUTE telle quelle.
+  return withAccountLock(account.email, async () => {
+    const c = imapClient(account);
+    try {
+      await c.connect();
+      await c.status("INBOX", { messages: true }).catch(() => undefined);
+      await c.logout().catch(() => {});
+      return { ok: true, category: "OK" as MailDiagCategory, label: DIAG_LABEL.OK, raw: "", ...base };
+    } catch (e) {
+      await c.logout().catch(() => {});
+      const category = classifyMailError(e);
+      return { ok: false, category, label: DIAG_LABEL[category], raw: String((e as Error)?.message ?? e ?? "erreur inconnue").slice(0, 600), ...base };
+    }
+  });
 }
 
 /**
- * Ouvre **une seule** connexion IMAP, exécute `fn`, puis se déconnecte — avec un
- * **réessai** en cas d'erreur transitoire (limite de connexions, coupure). Réduit la
- * pression sur le fournisseur (cause la plus fréquente des « command failed »).
+ * Verrou **par compte** (clé = adresse e-mail) : Infomaniak limite le nombre de
+ * connexions IMAP SIMULTANÉES par boîte. Comme le poller (toutes les 12 s) et les
+ * actions utilisateur (lecture, envoi, pièce jointe…) peuvent viser la même boîte
+ * en même temps, on sérialise : au plus UNE connexion IMAP par compte à la fois.
+ * C'est la cause la plus fréquente des « command failed » / connexions refusées.
  */
-async function withClient<T>(
+const imapChains = new Map<string, Promise<unknown>>();
+function withAccountLock<T>(email: string, fn: () => Promise<T>): Promise<T> {
+  const key = email.toLowerCase();
+  const prev = imapChains.get(key) ?? Promise.resolve();
+  const run = prev.catch(() => {}).then(fn);
+  // On garde la chaîne vivante (sans propager l'erreur) pour sérialiser le suivant.
+  const tail = run.catch(() => {});
+  imapChains.set(key, tail);
+  // Nettoyage : si personne ne s'est enchaîné derrière, on libère l'entrée.
+  tail.then(() => { if (imapChains.get(key) === tail) imapChains.delete(key); });
+  return run;
+}
+
+/**
+ * Ouvre **une seule** connexion IMAP (sérialisée par compte), exécute `fn`, puis se
+ * déconnecte — avec **réessai** en cas d'erreur transitoire (limite de connexions,
+ * coupure). Toutes les opérations IMAP passent par ici pour ne jamais dépasser la
+ * limite de connexions simultanées du fournisseur.
+ */
+function withImap<T>(
   account: { email: string; passwordEnc: string; imapHost: string; imapPort: number },
   fn: (c: ImapFlow) => Promise<T>,
   retries = 1,
 ): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const c = imapClient(account);
-    try {
-      await c.connect();
-      return await fn(c);
-    } catch (e) {
-      lastErr = e;
-      if (attempt < retries && isTransientMailError(e)) {
-        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
-        continue;
+  return withAccountLock(account.email, async () => {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const c = imapClient(account);
+      try {
+        await c.connect();
+        return await fn(c);
+      } catch (e) {
+        lastErr = e;
+        if (attempt < retries && isTransientMailError(e)) {
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+          continue;
+        }
+        throw e;
+      } finally {
+        await c.logout().catch(() => {});
       }
-      throw e;
-    } finally {
-      await c.logout().catch(() => {});
     }
-  }
-  throw lastErr;
+    throw lastErr;
+  });
 }
+
+// Alias historique (mêmes garanties, désormais sérialisé par compte).
+const withClient = withImap;
 
 /** Teste la connexion IMAP (login). Renvoie null si OK, sinon un message d'erreur clair. */
 export async function testImap(account: { email: string; passwordEnc: string; imapHost: string; imapPort: number }): Promise<string | null> {
@@ -275,9 +306,7 @@ export async function getMessage(account: MailAccount, mailbox: string, uid: num
 }
 
 export async function getAttachment(account: MailAccount, mailbox: string, uid: number, index: number): Promise<{ filename: string; contentType: string; content: Buffer } | null> {
-  const c = imapClient(account);
-  try {
-    await c.connect();
+  return withImap(account, async (c) => {
     const lock = await c.getMailboxLock(mailbox);
     try {
       const msg = await c.fetchOne(String(uid), { source: true }, { uid: true });
@@ -287,7 +316,7 @@ export async function getAttachment(account: MailAccount, mailbox: string, uid: 
       if (!a) return null;
       return { filename: a.filename || `piece-${index + 1}`, contentType: a.contentType || "application/octet-stream", content: a.content as Buffer };
     } finally { lock.release(); }
-  } finally { await c.logout().catch(() => {}); }
+  });
 }
 
 // ───────────────────────────── SMTP (envoi) ─────────────────────────────
@@ -325,18 +354,14 @@ export async function sendMail(account: MailAccount, opts: SendOptions): Promise
 
 /** Dépose une copie du message envoyé dans le dossier « Envoyés » de la boîte (IMAP APPEND). */
 async function appendToSent(account: MailAccount, raw: Buffer): Promise<void> {
-  const c = imapClient(account);
-  try {
-    await c.connect();
+  await withImap(account, async (c) => {
     const boxes = await c.list();
     const sent =
       boxes.find((b) => b.specialUse === "\\Sent") ||
       boxes.find((b) => /^(sent|sent items|sent messages|envoy)/i.test(b.name)) ||
       boxes.find((b) => /sent|envoy/i.test(b.path));
     if (sent) await c.append(sent.path, raw, ["\\Seen"]);
-  } finally {
-    await c.logout().catch(() => {});
-  }
+  });
 }
 
 /**
@@ -344,9 +369,7 @@ async function appendToSent(account: MailAccount, raw: Buffer): Promise<void> {
  * + destinataires récents (Envoyés). Dédupliqués par adresse, en minuscules.
  */
 export async function listRecentContacts(account: MailAccount, limit = 80): Promise<{ name: string; address: string }[]> {
-  const c = imapClient(account);
-  try {
-    await c.connect();
+  return withImap(account, async (c) => {
     const seen = new Map<string, { name: string; address: string }>();
     const boxes = await c.list();
     const sent = boxes.find((b) => b.specialUse === "\\Sent");
@@ -372,7 +395,5 @@ export async function listRecentContacts(account: MailAccount, limit = 80): Prom
       } catch { /* on ignore une source en erreur */ }
     }
     return [...seen.values()];
-  } finally {
-    await c.logout().catch(() => {});
-  }
+  });
 }
