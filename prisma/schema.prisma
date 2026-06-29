@@ -691,6 +691,10 @@ model MailAccount {
 
 model RegulatoryProduct {
   custom             Json? // admin-defined dynamic fields
+  // Suivi du processus officiel ANPP (22 étapes) et de la checklist de présoumission.
+  // Stockés en JSON (définition des étapes/documents en code) : { [clé]: { status/checked, date, note } }.
+  workflow           Json?
+  checklist          Json?
   id                 String             @id @default(cuid())
   reference          String             @unique // human readable ID, e.g. REG-2026-001
   dci                String // molecule / active ingredient

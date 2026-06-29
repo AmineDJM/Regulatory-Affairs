@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Priority, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus } from "@prisma/client";
+import type { Priority, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
@@ -9,6 +9,11 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { REGULATORY_STEP_ORDER } from "@/lib/labels";
+import {
+  isRegStepKey, isRegStepState, isRegChecklistKey,
+  REG_STEPS, REG_CHECKLIST,
+  type RegWorkflowState, type RegChecklistState,
+} from "@/lib/regulatory-workflow";
 
 export interface ActionResult {
   ok: boolean;
@@ -198,6 +203,61 @@ export async function addRegulatoryComment(formData: FormData): Promise<ActionRe
   await prisma.comment.create({
     data: { entityType: "REGULATORY_PRODUCT", entityId: productId, body, authorId: user.id },
   });
+  revalidatePath(`/regulatory/${productId}`);
+  return { ok: true };
+}
+
+// ───────────────────────── Processus officiel ANPP (workflow + checklist) ─────────────────────────
+
+/** Met à jour l'état d'une étape du processus ANPP (statut + date + note) sur un produit. */
+export async function setRegulatoryStepState(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const productId = str(formData, "productId");
+  const stepKey = str(formData, "stepKey");
+  const status = str(formData, "status");
+  if (!productId || !stepKey || !status) return { ok: false, error: "Paramètres manquants." };
+  if (!isRegStepKey(stepKey) || !isRegStepState(status)) return { ok: false, error: "Étape ou statut invalide." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+
+  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { workflow: true } });
+  if (!product) return { ok: false, error: "Dossier introuvable." };
+
+  const wf = { ...((product.workflow as RegWorkflowState | null) ?? {}) };
+  const date = str(formData, "date");
+  const note = str(formData, "note");
+  wf[stepKey] = {
+    status,
+    date: date && date.trim() ? date.trim() : (status === "DONE" ? new Date().toISOString().slice(0, 10) : wf[stepKey]?.date),
+    note: note !== null ? (note.trim() || undefined) : wf[stepKey]?.note,
+  };
+
+  await prisma.regulatoryProduct.update({ where: { id: productId }, data: { workflow: wf as unknown as Prisma.InputJsonValue } });
+  const stepLabel = REG_STEPS.find((s) => s.key === stepKey)?.label ?? stepKey;
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId, field: "workflow", newValue: status, summary: `Étape ANPP « ${stepLabel} » → ${status}` });
+  revalidatePath(`/regulatory/${productId}`);
+  return { ok: true };
+}
+
+/** Coche / décoche un document de la checklist de présoumission (avec note facultative). */
+export async function setRegulatoryChecklistItem(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const productId = str(formData, "productId");
+  const itemKey = str(formData, "itemKey");
+  if (!productId || !itemKey) return { ok: false, error: "Paramètres manquants." };
+  if (!isRegChecklistKey(itemKey)) return { ok: false, error: "Document invalide." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+
+  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { checklist: true } });
+  if (!product) return { ok: false, error: "Dossier introuvable." };
+
+  const checked = str(formData, "checked") === "true";
+  const note = str(formData, "note");
+  const cl = { ...((product.checklist as RegChecklistState | null) ?? {}) };
+  cl[itemKey] = { checked, note: note !== null ? (note.trim() || undefined) : cl[itemKey]?.note };
+
+  await prisma.regulatoryProduct.update({ where: { id: productId }, data: { checklist: cl as unknown as Prisma.InputJsonValue } });
+  const itemLabel = REG_CHECKLIST.flatMap((g) => g.items).find((i) => i.key === itemKey)?.label ?? itemKey;
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId, field: "checklist", newValue: checked ? "coché" : "décoché", summary: `Document présoumission « ${itemLabel} » ${checked ? "fourni" : "retiré"}` });
   revalidatePath(`/regulatory/${productId}`);
   return { ok: true };
 }

@@ -14,7 +14,8 @@ import { CommentThread } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { StepTimeline, type StepItem } from "./step-timeline";
+import { RegulatoryProcess, RegulatoryChecklist } from "./anpp-process";
+import { regProgress, regChecklistProgress, type RegWorkflowState, type RegChecklistState } from "@/lib/regulatory-workflow";
 import { StatusEditor } from "./status-editor";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { getFieldDefs } from "@/lib/custom-fields";
@@ -76,17 +77,10 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
   const canUpload = userCan(user, "REGULATORY", "UPLOAD");
   const canDelete = userCan(user, "REGULATORY", "DELETE");
 
-  const steps: StepItem[] = product.steps.map((s) => ({
-    id: s.id,
-    type: s.type,
-    order: s.order,
-    status: s.status,
-    plannedDate: s.plannedDate?.toISOString() ?? null,
-    actualDate: s.actualDate?.toISOString() ?? null,
-    responsible: s.responsible,
-    comment: s.comment,
-    missingDocs: s.missingDocs,
-  }));
+  const workflow = (product.workflow as RegWorkflowState | null) ?? null;
+  const checklist = (product.checklist as RegChecklistState | null) ?? null;
+  const wfProgress = regProgress(workflow);
+  const clProgress = regChecklistProgress(checklist);
 
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id,
@@ -162,11 +156,21 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
 
           <Card>
             <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>Workflow réglementaire</CardTitle>
-              <Badge tone="info">{doneSteps}/{product.steps.length} étapes</Badge>
+              <CardTitle>Processus d'enregistrement ANPP</CardTitle>
+              <Badge tone={wfProgress.pct === 100 ? "success" : "info"} dot={false}>{wfProgress.done}/{wfProgress.total} étapes</Badge>
             </CardHeader>
             <CardContent>
-              <StepTimeline steps={steps} canUpdate={canUpdate} />
+              <RegulatoryProcess productId={product.id} workflow={workflow} canUpdate={canUpdate} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle>Checklist de présoumission</CardTitle>
+              <Badge tone={clProgress.pct === 100 ? "success" : "neutral"} dot={false}>{clProgress.checked}/{clProgress.total} documents</Badge>
+            </CardHeader>
+            <CardContent>
+              <RegulatoryChecklist productId={product.id} checklist={checklist} canUpdate={canUpdate} />
             </CardContent>
           </Card>
 

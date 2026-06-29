@@ -1,6 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { userCan, scopeRegulatory } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { PageHeader } from "@/components/shared/page-header";
 import { RegulatoryTable, type RegulatoryRow } from "./regulatory-table";
 import { NewProductButton } from "./new-product";
@@ -15,13 +16,13 @@ export default async function RegulatoryPage() {
     include: {
       responsible: { select: { name: true } },
       assistant: { select: { name: true } },
-      steps: { select: { status: true } },
     },
   });
 
   const rows: RegulatoryRow[] = products.map((p) => {
-    const total = p.steps.length || 17;
-    const done = p.steps.filter((s) => s.status === "DONE").length;
+    const prog = regProgress(p.workflow as RegWorkflowState | null);
+    const done = prog.done;
+    const total = prog.total;
     return {
       id: p.id,
       reference: p.reference,
