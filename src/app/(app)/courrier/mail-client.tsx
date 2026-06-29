@@ -150,6 +150,7 @@ export function MailClient({ email }: { email: string }) {
 }
 
 function Reader({ msg, mailbox, loading, onBack, onReply }: { msg: MsgDetail; mailbox: string; loading: boolean; onBack: () => void; onReply: () => void }) {
+  const [preview, setPreview] = React.useState<AttMeta | null>(null);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b border-border bg-gradient-to-r from-accent/30 to-transparent px-4 py-3">
@@ -165,12 +166,13 @@ function Reader({ msg, mailbox, loading, onBack, onReply }: { msg: MsgDetail; ma
       {msg.attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 border-b border-border px-4 py-2">
           {msg.attachments.map((a) => (
-            <a key={a.index} href={`/api/mail/attachment?mailbox=${encodeURIComponent(mailbox)}&uid=${msg.uid}&index=${a.index}`} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2.5 py-1 text-xs hover:bg-secondary">
+            <button key={a.index} type="button" onClick={() => setPreview(a)} title="Aperçu" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2.5 py-1 text-xs hover:bg-secondary">
               <Paperclip className="h-3.5 w-3.5" /> {a.filename}
-            </a>
+            </button>
           ))}
         </div>
       )}
+      {preview && <AttachmentPreview mailbox={mailbox} uid={msg.uid} att={preview} onClose={() => setPreview(null)} />}
       <div className="min-h-0 flex-1 overflow-auto bg-muted/10 p-3">
         {loading ? (
           <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Chargement…</div>
@@ -179,6 +181,44 @@ function Reader({ msg, mailbox, loading, onBack, onReply }: { msg: MsgDetail; ma
         ) : (
           <pre className="whitespace-pre-wrap rounded-lg border border-border bg-white p-4 text-sm text-neutral-900">{msg.text || "(message vide)"}</pre>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Aperçu in-app d'une pièce jointe (PDF / image / texte) avant téléchargement. */
+function AttachmentPreview({ mailbox, uid, att, onClose }: { mailbox: string; uid: number; att: AttMeta; onClose: () => void }) {
+  const base = `/api/mail/attachment?mailbox=${encodeURIComponent(mailbox)}&uid=${uid}&index=${att.index}`;
+  const inlineUrl = `${base}&inline=1`;
+  const lower = att.filename.toLowerCase();
+  const isImg = att.contentType.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(lower);
+  const isPdf = att.contentType === "application/pdf" || lower.endsWith(".pdf");
+  const isText = att.contentType.startsWith("text/") || /\.(txt|csv|log|md)$/.test(lower);
+  const canPreview = isImg || isPdf || isText;
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col bg-black/70 p-3 sm:p-6" onClick={onClose}>
+      <div className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+          <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <p className="min-w-0 flex-1 truncate text-sm font-medium">{att.filename}</p>
+          <a href={base} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary"><ExternalLink className="h-3.5 w-3.5" /> Télécharger</a>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="min-h-0 flex-1 bg-muted/20">
+          {isImg ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={inlineUrl} alt={att.filename} className="mx-auto max-h-full max-w-full object-contain" />
+          ) : isPdf || isText ? (
+            <iframe title={att.filename} src={inlineUrl} sandbox="" className="h-full min-h-[60vh] w-full bg-white" />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-sm text-muted-foreground">
+              <Paperclip className="h-8 w-8" />
+              <p>Aperçu non disponible pour ce type de fichier.</p>
+              <a href={base} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-medium text-foreground hover:bg-secondary"><ExternalLink className="h-4 w-4" /> Télécharger</a>
+            </div>
+          )}
+        </div>
+        {canPreview && <p className="border-t border-border px-4 py-1.5 text-center text-[11px] text-muted-foreground">Aperçu — utilisez « Télécharger » pour enregistrer le fichier.</p>}
       </div>
     </div>
   );

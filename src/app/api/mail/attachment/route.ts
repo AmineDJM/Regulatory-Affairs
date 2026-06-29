@@ -18,10 +18,15 @@ export async function GET(req: NextRequest) {
   try {
     const att = await getAttachment(account, mailbox, uid, index);
     if (!att) return NextResponse.json({ error: "Pièce jointe introuvable" }, { status: 404 });
+    // Aperçu in-app (inline) ou téléchargement selon le paramètre.
+    const inline = req.nextUrl.searchParams.get("inline") === "1";
     return new NextResponse(att.content as unknown as BodyInit, {
       headers: {
         "Content-Type": att.contentType,
-        "Content-Disposition": `attachment; filename="${encodeURIComponent(att.filename)}"`,
+        "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(att.filename)}"`,
+        // Empêche l'exécution de contenu actif dans l'aperçu.
+        "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; object-src 'self';",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (e) {
