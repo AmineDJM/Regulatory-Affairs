@@ -19,6 +19,8 @@ import { RegulatoryProcess, RegulatoryChecklist } from "./anpp-process";
 import { regProgress, regChecklistProgress, type RegWorkflowState, type RegChecklistState } from "@/lib/regulatory-workflow";
 import { StatusEditor } from "./status-editor";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { BvRequests, type BvItem } from "./bv-requests";
+import { toNumber } from "@/lib/utils";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { getFieldDefs } from "@/lib/custom-fields";
 import { suggestedExternalStatus } from "@/lib/regulatory-external";
@@ -52,7 +54,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
   });
   if (!product) notFound();
 
-  const [documents, comments, fieldDefs, suppliers] = await Promise.all([
+  const [documents, comments, fieldDefs, suppliers, bvOrders] = await Promise.all([
     prisma.document.findMany({
       where: { entityType: "REGULATORY_PRODUCT", entityId: product.id },
       include: { uploadedBy: { select: { name: true } } },
@@ -65,6 +67,11 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
     }),
     getFieldDefs("REGULATORY_PRODUCT"),
     prisma.supplier.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.expenseOrder.findMany({
+      where: { sourceType: "REGULATORY_PRODUCT", sourceId: product.id },
+      select: { id: true, reference: true, label: true, amount: true, status: true, dueDate: true, paidDate: true },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
 
   const supplierViewValues = {
@@ -87,7 +94,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
   const wfProgress = regProgress(workflow);
   const clProgress = regChecklistProgress(checklist);
 
-  const allDocItems: DocItem[] = documents.map((d) => ({
+  const toDocItem = (d: (typeof documents)[number]): DocItem => ({
     id: d.id,
     name: d.name,
     category: d.category,
@@ -97,10 +104,19 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
     uploadedBy: d.uploadedBy?.name ?? null,
     createdAt: d.createdAt.toISOString(),
     hasFile: Boolean(d.fileKey),
+  });
+  // Les pièces rattachées à une étape ANPP vivent sous leur étape (pas dans la liste générale).
+  const stepDocs: Record<string, DocItem[]> = {};
+  for (const d of documents) if (d.stepKey) (stepDocs[d.stepKey] ??= []).push(toDocItem(d));
+  const nonStep = documents.filter((d) => !d.stepKey);
+  // On sépare ensuite les pièces des réserves (section dédiée) du reste des documents.
+  const reserveDocs = nonStep.filter((d) => REG_RESERVE_CATEGORIES.includes(d.category)).map(toDocItem);
+  const docItems = nonStep.filter((d) => !REG_RESERVE_CATEGORIES.includes(d.category)).map(toDocItem);
+
+  const bvItems: BvItem[] = bvOrders.map((o) => ({
+    id: o.id, reference: o.reference, label: o.label, amount: toNumber(o.amount),
+    status: o.status, dueDate: o.dueDate?.toISOString() ?? null, paidDate: o.paidDate?.toISOString() ?? null,
   }));
-  // On sépare les pièces des réserves (section dédiée) du reste des documents.
-  const reserveDocs = allDocItems.filter((d) => REG_RESERVE_CATEGORIES.includes(d.category));
-  const docItems = allDocItems.filter((d) => !REG_RESERVE_CATEGORIES.includes(d.category));
 
   const doneSteps = product.steps.filter((s) => s.status === "DONE").length;
 
@@ -189,7 +205,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
               <Badge tone={wfProgress.pct === 100 ? "success" : "info"} dot={false}>{wfProgress.done}/{wfProgress.total} étapes</Badge>
             </CardHeader>
             <CardContent>
-              <RegulatoryProcess productId={product.id} workflow={workflow} canUpdate={canUpdate} />
+              <RegulatoryProcess productId={product.id} workflow={workflow} canUpdate={canUpdate} canUpload={canUpload} canDelete={canDelete} stepDocs={stepDocs} path={`/regulatory/${product.id}`} />
             </CardContent>
           </Card>
 
@@ -270,6 +286,16 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                 />
               )}
               <DocumentList documents={docItems} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload} path={`/regulatory/${product.id}`} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle>Bons de versement (BV)</CardTitle>
+              <Badge tone="neutral">{bvItems.length}</Badge>
+            </CardHeader>
+            <CardContent>
+              <BvRequests productId={product.id} items={bvItems} canRequest={canUpdate} />
             </CardContent>
           </Card>
 

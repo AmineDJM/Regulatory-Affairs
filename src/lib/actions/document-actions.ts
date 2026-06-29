@@ -27,6 +27,7 @@ export async function uploadDocument(
   const category = (formData.get("category") as DocumentCategory) || "OTHER";
   const confidentiality = (formData.get("confidentiality") as Confidentiality) || "INTERNAL";
   const path = String(formData.get("path") ?? "");
+  const stepKey = formData.get("stepKey") ? String(formData.get("stepKey")) : null;
   const file = formData.get("file") as File | null;
 
   if (!entityType || !entityId) return { ok: false, error: "Entité manquante." };
@@ -59,6 +60,7 @@ export async function uploadDocument(
       category,
       entityType,
       entityId,
+      stepKey,
       fileKey: key,
       mimeType: file.type || null,
       sizeBytes: file.size,

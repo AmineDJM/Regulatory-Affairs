@@ -17,6 +17,7 @@ interface CreateExpenseOrderInput {
   sourceId?: string;
   requestedById?: string | null;
   notes?: string | null;
+  dueDate?: Date | null;
 }
 
 /**
@@ -35,6 +36,7 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
       sourceId: input.sourceId,
       requestedById: input.requestedById ?? null,
       notes: input.notes ?? null,
+      dueDate: input.dueDate ?? null,
     },
   });
   await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {

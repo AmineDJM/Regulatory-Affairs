@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { Priority, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
@@ -8,6 +9,9 @@ import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
+import { createExpenseOrder } from "@/lib/expense-orders";
+import { saveFile, validateUpload } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
 import { REGULATORY_STEP_ORDER } from "@/lib/labels";
 import {
   isRegStepKey, isRegStepState, isRegChecklistKey,
@@ -242,6 +246,87 @@ export async function setRegulatoryStepState(formData: FormData): Promise<Action
   const stepLabel = REG_STEPS.find((s) => s.key === stepKey)?.label ?? stepKey;
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId, field: "workflow", newValue: status, summary: `Étape ANPP « ${stepLabel} » → ${status}` });
   revalidatePath(`/regulatory/${productId}`);
+  return { ok: true };
+}
+
+/** Enregistre uniquement le commentaire d'une étape ANPP (sans changer son statut). */
+export async function setRegulatoryStepNote(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const productId = str(formData, "productId");
+  const stepKey = str(formData, "stepKey");
+  if (!productId || !stepKey) return { ok: false, error: "Paramètres manquants." };
+  if (!isRegStepKey(stepKey)) return { ok: false, error: "Étape invalide." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+
+  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { workflow: true } });
+  if (!product) return { ok: false, error: "Dossier introuvable." };
+
+  const note = str(formData, "note");
+  const wf = { ...((product.workflow as RegWorkflowState | null) ?? {}) };
+  wf[stepKey] = { ...(wf[stepKey] ?? {}), status: wf[stepKey]?.status ?? "TODO", note: note && note.trim() ? note.trim() : undefined };
+
+  await prisma.regulatoryProduct.update({ where: { id: productId }, data: { workflow: wf as unknown as Prisma.InputJsonValue } });
+  revalidatePath(`/regulatory/${productId}`);
+  return { ok: true };
+}
+
+/**
+ * « Demande de BV » : émet un ordre de dépense (envoyé à l'espace comptable) avec
+ * montant + échéance, et joint éventuellement un justificatif (proforma BV). Le
+ * comptable le voit dans les ordres de dépense / Finances.
+ */
+export async function requestBV(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const productId = str(formData, "productId");
+  if (!productId) return { ok: false, error: "Dossier introuvable." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+
+  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { reference: true, dci: true } });
+  if (!product) return { ok: false, error: "Dossier introuvable." };
+
+  const bvType = str(formData, "bvType") || "BV";
+  const amount = Number(str(formData, "amount"));
+  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Montant invalide." };
+  const dueRaw = str(formData, "dueDate");
+  const note = str(formData, "note");
+
+  const order = await createExpenseOrder({
+    label: `${bvType} — ${product.reference} ${product.dci}`,
+    amount,
+    category: "IMPOT",
+    beneficiary: "ANPP",
+    sourceType: "REGULATORY_PRODUCT",
+    sourceId: productId,
+    requestedById: user.id,
+    notes: note,
+    dueDate: dueRaw ? new Date(dueRaw) : null,
+  });
+
+  // Justificatif facultatif : rattaché à l'ordre de dépense (visible côté comptable).
+  const file = formData.get("file");
+  if (file instanceof File && file.size > 0) {
+    const err = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
+    if (err) return { ok: false, error: err };
+    const key = `EXPENSE_ORDER/${order.id}/${randomUUID()}__${file.name}`;
+    try {
+      await saveFile(key, Buffer.from(await file.arrayBuffer()));
+    } catch (e) {
+      console.error("[requestBV] storage write failed", e);
+    }
+    await prisma.document.create({
+      data: {
+        name: file.name, category: "PROFORMA", entityType: "EXPENSE_ORDER", entityId: order.id,
+        fileKey: key, mimeType: file.type || null, sizeBytes: file.size, confidentiality: "INTERNAL", uploadedById: user.id,
+      },
+    });
+  }
+
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId,
+    summary: `Demande de ${bvType} (${amount.toLocaleString("fr-FR")} DZD) → ordre ${order.reference}`,
+  });
+  revalidatePath(`/regulatory/${productId}`);
+  revalidatePath("/finances");
   return { ok: true };
 }
 

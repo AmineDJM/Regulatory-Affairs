@@ -15,6 +15,8 @@ interface DocumentUploadProps {
   entityType: EntityType;
   entityId: string;
   categories?: string[]; // restrict category choices for the module
+  stepKey?: string; // rattache le document à une étape (Regulatory)
+  compact?: boolean; // version condensée (par étape) : pas de zone de glisser-déposer
 }
 
 function SubmitButton({ disabled }: { disabled: boolean }) {
@@ -27,7 +29,7 @@ function SubmitButton({ disabled }: { disabled: boolean }) {
   );
 }
 
-export function DocumentUpload({ entityType, entityId, categories }: DocumentUploadProps) {
+export function DocumentUpload({ entityType, entityId, categories, stepKey, compact }: DocumentUploadProps) {
   const pathname = usePathname();
   const [state, formAction] = useFormState<ActionResult | undefined, FormData>(
     uploadDocument,
@@ -66,6 +68,7 @@ export function DocumentUpload({ entityType, entityId, categories }: DocumentUpl
       <input type="hidden" name="entityType" value={entityType} />
       <input type="hidden" name="entityId" value={entityId} />
       <input type="hidden" name="path" value={pathname} />
+      {stepKey && <input type="hidden" name="stepKey" value={stepKey} />}
 
       <label
         onDragOver={(e) => {
@@ -75,15 +78,16 @@ export function DocumentUpload({ entityType, entityId, categories }: DocumentUpl
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         className={cn(
-          "flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors",
+          "flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border-2 border-dashed text-center transition-colors",
+          compact ? "px-3 py-2.5" : "flex-col px-4 py-6",
           dragOver ? "border-primary bg-accent/50" : "border-border bg-muted/30 hover:bg-muted/50",
         )}
       >
-        <UploadCloud className="h-6 w-6 text-muted-foreground" />
-        <span className="text-sm font-medium">
-          {fileName ?? "Glissez un fichier ici ou cliquez pour parcourir"}
+        <UploadCloud className={cn("text-muted-foreground", compact ? "h-4 w-4" : "h-6 w-6")} />
+        <span className={cn("font-medium", compact ? "text-xs" : "text-sm")}>
+          {fileName ?? (compact ? "Joindre un document" : "Glissez un fichier ici ou cliquez pour parcourir")}
         </span>
-        <span className="text-xs text-muted-foreground">PDF, Word, Excel, images — max 25 Mo</span>
+        {!compact && <span className="text-xs text-muted-foreground">PDF, Word, Excel, images</span>}
         <input
           ref={inputRef}
           type="file"
@@ -93,22 +97,29 @@ export function DocumentUpload({ entityType, entityId, categories }: DocumentUpl
         />
       </label>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Select name="category" defaultValue={categoryEntries[0]?.[0]} className="text-sm">
-          {categoryEntries.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </Select>
-        <Select name="confidentiality" defaultValue="INTERNAL" className="text-sm">
-          {Object.entries(CONFIDENTIALITY).map(([value, v]) => (
-            <option key={value} value={value}>
-              {v.label}
-            </option>
-          ))}
-        </Select>
-      </div>
+      {compact ? (
+        <>
+          <input type="hidden" name="category" value={categoryEntries[0]?.[0] ?? "OTHER"} />
+          <input type="hidden" name="confidentiality" value="INTERNAL" />
+        </>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <Select name="category" defaultValue={categoryEntries[0]?.[0]} className="text-sm">
+            {categoryEntries.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+          <Select name="confidentiality" defaultValue="INTERNAL" className="text-sm">
+            {Object.entries(CONFIDENTIALITY).map(([value, v]) => (
+              <option key={value} value={value}>
+                {v.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
 
       <div className="flex items-center justify-between">
         <div className="text-sm">

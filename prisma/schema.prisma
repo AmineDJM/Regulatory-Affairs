@@ -1534,6 +1534,7 @@ model Document {
   category        DocumentCategory @default(OTHER)
   entityType      EntityType
   entityId        String
+  stepKey         String? // étape ANPP rattachée (Regulatory) : clé d'étape du workflow
   fileKey         String? // storage object key (S3/R2/Supabase)
   mimeType        String?
   sizeBytes       Int?
