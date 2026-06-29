@@ -15,6 +15,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { EditEventButton } from "../event-form";
 import { RegistrationsManager } from "./registrations-manager";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,21 @@ export default async function EventDetailPage({ params }: { params: { id: string
         </Card>
       </div>
 
+      <Card>
+        <CardHeader><CardTitle>Suivi de validation</CardTitle></CardHeader>
+        <CardContent className="grid gap-5 sm:grid-cols-2">
+          <ValidationStepper steps={eventValidationSteps(e.status)} />
+          <div className="space-y-3 text-sm">
+            <Info label="Statut actuel" value={EVENT_STATUS[e.status]?.label ?? e.status} />
+            <Info label="Budget estimé / validé" value={e.estimatedBudget !== null ? formatCurrency(e.estimatedBudget) : "À renseigner"} />
+            <Info label="Responsable interne" value={e.responsibleName} />
+            {canManage && ["DRAFT", "AWAITING_VALIDATION"].includes(e.status) && (
+              <p className="rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">Faites avancer la validation via « Modifier » : passez le statut à « Attente validation » puis « Validé » (pensez à renseigner le budget).</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {e.stats.bySpecialty.length > 0 && (
         <Card>
           <CardHeader><CardTitle>Répartition par spécialité</CardTitle></CardHeader>
@@ -88,6 +104,26 @@ export default async function EventDetailPage({ params }: { params: { id: string
 
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
   return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium">{value || "—"}</p></div>;
+}
+
+/** Frise du circuit de validation d'un événement, dérivée de son statut. */
+function eventValidationSteps(status: string): VStep[] {
+  if (status === "CANCELLED") {
+    return [
+      { label: "Brouillon", state: "done" },
+      { label: "Validation par la Direction", state: "rejected" },
+      { label: "Annulé", state: "rejected" },
+    ];
+  }
+  const cur = status === "DRAFT" ? 0 : status === "AWAITING_VALIDATION" ? 1 : 2; // VALIDATED et au-delà
+  const base = ["Brouillon", "En attente de validation (Direction)", "Validé"];
+  return base.map((label, i): VStep => {
+    let state: VStepState;
+    if (i < cur) state = "done";
+    else if (i > cur) state = "todo";
+    else state = i === 2 ? "done" : "current";
+    return { label, state };
+  });
 }
 function Mini({ label, value, tone }: { label: string; value: string | number; tone?: "success" | "info" }) {
   const c = tone === "success" ? "text-success" : tone === "info" ? "text-primary" : "";

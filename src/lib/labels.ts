@@ -410,6 +410,7 @@ export const DOCUMENT_CATEGORY: Record<string, string> = {
   ORIGIN_AMM: "AMM pays d'origine",
   SUBMISSION_LETTER: "Lettre de soumission",
   BV_RECEIPT: "Reçu de paiement BV",
+  QUERY_RECEIVED: "Réserves reçues (ANPP)",
   QUERY_RESPONSE: "Réponse aux réserves",
   REGISTRATION_DECISION: "Décision d'enregistrement",
   PROFORMA: "Proforma",

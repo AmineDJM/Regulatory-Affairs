@@ -14,6 +14,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SPONSORING_STATUS, PRIORITY } from "@/lib/labels";
 import { DecisionPanel } from "./decision-panel";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
 
 const SPONSORING_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -108,7 +109,14 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
           {/* Suivi de validation */}
           <Card>
             <CardHeader><CardTitle>Suivi de validation</CardTitle></CardHeader>
-            <CardContent className="space-y-3 text-sm">
+            <CardContent className="space-y-4 text-sm">
+              {/* Frise toujours visible : où en est la demande dans le circuit. */}
+              <ValidationStepper steps={sponsoringValidationSteps(req.status)} />
+              {req.appealCount > 0 && (
+                <p className="rounded-lg bg-purple-500/10 px-3 py-2 text-xs text-purple-700">Cette demande a fait l'objet d'un appel ({req.appealCount}×) — réexamen par le chef de produit puis décision de la Direction.</p>
+              )}
+              {(canSeeInternal && req.preliminaryNote) || (canSeeInternal && (req.productManagerNotes || req.productManagerBudget != null)) || req.appealReason || ["APPROVED", "REFUSED"].includes(req.status) ? (
+                <div className="space-y-3 border-t border-border pt-3">
               {canSeeInternal && req.preliminaryNote && (
                 <Step title="Pré-validation (Direction)" internal>
                   <p className="whitespace-pre-wrap">{req.preliminaryNote}</p>
@@ -132,6 +140,8 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                   {req.validationDate && <p className="mt-1 text-xs text-muted-foreground">{formatDate(req.validationDate)}{req.validatedBy ? ` · ${req.validatedBy}` : ""}</p>}
                 </Step>
               )}
+                </div>
+              ) : null}
               {!canSeeInternal && !["APPROVED", "REFUSED"].includes(req.status) && (
                 <p className="text-muted-foreground">Votre demande suit son cours. Vous serez notifié de la décision de la Direction (budget accordé et commentaire).</p>
               )}
@@ -191,6 +201,29 @@ function Info({ label, value }: { label: string; value: string | null | undefine
       <p className="font-medium">{value || "—"}</p>
     </div>
   );
+}
+
+/** Frise du circuit de validation sponsoring/congrès, dérivée du statut. */
+function sponsoringValidationSteps(status: string): VStep[] {
+  // Étape « active » du circuit (0 = pré-validation … 3 = résultat).
+  let cur: number;
+  if (["RECEIVED", "IN_ANALYSIS", "AWAITING_PRELIMINARY"].includes(status)) cur = 0;
+  else if (["PRELIMINARY_APPROVED", "APPEAL_PENDING"].includes(status)) cur = 1;
+  else if (["AWAITING_FINAL", "AWAITING_FINAL_APPEAL", "AWAITING_DIRECTION", "ACCEPTED"].includes(status)) cur = 2;
+  else cur = 3; // APPROVED / REFUSED / PAID / CLOSED / CANCELLED
+  const refused = status === "REFUSED";
+  const cancelled = status === "CANCELLED";
+  const approved = ["APPROVED", "PAID", "CLOSED"].includes(status);
+
+  const base = ["Pré-validation (Direction)", "Analyse chef de produit", "Décision de la Direction", "Résultat"];
+  return base.map((label, i): VStep => {
+    let state: VStepState;
+    if (i < cur) state = "done";
+    else if (i > cur) state = "todo";
+    else state = i === 3 ? (refused || cancelled ? "rejected" : "done") : "current";
+    if (i === 3) label = refused ? "Refusé" : cancelled ? "Annulé" : approved ? "Accordé" : "Résultat";
+    return { label, state };
+  });
 }
 
 function Step({ title, children, internal, tone }: { title: string; children: React.ReactNode; internal?: boolean; tone?: "purple" }) {

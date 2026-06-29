@@ -81,6 +81,40 @@ export async function uploadDocument(
   return { ok: true };
 }
 
+/** Renomme un document (corriger une erreur de saisie). Mêmes droits que la suppression. */
+export async function renameDocument(id: string, name: string, path?: string): Promise<ActionResult> {
+  const user = await requireUser();
+  const clean = name.trim();
+  if (!clean) return { ok: false, error: "Le nom ne peut pas être vide." };
+
+  const doc = await prisma.document.findUnique({ where: { id } });
+  if (!doc) return { ok: false, error: "Document introuvable." };
+
+  const allowed =
+    doc.uploadedById === user.id ||
+    (await canAccessEntity(user, doc.entityType, doc.entityId, "UPDATE")) ||
+    (await canAccessEntity(user, doc.entityType, doc.entityId, "DELETE"));
+  if (!allowed) return { ok: false, error: "Modification non autorisée." };
+
+  if (clean === doc.name) return { ok: true };
+
+  await prisma.document.update({ where: { id }, data: { name: clean } });
+  await recordAudit({
+    actorId: user.id,
+    action: "UPDATE",
+    module: ENTITY_TYPE_LABELS[doc.entityType] ?? ENTITY_MODULE[doc.entityType],
+    entityType: doc.entityType,
+    entityId: doc.entityId,
+    field: "name",
+    oldValue: doc.name,
+    newValue: clean,
+    summary: `Document renommé « ${doc.name} » → « ${clean} »`,
+  });
+
+  if (path) revalidatePath(path);
+  return { ok: true };
+}
+
 export async function deleteDocument(id: string, path?: string): Promise<ActionResult> {
   const user = await requireUser();
   const doc = await prisma.document.findUnique({ where: { id } });

@@ -29,8 +29,11 @@ import { SupplierViewCard } from "./supplier-view-card";
 const REG_DOC_CATEGORIES = [
   "CTD_FULL", "MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5",
   "GMP_CERTIFICATE", "CPP", "ORIGIN_AMM", "SUBMISSION_LETTER", "BV_RECEIPT",
-  "QUERY_RESPONSE", "REGISTRATION_DECISION", "OTHER",
+  "REGISTRATION_DECISION", "OTHER",
 ];
+
+// Documents liés aux réserves de l'ANPP (réserves reçues + réponses du laboratoire).
+const REG_RESERVE_CATEGORIES = ["QUERY_RECEIVED", "QUERY_RESPONSE"];
 
 export default async function RegulatoryDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("REGULATORY");
@@ -84,7 +87,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
   const wfProgress = regProgress(workflow);
   const clProgress = regChecklistProgress(checklist);
 
-  const docItems: DocItem[] = documents.map((d) => ({
+  const allDocItems: DocItem[] = documents.map((d) => ({
     id: d.id,
     name: d.name,
     category: d.category,
@@ -95,6 +98,9 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
     createdAt: d.createdAt.toISOString(),
     hasFile: Boolean(d.fileKey),
   }));
+  // On sépare les pièces des réserves (section dédiée) du reste des documents.
+  const reserveDocs = allDocItems.filter((d) => REG_RESERVE_CATEGORIES.includes(d.category));
+  const docItems = allDocItems.filter((d) => !REG_RESERVE_CATEGORIES.includes(d.category));
 
   const doneSteps = product.steps.filter((s) => s.status === "DONE").length;
 
@@ -198,6 +204,32 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
           </Card>
 
           <Card>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle>Réserves &amp; réponses (ANPP)</CardTitle>
+              <Badge tone="neutral">{reserveDocs.length}</Badge>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Déposez ici les <strong>réserves reçues de l'ANPP</strong> (PDF) et les <strong>réponses</strong> du laboratoire. Vous pouvez renommer ou supprimer une pièce en cas d'erreur.
+              </p>
+              {canUpload && (
+                <DocumentUpload
+                  entityType="REGULATORY_PRODUCT"
+                  entityId={product.id}
+                  categories={REG_RESERVE_CATEGORIES}
+                />
+              )}
+              <DocumentList
+                documents={reserveDocs}
+                canDelete={canDelete || canUpload}
+                canRename={canUpload}
+                canEdit={onlyofficeConfigured() && canUpload}
+                path={`/regulatory/${product.id}`}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
             <CardHeader>
               <CardTitle>Commentaires</CardTitle>
             </CardHeader>
@@ -237,7 +269,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   categories={REG_DOC_CATEGORIES}
                 />
               )}
-              <DocumentList documents={docItems} canDelete={canDelete} canEdit={onlyofficeConfigured() && canUpload} path={`/regulatory/${product.id}`} />
+              <DocumentList documents={docItems} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload} path={`/regulatory/${product.id}`} />
             </CardContent>
           </Card>
 
