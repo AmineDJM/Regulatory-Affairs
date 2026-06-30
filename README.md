@@ -4,8 +4,9 @@
 
 **L'« OS d'entreprise » d'un laboratoire pharmaceutique algérien : un seul outil connecté pour piloter 100 % de l'activité.**
 
-Regulatory · Sponsoring · Budgets & Finances · Congrès & Événements · Ventes · Logistique & Marchés PCH ·
-Promotion médicale · Information médicale · Business Development · RH · Messagerie · Courrier · Drive · Assistant IA
+Regulatory · Ad & Pro (Sponsoring · Congrès · Événements · Matériel promotionnel) · Budgets & enveloppes · Finances ·
+Ventes · Logistique & Marchés PCH · Promotion médicale · Information médicale · Business Development (+ Pharmatool) ·
+RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Calendrier · Réunions · Assistant IA · Adventum Brain
 
 [![Next.js](https://img.shields.io/badge/Next.js-14.2-black?logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript)](https://www.typescriptlang.org)
@@ -23,15 +24,17 @@ Promotion médicale · Information médicale · Business Development · RH · Me
 - [Vision & principes](#-vision--principes)
 - [Aperçu en un coup d'œil](#-aperçu-en-un-coup-dœil)
 - [Stack technique](#-stack-technique)
-- [Panorama des modules](#-panorama-des-modules-31-routes)
+- [Panorama des modules](#-panorama-des-modules)
   - [Pilotage](#pilotage) · [Pôles métier](#pôles-métier) · [Transverse](#transverse) · [Système](#système) · [Externe](#externe)
 - [Sécurité & contrôle d'accès (RBAC)](#-sécurité--contrôle-daccès-rbac)
 - [Rôles](#-rôles)
 - [Workflows critiques](#-workflows-critiques)
 - [Intelligence artificielle](#-intelligence-artificielle-claude--whisper)
+- [Adventum Brain](#-adventum-brain-cockpit-super-admin)
+- [Score d'adoption](#-score-dadoption-super-admin--adminadoption)
 - [Messagerie temps réel](#-messagerie-interne-temps-réel)
 - [Courrier — webmail intégré](#-courrier--webmail-infomaniak-intégré)
-- [Édition Office (OnlyOffice)](#-édition-office-onlyoffice-auto-hébergé)
+- [Édition Office & impression](#-édition-office-onlyoffice--impression)
 - [Démarrage local](#-démarrage-local)
 - [Variables d'environnement](#-variables-denvironnement)
 - [Déploiement (Render)](#-déploiement--render)
@@ -49,11 +52,12 @@ Promotion médicale · Information médicale · Business Development · RH · Me
 **AMD Internal OS** est le logiciel interne **unique** d'**Adventum Pharma**. Il remplace la dispersion
 e-mails / Excel / WhatsApp par **un seul environnement de travail connecté**.
 
-- 🧩 **Tout dans un seul outil connecté** — un module en alimente un autre (une validation crée un ordre de dépense, qui devient une écriture comptable, etc.).
+- 🧩 **Tout dans un seul outil connecté** — un module en alimente un autre (une validation crée un ordre de dépense, qui devient une écriture comptable et consomme une enveloppe budgétaire, etc.).
 - 📊 **100 % digitalisé & data-driven**, **zéro donnée simulée** : l'admin et les utilisateurs saisissent la vraie donnée.
 - 🔐 **Accès ultra-granulaire piloté par l'admin** : par **utilisateur × onglet × action × ligne**.
 - 🇩🇿 **Contexte algérien** : devise **DZD**, fiscalité (G50, IRG, IBS, CNAS, CASNOS), réglementaire **AMM / ANPP**, client institutionnel **PCH** (Pharmacie Centrale des Hôpitaux — marchés publics).
-- 🏢 **L'unique poste de travail de l'employé** : Drive, messagerie interne, **courrier (e-mail)**, **édition Office collaborative**, assistant IA — tout intégré.
+- 🏢 **L'unique poste de travail de l'employé** : Drive, messagerie interne, **courrier (e-mail)**, **édition Office collaborative**, **calendrier**, **réunions**, assistant IA — tout intégré.
+- 🖨️ **Tout est imprimable et traçable** : chaque document de la plateforme dispose d'une option **Imprimer**, et chaque action sensible est **journalisée** (qui / quoi / quand / pourquoi).
 
 ---
 
@@ -61,12 +65,13 @@ e-mails / Excel / WhatsApp par **un seul environnement de travail connecté**.
 
 | | |
 |---|---|
-| **31** routes applicatives | **14** rôles métier |
-| **72** modèles Prisma · **76** enums | **31** migrations |
+| **~40** modules de navigation · **86** routes applicatives | **16** rôles métier |
+| **93** modèles Prisma · **86** enums | **64** migrations |
 | RBAC **module × action × ligne** appliqué **côté serveur** | Drive & mots de passe **chiffrés AES-256-GCM** |
-| Assistant IA (boucle agent Claude) | Rapports terrain **vocaux** (Whisper → Claude) |
-| Messagerie interne temps réel | Webmail Infomaniak intégré |
-| Édition Word/Excel/PowerPoint (OnlyOffice) | Aperçu in-app PDF/Word/Excel/PPT, sans dépendance externe |
+| Assistant IA (boucle agent Claude) partout | Rapports terrain **vocaux** (Whisper → Claude) |
+| Messagerie interne temps réel | Webmail Infomaniak intégré (recherche, répondre à tous, transfert) |
+| Édition Word/Excel/PowerPoint (OnlyOffice) | Aperçu **et impression** in-app PDF/Word/Excel/PPT, sans dépendance externe |
+| Enveloppes budgétaires (budget total fixe/flexible) | Adventum Brain — cockpit Super Admin (risques, root cause, graphe) |
 
 ---
 
@@ -79,7 +84,7 @@ e-mails / Excel / WhatsApp par **un seul environnement de travail connecté**.
 | **Base de données** | PostgreSQL + **Prisma 5.22** |
 | **Auth** | **Auth.js / NextAuth v5** (Credentials, JWT, bcrypt, `trustHost`) + sessions révocables en base |
 | **UI** | Tailwind CSS + **design system maison** (style shadcn/ui) · `lucide-react` · **Recharts** |
-| **Documents** | Aperçu **embarqué** : `mammoth` (Word), `xlsx`/SheetJS (Excel), `jszip` (PowerPoint), iframe (PDF) |
+| **Documents** | Aperçu **embarqué** : `mammoth` (Word), `xlsx`/SheetJS (Excel), `jszip` (PowerPoint), iframe (PDF) ; **impression** via iframe same-origin |
 | **E-mail** | `imapflow` (IMAP) · `nodemailer` (SMTP) · `mailparser` (MIME) |
 | **IA** | Claude (Anthropic) pour le texte/agent · Whisper (OpenAI) pour la transcription vocale |
 | **Édition Office** | OnlyOffice Document Server auto-hébergé (JWT HS256) |
@@ -90,68 +95,66 @@ e-mails / Excel / WhatsApp par **un seul environnement de travail connecté**.
 
 ---
 
-## 🗺️ Panorama des modules (31 routes)
+## 🗺️ Panorama des modules
 
-La navigation est organisée en 4 groupes. **Trois paires sont fusionnées** en un seul item de sidebar avec
-**onglets internes** (sans rien retirer) : **Finances** (Finances · Espace comptable), **Congrès**
-(Internationaux · Nationaux), **Logistique & Stocks PCH** (Logistique · Stocks). Un onglet n'apparaît que si
-l'utilisateur y a accès (RBAC asymétrique).
+La navigation est organisée en 4 groupes. Plusieurs modules sont **fusionnés** en un seul item de sidebar avec
+**onglets internes** (sans rien retirer) : **Ad & Pro** (Sponsoring · Congrès internationaux · Événements nationaux ·
+Events · Matériel promotionnel), **Finances** (Finances · Espace comptable), **Logistique & Stocks PCH**,
+**Mon dossier RH** (dossier RH · Mes ordres de mission), **Mon espace** (Mon travail · Mon espace · Directives).
+Un onglet n'apparaît que si l'utilisateur y a accès (RBAC asymétrique).
 
 ### Pilotage
 
 | Module | Route | Description |
 |---|---|---|
-| **Mon travail** *(Action Center)* | `/mon-travail` | Agrège, selon les droits : tâches, demandes admin à traiter, validations en attente, paiements à régler, dossiers Regulatory, congés RH, congrès à valider/analyser, **directives**, **pièces de support**, **info médicale**, notifications. Vues en retard / bientôt / urgent. |
-| **Mon espace** | `/mon-espace` | Tâches perso, congés/absences, **avances sur salaire** (self-service), activité, accès rapides. |
+| **Mon travail** *(Action Center)* | `/mon-travail` | Agrège, selon les droits : tâches, demandes du Bureau du secrétariat à traiter, validations en attente, paiements à régler, dossiers Regulatory, congés RH, congrès à valider/analyser, **directives**, **pièces de support**, **info médicale**, notifications. Vues en retard / bientôt / urgent. |
+| **Mon espace** | `/mon-espace` | Tâches perso, congés/absences, **avances sur salaire** (self-service), activité. |
 | **Messagerie** | `/messages` | Messagerie interne complète (DM / groupes / canaux). Badge non-lus live. → [détails](#-messagerie-interne-temps-réel) |
-| **Courrier** | `/courrier` | **Webmail Infomaniak** intégré par utilisateur (IMAP + SMTP) + **« Lier à un dossier »** (rattache l'e-mail à un dossier de suivi). → [détails](#-courrier--webmail-infomaniak-intégré) |
+| **Courrier** | `/courrier` | **Webmail Infomaniak** intégré par utilisateur (IMAP + SMTP) : dossiers (Réception · **Envoyés** · Corbeille…), **recherche** plein-texte, **filtres** (tous / non lus), **Répondre · Répondre à tous · Transférer**, **carnet de contacts externes**, **aperçu des pièces jointes**, **« Lier à un dossier »**. → [détails](#-courrier--webmail-infomaniak-intégré) |
 | **Directives** | `/directives` | **Instructions priorisées de la Direction** vers une personne ou un rôle entier, avec échéance, statut et **fil d'échange**. |
-| **Assistant IA** 💬 | **bulle flottante** (partout) | Chatbot interne (boucle agent Claude) **scopé par les droits**, présent sur **toutes les pages** (plus un onglet). **Suggestions proactives** : analyse les messages non lus et propose une action en notification. → [détails](#-intelligence-artificielle-claude--whisper) |
-| **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation de travail, CNAS, relevé d'émoluments, titre de congé, ordre de mission, note de frais…). Accès strict à ses propres documents. |
+| **Assistant IA** 💬 | **bulle flottante** (partout) | Chatbot interne (boucle agent Claude) **scopé par les droits**, présent sur **toutes les pages**. **Suggestions proactives** sur les messages non lus. → [détails](#-intelligence-artificielle-claude--whisper) |
+| **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation, CNAS, relevé d'émoluments, titre de congé, sortie exceptionnelle, arrêt maladie, note de frais…) + onglet **« Mes ordres de mission »** intégré. Accès strict à ses propres documents. |
+| **Calendrier** | `/calendar` | Agenda d'entreprise (fuseau **Alger**), création de rendez-vous + invitations, **accessible à l'Assistant IA** (créer/inviter par la conversation). |
+| **Réunions** | `/meetings` | Appels & réunions (lien Meet simple) + **enregistrement / transcription / compte-rendu IA**. |
 | **Dashboard** | `/dashboard` | KPIs & graphiques adaptés au rôle. |
 
 ### Pôles métier
 
 | Module | Route | Description |
 |---|---|---|
-| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes**, documents par molécule, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. Carte **« Vue fournisseur »** (pilote le portail externe). |
-| **Sponsoring** | `/sponsoring` | Demandes avec **double validation + appel** et **confidentialité du chef de produit**. → [workflow](#sponsoring--double-validation--appel--confidentialité) |
-| **Budgets** | `/budgets` | **Enveloppe budgétaire** : la Direction définit un budget total sur une période, le répartit en **catégories**, et la **consommation réelle** se calcule depuis les dépenses attribuées. Barres de santé (Maîtrisé / À surveiller / Dépassé), non-alloué, attribution des dépenses en un clic. |
-| **Finances** | `/finances` | Trésorerie, livre, **paie**, **ordres de dépense**. |
-| **Espace comptable** | `/comptabilite` | Synthèse légère : à régler, recettes attendues, résultat mensuel. |
+| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique) et **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants. **Demande de BV** → ordre de dépense. Carte **« Vue fournisseur »** (pilote le portail externe). |
+| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Workflow de demande avec **« Direction Marketing »** (Manager Promotion Médicale) qui **assigne un chef de produit**, **tierce personne** (assistante de direction) impliquée via son espace, **confidentialité du chef de produit**, validations **Finances/Info médicale/Direction**, **liste des personnes prises en charge** (pièces d'identité), **ordre de mission**. → [workflows](#-workflows-critiques) |
+| **Budgets & enveloppes** | `/budgets` | **Système d'enveloppes budgétaires** : le **Super Admin** crée / modifie / supprime les enveloppes (délégable), chaque enveloppe est **rattachée à un module** et porte ses **catégories** et ses **rôles d'accès**. **Budget total** en mode **fixe** (montant saisi) ou **flexible** (somme des enveloppes). À la décision finale, la **Direction des opérations** **attribue la dépense** à une enveloppe + catégorie. Barres de santé (Maîtrisé / À surveiller / Dépassé), non-alloué. |
+| **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). |
 | **RH** | `/rh` | Employés, contrats, congés, avances, dépôt de documents et traitement des demandes RH. |
-| **Congrès internationaux** | `/congress-international` | Demande de prise en charge (double validation). |
-| **Événements nationaux** | `/congress-national` | Idem, avec **type d'événement** (congrès, séminaire, table ronde, webinaire, atelier, symposium, staff…). |
-| **Events** | `/events` | Gestion d'événements **de bout en bout** : statuts, **billetterie publique** (`/inscription/[id]`), **QR code par participant**, **check-in par scan**, taux de présence, export CSV. |
 | **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
 | **Logistique PCH** | `/logistics` | Import / expéditions fournisseurs, dates estimées vs réelles, dédouanement. |
 | **PCH — Marchés** | `/pch` | **Marchés publics gagnés** : appels d'offres → **bons de commande** + **caution** (alertes d'expiration). → [détails](#pch--marchés-publics) |
-| **Stocks PCH** | `/stocks` | Mouvements (entrée / sortie / ajustement) + niveau courant par produit. |
-| **Rapports terrain** | `/field-reports` | **Rapports vocaux IA** des délégués : parler → transcription → analyse → relecture → validation. → [détails](#-intelligence-artificielle-claude--whisper) |
-| **Promotion médicale** | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, avec titre/grade, influence (jusqu'à **KOL**), potentiel de prescription. Visites & tournées **scopées par délégué**. |
-| **Information médicale** | `/information-medicale` | Module du **pharmacien responsable de l'information médicale** : déclaration réglementaire **intercalée** entre la validation de la Direction et l'ordre de dépense. → [workflow](#information-médicale--déclaration-réglementaire-prim) |
-| **Business Development** | `/business-development` | **Grand tableau stratégique Projet → Gamme → Produit** (~20 colonnes : marché DZD/USD, prix, volumes, concurrents, investissements & revenus A1-A3), colonnes gelées, édition en place, export CSV. |
+| **Stocks PCH** | `/stocks` | **Stock initial** + mouvements (entrée / sortie / ajustement) **liés aux produits Regulatory** + niveau courant par produit. |
+| **Rapports terrain** | `/field-reports` | **Rapports vocaux IA** des délégués : parler → transcription → analyse → relecture → validation. Intégrés à **Promotion médicale**. → [détails](#-intelligence-artificielle-claude--whisper) |
+| **Promotion médicale** | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué**, plans de tournées **duplicables**. |
+| **Information médicale** | `/information-medicale` | Module du **pharmacien responsable de l'information médicale (PRIM)** : déclaration réglementaire **intercalée** entre la validation de la Direction et l'ordre de dépense. → [workflow](#information-médicale--déclaration-réglementaire-prim) |
+| **Business Development** | `/business-development` | **Grand tableau stratégique Projet → Gamme → Produit** (~20 colonnes), colonnes gelées, export CSV. **Intègre Pharmatool** : pipeline de données concurrentielles, **Vue d'ensemble**, **moteur de matching DCI**, **Opportunités**, **Pricing** (ville / hôpital), **Analyse produit / concurrence** (HHI, parts de marché, radar). |
 
 ### Transverse
 
 | Module | Route | Description |
 |---|---|---|
-| **Validations** | `/validations` | **Centre de validation** configurable + **agrégation transverse** de toutes les validations en attente. → [détails](#centre-de-validation-agrégation--configurable) |
-| **Documents** (Drive + Documents) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob` — survit aux redéploiements ; le disque local de Render est éphémère), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), versioning. **Imports larges** (documents, médias, archives ; seuls les exécutables sont refusés), **déplacer**, **corbeille en cascade** (dossier + contenu, restauration/suppression récursives), **actions d'édition résolues par fichier** (jamais affichées sur un fichier qu'on ne peut pas modifier). **À l'import : choix de la catégorie + qui peut voir / modifier** (par personne). Onglet **Documents** = bibliothèque filtrée par accès. |
-| **Dossiers** | `/dossiers` | **Dossier de suivi** d'un sujet ad hoc (ex. *recherche de prix d'hôtels*, *analyse IQVIA*) : description, **responsable + participants**, statut, **fichiers** (PPT/Excel/PDF) et **fil de discussion**. Créable **manuellement**, **proposé par l'IA** depuis un chat (confirmation requise), ou alimenté en **liant un e-mail** directement depuis le **Courrier** (« Lier à un dossier »). |
-| **Demandes administratives** | `/demandes` | « Bureau de l'assistante » : 10 types, validations, ordres de dépense, missions chauffeur. |
+| **Demandes de validations** | `/validations` | **Bureau de validation central** : agrège **toutes les validations en attente** issues des autres modules (Bureau du secrétariat, Ad & Pro, **Finances**, information médicale…) — visible des **validateurs** (pas du demandeur). Le Super Admin définit des **règles configurables** (module, type d'objet, montant, département, rôle, priorité → 1 ou 2 validateurs, séquentiel/parallèle). → [détails](#centre-de-validation-agrégation--configurable) |
+| **Documents** (Drive + Documents) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob`), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), **impression**, versioning. **Imports larges**, **déplacer**, **corbeille en cascade**, **accès par personne** (voir / modifier) à l'import. |
+| **Dossiers** | `/dossiers` | **Dossier de suivi** d'un sujet ad hoc : description, **responsable + participants**, statut, **fichiers** et **fil de discussion**. Créable **manuellement**, **proposé par l'IA**, ou alimenté en **liant un e-mail** depuis le **Courrier**. |
+| **Bureau du secrétariat** | `/demandes` | « Bureau de l'assistante de direction » : **10 types** de demandes, **catalogue d'articles de fourniture** (achats facilités), **demandes multi-cellules** (un envoi = plusieurs cellules pilotées indépendamment), **fenêtre de 15 min** pour que le demandeur modifie/supprime sa demande, **suppression traçable** (corbeille + motif), **flux par demande** (achat → validation Finances → devis/facture → Fin de la demande), validations, ordres de dépense, **missions chauffeur**. → [workflow](#bureau-du-secrétariat--flux-par-demande) |
 | **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou au **chef de produit**, avec fil + pièces jointes. |
-| **Feedback** | `/feedback` | Retour libre utilisateur → admin. |
+| **Feedback** | `/feedback` | Retour libre utilisateur → admin, **+ boîte de réception** : les réponses de l'administration s'affichent à l'utilisateur (avec notification). |
 
-> **Menu simplifié** : modules fusionnés en **onglets** — « Mon espace » (Mon travail · Mon espace · Directives), « Sponsoring & Événements » (Sponsoring · Congrès · Événements), « Documents » (Drive · Documents). **Messagerie** et **Notifications** ne sont plus des entrées de menu : elles restent accessibles via leurs **icônes** dans la barre du haut.
+> **Menu simplifié** : modules fusionnés en **onglets** — « Mon espace » (Mon travail · Mon espace · Directives), « Ad & Pro » (Sponsoring · Congrès · Événements · Matériel promotionnel), « Documents » (Drive · Documents), « Mon dossier RH » (RH perso · Mes ordres de mission). **Messagerie** et **Notifications** restent accessibles via leurs **icônes** dans la barre du haut.
 
 ### Système
 
 | Module | Route | Description |
 |---|---|---|
-| **Adventum Brain** 🧠 | `/adventum-brain` | **Super Admin uniquement — le cockpit qui voit ce que les autres ne voient pas.** Une seule expérience intégrant 6 fonctions. → [détails](#-adventum-brain-cockpit-super-admin) |
-| **Process Intelligence** | `/process-intelligence` | **Super Admin uniquement.** Analyse des **lenteurs & blocages** (work items sans action depuis X jours, étapes les plus lentes, top blocages, alertes), onglet **People & Workload Analyzer** (charge par personne / département), **synthèse IA** à la demande. |
-| **Administration** | `/admin` | Comptes (création, **modification e-mail/profil/rôle**), **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit chargé à la demande** (paginé, pour garder l'UI légère), **champs personnalisés**, règles de validation, feedback, comptes portail fournisseur, **Vue exacte** (impersonation). |
+| **Adventum Brain** 🧠 | `/adventum-brain` | **Super Admin uniquement — le cockpit qui voit ce que les autres ne voient pas.** War Room, Risk Radar, Root Cause, Knowledge Graph, Autopilot, Intelligence Feed + **Process Intelligence** en onglet. → [détails](#-adventum-brain-cockpit-super-admin) |
+| **Administration** | `/admin` | Comptes (création, **modification e-mail/profil/rôle**), **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit** (paginé), **champs personnalisés**, règles de validation, feedback, comptes portail fournisseur, **Vue exacte** (impersonation), **Contrôle IA** + **Score d'adoption** en onglets, **limites d'upload** configurables. |
 | **Recherche globale** | `/search` | RBAC-aware + **palette ⌘K**. |
 
 ### Externe
@@ -173,39 +176,33 @@ Le contrôle d'accès est **dynamique, à deux couches, toujours appliqué côt�
 getAccess(user)  →  accès EFFECTIF (caché par requête)
    ├── userCan(user, module, action)      → la page/action est-elle permise ?
    ├── defaultScope(role, module)         → ALL ou ASSIGNED ?
-   └── scopeRegulatory / scopeSales / scopeMedicalInfo / scopeDirectives / scopeSupport / … → where Prisma
+   └── scopeRegulatory / scopeSales / scopeAdminRequests / scopeMedicalInfo / … → where Prisma
 ```
 
 > **Atterrissage sûr** : si une page est refusée, l'utilisateur est renvoyé vers la **première destination
-> qu'il peut réellement voir** (jamais vers une page qui le refuserait à nouveau) — pas de boucle
-> `ERR_TOO_MANY_REDIRECTS`. S'il n'a accès à rien, une page `/no-access` claire l'invite à contacter l'admin.
+> qu'il peut réellement voir** — pas de boucle `ERR_TOO_MANY_REDIRECTS`. S'il n'a accès à rien, une page
+> `/no-access` claire l'invite à contacter l'admin.
 
-> **Exemple** : la Direction voit tout (`hasGlobalView`) ; une **assistante Regulatory** ne voit que les DCI
-> qui lui sont assignées ; un **délégué** ne voit que ses propres demandes de congrès et ses tournées ; un
-> **chef de produit** ne voit l'analyse confidentielle que sur les dossiers qu'il instruit.
+> **Exemple** : la Direction des opérations voit tout (`hasGlobalView`) ; une **assistante Regulatory** ne voit
+> que les DCI qui lui sont assignées ; un **délégué** ne voit que ses propres demandes et tournées ; un **chef de
+> produit** ne voit l'analyse confidentielle que sur les dossiers qu'il instruit.
 
 **Gardes serveur** : `requireModule(module, action)` protège chaque page, `requireUser()` chaque server action.
-Toute action sensible est **ré-autorisée côté serveur** (jamais sur la confiance du client) et **journalisée**.
+Toute action sensible est **ré-autorisée côté serveur** et **journalisée**.
 
 **Autres mesures** :
 - 🔒 **Chiffrement AES-256-GCM** des blobs Drive (adressage par contenu SHA-256) et des mots de passe e-mail, clé maître dérivée de `AUTH_SECRET`.
-- 🪪 **Sessions révocables** en base (déconnexion forcée d'un compte ou d'un appareil depuis l'admin).
-- 👁️ **Vue exacte** (impersonation) honorée **uniquement** si la session réelle est Super Admin.
-- 🧾 **Journal d'audit** complet (qui / quoi / ancienne → nouvelle valeur / date / module).
-- 🚧 **Anti-bruteforce / credential-stuffing** : suivi des échecs de connexion (`LoginAttempt`, fenêtre glissante),
-  **verrouillage temporaire** après 5 échecs avec **durée croissante** (jusqu'à 2 h), réinitialisé à la 1ʳᵉ réussite ;
-  compte aussi les comptes inexistants (**anti-énumération**) ; message générique côté UI ; **audit** au déclenchement.
-- 🛡️ **En-têtes de sécurité** : `Content-Security-Policy` (`frame-ancestors`, `object-src 'none'`, `base-uri`,
-  `form-action`, `upgrade-insecure-requests`), **HSTS** (2 ans, preload), `X-Frame-Options: SAMEORIGIN`,
-  `Cross-Origin-Opener-Policy: same-origin`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`.
-- 🤖 **Centre de contrôle IA** (Super Admin) : interrupteur général + activation par fonction + journal d'usage → [détails](#centre-de-contrôle-ia-super-admin--adminai).
-- 🔢 Identifiants **cuid** non séquentiels ; upload contrôlé (extension + taille) ; download protégé par vérification d'accès.
+- 🪪 **Sessions révocables** en base ; 👁️ **Vue exacte** (impersonation) honorée **uniquement** si la session réelle est Super Admin.
+- 🧾 **Journal d'audit** complet (qui / quoi / ancienne → nouvelle valeur / date / module), y compris la **suppression traçable** des demandes (motif obligatoire).
+- 🚧 **Anti-bruteforce** : verrouillage temporaire progressif après échecs (`LoginAttempt`), anti-énumération, message générique, audit.
+- 🛡️ **En-têtes de sécurité** : CSP (`frame-ancestors`, `object-src 'none'`, `base-uri`, `form-action`), **HSTS** (2 ans, preload), `X-Frame-Options`, `COOP`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`.
+- 🤖 **Centre de contrôle IA** (Super Admin) : interrupteur général + activation par fonction + journal d'usage.
+- 🔢 Identifiants **cuid** non séquentiels ; upload contrôlé (extension + **taille configurable**) ; download protégé par vérification d'accès.
 
-**Parcours de première connexion** : un nouveau compte doit **définir son mot de passe** (`mustChangePassword`),
-puis suit un **onboarding guidé** (`/onboarding`) — coordonnées, **connexion de sa boîte e-mail** et **visite
-des onglets auxquels il a accès** (générée à partir de ses droits réels). Le Super Admin peut **redéclencher le
-setup** d'un compte (« Demander le setup ») depuis sa fiche. Le drapeau `mustOnboard` est **lu à chaud en base**
-par le layout (jamais via le JWT) : la fin du parcours prend effet **immédiatement, sans reconnexion**.
+**Parcours de première connexion** : un nouveau compte doit **définir son mot de passe**, puis suit un
+**onboarding guidé** (`/onboarding`) — coordonnées, **connexion e-mail** et **visite des onglets accessibles**
+(générée à partir des droits réels). Le Super Admin peut **redéclencher le setup**. Le drapeau `mustOnboard` est
+**lu à chaud en base** : la fin du parcours prend effet **immédiatement, sans reconnexion**.
 
 ---
 
@@ -213,50 +210,62 @@ par le layout (jamais via le JWT) : la fin du parcours prend effet **immédiatem
 
 | Rôle | Libellé | Portée typique |
 |---|---|---|
-| `SUPER_ADMIN` | Super Admin | Tout + administration (édition des permissions, comptes, sécurité, IA, Brain, Vue exacte) |
-| `DIRECTION` | Direction | **Pair quasi-administrateur** : accès complet (gérer + valider) à **tous les pôles**, console d'admin en **lecture**. Le Super Admin peut la restreindre (overrides). |
-| `HEAD_OF_REGULATORY` | Responsable Réglementaire | Regulatory (gestion complète) |
+| `SUPER_ADMIN` | Super Admin | Tout + administration (permissions, comptes, sécurité, IA, Brain, enveloppes budgétaires, Vue exacte) |
+| `DIRECTION` | **Direction des opérations** | **Pair quasi-administrateur** : accès complet (gérer + valider) aux pôles, console d'admin en **lecture**. Attribue les dépenses aux enveloppes. Restreignable par overrides. |
+| `MEDICAL_PROMOTION_MANAGER` | Manager Promotion Médicale (**= « Direction Marketing »**) | Promotion médicale, **Ad & Pro** : reçoit les demandes, **assigne un chef de produit**, fait aussi partie des chefs de produit possibles. |
+| `HEAD_OF_REGULATORY` | Responsable Réglementaire | Regulatory (gestion complète + fournisseurs) |
 | `REGULATORY_ASSISTANT` | Assistante Réglementaire | Regulatory (lignes assignées) |
 | `HEAD_OF_SALES` | Responsable Ventes | Ventes, PCH, Stocks |
 | `SALES_USER` | Commercial | Ventes / PCH (ses lignes) |
 | `LOGISTICS_MANAGER` | Responsable Logistique | Logistique, PCH, Stocks |
-| `MEDICAL_PROMOTION_MANAGER` | Manager Promotion Médicale | Promotion médicale, Events, Congrès |
 | `MEDICAL_DELEGATE` | Délégué Médical | Ses médecins, visites, demandes (scope ASSIGNED) |
 | `PRODUCT_MANAGER` | **Chef de produit** | Analyse congrès & sponsoring (budget proposé **confidentiel**) |
-| `BUSINESS_DEVELOPMENT_MANAGER` | Manager Business Development | Business Development |
-| `FINANCE_BUDGET_MANAGER` | Responsable Finance / Budget | Finances, Budgets, ordres de dépense |
-| `MEDICAL_INFO_PHARMACIST` | **Pharmacien resp. information médicale** | Déclaration réglementaire des événements validés |
+| `BUSINESS_DEVELOPMENT_MANAGER` | Manager Business Development | Business Development (+ Pharmatool) |
+| `FINANCE_BUDGET_MANAGER` | Responsable Finance / Budget | Finances, Budgets, ordres de dépense, **validations Finances** |
+| `MEDICAL_INFO_PHARMACIST` | Pharmacien resp. information médicale | Déclaration réglementaire des événements validés |
+| `DIRECTION_ASSISTANT` | **Assistante de Direction** | **Bureau du secrétariat** (gère les demandes, pilote le Matériel promotionnel sans accès au module) |
+| `COORDINATOR` | Coordination / Coursier | **Missions chauffeur / courses** (adresse Maps, durée, retard) |
 | `VIEWER` | Lecteur | Lecture limitée |
 
 > Le Super Admin attribue/retire tout via la **matrice d'accès** (`/admin/users/[id]`). Pense à créer au moins
-> un **Chef de produit** (validation des congrès/sponsoring) et un **Pharmacien information médicale**.
+> un **Chef de produit**, un **Pharmacien information médicale**, une **Assistante de Direction** et un **Responsable Finance**.
 
 ---
 
 ## 🔄 Workflows critiques
 
-### Congrès & sponsoring — double validation
+### Ad & Pro — demande via la Direction Marketing
 
 ```
 Demande (délégué + budget estimé)
-   → Validation PRÉLIMINAIRE (Direction) + assignation d'un Chef de produit
+   → « Direction Marketing » (Manager Promotion Médicale) assigne un Chef de produit
    → Analyse + budget proposé (Chef de produit)            ← CONFIDENTIEL
-   → Validation DÉFINITIVE (Direction : budget final + commentaire)
+   → (option) tierce personne (assistante de direction) impliquée via son espace
+   → Validation DÉFINITIVE (Direction des opérations : budget final, enveloppe + catégorie)
    → [Information médicale : déclaration du pharmacien]      ← uniquement si applicable
-   → Ordre de dépense → Espace comptable
+   → Ordre de dépense → Finances / comptable (facture obligatoire à l'accord)
 ```
 
-Formulaire congrès : **médecins invités via cascade Spécialité → médecins**, **participants Adventum**
-multi-sélection, budget estimé, **type d'événement** (national ET international).
+> ⚠️ **Confidentialité impérative** — l'analyse et le budget proposé par le chef de produit **ne sont JAMAIS
+> visibles par le délégué** : il ne voit que le **budget final accordé + le commentaire de la Direction**.
+> Le **Sponsoring** ajoute l'**appel** : après décision, le délégué peut faire appel → nouvel avis du chef de
+> produit → la Direction tranche définitivement. Pour les congrès/événements pris en charge, on saisit la **liste
+> des personnes prises en charge** (avec pièces d'identité) et un **ordre de mission**.
 
-### Sponsoring — double validation + appel + confidentialité
+### Bureau du secrétariat — flux par demande
 
-Même circuit que les congrès, **plus l'appel** : après décision, le délégué peut **faire appel** → le dossier
-repart au **chef de produit** pour un **nouvel avis sans budget** → la **Direction tranche définitivement**.
+```
+Demande (employé) — simple OU multi-cellules (lot), articles depuis le catalogue
+   → 15 min : le demandeur peut encore MODIFIER ou SUPPRIMER sa demande
+   → l'assistante « Commence le traitement »
+   → SI ACHAT : upload du DEVIS → « Demande de validation des Finances »
+        → bureau central des validations (Finances) : accord / refus / « trop cher, autre agence, réduire »
+        → va-et-vient possible ; à l'accord, upload de la FACTURE finale → « Fin de la demande »
+   → SINON : validation interne (opérations / autre) ou aucune, à l'estimation de l'assistante → « Fin de la demande »
+```
 
-> ⚠️ **Confidentialité impérative** — l'**analyse et le budget proposé par le chef de produit** (et la note de
-> pré-validation) **ne sont JAMAIS visibles par le délégué**. Il ne voit que le **budget final accordé + le
-> commentaire de la Direction**. Vérifié e2e sur 3 rôles, **dont la confidentialité (15/15)**.
+Chaque **cellule** d'une demande multi-cellules est pilotée **indépendamment** (statut + validations). La
+**suppression** par l'assistante est **traçable** (corbeille + motif + audit, restauration possible).
 
 ### Information médicale — déclaration réglementaire (PRIM)
 
@@ -270,38 +279,39 @@ Direction valide définitivement  →  PAS encore d'ordre de dépense
    → le pharmacien VALIDE  →  l'ordre de dépense est enfin émis vers le comptable
 ```
 
-Statuts : *À déclarer → Pièces demandées → Prêt à valider → Validé*. Agrégé dans le **Centre de validation** et
-l'**Action Center**. La personne sollicitée peut déposer **même sans accès au module** (`canViewDeclaration`).
+### Enveloppes budgétaires & allocation
+
+Le **Super Admin** crée les enveloppes (rattachées à un module, avec catégories et rôles d'accès), définit le
+**budget total** (fixe ou = somme des enveloppes). À la **décision finale** d'une dépense, la **Direction des
+opérations** l'**attribue** à une **enveloppe + catégorie** ; la **consommation réelle** se recalcule depuis les
+dépenses attribuées (barres Maîtrisé / À surveiller / Dépassé).
 
 ### Ordres de dépense — aller-retour comptable ↔ Direction
 
-Direction valide → **ordre de dépense** → le **comptable règle** (génère l'écriture de trésorerie). Le comptable
-peut **demander une révision** (manque de fonds) → l'ordre passe `REVISION_REQUESTED` et remonte à la Direction,
-qui **ajuste le montant** (l'ordre repart « à régler ») **ou refuse**.
+Direction valide → **ordre de dépense** → le **comptable règle**. Le comptable peut **demander une révision**
+(manque de fonds) → l'ordre remonte à la Direction qui **ajuste le montant** ou **refuse**.
 
 ### Centre de validation (agrégation + configurable)
 
-Le module **Validations** agrège **toutes les validations en attente** issues des autres modules (demandes admin
-escaladées, sponsoring, congrès, **information médicale**) — chaque ligne renvoie vers la fiche de décision. En
-plus, le Super Admin définit des **règles configurables** : module, type d'objet, montant min/max, département,
-rôle, priorité → routage vers **1 ou 2 validateurs**, en **séquentiel ou parallèle**.
+Le module **Demandes de validations** agrège **toutes les validations en attente** (Bureau du secrétariat, Ad & Pro,
+Finances, information médicale…) — visible des **validateurs**, pas du demandeur. Le Super Admin définit des
+**règles** : module, type d'objet, montant min/max, département, rôle, priorité → **1 ou 2 validateurs**, en
+**séquentiel ou parallèle**.
 
 ### PCH — Marchés publics
 
-**Appel d'offres gagné** (réf. auto `AO-année-n`, produits, fournisseur, quantité, valeur, statut) → **caution
-obligatoire** (montant, dates, alertes expirée / < 30 j) → sous-lignes = **bons de commande** (réf, qté, valeur,
-date réception, date paiement).
+**Appel d'offres gagné** (réf. auto `AO-année-n`) → **caution obligatoire** (montant, dates, alertes) → sous-lignes
+= **bons de commande** (réf, qté, valeur, date réception, date paiement).
 
 ### Portail Fournisseur (externe sécurisé)
 
 Comptes externes **totalement séparés** (`Supplier` / `SupplierUser`, **auth distincte** cookie HMAC scopé
-`/portail`, revalidé en base). Un fournisseur ne voit **QUE** ses produits `portalVisible` et **seulement les
-champs externes** (jamais les autres fournisseurs, le statut/notes internes, les documents, les autres modules).
+`/portail`). Un fournisseur ne voit **QUE** ses produits `portalVisible` et **seulement les champs externes**.
 
 ### Vue exacte (impersonation)
 
-Le Super Admin visualise l'OS **exactement comme** un utilisateur. Cookie `amd_impersonate` honoré **uniquement**
-si la session réelle est Super Admin (pas d'escalade). Bandeau permanent + « Quitter », démarrage/arrêt journalisés.
+Le Super Admin visualise l'OS **exactement comme** un utilisateur. Cookie honoré **uniquement** si la session
+réelle est Super Admin. Bandeau permanent + « Quitter », démarrage/arrêt journalisés.
 
 ---
 
@@ -310,124 +320,65 @@ si la session réelle est Super Admin (pas d'escalade). Bandeau permanent + « Q
 La couche IA (`src/lib/ai.ts`) est **serveur uniquement** ; sans clé, elle renvoie `configured:false` et l'UI
 affiche proprement « IA non configurée » — **aucune fonctionnalité ne casse**.
 
-- **Assistant IA** — **bulle flottante présente partout** (remplace l'onglet) + page plein écran `/assistant`.
-  **Boucle agent Claude**, comprend l'app et les données de l'utilisateur **filtrées par ses droits**.
-  **Proactif** : quand de nouveaux messages internes non lus arrivent, il les analyse (contexte global, plusieurs
-  messages liés) et **propose une action** en notification discrète sur la bulle — l'IA n'est appelée que s'il y a
-  du nouveau (coût maîtrisé), gracieux sans clé. Les **outils de lecture** (annuaire, tâches, médecins, produits, **e-mails de sa
-  propre boîte Courrier**…) sont exécutés automatiquement et **scopés** ; les **outils d'écriture** ne sont
-  **jamais** exécutés par l'IA : ils reviennent en **carte de confirmation**. Actions possibles (chacune gardée
-  par son module) : créer une tâche, créer une demande administrative, **envoyer un message** interne,
-  **envoyer un e-mail** (depuis sa boîte), créer une **demande de congrès**. Il peut aussi **lire / résumer /
-  chercher dans ses e-mails** (« résume mes mails », « ai-je reçu un mail de la PCH ? »). Exécution
-  **ré-autorisée** + **journalisée**. Garde-fous : n'invente jamais un médecin/produit/personne **ni une adresse
-  e-mail**, **avertit sur les dates passées**, **sortie en texte simple**, **robuste** (timeout + retry 429/5xx,
-  ne lève jamais).
-- **Rapports terrain vocaux** (`/field-reports`) — *Parler → transcription (**Whisper / OpenAI**) → analyse
-  (**Claude** → champs structurés : médecin, objection, question médicale, concurrent, opportunité, signalement
-  qualité/PV…) → relecture/correction → validation*. **L'IA ne valide jamais seule.** Synthèse agrégée pour les
-  managers. 100 % utilisable en **saisie manuelle** sans clé.
-- **Process Intelligence** — **synthèse IA** à la demande des lenteurs/blocages (Super Admin).
+- **Assistant IA** — **bulle flottante présente partout** + page plein écran `/assistant`. **Boucle agent Claude**,
+  comprend l'app et les données **filtrées par les droits**. **Proactif** sur les messages non lus. Outils de
+  **lecture** (annuaire, tâches, médecins, produits, **e-mails de sa boîte**, **calendrier**…) exécutés et
+  **scopés** ; outils d'**écriture** **jamais** exécutés seuls → **carte de confirmation** (créer une tâche, une
+  demande administrative, **envoyer un message**, **envoyer un e-mail**, créer une **demande de congrès**, créer un
+  **rendez-vous**). Garde-fous : n'invente jamais médecin/produit/adresse, **avertit sur les dates passées**,
+  **texte simple**, **robuste** (timeout + retry, ne lève jamais).
+- **Rapports terrain vocaux** (`/field-reports`) — *Parler → Whisper → Claude (champs structurés) → relecture →
+  validation*. **L'IA ne valide jamais seule.** 100 % utilisable en saisie manuelle sans clé.
+- **Comptes-rendus de réunion** — transcription + synthèse IA des appels.
+- **Process Intelligence** & **Adventum Brain** — synthèses et explications à la demande (Super Admin).
 
 > Clés : `ANTHROPIC_API_KEY` (Claude), `OPENAI_API_KEY` (Whisper). Posées sur Render, jamais côté client.
 
-### Centre de contrôle IA (Super Admin · `/admin/ai`)
+### Centre de contrôle IA (Super Admin · `/admin` → onglet IA)
 
-Pilotage de l'IA **sans toucher au code ni aux variables d'environnement** :
-
-- **Interrupteur général** + **bascule par fonction** (assistant, suggestions proactives, Adventum Brain,
-  Process Intelligence, analyse des rapports terrain, transcription vocale). Chaque point d'entrée IA vérifie
-  `aiFeatureEnabled(...)` avant d'appeler le modèle — coupure **immédiate** (lecture à chaud).
-- **État des clés** (Claude / Whisper) en lecture seule — rappel que les secrets restent côté serveur (Render).
-- **Tableau de bord d'usage** : volume (7 j / 30 j), **taux de succès**, détail **par fonction** (appels, succès,
-  latence moyenne) et **derniers échecs** — alimenté par un journal `AiUsageLog` (best-effort, n'altère jamais un appel).
+Pilotage de l'IA **sans toucher au code** : **interrupteur général** + **bascule par fonction**, **état des clés**
+(lecture seule), **tableau de bord d'usage** (volume, taux de succès, latence, derniers échecs via `AiUsageLog`).
 
 ---
 
 ## 🧠 Adventum Brain (cockpit Super Admin)
 
-**Une seule couche premium, visible du Super Admin uniquement** (`/adventum-brain`). Pas six modules
-séparés : un **cockpit unique** intégrant six fonctions comme une seule expérience.
+**Une seule couche premium, visible du Super Admin uniquement** (`/adventum-brain`) — un **cockpit unique**
+intégrant : **War Room** (KPIs + « ce qui mérite votre attention »), **Risk Radar** (détecteurs sur données
+réelles → Risk Cards), **Root Cause** (drawer contextuel), **Knowledge Graph** (fiche 360 relationnelle, bascule
+liste / graphe radial), **Autopilot Actions** (mini-confirmation, ne crée que Tâche/Notification), **Intelligence
+Feed** (fil filtré par importance), **Process Intelligence** (lenteurs & blocages, charge par personne).
 
-| Fonction | Où, dans le cockpit |
-|---|---|
-| **War Room** | Vue principale : KPIs (risques critiques, blocages, actions proposées, décisions, signaux terrain) + « Aujourd'hui, ce qui mérite votre attention ». |
-| **Risk Radar** | Le **moteur** : des **détecteurs sur données réelles** produisent des *Risk Cards* (niveau, objet, impact, responsable, cause probable, action recommandée, preuves). |
-| **Root Cause** | **Drawer contextuel** à droite quand on clique un risque — pas une page : ce qui bloque, depuis quand, délai normal, cause probable, preuves, impact, reco. |
-| **Knowledge Graph** | **Fiche 360 relationnelle** (onglet Relations) : pour une molécule/produit, blocs Regulatory · PCH · Médecins/KOL · Events · Terrain — lisible, pas une toile de bulles. **Bascule liste / graphe** : vue radiale optionnelle (objet central relié à chaque module, nœuds cliquables). |
-| **Autopilot Actions** | Boutons sur les cartes → **mini-confirmation** → exécution. **Ne crée que des objets existants** (Tâche, Notification). Rien n'est exécuté sans confirmation. |
-| **Intelligence Feed** | Onglet Feed : un fil **filtré par importance** (les mêmes signaux, du plus récent au plus ancien) — pas un flux de tout ce qui se passe. |
+**Détecteurs Risk Radar (calculés à la volée — aucune table de risque)** : caution PCH proche d'expiration ·
+congrès/sponsoring bloqués · médecin **KOL** non visité · ordre de dépense non réglé · **budget/enveloppe dépassé**
+· information médicale en attente · directive échue · fournisseur silencieux · signal qualité/PV terrain ·
+**rupture / stock bas PCH** · **retard de livraison** · **événement à faible présence**.
 
-Plus une **barre de commande IA** (« Pourquoi les congrès sont bloqués ? ») et un **briefing de direction**
-généré à la demande.
-
-**Détecteurs Risk Radar (réels, calculés à la volée — aucune table de risque)** : caution PCH proche
-d'expiration · congrès/sponsoring bloqués (analyse chef de produit en retard) · médecin **KOL** non visité ·
-ordre de dépense non réglé · budget dépassé/à surveiller · information médicale en attente · directive
-échue · fournisseur silencieux · signal qualité/PV terrain · **rupture / stock bas à la PCH** · **retard de
-livraison** (logistique) · **événement à faible présence** (à l'approche de la date).
-
-> **Réglage des seuils** (Super Admin) : chaque déclencheur est **ajustable** depuis Adventum Brain
-> (jours avant expiration de caution, seuil de stock bas, tolérance de retard, % budget, horizon/présence
-> minimale d'événement…), borné, persisté (`RiskSetting`) et lu à chaud par les détecteurs.
-
-> **Règle anti-bureaucratie** (appliquée) : Adventum Brain **lit, relie, résume, explique et propose**. Il
-> ne duplique aucun workflow, ne crée aucun formulaire lourd, ne crée un objet (Tâche/Notification) qu'**après
-> confirmation**. But : *le Super Admin voit ce que les autres ne voient pas* — pas ajouter du travail.
-
-> **Aucune migration** : la couche est **100 % lecture** + réutilise Tâches/Notifications existantes.
-
-### Assistant IA du Super Admin (le plus puissant)
-
-Pour le Super Admin, l'Assistant IA a une **vision globale** (tous les comptes, toutes les données) et des
-**outils exclusifs** : `list_accounts` (tous les comptes + charge réelle : tâches ouvertes, demandes à
-traiter), et la capacité de **relancer/piloter n'importe qui** (créer une tâche pour un collaborateur, lui
-envoyer un message) — toujours sous confirmation et journalisé.
+> **Réglage des seuils** (Super Admin), bornés et persistés (`RiskSetting`), lus à chaud. **Règle anti-bureaucratie** :
+> Brain **lit, relie, résume, explique et propose** — il ne duplique aucun workflow et ne crée qu'après confirmation.
 
 ---
 
-## 📈 Score d'adoption (Super Admin · `/admin/adoption`)
+## 📈 Score d'adoption (Super Admin · `/admin` → onglet Adoption)
 
-Mesure, **en temps réel** et sur 30 jours glissants, à quel point chaque personne utilise réellement l'OS comme
-outil quotidien. **Réservé à l'administration**, calculé sur les **données réelles** (aucune simulation), et
-**conçu pour résister au gaming** :
-
-| Dimension | Poids (défaut) | Anti-triche |
-|---|---|---|
-| **Régularité** | 22 | **Jours distincts** d'activité — un pic d'actions sur une seule journée ne compte que pour 1 jour. |
-| **Interaction** | 18 | Fils, **mentions reçues**, messages — signaux en partie **bilatéraux**, difficiles à simuler seul. |
-| **Travail durable** | 15 | Tâches **réellement terminées**, validations décidées, directives accusées — *créer puis supprimer des tâches ne crédite rien*. |
-| **Étendue** | 15 | Modules réellement utilisés, **rapportés aux droits du rôle** (équitable). |
-| **Diversité** | 12 | Variété des actions concrètes, pas la **répétition** d'une seule. |
-| **Temps d'activité** | 10 | Durée cumulée, **plafonnée** (ignore les onglets oubliés). |
-| **Récence** | 8 | Dernière présence effective (décroissance). |
-
-Score 0–100 + libellé (Champion / Actif / Modéré / Faible / À risque), **tendance** (jours actifs vs période
-précédente), **classement** et **détail dépliable par dimension** pour chaque collaborateur. Moyenne d'équipe,
-nombre de champions et de comptes à risque. Le Super Admin n'est pas mesuré.
-
-- **Poids & seuils configurables** par le Super Admin (modèle `AdoptionSetting`) : importance de chaque dimension
-  et paliers de libellé, librement réglables. Le score reste **normalisé sur le total des poids** (0–100) et
-  **calculé sur des données réelles** — les réglages ne font que pondérer/segmenter.
-- **Pastille personnelle** : chaque employé voit **son propre** score dans un petit cercle coloré en haut, à côté
-  des icônes notifications/messagerie. Snapshot mis en cache (recalculé ≥ 12 h ou après un changement de réglage),
-  pour ne pas alourdir la navigation.
+Mesure, **en temps réel** sur 30 jours glissants, à quel point chaque personne utilise réellement l'OS.
+**Réservé à l'administration**, sur **données réelles**, **anti-gaming** : Régularité (jours distincts),
+Interaction (signaux bilatéraux), Travail durable (réellement terminé), Étendue (rapportée aux droits),
+Diversité, Temps d'activité (plafonné), Récence. Score 0–100 + libellé + tendance + classement.
+**Poids & paliers configurables** (`AdoptionSetting`). **Pastille personnelle** dans la barre du haut (snapshot
+mis en cache). Le Super Admin n'est pas mesuré.
 
 ---
 
 ## 💬 Messagerie interne (temps réel)
 
-Pour favoriser l'adoption face à WhatsApp — **la donnée reste propriété de l'entreprise**.
-
-- **3 types de conversations** : message direct (1-1), **groupe** privé, **canal** d'équipe (découvrable).
-- **Fonctionnalités** : markdown léger, **@mentions**, **réactions émoji**, **réponses citées**, **épinglage**,
-  **favoris**, modifier/supprimer ses messages, **pièces jointes** (Drive chiffré, blob signé HMAC), **présence**
-  (en ligne/absent/hors ligne), **« en train d'écrire… »**, **accusés de lecture / non-lus**, brouillons,
-  recherche, filtres, sourdine, gestion des membres & rôles (OWNER/ADMIN/MEMBER).
+- **3 types** : message direct, **groupe** privé, **canal** d'équipe.
+- markdown léger, **@mentions**, **réactions**, **réponses citées**, **épinglage**, favoris, édition/suppression,
+  **pièces jointes** (Drive chiffré), **présence**, **« en train d'écrire… »**, **accusés de lecture / non-lus**,
+  recherche, sourdine, rôles (OWNER/ADMIN/MEMBER).
 - **Accès gouverné par l'appartenance** (`ConversationMember`), **jamais** par scope RBAC — **même le Super Admin
-  ne lit pas par-dessus l'épaule**. Un tiers non-membre reçoit **403**. Vérifié Playwright **13/13**.
-- **Temps réel sans WebSocket** : server actions + **UI optimiste** + **polling** (~6 s liste, ~3,5 s fil actif),
-  présence par heartbeat. Limite assumée mono-instance (évolution SSE/Redis possible).
+  ne lit pas par-dessus l'épaule**. Un tiers non-membre reçoit **403**.
+- **Temps réel sans WebSocket** : server actions + **UI optimiste** + **polling**, présence par heartbeat.
 
 ---
 
@@ -435,45 +386,46 @@ Pour favoriser l'adoption face à WhatsApp — **la donnée reste propriété de
 
 Boîte mail **par utilisateur**, connectée à la plateforme (une seule entité).
 
-- **IMAP** (lecture) + **SMTP** (envoi) via `imapflow` / `nodemailer` / `mailparser`.
-- Connexion par **mot de passe d'application** chiffré **AES-256-GCM** au repos (`MailAccount`).
-- Webmail **3 volets** (dossiers · liste · lecture/composition), aperçu HTML en **iframe sandbox**.
-- Couche serveur `src/lib/mail.ts`, routes `/api/mail/{messages,message,attachment}` (auth + scoping).
-- 🤖 **Connecté à l'Assistant IA** : il peut **lire / résumer / chercher** dans **votre** boîte et **rédiger un
-  e-mail** (envoyé seulement après confirmation) — voir [Assistant IA](#-intelligence-artificielle-claude--whisper).
+- **IMAP** (lecture) + **SMTP** (envoi) via `imapflow` / `nodemailer` / `mailparser`, mot de passe d'application
+  **chiffré AES-256-GCM** au repos (`MailAccount`).
+- Webmail **3 volets** (dossiers · liste · lecture/composition), aperçu HTML en **iframe sandbox**, **plein écran**.
+- **Dossiers** commutables : **Réception · Envoyés · Corbeille · Brouillons · Indésirables · Archives**.
+- 🔎 **Recherche** plein-texte (IMAP SEARCH sur expéditeur / destinataire / Cc / objet / contenu) — retrouve aussi
+  les **correspondants externes** à la société.
+- 🎚️ **Filtres** rapides (**Tous / Non lus**), effacement de la recherche en un clic.
+- ↩️ **Répondre**, **Répondre à tous** (sans se ré-adresser à soi-même), **Transférer** (citation du message d'origine).
+- 👥 **Carnet de contacts** (collègues + correspondants récents internes/externes) avec **autocomplétion**.
+- 📎 **Aperçu des pièces jointes** (PDF / image / texte) avant téléchargement ; **« Lier à un dossier »**.
+- 🛡️ **Anti double-envoi** (verrou synchrone) ; couche serveur `src/lib/mail.ts`, routes `/api/mail/{messages,message,attachment,contacts}` (auth + scoping).
+- 🤖 **Connecté à l'Assistant IA** : lire / résumer / chercher dans **votre** boîte, **rédiger** un e-mail (envoyé après confirmation).
 
 > Par défaut, les serveurs pointent sur `mail.infomaniak.com` (IMAP 993 / SMTP 465) — modifiables par utilisateur.
 
 ---
 
-## 📝 Édition Office (OnlyOffice auto-hébergé)
+## 📝 Édition Office (OnlyOffice) & impression
 
-Édition **Word / Excel / PowerPoint** directement dans l'app, **sans dépendance cloud externe** —
-dans le **Drive** comme sur **toutes les pièces jointes des modules** (Regulatory, Dossiers, Sponsoring,
-Demandes, Logistique, BD, Support, Information médicale…).
+Édition **Word / Excel / PowerPoint** directement dans l'app, **sans dépendance cloud externe** — dans le **Drive**
+comme sur **toutes les pièces jointes des modules**.
 
-- Bouton **« Éditer dans Office »** (icône crayon) sur les fichiers éditables :
-  - **Drive** → page `/drive/[id]/edit` (versioning `FileVersion`).
-  - **Documents** (pièce d'une entité) → page `/documents/[id]/edit` : le fichier s'ouvre **en plein écran**,
-    modifiable, puis la sauvegarde **incrémente la version** du `Document` (audit module *Documents*). Le bouton
-    n'apparaît qu'aux personnes ayant le **droit de modifier** la pièce (même droit que le téléversement).
-- Aperçu in-app (lecture seule) conservé pour PDF / Word / Excel / PowerPoint / images partout.
-- Config **signée en JWT HS256** (`src/lib/onlyoffice.ts`, sans dépendance) ; le Document Server lit le fichier
-  via un **jeton signé** discriminé par type (`edit` pour le Drive, `docedit` pour les Documents) sur
-  `/api/onlyoffice/file` (sans session) et **rappelle** la sauvegarde sur `/api/onlyoffice/callback`.
-- **Inerte** tant que les variables ne sont pas posées (aucun bouton « Éditer » ne s'affiche).
+- Bouton **« Éditer dans Office »** sur les fichiers éditables (Drive → `/drive/[id]/edit` ; Documents → `/documents/[id]/edit`,
+  **plein écran**, sauvegarde = nouvelle version). Visible uniquement aux personnes ayant le **droit de modifier**.
+- **Chargement plus rapide** et **mode plein écran** de l'éditeur.
+- Aperçu in-app (lecture seule) **et 🖨️ impression** conservés pour PDF / Word / Excel / PowerPoint / images **partout**
+  (`src/lib/print-document.ts` : iframe same-origin, repli `window.open`).
+- Config **signée en JWT HS256** (`src/lib/onlyoffice.ts`) ; le Document Server lit le fichier via un **jeton signé**
+  (`edit` Drive / `docedit` Documents) et **rappelle** la sauvegarde sur `/api/onlyoffice/callback`.
+- **Inerte** tant que les variables ne sont pas posées (aucun bouton « Éditer »).
 
-> ⚠️ **Déploiement** : le Document Server doit être un **Web Service public** (le navigateur charge `api.js`) —
-> un *Private Service* ne suffit pas. Le `JWT_SECRET` du Document Server **doit être identique** à
-> `ONLYOFFICE_JWT_SECRET`. `APP_URL` doit pointer l'URL **publique** de l'app (pour le callback).
+> ⚠️ **Déploiement** : le Document Server doit être un **Web Service public** ; `JWT_SECRET` **identique** à
+> `ONLYOFFICE_JWT_SECRET` ; `APP_URL` = URL **publique** de l'app (pour le callback).
 
 ---
 
 ## 🚀 Démarrage local
 
 ### Prérequis
-- **Node.js ≥ 18**
-- Une base **PostgreSQL** accessible
+- **Node.js ≥ 18** · une base **PostgreSQL** accessible
 
 ### Installation
 
@@ -495,9 +447,8 @@ npm run dev            # http://localhost:3000
 
 ### Premier compte
 
-`db:bootstrap` crée **uniquement** votre Super Admin (idempotent : ne réécrit jamais un compte existant).
-Connectez-vous, puis dans **Administration** : créez les comptes de l'équipe, attribuez les accès
-(onglet × action × ligne), suivez connexions/sessions.
+`db:bootstrap` crée **uniquement** votre Super Admin (idempotent). Connectez-vous, puis dans **Administration** :
+créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne), suivez connexions/sessions.
 
 ---
 
@@ -509,9 +460,9 @@ Connectez-vous, puis dans **Administration** : créez les comptes de l'équipe, 
 | `AUTH_SECRET` | ✅ | Secret Auth.js (`openssl rand -base64 32`). Sert aussi de clé maître au chiffrement Drive/mail. |
 | `AUTH_TRUST_HOST` | ✅ (prod) | `true` derrière un proxy (Render/Vercel). |
 | `ADMIN_EMAIL` · `ADMIN_PASSWORD` · `ADMIN_NAME` | ✅ | Compte Super Admin initial créé au bootstrap. |
-| `ANTHROPIC_API_KEY` | ⬜ | Active l'**Assistant IA**, l'analyse des rapports vocaux et la synthèse Process Intelligence. |
-| `OPENAI_API_KEY` | ⬜ | Active la **transcription vocale** (Whisper) des rapports terrain. |
-| `MAX_UPLOAD_MB` | ⬜ | Taille max d'upload (défaut 25). |
+| `ANTHROPIC_API_KEY` | ⬜ | Active l'**Assistant IA**, l'analyse des rapports vocaux, les synthèses Brain/Process Intelligence/réunions. |
+| `OPENAI_API_KEY` | ⬜ | Active la **transcription vocale** (Whisper). |
+| `MAX_UPLOAD_MB` | ⬜ | Taille max d'upload par défaut (réglable aussi en base depuis l'admin). |
 | `APP_URL` | ⬜* | URL **publique** de l'app — requise pour le callback OnlyOffice. |
 | `ONLYOFFICE_URL` | ⬜* | URL **publique** du Document Server OnlyOffice. |
 | `ONLYOFFICE_JWT_SECRET` | ⬜* | Secret JWT **identique** à celui du Document Server. |
@@ -531,14 +482,14 @@ applique les migrations et crée le Super Admin (aucune donnée de démo).
 2. Renseigner `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` (`DATABASE_URL` et `AUTH_SECRET` gérés automatiquement).
 3. **Apply** → Render exécute `npm install && prisma generate && prisma migrate deploy && db:bootstrap && next build`.
 
-> **Conflit de dépendances résolu** : `imapflow` (mail) tire `nodemailer@9`, en conflit avec le peer optionnel
+> **Conflit de dépendances résolu** : `imapflow` tire `nodemailer@9`, en conflit avec le peer optionnel
 > `nodemailer@6` de `next-auth` (inutilisé). Le fichier **`.npmrc`** (`legacy-peer-deps=true`) règle le
 > `npm install` de Render automatiquement.
 
 ### Activer OnlyOffice (optionnel)
 
 1. Déployer le **Document Server OnlyOffice** en **Web Service public**, avec `JWT_ENABLED=true` et un `JWT_SECRET`.
-2. Sur l'app : poser `ONLYOFFICE_URL` (l'URL publique du Document Server), `ONLYOFFICE_JWT_SECRET` (**le même secret**), `APP_URL` (l'URL publique de l'app).
+2. Sur l'app : poser `ONLYOFFICE_URL`, `ONLYOFFICE_JWT_SECRET` (**le même secret**), `APP_URL`.
 
 > 🆓 Plan gratuit Render : la base Postgres expire après ~30 jours et le service se met en veille — passer en plan
 > payant pour une base durable + service always-on.
@@ -547,7 +498,7 @@ applique les migrations et crée le Super Admin (aucune donnée de démo).
 
 ## 🗄️ Base de données & migrations
 
-- **72 modèles**, **76 enums**, **31 migrations**.
+- **93 modèles**, **86 enums**, **64 migrations**.
 - `prisma migrate deploy` s'exécute **au déploiement** (les migrations en attente s'appliquent toutes seules).
 - En local, `prisma migrate dev` étant interactif, on génère le SQL ainsi :
 
@@ -560,10 +511,9 @@ npx prisma migrate diff \
 npx prisma migrate deploy
 ```
 
-**Chaîne (extrait récent)** : … → `messaging` → `medical_specialty_structure` → `employee_hr_documents` →
-`budget_envelope` → `field_reports` → `events` → `hr_request_types` → `sponsoring_validation_workflow` →
-`congress_intl_event_type` → `expense_order_budget_revision` → `mail_account` → `medical_info_pharmacist` →
-`directives` → `support_requests`.
+**Chaîne (extrait récent)** : … → `mail_account` → `medical_info_pharmacist` → `directives` → `support_requests`
+→ `promo_material` → `direction_assistant` → `calendar` → `mission_assignment` → `doctor_segmentation` →
+`envelope_module` → `budget_total_access` → `regulatory_dosage_unit` → `admin_requests_batch_g`.
 
 ---
 
@@ -587,17 +537,10 @@ npx prisma migrate deploy
 ## ✅ Tests & qualité
 
 - **Vitest** : tests RBAC (purs, CI-safe) + **tests d'intégration** des workflows critiques contre une vraie base
-  Postgres (mock de session) :
-  - Information médicale : déclaration → pièces → validation → **ordre de dépense déféré** (6/6)
-  - Directives : émission, accès, accusé de réception, fil bidirectionnel, archivage, diffusion par rôle (5/5)
-  - Demandes de support : émission, scope, prise en charge, réponse, refus d'un tiers, clôture (5/5)
-  - OnlyOffice : JWT (aller-retour / falsification / expiration / mauvais secret), types éditables, jetons d'édition Drive **et** Documents isolés (8/8)
-  - Stockage durable des documents : aller-retour octets (écrire → relire), remplacement de clé, suppression (3/3)
-  - Drive : validation des imports (accepte documents/médias, refuse les exécutables, taille) (3/3)
-  - Score d'adoption : robustesse au gaming (churn vs travail durable, jours distincts vs volume, bornes 0–100) (3/3)
-  - Atterrissage sûr (anti-boucle de redirection) : un refus ne renvoie jamais vers une page non visible (4/4)
-  - Assistant IA : outils RBAC, résolution, exécution + audit *(skip propre si jeu de démo absent)*
-- Les tests dépendants de la base se **skippent proprement** sans base (CI verte partout).
+  Postgres (mock de session) — information médicale, directives, support, OnlyOffice (JWT), stockage durable,
+  validation des imports Drive, score d'adoption anti-gaming, atterrissage sûr, matériel promotionnel, assistant IA,
+  courrier. **110 passés · 23 skip propres** (sans base, CI verte partout).
+- **Porte de vérification** avant chaque push :
 
 ```bash
 npx tsc --noEmit && npm run build && npx vitest run
@@ -614,10 +557,11 @@ src/
 │   ├── (app)/                         # shell authentifié (sidebar + topbar)
 │   │   ├── mon-travail · mon-espace · messages · courrier · directives · assistant
 │   │   ├── dashboard · regulatory · sponsoring · budgets · finances · rh
-│   │   ├── congress-international · congress-national · events · sales
-│   │   ├── logistics · pch · stocks · medical · information-medicale
-│   │   ├── business-development · validations · drive · demandes · support
-│   │   ├── process-intelligence · admin · search
+│   │   ├── congress-international · congress-national · events · sales · promo-material
+│   │   ├── logistics · pch · stocks · medical · information-medicale · calendar · meetings
+│   │   ├── business-development · validations · drive · documents · dossiers
+│   │   ├── demandes (+ corbeille) · support · feedback · mon-dossier · missions
+│   │   ├── adventum-brain · process-intelligence · admin · search
 │   │   └── …                          # chaque module = liste + détail
 │   ├── (portal)/portail/              # portail fournisseur (auth séparée)
 │   ├── inscription/[id]/              # billetterie publique (hors auth)
@@ -625,19 +569,20 @@ src/
 │       ├── auth/[...nextauth] · documents/[id] · drive/* · mail/*
 │       ├── messaging/* · events/qr/[token] · field-reports/*
 │       └── onlyoffice/{file,callback} · process-intelligence/synthesis
-├── components/   ui/ · shared/ (DataTable, StatusBadge, DocumentPreview…) · layout/ · documents/ · dashboard/
+├── components/   ui/ · shared/ (DataTable, StatusBadge, DocumentPreview, ModuleTabs…) · layout/ · documents/ · dashboard/
 ├── lib/
 │   ├── rbac.ts            # matrice + scoping row-level (cœur de la sécurité)
 │   ├── session.ts         # requireUser / requireModule (gardes serveur)
 │   ├── entity-access.ts   # contrôle d'accès par ligne (polymorphe)
-│   ├── audit.ts · notify.ts
+│   ├── refs.ts            # génération de références robuste (anti-collision P2002)
+│   ├── audit.ts · notify.ts · labels.ts (libellés + navigation)
 │   ├── ai.ts · assistant.ts          # couche IA + boucle agent
-│   ├── mail.ts · onlyoffice.ts · drive-storage.ts (chiffrement)
+│   ├── mail.ts · onlyoffice.ts · print-document.ts · drive-storage.ts (chiffrement)
 │   ├── medical-info.ts · expense-orders.ts · validation.ts
 │   ├── actions/           # server actions par module
 │   └── queries/           # requêtes agrégées (dashboard, action-center, validations…)
 └── prisma/
-    ├── schema.prisma      # 72 modèles, 76 enums, relations, index
+    ├── schema.prisma      # 93 modèles, 86 enums, relations, index
     └── bootstrap.ts       # Super Admin initial (idempotent, aucune donnée de démo)
 ```
 
@@ -649,25 +594,25 @@ src/
 ## 🧭 Feuille de route
 
 **Grand chantier à venir — données de référence (master data).** Import prévu de **+600 000 produits / 7 800
-sociétés pharma**, **nomenclature algérienne**, **IQVIA 2025-2026**, **achats PCH 2025**. Ce sont des
-**référentiels** à une autre échelle que les données opérationnelles ; à construire **avant** l'import :
+sociétés pharma**, **nomenclature algérienne**, **IQVIA 2025-2026**, **achats PCH 2025** :
 - Espace **« Référentiels »** dédié (Fournisseurs Monde, Produits Monde, Nomenclature DZ, Marché IQVIA, Achats PCH).
-- **Pagination + recherche côté serveur** (index `pg_trgm` / full-text) en remplacement du DataTable client.
+- **Pagination + recherche côté serveur** (index `pg_trgm` / full-text).
 - **Pipeline d'import par lots** (worker Render) + **tâches de fond / cron** (imports, alertes d'expiration GMP/AMM/cautions).
 - La valeur = la **connexion** (IQVIA → scoring BD, Nomenclature DZ → veille concurrentielle, etc.).
 
 **Autres pistes** : reporting/BI consolidé + exports PDF/Excel planifiés · notifications e-mail/SMS · **veille des
-appels d'offres PCH à venir** · suivi des échéances documentaires · contrats/conventions/licences · objectifs
-commerciaux vs réalisé · lots & péremptions / pharmacovigilance · export comptable (G50) · **PWA** (installable
-iOS/Android sans store) · annotations PDF.
+appels d'offres PCH** · suivi des échéances documentaires · contrats/conventions/licences · objectifs commerciaux
+vs réalisé · lots & péremptions / pharmacovigilance · export comptable (G50) · **PWA** · annotations PDF.
 
 ---
 
 ## 🤝 Conventions & contribution
 
-- Développement sur la branche **`claude/hopeful-goodall-phd0nb`** (branche par défaut du dépôt).
+- Développement sur la branche **`claude/hopeful-goodall-phd0nb`**.
 - Tout doit être **réel et vérifié** : `typecheck` + `build` + `tests` **verts** avant de pousser. **Aucune donnée simulée.**
 - Les fichiers `"use server"` n'exportent **que** des fonctions `async`.
+- Migrations : SQL manuel dans `prisma/migrations/<ts>_<nom>/migration.sql` + `prisma migrate deploy`.
+- Références séquentielles via `src/lib/refs.ts` (`buildRef` + `createWithRetry`) — **jamais** `count()+1`.
 - Secrets **toujours côté serveur**, jamais committés ni exposés au client.
 
 ---
