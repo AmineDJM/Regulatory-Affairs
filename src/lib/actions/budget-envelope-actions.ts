@@ -104,7 +104,7 @@ export async function createBudgetCategory(formData: FormData): Promise<ActionRe
   const name = fdStr(formData, "name");
   if (!envelopeId || !name) return { ok: false, error: "Nom de catégorie manquant." };
   const created = await prisma.budgetCategoryLine.create({
-    data: { envelopeId, name, allocated: fdNum(formData, "allocated") ?? 0, color: fdStr(formData, "color"), notes: fdStr(formData, "notes") },
+    data: { envelopeId, name, module: fdStr(formData, "module"), allocated: fdNum(formData, "allocated") ?? 0, color: fdStr(formData, "color"), notes: fdStr(formData, "notes") },
     select: { id: true },
   });
   revalidatePath("/budgets");

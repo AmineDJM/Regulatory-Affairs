@@ -916,6 +916,7 @@ model BudgetCategoryLine {
   envelopeId   String
   envelope     BudgetEnvelope       @relation(fields: [envelopeId], references: [id], onDelete: Cascade)
   name         String
+  module       String? // module associé (SPONSORING, CONGRESS_*, REGULATORY…) — attribution auto des dépenses
   allocated    Decimal              @default(0) @db.Decimal(14, 2)
   color        String?
   notes        String?

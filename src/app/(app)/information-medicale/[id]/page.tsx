@@ -193,7 +193,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
             <Card>
               <CardHeader><CardTitle>Documents déposés</CardTitle></CardHeader>
               <CardContent>
-                <DocumentList documents={docItems} canDelete={false} canEdit={onlyofficeConfigured() && canManage} path={`/information-medicale/${decl.id}`} />
+                <DocumentList documents={docItems} canDelete={canManage} canEdit={onlyofficeConfigured() && canManage} path={`/information-medicale/${decl.id}`} />
               </CardContent>
             </Card>
           )}

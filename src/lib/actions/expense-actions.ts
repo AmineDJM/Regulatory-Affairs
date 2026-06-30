@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
+import { ENTITY_MODULE } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
@@ -40,12 +41,28 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
     if (invoice === 0) return { ok: false, error: "Facture obligatoire : joignez la facture à l'ordre (ou au dossier source) avant de régler, ou demandez-la au demandeur." };
   }
 
+  // Attribution automatique à la catégorie budgétaire du module source : une fois
+  // validée par tous (y compris les Finances qui règlent ici), la dépense « tombe »
+  // dans la catégorie rattachée au module d'où vient la demande.
+  let budgetCategoryId: string | null = null;
+  if (order.sourceType) {
+    const sourceModule = ENTITY_MODULE[order.sourceType];
+    if (sourceModule) {
+      const cat = await prisma.budgetCategoryLine.findFirst({
+        where: { module: sourceModule, envelope: { isActive: true } },
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+      });
+      budgetCategoryId = cat?.id ?? null;
+    }
+  }
+
   const tx = await prisma.financeTransaction.create({
     data: {
       reference: await nextFinanceRef(), date: new Date(), direction: "OUT",
       category: order.category, label: order.label, amount: order.amount,
       method: "BANK_TRANSFER", account: "Banque", counterparty: order.beneficiary,
-      status: "SETTLED", createdById: user.id,
+      status: "SETTLED", budgetCategoryId, createdById: user.id,
     },
   });
   await prisma.expenseOrder.update({

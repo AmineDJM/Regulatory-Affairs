@@ -19,6 +19,7 @@ export type BudgetHealth = "ON_TRACK" | "AT_RISK" | "OVER_BUDGET" | "NONE";
 export interface BudgetCategoryView {
   id: string;
   name: string;
+  module: string | null;
   color: string | null;
   notes: string | null;
   allocated: number;
@@ -111,7 +112,7 @@ export async function getBudgetOverview(
     const consumed = consumedByCat.get(c.id) ?? 0;
     const committed = committedByCat.get(c.id) ?? 0;
     return {
-      id: c.id, name: c.name, color: c.color, notes: c.notes,
+      id: c.id, name: c.name, module: c.module, color: c.color, notes: c.notes,
       allocated, consumed, committed,
       remaining: allocated - consumed,
       pct: allocated > 0 ? Math.round((consumed / allocated) * 100) : 0,

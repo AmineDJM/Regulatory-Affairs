@@ -289,6 +289,7 @@ function CategoryCard({ c, canManage, onEdit, onDelete }: { c: BudgetCategoryVie
       <div className="flex items-center gap-2">
         <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: c.color ?? "#64748b" }} />
         <span className="font-semibold">{c.name}</span>
+        {c.module && <Badge tone="info" dot={false}>{moduleLabel(c.module) ?? c.module}</Badge>}
         <Badge tone={h.tone} dot={false}>{h.label}</Badge>
         <span className="ml-auto text-sm text-muted-foreground">{formatCurrency(c.consumed)} / {formatCurrency(c.allocated)}</span>
         {canManage && (
@@ -344,7 +345,15 @@ function CategorySheet({ envelopeId, cat, onClose }: { envelopeId: string; cat?:
         }}
         className="grid grid-cols-2 gap-3"
       >
-        {field("name", "Nom de la catégorie", { defaultValue: cat?.name, placeholder: "Ex. Promotion médicale", required: true }, true)}
+        {field("name", "Nom de la catégorie", { defaultValue: cat?.name, placeholder: "Ex. Sponsoring", required: true }, true)}
+        <div className="col-span-2 space-y-1.5">
+          <Label>Module associé</Label>
+          <Select name="module" defaultValue={cat?.module ?? ""}>
+            <option value="">— Aucun —</option>
+            {MODULE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </Select>
+          <p className="text-xs text-muted-foreground">Les dépenses d'une demande de ce module, une fois validées et réglées par les Finances, sont attribuées automatiquement à cette catégorie.</p>
+        </div>
         {field("allocated", "Allocation (DZD)", { type: "number", step: "any", defaultValue: cat?.allocated ?? "" })}
         <div className="space-y-1.5"><Label>Couleur</Label><input type="color" name="color" defaultValue={cat?.color ?? "#0ea5e9"} className="h-9 w-full cursor-pointer rounded-lg border border-input" /></div>
         <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" defaultValue={cat?.notes ?? ""} rows={2} /></div>
