@@ -20,7 +20,8 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
   if (!detail) notFound();
   const form = await getCongressFormData();
 
-  const canValidate = userCan(user, "CONGRESS_NATIONAL", "VALIDATE") || hasGlobalView(user.role);
+  // Validation définitive **réservée à la Direction** (hasGlobalView = Direction + Super Admin).
+  const canValidate = hasGlobalView(user.role);
   const canMarketing = user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
   const canAnalyze = detail.productManagerId === user.id || hasGlobalView(user.role);
   const canUpload = userCan(user, "CONGRESS_NATIONAL", "UPLOAD") || detail.requesterId === user.id;

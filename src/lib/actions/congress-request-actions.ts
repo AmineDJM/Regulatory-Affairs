@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
+import { createExpenseOrder } from "@/lib/expense-orders";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 type CongressType = "INTL" | "NATIONAL";
@@ -137,12 +138,28 @@ export async function submitProductAnalysis(formData: FormData): Promise<ActionR
   if (!c) return { ok: false, error: "Demande introuvable." };
   if (c.productManagerId !== user.id && !hasGlobalView(user.role)) return { ok: false, error: "Réservé au chef de produit assigné." };
   if (c.requestStatus !== "PRELIMINARY_APPROVED") return { ok: false, error: "Cette demande n'est pas en phase d'analyse." };
-  const budget = fdNum(formData, "productManagerBudget");
-  if (budget === null) return { ok: false, error: "Le budget proposé est obligatoire." };
 
+  // Le chef de produit peut APPROUVER (et proposer un budget, désormais facultatif)
+  // ou REFUSER la demande.
+  const decision = fdStr(formData, "decision") ?? "APPROVE";
+  if (decision === "REJECT") {
+    const reason = fdStr(formData, "productManagerNotes") || fdStr(formData, "note");
+    if (!reason) return { ok: false, error: "Indiquez le motif du refus." };
+    await updateCongress(t, id, {
+      requestStatus: "REJECTED", rejectionReason: reason, productManagerNotes: reason, updatedById: user.id,
+    });
+    if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: "Demande de congrès refusée (chef de produit)", body: c.name, link: `${pathFor(t)}/${id}` });
+    await notifyRoles(["MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Congrès refusé par le chef de produit", body: c.name, link: `${pathFor(t)}/${id}` });
+    await recordAudit({ actorId: user.id, action: "REFUSE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Refus chef de produit — ${c.name}` });
+    revalidatePath(`${pathFor(t)}/${id}`);
+    revalidatePath(pathFor(t));
+    return { ok: true };
+  }
+
+  // Approbation : le budget proposé est facultatif (la Direction tranchera).
   await updateCongress(t, id, {
     requestStatus: "AWAITING_FINAL",
-    productManagerBudget: budget,
+    productManagerBudget: fdNum(formData, "productManagerBudget"),
     productManagerNotes: fdStr(formData, "productManagerNotes"),
     updatedById: user.id,
   });
@@ -165,7 +182,9 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
   const id = fdStr(formData, "id");
   const decision = fdStr(formData, "decision");
   if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
-  if (!userCan(user, moduleFor(t), "VALIDATE") && !hasGlobalView(user.role)) return { ok: false, error: "Non autorisé." };
+  // Validation définitive **réservée à la Direction** (et au Super Admin) — le chef
+  // de produit, même s'il « gère » le module, ne doit PAS pouvoir trancher.
+  if (!hasGlobalView(user.role)) return { ok: false, error: "Validation définitive réservée à la Direction." };
 
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };
@@ -186,27 +205,94 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
   const amount = fdNum(formData, "finalAmount");
   if (amount === null || amount <= 0) return { ok: false, error: "Le montant accordé est obligatoire pour valider définitivement." };
 
-  // Validation définitive → étape « information médicale » (déclaration aux autorités
-  // par le pharmacien responsable) AVANT l'émission de l'ordre de dépense au comptable.
-  const decl = await createMedicalInfoDeclaration({
-    sourceType: entityFor(t),
-    sourceId: id,
-    label: `Congrès — ${c.name}`,
-    beneficiary: c.name,
-    amount,
-    requesterId: c.requesterId ?? user.id,
-  });
+  // Étape « information médicale » : intercalée UNIQUEMENT si un pharmacien responsable
+  // est configuré. Sinon, on route directement l'ordre de dépense vers les Finances
+  // (le responsable des finances est notifié par createExpenseOrder).
+  const pharmacist = await prisma.user.findFirst({ where: { role: "MEDICAL_INFO_PHARMACIST", isActive: true }, select: { id: true } });
 
-  await updateCongress(t, id, {
-    requestStatus: "APPROVED",
-    finalById: user.id, finalAt: new Date(), finalNote: fdStr(formData, "note"), finalAmount: amount,
-    status: "VALIDATED",
-    updatedById: user.id,
-  });
+  if (pharmacist) {
+    const decl = await createMedicalInfoDeclaration({
+      sourceType: entityFor(t),
+      sourceId: id,
+      label: `Congrès — ${c.name}`,
+      beneficiary: c.name,
+      amount,
+      requesterId: c.requesterId ?? user.id,
+    });
+    await updateCongress(t, id, {
+      requestStatus: "APPROVED",
+      finalById: user.id, finalAt: new Date(), finalNote: fdStr(formData, "note"), finalAmount: amount,
+      status: "VALIDATED",
+      updatedById: user.id,
+    });
+    await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Validation définitive — ${c.name} (déclaration ${decl.reference})` });
+    revalidatePath("/information-medicale");
+  } else {
+    // Pas de pharmacien PRIM : ordre de dépense émis directement → Finances.
+    const order = await createExpenseOrder({
+      label: `Congrès — ${c.name}`,
+      amount,
+      category: "EVENEMENT",
+      beneficiary: c.name,
+      sourceType: entityFor(t),
+      sourceId: id,
+      requestedById: c.requesterId ?? user.id,
+    });
+    await updateCongress(t, id, {
+      requestStatus: "APPROVED",
+      finalById: user.id, finalAt: new Date(), finalNote: fdStr(formData, "note"), finalAmount: amount,
+      status: "VALIDATED", expenseOrderId: order.id,
+      updatedById: user.id,
+    });
+    await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Validation définitive — ${c.name} (ordre ${order.reference})` });
+    revalidatePath("/finances/ordres-de-depense");
+    revalidatePath("/finances");
+  }
+
   if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: "Congrès validé — pris en charge", body: c.name, link: `${pathFor(t)}/${id}` });
-  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Validation définitive — ${c.name} (déclaration ${decl.reference})` });
+  revalidatePath(`${pathFor(t)}/${id}`);
+  return { ok: true };
+}
+
+// ───────────────────────────── Modification du budget accordé (Direction) ─────────────────────────────
+
+/**
+ * La Direction peut **modifier le montant accordé** même après la validation
+ * définitive. Répercuté sur la déclaration d'information médicale (si pas encore
+ * validée) et sur l'ordre de dépense (s'il existe et n'est pas encore réglé).
+ */
+export async function updateGrantedBudget(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const t = typeOf(formData);
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  if (!hasGlobalView(user.role)) return { ok: false, error: "Réservé à la Direction." };
+  const c = await loadCongress(t, id);
+  if (!c) return { ok: false, error: "Demande introuvable." };
+  if (!["APPROVED", "COMPLETED"].includes(c.requestStatus)) return { ok: false, error: "Le budget ne peut être modifié qu'après validation définitive." };
+  const amount = fdNum(formData, "finalAmount");
+  if (amount === null || amount <= 0) return { ok: false, error: "Montant invalide." };
+
+  await updateCongress(t, id, { finalAmount: amount, updatedById: user.id });
+
+  // Répercussion sur la déclaration PRIM (tant qu'elle n'est pas validée).
+  const decl = await prisma.medicalInfoDeclaration.findUnique({ where: { sourceType_sourceId: { sourceType: entityFor(t), sourceId: id } }, select: { id: true, status: true, expenseOrderId: true } });
+  if (decl && decl.status !== "VALIDATED") {
+    await prisma.medicalInfoDeclaration.update({ where: { id: decl.id }, data: { amount } });
+  }
+  // Répercussion sur l'ordre de dépense (s'il existe et n'est pas réglé).
+  const orderId = decl?.expenseOrderId ?? c.expenseOrderId;
+  if (orderId) {
+    const order = await prisma.expenseOrder.findUnique({ where: { id: orderId }, select: { status: true } });
+    if (order && order.status !== "PAID") {
+      await prisma.expenseOrder.update({ where: { id: orderId }, data: { amount } });
+      await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Budget d'un événement modifié", body: `${c.name} — nouveau montant ${amount.toLocaleString("fr-FR")} DZD`, link: "/finances/ordres-de-depense" });
+    }
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Congrès", entityType: entityFor(t), entityId: id, field: "finalAmount", newValue: String(amount), summary: `Budget accordé modifié — ${c.name}` });
   revalidatePath(`${pathFor(t)}/${id}`);
   revalidatePath("/information-medicale");
+  revalidatePath("/finances/ordres-de-depense");
   return { ok: true };
 }
 

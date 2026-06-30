@@ -9,6 +9,7 @@ import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/util
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { DocumentUpload } from "@/components/documents/document-upload";
 import { CommentThread } from "@/components/shared/comment-thread";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { addMedicalInfoComment } from "@/lib/actions/medical-info-actions";
@@ -46,7 +47,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
   const amount = decl.amount != null ? toNumber(decl.amount) : null;
   const pendingCount = decl.requests.filter((r) => r.status === "PENDING").length;
 
-  const [documents, users, comments] = await Promise.all([
+  const [documents, users, comments, sourceDocuments, requesterUser] = await Promise.all([
     prisma.document.findMany({
       where: { entityType: "MEDICAL_INFO_DECLARATION", entityId: decl.id },
       include: { uploadedBy: { select: { name: true } } },
@@ -60,7 +61,21 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
       include: { author: { select: { name: true } } },
       orderBy: { createdAt: "asc" },
     }),
+    // Pièces déjà jointes à l'événement source (congrès / sponsoring), consultables ici.
+    prisma.document.findMany({
+      where: { entityType: decl.sourceType, entityId: decl.sourceId },
+      include: { uploadedBy: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+    decl.requesterId ? prisma.user.findUnique({ where: { id: decl.requesterId }, select: { name: true } }) : Promise.resolve(null),
   ]);
+
+  const toDocItem = (d: (typeof documents)[number]): DocItem => ({
+    id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
+    confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
+    createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
+  });
+  const sourceDocItems: DocItem[] = sourceDocuments.map(toDocItem);
 
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
@@ -104,6 +119,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
             <CardHeader><CardTitle>Événement déclaré</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
               <Row label="Type" value={ENTITY_TYPE_LABELS[decl.sourceType] ?? decl.sourceType} />
+              <Row label="Demandeur (à la source)" value={requesterUser?.name ?? "—"} />
               <Row label="Budget accordé" value={amount != null ? formatCurrency(amount) : "—"} />
               <Row label="Bénéficiaire" value={decl.beneficiary ?? "—"} />
               <Row label="Pharmacien responsable" value={decl.pharmacist?.name ?? "Non assigné"} />
@@ -159,6 +175,19 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
             </CardContent>
           </Card>
 
+          {/* Documents joints à l'événement source (congrès / sponsoring) */}
+          {sourceDocItems.length > 0 && (
+            <Card>
+              <CardHeader className="flex-row items-center justify-between">
+                <CardTitle>Documents de l'événement</CardTitle>
+                <span className="text-xs text-muted-foreground">{ENTITY_TYPE_LABELS[decl.sourceType] ?? decl.sourceType}</span>
+              </CardHeader>
+              <CardContent>
+                <DocumentList documents={sourceDocItems} canDelete={false} path={`/information-medicale/${decl.id}`} />
+              </CardContent>
+            </Card>
+          )}
+
           {/* Documents déposés */}
           {docItems.length > 0 && (
             <Card>
@@ -197,7 +226,13 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
               </Card>
               <Card>
                 <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldPlus className="h-4 w-4" /> Déclaration aux autorités</CardTitle></CardHeader>
-                <CardContent><AuthorityForm id={decl.id} authorityRef={decl.authorityRef} authorityNotes={decl.authorityNotes} /></CardContent>
+                <CardContent className="space-y-3">
+                  <AuthorityForm id={decl.id} authorityRef={decl.authorityRef} authorityNotes={decl.authorityNotes} />
+                  <div className="space-y-1.5 border-t border-border pt-3">
+                    <p className="text-xs text-muted-foreground">Joindre un document (récépissé, accusé… — facultatif)</p>
+                    <DocumentUpload entityType="MEDICAL_INFO_DECLARATION" entityId={decl.id} categories={["SUPPORTING_DOC", "OTHER"]} compact />
+                  </div>
+                </CardContent>
               </Card>
               {!isAwaitingDirection && (
                 <Card className="border-success/40">

@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Check, X, Loader2 } from "lucide-react";
-import { preliminaryDecision, submitProductAnalysis, finalDecision } from "@/lib/actions/congress-request-actions";
+import { preliminaryDecision, submitProductAnalysis, finalDecision, updateGrantedBudget } from "@/lib/actions/congress-request-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 
@@ -77,22 +77,67 @@ export function PreliminaryDecision({ type, id, productManagers }: { type: strin
   );
 }
 
-/** Analyse du chef de produit : budget proposé + notes. */
+/** Analyse du chef de produit : Approuver (budget facultatif) ou Refuser. */
 export function ProductAnalysis({ type, id }: { type: string; id: string }) {
   const { pending, err, run } = useRun();
+  const [mode, setMode] = React.useState<null | "approve" | "reject">(null);
   const [budget, setBudget] = React.useState("");
   const [notes, setNotes] = React.useState("");
+
+  if (!mode) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-muted-foreground">Analyse du chef de produit : approuvez (en proposant éventuellement un budget) ou refusez la demande.</p>
+        <div className="flex gap-2">
+          <Button size="sm" variant="success" onClick={() => setMode("approve")}><Check className="h-4 w-4" /> Approuver</Button>
+          <Button size="sm" variant="destructive" onClick={() => setMode("reject")}><X className="h-4 w-4" /> Refuser</Button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="space-y-2">
-      <p className="text-sm text-muted-foreground">Analyse du chef de produit : proposez le budget définitif.</p>
-      <Label>Budget proposé (DZD)</Label>
-      <Input type="number" step="any" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Budget après analyse" />
-      <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Analyse / justification…" className="min-h-[64px]" />
+      {mode === "approve" ? (
+        <>
+          <Label>Budget proposé (DZD) <span className="text-xs font-normal text-muted-foreground">— facultatif</span></Label>
+          <Input type="number" step="any" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Budget après analyse (optionnel)" />
+          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Analyse / justification…" className="min-h-[64px]" />
+        </>
+      ) : (
+        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Motif du refus (obligatoire)…" className="min-h-[64px]" />
+      )}
       {err && <p className="text-xs text-destructive">{err}</p>}
-      <Button size="sm" disabled={pending || !budget.trim()}
-        onClick={() => run(base(type, id, { productManagerBudget: budget, productManagerNotes: notes }), submitProductAnalysis)}>
-        {pending && <Loader2 className="h-4 w-4 animate-spin" />} Soumettre l'analyse
-      </Button>
+      <div className="flex gap-2">
+        <Button size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "reject" && !notes.trim())}
+          onClick={() => run(base(type, id, { decision: mode === "approve" ? "APPROVE" : "REJECT", productManagerBudget: budget, productManagerNotes: notes }), submitProductAnalysis, () => setMode(null))}>
+          {pending && <Loader2 className="h-4 w-4 animate-spin" />} {mode === "reject" ? "Refuser" : "Soumettre"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => { setMode(null); setNotes(""); setBudget(""); }}>Annuler</Button>
+      </div>
+    </div>
+  );
+}
+
+/** La Direction modifie le montant accordé même après validation définitive. */
+export function EditGrantedBudget({ type, id, current }: { type: string; id: string; current: number | null }) {
+  const { pending, err, run } = useRun();
+  const [open, setOpen] = React.useState(false);
+  const [amount, setAmount] = React.useState(current != null ? String(current) : "");
+  if (!open) {
+    return <Button size="sm" variant="outline" onClick={() => setOpen(true)}>Modifier le budget accordé</Button>;
+  }
+  return (
+    <div className="space-y-2">
+      <Label>Nouveau montant accordé (DZD)</Label>
+      <Input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+      <p className="text-xs text-muted-foreground">Répercuté sur la déclaration d'information médicale et l'ordre de dépense (s'ils ne sont pas déjà réglés).</p>
+      {err && <p className="text-xs text-destructive">{err}</p>}
+      <div className="flex gap-2">
+        <Button size="sm" disabled={pending || !(Number(amount) > 0)} onClick={() => run(base(type, id, { finalAmount: amount }), updateGrantedBudget, () => setOpen(false))}>
+          {pending && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Annuler</Button>
+      </div>
     </div>
   );
 }

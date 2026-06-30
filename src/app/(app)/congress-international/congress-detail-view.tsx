@@ -9,7 +9,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { CONGRESS_REQUEST_STATUS, NATIONAL_EVENT_TYPE, EXPENSE_ORDER_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import type { CongressDetail } from "@/lib/queries/congress";
-import { PreliminaryDecision, ProductAnalysis, FinalDecision } from "./congress-workflow";
+import { PreliminaryDecision, ProductAnalysis, FinalDecision, EditGrantedBudget } from "./congress-workflow";
 import { BeneficiariesCard } from "./beneficiaries-card";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import type { MissionAssignmentDTO } from "@/lib/queries/missions";
@@ -104,16 +104,19 @@ export function CongressDetailView({
                 canValidate ? <FinalDecision type={d.type} id={d.id} suggestedAmount={d.productManagerBudget ?? d.estimatedBudget ?? null} />
                   : <p className="text-sm text-muted-foreground">En attente de la validation définitive.</p>
               ) : st === "APPROVED" || st === "COMPLETED" ? (
-                <div className="space-y-1 text-sm text-muted-foreground">
-                  <p>{d.finalBy} · {d.finalAt ? formatDate(d.finalAt) : ""}{d.finalNote ? ` — ${d.finalNote}` : ""}</p>
-                  {d.expenseOrder && (
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p>{d.finalBy} · {d.finalAt ? formatDate(d.finalAt) : ""}{d.finalNote ? ` — ${d.finalNote}` : ""}{d.finalAmount != null ? ` · ${formatCurrency(d.finalAmount)} accordé` : ""}</p>
+                  {d.expenseOrder ? (
                     <p className="flex items-center gap-2">
                       Ordre de dépense <span className="font-mono text-xs">{d.expenseOrder.reference}</span>
                       <StatusBadge map={EXPENSE_ORDER_STATUS} value={d.expenseOrder.status} dot={false} />
                       <span>{formatCurrency(d.expenseOrder.amount)}</span>
                       <Link href="/finances/ordres-de-depense" className="text-primary hover:underline">Voir</Link>
                     </p>
+                  ) : (
+                    <p className="text-xs">En cours de traitement (information médicale / Finances).</p>
                   )}
+                  {canValidate && <EditGrantedBudget type={d.type} id={d.id} current={d.finalAmount ?? d.productManagerBudget ?? null} />}
                 </div>
               ) : <p className="text-sm text-muted-foreground">À venir.</p>}
             </Step>

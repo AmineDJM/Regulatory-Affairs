@@ -86,6 +86,7 @@ export async function getCongressDetail(type: CongressType, user: SessionUser, i
     requestStatus: c.requestStatus,
     estimatedBudget: dec(c.estimatedBudget),
     productManagerBudget: dec(c.productManagerBudget),
+    finalAmount: dec(c.finalAmount),
     productManagerNotes: c.productManagerNotes ?? "",
     preliminaryNote: c.preliminaryNote ?? "",
     finalNote: c.finalNote ?? "",

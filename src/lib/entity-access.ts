@@ -2,6 +2,7 @@ import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   userCan,
+  hasGlobalView,
   scopeRegulatory,
   scopeMedicalDoctors,
   scopeMedicalVisits,
@@ -101,6 +102,25 @@ export async function canAccessEntity(
   // joindre et gérer les pièces du dossier promo lié.
   if (entityType === "PROMO_MATERIAL" && user.role === "DIRECTION_ASSISTANT") {
     return true;
+  }
+
+  // Information médicale : le pharmacien responsable (ou un manager info médicale)
+  // qui instruit une déclaration peut CONSULTER les pièces de l'événement SOURCE
+  // (congrès / sponsoring), même sans accès au module concerné.
+  if (
+    action === "VIEW" &&
+    (entityType === "SPONSORING" || entityType === "CONGRESS_INTERNATIONAL" || entityType === "CONGRESS_NATIONAL")
+  ) {
+    const isMedManager = hasGlobalView(user.role) || user.role === "MEDICAL_INFO_PHARMACIST" || userCan(user, "MEDICAL_INFO", "VALIDATE");
+    if (isMedManager) {
+      const decl = await prisma.medicalInfoDeclaration.findUnique({
+        where: { sourceType_sourceId: { sourceType: entityType, sourceId: entityId } },
+        select: { pharmacistId: true },
+      });
+      if (decl && (decl.pharmacistId === user.id || hasGlobalView(user.role) || userCan(user, "MEDICAL_INFO", "VALIDATE"))) {
+        return true;
+      }
+    }
   }
 
   // Demande RH : l'employé demandeur peut consulter et joindre des pièces à SA

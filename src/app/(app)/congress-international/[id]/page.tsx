@@ -20,7 +20,9 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
   if (!detail) notFound();
   const form = await getCongressFormData();
 
-  const canValidate = userCan(user, "CONGRESS_INTERNATIONAL", "VALIDATE") || hasGlobalView(user.role);
+  // Validation définitive **réservée à la Direction** (hasGlobalView = Direction + Super Admin) :
+  // le chef de produit « gère » le module mais ne doit pas valider à la place de la Direction.
+  const canValidate = hasGlobalView(user.role);
   const canMarketing = user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
   const canAnalyze = detail.productManagerId === user.id || hasGlobalView(user.role);
   // Le demandeur peut joindre des pièces à sa demande, même si son rôle n'a pas UPLOAD.
