@@ -16,6 +16,7 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SPONSORING_STATUS, PRIORITY } from "@/lib/labels";
 import { DecisionPanel } from "./decision-panel";
+import { ThirdPartyButton } from "./third-party-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
 
@@ -89,6 +90,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
         </div>
         <div className="flex flex-col items-end gap-2">
           <StatusBadge map={SPONSORING_STATUS} value={req.status} />
+          {(canMarketing || canDirection || isProductManager || isRequester) && <ThirdPartyButton id={req.id} people={missionUsers} />}
           <SuperAdminDeleteButton kind="SPONSORING" id={req.id} name={`${req.reference} — ${req.institution}`} enabled={user.role === "SUPER_ADMIN"} />
         </div>
       </div>

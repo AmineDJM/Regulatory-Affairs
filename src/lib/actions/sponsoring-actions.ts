@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
+import { createDirectValidation } from "@/lib/validation";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/sponsoring";
@@ -108,6 +109,39 @@ export async function sponsoringPreliminary(formData: FormData): Promise<ActionR
     if (req.requesterId) await notifyUser({ userId: req.requesterId, type: "SPONSORING_VALIDATION", title: "Sponsoring validé (préliminaire)", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
     await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Validation préliminaire — ${req.reference}` });
   }
+  revalidate(id);
+  return { ok: true };
+}
+
+// ─────────────────── Implication d'une tierce personne (via son espace) ───────────────────
+
+/**
+ * Implique une tierce personne (ex. l'assistante de direction) dans le circuit
+ * SANS lui donner accès au module : on crée une **demande de validation directe**
+ * (cf. module « Demandes de validations ») qu'elle traite depuis SON espace.
+ */
+export async function requestThirdPartyInput(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  const personId = fdStr(formData, "personId");
+  if (!id || !personId) return { ok: false, error: "Indiquez la personne à impliquer." };
+  const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  const isActor = hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER" || req.productManagerId === user.id || req.requesterId === user.id;
+  if (!isActor) return { ok: false, error: "Non autorisé." };
+
+  const res = await createDirectValidation({
+    requesterId: user.id,
+    title: `Avis demandé — sponsoring ${req.reference} (${req.institution})`,
+    description: fdStr(formData, "note"),
+    link: `${PATH}/${id}`,
+    module: "Ad & Pro",
+    validatorIds: [personId],
+    entityType: "SPONSORING",
+    entityId: id,
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Tierce personne impliquée — ${req.reference}` });
   revalidate(id);
   return { ok: true };
 }
