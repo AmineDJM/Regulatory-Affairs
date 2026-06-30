@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Lightbulb } from "lucide-react";
+import { Lightbulb, LineChart } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { getBdProjects, bdSummary } from "@/lib/queries/bd";
@@ -29,6 +29,9 @@ export default async function BusinessDevelopmentPage() {
         title="Business Development"
         description="Tableau stratégique des projets : Projet → Gamme → Produit. Marché, concurrence, investissement et revenus estimés, éditables en place."
       >
+        <Link href="/business-development/marche">
+          <Button variant="outline"><LineChart className="h-4 w-4" /> Intelligence marché</Button>
+        </Link>
         <Link href="/business-development/opportunites">
           <Button variant="outline"><Lightbulb className="h-4 w-4" /> Opportunités (pipeline)</Button>
         </Link>
