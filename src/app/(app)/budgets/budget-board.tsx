@@ -18,6 +18,34 @@ import type { BudgetOverview, BudgetEnvelopeOption, BudgetCategoryView, BudgetHe
 type Result = { ok: boolean; error?: string };
 const d10 = (iso: string) => iso.slice(0, 10);
 
+// Modules rattachables à une enveloppe (les catégories Ad & Pro en tête).
+const MODULE_OPTIONS: { value: string; label: string }[] = [
+  { value: "SPONSORING", label: "Ad & Pro — Sponsoring" },
+  { value: "CONGRESS_INTERNATIONAL", label: "Ad & Pro — Congrès internationaux" },
+  { value: "CONGRESS_NATIONAL", label: "Ad & Pro — Congrès nationaux" },
+  { value: "EVENTS", label: "Ad & Pro — Événements" },
+  { value: "PROMO_MATERIAL", label: "Ad & Pro — Matériel promotionnel" },
+  { value: "MEDICAL", label: "Promotion médicale" },
+  { value: "REGULATORY", label: "Regulatory" },
+  { value: "BUSINESS_DEVELOPMENT", label: "Business Development" },
+  { value: "RH", label: "Ressources humaines" },
+  { value: "LOGISTICS", label: "Logistique" },
+  { value: "PCH", label: "PCH — Marchés" },
+];
+const moduleLabel = (m: string | null | undefined) => MODULE_OPTIONS.find((o) => o.value === m)?.label ?? null;
+
+function moduleSelect(defaultValue?: string | null) {
+  return (
+    <div className="col-span-2 space-y-1.5">
+      <Label>Module rattaché</Label>
+      <Select name="module" defaultValue={defaultValue ?? ""}>
+        <option value="">— Aucun —</option>
+        {MODULE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </Select>
+    </div>
+  );
+}
+
 const HEALTH: Record<BudgetHealth, { label: string; tone: "success" | "warning" | "danger" | "neutral"; bar: string }> = {
   ON_TRACK: { label: "Maîtrisé", tone: "success", bar: "bg-success" },
   AT_RISK: { label: "À surveiller", tone: "warning", bar: "bg-warning" },
@@ -57,6 +85,7 @@ export function CreateEnvelopeButton() {
       <Sheet open={open} onClose={() => setOpen(false)} title="Nouvelle enveloppe budgétaire" description="Un budget total pour une période, à répartir ensuite en catégories." width="md">
         <form action={(fd) => run(() => createEnvelope(fd), () => setOpen(false))} className="grid grid-cols-2 gap-3">
           {field("name", "Nom de l'enveloppe", { placeholder: `Budget ${year}`, required: true }, true)}
+          {moduleSelect()}
           {field("totalAmount", "Budget total (DZD)", { type: "number", step: "any", placeholder: "0" }, true)}
           {field("periodStart", "Début de période", { type: "date", defaultValue: `${year}-01-01` })}
           {field("periodEnd", "Fin de période", { type: "date", defaultValue: `${year}-12-31` })}
@@ -86,10 +115,15 @@ export function BudgetBoard({ overview, envelopes, canManage }: { overview: Budg
       {/* Contrôles : enveloppe + période */}
       <div className="surface flex flex-wrap items-end gap-3 p-3">
         <div className="space-y-1.5">
-          <Label>Enveloppe</Label>
+          <Label>Enveloppe {moduleLabel(overview.envelope.module) && <Badge tone="info" dot={false} className="ml-1">{moduleLabel(overview.envelope.module)}</Badge>}</Label>
           <Select value={overview.envelope.id} onChange={(e) => router.push(`/budgets?env=${e.target.value}`)} className="w-56">
             {envelopes.map((en) => <option key={en.id} value={en.id}>{en.name}{en.isActive ? "" : " (archivée)"}</option>)}
           </Select>
+        </div>
+        {/* Budget total = somme des enveloppes actives (mode flexible). */}
+        <div className="space-y-1.5">
+          <Label>Budget total (toutes enveloppes)</Label>
+          <p className="text-lg font-semibold tabular-nums">{formatCurrency(envelopes.filter((e) => e.isActive).reduce((s, e) => s + e.total, 0))}</p>
         </div>
         <PeriodPicker from={d10(overview.period.from)} to={d10(overview.period.to)} onApply={(from, to) => navigate({ from, to })} />
         <div className="ml-auto flex items-center gap-2">
@@ -211,6 +245,7 @@ function EnvelopeSheet({ envelope, onClose, onDeleted, canDelete }: { envelope: 
     <Sheet open onClose={onClose} title="Modifier l'enveloppe" width="md">
       <form action={(fd) => { fd.set("id", envelope.id); run(() => updateEnvelope(fd), onClose); }} className="grid grid-cols-2 gap-3">
         {field("name", "Nom", { defaultValue: envelope.name, required: true }, true)}
+        {moduleSelect(envelope.module)}
         {field("totalAmount", "Budget total (DZD)", { type: "number", step: "any", defaultValue: envelope.total }, true)}
         {field("periodStart", "Début", { type: "date", defaultValue: d10(envelope.periodStart) })}
         {field("periodEnd", "Fin", { type: "date", defaultValue: d10(envelope.periodEnd) })}

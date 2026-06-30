@@ -143,6 +143,17 @@ export function hasGlobalView(role: UserRole): boolean {
   return GLOBAL_VIEW_ROLES.includes(role);
 }
 
+/**
+ * Gouvernance des **enveloppes budgétaires** : prérogative du Super Admin, qu'il
+ * peut déléguer en accordant le droit `BUDGETS:DELETE` (le plus élevé du module)
+ * à qui il souhaite via la matrice d'accès. La Direction des opérations, elle,
+ * ne fait que **consulter** les enveloppes qui lui sont ouvertes — elle n'en a
+ * pas la gestion (sauf délégation explicite).
+ */
+export function canManageEnvelopes(user: SessionUser): boolean {
+  return user.role === "SUPER_ADMIN" || userCan(user, "BUDGETS", "DELETE");
+}
+
 /** Role-default check (baseline, ignores per-user overrides). */
 export function can(role: UserRole, module: Module, action: Action): boolean {
   return PERMISSIONS[role]?.[module]?.includes(action) ?? false;

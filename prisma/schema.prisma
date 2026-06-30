@@ -887,6 +887,7 @@ model BudgetLine {
 model BudgetEnvelope {
   id          String               @id @default(cuid())
   name        String
+  module      String? // module rattaché (SPONSORING, CONGRESS_*, EVENTS, PROMO_MATERIAL…)
   periodStart DateTime
   periodEnd   DateTime
   totalAmount Decimal              @default(0) @db.Decimal(14, 2)

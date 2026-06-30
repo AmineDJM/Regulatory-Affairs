@@ -36,13 +36,15 @@ export interface UnattributedTx {
 export interface BudgetEnvelopeOption {
   id: string;
   name: string;
+  module: string | null;
   periodStart: string;
   periodEnd: string;
+  total: number;
   isActive: boolean;
 }
 
 export interface BudgetOverview {
-  envelope: { id: string; name: string; periodStart: string; periodEnd: string; total: number; notes: string | null; isActive: boolean };
+  envelope: { id: string; name: string; module: string | null; periodStart: string; periodEnd: string; total: number; notes: string | null; isActive: boolean };
   period: { from: string; to: string };
   categories: BudgetCategoryView[];
   totals: { total: number; allocated: number; unallocated: number; consumed: number; committed: number; remaining: number; pct: number };
@@ -59,7 +61,7 @@ function health(allocated: number, consumed: number): BudgetHealth {
 
 export async function getEnvelopes(): Promise<BudgetEnvelopeOption[]> {
   const list = await prisma.budgetEnvelope.findMany({ orderBy: [{ isActive: "desc" }, { periodStart: "desc" }] });
-  return list.map((e) => ({ id: e.id, name: e.name, periodStart: e.periodStart.toISOString(), periodEnd: e.periodEnd.toISOString(), isActive: e.isActive }));
+  return list.map((e) => ({ id: e.id, name: e.name, module: e.module, periodStart: e.periodStart.toISOString(), periodEnd: e.periodEnd.toISOString(), total: toNumber(e.totalAmount), isActive: e.isActive }));
 }
 
 /** Synthèse budgétaire d'une enveloppe sur une période (par défaut la période de l'enveloppe). */
@@ -117,7 +119,7 @@ export async function getBudgetOverview(
   });
 
   return {
-    envelope: { id: envelope.id, name: envelope.name, periodStart: envelope.periodStart.toISOString(), periodEnd: envelope.periodEnd.toISOString(), total, notes: envelope.notes, isActive: envelope.isActive },
+    envelope: { id: envelope.id, name: envelope.name, module: envelope.module, periodStart: envelope.periodStart.toISOString(), periodEnd: envelope.periodEnd.toISOString(), total, notes: envelope.notes, isActive: envelope.isActive },
     period: { from: from.toISOString(), to: to.toISOString() },
     categories,
     totals: {

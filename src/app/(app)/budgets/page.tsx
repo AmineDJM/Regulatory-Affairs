@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { canManageEnvelopes } from "@/lib/rbac";
 import { getEnvelopes, getBudgetOverview } from "@/lib/queries/budget";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -9,7 +9,9 @@ export const dynamic = "force-dynamic";
 
 export default async function BudgetsPage({ searchParams }: { searchParams: { env?: string; from?: string; to?: string } }) {
   const user = await requireModule("BUDGETS");
-  const canManage = userCan(user, "BUDGETS", "UPDATE");
+  // Gestion des enveloppes : prérogative Super Admin (délégable). La Direction
+  // des opérations consulte les budgets mais n'en a pas la gestion par défaut.
+  const canManage = canManageEnvelopes(user);
 
   const envelopes = await getEnvelopes();
   const from = searchParams.from ? new Date(searchParams.from) : null;
