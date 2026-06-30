@@ -883,6 +883,11 @@ export const WORKSPACE_TABS: NavTab[] = [
   { module: "DIRECTIVES", label: "Directives", href: "/directives" },
   { module: "DOSSIERS", label: "Dossiers", href: "/dossiers" },
 ];
+// Mon dossier RH + Mes ordres de mission, sous une seule entrée « Mon dossier RH ».
+export const MON_DOSSIER_TABS: NavTab[] = [
+  { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
+  { module: "WORKSPACE", label: "Mes ordres de mission", href: "/missions" },
+];
 // « Ad & Pro » : sponsoring + congrès (international/national) + événements +
 // matériel promotionnel, sous un seul module. Le matériel promotionnel a été
 // déplacé ici depuis « Promotion médicale » (sa fonctionnalité est inchangée).
@@ -963,8 +968,7 @@ export const NAVIGATION: NavItem[] = [
   // Pilotage
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS },
   { module: "WORKSPACE", label: "Courrier", href: "/courrier", icon: "Mail", group: "Pilotage" },
-  { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage" },
-  { module: "WORKSPACE", label: "Mes ordres de mission", href: "/missions", icon: "MapPin", group: "Pilotage" },
+  { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage", tabs: MON_DOSSIER_TABS, match: ["/missions"] },
   { module: "WORKSPACE", label: "Calendrier", href: "/calendar", icon: "CalendarDays", group: "Pilotage" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", group: "Pilotage" },
   // Pôles

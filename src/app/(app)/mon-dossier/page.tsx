@@ -5,10 +5,13 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileText, Download } from "lucide-react";
-import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE } from "@/lib/labels";
+import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE, MON_DOSSIER_TABS } from "@/lib/labels";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { NewRequestButton, CancelRequestButton } from "./request-controls";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
+
+const dossierTabs = MON_DOSSIER_TABS.map((t) => ({ label: t.label, href: t.href }));
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +23,7 @@ export default async function MonDossierPage() {
     return (
       <div className="space-y-5">
         <PageHeader title="Mon dossier RH" description="Vos documents RH et vos demandes (attestations, congés, missions, frais)." />
+        <ModuleTabs tabs={dossierTabs} />
         <EmptyState icon="FileText" title="Aucun dossier RH lié à votre compte" description="Votre compte n'est pas encore rattaché à une fiche employé. Contactez les Ressources humaines." />
       </div>
     );
@@ -29,6 +33,7 @@ export default async function MonDossierPage() {
   return (
     <div className="space-y-5">
       <PageHeader title="Mon dossier RH" description="Retrouvez vos documents RH et suivez vos demandes (attestations, titre de congé, ordre de mission, note de frais…)." />
+      <ModuleTabs tabs={dossierTabs} />
 
       <div className="grid gap-5 lg:grid-cols-3">
         <Card>

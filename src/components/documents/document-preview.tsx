@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Eye, X, Download, Pencil } from "lucide-react";
+import { Eye, X, Download, Printer, Pencil } from "lucide-react";
 import { DocxView, XlsxView, PptxView } from "./office-viewers";
+import { printDocument } from "@/lib/print-document";
 
 const IMAGE = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 const TEXTLIKE = ["txt", "md", "log", "json", "xml"];
@@ -63,6 +64,7 @@ export function DocumentPreview({ id, name, hasFile, canEdit }: { id: string; na
             <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
               <p className="truncate text-sm font-medium">{name}</p>
               <div className="flex items-center gap-1">
+                <button onClick={() => printDocument(id)} title="Imprimer" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><Printer className="h-4 w-4" /></button>
                 <a href={`${src}?dl=1`} title="Télécharger" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><Download className="h-4 w-4" /></a>
                 <button onClick={() => setOpen(false)} title="Fermer" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><X className="h-4 w-4" /></button>
               </div>

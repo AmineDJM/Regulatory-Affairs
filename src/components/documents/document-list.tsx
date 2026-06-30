@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Download, Trash2, FileText, Loader2, Pencil, Check, X } from "lucide-react";
+import { Download, Printer, Trash2, FileText, Loader2, Pencil, Check, X } from "lucide-react";
 import { deleteDocument, renameDocument } from "@/lib/actions/document-actions";
 import { DocumentPreview } from "./document-preview";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { DOCUMENT_CATEGORY, CONFIDENTIALITY } from "@/lib/labels";
+import { printDocument } from "@/lib/print-document";
 import { formatDate } from "@/lib/utils";
 
 export interface DocItem {
@@ -136,6 +137,15 @@ export function DocumentList({
               </button>
             )}
             <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} canEdit={canEdit} />
+            {doc.hasFile && (
+              <button
+                onClick={() => printDocument(doc.id)}
+                className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                title="Imprimer"
+              >
+                <Printer className="h-4 w-4" />
+              </button>
+            )}
             <a
               href={`/api/documents/${doc.id}?dl=1`}
               className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
