@@ -9,21 +9,33 @@ import { prisma } from "./prisma";
 const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
   typeof cache === "function" ? (cache as never) : (fn) => fn;
 
+export type BudgetTotalMode = "FIXED" | "FLEXIBLE";
+
 export interface AppSettings {
   maxUploadMb: number;
   maxDriveUploadMb: number;
+  /** Budget total : FIXED (montant figé) ou FLEXIBLE (= somme des enveloppes). */
+  budgetTotalMode: BudgetTotalMode;
+  budgetFixedTotal: number;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB ?? "25"),
   maxDriveUploadMb: Number(process.env.MAX_DRIVE_UPLOAD_MB ?? process.env.MAX_UPLOAD_MB ?? "100"),
+  budgetTotalMode: "FLEXIBLE",
+  budgetFixedTotal: 0,
 };
 
 export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
   try {
     const row = await prisma.appSetting.findUnique({ where: { id: "global" } });
     if (!row) return DEFAULT_APP_SETTINGS;
-    return { maxUploadMb: row.maxUploadMb, maxDriveUploadMb: row.maxDriveUploadMb };
+    return {
+      maxUploadMb: row.maxUploadMb,
+      maxDriveUploadMb: row.maxDriveUploadMb,
+      budgetTotalMode: row.budgetTotalMode === "FIXED" ? "FIXED" : "FLEXIBLE",
+      budgetFixedTotal: Number(row.budgetFixedTotal),
+    };
   } catch {
     return DEFAULT_APP_SETTINGS;
   }

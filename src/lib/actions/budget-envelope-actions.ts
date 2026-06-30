@@ -9,6 +9,25 @@ import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/t
 
 const NOT_ALLOWED: ActionResult = { ok: false, error: "Gestion des enveloppes réservée au Super Admin (ou à un délégué)." };
 
+const readAccessRoles = (formData: FormData) => formData.getAll("accessRoles").map(String).filter(Boolean);
+
+// ─────────────────────── Budget total (fixe / flexible) ───────────────────────
+
+/** Règle le budget total : FIXED (montant figé) ou FLEXIBLE (= somme des enveloppes). */
+export async function setBudgetTotal(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!canManageEnvelopes(user)) return NOT_ALLOWED;
+  const mode = fdStr(formData, "mode") === "FIXED" ? "FIXED" : "FLEXIBLE";
+  const fixed = fdNum(formData, "budgetFixedTotal") ?? 0;
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    update: { budgetTotalMode: mode, budgetFixedTotal: fixed, updatedById: user.id },
+    create: { id: "global", budgetTotalMode: mode, budgetFixedTotal: fixed, updatedById: user.id },
+  });
+  revalidatePath("/budgets");
+  return { ok: true };
+}
+
 // ─────────────────────────── Enveloppe ───────────────────────────
 
 export async function createEnvelope(formData: FormData): Promise<ActionResult> {
@@ -24,6 +43,7 @@ export async function createEnvelope(formData: FormData): Promise<ActionResult> 
     data: {
       name,
       module: fdStr(formData, "module"),
+      accessRoles: readAccessRoles(formData),
       periodStart,
       periodEnd,
       totalAmount: fdNum(formData, "totalAmount") ?? 0,
@@ -48,6 +68,7 @@ export async function updateEnvelope(formData: FormData): Promise<ActionResult> 
     data: {
       name,
       module: fdStr(formData, "module"),
+      accessRoles: readAccessRoles(formData),
       periodStart: fdDate(formData, "periodStart") ?? undefined,
       periodEnd: fdDate(formData, "periodEnd") ?? undefined,
       totalAmount: fdNum(formData, "totalAmount") ?? 0,

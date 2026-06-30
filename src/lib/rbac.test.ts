@@ -60,14 +60,20 @@ describe("role-default permissions (can)", () => {
     expect(can("VIEWER", "DASHBOARD", "VIEW")).toBe(true);
   });
   it("lets Direction validate every pôle (validate-everything)", () => {
+    // Les BUDGETS (enveloppes) sont désormais une prérogative du Super Admin : la
+    // Direction des opérations les consulte (selon les enveloppes ouvertes) mais ne
+    // les gère/valide pas — voir #193 (gouvernance des enveloppes).
     const validatable: Module[] = [
-      "REGULATORY", "SPONSORING", "BUDGETS", "FINANCES", "CONGRESS_INTERNATIONAL",
+      "REGULATORY", "SPONSORING", "FINANCES", "CONGRESS_INTERNATIONAL",
       "CONGRESS_NATIONAL", "SALES", "LOGISTICS", "PCH", "STOCKS", "MEDICAL",
       "BUSINESS_DEVELOPMENT", "VALIDATIONS", "MEDICAL_INFO",
     ];
     for (const m of validatable) {
       expect(can("DIRECTION", m, "VALIDATE")).toBe(true);
     }
+    // Budgets : la Direction lit mais ne valide pas.
+    expect(can("DIRECTION", "BUDGETS", "VIEW")).toBe(true);
+    expect(can("DIRECTION", "BUDGETS", "VALIDATE")).toBe(false);
   });
   it("gives the medical-info pharmacist their module + read on event pôles", () => {
     expect(can("MEDICAL_INFO_PHARMACIST", "MEDICAL_INFO", "VALIDATE")).toBe(true);

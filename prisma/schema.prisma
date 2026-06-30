@@ -888,6 +888,10 @@ model BudgetEnvelope {
   id          String               @id @default(cuid())
   name        String
   module      String? // module rattaché (SPONSORING, CONGRESS_*, EVENTS, PROMO_MATERIAL…)
+  // Rôles (hors gestionnaires) autorisés à CONSULTER cette enveloppe — ex. la
+  // Direction des opérations ne voit que les enveloppes que le Super Admin a
+  // ouvertes. Vide = visible des seuls gestionnaires (Super Admin / délégués).
+  accessRoles String[]             @default([])
   periodStart DateTime
   periodEnd   DateTime
   totalAmount Decimal              @default(0) @db.Decimal(14, 2)
@@ -3108,6 +3112,10 @@ model AppSetting {
   id               String   @id @default("global")
   maxUploadMb      Int      @default(25) // pièces jointes des modules (Documents)
   maxDriveUploadMb Int      @default(100) // fichiers du Drive
+  // Budget total au-dessus des enveloppes : FIXED (montant figé) ou FLEXIBLE
+  // (= somme des enveloppes actives). Réglé par le Super Admin.
+  budgetTotalMode  String   @default("FLEXIBLE")
+  budgetFixedTotal Decimal  @default(0) @db.Decimal(14, 2)
   updatedAt        DateTime @updatedAt
   updatedById      String?
 }

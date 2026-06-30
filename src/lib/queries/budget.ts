@@ -1,5 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
+import { canManageEnvelopes, type SessionUser } from "@/lib/rbac";
+
+/** Une enveloppe est visible d'un non-gestionnaire seulement si son rôle figure
+ *  dans `accessRoles` (la Direction des opérations ne voit que celles ouvertes). */
+function envelopeVisible(user: SessionUser, accessRoles: string[]): boolean {
+  return canManageEnvelopes(user) || accessRoles.includes(user.role);
+}
 
 /**
  * Budget « enveloppe » : un total défini par la Direction, réparti en catégories,
@@ -37,6 +44,7 @@ export interface BudgetEnvelopeOption {
   id: string;
   name: string;
   module: string | null;
+  accessRoles: string[];
   periodStart: string;
   periodEnd: string;
   total: number;
@@ -44,7 +52,7 @@ export interface BudgetEnvelopeOption {
 }
 
 export interface BudgetOverview {
-  envelope: { id: string; name: string; module: string | null; periodStart: string; periodEnd: string; total: number; notes: string | null; isActive: boolean };
+  envelope: { id: string; name: string; module: string | null; accessRoles: string[]; periodStart: string; periodEnd: string; total: number; notes: string | null; isActive: boolean };
   period: { from: string; to: string };
   categories: BudgetCategoryView[];
   totals: { total: number; allocated: number; unallocated: number; consumed: number; committed: number; remaining: number; pct: number };
@@ -59,13 +67,16 @@ function health(allocated: number, consumed: number): BudgetHealth {
   return "ON_TRACK";
 }
 
-export async function getEnvelopes(): Promise<BudgetEnvelopeOption[]> {
+export async function getEnvelopes(viewer: SessionUser): Promise<BudgetEnvelopeOption[]> {
   const list = await prisma.budgetEnvelope.findMany({ orderBy: [{ isActive: "desc" }, { periodStart: "desc" }] });
-  return list.map((e) => ({ id: e.id, name: e.name, module: e.module, periodStart: e.periodStart.toISOString(), periodEnd: e.periodEnd.toISOString(), total: toNumber(e.totalAmount), isActive: e.isActive }));
+  return list
+    .filter((e) => envelopeVisible(viewer, e.accessRoles))
+    .map((e) => ({ id: e.id, name: e.name, module: e.module, accessRoles: e.accessRoles, periodStart: e.periodStart.toISOString(), periodEnd: e.periodEnd.toISOString(), total: toNumber(e.totalAmount), isActive: e.isActive }));
 }
 
 /** Synthèse budgétaire d'une enveloppe sur une période (par défaut la période de l'enveloppe). */
 export async function getBudgetOverview(
+  viewer: SessionUser,
   envelopeId: string | null,
   fromArg?: Date | null,
   toArg?: Date | null,
@@ -74,6 +85,8 @@ export async function getBudgetOverview(
     ? await prisma.budgetEnvelope.findUnique({ where: { id: envelopeId }, include: { categories: { orderBy: { name: "asc" } } } })
     : await prisma.budgetEnvelope.findFirst({ where: { isActive: true }, orderBy: { periodStart: "desc" }, include: { categories: { orderBy: { name: "asc" } } } });
   if (!envelope) return null;
+  // Accès : un non-gestionnaire ne peut ouvrir qu'une enveloppe qui lui est ouverte.
+  if (!envelopeVisible(viewer, envelope.accessRoles)) return null;
 
   const from = fromArg ?? envelope.periodStart;
   const to = toArg ?? envelope.periodEnd;
@@ -119,7 +132,7 @@ export async function getBudgetOverview(
   });
 
   return {
-    envelope: { id: envelope.id, name: envelope.name, module: envelope.module, periodStart: envelope.periodStart.toISOString(), periodEnd: envelope.periodEnd.toISOString(), total, notes: envelope.notes, isActive: envelope.isActive },
+    envelope: { id: envelope.id, name: envelope.name, module: envelope.module, accessRoles: envelope.accessRoles, periodStart: envelope.periodStart.toISOString(), periodEnd: envelope.periodEnd.toISOString(), total, notes: envelope.notes, isActive: envelope.isActive },
     period: { from: from.toISOString(), to: to.toISOString() },
     categories,
     totals: {

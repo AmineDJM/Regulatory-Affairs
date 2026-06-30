@@ -10,10 +10,15 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
-  createEnvelope, updateEnvelope, deleteEnvelope,
+  createEnvelope, updateEnvelope, deleteEnvelope, setBudgetTotal,
   createBudgetCategory, updateBudgetCategory, deleteBudgetCategory, attributeTransaction,
 } from "@/lib/actions/budget-envelope-actions";
 import type { BudgetOverview, BudgetEnvelopeOption, BudgetCategoryView, BudgetHealth } from "@/lib/queries/budget";
+import { ROLE_LABELS } from "@/lib/labels";
+
+interface BudgetTotalInfo { mode: "FIXED" | "FLEXIBLE"; value: number; fixed: number }
+// Rôles (hors gestionnaires) auxquels on peut ouvrir une enveloppe en consultation.
+const ACCESS_ROLE_OPTIONS = ["DIRECTION", "FINANCE_BUDGET_MANAGER", "MEDICAL_PROMOTION_MANAGER", "PRODUCT_MANAGER"] as const;
 
 type Result = { ok: boolean; error?: string };
 const d10 = (iso: string) => iso.slice(0, 10);
@@ -42,6 +47,25 @@ function moduleSelect(defaultValue?: string | null) {
         <option value="">— Aucun —</option>
         {MODULE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </Select>
+    </div>
+  );
+}
+
+/** Cases « ouvrir en consultation à… » : ces rôles (ex. Direction des opérations)
+ *  ne voient que les enveloppes ainsi ouvertes. */
+function accessRolesField(defaultRoles: string[] = []) {
+  return (
+    <div className="col-span-2 space-y-1.5">
+      <Label>Ouvrir en consultation à</Label>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+        {ACCESS_ROLE_OPTIONS.map((r) => (
+          <label key={r} className="flex items-center gap-1.5 text-sm">
+            <input type="checkbox" name="accessRoles" value={r} defaultChecked={defaultRoles.includes(r)} className="h-4 w-4 rounded border-input" />
+            {ROLE_LABELS[r] ?? r}
+          </label>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">Laisser vide = visible des seuls gestionnaires de budget.</p>
     </div>
   );
 }
@@ -86,9 +110,10 @@ export function CreateEnvelopeButton() {
         <form action={(fd) => run(() => createEnvelope(fd), () => setOpen(false))} className="grid grid-cols-2 gap-3">
           {field("name", "Nom de l'enveloppe", { placeholder: `Budget ${year}`, required: true }, true)}
           {moduleSelect()}
-          {field("totalAmount", "Budget total (DZD)", { type: "number", step: "any", placeholder: "0" }, true)}
+          {field("totalAmount", "Montant de l'enveloppe (DZD)", { type: "number", step: "any", placeholder: "0" }, true)}
           {field("periodStart", "Début de période", { type: "date", defaultValue: `${year}-01-01` })}
           {field("periodEnd", "Fin de période", { type: "date", defaultValue: `${year}-12-31` })}
+          {accessRolesField()}
           <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" rows={2} /></div>
           {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
           <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Créer</Button></div>
@@ -98,10 +123,11 @@ export function CreateEnvelopeButton() {
   );
 }
 
-export function BudgetBoard({ overview, envelopes, canManage }: { overview: BudgetOverview; envelopes: BudgetEnvelopeOption[]; canManage: boolean }) {
+export function BudgetBoard({ overview, envelopes, canManage, budgetTotal }: { overview: BudgetOverview; envelopes: BudgetEnvelopeOption[]; canManage: boolean; budgetTotal: BudgetTotalInfo }) {
   const router = useRouter();
   const t = overview.totals;
   const [editEnv, setEditEnv] = React.useState(false);
+  const [totalSheet, setTotalSheet] = React.useState(false);
   const [catSheet, setCatSheet] = React.useState<{ cat?: BudgetCategoryView } | null>(null);
   const { run } = useRun();
 
@@ -120,10 +146,14 @@ export function BudgetBoard({ overview, envelopes, canManage }: { overview: Budg
             {envelopes.map((en) => <option key={en.id} value={en.id}>{en.name}{en.isActive ? "" : " (archivée)"}</option>)}
           </Select>
         </div>
-        {/* Budget total = somme des enveloppes actives (mode flexible). */}
+        {/* Budget total au-dessus des enveloppes : figé ou somme des enveloppes. */}
         <div className="space-y-1.5">
-          <Label>Budget total (toutes enveloppes)</Label>
-          <p className="text-lg font-semibold tabular-nums">{formatCurrency(envelopes.filter((e) => e.isActive).reduce((s, e) => s + e.total, 0))}</p>
+          <Label className="flex items-center gap-1.5">
+            Budget total
+            <Badge tone={budgetTotal.mode === "FIXED" ? "purple" : "neutral"} dot={false}>{budgetTotal.mode === "FIXED" ? "Fixe" : "Flexible"}</Badge>
+            {canManage && <button type="button" onClick={() => setTotalSheet(true)} className="text-muted-foreground hover:text-foreground" title="Régler le budget total"><SlidersHorizontal className="h-3.5 w-3.5" /></button>}
+          </Label>
+          <p className="text-lg font-semibold tabular-nums">{formatCurrency(budgetTotal.value)}</p>
         </div>
         <PeriodPicker from={d10(overview.period.from)} to={d10(overview.period.to)} onApply={(from, to) => navigate({ from, to })} />
         <div className="ml-auto flex items-center gap-2">
@@ -193,7 +223,34 @@ export function BudgetBoard({ overview, envelopes, canManage }: { overview: Budg
 
       {editEnv && <EnvelopeSheet envelope={overview.envelope} onClose={() => setEditEnv(false)} onDeleted={() => router.push("/budgets")} canDelete={canManage} />}
       {catSheet && <CategorySheet envelopeId={overview.envelope.id} cat={catSheet.cat} onClose={() => setCatSheet(null)} />}
+      {totalSheet && <BudgetTotalSheet info={budgetTotal} onClose={() => setTotalSheet(false)} />}
     </div>
+  );
+}
+
+function BudgetTotalSheet({ info, onClose }: { info: BudgetTotalInfo; onClose: () => void }) {
+  const { busy, err, run } = useRun();
+  const [mode, setMode] = React.useState<BudgetTotalInfo["mode"]>(info.mode);
+  return (
+    <Sheet open onClose={onClose} title="Budget total" description="Au-dessus des enveloppes : un montant figé, ou la somme automatique des enveloppes." width="md">
+      <form action={(fd) => { fd.set("mode", mode); run(() => setBudgetTotal(fd), onClose); }} className="space-y-4">
+        <div className="space-y-1.5">
+          <Label>Mode</Label>
+          <Select value={mode} onChange={(e) => setMode(e.target.value as BudgetTotalInfo["mode"])}>
+            <option value="FLEXIBLE">Flexible — somme des enveloppes</option>
+            <option value="FIXED">Fixe — montant figé</option>
+          </Select>
+        </div>
+        {mode === "FIXED" && (
+          <div className="space-y-1.5">
+            <Label>Montant total fixe (DZD)</Label>
+            <Input name="budgetFixedTotal" type="number" step="any" defaultValue={info.fixed} />
+          </div>
+        )}
+        {err && <p className="text-sm text-destructive">{err}</p>}
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
+      </form>
+    </Sheet>
   );
 }
 
@@ -249,6 +306,7 @@ function EnvelopeSheet({ envelope, onClose, onDeleted, canDelete }: { envelope: 
         {field("totalAmount", "Budget total (DZD)", { type: "number", step: "any", defaultValue: envelope.total }, true)}
         {field("periodStart", "Début", { type: "date", defaultValue: d10(envelope.periodStart) })}
         {field("periodEnd", "Fin", { type: "date", defaultValue: d10(envelope.periodEnd) })}
+        {accessRolesField(envelope.accessRoles)}
         <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" defaultValue={envelope.notes ?? ""} rows={2} /></div>
         <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="isActive" defaultChecked={envelope.isActive} className="h-4 w-4 rounded border-input" /> Enveloppe active</label>
         {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
