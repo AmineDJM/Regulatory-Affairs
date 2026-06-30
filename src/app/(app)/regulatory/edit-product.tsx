@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
 import { DciAssociationField } from "./dci-field";
-import { PRODUCT_TYPE, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS } from "@/lib/labels";
+import { PRODUCT_TYPE, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 
 interface UserOption {
   id: string;
@@ -22,9 +22,11 @@ export interface EditProductValues {
   molecules: string[];
   brandName: string | null;
   dosage: string | null;
+  dosageUnit: string | null;
   pharmaceuticalForm: string | null;
   therapeuticClass: string | null;
   partnerLab: string | null;
+  supplierId: string | null;
   countryOfOrigin: string | null;
   category: string;
   productType: string;
@@ -36,7 +38,7 @@ export interface EditProductValues {
   comments: string | null;
 }
 
-export function EditProductButton({ product, users }: { product: EditProductValues; users: UserOption[] }) {
+export function EditProductButton({ product, users, suppliers }: { product: EditProductValues; users: UserOption[]; suppliers: { id: string; name: string }[] }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [state, formAction] = useFormState<ActionResult | undefined, FormData>(
@@ -86,10 +88,12 @@ export function EditProductButton({ product, users }: { product: EditProductValu
             <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue={product.category} className="col-span-2" />
             <DciAssociationField defaultMolecules={product.molecules} />
             <TextField label="Nom commercial" name="brandName" placeholder="Ex. Adventor" defaultValue={product.brandName ?? undefined} className="col-span-2" />
-            <TextField label="Dosage" name="dosage" placeholder="20 mg" defaultValue={product.dosage ?? undefined} />
-            <TextField label="Forme pharmaceutique" name="pharmaceuticalForm" placeholder="Comprimé pelliculé" defaultValue={product.pharmaceuticalForm ?? undefined} />
+            <TextField label="Dosage" name="dosage" placeholder="20" defaultValue={product.dosage ?? undefined} />
+            <SelectField label="Unité" name="dosageUnit" options={optionsFromMap(DOSAGE_UNIT)} placeholder="—" defaultValue={product.dosageUnit ?? ""} />
+            <SelectField label="Forme pharmaceutique" name="pharmaceuticalForm" options={optionsFromMap(PHARMA_FORM)} placeholder="—" defaultValue={product.pharmaceuticalForm ?? ""} />
             <TextField label="Classe thérapeutique" name="therapeuticClass" placeholder="Hypolipémiant" defaultValue={product.therapeuticClass ?? undefined} />
-            <TextField label="Fournisseur / Laboratoire" name="partnerLab" placeholder="Ex. Pharma Lab" defaultValue={product.partnerLab ?? undefined} />
+            <SelectField label="Fournisseur" name="supplierId" options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="— Aucun —" defaultValue={product.supplierId ?? ""} />
+            <TextField label="Laboratoire partenaire (optionnel)" name="partnerLab" placeholder="Ex. Pharma Lab" defaultValue={product.partnerLab ?? undefined} />
             <TextField label="Pays d'origine" name="countryOfOrigin" placeholder="Inde" defaultValue={product.countryOfOrigin ?? undefined} />
             <SelectField label="Type de produit" name="productType" options={optionsFromMap(PRODUCT_TYPE)} defaultValue={product.productType} />
             <SelectField label="Priorité" name="priority" options={optionsFromMap(PRIORITY)} defaultValue={product.priority} />

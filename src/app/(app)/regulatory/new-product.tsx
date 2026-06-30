@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
 import { DciAssociationField } from "./dci-field";
-import { PRODUCT_TYPE, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS } from "@/lib/labels";
+import { PRODUCT_TYPE, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 
 interface UserOption {
   id: string;
@@ -17,7 +17,7 @@ interface UserOption {
   role: string;
 }
 
-export function NewProductButton({ users }: { users: UserOption[] }) {
+export function NewProductButton({ users, suppliers }: { users: UserOption[]; suppliers: { id: string; name: string }[] }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [state, formAction] = useFormState<ActionResult | undefined, FormData>(
@@ -67,10 +67,12 @@ export function NewProductButton({ users }: { users: UserOption[] }) {
             <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue="MEDICINE" className="col-span-2" />
             <DciAssociationField />
             <TextField label="Nom commercial envisagé" name="brandName" placeholder="Ex. Adventor" className="col-span-2" />
-            <TextField label="Dosage" name="dosage" placeholder="20 mg" />
-            <TextField label="Forme pharmaceutique" name="pharmaceuticalForm" placeholder="Comprimé pelliculé" />
+            <TextField label="Dosage" name="dosage" placeholder="20" />
+            <SelectField label="Unité" name="dosageUnit" options={optionsFromMap(DOSAGE_UNIT)} placeholder="—" />
+            <SelectField label="Forme pharmaceutique" name="pharmaceuticalForm" options={optionsFromMap(PHARMA_FORM)} placeholder="—" />
             <TextField label="Classe thérapeutique" name="therapeuticClass" placeholder="Hypolipémiant" />
-            <TextField label="Fournisseur / Laboratoire" name="partnerLab" placeholder="Ex. Pharma Lab" />
+            <SelectField label="Fournisseur" name="supplierId" options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="— Aucun —" />
+            <TextField label="Laboratoire partenaire (optionnel)" name="partnerLab" placeholder="Ex. Pharma Lab" />
             <TextField label="Pays d'origine" name="countryOfOrigin" placeholder="Inde" />
             <SelectField label="Type de produit" name="productType" options={optionsFromMap(PRODUCT_TYPE)} defaultValue="IMPORTED" />
             <SelectField label="Priorité" name="priority" options={optionsFromMap(PRIORITY)} defaultValue="MEDIUM" />

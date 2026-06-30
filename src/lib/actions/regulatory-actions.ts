@@ -37,6 +37,31 @@ function normalizeDci(value: string): string {
 }
 const upperMolecules = (list: string[]): string[] => list.map((m) => m.trim().toUpperCase()).filter(Boolean);
 
+/**
+ * Création d'un fournisseur depuis le module Regulatory (par les Responsables
+ * réglementaires). Le fournisseur alimente le menu déroulant des dossiers. Aucun
+ * compte de portail n'est créé ici — l'accès externe reste piloté à part.
+ */
+export async function createRegulatorySupplier(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "REGULATORY", "CREATE")) return { ok: false, error: "Création non autorisée." };
+  const name = str(formData, "name");
+  if (!name) return { ok: false, error: "Le nom du fournisseur est obligatoire." };
+  const created = await prisma.supplier.create({
+    data: {
+      name,
+      country: str(formData, "country"),
+      contactEmail: str(formData, "contactEmail"),
+      notes: str(formData, "notes"),
+      createdById: user.id,
+    },
+    select: { id: true },
+  });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Regulatory", entityType: "SUPPLIER", entityId: created.id, summary: `Fournisseur « ${name} »` });
+  revalidatePath("/regulatory");
+  return { ok: true, id: created.id };
+}
+
 export async function createRegulatoryProduct(
   _prev: ActionResult | undefined,
   formData: FormData,
@@ -74,9 +99,11 @@ export async function createRegulatoryProduct(
       molecules: molecules.length > 1 ? (molecules as unknown as Prisma.InputJsonValue) : undefined,
       brandName: str(formData, "brandName"),
       dosage: str(formData, "dosage"),
+      dosageUnit: str(formData, "dosageUnit"),
       pharmaceuticalForm: str(formData, "pharmaceuticalForm"),
       therapeuticClass: str(formData, "therapeuticClass"),
       partnerLab: str(formData, "partnerLab"),
+      supplierId: str(formData, "supplierId"),
       countryOfOrigin: str(formData, "countryOfOrigin"),
       category: (str(formData, "category") as RegulatoryCategory) ?? "MEDICINE",
       productType: (str(formData, "productType") as ProductType) ?? "IMPORTED",
@@ -160,9 +187,11 @@ export async function updateRegulatoryProduct(
       molecules: molecules.length > 1 ? (molecules as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       brandName: str(formData, "brandName"),
       dosage: str(formData, "dosage"),
+      dosageUnit: str(formData, "dosageUnit"),
       pharmaceuticalForm: str(formData, "pharmaceuticalForm"),
       therapeuticClass: str(formData, "therapeuticClass"),
       partnerLab: str(formData, "partnerLab"),
+      supplierId: str(formData, "supplierId"),
       countryOfOrigin: str(formData, "countryOfOrigin"),
       category: (str(formData, "category") as RegulatoryCategory) ?? before.category,
       productType: (str(formData, "productType") as ProductType) ?? before.productType,

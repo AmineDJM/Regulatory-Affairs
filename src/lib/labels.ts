@@ -54,6 +54,45 @@ export const SALE_TYPE: Record<string, Display> = {
   SERVICE: { label: "Service", tone: "purple" },
 };
 
+/** Formes galéniques (menu déroulant des dossiers Regulatory). */
+export const PHARMA_FORM: Record<string, string> = {
+  COMPRIME: "Comprimé",
+  COMPRIME_PELLICULE: "Comprimé pelliculé",
+  GELULE: "Gélule",
+  SIROP: "Sirop",
+  SUSPENSION_BUVABLE: "Suspension buvable",
+  SOLUTION_BUVABLE: "Solution buvable",
+  SOLUTION_INJECTABLE: "Solution injectable",
+  POUDRE_INJECTABLE: "Poudre pour solution injectable",
+  PERFUSION: "Solution pour perfusion",
+  POMMADE: "Pommade",
+  CREME: "Crème",
+  GEL: "Gel",
+  SUPPOSITOIRE: "Suppositoire",
+  OVULE: "Ovule",
+  COLLYRE: "Collyre",
+  SPRAY_NASAL: "Spray nasal",
+  AEROSOL: "Aérosol / Inhalateur",
+  PATCH: "Patch transdermique",
+  POUDRE_ORALE: "Poudre orale",
+  GOUTTES: "Gouttes",
+  AUTRE: "Autre",
+};
+
+/** Unités de dosage. */
+export const DOSAGE_UNIT: Record<string, string> = {
+  MG: "mg",
+  G: "g",
+  MCG: "µg",
+  UI: "UI",
+  PERCENT: "%",
+  MG_ML: "mg/ml",
+  MG_G: "mg/g",
+  ML: "ml",
+  MEQ: "mEq",
+  MMOL: "mmol",
+};
+
 export const PRODUCT_TYPE: Record<string, string> = {
   IMPORTED: "Importé",
   LOCALLY_MANUFACTURED: "Fabriqué localement",

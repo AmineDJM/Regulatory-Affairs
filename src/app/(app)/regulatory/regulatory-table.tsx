@@ -14,6 +14,7 @@ export interface RegulatoryRow {
   dosage: string;
   form: string;
   therapeuticClass: string;
+  supplier: string;
   category: string;
   productType: string;
   status: string;
@@ -70,6 +71,13 @@ export function RegulatoryTable({ rows }: { rows: RegulatoryRow[] }) {
       sortable: true,
       accessor: (r) => PRODUCT_TYPE[r.productType] ?? r.productType,
       render: (r) => <span className="text-sm">{PRODUCT_TYPE[r.productType] ?? r.productType}</span>,
+    },
+    {
+      key: "supplier",
+      header: "Fournisseur",
+      sortable: true,
+      accessor: (r) => r.supplier,
+      render: (r) => <span className="text-sm">{r.supplier || "—"}</span>,
     },
     {
       key: "priority",

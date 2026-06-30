@@ -25,7 +25,7 @@ import { toNumber } from "@/lib/utils";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { getFieldDefs } from "@/lib/custom-fields";
 import { suggestedExternalStatus } from "@/lib/regulatory-external";
-import { PRIORITY, REGULATORY_STATUS, PRODUCT_TYPE, REGULATORY_CATEGORY } from "@/lib/labels";
+import { PRIORITY, REGULATORY_STATUS, PRODUCT_TYPE, REGULATORY_CATEGORY, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { SupplierViewCard } from "./supplier-view-card";
 
@@ -50,6 +50,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
       responsible: { select: { name: true } },
       assistant: { select: { name: true } },
       assignedUsers: { select: { id: true, name: true } },
+      supplier: { select: { name: true } },
       steps: { orderBy: { order: "asc" } },
     },
   });
@@ -131,6 +132,12 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
   const associationLabel =
     molecules.length === 2 ? "Association double" : molecules.length === 3 ? "Association triple" : molecules.length > 3 ? `Association (${molecules.length} molécules)` : null;
 
+  // Dosage = valeur + unité (mg, g, UI…) ; Forme = libellé de la forme galénique.
+  const dosageLabel = [product.dosage, product.dosageUnit ? DOSAGE_UNIT[product.dosageUnit] ?? product.dosageUnit : null]
+    .filter(Boolean)
+    .join(" ") || null;
+  const formLabel = product.pharmaceuticalForm ? PHARMA_FORM[product.pharmaceuticalForm] ?? product.pharmaceuticalForm : null;
+
   return (
     <div className="space-y-5">
       <Link
@@ -160,9 +167,11 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   molecules: molecules.length ? molecules : [product.dci],
                   brandName: product.brandName,
                   dosage: product.dosage,
+                  dosageUnit: product.dosageUnit,
                   pharmaceuticalForm: product.pharmaceuticalForm,
                   therapeuticClass: product.therapeuticClass,
                   partnerLab: product.partnerLab,
+                  supplierId: product.supplierId,
                   countryOfOrigin: product.countryOfOrigin,
                   category: product.category,
                   productType: product.productType,
@@ -174,6 +183,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   comments: product.comments,
                 }}
                 users={users}
+                suppliers={suppliers}
               />
               <StatusEditor id={product.id} status={product.status} priority={product.priority} />
             </div>
@@ -201,11 +211,12 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   </div>
                 </div>
               )}
-              <Info label="Dosage" value={product.dosage} />
-              <Info label="Forme" value={product.pharmaceuticalForm} />
+              <Info label="Dosage" value={dosageLabel} />
+              <Info label="Forme" value={formLabel} />
               <Info label="Classe thérapeutique" value={product.therapeuticClass} />
               <Info label="Type" value={PRODUCT_TYPE[product.productType] ?? product.productType} />
-              <Info label="Fournisseur / Lab" value={product.partnerLab} />
+              <Info label="Fournisseur" value={product.supplier?.name} />
+              <Info label="Laboratoire partenaire" value={product.partnerLab} />
               <Info label="Pays d'origine" value={product.countryOfOrigin} />
               <Info label="Responsable" value={product.responsible?.name} />
               <Info label="Assistante" value={product.assistant?.name} />

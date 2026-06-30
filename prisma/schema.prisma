@@ -728,8 +728,9 @@ model RegulatoryProduct {
   dci                String // DCI canonique : molécule unique OU association (« A + B + C »)
   molecules          Json? // liste structurée des molécules (association double/triple…)
   brandName          String? // nom commercial envisagé
-  dosage             String?
-  pharmaceuticalForm String?
+  dosage             String? // valeur du dosage (ex. « 500 »)
+  dosageUnit         String? // unité du dosage (mg, g, UI, %, mg/ml…)
+  pharmaceuticalForm String? // forme galénique (menu déroulant)
   therapeuticClass   String?
   partnerLab         String? // fournisseur / laboratoire partenaire
   countryOfOrigin    String?
