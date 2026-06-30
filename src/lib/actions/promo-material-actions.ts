@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
+import { buildRef, createWithRetry } from "@/lib/refs";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/promo-material";
@@ -36,14 +37,14 @@ function isMarketing(user: SessionUser, pm: { requesterId: string | null }): boo
 
 async function nextPromoRef(): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.promoMaterial.count({ where: { reference: { startsWith: `MP-${year}-` } } });
-  return `MP-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.promoMaterial.findMany({ where: { reference: { startsWith: `MP-${year}-` } }, select: { reference: true } });
+  return buildRef("MP", year, refs.map((r) => r.reference));
 }
 
 async function nextRequestRef(): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.administrativeRequest.count({ where: { reference: { startsWith: `REQ-${year}-` } } });
-  return `REQ-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.administrativeRequest.findMany({ where: { reference: { startsWith: `REQ-${year}-` } }, select: { reference: true } });
+  return buildRef("REQ", year, refs.map((r) => r.reference));
 }
 
 function revalidate(id: string) {
@@ -78,44 +79,60 @@ async function load(id: string) {
 
 /** Marketing demande la prospection d'agences ; l'assistante la reçoit. */
 export async function createPromoMaterial(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "Création réservée au Marketing." };
-  const title = fdStr(formData, "title");
-  if (!title) return { ok: false, error: "Le titre / la campagne est obligatoire." };
+  try {
+    const user = await requireUser();
+    if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "Création réservée au Marketing." };
+    const title = fdStr(formData, "title");
+    if (!title) return { ok: false, error: "Le titre / la campagne est obligatoire." };
 
-  const reference = await nextPromoRef();
-  // Demande administrative liée : l'assistante de direction pilote ses étapes
-  // (devis, BC, transmission, facture) depuis « Demandes administratives ».
-  const req = await prisma.administrativeRequest.create({
-    data: {
-      reference: await nextRequestRef(),
-      title: `Matériel promotionnel — ${title}`,
-      type: "QUOTE",
-      status: "NEW",
-      description: fdStr(formData, "description") ?? "Demande de prospection d'agences (matériel promotionnel).",
-      requesterId: user.id,
-      assignedToId: fdStr(formData, "assistantId"),
-    },
-  });
-  const pm = await prisma.promoMaterial.create({
-    data: {
-      reference,
-      title,
-      description: fdStr(formData, "description"),
-      amount: fdNum(formData, "amount") ?? null,
-      assistantId: fdStr(formData, "assistantId"),
-      status: "PROSPECTION_REQUESTED",
-      requesterId: user.id,
-      adminRequestId: req.id,
-      createdById: user.id,
-      updatedById: user.id,
-    },
-  });
-  await notifyAssistant(pm, "Matériel promotionnel — prospection d'agences demandée");
-  await audit(user, pm.id, "CREATE", `Matériel promotionnel créé — ${pm.reference}`);
-  revalidate(pm.id);
-  revalidatePath("/demandes");
-  return { ok: true, id: pm.id };
+    const assistantId = fdStr(formData, "assistantId");
+    const description = fdStr(formData, "description");
+    const amount = fdNum(formData, "amount");
+
+    // Demande administrative liée : l'assistante de direction pilote ses étapes
+    // (devis, BC, transmission, facture) depuis « Demandes administratives ».
+    // Références dérivées du max existant + réessai en cas de collision concurrente.
+    // Les deux créations sont atomiques (transaction) : en cas de collision sur la
+    // 2ᵉ, la 1ʳᵉ est annulée — pas de demande administrative orpheline au réessai.
+    const pm = await createWithRetry(() =>
+      prisma.$transaction(async (tx) => {
+        const req = await tx.administrativeRequest.create({
+          data: {
+            reference: await nextRequestRef(),
+            title: `Matériel promotionnel — ${title}`,
+            type: "QUOTE",
+            status: "NEW",
+            description: description ?? "Demande de prospection d'agences (matériel promotionnel).",
+            requesterId: user.id,
+            assignedToId: assistantId,
+          },
+        });
+        return tx.promoMaterial.create({
+          data: {
+            reference: await nextPromoRef(),
+            title,
+            description,
+            amount: amount ?? null,
+            assistantId,
+            status: "PROSPECTION_REQUESTED",
+            requesterId: user.id,
+            adminRequestId: req.id,
+            createdById: user.id,
+            updatedById: user.id,
+          },
+        });
+      }),
+    );
+
+    await notifyAssistant(pm, "Matériel promotionnel — prospection d'agences demandée");
+    await audit(user, pm.id, "CREATE", `Matériel promotionnel créé — ${pm.reference}`);
+    revalidate(pm.id);
+    revalidatePath("/demandes");
+    return { ok: true, id: pm.id };
+  } catch (err) {
+    console.error("[promo] createPromoMaterial failed", err);
+    return { ok: false, error: "La demande n'a pas pu être créée. Réessayez dans un instant." };
+  }
 }
 
 // ───────────────────────── 2. Assistante : devis déposés ─────────────────────────
