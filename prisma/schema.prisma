@@ -610,6 +610,8 @@ model User {
   activityLogs ActivityLog[]
   adoptionSnapshots AdoptionSnapshot[]
   missionAssignments MissionAssignment[] @relation("MissionAssignee")
+  calendarEvents CalendarEvent[] @relation("CalendarOrganizer")
+  calendarInvites CalendarInvite[] @relation("CalendarInvitee")
 
   // RH & espace de travail
   employee         Employee?       @relation("UserEmployee")
@@ -3217,4 +3219,63 @@ model MeetingTaskProposal {
   createdAt   DateTime          @default(now())
 
   @@index([meetingId])
+}
+
+// ─────────────── Calendrier (rendez-vous, infos, invitations) ───────────────
+// Calendrier partagé façon Google Agenda. Heures stockées en UTC, affichées au
+// fuseau d'Alger (Africa/Algiers, UTC+1, sans heure d'été). Chacun voit ses
+// rendez-vous (organisés ou auxquels il est invité). L'assistant IA peut créer
+// des rendez-vous et lancer des invitations.
+enum CalendarEventKind {
+  APPOINTMENT // rendez-vous
+  MEETING // réunion
+  REMINDER // rappel
+  DEADLINE // échéance
+  INFO // information importante
+  OTHER
+}
+
+enum CalendarInviteStatus {
+  INVITED // invité, sans réponse
+  ACCEPTED // accepté
+  DECLINED // refusé
+  TENTATIVE // peut-être
+}
+
+model CalendarEvent {
+  id          String            @id @default(cuid())
+  title       String
+  description String?
+  location    String?
+  kind        CalendarEventKind @default(APPOINTMENT)
+  startAt     DateTime // UTC ; affiché en Africa/Algiers
+  endAt       DateTime?
+  allDay      Boolean           @default(false)
+  color       String? // pastille (hex) facultative
+  meetLink    String? // lien visio facultatif
+
+  organizerId String
+  organizer   User             @relation("CalendarOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
+  invitees    CalendarInvite[]
+
+  createdById String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([startAt])
+  @@index([organizerId])
+}
+
+model CalendarInvite {
+  id          String               @id @default(cuid())
+  eventId     String
+  event       CalendarEvent        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User                 @relation("CalendarInvitee", fields: [userId], references: [id], onDelete: Cascade)
+  status      CalendarInviteStatus @default(INVITED)
+  respondedAt DateTime?
+  createdAt   DateTime             @default(now())
+
+  @@unique([eventId, userId])
+  @@index([userId])
 }

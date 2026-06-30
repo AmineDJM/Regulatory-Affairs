@@ -1,0 +1,335 @@
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { ChevronLeft, ChevronRight, Plus, Loader2, Trash2, Pencil, MapPin, Video, Users, Clock } from "lucide-react";
+import type { CalendarEventDTO } from "@/lib/calendar";
+import type { GridDay } from "@/lib/calendar-tz";
+import { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, respondToInvite } from "@/lib/actions/calendar-actions";
+import { utcToAlgiersInput, formatAlgiersDisplay } from "@/lib/calendar-tz";
+import { Button } from "@/components/ui/button";
+import { Sheet } from "@/components/ui/sheet";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { StatusBadge } from "@/components/shared/status-badge";
+import { Avatar } from "@/components/ui/avatar";
+import { CALENDAR_EVENT_KIND, CALENDAR_INVITE_STATUS } from "@/lib/labels";
+
+const MONTH_LABELS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+const colorOf = (e: CalendarEventDTO) => e.color || CALENDAR_EVENT_KIND[e.kind]?.color || "#64748b";
+
+type SheetMode =
+  | null
+  | { mode: "create"; day?: string }
+  | { mode: "view"; event: CalendarEventDTO }
+  | { mode: "edit"; event: CalendarEventDTO };
+
+export function CalendarView({
+  year, month, grid, events, upcoming, users, currentUserId, canCreate,
+}: {
+  year: number;
+  month: number; // 0-based
+  grid: GridDay[];
+  events: CalendarEventDTO[];
+  upcoming: CalendarEventDTO[];
+  users: { id: string; name: string }[];
+  currentUserId: string;
+  canCreate: boolean;
+}) {
+  const router = useRouter();
+  const [sheet, setSheet] = React.useState<SheetMode>(null);
+
+  const byDay = React.useMemo(() => {
+    const m = new Map<string, CalendarEventDTO[]>();
+    for (const e of events) (m.get(e.ymd) ?? m.set(e.ymd, []).get(e.ymd)!).push(e);
+    return m;
+  }, [events]);
+
+  const prevHref = `/calendar?y=${month === 0 ? year - 1 : year}&m=${((month + 11) % 12) + 1}`;
+  const nextHref = `/calendar?y=${month === 11 ? year + 1 : year}&m=${((month + 1) % 12) + 1}`;
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            <button onClick={() => router.push(prevHref)} className="rounded-md p-1.5 hover:bg-secondary" aria-label="Mois précédent"><ChevronLeft className="h-5 w-5" /></button>
+            <h2 className="min-w-[180px] text-center text-lg font-semibold">{MONTH_LABELS[month]} {year}</h2>
+            <button onClick={() => router.push(nextHref)} className="rounded-md p-1.5 hover:bg-secondary" aria-label="Mois suivant"><ChevronRight className="h-5 w-5" /></button>
+            <button onClick={() => router.push("/calendar")} className="ml-2 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary">Aujourd'hui</button>
+          </div>
+          {canCreate && <Button size="sm" onClick={() => setSheet({ mode: "create" })}><Plus className="h-4 w-4" /> Nouveau</Button>}
+        </div>
+
+        <div className="surface overflow-hidden p-0">
+          <div className="grid grid-cols-7 border-b border-border bg-secondary/40 text-center text-xs font-medium text-muted-foreground">
+            {WEEKDAYS.map((d) => <div key={d} className="py-2">{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7">
+            {grid.map((g, i) => {
+              const dayEvents = byDay.get(g.ymd) ?? [];
+              return (
+                <div
+                  key={g.ymd}
+                  className={`min-h-[92px] border-b border-r border-border p-1 ${(i + 1) % 7 === 0 ? "border-r-0" : ""} ${!g.inMonth ? "bg-secondary/20" : ""} ${canCreate ? "cursor-pointer hover:bg-secondary/30" : ""}`}
+                  onClick={(ev) => { if (canCreate && ev.target === ev.currentTarget) setSheet({ mode: "create", day: g.ymd }); }}
+                >
+                  <div className="flex items-center justify-between px-0.5">
+                    <span className={`text-xs ${g.isToday ? "flex h-5 w-5 items-center justify-center rounded-full bg-primary font-semibold text-primary-foreground" : g.inMonth ? "text-foreground" : "text-muted-foreground/60"}`}>{g.day}</span>
+                  </div>
+                  <div className="mt-0.5 space-y-0.5">
+                    {dayEvents.slice(0, 3).map((e) => (
+                      <button
+                        key={e.id}
+                        onClick={() => setSheet({ mode: "view", event: e })}
+                        className="flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] hover:opacity-80"
+                        style={{ backgroundColor: `${colorOf(e)}1a`, color: colorOf(e) }}
+                      >
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorOf(e) }} />
+                        <span className="truncate font-medium">{e.timeLabel && `${e.timeLabel} `}{e.title}</span>
+                      </button>
+                    ))}
+                    {dayEvents.length > 3 && <p className="px-1 text-[10px] text-muted-foreground">+{dayEvents.length - 3} autre·s</p>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Agenda à venir */}
+      <aside className="space-y-2">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">À venir</h3>
+        {upcoming.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">Aucun rendez-vous à venir.</p>
+        ) : (
+          <div className="space-y-2">
+            {upcoming.map((e) => (
+              <button key={e.id} onClick={() => setSheet({ mode: "view", event: e })} className="surface flex w-full items-start gap-2 p-2.5 text-left hover:bg-secondary/30">
+                <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(e) }} />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{e.title}</p>
+                  <p className="text-xs text-muted-foreground">{formatAlgiersDisplay(e.startAt, e.allDay)}</p>
+                  {e.location && <p className="truncate text-xs text-muted-foreground">📍 {e.location}</p>}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </aside>
+
+      <CalendarSheet
+        sheet={sheet}
+        onClose={() => setSheet(null)}
+        users={users}
+        currentUserId={currentUserId}
+        onEdit={(event) => setSheet({ mode: "edit", event })}
+        onDone={() => { setSheet(null); router.refresh(); }}
+      />
+    </div>
+  );
+}
+
+function CalendarSheet({
+  sheet, onClose, users, currentUserId, onEdit, onDone,
+}: {
+  sheet: SheetMode;
+  onClose: () => void;
+  users: { id: string; name: string }[];
+  currentUserId: string;
+  onEdit: (e: CalendarEventDTO) => void;
+  onDone: () => void;
+}) {
+  if (!sheet) return <Sheet open={false} onClose={onClose} title="" width="md"><div /></Sheet>;
+
+  if (sheet.mode === "view") {
+    return (
+      <Sheet open onClose={onClose} title={sheet.event.title} width="md">
+        <EventDetail event={sheet.event} currentUserId={currentUserId} onEdit={() => onEdit(sheet.event)} onDone={onDone} />
+      </Sheet>
+    );
+  }
+
+  const isEdit = sheet.mode === "edit";
+  const ev = isEdit ? sheet.event : undefined;
+  const defaultDay = sheet.mode === "create" ? sheet.day : undefined;
+
+  return (
+    <Sheet open onClose={onClose} title={isEdit ? "Modifier le rendez-vous" : "Nouveau rendez-vous"} width="md">
+      <EventForm
+        event={ev}
+        defaultDay={defaultDay}
+        users={users}
+        currentUserId={currentUserId}
+        onDone={onDone}
+        onCancel={onClose}
+      />
+    </Sheet>
+  );
+}
+
+function EventDetail({ event: e, currentUserId, onEdit, onDone }: { event: CalendarEventDTO; currentUserId: string; onEdit: () => void; onDone: () => void }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  const isOrganizer = e.isOrganizer;
+  const amInvited = !isOrganizer && e.myStatus != null;
+
+  async function respond(status: string) {
+    setBusy(true);
+    const fd = new FormData(); fd.set("eventId", e.id); fd.set("status", status);
+    await respondToInvite(fd); setBusy(false); onDone();
+  }
+  async function remove() {
+    if (!window.confirm("Supprimer ce rendez-vous ?")) return;
+    setBusy(true);
+    const fd = new FormData(); fd.set("id", e.id);
+    await deleteCalendarEvent(fd); setBusy(false); router.refresh(); onDone();
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge map={CALENDAR_EVENT_KIND} value={e.kind} dot={false} />
+        <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"><Clock className="h-4 w-4" /> {formatAlgiersDisplay(e.startAt, e.allDay)}{e.endAt ? ` → ${formatAlgiersDisplay(e.endAt, e.allDay)}` : ""}</span>
+      </div>
+      {e.location && <p className="inline-flex items-center gap-1.5 text-sm"><MapPin className="h-4 w-4 text-muted-foreground" /> {e.location}</p>}
+      {e.meetLink && <a href={e.meetLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><Video className="h-4 w-4" /> Rejoindre la visio</a>}
+      {e.description && <p className="whitespace-pre-wrap text-sm">{e.description}</p>}
+      <p className="text-xs text-muted-foreground">Organisé par {e.organizerName}{isOrganizer ? " (vous)" : ""}.</p>
+
+      {e.invitees.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Users className="h-3.5 w-3.5" /> Invités ({e.invitees.length})</p>
+          <ul className="space-y-1">
+            {e.invitees.map((i) => (
+              <li key={i.userId} className="flex items-center justify-between gap-2 text-sm">
+                <span className="flex items-center gap-1.5"><Avatar name={i.name} size="sm" className="h-5 w-5 text-[9px]" /> {i.name}</span>
+                <StatusBadge map={CALENDAR_INVITE_STATUS} value={i.status} dot={false} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {amInvited && (
+        <div className="space-y-1.5 border-t border-border pt-3">
+          <p className="text-xs font-medium">Votre réponse</p>
+          <div className="flex gap-2">
+            <Button size="sm" variant={e.myStatus === "ACCEPTED" ? "primary" : "outline"} disabled={busy} onClick={() => respond("ACCEPTED")}>Accepter</Button>
+            <Button size="sm" variant={e.myStatus === "TENTATIVE" ? "primary" : "outline"} disabled={busy} onClick={() => respond("TENTATIVE")}>Peut-être</Button>
+            <Button size="sm" variant={e.myStatus === "DECLINED" ? "primary" : "outline"} disabled={busy} onClick={() => respond("DECLINED")}>Refuser</Button>
+          </div>
+        </div>
+      )}
+
+      {isOrganizer && (
+        <div className="flex justify-end gap-2 border-t border-border pt-3">
+          <Button size="sm" variant="outline" onClick={onEdit}><Pencil className="h-4 w-4" /> Modifier</Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={remove} className="text-destructive hover:bg-destructive/10"><Trash2 className="h-4 w-4" /> Supprimer</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EventForm({
+  event: ev, defaultDay, users, currentUserId, onDone, onCancel,
+}: {
+  event?: CalendarEventDTO;
+  defaultDay?: string;
+  users: { id: string; name: string }[];
+  currentUserId: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [allDay, setAllDay] = React.useState(ev?.allDay ?? false);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [invitees, setInvitees] = React.useState<string[]>(ev?.invitees.map((i) => i.userId) ?? []);
+
+  const startDefault = ev ? utcToAlgiersInput(new Date(ev.startAt)) : defaultDay ? `${defaultDay}T09:00` : "";
+  const endDefault = ev?.endAt ? utcToAlgiersInput(new Date(ev.endAt)) : "";
+  const candidates = users.filter((u) => u.id !== currentUserId);
+
+  async function submit(fd: FormData) {
+    setBusy(true); setError(null);
+    if (ev) fd.set("id", ev.id);
+    invitees.forEach((id) => fd.append("inviteeIds", id));
+    const r = ev ? await updateCalendarEvent(undefined, fd) : await createCalendarEvent(undefined, fd);
+    setBusy(false);
+    if (r.ok) onDone(); else setError(r.error ?? "Échec.");
+  }
+
+  return (
+    <form action={submit} className="space-y-4">
+      <div className="space-y-1.5">
+        <Label htmlFor="title">Titre <span className="text-destructive">*</span></Label>
+        <Input id="title" name="title" required defaultValue={ev?.title} placeholder="Ex. RDV pharmacien, réunion équipe…" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="kind">Type</Label>
+          <Select id="kind" name="kind" defaultValue={ev?.kind ?? "APPOINTMENT"}>
+            {Object.entries(CALENDAR_EVENT_KIND).map(([v, d]) => <option key={v} value={v}>{d.label}</option>)}
+          </Select>
+        </div>
+        <div className="flex items-end pb-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="allDay" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="h-4 w-4 rounded border-border" />
+            Journée entière
+          </label>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="start">Début <span className="text-destructive">*</span></Label>
+          <Input id="start" name="start" type={allDay ? "date" : "datetime-local"} required defaultValue={allDay ? startDefault.slice(0, 10) : startDefault} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="end">Fin</Label>
+          <Input id="end" name="end" type={allDay ? "date" : "datetime-local"} defaultValue={allDay ? (endDefault ? endDefault.slice(0, 10) : "") : endDefault} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="location">Lieu</Label>
+          <Input id="location" name="location" defaultValue={ev?.location ?? ""} placeholder="Bureau, ville…" />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="meetLink">Lien visio</Label>
+          <Input id="meetLink" name="meetLink" defaultValue={ev?.meetLink ?? ""} placeholder="https://meet…" />
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="description">Description</Label>
+        <Textarea id="description" name="description" defaultValue={ev?.description ?? ""} placeholder="Détails, ordre du jour…" />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>Inviter ({invitees.length})</Label>
+        <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+          {candidates.length === 0 && <p className="text-xs text-muted-foreground">Aucun collègue à inviter.</p>}
+          {candidates.map((u) => (
+            <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary/50">
+              <input
+                type="checkbox"
+                checked={invitees.includes(u.id)}
+                onChange={(e) => setInvitees((prev) => e.target.checked ? [...prev, u.id] : prev.filter((id) => id !== u.id))}
+                className="h-4 w-4 rounded border-border"
+              />
+              {u.name}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+      <div className="flex justify-end gap-2 pt-1">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>Annuler</Button>
+        <Button type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {ev ? "Enregistrer" : "Créer"}</Button>
+      </div>
+    </form>
+  );
+}

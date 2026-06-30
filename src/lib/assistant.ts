@@ -18,10 +18,11 @@
  * affiche « IA non configurée ».
  */
 
-import type { AdminRequestType, CongressRequestStatus, Priority } from "@prisma/client";
+import type { AdminRequestType, CongressRequestStatus, Priority, CalendarEventKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles, broadcastNotification, type BroadcastAudience } from "@/lib/notify";
+import { createEventForUser, algiersInputToUtc, CALENDAR_KINDS } from "@/lib/calendar";
 import { createDossierRecord } from "@/lib/dossiers-core";
 import { findDirectConversation } from "@/lib/messaging";
 import { getMailAccount, listMessages, getMessage, sendMail } from "@/lib/mail";
@@ -117,6 +118,20 @@ export type AssistantActionPayload =
       title: string;
       body?: string | null;
       link?: string | null;
+    }
+  | {
+      kind: "create_calendar_event";
+      title: string;
+      date: string;
+      time?: string | null;
+      durationMin?: number | null;
+      allDay?: boolean;
+      eventKind?: string | null;
+      location?: string | null;
+      meetLink?: string | null;
+      description?: string | null;
+      inviteeIds?: string[];
+      inviteeNames?: string | null;
     };
 
 export type AssistantActionKind = AssistantActionPayload["kind"];
@@ -376,6 +391,27 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
         note: { type: "string", description: "Précisions / motif." },
       },
       required: ["scope", "name"],
+    },
+  },
+  {
+    name: "create_calendar_event",
+    description:
+      "PROPOSE la création d'un rendez-vous / réunion / rappel dans le CALENDRIER (fuseau d'Alger), avec invitations de collègues. N'exécute rien : confirmation requise. La date/heure est interprétée à l'heure d'Alger. Pour inviter des collègues, donner leurs noms dans inviteeNames (séparés par des virgules) ; les retrouver avec search_people en cas de doute.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Intitulé du rendez-vous." },
+        date: { type: "string", description: "Date AAAA-MM-JJ (heure d'Alger)." },
+        time: { type: "string", description: "Heure HH:mm (heure d'Alger). Défaut 09:00 si absent." },
+        durationMin: { type: "number", description: "Durée en minutes (optionnel)." },
+        allDay: { type: "boolean", description: "Journée entière (sans heure)." },
+        kind: { type: "string", enum: ["APPOINTMENT", "MEETING", "REMINDER", "DEADLINE", "INFO", "OTHER"], description: "Type d'événement." },
+        location: { type: "string", description: "Lieu (optionnel)." },
+        meetLink: { type: "string", description: "Lien visio (optionnel)." },
+        description: { type: "string", description: "Détails / ordre du jour (optionnel)." },
+        inviteeNames: { type: "string", description: "Noms des collègues à inviter, séparés par des virgules (optionnel)." },
+      },
+      required: ["title", "date"],
     },
   },
 ];
@@ -877,6 +913,45 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  if (toolName === "create_calendar_event") {
+    if (!userCan(user, "WORKSPACE", "CREATE")) return { error: "Vous n'avez pas accès au calendrier." };
+    const title = asStr(input, "title");
+    if (!title) return { error: "Intitulé du rendez-vous manquant." };
+    const date = isoDate(asStr(input, "date"));
+    if (!date) return { error: "Date du rendez-vous manquante ou invalide (AAAA-MM-JJ)." };
+    pastWarning("La date du rendez-vous", date, warnings);
+    const allDay = input.allDay === true;
+    const time = allDay ? null : (asStr(input, "time").match(/^\d{1,2}:\d{2}$/) ? asStr(input, "time") : "09:00");
+    const durRaw = input.durationMin;
+    const durationMin = typeof durRaw === "number" && Number.isFinite(durRaw) && durRaw > 0 ? Math.round(durRaw) : null;
+    const eventKind = (asStr(input, "kind") || "APPOINTMENT").toUpperCase();
+
+    const inviteeIds: string[] = [];
+    const inviteeResolved: string[] = [];
+    const names = asStr(input, "inviteeNames").split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+    for (const n of names) {
+      const r = await resolve("Invité", n);
+      if (r.id) { inviteeIds.push(r.id); inviteeResolved.push(r.name ?? n); }
+    }
+
+    const fields = [
+      { label: "Rendez-vous", value: title },
+      { label: "Quand", value: allDay ? `${date} (journée entière)` : `${date} à ${time} (heure d'Alger)` },
+    ];
+    if (durationMin) fields.push({ label: "Durée", value: `${durationMin} min` });
+    if (asStr(input, "location")) fields.push({ label: "Lieu", value: asStr(input, "location") });
+    if (inviteeResolved.length) fields.push({ label: "Invités", value: inviteeResolved.join(", ") });
+    if (asStr(input, "description")) fields.push({ label: "Détails", value: asStr(input, "description") });
+    return {
+      kind: "create_calendar_event", module: "WORKSPACE", title: "Planifier un rendez-vous", fields, warnings,
+      payload: {
+        kind: "create_calendar_event", title, date, time, durationMin, allDay,
+        eventKind, location: asStr(input, "location") || null, meetLink: asStr(input, "meetLink") || null,
+        description: asStr(input, "description") || null, inviteeIds, inviteeNames: inviteeResolved.join(", ") || null,
+      },
+    };
+  }
+
   if (toolName === "create_notification") {
     if (user.role !== "SUPER_ADMIN") return { error: "Seul le Super Admin peut diffuser des notifications." };
     const title = asStr(input, "title");
@@ -1182,6 +1257,24 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     }
     await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", summary: `E-mail envoyé via l'assistant à ${to}` });
     return { ok: true, message: `E-mail envoyé à ${to}.`, link: "/courrier", revalidate: ["/courrier"] };
+  }
+
+  if (payload?.kind === "create_calendar_event") {
+    if (!userCan(user, "WORKSPACE", "CREATE")) return { ok: false, error: "Vous n'avez pas accès au calendrier." };
+    const title = (payload.title ?? "").trim();
+    if (!title) return { ok: false, error: "Intitulé du rendez-vous manquant." };
+    const allDay = payload.allDay === true;
+    const startAt = algiersInputToUtc(`${payload.date}T${allDay ? "00:00" : (payload.time || "09:00")}`);
+    if (!startAt) return { ok: false, error: "Date de rendez-vous invalide." };
+    const endAt = payload.durationMin && payload.durationMin > 0 ? new Date(startAt.getTime() + payload.durationMin * 60000) : null;
+    const kind = ((CALENDAR_KINDS as string[]).includes((payload.eventKind ?? "").toUpperCase()) ? (payload.eventKind as string).toUpperCase() : "APPOINTMENT") as CalendarEventKind;
+    const inviteeIds = (payload.inviteeIds ?? []).filter(Boolean);
+    await createEventForUser(user.id, {
+      title, description: payload.description?.trim() || null, location: payload.location?.trim() || null,
+      kind, startAt, endAt, allDay, meetLink: payload.meetLink?.trim() || null, inviteeIds,
+    });
+    await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", summary: `Rendez-vous « ${title} » planifié via l'assistant` });
+    return { ok: true, message: `Rendez-vous « ${title} » ajouté au calendrier.`, link: "/calendar", revalidate: ["/calendar"] };
   }
 
   if (payload?.kind === "create_congress_request") {

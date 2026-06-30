@@ -668,6 +668,24 @@ export const MISSION_ORDER_STATUS: Record<string, Display> = {
   ISSUED: { label: "Ordre de mission émis", tone: "success" },
 };
 
+/** Types d'événements du calendrier (avec couleur de pastille par défaut). */
+export const CALENDAR_EVENT_KIND: Record<string, Display & { color: string }> = {
+  APPOINTMENT: { label: "Rendez-vous", tone: "info", color: "#2563eb" },
+  MEETING: { label: "Réunion", tone: "purple", color: "#7c3aed" },
+  REMINDER: { label: "Rappel", tone: "warning", color: "#d97706" },
+  DEADLINE: { label: "Échéance", tone: "danger", color: "#dc2626" },
+  INFO: { label: "Information", tone: "success", color: "#0891b2" },
+  OTHER: { label: "Autre", tone: "neutral", color: "#64748b" },
+};
+
+/** Réponse à une invitation. */
+export const CALENDAR_INVITE_STATUS: Record<string, Display> = {
+  INVITED: { label: "Invité", tone: "neutral" },
+  ACCEPTED: { label: "Accepté", tone: "success" },
+  DECLINED: { label: "Refusé", tone: "danger" },
+  TENTATIVE: { label: "Peut-être", tone: "warning" },
+};
+
 export const PROMO_MATERIAL_STATUS: Record<string, Display> = {
   PROSPECTION_REQUESTED: { label: "Prospection demandée", tone: "warning" },
   QUOTES_UPLOADED: { label: "Devis déposés", tone: "info" },
@@ -935,6 +953,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "WORKSPACE", label: "Courrier", href: "/courrier", icon: "Mail", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mes ordres de mission", href: "/missions", icon: "MapPin", group: "Pilotage" },
+  { module: "WORKSPACE", label: "Calendrier", href: "/calendar", icon: "CalendarDays", group: "Pilotage" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", group: "Pilotage" },
   // Pôles
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
