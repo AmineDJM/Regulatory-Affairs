@@ -39,7 +39,9 @@ type DeletableKind =
   | "EXPENSE_ORDER"
   | "SUPPLIER"
   | "MEDICAL_INFO_DECLARATION"
-  | "PROMO_MATERIAL";
+  | "PROMO_MATERIAL"
+  | "CONGRESS_INTERNATIONAL"
+  | "CONGRESS_NATIONAL";
 
 interface KindSpec {
   label: string; // libellé du type (« dossier réglementaire »)
@@ -295,6 +297,32 @@ const REGISTRY: Record<DeletableKind, KindSpec> = {
     },
     async remove(id) {
       await prisma.promoMaterial.delete({ where: { id } });
+    },
+  },
+  CONGRESS_INTERNATIONAL: {
+    label: "demande de congrès international",
+    module: "Congrès internationaux",
+    redirect: "/congress-international",
+    entityType: "CONGRESS_INTERNATIONAL",
+    async describe(id) {
+      const r = await prisma.congressInternational.findUnique({ where: { id }, select: { name: true } });
+      return r ? r.name : null;
+    },
+    async remove(id) {
+      await prisma.congressInternational.delete({ where: { id } });
+    },
+  },
+  CONGRESS_NATIONAL: {
+    label: "demande d'événement national",
+    module: "Événements nationaux",
+    redirect: "/congress-national",
+    entityType: "CONGRESS_NATIONAL",
+    async describe(id) {
+      const r = await prisma.congressNational.findUnique({ where: { id }, select: { name: true } });
+      return r ? r.name : null;
+    },
+    async remove(id) {
+      await prisma.congressNational.delete({ where: { id } });
     },
   },
 };

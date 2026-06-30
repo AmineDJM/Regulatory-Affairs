@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   if (!account) return NextResponse.json({ error: "Aucune boîte connectée", noAccount: true }, { status: 404 });
 
   const mailbox = req.nextUrl.searchParams.get("mailbox") || "INBOX";
-  const limit = Math.min(100, Number(req.nextUrl.searchParams.get("limit") || 30));
+  const limit = Math.min(500, Number(req.nextUrl.searchParams.get("limit") || 50));
   const withFolders = req.nextUrl.searchParams.get("folders") === "1";
   const search = req.nextUrl.searchParams.get("search")?.trim() || undefined;
   try {

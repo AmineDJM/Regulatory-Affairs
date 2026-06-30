@@ -9,6 +9,7 @@ import { getCongressDetail, getCongressFormData } from "@/lib/queries/congress";
 import { getEntityMissions } from "@/lib/queries/missions";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { type DocItem } from "@/components/documents/document-list";
 import { CONGRESS_REQUEST_STATUS } from "@/lib/labels";
 import { CongressDetailView } from "../../congress-international/congress-detail-view";
@@ -47,6 +48,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
       </Link>
       <PageHeader title={detail.name} description="Demande de prise en charge — événement national.">
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />
+        <SuperAdminDeleteButton kind="CONGRESS_NATIONAL" id={detail.id} name={detail.name} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
       <CongressDetailView detail={detail} canValidate={canValidate} canMarketing={canMarketing} canAnalyze={canAnalyze} productManagers={form.productManagers} entityType="CONGRESS_NATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-national/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} />
     </div>

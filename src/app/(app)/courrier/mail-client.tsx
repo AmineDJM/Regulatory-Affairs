@@ -56,7 +56,7 @@ export function MailClient({ email }: { email: string }) {
     setLoadingList(true); setErr(null); setSel(null);
     try {
       const sp = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : "";
-      const res = await fetch(`/api/mail/messages?mailbox=${encodeURIComponent(mb)}&limit=40${withFolders ? "&folders=1" : ""}${sp}`, { cache: "no-store" });
+      const res = await fetch(`/api/mail/messages?mailbox=${encodeURIComponent(mb)}&limit=300${withFolders ? "&folders=1" : ""}${sp}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) { setErr(data.error ?? "Connexion à la boîte impossible."); setMessages([]); }
       else { setMessages(data.messages ?? []); if (data.mailboxes) setFolders(data.mailboxes); }

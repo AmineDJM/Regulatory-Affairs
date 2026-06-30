@@ -10,6 +10,7 @@ import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/t
 const NOT_ALLOWED: ActionResult = { ok: false, error: "Gestion des enveloppes réservée au Super Admin (ou à un délégué)." };
 
 const readAccessRoles = (formData: FormData) => formData.getAll("accessRoles").map(String).filter(Boolean);
+const readModules = (formData: FormData) => [...new Set(formData.getAll("modules").map(String).filter(Boolean))];
 
 // ─────────────────────── Budget total (fixe / flexible) ───────────────────────
 
@@ -39,10 +40,12 @@ export async function createEnvelope(formData: FormData): Promise<ActionResult> 
   const periodStart = fdDate(formData, "periodStart") ?? new Date(now.getFullYear(), 0, 1);
   const periodEnd = fdDate(formData, "periodEnd") ?? new Date(now.getFullYear(), 11, 31);
 
+  const modules = readModules(formData);
   const created = await prisma.budgetEnvelope.create({
     data: {
       name,
-      module: fdStr(formData, "module"),
+      modules,
+      module: modules[0] ?? null, // compat : module principal
       accessRoles: readAccessRoles(formData),
       periodStart,
       periodEnd,
@@ -63,11 +66,13 @@ export async function updateEnvelope(formData: FormData): Promise<ActionResult> 
   const id = fdStr(formData, "id");
   const name = fdStr(formData, "name");
   if (!id || !name) return { ok: false, error: "Paramètres manquants." };
+  const modules = readModules(formData);
   await prisma.budgetEnvelope.update({
     where: { id },
     data: {
       name,
-      module: fdStr(formData, "module"),
+      modules,
+      module: modules[0] ?? null, // compat : module principal
       accessRoles: readAccessRoles(formData),
       periodStart: fdDate(formData, "periodStart") ?? undefined,
       periodEnd: fdDate(formData, "periodEnd") ?? undefined,

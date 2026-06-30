@@ -44,6 +44,7 @@ export interface BudgetEnvelopeOption {
   id: string;
   name: string;
   module: string | null;
+  modules: string[];
   accessRoles: string[];
   periodStart: string;
   periodEnd: string;
@@ -52,7 +53,7 @@ export interface BudgetEnvelopeOption {
 }
 
 export interface BudgetOverview {
-  envelope: { id: string; name: string; module: string | null; accessRoles: string[]; periodStart: string; periodEnd: string; total: number; notes: string | null; isActive: boolean };
+  envelope: { id: string; name: string; module: string | null; modules: string[]; accessRoles: string[]; periodStart: string; periodEnd: string; total: number; notes: string | null; isActive: boolean };
   period: { from: string; to: string };
   categories: BudgetCategoryView[];
   totals: { total: number; allocated: number; unallocated: number; consumed: number; committed: number; remaining: number; pct: number };
@@ -71,7 +72,7 @@ export async function getEnvelopes(viewer: SessionUser): Promise<BudgetEnvelopeO
   const list = await prisma.budgetEnvelope.findMany({ orderBy: [{ isActive: "desc" }, { periodStart: "desc" }] });
   return list
     .filter((e) => envelopeVisible(viewer, e.accessRoles))
-    .map((e) => ({ id: e.id, name: e.name, module: e.module, accessRoles: e.accessRoles, periodStart: e.periodStart.toISOString(), periodEnd: e.periodEnd.toISOString(), total: toNumber(e.totalAmount), isActive: e.isActive }));
+    .map((e) => ({ id: e.id, name: e.name, module: e.module, modules: e.modules, accessRoles: e.accessRoles, periodStart: e.periodStart.toISOString(), periodEnd: e.periodEnd.toISOString(), total: toNumber(e.totalAmount), isActive: e.isActive }));
 }
 
 /** Synthèse budgétaire d'une enveloppe sur une période (par défaut la période de l'enveloppe). */
@@ -132,7 +133,7 @@ export async function getBudgetOverview(
   });
 
   return {
-    envelope: { id: envelope.id, name: envelope.name, module: envelope.module, accessRoles: envelope.accessRoles, periodStart: envelope.periodStart.toISOString(), periodEnd: envelope.periodEnd.toISOString(), total, notes: envelope.notes, isActive: envelope.isActive },
+    envelope: { id: envelope.id, name: envelope.name, module: envelope.module, modules: envelope.modules, accessRoles: envelope.accessRoles, periodStart: envelope.periodStart.toISOString(), periodEnd: envelope.periodEnd.toISOString(), total, notes: envelope.notes, isActive: envelope.isActive },
     period: { from: from.toISOString(), to: to.toISOString() },
     categories,
     totals: {

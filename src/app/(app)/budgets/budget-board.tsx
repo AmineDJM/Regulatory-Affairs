@@ -39,14 +39,20 @@ const MODULE_OPTIONS: { value: string; label: string }[] = [
 ];
 const moduleLabel = (m: string | null | undefined) => MODULE_OPTIONS.find((o) => o.value === m)?.label ?? null;
 
-function moduleSelect(defaultValue?: string | null) {
+/** Cases à cocher : une enveloppe peut couvrir un OU plusieurs modules. */
+function modulesField(defaultModules: string[] = []) {
   return (
     <div className="col-span-2 space-y-1.5">
-      <Label>Module rattaché</Label>
-      <Select name="module" defaultValue={defaultValue ?? ""}>
-        <option value="">— Aucun —</option>
-        {MODULE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </Select>
+      <Label>Modules rattachés</Label>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-lg border border-input p-2.5">
+        {MODULE_OPTIONS.map((o) => (
+          <label key={o.value} className="flex items-center gap-1.5 text-sm">
+            <input type="checkbox" name="modules" value={o.value} defaultChecked={defaultModules.includes(o.value)} className="h-4 w-4 rounded border-input" />
+            {o.label}
+          </label>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">Cochez un ou plusieurs modules. Laisser vide = enveloppe transverse.</p>
     </div>
   );
 }
@@ -109,7 +115,7 @@ export function CreateEnvelopeButton() {
       <Sheet open={open} onClose={() => setOpen(false)} title="Nouvelle enveloppe budgétaire" description="Un budget total pour une période, à répartir ensuite en catégories." width="md">
         <form action={(fd) => run(() => createEnvelope(fd), () => setOpen(false))} className="grid grid-cols-2 gap-3">
           {field("name", "Nom de l'enveloppe", { placeholder: `Budget ${year}`, required: true }, true)}
-          {moduleSelect()}
+          {modulesField()}
           {field("totalAmount", "Montant de l'enveloppe (DZD)", { type: "number", step: "any", placeholder: "0" }, true)}
           {field("periodStart", "Début de période", { type: "date", defaultValue: `${year}-01-01` })}
           {field("periodEnd", "Fin de période", { type: "date", defaultValue: `${year}-12-31` })}
@@ -126,6 +132,8 @@ export function CreateEnvelopeButton() {
 export function BudgetBoard({ overview, envelopes, canManage, budgetTotal }: { overview: BudgetOverview; envelopes: BudgetEnvelopeOption[]; canManage: boolean; budgetTotal: BudgetTotalInfo }) {
   const router = useRouter();
   const t = overview.totals;
+  // Modules couverts par l'enveloppe (rétrocompat : ancien champ `module` unique).
+  const envModules = overview.envelope.modules.length ? overview.envelope.modules : overview.envelope.module ? [overview.envelope.module] : [];
   const [editEnv, setEditEnv] = React.useState(false);
   const [totalSheet, setTotalSheet] = React.useState(false);
   const [catSheet, setCatSheet] = React.useState<{ cat?: BudgetCategoryView } | null>(null);
@@ -141,19 +149,25 @@ export function BudgetBoard({ overview, envelopes, canManage, budgetTotal }: { o
       {/* Contrôles : enveloppe + période */}
       <div className="surface flex flex-wrap items-end gap-3 p-3">
         <div className="space-y-1.5">
-          <Label>Enveloppe {moduleLabel(overview.envelope.module) && <Badge tone="info" dot={false} className="ml-1">{moduleLabel(overview.envelope.module)}</Badge>}</Label>
+          <Label className="flex flex-wrap items-center gap-1">
+            Enveloppe
+            {envModules.map((m) => <Badge key={m} tone="info" dot={false}>{moduleLabel(m) ?? m}</Badge>)}
+          </Label>
           <Select value={overview.envelope.id} onChange={(e) => router.push(`/budgets?env=${e.target.value}`)} className="w-56">
             {envelopes.map((en) => <option key={en.id} value={en.id}>{en.name}{en.isActive ? "" : " (archivée)"}</option>)}
           </Select>
         </div>
-        {/* Budget total au-dessus des enveloppes : figé ou somme des enveloppes. */}
+        {/* Budget total au-dessus des enveloppes : figé ou somme des enveloppes.
+            Réglé ici par le Super Admin (ou un délégué) via « Régler ». */}
         <div className="space-y-1.5">
           <Label className="flex items-center gap-1.5">
-            Budget total
+            Budget total (toutes enveloppes)
             <Badge tone={budgetTotal.mode === "FIXED" ? "purple" : "neutral"} dot={false}>{budgetTotal.mode === "FIXED" ? "Fixe" : "Flexible"}</Badge>
-            {canManage && <button type="button" onClick={() => setTotalSheet(true)} className="text-muted-foreground hover:text-foreground" title="Régler le budget total"><SlidersHorizontal className="h-3.5 w-3.5" /></button>}
           </Label>
-          <p className="text-lg font-semibold tabular-nums">{formatCurrency(budgetTotal.value)}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-lg font-semibold tabular-nums">{formatCurrency(budgetTotal.value)}</p>
+            {canManage && <Button type="button" variant="outline" size="sm" onClick={() => setTotalSheet(true)}><SlidersHorizontal className="h-3.5 w-3.5" /> Régler</Button>}
+          </div>
         </div>
         <PeriodPicker from={d10(overview.period.from)} to={d10(overview.period.to)} onApply={(from, to) => navigate({ from, to })} />
         <div className="ml-auto flex items-center gap-2">
@@ -302,7 +316,7 @@ function EnvelopeSheet({ envelope, onClose, onDeleted, canDelete }: { envelope: 
     <Sheet open onClose={onClose} title="Modifier l'enveloppe" width="md">
       <form action={(fd) => { fd.set("id", envelope.id); run(() => updateEnvelope(fd), onClose); }} className="grid grid-cols-2 gap-3">
         {field("name", "Nom", { defaultValue: envelope.name, required: true }, true)}
-        {moduleSelect(envelope.module)}
+        {modulesField(envelope.modules.length ? envelope.modules : envelope.module ? [envelope.module] : [])}
         {field("totalAmount", "Budget total (DZD)", { type: "number", step: "any", defaultValue: envelope.total }, true)}
         {field("periodStart", "Début", { type: "date", defaultValue: d10(envelope.periodStart) })}
         {field("periodEnd", "Fin", { type: "date", defaultValue: d10(envelope.periodEnd) })}

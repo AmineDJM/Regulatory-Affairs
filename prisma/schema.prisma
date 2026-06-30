@@ -889,7 +889,9 @@ model BudgetLine {
 model BudgetEnvelope {
   id          String               @id @default(cuid())
   name        String
-  module      String? // module rattaché (SPONSORING, CONGRESS_*, EVENTS, PROMO_MATERIAL…)
+  module      String? // (déprécié) module principal — conservé pour compatibilité
+  // Une enveloppe peut couvrir UN ou PLUSIEURS modules.
+  modules     String[]             @default([]) // SPONSORING, CONGRESS_*, EVENTS, PROMO_MATERIAL, MEDICAL…
   // Rôles (hors gestionnaires) autorisés à CONSULTER cette enveloppe — ex. la
   // Direction des opérations ne voit que les enveloppes que le Super Admin a
   // ouvertes. Vide = visible des seuls gestionnaires (Super Admin / délégués).
