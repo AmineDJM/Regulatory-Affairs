@@ -165,16 +165,32 @@ export function MessageItem({
                       <img src={`/api/messaging/attachment/${a.id}`} alt={a.name} className="max-h-64 max-w-full rounded-lg border border-border object-cover" />
                     </a>
                   ) : (
-                    <a
+                    <div
                       key={a.id}
-                      href={`/api/messaging/attachment/${a.id}?dl=1`}
-                      className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-foreground transition-colors hover:bg-secondary"
+                      className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-foreground"
                     >
                       <FileText className="h-5 w-5 shrink-0 text-primary" />
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{a.name}</span>
+                      {/* Clic = APERÇU (ouverture inline dans un nouvel onglet), plus de téléchargement automatique. */}
+                      <a
+                        href={`/api/messaging/attachment/${a.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Aperçu"
+                        className="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+                      >
+                        {a.name}
+                      </a>
                       <span className="text-[11px] text-muted-foreground">{formatBytes(a.size)}</span>
-                      <Download className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    </a>
+                      {/* Téléchargement explicite. */}
+                      <a
+                        href={`/api/messaging/attachment/${a.id}?dl=1`}
+                        download={a.name}
+                        title="Télécharger"
+                        className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      >
+                        <Download className="h-4 w-4 shrink-0" />
+                      </a>
+                    </div>
                   ),
                 )}
               </div>

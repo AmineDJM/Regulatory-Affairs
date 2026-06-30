@@ -897,6 +897,9 @@ model BudgetEnvelope {
   // Direction des opérations ne voit que les enveloppes que le Super Admin a
   // ouvertes. Vide = visible des seuls gestionnaires (Super Admin / délégués).
   accessRoles String[]             @default([])
+  // Utilisateurs nommément autorisés par le Super Admin à consulter cette enveloppe
+  // (en plus des rôles ci-dessus). Permet d'ouvrir l'accès à des personnes précises.
+  accessUserIds String[]           @default([])
   periodStart DateTime
   periodEnd   DateTime
   totalAmount Decimal              @default(0) @db.Decimal(14, 2)
@@ -918,6 +921,11 @@ model BudgetCategoryLine {
   envelope     BudgetEnvelope       @relation(fields: [envelopeId], references: [id], onDelete: Cascade)
   name         String
   module       String? // module associé (SPONSORING, CONGRESS_*, REGULATORY…) — attribution auto des dépenses
+  // Sous-catégorie : une catégorie peut être rattachée à une catégorie parente
+  // (ex. « Table ronde » sous « Événement »). Créées à la main par la Direction.
+  parentId     String?
+  parent       BudgetCategoryLine?  @relation("BudgetSubCategory", fields: [parentId], references: [id], onDelete: Cascade)
+  children     BudgetCategoryLine[] @relation("BudgetSubCategory")
   allocated    Decimal              @default(0) @db.Decimal(14, 2)
   color        String?
   notes        String?
@@ -926,6 +934,7 @@ model BudgetCategoryLine {
   updatedAt    DateTime             @updatedAt
 
   @@index([envelopeId])
+  @@index([parentId])
 }
 
 // ───────────────────────────── Congresses ─────────────────────────────

@@ -10,6 +10,7 @@ import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/t
 const NOT_ALLOWED: ActionResult = { ok: false, error: "Gestion des enveloppes réservée au Super Admin (ou à un délégué)." };
 
 const readAccessRoles = (formData: FormData) => formData.getAll("accessRoles").map(String).filter(Boolean);
+const readAccessUserIds = (formData: FormData) => [...new Set(formData.getAll("accessUserIds").map(String).filter(Boolean))];
 const readModules = (formData: FormData) => [...new Set(formData.getAll("modules").map(String).filter(Boolean))];
 
 // ─────────────────────── Budget total (fixe / flexible) ───────────────────────
@@ -47,6 +48,7 @@ export async function createEnvelope(formData: FormData): Promise<ActionResult> 
       modules,
       module: modules[0] ?? null, // compat : module principal
       accessRoles: readAccessRoles(formData),
+      accessUserIds: readAccessUserIds(formData),
       periodStart,
       periodEnd,
       totalAmount: fdNum(formData, "totalAmount") ?? 0,
@@ -74,6 +76,7 @@ export async function updateEnvelope(formData: FormData): Promise<ActionResult> 
       modules,
       module: modules[0] ?? null, // compat : module principal
       accessRoles: readAccessRoles(formData),
+      accessUserIds: readAccessUserIds(formData),
       periodStart: fdDate(formData, "periodStart") ?? undefined,
       periodEnd: fdDate(formData, "periodEnd") ?? undefined,
       totalAmount: fdNum(formData, "totalAmount") ?? 0,
@@ -103,8 +106,17 @@ export async function createBudgetCategory(formData: FormData): Promise<ActionRe
   const envelopeId = fdStr(formData, "envelopeId");
   const name = fdStr(formData, "name");
   if (!envelopeId || !name) return { ok: false, error: "Nom de catégorie manquant." };
+  // Sous-catégorie : rattachée à une catégorie parente. Elle n'a pas de module
+  // (l'attribution automatique des dépenses se fait au niveau de la catégorie de tête).
+  const parentId = fdStr(formData, "parentId");
   const created = await prisma.budgetCategoryLine.create({
-    data: { envelopeId, name, module: fdStr(formData, "module"), allocated: fdNum(formData, "allocated") ?? 0, color: fdStr(formData, "color"), notes: fdStr(formData, "notes") },
+    data: {
+      envelopeId, name,
+      parentId: parentId || null,
+      module: parentId ? null : fdStr(formData, "module"),
+      allocated: fdNum(formData, "allocated") ?? 0,
+      color: fdStr(formData, "color"), notes: fdStr(formData, "notes"),
+    },
     select: { id: true },
   });
   revalidatePath("/budgets");
@@ -117,9 +129,15 @@ export async function updateBudgetCategory(formData: FormData): Promise<ActionRe
   const id = fdStr(formData, "id");
   const name = fdStr(formData, "name");
   if (!id || !name) return { ok: false, error: "Paramètres manquants." };
+  const parentId = fdStr(formData, "parentId");
+  const isSub = Boolean(parentId) && parentId !== id; // pas d'auto-rattachement
   await prisma.budgetCategoryLine.update({
     where: { id },
-    data: { name, allocated: fdNum(formData, "allocated") ?? 0, color: fdStr(formData, "color"), notes: fdStr(formData, "notes") },
+    data: {
+      name, allocated: fdNum(formData, "allocated") ?? 0, color: fdStr(formData, "color"), notes: fdStr(formData, "notes"),
+      parentId: isSub ? parentId : null,
+      ...(isSub ? { module: null } : {}), // une sous-catégorie ne porte pas de module d'attribution
+    },
   });
   revalidatePath("/budgets");
   return { ok: true };

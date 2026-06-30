@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Loader2, SlidersHorizontal } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, SlidersHorizontal, Wallet, CornerDownRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
@@ -13,10 +13,11 @@ import {
   createEnvelope, updateEnvelope, deleteEnvelope, setBudgetTotal,
   createBudgetCategory, updateBudgetCategory, deleteBudgetCategory, attributeTransaction,
 } from "@/lib/actions/budget-envelope-actions";
-import type { BudgetOverview, BudgetEnvelopeOption, BudgetCategoryView, BudgetHealth } from "@/lib/queries/budget";
+import type { BudgetOverview, BudgetEnvelopeOption, BudgetCategoryView, BudgetHealth, EnvelopesGrandTotal } from "@/lib/queries/budget";
 import { ROLE_LABELS } from "@/lib/labels";
 
 interface BudgetTotalInfo { mode: "FIXED" | "FLEXIBLE"; value: number; fixed: number }
+type UserOpt = { id: string; name: string };
 // Rôles (hors gestionnaires) auxquels on peut ouvrir une enveloppe en consultation.
 const ACCESS_ROLE_OPTIONS = ["DIRECTION", "FINANCE_BUDGET_MANAGER", "MEDICAL_PROMOTION_MANAGER", "PRODUCT_MANAGER"] as const;
 
@@ -76,6 +77,65 @@ function accessRolesField(defaultRoles: string[] = []) {
   );
 }
 
+/** Autorisation par PERSONNE (en plus des rôles) — accordée par le Super Admin. */
+function accessUsersField(users: UserOpt[], defaultIds: string[] = []) {
+  if (users.length === 0) return null;
+  return (
+    <div className="col-span-2 space-y-1.5">
+      <Label>Autoriser des personnes précises</Label>
+      <div className="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1.5 overflow-y-auto rounded-lg border border-input p-2.5">
+        {users.map((u) => (
+          <label key={u.id} className="flex items-center gap-1.5 text-sm">
+            <input type="checkbox" name="accessUserIds" value={u.id} defaultChecked={defaultIds.includes(u.id)} className="h-4 w-4 rounded border-input" />
+            {u.name}
+          </label>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">Ces personnes pourront consulter cette enveloppe (en plus des rôles cochés).</p>
+    </div>
+  );
+}
+
+/**
+ * Vue consolidée « total des enveloppes » : visible du Super Admin et des personnes/
+ * rôles qu'il a autorisés (la requête n'agrège que les enveloppes accessibles).
+ */
+export function EnvelopesGrandTotalPanel({ data }: { data: EnvelopesGrandTotal }) {
+  const pct = data.total > 0 ? Math.round((data.consumed / data.total) * 100) : 0;
+  return (
+    <section className="surface space-y-3 p-4">
+      <div className="flex items-center gap-2">
+        <Wallet className="h-4 w-4 text-primary" />
+        <h2 className="text-sm font-semibold">Total des enveloppes</h2>
+        <Badge tone="neutral" dot={false}>{data.count} enveloppe{data.count > 1 ? "s" : ""}</Badge>
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Kpi label="Budget cumulé" value={formatCurrency(data.total)} />
+        <Kpi label="Alloué (catégories)" value={formatCurrency(data.allocated)} hint={data.total - data.allocated !== 0 ? `${formatCurrency(data.total - data.allocated)} non alloué` : "100 % réparti"} />
+        <Kpi label="Consommé" value={formatCurrency(data.consumed)} hint={`${pct}% du cumulé`} tone="warning" />
+        <Kpi label="Reste" value={formatCurrency(data.remaining)} tone={data.remaining < 0 ? "danger" : "success"} />
+      </div>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-secondary/50 text-xs text-muted-foreground">
+            <tr><th className="px-3 py-1.5 text-left font-medium">Enveloppe</th><th className="px-3 py-1.5 text-right font-medium">Budget</th><th className="px-3 py-1.5 text-right font-medium">Consommé</th><th className="px-3 py-1.5 text-right font-medium">Reste</th></tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {data.items.map((e) => (
+              <tr key={e.id}>
+                <td className="px-3 py-1.5">{e.name}{!e.isActive && <span className="ml-1 text-xs text-muted-foreground">(archivée)</span>}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{formatCurrency(e.total)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-warning">{formatCurrency(e.consumed)}</td>
+                <td className={cn("px-3 py-1.5 text-right tabular-nums", e.remaining < 0 ? "text-destructive" : "text-success")}>{formatCurrency(e.remaining)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 const HEALTH: Record<BudgetHealth, { label: string; tone: "success" | "warning" | "danger" | "neutral"; bar: string }> = {
   ON_TRACK: { label: "Maîtrisé", tone: "success", bar: "bg-success" },
   AT_RISK: { label: "À surveiller", tone: "warning", bar: "bg-warning" },
@@ -105,7 +165,7 @@ function field(name: string, label: string, props: React.InputHTMLAttributes<HTM
   );
 }
 
-export function CreateEnvelopeButton() {
+export function CreateEnvelopeButton({ users = [] }: { users?: UserOpt[] }) {
   const [open, setOpen] = React.useState(false);
   const { busy, err, run } = useRun();
   const year = new Date().getFullYear();
@@ -120,6 +180,7 @@ export function CreateEnvelopeButton() {
           {field("periodStart", "Début de période", { type: "date", defaultValue: `${year}-01-01` })}
           {field("periodEnd", "Fin de période", { type: "date", defaultValue: `${year}-12-31` })}
           {accessRolesField()}
+          {accessUsersField(users)}
           <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" rows={2} /></div>
           {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
           <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Créer</Button></div>
@@ -129,15 +190,29 @@ export function CreateEnvelopeButton() {
   );
 }
 
-export function BudgetBoard({ overview, envelopes, canManage, budgetTotal }: { overview: BudgetOverview; envelopes: BudgetEnvelopeOption[]; canManage: boolean; budgetTotal: BudgetTotalInfo }) {
+export function BudgetBoard({ overview, envelopes, canManage, budgetTotal, users = [] }: { overview: BudgetOverview; envelopes: BudgetEnvelopeOption[]; canManage: boolean; budgetTotal: BudgetTotalInfo; users?: UserOpt[] }) {
   const router = useRouter();
   const t = overview.totals;
   // Modules couverts par l'enveloppe (rétrocompat : ancien champ `module` unique).
   const envModules = overview.envelope.modules.length ? overview.envelope.modules : overview.envelope.module ? [overview.envelope.module] : [];
   const [editEnv, setEditEnv] = React.useState(false);
   const [totalSheet, setTotalSheet] = React.useState(false);
-  const [catSheet, setCatSheet] = React.useState<{ cat?: BudgetCategoryView } | null>(null);
+  const [catSheet, setCatSheet] = React.useState<{ cat?: BudgetCategoryView; parentId?: string } | null>(null);
   const { run } = useRun();
+
+  // Catégories de 1er niveau + leurs sous-catégories (regroupées par parent).
+  const topCats = overview.categories.filter((c) => c.parentId === null);
+  const subsByParent = new Map<string, BudgetCategoryView[]>();
+  for (const c of overview.categories) {
+    if (c.parentId) subsByParent.set(c.parentId, [...(subsByParent.get(c.parentId) ?? []), c]);
+  }
+  const topCatOptions = topCats.map((c) => ({ id: c.id, name: c.name }));
+  const editCat = (cat: BudgetCategoryView) => setCatSheet({ cat });
+  const deleteCat = (cat: BudgetCategoryView) => {
+    if (window.confirm(`Supprimer « ${cat.name} » ?${cat.parentId === null ? " Ses sous-catégories seront aussi supprimées." : ""} Les dépenses repasseront en « non attribué ».`)) {
+      const fd = new FormData(); fd.set("id", cat.id); run(() => deleteBudgetCategory(fd));
+    }
+  };
 
   const navigate = (params: Record<string, string>) => {
     const sp = new URLSearchParams({ env: overview.envelope.id, ...params });
@@ -194,11 +269,21 @@ export function BudgetBoard({ overview, envelopes, canManage, budgetTotal }: { o
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Catégories ({overview.categories.length})</h2>
           {canManage && <Button size="sm" onClick={() => setCatSheet({})}><Plus className="h-4 w-4" /> Nouvelle catégorie</Button>}
         </div>
-        {overview.categories.length === 0 ? (
-          <p className="surface p-4 text-sm text-muted-foreground">Aucune catégorie. {canManage && "Répartissez le budget total en créant des catégories (ex. Promotion, Congrès, Logistique…)."}</p>
+        {topCats.length === 0 ? (
+          <p className="surface p-4 text-sm text-muted-foreground">Aucune catégorie. {canManage && "Répartissez le budget total en créant des catégories (ex. Promotion, Congrès, Logistique…), avec si besoin des sous-catégories (ex. Table ronde)."}</p>
         ) : (
           <div className="space-y-2">
-            {overview.categories.map((c) => <CategoryCard key={c.id} c={c} canManage={canManage} onEdit={() => setCatSheet({ cat: c })} onDelete={() => { if (window.confirm(`Supprimer « ${c.name} » ? Les dépenses repasseront en « non attribué ».`)) { const fd = new FormData(); fd.set("id", c.id); run(() => deleteBudgetCategory(fd)); } }} />)}
+            {topCats.map((c) => (
+              <CategoryCard
+                key={c.id}
+                c={c}
+                subs={subsByParent.get(c.id) ?? []}
+                canManage={canManage}
+                onEdit={editCat}
+                onDelete={deleteCat}
+                onAddSub={() => setCatSheet({ parentId: c.id })}
+              />
+            ))}
           </div>
         )}
       </section>
@@ -226,7 +311,7 @@ export function BudgetBoard({ overview, envelopes, canManage, budgetTotal }: { o
                     className="h-8 w-44 text-xs"
                   >
                     <option value="">Attribuer à…</option>
-                    {overview.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {overview.categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
                   </Select>
                 ) : <Badge tone="neutral" dot={false}>Non attribué</Badge>}
               </div>
@@ -235,8 +320,8 @@ export function BudgetBoard({ overview, envelopes, canManage, budgetTotal }: { o
         )}
       </section>
 
-      {editEnv && <EnvelopeSheet envelope={overview.envelope} onClose={() => setEditEnv(false)} onDeleted={() => router.push("/budgets")} canDelete={canManage} />}
-      {catSheet && <CategorySheet envelopeId={overview.envelope.id} cat={catSheet.cat} onClose={() => setCatSheet(null)} />}
+      {editEnv && <EnvelopeSheet envelope={overview.envelope} users={users} onClose={() => setEditEnv(false)} onDeleted={() => router.push("/budgets")} canDelete={canManage} />}
+      {catSheet && <CategorySheet envelopeId={overview.envelope.id} cat={catSheet.cat} defaultParentId={catSheet.parentId} parentOptions={topCatOptions} onClose={() => setCatSheet(null)} />}
       {totalSheet && <BudgetTotalSheet info={budgetTotal} onClose={() => setTotalSheet(false)} />}
     </div>
   );
@@ -281,9 +366,10 @@ function PeriodPicker({ from, to, onApply }: { from: string; to: string; onApply
   );
 }
 
-function CategoryCard({ c, canManage, onEdit, onDelete }: { c: BudgetCategoryView; canManage: boolean; onEdit: () => void; onDelete: () => void }) {
+function CategoryCard({ c, subs, canManage, onEdit, onDelete, onAddSub }: { c: BudgetCategoryView; subs: BudgetCategoryView[]; canManage: boolean; onEdit: (cat: BudgetCategoryView) => void; onDelete: (cat: BudgetCategoryView) => void; onAddSub: () => void }) {
   const h = HEALTH[c.health];
   const pct = Math.min(c.pct, 100);
+  const subAllocated = subs.reduce((a, s) => a + s.allocated, 0);
   return (
     <div className="surface p-3">
       <div className="flex items-center gap-2">
@@ -294,8 +380,9 @@ function CategoryCard({ c, canManage, onEdit, onDelete }: { c: BudgetCategoryVie
         <span className="ml-auto text-sm text-muted-foreground">{formatCurrency(c.consumed)} / {formatCurrency(c.allocated)}</span>
         {canManage && (
           <div className="flex items-center gap-0.5">
-            <button onClick={onEdit} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-4 w-4" /></button>
-            <button onClick={onDelete} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
+            <button title="Ajouter une sous-catégorie" onClick={onAddSub} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"><Plus className="h-4 w-4" /></button>
+            <button title="Modifier" onClick={() => onEdit(c)} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-4 w-4" /></button>
+            <button title="Supprimer" onClick={() => onDelete(c)} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
           </div>
         )}
       </div>
@@ -306,12 +393,33 @@ function CategoryCard({ c, canManage, onEdit, onDelete }: { c: BudgetCategoryVie
         <span>Reste : <span className={cn("font-medium", c.remaining < 0 ? "text-destructive" : "text-foreground")}>{formatCurrency(c.remaining)}</span></span>
         <span>{c.pct}% consommé</span>
         {c.committed > 0 && <span>{formatCurrency(c.committed)} engagé (prévu)</span>}
+        {subs.length > 0 && <span>{subs.length} sous-catégorie{subs.length > 1 ? "s" : ""} · {formatCurrency(subAllocated)} réparti</span>}
       </div>
+
+      {/* Sous-catégories (ex. Table ronde sous Événement) */}
+      {subs.length > 0 && (
+        <div className="mt-2 space-y-1 border-l-2 border-border pl-3">
+          {subs.map((s) => (
+            <div key={s.id} className="flex items-center gap-2 text-sm">
+              <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: s.color ?? "#94a3b8" }} />
+              <span className="truncate">{s.name}</span>
+              <span className="ml-auto text-xs text-muted-foreground">{formatCurrency(s.consumed)} / {formatCurrency(s.allocated)}</span>
+              {canManage && (
+                <div className="flex items-center gap-0.5">
+                  <button title="Modifier" onClick={() => onEdit(s)} className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>
+                  <button title="Supprimer" onClick={() => onDelete(s)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function EnvelopeSheet({ envelope, onClose, onDeleted, canDelete }: { envelope: BudgetOverview["envelope"]; onClose: () => void; onDeleted: () => void; canDelete: boolean }) {
+function EnvelopeSheet({ envelope, users, onClose, onDeleted, canDelete }: { envelope: BudgetOverview["envelope"]; users: UserOpt[]; onClose: () => void; onDeleted: () => void; canDelete: boolean }) {
   const { busy, err, run } = useRun();
   return (
     <Sheet open onClose={onClose} title="Modifier l'enveloppe" width="md">
@@ -322,6 +430,7 @@ function EnvelopeSheet({ envelope, onClose, onDeleted, canDelete }: { envelope: 
         {field("periodStart", "Début", { type: "date", defaultValue: d10(envelope.periodStart) })}
         {field("periodEnd", "Fin", { type: "date", defaultValue: d10(envelope.periodEnd) })}
         {accessRolesField(envelope.accessRoles)}
+        {accessUsersField(users, envelope.accessUserIds)}
         <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" defaultValue={envelope.notes ?? ""} rows={2} /></div>
         <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="isActive" defaultChecked={envelope.isActive} className="h-4 w-4 rounded border-input" /> Enveloppe active</label>
         {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
@@ -334,10 +443,13 @@ function EnvelopeSheet({ envelope, onClose, onDeleted, canDelete }: { envelope: 
   );
 }
 
-function CategorySheet({ envelopeId, cat, onClose }: { envelopeId: string; cat?: BudgetCategoryView; onClose: () => void }) {
+function CategorySheet({ envelopeId, cat, defaultParentId, parentOptions, onClose }: { envelopeId: string; cat?: BudgetCategoryView; defaultParentId?: string; parentOptions: { id: string; name: string }[]; onClose: () => void }) {
   const { busy, err, run } = useRun();
+  const [parent, setParent] = React.useState(cat?.parentId ?? defaultParentId ?? "");
+  // On ne propose pas la catégorie elle-même comme parente (édition) → pas de cycle.
+  const opts = parentOptions.filter((o) => o.id !== cat?.id);
   return (
-    <Sheet open onClose={onClose} title={cat ? "Modifier la catégorie" : "Nouvelle catégorie"} width="md">
+    <Sheet open onClose={onClose} title={cat ? "Modifier la catégorie" : parent ? "Nouvelle sous-catégorie" : "Nouvelle catégorie"} width="md">
       <form
         action={(fd) => {
           if (cat) { fd.set("id", cat.id); run(() => updateBudgetCategory(fd), onClose); }
@@ -345,15 +457,28 @@ function CategorySheet({ envelopeId, cat, onClose }: { envelopeId: string; cat?:
         }}
         className="grid grid-cols-2 gap-3"
       >
-        {field("name", "Nom de la catégorie", { defaultValue: cat?.name, placeholder: "Ex. Sponsoring", required: true }, true)}
-        <div className="col-span-2 space-y-1.5">
-          <Label>Module associé</Label>
-          <Select name="module" defaultValue={cat?.module ?? ""}>
-            <option value="">— Aucun —</option>
-            {MODULE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </Select>
-          <p className="text-xs text-muted-foreground">Les dépenses d'une demande de ce module, une fois validées et réglées par les Finances, sont attribuées automatiquement à cette catégorie.</p>
-        </div>
+        {field("name", "Nom de la catégorie", { defaultValue: cat?.name, placeholder: parent ? "Ex. Table ronde" : "Ex. Sponsoring", required: true }, true)}
+        {opts.length > 0 && (
+          <div className="col-span-2 space-y-1.5">
+            <Label>Catégorie parente</Label>
+            <Select name="parentId" value={parent} onChange={(e) => setParent(e.target.value)}>
+              <option value="">— Catégorie de tête —</option>
+              {opts.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </Select>
+            <p className="text-xs text-muted-foreground">Rattachez-la à une catégorie pour en faire une sous-catégorie (ex. « Table ronde » sous « Événement »).</p>
+          </div>
+        )}
+        {/* Le module ne s'applique qu'aux catégories de tête (attribution automatique). */}
+        {!parent && (
+          <div className="col-span-2 space-y-1.5">
+            <Label>Module associé</Label>
+            <Select name="module" defaultValue={cat?.module ?? ""}>
+              <option value="">— Aucun —</option>
+              {MODULE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </Select>
+            <p className="text-xs text-muted-foreground">Les dépenses d'une demande de ce module, une fois validées et réglées par les Finances, sont attribuées automatiquement à cette catégorie.</p>
+          </div>
+        )}
         {field("allocated", "Allocation (DZD)", { type: "number", step: "any", defaultValue: cat?.allocated ?? "" })}
         <div className="space-y-1.5"><Label>Couleur</Label><input type="color" name="color" defaultValue={cat?.color ?? "#0ea5e9"} className="h-9 w-full cursor-pointer rounded-lg border border-input" /></div>
         <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" defaultValue={cat?.notes ?? ""} rows={2} /></div>

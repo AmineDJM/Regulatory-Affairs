@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, scopeAdminRequests } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { fieldLabels } from "@/lib/admin-requests";
+import { fieldLabels, REQUEST_TYPE_FIELDS } from "@/lib/admin-requests";
 import { addRequestComment } from "@/lib/actions/admin-request-actions";
 import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -116,7 +116,14 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             <RequesterWindow
               requestId={req.id}
               createdAt={req.createdAt.toISOString()}
-              values={{ title: req.title, description: req.description, priority: req.priority, deadline: req.deadline ? req.deadline.toISOString().slice(0, 10) : null }}
+              values={{
+                title: req.title,
+                description: req.description,
+                priority: req.priority,
+                deadline: req.deadline ? req.deadline.toISOString().slice(0, 10) : null,
+                fields: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v == null ? "" : String(v)])),
+              }}
+              typeFields={(REQUEST_TYPE_FIELDS[req.type] ?? []).map((f) => ({ type: f.type, name: f.name, label: f.label, full: f.full, options: "options" in f ? f.options : undefined }))}
             />
           )}
 

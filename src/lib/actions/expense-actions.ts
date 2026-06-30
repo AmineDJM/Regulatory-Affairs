@@ -49,7 +49,7 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
     const sourceModule = ENTITY_MODULE[order.sourceType];
     if (sourceModule) {
       const cat = await prisma.budgetCategoryLine.findFirst({
-        where: { module: sourceModule, envelope: { isActive: true } },
+        where: { module: sourceModule, parentId: null, envelope: { isActive: true } },
         orderBy: { createdAt: "asc" },
         select: { id: true },
       });

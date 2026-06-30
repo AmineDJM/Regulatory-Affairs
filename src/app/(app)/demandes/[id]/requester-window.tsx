@@ -12,12 +12,22 @@ import { PRIORITY } from "@/lib/labels";
 
 const WINDOW_MS = 15 * 60 * 1000;
 
+/** Champ spécifique au type de demande (sérialisable depuis le serveur). */
+export interface EditField {
+  type: string; // text | textarea | select | number | date
+  name: string;
+  label: string;
+  full?: boolean;
+  options?: { value: string; label: string }[];
+}
+
 export function RequesterWindow({
-  requestId, createdAt, values,
+  requestId, createdAt, values, typeFields = [],
 }: {
   requestId: string;
   createdAt: string;
-  values: { title: string; description: string | null; priority: string; deadline: string | null };
+  values: { title: string; description: string | null; priority: string; deadline: string | null; fields: Record<string, string> };
+  typeFields?: EditField[];
 }) {
   const router = useRouter();
   const deadline = new Date(createdAt).getTime() + WINDOW_MS;
@@ -86,6 +96,30 @@ export function RequesterWindow({
             <Label>Description</Label>
             <Textarea name="description" defaultValue={values.description ?? undefined} />
           </div>
+
+          {/* Tous les champs saisis à la création sont modifiables (édition complète). */}
+          {typeFields.length > 0 && (
+            <div className="grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2">
+              {typeFields.map((f) => {
+                const cur = values.fields[f.name] ?? "";
+                return (
+                  <div key={f.name} className={f.full ? "space-y-1 sm:col-span-2" : "space-y-1"}>
+                    <Label>{f.label}</Label>
+                    {f.type === "textarea" ? (
+                      <Textarea name={`f_${f.name}`} defaultValue={cur} />
+                    ) : f.type === "select" ? (
+                      <Select name={`f_${f.name}`} defaultValue={cur}>
+                        <option value="">—</option>
+                        {(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </Select>
+                    ) : (
+                      <Input name={`f_${f.name}`} type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"} step={f.type === "number" ? "any" : undefined} defaultValue={cur} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setEdit(false)}>Annuler</Button>

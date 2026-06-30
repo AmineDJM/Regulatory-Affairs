@@ -45,6 +45,22 @@ function collectFields(formData: FormData): Record<string, string> {
   return out;
 }
 
+/**
+ * Comme `collectFields`, mais conserve les champs **vidés** (valeur ""). Utilisé à
+ * l'édition par le demandeur : il doit pouvoir modifier OU effacer n'importe quel
+ * champ qu'il a saisi (remplacement intégral, pas seulement un ajout).
+ */
+function collectAllFields(formData: FormData): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of formData.entries()) {
+    if (k.startsWith("f_") && typeof v === "string") {
+      const val = v.trim();
+      if (val) out[k.slice(2)] = val;
+    }
+  }
+  return out;
+}
+
 function isManager(user: SessionUser, assignedToId: string | null): boolean {
   return hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE") || assignedToId === user.id;
 }
@@ -376,8 +392,11 @@ export async function editOwnRequest(formData: FormData): Promise<ActionResult> 
   const title = fdStr(formData, "title");
   if (!title) return { ok: false, error: "Le titre est obligatoire." };
   const existingFields = (req.fields as Record<string, string> | null) ?? {};
-  const collected = collectFields(formData);
-  const fields = Object.keys(collected).length > 0 ? { ...existingFields, ...collected } : existingFields;
+  // Édition complète : si le formulaire renvoie des champs `f_*`, on remplace
+  // intégralement les champs saisis (y compris ceux que le demandeur a vidés) ;
+  // sinon on conserve l'existant.
+  const hasFieldInputs = [...formData.keys()].some((k) => k.startsWith("f_"));
+  const fields = hasFieldInputs ? collectAllFields(formData) : existingFields;
 
   await prisma.administrativeRequest.update({
     where: { id },
