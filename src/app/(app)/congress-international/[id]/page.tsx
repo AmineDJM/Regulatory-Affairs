@@ -20,6 +20,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
   const form = await getCongressFormData();
 
   const canValidate = userCan(user, "CONGRESS_INTERNATIONAL", "VALIDATE") || hasGlobalView(user.role);
+  const canMarketing = user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
   const canAnalyze = detail.productManagerId === user.id || hasGlobalView(user.role);
   // Le demandeur peut joindre des pièces à sa demande, même si son rôle n'a pas UPLOAD.
   const canUpload = userCan(user, "CONGRESS_INTERNATIONAL", "UPLOAD") || detail.requesterId === user.id;
@@ -48,7 +49,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
       <PageHeader title={detail.name} description="Demande de prise en charge — congrès international.">
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />
       </PageHeader>
-      <CongressDetailView detail={detail} canValidate={canValidate} canAnalyze={canAnalyze} productManagers={form.productManagers} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-international/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} />
+      <CongressDetailView detail={detail} canValidate={canValidate} canMarketing={canMarketing} canAnalyze={canAnalyze} productManagers={form.productManagers} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-international/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} />
     </div>
   );
 }

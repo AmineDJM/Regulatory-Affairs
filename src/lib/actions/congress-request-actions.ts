@@ -78,9 +78,9 @@ export async function createCongressRequest(
         });
 
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Congrès", entityType: entityFor(t), entityId: created.id, summary: `Demande de congrès « ${name} »` });
-  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+  await notifyRoles(["MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
-    title: "Demande de congrès à valider (préliminaire)",
+    title: "Demande de congrès — à attribuer (Direction Marketing)",
     body: name,
     link: `${pathFor(t)}/${created.id}`,
   });
@@ -88,7 +88,7 @@ export async function createCongressRequest(
   return { ok: true, id: created.id };
 }
 
-// ───────────────────────────── Validation préliminaire (Direction) ─────────────────────────────
+// ─────────────────── Attribution d'un chef de produit (Direction Marketing) ───────────────────
 
 export async function preliminaryDecision(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -96,7 +96,9 @@ export async function preliminaryDecision(formData: FormData): Promise<ActionRes
   const id = fdStr(formData, "id");
   const decision = fdStr(formData, "decision"); // APPROVE | REJECT
   if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
-  if (!userCan(user, moduleFor(t), "VALIDATE") && !hasGlobalView(user.role)) return { ok: false, error: "Non autorisé." };
+  // « Direction Marketing » (Manager Promotion Médicale) attribue le chef de
+  // produit — la Direction n'intervient plus à cette étape.
+  if (!(user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN")) return { ok: false, error: "Attribution réservée à la Direction Marketing." };
 
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };

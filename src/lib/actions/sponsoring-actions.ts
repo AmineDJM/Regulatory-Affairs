@@ -15,6 +15,12 @@ const PATH = "/sponsoring";
 function isDirection(user: SessionUser): boolean {
   return hasGlobalView(user.role) || userCan(user, "SPONSORING", "VALIDATE");
 }
+/** « Direction Marketing » : le Manager Promotion Médicale (et le Super Admin).
+ *  Reçoit les demandes Ad & Pro et attribue un chef de produit — il n'y a plus
+ *  de pré-validation par la Direction (la décision définitive reste à la Direction). */
+function isDirectionMarketing(user: SessionUser): boolean {
+  return user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
+}
 
 function revalidate(id: string) {
   revalidatePath(PATH);
@@ -58,9 +64,9 @@ export async function createSponsoring(
   });
 
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${reference} — ${institution}` });
-  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+  await notifyRoles(["MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], {
     type: "SPONSORING_VALIDATION",
-    title: "Sponsoring — validation préliminaire",
+    title: "Sponsoring — à attribuer (Direction Marketing)",
     body: `${reference} — ${institution}`,
     link: `${PATH}/${created.id}`,
   });
@@ -69,11 +75,11 @@ export async function createSponsoring(
   return { ok: true, id: created.id };
 }
 
-// ───────────────────────────── Validation préliminaire (Direction) ─────────────────────────────
+// ─────────────────── Attribution d'un chef de produit (Direction Marketing) ───────────────────
 
 export async function sponsoringPreliminary(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!isDirection(user)) return { ok: false, error: "Validation réservée à la Direction." };
+  if (!isDirectionMarketing(user)) return { ok: false, error: "Attribution réservée à la Direction Marketing." };
   const id = fdStr(formData, "id");
   const decision = fdStr(formData, "decision"); // APPROVE | REJECT
   if (!id || !decision) return { ok: false, error: "Paramètres manquants." };

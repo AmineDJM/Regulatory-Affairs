@@ -115,7 +115,7 @@ export async function getCongressFormData() {
   const [doctors, users, productManagers] = await Promise.all([
     prisma.medicalDoctor.findMany({ select: { id: true, name: true, specialty: true, city: true }, orderBy: [{ specialty: "asc" }, { name: "asc" }] }),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
-    prisma.user.findMany({ where: { isActive: true, role: "PRODUCT_MANAGER" }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.user.findMany({ where: { isActive: true, role: { in: ["PRODUCT_MANAGER", "MEDICAL_PROMOTION_MANAGER"] } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   return {
     doctors: doctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty ?? "Sans spécialité", city: d.city ?? "" })),

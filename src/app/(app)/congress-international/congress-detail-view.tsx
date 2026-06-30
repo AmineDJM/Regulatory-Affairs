@@ -19,11 +19,12 @@ type PM = { id: string; name: string };
 const CONGRESS_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
 export function CongressDetailView({
-  detail, canValidate, canAnalyze, productManagers, entityType, entityId, documents, canUpload, canDelete, path,
+  detail, canValidate, canMarketing, canAnalyze, productManagers, entityType, entityId, documents, canUpload, canDelete, path,
   missions, missionUsers, canManageMissions, currentUserId,
 }: {
   detail: CongressDetail;
   canValidate: boolean;
+  canMarketing: boolean;
   canAnalyze: boolean;
   productManagers: PM[];
   entityType: EntityType;
@@ -73,11 +74,11 @@ export function CongressDetailView({
               <p className="text-sm text-muted-foreground">Par {d.requester || "—"} · {formatDateTime(d.createdAt)} · estimation {d.estimatedBudget !== null ? formatCurrency(d.estimatedBudget) : "—"}</p>
             </Step>
 
-            <Step n={2} title="Validation préliminaire (Direction)"
+            <Step n={2} title="Attribution chef de produit (Direction Marketing)"
               state={st === "REJECTED" && !d.finalAt ? "rejected" : done(["PRELIMINARY_APPROVED", "AWAITING_FINAL", "APPROVED", "COMPLETED"]) ? "done" : st === "AWAITING_PRELIMINARY" ? "current" : "pending"}>
               {st === "AWAITING_PRELIMINARY" ? (
-                canValidate ? <PreliminaryDecision type={d.type} id={d.id} productManagers={productManagers} />
-                  : <p className="text-sm text-muted-foreground">En attente de la Direction.</p>
+                canMarketing ? <PreliminaryDecision type={d.type} id={d.id} productManagers={productManagers} />
+                  : <p className="text-sm text-muted-foreground">En attente de la Direction Marketing.</p>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   {d.preliminaryBy ? `${d.preliminaryBy} · ${d.preliminaryAt ? formatDate(d.preliminaryAt) : ""}` : ""}

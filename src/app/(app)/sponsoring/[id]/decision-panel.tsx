@@ -14,12 +14,13 @@ interface Props {
   id: string;
   status: string;
   canDirection: boolean;
+  canMarketing: boolean;
   isProductManager: boolean;
   isRequester: boolean;
   productManagers: { id: string; name: string }[];
 }
 
-export function DecisionPanel({ id, status, canDirection, isProductManager, isRequester, productManagers }: Props) {
+export function DecisionPanel({ id, status, canDirection, canMarketing, isProductManager, isRequester, productManagers }: Props) {
   const router = useRouter();
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -37,8 +38,8 @@ export function DecisionPanel({ id, status, canDirection, isProductManager, isRe
     <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>
   );
 
-  // 1) Validation préliminaire (Direction)
-  if (status === "AWAITING_PRELIMINARY" && canDirection) {
+  // 1) Attribution d'un chef de produit (Direction Marketing)
+  if (status === "AWAITING_PRELIMINARY" && canMarketing) {
     return <PreliminaryForm productManagers={productManagers} saving={saving} error={error} run={(fd) => run(sponsoringPreliminary, fd)} />;
   }
   // 2) Analyse chef de produit (avis + budget proposé)

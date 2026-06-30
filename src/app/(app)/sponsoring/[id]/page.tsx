@@ -31,16 +31,19 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
 
   // Rôles dans le circuit
   const canDirection = hasGlobalView(user.role) || userCan(user, "SPONSORING", "VALIDATE");
+  // « Direction Marketing » (Manager Promotion Médicale) : attribue le chef de
+  // produit à l'étape préliminaire (la Direction n'y intervient plus).
+  const canMarketing = user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
   const isProductManager = req.productManagerId === user.id;
   const isRequester = req.requesterId === user.id;
   // Confidentialité : l'analyse et le budget du chef de produit ne sont JAMAIS
-  // visibles par le délégué (demandeur). Seuls la Direction et le chef de produit
-  // assigné les voient. Le délégué ne voit que le budget final + le commentaire.
-  const canSeeInternal = canDirection || isProductManager;
+  // visibles par le délégué (demandeur). Seuls la Direction, la Direction Marketing
+  // et le chef de produit assigné les voient. Le délégué ne voit que le budget final.
+  const canSeeInternal = canDirection || canMarketing || isProductManager;
 
   const [pmUser, productManagers, documents] = await Promise.all([
     req.productManagerId ? prisma.user.findUnique({ where: { id: req.productManagerId }, select: { name: true } }) : Promise.resolve(null),
-    canDirection ? prisma.user.findMany({ where: { role: "PRODUCT_MANAGER", isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([]),
+    canMarketing ? prisma.user.findMany({ where: { role: { in: ["PRODUCT_MANAGER", "MEDICAL_PROMOTION_MANAGER"] }, isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([]),
     prisma.document.findMany({ where: { entityType: "SPONSORING", entityId: req.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
   ]);
 
@@ -61,7 +64,8 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   ]);
 
   const showPanel =
-    (canDirection && ["AWAITING_PRELIMINARY", "AWAITING_FINAL", "AWAITING_FINAL_APPEAL"].includes(req.status)) ||
+    (canMarketing && req.status === "AWAITING_PRELIMINARY") ||
+    (canDirection && ["AWAITING_FINAL", "AWAITING_FINAL_APPEAL"].includes(req.status)) ||
     (isProductManager && ["PRELIMINARY_APPROVED", "APPEAL_PENDING"].includes(req.status)) ||
     (isRequester && ["APPROVED", "REFUSED"].includes(req.status));
 
@@ -166,6 +170,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                   id={req.id}
                   status={req.status}
                   canDirection={canDirection}
+                  canMarketing={canMarketing}
                   isProductManager={isProductManager}
                   isRequester={isRequester}
                   productManagers={productManagers}
