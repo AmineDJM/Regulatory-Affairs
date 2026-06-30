@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { accessibleModules } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
 import { getMyValidations } from "@/lib/queries/validations";
 import { createValidationRequest } from "@/lib/actions/validation-actions";
 import { PageHeader } from "@/components/shared/page-header";
@@ -26,17 +27,24 @@ export default async function ValidationsPage() {
     .filter((n) => mods.includes(n.module) && !seen.has(n.module) && seen.add(n.module))
     .map((n) => ({ value: n.label, label: n.label }));
 
+  // Validateurs possibles : tous les collaborateurs actifs (le demandeur s'exclut
+  // de fait, l'action ignore une étape qui le viserait lui-même).
+  const people = await prisma.user.findMany({
+    where: { isActive: true, id: { not: user.id } },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  const peopleOptions = people.map((p) => ({ value: p.id, label: p.name }));
+
   const requestFields: FieldDef[] = [
-    { type: "text", name: "title", label: "Objet à valider", required: true, full: true, placeholder: "Ex. Paiement prestataire impression" },
-    { type: "select", name: "module", label: "Module concerné", options: moduleOptions, required: true },
-    { type: "text", name: "objectType", label: "Type d'objet", placeholder: "PURCHASE, PAYMENT, SPONSORING…" },
-    { type: "number", name: "amount", label: "Montant (DZD)" },
+    { type: "text", name: "title", label: "Objet à valider", required: true, full: true, placeholder: "Ex. Courrier à signer, paiement prestataire…" },
+    { type: "select", name: "validator1Id", label: "Validateur", options: peopleOptions, placeholder: "— Choisir un validateur —" },
+    { type: "select", name: "validator2Id", label: "2ᵉ validateur (optionnel)", options: peopleOptions, placeholder: "— Aucun —" },
     { type: "select", name: "priority", label: "Priorité", options: optionsFromMap(PRIORITY), defaultValue: "MEDIUM" },
-    { type: "text", name: "department", label: "Département" },
-    { type: "text", name: "category", label: "Catégorie" },
-    { type: "text", name: "link", label: "Lien vers l'objet (URL interne)", placeholder: "/demandes/…" },
     { type: "date", name: "deadline", label: "Échéance" },
-    { type: "textarea", name: "description", label: "Détails / contexte" },
+    { type: "text", name: "link", label: "Lien vers l'objet (optionnel)", placeholder: "/courrier/… ou /demandes/…" },
+    { type: "textarea", name: "description", label: "Détails / contexte", full: true },
+    { type: "select", name: "module", label: "Module concerné (routage auto si aucun validateur)", options: moduleOptions, placeholder: "— Routage automatique par règles —" },
   ];
 
   const pendingMine = myRequests.filter((r) => r.status === "PENDING").length;
@@ -44,13 +52,13 @@ export default async function ValidationsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Validations"
-        description="Ce que vous devez valider, et le suivi de vos demandes de validation. Les circuits sont définis par le Super Admin."
+        title="Demandes de validations"
+        description="Le bureau de validation : demandez une validation professionnelle à la personne de votre choix, et traitez ce qui requiert la vôtre. Le demandeur ne voit que ses propres demandes ; les validateurs voient ce qu'ils ont à valider."
       >
         <CreateRecordButton
           label="Demander une validation"
           title="Demander une validation"
-          description="La demande sera routée automatiquement vers le bon validateur selon les règles configurées."
+          description="Choisissez le(s) validateur(s). À défaut, la demande est routée automatiquement selon les règles définies par le Super Admin."
           action={createValidationRequest}
           fields={requestFields}
         />

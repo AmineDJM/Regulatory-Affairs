@@ -7,7 +7,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
-import { createValidationFromRules, notifyValidator } from "@/lib/validation";
+import { createValidationFromRules, createDirectValidation, notifyValidator } from "@/lib/validation";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
 const ROLES: UserRole[] = [
@@ -106,23 +106,43 @@ export async function createValidationRequest(
   const user = await requireUser();
   if (!userCan(user, "VALIDATIONS", "CREATE")) return { ok: false, error: "Non autorisé." };
   const title = fdStr(formData, "title");
-  const module = fdStr(formData, "module");
-  if (!title || !module) return { ok: false, error: "Titre et module concernés requis." };
+  if (!title) return { ok: false, error: "Indiquez l'objet à valider." };
 
-  const res = await createValidationFromRules({
-    module,
-    objectType: fdStr(formData, "objectType"),
-    title,
-    description: fdStr(formData, "description"),
-    amount: fdNum(formData, "amount"),
-    department: fdStr(formData, "department"),
-    priority: priorityOrNull(fdStr(formData, "priority")) ?? "MEDIUM",
-    category: fdStr(formData, "category"),
-    link: fdStr(formData, "link"),
-    deadline: fdDate(formData, "deadline"),
-    requesterId: user.id,
-    requesterRole: user.role,
-  });
+  // Validateurs choisis directement par le demandeur (validation professionnelle
+  // libre, ex. l'assistante de direction). Prioritaire sur le routage par règles.
+  const directValidators = [fdStr(formData, "validator1Id"), fdStr(formData, "validator2Id")]
+    .filter((v): v is string => Boolean(v));
+
+  let res;
+  if (directValidators.length > 0) {
+    res = await createDirectValidation({
+      requesterId: user.id,
+      title,
+      description: fdStr(formData, "description"),
+      link: fdStr(formData, "link"),
+      module: fdStr(formData, "module"),
+      priority: priorityOrNull(fdStr(formData, "priority")) ?? "MEDIUM",
+      deadline: fdDate(formData, "deadline"),
+      validatorIds: directValidators,
+    });
+  } else {
+    const module = fdStr(formData, "module");
+    if (!module) return { ok: false, error: "Choisissez un validateur, ou renseignez le module pour un routage automatique." };
+    res = await createValidationFromRules({
+      module,
+      objectType: fdStr(formData, "objectType"),
+      title,
+      description: fdStr(formData, "description"),
+      amount: fdNum(formData, "amount"),
+      department: fdStr(formData, "department"),
+      priority: priorityOrNull(fdStr(formData, "priority")) ?? "MEDIUM",
+      category: fdStr(formData, "category"),
+      link: fdStr(formData, "link"),
+      deadline: fdDate(formData, "deadline"),
+      requesterId: user.id,
+      requesterRole: user.role,
+    });
+  }
   if (!res.ok) return { ok: false, error: res.error };
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Validations", entityType: "VALIDATION_REQUEST", entityId: res.requestId!, summary: `${res.reference} — ${title}` });
   revalidatePath("/validations");

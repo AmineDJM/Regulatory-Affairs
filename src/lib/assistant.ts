@@ -170,7 +170,7 @@ const MODULE_FR: Partial<Record<Module, string>> = {
   CONGRESS_NATIONAL: "Congrès nationaux", EVENTS: "Events (billetterie)", SALES: "Ventes",
   LOGISTICS: "Logistique PCH", PCH: "Marchés PCH", STOCKS: "Stocks PCH",
   MEDICAL: "Promotion médicale", BUSINESS_DEVELOPMENT: "Business Development",
-  VALIDATIONS: "Validations", DRIVE: "Drive", ADMIN_REQUESTS: "Bureau du secrétariat",
+  VALIDATIONS: "Demandes de validations", DRIVE: "Drive", ADMIN_REQUESTS: "Bureau du secrétariat",
   PROCESS_INTELLIGENCE: "Process Intelligence", ADMIN: "Administration",
 };
 

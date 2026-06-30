@@ -1,6 +1,7 @@
 import type { EntityType, Priority, UserRole, ValidationRule } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
+import { buildRef, createWithRetry } from "@/lib/refs";
 
 /**
  * Moteur de validation transversal. Le Super Admin définit des règles
@@ -70,8 +71,9 @@ export interface CreateValidationResult {
 
 async function nextReference(): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.validationRequest.count();
-  return `VAL-${year}-${String(count + 1).padStart(3, "0")}`;
+  // Dérivée du maximum réel (robuste aux suppressions) — voir src/lib/refs.ts.
+  const refs = await prisma.validationRequest.findMany({ where: { reference: { startsWith: `VAL-${year}-` } }, select: { reference: true } });
+  return buildRef("VAL", year, refs.map((r) => r.reference));
 }
 
 export async function notifyValidator(userId: string, req: { reference: string; title: string }) {
@@ -103,34 +105,86 @@ export async function createValidationFromRules(input: CreateValidationInput): P
   const validators = [rule.validator1Id, rule.validator2Id].filter((v): v is string => Boolean(v));
   if (validators.length === 0) return { ok: false, matched: true, error: "La règle correspondante n'a aucun validateur configuré." };
 
-  const reference = await nextReference();
-  const req = await prisma.validationRequest.create({
-    data: {
-      reference,
-      ruleId: rule.id,
-      module: input.module,
-      objectType: input.objectType ?? null,
-      title: input.title,
-      description: input.description ?? null,
-      amount: input.amount ?? null,
-      department: input.department ?? null,
-      priority: input.priority ?? "MEDIUM",
-      category: input.category ?? null,
-      link: input.link ?? null,
-      entityType: input.entityType ?? null,
-      entityId: input.entityId ?? null,
-      requesterId: input.requesterId,
-      mode: rule.mode,
-      status: "PENDING",
-      currentOrder: 1,
-      deadline: input.deadline ?? null,
-      steps: { create: validators.map((vid, i) => ({ order: i + 1, validatorId: vid, status: "PENDING" })) },
-    },
-    include: { steps: true },
+  // Référence recalculée à chaque tentative (robuste aux collisions concurrentes).
+  const req = await createWithRetry(async () => {
+    const reference = await nextReference();
+    return prisma.validationRequest.create({
+      data: {
+        reference,
+        ruleId: rule.id,
+        module: input.module,
+        objectType: input.objectType ?? null,
+        title: input.title,
+        description: input.description ?? null,
+        amount: input.amount ?? null,
+        department: input.department ?? null,
+        priority: input.priority ?? "MEDIUM",
+        category: input.category ?? null,
+        link: input.link ?? null,
+        entityType: input.entityType ?? null,
+        entityId: input.entityId ?? null,
+        requesterId: input.requesterId,
+        mode: rule.mode,
+        status: "PENDING",
+        currentOrder: 1,
+        deadline: input.deadline ?? null,
+        steps: { create: validators.map((vid, i) => ({ order: i + 1, validatorId: vid, status: "PENDING" })) },
+      },
+      include: { steps: true },
+    });
   });
 
   const toNotify = rule.mode === "PARALLEL" ? req.steps : req.steps.filter((s) => s.order === 1);
   for (const s of toNotify) await notifyValidator(s.validatorId, req);
 
-  return { ok: true, matched: true, requestId: req.id, reference };
+  return { ok: true, matched: true, requestId: req.id, reference: req.reference };
+}
+
+/**
+ * Demande de validation **directe** : le demandeur choisit lui-même un ou deux
+ * validateurs (sans règle préconfigurée). Permet à n'importe quel collaborateur
+ * autorisé de demander une validation professionnelle (ex. l'assistante de
+ * direction avant l'envoi d'un courrier). Circuit séquentiel par défaut.
+ */
+export async function createDirectValidation(input: {
+  requesterId: string;
+  title: string;
+  description?: string | null;
+  link?: string | null;
+  module?: string | null;
+  priority?: Priority;
+  deadline?: Date | null;
+  validatorIds: string[];
+  entityType?: EntityType | null;
+  entityId?: string | null;
+}): Promise<CreateValidationResult> {
+  const validators = [...new Set(input.validatorIds.filter(Boolean))].filter((v) => v !== input.requesterId);
+  if (validators.length === 0) return { ok: false, matched: false, error: "Indiquez au moins un validateur." };
+
+  const req = await createWithRetry(async () => {
+    const reference = await nextReference();
+    return prisma.validationRequest.create({
+      data: {
+        reference,
+        module: input.module || "Demandes de validations",
+        title: input.title,
+        description: input.description ?? null,
+        link: input.link ?? null,
+        priority: input.priority ?? "MEDIUM",
+        entityType: input.entityType ?? null,
+        entityId: input.entityId ?? null,
+        requesterId: input.requesterId,
+        mode: "SEQUENTIAL",
+        status: "PENDING",
+        currentOrder: 1,
+        deadline: input.deadline ?? null,
+        steps: { create: validators.map((vid, i) => ({ order: i + 1, validatorId: vid, status: "PENDING" })) },
+      },
+      include: { steps: true },
+    });
+  });
+
+  const first = req.steps.find((s) => s.order === 1);
+  if (first) await notifyValidator(first.validatorId, req);
+  return { ok: true, matched: true, requestId: req.id, reference: req.reference };
 }

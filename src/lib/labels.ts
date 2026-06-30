@@ -933,7 +933,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   STOCKS: "Stocks PCH",
   MEDICAL_INFO: "Information médicale",
   PROMO_MATERIAL: "Matériel promotionnel",
-  VALIDATIONS: "Validations",
+  VALIDATIONS: "Demandes de validations",
   DIRECTIVES: "Directives",
   SUPPORT: "Demandes de support",
   DOSSIERS: "Dossiers",
@@ -970,9 +970,11 @@ export const NAVIGATION: NavItem[] = [
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", tabs: MEDICAL_TABS },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
-  // Transverse — « Validations » n'a plus d'entrée de menu : les validations en
-  // attente remontent dans « Mon espace » (Mon travail / Action Center). La route
-  // /validations et son module restent actifs.
+  // Transverse — « Demandes de validations » est le bureau de validation : chacun
+  // y demande une validation professionnelle (selon l'accès accordé par le Super
+  // Admin), et les validateurs y traitent ce qui leur revient. Les validations en
+  // attente restent aussi visibles dans « Mon espace » (Action Center).
+  { module: "VALIDATIONS", label: "Demandes de validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
   { module: "MESSAGING", label: "Réunions & appels", href: "/meetings", icon: "Video", group: "Transverse" },
   { module: "DRIVE", label: "Documents", href: "/drive", icon: "FolderOpen", group: "Transverse", tabs: DOCS_TABS },
   { module: "ADMIN_REQUESTS", label: "Bureau du secrétariat", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
