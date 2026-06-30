@@ -345,6 +345,8 @@ enum EntityType {
   DOSSIER
   PROMO_MATERIAL
   HR_REQUEST
+  EVENT
+  MISSION_ASSIGNMENT
 }
 
 enum DocumentCategory {
@@ -386,6 +388,7 @@ enum DocumentCategory {
   PROMO_MATERIAL_FILE // matériel promotionnel (maquette / final)
   AD_VISA // visa publicitaire / référence de dépôt
   ID_DOCUMENT // pièce d'identité (personne prise en charge)
+  MISSION_ORDER // ordre de mission (accompagnant / délégué de référence)
   OTHER
 }
 
@@ -606,6 +609,7 @@ model User {
   sessions     UserSession[]
   activityLogs ActivityLog[]
   adoptionSnapshots AdoptionSnapshot[]
+  missionAssignments MissionAssignment[] @relation("MissionAssignee")
 
   // RH & espace de travail
   employee         Employee?       @relation("UserEmployee")
@@ -2925,6 +2929,42 @@ model EventRegistration {
 
   @@index([eventId])
   @@index([status])
+}
+
+/// Accompagnant ou délégué de référence assigné à un congrès (national/international),
+/// un événement ou un sponsoring. La personne assignée peut **demander** un ordre de
+/// mission, et le responsable peut lui en **émettre** un. Pièces (ordre de mission) et
+/// discussions vivent sur l'entité polymorphe MISSION_ASSIGNMENT (Document/Comment).
+enum MissionRole {
+  ACCOMPAGNANT // accompagnant
+  DELEGATE_REFERENCE // délégué de référence
+}
+
+enum MissionOrderStatus {
+  NONE // assigné, pas d'ordre de mission
+  REQUESTED // l'assigné a demandé un ordre de mission
+  ISSUED // le responsable a émis l'ordre de mission
+}
+
+model MissionAssignment {
+  id          String             @id @default(cuid())
+  entityType  EntityType // CONGRESS_NATIONAL | CONGRESS_INTERNATIONAL | EVENT | SPONSORING
+  entityId    String
+  userId      String
+  user        User               @relation("MissionAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  role        MissionRole        @default(ACCOMPAGNANT)
+  orderStatus MissionOrderStatus @default(NONE)
+  requestedAt DateTime?
+  issuedAt    DateTime?
+  issuedById  String?
+  note        String? // précision (mission, ville, dates…)
+  createdById String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([entityType, entityId, userId])
+  @@index([userId])
+  @@index([entityType, entityId])
 }
 
 /// Anti-bruteforce / anti-credential-stuffing : suivi des tentatives de connexion

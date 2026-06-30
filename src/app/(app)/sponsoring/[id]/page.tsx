@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Lock, Gavel } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
+import { canAccessEntity } from "@/lib/entity-access";
+import { getEntityMissions } from "@/lib/queries/missions";
+import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +53,12 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   // Le demandeur (délégué) peut toujours joindre des pièces à SA demande.
   const canUpload = userCan(user, "SPONSORING", "UPLOAD") || isRequester;
   const canDelete = userCan(user, "SPONSORING", "DELETE");
+
+  const [missions, canManageMissions, missionUsers] = await Promise.all([
+    getEntityMissions("SPONSORING", req.id),
+    canAccessEntity(user, "SPONSORING", req.id, "UPDATE"),
+    prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  ]);
 
   const showPanel =
     (canDirection && ["AWAITING_PRELIMINARY", "AWAITING_FINAL", "AWAITING_FINAL_APPEAL"].includes(req.status)) ||
@@ -182,6 +191,15 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               <DocumentList documents={docItems} canDelete={canDelete} canEdit={onlyofficeConfigured() && canUpload} path={`/sponsoring/${req.id}`} />
             </CardContent>
           </Card>
+          <MissionAssignmentsCard
+            entityType="SPONSORING"
+            entityId={req.id}
+            assignments={missions}
+            users={missionUsers}
+            canManage={canManageMissions}
+            currentUserId={user.id}
+            path={`/sponsoring/${req.id}`}
+          />
           <Card>
             <CardHeader><CardTitle>Traçabilité</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">

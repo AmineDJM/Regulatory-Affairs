@@ -437,6 +437,8 @@ export const DOCUMENT_CATEGORY: Record<string, string> = {
   PAYMENT_RECEIPT: "Quittance / reçu",
   PROMO_MATERIAL_FILE: "Matériel promotionnel",
   AD_VISA: "Visa publicitaire",
+  ID_DOCUMENT: "Pièce d'identité",
+  MISSION_ORDER: "Ordre de mission",
   OTHER: "Autre",
 };
 
@@ -649,6 +651,21 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   DOSSIER: "Dossier de suivi",
   PROMO_MATERIAL: "Matériel promotionnel",
   HR_REQUEST: "Demande RH",
+  EVENT: "Événement",
+  MISSION_ASSIGNMENT: "Ordre de mission",
+};
+
+/** Accompagnant ou délégué de référence assigné à une mission. */
+export const MISSION_ROLE: Record<string, Display> = {
+  ACCOMPAGNANT: { label: "Accompagnant", tone: "info" },
+  DELEGATE_REFERENCE: { label: "Délégué de référence", tone: "purple" },
+};
+
+/** Statut de l'ordre de mission d'une assignation. */
+export const MISSION_ORDER_STATUS: Record<string, Display> = {
+  NONE: { label: "Sans ordre de mission", tone: "neutral" },
+  REQUESTED: { label: "Ordre demandé", tone: "warning" },
+  ISSUED: { label: "Ordre de mission émis", tone: "success" },
 };
 
 export const PROMO_MATERIAL_STATUS: Record<string, Display> = {
@@ -917,6 +934,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS },
   { module: "WORKSPACE", label: "Courrier", href: "/courrier", icon: "Mail", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage" },
+  { module: "WORKSPACE", label: "Mes ordres de mission", href: "/missions", icon: "MapPin", group: "Pilotage" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", group: "Pilotage" },
   // Pôles
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },

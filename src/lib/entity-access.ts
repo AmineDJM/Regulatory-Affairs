@@ -49,6 +49,9 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   DOSSIER: "DOSSIERS",
   PROMO_MATERIAL: "PROMO_MATERIAL",
   HR_REQUEST: "RH",
+  EVENT: "EVENTS",
+  // Polymorphe : l'accès réel est résolu spécifiquement (assigné ou entité parente).
+  MISSION_ASSIGNMENT: "WORKSPACE",
 };
 
 /**
@@ -104,6 +107,20 @@ export async function canAccessEntity(
   if (entityType === "HR_REQUEST" && (action === "VIEW" || action === "UPLOAD" || action === "UPDATE")) {
     const req = await prisma.hrDocumentRequest.findUnique({ where: { id: entityId }, select: { employee: { select: { userId: true } } } });
     if (req?.employee?.userId === user.id) return true;
+  }
+
+  // Ordre de mission (accompagnant / délégué de référence) : la personne assignée
+  // accède toujours à SON assignation (voir, joindre l'ordre de mission, discuter,
+  // demander). Sinon on délègue à l'accès de l'entité parente (responsables) — VIEW
+  // pour consulter, UPDATE pour émettre/gérer. La suppression passe par le parent.
+  if (entityType === "MISSION_ASSIGNMENT") {
+    const a = await prisma.missionAssignment.findUnique({
+      where: { id: entityId },
+      select: { userId: true, entityType: true, entityId: true },
+    });
+    if (!a) return false;
+    if (a.userId === user.id) return action !== "DELETE";
+    return canAccessEntity(user, a.entityType, a.entityId, action === "VIEW" ? "VIEW" : "UPDATE");
   }
 
   if (!userCan(user, module, action)) return false;

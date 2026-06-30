@@ -14,6 +14,8 @@ import { EVENT_TYPE, EVENT_SCOPE, EVENT_FORMAT, EVENT_STATUS, PARTICIPANT_ROLE }
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { EditEventButton } from "../event-form";
 import { RegistrationsManager } from "./registrations-manager";
+import { getEntityMissions } from "@/lib/queries/missions";
+import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
 
@@ -25,7 +27,10 @@ export default async function EventDetailPage({ params }: { params: { id: string
   if (!e) notFound();
   const canManage = userCan(user, "EVENTS", "UPDATE");
   const canDelete = userCan(user, "EVENTS", "DELETE");
-  const responsibles = canManage ? await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : [];
+  const [responsibles, missions] = await Promise.all([
+    prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    getEntityMissions("EVENT", e.id),
+  ]);
 
   return (
     <div className="space-y-5">
@@ -93,6 +98,16 @@ export default async function EventDetailPage({ params }: { params: { id: string
           </CardContent>
         </Card>
       )}
+
+      <MissionAssignmentsCard
+        entityType="EVENT"
+        entityId={e.id}
+        assignments={missions}
+        users={responsibles}
+        canManage={canManage}
+        currentUserId={user.id}
+        path={`/events/${e.id}`}
+      />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Inscrits & check-in ({e.registrations.length})</h2>

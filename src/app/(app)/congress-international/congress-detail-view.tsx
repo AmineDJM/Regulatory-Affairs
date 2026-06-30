@@ -11,6 +11,8 @@ import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import type { CongressDetail } from "@/lib/queries/congress";
 import { PreliminaryDecision, ProductAnalysis, FinalDecision } from "./congress-workflow";
 import { BeneficiariesCard } from "./beneficiaries-card";
+import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
+import type { MissionAssignmentDTO } from "@/lib/queries/missions";
 
 type PM = { id: string; name: string };
 
@@ -18,6 +20,7 @@ const CONGRESS_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE"
 
 export function CongressDetailView({
   detail, canValidate, canAnalyze, productManagers, entityType, entityId, documents, canUpload, canDelete, path,
+  missions, missionUsers, canManageMissions, currentUserId,
 }: {
   detail: CongressDetail;
   canValidate: boolean;
@@ -29,6 +32,10 @@ export function CongressDetailView({
   canUpload: boolean;
   canDelete: boolean;
   path: string;
+  missions: MissionAssignmentDTO[];
+  missionUsers: { id: string; name: string }[];
+  canManageMissions: boolean;
+  currentUserId: string;
 }) {
   const d = detail;
   const st = d.requestStatus;
@@ -133,6 +140,15 @@ export function CongressDetailView({
           beneficiaries={d.beneficiaries}
           idDocCount={documents.filter((doc) => doc.category === "ID_DOCUMENT").length}
           canManage={canUpload}
+        />
+        <MissionAssignmentsCard
+          entityType={entityType}
+          entityId={entityId}
+          assignments={missions}
+          users={missionUsers}
+          canManage={canManageMissions}
+          currentUserId={currentUserId}
+          path={path}
         />
         <Card>
           <CardHeader className="flex-row items-center justify-between"><CardTitle>Médecins invités</CardTitle><Badge tone="neutral" dot={false}>{d.doctors.length}</Badge></CardHeader>
