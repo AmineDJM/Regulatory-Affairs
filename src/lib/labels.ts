@@ -20,7 +20,7 @@ interface Display {
 
 export const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Super Admin",
-  DIRECTION: "Direction",
+  DIRECTION: "Direction des opérations",
   HEAD_OF_REGULATORY: "Responsable Réglementaire",
   REGULATORY_ASSISTANT: "Assistante Réglementaire",
   HEAD_OF_SALES: "Responsable Ventes",
@@ -874,12 +874,15 @@ export const WORKSPACE_TABS: NavTab[] = [
   { module: "DIRECTIVES", label: "Directives", href: "/directives" },
   { module: "DOSSIERS", label: "Dossiers", href: "/dossiers" },
 ];
-// Sponsoring + congrès (international/national) + événements, sous un seul module.
+// « Ad & Pro » : sponsoring + congrès (international/national) + événements +
+// matériel promotionnel, sous un seul module. Le matériel promotionnel a été
+// déplacé ici depuis « Promotion médicale » (sa fonctionnalité est inchangée).
 export const EVENTS_TABS: NavTab[] = [
   { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring" },
   { module: "CONGRESS_INTERNATIONAL", label: "Congrès internationaux", href: "/congress-international" },
   { module: "CONGRESS_NATIONAL", label: "Congrès nationaux", href: "/congress-national" },
   { module: "EVENTS", label: "Événements", href: "/events" },
+  { module: "PROMO_MATERIAL", label: "Matériel promotionnel", href: "/promo-material" },
 ];
 // Drive (fichiers) + Documents (pièces liées aux dossiers) sous un seul module.
 export const DOCS_TABS: NavTab[] = [
@@ -887,10 +890,10 @@ export const DOCS_TABS: NavTab[] = [
   { module: "DOCUMENTS", label: "Documents", href: "/documents" },
 ];
 // Promotion médicale + rapports terrain des délégués, sous le module Médical.
+// (Le matériel promotionnel a été déplacé vers le module « Ad & Pro ».)
 export const MEDICAL_TABS: NavTab[] = [
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical" },
   { module: "MEDICAL", label: "Rapports terrain", href: "/field-reports" },
-  { module: "PROMO_MATERIAL", label: "Matériel promotionnel", href: "/promo-material" },
 ];
 // Adventum Brain + Process Intelligence, dans un seul cockpit Super Admin.
 export const BRAIN_TABS: NavTab[] = [
@@ -936,7 +939,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   DOSSIERS: "Dossiers",
   DOCUMENTS: "Documents",
   DRIVE: "Drive",
-  ADMIN_REQUESTS: "Demandes administratives",
+  ADMIN_REQUESTS: "Bureau du secrétariat",
   NOTIFICATIONS: "Notifications",
   PROCESS_INTELLIGENCE: "Process Intelligence",
   ADVENTUM_BRAIN: "Adventum Brain",
@@ -957,14 +960,14 @@ export const NAVIGATION: NavItem[] = [
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", group: "Pilotage" },
   // Pôles
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
-  { module: "SPONSORING", label: "Sponsoring & Événements", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS },
+  { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS, match: ["/promo-material"] },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles" },
   { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles" },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
   { module: "LOGISTICS", label: "Logistique & Stocks PCH", href: "/logistics", icon: "Truck", group: "Pôles", tabs: PCH_OPS_TABS },
   { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
-  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", tabs: MEDICAL_TABS, match: ["/promo-material"] },
+  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", tabs: MEDICAL_TABS },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
   // Transverse — « Validations » n'a plus d'entrée de menu : les validations en
@@ -972,7 +975,7 @@ export const NAVIGATION: NavItem[] = [
   // /validations et son module restent actifs.
   { module: "MESSAGING", label: "Réunions & appels", href: "/meetings", icon: "Video", group: "Transverse" },
   { module: "DRIVE", label: "Documents", href: "/drive", icon: "FolderOpen", group: "Transverse", tabs: DOCS_TABS },
-  { module: "ADMIN_REQUESTS", label: "Demandes administratives", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
+  { module: "ADMIN_REQUESTS", label: "Bureau du secrétariat", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   // Système
   { module: "ADVENTUM_BRAIN", label: "Adventum Brain", href: "/adventum-brain", icon: "BrainCircuit", group: "Système", tabs: BRAIN_TABS },

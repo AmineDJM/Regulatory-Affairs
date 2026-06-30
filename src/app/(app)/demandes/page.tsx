@@ -25,7 +25,7 @@ export default async function DemandesPage({ searchParams }: { searchParams: { s
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Demandes administratives" description="Centre de traitement des demandes transverses de l'entreprise.">
+      <PageHeader title="Bureau du secrétariat" description="Centre de traitement des demandes transverses de l'entreprise.">
         {isManager && <Link href="/demandes/assistant"><Button variant="outline"><Users className="h-4 w-4" /> Bureau de Donna</Button></Link>}
         <Link href="/demandes/approvals"><Button variant="outline"><ClipboardCheck className="h-4 w-4" /> Validations</Button></Link>
         <Link href="/demandes/driver"><Button variant="outline"><Car className="h-4 w-4" /> Missions</Button></Link>

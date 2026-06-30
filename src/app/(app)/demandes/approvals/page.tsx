@@ -18,7 +18,7 @@ export default async function ApprovalsPage() {
       <Link href="/demandes" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" /> Demandes
       </Link>
-      <PageHeader title="Validations en attente" description="Demandes administratives à valider, refuser ou renvoyer pour modification." />
+      <PageHeader title="Validations en attente" description="Demandes du bureau du secrétariat à valider, refuser ou renvoyer pour modification." />
 
       {approvals.length === 0 ? (
         <EmptyState icon="ClipboardCheck" title="Aucune validation en attente" description="Les demandes à valider apparaîtront ici." />

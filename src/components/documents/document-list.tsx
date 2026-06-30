@@ -105,7 +105,7 @@ export function DocumentList({
                   </button>
                 </div>
               ) : (
-                <p className="truncate text-sm font-medium">{doc.name}</p>
+                <p className="truncate text-sm font-semibold text-foreground" title={doc.name}>{doc.name}</p>
               )}
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                 <span>{DOCUMENT_CATEGORY[doc.category] ?? doc.category}</span>

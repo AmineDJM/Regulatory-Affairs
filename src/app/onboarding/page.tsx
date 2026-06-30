@@ -35,7 +35,7 @@ const DESTINATION_HELP: Record<string, string> = {
   "/business-development": "Business Development : opportunités, projets, gammes et produits.",
   "/validations": "Centre de validation transversal : ce que vous devez approuver.",
   "/drive": "Vos fichiers chiffrés, partagés en interne en toute sécurité.",
-  "/demandes": "Demandes administratives (attestations, notes de frais, ordres de mission…).",
+  "/demandes": "Bureau du secrétariat (attestations, notes de frais, ordres de mission…).",
   "/support": "Demandes de support (questions, brochures, documents) vers les experts.",
   "/documents": "Tous les documents générés et déposés sur la plateforme.",
   "/notifications": "Vos notifications et alertes en temps réel.",

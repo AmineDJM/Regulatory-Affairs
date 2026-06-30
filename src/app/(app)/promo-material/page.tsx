@@ -11,7 +11,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PROMO_MATERIAL_STATUS, MEDICAL_TABS } from "@/lib/labels";
+import { PROMO_MATERIAL_STATUS, EVENTS_TABS } from "@/lib/labels";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,7 @@ export default async function PromoMaterialPage() {
         )}
       </PageHeader>
 
-      <ModuleTabs tabs={MEDICAL_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
+      <ModuleTabs tabs={EVENTS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-3 gap-3">
         <KpiCard label="Dossiers" value={items.length} icon="Megaphone" />

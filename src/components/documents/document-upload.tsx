@@ -80,14 +80,32 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
         className={cn(
           "flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border-2 border-dashed text-center transition-colors",
           compact ? "px-3 py-2.5" : "flex-col px-4 py-6",
-          dragOver ? "border-primary bg-accent/50" : "border-border bg-muted/30 hover:bg-muted/50",
+          fileName
+            ? "border-primary/60 bg-primary/5"
+            : dragOver
+              ? "border-primary bg-accent/50"
+              : "border-border bg-muted/30 hover:bg-muted/50",
         )}
       >
-        <UploadCloud className={cn("text-muted-foreground", compact ? "h-4 w-4" : "h-6 w-6")} />
-        <span className={cn("font-medium", compact ? "text-xs" : "text-sm")}>
-          {fileName ?? (compact ? "Joindre un document" : "Glissez un fichier ici ou cliquez pour parcourir")}
-        </span>
-        {!compact && <span className="text-xs text-muted-foreground">PDF, Word, Excel, images</span>}
+        {fileName ? (
+          <>
+            <FileUp className={cn("shrink-0 text-primary", compact ? "h-4 w-4" : "h-6 w-6")} />
+            {/* Nom du fichier sélectionné : contraste fort + retour à la ligne pour
+                rester lisible même quand le nom est long. */}
+            <span className={cn("min-w-0 break-words font-semibold text-foreground", compact ? "text-xs" : "max-w-full text-sm")}>
+              {fileName}
+            </span>
+            {!compact && <span className="text-xs text-muted-foreground">Cliquez pour changer de fichier</span>}
+          </>
+        ) : (
+          <>
+            <UploadCloud className={cn("text-muted-foreground", compact ? "h-4 w-4" : "h-6 w-6")} />
+            <span className={cn("font-medium text-foreground", compact ? "text-xs" : "text-sm")}>
+              {compact ? "Joindre un document" : "Glissez un fichier ici ou cliquez pour parcourir"}
+            </span>
+            {!compact && <span className="text-xs text-muted-foreground">PDF, Word, Excel, images</span>}
+          </>
+        )}
         <input
           ref={inputRef}
           type="file"
