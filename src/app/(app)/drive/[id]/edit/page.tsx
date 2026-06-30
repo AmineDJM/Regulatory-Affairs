@@ -63,7 +63,19 @@ export default async function DriveEditPage({ params }: { params: { id: string }
       lang: "fr",
       callbackUrl: `${base}/api/onlyoffice/callback?id=${params.id}&token=${editToken}`,
       user: { id: user.id, name: user.name },
-      customization: { autosave: true, forcesave: true },
+      // Allègement de l'initialisation : on désactive les sous-systèmes inutiles
+      // ici (chat, plugins, aide, page « à propos ») pour un démarrage plus rapide
+      // et une surface d'édition plus nette. L'autosave reste actif.
+      customization: {
+        autosave: true,
+        forcesave: true,
+        chat: false,
+        plugins: false,
+        help: false,
+        about: false,
+        compactHeader: false,
+        hideRightMenu: false,
+      },
     },
     width: "100%",
     height: "100%",
