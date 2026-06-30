@@ -1,4 +1,4 @@
-import type { DoctorTitle, InfluenceLevel, MedicalSector, Priority } from "@prisma/client";
+import type { DoctorTitle, InfluenceLevel, MedicalSector, Priority, SegmentLevel } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { scopeMedicalDoctors, scopeMedicalVisits, hasGlobalView, type SessionUser } from "@/lib/rbac";
 
@@ -22,6 +22,9 @@ export interface DoctorDTO {
   email: string;
   influenceLevel: InfluenceLevel;
   prescriptionPotential: Priority;
+  influence: SegmentLevel;
+  potential: SegmentLevel;
+  affinity: SegmentLevel;
   targetProducts: string;
   comments: string;
   delegate: string;
@@ -71,7 +74,8 @@ function mapDoctor(d: {
   id: string; name: string; title: DoctorTitle; specialtyId: string | null; specialty: string | null;
   specialtyRef: { name: string } | null; sector: MedicalSector; institution: string | null; city: string | null;
   region: string | null; phone: string | null; email: string | null; influenceLevel: InfluenceLevel;
-  prescriptionPotential: Priority; targetProducts: string | null; comments: string | null;
+  prescriptionPotential: Priority; influence: SegmentLevel; potential: SegmentLevel; affinity: SegmentLevel;
+  targetProducts: string | null; comments: string | null;
   delegate: { name: string } | null; delegateId: string | null; lastVisit: Date | null; nextVisit: Date | null;
 }): DoctorDTO {
   return {
@@ -88,6 +92,9 @@ function mapDoctor(d: {
     email: d.email ?? "",
     influenceLevel: d.influenceLevel,
     prescriptionPotential: d.prescriptionPotential,
+    influence: d.influence,
+    potential: d.potential,
+    affinity: d.affinity,
     targetProducts: d.targetProducts ?? "",
     comments: d.comments ?? "",
     delegate: d.delegate?.name ?? "",

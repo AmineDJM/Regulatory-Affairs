@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { DoctorTitle, InfluenceLevel, MedicalSector, Priority, VisitStatus } from "@prisma/client";
+import type { DoctorTitle, InfluenceLevel, MedicalSector, Priority, SegmentLevel, VisitStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
@@ -26,6 +26,17 @@ async function specialtyName(id: string | null): Promise<string | null> {
 function parseSector(v: string | null): MedicalSector {
   return v && SECTORS.includes(v as MedicalSector) ? (v as MedicalSector) : "LIBERAL";
 }
+const SEGMENTS: SegmentLevel[] = ["VERY_HIGH", "HIGH", "MEDIUM", "LOW", "VERY_LOW"];
+function parseSegment(v: string | null): SegmentLevel {
+  return v && SEGMENTS.includes(v as SegmentLevel) ? (v as SegmentLevel) : "MEDIUM";
+}
+/** Mappe l'échelle 5 niveaux vers les anciens champs (cohérence des lecteurs hérités). */
+const segToInfluence: Record<SegmentLevel, InfluenceLevel> = {
+  VERY_HIGH: "KEY_OPINION_LEADER", HIGH: "HIGH", MEDIUM: "MEDIUM", LOW: "LOW", VERY_LOW: "LOW",
+};
+const segToPriority: Record<SegmentLevel, Priority> = {
+  VERY_HIGH: "CRITICAL", HIGH: "HIGH", MEDIUM: "MEDIUM", LOW: "LOW", VERY_LOW: "LOW",
+};
 function parseTitle(v: string | null): DoctorTitle {
   return v && TITLES.includes(v as DoctorTitle) ? (v as DoctorTitle) : "AUTRE";
 }
@@ -100,8 +111,12 @@ export async function createDoctor(
       region: fdStr(formData, "region"),
       phone: fdStr(formData, "phone"),
       email: fdStr(formData, "email"),
-      influenceLevel: (fdStr(formData, "influenceLevel") as InfluenceLevel) ?? "MEDIUM",
-      prescriptionPotential: (fdStr(formData, "prescriptionPotential") as Priority) ?? "MEDIUM",
+      influence: parseSegment(fdStr(formData, "influence")),
+      potential: parseSegment(fdStr(formData, "potential")),
+      affinity: parseSegment(fdStr(formData, "affinity")),
+      // Champs hérités tenus cohérents avec l'échelle 5 niveaux.
+      influenceLevel: segToInfluence[parseSegment(fdStr(formData, "influence"))],
+      prescriptionPotential: segToPriority[parseSegment(fdStr(formData, "potential"))],
       targetProducts: fdStr(formData, "targetProducts"),
       comments: fdStr(formData, "comments"),
       delegateId,
@@ -143,8 +158,11 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
       region: fdStr(formData, "region"),
       phone: fdStr(formData, "phone"),
       email: fdStr(formData, "email"),
-      influenceLevel: (fdStr(formData, "influenceLevel") as InfluenceLevel) ?? before.influenceLevel,
-      prescriptionPotential: (fdStr(formData, "prescriptionPotential") as Priority) ?? before.prescriptionPotential,
+      influence: parseSegment(fdStr(formData, "influence") ?? before.influence),
+      potential: parseSegment(fdStr(formData, "potential") ?? before.potential),
+      affinity: parseSegment(fdStr(formData, "affinity") ?? before.affinity),
+      influenceLevel: segToInfluence[parseSegment(fdStr(formData, "influence") ?? before.influence)],
+      prescriptionPotential: segToPriority[parseSegment(fdStr(formData, "potential") ?? before.potential)],
       targetProducts: fdStr(formData, "targetProducts"),
       comments: fdStr(formData, "comments"),
       ...(isManager ? { delegateId: fdStr(formData, "delegateId") } : {}),

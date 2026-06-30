@@ -322,6 +322,15 @@ export const INFLUENCE_LEVEL: Record<string, Display> = {
   KEY_OPINION_LEADER: { label: "Leader d'opinion", tone: "purple" },
 };
 
+/** Échelle de segmentation à 5 niveaux (influence / potentiel / affinité). */
+export const SEGMENT_LEVEL: Record<string, Display> = {
+  VERY_HIGH: { label: "Très haut", tone: "purple" },
+  HIGH: { label: "Haut", tone: "success" },
+  MEDIUM: { label: "Moyen", tone: "info" },
+  LOW: { label: "Bas", tone: "warning" },
+  VERY_LOW: { label: "Très bas", tone: "neutral" },
+};
+
 export const MEDICAL_SECTOR: Record<string, Display> = {
   HOSPITAL: { label: "Hôpital / Public", tone: "info" },
   LIBERAL: { label: "Libéral / Privé", tone: "purple" },

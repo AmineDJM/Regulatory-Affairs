@@ -252,6 +252,17 @@ enum InfluenceLevel {
   KEY_OPINION_LEADER
 }
 
+// Échelle de segmentation à 5 niveaux (très haut → très bas), utilisée pour
+// segmenter un médecin/pharmacien sur trois axes : influence, potentiel et
+// affinité (vis-à-vis de nous), en lien avec sa spécialité et nos produits.
+enum SegmentLevel {
+  VERY_HIGH
+  HIGH
+  MEDIUM
+  LOW
+  VERY_LOW
+}
+
 // Secteur d'exercice d'un médecin au sein d'une spécialité.
 enum MedicalSector {
   HOSPITAL // Hôpital / secteur public
@@ -1353,8 +1364,14 @@ model MedicalDoctor {
   region                String?
   phone                 String?
   email                 String?
-  influenceLevel        InfluenceLevel @default(MEDIUM)
-  prescriptionPotential Priority       @default(MEDIUM)
+  influenceLevel        InfluenceLevel @default(MEDIUM) // hérité (remplacé par `influence`)
+  prescriptionPotential Priority       @default(MEDIUM) // hérité (remplacé par `potential`)
+  // Segmentation à 5 niveaux (très haut → très bas) sur trois axes.
+  influence             SegmentLevel   @default(MEDIUM) // influence (produit / spécialité)
+  potential             SegmentLevel   @default(MEDIUM) // potentiel de prescription
+  affinity              SegmentLevel   @default(MEDIUM) // affinité avec nous
+  // Logique de segmentation produit : par spécialité (specialtyRef) et/ou par
+  // produit(s) ciblé(s). `targetProducts` liste les produits suivis pour ce praticien.
   targetProducts        String?
   lastVisit             DateTime?
   nextVisit             DateTime?

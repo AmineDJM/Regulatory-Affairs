@@ -2,7 +2,7 @@
 
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { INFLUENCE_LEVEL, PRIORITY } from "@/lib/labels";
+import { SEGMENT_LEVEL } from "@/lib/labels";
 import { formatDate } from "@/lib/utils";
 
 export interface DoctorRow {
@@ -12,8 +12,9 @@ export interface DoctorRow {
   institution: string;
   city: string;
   region: string;
-  influenceLevel: string;
-  prescriptionPotential: string;
+  influence: string;
+  potential: string;
+  affinity: string;
   lastVisit: string | null;
   nextVisit: string | null;
   delegate: string;
@@ -31,10 +32,12 @@ export function DoctorsTable({ rows }: { rows: DoctorRow[] }) {
     { key: "institution", header: "Établissement", accessor: (r) => r.institution },
     { key: "city", header: "Ville", sortable: true, accessor: (r) => r.city },
     { key: "region", header: "Région", sortable: true, accessor: (r) => r.region },
-    { key: "influenceLevel", header: "Influence", sortable: true, accessor: (r) => r.influenceLevel,
-      render: (r) => <StatusBadge map={INFLUENCE_LEVEL} value={r.influenceLevel} /> },
-    { key: "prescriptionPotential", header: "Potentiel", sortable: true, accessor: (r) => r.prescriptionPotential,
-      render: (r) => <StatusBadge map={PRIORITY} value={r.prescriptionPotential} /> },
+    { key: "influence", header: "Influence", sortable: true, accessor: (r) => r.influence,
+      render: (r) => <StatusBadge map={SEGMENT_LEVEL} value={r.influence} /> },
+    { key: "potential", header: "Potentiel", sortable: true, accessor: (r) => r.potential,
+      render: (r) => <StatusBadge map={SEGMENT_LEVEL} value={r.potential} /> },
+    { key: "affinity", header: "Affinité", sortable: true, accessor: (r) => r.affinity,
+      render: (r) => <StatusBadge map={SEGMENT_LEVEL} value={r.affinity} /> },
     { key: "lastVisit", header: "Dernière visite", sortable: true, accessor: (r) => r.lastVisit ?? "",
       render: (r) => formatDate(r.lastVisit) },
     { key: "nextVisit", header: "Prochaine", sortable: true, accessor: (r) => r.nextVisit ?? "",

@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { cn } from "@/lib/utils";
 import {
-  INFLUENCE_LEVEL, PRIORITY, MEDICAL_SECTOR, DOCTOR_TITLE, doctorDisplayName,
+  SEGMENT_LEVEL, MEDICAL_SECTOR, DOCTOR_TITLE, doctorDisplayName,
 } from "@/lib/labels";
 import { createDoctor, updateDoctor, createSpecialty, updateSpecialty, deleteSpecialty } from "@/lib/actions/medical-actions";
 import type { SpecialtyGroupDTO, SpecialtyDTO, DoctorDTO } from "@/lib/queries/medical";
@@ -110,9 +110,10 @@ export function MedicalDirectory({ groups, specialties, delegates, canCreate, ca
                                     {[d.institution, d.city, d.delegate && `Délégué : ${d.delegate}`].filter(Boolean).join(" · ") || "—"}
                                   </p>
                                 </div>
-                                <div className="hidden items-center gap-1.5 sm:flex">
-                                  <StatusBadge map={INFLUENCE_LEVEL} value={d.influenceLevel} dot={false} />
-                                  <StatusBadge map={PRIORITY} value={d.prescriptionPotential} dot={false} />
+                                <div className="hidden flex-wrap items-center gap-1.5 sm:flex">
+                                  <span className="inline-flex items-center gap-1" title="Influence"><span className="text-[10px] font-medium uppercase text-muted-foreground">Infl</span><StatusBadge map={SEGMENT_LEVEL} value={d.influence} dot={false} /></span>
+                                  <span className="inline-flex items-center gap-1" title="Potentiel"><span className="text-[10px] font-medium uppercase text-muted-foreground">Pot</span><StatusBadge map={SEGMENT_LEVEL} value={d.potential} dot={false} /></span>
+                                  <span className="inline-flex items-center gap-1" title="Affinité avec nous"><span className="text-[10px] font-medium uppercase text-muted-foreground">Affi</span><StatusBadge map={SEGMENT_LEVEL} value={d.affinity} dot={false} /></span>
                                 </div>
                                 {canEdit && (
                                   <button onClick={() => setDoctorSheet({ mode: "edit", doctor: d })} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Modifier">
@@ -194,14 +195,19 @@ function DoctorSheet({
           <W label="Hôpital / Clinique"><Input name="institution" defaultValue={d?.institution} /></W>
           <W label="Ville"><Input name="city" defaultValue={d?.city} /></W>
           <W label="Région"><Input name="region" defaultValue={d?.region} /></W>
-          <W label="Niveau d'influence">
-            <Select name="influenceLevel" defaultValue={d?.influenceLevel ?? "MEDIUM"}>
-              {Object.entries(INFLUENCE_LEVEL).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}
+          <W label="Influence (produit / spécialité)">
+            <Select name="influence" defaultValue={d?.influence ?? "MEDIUM"}>
+              {Object.entries(SEGMENT_LEVEL).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}
             </Select>
           </W>
-          <W label="Potentiel de prescription">
-            <Select name="prescriptionPotential" defaultValue={d?.prescriptionPotential ?? "MEDIUM"}>
-              {Object.entries(PRIORITY).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}
+          <W label="Potentiel (produit / spécialité)">
+            <Select name="potential" defaultValue={d?.potential ?? "MEDIUM"}>
+              {Object.entries(SEGMENT_LEVEL).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}
+            </Select>
+          </W>
+          <W label="Affinité avec nous">
+            <Select name="affinity" defaultValue={d?.affinity ?? "MEDIUM"}>
+              {Object.entries(SEGMENT_LEVEL).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}
             </Select>
           </W>
           <W label="Téléphone"><Input name="phone" defaultValue={d?.phone} /></W>
