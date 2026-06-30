@@ -16,11 +16,12 @@ const PATH = "/sponsoring";
 function isDirection(user: SessionUser): boolean {
   return hasGlobalView(user.role) || userCan(user, "SPONSORING", "VALIDATE");
 }
-/** « Direction Marketing » : le Manager Promotion Médicale (et le Super Admin).
- *  Reçoit les demandes Ad & Pro et attribue un chef de produit — il n'y a plus
- *  de pré-validation par la Direction (la décision définitive reste à la Direction). */
+/** Approbation préliminaire Ad & Pro : ouverte au **National Sales** (demande
+ *  émanant d'un délégué) et à la Direction Marketing (Manager Promotion Médicale).
+ *  Ils approuvent/refusent et désignent le chef de produit — la décision
+ *  définitive reste à la Direction. */
 function isDirectionMarketing(user: SessionUser): boolean {
-  return user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
+  return user.role === "NATIONAL_SALES" || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
 }
 
 function revalidate(id: string) {
@@ -65,9 +66,9 @@ export async function createSponsoring(
   });
 
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${reference} — ${institution}` });
-  await notifyRoles(["MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], {
+  await notifyRoles(["NATIONAL_SALES", "MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], {
     type: "SPONSORING_VALIDATION",
-    title: "Sponsoring — à attribuer (Direction Marketing)",
+    title: "Sponsoring — à attribuer (National Sales)",
     body: `${reference} — ${institution}`,
     link: `${PATH}/${created.id}`,
   });

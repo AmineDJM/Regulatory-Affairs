@@ -67,6 +67,22 @@ export interface EventDetail {
   meetingLink: string | null;
   responsibleId: string | null;
   responsibleName: string | null;
+  // Circuit de prise en charge (financement) — requestStatus null si non soumis.
+  requestStatus: string | null;
+  requesterName: string | null;
+  productManagerId: string | null;
+  productManagerName: string | null;
+  productManagerBudget: number | null;
+  productManagerNotes: string | null;
+  preliminaryByName: string | null;
+  preliminaryAt: string | null;
+  preliminaryNote: string | null;
+  finalByName: string | null;
+  finalAt: string | null;
+  finalNote: string | null;
+  finalAmount: number | null;
+  rejectionReason: string | null;
+  expenseOrder: { reference: string; status: string; amount: number } | null;
   registrations: RegistrationDTO[];
   stats: EventStats;
 }
@@ -127,12 +143,32 @@ export async function getEventDetail(id: string): Promise<EventDetail | null> {
     specialty: r.specialty, institution: r.institution, city: r.city, email: r.email, phone: r.phone,
     role: r.role, status: r.status, qrToken: r.qrToken, checkedInAt: r.checkedInAt?.toISOString() ?? null, source: r.source,
   }));
+
+  // Acteurs du circuit de prise en charge (champs scalaires → résolution des noms).
+  const actorIds = [e.requesterId, e.productManagerId, e.preliminaryById, e.finalById].filter((x): x is string => Boolean(x));
+  const actors = actorIds.length
+    ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+    : [];
+  const nameOf = (id: string | null) => (id ? actors.find((u) => u.id === id)?.name ?? null : null);
+  const order = e.expenseOrderId
+    ? await prisma.expenseOrder.findUnique({ where: { id: e.expenseOrderId }, select: { reference: true, status: true, amount: true } })
+    : null;
+
   return {
     id: e.id, name: e.name, type: e.type, scope: e.scope, format: e.format, status: e.status,
     startDate: e.startDate?.toISOString() ?? null, endDate: e.endDate?.toISOString() ?? null,
     location: e.location, city: e.city, country: e.country, specialty: e.specialty, products: e.products,
     description: e.description, capacity: e.capacity, estimatedBudget: e.estimatedBudget ? toNumber(e.estimatedBudget) : null,
     meetingLink: e.meetingLink, responsibleId: e.responsibleId, responsibleName: e.responsible?.name ?? null,
+    requestStatus: e.requestStatus, requesterName: nameOf(e.requesterId),
+    productManagerId: e.productManagerId, productManagerName: nameOf(e.productManagerId),
+    productManagerBudget: e.productManagerBudget ? toNumber(e.productManagerBudget) : null,
+    productManagerNotes: e.productManagerNotes,
+    preliminaryByName: nameOf(e.preliminaryById), preliminaryAt: e.preliminaryAt?.toISOString() ?? null, preliminaryNote: e.preliminaryNote,
+    finalByName: nameOf(e.finalById), finalAt: e.finalAt?.toISOString() ?? null, finalNote: e.finalNote,
+    finalAmount: e.finalAmount ? toNumber(e.finalAmount) : null,
+    rejectionReason: e.rejectionReason,
+    expenseOrder: order ? { reference: order.reference, status: order.status, amount: toNumber(order.amount) } : null,
     registrations: regs,
     stats: buildStats(e.registrations.map((r) => ({ status: r.status, specialty: r.specialty, role: r.role })), e.capacity),
   };

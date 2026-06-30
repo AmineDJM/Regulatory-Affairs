@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { CongressRequestStatus, NationalEventType, Prisma } from "@prisma/client";
+import type { CongressRequestStatus, EntityType, NationalEventType, Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, type Module } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
@@ -11,24 +11,31 @@ import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
-type CongressType = "INTL" | "NATIONAL";
+// Le **même** circuit de prise en charge sert les congrès internationaux/nationaux
+// ET les événements (module Events) : on paramètre tout par `type`.
+type CongressType = "INTL" | "NATIONAL" | "EVENT";
 const EVENT_TYPES: NationalEventType[] = ["CONGRESS", "SEMINAR", "ROUND_TABLE", "WEBINAR", "WORKSHOP", "SYMPOSIUM", "STAFF", "OTHER"];
 
-const moduleFor = (t: CongressType): "CONGRESS_INTERNATIONAL" | "CONGRESS_NATIONAL" => (t === "INTL" ? "CONGRESS_INTERNATIONAL" : "CONGRESS_NATIONAL");
-const pathFor = (t: CongressType) => (t === "INTL" ? "/congress-international" : "/congress-national");
-const entityFor = (t: CongressType): "CONGRESS_INTERNATIONAL" | "CONGRESS_NATIONAL" => (t === "INTL" ? "CONGRESS_INTERNATIONAL" : "CONGRESS_NATIONAL");
-const typeOf = (formData: FormData): CongressType => (fdStr(formData, "type") === "NATIONAL" ? "NATIONAL" : "INTL");
+const moduleFor = (t: CongressType): Module => (t === "INTL" ? "CONGRESS_INTERNATIONAL" : t === "NATIONAL" ? "CONGRESS_NATIONAL" : "EVENTS");
+const pathFor = (t: CongressType) => (t === "INTL" ? "/congress-international" : t === "NATIONAL" ? "/congress-national" : "/events");
+const entityFor = (t: CongressType): EntityType => (t === "INTL" ? "CONGRESS_INTERNATIONAL" : t === "NATIONAL" ? "CONGRESS_NATIONAL" : "EVENT");
+const ML = (t: CongressType) => (t === "EVENT" ? "Events" : "Congrès"); // libellé module pour l'audit
+const NOUN = (t: CongressType) => (t === "EVENT" ? "Événement" : "Congrès"); // nom métier pour les notifications
+const typeOf = (formData: FormData): CongressType => {
+  const v = fdStr(formData, "type");
+  return v === "NATIONAL" ? "NATIONAL" : v === "EVENT" ? "EVENT" : "INTL";
+};
 const fdList = (formData: FormData, key: string): string[] => formData.getAll(key).map((v) => String(v)).filter(Boolean);
 
 function loadCongress(t: CongressType, id: string) {
-  return t === "INTL"
-    ? prisma.congressInternational.findUnique({ where: { id } })
-    : prisma.congressNational.findUnique({ where: { id } });
+  if (t === "INTL") return prisma.congressInternational.findUnique({ where: { id } });
+  if (t === "NATIONAL") return prisma.congressNational.findUnique({ where: { id } });
+  return prisma.event.findUnique({ where: { id } });
 }
 function updateCongress(t: CongressType, id: string, data: Record<string, unknown>) {
-  return t === "INTL"
-    ? prisma.congressInternational.update({ where: { id }, data: data as Prisma.CongressInternationalUpdateInput })
-    : prisma.congressNational.update({ where: { id }, data: data as Prisma.CongressNationalUpdateInput });
+  if (t === "INTL") return prisma.congressInternational.update({ where: { id }, data: data as Prisma.CongressInternationalUpdateInput });
+  if (t === "NATIONAL") return prisma.congressNational.update({ where: { id }, data: data as Prisma.CongressNationalUpdateInput });
+  return prisma.event.update({ where: { id }, data: data as Prisma.EventUpdateInput });
 }
 
 // ───────────────────────────── Création de la demande ─────────────────────────────
@@ -78,10 +85,12 @@ export async function createCongressRequest(
           },
         });
 
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Congrès", entityType: entityFor(t), entityId: created.id, summary: `Demande de congrès « ${name} »` });
-  await notifyRoles(["MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], {
+  await recordAudit({ actorId: user.id, action: "CREATE", module: ML(t), entityType: entityFor(t), entityId: created.id, summary: `Demande de congrès « ${name} »` });
+  // Demande émise (souvent par un délégué) → approbation préliminaire par le
+  // National Sales (ou la Direction Marketing), qui désigne le chef de produit.
+  await notifyRoles(["NATIONAL_SALES", "MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
-    title: "Demande de congrès — à attribuer (Direction Marketing)",
+    title: "Demande de congrès — à attribuer (National Sales)",
     body: name,
     link: `${pathFor(t)}/${created.id}`,
   });
@@ -97,9 +106,10 @@ export async function preliminaryDecision(formData: FormData): Promise<ActionRes
   const id = fdStr(formData, "id");
   const decision = fdStr(formData, "decision"); // APPROVE | REJECT
   if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
-  // « Direction Marketing » (Manager Promotion Médicale) attribue le chef de
-  // produit — la Direction n'intervient plus à cette étape.
-  if (!(user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN")) return { ok: false, error: "Attribution réservée à la Direction Marketing." };
+  // Approbation préliminaire (approuver/refuser + désigner le chef de produit) :
+  // ouverte au **National Sales** (demande émanant d'un délégué) et à la Direction
+  // Marketing (Manager Promotion Médicale). La Direction n'intervient pas ici.
+  if (!(user.role === "NATIONAL_SALES" || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN")) return { ok: false, error: "Attribution réservée au National Sales / à la Direction Marketing." };
 
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };
@@ -109,8 +119,8 @@ export async function preliminaryDecision(formData: FormData): Promise<ActionRes
     const reason = fdStr(formData, "note");
     if (!reason) return { ok: false, error: "Le motif de refus est obligatoire." };
     await updateCongress(t, id, { requestStatus: "REJECTED", rejectionReason: reason, preliminaryById: user.id, preliminaryAt: new Date(), updatedById: user.id });
-    if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: "Demande de congrès refusée", body: c.name, link: `${pathFor(t)}/${id}` });
-    await recordAudit({ actorId: user.id, action: "REFUSE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Refus préliminaire — ${c.name}` });
+    if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: `${NOUN(t)} — demande refusée`, body: c.name, link: `${pathFor(t)}/${id}` });
+    await recordAudit({ actorId: user.id, action: "REFUSE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Refus préliminaire — ${c.name}` });
   } else {
     const productManagerId = fdStr(formData, "productManagerId");
     if (!productManagerId) return { ok: false, error: "Sélectionnez le chef de produit qui fera l'analyse." };
@@ -118,9 +128,9 @@ export async function preliminaryDecision(formData: FormData): Promise<ActionRes
       requestStatus: "PRELIMINARY_APPROVED", productManagerId,
       preliminaryById: user.id, preliminaryAt: new Date(), preliminaryNote: fdStr(formData, "note"), updatedById: user.id,
     });
-    await notifyUser({ userId: productManagerId, type: "ASSIGNMENT", title: "Congrès à analyser", body: c.name, link: `${pathFor(t)}/${id}` });
+    await notifyUser({ userId: productManagerId, type: "ASSIGNMENT", title: `${NOUN(t)} à analyser`, body: c.name, link: `${pathFor(t)}/${id}` });
     if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: "Demande validée (préliminaire)", body: c.name, link: `${pathFor(t)}/${id}` });
-    await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Validation préliminaire — ${c.name}` });
+    await recordAudit({ actorId: user.id, action: "VALIDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Validation préliminaire — ${c.name}` });
   }
   revalidatePath(`${pathFor(t)}/${id}`);
   revalidatePath(pathFor(t));
@@ -148,9 +158,9 @@ export async function submitProductAnalysis(formData: FormData): Promise<ActionR
     await updateCongress(t, id, {
       requestStatus: "REJECTED", rejectionReason: reason, productManagerNotes: reason, updatedById: user.id,
     });
-    if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: "Demande de congrès refusée (chef de produit)", body: c.name, link: `${pathFor(t)}/${id}` });
-    await notifyRoles(["MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Congrès refusé par le chef de produit", body: c.name, link: `${pathFor(t)}/${id}` });
-    await recordAudit({ actorId: user.id, action: "REFUSE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Refus chef de produit — ${c.name}` });
+    if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: `${NOUN(t)} — refusé par le chef de produit`, body: c.name, link: `${pathFor(t)}/${id}` });
+    await notifyRoles(["NATIONAL_SALES", "MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: `${NOUN(t)} refusé par le chef de produit`, body: c.name, link: `${pathFor(t)}/${id}` });
+    await recordAudit({ actorId: user.id, action: "REFUSE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Refus chef de produit — ${c.name}` });
     revalidatePath(`${pathFor(t)}/${id}`);
     revalidatePath(pathFor(t));
     return { ok: true };
@@ -165,11 +175,11 @@ export async function submitProductAnalysis(formData: FormData): Promise<ActionR
   });
   await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
-    title: "Congrès — validation définitive",
+    title: `${NOUN(t)} — validation définitive`,
     body: `${c.name} — analyse chef de produit terminée`,
     link: `${pathFor(t)}/${id}`,
   });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Analyse chef de produit — ${c.name}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Analyse chef de produit — ${c.name}` });
   revalidatePath(`${pathFor(t)}/${id}`);
   return { ok: true };
 }
@@ -194,8 +204,8 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
     const reason = fdStr(formData, "note");
     if (!reason) return { ok: false, error: "Le motif de refus est obligatoire." };
     await updateCongress(t, id, { requestStatus: "REJECTED", rejectionReason: reason, finalById: user.id, finalAt: new Date(), updatedById: user.id });
-    if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: "Demande de congrès refusée (définitif)", body: c.name, link: `${pathFor(t)}/${id}` });
-    await recordAudit({ actorId: user.id, action: "REFUSE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Refus définitif — ${c.name}` });
+    if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: `${NOUN(t)} — refusé (définitif)`, body: c.name, link: `${pathFor(t)}/${id}` });
+    await recordAudit({ actorId: user.id, action: "REFUSE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Refus définitif — ${c.name}` });
     revalidatePath(`${pathFor(t)}/${id}`);
     return { ok: true };
   }
@@ -214,7 +224,7 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
     const decl = await createMedicalInfoDeclaration({
       sourceType: entityFor(t),
       sourceId: id,
-      label: `Congrès — ${c.name}`,
+      label: `${NOUN(t)} — ${c.name}`,
       beneficiary: c.name,
       amount,
       requesterId: c.requesterId ?? user.id,
@@ -225,12 +235,12 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
       status: "VALIDATED",
       updatedById: user.id,
     });
-    await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Validation définitive — ${c.name} (déclaration ${decl.reference})` });
+    await recordAudit({ actorId: user.id, action: "VALIDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Validation définitive — ${c.name} (déclaration ${decl.reference})` });
     revalidatePath("/information-medicale");
   } else {
     // Pas de pharmacien PRIM : ordre de dépense émis directement → Finances.
     const order = await createExpenseOrder({
-      label: `Congrès — ${c.name}`,
+      label: `${NOUN(t)} — ${c.name}`,
       amount,
       category: "EVENEMENT",
       beneficiary: c.name,
@@ -244,12 +254,12 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
       status: "VALIDATED", expenseOrderId: order.id,
       updatedById: user.id,
     });
-    await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Validation définitive — ${c.name} (ordre ${order.reference})` });
+    await recordAudit({ actorId: user.id, action: "VALIDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Validation définitive — ${c.name} (ordre ${order.reference})` });
     revalidatePath("/finances/ordres-de-depense");
     revalidatePath("/finances");
   }
 
-  if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: "Congrès validé — pris en charge", body: c.name, link: `${pathFor(t)}/${id}` });
+  if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: `${NOUN(t)} validé — pris en charge`, body: c.name, link: `${pathFor(t)}/${id}` });
   revalidatePath(`${pathFor(t)}/${id}`);
   return { ok: true };
 }
@@ -269,7 +279,7 @@ export async function updateGrantedBudget(formData: FormData): Promise<ActionRes
   if (!hasGlobalView(user.role)) return { ok: false, error: "Réservé à la Direction." };
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };
-  if (!["APPROVED", "COMPLETED"].includes(c.requestStatus)) return { ok: false, error: "Le budget ne peut être modifié qu'après validation définitive." };
+  if (!["APPROVED", "COMPLETED"].includes(c.requestStatus ?? "")) return { ok: false, error: "Le budget ne peut être modifié qu'après validation définitive." };
   const amount = fdNum(formData, "finalAmount");
   if (amount === null || amount <= 0) return { ok: false, error: "Montant invalide." };
 
@@ -289,7 +299,7 @@ export async function updateGrantedBudget(formData: FormData): Promise<ActionRes
       await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Budget d'un événement modifié", body: `${c.name} — nouveau montant ${amount.toLocaleString("fr-FR")} DZD`, link: "/finances/ordres-de-depense" });
     }
   }
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Congrès", entityType: entityFor(t), entityId: id, field: "finalAmount", newValue: String(amount), summary: `Budget accordé modifié — ${c.name}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, field: "finalAmount", newValue: String(amount), summary: `Budget accordé modifié — ${c.name}` });
   revalidatePath(`${pathFor(t)}/${id}`);
   revalidatePath("/information-medicale");
   revalidatePath("/finances/ordres-de-depense");
@@ -305,9 +315,9 @@ export async function cancelCongressRequest(formData: FormData): Promise<ActionR
   if (!c) return { ok: false, error: "Introuvable." };
   const isOwner = c.requesterId === user.id;
   if (!isOwner && !userCan(user, moduleFor(t), "VALIDATE") && !hasGlobalView(user.role)) return { ok: false, error: "Non autorisé." };
-  if (["APPROVED", "COMPLETED"].includes(c.requestStatus)) return { ok: false, error: "Demande déjà validée." };
+  if (["APPROVED", "COMPLETED"].includes(c.requestStatus ?? "")) return { ok: false, error: "Demande déjà validée." };
   await updateCongress(t, id, { requestStatus: "CANCELLED", updatedById: user.id });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Congrès", entityType: entityFor(t), entityId: id, summary: `Demande annulée — ${c.name}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Demande annulée — ${c.name}` });
   revalidatePath(`${pathFor(t)}/${id}`);
   revalidatePath(pathFor(t));
   return { ok: true };

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Video } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getEventDetail } from "@/lib/queries/events";
 import { PageHeader } from "@/components/shared/page-header";
@@ -10,10 +10,11 @@ import { KpiCard } from "@/components/shared/kpi-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { EVENT_TYPE, EVENT_SCOPE, EVENT_FORMAT, EVENT_STATUS, PARTICIPANT_ROLE } from "@/lib/labels";
+import { EVENT_TYPE, EVENT_SCOPE, EVENT_FORMAT, EVENT_STATUS, PARTICIPANT_ROLE, CONGRESS_REQUEST_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { EditEventButton } from "../event-form";
 import { RegistrationsManager } from "./registrations-manager";
+import { EventFundingPanel } from "./funding-panel";
 import { getEntityMissions } from "@/lib/queries/missions";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
@@ -27,9 +28,17 @@ export default async function EventDetailPage({ params }: { params: { id: string
   if (!e) notFound();
   const canManage = userCan(user, "EVENTS", "UPDATE");
   const canDelete = userCan(user, "EVENTS", "DELETE");
-  const [responsibles, missions] = await Promise.all([
+  // Circuit de prise en charge (financement) — mêmes rôles que pour les congrès.
+  const canMarketing = user.role === "NATIONAL_SALES" || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
+  const canValidate = hasGlobalView(user.role);
+  const canAnalyze = e.productManagerId === user.id || hasGlobalView(user.role);
+  const canSubmit = userCan(user, "EVENTS", "CREATE");
+  const [responsibles, missions, productManagers] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
+    canMarketing
+      ? prisma.user.findMany({ where: { role: "PRODUCT_MANAGER", isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+      : Promise.resolve([] as { id: string; name: string }[]),
   ]);
 
   return (
@@ -87,6 +96,31 @@ export default async function EventDetailPage({ params }: { params: { id: string
               <p className="rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">Faites avancer la validation via « Modifier » : passez le statut à « Attente validation » puis « Validé » (pensez à renseigner le budget).</p>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center gap-2">
+            Demande de prise en charge (financement)
+            {e.requestStatus && <StatusBadge map={CONGRESS_REQUEST_STATUS} value={e.requestStatus} />}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EventFundingPanel
+            data={{
+              id: e.id, requestStatus: e.requestStatus, requesterName: e.requesterName,
+              productManagerName: e.productManagerName, productManagerBudget: e.productManagerBudget, productManagerNotes: e.productManagerNotes,
+              preliminaryByName: e.preliminaryByName, preliminaryAt: e.preliminaryAt, preliminaryNote: e.preliminaryNote,
+              finalByName: e.finalByName, finalAt: e.finalAt, finalNote: e.finalNote, finalAmount: e.finalAmount,
+              estimatedBudget: e.estimatedBudget, rejectionReason: e.rejectionReason, expenseOrder: e.expenseOrder,
+            }}
+            productManagers={productManagers}
+            canSubmit={canSubmit}
+            canMarketing={canMarketing}
+            canAnalyze={canAnalyze}
+            canValidate={canValidate}
+          />
         </CardContent>
       </Card>
 

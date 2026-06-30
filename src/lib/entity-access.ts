@@ -75,6 +75,10 @@ async function isRequestOwner(user: SessionUser, entityType: EntityType, entityI
     const r = await prisma.congressNational.findUnique({ where: { id: entityId }, select: { requesterId: true } });
     return r?.requesterId === user.id;
   }
+  if (entityType === "EVENT") {
+    const r = await prisma.event.findUnique({ where: { id: entityId }, select: { requesterId: true } });
+    return r?.requesterId === user.id;
+  }
   return false;
 }
 
@@ -91,7 +95,7 @@ export async function canAccessEntity(
   // n'a pas le droit UPLOAD du module.
   if (
     (action === "VIEW" || action === "UPLOAD") &&
-    (entityType === "SPONSORING" || entityType === "CONGRESS_INTERNATIONAL" || entityType === "CONGRESS_NATIONAL") &&
+    (entityType === "SPONSORING" || entityType === "CONGRESS_INTERNATIONAL" || entityType === "CONGRESS_NATIONAL" || entityType === "EVENT") &&
     (await isRequestOwner(user, entityType, entityId))
   ) {
     return true;
@@ -109,7 +113,7 @@ export async function canAccessEntity(
   // (congrès / sponsoring), même sans accès au module concerné.
   if (
     action === "VIEW" &&
-    (entityType === "SPONSORING" || entityType === "CONGRESS_INTERNATIONAL" || entityType === "CONGRESS_NATIONAL")
+    (entityType === "SPONSORING" || entityType === "CONGRESS_INTERNATIONAL" || entityType === "CONGRESS_NATIONAL" || entityType === "EVENT")
   ) {
     const isMedManager = hasGlobalView(user.role) || user.role === "MEDICAL_INFO_PHARMACIST" || userCan(user, "MEDICAL_INFO", "VALIDATE");
     if (isMedManager) {

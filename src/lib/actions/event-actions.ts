@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { notifyRoles } from "@/lib/notify";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 const inEnum = <T extends Record<string, string>>(e: T, v: string | null, fallback: T[keyof T]): T[keyof T] =>
@@ -86,6 +87,40 @@ export async function deleteEvent(formData: FormData): Promise<ActionResult> {
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   await prisma.event.delete({ where: { id } });
+  revalidatePath("/events");
+  return { ok: true };
+}
+
+// ──────────────── Demande de prise en charge (circuit de financement) ────────────────
+
+/**
+ * Soumet un événement existant au **circuit de prise en charge**, identique à celui
+ * des congrès : la demande (souvent d'un délégué) part vers le **National Sales**
+ * (approbation préliminaire + désignation du chef de produit) → analyse du chef de
+ * produit → **Direction** (décision définitive + budget accordé) → **information
+ * médicale** (PRIM). Les étapes suivantes sont gérées par `congress-request-actions`
+ * avec `type=EVENT` (mêmes composants UI).
+ */
+export async function submitEventForApproval(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "EVENTS", "CREATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const ev = await prisma.event.findUnique({ where: { id }, select: { id: true, name: true, requestStatus: true, requesterId: true } });
+  if (!ev) return { ok: false, error: "Événement introuvable." };
+  if (ev.requestStatus) return { ok: false, error: "Une demande de prise en charge est déjà en cours pour cet événement." };
+  await prisma.event.update({
+    where: { id },
+    data: { requestStatus: "AWAITING_PRELIMINARY", requesterId: ev.requesterId ?? user.id, status: "AWAITING_VALIDATION" },
+  });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Events", entityType: "EVENT", entityId: id, summary: `Demande de prise en charge — ${ev.name}` });
+  await notifyRoles(["NATIONAL_SALES", "MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], {
+    type: "VALIDATION_REQUIRED",
+    title: "Événement — à attribuer (National Sales)",
+    body: ev.name,
+    link: `/events/${id}`,
+  });
+  revalidatePath(`/events/${id}`);
   revalidatePath("/events");
   return { ok: true };
 }

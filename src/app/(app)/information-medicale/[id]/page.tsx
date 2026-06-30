@@ -43,6 +43,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
     else if (decl.sourceType === "CONGRESS_NATIONAL")
       canOpenSource = userCan(user, "CONGRESS_NATIONAL", "VIEW") &&
         (await prisma.congressNational.count({ where: { id: decl.sourceId, ...scopeCongressNational(user) } })) > 0;
+    else if (decl.sourceType === "EVENT") canOpenSource = userCan(user, "EVENTS", "VIEW");
   }
   const amount = decl.amount != null ? toNumber(decl.amount) : null;
   const pendingCount = decl.requests.filter((r) => r.status === "PENDING").length;

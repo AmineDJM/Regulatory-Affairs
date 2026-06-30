@@ -31,6 +31,7 @@ enum UserRole {
   LOGISTICS_MANAGER
   MEDICAL_PROMOTION_MANAGER
   MEDICAL_DELEGATE
+  NATIONAL_SALES // National Sales : capacités du délégué médical + approbation préliminaire (choix du chef de produit)
   PRODUCT_MANAGER
   BUSINESS_DEVELOPMENT_MANAGER
   FINANCE_BUDGET_MANAGER
@@ -2954,6 +2955,25 @@ model Event {
   responsibleId  String?
   responsible    User?       @relation("EventResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
   participantIds String[]    @default([]) // participants Adventum (users)
+
+  // ─── Demande de prise en charge (workflow identique aux congrès) ───
+  // requestStatus = null → événement organisé directement (sans circuit de financement).
+  // Renseigné quand l'événement est soumis pour prise en charge : National Sales
+  // (préliminaire + chef de produit) → analyse chef de produit → Direction (définitif) → PRIM.
+  requesterId          String?
+  requestStatus        CongressRequestStatus?
+  productManagerId     String?
+  productManagerBudget Decimal?               @db.Decimal(14, 2)
+  productManagerNotes  String?
+  preliminaryById      String?
+  preliminaryAt        DateTime?
+  preliminaryNote      String?
+  finalById            String?
+  finalAt              DateTime?
+  finalNote            String?
+  finalAmount          Decimal?               @db.Decimal(14, 2)
+  rejectionReason      String?
+  expenseOrderId       String?
 
   registrations EventRegistration[]
 

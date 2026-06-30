@@ -46,6 +46,7 @@ export function sourceLink(sourceType: string, sourceId: string): string | null 
     case "SPONSORING": return `/sponsoring/${sourceId}`;
     case "CONGRESS_INTERNATIONAL": return `/congress-international/${sourceId}`;
     case "CONGRESS_NATIONAL": return `/congress-national/${sourceId}`;
+    case "EVENT": return `/events/${sourceId}`;
     default: return null;
   }
 }

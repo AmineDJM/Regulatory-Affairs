@@ -32,9 +32,10 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
 
   // Rôles dans le circuit
   const canDirection = hasGlobalView(user.role) || userCan(user, "SPONSORING", "VALIDATE");
-  // « Direction Marketing » (Manager Promotion Médicale) : attribue le chef de
-  // produit à l'étape préliminaire (la Direction n'y intervient plus).
-  const canMarketing = user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
+  // Étape préliminaire (attribuer le chef de produit) : ouverte au National Sales
+  // (demande émanant d'un délégué) et à la Direction Marketing (Manager Promotion
+  // Médicale). La Direction n'y intervient plus.
+  const canMarketing = user.role === "NATIONAL_SALES" || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
   const isProductManager = req.productManagerId === user.id;
   const isRequester = req.requesterId === user.id;
   // Confidentialité : l'analyse et le budget du chef de produit ne sont JAMAIS

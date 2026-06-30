@@ -28,6 +28,7 @@ export const ROLE_LABELS: Record<string, string> = {
   LOGISTICS_MANAGER: "Responsable Logistique",
   MEDICAL_PROMOTION_MANAGER: "Manager Promotion Médicale",
   MEDICAL_DELEGATE: "Délégué Médical",
+  NATIONAL_SALES: "National Sales",
   PRODUCT_MANAGER: "Chef de produit",
   BUSINESS_DEVELOPMENT_MANAGER: "Manager Business Development",
   FINANCE_BUDGET_MANAGER: "Responsable Finance / Budget",
