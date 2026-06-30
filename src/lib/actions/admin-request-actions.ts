@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { AdminRequestType, AdminRequestStatus, Priority, AdminApprovalStatus, DriverMissionStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
@@ -8,14 +9,31 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
+import { createDirectValidation } from "@/lib/validation";
+import { buildRef, createWithRetry } from "@/lib/refs";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
 
+/** Fenêtre pendant laquelle le demandeur peut encore modifier/supprimer sa demande. */
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
+
+/** Référence robuste (dérivée du maximum réel, pas de `count()+1` fragile). */
 async function nextRequestRef(): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.administrativeRequest.count({ where: { reference: { startsWith: `REQ-${year}-` } } });
-  return `REQ-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.administrativeRequest.findMany({
+    where: { reference: { startsWith: `REQ-${year}-` } },
+    select: { reference: true },
+  });
+  return buildRef("REQ", year, refs.map((r) => r.reference));
+}
+
+/** Le demandeur peut agir tant que la demande est NEW et dans les 15 minutes. */
+function withinRequesterWindow(req: { requesterId: string | null; status: AdminRequestStatus; createdAt: Date; processingStartedAt: Date | null }, userId: string): boolean {
+  if (req.requesterId !== userId) return false;
+  if (req.status !== "NEW") return false;
+  if (req.processingStartedAt) return false;
+  return Date.now() - req.createdAt.getTime() <= EDIT_WINDOW_MS;
 }
 
 /** Type-specific fields are submitted as `f_<name>` and stored in `fields` JSON. */
@@ -253,5 +271,307 @@ export async function addRequestComment(formData: FormData): Promise<ActionResul
     await notifyUser({ userId: other, type: "GENERIC", title: "Nouveau commentaire", body: body.slice(0, 80), link: `/demandes/${requestId}` });
   }
   revalidatePath(`/demandes/${requestId}`);
+  return { ok: true };
+}
+
+// ─────────────────────────── Demande multi-cellules (lot) ───────────────────────────
+
+interface BatchCell {
+  type?: string;
+  title?: string;
+  description?: string;
+  priority?: string;
+  deadline?: string;
+  articleId?: string;
+  articleName?: string;
+  quantity?: string;
+  budget?: string;
+}
+
+const REQ_TYPES: AdminRequestType[] = ["TRAVEL", "MAIL", "SIGNATURE", "PURCHASE", "QUOTE", "PAYMENT", "DRIVER", "GUEST_VISA", "HR_SIMPLE", "OTHER"];
+const PRIORITIES: Priority[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+
+/**
+ * Crée plusieurs demandes en un seul envoi (cellules). Chaque cellule devient une
+ * demande administrative à part entière, partageant un même `batchId` afin de
+ * rester regroupées — mais pilotée indépendamment par l'assistante (statut,
+ * validations). Idéal quand un employé a plusieurs besoins à formuler d'un coup.
+ */
+export async function createRequestBatch(
+  _prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "ADMIN_REQUESTS", "CREATE")) return DENIED;
+
+  let cells: BatchCell[];
+  try {
+    cells = JSON.parse(fdStr(formData, "cells") ?? "[]");
+  } catch {
+    return { ok: false, error: "Format des cellules invalide." };
+  }
+  const clean = (Array.isArray(cells) ? cells : []).filter((c) => c && c.title && String(c.title).trim() && c.type);
+  if (clean.length === 0) return { ok: false, error: "Ajoutez au moins une cellule (type + objet)." };
+  if (clean.length > 25) return { ok: false, error: "25 cellules maximum par envoi." };
+
+  const batchId = randomUUID();
+  const concernedUserId = fdStr(formData, "concernedUserId");
+  const assignedToId = fdStr(formData, "assignedToId");
+  const departmentId = fdStr(formData, "departmentId");
+  const createdIds: string[] = [];
+
+  for (const c of clean) {
+    const type = (REQ_TYPES.includes(c.type as AdminRequestType) ? c.type : "OTHER") as AdminRequestType;
+    const priority = (c.priority && PRIORITIES.includes(c.priority as Priority) ? c.priority : "MEDIUM") as Priority;
+    const fields: Record<string, string> = {};
+    if (c.articleName) fields.article = String(c.articleName);
+    if (c.articleId) fields.articleId = String(c.articleId);
+    if (c.quantity) fields.quantite = String(c.quantity);
+    if (c.budget) fields.budget = String(c.budget);
+    const deadline = c.deadline ? new Date(c.deadline) : null;
+
+    const created = await createWithRetry(async () =>
+      prisma.administrativeRequest.create({
+        data: {
+          reference: await nextRequestRef(),
+          title: String(c.title).trim(),
+          type,
+          description: c.description ? String(c.description).trim() : null,
+          priority,
+          deadline: deadline && !Number.isNaN(deadline.getTime()) ? deadline : null,
+          concernedUserId,
+          assignedToId,
+          departmentId,
+          fields,
+          batchId,
+          requesterId: user.id,
+          createdById: user.id,
+        },
+        select: { id: true },
+      }),
+    );
+    createdIds.push(created.id);
+  }
+
+  if (assignedToId && assignedToId !== user.id) {
+    await notifyUser({ userId: assignedToId, type: "ASSIGNMENT", title: "Nouvelles demandes (lot)", body: `${createdIds.length} demande(s) à traiter`, link: `/demandes/${createdIds[0]}` });
+  }
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: createdIds[0], summary: `Lot de ${createdIds.length} demande(s) créé` });
+  revalidatePath("/demandes");
+  revalidatePath("/demandes/assistant");
+  return { ok: true, id: createdIds[0] };
+}
+
+// ─────────────────────────── Fenêtre demandeur (15 min) ───────────────────────────
+
+/** Le demandeur modifie sa propre demande dans les 15 minutes (avant traitement). */
+export async function editOwnRequest(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { requesterId: true, status: true, createdAt: true, processingStartedAt: true, fields: true, deletedAt: true } });
+  if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
+  if (!withinRequesterWindow(req, user.id)) return { ok: false, error: "Le délai de modification (15 min) est dépassé." };
+
+  const title = fdStr(formData, "title");
+  if (!title) return { ok: false, error: "Le titre est obligatoire." };
+  const existingFields = (req.fields as Record<string, string> | null) ?? {};
+  const collected = collectFields(formData);
+  const fields = Object.keys(collected).length > 0 ? { ...existingFields, ...collected } : existingFields;
+
+  await prisma.administrativeRequest.update({
+    where: { id },
+    data: {
+      title,
+      description: fdStr(formData, "description"),
+      priority: (fdStr(formData, "priority") as Priority) ?? "MEDIUM",
+      deadline: fdDate(formData, "deadline"),
+      fields,
+    },
+  });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: "Demande modifiée par le demandeur (≤ 15 min)" });
+  revalidatePath(`/demandes/${id}`);
+  revalidatePath("/demandes");
+  return { ok: true };
+}
+
+/** Le demandeur supprime sa propre demande dans les 15 minutes (soft delete tracé). */
+export async function deleteOwnRequest(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { requesterId: true, status: true, createdAt: true, processingStartedAt: true, reference: true, deletedAt: true } });
+  if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
+  if (!withinRequesterWindow(req, user.id)) return { ok: false, error: "Le délai de suppression (15 min) est dépassé." };
+
+  await prisma.administrativeRequest.update({
+    where: { id },
+    data: { deletedAt: new Date(), deletedById: user.id, deletionReason: "Supprimée par le demandeur (≤ 15 min)", status: "CANCELLED", cancelledAt: new Date() },
+  });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Demande ${req.reference} supprimée par le demandeur` });
+  revalidatePath("/demandes");
+  revalidatePath("/demandes/assistant");
+  return { ok: true };
+}
+
+// ─────────────────────────── Suppression traçable (assistante) ───────────────────────────
+
+/** L'assistante supprime une ou plusieurs demandes — soft delete + motif obligatoire. */
+export async function deleteRequests(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!(hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE"))) return DENIED;
+  const ids = (fdStr(formData, "ids") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (ids.length === 0) return { ok: false, error: "Aucune demande sélectionnée." };
+  const reason = fdStr(formData, "reason");
+  if (!reason) return { ok: false, error: "Le motif de suppression est obligatoire (traçabilité)." };
+
+  const targets = await prisma.administrativeRequest.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, reference: true } });
+  if (targets.length === 0) return { ok: false, error: "Demande(s) introuvable(s)." };
+
+  await prisma.administrativeRequest.updateMany({
+    where: { id: { in: targets.map((t) => t.id) } },
+    data: { deletedAt: new Date(), deletedById: user.id, deletionReason: reason },
+  });
+  for (const t of targets) {
+    await recordAudit({ actorId: user.id, action: "DELETE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: t.id, newValue: reason, summary: `Demande ${t.reference} supprimée — motif : ${reason}` });
+  }
+  revalidatePath("/demandes");
+  revalidatePath("/demandes/assistant");
+  return { ok: true };
+}
+
+/** Restaure une demande supprimée (assistante / super admin). */
+export async function restoreRequest(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!(hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE"))) return DENIED;
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { reference: true } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  await prisma.administrativeRequest.update({ where: { id }, data: { deletedAt: null, deletedById: null, deletionReason: null, status: "NEW", cancelledAt: null } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Demande ${req.reference} restaurée` });
+  revalidatePath("/demandes");
+  revalidatePath("/demandes/assistant");
+  return { ok: true };
+}
+
+// ─────────────────────────── Flux de traitement (assistante) ───────────────────────────
+
+/** « Commencer le traitement » : passe la demande en cours et fige la fenêtre demandeur. */
+export async function startRequestProcessing(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, status: true, reference: true } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (!isManager(user, req.assignedToId)) return DENIED;
+
+  await prisma.administrativeRequest.update({ where: { id }, data: { status: "IN_PROGRESS", processingStartedAt: new Date() } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, field: "status", newValue: "IN_PROGRESS", summary: "Traitement démarré" });
+  revalidatePath(`/demandes/${id}`);
+  revalidatePath("/demandes/assistant");
+  return { ok: true };
+}
+
+/**
+ * « Demande de validation des Finances » (flux achat). Crée une demande de
+ * validation dans le bureau central « Demandes de validations » à destination de
+ * l'équipe Finances, rattachée à la demande. Va-et-vient possible : en cas de refus
+ * ou de modification demandée, l'assistante peut renvoyer une nouvelle validation.
+ */
+export async function requestFinanceValidation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, reference: true, title: true } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (!isManager(user, req.assignedToId)) return DENIED;
+
+  // Validateurs Finances : choisis dans le formulaire, sinon tous les responsables Finances.
+  let validatorIds = [fdStr(formData, "validatorId"), fdStr(formData, "validator2Id")].filter((v): v is string => Boolean(v));
+  if (validatorIds.length === 0) {
+    const finance = await prisma.user.findMany({ where: { isActive: true, role: "FINANCE_BUDGET_MANAGER" }, select: { id: true } });
+    validatorIds = finance.map((f) => f.id);
+  }
+  if (validatorIds.length === 0) return { ok: false, error: "Aucun responsable Finances disponible. Choisissez un validateur." };
+
+  const amount = fdNum(formData, "amount");
+  const note = fdStr(formData, "comment");
+  const res = await createDirectValidation({
+    requesterId: user.id,
+    title: `Achat — ${req.reference} : ${req.title}`,
+    description: [note, amount ? `Montant estimé : ${amount.toLocaleString("fr-FR")} DZD` : null].filter(Boolean).join(" — ") || null,
+    module: "Finances",
+    link: `/demandes/${id}`,
+    validatorIds,
+    entityType: "ADMIN_REQUEST",
+    entityId: id,
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+
+  await prisma.administrativeRequest.update({ where: { id }, data: { status: "AWAITING_VALIDATION" } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Validation Finances demandée (${res.reference})` });
+  revalidatePath(`/demandes/${id}`);
+  revalidatePath("/validations");
+  return { ok: true };
+}
+
+/**
+ * « Demander une validation » (flux hors achat). L'assistante estime qui doit
+ * valider (opérations, direction, autre) — ou personne. Routé vers le bureau
+ * central « Demandes de validations ».
+ */
+export async function requestInternalValidation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, reference: true, title: true } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (!isManager(user, req.assignedToId)) return DENIED;
+
+  const validatorIds = [fdStr(formData, "validatorId"), fdStr(formData, "validator2Id")].filter((v): v is string => Boolean(v));
+  if (validatorIds.length === 0) return { ok: false, error: "Choisissez au moins un validateur." };
+
+  const res = await createDirectValidation({
+    requesterId: user.id,
+    title: `${req.reference} : ${req.title}`,
+    description: fdStr(formData, "comment"),
+    module: "Bureau du secrétariat",
+    link: `/demandes/${id}`,
+    validatorIds,
+    entityType: "ADMIN_REQUEST",
+    entityId: id,
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+
+  await prisma.administrativeRequest.update({ where: { id }, data: { status: "AWAITING_VALIDATION" } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Validation interne demandée (${res.reference})` });
+  revalidatePath(`/demandes/${id}`);
+  revalidatePath("/validations");
+  return { ok: true };
+}
+
+/**
+ * « Fin de la demande ». Pour un achat, exige la facture finale (document de
+ * catégorie INVOICE) avant de clôturer.
+ */
+export async function finishRequest(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, type: true, reference: true } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (!isManager(user, req.assignedToId)) return DENIED;
+
+  if (req.type === "PURCHASE") {
+    const invoice = await prisma.document.count({ where: { entityType: "ADMIN_REQUEST", entityId: id, category: "INVOICE" } });
+    if (invoice === 0) return { ok: false, error: "Pour un achat, uploadez d'abord la facture finale (catégorie « Facture »)." };
+  }
+
+  await prisma.administrativeRequest.update({ where: { id }, data: { status: "DONE", completedAt: new Date() } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, field: "status", newValue: "DONE", summary: "Fin de la demande" });
+  revalidatePath(`/demandes/${id}`);
+  revalidatePath("/demandes");
+  revalidatePath("/demandes/assistant");
   return { ok: true };
 }

@@ -391,8 +391,9 @@ export function scopeMedicalInfo(user: SessionUser): Prisma.MedicalInfoDeclarati
 export function scopeAdminRequests(user: SessionUser): Prisma.AdministrativeRequestWhereInput {
   const m = user.access.modules.get("ADMIN_REQUESTS");
   if (!m) return { id: "__none__" };
-  if (m.scope === "ALL") return {};
-  return { OR: [{ requesterId: user.id }, { concernedUserId: user.id }, { assignedToId: user.id }, { validatorId: user.id }] };
+  // Les demandes supprimées (soft delete traçable) sont masquées des vues normales.
+  if (m.scope === "ALL") return { deletedAt: null };
+  return { deletedAt: null, OR: [{ requesterId: user.id }, { concernedUserId: user.id }, { assignedToId: user.id }, { validatorId: user.id }] };
 }
 
 /** Matériel promotionnel : scope ALL voit tout ; sinon l'initiateur Marketing et

@@ -52,6 +52,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   EVENT: "EVENTS",
   // Polymorphe : l'accès réel est résolu spécifiquement (assigné ou entité parente).
   MISSION_ASSIGNMENT: "WORKSPACE",
+  OFFICE_SUPPLY_ARTICLE: "ADMIN_REQUESTS",
 };
 
 /**

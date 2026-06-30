@@ -358,6 +358,7 @@ enum EntityType {
   HR_REQUEST
   EVENT
   MISSION_ASSIGNMENT
+  OFFICE_SUPPLY_ARTICLE
 }
 
 enum DocumentCategory {
@@ -2215,8 +2216,16 @@ model AdministrativeRequest {
   linkedEntityType EntityType?
   linkedEntityId   String?
   blockedReason    String?
+  processingStartedAt DateTime? // « Commencer le traitement » (assistante)
   completedAt      DateTime?
   cancelledAt      DateTime?
+  // Regroupement multi-cellules : plusieurs demandes soumises en un seul envoi
+  // partagent le même batchId (chaque cellule reste pilotée indépendamment).
+  batchId          String?
+  // Suppression traçable (soft delete) : l'enregistrement reste en base.
+  deletedAt        DateTime?
+  deletedById      String?
+  deletionReason   String?
   createdById      String?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
@@ -2230,6 +2239,28 @@ model AdministrativeRequest {
   @@index([requesterId])
   @@index([priority])
   @@index([deadline])
+  @@index([batchId])
+  @@index([deletedAt])
+}
+
+/// Catalogue d'articles de fourniture de bureau (Achats). Maintenu par
+/// l'assistante de direction ; alimente le menu déroulant des demandes d'achat.
+model OfficeSupplyArticle {
+  id             String   @id @default(cuid())
+  name           String
+  category       String? // papeterie, informatique, mobilier, consommable…
+  unit           String? // pièce, boîte, paquet, rame…
+  reference      String? // code interne / réf. fournisseur
+  estimatedPrice Decimal? @db.Decimal(12, 2) // prix indicatif (DZD)
+  supplierHint   String? // fournisseur habituel (indicatif)
+  active         Boolean  @default(true)
+  notes          String?
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([active])
+  @@index([category])
 }
 
 /// Demande de validation rattachée à une demande administrative.

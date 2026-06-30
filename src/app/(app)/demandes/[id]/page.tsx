@@ -14,9 +14,10 @@ import { CommentThread, type CommentItem } from "@/components/shared/comment-thr
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, ADMIN_APPROVAL_STATUS, DRIVER_MISSION_STATUS, PRIORITY, AUDIT_ACTION, PROMO_MATERIAL_STATUS } from "@/lib/labels";
-import { formatDate, formatDateTime, formatCurrency, toNumber } from "@/lib/utils";
+import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, ADMIN_APPROVAL_STATUS, DRIVER_MISSION_STATUS, PRIORITY, AUDIT_ACTION, PROMO_MATERIAL_STATUS, VALIDATION_STATUS } from "@/lib/labels";
+import { formatDate, formatDateTime, formatCurrency, toNumber, cn } from "@/lib/utils";
 import { RequestActions } from "./request-actions";
+import { RequesterWindow } from "./requester-window";
 import { ApprovalButtons } from "../approval-buttons";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { PromoActionPanel } from "../../promo-material/[id]/promo-panels";
@@ -44,11 +45,14 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   const canValidate = userCan(user, "ADMIN_REQUESTS", "VALIDATE") || hasGlobalView(user.role);
   const canUpload = userCan(user, "ADMIN_REQUESTS", "UPLOAD");
 
-  const [documents, comments, history, users] = await Promise.all([
+  const [documents, comments, history, users, financeUsers, linkedValidations, siblings] = await Promise.all([
     prisma.document.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
     prisma.comment.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, include: { author: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
     prisma.auditLog.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, orderBy: { createdAt: "desc" }, take: 30, include: { actor: { select: { name: true } } } }),
     canManage ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([] as { id: string; name: string }[]),
+    canManage ? prisma.user.findMany({ where: { isActive: true, role: "FINANCE_BUDGET_MANAGER" }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([] as { id: string; name: string }[]),
+    prisma.validationRequest.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, include: { steps: { include: { validator: { select: { name: true } } }, orderBy: { order: "asc" } } }, orderBy: { createdAt: "desc" } }),
+    req.batchId ? prisma.administrativeRequest.findMany({ where: { batchId: req.batchId, deletedAt: null }, select: { id: true, reference: true, title: true, status: true, type: true }, orderBy: { createdAt: "asc" } }) : Promise.resolve([] as { id: string; reference: string; title: string; status: string; type: string }[]),
   ]);
 
   // Dossier Matériel promotionnel lié : l'assistante le pilote ici (sans accès au module).
@@ -108,10 +112,32 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             </CardContent>
           </Card>
 
+          {user.id === req.requesterId && req.status === "NEW" && !req.processingStartedAt && (
+            <RequesterWindow
+              requestId={req.id}
+              createdAt={req.createdAt.toISOString()}
+              values={{ title: req.title, description: req.description, priority: req.priority, deadline: req.deadline ? req.deadline.toISOString().slice(0, 10) : null }}
+            />
+          )}
+
+          {siblings.length > 1 && (
+            <Card>
+              <CardHeader><CardTitle>Demande groupée ({siblings.length} cellules)</CardTitle></CardHeader>
+              <CardContent className="space-y-1.5 text-sm">
+                {siblings.map((s) => (
+                  <Link key={s.id} href={`/demandes/${s.id}`} className={cn("flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-secondary", s.id === req.id && "bg-secondary font-medium")}>
+                    <span className="min-w-0 truncate"><span className="font-mono text-xs text-muted-foreground">{s.reference}</span> — {s.title}</span>
+                    <StatusBadge map={ADMIN_REQUEST_STATUS} value={s.status} dot={false} />
+                  </Link>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
           {canManage && (
             <Card>
-              <CardHeader><CardTitle>Actions</CardTitle></CardHeader>
-              <CardContent><RequestActions requestId={req.id} status={req.status} users={users} canManage={canManage} /></CardContent>
+              <CardHeader><CardTitle>Traitement</CardTitle></CardHeader>
+              <CardContent><RequestActions requestId={req.id} status={req.status} type={req.type} users={users} financeUsers={financeUsers} canManage={canManage} /></CardContent>
             </Card>
           )}
 
@@ -184,6 +210,32 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
               ))}
             </CardContent>
           </Card>
+
+          {linkedValidations.length > 0 && (
+            <Card>
+              <CardHeader className="flex-row items-center justify-between">
+                <CardTitle>Validations (bureau central)</CardTitle>
+                <Badge tone="neutral">{linkedValidations.length}</Badge>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                {linkedValidations.map((v) => (
+                  <div key={v.id} className="space-y-1 border-b border-border pb-2 last:border-0 last:pb-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-xs text-muted-foreground">{v.reference}</span>
+                      <StatusBadge map={VALIDATION_STATUS} value={v.status} dot={false} />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {v.module} · {v.steps.map((s) => s.validator?.name ?? "—").join(", ")}
+                    </p>
+                    {v.steps.some((s) => s.reason) && (
+                      <p className="text-xs">{v.steps.filter((s) => s.reason).map((s) => s.reason).join(" — ")}</p>
+                    )}
+                  </div>
+                ))}
+                <Link href="/validations" className="text-xs text-primary hover:underline">Ouvrir le bureau des validations →</Link>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader><CardTitle>Missions chauffeur</CardTitle></CardHeader>

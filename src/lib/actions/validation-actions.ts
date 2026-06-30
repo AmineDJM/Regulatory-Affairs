@@ -218,6 +218,17 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
     actorId: user.id, action: decision === "REJECTED" ? "REFUSE" : "VALIDATE", module: "Validations",
     entityType: "VALIDATION_REQUEST", entityId: req.id, field: "decision", newValue: decision, summary: `${req.reference} → ${decision}`,
   });
+
+  // Reflet sur la demande administrative liée : une fois la validation finalisée,
+  // la demande repasse « en cours » pour que l'assistante poursuive (ou retravaille
+  // en cas de refus / modification demandée — le va-et-vient du flux achat).
+  if (finalized && req.entityType === "ADMIN_REQUEST" && req.entityId) {
+    await prisma.administrativeRequest.updateMany({ where: { id: req.entityId, deletedAt: null }, data: { status: "IN_PROGRESS" } });
+    revalidatePath(`/demandes/${req.entityId}`);
+    revalidatePath("/demandes");
+    revalidatePath("/demandes/assistant");
+  }
+
   revalidatePath("/validations");
   revalidatePath("/admin/validations");
   revalidatePath("/mon-travail");

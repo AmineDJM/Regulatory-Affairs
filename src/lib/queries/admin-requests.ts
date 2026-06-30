@@ -48,6 +48,22 @@ export async function getAssistantData(user: SessionUser) {
   return { requests, open, missions, stats };
 }
 
+/** Corbeille : demandes supprimées (soft delete) — réservé aux gestionnaires. */
+export async function getDeletedRequests(user: SessionUser) {
+  if (!(hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE"))) return [];
+  const rows = await prisma.administrativeRequest.findMany({
+    where: { deletedAt: { not: null } },
+    include: REQ_INCLUDE,
+    orderBy: { deletedAt: "desc" },
+    take: 200,
+  });
+  // Résolution du nom de l'auteur de la suppression (pas de relation dédiée).
+  const actorIds = [...new Set(rows.map((r) => r.deletedById).filter((v): v is string => Boolean(v)))];
+  const actors = actorIds.length ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } }) : [];
+  const nameById = new Map(actors.map((a) => [a.id, a.name]));
+  return rows.map((r) => ({ ...r, deletedByName: r.deletedById ? nameById.get(r.deletedById) ?? null : null }));
+}
+
 export async function getApprovals(user: SessionUser) {
   const manager = hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "VALIDATE");
   const where: Prisma.AdminApprovalWhereInput = manager ? { status: "PENDING" } : { status: "PENDING", validatorId: user.id };

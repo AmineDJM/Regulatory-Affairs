@@ -14,7 +14,7 @@ import { PRIORITY } from "@/lib/labels";
 
 type Option = { id: string; name: string };
 
-export function NewRequestButton({ users, departments }: { users: Option[]; departments: Option[] }) {
+export function NewRequestButton({ users, departments, articles = [] }: { users: Option[]; departments: Option[]; articles?: Option[] }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [type, setType] = React.useState<string | null>(null);
@@ -63,6 +63,17 @@ export function NewRequestButton({ users, departments }: { users: Option[]; depa
 
               {typeFields.map((f) => {
                 const name = `f_${f.name}`;
+                // Achat : l'article se choisit dans le catalogue (menu déroulant) si disponible.
+                if (type === "PURCHASE" && f.name === "article" && articles.length > 0) {
+                  return (
+                    <FieldWrap key={f.name} full label={f.label}>
+                      <Select id={name} name={name} defaultValue="">
+                        <option value="">— Choisir un article (ou saisir en description)</option>
+                        {articles.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
+                      </Select>
+                    </FieldWrap>
+                  );
+                }
                 return (
                   <FieldWrap key={f.name} full={f.full || f.type === "textarea"} label={f.label}>
                     {f.type === "textarea" ? (

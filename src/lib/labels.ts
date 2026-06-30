@@ -93,6 +93,31 @@ export const DOSAGE_UNIT: Record<string, string> = {
   MMOL: "mmol",
 };
 
+/** Catalogue Achats : catégories d'articles de fourniture de bureau. */
+export const SUPPLY_CATEGORY: Record<string, string> = {
+  PAPETERIE: "Papeterie",
+  INFORMATIQUE: "Informatique & bureautique",
+  MOBILIER: "Mobilier",
+  CONSOMMABLE: "Consommables (encre, papier…)",
+  CUISINE: "Cuisine & café",
+  ENTRETIEN: "Entretien & hygiène",
+  ELECTRIQUE: "Électrique & accessoires",
+  AUTRE: "Autre",
+};
+
+/** Catalogue Achats : unités de conditionnement. */
+export const SUPPLY_UNIT: Record<string, string> = {
+  PIECE: "Pièce",
+  BOITE: "Boîte",
+  PAQUET: "Paquet",
+  RAME: "Rame",
+  CARTON: "Carton",
+  LOT: "Lot",
+  ROULEAU: "Rouleau",
+  LITRE: "Litre",
+  KG: "Kg",
+};
+
 export const PRODUCT_TYPE: Record<string, string> = {
   IMPORTED: "Importé",
   LOCALLY_MANUFACTURED: "Fabriqué localement",

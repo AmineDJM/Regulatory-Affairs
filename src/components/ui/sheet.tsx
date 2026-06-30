@@ -11,7 +11,7 @@ interface SheetProps {
   description?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  width?: "md" | "lg";
+  width?: "md" | "lg" | "xl";
 }
 
 /** Lightweight right-side slide-over panel used for create/edit forms. */
@@ -38,7 +38,7 @@ export function Sheet({ open, onClose, title, description, children, footer, wid
       <div
         className={cn(
           "absolute right-0 top-0 flex h-full w-full flex-col bg-card shadow-2xl animate-slide-in",
-          width === "lg" ? "max-w-2xl" : "max-w-lg",
+          width === "xl" ? "max-w-4xl" : width === "lg" ? "max-w-2xl" : "max-w-lg",
         )}
       >
         <div className="flex items-start justify-between border-b border-border px-5 py-4">
