@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, TrendingUp, TrendingDown, Target } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Target, Radar } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { getMarketOverview } from "@/lib/market/overview";
 import { PageHeader } from "@/components/shared/page-header";
@@ -32,6 +32,9 @@ export default async function MarketOverviewPage() {
       >
         <Link href="/business-development/marche/opportunites">
           <Button variant="outline"><Target className="h-4 w-4" /> Opportunités stratégiques</Button>
+        </Link>
+        <Link href="/business-development/marche/radar">
+          <Button variant="outline"><Radar className="h-4 w-4" /> Radar</Button>
         </Link>
       </PageHeader>
 
