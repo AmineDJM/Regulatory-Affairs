@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { getAdoptionScores, type AdoptionScore } from "./adoption";
+import { getAdoptionScores, captureAdoptionSnapshots, getUserScoreHistory, type AdoptionScore } from "./adoption";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -88,5 +88,47 @@ suite("Score d'adoption — robustesse au gaming", () => {
     }
     expect(average).toBeGreaterThanOrEqual(0);
     expect(average).toBeLessThanOrEqual(100);
+  });
+});
+
+const HTAG = "__adopthist__";
+const mkScore = (userId: string, score: number): AdoptionScore => ({
+  userId, name: "x", email: "x", role: "VIEWER", isActive: true,
+  score, label: "", tone: "neutral", activeDays: 0, lastSeen: null, trend: 0, scoreTrend: 0, components: [],
+});
+
+suite("Score d'adoption — historique stocké (monte ET descend)", () => {
+  let uid = "";
+  const dayUtc = (back: number) => { const t = new Date(); return new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate() - back)); };
+
+  beforeAll(async () => {
+    const u = await prisma.user.create({ data: { name: `${HTAG}u`, email: `${HTAG}u@t.dz`, role: "VIEWER", passwordHash: "x" } });
+    uid = u.id;
+  });
+  afterAll(async () => {
+    await prisma.adoptionSnapshot.deleteMany({ where: { userId: uid } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: HTAG } } }).catch(() => {});
+  });
+
+  it("capture idempotente : un seul instantané par jour, mis à jour", async () => {
+    await captureAdoptionSnapshots([mkScore(uid, 40)]);
+    await captureAdoptionSnapshots([mkScore(uid, 55)]); // même jour → upsert
+    const today = dayUtc(0);
+    const rows = await prisma.adoptionSnapshot.findMany({ where: { userId: uid, day: today } });
+    expect(rows.length).toBe(1);
+    expect(rows[0].score).toBe(55);
+  });
+
+  it("l'historique reflète une BAISSE puis une HAUSSE", async () => {
+    // Jours antérieurs : 60 (J-2) → 30 (J-1) → 55 (aujourd'hui, déjà capturé).
+    await prisma.adoptionSnapshot.create({ data: { userId: uid, day: dayUtc(2), score: 60, activeDays: 0 } });
+    await prisma.adoptionSnapshot.create({ data: { userId: uid, day: dayUtc(1), score: 30, activeDays: 0 } });
+    const hist = await getUserScoreHistory(uid, 30);
+    const vals = hist.map((h) => h.value);
+    expect(vals).toEqual([60, 30, 55]); // ordonné par jour croissant
+    const hasDrop = vals.some((v, i) => i > 0 && v < vals[i - 1]);
+    const hasRise = vals.some((v, i) => i > 0 && v > vals[i - 1]);
+    expect(hasDrop).toBe(true);
+    expect(hasRise).toBe(true);
   });
 });

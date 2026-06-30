@@ -56,6 +56,12 @@ export function AdoptionTable({ scores }: { scores: AdoptionScore[] }) {
                 </div>
               </div>
               <span className={cn("w-10 shrink-0 text-right text-lg font-bold tabular-nums", TONE_TEXT[s.tone])}>{s.score}</span>
+              {/* Évolution du score (vs semaine précédente) — monte ET descend */}
+              <span className="hidden w-12 shrink-0 items-center justify-center gap-0.5 text-xs font-medium tabular-nums sm:flex" title="Évolution du score sur 7 jours">
+                {s.scoreTrend > 0 ? <span className="flex items-center gap-0.5 text-success"><TrendingUp className="h-3.5 w-3.5" />+{s.scoreTrend}</span>
+                  : s.scoreTrend < 0 ? <span className="flex items-center gap-0.5 text-destructive"><TrendingDown className="h-3.5 w-3.5" />{s.scoreTrend}</span>
+                  : <span className="flex items-center gap-0.5 text-muted-foreground"><Minus className="h-3.5 w-3.5" /></span>}
+              </span>
               <Badge tone={badgeTone[s.tone]} dot={false} className="hidden w-24 justify-center lg:flex">{s.label}</Badge>
               {expanded ? <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />}
             </button>

@@ -2,10 +2,11 @@ import { redirect } from "next/navigation";
 import { Gauge, Trophy, ShieldAlert, Info } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { getAdoptionScores, getAdoptionSettings } from "@/lib/adoption";
+import { getAdoptionScores, getAdoptionSettings, getAdoptionAverageHistory, captureAdoptionSnapshots } from "@/lib/adoption";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { ADMIN_TABS } from "@/lib/labels";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { TrendChart } from "@/components/dashboard/charts";
 import { AdoptionTable } from "./adoption-table";
 import { AdoptionSettingsForm, ResetActivityTimeButton } from "./adoption-settings";
 
@@ -17,6 +18,9 @@ export default async function AdoptionPage() {
   if (admin.role !== "SUPER_ADMIN") redirect("/admin");
 
   const [{ scores, average, windowDays }, settings] = await Promise.all([getAdoptionScores(), getAdoptionSettings()]);
+  // Historise l'instantané du jour (un par utilisateur) puis lit l'évolution moyenne.
+  await captureAdoptionSnapshots(scores);
+  const history = await getAdoptionAverageHistory(30);
   const active = scores.filter((s) => s.isActive);
   const champions = active.filter((s) => s.score >= 80).length;
   const atRisk = active.filter((s) => s.score < 20).length;
@@ -68,6 +72,24 @@ export default async function AdoptionPage() {
             <p className="mb-2 text-xs text-muted-foreground">Le comptage du temps a changé : il ne retient désormais que le temps réellement au premier plan. Les anciennes durées (imprécises) peuvent être remises à zéro pour repartir proprement — les relevés eux-mêmes (appareil, géoloc, page) sont conservés.</p>
             <ResetActivityTimeButton />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Évolution du score moyen</CardTitle>
+          <CardDescription>
+            Historique quotidien stocké en backend (30 jours). Le score <strong>monte et descend</strong> selon l'usage réel sur la fenêtre glissante.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {history.length > 1 ? (
+            <TrendChart data={history} color="#2563eb" />
+          ) : (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              L'historique se construit jour après jour. Revenez demain pour voir la première variation — un point est enregistré à chaque journée d'utilisation.
+            </p>
+          )}
         </CardContent>
       </Card>
 

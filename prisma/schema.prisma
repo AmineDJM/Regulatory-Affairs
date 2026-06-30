@@ -605,6 +605,7 @@ model User {
   rowGrants    RowGrant[]
   sessions     UserSession[]
   activityLogs ActivityLog[]
+  adoptionSnapshots AdoptionSnapshot[]
 
   // RH & espace de travail
   employee         Employee?       @relation("UserEmployee")
@@ -3007,6 +3008,25 @@ model AdoptionSetting {
   tgtModules     Int @default(0) // modules utilisés pour 100 % d'étendue (0 = auto par rôle)
   updatedAt    DateTime @updatedAt
   updatedById  String?
+}
+
+/// Historique quotidien du score d'adoption (un instantané par utilisateur et par
+/// jour). Persisté en backend pour rendre l'évolution **visible** : le score monte
+/// ET descend selon l'usage réel sur la fenêtre glissante de 30 jours. Sert aux
+/// graphiques d'évolution (moyenne d'équipe + courbe individuelle) et au calcul de
+/// la tendance (delta vs jours précédents). Calculé sur données réelles, jamais simulé.
+model AdoptionSnapshot {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day        DateTime @db.Date // un instantané par jour
+  score      Int
+  activeDays Int      @default(0)
+  components Json? // détail des sous-scores (pour l'historique fin)
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, day])
+  @@index([day])
 }
 
 /// Fichiers des **documents** (modèle Document, hors Drive) stockés de façon

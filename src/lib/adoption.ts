@@ -21,6 +21,7 @@
  */
 import { prisma } from "./prisma";
 import { PERMISSIONS } from "./rbac";
+import { Prisma } from "@prisma/client";
 import type { UserRole } from "@prisma/client";
 
 const WINDOW_DAYS = 30;
@@ -51,6 +52,8 @@ export interface AdoptionScore {
   lastSeen: Date | null;
   /** Évolution des jours actifs vs la période précédente (+/–). */
   trend: number;
+  /** Évolution du score vs l'instantané le plus ancien de la dernière semaine (+/–). */
+  scoreTrend: number;
   components: AdoptionComponent[];
 }
 
@@ -179,7 +182,7 @@ function buildScore(u: ScoredUser, m: UserMetrics, settings: AdoptionSettings): 
 
   return {
     userId: u.id, name: u.name, email: u.email, role: u.role, isActive: u.isActive,
-    score, label, tone, activeDays: m.activeDays, lastSeen: m.lastSeen, trend: m.activeDays - m.prevDays, components: comps,
+    score, label, tone, activeDays: m.activeDays, lastSeen: m.lastSeen, trend: m.activeDays - m.prevDays, scoreTrend: 0, components: comps,
   };
 }
 
@@ -284,10 +287,84 @@ export async function getAdoptionScores(): Promise<AdoptionResult> {
     prevDays: prevDays.get(u.id) ?? 0,
   }, settings));
 
+  // Tendance du score : delta vs l'instantané le plus ancien de la dernière semaine.
+  try {
+    const trendSince = dayStart(new Date(Date.now() - 8 * 86400000));
+    const snaps = await prisma.adoptionSnapshot.findMany({
+      where: { day: { gte: trendSince } },
+      select: { userId: true, score: true },
+      orderBy: { day: "asc" },
+    });
+    const earliest = new Map<string, number>();
+    for (const s of snaps) if (!earliest.has(s.userId)) earliest.set(s.userId, s.score);
+    for (const s of scores) if (earliest.has(s.userId)) s.scoreTrend = s.score - (earliest.get(s.userId) ?? s.score);
+  } catch { /* historique indisponible → tendance neutre */ }
+
   scores.sort((a, b) => b.score - a.score);
   const active = scores.filter((s) => s.isActive);
   const average = active.length ? Math.round(active.reduce((s, x) => s + x.score, 0) / active.length) : 0;
   return { scores, average, windowDays: WINDOW_DAYS };
+}
+
+// ───────────────────────── Historique (snapshots quotidiens) ─────────────────────────
+
+/** Date au jour (minuit UTC) pour la colonne `day` (un instantané par jour). */
+function dayStart(d: Date = new Date()): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/**
+ * Persiste l'instantané du jour pour chaque score fourni (un par utilisateur et par
+ * jour, idempotent). Rend l'évolution **stockée en backend** et donc visible : le
+ * score monte ET descend selon l'usage réel. À appeler avec des scores déjà calculés.
+ */
+export async function captureAdoptionSnapshots(scores: AdoptionScore[]): Promise<void> {
+  const day = dayStart();
+  await Promise.all(
+    scores.map((s) =>
+      prisma.adoptionSnapshot
+        .upsert({
+          where: { userId_day: { userId: s.userId, day } },
+          update: { score: s.score, activeDays: s.activeDays, components: s.components as unknown as Prisma.InputJsonValue },
+          create: { userId: s.userId, day, score: s.score, activeDays: s.activeDays, components: s.components as unknown as Prisma.InputJsonValue },
+        })
+        .catch(() => {}),
+    ),
+  );
+}
+
+export interface AdoptionHistoryPoint { label: string; value: number }
+
+const HIST_LABEL = (d: Date) => `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+
+/** Évolution du score **moyen** d'équipe sur N jours (pour le graphique d'ensemble). */
+export async function getAdoptionAverageHistory(days = 30): Promise<AdoptionHistoryPoint[]> {
+  try {
+    const since = dayStart(new Date(Date.now() - (days - 1) * 86400000));
+    const rows = await prisma.$queryRaw<{ day: Date; avg: number }[]>`
+      SELECT "day", AVG("score")::float AS avg
+      FROM "AdoptionSnapshot"
+      WHERE "day" >= ${since}
+      GROUP BY "day" ORDER BY "day" ASC`;
+    return rows.map((r) => ({ label: HIST_LABEL(new Date(r.day)), value: Math.round(num(r.avg)) }));
+  } catch {
+    return [];
+  }
+}
+
+/** Évolution du score d'**un** utilisateur sur N jours (courbe individuelle). */
+export async function getUserScoreHistory(userId: string, days = 30): Promise<AdoptionHistoryPoint[]> {
+  try {
+    const since = dayStart(new Date(Date.now() - (days - 1) * 86400000));
+    const rows = await prisma.adoptionSnapshot.findMany({
+      where: { userId, day: { gte: since } },
+      select: { day: true, score: true },
+      orderBy: { day: "asc" },
+    });
+    return rows.map((r) => ({ label: HIST_LABEL(new Date(r.day)), value: r.score }));
+  } catch {
+    return [];
+  }
 }
 
 // ───────────────────────── Score d'un seul utilisateur (pastille) ─────────────────────────
@@ -366,6 +443,8 @@ export async function getAdoptionBadge(userId: string, role: UserRole): Promise<
     const metrics = await gatherUserMetrics(userId);
     const s = buildScore({ id: userId, name: u.name, email: u.email, role, isActive: u.isActive }, metrics, settings);
     await prisma.user.update({ where: { id: userId }, data: { adoptionScore: s.score, adoptionScoreAt: new Date() } }).catch(() => {});
+    // Historise l'instantané du jour (l'historique se construit même sans visite admin).
+    await captureAdoptionSnapshots([s]);
     return { score: s.score, tone: s.tone, label: s.label };
   } catch {
     return u.adoptionScore != null ? { score: u.adoptionScore, tone: "neutral", label: "" } : null;
