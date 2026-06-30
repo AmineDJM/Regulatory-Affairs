@@ -4,8 +4,8 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   Inbox, Send as SendIcon, RefreshCw, Loader2, Paperclip, PenSquare, X,
-  ChevronLeft, AlertCircle, Trash2, Mail as MailIcon, Reply, Maximize2, Minimize2,
-  FolderKanban, Check, ExternalLink,
+  ChevronLeft, AlertCircle, Trash2, Mail as MailIcon, Reply, ReplyAll, Forward, Maximize2, Minimize2,
+  FolderKanban, Check, ExternalLink, Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label, Select } from "@/components/ui/input";
@@ -17,12 +17,17 @@ import { listLinkableDossiers, linkEmailToDossier } from "@/lib/actions/dossier-
 interface Folder { path: string; name: string; role: string; unseen: number; total: number }
 interface Envelope { uid: number; subject: string; from: string; fromAddr: string; date: string | null; seen: boolean }
 interface AttMeta { index: number; filename: string; contentType: string; size: number }
-interface MsgDetail { uid: number; subject: string; from: string; fromAddr: string; to: string; date: string | null; html: string | null; text: string | null; attachments: AttMeta[] }
+interface MsgDetail { uid: number; subject: string; from: string; fromAddr: string; to: string; cc: string; date: string | null; html: string | null; text: string | null; attachments: AttMeta[] }
 export interface Contact { name: string; address: string; source?: string }
 
 const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
 const folderIcon = (role: string) => (role === "Sent" ? SendIcon : role === "Trash" ? Trash2 : Inbox);
 const folderLabel = (f: Folder) => ({ Sent: "Envoyés", Trash: "Corbeille", Drafts: "Brouillons", Junk: "Indésirables", Archive: "Archives" }[f.role] || (f.path === "INBOX" ? "Réception" : f.name));
+
+const replySubject = (s: string) => (/^re\s*:/i.test(s) ? s : `Re: ${s}`);
+const quoteBody = (m: MsgDetail) => `\n\n--- Le ${fmtDate(m.date)}, ${m.from} a écrit ---\n${(m.text || "").slice(0, 4000)}`;
+const forwardBody = (m: MsgDetail) =>
+  `\n\n--- Message transféré ---\nDe : ${m.from} <${m.fromAddr}>\nDate : ${fmtDate(m.date)}\nÀ : ${m.to}${m.cc ? `\nCc : ${m.cc}` : ""}\nObjet : ${m.subject}\n\n${(m.text || "").slice(0, 6000)}`;
 
 export function MailClient({ email }: { email: string }) {
   const router = useRouter();
@@ -35,6 +40,9 @@ export function MailClient({ email }: { email: string }) {
   const [err, setErr] = React.useState<string | null>(null);
   const [compose, setCompose] = React.useState<null | { to: string; cc: string; subject: string; body: string }>(null);
   const [fullscreen, setFullscreen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [activeSearch, setActiveSearch] = React.useState("");
+  const [unreadOnly, setUnreadOnly] = React.useState(false);
 
   // Plein écran : verrouille le défilement de la page derrière + sortie au clavier (Échap).
   React.useEffect(() => {
@@ -44,10 +52,11 @@ export function MailClient({ email }: { email: string }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [fullscreen, compose, sel]);
 
-  const loadList = React.useCallback(async (mb: string, withFolders = false) => {
+  const loadList = React.useCallback(async (mb: string, withFolders = false, search = "") => {
     setLoadingList(true); setErr(null); setSel(null);
     try {
-      const res = await fetch(`/api/mail/messages?mailbox=${encodeURIComponent(mb)}&limit=40${withFolders ? "&folders=1" : ""}`, { cache: "no-store" });
+      const sp = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : "";
+      const res = await fetch(`/api/mail/messages?mailbox=${encodeURIComponent(mb)}&limit=40${withFolders ? "&folders=1" : ""}${sp}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) { setErr(data.error ?? "Connexion à la boîte impossible."); setMessages([]); }
       else { setMessages(data.messages ?? []); if (data.mailboxes) setFolders(data.mailboxes); }
@@ -56,6 +65,20 @@ export function MailClient({ email }: { email: string }) {
   }, []);
 
   React.useEffect(() => { loadList("INBOX", true); }, [loadList]);
+
+  const runSearch = () => { setActiveSearch(query); loadList(mailbox, false, query); };
+  const clearSearch = () => { setQuery(""); setActiveSearch(""); loadList(mailbox); };
+  const shownMessages = unreadOnly ? messages.filter((m) => !m.seen) : messages;
+
+  // Construit les destinataires d'un « Répondre à tous » (sans se ré-adresser à soi-même).
+  const buildReplyAll = (m: MsgDetail) => {
+    const self = email.toLowerCase();
+    const split = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
+    const toSet = new Set<string>();
+    [m.fromAddr, ...split(m.to)].forEach((a) => { if (a && a.toLowerCase() !== self) toSet.add(a); });
+    const ccList = split(m.cc).filter((a) => a.toLowerCase() !== self && !toSet.has(a));
+    return { to: [...toSet].join(", "), cc: ccList.join(", ") };
+  };
 
   const openMessage = async (uid: number) => {
     setLoadingMsg(true); setErr(null);
@@ -68,7 +91,7 @@ export function MailClient({ email }: { email: string }) {
     finally { setLoadingMsg(false); }
   };
 
-  const selectFolder = (mb: string) => { setMailbox(mb); loadList(mb); };
+  const selectFolder = (mb: string) => { setMailbox(mb); setQuery(""); setActiveSearch(""); setUnreadOnly(false); loadList(mb); };
 
   return (
     <div className={cn("flex overflow-hidden", fullscreen ? "fixed inset-0 z-[60] bg-background" : "surface min-h-0 flex-1")}>
@@ -104,19 +127,40 @@ export function MailClient({ email }: { email: string }) {
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <p className="text-sm font-semibold">{folders.find((f) => f.path === mailbox) ? folderLabel(folders.find((f) => f.path === mailbox)!) : mailbox}</p>
           <div className="flex items-center gap-0.5">
-            <button onClick={() => loadList(mailbox)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary" title="Actualiser"><RefreshCw className={cn("h-4 w-4", loadingList && "animate-spin")} /></button>
+            <button onClick={() => loadList(mailbox, false, activeSearch)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary" title="Actualiser"><RefreshCw className={cn("h-4 w-4", loadingList && "animate-spin")} /></button>
             <button onClick={() => setFullscreen((v) => !v)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary" title={fullscreen ? "Quitter le plein écran (Échap)" : "Plein écran"}>
               {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </button>
+          </div>
+        </div>
+        {/* Recherche + filtres */}
+        <div className="space-y-2 border-b border-border px-3 py-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
+              placeholder="Rechercher (expéditeur, objet, contenu…)"
+              className="w-full rounded-lg border border-input bg-background py-1.5 pl-8 pr-8 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            {(query || activeSearch) && (
+              <button onClick={clearSearch} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-secondary" title="Effacer"><X className="h-3.5 w-3.5" /></button>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => setUnreadOnly(false)} className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium", !unreadOnly ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary")}>Tous</button>
+            <button onClick={() => setUnreadOnly(true)} className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium", unreadOnly ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary")}>Non lus</button>
+            {activeSearch && <span className="ml-auto truncate text-[11px] text-muted-foreground">Recherche : « {activeSearch} »</span>}
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {err && !loadingList && <div className="m-3 flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {err}</div>}
           {loadingList ? (
             <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Chargement…</div>
-          ) : messages.length === 0 && !err ? (
-            <p className="p-8 text-center text-sm text-muted-foreground">Aucun message.</p>
-          ) : messages.map((m) => (
+          ) : shownMessages.length === 0 && !err ? (
+            <p className="p-8 text-center text-sm text-muted-foreground">{activeSearch ? "Aucun résultat." : unreadOnly ? "Aucun message non lu." : "Aucun message."}</p>
+          ) : shownMessages.map((m) => (
             <button key={m.uid} onClick={() => openMessage(m.uid)} className={cn("flex w-full items-start gap-3 border-b border-border/60 px-3 py-2.5 text-left transition-colors hover:bg-accent/40", sel?.uid === m.uid ? "bg-accent/60" : !m.seen && "bg-primary/[0.03]")}>
               <Avatar name={m.from || m.fromAddr || "?"} size="sm" />
               <div className="min-w-0 flex-1">
@@ -137,7 +181,15 @@ export function MailClient({ email }: { email: string }) {
         {compose ? (
           <Composer email={email} initial={compose} onClose={() => setCompose(null)} />
         ) : sel ? (
-          <Reader msg={sel} mailbox={mailbox} loading={loadingMsg} onBack={() => setSel(null)} onReply={() => setCompose({ to: sel.fromAddr, cc: "", subject: `Re: ${sel.subject}`, body: `\n\n--- Le ${fmtDate(sel.date)}, ${sel.from} a écrit ---\n${(sel.text || "").slice(0, 2000)}` })} />
+          <Reader
+            msg={sel}
+            mailbox={mailbox}
+            loading={loadingMsg}
+            onBack={() => setSel(null)}
+            onReply={() => setCompose({ to: sel.fromAddr, cc: "", subject: replySubject(sel.subject), body: quoteBody(sel) })}
+            onReplyAll={() => { const r = buildReplyAll(sel); setCompose({ to: r.to, cc: r.cc, subject: replySubject(sel.subject), body: quoteBody(sel) }); }}
+            onForward={() => setCompose({ to: "", cc: "", subject: `Tr: ${sel.subject}`, body: forwardBody(sel) })}
+          />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
             <MailIcon className="h-10 w-10 opacity-30" />
@@ -149,19 +201,23 @@ export function MailClient({ email }: { email: string }) {
   );
 }
 
-function Reader({ msg, mailbox, loading, onBack, onReply }: { msg: MsgDetail; mailbox: string; loading: boolean; onBack: () => void; onReply: () => void }) {
+function Reader({ msg, mailbox, loading, onBack, onReply, onReplyAll, onForward }: { msg: MsgDetail; mailbox: string; loading: boolean; onBack: () => void; onReply: () => void; onReplyAll: () => void; onForward: () => void }) {
   const [preview, setPreview] = React.useState<AttMeta | null>(null);
+  const hasMultiple = Boolean(msg.cc) || msg.to.split(",").filter((s) => s.trim()).length > 1;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b border-border bg-gradient-to-r from-accent/30 to-transparent px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-gradient-to-r from-accent/30 to-transparent px-4 py-3">
         <button onClick={onBack} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary md:hidden"><ChevronLeft className="h-4 w-4" /></button>
         <Avatar name={msg.from || msg.fromAddr || "?"} size="md" />
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold">{msg.subject || "(sans objet)"}</p>
           <p className="truncate text-xs text-muted-foreground">{msg.from} &lt;{msg.fromAddr}&gt; · {fmtDate(msg.date)}</p>
+          <p className="truncate text-xs text-muted-foreground">À : {msg.to || "—"}{msg.cc ? ` · Cc : ${msg.cc}` : ""}</p>
         </div>
         <LinkToDossier msg={msg} />
         <Button size="sm" variant="outline" onClick={onReply}><Reply className="h-4 w-4" /> Répondre</Button>
+        {hasMultiple && <Button size="sm" variant="outline" onClick={onReplyAll}><ReplyAll className="h-4 w-4" /> <span className="hidden sm:inline">Répondre à tous</span></Button>}
+        <Button size="sm" variant="outline" onClick={onForward}><Forward className="h-4 w-4" /> <span className="hidden sm:inline">Transférer</span></Button>
       </div>
       {msg.attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 border-b border-border px-4 py-2">

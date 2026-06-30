@@ -50,6 +50,7 @@ export interface MailMessage {
   from: string;
   fromAddr: string;
   to: string;
+  cc: string;
   date: string | null;
   html: string | null;
   text: string | null;
@@ -238,15 +239,31 @@ async function readBoxes(c: ImapFlow): Promise<MailboxInfo[]> {
   return out;
 }
 
-async function readEnvelopes(c: ImapFlow, mailbox: string, limit: number): Promise<MailEnvelope[]> {
+async function readEnvelopes(c: ImapFlow, mailbox: string, limit: number, search?: string): Promise<MailEnvelope[]> {
   const lock = await c.getMailboxLock(mailbox);
   try {
     const status = await c.status(mailbox, { messages: true });
     const total = status.messages ?? 0;
     if (total === 0) return [];
-    const start = Math.max(1, total - limit + 1);
+
+    // Recherche : IMAP SEARCH sur expéditeur / destinataire / objet / corps (inclut
+    // les correspondants externes). On garde les `limit` résultats les plus récents.
+    let range: string;
+    const q = search?.trim();
+    if (q) {
+      let uids: number[] = [];
+      try {
+        uids = (await c.search({ or: [{ from: q }, { to: q }, { cc: q }, { subject: q }, { body: q }] }, { uid: true })) || [];
+      } catch { uids = []; }
+      if (uids.length === 0) return [];
+      const slice = uids.slice(-limit);
+      range = slice.join(",");
+    } else {
+      range = `${Math.max(1, total - limit + 1)}:*`;
+    }
+
     const out: MailEnvelope[] = [];
-    for await (const msg of c.fetch(`${start}:*`, { uid: true, envelope: true, flags: true, internalDate: true })) {
+    for await (const msg of c.fetch(range, { uid: true, envelope: true, flags: true, internalDate: true }, { uid: Boolean(q) })) {
       const f = addrStr(msg.envelope?.from);
       const d = msg.internalDate ?? msg.envelope?.date;
       out.push({
@@ -271,10 +288,10 @@ export async function listMessages(account: MailAccount, mailbox = "INBOX", limi
 
 /** Charge la boîte (et éventuellement les dossiers) en **une seule** connexion IMAP. */
 export async function loadInbox(
-  account: MailAccount, mailbox = "INBOX", limit = 30, withFolders = false,
+  account: MailAccount, mailbox = "INBOX", limit = 30, withFolders = false, search?: string,
 ): Promise<{ messages: MailEnvelope[]; mailboxes?: MailboxInfo[] }> {
   return withClient(account, async (c) => {
-    const messages = await readEnvelopes(c, mailbox, limit);
+    const messages = await readEnvelopes(c, mailbox, limit, search);
     const mailboxes = withFolders ? await readBoxes(c) : undefined;
     return { messages, mailboxes };
   });
@@ -290,12 +307,14 @@ export async function getMessage(account: MailAccount, mailbox: string, uid: num
       const from = { label: parsed.from?.value?.[0]?.name || parsed.from?.value?.[0]?.address || "", addr: parsed.from?.value?.[0]?.address || "" };
       const toList = Array.isArray(parsed.to) ? parsed.to : parsed.to ? [parsed.to] : [];
       const to = toList.flatMap((t) => t.value).map((v) => v.address).filter(Boolean).join(", ");
+      const ccList = Array.isArray(parsed.cc) ? parsed.cc : parsed.cc ? [parsed.cc] : [];
+      const cc = ccList.flatMap((t) => t.value).map((v) => v.address).filter(Boolean).join(", ");
       // Marque comme lu (best-effort).
       c.messageFlagsAdd(String(uid), ["\\Seen"], { uid: true }).catch(() => {});
       return {
         uid,
         subject: parsed.subject || "(sans objet)",
-        from: from.label, fromAddr: from.addr, to,
+        from: from.label, fromAddr: from.addr, to, cc,
         date: parsed.date?.toISOString() ?? null,
         html: parsed.html || null,
         text: parsed.text || null,

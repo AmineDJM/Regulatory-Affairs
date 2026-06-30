@@ -1,3 +1,4 @@
+import { Inbox, Reply } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { accessibleModules } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -24,6 +25,8 @@ export default async function FeedbackPage() {
     orderBy: { createdAt: "desc" },
     take: 50,
   });
+  // Boîte de réception : les feedbacks auxquels l'administration a répondu.
+  const replies = myFeedbacks.filter((f) => f.adminNote && f.adminNote.trim());
 
   const fields: FieldDef[] = [
     { type: "select", name: "module", label: "Module concerné (optionnel)", options: moduleOptions, placeholder: "—", full: true },
@@ -45,6 +48,34 @@ export default async function FeedbackPage() {
           fields={fields}
         />
       </PageHeader>
+
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          <Inbox className="h-4 w-4" /> Boîte de réception
+          {replies.length > 0 && <span className="rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{replies.length}</span>}
+        </h2>
+        {replies.length === 0 ? (
+          <EmptyState icon="Inbox" title="Aucune réponse pour le moment" description="Les réponses de l'administration à vos retours s'afficheront ici." />
+        ) : (
+          <div className="space-y-2">
+            {replies.map((f) => (
+              <Card key={f.id} className="border-primary/30">
+                <CardContent className="space-y-2 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">{f.module ? `${f.module} · ` : ""}{formatDateTime(f.updatedAt)}</p>
+                    <StatusBadge map={FEEDBACK_STATUS} value={f.status} />
+                  </div>
+                  <p className="whitespace-pre-wrap rounded-lg bg-secondary/40 px-3 py-2 text-sm text-muted-foreground">Vous : {f.message}</p>
+                  <div className="flex items-start gap-2">
+                    <Reply className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <p className="whitespace-pre-wrap text-sm font-medium">{f.adminNote}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes feedbacks envoyés</h2>

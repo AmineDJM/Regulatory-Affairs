@@ -5,7 +5,7 @@ import type { FeedbackStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { notifyRoles } from "@/lib/notify";
+import { notifyRoles, notifyUser } from "@/lib/notify";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 const STATUSES: FeedbackStatus[] = ["NEW", "SEEN", "IN_PROGRESS", "DONE"];
@@ -45,14 +45,28 @@ export async function updateFeedbackStatus(formData: FormData): Promise<ActionRe
   const status = fdStr(formData, "status") as FeedbackStatus | null;
   if (!id || !status || !STATUSES.includes(status)) return { ok: false, error: "Statut invalide." };
 
+  const before = await prisma.feedback.findUnique({ where: { id }, select: { userId: true, adminNote: true } });
+  const adminNote = fdStr(formData, "adminNote");
   await prisma.feedback.update({
     where: { id },
-    data: { status, handledById: user.id, adminNote: fdStr(formData, "adminNote") },
+    data: { status, handledById: user.id, adminNote },
   });
+
+  // Réponse de l'admin → notifie l'auteur (apparaît dans sa boîte de réception Feedback).
+  if (adminNote && adminNote !== before?.adminNote && before?.userId && before.userId !== user.id) {
+    await notifyUser({
+      userId: before.userId,
+      type: "GENERIC",
+      title: "Réponse à votre feedback",
+      body: adminNote.slice(0, 80),
+      link: "/feedback",
+    });
+  }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Feedback",
     entityType: "FEEDBACK", entityId: id, field: "status", newValue: status, summary: `Feedback → ${status}`,
   });
   revalidatePath("/admin/feedback");
+  revalidatePath("/feedback");
   return { ok: true };
 }

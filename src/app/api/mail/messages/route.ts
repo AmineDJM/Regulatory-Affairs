@@ -14,9 +14,10 @@ export async function GET(req: NextRequest) {
   const mailbox = req.nextUrl.searchParams.get("mailbox") || "INBOX";
   const limit = Math.min(100, Number(req.nextUrl.searchParams.get("limit") || 30));
   const withFolders = req.nextUrl.searchParams.get("folders") === "1";
+  const search = req.nextUrl.searchParams.get("search")?.trim() || undefined;
   try {
     // Une seule connexion IMAP (messages + dossiers) → moins de pression sur le fournisseur.
-    const { messages, mailboxes } = await loadInbox(account, mailbox, limit, withFolders);
+    const { messages, mailboxes } = await loadInbox(account, mailbox, limit, withFolders, search);
     return NextResponse.json({ email: account.email, mailbox, messages, mailboxes });
   } catch (e) {
     console.error("[mail] list failed", e);
