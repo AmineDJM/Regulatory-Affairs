@@ -18,6 +18,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { RegulatoryProcess, RegulatoryChecklist } from "./anpp-process";
 import { regProgress, regChecklistProgress, type RegWorkflowState, type RegChecklistState } from "@/lib/regulatory-workflow";
 import { StatusEditor } from "./status-editor";
+import { EditProductButton } from "../edit-product";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { BvRequests, type BvItem } from "./bv-requests";
 import { toNumber } from "@/lib/utils";
@@ -54,7 +55,11 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
   });
   if (!product) notFound();
 
-  const [documents, comments, fieldDefs, suppliers, bvOrders] = await Promise.all([
+  const canUpdate = userCan(user, "REGULATORY", "UPDATE");
+  const canUpload = userCan(user, "REGULATORY", "UPLOAD");
+  const canDelete = userCan(user, "REGULATORY", "DELETE");
+
+  const [documents, comments, fieldDefs, suppliers, bvOrders, users] = await Promise.all([
     prisma.document.findMany({
       where: { entityType: "REGULATORY_PRODUCT", entityId: product.id },
       include: { uploadedBy: { select: { name: true } } },
@@ -72,6 +77,9 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
       select: { id: true, reference: true, label: true, amount: true, status: true, dueDate: true, paidDate: true },
       orderBy: { createdAt: "desc" },
     }),
+    canUpdate
+      ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } })
+      : Promise.resolve([] as { id: string; name: string; role: string }[]),
   ]);
 
   const supplierViewValues = {
@@ -84,10 +92,6 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
     externalDeadline: product.externalDeadline ? product.externalDeadline.toISOString().slice(0, 10) : "",
     externalNotify: product.externalNotify,
   };
-
-  const canUpdate = userCan(user, "REGULATORY", "UPDATE");
-  const canUpload = userCan(user, "REGULATORY", "UPLOAD");
-  const canDelete = userCan(user, "REGULATORY", "DELETE");
 
   const workflow = (product.workflow as RegWorkflowState | null) ?? null;
   const checklist = (product.checklist as RegChecklistState | null) ?? null;
@@ -149,7 +153,30 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
         </div>
         <div className="flex flex-col items-end gap-2">
           {canUpdate ? (
-            <StatusEditor id={product.id} status={product.status} priority={product.priority} />
+            <div className="flex items-center gap-2">
+              <EditProductButton
+                product={{
+                  id: product.id,
+                  molecules: molecules.length ? molecules : [product.dci],
+                  brandName: product.brandName,
+                  dosage: product.dosage,
+                  pharmaceuticalForm: product.pharmaceuticalForm,
+                  therapeuticClass: product.therapeuticClass,
+                  partnerLab: product.partnerLab,
+                  countryOfOrigin: product.countryOfOrigin,
+                  category: product.category,
+                  productType: product.productType,
+                  status: product.status,
+                  priority: product.priority,
+                  responsibleId: product.responsibleId,
+                  assistantId: product.assistantId,
+                  targetDate: product.targetDate ? product.targetDate.toISOString().slice(0, 10) : null,
+                  comments: product.comments,
+                }}
+                users={users}
+              />
+              <StatusEditor id={product.id} status={product.status} priority={product.priority} />
+            </div>
           ) : (
             <StatusBadge map={REGULATORY_STATUS} value={product.status} />
           )}

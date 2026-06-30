@@ -2,7 +2,8 @@
 
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
-import type { Priority, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, Prisma } from "@prisma/client";
+import type { Priority, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
@@ -30,6 +31,12 @@ function str(formData: FormData, key: string): string | null {
   return v ? String(v) : null;
 }
 
+/** Uniformise la casse des DCI : MAJUSCULES, espaces normalisés autour des « + ». */
+function normalizeDci(value: string): string {
+  return value.trim().toUpperCase().replace(/\s*\+\s*/g, " + ").replace(/\s+/g, " ");
+}
+const upperMolecules = (list: string[]): string[] => list.map((m) => m.trim().toUpperCase()).filter(Boolean);
+
 export async function createRegulatoryProduct(
   _prev: ActionResult | undefined,
   formData: FormData,
@@ -41,12 +48,11 @@ export async function createRegulatoryProduct(
 
   // DCI : molécule unique OU association (double/triple…). Le formulaire envoie une
   // ou plusieurs entrées « molecule » ; la DCI canonique est leur concaténation.
-  const molecules = formData
-    .getAll("molecule")
-    .map((m) => String(m).trim())
-    .filter(Boolean);
-  const dci = molecules.length ? molecules.join(" + ") : str(formData, "dci");
-  if (!dci) return { ok: false, error: "La DCI est obligatoire." };
+  // Casse uniformisée en MAJUSCULES pour tout le référentiel.
+  const molecules = upperMolecules(formData.getAll("molecule").map((m) => String(m)));
+  const rawDci = molecules.length ? molecules.join(" + ") : str(formData, "dci");
+  if (!rawDci) return { ok: false, error: "La DCI est obligatoire." };
+  const dci = normalizeDci(rawDci);
 
   const year = new Date().getFullYear();
   const countThisYear = await prisma.regulatoryProduct.count({
@@ -115,6 +121,84 @@ export async function createRegulatoryProduct(
 
   revalidatePath("/regulatory");
   return { ok: true, id: product.id };
+}
+
+/**
+ * Modifie les informations descriptives d'un dossier réglementaire (DCI, marque,
+ * dosage, classe, laboratoire, pays, type, responsables…). La casse des DCI est
+ * uniformisée en MAJUSCULES. Le statut/priorité ont leur propre action dédiée mais
+ * sont aussi acceptés ici pour une édition complète depuis la fiche.
+ */
+export async function updateRegulatoryProduct(
+  _prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = str(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", id, "UPDATE"))) {
+    return { ok: false, error: "Modification non autorisée." };
+  }
+  const before = await prisma.regulatoryProduct.findUnique({ where: { id } });
+  if (!before) return { ok: false, error: "Dossier introuvable." };
+
+  // DCI : recompose depuis les molécules saisies, sinon depuis le champ libre.
+  const molecules = upperMolecules(formData.getAll("molecule").map((m) => String(m)));
+  const rawDci = molecules.length ? molecules.join(" + ") : str(formData, "dci");
+  if (!rawDci) return { ok: false, error: "La DCI est obligatoire." };
+  const dci = normalizeDci(rawDci);
+
+  const responsibleId = str(formData, "responsibleId");
+  const assistantId = str(formData, "assistantId");
+  const targetDateRaw = str(formData, "targetDate");
+  const assignIds = Array.from(new Set([responsibleId, assistantId].filter(Boolean))) as string[];
+
+  await prisma.regulatoryProduct.update({
+    where: { id },
+    data: {
+      dci,
+      molecules: molecules.length > 1 ? (molecules as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+      brandName: str(formData, "brandName"),
+      dosage: str(formData, "dosage"),
+      pharmaceuticalForm: str(formData, "pharmaceuticalForm"),
+      therapeuticClass: str(formData, "therapeuticClass"),
+      partnerLab: str(formData, "partnerLab"),
+      countryOfOrigin: str(formData, "countryOfOrigin"),
+      category: (str(formData, "category") as RegulatoryCategory) ?? before.category,
+      productType: (str(formData, "productType") as ProductType) ?? before.productType,
+      status: (str(formData, "status") as RegulatoryStatus) ?? before.status,
+      priority: (str(formData, "priority") as Priority) ?? before.priority,
+      targetDate: targetDateRaw ? new Date(targetDateRaw) : null,
+      comments: str(formData, "comments"),
+      responsibleId,
+      assistantId,
+      updatedById: user.id,
+      assignedUsers: assignIds.length ? { set: assignIds.map((aid) => ({ id: aid })) } : { set: [] },
+    },
+  });
+
+  await recordAudit({
+    actorId: user.id,
+    action: "UPDATE",
+    module: "Regulatory",
+    entityType: "REGULATORY_PRODUCT",
+    entityId: id,
+    summary: `Dossier ${before.reference} modifié — ${dci}`,
+  });
+
+  if (assistantId && assistantId !== user.id && assistantId !== before.assistantId) {
+    await notifyUser({
+      userId: assistantId,
+      type: "ASSIGNMENT",
+      title: "Dossier réglementaire assigné",
+      body: `${before.reference} — ${dci}`,
+      link: `/regulatory/${id}`,
+    });
+  }
+
+  revalidatePath(`/regulatory/${id}`);
+  revalidatePath("/regulatory");
+  return { ok: true, id };
 }
 
 export async function updateRegulatoryStep(formData: FormData): Promise<ActionResult> {
