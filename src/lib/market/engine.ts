@@ -30,7 +30,7 @@ export function normText(s: string | null | undefined): string {
 export function tokens(s: string | null | undefined): string[] {
   return normText(s).split(" ").filter((t) => t && !STOPWORDS.has(t));
 }
-const queryTokens = (key: string): string[] => tokens(key).filter((t) => t.length >= 3);
+export const queryTokens = (key: string): string[] => tokens(key).filter((t) => t.length >= 3);
 
 /** Teste si `text` contient le token `tok` borné (mêmes frontières que le moteur Python). */
 function tokenInText(text: string, tok: string): boolean {
@@ -40,7 +40,7 @@ function tokenInText(text: string, tok: string): boolean {
     return text.includes(tok);
   }
 }
-const allTokensIn = (text: string, qtokens: string[]) => qtokens.every((t) => tokenInText(text, t));
+export const allTokensIn = (text: string, qtokens: string[]) => qtokens.every((t) => tokenInText(text, t));
 
 // ───────────────────────── Concurrence (Nomenclature) ─────────────────────────
 
