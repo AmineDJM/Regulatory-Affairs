@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ArrowLeft, TrendingUp, TrendingDown } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Target } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { getMarketOverview } from "@/lib/market/overview";
 import { PageHeader } from "@/components/shared/page-header";
+import { Button } from "@/components/ui/button";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +29,11 @@ export default async function MarketOverviewPage() {
       <PageHeader
         title="Intelligence marché — Vue d'ensemble"
         description={`Marché pharmaceutique algérien (IQVIA ville). Source : ${o.meta.iqviaFile} · période ${o.meta.period} · ${formatNumber(o.meta.nProducts)} produits. Données officielles réconciliées.`}
-      />
+      >
+        <Link href="/business-development/marche/opportunites">
+          <Button variant="outline"><Target className="h-4 w-4" /> Opportunités stratégiques</Button>
+        </Link>
+      </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <KpiCard label="Valeur marché" value={fmtDzd(o.kpis.valueDzd)} icon="Landmark" tone="info" />
