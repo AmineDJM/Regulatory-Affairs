@@ -349,15 +349,25 @@ async function qualitySignalRisks(): Promise<Risk[]> {
   }));
 }
 
-// Stocks PCH bas / rupture : stock net (entrées − sorties) par produit à la PCH.
+// Stocks PCH bas / rupture : stock net par produit à la PCH = stock initial +
+// (entrées − sorties). Le stock initial sert de base de calcul (initialisation).
 type StockRow = { product: string; net: bigint | number | null; lastdate: Date | null };
 async function pchStockRisks(th: RiskThresholds): Promise<Risk[]> {
   const rows = await prisma.$queryRaw<StockRow[]>`
-    SELECT product,
-           SUM(CASE WHEN direction='IN' THEN quantity WHEN direction='OUT' THEN -quantity ELSE 0 END) AS net,
-           MAX(date) AS lastdate
-    FROM "StockMovement"
-    WHERE location = 'PCH'
+    SELECT product, SUM(net) AS net, MAX(lastdate) AS lastdate
+    FROM (
+      SELECT product,
+             SUM(CASE WHEN direction='IN' THEN quantity WHEN direction='OUT' THEN -quantity ELSE 0 END) AS net,
+             MAX(date) AS lastdate
+      FROM "StockMovement"
+      WHERE location = 'PCH'
+      GROUP BY product
+      UNION ALL
+      SELECT product, SUM(quantity) AS net, MAX(date) AS lastdate
+      FROM "StockOpeningLevel"
+      WHERE location = 'PCH'
+      GROUP BY product
+    ) s
     GROUP BY product`;
   const logistics = await firstActive("LOGISTICS_MANAGER");
   const out: Risk[] = [];

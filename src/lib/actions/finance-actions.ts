@@ -116,6 +116,49 @@ export async function importTransactions(
   return { ok: true };
 }
 
+// ── Solde d'ouverture de trésorerie (initialisation puis calcul) ──
+
+/**
+ * Définit (ou met à jour) le solde d'ouverture d'un compte de trésorerie. Le solde
+ * courant affiché = solde d'ouverture + flux réglés. Permet d'initialiser la
+ * trésorerie à l'adoption de la plateforme, puis de la laisser se calculer.
+ */
+export async function setTreasuryOpeningBalance(
+  _prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const name = (fdStr(formData, "name") ?? "").trim();
+  if (!name) return { ok: false, error: "Nom du compte obligatoire." };
+  const openingBalance = fdNum(formData, "openingBalance") ?? 0;
+  const openingDate = fdDate(formData, "openingDate") ?? new Date();
+  const notes = fdStr(formData, "notes");
+
+  await prisma.treasuryAccount.upsert({
+    where: { name },
+    update: { openingBalance, openingDate, notes },
+    create: { name, openingBalance, openingDate, notes, createdById: user.id },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Finances",
+    summary: `Solde d'ouverture « ${name} » = ${openingBalance.toLocaleString("fr-FR")} DZD`,
+  });
+  revalidatePath("/finances");
+  return { ok: true };
+}
+
+export async function deleteTreasuryAccount(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  await prisma.treasuryAccount.delete({ where: { id } }).catch(() => undefined);
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Finances", summary: "Solde d'ouverture supprimé" });
+  revalidatePath("/finances");
+  return { ok: true };
+}
+
 // ── Payroll ──
 
 export async function createEmployee(

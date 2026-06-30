@@ -9,13 +9,14 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { PCH_OPS_TABS } from "@/lib/labels";
 import { formatNumber, formatDate } from "@/lib/utils";
 import { StockMovements } from "./stock-movements";
+import { StockOpeningLevels } from "./stock-openings";
 
 export default async function StocksPage() {
   const user = await requireModule("STOCKS");
   const canCreate = userCan(user, "STOCKS", "CREATE");
   const canEdit = userCan(user, "STOCKS", "UPDATE");
   const canDelete = userCan(user, "STOCKS", "DELETE");
-  const [{ movements, levels, stats }, products] = await Promise.all([getStockData(), getProductOptions()]);
+  const [{ movements, levels, openings, stats }, products] = await Promise.all([getStockData(), getProductOptions()]);
 
   return (
     <div className="space-y-5">
@@ -57,6 +58,8 @@ export default async function StocksPage() {
           </div>
         )}
       </section>
+
+      <StockOpeningLevels openings={openings} products={products} canEdit={canEdit} />
 
       <StockMovements movements={movements} products={products} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete} />
     </div>

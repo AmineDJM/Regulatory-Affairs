@@ -19,16 +19,25 @@ export interface LedgerRow {
 }
 
 export async function getFinanceData() {
-  const txs = await prisma.financeTransaction.findMany({ orderBy: { date: "desc" } });
+  const [txs, openingAccounts] = await Promise.all([
+    prisma.financeTransaction.findMany({ orderBy: { date: "desc" } }),
+    prisma.treasuryAccount.findMany({ orderBy: { name: "asc" } }),
+  ]);
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
+  // Soldes d'ouverture : base de calcul de la trésorerie (saisis à l'adoption).
   let totalBalance = 0;
   let encMonth = 0;
   let decMonth = 0;
   let pendingIn = 0;
   let pendingOut = 0;
   const balanceByAccount = new Map<string, number>();
+  for (const a of openingAccounts) {
+    const opening = toNumber(a.openingBalance);
+    totalBalance += opening;
+    balanceByAccount.set(a.name, (balanceByAccount.get(a.name) ?? 0) + opening);
+  }
   const byCategoryOut = new Map<string, number>();
   const monthlyIn = new Array(12).fill(0);
   const monthlyOut = new Array(12).fill(0);
@@ -86,6 +95,11 @@ export async function getFinanceData() {
     pendingOut,
     count: txs.length,
     accounts: [...balanceByAccount.entries()].map(([account, balance]) => ({ account, balance })),
+    openingBalances: openingAccounts.map((a) => ({
+      id: a.id, name: a.name, openingBalance: toNumber(a.openingBalance),
+      openingDate: a.openingDate.toISOString(), notes: a.notes ?? "",
+    })),
+    openingTotal: openingAccounts.reduce((s, a) => s + toNumber(a.openingBalance), 0),
     byCategoryOut: [...byCategoryOut.entries()].sort((a, b) => b[1] - a[1]).map(([category, amount]) => ({ category, amount })),
     recVsDep,
     trend,

@@ -98,3 +98,56 @@ export async function deleteStockMovement(formData: FormData): Promise<ActionRes
   revalidatePath("/stocks");
   return { ok: true };
 }
+
+// ── Stock initial (initialisation puis calcul) ──
+
+/**
+ * Définit (ou met à jour) le stock initial d'un produit à un emplacement. Le niveau
+ * courant affiché = stock initial + mouvements. Un seul stock initial par couple
+ * (produit, emplacement). Permet d'initialiser le stock à l'adoption, puis de le
+ * laisser se calculer à partir des mouvements.
+ */
+export async function setStockOpeningLevel(
+  _prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "STOCKS", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const resolved = await resolveProduct(formData);
+  if (!resolved) return { ok: false, error: "Sélectionnez un produit (catalogue Regulatory) ou saisissez un libellé." };
+  const location = fdStr(formData, "location") ?? "PCH";
+  const quantity = Math.max(0, Math.round(fdNum(formData, "quantity") ?? 0));
+  const date = fdDate(formData, "date") ?? new Date();
+  const notes = fdStr(formData, "notes");
+
+  const existing = await prisma.stockOpeningLevel.findFirst({
+    where: resolved.productId
+      ? { productId: resolved.productId, location }
+      : { productId: null, product: resolved.product, location },
+    select: { id: true },
+  });
+  if (existing) {
+    await prisma.stockOpeningLevel.update({
+      where: { id: existing.id },
+      data: { product: resolved.product, dci: resolved.dci, quantity, date, notes },
+    });
+  } else {
+    await prisma.stockOpeningLevel.create({
+      data: { productId: resolved.productId, product: resolved.product, dci: resolved.dci, location, quantity, date, notes, createdById: user.id },
+    });
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Stocks", summary: `Stock initial — ${resolved.product} (${location}) : ${quantity}` });
+  revalidatePath("/stocks");
+  return { ok: true };
+}
+
+export async function deleteStockOpeningLevel(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "STOCKS", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  await prisma.stockOpeningLevel.delete({ where: { id } }).catch(() => undefined);
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Stocks", summary: "Stock initial supprimé" });
+  revalidatePath("/stocks");
+  return { ok: true };
+}

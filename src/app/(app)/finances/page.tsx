@@ -19,12 +19,14 @@ import { formatCurrency } from "@/lib/utils";
 import { LedgerTable } from "./ledger-table";
 import { RecettesDepensesChart } from "./finance-charts";
 import { ImportTransactionsButton } from "./import-transactions";
+import { OpeningBalancesButton } from "./opening-balances";
 
 const DONUT_COLORS = ["#dc2626", "#d97706", "#7c3aed", "#2563eb", "#0891b2", "#db2777", "#65a30d", "#0d9488", "#9333ea", "#475569"];
 
 export default async function FinancesPage() {
   const user = await requireModule("FINANCES");
   const canCreate = userCan(user, "FINANCES", "CREATE");
+  const canUpdate = userCan(user, "FINANCES", "UPDATE");
   const [data, compta] = await Promise.all([getFinanceData(), getComptaData()]);
   const pendingOrders = await prisma.expenseOrder.count({ where: { status: "PENDING" } });
 
@@ -38,6 +40,7 @@ export default async function FinancesPage() {
           </Button>
         </Link>
         <Link href="/finances/paie"><Button variant="outline"><Users className="h-4 w-4" /> Paie</Button></Link>
+        {canUpdate && <OpeningBalancesButton items={data.openingBalances} openingTotal={data.openingTotal} />}
         {canCreate && (
           <>
             <ImportTransactionsButton />
@@ -74,13 +77,16 @@ export default async function FinancesPage() {
       </div>
 
       {data.accounts.length > 0 && (
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {data.accounts.map((a) => (
             <div key={a.account} className="surface flex items-center gap-3 px-4 py-2.5">
               <span className="text-sm text-muted-foreground">{a.account}</span>
               <span className={`font-semibold ${a.balance >= 0 ? "text-foreground" : "text-destructive"}`}>{formatCurrency(a.balance)}</span>
             </div>
           ))}
+          {data.openingTotal !== 0 && (
+            <span className="text-xs text-muted-foreground">dont {formatCurrency(data.openingTotal)} de solde d'ouverture + flux réglés</span>
+          )}
         </div>
       )}
 

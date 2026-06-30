@@ -1821,6 +1821,20 @@ model FinanceTransaction {
   @@index([budgetCategoryId])
 }
 
+/// Solde d'ouverture d'un compte de trésorerie (Caisse, Banque…). Sert de base de
+/// calcul : solde courant = solde d'ouverture + flux réglés enregistrés. Permet
+/// d'initialiser la trésorerie à l'adoption de la plateforme, puis de la calculer.
+model TreasuryAccount {
+  id             String   @id @default(cuid())
+  name           String   @unique // "Banque", "Caisse", …
+  openingBalance Decimal  @default(0) @db.Decimal(14, 2)
+  openingDate    DateTime @default(now())
+  notes          String?
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
 /// Employee record — shared by RH (dossiers, congés, contrats) and Paie.
 // ─────────────── Dossier RH employé (documents & demandes d'attestation) ───────────────
 
@@ -2470,6 +2484,26 @@ model StockMovement {
   @@index([product])
   @@index([productId])
   @@index([date])
+}
+
+/// Stock initial d'un produit à un emplacement (PCH…). Sert de base de calcul :
+/// niveau courant = stock initial + mouvements (entrées − sorties + ajustements).
+/// Permet d'initialiser le stock à l'adoption, puis de le calculer.
+model StockOpeningLevel {
+  id          String   @id @default(cuid())
+  productId   String? // produit Regulatory associé (catalogue), sinon libellé libre
+  product     String // libellé du produit (instantané)
+  dci         String?
+  location    String   @default("PCH")
+  quantity    Int      @default(0)
+  date        DateTime @default(now())
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([productId])
+  @@index([location])
 }
 
 // ─────────────── Matériel promotionnel (workflow multi-acteurs) ───────────────
