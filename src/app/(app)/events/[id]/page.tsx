@@ -15,6 +15,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { EditEventButton } from "../event-form";
 import { RegistrationsManager } from "./registrations-manager";
 import { EventFundingPanel } from "./funding-panel";
+import { ThirdPartyInvolveButton } from "@/components/shared/third-party-involve";
 import { getEntityMissions } from "@/lib/queries/missions";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
@@ -121,6 +122,11 @@ export default async function EventDetailPage({ params }: { params: { id: string
             canAnalyze={canAnalyze}
             canValidate={canValidate}
           />
+          {(canManage || canMarketing || canValidate) && (
+            <div className="mt-4 border-t border-border pt-3">
+              <ThirdPartyInvolveButton type="EVENT" id={e.id} people={responsibles} />
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
-import { createDirectValidation } from "@/lib/validation";
+import { involveThirdParty } from "@/lib/third-party";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/sponsoring";
@@ -128,18 +128,17 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
   if (!id || !personId) return { ok: false, error: "Indiquez la personne à impliquer." };
   const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
   if (!req) return { ok: false, error: "Demande introuvable." };
-  const isActor = hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER" || req.productManagerId === user.id || req.requesterId === user.id;
+  const isActor = hasGlobalView(user.role) || isDirectionMarketing(user) || req.productManagerId === user.id || req.requesterId === user.id;
   if (!isActor) return { ok: false, error: "Non autorisé." };
 
-  const res = await createDirectValidation({
-    requesterId: user.id,
-    title: `Avis demandé — sponsoring ${req.reference} (${req.institution})`,
-    description: fdStr(formData, "note"),
-    link: `${PATH}/${id}`,
-    module: "Ad & Pro",
-    validatorIds: [personId],
-    entityType: "SPONSORING",
-    entityId: id,
+  // Espace de la personne : demande de validation + dossier de suivi indiquant
+  // l'événement (SANS budget). Elle traite sans accès au module Ad & Pro.
+  const res = await involveThirdParty({
+    actorId: user.id,
+    personId,
+    eventLabel: `Sponsoring ${req.reference} — ${req.institution}`,
+    moduleLabel: "Ad & Pro",
+    note: fdStr(formData, "note"),
   });
   if (!res.ok) return { ok: false, error: res.error };
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Tierce personne impliquée — ${req.reference}` });

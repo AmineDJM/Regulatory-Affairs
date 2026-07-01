@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { createExpenseOrder } from "@/lib/expense-orders";
+import { involveThirdParty } from "@/lib/third-party";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 // Le **même** circuit de prise en charge sert les congrès internationaux/nationaux
@@ -303,6 +304,37 @@ export async function updateGrantedBudget(formData: FormData): Promise<ActionRes
   revalidatePath(`${pathFor(t)}/${id}`);
   revalidatePath("/information-medicale");
   revalidatePath("/finances/ordres-de-depense");
+  return { ok: true };
+}
+
+// ───────────────────────────── Impliquer une tierce personne ─────────────────────────────
+
+/**
+ * Implique une tierce personne (ex. assistante de direction) dans le circuit d'un
+ * congrès / événement, SANS lui donner accès au module : elle reçoit une demande
+ * dans son espace + un dossier de suivi indiquant l'événement (SANS budget).
+ */
+export async function requestThirdPartyInput(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const t = typeOf(formData);
+  const id = fdStr(formData, "id");
+  const personId = fdStr(formData, "personId");
+  if (!id || !personId) return { ok: false, error: "Indiquez la personne à impliquer." };
+  const c = await loadCongress(t, id);
+  if (!c) return { ok: false, error: "Demande introuvable." };
+  const isActor = hasGlobalView(user.role) || user.role === "NATIONAL_SALES" || user.role === "MEDICAL_PROMOTION_MANAGER" || c.productManagerId === user.id || c.requesterId === user.id;
+  if (!isActor) return { ok: false, error: "Non autorisé." };
+
+  const res = await involveThirdParty({
+    actorId: user.id,
+    personId,
+    eventLabel: `${NOUN(t)} — ${c.name}`,
+    moduleLabel: t === "EVENT" ? "Événements" : "Ad & Pro",
+    note: fdStr(formData, "note"),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Tierce personne impliquée — ${c.name}` });
+  revalidatePath(`${pathFor(t)}/${id}`);
   return { ok: true };
 }
 

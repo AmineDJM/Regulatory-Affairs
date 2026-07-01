@@ -11,6 +11,7 @@ import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import type { CongressDetail } from "@/lib/queries/congress";
 import { PreliminaryDecision, ProductAnalysis, FinalDecision, EditGrantedBudget } from "./congress-workflow";
 import { BeneficiariesCard } from "./beneficiaries-card";
+import { ThirdPartyInvolveButton } from "@/components/shared/third-party-involve";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import type { MissionAssignmentDTO } from "@/lib/queries/missions";
 
@@ -123,6 +124,12 @@ export function CongressDetailView({
 
             {st === "REJECTED" && d.rejectionReason && (
               <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">Refusé — {d.rejectionReason}</div>
+            )}
+
+            {(canMarketing || canValidate || canAnalyze) && (
+              <div className="border-t border-border pt-3">
+                <ThirdPartyInvolveButton type={d.type} id={d.id} people={missionUsers} />
+              </div>
             )}
           </CardContent>
         </Card>
