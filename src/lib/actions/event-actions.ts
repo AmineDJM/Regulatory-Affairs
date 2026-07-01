@@ -114,7 +114,7 @@ export async function submitEventForApproval(formData: FormData): Promise<Action
     data: { requestStatus: "AWAITING_PRELIMINARY", requesterId: ev.requesterId ?? user.id, status: "AWAITING_VALIDATION" },
   });
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Events", entityType: "EVENT", entityId: id, summary: `Demande de prise en charge — ${ev.name}` });
-  await notifyRoles(["NATIONAL_SALES", "MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], {
+  await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
     title: "Événement — à attribuer (National Sales)",
     body: ev.name,

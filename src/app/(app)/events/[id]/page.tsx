@@ -30,7 +30,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const canManage = userCan(user, "EVENTS", "UPDATE");
   const canDelete = userCan(user, "EVENTS", "DELETE");
   // Circuit de prise en charge (financement) — mêmes rôles que pour les congrès.
-  const canMarketing = user.role === "NATIONAL_SALES" || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
+  const canMarketing = user.role === "NATIONAL_SALES" || user.role === "SUPER_ADMIN";
   const canValidate = hasGlobalView(user.role);
   const canAnalyze = e.productManagerId === user.id || hasGlobalView(user.role);
   const canSubmit = userCan(user, "EVENTS", "CREATE");

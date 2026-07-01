@@ -22,8 +22,8 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
 
   // Validation définitive **réservée à la Direction** (hasGlobalView = Direction + Super Admin).
   const canValidate = hasGlobalView(user.role);
-  // Étape préliminaire (attribuer le chef de produit) : National Sales ou Direction Marketing.
-  const canMarketing = user.role === "NATIONAL_SALES" || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN";
+  // Étape préliminaire (attribuer le chef de produit) : réservée au National Sales.
+  const canMarketing = user.role === "NATIONAL_SALES" || user.role === "SUPER_ADMIN";
   const canAnalyze = detail.productManagerId === user.id || hasGlobalView(user.role);
   const canUpload = userCan(user, "CONGRESS_NATIONAL", "UPLOAD") || detail.requesterId === user.id;
   const canDelete = userCan(user, "CONGRESS_NATIONAL", "DELETE") || hasGlobalView(user.role);

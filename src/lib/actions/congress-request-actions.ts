@@ -89,7 +89,7 @@ export async function createCongressRequest(
   await recordAudit({ actorId: user.id, action: "CREATE", module: ML(t), entityType: entityFor(t), entityId: created.id, summary: `Demande de congrès « ${name} »` });
   // Demande émise (souvent par un délégué) → approbation préliminaire par le
   // National Sales (ou la Direction Marketing), qui désigne le chef de produit.
-  await notifyRoles(["NATIONAL_SALES", "MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], {
+  await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
     title: "Demande de congrès — à attribuer (National Sales)",
     body: name,
@@ -108,9 +108,9 @@ export async function preliminaryDecision(formData: FormData): Promise<ActionRes
   const decision = fdStr(formData, "decision"); // APPROVE | REJECT
   if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
   // Approbation préliminaire (approuver/refuser + désigner le chef de produit) :
-  // ouverte au **National Sales** (demande émanant d'un délégué) et à la Direction
-  // Marketing (Manager Promotion Médicale). La Direction n'intervient pas ici.
-  if (!(user.role === "NATIONAL_SALES" || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "SUPER_ADMIN")) return { ok: false, error: "Attribution réservée au National Sales / à la Direction Marketing." };
+  // **réservée au National Sales** (la demande émane d'un délégué). Ni la Direction
+  // ni la Direction Marketing n'interviennent à cette étape.
+  if (!(user.role === "NATIONAL_SALES" || user.role === "SUPER_ADMIN")) return { ok: false, error: "Attribution réservée au National Sales." };
 
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };
@@ -160,7 +160,7 @@ export async function submitProductAnalysis(formData: FormData): Promise<ActionR
       requestStatus: "REJECTED", rejectionReason: reason, productManagerNotes: reason, updatedById: user.id,
     });
     if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: `${NOUN(t)} — refusé par le chef de produit`, body: c.name, link: `${pathFor(t)}/${id}` });
-    await notifyRoles(["NATIONAL_SALES", "MEDICAL_PROMOTION_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: `${NOUN(t)} refusé par le chef de produit`, body: c.name, link: `${pathFor(t)}/${id}` });
+    await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "GENERIC", title: `${NOUN(t)} refusé par le chef de produit`, body: c.name, link: `${pathFor(t)}/${id}` });
     await recordAudit({ actorId: user.id, action: "REFUSE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Refus chef de produit — ${c.name}` });
     revalidatePath(`${pathFor(t)}/${id}`);
     revalidatePath(pathFor(t));
@@ -322,7 +322,7 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
   if (!id || !personId) return { ok: false, error: "Indiquez la personne à impliquer." };
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };
-  const isActor = hasGlobalView(user.role) || user.role === "NATIONAL_SALES" || user.role === "MEDICAL_PROMOTION_MANAGER" || c.productManagerId === user.id || c.requesterId === user.id;
+  const isActor = hasGlobalView(user.role) || user.role === "NATIONAL_SALES" || c.productManagerId === user.id || c.requesterId === user.id;
   if (!isActor) return { ok: false, error: "Non autorisé." };
 
   const res = await involveThirdParty({
