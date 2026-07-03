@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { getCongressDetail, getCongressFormData } from "@/lib/queries/congress";
@@ -22,13 +22,13 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
 
   // Validation définitive **réservée à la Direction** (hasGlobalView = Direction + Super Admin) :
   // le chef de produit « gère » le module mais ne doit pas valider à la place de la Direction.
-  const canValidate = hasGlobalView(user.role);
+  const canValidate = hasGlobalView(user);
   // Étape préliminaire (attribuer le chef de produit) : réservée au National Sales.
-  const canMarketing = user.role === "NATIONAL_SALES" || user.role === "SUPER_ADMIN";
-  const canAnalyze = detail.productManagerId === user.id || hasGlobalView(user.role);
+  const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
+  const canAnalyze = detail.productManagerId === user.id || hasGlobalView(user);
   // Le demandeur peut joindre des pièces à sa demande, même si son rôle n'a pas UPLOAD.
   const canUpload = userCan(user, "CONGRESS_INTERNATIONAL", "UPLOAD") || detail.requesterId === user.id;
-  const canDelete = userCan(user, "CONGRESS_INTERNATIONAL", "DELETE") || hasGlobalView(user.role);
+  const canDelete = userCan(user, "CONGRESS_INTERNATIONAL", "DELETE") || hasGlobalView(user);
   const docs = await prisma.document.findMany({
     where: { entityType: "CONGRESS_INTERNATIONAL", entityId: detail.id },
     include: { uploadedBy: { select: { name: true } } },

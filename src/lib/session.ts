@@ -15,6 +15,8 @@ export interface CurrentUser {
   name: string;
   email: string;
   role: UserRole;
+  /** « Autre rôle » cumulé (réglé par le Super Admin), résolu depuis l'accès effectif. */
+  secondaryRole?: UserRole | null;
   access: EffectiveAccess;
   sid?: string;
   mustChangePassword: boolean;
@@ -56,6 +58,7 @@ async function build(session: Session | null): Promise<CurrentUser | null> {
           name: target.name,
           email: target.email,
           role: target.role,
+          secondaryRole: targetAccess.secondaryRole,
           access: targetAccess,
           sid,
           mustChangePassword: false,
@@ -71,6 +74,7 @@ async function build(session: Session | null): Promise<CurrentUser | null> {
     name: session.user.name ?? "",
     email: session.user.email ?? "",
     role: session.user.role,
+    secondaryRole: access.secondaryRole,
     access,
     sid,
     mustChangePassword: session.user.mustChangePassword ?? false,

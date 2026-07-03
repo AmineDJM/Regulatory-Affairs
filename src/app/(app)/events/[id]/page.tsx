@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Video } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getEventDetail } from "@/lib/queries/events";
 import { PageHeader } from "@/components/shared/page-header";
@@ -30,9 +30,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const canManage = userCan(user, "EVENTS", "UPDATE");
   const canDelete = userCan(user, "EVENTS", "DELETE");
   // Circuit de prise en charge (financement) — mêmes rôles que pour les congrès.
-  const canMarketing = user.role === "NATIONAL_SALES" || user.role === "SUPER_ADMIN";
-  const canValidate = hasGlobalView(user.role);
-  const canAnalyze = e.productManagerId === user.id || hasGlobalView(user.role);
+  const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
+  const canValidate = hasGlobalView(user);
+  const canAnalyze = e.productManagerId === user.id || hasGlobalView(user);
   const canSubmit = userCan(user, "EVENTS", "CREATE");
   const [responsibles, missions, productManagers] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),

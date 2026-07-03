@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { ROLE_LABELS } from "@/lib/labels";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 const AVATAR_COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#059669", "#d97706", "#dc2626", "#db2777"];
@@ -84,6 +85,34 @@ export async function updateUserRole(formData: FormData): Promise<ActionResult> 
   await recordAudit({
     actorId: admin.id, action: "UPDATE", module: "Administration",
     field: "role", oldValue: u.role, newValue: role, summary: `Rôle de ${u.name} → ${role}`,
+  });
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+/**
+ * Règle l'« autre rôle » (fonction secondaire) d'un utilisateur — ex. un délégué qui
+ * est AUSSI National Sales / Direction Marketing. L'utilisateur cumulera alors les
+ * capacités des deux rôles. Chaîne vide = retirer le rôle secondaire.
+ */
+export async function setSecondaryRole(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (!userCan(admin, "ADMIN", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Paramètres manquants." };
+  const raw = fdStr(formData, "secondaryRole");
+  if (raw && !(raw in ROLE_LABELS)) return { ok: false, error: "Rôle invalide." };
+  // Le rôle secondaire ne peut pas conférer les pleins pouvoirs (anti-escalade).
+  if (raw === "SUPER_ADMIN") return { ok: false, error: "Le rôle secondaire ne peut pas être Super Admin." };
+  const secondaryRole = raw ? (raw as UserRole) : null;
+
+  const u = await prisma.user.findUnique({ where: { id }, select: { name: true, secondaryRole: true } });
+  if (!u) return { ok: false, error: "Introuvable." };
+  await prisma.user.update({ where: { id }, data: { secondaryRole } });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    field: "secondaryRole", oldValue: u.secondaryRole ?? "—", newValue: secondaryRole ?? "—",
+    summary: `Autre rôle de ${u.name} → ${secondaryRole ? (ROLE_LABELS[secondaryRole] ?? secondaryRole) : "aucun"}`,
   });
   revalidatePath("/admin");
   return { ok: true };

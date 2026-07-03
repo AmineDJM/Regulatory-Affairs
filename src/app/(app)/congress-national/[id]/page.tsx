@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { getCongressDetail, getCongressFormData } from "@/lib/queries/congress";
@@ -21,12 +21,12 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
   const form = await getCongressFormData();
 
   // Validation définitive **réservée à la Direction** (hasGlobalView = Direction + Super Admin).
-  const canValidate = hasGlobalView(user.role);
+  const canValidate = hasGlobalView(user);
   // Étape préliminaire (attribuer le chef de produit) : réservée au National Sales.
-  const canMarketing = user.role === "NATIONAL_SALES" || user.role === "SUPER_ADMIN";
-  const canAnalyze = detail.productManagerId === user.id || hasGlobalView(user.role);
+  const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
+  const canAnalyze = detail.productManagerId === user.id || hasGlobalView(user);
   const canUpload = userCan(user, "CONGRESS_NATIONAL", "UPLOAD") || detail.requesterId === user.id;
-  const canDelete = userCan(user, "CONGRESS_NATIONAL", "DELETE") || hasGlobalView(user.role);
+  const canDelete = userCan(user, "CONGRESS_NATIONAL", "DELETE") || hasGlobalView(user);
   const docs = await prisma.document.findMany({
     where: { entityType: "CONGRESS_NATIONAL", entityId: detail.id },
     include: { uploadedBy: { select: { name: true } } },

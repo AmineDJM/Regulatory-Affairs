@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { CongressRequestStatus, EntityType, NationalEventType, Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, type Module } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole, type Module } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
@@ -110,7 +110,7 @@ export async function preliminaryDecision(formData: FormData): Promise<ActionRes
   // Approbation préliminaire (approuver/refuser + désigner le chef de produit) :
   // **réservée au National Sales** (la demande émane d'un délégué). Ni la Direction
   // ni la Direction Marketing n'interviennent à cette étape.
-  if (!(user.role === "NATIONAL_SALES" || user.role === "SUPER_ADMIN")) return { ok: false, error: "Attribution réservée au National Sales." };
+  if (!(hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN")) return { ok: false, error: "Attribution réservée au National Sales." };
 
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };
@@ -147,7 +147,7 @@ export async function submitProductAnalysis(formData: FormData): Promise<ActionR
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };
-  if (c.productManagerId !== user.id && !hasGlobalView(user.role)) return { ok: false, error: "Réservé au chef de produit assigné." };
+  if (c.productManagerId !== user.id && !hasGlobalView(user)) return { ok: false, error: "Réservé au chef de produit assigné." };
   if (c.requestStatus !== "PRELIMINARY_APPROVED") return { ok: false, error: "Cette demande n'est pas en phase d'analyse." };
 
   // Le chef de produit peut APPROUVER (et proposer un budget, désormais facultatif)
@@ -195,7 +195,7 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
   if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
   // Validation définitive **réservée à la Direction** (et au Super Admin) — le chef
   // de produit, même s'il « gère » le module, ne doit PAS pouvoir trancher.
-  if (!hasGlobalView(user.role)) return { ok: false, error: "Validation définitive réservée à la Direction." };
+  if (!hasGlobalView(user)) return { ok: false, error: "Validation définitive réservée à la Direction." };
 
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };
@@ -277,7 +277,7 @@ export async function updateGrantedBudget(formData: FormData): Promise<ActionRes
   const t = typeOf(formData);
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  if (!hasGlobalView(user.role)) return { ok: false, error: "Réservé à la Direction." };
+  if (!hasGlobalView(user)) return { ok: false, error: "Réservé à la Direction." };
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };
   if (!["APPROVED", "COMPLETED"].includes(c.requestStatus ?? "")) return { ok: false, error: "Le budget ne peut être modifié qu'après validation définitive." };
@@ -322,7 +322,7 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
   if (!id || !personId) return { ok: false, error: "Indiquez la personne à impliquer." };
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };
-  const isActor = hasGlobalView(user.role) || user.role === "NATIONAL_SALES" || c.productManagerId === user.id || c.requesterId === user.id;
+  const isActor = hasGlobalView(user) || hasRole(user, "NATIONAL_SALES") || c.productManagerId === user.id || c.requesterId === user.id;
   if (!isActor) return { ok: false, error: "Non autorisé." };
 
   const res = await involveThirdParty({
@@ -346,7 +346,7 @@ export async function cancelCongressRequest(formData: FormData): Promise<ActionR
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Introuvable." };
   const isOwner = c.requesterId === user.id;
-  if (!isOwner && !userCan(user, moduleFor(t), "VALIDATE") && !hasGlobalView(user.role)) return { ok: false, error: "Non autorisé." };
+  if (!isOwner && !userCan(user, moduleFor(t), "VALIDATE") && !hasGlobalView(user)) return { ok: false, error: "Non autorisé." };
   if (["APPROVED", "COMPLETED"].includes(c.requestStatus ?? "")) return { ok: false, error: "Demande déjà validée." };
   await updateCongress(t, id, { requestStatus: "CANCELLED", updatedById: user.id });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Demande annulée — ${c.name}` });

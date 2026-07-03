@@ -146,8 +146,23 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
 };
 
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];
-export function hasGlobalView(role: UserRole): boolean {
-  return GLOBAL_VIEW_ROLES.includes(role);
+
+/** Type minimal « porteur de rôles » : rôle principal + éventuel rôle secondaire. */
+type RoleBearer = { role: UserRole; secondaryRole?: UserRole | null };
+
+/**
+ * Vue globale (voit tout / valide comme la Direction). Accepte un **rôle brut**
+ * (rétrocompatible) OU un **utilisateur** — auquel cas le **rôle secondaire** est
+ * aussi pris en compte (ex. un compte dont l'« autre rôle » est Direction).
+ */
+export function hasGlobalView(u: UserRole | RoleBearer): boolean {
+  if (typeof u === "string") return GLOBAL_VIEW_ROLES.includes(u);
+  return GLOBAL_VIEW_ROLES.includes(u.role) || (u.secondaryRole != null && GLOBAL_VIEW_ROLES.includes(u.secondaryRole));
+}
+
+/** L'utilisateur porte-t-il ce rôle, en **principal OU en secondaire** ? */
+export function hasRole(u: RoleBearer, role: UserRole): boolean {
+  return u.role === role || u.secondaryRole === role;
 }
 
 /**
@@ -202,10 +217,15 @@ export interface EffectiveModuleAccess {
 export interface EffectiveAccess {
   modules: Map<Module, EffectiveModuleAccess>;
   rowGrants: Map<EntityType, Set<string>>;
+  /** Rôle secondaire résolu (toujours renseigné par `getAccess` ; optionnel pour les
+   *  fabriques de test qui construisent un accès minimal). */
+  secondaryRole?: UserRole | null;
 }
 export interface SessionUser {
   id: string;
   role: UserRole;
+  /** « Autre rôle » : fonction secondaire cumulée (réglée par le Super Admin). */
+  secondaryRole?: UserRole | null;
   access: EffectiveAccess;
 }
 
@@ -216,10 +236,15 @@ export interface SessionUser {
  */
 export const getAccess = perRequest(
   async (userId: string, role: UserRole): Promise<EffectiveAccess> => {
-    const [overrides, grants] = await Promise.all([
+    const [overrides, grants, userRow] = await Promise.all([
       prisma.userAccess.findMany({ where: { userId } }),
       prisma.rowGrant.findMany({ where: { userId }, select: { entityType: true, entityId: true } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { secondaryRole: true } }),
     ]);
+
+    // « Autre rôle » : l'utilisateur CUMULE son rôle principal ET son rôle secondaire.
+    const secondaryRole = userRow?.secondaryRole ?? null;
+    const roles: UserRole[] = secondaryRole && secondaryRole !== role ? [role, secondaryRole] : [role];
 
     const overrideMap = new Map(overrides.map((o) => [o.module as Module, o]));
     const modules = new Map<Module, EffectiveModuleAccess>();
@@ -237,10 +262,20 @@ export const getAccess = perRequest(
         if (ov.canUpload) actions.add("UPLOAD");
         modules.set(module, { actions, scope: ov.scope });
       } else {
-        const def = PERMISSIONS[role]?.[module];
-        if (def?.includes("VIEW")) {
-          modules.set(module, { actions: new Set(def), scope: defaultScope(role, module) });
+        // Union des rôles (principal + secondaire) : actions cumulées, **portée la
+        // plus large** (ALL l'emporte sur ASSIGNED).
+        const actions = new Set<Action>();
+        let scope: AccessScope = "ASSIGNED";
+        let hasView = false;
+        for (const r of roles) {
+          const def = PERMISSIONS[r]?.[module];
+          if (def?.includes("VIEW")) {
+            hasView = true;
+            for (const a of def) actions.add(a);
+            if (defaultScope(r, module) === "ALL") scope = "ALL";
+          }
         }
+        if (hasView) modules.set(module, { actions, scope });
       }
     }
 
@@ -250,7 +285,7 @@ export const getAccess = perRequest(
       rowGrants.get(g.entityType)!.add(g.entityId);
     }
 
-    return { modules, rowGrants };
+    return { modules, rowGrants, secondaryRole };
   },
 );
 

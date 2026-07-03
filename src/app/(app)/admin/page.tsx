@@ -17,6 +17,7 @@ import { ROLE_LABELS, ADMIN_TABS } from "@/lib/labels";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { formatDateTime } from "@/lib/utils";
 import { AuditPanel } from "./audit-panel";
+import { RolesTable } from "./roles-table";
 
 export default async function AdminPage() {
   const admin = await requireModule("ADMIN");
@@ -131,6 +132,24 @@ export default async function AdminPage() {
               ))}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      {/* Tableau clair : rôle principal + « autre rôle » (fonction secondaire), réglable par le Super Admin. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Rôles principaux & secondaires</CardTitle>
+          <CardDescription>
+            Chaque compte a un <strong>rôle principal</strong> et, en option, un <strong>autre rôle</strong> (fonction
+            secondaire : Direction, Direction Marketing, National Sales…). Le rôle secondaire <strong>cumule</strong>
+            ses capacités à celles du rôle principal. Modifiable ici par le Super Admin.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <RolesTable
+            users={users.map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, secondaryRole: u.secondaryRole ?? null }))}
+            canManage={userCan(admin, "ADMIN", "UPDATE")}
+          />
         </CardContent>
       </Card>
 

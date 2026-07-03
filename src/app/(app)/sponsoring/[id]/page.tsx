@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Lock, Gavel } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { getEntityMissions } from "@/lib/queries/missions";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
@@ -31,10 +31,10 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   if (!req) notFound();
 
   // Rôles dans le circuit
-  const canDirection = hasGlobalView(user.role) || userCan(user, "SPONSORING", "VALIDATE");
+  const canDirection = hasGlobalView(user) || userCan(user, "SPONSORING", "VALIDATE");
   // Étape préliminaire (attribuer le chef de produit) : réservée au National Sales
   // (la demande émane d'un délégué). Ni la Direction ni la Direction Marketing n'y interviennent.
-  const canMarketing = user.role === "NATIONAL_SALES" || user.role === "SUPER_ADMIN";
+  const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
   const isProductManager = req.productManagerId === user.id;
   const isRequester = req.requesterId === user.id;
   // Confidentialité : l'analyse et le budget du chef de produit ne sont JAMAIS

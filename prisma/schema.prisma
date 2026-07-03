@@ -567,6 +567,10 @@ model User {
   name         String
   passwordHash String
   role         UserRole  @default(VIEWER)
+  // « Autre rôle » (fonction secondaire) réglé par le Super Admin : ex. un délégué qui
+  // est AUSSI National Sales / Direction Marketing. Il CUMULE les capacités du rôle
+  // principal ET du rôle secondaire (cf. getAccess + hasRole).
+  secondaryRole UserRole?
   title        String? // job title
   phone        String?
   avatarColor  String? // UI accent for the avatar chip

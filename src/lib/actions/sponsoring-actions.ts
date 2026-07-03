@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { Priority, SponsoringStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
@@ -14,14 +14,14 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 const PATH = "/sponsoring";
 
 function isDirection(user: SessionUser): boolean {
-  return hasGlobalView(user.role) || userCan(user, "SPONSORING", "VALIDATE");
+  return hasGlobalView(user) || userCan(user, "SPONSORING", "VALIDATE");
 }
 /** Approbation préliminaire Ad & Pro : **réservée au National Sales** (la demande
  *  émane d'un délégué). Il approuve/refuse et désigne le chef de produit — la
  *  décision définitive reste à la Direction. Ni la Direction ni la Direction
  *  Marketing n'interviennent à l'étape préliminaire. */
 function isDirectionMarketing(user: SessionUser): boolean {
-  return user.role === "NATIONAL_SALES" || user.role === "SUPER_ADMIN";
+  return hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
 }
 
 function revalidate(id: string) {
@@ -128,7 +128,7 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
   if (!id || !personId) return { ok: false, error: "Indiquez la personne à impliquer." };
   const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
   if (!req) return { ok: false, error: "Demande introuvable." };
-  const isActor = hasGlobalView(user.role) || isDirectionMarketing(user) || req.productManagerId === user.id || req.requesterId === user.id;
+  const isActor = hasGlobalView(user) || isDirectionMarketing(user) || req.productManagerId === user.id || req.requesterId === user.id;
   if (!isActor) return { ok: false, error: "Non autorisé." };
 
   // Espace de la personne : demande de validation + dossier de suivi indiquant
@@ -154,7 +154,7 @@ export async function sponsoringAnalysis(formData: FormData): Promise<ActionResu
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
   if (!req) return { ok: false, error: "Demande introuvable." };
-  if (req.productManagerId !== user.id && !hasGlobalView(user.role)) return { ok: false, error: "Réservé au chef de produit assigné." };
+  if (req.productManagerId !== user.id && !hasGlobalView(user)) return { ok: false, error: "Réservé au chef de produit assigné." };
 
   const isAppeal = req.status === "APPEAL_PENDING";
   if (req.status !== "PRELIMINARY_APPROVED" && !isAppeal) return { ok: false, error: "Cette demande n'est pas en phase d'analyse." };
@@ -255,7 +255,7 @@ export async function sponsoringAppeal(formData: FormData): Promise<ActionResult
   const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
   if (!req) return { ok: false, error: "Demande introuvable." };
   // L'appel est ouvert au demandeur (délégué) une fois la décision rendue.
-  if (req.requesterId !== user.id && !hasGlobalView(user.role)) return { ok: false, error: "Seul le demandeur peut faire appel." };
+  if (req.requesterId !== user.id && !hasGlobalView(user)) return { ok: false, error: "Seul le demandeur peut faire appel." };
   if (req.status !== "APPROVED" && req.status !== "REFUSED") return { ok: false, error: "L'appel n'est possible qu'après la décision de la Direction." };
 
   const reason = fdStr(formData, "reason");
