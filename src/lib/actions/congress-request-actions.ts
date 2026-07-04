@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { CongressRequestStatus, EntityType, NationalEventType, Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, hasRole, type Module } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole, anyRoleFilter, type Module } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
@@ -229,7 +229,7 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
   // Étape « information médicale » : intercalée UNIQUEMENT si un pharmacien responsable
   // est configuré. Sinon, on route directement l'ordre de dépense vers les Finances
   // (le responsable des finances est notifié par createExpenseOrder).
-  const pharmacist = await prisma.user.findFirst({ where: { role: "MEDICAL_INFO_PHARMACIST", isActive: true }, select: { id: true } });
+  const pharmacist = await prisma.user.findFirst({ where: { ...anyRoleFilter(["MEDICAL_INFO_PHARMACIST"]), isActive: true }, select: { id: true } });
 
   if (pharmacist) {
     const decl = await createMedicalInfoDeclaration({

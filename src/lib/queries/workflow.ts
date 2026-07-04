@@ -1,7 +1,8 @@
 import type { EntityType } from "@prisma/client";
+import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
-import { hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
+import { anyRoleFilter, hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
 import { getBudgetCategoryOptions, type BudgetCategoryOption } from "@/lib/queries/budget";
 import { ensureInstance, getDefinition, orderedSteps, canActOnStep, stepBySlug } from "@/lib/workflow/engine";
 import {
@@ -135,7 +136,7 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
   const current = stepBySlug(def, instance.currentSlug);
   if (instance.status === "IN_PROGRESS" && current && canActOnStep(viewer, current, instance, { requesterId })) {
     const candidates = current.assignRole
-      ? await prisma.user.findMany({ where: { role: current.assignRole as never, isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+      ? await prisma.user.findMany({ where: { ...anyRoleFilter([current.assignRole as UserRole]), isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : [];
     // Montant suggéré : dernier montant proposé (analyse), sinon montant déjà accordé.
     const lastAmount = [...events].reverse().find((e) => e.amount != null)?.amount ?? instance.amount ?? null;

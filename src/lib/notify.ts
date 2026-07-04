@@ -1,5 +1,6 @@
 import type { NotificationType, UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { anyRoleFilter } from "@/lib/rbac";
 import { sendPushToUser } from "@/lib/push";
 
 interface NotifyInput {
@@ -44,8 +45,9 @@ export async function broadcastNotification(opts: {
         ids = valid.map((u) => u.id);
       }
     } else {
+      // Audience « rôle » : couvre le rôle principal ET le rôle secondaire.
       const where = opts.audience === "ROLE" && opts.role
-        ? { isActive: true, role: opts.role as UserRole }
+        ? { isActive: true, ...anyRoleFilter([opts.role as UserRole]) }
         : { isActive: true };
       ids = (await prisma.user.findMany({ where, select: { id: true } })).map((u) => u.id);
     }
@@ -62,14 +64,15 @@ export async function broadcastNotification(opts: {
   }
 }
 
-/** Notify every user holding one of the given roles. */
+/** Notify every user holding one of the given roles — en principal OU en secondaire
+ *  (ex. un compte « délégué » dont l'autre rôle est National Sales doit être prévenu). */
 export async function notifyRoles(
   roles: import("@prisma/client").UserRole[],
   input: Omit<NotifyInput, "userId">,
 ) {
   try {
     const users = await prisma.user.findMany({
-      where: { role: { in: roles }, isActive: true },
+      where: { ...anyRoleFilter(roles), isActive: true },
       select: { id: true },
     });
     if (users.length === 0) return;

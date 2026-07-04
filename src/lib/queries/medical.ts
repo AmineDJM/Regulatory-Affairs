@@ -1,6 +1,6 @@
 import type { DoctorTitle, InfluenceLevel, MedicalSector, Priority, SegmentLevel } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { scopeMedicalDoctors, scopeMedicalVisits, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { anyRoleFilter, scopeMedicalDoctors, scopeMedicalVisits, hasGlobalView, type SessionUser } from "@/lib/rbac";
 
 /**
  * Lecture du module Promotion médicale, désormais structuré :
@@ -158,7 +158,7 @@ export async function getMedicalData(user: SessionUser): Promise<MedicalData> {
       include: { doctor: { select: { name: true } }, delegate: { select: { name: true } } },
     }),
     isManager
-      ? prisma.user.findMany({ where: { role: "MEDICAL_DELEGATE", isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+      ? prisma.user.findMany({ where: { ...anyRoleFilter(["MEDICAL_DELEGATE", "NATIONAL_SALES"]), isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : Promise.resolve([]),
   ]);
 

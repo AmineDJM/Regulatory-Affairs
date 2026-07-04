@@ -2,8 +2,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
+import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import type { SessionUser, UserRole } from "@/lib/rbac";
+import type { SessionUser } from "@/lib/rbac";
 import { advanceWorkflowInstance } from "./engine";
 import { getWorkflowForEntity } from "@/lib/queries/workflow";
 

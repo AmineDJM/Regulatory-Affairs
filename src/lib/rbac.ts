@@ -165,6 +165,13 @@ export function hasRole(u: RoleBearer, role: UserRole): boolean {
   return u.role === role || u.secondaryRole === role;
 }
 
+/** Filtre Prisma « porte l'un de ces rôles » — principal **OU secondaire**. À utiliser
+ *  pour TOUTE sélection d'utilisateurs par rôle (notifications, candidats désignables,
+ *  pharmacien PRIM, annuaires…), sinon un rôle attribué en secondaire est ignoré. */
+export function anyRoleFilter(roles: UserRole[]): Prisma.UserWhereInput {
+  return { OR: [{ role: { in: roles } }, { secondaryRole: { in: roles } }] };
+}
+
 /**
  * Gouvernance des **enveloppes budgétaires** : prérogative du Super Admin, qu'il
  * peut déléguer en accordant le droit `BUDGETS:DELETE` (le plus élevé du module)

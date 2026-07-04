@@ -2,7 +2,7 @@ import type { EntityType, Prisma, UserRole, WorkflowInstance, WorkflowStep } fro
 import { prisma } from "@/lib/prisma";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { recordAudit } from "@/lib/audit";
-import { hasGlobalView, hasRole } from "@/lib/rbac";
+import { anyRoleFilter, hasGlobalView, hasRole } from "@/lib/rbac";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { toNumber } from "@/lib/utils";
@@ -345,7 +345,7 @@ async function emitFinancials(
   const budgetCategoryId = instance.budgetCategoryId ?? null;
   const requestedById = summary.requesterId ?? viewer.id;
 
-  const pharmacist = await prisma.user.findFirst({ where: { role: "MEDICAL_INFO_PHARMACIST", isActive: true }, select: { id: true } });
+  const pharmacist = await prisma.user.findFirst({ where: { ...anyRoleFilter(["MEDICAL_INFO_PHARMACIST"]), isActive: true }, select: { id: true } });
   if (pharmacist && step.emitDeclaration) {
     const decl = await createMedicalInfoDeclaration({
       sourceType: entityType, sourceId: entityId, label: summary.label,

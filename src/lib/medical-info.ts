@@ -1,5 +1,6 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "./prisma";
+import { anyRoleFilter } from "./rbac";
 import { notifyRoles } from "./notify";
 
 export async function nextDeclarationRef(): Promise<string> {
@@ -32,9 +33,10 @@ export async function createMedicalInfoDeclaration(input: CreateDeclarationInput
   });
   if (existing) return existing;
 
-  // Assignation par défaut au premier pharmacien responsable actif (le cas échéant).
+  // Assignation par défaut au premier pharmacien responsable actif (le cas échéant),
+  // que le rôle soit porté en principal OU en secondaire.
   const pharmacist = await prisma.user.findFirst({
-    where: { role: "MEDICAL_INFO_PHARMACIST", isActive: true },
+    where: { ...anyRoleFilter(["MEDICAL_INFO_PHARMACIST"]), isActive: true },
     select: { id: true },
   });
 
