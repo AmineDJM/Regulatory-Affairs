@@ -20,22 +20,21 @@ Dernière génération : `src/` — **2628 nœuds · 11625 arêtes · 95 communa
 `userCan`, `rbac.ts`, `hasGlobalView`, `requireModule`, `congress-request-actions.ts`,
 `medical-info-actions.ts`, `workflow/engine.ts`…
 
-## Rafraîchir après des changements de code
+## Rôle dans le projet
+
+Le graphe est la **couche de compréhension principale** du code (cf. `CLAUDE.md` à la
+racine) : on interroge la carte AVANT d'ouvrir les fichiers source. Rafraîchir après
+chaque gros lot fonctionnel (pas à chaque micro-commit), puis committer `graph.*`.
+
+## Scripts npm (recommandé)
 
 ```bash
-pip install --user graphifyy         # une fois (le paquet PyPI s'appelle « graphifyy »)
-graphify update src                  # ré-extrait le code, met à jour graph.* (sans LLM)
-#   ou, depuis la racine, pour tout le dépôt : graphify update .
+npm run graphify:refresh                                    # ré-extrait src/ et met à jour graph.* (auto-installe le CLI)
+npm run graphify:report                                     # affiche GRAPH_REPORT.md
+npm run graphify:query -- "userCan"                         # explication d'un nœud + voisins
+npm run graphify:query -- path "createSponsoring" "createExpenseOrder"   # plus court chemin
 ```
 
-Les sorties atterrissent dans `<cible>/graphify-out/` (ex. `src/graphify-out/`) ;
-déplacez‑les dans `graphify-out/` à la racine si besoin. Le rapport
-indique le commit de génération (`Built from commit`) : comparez‑le à
+Après une grosse suppression de code : `GRAPHIFY_FORCE=1 npm run graphify:refresh`.
+Le rapport indique le commit de génération (`Built from commit`) : comparez-le à
 `git rev-parse HEAD` pour savoir si le graphe est périmé.
-
-## Requêtes utiles (CLI)
-
-```bash
-graphify explain "userCan"           # explication en langage clair d'un nœud
-graphify path "createSponsoring" "createExpenseOrder"   # plus court chemin
-```

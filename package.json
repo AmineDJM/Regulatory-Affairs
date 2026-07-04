@@ -15,7 +15,10 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:bootstrap": "tsx prisma/bootstrap.ts",
-    "db:reset": "prisma migrate reset --force"
+    "db:reset": "prisma migrate reset --force",
+    "graphify:refresh": "bash scripts/graphify-refresh.sh",
+    "graphify:report": "cat graphify-out/GRAPH_REPORT.md",
+    "graphify:query": "bash scripts/graphify-query.sh"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"
