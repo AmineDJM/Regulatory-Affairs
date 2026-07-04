@@ -5,9 +5,9 @@ import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
-import { getCongressDetail, getCongressFormData } from "@/lib/queries/congress";
+import { getCongressDetail } from "@/lib/queries/congress";
 import { getEntityMissions } from "@/lib/queries/missions";
-import { getBudgetCategoryOptions } from "@/lib/queries/budget";
+import { getWorkflowForEntity } from "@/lib/queries/workflow";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
@@ -19,14 +19,10 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
   const user = await requireModule("CONGRESS_INTERNATIONAL");
   const detail = await getCongressDetail("INTL", user, params.id);
   if (!detail) notFound();
-  const form = await getCongressFormData();
 
-  // Validation définitive **réservée à la Direction** (hasGlobalView = Direction + Super Admin) :
-  // le chef de produit « gère » le module mais ne doit pas valider à la place de la Direction.
-  const canValidate = hasGlobalView(user);
-  // Étape préliminaire (attribuer le chef de produit) : réservée au National Sales.
-  const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
-  const canAnalyze = detail.productManagerId === user.id || hasGlobalView(user);
+  // Impliquer une tierce personne : ouvert aux acteurs du circuit (National Sales,
+  // chef de produit assigné, Direction) — le moteur pilote désormais la validation.
+  const canInvolveThirdParty = hasGlobalView(user) || hasRole(user, "NATIONAL_SALES") || detail.productManagerId === user.id;
   // Le demandeur peut joindre des pièces à sa demande, même si son rôle n'a pas UPLOAD.
   const canUpload = userCan(user, "CONGRESS_INTERNATIONAL", "UPLOAD") || detail.requesterId === user.id;
   const canDelete = userCan(user, "CONGRESS_INTERNATIONAL", "DELETE") || hasGlobalView(user);
@@ -40,11 +36,11 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
     confidentiality: dc.confidentiality, uploadedBy: dc.uploadedBy?.name ?? null, createdAt: dc.createdAt.toISOString(), hasFile: Boolean(dc.fileKey),
   }));
 
-  const [missions, canManageMissions, missionUsers, budgetCategories] = await Promise.all([
+  const [missions, canManageMissions, missionUsers, workflow] = await Promise.all([
     getEntityMissions("CONGRESS_INTERNATIONAL", detail.id),
     canAccessEntity(user, "CONGRESS_INTERNATIONAL", detail.id, "UPDATE"),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    getBudgetCategoryOptions("CONGRESS_INTERNATIONAL"),
+    getWorkflowForEntity(user, "CONGRESS_INTERNATIONAL", detail.id, detail.requesterId),
   ]);
 
   return (
@@ -56,7 +52,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />
         <SuperAdminDeleteButton kind="CONGRESS_INTERNATIONAL" id={detail.id} name={detail.name} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
-      <CongressDetailView detail={detail} canValidate={canValidate} canMarketing={canMarketing} canAnalyze={canAnalyze} productManagers={form.productManagers} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-international/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} budgetCategories={budgetCategories} />
+      <CongressDetailView detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-international/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} />
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { involveThirdParty } from "@/lib/third-party";
+import { reopenInstance } from "@/lib/workflow/engine";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/sponsoring";
@@ -275,6 +276,8 @@ export async function sponsoringAppeal(formData: FormData): Promise<ActionResult
     where: { id },
     data: { status: "APPEAL_PENDING", appealById: user.id, appealAt: new Date(), appealReason: reason, appealCount: { increment: 1 }, updatedById: user.id },
   });
+  // Ré-ouvre le circuit (moteur) à l'étape d'analyse pour rester cohérent avec le statut.
+  await reopenInstance("SPONSORING", id);
   // Repart au chef de produit pour un nouvel avis (sans budget) ; la Direction est informée.
   if (req.productManagerId) await notifyUser({ userId: req.productManagerId, type: "ASSIGNMENT", title: "Sponsoring — appel à réexaminer", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
   await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "SPONSORING_VALIDATION", title: "Sponsoring — appel du délégué", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });

@@ -3375,3 +3375,88 @@ model CalendarInvite {
   @@unique([eventId, userId])
   @@index([userId])
 }
+
+// ───────────────────────── Moteur de workflow configurable (Ad & Pro) ─────────────────────────
+// Circuits de validation « no-code » éditables par le Super Admin dans Administration :
+// une définition par catégorie (Sponsoring, Congrès intl/national, Événements), composée
+// d'étapes ordonnées. Chaque étape déclare QUI agit (rôles + portée) et ses POUVOIRS. Le
+// moteur (src/lib/workflow) pilote le gating et la progression au runtime ; le statut
+// « legacy » de l'entité source reste synchronisé pour les frises/badges/queries existants.
+
+model WorkflowDefinition {
+  id          String   @id @default(cuid())
+  category    String   @unique // SPONSORING | CONGRESS_INTERNATIONAL | CONGRESS_NATIONAL | EVENTS
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  steps       WorkflowStep[]
+  instances   WorkflowInstance[]
+}
+
+model WorkflowStep {
+  id           String             @id @default(cuid())
+  definitionId String
+  definition   WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  position     Int
+  slug         String // stable dans la définition (preliminary/analysis/final/… ou custom)
+  title        String
+  description  String?
+  actorRoles   String[]           @default([]) // UserRole[] autorisés à agir
+  actorScope   String             @default("ROLE") // ROLE | ASSIGNEE | GLOBAL_VIEW | REQUESTER
+  powers       String[]           @default([]) // APPROVE REJECT ASSIGN SET_AMOUNT SET_CATEGORY COMMENT
+
+  assignRole      String? // rôle désignable si pouvoir ASSIGN
+  requireAmount   Boolean  @default(false)
+  requireCategory Boolean  @default(false)
+  requireNote     Boolean  @default(false)
+  emitDeclaration  Boolean @default(false) // à l'approbation : créer une déclaration info médicale (si PRIM)
+  emitExpenseOrder Boolean @default(false) // à l'approbation : émettre un ordre de dépense
+  notifyRoles     String[] @default([])
+  optional        Boolean  @default(false)
+  confidential    Boolean  @default(false) // avis/montant de l'étape masqués au demandeur (ex. analyse chef de produit)
+  legacyStatus    String? // projection vers le statut enum de l'entité source (frises existantes)
+  createdAt       DateTime @default(now())
+
+  @@unique([definitionId, position])
+  @@unique([definitionId, slug])
+  @@index([definitionId])
+}
+
+model WorkflowInstance {
+  id               String             @id @default(cuid())
+  definitionId     String
+  definition       WorkflowDefinition @relation(fields: [definitionId], references: [id])
+  entityType       EntityType
+  entityId         String
+  category         String
+  status           String             @default("IN_PROGRESS") // IN_PROGRESS | APPROVED | REJECTED | CANCELLED
+  currentSlug      String? // étape en attente d'action ; null si terminal
+  amount           Decimal?           @db.Decimal(14, 2)
+  budgetCategoryId String?
+  assigneeId       String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  events           WorkflowStepEvent[]
+
+  @@unique([entityType, entityId])
+  @@index([category, status])
+}
+
+model WorkflowStepEvent {
+  id         String           @id @default(cuid())
+  instanceId String
+  instance   WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  stepSlug   String
+  stepTitle  String
+  action     String // APPROVE | REJECT | ASSIGN | COMMENT
+  actorId    String
+  actorName  String?
+  note       String?
+  amount     Decimal?         @db.Decimal(14, 2)
+  createdAt  DateTime         @default(now())
+
+  @@index([instanceId])
+}

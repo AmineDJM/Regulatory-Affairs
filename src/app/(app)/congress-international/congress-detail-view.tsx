@@ -1,34 +1,28 @@
-import Link from "next/link";
 import type { EntityType } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { CONGRESS_REQUEST_STATUS, NATIONAL_EVENT_TYPE, EXPENSE_ORDER_STATUS } from "@/lib/labels";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+import { NATIONAL_EVENT_TYPE } from "@/lib/labels";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CongressDetail } from "@/lib/queries/congress";
-import { PreliminaryDecision, ProductAnalysis, FinalDecision, EditGrantedBudget } from "./congress-workflow";
+import { WorkflowPanel } from "@/components/workflow/workflow-panel";
+import type { WorkflowView } from "@/lib/queries/workflow";
 import { BeneficiariesCard } from "./beneficiaries-card";
 import { ThirdPartyInvolveButton } from "@/components/shared/third-party-involve";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import type { MissionAssignmentDTO } from "@/lib/queries/missions";
 
-type PM = { id: string; name: string };
-type Cat = { id: string; label: string; isSub: boolean };
-
 const CONGRESS_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
 export function CongressDetailView({
-  detail, canValidate, canMarketing, canAnalyze, productManagers, entityType, entityId, documents, canUpload, canDelete, path,
-  missions, missionUsers, canManageMissions, currentUserId, budgetCategories = [],
+  detail, workflow, canInvolveThirdParty, entityType, entityId, documents, canUpload, canDelete, path,
+  missions, missionUsers, canManageMissions, currentUserId,
 }: {
   detail: CongressDetail;
-  canValidate: boolean;
-  canMarketing: boolean;
-  canAnalyze: boolean;
-  productManagers: PM[];
+  workflow: WorkflowView | null;
+  canInvolveThirdParty: boolean;
   entityType: EntityType;
   entityId: string;
   documents: DocItem[];
@@ -39,11 +33,8 @@ export function CongressDetailView({
   missionUsers: { id: string; name: string }[];
   canManageMissions: boolean;
   currentUserId: string;
-  budgetCategories?: Cat[];
 }) {
   const d = detail;
-  const st = d.requestStatus;
-  const done = (s: string[]) => s.includes(st);
 
   return (
     <div className="grid gap-5 lg:grid-cols-3">
@@ -69,66 +60,16 @@ export function CongressDetailView({
           </CardContent>
         </Card>
 
-        {/* Workflow A → Z */}
+        {/* Workflow configurable (piloté par le moteur — éditable dans Administration) */}
         <Card>
-          <CardHeader><CardTitle>Workflow de la demande</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Circuit de validation</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <Step n={1} title="Demande créée" active state="done">
-              <p className="text-sm text-muted-foreground">Par {d.requester || "—"} · {formatDateTime(d.createdAt)} · estimation {d.estimatedBudget !== null ? formatCurrency(d.estimatedBudget) : "—"}</p>
-            </Step>
-
-            <Step n={2} title="Attribution chef de produit (Direction Marketing)"
-              state={st === "REJECTED" && !d.finalAt ? "rejected" : done(["PRELIMINARY_APPROVED", "AWAITING_FINAL", "APPROVED", "COMPLETED"]) ? "done" : st === "AWAITING_PRELIMINARY" ? "current" : "pending"}>
-              {st === "AWAITING_PRELIMINARY" ? (
-                canMarketing ? <PreliminaryDecision type={d.type} id={d.id} productManagers={productManagers} />
-                  : <p className="text-sm text-muted-foreground">En attente de la Direction Marketing.</p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {d.preliminaryBy ? `${d.preliminaryBy} · ${d.preliminaryAt ? formatDate(d.preliminaryAt) : ""}` : ""}
-                  {d.preliminaryNote ? ` — ${d.preliminaryNote}` : ""}
-                  {d.productManager ? ` · Chef de produit : ${d.productManager}` : ""}
-                </p>
-              )}
-            </Step>
-
-            <Step n={3} title="Analyse chef de produit"
-              state={done(["AWAITING_FINAL", "APPROVED", "COMPLETED"]) ? "done" : st === "PRELIMINARY_APPROVED" ? "current" : "pending"}>
-              {st === "PRELIMINARY_APPROVED" ? (
-                canAnalyze ? <ProductAnalysis type={d.type} id={d.id} />
-                  : <p className="text-sm text-muted-foreground">En attente de l'analyse du chef de produit {d.productManager ? `(${d.productManager})` : ""}.</p>
-              ) : d.productManagerBudget !== null ? (
-                <p className="text-sm text-muted-foreground">{d.productManager} · budget {formatCurrency(d.productManagerBudget)}{d.productManagerNotes ? ` — ${d.productManagerNotes}` : ""}</p>
-              ) : <p className="text-sm text-muted-foreground">À venir.</p>}
-            </Step>
-
-            <Step n={4} title="Validation définitive (Direction)"
-              state={st === "APPROVED" || st === "COMPLETED" ? "done" : st === "REJECTED" && d.finalAt ? "rejected" : st === "AWAITING_FINAL" ? "current" : "pending"}>
-              {st === "AWAITING_FINAL" ? (
-                canValidate ? <FinalDecision type={d.type} id={d.id} suggestedAmount={d.productManagerBudget ?? d.estimatedBudget ?? null} categories={budgetCategories} />
-                  : <p className="text-sm text-muted-foreground">En attente de la validation définitive.</p>
-              ) : st === "APPROVED" || st === "COMPLETED" ? (
-                <div className="space-y-2 text-sm text-muted-foreground">
-                  <p>{d.finalBy} · {d.finalAt ? formatDate(d.finalAt) : ""}{d.finalNote ? ` — ${d.finalNote}` : ""}{d.finalAmount != null ? ` · ${formatCurrency(d.finalAmount)} accordé` : ""}</p>
-                  {d.expenseOrder ? (
-                    <p className="flex items-center gap-2">
-                      Ordre de dépense <span className="font-mono text-xs">{d.expenseOrder.reference}</span>
-                      <StatusBadge map={EXPENSE_ORDER_STATUS} value={d.expenseOrder.status} dot={false} />
-                      <span>{formatCurrency(d.expenseOrder.amount)}</span>
-                      <Link href="/finances/ordres-de-depense" className="text-primary hover:underline">Voir</Link>
-                    </p>
-                  ) : (
-                    <p className="text-xs">En cours de traitement (information médicale / Finances).</p>
-                  )}
-                  {canValidate && <EditGrantedBudget type={d.type} id={d.id} current={d.finalAmount ?? d.productManagerBudget ?? null} />}
-                </div>
-              ) : <p className="text-sm text-muted-foreground">À venir.</p>}
-            </Step>
-
-            {st === "REJECTED" && d.rejectionReason && (
-              <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">Refusé — {d.rejectionReason}</div>
+            {workflow ? (
+              <WorkflowPanel entityType={entityType} entityId={entityId} view={workflow} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Circuit indisponible.</p>
             )}
-
-            {(canMarketing || canValidate || canAnalyze) && (
+            {canInvolveThirdParty && (
               <div className="border-t border-border pt-3">
                 <ThirdPartyInvolveButton type={d.type} id={d.id} people={missionUsers} />
               </div>
@@ -208,15 +149,3 @@ function Budget({ label, value, tone }: { label: string; value: number | null; t
   );
 }
 
-function Step({ n, title, state, children }: { n: number; title: string; state: "done" | "current" | "pending" | "rejected"; active?: boolean; children: React.ReactNode }) {
-  const tone = state === "done" ? "bg-success text-success-foreground" : state === "current" ? "bg-warning text-warning-foreground" : state === "rejected" ? "bg-destructive text-destructive-foreground" : "bg-secondary text-muted-foreground";
-  return (
-    <div className="flex gap-3">
-      <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${tone}`}>{state === "rejected" ? "✗" : state === "done" ? "✓" : n}</div>
-      <div className="min-w-0 flex-1 space-y-1.5 border-b border-border pb-3 last:border-0">
-        <p className="font-medium">{title}</p>
-        {children}
-      </div>
-    </div>
-  );
-}

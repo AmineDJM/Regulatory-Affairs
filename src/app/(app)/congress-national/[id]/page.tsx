@@ -5,9 +5,9 @@ import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
-import { getCongressDetail, getCongressFormData } from "@/lib/queries/congress";
+import { getCongressDetail } from "@/lib/queries/congress";
 import { getEntityMissions } from "@/lib/queries/missions";
-import { getBudgetCategoryOptions } from "@/lib/queries/budget";
+import { getWorkflowForEntity } from "@/lib/queries/workflow";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
@@ -19,13 +19,9 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
   const user = await requireModule("CONGRESS_NATIONAL");
   const detail = await getCongressDetail("NATIONAL", user, params.id);
   if (!detail) notFound();
-  const form = await getCongressFormData();
 
-  // Validation définitive **réservée à la Direction** (hasGlobalView = Direction + Super Admin).
-  const canValidate = hasGlobalView(user);
-  // Étape préliminaire (attribuer le chef de produit) : réservée au National Sales.
-  const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
-  const canAnalyze = detail.productManagerId === user.id || hasGlobalView(user);
+  // Impliquer une tierce personne : ouvert aux acteurs du circuit (le moteur pilote la validation).
+  const canInvolveThirdParty = hasGlobalView(user) || hasRole(user, "NATIONAL_SALES") || detail.productManagerId === user.id;
   const canUpload = userCan(user, "CONGRESS_NATIONAL", "UPLOAD") || detail.requesterId === user.id;
   const canDelete = userCan(user, "CONGRESS_NATIONAL", "DELETE") || hasGlobalView(user);
   const docs = await prisma.document.findMany({
@@ -38,11 +34,11 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
     confidentiality: dc.confidentiality, uploadedBy: dc.uploadedBy?.name ?? null, createdAt: dc.createdAt.toISOString(), hasFile: Boolean(dc.fileKey),
   }));
 
-  const [missions, canManageMissions, missionUsers, budgetCategories] = await Promise.all([
+  const [missions, canManageMissions, missionUsers, workflow] = await Promise.all([
     getEntityMissions("CONGRESS_NATIONAL", detail.id),
     canAccessEntity(user, "CONGRESS_NATIONAL", detail.id, "UPDATE"),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    getBudgetCategoryOptions("CONGRESS_NATIONAL"),
+    getWorkflowForEntity(user, "CONGRESS_NATIONAL", detail.id, detail.requesterId),
   ]);
 
   return (
@@ -54,7 +50,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />
         <SuperAdminDeleteButton kind="CONGRESS_NATIONAL" id={detail.id} name={detail.name} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
-      <CongressDetailView detail={detail} canValidate={canValidate} canMarketing={canMarketing} canAnalyze={canAnalyze} productManagers={form.productManagers} entityType="CONGRESS_NATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-national/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} budgetCategories={budgetCategories} />
+      <CongressDetailView detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_NATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-national/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} />
     </div>
   );
 }

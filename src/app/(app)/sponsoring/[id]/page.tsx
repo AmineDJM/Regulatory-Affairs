@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Lock, Gavel } from "lucide-react";
+import { ArrowLeft, Gavel } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { getEntityMissions } from "@/lib/queries/missions";
-import { getBudgetCategoryOptions } from "@/lib/queries/budget";
+import { getWorkflowForEntity } from "@/lib/queries/workflow";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import { prisma } from "@/lib/prisma";
-import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+import { toNumber, formatCurrency, formatDateTime } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -16,10 +16,10 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SPONSORING_STATUS, PRIORITY } from "@/lib/labels";
-import { DecisionPanel } from "./decision-panel";
+import { WorkflowPanel } from "@/components/workflow/workflow-panel";
+import { AppealPanel } from "./decision-panel";
 import { ThirdPartyButton } from "./third-party-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
-import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
 
 const SPONSORING_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -38,14 +38,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
   const isProductManager = req.productManagerId === user.id;
   const isRequester = req.requesterId === user.id;
-  // Confidentialité : l'analyse et le budget du chef de produit ne sont JAMAIS
-  // visibles par le délégué (demandeur). Seuls la Direction, la Direction Marketing
-  // et le chef de produit assigné les voient. Le délégué ne voit que le budget final.
-  const canSeeInternal = canDirection || canMarketing || isProductManager;
 
-  const [pmUser, productManagers, documents] = await Promise.all([
+  const [pmUser, documents] = await Promise.all([
     req.productManagerId ? prisma.user.findUnique({ where: { id: req.productManagerId }, select: { name: true } }) : Promise.resolve(null),
-    canMarketing ? prisma.user.findMany({ where: { role: { in: ["PRODUCT_MANAGER", "MEDICAL_PROMOTION_MANAGER"] }, isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([]),
     prisma.document.findMany({ where: { entityType: "SPONSORING", entityId: req.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
   ]);
 
@@ -59,19 +54,15 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   const canUpload = userCan(user, "SPONSORING", "UPLOAD") || isRequester;
   const canDelete = userCan(user, "SPONSORING", "DELETE");
 
-  const [missions, canManageMissions, missionUsers, budgetCategories] = await Promise.all([
+  const [missions, canManageMissions, missionUsers, workflow] = await Promise.all([
     getEntityMissions("SPONSORING", req.id),
     canAccessEntity(user, "SPONSORING", req.id, "UPDATE"),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    getBudgetCategoryOptions("SPONSORING"),
+    getWorkflowForEntity(user, "SPONSORING", req.id, req.requesterId),
   ]);
 
-  const showPanel =
-    (canMarketing && req.status === "AWAITING_PRELIMINARY") ||
-    (canDirection && ["AWAITING_FINAL", "AWAITING_FINAL_APPEAL"].includes(req.status)) ||
-    (isProductManager && ["PRELIMINARY_APPROVED", "APPEAL_PENDING"].includes(req.status)) ||
-    (isRequester && ["APPROVED", "REFUSED"].includes(req.status));
-
+  // L'appel du délégué reste une action propre au sponsoring (après décision).
+  const canAppeal = isRequester && ["APPROVED", "REFUSED"].includes(req.status);
   const fmt = (v: unknown) => (v ? formatCurrency(toNumber(v as never)) : null);
 
   return (
@@ -124,65 +115,25 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
             </CardContent>
           </Card>
 
-          {/* Suivi de validation */}
+          {/* Circuit de validation configurable (piloté par le moteur — éditable dans Administration) */}
           <Card>
-            <CardHeader><CardTitle>Suivi de validation</CardTitle></CardHeader>
-            <CardContent className="space-y-4 text-sm">
-              {/* Frise toujours visible : où en est la demande dans le circuit. */}
-              <ValidationStepper steps={sponsoringValidationSteps(req.status)} />
+            <CardHeader><CardTitle>Circuit de validation</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
               {req.appealCount > 0 && (
                 <p className="rounded-lg bg-purple-500/10 px-3 py-2 text-xs text-purple-700">Cette demande a fait l'objet d'un appel ({req.appealCount}×) — réexamen par le chef de produit puis décision de la Direction.</p>
               )}
-              {(canSeeInternal && req.preliminaryNote) || (canSeeInternal && (req.productManagerNotes || req.productManagerBudget != null)) || req.appealReason || ["APPROVED", "REFUSED"].includes(req.status) ? (
-                <div className="space-y-3 border-t border-border pt-3">
-              {canSeeInternal && req.preliminaryNote && (
-                <Step title="Pré-validation (Direction)" internal>
-                  <p className="whitespace-pre-wrap">{req.preliminaryNote}</p>
-                </Step>
+              {workflow ? (
+                <WorkflowPanel entityType="SPONSORING" entityId={req.id} view={workflow} />
+              ) : (
+                <p className="text-sm text-muted-foreground">Circuit indisponible.</p>
               )}
-              {canSeeInternal && (req.productManagerNotes || req.productManagerBudget != null) ? (
-                <Step title="Analyse chef de produit" internal>
-                  {req.productManagerNotes && <p className="whitespace-pre-wrap">{req.productManagerNotes}</p>}
-                  {req.productManagerBudget != null && <p className="mt-1 text-muted-foreground">Budget proposé : <span className="font-medium text-foreground">{fmt(req.productManagerBudget)}</span></p>}
-                </Step>
-              ) : null}
-              {req.appealReason && (
-                <Step title="Appel du délégué" tone="purple">
-                  <p className="whitespace-pre-wrap">{req.appealReason}</p>
-                </Step>
-              )}
-              {(req.status === "APPROVED" || req.status === "REFUSED") && (
-                <Step title={`Décision de la Direction — ${SPONSORING_STATUS[req.status]?.label ?? req.status}`}>
-                  {req.amountGranted != null && req.status === "APPROVED" && <p>Budget accordé : <span className="font-medium">{fmt(req.amountGranted)}</span></p>}
-                  {req.finalDecision && <p className="mt-1 whitespace-pre-wrap">{req.finalDecision}</p>}
-                  {req.validationDate && <p className="mt-1 text-xs text-muted-foreground">{formatDate(req.validationDate)}{req.validatedBy ? ` · ${req.validatedBy}` : ""}</p>}
-                </Step>
-              )}
+              {canAppeal && (
+                <div className="border-t border-border pt-3">
+                  <AppealPanel id={req.id} />
                 </div>
-              ) : null}
-              {!canSeeInternal && !["APPROVED", "REFUSED"].includes(req.status) && (
-                <p className="text-muted-foreground">Votre demande suit son cours. Vous serez notifié de la décision de la Direction (budget accordé et commentaire).</p>
               )}
             </CardContent>
           </Card>
-
-          {showPanel && (
-            <Card>
-              <CardHeader><CardTitle>Action requise</CardTitle></CardHeader>
-              <CardContent>
-                <DecisionPanel
-                  id={req.id}
-                  status={req.status}
-                  canDirection={canDirection}
-                  canMarketing={canMarketing}
-                  isProductManager={isProductManager}
-                  isRequester={isRequester}
-                  productManagers={productManagers}
-                  budgetCategories={budgetCategories}
-                />
-              </CardContent>
-            </Card>
-          )}
         </div>
 
         <div className="space-y-5">
@@ -228,41 +179,6 @@ function Info({ label, value }: { label: string; value: string | null | undefine
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="font-medium">{value || "—"}</p>
-    </div>
-  );
-}
-
-/** Frise du circuit de validation sponsoring/congrès, dérivée du statut. */
-function sponsoringValidationSteps(status: string): VStep[] {
-  // Étape « active » du circuit (0 = pré-validation … 3 = résultat).
-  let cur: number;
-  if (["RECEIVED", "IN_ANALYSIS", "AWAITING_PRELIMINARY"].includes(status)) cur = 0;
-  else if (["PRELIMINARY_APPROVED", "APPEAL_PENDING"].includes(status)) cur = 1;
-  else if (["AWAITING_FINAL", "AWAITING_FINAL_APPEAL", "AWAITING_DIRECTION", "ACCEPTED"].includes(status)) cur = 2;
-  else cur = 3; // APPROVED / REFUSED / PAID / CLOSED / CANCELLED
-  const refused = status === "REFUSED";
-  const cancelled = status === "CANCELLED";
-  const approved = ["APPROVED", "PAID", "CLOSED"].includes(status);
-
-  const base = ["Pré-validation (Direction)", "Analyse chef de produit", "Décision de la Direction", "Résultat"];
-  return base.map((label, i): VStep => {
-    let state: VStepState;
-    if (i < cur) state = "done";
-    else if (i > cur) state = "todo";
-    else state = i === 3 ? (refused || cancelled ? "rejected" : "done") : "current";
-    if (i === 3) label = refused ? "Refusé" : cancelled ? "Annulé" : approved ? "Accordé" : "Résultat";
-    return { label, state };
-  });
-}
-
-function Step({ title, children, internal, tone }: { title: string; children: React.ReactNode; internal?: boolean; tone?: "purple" }) {
-  return (
-    <div className={`rounded-lg border-l-2 px-3 py-2 ${tone === "purple" ? "border-l-purple-400 bg-purple-500/5" : internal ? "border-l-warning/60 bg-warning/5" : "border-l-primary/50 bg-secondary/40"}`}>
-      <p className="mb-0.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {internal && <Lock className="h-3 w-3" />} {title}
-        {internal && <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium normal-case text-warning">Confidentiel — non visible par le délégué</span>}
-      </p>
-      {children}
     </div>
   );
 }

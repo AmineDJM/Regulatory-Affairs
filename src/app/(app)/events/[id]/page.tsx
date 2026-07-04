@@ -17,7 +17,7 @@ import { RegistrationsManager } from "./registrations-manager";
 import { EventFundingPanel } from "./funding-panel";
 import { ThirdPartyInvolveButton } from "@/components/shared/third-party-involve";
 import { getEntityMissions } from "@/lib/queries/missions";
-import { getBudgetCategoryOptions } from "@/lib/queries/budget";
+import { getWorkflowForEntity } from "@/lib/queries/workflow";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
@@ -33,15 +33,11 @@ export default async function EventDetailPage({ params }: { params: { id: string
   // Circuit de prise en charge (financement) — mêmes rôles que pour les congrès.
   const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
   const canValidate = hasGlobalView(user);
-  const canAnalyze = e.productManagerId === user.id || hasGlobalView(user);
   const canSubmit = userCan(user, "EVENTS", "CREATE");
-  const [responsibles, missions, productManagers, budgetCategories] = await Promise.all([
+  const [responsibles, missions, workflow] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
-    canMarketing
-      ? prisma.user.findMany({ where: { role: "PRODUCT_MANAGER", isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
-      : Promise.resolve([] as { id: string; name: string }[]),
-    getBudgetCategoryOptions("EVENTS"),
+    getWorkflowForEntity(user, "EVENT", e.id, null),
   ]);
 
   return (
@@ -111,19 +107,10 @@ export default async function EventDetailPage({ params }: { params: { id: string
         </CardHeader>
         <CardContent>
           <EventFundingPanel
-            data={{
-              id: e.id, requestStatus: e.requestStatus, requesterName: e.requesterName,
-              productManagerName: e.productManagerName, productManagerBudget: e.productManagerBudget, productManagerNotes: e.productManagerNotes,
-              preliminaryByName: e.preliminaryByName, preliminaryAt: e.preliminaryAt, preliminaryNote: e.preliminaryNote,
-              finalByName: e.finalByName, finalAt: e.finalAt, finalNote: e.finalNote, finalAmount: e.finalAmount,
-              estimatedBudget: e.estimatedBudget, rejectionReason: e.rejectionReason, expenseOrder: e.expenseOrder,
-            }}
-            productManagers={productManagers}
-            budgetCategories={budgetCategories}
+            eventId={e.id}
+            requestSubmitted={!!e.requestStatus}
             canSubmit={canSubmit}
-            canMarketing={canMarketing}
-            canAnalyze={canAnalyze}
-            canValidate={canValidate}
+            workflow={workflow}
           />
           {(canManage || canMarketing || canValidate) && (
             <div className="mt-4 border-t border-border pt-3">
