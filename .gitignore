@@ -43,3 +43,8 @@ next-env.d.ts
 # pre-downloaded prisma engines (container-specific, fetched at setup)
 /.prisma-engines
 /.devenv.sh
+
+# graphify — incremental cache & local state (keep graph.json/html/report tracked)
+/graphify-out/cache
+/graphify-out/.graphify_root
+/graphify-out/manifest.json
