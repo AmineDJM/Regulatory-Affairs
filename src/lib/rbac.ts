@@ -251,39 +251,50 @@ export const getAccess = perRequest(
 
     // « Autre rôle » : l'utilisateur CUMULE son rôle principal ET son rôle secondaire.
     const secondaryRole = userRow?.secondaryRole ?? null;
-    const roles: UserRole[] = secondaryRole && secondaryRole !== role ? [role, secondaryRole] : [role];
 
     const overrideMap = new Map(overrides.map((o) => [o.module as Module, o]));
     const modules = new Map<Module, EffectiveModuleAccess>();
 
     for (const module of MODULES) {
       const ov = overrideMap.get(module);
-      if (ov) {
-        if (!ov.canView) continue; // explicitly no access to this tab
-        const actions = new Set<Action>(["VIEW"]);
-        if (ov.canCreate) actions.add("CREATE");
-        if (ov.canUpdate) actions.add("UPDATE");
-        if (ov.canDelete) actions.add("DELETE");
-        if (ov.canValidate) actions.add("VALIDATE");
-        if (ov.canExport) actions.add("EXPORT");
-        if (ov.canUpload) actions.add("UPLOAD");
-        modules.set(module, { actions, scope: ov.scope });
-      } else {
-        // Union des rôles (principal + secondaire) : actions cumulées, **portée la
-        // plus large** (ALL l'emporte sur ASSIGNED).
-        const actions = new Set<Action>();
-        let scope: AccessScope = "ASSIGNED";
-        let hasView = false;
-        for (const r of roles) {
-          const def = PERMISSIONS[r]?.[module];
-          if (def?.includes("VIEW")) {
-            hasView = true;
-            for (const a of def) actions.add(a);
-            if (defaultScope(r, module) === "ALL") scope = "ALL";
-          }
+      const actions = new Set<Action>();
+      let scope: AccessScope = "ASSIGNED";
+      let hasView = false;
+
+      const addRoleDefaults = (r: UserRole) => {
+        const def = PERMISSIONS[r]?.[module];
+        if (def?.includes("VIEW")) {
+          hasView = true;
+          for (const a of def) actions.add(a);
+          if (defaultScope(r, module) === "ALL") scope = "ALL";
         }
-        if (hasView) modules.set(module, { actions, scope });
+      };
+
+      // Rôle principal : l'override par utilisateur (s'il existe) REMPLACE ses défauts.
+      if (ov) {
+        if (ov.canView) {
+          hasView = true;
+          actions.add("VIEW");
+          if (ov.canCreate) actions.add("CREATE");
+          if (ov.canUpdate) actions.add("UPDATE");
+          if (ov.canDelete) actions.add("DELETE");
+          if (ov.canValidate) actions.add("VALIDATE");
+          if (ov.canExport) actions.add("EXPORT");
+          if (ov.canUpload) actions.add("UPLOAD");
+          if (ov.scope === "ALL") scope = "ALL";
+        }
+      } else {
+        addRoleDefaults(role);
       }
+
+      // Rôle SECONDAIRE : ses capacités se cumulent TOUJOURS (union des actions,
+      // portée la plus large) — y compris par-dessus un override : un ancien réglage
+      // « accès personnalisé » ne doit pas neutraliser silencieusement l'« autre
+      // rôle » attribué ensuite dans le tableau des rôles (ex. un National Sales en
+      // rôle secondaire doit voir TOUTES les demandes de congrès à pré-valider).
+      if (secondaryRole && secondaryRole !== role) addRoleDefaults(secondaryRole);
+
+      if (hasView) modules.set(module, { actions, scope });
     }
 
     const rowGrants = new Map<EntityType, Set<string>>();
