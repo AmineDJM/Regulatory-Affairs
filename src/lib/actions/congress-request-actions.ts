@@ -216,6 +216,16 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
   const amount = fdNum(formData, "finalAmount");
   if (amount === null || amount <= 0) return { ok: false, error: "Le montant accordé est obligatoire pour valider définitivement." };
 
+  // (Sous-)catégorie budgétaire : la Direction impute explicitement la dépense à une
+  // (sous-)catégorie AVANT qu'elle ne parte au comptable. Facultatif côté serveur
+  // (aucune enveloppe configurée = pas de choix), mais requis dans l'UI dès qu'il
+  // existe des (sous-)catégories. Vérifie qu'elle existe encore.
+  const budgetCategoryId = fdStr(formData, "budgetCategoryId");
+  if (budgetCategoryId) {
+    const okCat = await prisma.budgetCategoryLine.count({ where: { id: budgetCategoryId } });
+    if (okCat === 0) return { ok: false, error: "La (sous-)catégorie budgétaire choisie est introuvable." };
+  }
+
   // Étape « information médicale » : intercalée UNIQUEMENT si un pharmacien responsable
   // est configuré. Sinon, on route directement l'ordre de dépense vers les Finances
   // (le responsable des finances est notifié par createExpenseOrder).
@@ -229,6 +239,7 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
       beneficiary: c.name,
       amount,
       requesterId: c.requesterId ?? user.id,
+      budgetCategoryId,
     });
     await updateCongress(t, id, {
       requestStatus: "APPROVED",
@@ -248,6 +259,7 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
       sourceType: entityFor(t),
       sourceId: id,
       requestedById: c.requesterId ?? user.id,
+      budgetCategoryId,
     });
     await updateCongress(t, id, {
       requestStatus: "APPROVED",

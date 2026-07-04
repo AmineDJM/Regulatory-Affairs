@@ -7,6 +7,7 @@ import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { getCongressDetail, getCongressFormData } from "@/lib/queries/congress";
 import { getEntityMissions } from "@/lib/queries/missions";
+import { getBudgetCategoryOptions } from "@/lib/queries/budget";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
@@ -37,10 +38,11 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
     confidentiality: dc.confidentiality, uploadedBy: dc.uploadedBy?.name ?? null, createdAt: dc.createdAt.toISOString(), hasFile: Boolean(dc.fileKey),
   }));
 
-  const [missions, canManageMissions, missionUsers] = await Promise.all([
+  const [missions, canManageMissions, missionUsers, budgetCategories] = await Promise.all([
     getEntityMissions("CONGRESS_NATIONAL", detail.id),
     canAccessEntity(user, "CONGRESS_NATIONAL", detail.id, "UPDATE"),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    getBudgetCategoryOptions("CONGRESS_NATIONAL"),
   ]);
 
   return (
@@ -52,7 +54,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />
         <SuperAdminDeleteButton kind="CONGRESS_NATIONAL" id={detail.id} name={detail.name} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
-      <CongressDetailView detail={detail} canValidate={canValidate} canMarketing={canMarketing} canAnalyze={canAnalyze} productManagers={form.productManagers} entityType="CONGRESS_NATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-national/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} />
+      <CongressDetailView detail={detail} canValidate={canValidate} canMarketing={canMarketing} canAnalyze={canAnalyze} productManagers={form.productManagers} entityType="CONGRESS_NATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-national/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} budgetCategories={budgetCategories} />
     </div>
   );
 }

@@ -17,6 +17,7 @@ import { RegistrationsManager } from "./registrations-manager";
 import { EventFundingPanel } from "./funding-panel";
 import { ThirdPartyInvolveButton } from "@/components/shared/third-party-involve";
 import { getEntityMissions } from "@/lib/queries/missions";
+import { getBudgetCategoryOptions } from "@/lib/queries/budget";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
@@ -34,12 +35,13 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const canValidate = hasGlobalView(user);
   const canAnalyze = e.productManagerId === user.id || hasGlobalView(user);
   const canSubmit = userCan(user, "EVENTS", "CREATE");
-  const [responsibles, missions, productManagers] = await Promise.all([
+  const [responsibles, missions, productManagers, budgetCategories] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
     canMarketing
       ? prisma.user.findMany({ where: { role: "PRODUCT_MANAGER", isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : Promise.resolve([] as { id: string; name: string }[]),
+    getBudgetCategoryOptions("EVENTS"),
   ]);
 
   return (
@@ -117,6 +119,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
               estimatedBudget: e.estimatedBudget, rejectionReason: e.rejectionReason, expenseOrder: e.expenseOrder,
             }}
             productManagers={productManagers}
+            budgetCategories={budgetCategories}
             canSubmit={canSubmit}
             canMarketing={canMarketing}
             canAnalyze={canAnalyze}

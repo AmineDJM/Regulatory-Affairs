@@ -204,6 +204,7 @@ export async function validateDeclarationByDirection(formData: FormData): Promis
         sourceType: decl.sourceType,
         sourceId: decl.sourceId,
         requestedById: decl.requesterId,
+        budgetCategoryId: decl.budgetCategoryId,
       })
     : null;
 

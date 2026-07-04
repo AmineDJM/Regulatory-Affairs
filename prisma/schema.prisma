@@ -1087,6 +1087,7 @@ model MedicalInfoDeclaration {
   validatedAt    DateTime? // validation FINALE par la Direction → ordre de dépense au comptable
   validatedById  String?
   expenseOrderId String? // ordre de dépense émis après validation du pharmacien
+  budgetCategoryId String? // (sous-)catégorie budgétaire choisie par la Direction à la validation définitive
   requests       MedicalInfoDocRequest[]
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
@@ -2109,6 +2110,7 @@ model ExpenseOrder {
   status        ExpenseOrderStatus @default(PENDING)
   dueDate       DateTime?
   requiresInvoice Boolean          @default(false) // facture obligatoire avant règlement (dépenses événementielles)
+  budgetCategoryId String? // (sous-)catégorie budgétaire choisie par la Direction — sert d'attribution au règlement
   notes         String?
   // Aller-retour comptable ↔ Direction : le comptable peut demander une baisse de
   // budget (manque de fonds) ; la Direction ajuste le montant ou refuse.

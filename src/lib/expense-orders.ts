@@ -18,6 +18,8 @@ interface CreateExpenseOrderInput {
   requestedById?: string | null;
   notes?: string | null;
   dueDate?: Date | null;
+  /** (Sous-)catégorie budgétaire choisie par la Direction — attribution au règlement. */
+  budgetCategoryId?: string | null;
 }
 
 // Dépenses « événementielles » : une facture est obligatoire avant le règlement.
@@ -43,6 +45,7 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
       requestedById: input.requestedById ?? null,
       notes: input.notes ?? null,
       dueDate: input.dueDate ?? null,
+      budgetCategoryId: input.budgetCategoryId ?? null,
       requiresInvoice,
     },
   });

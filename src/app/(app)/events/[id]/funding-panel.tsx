@@ -12,6 +12,7 @@ import { EXPENSE_ORDER_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 type PM = { id: string; name: string };
+type Cat = { id: string; label: string; isSub: boolean };
 
 export interface EventFunding {
   id: string;
@@ -35,6 +36,7 @@ export interface EventFunding {
 interface Props {
   data: EventFunding;
   productManagers: PM[];
+  budgetCategories?: Cat[];
   canSubmit: boolean;
   canMarketing: boolean;
   canAnalyze: boolean;
@@ -90,7 +92,7 @@ function Step({ n, title, state, children }: { n: number; title: string; state: 
   );
 }
 
-export function EventFundingPanel({ data, productManagers, canSubmit, canMarketing, canAnalyze, canValidate }: Props) {
+export function EventFundingPanel({ data, productManagers, budgetCategories = [], canSubmit, canMarketing, canAnalyze, canValidate }: Props) {
   const st = data.requestStatus;
 
   if (!st) {
@@ -138,7 +140,7 @@ export function EventFundingPanel({ data, productManagers, canSubmit, canMarketi
       <Step n={4} title="Validation définitive (Direction) → information médicale"
         state={st === "APPROVED" || st === "COMPLETED" ? "done" : st === "REJECTED" && data.finalAt ? "rejected" : st === "AWAITING_FINAL" ? "current" : "pending"}>
         {st === "AWAITING_FINAL" ? (
-          canValidate ? <FinalDecision type={TYPE} id={data.id} suggestedAmount={data.productManagerBudget ?? data.estimatedBudget ?? null} />
+          canValidate ? <FinalDecision type={TYPE} id={data.id} suggestedAmount={data.productManagerBudget ?? data.estimatedBudget ?? null} categories={budgetCategories} />
             : <p className="text-sm text-muted-foreground">En attente de la validation définitive de la Direction.</p>
         ) : st === "APPROVED" || st === "COMPLETED" ? (
           <div className="space-y-2 text-sm text-muted-foreground">

@@ -41,11 +41,17 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
     if (invoice === 0) return { ok: false, error: "Facture obligatoire : joignez la facture à l'ordre (ou au dossier source) avant de régler, ou demandez-la au demandeur." };
   }
 
-  // Attribution automatique à la catégorie budgétaire du module source : une fois
-  // validée par tous (y compris les Finances qui règlent ici), la dépense « tombe »
-  // dans la catégorie rattachée au module d'où vient la demande.
-  let budgetCategoryId: string | null = null;
-  if (order.sourceType) {
+  // Attribution budgétaire : on privilégie la (sous-)catégorie explicitement choisie
+  // par la Direction à la validation définitive (`order.budgetCategoryId`). À défaut,
+  // attribution automatique à la catégorie de 1er niveau rattachée au module source :
+  // la dépense « tombe » dans la catégorie du module d'où vient la demande.
+  let budgetCategoryId: string | null = order.budgetCategoryId ?? null;
+  if (budgetCategoryId) {
+    // Sécurité : on ignore une (sous-)catégorie qui n'existe plus.
+    const exists = await prisma.budgetCategoryLine.count({ where: { id: budgetCategoryId } });
+    if (exists === 0) budgetCategoryId = null;
+  }
+  if (!budgetCategoryId && order.sourceType) {
     const sourceModule = ENTITY_MODULE[order.sourceType];
     if (sourceModule) {
       const cat = await prisma.budgetCategoryLine.findFirst({

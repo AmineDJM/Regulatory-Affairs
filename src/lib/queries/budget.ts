@@ -136,6 +136,35 @@ export async function getEnvelopesGrandTotal(viewer: SessionUser): Promise<Envel
   return { count: items.length, total, allocated, consumed, remaining: total - consumed, items };
 }
 
+export interface BudgetCategoryOption { id: string; label: string; isSub: boolean }
+
+/**
+ * Options de **(sous-)catégories** budgétaires proposées à la Direction pour attribuer
+ * une dépense à la validation définitive. Priorité aux enveloppes actives couvrant le
+ * module ; sinon toutes les enveloppes actives. Le libellé montre le chemin complet
+ * « Enveloppe › Catégorie › Sous-catégorie ».
+ */
+export async function getBudgetCategoryOptions(module?: string): Promise<BudgetCategoryOption[]> {
+  const envelopes = await prisma.budgetEnvelope.findMany({
+    where: { isActive: true },
+    include: { categories: { orderBy: { name: "asc" } } },
+    orderBy: [{ periodStart: "desc" }],
+  });
+  const relevant = module ? envelopes.filter((e) => e.modules.includes(module) || e.module === module) : envelopes;
+  const list = relevant.length ? relevant : envelopes;
+  const out: BudgetCategoryOption[] = [];
+  for (const env of list) {
+    const tops = env.categories.filter((c) => c.parentId === null);
+    for (const top of tops) {
+      out.push({ id: top.id, label: `${env.name} › ${top.name}`, isSub: false });
+      for (const sub of env.categories.filter((c) => c.parentId === top.id)) {
+        out.push({ id: sub.id, label: `${env.name} › ${top.name} › ${sub.name}`, isSub: true });
+      }
+    }
+  }
+  return out;
+}
+
 /** Synthèse budgétaire d'une enveloppe sur une période (par défaut la période de l'enveloppe). */
 export async function getBudgetOverview(
   viewer: SessionUser,

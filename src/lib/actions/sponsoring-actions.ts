@@ -217,6 +217,15 @@ export async function sponsoringFinal(formData: FormData): Promise<ActionResult>
   const amountGranted = fdNum(formData, "amountGranted");
   if (amountGranted === null || amountGranted < 0) return { ok: false, error: "Le budget final accordé est obligatoire." };
 
+  // (Sous-)catégorie budgétaire choisie par la Direction : la dépense sera imputée
+  // à cette (sous-)catégorie au règlement (au lieu de l'attribution automatique).
+  // Facultatif côté serveur, requis dans l'UI dès qu'il existe des (sous-)catégories.
+  const budgetCategoryId = fdStr(formData, "budgetCategoryId");
+  if (budgetCategoryId) {
+    const okCat = await prisma.budgetCategoryLine.count({ where: { id: budgetCategoryId } });
+    if (okCat === 0) return { ok: false, error: "La (sous-)catégorie budgétaire choisie est introuvable." };
+  }
+
   // Validation définitive → étape « information médicale » (déclaration aux autorités
   // par le pharmacien responsable) AVANT l'émission de l'ordre de dépense au comptable.
   const decl = await createMedicalInfoDeclaration({
@@ -226,6 +235,7 @@ export async function sponsoringFinal(formData: FormData): Promise<ActionResult>
     beneficiary: req.institution,
     amount: amountGranted,
     requesterId: req.requesterId ?? user.id,
+    budgetCategoryId,
   });
 
   await prisma.sponsoringRequest.update({

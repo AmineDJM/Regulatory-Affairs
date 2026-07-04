@@ -16,12 +16,13 @@ import { MissionAssignmentsCard } from "@/components/missions/mission-assignment
 import type { MissionAssignmentDTO } from "@/lib/queries/missions";
 
 type PM = { id: string; name: string };
+type Cat = { id: string; label: string; isSub: boolean };
 
 const CONGRESS_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
 export function CongressDetailView({
   detail, canValidate, canMarketing, canAnalyze, productManagers, entityType, entityId, documents, canUpload, canDelete, path,
-  missions, missionUsers, canManageMissions, currentUserId,
+  missions, missionUsers, canManageMissions, currentUserId, budgetCategories = [],
 }: {
   detail: CongressDetail;
   canValidate: boolean;
@@ -38,6 +39,7 @@ export function CongressDetailView({
   missionUsers: { id: string; name: string }[];
   canManageMissions: boolean;
   currentUserId: string;
+  budgetCategories?: Cat[];
 }) {
   const d = detail;
   const st = d.requestStatus;
@@ -102,7 +104,7 @@ export function CongressDetailView({
             <Step n={4} title="Validation définitive (Direction)"
               state={st === "APPROVED" || st === "COMPLETED" ? "done" : st === "REJECTED" && d.finalAt ? "rejected" : st === "AWAITING_FINAL" ? "current" : "pending"}>
               {st === "AWAITING_FINAL" ? (
-                canValidate ? <FinalDecision type={d.type} id={d.id} suggestedAmount={d.productManagerBudget ?? d.estimatedBudget ?? null} />
+                canValidate ? <FinalDecision type={d.type} id={d.id} suggestedAmount={d.productManagerBudget ?? d.estimatedBudget ?? null} categories={budgetCategories} />
                   : <p className="text-sm text-muted-foreground">En attente de la validation définitive.</p>
               ) : st === "APPROVED" || st === "COMPLETED" ? (
                 <div className="space-y-2 text-sm text-muted-foreground">

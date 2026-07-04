@@ -5,6 +5,7 @@ import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { getEntityMissions } from "@/lib/queries/missions";
+import { getBudgetCategoryOptions } from "@/lib/queries/budget";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
@@ -58,10 +59,11 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   const canUpload = userCan(user, "SPONSORING", "UPLOAD") || isRequester;
   const canDelete = userCan(user, "SPONSORING", "DELETE");
 
-  const [missions, canManageMissions, missionUsers] = await Promise.all([
+  const [missions, canManageMissions, missionUsers, budgetCategories] = await Promise.all([
     getEntityMissions("SPONSORING", req.id),
     canAccessEntity(user, "SPONSORING", req.id, "UPDATE"),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    getBudgetCategoryOptions("SPONSORING"),
   ]);
 
   const showPanel =
@@ -176,6 +178,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                   isProductManager={isProductManager}
                   isRequester={isRequester}
                   productManagers={productManagers}
+                  budgetCategories={budgetCategories}
                 />
               </CardContent>
             </Card>

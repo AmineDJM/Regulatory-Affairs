@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 
 type PM = { id: string; name: string };
+type Cat = { id: string; label: string; isSub: boolean };
 type Action = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
 
 function useRun() {
@@ -143,12 +144,15 @@ export function EditGrantedBudget({ type, id, current }: { type: string; id: str
 }
 
 /** Validation définitive (Direction) → ordre de dépense. Le **montant accordé** est
- *  obligatoire (prérempli avec la proposition du chef de produit, modifiable). */
-export function FinalDecision({ type, id, suggestedAmount }: { type: string; id: string; suggestedAmount?: number | null }) {
+ *  obligatoire (prérempli avec la proposition du chef de produit, modifiable). La
+ *  Direction impute la dépense à une **(sous-)catégorie budgétaire** avant qu'elle ne
+ *  parte au comptable (requis dès qu'il existe des (sous-)catégories). */
+export function FinalDecision({ type, id, suggestedAmount, categories = [] }: { type: string; id: string; suggestedAmount?: number | null; categories?: Cat[] }) {
   const { pending, err, run } = useRun();
   const [mode, setMode] = React.useState<null | "approve" | "reject">(null);
   const [note, setNote] = React.useState("");
   const [amount, setAmount] = React.useState(suggestedAmount != null ? String(suggestedAmount) : "");
+  const [category, setCategory] = React.useState("");
 
   if (!mode) {
     return (
@@ -162,6 +166,8 @@ export function FinalDecision({ type, id, suggestedAmount }: { type: string; id:
     );
   }
   const amountValid = Number(amount) > 0;
+  const categoryRequired = categories.length > 0;
+  const categoryValid = !categoryRequired || !!category;
   return (
     <div className="space-y-2">
       {mode === "approve" && (
@@ -169,13 +175,23 @@ export function FinalDecision({ type, id, suggestedAmount }: { type: string; id:
           <Label>Montant accordé (DZD) <span className="text-destructive">*</span></Label>
           <Input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Montant validé par la Direction" />
           <p className="text-xs text-muted-foreground">Ce montant fait foi pour la déclaration d'information médicale puis l'ordre de dépense.</p>
+          {categoryRequired && (
+            <>
+              <Label>(Sous-)catégorie budgétaire <span className="text-destructive">*</span></Label>
+              <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+                <option value="">— Choisir la (sous-)catégorie à imputer —</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.isSub ? " ↳ " : ""}{c.label}</option>)}
+              </Select>
+              <p className="text-xs text-muted-foreground">La dépense sera imputée à cette (sous-)catégorie du budget avant de partir au comptable.</p>
+            </>
+          )}
         </>
       )}
       <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === "reject" ? "Motif du refus (obligatoire)…" : "Note (optionnel)…"} className="min-h-[56px]" />
       {err && <p className="text-xs text-destructive">{err}</p>}
       <div className="flex gap-2">
-        <Button size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "reject" && !note.trim()) || (mode === "approve" && !amountValid)}
-          onClick={() => run(base(type, id, { decision: mode === "approve" ? "APPROVE" : "REJECT", note, finalAmount: amount }), finalDecision, () => setMode(null))}>
+        <Button size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "reject" && !note.trim()) || (mode === "approve" && (!amountValid || !categoryValid))}
+          onClick={() => run(base(type, id, { decision: mode === "approve" ? "APPROVE" : "REJECT", note, finalAmount: amount, budgetCategoryId: category }), finalDecision, () => setMode(null))}>
           {pending && <Loader2 className="h-4 w-4 animate-spin" />} Confirmer
         </Button>
         <Button size="sm" variant="ghost" onClick={() => { setMode(null); setNote(""); }}>Annuler</Button>

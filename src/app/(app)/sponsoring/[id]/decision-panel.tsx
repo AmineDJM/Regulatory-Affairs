@@ -18,9 +18,10 @@ interface Props {
   isProductManager: boolean;
   isRequester: boolean;
   productManagers: { id: string; name: string }[];
+  budgetCategories?: { id: string; label: string; isSub: boolean }[];
 }
 
-export function DecisionPanel({ id, status, canDirection, canMarketing, isProductManager, isRequester, productManagers }: Props) {
+export function DecisionPanel({ id, status, canDirection, canMarketing, isProductManager, isRequester, productManagers, budgetCategories = [] }: Props) {
   const router = useRouter();
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -50,9 +51,9 @@ export function DecisionPanel({ id, status, canDirection, canMarketing, isProduc
   if (status === "APPEAL_PENDING" && isProductManager) {
     return <AnalysisForm appeal saving={saving} error={error} run={(fd) => run(sponsoringAnalysis, fd)} />;
   }
-  // 3) Décision définitive (Direction : budget final + commentaire)
+  // 3) Décision définitive (Direction : budget final + (sous-)catégorie + commentaire)
   if ((status === "AWAITING_FINAL" || status === "AWAITING_FINAL_APPEAL") && canDirection) {
-    return <FinalForm saving={saving} error={error} run={(fd) => run(sponsoringFinal, fd)} />;
+    return <FinalForm saving={saving} error={error} budgetCategories={budgetCategories} run={(fd) => run(sponsoringFinal, fd)} />;
   }
   // 4) Appel du délégué (après décision)
   if ((status === "APPROVED" || status === "REFUSED") && isRequester) {
@@ -127,18 +128,30 @@ function AnalysisForm({ appeal, saving, error, run }: { appeal: boolean; saving:
   );
 }
 
-function FinalForm({ saving, error, run }: { saving: boolean; error: React.ReactNode; run: (fd: FormData) => void }) {
+function FinalForm({ saving, error, run, budgetCategories }: { saving: boolean; error: React.ReactNode; run: (fd: FormData) => void; budgetCategories: { id: string; label: string; isSub: boolean }[] }) {
   const [decision, setDecision] = React.useState<string | null>(null);
   return (
     <form action={(fd) => { fd.set("decision", decision ?? ""); run(fd); }} className="space-y-3">
       <p className="text-xs text-muted-foreground">Décision définitive : fixez le budget final accordé et votre commentaire (visibles par le délégué).</p>
       <DecisionButtons decision={decision} setDecision={setDecision} />
       {decision === "APPROVE" && (
-        <div className="space-y-1">
-          <Label>Budget final accordé (DZD)</Label>
-          <Input name="amountGranted" type="number" step="any" required />
-          <p className="text-xs text-muted-foreground">Un ordre de dépense sera transmis au comptable pour règlement.</p>
-        </div>
+        <>
+          <div className="space-y-1">
+            <Label>Budget final accordé (DZD)</Label>
+            <Input name="amountGranted" type="number" step="any" required />
+            <p className="text-xs text-muted-foreground">Un ordre de dépense sera transmis au comptable pour règlement.</p>
+          </div>
+          {budgetCategories.length > 0 && (
+            <div className="space-y-1">
+              <Label>(Sous-)catégorie budgétaire</Label>
+              <Select name="budgetCategoryId" required defaultValue="">
+                <option value="" disabled>Choisir la (sous-)catégorie à imputer…</option>
+                {budgetCategories.map((c) => <option key={c.id} value={c.id}>{c.isSub ? " ↳ " : ""}{c.label}</option>)}
+              </Select>
+              <p className="text-xs text-muted-foreground">La dépense sera imputée à cette (sous-)catégorie du budget avant de partir au comptable.</p>
+            </div>
+          )}
+        </>
       )}
       {decision && (
         <>

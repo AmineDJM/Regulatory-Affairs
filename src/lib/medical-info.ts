@@ -15,6 +15,8 @@ interface CreateDeclarationInput {
   beneficiary?: string | null;
   amount?: number | null;
   requesterId?: string | null;
+  /** (Sous-)catégorie budgétaire choisie par la Direction à la validation définitive. */
+  budgetCategoryId?: string | null;
 }
 
 /**
@@ -45,6 +47,7 @@ export async function createMedicalInfoDeclaration(input: CreateDeclarationInput
       beneficiary: input.beneficiary ?? null,
       amount: input.amount ?? null,
       requesterId: input.requesterId ?? null,
+      budgetCategoryId: input.budgetCategoryId ?? null,
       pharmacistId: pharmacist?.id ?? null,
     },
   });
