@@ -6,6 +6,9 @@ import type { AdminRequestType, AdminRequestStatus, Priority, AdminApprovalStatu
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { saveFile, validateUpload } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
+import { algiersInputToUtc } from "@/lib/calendar-tz";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
@@ -225,23 +228,77 @@ export async function createMission(formData: FormData): Promise<ActionResult> {
     return DENIED;
   }
   const assignedToId = fdStr(formData, "assignedToId");
+  // Échéance : « date et heure max » (datetime-local, heure d'Alger) ou simple date.
+  const deadlineRaw = fdStr(formData, "deadline");
+  const deadline = deadlineRaw ? algiersInputToUtc(deadlineRaw) ?? fdDate(formData, "deadline") : null;
+  // Points de passage (point A, B, C…) avec la consigne à chaque point.
+  const stopLocations = formData.getAll("stopLocation").map((v) => String(v).trim());
+  const stopTasks = formData.getAll("stopTask").map((v) => String(v).trim());
+  const stops = stopLocations
+    .map((location, i) => ({ location, task: stopTasks[i] || null }))
+    .filter((s) => s.location);
+
   const created = await prisma.driverMission.create({
     data: {
       requestId: requestId ?? undefined, title, assignedToId,
       startLocation: fdStr(formData, "startLocation"), destination: fdStr(formData, "destination"),
       address: fdStr(formData, "address"), contactName: fdStr(formData, "contactName"), contactPhone: fdStr(formData, "contactPhone"),
-      instructions: fdStr(formData, "instructions"), deadline: fdDate(formData, "deadline"),
+      instructions: fdStr(formData, "instructions"), deadline,
       proofType: fdStr(formData, "proofType"), createdById: user.id,
+      stops: stops.length ? { create: stops.map((s, i) => ({ position: i, location: s.location, task: s.task })) } : undefined,
     },
     select: { id: true },
   });
+
+  // Pièces jointes (bon de commande, dossier à déposer, plan…) versées à la course.
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length) {
+    const maxMb = (await getAppSettings()).maxUploadMb;
+    for (const file of files) {
+      const invalid = validateUpload(file.name, file.size, maxMb);
+      if (invalid) return { ok: false, error: invalid };
+      const key = `DRIVER_MISSION/${created.id}/${randomUUID()}__${file.name}`;
+      try {
+        await saveFile(key, Buffer.from(await file.arrayBuffer()));
+      } catch (err) {
+        console.error("[mission] storage write failed, recording metadata only", err);
+      }
+      await prisma.document.create({
+        data: {
+          name: file.name, category: "OTHER", entityType: "DRIVER_MISSION", entityId: created.id,
+          fileKey: key, mimeType: file.type || null, sizeBytes: file.size, confidentiality: "INTERNAL", uploadedById: user.id,
+        },
+      });
+    }
+  }
+
   if (assignedToId && assignedToId !== user.id) {
-    await notifyUser({ userId: assignedToId, type: "MEDICAL_TOUR", title: "Nouvelle mission chauffeur", body: title, link: `/demandes/driver` });
+    await notifyUser({ userId: assignedToId, type: "MEDICAL_TOUR", title: "Nouvelle course chauffeur", body: title, link: `/demandes/driver` });
   }
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Demandes administratives", entityType: "DRIVER_MISSION", entityId: created.id, summary: `Mission « ${title} »` });
   if (requestId) revalidatePath(`/demandes/${requestId}`);
   revalidatePath("/demandes/driver");
+  revalidatePath("/demandes/courses");
   return { ok: true, id: created.id };
+}
+
+/** Coche / décoche un point de passage d'une course (chauffeur assigné ou gestionnaire). */
+export async function toggleMissionStop(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const stop = await prisma.driverMissionStop.findUnique({
+    where: { id },
+    select: { done: true, mission: { select: { id: true, assignedToId: true } } },
+  });
+  if (!stop) return { ok: false, error: "Point introuvable." };
+  const allowed = stop.mission.assignedToId === user.id || hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE");
+  if (!allowed) return DENIED;
+  const done = !stop.done;
+  await prisma.driverMissionStop.update({ where: { id }, data: { done, doneAt: done ? new Date() : null } });
+  revalidatePath("/demandes/driver");
+  revalidatePath("/demandes/courses");
+  return { ok: true };
 }
 
 export async function updateMission(formData: FormData): Promise<ActionResult> {

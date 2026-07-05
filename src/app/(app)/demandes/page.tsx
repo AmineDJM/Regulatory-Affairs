@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Users, ClipboardCheck, Car, Trash2 } from "lucide-react";
+import { Users, ClipboardCheck, Car, Route, Trash2 } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -39,6 +39,7 @@ export default async function DemandesPage({ searchParams }: { searchParams: { s
         {isManager && <Link href="/demandes/assistant"><Button variant="outline"><Users className="h-4 w-4" /> Bureau de Donna</Button></Link>}
         {isManager && <SuppliesManager articles={catalogRows} />}
         <Link href="/demandes/approvals"><Button variant="outline"><ClipboardCheck className="h-4 w-4" /> Validations</Button></Link>
+        {isManager && <Link href="/demandes/courses"><Button variant="outline"><Route className="h-4 w-4" /> Courses</Button></Link>}
         <Link href="/demandes/driver"><Button variant="outline"><Car className="h-4 w-4" /> Missions</Button></Link>
         {isManager && <Link href="/demandes/corbeille"><Button variant="outline"><Trash2 className="h-4 w-4" /> Corbeille</Button></Link>}
         <MultiRequestButton users={users} departments={departments} articles={activeArticles} />

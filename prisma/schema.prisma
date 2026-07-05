@@ -2336,9 +2336,25 @@ model DriverMission {
   createdById   String?
   createdAt     DateTime               @default(now())
   updatedAt     DateTime               @updatedAt
+  stops         DriverMissionStop[]
 
   @@index([assignedToId, status])
   @@index([requestId])
+}
+
+/// Point de passage d'une course chauffeur (point A, B, C…) : le lieu et la
+/// consigne à ce point. Le chauffeur coche chaque point au fur et à mesure.
+model DriverMissionStop {
+  id        String        @id @default(cuid())
+  missionId String
+  mission   DriverMission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  position  Int
+  location  String
+  task      String?
+  done      Boolean       @default(false)
+  doneAt    DateTime?
+
+  @@index([missionId, position])
 }
 
 /// Monthly payslip. When PAID it links to a FinanceTransaction (treasury OUT).

@@ -79,8 +79,30 @@ export async function getDriverMissions(user: SessionUser) {
   const where: Prisma.DriverMissionWhereInput = manager ? {} : { assignedToId: user.id };
   return prisma.driverMission.findMany({
     where,
-    include: { request: { select: { id: true, reference: true } }, assignedTo: { select: { name: true } } },
+    include: {
+      request: { select: { id: true, reference: true } },
+      assignedTo: { select: { name: true } },
+      stops: { orderBy: { position: "asc" } },
+    },
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     take: 200,
   });
+}
+
+/** Pièces jointes des courses (Documents rattachés DRIVER_MISSION), groupées par mission. */
+export async function getMissionAttachments(missionIds: string[]) {
+  if (missionIds.length === 0) return new Map<string, { id: string; name: string; sizeBytes: number | null }[]>();
+  const docs = await prisma.document.findMany({
+    where: { entityType: "DRIVER_MISSION", entityId: { in: missionIds } },
+    select: { id: true, name: true, sizeBytes: true, entityId: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const map = new Map<string, { id: string; name: string; sizeBytes: number | null }[]>();
+  for (const d of docs) {
+    if (!d.entityId) continue;
+    const list = map.get(d.entityId) ?? [];
+    list.push({ id: d.id, name: d.name, sizeBytes: d.sizeBytes });
+    map.set(d.entityId, list);
+  }
+  return map;
 }
