@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { createEmployee } from "@/lib/actions/hr-actions";
-import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS } from "@/lib/labels";
+import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, toNumber, daysUntil } from "@/lib/utils";
 import { LeaveApprovals, type PendingLeave } from "./leave-approvals";
 import { AdvanceApprovals, type AdvanceRow } from "./advance-approvals";
@@ -23,6 +23,15 @@ export default async function RhPage() {
   const canCreate = userCan(user, "RH", "CREATE");
   const canValidate = userCan(user, "RH", "VALIDATE");
   const data = await getRhData();
+
+  // Demandes « Mon Dossier RH » de TOUS les employés — traitées ICI, dans le module RH
+  // (les statuts se règlent sur la fiche employé, section Dossier RH).
+  const hrRequests = await prisma.hrDocumentRequest.findMany({
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    take: 60,
+    include: { employee: { select: { id: true, fullName: true } } },
+  });
+  const openHrRequests = hrRequests.filter((r) => r.status === "PENDING" || r.status === "IN_PROGRESS");
 
   const advanceRows: AdvanceRow[] = data.advances.map((a) => ({
     id: a.id, employee: a.employee.fullName, amount: Number(a.amount),
@@ -79,6 +88,47 @@ export default async function RhPage() {
         <KpiCard label="Contrats à échéance" value={data.stats.expiring} icon="CalendarClock" tone={data.stats.expiring > 0 ? "danger" : "default"} hint="≤ 60 jours" />
         <KpiCard label="Masse salariale" value={formatCurrency(data.stats.masseSalariale)} icon="Wallet" tone="info" hint="base mensuelle" />
       </div>
+
+      {canValidate && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Demandes RH à traiter ({openHrRequests.length})</h2>
+          <p className="text-xs text-muted-foreground">Demandes émises depuis « Mon Dossier RH » (attestations, congés, ordres de mission…). Cliquez pour traiter sur la fiche de l'employé.</p>
+          <Card>
+            <CardContent className="p-0">
+              {hrRequests.length === 0 ? (
+                <p className="px-4 py-6 text-sm text-muted-foreground">Aucune demande.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employé</TableHead>
+                      <TableHead>Demande</TableHead>
+                      <TableHead>Précisions</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Statut</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {hrRequests.map((r) => (
+                      <TableRow key={r.id}>
+                        <TableCell className="font-medium">{r.employee.fullName}</TableCell>
+                        <TableCell>{HR_REQUEST_TYPE[r.type] ?? r.type}</TableCell>
+                        <TableCell className="max-w-[280px]"><p className="truncate text-xs text-muted-foreground" title={r.details ?? ""}>{r.details ?? "—"}</p></TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{formatDate(r.createdAt)}</TableCell>
+                        <TableCell><StatusBadge map={HR_REQUEST_STATUS} value={r.status} /></TableCell>
+                        <TableCell className="text-right">
+                          <Link href={`/rh/${r.employee.id}`} className="text-sm font-medium text-primary hover:underline">Traiter</Link>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       {canValidate && (
         <section className="space-y-3">

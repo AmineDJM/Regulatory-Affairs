@@ -85,6 +85,37 @@ export async function deleteSpecialty(formData: FormData): Promise<ActionResult>
 
 // ─────────────────────────── Médecins ───────────────────────────
 
+/** Supprime un médecin de l'annuaire (MEDICAL:DELETE). Ses visites sont supprimées
+ *  en cascade ; il est retiré des listes d'invités de congrès (IDs orphelins ignorés). */
+export async function deleteDoctor(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Suppression réservée (droit Supprimer sur Promotion médicale)." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const doc = await prisma.medicalDoctor.findUnique({ where: { id }, select: { name: true } });
+  if (!doc) return { ok: false, error: "Médecin introuvable." };
+  await prisma.medicalVisit.deleteMany({ where: { doctorId: id } });
+  await prisma.medicalDoctor.delete({ where: { id } });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Promotion médicale", entityType: "DOCTOR", entityId: id, summary: `Médecin supprimé — ${doc.name}` });
+  revalidatePath("/medical");
+  return { ok: true };
+}
+
+/** Supprime une visite (MEDICAL:DELETE, ou le délégué auteur de la visite). */
+export async function deleteVisit(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const visit = await prisma.medicalVisit.findUnique({ where: { id }, select: { delegateId: true, doctor: { select: { name: true } } } });
+  if (!visit) return { ok: false, error: "Visite introuvable." };
+  if (!userCan(user, "MEDICAL", "DELETE") && visit.delegateId !== user.id) return { ok: false, error: "Non autorisé." };
+  await prisma.medicalVisit.delete({ where: { id } });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Promotion médicale", entityType: "VISIT", entityId: id, summary: `Visite supprimée — ${visit.doctor?.name ?? ""}` });
+  revalidatePath("/medical");
+  return { ok: true };
+}
+
+
 export async function createDoctor(
   _prev: ActionResult | undefined,
   formData: FormData,

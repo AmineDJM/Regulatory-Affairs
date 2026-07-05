@@ -58,6 +58,12 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
     hireDate: d10(employee.hireDate),
     contractStart: d10(employee.contractStart),
     contractEnd: d10(employee.contractEnd),
+    trialStart: d10(employee.trialStart),
+    trialEnd: d10(employee.trialEnd),
+    trialRenewable: employee.trialRenewable,
+    trialRenewed: employee.trialRenewed,
+    trialRenewalStart: d10(employee.trialRenewalStart),
+    trialRenewalEnd: d10(employee.trialRenewalEnd),
     birthDate: d10(employee.birthDate),
     email: employee.email ?? "",
     phone: employee.phone ?? "",
@@ -101,6 +107,18 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
                   <Info label="Poste" value={employee.position} />
                   <Info label="Département" value={employee.department} />
                   <Info label="Contrat" value={employee.contractType ? CONTRACT_TYPE[employee.contractType] : null} />
+                  <Info
+                    label="Période d'essai"
+                    value={employee.trialStart || employee.trialEnd
+                      ? `${employee.trialStart ? formatDate(employee.trialStart) : "?"} → ${employee.trialEnd ? formatDate(employee.trialEnd) : "?"}${employee.trialRenewable ? " · renouvelable" : ""}`
+                      : null}
+                  />
+                  {employee.trialRenewed && (
+                    <Info
+                      label="2ᵉ période d'essai"
+                      value={`${employee.trialRenewalStart ? formatDate(employee.trialRenewalStart) : "?"} → ${employee.trialRenewalEnd ? formatDate(employee.trialRenewalEnd) : "?"}`}
+                    />
+                  )}
                   <Info label="Salaire de base" value={formatCurrency(toNumber(employee.baseSalary))} />
                   <Info label="Solde congés" value={`${toNumber(employee.leaveBalanceDays)} j`} />
                   <Info label="Embauche" value={employee.hireDate ? formatDate(employee.hireDate) : null} />

@@ -1945,6 +1945,13 @@ model Employee {
   contractType     ContractType?
   contractStart    DateTime?
   contractEnd      DateTime? // échéance du contrat (CDD, stage…)
+  // Période d'essai : dates, renouvelable, et si renouvelée → dates de la 2ᵉ période.
+  trialStart        DateTime?
+  trialEnd          DateTime?
+  trialRenewable    Boolean   @default(false)
+  trialRenewed      Boolean   @default(false)
+  trialRenewalStart DateTime?
+  trialRenewalEnd   DateTime?
   leaveBalanceDays Decimal       @default(30) @db.Decimal(6, 1) // solde de congés (jours)
   birthDate        DateTime?
   nationalId       String? // NIN

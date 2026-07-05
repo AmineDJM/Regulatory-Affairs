@@ -108,21 +108,14 @@ export function DocumentList({
               ) : (
                 <p className="truncate text-sm font-semibold text-foreground" title={doc.name}>{doc.name}</p>
               )}
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                <span>{DOCUMENT_CATEGORY[doc.category] ?? doc.category}</span>
-                <span>·</span>
-                <span>v{doc.version}</span>
-                <span>·</span>
-                <span>{formatBytes(doc.sizeBytes)}</span>
-                <span className="hidden sm:inline">·</span>
-                <span className="hidden sm:inline">{formatDate(doc.createdAt)}</span>
-                {doc.uploadedBy && (
-                  <>
-                    <span className="hidden sm:inline">·</span>
-                    <span className="hidden sm:inline">{doc.uploadedBy}</span>
-                  </>
-                )}
-              </div>
+              {/* Méta sur UNE ligne tronquée : évite l'empilement d'éléments (« · » orphelins)
+                  quand la colonne est étroite ; le détail complet reste dans le title. */}
+              <p
+                className="truncate text-xs text-muted-foreground"
+                title={[DOCUMENT_CATEGORY[doc.category] ?? doc.category, `v${doc.version}`, formatBytes(doc.sizeBytes), formatDate(doc.createdAt), doc.uploadedBy ?? ""].filter(Boolean).join(" · ")}
+              >
+                {[DOCUMENT_CATEGORY[doc.category] ?? doc.category, `v${doc.version}`, formatBytes(doc.sizeBytes), formatDate(doc.createdAt), doc.uploadedBy ?? ""].filter(Boolean).join(" · ")}
+              </p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">

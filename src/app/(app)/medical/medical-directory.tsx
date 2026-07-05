@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import {
   SEGMENT_LEVEL, MEDICAL_SECTOR, DOCTOR_TITLE, doctorDisplayName,
 } from "@/lib/labels";
-import { createDoctor, updateDoctor, createSpecialty, updateSpecialty, deleteSpecialty } from "@/lib/actions/medical-actions";
+import { createDoctor, updateDoctor, createSpecialty, updateSpecialty, deleteSpecialty, deleteDoctor } from "@/lib/actions/medical-actions";
 import type { SpecialtyGroupDTO, SpecialtyDTO, DoctorDTO } from "@/lib/queries/medical";
 
 type Result = { ok: boolean; error?: string };
@@ -47,6 +47,7 @@ function useSubmit() {
 }
 
 export function MedicalDirectory({ groups, specialties, delegates, canCreate, canEdit, canManageSpecialties, canDelete, isManager }: Props) {
+  const router = useRouter();
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
   const [doctorSheet, setDoctorSheet] = React.useState<{ mode: "create" | "edit"; doctor?: DoctorDTO } | null>(null);
   const [specSheet, setSpecSheet] = React.useState(false);
@@ -118,6 +119,21 @@ export function MedicalDirectory({ groups, specialties, delegates, canCreate, ca
                                 {canEdit && (
                                   <button onClick={() => setDoctorSheet({ mode: "edit", doctor: d })} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Modifier">
                                     <Pencil className="h-4 w-4" />
+                                  </button>
+                                )}
+                                {canDelete && (
+                                  <button
+                                    onClick={async () => {
+                                      if (!window.confirm(`Supprimer « ${doctorDisplayName(d)} » de l'annuaire ? Ses visites seront supprimées.`)) return;
+                                      const fd = new FormData(); fd.set("id", d.id);
+                                      const r = await deleteDoctor(fd);
+                                      if (!r.ok) window.alert(r.error);
+                                      router.refresh();
+                                    }}
+                                    className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                    title="Supprimer le médecin"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
                                   </button>
                                 )}
                               </li>

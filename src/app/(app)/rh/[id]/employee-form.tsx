@@ -21,6 +21,12 @@ export interface EmployeeFormValues {
   hireDate: string;
   contractStart: string;
   contractEnd: string;
+  trialStart: string;
+  trialEnd: string;
+  trialRenewable: boolean;
+  trialRenewed: boolean;
+  trialRenewalStart: string;
+  trialRenewalEnd: string;
   birthDate: string;
   email: string;
   phone: string;
@@ -90,6 +96,18 @@ export function EmployeeForm({ employee, managerOptions, userOptions }: Props) {
         <TextInput name="hireDate" label="Date d'embauche" type="date" defaultValue={employee.hireDate} />
         <TextInput name="contractStart" label="Début de contrat" type="date" defaultValue={employee.contractStart} />
         <TextInput name="contractEnd" label="Fin de contrat" type="date" defaultValue={employee.contractEnd} />
+        <TextInput name="trialStart" label="Période d'essai — début" type="date" defaultValue={employee.trialStart} />
+        <TextInput name="trialEnd" label="Période d'essai — fin" type="date" defaultValue={employee.trialEnd} />
+        <label className="flex items-center gap-2 text-sm sm:col-span-1">
+          <input type="checkbox" name="trialRenewable" defaultChecked={employee.trialRenewable} className="h-4 w-4 rounded border-border accent-primary" />
+          Période d'essai renouvelable
+        </label>
+        <label className="flex items-center gap-2 text-sm sm:col-span-1">
+          <input type="checkbox" name="trialRenewed" defaultChecked={employee.trialRenewed} className="h-4 w-4 rounded border-border accent-primary" />
+          Renouvelée (2ᵉ période)
+        </label>
+        <TextInput name="trialRenewalStart" label="2ᵉ période — début" type="date" defaultValue={employee.trialRenewalStart} />
+        <TextInput name="trialRenewalEnd" label="2ᵉ période — fin" type="date" defaultValue={employee.trialRenewalEnd} />
         <TextInput name="birthDate" label="Date de naissance" type="date" defaultValue={employee.birthDate} />
         <TextInput name="email" label="Email" defaultValue={employee.email} />
         <TextInput name="phone" label="Téléphone" defaultValue={employee.phone} />
