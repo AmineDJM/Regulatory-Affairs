@@ -1912,6 +1912,10 @@ enum HrRequestType {
   EXPENSE_REPORT // note de frais
   EXCEPTIONAL_EXIT // sortie exceptionnelle (autorisation d'absence ponctuelle)
   SICK_LEAVE // arrêt maladie (avec justificatif)
+  ANNUAL_LEAVE // demande de congé annuel
+  UNPAID_LEAVE // congé sans solde
+  SPECIAL_LEAVE // congé exceptionnel (mariage, naissance, décès…)
+  MATERNITY_LEAVE // congé de maternité
   OTHER
 }
 

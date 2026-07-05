@@ -1,10 +1,13 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { Priority, UserRole, ValidationMode, ValidationStatus, ValidationStepState } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { saveFile, validateUpload } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { createValidationFromRules, createDirectValidation, notifyValidator } from "@/lib/validation";
@@ -144,6 +147,30 @@ export async function createValidationRequest(
     });
   }
   if (!res.ok) return { ok: false, error: res.error };
+
+  // Pièces jointes facultatives : versées à la demande de validation (visibles du
+  // demandeur et des validateurs via les documents de l'entité).
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length) {
+    const maxMb = (await getAppSettings()).maxUploadMb;
+    for (const file of files) {
+      const invalid = validateUpload(file.name, file.size, maxMb);
+      if (invalid) return { ok: false, error: invalid };
+      const key = `VALIDATION_REQUEST/${res.requestId}/${randomUUID()}__${file.name}`;
+      try {
+        await saveFile(key, Buffer.from(await file.arrayBuffer()));
+      } catch (err) {
+        console.error("[validations] storage write failed, recording metadata only", err);
+      }
+      await prisma.document.create({
+        data: {
+          name: file.name, category: "OTHER", entityType: "VALIDATION_REQUEST", entityId: res.requestId!,
+          fileKey: key, mimeType: file.type || null, sizeBytes: file.size, confidentiality: "INTERNAL", uploadedById: user.id,
+        },
+      });
+    }
+  }
+
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Validations", entityType: "VALIDATION_REQUEST", entityId: res.requestId!, summary: `${res.reference} — ${title}` });
   revalidatePath("/validations");
   revalidatePath("/mon-travail");

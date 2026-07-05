@@ -599,6 +599,10 @@ export const HR_REQUEST_TYPE: Record<string, string> = {
   EXPENSE_REPORT: "Note de frais",
   EXCEPTIONAL_EXIT: "Sortie exceptionnelle",
   SICK_LEAVE: "Arrêt maladie",
+  ANNUAL_LEAVE: "Demande de congé annuel",
+  UNPAID_LEAVE: "Congé sans solde",
+  SPECIAL_LEAVE: "Congé exceptionnel (mariage, naissance, décès…)",
+  MATERNITY_LEAVE: "Congé de maternité",
   OTHER: "Autre demande",
 };
 

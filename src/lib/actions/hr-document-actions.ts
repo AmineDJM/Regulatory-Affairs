@@ -1,16 +1,19 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { HrRequestType, HrRequestStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
+import { saveFile, validateUpload } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
-const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "OTHER"];
+const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
 
 /** Demande d'attestation par l'employé (acte côté « Mon dossier RH »). */
@@ -25,6 +28,29 @@ export async function requestHrDocument(formData: FormData): Promise<ActionResul
   const created = await prisma.hrDocumentRequest.create({
     data: { employeeId: employee.id, type, details: fdStr(formData, "details") },
   });
+
+  // Pièces jointes facultatives (justificatif d'arrêt maladie, formulaire de congé…),
+  // versées au dossier de la demande (visibles du demandeur et des RH).
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length) {
+    const maxMb = (await getAppSettings()).maxUploadMb;
+    for (const file of files) {
+      const invalid = validateUpload(file.name, file.size, maxMb);
+      if (invalid) return { ok: false, error: invalid };
+      const key = `HR_REQUEST/${created.id}/${randomUUID()}__${file.name}`;
+      try {
+        await saveFile(key, Buffer.from(await file.arrayBuffer()));
+      } catch (err) {
+        console.error("[hr-request] storage write failed, recording metadata only", err);
+      }
+      await prisma.document.create({
+        data: {
+          name: file.name, category: "OTHER", entityType: "HR_REQUEST", entityId: created.id,
+          fileKey: key, mimeType: file.type || null, sizeBytes: file.size, confidentiality: "INTERNAL", uploadedById: user.id,
+        },
+      });
+    }
+  }
   await recordAudit({ actorId: user.id, action: "CREATE", module: "RH", summary: `Demande RH — ${type}` });
   await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
     type: "GENERIC",

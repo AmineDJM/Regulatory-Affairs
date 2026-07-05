@@ -63,25 +63,71 @@ function scopeWhere(user: SessionLike) {
 
 const includeRel = { organizer: { select: { name: true } }, invitees: { include: { user: { select: { name: true } } } } };
 
-/** Événements visibles dans une fenêtre [from, to) (la grille affichée du mois). */
-export async function getCalendarEvents(user: SessionLike, from: Date, to: Date): Promise<CalendarEventDTO[]> {
-  const rows = await prisma.calendarEvent.findMany({
-    where: { AND: [scopeWhere(user), { startAt: { gte: from, lt: to } }] },
-    include: includeRel,
-    orderBy: { startAt: "asc" },
+/**
+ * Réunions / appels PLANIFIÉS (module Meetings) projetés dans le calendrier : chacun
+ * apparaît comme un événement « MEETING » pour l'organisateur et les participants,
+ * avec le lien « Rejoindre » vers la page de la réunion.
+ */
+async function getScheduledMeetingsAsEvents(user: SessionLike, from: Date, to: Date): Promise<CalendarEventDTO[]> {
+  const meetingScope = hasGlobalView(user.role)
+    ? {}
+    : { OR: [{ organizerId: user.id }, { participants: { some: { userId: user.id } } }] };
+  const rows = await prisma.meeting.findMany({
+    where: { AND: [meetingScope, { status: "SCHEDULED" as const }, { scheduledAt: { gte: from, lt: to } }] },
+    include: { organizer: { select: { name: true } } },
+    orderBy: { scheduledAt: "asc" },
   });
-  return rows.map((r) => toDTO(r as EventRow, user.id));
+  return rows
+    .filter((m) => m.scheduledAt)
+    .map((m) => ({
+      id: `meeting:${m.id}`,
+      title: m.title,
+      description: m.description,
+      location: null,
+      kind: "MEETING" as CalendarEventKind,
+      startAt: m.scheduledAt!.toISOString(),
+      endAt: null,
+      allDay: false,
+      color: null,
+      meetLink: m.meetLink ?? `/meetings/${m.id}`,
+      organizerId: m.organizerId,
+      organizerName: m.organizer.name,
+      isOrganizer: m.organizerId === user.id,
+      myStatus: null,
+      ymd: algiersYmd(m.scheduledAt!),
+      timeLabel: algiersTime(m.scheduledAt!),
+      invitees: [],
+    }));
 }
 
-/** Prochains événements de l'utilisateur (agenda à droite). */
+/** Événements visibles dans une fenêtre [from, to) (la grille affichée du mois). */
+export async function getCalendarEvents(user: SessionLike, from: Date, to: Date): Promise<CalendarEventDTO[]> {
+  const [rows, meetings] = await Promise.all([
+    prisma.calendarEvent.findMany({
+      where: { AND: [scopeWhere(user), { startAt: { gte: from, lt: to } }] },
+      include: includeRel,
+      orderBy: { startAt: "asc" },
+    }),
+    getScheduledMeetingsAsEvents(user, from, to),
+  ]);
+  return [...rows.map((r) => toDTO(r as EventRow, user.id)), ...meetings].sort((a, b) => a.startAt.localeCompare(b.startAt));
+}
+
+/** Prochains événements de l'utilisateur (agenda à droite) — réunions planifiées incluses. */
 export async function getUpcomingEvents(user: SessionLike, limit = 8): Promise<CalendarEventDTO[]> {
-  const rows = await prisma.calendarEvent.findMany({
-    where: { AND: [scopeWhere(user), { startAt: { gte: new Date(Date.now() - 3600000) } }] },
-    include: includeRel,
-    orderBy: { startAt: "asc" },
-    take: limit,
-  });
-  return rows.map((r) => toDTO(r as EventRow, user.id));
+  const from = new Date(Date.now() - 3600000);
+  const [rows, meetings] = await Promise.all([
+    prisma.calendarEvent.findMany({
+      where: { AND: [scopeWhere(user), { startAt: { gte: from } }] },
+      include: includeRel,
+      orderBy: { startAt: "asc" },
+      take: limit,
+    }),
+    getScheduledMeetingsAsEvents(user, from, new Date(Date.now() + 1000 * 60 * 60 * 24 * 90)),
+  ]);
+  return [...rows.map((r) => toDTO(r as EventRow, user.id)), ...meetings]
+    .sort((a, b) => a.startAt.localeCompare(b.startAt))
+    .slice(0, limit);
 }
 
 /** Un événement (si l'utilisateur y a accès). */

@@ -35,7 +35,12 @@ export function NewRequestButton() {
           </div>
           <div className="space-y-1.5">
             <Label>Précisions (optionnel)</Label>
-            <Textarea name="details" placeholder="Ex. trajet et dates (mission), montant et motif (note de frais), destinataire…" rows={3} />
+            <Textarea name="details" placeholder="Ex. dates de congé souhaitées, trajet et dates (mission), montant et motif (note de frais)…" rows={3} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Pièces jointes (optionnel)</Label>
+            <input type="file" name="files" multiple className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
+            <p className="text-xs text-muted-foreground">Ex. justificatif d'arrêt maladie, formulaire signé…</p>
           </div>
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
           <div className="flex justify-end gap-2">

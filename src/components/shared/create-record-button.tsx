@@ -38,7 +38,8 @@ export type FieldDef =
       placeholder?: string;
       full?: boolean;
     }
-  | { type: "checkbox"; name: string; label: string; full?: boolean };
+  | { type: "checkbox"; name: string; label: string; full?: boolean }
+  | { type: "file"; name: string; label: string; multiple?: boolean; hint?: string; defaultValue?: string | number; full?: boolean };
 
 interface CreateRecordButtonProps {
   label: string;
@@ -105,7 +106,18 @@ export function CreateRecordButton({
                     )}
                   </Label>
                 )}
-                {field.type === "textarea" ? (
+                {field.type === "file" ? (
+                  <>
+                    <input
+                      id={field.name}
+                      type="file"
+                      name={field.name}
+                      multiple={field.multiple}
+                      className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
+                    />
+                    {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
+                  </>
+                ) : field.type === "textarea" ? (
                   <Textarea id={field.name} name={field.name} required={field.required} placeholder={field.placeholder} />
                 ) : field.type === "select" ? (
                   <Select id={field.name} name={field.name} required={field.required} defaultValue={field.defaultValue}>

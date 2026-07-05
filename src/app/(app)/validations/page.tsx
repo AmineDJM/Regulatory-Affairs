@@ -44,6 +44,7 @@ export default async function ValidationsPage() {
     { type: "date", name: "deadline", label: "Échéance" },
     { type: "text", name: "link", label: "Lien vers l'objet (optionnel)", placeholder: "/courrier/… ou /demandes/…" },
     { type: "textarea", name: "description", label: "Détails / contexte", full: true },
+    { type: "file", name: "files", label: "Pièces jointes (optionnel)", multiple: true, full: true, hint: "Documents à faire valider (PDF, images, Word…)." },
     { type: "select", name: "module", label: "Module concerné (routage auto si aucun validateur)", options: moduleOptions, placeholder: "— Routage automatique par règles —" },
   ];
 
