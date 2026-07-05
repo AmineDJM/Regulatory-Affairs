@@ -1917,6 +1917,7 @@ enum HrRequestType {
   UNPAID_LEAVE // congé sans solde
   SPECIAL_LEAVE // congé exceptionnel (mariage, naissance, décès…)
   MATERNITY_LEAVE // congé de maternité
+  HR_INTERVIEW // entrevue avec les RH (date proposée puis confirmée)
   OTHER
 }
 
@@ -2020,8 +2021,22 @@ model HrDocumentRequest {
   hrNote      String? // note des RH
   handledById String?
   fulfilment  EmployeeDocument? @relation("RequestFulfilment")
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+
+  // Note de frais : mois concerné (« YYYY-MM »), mois d'imputation retenu par les RH
+  // (le même ou le suivant), et accusé de réception des ORIGINAUX par le bureau
+  // du secrétariat (depuis son module).
+  expenseMonth     String?
+  approvedMonth    String?
+  originalsAckAt   DateTime?
+  originalsAckById String?
+
+  // Entrevue RH : dernière date/heure proposée, par qui, et confirmation par l'autre partie.
+  meetingAt           DateTime?
+  meetingProposedById String?
+  meetingConfirmedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([employeeId])
   @@index([status])

@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
-import { formatDate } from "@/lib/utils";
-import { processHrRequest, deleteEmployeeDocument } from "@/lib/actions/hr-document-actions";
+import { formatDate, formatMonth } from "@/lib/utils";
+import { processHrRequest, deleteEmployeeDocument, decideExpenseReport } from "@/lib/actions/hr-document-actions";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
+import { MeetingControls } from "@/components/shared/hr-meeting-controls";
 import type { HrDocumentDTO, HrRequestDTO } from "@/lib/queries/hr-documents";
 
 const REQ_TO_CAT: Record<string, string> = {
@@ -111,7 +112,20 @@ function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: H
   const [status, setStatus] = React.useState(req.status);
   const [note, setNote] = React.useState(req.hrNote ?? "");
   const [saving, setSaving] = React.useState(false);
+  const [deciding, setDeciding] = React.useState<string | null>(null);
+  const [decideErr, setDecideErr] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+
+  // Décision note de frais : la note RH saisie est enregistrée avec la décision.
+  const decide = async (decision: "APPROVE" | "APPROVE_NEXT" | "REJECT") => {
+    setDeciding(decision); setDecideErr(null);
+    const fd = new FormData();
+    fd.set("id", req.id); fd.set("decision", decision);
+    if (note) fd.set("hrNote", note);
+    const r = await decideExpenseReport(fd);
+    setDeciding(null);
+    if (!r.ok) setDecideErr(r.error ?? "Échec."); else router.refresh();
+  };
 
   const save = async () => {
     setSaving(true);
@@ -129,6 +143,50 @@ function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: H
         {req.fulfilmentDocId && <a href={`/api/rh/document/${req.fulfilmentDocId}?dl=1`} className="text-xs text-primary hover:underline">Document joint</a>}
       </div>
       {req.details && <p className="mb-2 text-xs text-muted-foreground">Demande : {req.details}</p>}
+
+      {/* Note de frais : mois, accusé de réception des originaux, décision en un clic */}
+      {req.type === "EXPENSE_REPORT" && (
+        <div className="mb-2 space-y-2 rounded-lg border border-border bg-muted/20 p-2.5">
+          <p className="text-xs">
+            Mois concerné : <span className="font-medium">{formatMonth(req.expenseMonth)}</span>
+            {req.approvedMonth && <> · Validée pour <span className="font-medium text-success">{formatMonth(req.approvedMonth)}</span></>}
+          </p>
+          <p className={`text-xs ${req.originalsAckAt ? "text-success" : "text-amber-700"}`}>
+            {req.originalsAckAt
+              ? `Originaux réceptionnés par le secrétariat${req.originalsAckByName ? ` (${req.originalsAckByName})` : ""} le ${formatDate(req.originalsAckAt)}.`
+              : "Originaux non réceptionnés par le bureau du secrétariat pour l'instant."}
+          </p>
+          {req.status !== "REJECTED" && !req.approvedMonth && (
+            <div className="flex flex-wrap gap-1.5">
+              <Button size="sm" disabled={deciding !== null} onClick={() => decide("APPROVE")}>
+                {deciding === "APPROVE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Valider ({formatMonth(req.expenseMonth)})
+              </Button>
+              <Button size="sm" variant="outline" disabled={deciding !== null} onClick={() => decide("APPROVE_NEXT")}>
+                {deciding === "APPROVE_NEXT" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Valider pour le mois suivant
+              </Button>
+              <Button size="sm" variant="outline" disabled={deciding !== null} onClick={() => { if (window.confirm("Refuser cette note de frais ?")) decide("REJECT"); }} className="text-destructive hover:bg-destructive/10">
+                {deciding === "REJECT" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Refuser
+              </Button>
+            </div>
+          )}
+          {decideErr && <p className="text-xs text-destructive">{decideErr}</p>}
+        </div>
+      )}
+
+      {/* Entrevue RH : proposer / accepter une date */}
+      {req.type === "HR_INTERVIEW" && req.status !== "REJECTED" && (
+        <div className="mb-2">
+          <MeetingControls
+            requestId={req.id}
+            meetingAt={req.meetingAt}
+            proposedByMe={req.meetingProposedById === currentUserId}
+            confirmed={Boolean(req.meetingConfirmedAt)}
+            canPropose
+            otherParty="l'employé"
+          />
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="space-y-1.5"><Label>Statut</Label>
           <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>

@@ -57,6 +57,20 @@ export function formatDateTime(value: Date | string | null | undefined) {
   });
 }
 
+/** « 2026-07 » → « juillet 2026 » (mois d'une note de frais, d'un bulletin…). */
+export function formatMonth(ym: string | null | undefined): string {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return "—";
+  const [y, m] = ym.split("-").map(Number);
+  return new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, 1)));
+}
+
+/** Mois suivant d'un « YYYY-MM » (gère le passage d'année). */
+export function nextMonthYm(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 /** Relative day delta: negative = overdue, positive = upcoming. */
 export function daysUntil(value: Date | string | null | undefined): number | null {
   if (!value) return null;

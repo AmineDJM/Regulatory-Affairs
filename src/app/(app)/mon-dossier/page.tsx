@@ -7,8 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileText, Download } from "lucide-react";
 import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE, MON_DOSSIER_TABS } from "@/lib/labels";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatDate, formatDateTime, formatMonth } from "@/lib/utils";
 import { NewRequestButton, CancelRequestButton } from "./request-controls";
+import { MeetingControls } from "@/components/shared/hr-meeting-controls";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
 
 const dossierTabs = MON_DOSSIER_TABS.map((t) => ({ label: t.label, href: t.href }));
@@ -95,6 +96,19 @@ export default async function MonDossierPage() {
                       </div>
                       {r.details && <p className="text-xs text-muted-foreground">{r.details}</p>}
                       {r.hrNote && <p className="text-xs text-muted-foreground">RH : {r.hrNote}</p>}
+                      {r.type === "EXPENSE_REPORT" && (
+                        <div className="mt-1 space-y-0.5 text-xs">
+                          <p className="text-muted-foreground">
+                            Mois concerné : <span className="font-medium text-foreground">{formatMonth(r.expenseMonth)}</span>
+                            {r.approvedMonth && <> · Validée pour <span className="font-medium text-success">{formatMonth(r.approvedMonth)}</span></>}
+                          </p>
+                          {r.originalsAckAt ? (
+                            <p className="text-success">Originaux réceptionnés par le secrétariat{r.originalsAckByName ? ` (${r.originalsAckByName})` : ""} le {formatDate(r.originalsAckAt)}.</p>
+                          ) : (
+                            <p className="font-medium text-amber-700">⚠ Déposez les documents originaux au bureau du secrétariat — accusé de réception en attente.</p>
+                          )}
+                        </div>
+                      )}
                       <p className="text-[11px] text-muted-foreground">Demandée le {formatDateTime(r.createdAt)}</p>
                     </div>
                     {r.fulfilmentDocId && (
@@ -104,6 +118,16 @@ export default async function MonDossierPage() {
                     )}
                     {r.status === "PENDING" && <CancelRequestButton id={r.id} />}
                   </div>
+                  {r.type === "HR_INTERVIEW" && r.status !== "REJECTED" && (
+                    <MeetingControls
+                      requestId={r.id}
+                      meetingAt={r.meetingAt}
+                      proposedByMe={r.meetingProposedById === user.id}
+                      confirmed={Boolean(r.meetingConfirmedAt)}
+                      canPropose={Boolean(r.meetingAt)}
+                      otherParty="les RH"
+                    />
+                  )}
                   <HrRequestThread requestId={r.id} documents={r.documents} comments={r.comments} canManage={false} currentUserId={user.id} path="/mon-dossier" />
                 </li>
               ))}

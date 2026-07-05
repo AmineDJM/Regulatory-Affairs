@@ -4,17 +4,21 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { HrRequestType, HrRequestStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
+import { createEventForUser } from "@/lib/calendar";
+import { algiersInputToUtc, formatAlgiers } from "@/lib/calendar-tz";
+import { formatMonth, nextMonthYm } from "@/lib/utils";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
-const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "OTHER"];
+const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
+const YM = /^\d{4}-\d{2}$/;
 
 /** Demande d'attestation par l'employé (acte côté « Mon dossier RH »). */
 export async function requestHrDocument(formData: FormData): Promise<ActionResult> {
@@ -25,8 +29,17 @@ export async function requestHrDocument(formData: FormData): Promise<ActionResul
   const typeRaw = fdStr(formData, "type");
   const type = (typeRaw && REQUEST_TYPES.includes(typeRaw as HrRequestType) ? typeRaw : "WORK_CERTIFICATE") as HrRequestType;
 
+  // Note de frais : le mois concerné est obligatoire (« YYYY-MM »).
+  const expenseMonth = fdStr(formData, "expenseMonth");
+  if (type === "EXPENSE_REPORT" && (!expenseMonth || !YM.test(expenseMonth))) {
+    return { ok: false, error: "Indiquez le mois concerné par la note de frais." };
+  }
+
   const created = await prisma.hrDocumentRequest.create({
-    data: { employeeId: employee.id, type, details: fdStr(formData, "details") },
+    data: {
+      employeeId: employee.id, type, details: fdStr(formData, "details"),
+      expenseMonth: type === "EXPENSE_REPORT" ? expenseMonth : null,
+    },
   });
 
   // Pièces jointes facultatives (justificatif d'arrêt maladie, formulaire de congé…),
@@ -112,6 +125,167 @@ export async function processHrRequest(formData: FormData): Promise<ActionResult
   }
   revalidatePath("/mon-dossier");
   revalidatePath(`/rh/${req.employeeId}`);
+  return { ok: true };
+}
+
+/**
+ * Décision RH sur une NOTE DE FRAIS : valider pour le mois demandé, valider pour
+ * le mois suivant, ou refuser. Un commentaire libre passe par le fil d'échange.
+ */
+export async function decideExpenseReport(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  const decision = fdStr(formData, "decision"); // APPROVE | APPROVE_NEXT | REJECT
+  if (!id || !decision || !["APPROVE", "APPROVE_NEXT", "REJECT"].includes(decision)) return { ok: false, error: "Décision invalide." };
+  const req = await prisma.hrDocumentRequest.findUnique({ where: { id }, include: { employee: { select: { userId: true, fullName: true } } } });
+  if (!req || req.type !== "EXPENSE_REPORT") return { ok: false, error: "Note de frais introuvable." };
+  if (!req.expenseMonth || !YM.test(req.expenseMonth)) return { ok: false, error: "Cette note de frais n'a pas de mois renseigné." };
+
+  const approvedMonth = decision === "APPROVE" ? req.expenseMonth : decision === "APPROVE_NEXT" ? nextMonthYm(req.expenseMonth) : null;
+  const note = fdStr(formData, "hrNote");
+  await prisma.hrDocumentRequest.update({
+    where: { id },
+    data: {
+      status: decision === "REJECT" ? "REJECTED" : "READY",
+      approvedMonth,
+      handledById: user.id,
+      ...(note ? { hrNote: note } : {}),
+    },
+  });
+
+  const body = decision === "REJECT"
+    ? `Votre note de frais (${formatMonth(req.expenseMonth)}) a été refusée.`
+    : `Votre note de frais (${formatMonth(req.expenseMonth)}) est validée pour ${formatMonth(approvedMonth)}${decision === "APPROVE_NEXT" ? " (mois suivant)" : ""}.`;
+  if (req.employee.userId) {
+    await notifyUser({ userId: req.employee.userId, type: "GENERIC", title: decision === "REJECT" ? "Note de frais refusée" : "Note de frais validée", body, link: "/mon-dossier" });
+  }
+  await recordAudit({
+    actorId: user.id, action: decision === "REJECT" ? "REFUSE" : "VALIDATE", module: "RH",
+    summary: `Note de frais ${req.employee.fullName} (${req.expenseMonth}) — ${decision === "REJECT" ? "refusée" : `validée pour ${approvedMonth}`}`,
+  });
+  revalidatePath("/mon-dossier");
+  revalidatePath(`/rh/${req.employeeId}`);
+  revalidatePath("/rh");
+  return { ok: true };
+}
+
+/**
+ * Accusé de réception des ORIGINAUX d'une note de frais par le BUREAU DU
+ * SECRÉTARIAT (droit « Modifier » sur le module Bureau du secrétariat, ou vue globale).
+ */
+export async function ackExpenseOriginals(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!(hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE"))) {
+    return { ok: false, error: "Réservé au bureau du secrétariat." };
+  }
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.hrDocumentRequest.findUnique({ where: { id }, include: { employee: { select: { userId: true, fullName: true } } } });
+  if (!req || req.type !== "EXPENSE_REPORT") return { ok: false, error: "Note de frais introuvable." };
+  if (req.originalsAckAt) return { ok: false, error: "Originaux déjà réceptionnés." };
+
+  await prisma.hrDocumentRequest.update({ where: { id }, data: { originalsAckAt: new Date(), originalsAckById: user.id } });
+  if (req.employee.userId) {
+    await notifyUser({
+      userId: req.employee.userId, type: "GENERIC", title: "Originaux réceptionnés",
+      body: `Le bureau du secrétariat a accusé réception des originaux de votre note de frais (${formatMonth(req.expenseMonth)}).`,
+      link: "/mon-dossier",
+    });
+  }
+  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+    type: "GENERIC", title: "Originaux de note de frais réceptionnés",
+    body: `${req.employee.fullName} — ${formatMonth(req.expenseMonth)} (accusé par ${user.name}).`,
+    link: `/rh/${req.employeeId}`,
+  });
+  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Demandes administratives", summary: `Accusé de réception originaux note de frais — ${req.employee.fullName} (${req.expenseMonth ?? "?"})` });
+  revalidatePath("/demandes");
+  revalidatePath("/mon-dossier");
+  revalidatePath(`/rh/${req.employeeId}`);
+  return { ok: true };
+}
+
+/**
+ * ENTREVUE RH : proposer (ou contre-proposer) une date. Les RH proposent en premier,
+ * l'employé peut répondre par une autre date — chaque proposition remplace la précédente.
+ */
+export async function proposeHrMeeting(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  const when = fdStr(formData, "meetingAt"); // datetime-local, heure d'Alger
+  if (!id || !when) return { ok: false, error: "Indiquez la date et l'heure proposées." };
+  const at = algiersInputToUtc(when);
+  if (!at) return { ok: false, error: "Date invalide." };
+  if (at < new Date()) return { ok: false, error: "La date proposée est déjà passée." };
+  const req = await prisma.hrDocumentRequest.findUnique({ where: { id }, include: { employee: { select: { userId: true, fullName: true } } } });
+  if (!req || req.type !== "HR_INTERVIEW") return { ok: false, error: "Demande d'entrevue introuvable." };
+  if (req.meetingConfirmedAt) return { ok: false, error: "L'entrevue est déjà confirmée." };
+  const isOwner = req.employee.userId === user.id;
+  const isHr = userCan(user, "RH", "UPDATE");
+  if (!(isOwner || isHr)) return { ok: false, error: "Non autorisé." };
+
+  await prisma.hrDocumentRequest.update({
+    where: { id },
+    data: { meetingAt: at, meetingProposedById: user.id, meetingConfirmedAt: null, status: "IN_PROGRESS", ...(isHr && !isOwner ? { handledById: user.id } : {}) },
+  });
+  const whenLabel = formatAlgiers(at, { weekday: "long", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
+  if (isOwner) {
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Entrevue RH — date proposée par l'employé", body: `${req.employee.fullName} propose : ${whenLabel}.`, link: `/rh/${req.employeeId}` });
+  } else if (req.employee.userId) {
+    await notifyUser({ userId: req.employee.userId, type: "GENERIC", title: "Entrevue RH — date proposée", body: `Les RH vous proposent : ${whenLabel}. Acceptez ou proposez une autre date.`, link: "/mon-dossier" });
+  }
+  revalidatePath("/mon-dossier");
+  revalidatePath(`/rh/${req.employeeId}`);
+  revalidatePath("/rh");
+  return { ok: true };
+}
+
+/** ENTREVUE RH : accepter la date proposée par l'autre partie → rendez-vous au calendrier. */
+export async function confirmHrMeeting(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.hrDocumentRequest.findUnique({ where: { id }, include: { employee: { select: { userId: true, fullName: true } } } });
+  if (!req || req.type !== "HR_INTERVIEW") return { ok: false, error: "Demande d'entrevue introuvable." };
+  if (!req.meetingAt || !req.meetingProposedById) return { ok: false, error: "Aucune date proposée à accepter." };
+  if (req.meetingConfirmedAt) return { ok: false, error: "L'entrevue est déjà confirmée." };
+  if (req.meetingProposedById === user.id) return { ok: false, error: "L'autre partie doit accepter votre proposition." };
+  const isOwner = req.employee.userId === user.id;
+  const isHr = userCan(user, "RH", "UPDATE");
+  if (!(isOwner || isHr)) return { ok: false, error: "Non autorisé." };
+
+  await prisma.hrDocumentRequest.update({
+    where: { id },
+    data: { meetingConfirmedAt: new Date(), status: "READY", ...(isHr && !isOwner ? { handledById: user.id } : {}) },
+  });
+
+  // Rendez-vous au calendrier des deux parties (organisateur = côté RH).
+  const employeeUserId = req.employee.userId;
+  const rhUserId = req.meetingProposedById === employeeUserId ? user.id : req.meetingProposedById;
+  if (rhUserId) {
+    try {
+      await createEventForUser(rhUserId, {
+        title: `Entrevue RH — ${req.employee.fullName}`,
+        kind: "MEETING",
+        startAt: req.meetingAt,
+        inviteeIds: employeeUserId && employeeUserId !== rhUserId ? [employeeUserId] : [],
+      });
+    } catch (err) {
+      console.error("[hr-meeting] calendar event failed", err);
+    }
+  }
+
+  const whenLabel = formatAlgiers(req.meetingAt, { weekday: "long", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
+  if (isOwner) {
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Entrevue RH confirmée", body: `${req.employee.fullName} — ${whenLabel}.`, link: `/rh/${req.employeeId}` });
+  } else if (employeeUserId) {
+    await notifyUser({ userId: employeeUserId, type: "GENERIC", title: "Entrevue RH confirmée", body: `Votre entrevue est confirmée : ${whenLabel}. Elle apparaît dans votre calendrier.`, link: "/mon-dossier" });
+  }
+  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "RH", summary: `Entrevue RH confirmée — ${req.employee.fullName} (${whenLabel})` });
+  revalidatePath("/mon-dossier");
+  revalidatePath(`/rh/${req.employeeId}`);
+  revalidatePath("/rh");
+  revalidatePath("/calendar");
   return { ok: true };
 }
 

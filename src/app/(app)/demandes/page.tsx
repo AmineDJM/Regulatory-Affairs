@@ -16,12 +16,13 @@ import { toNumber } from "@/lib/utils";
 import { NewRequestButton } from "./new-request";
 import { MultiRequestButton } from "./multi-request";
 import { SuppliesManager } from "./supplies-manager";
+import { ExpenseAckList, type ExpenseAckItem } from "./expense-ack";
 
 export default async function DemandesPage({ searchParams }: { searchParams: { status?: string; type?: string } }) {
   const user = await requireModule("ADMIN_REQUESTS");
   const isManager = hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE");
 
-  const [list, users, departments, activeArticles, supplyCatalog] = await Promise.all([
+  const [list, users, departments, activeArticles, supplyCatalog, expensePendingAck] = await Promise.all([
     getRequestList(user, { status: searchParams.status, type: searchParams.type }),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.department.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
@@ -29,7 +30,20 @@ export default async function DemandesPage({ searchParams }: { searchParams: { s
     isManager
       ? prisma.officeSupplyArticle.findMany({ select: { id: true, name: true, category: true, unit: true, reference: true, estimatedPrice: true, supplierHint: true, active: true, notes: true }, orderBy: [{ active: "desc" }, { name: "asc" }] })
       : Promise.resolve([] as { id: string; name: string; category: string | null; unit: string | null; reference: string | null; estimatedPrice: unknown; supplierHint: string | null; active: boolean; notes: string | null }[]),
+    // Notes de frais dont les originaux n'ont pas encore été réceptionnés par le secrétariat.
+    isManager
+      ? prisma.hrDocumentRequest.findMany({
+          where: { type: "EXPENSE_REPORT", originalsAckAt: null, status: { not: "REJECTED" } },
+          include: { employee: { select: { fullName: true } } },
+          orderBy: { createdAt: "asc" },
+          take: 50,
+        })
+      : Promise.resolve([]),
   ]);
+
+  const ackItems: ExpenseAckItem[] = expensePendingAck.map((r) => ({
+    id: r.id, employeeName: r.employee.fullName, expenseMonth: r.expenseMonth, createdAt: r.createdAt.toISOString(),
+  }));
 
   const catalogRows = supplyCatalog.map((a) => ({ ...a, estimatedPrice: a.estimatedPrice != null ? toNumber(a.estimatedPrice) : null }));
 
@@ -45,6 +59,8 @@ export default async function DemandesPage({ searchParams }: { searchParams: { s
         <MultiRequestButton users={users} departments={departments} articles={activeArticles} />
         <NewRequestButton users={users} departments={departments} articles={activeArticles} />
       </PageHeader>
+
+      {isManager && <ExpenseAckList items={ackItems} />}
 
       <div className="flex flex-wrap gap-1.5">
         <Chip label="Toutes" href="/demandes" active={!searchParams.status} />

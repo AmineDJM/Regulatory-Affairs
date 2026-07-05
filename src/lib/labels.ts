@@ -603,6 +603,7 @@ export const HR_REQUEST_TYPE: Record<string, string> = {
   UNPAID_LEAVE: "Congé sans solde",
   SPECIAL_LEAVE: "Congé exceptionnel (mariage, naissance, décès…)",
   MATERNITY_LEAVE: "Congé de maternité",
+  HR_INTERVIEW: "Entrevue avec les RH",
   OTHER: "Autre demande",
 };
 

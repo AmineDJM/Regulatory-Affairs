@@ -23,6 +23,15 @@ export interface HrRequestDTO {
   hrNote: string | null;
   createdAt: string;
   fulfilmentDocId: string | null;
+  // Note de frais
+  expenseMonth: string | null;
+  approvedMonth: string | null;
+  originalsAckAt: string | null;
+  originalsAckByName: string | null;
+  // Entrevue RH
+  meetingAt: string | null;
+  meetingProposedById: string | null;
+  meetingConfirmedAt: string | null;
   documents: DocItem[];
   comments: CommentItem[];
 }
@@ -45,18 +54,41 @@ function mapDoc(d: { id: string; category: HrDocumentCategory; name: string; mim
   return { id: d.id, category: d.category, name: d.name, mime: d.mime, size: d.size, period: d.period, createdAt: d.createdAt.toISOString() };
 }
 
-function mapReq(r: { id: string; type: HrRequestType; status: HrRequestStatus; details: string | null; hrNote: string | null; createdAt: Date; fulfilment: { id: string } | null }): HrRequestDTO {
-  return { id: r.id, type: r.type, status: r.status, details: r.details, hrNote: r.hrNote, createdAt: r.createdAt.toISOString(), fulfilmentDocId: r.fulfilment?.id ?? null, documents: [], comments: [] };
+type ReqRow = {
+  id: string; type: HrRequestType; status: HrRequestStatus; details: string | null; hrNote: string | null;
+  createdAt: Date; fulfilment: { id: string } | null;
+  expenseMonth: string | null; approvedMonth: string | null; originalsAckAt: Date | null; originalsAckById: string | null;
+  meetingAt: Date | null; meetingProposedById: string | null; meetingConfirmedAt: Date | null;
+};
+
+function mapReq(r: ReqRow): HrRequestDTO {
+  return {
+    id: r.id, type: r.type, status: r.status, details: r.details, hrNote: r.hrNote,
+    createdAt: r.createdAt.toISOString(), fulfilmentDocId: r.fulfilment?.id ?? null,
+    expenseMonth: r.expenseMonth, approvedMonth: r.approvedMonth,
+    originalsAckAt: r.originalsAckAt?.toISOString() ?? null,
+    originalsAckByName: r.originalsAckById, // remplacé par le nom dans attachThreads
+    meetingAt: r.meetingAt?.toISOString() ?? null,
+    meetingProposedById: r.meetingProposedById,
+    meetingConfirmedAt: r.meetingConfirmedAt?.toISOString() ?? null,
+    documents: [], comments: [],
+  };
 }
 
-/** Charge les pièces jointes + le fil d'échange de chaque demande RH (groupés par demande). */
+/** Charge pièces jointes + fil d'échange + noms (accusé de réception) de chaque demande RH. */
 async function attachThreads(requests: HrRequestDTO[]): Promise<void> {
   const ids = requests.map((r) => r.id);
   if (ids.length === 0) return;
-  const [documents, comments] = await Promise.all([
+  const ackIds = [...new Set(requests.map((r) => r.originalsAckByName).filter((v): v is string => Boolean(v)))];
+  const [documents, comments, ackUsers] = await Promise.all([
     prisma.document.findMany({ where: { entityType: "HR_REQUEST", entityId: { in: ids } }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
     prisma.comment.findMany({ where: { entityType: "HR_REQUEST", entityId: { in: ids } }, include: { author: { select: { name: true } } }, orderBy: { createdAt: "asc" } }),
+    ackIds.length ? prisma.user.findMany({ where: { id: { in: ackIds } }, select: { id: true, name: true } }) : Promise.resolve([] as { id: string; name: string }[]),
   ]);
+  const ackNameById = new Map(ackUsers.map((u) => [u.id, u.name]));
+  for (const r of requests) {
+    if (r.originalsAckByName) r.originalsAckByName = ackNameById.get(r.originalsAckByName) ?? null;
+  }
   const byReq = new Map(requests.map((r) => [r.id, r]));
   for (const d of documents) {
     byReq.get(d.entityId)?.documents.push({ id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes, confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null, createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey) });
