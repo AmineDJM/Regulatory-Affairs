@@ -1089,6 +1089,7 @@ model MedicalInfoDeclaration {
   validatedById  String?
   expenseOrderId String? // ordre de dépense émis après validation du pharmacien
   budgetCategoryId String? // (sous-)catégorie budgétaire choisie par la Direction à la validation définitive
+  archivedNodeId String? // dossier « Dossier traité » créé dans le Drive du PRIM
   requests       MedicalInfoDocRequest[]
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
@@ -2035,6 +2036,9 @@ model HrDocumentRequest {
   meetingProposedById String?
   meetingConfirmedAt  DateTime?
 
+  // Archivage : dossier « Dossier traité » créé dans le Drive du traitant.
+  archivedNodeId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2272,6 +2276,8 @@ model AdministrativeRequest {
   deletedAt        DateTime?
   deletedById      String?
   deletionReason   String?
+  // Archivage : dossier « Dossier traité » créé dans le Drive du traitant.
+  archivedNodeId   String?
   createdById      String?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt

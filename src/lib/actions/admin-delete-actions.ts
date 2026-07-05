@@ -25,6 +25,7 @@ type DeletableKind =
   | "SPONSORING"
   | "EVENT"
   | "EMPLOYEE"
+  | "HR_REQUEST"
   | "DOSSIER"
   | "ADMIN_REQUEST"
   | "MEETING"
@@ -102,6 +103,23 @@ const REGISTRY: Record<DeletableKind, KindSpec> = {
     },
     async remove(id) {
       await prisma.employee.delete({ where: { id } });
+    },
+  },
+  // Une SEULE demande RH (attestation, note de frais, entrevue…) — jamais l'employé.
+  HR_REQUEST: {
+    label: "demande RH",
+    module: "RH",
+    redirect: "/rh",
+    entityType: "HR_REQUEST",
+    async describe(id) {
+      const r = await prisma.hrDocumentRequest.findUnique({
+        where: { id },
+        select: { type: true, employee: { select: { fullName: true } } },
+      });
+      return r ? `Demande ${r.type} — ${r.employee.fullName}` : null;
+    },
+    async remove(id) {
+      await prisma.hrDocumentRequest.delete({ where: { id } });
     },
   },
   DOSSIER: {

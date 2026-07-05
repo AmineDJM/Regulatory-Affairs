@@ -19,12 +19,15 @@ export function SuperAdminDeleteButton({
   name,
   enabled,
   label = "Supprimer définitivement",
+  warning,
 }: {
   kind: string;
   id: string;
   name: string;
   enabled: boolean;
   label?: string;
+  /** Ligne d'avertissement supplémentaire (ex. périmètre exact de la suppression). */
+  warning?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -68,6 +71,7 @@ export function SuperAdminDeleteButton({
             <div className="space-y-1">
               <p className="font-medium">Cette suppression est définitive.</p>
               <p>L'élément, ses pièces jointes et ses commentaires seront retirés et n'apparaîtront plus nulle part. Cette action ne peut pas être annulée.</p>
+              {warning && <p className="font-semibold">{warning}</p>}
             </div>
           </div>
 

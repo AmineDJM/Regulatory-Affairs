@@ -91,7 +91,14 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
         </div>
         <div className="flex flex-col items-end gap-2">
           {employee.isActive ? <Badge tone="success" dot={false}>Actif</Badge> : <Badge tone="danger" dot={false}>Inactif</Badge>}
-          <SuperAdminDeleteButton kind="EMPLOYEE" id={employee.id} name={employee.fullName} enabled={user.role === "SUPER_ADMIN"} />
+          <SuperAdminDeleteButton
+            kind="EMPLOYEE"
+            id={employee.id}
+            name={employee.fullName}
+            enabled={user.role === "SUPER_ADMIN"}
+            label="Supprimer la fiche employé"
+            warning="⚠ Ceci supprime l'employé ET tout son dossier RH (demandes, congés, paie, documents). Pour supprimer une seule demande RH, utilisez la corbeille sur la demande concernée."
+          />
         </div>
       </div>
 

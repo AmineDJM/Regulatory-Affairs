@@ -8,7 +8,9 @@ import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
-import { algiersInputToUtc } from "@/lib/calendar-tz";
+import { algiersInputToUtc, formatAlgiers } from "@/lib/calendar-tz";
+import { archiveProcessedRequest } from "@/lib/archive";
+import { ADMIN_REQUEST_TYPE } from "@/lib/labels";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
@@ -17,6 +19,47 @@ import { buildRef, createWithRetry } from "@/lib/refs";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
+
+/**
+ * Archive une demande administrative TERMINÉE dans le Drive du traitant
+ * (« Dossier traité / Bureau du secrétariat ») : récapitulatif + copie des pièces.
+ * Une seule fois par demande ; ne fait jamais échouer le traitement.
+ */
+async function archiveAdminRequestIfDone(id: string, actorId: string): Promise<void> {
+  const req = await prisma.administrativeRequest.findUnique({
+    where: { id },
+    include: { requester: { select: { name: true } }, assignedTo: { select: { name: true } } },
+  });
+  if (!req || req.archivedNodeId || req.status !== "DONE") return;
+
+  const docs = await prisma.document.findMany({
+    where: { entityType: "ADMIN_REQUEST", entityId: id },
+    select: { name: true, fileKey: true, mimeType: true },
+  });
+  const lines = [
+    `Demande administrative — ${req.reference}`,
+    `Titre : ${req.title}`,
+    `Type : ${ADMIN_REQUEST_TYPE[req.type] ?? req.type}${req.subtype ? ` (${req.subtype})` : ""}`,
+    req.requester?.name ? `Demandeur : ${req.requester.name}` : null,
+    req.assignedTo?.name ? `Traitée par : ${req.assignedTo.name}` : null,
+    req.description ? `Description : ${req.description}` : null,
+    `Créée le : ${formatAlgiers(req.createdAt, { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
+    `Terminée le : ${formatAlgiers(req.completedAt ?? new Date(), { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
+  ].filter(Boolean).join("\n");
+
+  const day = new Date().toISOString().slice(0, 10);
+  const nodeId = await archiveProcessedRequest({
+    bureau: "Bureau du secrétariat",
+    folderName: `${day} — ${req.reference} — ${req.title}`,
+    summary: lines,
+    attachments: docs.map((d) => ({ name: d.name, fileKey: d.fileKey, mimeType: d.mimeType })),
+    ownerId: actorId,
+  });
+  if (nodeId) {
+    await prisma.administrativeRequest.update({ where: { id }, data: { archivedNodeId: nodeId } });
+    revalidatePath("/drive");
+  }
+}
 
 /** Fenêtre pendant laquelle le demandeur peut encore modifier/supprimer sa demande. */
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
@@ -127,6 +170,7 @@ export async function updateRequestStatus(formData: FormData): Promise<ActionRes
     await notifyUser({ userId: req.requesterId, type: "GENERIC", title: "Demande mise à jour", body: `${req.reference} — ${status}`, link: `/demandes/${id}` });
   }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Demandes administratives", entityType: "ADMIN_REQUEST", entityId: id, field: "status", newValue: status, summary: `Statut → ${status}` });
+  if (status === "DONE") await archiveAdminRequestIfDone(id, user.id);
   revalidatePath(`/demandes/${id}`);
   revalidatePath("/demandes");
   revalidatePath("/demandes/assistant");

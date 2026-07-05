@@ -12,6 +12,8 @@ import { createExpenseOrder } from "@/lib/expense-orders";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { getDeclaration, canViewDeclaration } from "@/lib/queries/medical-info";
+import { archiveProcessedRequest } from "@/lib/archive";
+import { formatAlgiers } from "@/lib/calendar-tz";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/information-medicale";
@@ -166,6 +168,36 @@ export async function validateDeclaration(formData: FormData): Promise<ActionRes
     link: `${PATH}/${id}`,
   });
   await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: id, summary: `Validation pharmacien — transmise à la Direction (${decl.reference})` });
+
+  // Instruction du PRIM terminée → archive dans SON Drive (« Dossier traité / Information médicale »).
+  if (!decl.archivedNodeId) {
+    const docs = await prisma.document.findMany({
+      where: { entityType: "MEDICAL_INFO_DECLARATION", entityId: id },
+      select: { name: true, fileKey: true, mimeType: true },
+    });
+    const lines = [
+      `Déclaration d'information médicale — ${decl.reference}`,
+      `Libellé : ${decl.label}`,
+      decl.beneficiary ? `Bénéficiaire : ${decl.beneficiary}` : null,
+      decl.authorityRef ? `Référence autorités : ${decl.authorityRef}` : null,
+      decl.authorityNotes ? `Notes de déclaration : ${decl.authorityNotes}` : null,
+      `Créée le : ${formatAlgiers(decl.createdAt, { day: "2-digit", month: "long", year: "numeric" })}`,
+      `Validée par le pharmacien le : ${formatAlgiers(new Date(), { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
+      `Transmise à la Direction pour validation finale.`,
+    ].filter(Boolean).join("\n");
+    const day = new Date().toISOString().slice(0, 10);
+    const nodeId = await archiveProcessedRequest({
+      bureau: "Information médicale",
+      folderName: `${day} — ${decl.reference} — ${decl.label}`,
+      summary: lines,
+      attachments: docs.map((d) => ({ name: d.name, fileKey: d.fileKey, mimeType: d.mimeType })),
+      ownerId: user.id,
+    });
+    if (nodeId) {
+      await prisma.medicalInfoDeclaration.update({ where: { id }, data: { archivedNodeId: nodeId } });
+      revalidatePath("/drive");
+    }
+  }
   revalidate(id);
   return { ok: true };
 }

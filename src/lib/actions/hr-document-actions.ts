@@ -14,11 +14,70 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createEventForUser } from "@/lib/calendar";
 import { algiersInputToUtc, formatAlgiers } from "@/lib/calendar-tz";
 import { formatMonth, nextMonthYm } from "@/lib/utils";
+import { archiveProcessedRequest } from "@/lib/archive";
+import { getBlob } from "@/lib/drive-storage";
+import { HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
 const YM = /^\d{4}-\d{2}$/;
+/** Statuts « traités » : la demande part alors dans la boîte « Dossier traité » du Drive. */
+const DONE_STATUSES: HrRequestStatus[] = ["READY", "DELIVERED", "REJECTED"];
+
+/**
+ * Archive une demande RH TRAITÉE dans le Drive du traitant (« Dossier traité / RH ») :
+ * récapitulatif + copie des pièces jointes + document déposé en réponse. Une seule fois
+ * par demande ; ne fait jamais échouer le traitement.
+ */
+async function archiveHrRequestIfDone(id: string, actorId: string): Promise<void> {
+  const req = await prisma.hrDocumentRequest.findUnique({
+    where: { id },
+    include: { employee: { select: { fullName: true } }, fulfilment: { select: { name: true, mime: true, blobId: true } } },
+  });
+  if (!req || req.archivedNodeId || !DONE_STATUSES.includes(req.status)) return;
+
+  const docs = await prisma.document.findMany({
+    where: { entityType: "HR_REQUEST", entityId: id },
+    select: { name: true, fileKey: true, mimeType: true },
+  });
+  const lines = [
+    `Demande RH — ${HR_REQUEST_TYPE[req.type] ?? req.type}`,
+    `Employé : ${req.employee.fullName}`,
+    `Statut : ${HR_REQUEST_STATUS[req.status]?.label ?? req.status}`,
+    `Demandée le : ${formatAlgiers(req.createdAt, { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
+    req.details ? `Précisions : ${req.details}` : null,
+    req.hrNote ? `Note RH : ${req.hrNote}` : null,
+    req.expenseMonth ? `Mois concerné : ${formatMonth(req.expenseMonth)}` : null,
+    req.approvedMonth ? `Validée pour : ${formatMonth(req.approvedMonth)}` : null,
+    req.originalsAckAt ? `Originaux réceptionnés le : ${formatAlgiers(req.originalsAckAt, { day: "2-digit", month: "long", year: "numeric" })}` : null,
+    req.meetingAt ? `Entrevue : ${formatAlgiers(req.meetingAt, { weekday: "long", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}${req.meetingConfirmedAt ? " (confirmée)" : ""}` : null,
+    `Traitée le : ${formatAlgiers(new Date(), { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
+  ].filter(Boolean).join("\n");
+
+  // Document RH déposé en réponse (stockage chiffré du Drive RH).
+  const extraFiles: { name: string; content: Buffer; mimeType?: string | null }[] = [];
+  if (req.fulfilment) {
+    try {
+      const buf = await getBlob(req.fulfilment.blobId);
+      if (buf) extraFiles.push({ name: req.fulfilment.name, content: buf, mimeType: req.fulfilment.mime });
+    } catch { /* pièce illisible : le récapitulatif suffit */ }
+  }
+
+  const day = new Date().toISOString().slice(0, 10);
+  const nodeId = await archiveProcessedRequest({
+    bureau: "RH",
+    folderName: `${day} — ${HR_REQUEST_TYPE[req.type] ?? req.type} — ${req.employee.fullName}`,
+    summary: lines,
+    attachments: docs.map((d) => ({ name: d.name, fileKey: d.fileKey, mimeType: d.mimeType })),
+    extraFiles,
+    ownerId: actorId,
+  });
+  if (nodeId) {
+    await prisma.hrDocumentRequest.update({ where: { id }, data: { archivedNodeId: nodeId } });
+    revalidatePath("/drive");
+  }
+}
 
 /** Demande d'attestation par l'employé (acte côté « Mon dossier RH »). */
 export async function requestHrDocument(formData: FormData): Promise<ActionResult> {
@@ -123,6 +182,7 @@ export async function processHrRequest(formData: FormData): Promise<ActionResult
       link: "/mon-dossier",
     });
   }
+  await archiveHrRequestIfDone(id, user.id);
   revalidatePath("/mon-dossier");
   revalidatePath(`/rh/${req.employeeId}`);
   return { ok: true };
@@ -141,6 +201,11 @@ export async function decideExpenseReport(formData: FormData): Promise<ActionRes
   const req = await prisma.hrDocumentRequest.findUnique({ where: { id }, include: { employee: { select: { userId: true, fullName: true } } } });
   if (!req || req.type !== "EXPENSE_REPORT") return { ok: false, error: "Note de frais introuvable." };
   if (!req.expenseMonth || !YM.test(req.expenseMonth)) return { ok: false, error: "Cette note de frais n'a pas de mois renseigné." };
+  // Verrou : pas de traitement tant que le bureau du secrétariat n'a pas accusé
+  // réception des documents ORIGINAUX (l'accusé est visible dans la demande).
+  if (!req.originalsAckAt) {
+    return { ok: false, error: "Traitement impossible : le bureau du secrétariat n'a pas encore accusé réception des originaux." };
+  }
 
   const approvedMonth = decision === "APPROVE" ? req.expenseMonth : decision === "APPROVE_NEXT" ? nextMonthYm(req.expenseMonth) : null;
   const note = fdStr(formData, "hrNote");
@@ -164,6 +229,7 @@ export async function decideExpenseReport(formData: FormData): Promise<ActionRes
     actorId: user.id, action: decision === "REJECT" ? "REFUSE" : "VALIDATE", module: "RH",
     summary: `Note de frais ${req.employee.fullName} (${req.expenseMonth}) — ${decision === "REJECT" ? "refusée" : `validée pour ${approvedMonth}`}`,
   });
+  await archiveHrRequestIfDone(id, user.id);
   revalidatePath("/mon-dossier");
   revalidatePath(`/rh/${req.employeeId}`);
   revalidatePath("/rh");
@@ -282,6 +348,8 @@ export async function confirmHrMeeting(formData: FormData): Promise<ActionResult
     await notifyUser({ userId: employeeUserId, type: "GENERIC", title: "Entrevue RH confirmée", body: `Votre entrevue est confirmée : ${whenLabel}. Elle apparaît dans votre calendrier.`, link: "/mon-dossier" });
   }
   await recordAudit({ actorId: user.id, action: "VALIDATE", module: "RH", summary: `Entrevue RH confirmée — ${req.employee.fullName} (${whenLabel})` });
+  // Archive dans le Drive du côté RH (même si c'est l'employé qui a accepté).
+  await archiveHrRequestIfDone(id, rhUserId ?? user.id);
   revalidatePath("/mon-dossier");
   revalidatePath(`/rh/${req.employeeId}`);
   revalidatePath("/rh");

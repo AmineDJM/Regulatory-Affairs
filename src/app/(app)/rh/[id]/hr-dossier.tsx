@@ -2,13 +2,13 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Upload, Loader2, Trash2, FileText, Download, Paperclip } from "lucide-react";
+import { Upload, Loader2, Trash2, FileText, Download, Paperclip, FolderArchive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
 import { formatDate, formatMonth } from "@/lib/utils";
-import { processHrRequest, deleteEmployeeDocument, decideExpenseReport } from "@/lib/actions/hr-document-actions";
+import { processHrRequest, deleteEmployeeDocument, decideExpenseReport, deleteHrRequest } from "@/lib/actions/hr-document-actions";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
 import { MeetingControls } from "@/components/shared/hr-meeting-controls";
 import type { HrDocumentDTO, HrRequestDTO } from "@/lib/queries/hr-documents";
@@ -137,10 +137,26 @@ function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: H
 
   return (
     <li className="rounded-xl border border-border p-3">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">{HR_REQUEST_TYPE[req.type]}</span>
         <StatusBadge map={HR_REQUEST_STATUS} value={req.status} />
         {req.fulfilmentDocId && <a href={`/api/rh/document/${req.fulfilmentDocId}?dl=1`} className="text-xs text-primary hover:underline">Document joint</a>}
+        {req.archivedNodeId && (
+          <a href={`/drive/${req.archivedNodeId}`} className="inline-flex items-center gap-1 text-xs text-primary hover:underline" title="Ouvrir l'archive dans le Drive">
+            <FolderArchive className="h-3.5 w-3.5" /> Dossier traité
+          </a>
+        )}
+        <button
+          onClick={() => {
+            if (!window.confirm("Supprimer UNIQUEMENT cette demande RH ? (la fiche employé n'est pas touchée)")) return;
+            const fd = new FormData(); fd.set("id", req.id);
+            deleteHrRequest(fd).then(() => router.refresh());
+          }}
+          title="Supprimer cette demande (la demande seule, pas l'employé)"
+          className="ml-auto rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
       </div>
       {req.details && <p className="mb-2 text-xs text-muted-foreground">Demande : {req.details}</p>}
 
@@ -157,17 +173,24 @@ function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: H
               : "Originaux non réceptionnés par le bureau du secrétariat pour l'instant."}
           </p>
           {req.status !== "REJECTED" && !req.approvedMonth && (
-            <div className="flex flex-wrap gap-1.5">
-              <Button size="sm" disabled={deciding !== null} onClick={() => decide("APPROVE")}>
-                {deciding === "APPROVE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Valider ({formatMonth(req.expenseMonth)})
-              </Button>
-              <Button size="sm" variant="outline" disabled={deciding !== null} onClick={() => decide("APPROVE_NEXT")}>
-                {deciding === "APPROVE_NEXT" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Valider pour le mois suivant
-              </Button>
-              <Button size="sm" variant="outline" disabled={deciding !== null} onClick={() => { if (window.confirm("Refuser cette note de frais ?")) decide("REJECT"); }} className="text-destructive hover:bg-destructive/10">
-                {deciding === "REJECT" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Refuser
-              </Button>
-            </div>
+            <>
+              {!req.originalsAckAt && (
+                <p className="rounded-md bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
+                  Traitement verrouillé : en attente de l&apos;accusé de réception des originaux par le bureau du secrétariat.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                <Button size="sm" disabled={deciding !== null || !req.originalsAckAt} onClick={() => decide("APPROVE")}>
+                  {deciding === "APPROVE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Valider ({formatMonth(req.expenseMonth)})
+                </Button>
+                <Button size="sm" variant="outline" disabled={deciding !== null || !req.originalsAckAt} onClick={() => decide("APPROVE_NEXT")}>
+                  {deciding === "APPROVE_NEXT" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Valider pour le mois suivant
+                </Button>
+                <Button size="sm" variant="outline" disabled={deciding !== null || !req.originalsAckAt} onClick={() => { if (window.confirm("Refuser cette note de frais ?")) decide("REJECT"); }} className="text-destructive hover:bg-destructive/10">
+                  {deciding === "REJECT" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Refuser
+                </Button>
+              </div>
+            </>
           )}
           {decideErr && <p className="text-xs text-destructive">{decideErr}</p>}
         </div>

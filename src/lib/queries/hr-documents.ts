@@ -32,6 +32,8 @@ export interface HrRequestDTO {
   meetingAt: string | null;
   meetingProposedById: string | null;
   meetingConfirmedAt: string | null;
+  // Archive « Dossier traité » (Drive)
+  archivedNodeId: string | null;
   documents: DocItem[];
   comments: CommentItem[];
 }
@@ -59,6 +61,7 @@ type ReqRow = {
   createdAt: Date; fulfilment: { id: string } | null;
   expenseMonth: string | null; approvedMonth: string | null; originalsAckAt: Date | null; originalsAckById: string | null;
   meetingAt: Date | null; meetingProposedById: string | null; meetingConfirmedAt: Date | null;
+  archivedNodeId: string | null;
 };
 
 function mapReq(r: ReqRow): HrRequestDTO {
@@ -71,6 +74,7 @@ function mapReq(r: ReqRow): HrRequestDTO {
     meetingAt: r.meetingAt?.toISOString() ?? null,
     meetingProposedById: r.meetingProposedById,
     meetingConfirmedAt: r.meetingConfirmedAt?.toISOString() ?? null,
+    archivedNodeId: r.archivedNodeId,
     documents: [], comments: [],
   };
 }
