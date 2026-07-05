@@ -801,6 +801,34 @@ export const PROMO_MATERIAL_FLOW: string[] = [
   "VISA_OBTAINED", "BAT_PRINTING", "FINAL_MATERIAL", "INVOICED", "SETTLED",
 ];
 
+/** Nature du matériel promotionnel (enum MaterialType) — libellés + ordre du menu. */
+export const MATERIAL_TYPE: Record<string, string> = {
+  PRESENTOIRE: "Présentoir",
+  STAND_BOOTH: "Stand / Booth",
+  CARNET_BILAN: "Carnet bilan",
+  SOUS_MAINS: "Sous-mains",
+  BLOC_NOTE: "Bloc-notes",
+  SAC_A_DOS: "Sac à dos",
+  PORTE_CARTE_RDV: "Porte-carte RDV",
+  BANNER: "Banner",
+  FICHE_POSO: "Fiche POSO",
+  ADV: "ADV",
+  FICHE_CONSEILS: "Fiche conseils",
+  FICHE_GAMME: "Fiche Gamme",
+  POSTER: "Poster",
+  VIDEO: "Vidéo",
+  CADEAUX_FIN_ANNEE: "Cadeaux fin d'année",
+  CARTES_INVITATIONS: "Cartes d'invitations",
+  STYLOS: "Stylos",
+  CLE_USB: "Clé USB",
+  AUTRES: "Autres",
+};
+
+/** Options `{ value, label }` du menu « type de matériel » (dans l'ordre métier). */
+export const MATERIAL_TYPE_OPTIONS: { value: string; label: string }[] = Object.entries(MATERIAL_TYPE).map(
+  ([value, label]) => ({ value, label }),
+);
+
 export const MEDICAL_INFO_STATUS: Record<string, Display> = {
   AWAITING_REVIEW: { label: "À déclarer", tone: "warning" },
   DOCS_REQUESTED: { label: "Pièces demandées", tone: "info" },

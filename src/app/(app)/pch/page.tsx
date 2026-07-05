@@ -12,12 +12,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { PCH_TENDER_STATUS } from "@/lib/labels";
+import { getCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 
 export default async function PchPage() {
   const user = await requireModule("PCH");
   const canCreate = userCan(user, "PCH", "CREATE");
-  const tenders = await getPchTenders();
+  const [tenders, companies] = await Promise.all([getPchTenders(), getCompanies()]);
   const s = pchSummary(tenders);
 
   return (
@@ -32,6 +33,7 @@ export default async function PchPage() {
             action={createTender}
             fields={[
               { type: "text", name: "reference", label: "Référence (optionnel)" },
+              { type: "select", name: "companyId", label: "Entité", options: companyOptions(companies), placeholder: "— Entité —" },
               { type: "text", name: "title", label: "Intitulé", full: true },
               { type: "textarea", name: "products", label: "Produits concernés", full: true },
               { type: "text", name: "supplier", label: "Fournisseur" },

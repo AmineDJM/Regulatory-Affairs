@@ -452,6 +452,29 @@ réelle est Super Admin. Bandeau permanent + « Quitter », démarrage/arrêt jo
 > exactes telles que codées**, ses **gardes RBAC**, ses **modèles Prisma** et ses **fichiers sources**. À lire avec
 > `CLAUDE.md` (règles Graphify) : cette section évite de relire le code pour comprendre un flux.
 
+### Dimension multi-entités (sociétés du groupe)
+
+Le groupe compte **plusieurs sociétés** (par défaut **Adventum Pharma** et **Pharmagène**, plus toute entité créée
+ensuite). C'est une **dimension transverse** appliquée à tout le logiciel :
+
+- **Modèle** : `Company` (`name` unique, `shortName`, `color`, `isActive`, `sortOrder`) — entièrement **dynamique**
+  (création / renommage / couleur / désactivation dans **Administration → Entités**, `src/app/(app)/admin/entites/`).
+  Chaque enregistrement clé porte un `companyId?` **nullable** (non rattaché = visible en vue « Toutes »).
+- **Domaines rattachés** (`companyId` + relation `company`) : `RegulatoryProduct`, `PchTender` (appels d'offres),
+  `Employee`, `PromoMaterial` (Ad & Pro), `MedicalDoctor` (promotion médicale), `FinanceTransaction`,
+  `MedicalInfoDeclaration`, `StockSnapshot`, `LogisticsOrder`, `Sale`. Les **stocks héritent** de l'entité de leur
+  produit Regulatory (aucun champ à saisir).
+- **Sélecteur de portée** (barre supérieure, `CompanySwitcher`) : « Toutes les entités » (aucun filtre) ou une entité
+  précise. Mémorisé dans le cookie `amd-company` ; helper serveur `getCompanyScope()` + `currentCompanyWhere()`
+  (`src/lib/company.ts`, défensif hors requête → aucun filtre en test). Chaque **liste** de domaine applique
+  `...currentCompanyWhere()` sur son `where`; chaque **formulaire de création** propose un menu « Entité »
+  (`companyOptions(getCompanies())`). Pastille `CompanyBadge`.
+- **Actions** : `setCompanyScope`, `createCompany`, `updateCompany`, `toggleCompany` (`company-actions.ts`, réservées
+  à `ADMIN:CREATE`). **Fichiers clés** : `src/lib/company.ts`, `src/lib/actions/company-actions.ts`,
+  `src/components/layout/company-switcher.tsx`, `src/components/shared/company-badge.tsx`.
+- ⚠ **Ne pas confondre** avec l'enum polymorphe `EntityType` (type d'objet pour Documents/Commentaires/accès) : la
+  société est le modèle **`Company`** (libellé UI « Entité »).
+
 ### Moteur de workflow dynamique (Ad & Pro — 4 catégories)
 
 Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est piloté par un **moteur 100 % dynamique**
@@ -791,7 +814,7 @@ comme sur **toutes les pièces jointes des modules**.
 
 ## 🗃️ Modèle de données — entités clés
 
-**101 modèles** Prisma, **86 enums**. Quelques entités structurantes (référence `prisma/schema.prisma`) :
+**102 modèles** Prisma (dont `Company`), **87 enums** (dont `MaterialType`). Quelques entités structurantes (référence `prisma/schema.prisma`) :
 
 | Domaine | Modèles clés |
 |---|---|
@@ -995,6 +1018,11 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot L** — **Dimension multi-entités** (sociétés du groupe) : modèle `Company` dynamique (Adventum, Pharmagène +
+  Nᵉ entité), **sélecteur d'entité** dans la barre supérieure (Toutes / une entité), `companyId` sur 10 domaines
+  (Regulatory, appels d'offres PCH, RH, Ad & Pro, promotion médicale, Finances, Information médicale, Stocks,
+  Logistique, Ventes), filtre de liste + menu « Entité » sur les formulaires, **gestion en Administration → Entités**.
+  Ad & Pro : **type de matériel** (Présentoir, Stand/Booth, Poster, Vidéo, … ; enum `MaterialType`).
 - **Lot K** — Regulatory : **Détenteur de DE** + **variation d'enregistrement** (fabricant obligatoire en
   fabrication locale) · **Corbeille des suppressions définitives** (restaurable, Super Admin) + purge des
   **demandes de validation** · Administration : **Stockage Drive exact** (capacité/quota modifiables et appliqués)

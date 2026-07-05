@@ -33,6 +33,7 @@ export async function createSale(
       pharmaceuticalForm: fdStr(formData, "pharmaceuticalForm"),
       client,
       institution: fdStr(formData, "institution"),
+      companyId: fdStr(formData, "companyId") || null,
       isPch: fdBool(formData, "isPch"),
       quantity,
       unitPrice,

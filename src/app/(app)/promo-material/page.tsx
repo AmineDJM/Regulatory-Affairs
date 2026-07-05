@@ -11,7 +11,9 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PROMO_MATERIAL_STATUS, EVENTS_TABS } from "@/lib/labels";
+import { PROMO_MATERIAL_STATUS, EVENTS_TABS, MATERIAL_TYPE, MATERIAL_TYPE_OPTIONS } from "@/lib/labels";
+import { CompanyBadge } from "@/components/shared/company-badge";
+import { getCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +21,7 @@ export const dynamic = "force-dynamic";
 export default async function PromoMaterialPage() {
   const user = await requireModule("PROMO_MATERIAL");
   const canCreate = userCan(user, "PROMO_MATERIAL", "CREATE");
-  const items = await getPromoMaterials(user);
+  const [items, companies] = await Promise.all([getPromoMaterials(user), getCompanies()]);
 
   // Liste des assistantes possibles (pour assigner la demande) : réservée au créateur.
   const assistants = canCreate
@@ -27,6 +29,8 @@ export default async function PromoMaterialPage() {
     : [];
   const createFields: FieldDef[] = [
     { type: "text", name: "title", label: "Campagne / matériel", required: true, full: true, placeholder: "Ex. Brochure Cardiomax 2026" },
+    { type: "select", name: "materialType", label: "Type de matériel", options: MATERIAL_TYPE_OPTIONS, placeholder: "— Type de matériel —" },
+    { type: "select", name: "companyId", label: "Entité", options: companyOptions(companies), placeholder: "— Entité —" },
     { type: "textarea", name: "description", label: "Brief / description", full: true },
     { type: "number", name: "amount", label: "Budget estimé (DZD)" },
     { type: "select", name: "assistantId", label: "Assistante de direction", options: assistants.map((a) => ({ value: a.id, label: a.name })), placeholder: "— À notifier (Direction) —" },
@@ -58,7 +62,7 @@ export default async function PromoMaterialPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Référence</TableHead><TableHead>Campagne</TableHead><TableHead>Agence</TableHead>
+                <TableHead>Référence</TableHead><TableHead>Campagne</TableHead><TableHead>Type</TableHead><TableHead>Agence</TableHead>
                 <TableHead className="text-right">Montant</TableHead><TableHead>Statut</TableHead><TableHead>Créé le</TableHead>
               </TableRow>
             </TableHeader>
@@ -66,7 +70,11 @@ export default async function PromoMaterialPage() {
               {items.map((i) => (
                 <TableRow key={i.id} className="cursor-pointer">
                   <TableCell className="font-mono text-xs"><Link href={`/promo-material/${i.id}`} className="hover:underline">{i.reference}</Link></TableCell>
-                  <TableCell className="font-medium"><Link href={`/promo-material/${i.id}`} className="hover:underline">{i.title}</Link></TableCell>
+                  <TableCell className="font-medium">
+                    <Link href={`/promo-material/${i.id}`} className="hover:underline">{i.title}</Link>
+                    {i.company && <div className="mt-0.5"><CompanyBadge company={i.company} /></div>}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{i.materialType ? MATERIAL_TYPE[i.materialType] : "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{i.chosenAgency || "—"}</TableCell>
                   <TableCell className="text-right">{i.amount != null ? formatCurrency(i.amount) : "—"}</TableCell>
                   <TableCell><StatusBadge map={PROMO_MATERIAL_STATUS} value={i.status} dot={false} /></TableCell>

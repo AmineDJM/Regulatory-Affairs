@@ -15,6 +15,7 @@ import { optionsFromMap } from "@/components/shared/form-fields";
 import { TrendChart, DonutChart } from "@/components/dashboard/charts";
 import { createTransaction } from "@/lib/actions/finance-actions";
 import { FINANCE_CATEGORY, FINANCE_DIRECTION, FINANCE_METHOD, FINANCE_STATUS } from "@/lib/labels";
+import { getCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency } from "@/lib/utils";
 import { LedgerTable } from "./ledger-table";
 import { RecettesDepensesChart } from "./finance-charts";
@@ -29,6 +30,7 @@ export default async function FinancesPage() {
   const canUpdate = userCan(user, "FINANCES", "UPDATE");
   const [data, compta] = await Promise.all([getFinanceData(), getComptaData()]);
   const pendingOrders = await prisma.expenseOrder.count({ where: { status: "PENDING" } });
+  const companies = await getCompanies();
 
   return (
     <div className="space-y-6">
@@ -53,6 +55,7 @@ export default async function FinancesPage() {
                 { type: "date", name: "date", label: "Date", required: true },
                 { type: "select", name: "direction", label: "Sens", options: optionsFromMap(FINANCE_DIRECTION), defaultValue: "OUT" },
                 { type: "select", name: "category", label: "Catégorie", options: optionsFromMap(FINANCE_CATEGORY), defaultValue: "FOURNISSEUR" },
+                { type: "select", name: "companyId", label: "Entité", options: companyOptions(companies), placeholder: "— Entité —" },
                 { type: "text", name: "label", label: "Libellé", required: true, full: true },
                 { type: "number", name: "amount", label: "Montant (DZD)", required: true },
                 { type: "select", name: "method", label: "Moyen de paiement", options: optionsFromMap(FINANCE_METHOD), defaultValue: "BANK_TRANSFER" },

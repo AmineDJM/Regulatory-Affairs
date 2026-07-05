@@ -1,6 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { getMedicalData, getDelegatePlans } from "@/lib/queries/medical";
+import { getCompanies } from "@/lib/company";
 import { createVisit } from "@/lib/actions/medical-actions";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -19,7 +20,7 @@ export default async function MedicalPage() {
   const canDelete = userCan(user, "MEDICAL", "DELETE");
   const isManager = hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER";
 
-  const [data, plans] = await Promise.all([getMedicalData(user), getDelegatePlans(user)]);
+  const [data, plans, companies] = await Promise.all([getMedicalData(user), getDelegatePlans(user), getCompanies()]);
   const allDoctors = data.groups.flatMap((g) => g.doctors).sort((a, b) => a.name.localeCompare(b.name));
   const delegateOptions = data.delegates.map((d) => ({ value: d.id, label: d.name }));
 
@@ -51,6 +52,7 @@ export default async function MedicalPage() {
         groups={data.groups}
         specialties={data.specialties}
         delegates={data.delegates}
+        companies={companies}
         canCreate={canCreate}
         canEdit={canEdit}
         canManageSpecialties={canCreate || canEdit}

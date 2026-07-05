@@ -17,7 +17,7 @@ interface UserOption {
   role: string;
 }
 
-export function NewProductButton({ users, suppliers }: { users: UserOption[]; suppliers: { id: string; name: string }[] }) {
+export function NewProductButton({ users, suppliers, companies }: { users: UserOption[]; suppliers: { id: string; name: string }[]; companies: { id: string; name: string; shortName: string | null }[] }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [state, formAction] = useFormState<ActionResult | undefined, FormData>(
@@ -64,7 +64,8 @@ export function NewProductButton({ users, suppliers }: { users: UserOption[]; su
           className="space-y-4"
         >
           <div className="grid grid-cols-2 gap-3">
-            <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue="MEDICINE" className="col-span-2" />
+            <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue="MEDICINE" />
+            <SelectField label="Entité" name="companyId" options={companies.map((c) => ({ value: c.id, label: c.shortName || c.name }))} placeholder="— Entité —" />
             <DciAssociationField />
             <TextField label="Nom commercial envisagé" name="brandName" placeholder="Ex. Adventor" className="col-span-2" />
             <TextField label="Dosage" name="dosage" placeholder="20" />

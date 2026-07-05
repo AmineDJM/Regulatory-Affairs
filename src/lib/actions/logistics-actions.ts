@@ -39,6 +39,7 @@ export async function createLogistics(
       incoterm: fdStr(formData, "incoterm"),
       orderValue: fdNum(formData, "orderValue"),
       currency: fdStr(formData, "currency") ?? "EUR",
+      companyId: fdStr(formData, "companyId") || null,
       ownerId: user.id,
       createdById: user.id,
     },

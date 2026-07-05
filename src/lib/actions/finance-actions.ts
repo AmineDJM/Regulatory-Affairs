@@ -45,6 +45,7 @@ export async function createTransaction(
       invoiceRef: fdStr(formData, "invoiceRef"),
       status: (fdStr(formData, "status") as FinanceStatus) ?? "SETTLED",
       notes: fdStr(formData, "notes"),
+      companyId: fdStr(formData, "companyId") || null,
       createdById: user.id,
     },
   });

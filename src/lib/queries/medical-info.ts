@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { scopeMedicalInfo, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
+import { currentCompanyWhere } from "@/lib/company";
 
 export async function getDeclarations(user: SessionUser) {
   return prisma.medicalInfoDeclaration.findMany({
-    where: scopeMedicalInfo(user),
+    where: { ...scopeMedicalInfo(user), ...currentCompanyWhere() },
     include: {
       pharmacist: { select: { name: true } },
       requests: { select: { id: true, status: true } },
+      company: { select: { id: true, name: true, shortName: true, color: true } },
     },
     orderBy: [{ createdAt: "desc" }],
   });

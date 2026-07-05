@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { currentCompanyWhere } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 
 const MONTHS_FR = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Aoû", "Sep", "Oct", "Nov", "Déc"];
@@ -20,7 +21,7 @@ export interface LedgerRow {
 
 export async function getFinanceData() {
   const [txs, openingAccounts] = await Promise.all([
-    prisma.financeTransaction.findMany({ orderBy: { date: "desc" } }),
+    prisma.financeTransaction.findMany({ where: { ...currentCompanyWhere() }, orderBy: { date: "desc" } }),
     prisma.treasuryAccount.findMany({ orderBy: { name: "asc" } }),
   ]);
   const now = new Date();

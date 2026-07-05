@@ -23,6 +23,7 @@ interface Props {
   groups: SpecialtyGroupDTO[];
   specialties: SpecialtyDTO[];
   delegates: { id: string; name: string }[];
+  companies: { id: string; name: string; shortName: string | null }[];
   canCreate: boolean;
   canEdit: boolean;
   canManageSpecialties: boolean;
@@ -46,7 +47,7 @@ function useSubmit() {
   return { saving, err, setErr, submit };
 }
 
-export function MedicalDirectory({ groups, specialties, delegates, canCreate, canEdit, canManageSpecialties, canDelete, isManager }: Props) {
+export function MedicalDirectory({ groups, specialties, delegates, companies, canCreate, canEdit, canManageSpecialties, canDelete, isManager }: Props) {
   const router = useRouter();
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
   const [doctorSheet, setDoctorSheet] = React.useState<{ mode: "create" | "edit"; doctor?: DoctorDTO } | null>(null);
@@ -156,6 +157,7 @@ export function MedicalDirectory({ groups, specialties, delegates, canCreate, ca
           doctor={doctorSheet.doctor}
           specialties={specialties}
           delegates={delegates}
+          companies={companies}
           isManager={isManager}
           onClose={() => setDoctorSheet(null)}
         />
@@ -170,12 +172,13 @@ function W({ label, children, full }: { label: string; children: React.ReactNode
 }
 
 function DoctorSheet({
-  mode, doctor, specialties, delegates, isManager, onClose,
+  mode, doctor, specialties, delegates, companies, isManager, onClose,
 }: {
   mode: "create" | "edit";
   doctor?: DoctorDTO;
   specialties: SpecialtyDTO[];
   delegates: { id: string; name: string }[];
+  companies: { id: string; name: string; shortName: string | null }[];
   isManager: boolean;
   onClose: () => void;
 }) {
@@ -206,6 +209,12 @@ function DoctorSheet({
           <W label="Secteur">
             <Select name="sector" defaultValue={d?.sector ?? "LIBERAL"}>
               {Object.entries(MEDICAL_SECTOR).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}
+            </Select>
+          </W>
+          <W label="Entité">
+            <Select name="companyId" defaultValue={d?.companyId ?? ""}>
+              <option value="">— Entité —</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.shortName || c.name}</option>)}
             </Select>
           </W>
           <W label="Hôpital / Clinique"><Input name="institution" defaultValue={d?.institution} /></W>

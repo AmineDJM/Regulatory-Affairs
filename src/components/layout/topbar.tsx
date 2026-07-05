@@ -7,6 +7,7 @@ import { Bell, Menu, Search, X } from "lucide-react";
 import { Icon } from "@/components/ui/icon";
 import { UserMenu } from "@/components/layout/user-menu";
 import { MessagesIndicator } from "@/components/layout/messages-indicator";
+import { CompanySwitcher } from "@/components/layout/company-switcher";
 import { cn } from "@/lib/utils";
 import type { NavItem } from "@/lib/labels";
 
@@ -17,6 +18,8 @@ interface TopbarProps {
   canMessage: boolean;
   messagingUnread: number;
   adoption?: { score: number; tone: string; label: string } | null;
+  companies: { id: string; name: string; shortName: string | null; color: string | null }[];
+  companyScope: string | null;
 }
 
 // Couleur de la pastille du score d'adoption selon le palier atteint.
@@ -28,7 +31,7 @@ const ADOPTION_TONE: Record<string, string> = {
   neutral: "bg-muted text-muted-foreground",
 };
 
-export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnread, adoption }: TopbarProps) {
+export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnread, adoption, companies, companyScope }: TopbarProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = React.useState(false);
 
@@ -56,6 +59,7 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
         </button>
 
         <div className="ml-auto flex items-center gap-1.5">
+          <CompanySwitcher companies={companies} scope={companyScope} />
           {adoption && (
             <div
               title={`Mon score d'adoption : ${adoption.score}/100${adoption.label ? ` — ${adoption.label}` : ""}`}

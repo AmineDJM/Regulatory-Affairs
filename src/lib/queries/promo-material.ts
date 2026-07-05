@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { scopePromoMaterial, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
+import { currentCompanyWhere, type CompanyLite } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 
 export interface PromoListItem {
@@ -7,6 +8,8 @@ export interface PromoListItem {
   reference: string;
   title: string;
   status: string;
+  materialType: string | null;
+  company: CompanyLite | null;
   chosenAgency: string | null;
   amount: number | null;
   requester: string;
@@ -22,10 +25,17 @@ async function resolveNames(ids: (string | null)[]): Promise<Map<string, string>
 }
 
 export async function getPromoMaterials(user: SessionUser): Promise<PromoListItem[]> {
-  const rows = await prisma.promoMaterial.findMany({ where: scopePromoMaterial(user), orderBy: { createdAt: "desc" }, take: 500 });
+  const rows = await prisma.promoMaterial.findMany({
+    where: { ...scopePromoMaterial(user), ...currentCompanyWhere() },
+    include: { company: { select: { id: true, name: true, shortName: true, color: true } } },
+    orderBy: { createdAt: "desc" },
+    take: 500,
+  });
   const names = await resolveNames(rows.flatMap((r) => [r.requesterId, r.assistantId]));
   return rows.map((r) => ({
     id: r.id, reference: r.reference, title: r.title, status: r.status,
+    materialType: r.materialType,
+    company: r.company,
     chosenAgency: r.chosenAgency,
     amount: r.chosenAmount != null ? toNumber(r.chosenAmount) : r.amount != null ? toNumber(r.amount) : null,
     requester: r.requesterId ? names.get(r.requesterId) ?? "" : "",

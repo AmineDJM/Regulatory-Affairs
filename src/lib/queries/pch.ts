@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { currentCompanyWhere } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 
 const dec = (v: unknown): number | null => (v === null || v === undefined ? null : toNumber(v));
@@ -62,6 +63,7 @@ function toTenderDTO(t: Awaited<ReturnType<typeof fetchTenders>>[number]): PchTe
 
 function fetchTenders() {
   return prisma.pchTender.findMany({
+    where: { ...currentCompanyWhere() },
     include: { orders: { orderBy: { createdAt: "desc" } } },
     orderBy: [{ createdAt: "desc" }],
   });

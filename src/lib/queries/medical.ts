@@ -1,6 +1,7 @@
 import type { DoctorTitle, InfluenceLevel, MedicalSector, Priority, SegmentLevel } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { anyRoleFilter, scopeMedicalDoctors, scopeMedicalVisits, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { currentCompanyWhere } from "@/lib/company";
 
 /**
  * Lecture du module Promotion médicale, désormais structuré :
@@ -12,6 +13,7 @@ export interface DoctorDTO {
   id: string;
   name: string;
   title: DoctorTitle;
+  companyId: string | null;
   specialtyId: string | null;
   specialtyName: string | null;
   sector: MedicalSector;
@@ -77,6 +79,7 @@ function mapDoctor(d: {
   prescriptionPotential: Priority; influence: SegmentLevel; potential: SegmentLevel; affinity: SegmentLevel;
   targetProducts: string | null; comments: string | null;
   delegate: { name: string } | null; delegateId: string | null; lastVisit: Date | null; nextVisit: Date | null;
+  companyId: string | null;
 }): DoctorDTO {
   return {
     id: d.id,
@@ -99,6 +102,7 @@ function mapDoctor(d: {
     comments: d.comments ?? "",
     delegate: d.delegate?.name ?? "",
     delegateId: d.delegateId,
+    companyId: d.companyId,
     lastVisit: d.lastVisit?.toISOString() ?? null,
     nextVisit: d.nextVisit?.toISOString() ?? null,
   };
@@ -147,7 +151,7 @@ export async function getMedicalData(user: SessionUser): Promise<MedicalData> {
 
   const [doctors, specialties, visits, delegates] = await Promise.all([
     prisma.medicalDoctor.findMany({
-      where: scopeMedicalDoctors(user),
+      where: { ...scopeMedicalDoctors(user), ...currentCompanyWhere() },
       orderBy: [{ name: "asc" }],
       include: { delegate: { select: { name: true } }, specialtyRef: { select: { name: true } } },
     }),

@@ -151,6 +151,7 @@ export async function createDoctor(
       targetProducts: fdStr(formData, "targetProducts"),
       comments: fdStr(formData, "comments"),
       delegateId,
+      companyId: fdStr(formData, "companyId") || null,
       createdById: user.id,
     },
   });
@@ -196,6 +197,7 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
       prescriptionPotential: segToPriority[parseSegment(fdStr(formData, "potential") ?? before.potential)],
       targetProducts: fdStr(formData, "targetProducts"),
       comments: fdStr(formData, "comments"),
+      companyId: fdStr(formData, "companyId") || null,
       ...(isManager ? { delegateId: fdStr(formData, "delegateId") } : {}),
       updatedById: user.id,
     },

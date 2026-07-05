@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { currentCompanyWhere } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 
 /** Personalised workspace data for the signed-in user ("Mon espace"). */
@@ -66,8 +67,9 @@ export async function getRhData() {
 
   const [employees, pendingLeaves, recentLeaves, advances] = await Promise.all([
     prisma.employee.findMany({
+      where: { ...currentCompanyWhere() },
       orderBy: [{ isActive: "desc" }, { fullName: "asc" }],
-      include: { user: { select: { id: true, email: true } }, _count: { select: { leaveRequests: true } } },
+      include: { user: { select: { id: true, email: true } }, company: { select: { id: true, name: true, shortName: true, color: true } }, _count: { select: { leaveRequests: true } } },
     }),
     prisma.leaveRequest.findMany({
       where: { status: "PENDING" },

@@ -1,5 +1,6 @@
 "use server";
 
+import type { MaterialType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
@@ -88,6 +89,8 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
     const assistantId = fdStr(formData, "assistantId");
     const description = fdStr(formData, "description");
     const amount = fdNum(formData, "amount");
+    const materialType = fdStr(formData, "materialType");
+    const companyId = fdStr(formData, "companyId");
 
     // Demande administrative liée : l'assistante de direction pilote ses étapes
     // (devis, BC, transmission, facture) depuis « Demandes administratives ».
@@ -112,6 +115,8 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
             reference: await nextPromoRef(),
             title,
             description,
+            materialType: materialType ? (materialType as MaterialType) : null,
+            companyId: companyId || null,
             amount: amount ?? null,
             assistantId,
             status: "PROSPECTION_REQUESTED",

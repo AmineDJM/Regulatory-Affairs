@@ -57,20 +57,21 @@ export async function recordStockSnapshot(formData: FormData): Promise<ActionRes
   if (!date) return { ok: false, error: "Indiquez la date de l'état de stock." };
   if (quantity === null || quantity < 0) return { ok: false, error: "Indiquez la quantité restante (≥ 0)." };
 
-  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { dci: true, brandName: true } });
+  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { dci: true, brandName: true, companyId: true } });
   if (!product) return { ok: false, error: "Produit introuvable." };
 
   // Un seul état par jour et par (produit, lieu) : on remplace s'il existe.
+  // L'entité de l'état de stock suit celle du produit (référentiel Regulatory).
   const dayStart = new Date(date); dayStart.setUTCHours(0, 0, 0, 0);
   const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000);
   const existing = await prisma.stockSnapshot.findFirst({
     where: { scope, annexId: scope === "ANNEX" ? annexId : null, productId, date: { gte: dayStart, lt: dayEnd } },
   });
   if (existing) {
-    await prisma.stockSnapshot.update({ where: { id: existing.id }, data: { quantity: Math.round(quantity), date } });
+    await prisma.stockSnapshot.update({ where: { id: existing.id }, data: { quantity: Math.round(quantity), date, companyId: product.companyId } });
   } else {
     await prisma.stockSnapshot.create({
-      data: { scope, annexId: scope === "ANNEX" ? annexId : null, productId, date, quantity: Math.round(quantity), createdById: user.id },
+      data: { scope, annexId: scope === "ANNEX" ? annexId : null, productId, date, quantity: Math.round(quantity), companyId: product.companyId, createdById: user.id },
     });
   }
   await recordAudit({ actorId: user.id, action: existing ? "UPDATE" : "CREATE", module: "Stocks", summary: `État de stock ${scope} — ${product.brandName ?? product.dci} : ${Math.round(quantity)} u.` });

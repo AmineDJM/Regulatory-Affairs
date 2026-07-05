@@ -117,6 +117,7 @@ export async function createRegulatoryProduct(
       productType: (str(formData, "productType") as ProductType) ?? "IMPORTED",
       status: (str(formData, "status") as RegulatoryStatus) ?? "PRE_SUBMISSION",
       priority: (str(formData, "priority") as Priority) ?? "MEDIUM",
+      companyId: str(formData, "companyId") || null,
       targetDate: targetDateRaw ? new Date(targetDateRaw) : null,
       comments: str(formData, "comments"),
       deHolder: str(formData, "deHolder"),

@@ -2,6 +2,7 @@ import { requireModule } from "@/lib/session";
 import { userCan, scopeRegulatory } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
+import { currentCompanyWhere, getCompanies } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 import { RegulatoryTable, type RegulatoryRow } from "./regulatory-table";
@@ -12,14 +13,15 @@ export default async function RegulatoryPage() {
   const user = await requireModule("REGULATORY");
   const canCreate = userCan(user, "REGULATORY", "CREATE");
 
-  const [products, suppliers] = await Promise.all([
+  const [products, suppliers, companies] = await Promise.all([
     prisma.regulatoryProduct.findMany({
-      where: scopeRegulatory(user),
+      where: { ...scopeRegulatory(user), ...currentCompanyWhere() },
       orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
       include: {
         responsible: { select: { name: true } },
         assistant: { select: { name: true } },
         supplier: { select: { name: true } },
+        company: { select: { id: true, name: true, shortName: true, color: true } },
       },
     }),
     prisma.supplier.findMany({
@@ -27,6 +29,7 @@ export default async function RegulatoryPage() {
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    getCompanies(),
   ]);
 
   const rows: RegulatoryRow[] = products.map((p) => {
@@ -87,7 +90,7 @@ export default async function RegulatoryPage() {
         {canCreate && (
           <div className="flex items-center gap-2">
             <SuppliersManager suppliers={supplierList} />
-            <NewProductButton users={assignableUsers} suppliers={suppliers} />
+            <NewProductButton users={assignableUsers} suppliers={suppliers} companies={companies} />
           </div>
         )}
       </PageHeader>

@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { createEmployee } from "@/lib/actions/hr-actions";
+import { getCompanies, companyOptions } from "@/lib/company";
 import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, toNumber, daysUntil } from "@/lib/utils";
 import { LeaveApprovals, type PendingLeave } from "./leave-approvals";
@@ -25,6 +26,7 @@ export default async function RhPage() {
   const canCreate = userCan(user, "RH", "CREATE");
   const canValidate = userCan(user, "RH", "VALIDATE");
   const data = await getRhData();
+  const companies = await getCompanies();
 
   // Demandes « Mon Dossier RH » de TOUS les employés — traitées ICI, dans le module RH
   // (les statuts se règlent sur la fiche employé, section Dossier RH).
@@ -56,6 +58,7 @@ export default async function RhPage() {
     { type: "text", name: "fullName", label: "Nom complet", required: true, full: true },
     { type: "text", name: "position", label: "Poste" },
     { type: "text", name: "department", label: "Département" },
+    { type: "select", name: "companyId", label: "Entité", options: companyOptions(companies), placeholder: "— Entité —" },
     { type: "select", name: "contractType", label: "Type de contrat", options: optionsFromMap(CONTRACT_TYPE), placeholder: "—" },
     { type: "number", name: "baseSalary", label: "Salaire de base (DZD)" },
     { type: "number", name: "leaveBalanceDays", label: "Solde congés (jours)", defaultValue: 30 },

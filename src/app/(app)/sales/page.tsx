@@ -2,6 +2,7 @@ import { requireModule } from "@/lib/session";
 import { userCan, scopeSales } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency } from "@/lib/utils";
+import { currentCompanyWhere, getCompanies, companyOptions } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -14,7 +15,8 @@ import { ImportSalesButton } from "./import-sales";
 export default async function SalesPage() {
   const user = await requireModule("SALES");
   const canCreate = userCan(user, "SALES", "CREATE");
-  const where = scopeSales(user);
+  const where = { ...scopeSales(user), ...currentCompanyWhere() };
+  const companies = await getCompanies();
 
   const sales = await prisma.sale.findMany({
     where,
@@ -59,6 +61,7 @@ export default async function SalesPage() {
               fields={[
                 { type: "date", name: "date", label: "Date", required: true },
                 { type: "select", name: "saleType", label: "Nature", options: optionsFromMap(SALE_TYPE), defaultValue: "PRODUCT" },
+                { type: "select", name: "companyId", label: "Entité", options: companyOptions(companies), placeholder: "— Entité —" },
                 { type: "text", name: "product", label: "Désignation (produit / service)", required: true, full: true },
                 { type: "textarea", name: "serviceDescription", label: "Détail du service (si service)", full: true },
                 { type: "text", name: "dci", label: "DCI (si produit)" },

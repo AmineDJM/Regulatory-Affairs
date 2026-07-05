@@ -2,6 +2,7 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getProductOptions } from "@/lib/queries/stock";
+import { currentCompanyWhere } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { StocksView, type SnapshotDTO } from "./stocks-view";
 
@@ -14,7 +15,7 @@ export default async function StocksPage() {
   const [products, annexes, snapshots] = await Promise.all([
     getProductOptions(),
     prisma.stockAnnex.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.stockSnapshot.findMany({ orderBy: { date: "asc" }, take: 5000 }),
+    prisma.stockSnapshot.findMany({ where: { ...currentCompanyWhere() }, orderBy: { date: "asc" }, take: 5000 }),
   ]);
 
   const snaps: SnapshotDTO[] = snapshots.map((s) => ({

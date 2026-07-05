@@ -12,6 +12,7 @@ import { PushRegister } from "@/components/layout/push-register";
 import { getTotalUnread } from "@/lib/queries/messaging";
 import { getAdoptionBadge } from "@/lib/adoption";
 import { aiConfigured } from "@/lib/ai";
+import { getCompanies, getCompanyScope } from "@/lib/company";
 import { prisma } from "@/lib/prisma";
 
 export default async function AppLayout({
@@ -47,12 +48,15 @@ export default async function AppLayout({
     return acc;
   }, []);
   const canMessage = userCan(user, "MESSAGING", "VIEW");
-  const [unreadCount, messagingUnread, adoption] = await Promise.all([
+  const [unreadCount, messagingUnread, adoption, companies] = await Promise.all([
     prisma.notification.count({ where: { userId: user.id, isRead: false } }),
     canMessage ? getTotalUnread(user.id) : Promise.resolve(0),
     // Pastille « score d'adoption » de l'utilisateur courant (snapshot mis en cache).
     getAdoptionBadge(user.id, user.role).catch(() => null),
+    // Entités (sélecteur multi-sociétés de la barre supérieure).
+    getCompanies().catch(() => []),
   ]);
+  const companyScope = getCompanyScope();
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -61,7 +65,7 @@ export default async function AppLayout({
       <Sidebar items={navItems} messagingUnread={messagingUnread} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {user.impersonatedBy && <ImpersonationBanner adminName={user.impersonatedBy.name} viewedName={user.name} />}
-        <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} />
+        <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} companies={companies} companyScope={companyScope} />
         <main className="flex-1 overflow-y-auto px-4 pb-24 pt-6 lg:px-8 lg:pb-8">
           <div className="mx-auto max-w-[1400px] space-y-6">{children}</div>
         </main>

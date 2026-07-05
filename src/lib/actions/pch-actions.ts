@@ -47,6 +47,7 @@ export async function createTender(
       cautionStart: fdDate(formData, "cautionStart"),
       cautionEnd: fdDate(formData, "cautionEnd"),
       notes: fdStr(formData, "notes"),
+      companyId: fdStr(formData, "companyId") || null,
       createdById: user.id,
     },
   });

@@ -54,6 +54,7 @@ export async function createEmployee(
         address: fdStr(formData, "address"),
         userId: fdStr(formData, "userId"),
         managerId: fdStr(formData, "managerId"),
+        companyId: fdStr(formData, "companyId") || null,
       },
     });
   } catch {
