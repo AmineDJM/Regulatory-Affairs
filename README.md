@@ -1024,6 +1024,11 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot N** — **Compteur d'activité** : pause après **10 min** sans interaction (au lieu de 60 s), reprise au
+  mouvement (alimente le score d'adoption) · **Garde anti-capture** (`ScreenGuard`) : flou dissuasif à la détection
+  d'une capture (Impr.écran, raccourcis macOS/Windows) et à la perte de focus, **alerte Super Admin** (notification
+  + journal d'audit module « Sécurité » : qui, quoi, où). NB : un navigateur ne peut pas *empêcher* une capture —
+  couche dissuasive + traçable (blocage dur = app bureau native).
 - **Lot M** — **Courrier plus rapide & aux couleurs d'Infomaniak** : **pool de connexions IMAP** par compte (boîte
   gardée au chaud → chargement/lecture quasi instantanés, moins de « too many connections ») · **thème Infomaniak
   exact** (couleurs kMail : rose `#BC0055` / bleu `#0098FF` au choix) scopé au module · **grand écran immersif**

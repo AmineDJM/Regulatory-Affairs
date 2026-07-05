@@ -22,8 +22,10 @@ function send(path: string, durationMs: number, geo: Geo | null, dev: string | n
 
 type UAData = { getHighEntropyValues?: (h: string[]) => Promise<{ platform?: string; model?: string }> };
 
-// Inactivité après 60 s sans interaction → on ne compte plus le temps (présence passive).
-const IDLE_MS = 60_000;
+// Inactivité : le compteur tourne tant qu'il y a une interaction (souris, clavier,
+// défilement, tactile) ; il se met en pause après 10 min SANS le moindre mouvement,
+// et reprend dès que ça rebouge. (Le temps hors premier plan n'est jamais compté.)
+const IDLE_MS = 600_000;
 // Cadence de mesure (settle de l'accumulateur + détection d'inactivité) et de flush.
 const TICK_MS = 10_000;
 const FLUSH_MS = 120_000;

@@ -5,6 +5,7 @@ import { NAVIGATION, type NavItem } from "@/lib/labels";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { ActivityTracker } from "@/components/layout/activity-tracker";
+import { ScreenGuard } from "@/components/layout/screen-guard";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
 import { FloatingAssistant } from "@/components/layout/floating-assistant";
@@ -61,6 +62,7 @@ export default async function AppLayout({
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <ActivityTracker />
+      <ScreenGuard />
       <CommandPalette navItems={navItems} />
       <Sidebar items={navItems} messagingUnread={messagingUnread} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
