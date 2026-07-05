@@ -107,8 +107,11 @@ function updateEntity(entityType: EntityType, entityId: string, data: Record<str
       return prisma.congressInternational.update({ where: { id: entityId }, data: data as Prisma.CongressInternationalUpdateInput });
     case "CONGRESS_NATIONAL":
       return prisma.congressNational.update({ where: { id: entityId }, data: data as Prisma.CongressNationalUpdateInput });
-    case "EVENT":
-      return prisma.event.update({ where: { id: entityId }, data: data as Prisma.EventUpdateInput });
+    case "EVENT": {
+      // Le modèle Event n'a pas de champ updatedById (contrairement aux congrès).
+      const { updatedById: _omit, ...rest } = data;
+      return prisma.event.update({ where: { id: entityId }, data: rest as Prisma.EventUpdateInput });
+    }
     default:
       return Promise.resolve(null);
   }
@@ -250,13 +253,42 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   if (action === "REJECT") {
     if (!step.powers.includes("REJECT")) return { ok: false, error: "Le refus n'est pas autorisé à cette étape." };
     if (!note) return { ok: false, error: "Le motif du refus est obligatoire." };
+    const next = nextStepAfter(def, step);
+
+    if (next) {
+      // Étape INTERMÉDIAIRE (National Sales, chef de produit…) : le refus n'est PAS
+      // éliminatoire — c'est un AVIS DÉFAVORABLE. Il est consigné et le circuit
+      // continue vers l'étape suivante (la décision finale reste à la Direction).
+      const assigneeId = input.assigneeId?.trim() || null;
+      if (step.powers.includes("ASSIGN")) {
+        if (!assigneeId) return { ok: false, error: "Même en cas d'avis défavorable, désignez la personne en charge de l'étape suivante." };
+        const okUser = await prisma.user.count({ where: { id: assigneeId, isActive: true } });
+        if (okUser === 0) return { ok: false, error: "La personne désignée est introuvable ou inactive." };
+        await prisma.workflowInstance.update({ where: { id: instance.id }, data: { assigneeId } });
+      }
+      await projectApprove(entityType, entityId, step, next, {
+        viewer, note, amount: null, assigneeId, emitResult: null,
+        nextLegacyStatus: next.legacyStatus ?? null, emitStep: false,
+      });
+      await prisma.workflowInstance.update({ where: { id: instance.id }, data: { currentSlug: next.slug, status: "IN_PROGRESS" } });
+      await recordEvent(instance.id, step, "OPINION_AGAINST", viewer, note, null);
+      if (assigneeId && next.actorScope === "ASSIGNEE") {
+        await notifyUser({ userId: assigneeId, type: "ASSIGNMENT", title: `${CATEGORY_LABELS[category]} — ${next.title} (avis défavorable en amont)`, body: summary.name, link: entityPath(entityType, entityId) });
+      }
+      const roles = (next.notifyRoles as UserRole[]).filter(Boolean);
+      if (roles.length) await notifyRoles(roles, { type: "VALIDATION_REQUIRED", title: `${CATEGORY_LABELS[category]} — ${next.title}`, body: `${summary.name} — avis défavorable en amont`, link: entityPath(entityType, entityId) });
+      await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Avis défavorable (${step.title}) — ${summary.name}` });
+      return { ok: true, category };
+    }
+
+    // DERNIÈRE étape (décision de la Direction) : le refus est définitif.
     await prisma.workflowInstance.update({ where: { id: instance.id }, data: { status: "REJECTED", currentSlug: null } });
     await projectReject(entityType, entityId, viewer, note);
     await recordEvent(instance.id, step, "REJECT", viewer, note, null);
     if (summary.requesterId) {
       await notifyUser({ userId: summary.requesterId, type: "GENERIC", title: `${CATEGORY_LABELS[category]} — demande refusée`, body: summary.name, link: `${entityPath(entityType, entityId)}` });
     }
-    await recordAudit({ actorId: viewer.id, action: "REFUSE", module: auditModule(entityType), entityType, entityId, summary: `Refus (${step.title}) — ${summary.name}` });
+    await recordAudit({ actorId: viewer.id, action: "REFUSE", module: auditModule(entityType), entityType, entityId, summary: `Refus définitif (${step.title}) — ${summary.name}` });
     return { ok: true, category };
   }
 

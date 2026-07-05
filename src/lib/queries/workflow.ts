@@ -68,7 +68,14 @@ export interface WorkflowView {
   action: WorkflowActionView | null; // ce que le spectateur peut faire MAINTENANT
   budgetCategories: BudgetCategoryOption[];
   outcome: WorkflowOutcome | null;
+  /** Les détails techniques du circuit (rôles/portées/pouvoirs, historique) ne sont
+   *  montrés qu'au Super Admin. */
+  isSuperAdmin: boolean;
 }
+
+/** Une dépense Ad & Pro accordée peut être imputée à n'importe quelle enveloppe
+ *  couvrant la famille Ad & Pro — pas seulement le module exact de la demande. */
+const AD_PRO_BUDGET_MODULES = ["SPONSORING", "CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENTS", "PROMO_MATERIAL"];
 
 async function loadOutcome(entityType: EntityType, entityId: string): Promise<WorkflowOutcome> {
   let grantedAmount: number | null = null;
@@ -149,11 +156,12 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
   }
 
   const needsCategory = stepViews.some((s) => s.requireCategory || s.powers.includes("SET_CATEGORY"));
-  const budgetCategories = needsCategory && action ? await getBudgetCategoryOptions(category) : [];
+  const budgetCategories = needsCategory && action ? await getBudgetCategoryOptions(AD_PRO_BUDGET_MODULES) : [];
   const outcome = instance.status !== "IN_PROGRESS" || instance.assigneeId ? await loadOutcome(entityType, entityId) : null;
 
   return {
     category, definitionName: def.name, status: instance.status, currentSlug: instance.currentSlug,
+    isSuperAdmin: viewer.role === "SUPER_ADMIN",
     steps: stepViews, assigneeName: assignee?.name ?? null,
     events: events.map((e) => {
       const hide = !privileged && confidentialSlugs.has(e.stepSlug);

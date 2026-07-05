@@ -120,3 +120,53 @@ suite("Moteur de workflow — circuit Ad & Pro de bout en bout (congrès interna
     expect(r.ok).toBe(false);
   });
 });
+
+const TAG2 = "__wfevt__";
+
+suite("Moteur — avis défavorable non éliminatoire + refus final d'événement (sans crash)", () => {
+  let nsId = "", pmId = "", dirId = "", eventId = "";
+
+  beforeAll(async () => {
+    const mk = (s: string, role: UserRole) => prisma.user.create({ data: { name: `${TAG2}${s}`, email: `${TAG2}${s}@t.dz`, role, passwordHash: "x" } });
+    const [ns, pm, dir] = await Promise.all([mk("ns", "NATIONAL_SALES"), mk("pm", "PRODUCT_MANAGER"), mk("dir", "DIRECTION")]);
+    nsId = ns.id; pmId = pm.id; dirId = dir.id;
+    const e = await prisma.event.create({ data: { name: `${TAG2}Event`, type: "ROUND_TABLE", scope: "NATIONAL", format: "PRESENTIAL", status: "DRAFT", requestStatus: "AWAITING_PRELIMINARY" } });
+    eventId = e.id;
+  });
+
+  afterAll(async () => {
+    await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: eventId } } }).catch(() => {});
+    await prisma.workflowInstance.deleteMany({ where: { entityId: eventId } }).catch(() => {});
+    await prisma.event.deleteMany({ where: { name: { startsWith: TAG2 } } }).catch(() => {});
+    await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG2 } } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAG2 } } }).catch(() => {});
+  });
+
+  it("l'avis défavorable du National Sales n'est PAS éliminatoire : le circuit avance (désignation requise)", async () => {
+    const noAssign = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "EVENT", entityId: eventId, action: "REJECT", note: "avis défavorable" });
+    expect(noAssign.ok).toBe(false); // il doit quand même désigner le chef de produit
+    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "EVENT", entityId: eventId, action: "REJECT", note: "avis défavorable", assigneeId: pmId });
+    expect(r.ok).toBe(true);
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "EVENT", entityId: eventId } } });
+    expect(inst.status).toBe("IN_PROGRESS");
+    expect(inst.currentSlug).toBe("analysis");
+    const ev = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "OPINION_AGAINST" } });
+    expect(ev).not.toBeNull();
+  });
+
+  it("l'avis défavorable du chef de produit avance vers la Direction", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "EVENT", entityId: eventId, action: "REJECT", note: "avis défavorable chef" });
+    expect(r.ok).toBe(true);
+    const e = await prisma.event.findUniqueOrThrow({ where: { id: eventId } });
+    expect(e.requestStatus).toBe("AWAITING_FINAL");
+  });
+
+  it("le refus de la Direction (dernière étape) est définitif — sans exception serveur (Event sans updatedById)", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(dirId, "DIRECTION"), entityType: "EVENT", entityId: eventId, action: "REJECT", note: "refus définitif" });
+    expect(r.ok).toBe(true);
+    const e = await prisma.event.findUniqueOrThrow({ where: { id: eventId } });
+    expect(e.requestStatus).toBe("REJECTED");
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "EVENT", entityId: eventId } } });
+    expect(inst.status).toBe("REJECTED");
+  });
+});

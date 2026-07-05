@@ -55,6 +55,8 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
       if (amount) fd.set("amount", amount);
       if (category) fd.set("budgetCategoryId", category);
     }
+    // Avis défavorable sur une étape intermédiaire : la désignation reste requise.
+    if (action === "REJECT" && assignee) fd.set("assigneeId", assignee);
     start(async () => {
       setErr(null);
       const r = await advanceWorkflow(fd);
@@ -65,6 +67,9 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
   };
 
   const st = STATUS_TONE[view.status] ?? STATUS_TONE.IN_PROGRESS;
+  // Sur une étape intermédiaire, « Refuser » = AVIS DÉFAVORABLE : le circuit continue.
+  const lastSlug = view.steps[view.steps.length - 1]?.slug;
+  const actionIsLast = a?.slug === lastSlug;
   const needsAssign = !!a?.powers.includes("ASSIGN");
   const needsAmount = !!a && (a.requireAmount || a.powers.includes("SET_AMOUNT"));
   const needsCategory = !!a && (a.requireCategory || a.powers.includes("SET_CATEGORY"));
@@ -103,15 +108,22 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
               <div className="min-w-0 flex-1 border-b border-border pb-3 last:border-0">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <p className="font-medium">{s.title}</p>
-                  <span className="text-xs text-muted-foreground">· {actor}</span>
-                  {s.assignRole && <Badge tone="neutral" dot={false}>désigne : {ROLE_LABELS[s.assignRole] ?? s.assignRole}</Badge>}
-                  {s.confidential && <Badge tone="warning" dot={false}>confidentiel</Badge>}
+                  {/* Détails techniques du circuit (qui/pouvoirs/description) : Super Admin uniquement. */}
+                  {view.isSuperAdmin && (
+                    <>
+                      <span className="text-xs text-muted-foreground">· {actor}</span>
+                      {s.assignRole && <Badge tone="neutral" dot={false}>désigne : {ROLE_LABELS[s.assignRole] ?? s.assignRole}</Badge>}
+                      {s.confidential && <Badge tone="warning" dot={false}>confidentiel</Badge>}
+                    </>
+                  )}
                 </div>
-                {s.description && <p className="mt-0.5 text-xs text-muted-foreground">{s.description}</p>}
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {s.powers.map((p) => <span key={p} className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{POWER_LABELS[p]}</span>)}
-                  {s.emitExpenseOrder && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">→ dépense</span>}
-                </div>
+                {view.isSuperAdmin && s.description && <p className="mt-0.5 text-xs text-muted-foreground">{s.description}</p>}
+                {view.isSuperAdmin && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {s.powers.map((p) => <span key={p} className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{POWER_LABELS[p]}</span>)}
+                    {s.emitExpenseOrder && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">→ dépense</span>}
+                  </div>
+                )}
 
                 {/* Action disponible à l'étape courante */}
                 {a && a.slug === s.slug && (
@@ -119,23 +131,28 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                     {!mode ? (
                       <div className="flex flex-wrap gap-2">
                         {canApprove && <Button size="sm" variant="success" onClick={() => setMode("approve")}><Check className="h-4 w-4" /> Approuver</Button>}
-                        {canReject && <Button size="sm" variant="destructive" onClick={() => setMode("reject")}><X className="h-4 w-4" /> Refuser</Button>}
+                        {canReject && <Button size="sm" variant="destructive" onClick={() => setMode("reject")}><X className="h-4 w-4" /> {actionIsLast ? "Refuser" : "Avis défavorable"}</Button>}
                         {canComment && <Button size="sm" variant="ghost" onClick={() => setMode("comment")}><MessageSquare className="h-4 w-4" /> Commenter</Button>}
                       </div>
                     ) : (
                       <div className="space-y-2">
+                        {mode === "reject" && !actionIsLast && (
+                          <p className="rounded bg-warning/10 px-2 py-1.5 text-xs text-warning">
+                            Votre avis défavorable sera consigné mais n'est pas éliminatoire : le circuit continue vers l'étape suivante.
+                          </p>
+                        )}
+                        {needsAssign && (mode === "approve" || (mode === "reject" && !actionIsLast)) && (
+                          <div className="space-y-1">
+                            <Label>Personne désignée{a.assignRole ? ` (${ROLE_LABELS[a.assignRole] ?? a.assignRole})` : ""} <span className="text-destructive">*</span></Label>
+                            <Select value={assignee} onChange={(e) => setAssignee(e.target.value)}>
+                              <option value="">— Sélectionner —</option>
+                              {a.assigneeCandidates.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </Select>
+                            {a.assigneeCandidates.length === 0 && <p className="text-xs text-warning">Aucun compte disponible pour ce rôle.</p>}
+                          </div>
+                        )}
                         {mode === "approve" && (
                           <>
-                            {needsAssign && (
-                              <div className="space-y-1">
-                                <Label>Personne désignée{a.assignRole ? ` (${ROLE_LABELS[a.assignRole] ?? a.assignRole})` : ""} <span className="text-destructive">*</span></Label>
-                                <Select value={assignee} onChange={(e) => setAssignee(e.target.value)}>
-                                  <option value="">— Sélectionner —</option>
-                                  {a.assigneeCandidates.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                </Select>
-                                {a.assigneeCandidates.length === 0 && <p className="text-xs text-warning">Aucun compte disponible pour ce rôle.</p>}
-                              </div>
-                            )}
                             {needsAmount && (
                               <div className="space-y-1">
                                 <Label>Montant (DZD){a.requireAmount && <span className="text-destructive"> *</span>}</Label>
@@ -156,7 +173,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                         <Textarea
                           value={note}
                           onChange={(e) => setNote(e.target.value)}
-                          placeholder={mode === "reject" ? "Motif du refus (obligatoire)…" : mode === "comment" ? "Votre commentaire…" : a.requireNote ? "Commentaire (obligatoire)…" : "Note (optionnel)…"}
+                          placeholder={mode === "reject" ? (actionIsLast ? "Motif du refus (obligatoire)…" : "Motif de l'avis défavorable (obligatoire)…") : mode === "comment" ? "Votre commentaire…" : a.requireNote ? "Commentaire (obligatoire)…" : "Note (optionnel)…"}
                           className="min-h-[56px]"
                         />
                         {err && <p className="text-xs text-destructive">{err}</p>}
@@ -167,8 +184,8 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                             </Button>
                           )}
                           {mode === "reject" && (
-                            <Button size="sm" variant="destructive" disabled={pending || !note.trim()} onClick={() => submit("REJECT")}>
-                              {pending && <Loader2 className="h-4 w-4 animate-spin" />} Refuser
+                            <Button size="sm" variant="destructive" disabled={pending || !note.trim() || (!actionIsLast && needsAssign && !assignee)} onClick={() => submit("REJECT")}>
+                              {pending && <Loader2 className="h-4 w-4 animate-spin" />} {actionIsLast ? "Refuser" : "Émettre l'avis défavorable"}
                             </Button>
                           )}
                           {mode === "comment" && (
@@ -211,15 +228,15 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
         </div>
       )}
 
-      {/* Historique */}
-      {view.events.length > 0 && (
+      {/* Historique — réservé au Super Admin. */}
+      {view.isSuperAdmin && view.events.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Historique</p>
           <ul className="space-y-1.5">
             {view.events.map((e, i) => (
               <li key={i} className="text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">{e.actorName ?? "—"}</span> · {e.stepTitle} ·{" "}
-                {e.action === "APPROVE" ? "approuvé" : e.action === "REJECT" ? "refusé" : "commenté"}
+                {e.action === "APPROVE" ? "approuvé" : e.action === "REJECT" ? "refusé" : e.action === "OPINION_AGAINST" ? "avis défavorable" : "commenté"}
                 {e.amount != null ? ` · ${formatCurrency(e.amount)}` : ""}
                 {e.note ? ` — ${e.note}` : ""} <span className="opacity-70">({formatDateTime(e.createdAt)})</span>
               </li>

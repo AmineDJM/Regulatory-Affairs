@@ -36,7 +36,9 @@ function loadCongress(t: CongressType, id: string) {
 function updateCongress(t: CongressType, id: string, data: Record<string, unknown>) {
   if (t === "INTL") return prisma.congressInternational.update({ where: { id }, data: data as Prisma.CongressInternationalUpdateInput });
   if (t === "NATIONAL") return prisma.congressNational.update({ where: { id }, data: data as Prisma.CongressNationalUpdateInput });
-  return prisma.event.update({ where: { id }, data: data as Prisma.EventUpdateInput });
+  // Le modèle Event n'a pas de champ updatedById (contrairement aux congrès).
+  const { updatedById: _omit, ...rest } = data;
+  return prisma.event.update({ where: { id }, data: rest as Prisma.EventUpdateInput });
 }
 
 // ───────────────────────────── Création de la demande ─────────────────────────────

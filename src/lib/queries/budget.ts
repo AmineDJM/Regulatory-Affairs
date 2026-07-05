@@ -144,13 +144,17 @@ export interface BudgetCategoryOption { id: string; label: string; isSub: boolea
  * module ; sinon toutes les enveloppes actives. Le libellé montre le chemin complet
  * « Enveloppe › Catégorie › Sous-catégorie ».
  */
-export async function getBudgetCategoryOptions(module?: string): Promise<BudgetCategoryOption[]> {
+export async function getBudgetCategoryOptions(module?: string | string[]): Promise<BudgetCategoryOption[]> {
   const envelopes = await prisma.budgetEnvelope.findMany({
     where: { isActive: true },
     include: { categories: { orderBy: { name: "asc" } } },
     orderBy: [{ periodStart: "desc" }],
   });
-  const relevant = module ? envelopes.filter((e) => e.modules.includes(module) || e.module === module) : envelopes;
+  // Accepte un module OU une famille de modules (ex. tout Ad & Pro) : la dépense peut
+  // être imputée à n'importe quelle enveloppe couvrant la famille, pas seulement le
+  // module exact d'où vient la demande.
+  const wanted = module ? (Array.isArray(module) ? module : [module]) : null;
+  const relevant = wanted ? envelopes.filter((e) => wanted.some((m) => e.modules.includes(m) || e.module === m)) : envelopes;
   const list = relevant.length ? relevant : envelopes;
   const out: BudgetCategoryOption[] = [];
   for (const env of list) {
