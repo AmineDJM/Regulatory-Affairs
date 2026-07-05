@@ -941,10 +941,6 @@ export const CONGRESS_TABS: NavTab[] = [
   { module: "CONGRESS_INTERNATIONAL", label: "Internationaux", href: "/congress-international" },
   { module: "CONGRESS_NATIONAL", label: "Nationaux", href: "/congress-national" },
 ];
-export const PCH_OPS_TABS: NavTab[] = [
-  { module: "LOGISTICS", label: "Logistique", href: "/logistics" },
-  { module: "STOCKS", label: "Stocks", href: "/stocks" },
-];
 // Espace personnel fusionné : travail + tableau de bord perso + directives + dossiers.
 export const WORKSPACE_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail" },
@@ -1047,7 +1043,8 @@ export const NAVIGATION: NavItem[] = [
   { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles" },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
-  { module: "LOGISTICS", label: "Logistique & Stocks PCH", href: "/logistics", icon: "Truck", group: "Pôles", tabs: PCH_OPS_TABS },
+  { module: "LOGISTICS", label: "Logistique", href: "/logistics", icon: "Truck", group: "Pôles" },
+  { module: "STOCKS", label: "Stocks", href: "/stocks", icon: "Boxes", group: "Pôles" },
   { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", tabs: MEDICAL_TABS },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },

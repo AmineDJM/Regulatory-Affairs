@@ -756,6 +756,7 @@ model RegulatoryProduct {
 
   steps          RegulatoryStep[]
   stockMovements StockMovement[] // mouvements de stock PCH rattachés à ce produit
+  stockSnapshots StockSnapshot[] // états de stock datés (PCH / hôpital / annexes)
 
   // ─── Vue fournisseur (portail externe) — pilotée par l'équipe Regulatory ───
   // Le fournisseur ne voit QUE ces champs externes, jamais le statut/les notes
@@ -3470,4 +3471,31 @@ model WorkflowStepEvent {
   createdAt  DateTime         @default(now())
 
   @@index([instanceId])
+}
+
+// ───────────────────────── Suivi de stock par ÉTATS DATÉS ─────────────────────────
+// Saisie simple : « à telle date, il reste X unités » — sans entrées/sorties. La courbe
+// (date → quantité) se dessine au fil des saisies, par produit et par lieu.
+
+/// Annexe de la PCH (site de stockage secondaire) — liste créable dans le module Stocks.
+model StockAnnex {
+  id        String          @id @default(cuid())
+  name      String          @unique
+  createdAt DateTime        @default(now())
+  snapshots StockSnapshot[]
+}
+
+model StockSnapshot {
+  id          String             @id @default(cuid())
+  scope       String // PCH | HOSPITAL | ANNEX
+  annexId     String?
+  annex       StockAnnex?        @relation(fields: [annexId], references: [id], onDelete: Cascade)
+  productId   String
+  product     RegulatoryProduct  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  date        DateTime
+  quantity    Int
+  createdById String?
+  createdAt   DateTime           @default(now())
+
+  @@index([productId, scope, annexId, date])
 }

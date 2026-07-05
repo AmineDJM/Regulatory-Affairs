@@ -349,11 +349,13 @@ async function qualitySignalRisks(): Promise<Risk[]> {
   }));
 }
 
-// Stocks PCH bas / rupture : stock net par produit à la PCH = stock initial +
-// (entrées − sorties). Le stock initial sert de base de calcul (initialisation).
+// Stocks PCH bas / rupture. Source principale : les états de stock datés du module
+// Stocks (dernier état par produit à la PCH). Les anciens mouvements entrées/sorties
+// restent pris en compte pour les produits sans état enregistré (transition).
 type StockRow = { product: string; net: bigint | number | null; lastdate: Date | null };
 async function pchStockRisks(th: RiskThresholds): Promise<Risk[]> {
-  const rows = await prisma.$queryRaw<StockRow[]>`
+  const [rows, snaps] = await Promise.all([
+    prisma.$queryRaw<StockRow[]>`
     SELECT product, SUM(net) AS net, MAX(lastdate) AS lastdate
     FROM (
       SELECT product,
@@ -368,11 +370,30 @@ async function pchStockRisks(th: RiskThresholds): Promise<Risk[]> {
       WHERE location = 'PCH'
       GROUP BY product
     ) s
-    GROUP BY product`;
+    GROUP BY product`,
+    prisma.stockSnapshot.findMany({
+      where: { scope: "PCH" },
+      orderBy: { date: "desc" },
+      include: { product: { select: { brandName: true, dci: true } } },
+    }),
+  ]);
+  // Dernier état par produit (le plus récent d'abord) ; il prime sur l'estimation par mouvements.
+  const latest = new Map<string, { product: string; net: number; lastdate: Date }>();
+  for (const s of snaps) {
+    if (latest.has(s.productId)) continue;
+    latest.set(s.productId, { product: s.product.brandName?.trim() || s.product.dci, net: s.quantity, lastdate: s.date });
+  }
+  const snapNames = new Set([...latest.values()].map((v) => v.product.toLowerCase()));
+  const merged = [
+    ...latest.values(),
+    ...rows
+      .map((r) => ({ product: r.product, net: typeof r.net === "bigint" ? Number(r.net) : Number(r.net ?? 0), lastdate: r.lastdate }))
+      .filter((r) => !snapNames.has(r.product.toLowerCase())),
+  ];
   const logistics = await firstActive("LOGISTICS_MANAGER");
   const out: Risk[] = [];
-  for (const r of rows) {
-    const net = typeof r.net === "bigint" ? Number(r.net) : Number(r.net ?? 0);
+  for (const r of merged) {
+    const net = r.net;
     if (net > th.stockLowThreshold) continue;
     const rupture = net <= 0;
     out.push({
@@ -383,7 +404,7 @@ async function pchStockRisks(th: RiskThresholds): Promise<Risk[]> {
       owner: "Logistique", deadline: null, ageDays: null,
       probableCause: "Sorties supérieures aux réceptions ; réapprovisionnement non déclenché.",
       recommendation: rupture ? `Réapprovisionner ${r.product} en urgence.` : `Anticiper le réapprovisionnement de ${r.product}.`,
-      evidence: [`Stock net estimé : ${net} unité·s`, `Seuil bas : ${th.stockLowThreshold}`, r.lastdate ? `Dernier mouvement : ${new Date(r.lastdate).toLocaleDateString("fr-FR")}` : "Aucun mouvement récent"],
+      evidence: [`Stock net estimé : ${net} unité·s`, `Seuil bas : ${th.stockLowThreshold}`, r.lastdate ? `Dernier relevé : ${new Date(r.lastdate).toLocaleDateString("fr-FR")}` : "Aucun relevé récent"],
       href: `/stocks`, at: new Date().toISOString(),
       actions: [
         { label: "Créer tâche réappro", icon: "ListChecks", payload: { kind: "task", title: `${rupture ? "Réapprovisionner d'urgence" : "Anticiper le réappro"} : ${r.product} (stock net ${net})`, assigneeId: logistics?.id, priority: rupture ? "CRITICAL" : "HIGH", module: "Stocks" } },
