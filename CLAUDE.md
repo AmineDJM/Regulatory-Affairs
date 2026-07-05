@@ -2,6 +2,14 @@
 
 ERP interne Adventum Pharma. Next.js 14 (App Router) + Prisma + PostgreSQL, UI en français, devise DZD. Aucune donnée simulée. Vérification avant commit : `npm run typecheck && npm run build && npm test` (Postgres local : `pg_ctlcluster 16 main start` si down). Migrations : SQL manuel idempotent dans `prisma/migrations/` + `db:deploy`.
 
+## Ordre de consultation (économie de tokens)
+
+1. **`README.md`** = carte FONCTIONNELLE de référence : section « Référence détaillée des circuits & mécanismes transverses » (règles exactes de chaque flux + gardes RBAC + modèles + chemins de fichiers) et « Carte du code — fichiers clés par domaine ». La consulter AVANT toute exploration : la plupart des questions « comment marche X / où est codé X » y sont déjà répondues.
+2. **Graphify** (ci-dessous) = carte STRUCTURELLE (symboles, dépendances) pour localiser précisément avant de lire.
+3. **Lecture de code** ciblée en dernier.
+
+Après un gros lot fonctionnel : mettre à jour le README (panorama, circuits, journal) EN MÊME TEMPS que le refresh Graphify — les deux cartes doivent rester exactes.
+
 ## Graphify = couche de compréhension principale (OBLIGATOIRE)
 
 Le graphe de connaissance du code (`graphify-out/graph.json`, ~2 700 nœuds / 466 fichiers) est la **carte d'architecture** du projet. Objectif : réduire les tokens et garder la cohérence — on interroge la carte AVANT d'ouvrir le code.

@@ -31,6 +31,8 @@ RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Cale
 - [Sécurité & contrôle d'accès (RBAC)](#-sécurité--contrôle-daccès-rbac)
 - [Rôles](#-rôles)
 - [Workflows critiques](#-workflows-critiques)
+- [**Référence détaillée des circuits & mécanismes transverses**](#-référence-détaillée-des-circuits--mécanismes-transverses)
+- [Carte du code — fichiers clés par domaine](#-carte-du-code--fichiers-clés-par-domaine)
 - [Budgets, enveloppes & sous-catégories](#-budgets-enveloppes--sous-catégories)
 - [Intelligence artificielle](#-intelligence-artificielle-claude--whisper)
 - [Adventum Brain](#-adventum-brain-cockpit-super-admin)
@@ -149,8 +151,9 @@ Comprendre l'OS, c'est comprendre le métier qu'il digitalise. Termes récurrent
 
 La navigation est organisée en 4 groupes. Plusieurs modules sont **fusionnés** en un seul item de sidebar avec
 **onglets internes** (sans rien retirer) : **Ad & Pro** (Sponsoring · Congrès internationaux · Événements nationaux ·
-Events · Matériel promotionnel), **Finances** (Finances · Espace comptable), **Logistique & Stocks PCH**,
+Events · Matériel promotionnel), **Finances** (Finances · Espace comptable),
 **Mon dossier RH** (dossier RH · Mes ordres de mission), **Mon espace** (Mon travail · Mon espace · Directives).
+**Logistique** et **Stocks** sont deux modules distincts de la sidebar (séparés depuis la refonte Stocks).
 Un onglet **n'apparaît que si l'utilisateur y a accès** (RBAC asymétrique) : la sidebar de deux personnes n'est
 jamais identique.
 
@@ -164,7 +167,7 @@ jamais identique.
 | **Courrier** | `/courrier` | **Webmail Infomaniak** intégré par utilisateur (IMAP + SMTP) : dossiers (Réception · **Envoyés** · Corbeille…), **recherche** plein-texte, **filtres** (tous / non lus), **Répondre · Répondre à tous · Transférer**, **carnet de contacts externes**, **aperçu des pièces jointes**, **« Lier à un dossier »**. → [détails](#-courrier--webmail-infomaniak-intégré) |
 | **Directives** | `/directives` | **Instructions priorisées de la Direction** vers une personne ou un rôle entier, avec échéance, statut et **fil d'échange**. |
 | **Assistant IA** 💬 | **bulle flottante** (partout) | Chatbot interne (boucle agent Claude) **scopé par les droits**, présent sur **toutes les pages**. **Suggestions proactives** sur les messages non lus. → [détails](#-intelligence-artificielle-claude--whisper) |
-| **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation, CNAS, relevé d'émoluments, titre de congé, sortie exceptionnelle, arrêt maladie, note de frais…) + onglet **« Mes ordres de mission »** intégré. Accès **strict** à ses propres documents. |
+| **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation, CNAS, relevé d'émoluments, titre/demandes de congé — annuel, sans solde, exceptionnel, maternité —, sortie exceptionnelle, arrêt maladie, **note de frais avec mois obligatoire**, **entrevue avec les RH** à date négociée) avec **pièces jointes** et **fil d'échange** par demande + onglet **« Mes ordres de mission »**. Carte **« Ma rémunération »** (salaire de base, Ret SS 9 %, Ret IRG, Remb. frais, Net à payer — **jamais** le brut, la Ret SS 35 % ni la TFP). Notification **« salaire versé »** reçue **24 h après** le marquage par les RH. Accès **strict** à ses propres documents. |
 | **Calendrier** | `/calendar` | Agenda d'entreprise (fuseau **Alger**), création de rendez-vous + invitations, **accessible à l'Assistant IA** (créer/inviter par la conversation). |
 | **Réunions** | `/meetings` | Appels & réunions (lien Meet simple) + **enregistrement / transcription / compte-rendu IA** + **rappel 30 min avant** (notification planifiée). |
 | **Dashboard** | `/dashboard` | KPIs & graphiques adaptés au rôle. |
@@ -173,15 +176,15 @@ jamais identique.
 
 | Module | Route | Description |
 |---|---|---|
-| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique) et **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). Carte **« Vue fournisseur »** (pilote le portail externe). |
+| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique) et **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). |
 | **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le chef de produit**), **analyse confidentielle du chef de produit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. → [workflows](#-workflows-critiques) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). |
-| **RH** | `/rh` | Employés, contrats, congés, avances, dépôt de documents et **traitement des demandes RH** (dépôt de pièces + réponse dans la demande). |
+| **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
 | **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
-| **Logistique PCH** | `/logistics` | Import / expéditions fournisseurs, dates estimées vs réelles, dédouanement. |
+| **Logistique PCH** | `/logistics` | Module autonome : import / expéditions fournisseurs, dates estimées vs réelles, dédouanement. |
 | **PCH — Marchés** | `/pch` | **Marchés publics gagnés** : appels d'offres → **bons de commande** + **caution** (alertes d'expiration). → [détails](#pch--marchés-publics) |
-| **Stocks PCH** | `/stocks` | **Stock initial** + mouvements (entrée / sortie / ajustement) **liés aux produits Regulatory** + niveau courant par produit. |
+| **Stocks** | `/stocks` | Refonte en **états datés** (« à cette date, il reste X ») — **sans** entrées/sorties : 3 onglets **Stock PCH · Stock hospitalier · Annexes PCH** (annexes créables/supprimables), **vue par produit** (catalogue Regulatory) en **graphique** (courbe date → quantité) ou **tableau** (avec évolution entre relevés), un état par jour (ressaisie = correction). Le détecteur « Stock PCH bas » du Brain lit en priorité le dernier état. |
 | **Rapports terrain** | `/field-reports` | **Rapports vocaux IA** des délégués : parler → transcription → analyse → relecture → validation. Intégrés à **Promotion médicale**. → [détails](#-intelligence-artificielle-claude--whisper) |
 | **Promotion médicale** | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué**, plans de tournées **duplicables**. |
 | **Information médicale** | `/information-medicale` | Module du **pharmacien responsable de l'information médicale (PRIM)** : déclaration réglementaire **intercalée** entre la validation de la Direction et l'ordre de dépense ; **consultation des pièces de l'événement source**, upload de la déclaration, affichage du demandeur. → [workflow](#information-médicale--déclaration-réglementaire-prim) |
@@ -194,7 +197,7 @@ jamais identique.
 | **Demandes de validations** | `/validations` | **Bureau de validation central** : agrège **toutes les validations en attente** issues des autres modules (Bureau du secrétariat, Ad & Pro, **Finances**, information médicale…) — visible des **validateurs** (pas du demandeur). Le Super Admin définit des **règles configurables** (module, type d'objet, montant, département, rôle, priorité → 1 ou 2 validateurs, séquentiel/parallèle). → [détails](#centre-de-validation-agrégation--configurable) |
 | **Documents** (Drive + Documents) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob`), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), **impression**, versioning. **Imports larges**, **déplacer**, **corbeille en cascade**, **accès par personne** (voir / modifier) à l'import. |
 | **Dossiers** | `/dossiers` | **Dossier de suivi** d'un sujet ad hoc : description, **responsable + participants**, statut, **fichiers** et **fil de discussion**. Créable **manuellement**, **proposé par l'IA**, **alimenté en liant un e-mail** depuis le Courrier, ou **créé automatiquement** quand on implique une tierce personne sur un événement. |
-| **Bureau du secrétariat** | `/demandes` | « Bureau de l'assistante de direction » : **10 types** de demandes, **catalogue d'articles de fourniture**, **demandes multi-cellules**, **fenêtre de 15 min** pour que le demandeur **modifie TOUT ce qu'il a saisi** ou supprime sa demande, **suppression traçable** (corbeille + motif), **flux par demande** (achat → validation Finances → devis/facture → Fin de la demande), validations, ordres de dépense, **missions chauffeur**. → [workflow](#bureau-du-secrétariat--flux-par-demande) |
+| **Bureau du secrétariat** | `/demandes` | « Bureau de l'assistante de direction » : **10 types** de demandes, **catalogue d'articles de fourniture**, **demandes multi-cellules**, **fenêtre de 15 min** pour que le demandeur **modifie TOUT ce qu'il a saisi** ou supprime sa demande, **suppression traçable** (corbeille + motif), **flux par demande** (achat → validation Finances → devis/facture → Fin de la demande), validations, ordres de dépense, **espace Courses** (`/demandes/courses` : courses chauffeur **multi-points A/B/C** avec consigne par point, date **et heure max** — heure d'Alger —, pièces jointes, vue chauffeur en checklist), **accusé de réception des originaux de notes de frais** (section dédiée sur `/demandes`, verrouille/déverrouille le traitement RH), demandes terminées **archivées dans le Drive** (« Dossier traité »). → [workflow](#bureau-du-secrétariat--flux-par-demande) |
 | **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou au **chef de produit**, avec fil + pièces jointes. |
 | **Feedback** | `/feedback` | Retour libre utilisateur → admin, **+ boîte de réception** : les réponses de l'administration s'affichent à l'utilisateur (avec notification). |
 
@@ -208,7 +211,7 @@ jamais identique.
 | Module | Route | Description |
 |---|---|---|
 | **Adventum Brain** 🧠 | `/adventum-brain` | **Super Admin uniquement — le cockpit qui voit ce que les autres ne voient pas.** War Room, Risk Radar, Root Cause, Knowledge Graph, Autopilot, Intelligence Feed + **Process Intelligence** en onglet. → [détails](#-adventum-brain-cockpit-super-admin) |
-| **Administration** | `/admin` | Comptes (création, **modification e-mail/profil/rôle**), **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit** (paginé), **champs personnalisés**, règles de validation, feedback, comptes portail fournisseur, **Vue exacte** (impersonation), **Contrôle IA** + **Score d'adoption** en onglets, **limites d'upload** configurables. |
+| **Administration** | `/admin` | Comptes (création, **modification e-mail/profil/rôle**), **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit** (paginé), **champs personnalisés**, règles de validation, feedback, comptes portail fournisseur, **Vue exacte** (impersonation), **Contrôle IA** + **Score d'adoption** en onglets, **limites d'upload** configurables, **Corbeille des suppressions définitives** (`/admin/corbeille` — chaque suppression définitive est **restaurable** jusqu'à destruction réelle), carte **Stockage Drive** (consommation exacte globale dédupliquée + par utilisateur, **capacité et quota modifiables et appliqués à l'envoi**), colonne **« Dernière activité (dernier clic) »** précise à la minute. |
 | **Recherche globale** | `/search` | RBAC-aware + **palette ⌘K**. |
 
 ### Externe
@@ -248,6 +251,11 @@ Autres connexions notables :
 - **Tâches / Messages → Dossiers** : un message peut devenir une **tâche demandée** ; une tâche peut ouvrir un dossier.
 - **Tierce personne → Dossiers** : impliquer quelqu'un sur un événement **crée automatiquement un dossier** (sans budget).
 - **Tous les modules → Validations** : chaque circuit d'approbation remonte dans le **bureau de validation central**.
+- **RH (Paie) → Finances & Budgets** : « Transférer dans le budget » crée **une écriture Salaire (sortie) par employé** imputée à la (sous-)catégorie choisie ; la fiche de paie part dans le **dossier RH** de l'employé ; l'employé est notifié **24 h après** (tâches planifiées internes).
+- **Notes de frais : RH ⇄ Bureau du secrétariat** : le traitement RH est **verrouillé** tant que le secrétariat n'a pas **accusé réception des originaux** (accusé tracé, visible des deux côtés, notifié).
+- **Demandes traitées → Drive (« Dossier traité »)** : demandes RH, demandes administratives (Terminée) et déclarations PRIM sont **auto-archivées** (récapitulatif + copie des pièces) dans la boîte Drive du traitant, reclassable librement.
+- **Réunions planifiées → Calendrier** : les réunions apparaissent dans le calendrier (heure d'Alger) avec lien « Rejoindre ».
+- **Suppression définitive → Corbeille Super Admin** : instantané restaurable (ligne + pièces + commentaires) au lieu d'une destruction directe.
 - **Tous les modules → Adventum Brain** : signaux faibles agrégés en **Risk Cards** et **Knowledge Graph**.
 
 ---
@@ -336,6 +344,10 @@ libellés français viennent de `src/lib/labels.ts`.
 ---
 
 ## 🔄 Workflows critiques
+
+> Depuis le **moteur de workflow no-code**, le circuit Ad & Pro ci-dessous est la **configuration PAR DÉFAUT**
+> (seed automatique) : le Super Admin peut le remodeler étape par étape dans Administration → Circuits de
+> validation. Détails d'implémentation : [référence détaillée](#-référence-détaillée-des-circuits--mécanismes-transverses).
 
 ### Ad & Pro & Événements — circuit de prise en charge
 
@@ -431,6 +443,210 @@ Comptes externes **totalement séparés** (`Supplier` / `SupplierUser`, **auth d
 
 Le Super Admin visualise l'OS **exactement comme** un utilisateur. Cookie honoré **uniquement** si la session
 réelle est Super Admin. Bandeau permanent + « Quitter », démarrage/arrêt journalisés.
+
+---
+
+## 📖 Référence détaillée des circuits & mécanismes transverses
+
+> **Section de référence pour le développement** (humain ou IA) : chaque circuit est décrit avec ses **règles
+> exactes telles que codées**, ses **gardes RBAC**, ses **modèles Prisma** et ses **fichiers sources**. À lire avec
+> `CLAUDE.md` (règles Graphify) : cette section évite de relire le code pour comprendre un flux.
+
+### Moteur de workflow dynamique (Ad & Pro — 4 catégories)
+
+Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est piloté par un **moteur 100 % dynamique**
+éditable en no-code par le Super Admin (Administration → Circuits de validation) :
+
+- **Modèles** : `WorkflowDefinition` (1 par catégorie) → `WorkflowStep[]` (position, slug, titre, `actorRoles[]`,
+  `actorScope` ROLE|ASSIGNEE|GLOBAL_VIEW|REQUESTER, `powers[]` APPROVE|REJECT|ASSIGN|SET_AMOUNT|SET_CATEGORY|COMMENT,
+  `assignRole`, `requireAmount/Category/Note`, `emitDeclaration/ExpenseOrder`, `notifyRoles[]`, `optional`,
+  `confidential`, `legacyStatus`) → `WorkflowInstance` (unique par entityType+entityId, `currentSlug`, statut
+  IN_PROGRESS|APPROVED|REJECTED, `amount`, `budgetCategoryId`, `assigneeId`) → `WorkflowStepEvent`
+  (APPROVE|REJECT|OPINION_AGAINST|COMMENT).
+- **Règles clés** : un REJECT **non terminal** = `OPINION_AGAINST` (avis défavorable) et **le flux continue**
+  (l'assignation reste requise) ; seul le refus de la **dernière étape** (Direction) est éliminatoire. Le moteur
+  **projette les statuts legacy** sur les entités (les listes/badges existants continuent de fonctionner). Les
+  étapes `confidential` (analyse chef de produit) sont **caviardées** pour le demandeur. Méta du workflow +
+  **historique complet** visibles **uniquement du Super Admin**.
+- **Fichiers** : `src/lib/workflow/engine.ts` (avance/refus/projection ; ⚠ `Event` n'a pas `updatedById` — il est
+  retiré avant update), `defaults.ts` (seed paresseux reproduisant le circuit historique), `src/lib/queries/workflow.ts`
+  (vue caviardée), `src/components/workflow/workflow-panel.tsx` (panneau runtime), builder sous `/admin/workflows`.
+
+### Notes de frais (Mon dossier RH → RH, avec verrou secrétariat)
+
+1. **Employé** (`/mon-dossier`) : type « Note de frais » → **mois concerné obligatoire** (`expenseMonth` YYYY-MM),
+   scans en pièces jointes ; avertissement bloquant affiché : *les ORIGINAUX doivent être déposés au bureau du
+   secrétariat*.
+2. **Bureau du secrétariat** (`/demandes`, section « Notes de frais — originaux à réceptionner ») : bouton
+   **Accuser réception** (`ackExpenseOriginals`, gate `hasGlobalView || ADMIN_REQUESTS:UPDATE`) → `originalsAckAt/ById`
+   tracés, notification employé + RH.
+3. **RH** (`/rh/[employé]`) : traitement **verrouillé tant que `originalsAckAt` est nul** (refus serveur + boutons
+   désactivés avec bandeau). Trois décisions : **Valider (mois demandé)** / **Valider pour le mois suivant**
+   (`nextMonthYm`, passage d'année géré) / **Refuser** — `decideExpenseReport` fixe `approvedMonth` + statut
+   READY|REJECTED, notifie l'employé avec le mois d'imputation. Le commentaire libre passe par le fil de la demande.
+- **Fichiers** : `src/lib/actions/hr-document-actions.ts` (toutes les actions), `src/app/(app)/rh/[id]/hr-dossier.tsx`
+  (UI RH), `src/app/(app)/demandes/expense-ack.tsx` (accusé secrétariat), helpers mois `formatMonth`/`nextMonthYm`
+  dans `src/lib/utils.ts` (testés).
+
+### Entrevue avec les RH (type de demande négocié)
+
+- Type `HR_INTERVIEW` : l'employé décrit l'objet (obligatoire) ; **les RH proposent une date/heure (Alger)** ;
+  l'autre partie **accepte** ou **contre-propose** (chaque proposition remplace la précédente, dates passées
+  refusées). À l'acceptation (`confirmHrMeeting`) : statut READY + **rendez-vous créé au calendrier des deux**
+  (organisateur = côté RH, via `createEventForUser`). Champs `meetingAt`, `meetingProposedById`, `meetingConfirmedAt`.
+- **Fichiers** : actions dans `hr-document-actions.ts` (`proposeHrMeeting`/`confirmHrMeeting`), composant partagé
+  `src/components/shared/hr-meeting-controls.tsx` (utilisé côté employé ET côté RH).
+
+### Paie RH (matrice mensuelle → budget)
+
+- **Page** `/rh/paie` (gate `RH:UPDATE`) : **matrice employés × 12 mois**, navigation par année.
+- **Marquer payé** (`markSalaryPaid`) : montant total (pré-rempli avec le **Net à payer** de la fiche) + **fiche de
+  paie obligatoire** → `EmployeeDocument` (catégorie PAYSLIP, période YYYY-MM, visible du salarié) ; l'entrée
+  `PayrollEntry` passe PAID avec `employeeNotifyAt = now + 24 h`. **Annulable** (`unmarkSalaryPaid`, survol de la
+  cellule) tant que `budgetTransferredAt` est nul — supprime la fiche et la notification programmée.
+- **Notification différée** : `sendDuePayrollNotifications()` dans `src/lib/scheduled.ts` notifie l'employé
+  (« Votre salaire a été versé ») **24 h après**, une seule fois (verrou `updateMany`).
+- **Transférer dans le budget** (`transferPayrollToBudget`) : assistant en 2 étapes — (1) mois + (sous-)catégorie
+  budgétaire exacte, (2) **résumé complet** (liste, total) avec « Retour / modifier » — puis crée **une
+  `FinanceTransaction` Salaire (OUT, SETTLED, compte Banque) par employé**, imputée `budgetCategoryId`, et
+  **verrouille** les lignes (`budgetTransferredAt`).
+- **Éléments de salaire** sur `Employee` : `baseSalary`, `retSS9`, `retSS35`, `tfp`, `retIrg`, `expenseRefund`,
+  `netToPay`, `grossSalary`. **Confidentialité** : le salarié ne voit JAMAIS `grossSalary`, `retSS35`, `tfp`
+  (exclus de la requête `getMyHrDossier`, pas seulement masqués).
+- **Fichiers** : `src/lib/actions/payroll-hr-actions.ts`, `src/app/(app)/rh/paie/{page,payroll-matrix}.tsx`.
+  L'ancien flux comptable (`createPayroll`/`payPayroll` dans `finance-actions.ts`) reste disponible côté Finances.
+
+### Courses chauffeur (multi-points)
+
+- **Création** `/demandes/courses` (gate `hasGlobalView || ADMIN_REQUESTS:UPDATE` — secrétariat, super admin,
+  Direction ; extensible en accordant « Modifier » sur le module) : points de passage **ordonnés A/B/C…**
+  (`DriverMissionStop` : position, lieu, consigne, done/doneAt), **date ET heure max** (datetime-local interprété
+  **heure d'Alger** via `algiersInputToUtc`), contact sur place, instructions, **pièces jointes** (Documents
+  `DRIVER_MISSION`), assignation (coordinateurs proposés en premier, notification immédiate).
+- **Vue chauffeur** `/demandes/driver` : cartes lisibles — échéance en bandeau (rouge si dépassée), **checklist des
+  points à cocher** (`toggleMissionStop`, assigné ou gestionnaire), téléphone cliquable, pièces téléchargeables,
+  boutons Accepter / En route / Terminé / Problème. Suivi x/y points + annulation côté demandeur.
+- **Fichiers** : `src/lib/actions/admin-request-actions.ts` (`createMission` étendu — points + fichiers + échéance
+  datetime, rétro-compatible avec le mini-formulaire des demandes —, `toggleMissionStop`),
+  `src/app/(app)/demandes/courses/{page,courses-board}.tsx`, `driver/{page,mission-stops}.tsx`.
+
+### Stocks (états datés)
+
+- **Principe** : plus d'entrées/sorties — un **état daté** par (produit, lieu, jour) : « à cette date, il reste X ».
+  Ressaisir la même date **corrige** la valeur (remplacement jour). Lieux : `PCH` | `HOSPITAL` | `ANNEX`
+  (+ `StockAnnex` créables). Produits = catalogue **Regulatory** (`getProductOptions`).
+- **UI** `/stocks` : 3 onglets, sélecteur produit, **graphique** (recharts, courbe date → quantité) ou **tableau**
+  (delta entre relevés), formulaire inline date + quantité. Suppression d'un relevé : droit DELETE ou auteur.
+- **Brain** : `pchStockRisks` lit **en priorité le dernier état PCH par produit**, avec repli sur les anciens
+  mouvements pour les produits sans relevé (transition sans perte).
+- **Fichiers** : `src/lib/actions/stock-snapshot-actions.ts`, `src/app/(app)/stocks/{page,stocks-view}.tsx`,
+  `src/lib/adventum/risks.ts`. Modèles `StockAnnex`, `StockSnapshot` (index produit+scope+annexe+date).
+
+### Archives « Dossier traité » (Drive)
+
+- Toute demande **traitée** est archivée automatiquement dans le Drive **du traitant** : racine « **Dossier
+  traité** » → sous-dossier par bureau (**RH** / **Bureau du secrétariat** / **Information médicale**) → un dossier
+  par demande contenant `Demande.txt` (récapitulatif complet) + **copie des pièces jointes** (et du document RH
+  déposé en réponse). Dossiers réels du Drive → **reclassables/renommables** librement.
+- **Déclencheurs** : demandes RH aux statuts Prête/Remise/Refusée (décision note de frais, traitement générique,
+  entrevue confirmée — archive côté RH), demandes administratives au statut **Terminée**, déclarations info
+  médicale à la **validation du PRIM**. Une seule fois par demande (`archivedNodeId`), best-effort (n'échoue
+  jamais le traitement), lien « Dossier traité » affiché sur la demande RH archivée.
+- **Fichiers** : `src/lib/archive.ts` (`archiveProcessedRequest` — testé sur base réelle dans `archive.test.ts`),
+  appels dans `hr-document-actions.ts`, `admin-request-actions.ts`, `medical-info-actions.ts`.
+
+### Corbeille des suppressions définitives (réversible, Super Admin)
+
+- `superAdminDelete` (bouton « Supprimer définitivement », ~23 types d'objets) ne détruit plus : il dépose un
+  **instantané** dans `DeletedRecord` (ligne principale complète en JSON + pièces jointes + commentaires — les
+  **fichiers restent** dans le stockage) puis supprime. **Administration → Corbeille** (`/admin/corbeille`) :
+  **Restaurer** (recrée à l'identique — mêmes id/référence — + pièces + commentaires) ou **Détruire** (destruction
+  réelle : fichiers effacés, audio de rapport terrain libéré). ⚠ Les **enfants supprimés en cascade** (ex. congés
+  d'un employé) ne sont **pas** restaurés — indiqué dans l'UI.
+- **Registre** : `REGISTRY` dans `src/lib/actions/admin-delete-actions.ts` — chaque kind déclare `label`, `module`,
+  `redirect`, `entityType` (nettoyage Documents/Comments polymorphes), **`model`** (délégué Prisma pour
+  snapshot/restauration génériques), `describe`, `remove`. **Ajout d'un type supprimable = 1 entrée** dans ce
+  registre + un `SuperAdminDeleteButton` sur la page. Types notables : `HR_REQUEST` (la demande seule — jamais
+  l'employé, bug corrigé), `VALIDATION_REQUEST`, `EMPLOYEE` (libellé « Supprimer la fiche employé » + avertissement
+  rouge sur le périmètre).
+- **UI** : `src/app/(app)/admin/corbeille/{page,trash-list}.tsx`, composant bouton
+  `src/components/shared/super-admin-delete.tsx` (prop `warning`).
+
+### Stockage Drive : mesure exacte + quotas appliqués
+
+- **Mesure** : physique = `FileBlob` agrégé (chiffré AES-256-GCM, **dédupliqué** par SHA-256 du clair) ; logique =
+  `FileVersion` agrégé (toutes versions) ; par utilisateur = `DriveNode` FILE non corbeille groupé par `ownerId`.
+- **Réglages** (`AppSetting.driveCapacityGb` / `driveUserQuotaGb`, action `saveDriveStorageSettings`, Super Admin)
+  affichés dans la carte « Stockage Drive » de `/admin` (barres de progression, % par user).
+- **Application** : `POST /api/drive/upload` refuse si (usage utilisateur + fichier) > quota, ou si (physique
+  global + fichier) > capacité — messages explicites.
+
+### Fuseau horaire (Africa/Algiers, UTC+1 sans DST)
+
+- **Règle absolue** : tout instant est stocké **UTC** ; toute **saisie** `datetime-local` est interprétée à
+  l'heure d'Alger via `algiersInputToUtc` ; tout **affichage** horaire passe par `formatAlgiers` /
+  `algiersYmd` / `algiersTime` (`src/lib/calendar-tz.ts`, pur, client-safe). Appliqué au **calendrier**, aux
+  **réunions** (création + liste + détail — fix du bug « 10 h affiché 11 h »), aux **courses** (heure max), aux
+  **entrevues RH**. ⚠ `fdDate` (= `new Date(str)`) ne doit **jamais** parser un datetime-local directement :
+  toujours `algiersInputToUtc(raw) ?? fdDate(...)`.
+
+### Tâches planifiées sans cron (`src/lib/scheduled.ts`)
+
+- `runScheduledJobs()` est déclenché par le **polling messagerie** (`/api/messaging/sync`), débounce 1 min,
+  verrou process-wide, ne lève jamais. Jobs : **rappels de réunion** (30 min avant, `reminderSentAt`) et
+  **notifications de paie différées** (24 h, `employeeNotifyAt`/`employeeNotifiedAt`). Chaque envoi est protégé par
+  un **claim `updateMany`** anti-concurrence. Cloche + push (même téléphone hors ligne). Ajouter un job = une
+  fonction appelée dans `runScheduledJobs`.
+
+### Rôles secondaires & résolution d'accès
+
+- Chaque `User` a un `role` principal + `secondaryRole` optionnel (tableau éditable dans `/admin`). Le rôle
+  secondaire **cumule toujours** (union des actions, portée la plus large ALL > ASSIGNED), **y compris par-dessus
+  les overrides `UserAccess`** (l'override ne prime que sur les défauts du rôle principal).
+- **Toute sélection d'utilisateurs par rôle** (notifications, candidats, annuaires) DOIT passer par
+  `anyRoleFilter(roles)` (`{ OR: [{ role: { in } }, { secondaryRole: { in } }] }`) — jamais `role: { in }` seul.
+  `hasRole`/`hasGlobalView` acceptent les deux rôles. Fichier : `src/lib/rbac.ts` (testé `rbac-access.test.ts`).
+
+### Pièces jointes (pattern standard)
+
+```ts
+const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+// validateUpload(name, size, (await getAppSettings()).maxUploadMb) → erreur | null
+// clé : `${ENTITY}/${id}/${randomUUID()}__${name}` ; saveFile(key, buffer) en try/catch (métadonnées quand même)
+// prisma.document.create({ name, category: "OTHER", entityType, entityId, fileKey, mimeType, sizeBytes, confidentiality: "INTERNAL", uploadedById })
+```
+Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage distinct (`putBlob`/`getBlob`/`releaseBlob`
+— blobs chiffrés dédupliqués + `FileVersion`). La fiche de paie utilise `EmployeeDocument` (blob Drive + `period`).
+
+### Accusés, verrous & confidentialité — règles éparses à ne pas casser
+
+- Événements (`Event`) n'a **pas** de champ `updatedById` → le moteur de workflow le retire avant `update`.
+- `PERMISSIONS` (rbac.ts) est exhaustif par rôle — tout nouveau rôle casse le typecheck tant qu'il n'a pas son entrée.
+- Références séquentielles : `buildRef`/`createWithRetry` (`src/lib/refs.ts`) — jamais `count()+1`.
+- Suppression d'une demande RH par les RH : corbeille par demande (`deleteHrRequest`) — le bouton employé de la
+  fiche est réservé à la **fiche complète** et l'annonce clairement.
+- La **dernière activité** admin = max(`UserSession.lastSeenAt` groupé, `User.lastSeenAt` heartbeat, `lastLoginAt`).
+
+---
+
+## 🗂️ Carte du code — fichiers clés par domaine
+
+> Compléments de `graphify-out/` (la carte AST interrogeable — voir `CLAUDE.md`). Chemins relatifs à `src/`.
+
+| Domaine | Fichiers clés |
+|---|---|
+| **Sécurité / session** | `lib/rbac.ts` (PERMISSIONS, `userCan`, `anyRoleFilter`, `getAccess` cumul secondaire), `lib/session.ts` (`requireUser`/`requireModule`, maj `UserSession.lastSeenAt`), `lib/entity-access.ts` (accès par ligne + `ENTITY_MODULE`). |
+| **Workflow Ad & Pro** | `lib/workflow/engine.ts` · `defaults.ts` · `engine.test.ts`, `lib/queries/workflow.ts`, `components/workflow/workflow-panel.tsx`, `app/(app)/admin/workflows/`. |
+| **RH** | `lib/actions/hr-actions.ts` (fiche employé, salaires, essai), `hr-document-actions.ts` (demandes, notes de frais, entrevues, archives), `payroll-hr-actions.ts` (paie), `lib/queries/hr-documents.ts` (DTO + confidentialité salaires), pages `app/(app)/rh/` (+ `paie/`), `app/(app)/mon-dossier/`. |
+| **Secrétariat / courses** | `lib/actions/admin-request-actions.ts` (demandes, missions, courses, archive DONE), `lib/queries/admin-requests.ts`, pages `app/(app)/demandes/` (+ `courses/`, `driver/`, `expense-ack.tsx`). |
+| **Stocks** | `lib/actions/stock-snapshot-actions.ts`, `lib/queries/stock.ts`, `app/(app)/stocks/`. |
+| **Regulatory** | `lib/actions/regulatory-actions.ts` (validation fabricant/variation), `app/(app)/regulatory/` (`edit-product.tsx`, `new-product.tsx`, `[id]/page.tsx`). |
+| **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
+| **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
+| **Transverse** | `lib/archive.ts` (Dossier traité), `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
+| **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès), `lib/storage.ts` (Documents), `lib/actions/drive-actions.ts`, `app/api/drive/upload/route.ts` (quotas), `components/documents/`. |
+| **Admin** | `app/(app)/admin/` (`page.tsx` comptes + stockage + activité, `corbeille/`, `drive-storage-settings.tsx`, `access/`, `settings/`…), `lib/actions/admin-actions.ts`, `settings-actions.ts`. |
+| **IA / Brain** | `lib/ai.ts`, `lib/assistant.ts`, `lib/adventum/risks.ts` (+ `risk-detectors.test.ts`), `app/(app)/adventum-brain/`. |
 
 ---
 
@@ -575,19 +791,20 @@ comme sur **toutes les pièces jointes des modules**.
 
 ## 🗃️ Modèle de données — entités clés
 
-**93 modèles** Prisma, **86 enums**. Quelques entités structurantes (référence `prisma/schema.prisma`) :
+**101 modèles** Prisma, **86 enums**. Quelques entités structurantes (référence `prisma/schema.prisma`) :
 
 | Domaine | Modèles clés |
 |---|---|
-| **Identité & accès** | `User`, `UserAccess` (overrides), `RowGrant` (grants par ligne), `Session`, `LoginAttempt`, `AppSetting`. |
+| **Identité & accès** | `User` (`role` + `secondaryRole`, `lastSeenAt`), `UserAccess` (overrides), `RowGrant` (grants par ligne), `UserSession` (révocable, `lastSeenAt` = dernier clic), `LoginAttempt`, `AppSetting` (limites d'upload + `driveCapacityGb`/`driveUserQuotaGb` + mode budget total). |
 | **Ad & Pro** | `SponsoringRequest`, `CongressInternational`, `CongressNational`, `Event` (+ `EventRegistration`), `PromoMaterial`, `MissionAssignment`. |
-| **Budgets & Finances** | `BudgetEnvelope` (`accessRoles`, `accessUserIds`, `modules[]`), `BudgetCategoryLine` (auto-relation `parentId` = sous-catégories), `ExpenseOrder`, `FinanceTransaction`, `Payroll`, `SalaryAdvance`. |
-| **Regulatory & PCH** | `RegulatoryProduct` (+ étapes/documents), `Supplier`, `PchTender` + bons de commande + caution, `StockMovement`. |
+| **Budgets & Finances** | `BudgetEnvelope` (`accessRoles`, `accessUserIds`, `modules[]`), `BudgetCategoryLine` (auto-relation `parentId` = sous-catégories), `ExpenseOrder`, `FinanceTransaction` (`budgetCategoryId` = imputation), `PayrollEntry` (`payslipDocumentId`, `employeeNotifyAt/NotifiedAt`, `budgetTransferredAt`, `budgetCategoryId`), `SalaryAdvance`. |
+| **Regulatory & PCH** | `RegulatoryProduct` (+ étapes/documents, `deHolder`, `manufacturingVariation`, `manufacturer`, `variationDate`), `Supplier`, `PchTender` + bons de commande + caution, `StockAnnex` + `StockSnapshot` (états datés — le suivi actif), `StockMovement` (legacy, encore lu par le Brain en repli). |
 | **Information médicale** | `MedicalInfoDeclaration` (`sourceType`/`sourceId` polymorphe → événement source, clé unique). |
 | **Promotion médicale** | `MedicalDoctor`, `MedicalVisit`, `DelegatePlan`, segmentation par spécialité/produit. |
-| **Transverse** | `AdministrativeRequest` (+ cellules/approbations), `OfficeSupplyArticle`, `ValidationRequest` (+ steps + rules), `Dossier` (+ `DossierMessage`), `Directive`, `SupportRequest`, `Document` + `FileBlob` (chiffré), `Comment`, `AuditLog`, `Notification`. |
+| **Transverse** | `AdministrativeRequest` (+ cellules/approbations, `archivedNodeId`), `DriverMission` + `DriverMissionStop` (courses multi-points), `OfficeSupplyArticle`, `ValidationRequest` (+ steps + rules), `Dossier` (+ `DossierMessage`), `Directive`, `SupportRequest`, `Document` + `FileBlob` (chiffré), `Comment`, `AuditLog`, `Notification`, `DeletedRecord` (corbeille des suppressions définitives), `WorkflowDefinition/Step/Instance/StepEvent` (moteur Ad & Pro). |
 | **Messagerie & Courrier** | `Conversation`, `ConversationMember`, `Message` (+ réactions/attachments), `MailAccount` (chiffré). |
 | **IA & Brain** | `AiUsageLog`, `RiskSetting`, `AdoptionSetting`, `FieldReport`. |
+| **RH** | `Employee` (contrat, périodes d'essai `trial*`, salaires `baseSalary`/`retSS9`/`retSS35`/`tfp`/`retIrg`/`expenseRefund`/`netToPay`/`grossSalary`), `EmployeeDocument` (blob Drive + `period`), `HrDocumentRequest` (types + `expenseMonth`/`approvedMonth`/`originalsAck*`, `meeting*`, `archivedNodeId`), `LeaveRequest`, `PayrollEntry`. |
 | **Externe** | `Supplier`, `SupplierUser` (auth séparée). |
 
 > Les entités « source d'une dépense » sont **polymorphes** : `ENTITY_MODULE` (dans `entity-access.ts`) mappe chaque
@@ -778,6 +995,23 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot K** — Regulatory : **Détenteur de DE** + **variation d'enregistrement** (fabricant obligatoire en
+  fabrication locale) · **Corbeille des suppressions définitives** (restaurable, Super Admin) + purge des
+  **demandes de validation** · Administration : **Stockage Drive exact** (capacité/quota modifiables et appliqués)
+  + **dernière activité au clic près** · **Paie RH** (matrice × mois, fiche de paie, notification employé à +24 h,
+  transfert budget avec résumé) · **éléments de salaire** de l'employé (3 champs confidentiels) · FIX **fuseau des
+  réunions** (10 h ≠ 11 h).
+- **Lot J** — **Verrou notes de frais** (traitement RH bloqué avant l'accusé de réception des originaux par le
+  secrétariat) · archives **« Dossier traité »** dans le Drive (RH, secrétariat, PRIM) · FIX grave : supprimer des
+  demandes RH effaçait l'employé (corbeille par demande + type dédié + avertissement).
+- **Lot I** — **Notes de frais** (mois obligatoire, validation mois demandé/suivant, avertissement originaux) ·
+  **Entrevue avec les RH** (dates négociées → rendez-vous au calendrier).
+- **Lot H** — **Logistique / Stocks séparés** + refonte Stocks en **états datés** (3 onglets, graphique/tableau) ·
+  module **Courses** multi-points (secrétariat → chauffeur, checklist) · demandes de Mon dossier RH **traitées
+  dans RH** · suppression médecin/visite · méta documents sur une ligne · **périodes d'essai**.
+- **Moteur de workflow no-code** (4 catégories Ad & Pro) : étapes/pouvoirs/notifications éditables par le Super
+  Admin, avis défavorables non éliminatoires, méta + historique réservés au Super Admin, rôles secondaires
+  cumulés partout (`anyRoleFilter`).
 - **Rôle National Sales** — nouveau rôle (capacités du délégué médical + **approbation préliminaire** des demandes
   Ad & Pro / événements avec **choix du chef de produit**). Portée ALL pour voir toutes les demandes.
 - **Étape préliminaire réservée au National Sales** — le choix du chef de produit ne se fait plus via la Direction
