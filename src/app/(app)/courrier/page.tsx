@@ -12,7 +12,7 @@ export default async function CourrierPage() {
 
   if (!account) {
     return (
-      <div className="space-y-5">
+      <div className="ik-mail space-y-5">
         <PageHeader title="Courrier" description="Votre boîte mail Infomaniak, intégrée à la plateforme — tout au même endroit." />
         <ConnectMailbox defaultEmail={user.email} defaultName={user.name} />
       </div>

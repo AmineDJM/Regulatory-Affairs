@@ -49,6 +49,30 @@
   }
 }
 
+/* ───────── Thème Infomaniak — module Courrier UNIQUEMENT (scopé .ik-mail) ─────────
+   Couleurs EXACTES de kMail (open-source Infomaniak/android-kMail) : accent rose
+   #BC0055 (défaut) ou bleu #0098FF au choix — comme dans Infomaniak Mail. Les HSL
+   décimaux ci-dessous retombent EXACTEMENT sur les hex Infomaniak. Redéfinies sous
+   .ik-mail seulement : tout `bg-primary`/`text-primary`/`bg-accent`/`ring`/boutons du
+   Courrier adopte l'accent Infomaniak ; le reste de l'application garde son thème. */
+.ik-mail {
+  --primary: 332.87 100% 36.86%;            /* #BC0055 pinkMail */
+  --primary-foreground: 8.57 77.78% 98.24%; /* #FEF8F7 pinkMailOnPrimary */
+  --accent: 332 48.39% 93.92%;              /* #F7E8EF pinkMailContainer */
+  --accent-foreground: 332.87 100% 36.86%;  /* #BC0055 */
+  --ring: 332.87 100% 36.86%;               /* #BC0055 */
+  --success: 126.98 50.99% 49.61%;          /* #3EBF4D greenSuccess */
+  --warning: 31.29 100% 50%;                /* #FF8500 orangeWarning */
+  --destructive: 4.11 89.62% 58.43%;        /* #F44336 redDestructiveAction */
+}
+.ik-mail[data-accent="blue"] {
+  --primary: 204.24 100% 50%;               /* #0098FF blueMail */
+  --primary-foreground: 240 60% 99.02%;     /* #FBFBFE blueMailOnPrimary */
+  --accent: 226.66 69% 97.45%;              /* #F4F6FD blueMailContainer */
+  --accent-foreground: 204.24 100% 50%;     /* #0098FF */
+  --ring: 204.24 100% 50%;                  /* #0098FF */
+}
+
 @layer base {
   * {
     @apply border-border;

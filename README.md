@@ -777,7 +777,13 @@ Boîte mail **par utilisateur**, connectée à la plateforme (une seule entité)
 
 - **IMAP** (lecture) + **SMTP** (envoi) via `imapflow` / `nodemailer` / `mailparser`, mot de passe d'application
   **chiffré AES-256-GCM** au repos (`MailAccount`).
-- Webmail **3 volets** (dossiers · liste · lecture/composition), aperçu HTML en **iframe sandbox**, **plein écran**.
+- ⚡ **Connexion IMAP réutilisée (pool par compte, `withImap`)** : la boîte reste connectée entre deux actions
+  (TTL ~90 s) au lieu de se reconnecter (TLS + login) à **chaque** lecture / actualisation / ouverture — chargement
+  quasi instantané, et **moins** de « too many connections » (c'est l'ouvrir/fermer en rafale qui les provoque).
+- 🎨 **Thème Infomaniak exact** (scopé `.ik-mail` dans `globals.css`, couleurs kMail open-source : rose `#BC0055`
+  par défaut ou bleu `#0098FF` au choix, container/statuts exacts) — boutons et états de sélection façon Infomaniak Mail.
+- Webmail **3 volets** (dossiers · liste · lecture/composition), aperçu HTML en **iframe sandbox**, **grand écran
+  immersif** (superpose l'app **+** plein écran natif du navigateur : on ne voit que l'interface e-mail).
 - **Dossiers** commutables : **Réception · Envoyés · Corbeille · Brouillons · Indésirables · Archives**.
 - 🔎 **Recherche** plein-texte (IMAP SEARCH sur expéditeur / destinataire / Cc / objet / contenu) — retrouve aussi
   les **correspondants externes** à la société.
@@ -1018,6 +1024,10 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot M** — **Courrier plus rapide & aux couleurs d'Infomaniak** : **pool de connexions IMAP** par compte (boîte
+  gardée au chaud → chargement/lecture quasi instantanés, moins de « too many connections ») · **thème Infomaniak
+  exact** (couleurs kMail : rose `#BC0055` / bleu `#0098FF` au choix) scopé au module · **grand écran immersif**
+  (superposition app + plein écran natif du navigateur : on ne voit que l'e-mail).
 - **Lot L** — **Dimension multi-entités** (sociétés du groupe) : modèle `Company` dynamique (Adventum, Pharmagène +
   Nᵉ entité), **sélecteur d'entité** dans la barre supérieure (Toutes / une entité), `companyId` sur 10 domaines
   (Regulatory, appels d'offres PCH, RH, Ad & Pro, promotion médicale, Finances, Information médicale, Stocks,

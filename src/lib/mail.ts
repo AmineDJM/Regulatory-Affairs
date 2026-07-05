@@ -147,6 +147,7 @@ export async function mailDiagnostic(account: { email: string; passwordEnc: stri
   // connexion concurrente qui fausserait le diagnostic. Pas de réessai : on veut
   // l'erreur BRUTE telle quelle.
   return withAccountLock(account.email, async () => {
+    dropPooled(account.email); // pas de connexion chaude concurrente pendant le diagnostic
     const c = imapClient(account);
     try {
       await c.connect();
@@ -182,10 +183,74 @@ function withAccountLock<T>(email: string, fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Ouvre **une seule** connexion IMAP (sérialisée par compte), exécute `fn`, puis se
- * déconnecte — avec **réessai** en cas d'erreur transitoire (limite de connexions,
- * coupure). Toutes les opérations IMAP passent par ici pour ne jamais dépasser la
- * limite de connexions simultanées du fournisseur.
+ * **Pool de connexions IMAP par compte** : la boîte reste connectée entre deux actions
+ * (au lieu de se reconnecter — TLS + login ~1-2 s — à CHAQUE lecture / actualisation /
+ * ouverture de message). C'est ce qui rend le webmail quasi instantané. On garde **une
+ * seule** connexion authentifiée par compte, réutilisée tant qu'elle est saine, puis
+ * fermée après ~90 s d'inactivité. Réutiliser plutôt que rouvrir réduit AUSSI les
+ * « too many connections » d'Infomaniak (c'est l'ouverture/fermeture en rafale qui les
+ * déclenche). Sérialisé par compte : au plus une opération à la fois sur la connexion.
+ */
+interface PooledConn { client: ImapFlow; idleTimer: ReturnType<typeof setTimeout> | null }
+const imapPool = new Map<string, PooledConn>();
+const IMAP_IDLE_MS = 90_000;
+const poolKey = (email: string) => email.toLowerCase();
+
+/** Ferme et retire la connexion en pool d'un compte (connexion morte / avant diagnostic). */
+function dropPooled(email: string): void {
+  const key = poolKey(email);
+  const p = imapPool.get(key);
+  if (!p) return;
+  if (p.idleTimer) clearTimeout(p.idleTimer);
+  imapPool.delete(key);
+  try { p.client.close(); } catch { /* déjà fermée */ }
+}
+
+/** Ferme la connexion chaude d'un compte (déconnexion / changement de mot de passe). */
+export function closeMailConnection(email: string): void {
+  dropPooled(email);
+}
+
+/** Récupère une connexion chaude (réutilisée) ou en ouvre une neuve. */
+async function acquirePooled(account: { email: string; passwordEnc: string; imapHost: string; imapPort: number }): Promise<ImapFlow> {
+  const key = poolKey(account.email);
+  const existing = imapPool.get(key);
+  if (existing) {
+    if (existing.idleTimer) { clearTimeout(existing.idleTimer); existing.idleTimer = null; }
+    if (existing.client.usable) return existing.client; // réutilisation → pas de reconnexion
+    dropPooled(account.email); // connexion inutilisable : on repart de zéro
+  }
+  const c = imapClient(account);
+  // Un listener 'error' évite que l'événement 'error' d'ImapFlow ne fasse planter le process.
+  c.on("error", () => {});
+  c.on("close", () => { const p = imapPool.get(key); if (p && p.client === c) imapPool.delete(key); });
+  await c.connect();
+  imapPool.set(key, { client: c, idleTimer: null });
+  return c;
+}
+
+/** Laisse la connexion « au chaud » : programme sa fermeture après IMAP_IDLE_MS d'inactivité. */
+function keepWarm(email: string): void {
+  const key = poolKey(email);
+  const p = imapPool.get(key);
+  if (!p) return;
+  if (p.idleTimer) clearTimeout(p.idleTimer);
+  p.idleTimer = setTimeout(() => {
+    const cur = imapPool.get(key);
+    if (cur && cur.client === p.client) {
+      imapPool.delete(key);
+      cur.client.logout().catch(() => { try { cur.client.close(); } catch { /* ignore */ } });
+    }
+  }, IMAP_IDLE_MS);
+  // Ne pas empêcher le process de s'arrêter à cause du minuteur.
+  (p.idleTimer as unknown as { unref?: () => void }).unref?.();
+}
+
+/**
+ * Exécute `fn` sur la connexion IMAP du compte (réutilisée depuis le pool), avec
+ * **réessai** en cas d'erreur transitoire (connexion tombée, limite fournisseur). En
+ * cas de succès, la connexion reste chaude ; en cas d'erreur, elle est fermée (la
+ * prochaine opération en rouvrira une saine).
  */
 function withImap<T>(
   account: { email: string; passwordEnc: string; imapHost: string; imapPort: number },
@@ -195,19 +260,24 @@ function withImap<T>(
   return withAccountLock(account.email, async () => {
     let lastErr: unknown;
     for (let attempt = 0; attempt <= retries; attempt++) {
-      const c = imapClient(account);
+      let c: ImapFlow;
       try {
-        await c.connect();
-        return await fn(c);
+        c = await acquirePooled(account);
       } catch (e) {
         lastErr = e;
-        if (attempt < retries && isTransientMailError(e)) {
-          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
-          continue;
-        }
+        dropPooled(account.email);
+        if (attempt < retries && isTransientMailError(e)) { await new Promise((r) => setTimeout(r, 500 * (attempt + 1))); continue; }
         throw e;
-      } finally {
-        await c.logout().catch(() => {});
+      }
+      try {
+        const result = await fn(c);
+        keepWarm(account.email); // succès → on garde la connexion ouverte pour la prochaine action
+        return result;
+      } catch (e) {
+        lastErr = e;
+        dropPooled(account.email); // opération en échec : la connexion est douteuse, on la ferme
+        if (attempt < retries && isTransientMailError(e)) { await new Promise((r) => setTimeout(r, 500 * (attempt + 1))); continue; }
+        throw e;
       }
     }
     throw lastErr;

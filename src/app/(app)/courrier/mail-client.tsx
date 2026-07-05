@@ -43,14 +43,40 @@ export function MailClient({ email }: { email: string }) {
   const [query, setQuery] = React.useState("");
   const [activeSearch, setActiveSearch] = React.useState("");
   const [unreadOnly, setUnreadOnly] = React.useState(false);
+  const [accent, setAccent] = React.useState<"pink" | "blue">("pink");
 
   // Plein écran : verrouille le défilement de la page derrière + sortie au clavier (Échap).
   React.useEffect(() => {
     if (!fullscreen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !compose && !sel) setFullscreen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !compose && !sel) toggleFullscreen(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullscreen, compose, sel]);
+
+  // Accent Infomaniak (rose par défaut / bleu, comme dans Infomaniak Mail) mémorisé par navigateur.
+  React.useEffect(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("ik-mail-accent") : null;
+    if (saved === "blue" || saved === "pink") setAccent(saved);
+  }, []);
+  const chooseAccent = (a: "pink" | "blue") => { setAccent(a); try { localStorage.setItem("ik-mail-accent", a); } catch { /* ignore */ } };
+
+  // « Très grand écran » : superpose l'interface du Courrier (masque la barre + le menu
+  // de l'application) ET passe le navigateur en plein écran natif (masque onglets / URL)
+  // pour ne voir QUE l'e-mail. Échap ou sortie navigateur reviennent à la vue normale.
+  function toggleFullscreen() {
+    const next = !fullscreen;
+    setFullscreen(next);
+    try {
+      if (next) { const p = document.documentElement.requestFullscreen?.(); if (p) p.catch(() => {}); }
+      else if (document.fullscreenElement) { const p = document.exitFullscreen?.(); if (p) p.catch(() => {}); }
+    } catch { /* API plein écran indisponible : la superposition suffit */ }
+  }
+  React.useEffect(() => {
+    const onFs = () => { if (!document.fullscreenElement) setFullscreen(false); };
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
 
   const loadList = React.useCallback(async (mb: string, withFolders = false, search = "") => {
     setLoadingList(true); setErr(null); setSel(null);
@@ -94,12 +120,12 @@ export function MailClient({ email }: { email: string }) {
   const selectFolder = (mb: string) => { setMailbox(mb); setQuery(""); setActiveSearch(""); setUnreadOnly(false); loadList(mb); };
 
   return (
-    <div className={cn("flex overflow-hidden", fullscreen ? "fixed inset-0 z-[60] bg-background" : "surface min-h-0 flex-1")}>
+    <div data-accent={accent} className={cn("ik-mail flex overflow-hidden", fullscreen ? "fixed inset-0 z-[90] bg-background" : "surface min-h-0 flex-1")}>
       {/* Dossiers */}
       <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-gradient-to-b from-secondary/40 to-secondary/10 p-3 md:flex">
         <button
           onClick={() => setCompose({ to: "", cc: "", subject: "", body: "" })}
-          className="mb-3 flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-primary to-purple-600 px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:shadow-lg hover:brightness-105 active:scale-95"
+          className="mb-3 flex w-full items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/25 transition hover:bg-primary/90 hover:shadow-lg active:scale-[0.98]"
         >
           <PenSquare className="h-4 w-4" /> Nouveau message
         </button>
@@ -117,7 +143,12 @@ export function MailClient({ email }: { email: string }) {
             );
           })}
         </nav>
-        <button onClick={async () => { if (confirm("Déconnecter cette boîte mail ?")) { await disconnectMailbox(); router.refresh(); } }} className="mt-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-destructive">
+        <div className="mt-2 flex items-center gap-2 px-2.5 py-1.5">
+          <span className="text-[11px] text-muted-foreground">Couleur</span>
+          <button type="button" onClick={() => chooseAccent("pink")} aria-label="Accent rose Infomaniak" title="Rose Infomaniak" className={cn("h-5 w-5 rounded-full ring-offset-2 ring-offset-secondary transition", accent === "pink" && "ring-2 ring-foreground")} style={{ backgroundColor: "#BC0055" }} />
+          <button type="button" onClick={() => chooseAccent("blue")} aria-label="Accent bleu Infomaniak" title="Bleu Infomaniak" className={cn("h-5 w-5 rounded-full ring-offset-2 ring-offset-secondary transition", accent === "blue" && "ring-2 ring-foreground")} style={{ backgroundColor: "#0098FF" }} />
+        </div>
+        <button onClick={async () => { if (confirm("Déconnecter cette boîte mail ?")) { await disconnectMailbox(); router.refresh(); } }} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-destructive">
           <X className="h-3.5 w-3.5" /> Déconnecter la boîte
         </button>
       </aside>
@@ -128,7 +159,7 @@ export function MailClient({ email }: { email: string }) {
           <p className="text-sm font-semibold">{folders.find((f) => f.path === mailbox) ? folderLabel(folders.find((f) => f.path === mailbox)!) : mailbox}</p>
           <div className="flex items-center gap-0.5">
             <button onClick={() => loadList(mailbox, false, activeSearch)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary" title="Actualiser"><RefreshCw className={cn("h-4 w-4", loadingList && "animate-spin")} /></button>
-            <button onClick={() => setFullscreen((v) => !v)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary" title={fullscreen ? "Quitter le plein écran (Échap)" : "Plein écran"}>
+            <button onClick={toggleFullscreen} className={cn("rounded-lg p-1.5 hover:bg-secondary", fullscreen ? "text-primary" : "text-muted-foreground")} title={fullscreen ? "Quitter le grand écran (Échap)" : "Grand écran — n'afficher que l'e-mail"}>
               {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </button>
           </div>

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { encryptSecret, getMailAccount, testImap, sendMail } from "@/lib/mail";
+import { encryptSecret, getMailAccount, testImap, sendMail, closeMailConnection } from "@/lib/mail";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 /** Connecte (ou met à jour) la boîte mail Infomaniak de l'utilisateur. Teste IMAP avant d'enregistrer. */
@@ -29,6 +29,7 @@ export async function connectMailbox(formData: FormData): Promise<ActionResult> 
     update: { email, displayName: fdStr(formData, "displayName") ?? user.name, imapHost, imapPort, smtpHost, smtpPort, passwordEnc },
     create: { userId: user.id, email, displayName: fdStr(formData, "displayName") ?? user.name, imapHost, imapPort, smtpHost, smtpPort, passwordEnc },
   });
+  closeMailConnection(email); // au cas où une connexion chaude tournait avec l'ancien mot de passe
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Courrier", summary: `Boîte mail connectée (${email})` });
   revalidatePath("/courrier");
   return { ok: true };
@@ -36,6 +37,8 @@ export async function connectMailbox(formData: FormData): Promise<ActionResult> 
 
 export async function disconnectMailbox(): Promise<ActionResult> {
   const user = await requireUser();
+  const account = await getMailAccount(user.id);
+  if (account) closeMailConnection(account.email);
   await prisma.mailAccount.deleteMany({ where: { userId: user.id } });
   await recordAudit({ actorId: user.id, action: "DELETE", module: "Courrier", summary: "Boîte mail déconnectée" });
   revalidatePath("/courrier");
