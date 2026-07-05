@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { Banknote } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getRhData } from "@/lib/queries/hr";
 import { PageHeader } from "@/components/shared/page-header";
+import { Button } from "@/components/ui/button";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -74,6 +76,9 @@ export default async function RhPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Ressources humaines" description="Dossiers employés, contrats, congés et présence — toute l'équipe au même endroit.">
+        {canValidate && (
+          <Link href="/rh/paie"><Button variant="outline"><Banknote className="h-4 w-4" /> Paie</Button></Link>
+        )}
         {canCreate && (
           <CreateRecordButton label="Nouvel employé" title="Ajouter un employé" redirectBase="/rh"
             description="Dossier complet : contrat, état civil, solde de congés et compte applicatif." action={createEmployee} fields={employeeFields} />

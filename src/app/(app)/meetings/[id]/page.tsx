@@ -10,7 +10,9 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MeetJoin } from "./meet-join";
-import { formatDateTime } from "@/lib/utils";
+import { formatAlgiers } from "@/lib/calendar-tz";
+
+const formatDateTime = (d: Date) => formatAlgiers(d, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 import { MeetingRecorder } from "./meeting-recorder";
 import { TranscriptPanel, ProposalActions, ShareLink, ManageBar } from "./meeting-panels";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";

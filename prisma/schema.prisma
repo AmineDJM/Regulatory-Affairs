@@ -746,6 +746,13 @@ model RegulatoryProduct {
   priority           Priority           @default(MEDIUM)
   targetDate         DateTime? // date cible d'enregistrement
   comments           String?
+  // Décision d'enregistrement : détenteur de la DE, et variation d'enregistrement
+  // vers la fabrication locale (packaging secondaire / primaire / full process).
+  // Si une variation locale est déclarée, le fabricant est OBLIGATOIRE.
+  deHolder               String? // détenteur de la décision d'enregistrement
+  manufacturingVariation String? // NONE | SECONDARY_PACKAGING | PRIMARY_PACKAGING | FULL_PROCESS
+  manufacturer           String? // fabricant (obligatoire si variation locale)
+  variationDate          DateTime? // date d'effet de la variation
 
   responsibleId String?
   responsible   User?   @relation("RegulatoryResponsible", fields: [responsibleId], references: [id])
@@ -1940,6 +1947,15 @@ model Employee {
   phone      String?
   iban       String?
   baseSalary Decimal   @default(0) @db.Decimal(12, 2)
+  // Éléments de salaire (bulletin) — visibles par le salarié SAUF salaire brut,
+  // retenue SS 35 % et TFP (taxe sur la formation professionnelle).
+  retSS9        Decimal? @db.Decimal(12, 2) // retenue sécurité sociale 9 %
+  retSS35       Decimal? @db.Decimal(12, 2) // retenue SS 35 % (confidentiel)
+  tfp           Decimal? @db.Decimal(12, 2) // taxe formation professionnelle (confidentiel)
+  retIrg        Decimal? @db.Decimal(12, 2) // retenue IRG
+  expenseRefund Decimal? @db.Decimal(12, 2) // remboursement de frais
+  netToPay      Decimal? @db.Decimal(12, 2) // net à payer
+  grossSalary   Decimal? @db.Decimal(12, 2) // salaire brut (confidentiel)
   hireDate   DateTime?
   isActive   Boolean   @default(true)
   notes      String?
@@ -2393,6 +2409,13 @@ model PayrollEntry {
   paidDate      DateTime?
   transactionId String?
   notes         String?
+  // Paie RH : fiche de paie déposée, notification différée à l'employé (24 h de
+  // marge en cas d'erreur), et transfert vers une catégorie budgétaire.
+  payslipDocumentId   String? // EmployeeDocument (fiche de paie, période YYYY-MM)
+  employeeNotifyAt    DateTime? // instant à partir duquel notifier l'employé
+  employeeNotifiedAt  DateTime? // notification effectivement envoyée
+  budgetTransferredAt DateTime? // transféré dans le budget (verrouille la ligne)
+  budgetCategoryId    String? // (sous-)catégorie budgétaire choisie au transfert
   createdById   String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -2400,6 +2423,7 @@ model PayrollEntry {
   @@unique([employeeId, year, month])
   @@index([year, month])
   @@index([status])
+  @@index([employeeNotifyAt])
 }
 
 // ─────────────── Validation Center (règles configurables par le Super Admin) ───────────────
@@ -3227,10 +3251,33 @@ model StoredFile {
 
 /// Réglages d'instance modifiables par le Super Admin (limites de taille d'upload, etc.).
 /// Ligne unique « global » ; valeurs par défaut (en code) si absente.
+/// Corbeille des suppressions définitives (Super Admin) : chaque suppression
+/// « définitive » y dépose un instantané (ligne principale + pièces + commentaires)
+/// restaurable, jusqu'à destruction réelle. Visible du Super Admin uniquement.
+model DeletedRecord {
+  id          String    @id @default(cuid())
+  kind        String // type du registre (EMPLOYEE, SPONSORING, HR_REQUEST…)
+  label       String // libellé lisible du type (« demande RH »)
+  name        String // nom lisible de l'élément supprimé
+  sourceId    String // id d'origine de la ligne supprimée
+  payload     Json // ligne principale complète (scalaires)
+  documents   Json? // pièces jointes polymorphes (métadonnées, fichiers conservés)
+  comments    Json? // commentaires polymorphes
+  deletedById String?
+  deletedAt   DateTime  @default(now())
+  restoredAt  DateTime? // restauré (l'entrée reste pour l'historique)
+  purgedAt    DateTime? // détruit réellement (fichiers effacés)
+
+  @@index([kind])
+  @@index([deletedAt])
+}
+
 model AppSetting {
   id               String   @id @default("global")
   maxUploadMb      Int      @default(25) // pièces jointes des modules (Documents)
   maxDriveUploadMb Int      @default(100) // fichiers du Drive
+  driveCapacityGb  Int      @default(100) // capacité globale du Drive (modifiable Super Admin)
+  driveUserQuotaGb Int      @default(10) // quota par utilisateur (modifiable Super Admin)
   // Budget total au-dessus des enveloppes : FIXED (montant figé) ou FLEXIBLE
   // (= somme des enveloppes actives). Réglé par le Super Admin.
   budgetTotalMode  String   @default("FLEXIBLE")

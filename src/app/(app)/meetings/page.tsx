@@ -6,8 +6,10 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
-import { formatDateTime } from "@/lib/utils";
+import { formatAlgiers } from "@/lib/calendar-tz";
 import { NewMeetingButton } from "./new-meeting-button";
+
+const fmtMeeting = (d: Date) => formatAlgiers(d, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +86,7 @@ function Section({ title, items, empty, icon, muted }: { title: string; items: R
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {m._count.participants + 1}</span>
               <span>{m.organizer?.name ?? "—"}</span>
-              <span>{formatDateTime(m.scheduledAt ?? m.createdAt)}</span>
+              <span>{fmtMeeting(m.scheduledAt ?? m.createdAt)}</span>
               {m.kind === "CALL" && <span className="rounded-full bg-secondary px-2 py-0.5">Appel</span>}
             </div>
             <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition group-hover:opacity-100">

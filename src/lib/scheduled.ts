@@ -21,10 +21,38 @@ export async function runScheduledJobs(): Promise<void> {
   lastRun = now;
   try {
     await sendDueMeetingReminders();
+    await sendDuePayrollNotifications();
   } catch (err) {
     console.error("[scheduled] run failed", err);
   } finally {
     running = false;
+  }
+}
+
+/**
+ * Notifie chaque employé que sa paie a été versée — 24 h APRÈS le marquage « Payé »
+ * par les RH (marge d'annulation en cas d'erreur). Une seule fois par bulletin.
+ */
+async function sendDuePayrollNotifications(): Promise<void> {
+  const now = new Date();
+  const due = await prisma.payrollEntry.findMany({
+    where: { status: "PAID", employeeNotifiedAt: null, employeeNotifyAt: { not: null, lte: now } },
+    include: { employee: { select: { userId: true, fullName: true } } },
+    take: 100,
+  });
+  for (const e of due) {
+    const claim = await prisma.payrollEntry.updateMany({
+      where: { id: e.id, employeeNotifiedAt: null },
+      data: { employeeNotifiedAt: now },
+    });
+    if (claim.count === 0 || !e.employee.userId) continue;
+    await notifyUser({
+      userId: e.employee.userId,
+      type: "GENERIC",
+      title: "Votre salaire a été versé",
+      body: `Votre paie de ${String(e.month).padStart(2, "0")}/${e.year} a été versée. La fiche de paie est disponible dans Mon dossier RH.`,
+      link: "/mon-dossier",
+    }).catch(() => {});
   }
 }
 

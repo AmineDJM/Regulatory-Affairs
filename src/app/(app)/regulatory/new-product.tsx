@@ -80,6 +80,7 @@ export function NewProductButton({ users, suppliers }: { users: UserOption[]; su
             <SelectField label="Responsable" name="responsibleId" options={userOptions} placeholder="—" />
             <SelectField label="Assistante assignée" name="assistantId" options={userOptions} placeholder="—" />
             <TextField label="Date cible d'enregistrement" name="targetDate" type="date" className="col-span-2" />
+            <TextField label="Détenteur de DE" name="deHolder" placeholder="Titulaire de la décision d'enregistrement" className="col-span-2" />
           </div>
           <TextAreaField label="Commentaires" name="comments" placeholder="Notes internes…" />
 

@@ -29,3 +29,25 @@ export async function saveAppSettings(formData: FormData): Promise<ActionResult>
   revalidatePath("/admin");
   return { ok: true };
 }
+
+/** Capacité globale du Drive + quota par utilisateur (Go). **Super Admin uniquement.** */
+export async function saveDriveStorageSettings(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+
+  const clampGb = (v: number | null, def: number) => (v === null ? def : Math.max(1, Math.min(10000, Math.round(v))));
+  const driveCapacityGb = clampGb(fdNum(formData, "driveCapacityGb"), DEFAULT_APP_SETTINGS.driveCapacityGb);
+  const driveUserQuotaGb = clampGb(fdNum(formData, "driveUserQuotaGb"), DEFAULT_APP_SETTINGS.driveUserQuotaGb);
+
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", driveCapacityGb, driveUserQuotaGb, updatedById: admin.id },
+    update: { driveCapacityGb, driveUserQuotaGb, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Stockage Drive — capacité ${driveCapacityGb} Go, quota utilisateur ${driveUserQuotaGb} Go`,
+  });
+  revalidatePath("/admin");
+  return { ok: true };
+}

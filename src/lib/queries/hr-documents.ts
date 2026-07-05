@@ -47,6 +47,12 @@ export interface MyHrDossier {
     contractType: string | null;
     hireDate: string | null;
     cnasNumber: string | null;
+    // Rémunération visible par le salarié (brut, Ret SS 35 % et TFP exclus volontairement).
+    baseSalary: number | null;
+    retSS9: number | null;
+    retIrg: number | null;
+    expenseRefund: number | null;
+    netToPay: number | null;
   };
   documents: HrDocumentDTO[];
   requests: HrRequestDTO[];
@@ -114,6 +120,7 @@ export async function getMyHrDossier(userId: string): Promise<MyHrDossier | null
   if (!employee) return null;
   const requests = employee.hrRequests.map(mapReq);
   await attachThreads(requests);
+  const num = (v: unknown) => (v == null ? null : Number(v.toString()));
   return {
     employee: {
       id: employee.id,
@@ -123,6 +130,11 @@ export async function getMyHrDossier(userId: string): Promise<MyHrDossier | null
       contractType: employee.contractType,
       hireDate: employee.hireDate?.toISOString() ?? null,
       cnasNumber: employee.cnasNumber,
+      baseSalary: num(employee.baseSalary),
+      retSS9: num(employee.retSS9),
+      retIrg: num(employee.retIrg),
+      expenseRefund: num(employee.expenseRefund),
+      netToPay: num(employee.netToPay),
     },
     documents: employee.documents.map(mapDoc),
     requests,

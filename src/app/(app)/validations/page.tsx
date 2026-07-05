@@ -16,6 +16,7 @@ import { optionsFromMap } from "@/components/shared/form-fields";
 import { NAVIGATION, PRIORITY, VALIDATION_STATUS, VALIDATION_STEP_STATE, VALIDATION_MODE } from "@/lib/labels";
 import { formatCurrency, formatDate, formatDateTime, daysUntil } from "@/lib/utils";
 import { ValidationDecision } from "./validation-decision";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 
 export default async function ValidationsPage() {
   const user = await requireModule("VALIDATIONS");
@@ -159,6 +160,9 @@ export default async function ValidationsPage() {
                     <div className="flex items-center gap-2">
                       {r.amount !== null && <span className="text-sm font-semibold">{formatCurrency(r.amount)}</span>}
                       <StatusBadge map={VALIDATION_STATUS} value={r.status} />
+                      {user.role === "SUPER_ADMIN" && (
+                        <SuperAdminDeleteButton kind="VALIDATION_REQUEST" id={r.id} name={`${r.reference} — ${r.title}`} enabled />
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">

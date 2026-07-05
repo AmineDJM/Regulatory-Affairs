@@ -13,7 +13,7 @@ import { notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
-import { REGULATORY_STEP_ORDER } from "@/lib/labels";
+import { REGULATORY_STEP_ORDER, LOCAL_MANUFACTURING_VARIATIONS } from "@/lib/labels";
 import {
   isRegStepKey, isRegStepState, isRegChecklistKey,
   REG_STEPS, REG_CHECKLIST,
@@ -89,6 +89,14 @@ export async function createRegulatoryProduct(
   const assistantId = str(formData, "assistantId");
   const targetDateRaw = str(formData, "targetDate");
 
+  // Variation d'enregistrement : une fabrication locale exige le fabricant.
+  const manufacturingVariation = str(formData, "manufacturingVariation");
+  const manufacturer = str(formData, "manufacturer");
+  if (manufacturingVariation && LOCAL_MANUFACTURING_VARIATIONS.includes(manufacturingVariation) && !manufacturer) {
+    return { ok: false, error: "Le Fabricant est obligatoire pour une fabrication locale (packaging secondaire, primaire ou full process)." };
+  }
+  const variationDateRaw = str(formData, "variationDate");
+
   // Connect responsible + assistant as assigned users so row-level scope works.
   const assignIds = Array.from(new Set([responsibleId, assistantId].filter(Boolean))) as string[];
 
@@ -111,6 +119,10 @@ export async function createRegulatoryProduct(
       priority: (str(formData, "priority") as Priority) ?? "MEDIUM",
       targetDate: targetDateRaw ? new Date(targetDateRaw) : null,
       comments: str(formData, "comments"),
+      deHolder: str(formData, "deHolder"),
+      manufacturingVariation: manufacturingVariation === "NONE" ? null : manufacturingVariation,
+      manufacturer,
+      variationDate: variationDateRaw ? new Date(variationDateRaw) : null,
       responsibleId,
       assistantId,
       createdById: user.id,
@@ -180,6 +192,14 @@ export async function updateRegulatoryProduct(
   const targetDateRaw = str(formData, "targetDate");
   const assignIds = Array.from(new Set([responsibleId, assistantId].filter(Boolean))) as string[];
 
+  // Variation d'enregistrement : une fabrication locale exige le fabricant.
+  const manufacturingVariation = str(formData, "manufacturingVariation");
+  const manufacturer = str(formData, "manufacturer");
+  if (manufacturingVariation && LOCAL_MANUFACTURING_VARIATIONS.includes(manufacturingVariation) && !manufacturer) {
+    return { ok: false, error: "Le Fabricant est obligatoire pour une fabrication locale (packaging secondaire, primaire ou full process)." };
+  }
+  const variationDateRaw = str(formData, "variationDate");
+
   await prisma.regulatoryProduct.update({
     where: { id },
     data: {
@@ -199,6 +219,10 @@ export async function updateRegulatoryProduct(
       priority: (str(formData, "priority") as Priority) ?? before.priority,
       targetDate: targetDateRaw ? new Date(targetDateRaw) : null,
       comments: str(formData, "comments"),
+      deHolder: str(formData, "deHolder"),
+      manufacturingVariation: !manufacturingVariation || manufacturingVariation === "NONE" ? null : manufacturingVariation,
+      manufacturer,
+      variationDate: variationDateRaw ? new Date(variationDateRaw) : null,
       responsibleId,
       assistantId,
       updatedById: user.id,

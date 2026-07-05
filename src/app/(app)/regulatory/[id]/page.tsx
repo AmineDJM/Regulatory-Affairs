@@ -25,7 +25,7 @@ import { toNumber } from "@/lib/utils";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { getFieldDefs } from "@/lib/custom-fields";
 import { suggestedExternalStatus } from "@/lib/regulatory-external";
-import { PRIORITY, REGULATORY_STATUS, PRODUCT_TYPE, REGULATORY_CATEGORY, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { PRIORITY, REGULATORY_STATUS, PRODUCT_TYPE, REGULATORY_CATEGORY, PHARMA_FORM, DOSAGE_UNIT, MANUFACTURING_VARIATION } from "@/lib/labels";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { SupplierViewCard } from "./supplier-view-card";
 
@@ -181,6 +181,10 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   assistantId: product.assistantId,
                   targetDate: product.targetDate ? product.targetDate.toISOString().slice(0, 10) : null,
                   comments: product.comments,
+                  deHolder: product.deHolder,
+                  manufacturingVariation: product.manufacturingVariation,
+                  manufacturer: product.manufacturer,
+                  variationDate: product.variationDate ? product.variationDate.toISOString().slice(0, 10) : null,
                 }}
                 users={users}
                 suppliers={suppliers}
@@ -221,6 +225,14 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
               <Info label="Responsable" value={product.responsible?.name} />
               <Info label="Assistante" value={product.assistant?.name} />
               <Info label="Date cible" value={product.targetDate ? formatDate(product.targetDate) : null} />
+              <Info label="Détenteur de DE" value={product.deHolder} />
+              <Info label="Variation d'enregistrement" value={product.manufacturingVariation ? MANUFACTURING_VARIATION[product.manufacturingVariation] ?? product.manufacturingVariation : null} />
+              {product.manufacturingVariation && (
+                <>
+                  <Info label="Fabricant" value={product.manufacturer} />
+                  <Info label="Date de la variation" value={product.variationDate ? formatDate(product.variationDate) : null} />
+                </>
+              )}
             </CardContent>
           </Card>
 

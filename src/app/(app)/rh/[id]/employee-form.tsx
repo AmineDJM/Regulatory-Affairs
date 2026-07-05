@@ -17,6 +17,13 @@ export interface EmployeeFormValues {
   department: string;
   contractType: string;
   baseSalary: string;
+  retSS9: string;
+  retSS35: string;
+  tfp: string;
+  retIrg: string;
+  expenseRefund: string;
+  netToPay: string;
+  grossSalary: string;
   leaveBalanceDays: string;
   hireDate: string;
   contractStart: string;
@@ -91,8 +98,18 @@ export function EmployeeForm({ employee, managerOptions, userOptions }: Props) {
         <TextInput name="position" label="Poste" defaultValue={employee.position} />
         <TextInput name="department" label="Département" defaultValue={employee.department} />
         <SelectInput name="contractType" label="Type de contrat" defaultValue={employee.contractType} options={contractOptions} />
-        <TextInput name="baseSalary" label="Salaire de base (DZD)" type="number" defaultValue={employee.baseSalary} />
         <TextInput name="leaveBalanceDays" label="Solde congés (jours)" type="number" defaultValue={employee.leaveBalanceDays} />
+
+        {/* Rémunération (bulletin). Côté salarié : brut, Ret SS 35 % et TFP restent invisibles. */}
+        <p className="col-span-2 mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rémunération (bulletin de paie)</p>
+        <TextInput name="baseSalary" label="Salaire de base (DZD)" type="number" defaultValue={employee.baseSalary} />
+        <TextInput name="grossSalary" label="Salaire brut (confidentiel)" type="number" defaultValue={employee.grossSalary} />
+        <TextInput name="retSS9" label="Ret. SS 9 %" type="number" defaultValue={employee.retSS9} />
+        <TextInput name="retSS35" label="Ret. SS 35 % (confidentiel)" type="number" defaultValue={employee.retSS35} />
+        <TextInput name="tfp" label="TFP — taxe formation prof. (confidentiel)" type="number" defaultValue={employee.tfp} />
+        <TextInput name="retIrg" label="Ret. IRG" type="number" defaultValue={employee.retIrg} />
+        <TextInput name="expenseRefund" label="Remb. frais" type="number" defaultValue={employee.expenseRefund} />
+        <TextInput name="netToPay" label="Net à payer" type="number" defaultValue={employee.netToPay} />
         <TextInput name="hireDate" label="Date d'embauche" type="date" defaultValue={employee.hireDate} />
         <TextInput name="contractStart" label="Début de contrat" type="date" defaultValue={employee.contractStart} />
         <TextInput name="contractEnd" label="Fin de contrat" type="date" defaultValue={employee.contractEnd} />

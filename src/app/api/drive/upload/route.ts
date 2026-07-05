@@ -21,8 +21,23 @@ export async function POST(req: NextRequest) {
   const parentId = (form.get("parentId") as string) || null;
   const nodeId = (form.get("nodeId") as string) || null;
 
-  const err = validateDriveUpload(file.name, file.size, (await getAppSettings()).maxDriveUploadMb);
+  const settings = await getAppSettings();
+  const err = validateDriveUpload(file.name, file.size, settings.maxDriveUploadMb);
   if (err) return NextResponse.json({ error: err }, { status: 400 });
+
+  // Quotas (réglés dans Administration → Stockage Drive) : par utilisateur (somme de
+  // SES fichiers actifs) et capacité globale (stockage physique dédupliqué).
+  const GB = 1024 ** 3;
+  const [myUsage, physical] = await Promise.all([
+    prisma.driveNode.aggregate({ where: { ownerId: user.id, type: "FILE", isTrashed: false }, _sum: { size: true } }),
+    prisma.fileBlob.aggregate({ _sum: { size: true } }),
+  ]);
+  if ((myUsage._sum.size ?? 0) + file.size > settings.driveUserQuotaGb * GB) {
+    return NextResponse.json({ error: `Quota Drive dépassé (${settings.driveUserQuotaGb} Go par utilisateur). Libérez de l'espace ou demandez une augmentation au Super Admin.` }, { status: 400 });
+  }
+  if ((physical._sum.size ?? 0) + file.size > settings.driveCapacityGb * GB) {
+    return NextResponse.json({ error: "Capacité globale du Drive atteinte. Contactez le Super Admin." }, { status: 400 });
+  }
 
   // Editability: a new version requires EDIT on the node; a new file requires EDIT on its parent.
   if (nodeId) {

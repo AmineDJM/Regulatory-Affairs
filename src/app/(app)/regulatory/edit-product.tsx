@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
 import { DciAssociationField } from "./dci-field";
-import { PRODUCT_TYPE, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { PRODUCT_TYPE, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT, MANUFACTURING_VARIATION, LOCAL_MANUFACTURING_VARIATIONS } from "@/lib/labels";
 
 interface UserOption {
   id: string;
@@ -36,6 +36,10 @@ export interface EditProductValues {
   assistantId: string | null;
   targetDate: string | null;
   comments: string | null;
+  deHolder: string | null;
+  manufacturingVariation: string | null;
+  manufacturer: string | null;
+  variationDate: string | null;
 }
 
 export function EditProductButton({ product, users, suppliers }: { product: EditProductValues; users: UserOption[]; suppliers: { id: string; name: string }[] }) {
@@ -46,6 +50,8 @@ export function EditProductButton({ product, users, suppliers }: { product: Edit
     undefined,
   );
   const [submitting, setSubmitting] = React.useState(false);
+  const [variation, setVariation] = React.useState(product.manufacturingVariation ?? "NONE");
+  const localManufacturing = LOCAL_MANUFACTURING_VARIATIONS.includes(variation);
 
   React.useEffect(() => {
     if (state?.ok) {
@@ -101,6 +107,29 @@ export function EditProductButton({ product, users, suppliers }: { product: Edit
             <SelectField label="Responsable" name="responsibleId" options={userOptions} placeholder="—" defaultValue={product.responsibleId ?? ""} />
             <SelectField label="Assistante assignée" name="assistantId" options={userOptions} placeholder="—" defaultValue={product.assistantId ?? ""} />
             <TextField label="Date cible d'enregistrement" name="targetDate" type="date" defaultValue={product.targetDate ?? undefined} className="col-span-2" />
+
+            {/* Décision d'enregistrement + variation vers la fabrication locale */}
+            <TextField label="Détenteur de DE" name="deHolder" placeholder="Titulaire de la décision d'enregistrement" defaultValue={product.deHolder ?? undefined} className="col-span-2" />
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Variation d&apos;enregistrement</label>
+              <select
+                name="manufacturingVariation"
+                value={variation}
+                onChange={(e) => setVariation(e.target.value)}
+                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
+              >
+                {Object.entries(MANUFACTURING_VARIATION).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <TextField label="Date de la variation" name="variationDate" type="date" defaultValue={product.variationDate ?? undefined} />
+            <TextField
+              label={localManufacturing ? "Fabricant (obligatoire — fabrication locale)" : "Fabricant"}
+              name="manufacturer"
+              required={localManufacturing}
+              placeholder="Site de fabrication local"
+              defaultValue={product.manufacturer ?? undefined}
+              className="col-span-2"
+            />
           </div>
           <TextAreaField label="Commentaires" name="comments" placeholder="Notes internes…" defaultValue={product.comments ?? undefined} />
 

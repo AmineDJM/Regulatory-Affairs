@@ -588,6 +588,16 @@ export const HR_DOCUMENT_CATEGORY: Record<string, string> = {
   OTHER: "Autre",
 };
 
+/** Variation d'enregistrement (Regulatory) : passage en fabrication locale. */
+export const MANUFACTURING_VARIATION: Record<string, string> = {
+  NONE: "Aucune variation",
+  SECONDARY_PACKAGING: "Packaging secondaire (fabrication locale)",
+  PRIMARY_PACKAGING: "Packaging primaire (fabrication locale)",
+  FULL_PROCESS: "Full process (fabrication locale)",
+};
+/** Variations impliquant une fabrication locale → le fabricant devient obligatoire. */
+export const LOCAL_MANUFACTURING_VARIATIONS = ["SECONDARY_PACKAGING", "PRIMARY_PACKAGING", "FULL_PROCESS"];
+
 export const HR_REQUEST_TYPE: Record<string, string> = {
   WORK_CERTIFICATE: "Attestation de travail",
   CNAS_CERTIFICATE: "Attestation CNAS",

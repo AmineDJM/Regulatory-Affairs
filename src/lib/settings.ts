@@ -17,6 +17,10 @@ export interface AppSettings {
   /** Budget total : FIXED (montant figé) ou FLEXIBLE (= somme des enveloppes). */
   budgetTotalMode: BudgetTotalMode;
   budgetFixedTotal: number;
+  /** Capacité globale du Drive (Go) — modifiable par le Super Admin. */
+  driveCapacityGb: number;
+  /** Quota Drive par utilisateur (Go) — modifiable par le Super Admin. */
+  driveUserQuotaGb: number;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -24,6 +28,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   maxDriveUploadMb: Number(process.env.MAX_DRIVE_UPLOAD_MB ?? process.env.MAX_UPLOAD_MB ?? "100"),
   budgetTotalMode: "FLEXIBLE",
   budgetFixedTotal: 0,
+  driveCapacityGb: 100,
+  driveUserQuotaGb: 10,
 };
 
 export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
@@ -35,6 +41,8 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       maxDriveUploadMb: row.maxDriveUploadMb,
       budgetTotalMode: row.budgetTotalMode === "FIXED" ? "FIXED" : "FLEXIBLE",
       budgetFixedTotal: Number(row.budgetFixedTotal),
+      driveCapacityGb: row.driveCapacityGb,
+      driveUserQuotaGb: row.driveUserQuotaGb,
     };
   } catch {
     return DEFAULT_APP_SETTINGS;

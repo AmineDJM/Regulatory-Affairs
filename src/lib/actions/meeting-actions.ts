@@ -9,6 +9,7 @@ import { summarizeMeetingTranscript } from "@/lib/ai";
 import { notifyUser } from "@/lib/notify";
 import { releaseBlob } from "@/lib/drive-storage";
 import { recordAudit } from "@/lib/audit";
+import { algiersInputToUtc } from "@/lib/calendar-tz";
 import { fdStr, fdBool, fdDate, type ActionResult } from "@/lib/actions/types";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
@@ -51,7 +52,10 @@ export async function createMeeting(_prev: ActionResult | undefined, formData: F
   const title = fdStr(formData, "title");
   if (!title) return { ok: false, error: "Titre de la réunion requis." };
   const description = fdStr(formData, "description");
-  const scheduledAt = fdDate(formData, "scheduledAt");
+  // Saisie « datetime-local » interprétée à l'heure d'ALGER (le serveur est en UTC :
+  // sans cela, une réunion créée à 10 h s'affichait à 11 h).
+  const scheduledAtRaw = fdStr(formData, "scheduledAt");
+  const scheduledAt = scheduledAtRaw ? algiersInputToUtc(scheduledAtRaw) ?? fdDate(formData, "scheduledAt") : null;
   const withVideo = formData.get("withVideo") === null ? true : fdBool(formData, "withVideo");
   const meetLink = normalizeLink(fdStr(formData, "meetLink"));
   const participantIds = [...new Set(formData.getAll("participantIds").map(String).filter(Boolean))].filter((id) => id !== user.id);
