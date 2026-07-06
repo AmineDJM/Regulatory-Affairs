@@ -711,6 +711,7 @@ model MailAccount {
   user        User      @relation("UserMailAccount", fields: [userId], references: [id], onDelete: Cascade)
   email       String // adresse e-mail (login IMAP/SMTP)
   displayName String? // nom affiché à l'envoi
+  signature   String?   @db.Text // signature ajoutée en bas des nouveaux messages (webmail)
   imapHost    String    @default("mail.infomaniak.com")
   imapPort    Int       @default(993)
   smtpHost    String    @default("mail.infomaniak.com")

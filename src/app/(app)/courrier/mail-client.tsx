@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import {
   Inbox, Send as SendIcon, RefreshCw, Loader2, Paperclip, PenSquare, X,
   ChevronLeft, AlertCircle, Trash2, Mail as MailIcon, Reply, ReplyAll, Forward, Maximize2, Minimize2,
-  FolderKanban, Check, ExternalLink, Search,
+  FolderKanban, Check, ExternalLink, Search, PenLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label, Select } from "@/components/ui/input";
+import { Sheet } from "@/components/ui/sheet";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import { sendMailAction, disconnectMailbox } from "@/lib/actions/mail-actions";
+import { sendMailAction, disconnectMailbox, updateMailSignature } from "@/lib/actions/mail-actions";
 import { listLinkableDossiers, linkEmailToDossier } from "@/lib/actions/dossier-actions";
 
 interface Folder { path: string; name: string; role: string; unseen: number; total: number }
@@ -30,8 +31,10 @@ const quoteBody = (m: MsgDetail) => `\n\n--- Le ${fmtDate(m.date)}, ${m.from} a 
 const forwardBody = (m: MsgDetail) =>
   `\n\n--- Message transféré ---\nDe : ${m.from} <${m.fromAddr}>\nDate : ${fmtDate(m.date)}\nÀ : ${m.to}${m.cc ? `\nCc : ${m.cc}` : ""}\nObjet : ${m.subject}\n\n${(m.text || "").slice(0, 6000)}`;
 
-export function MailClient({ email }: { email: string }) {
+export function MailClient({ email, signature: initialSignature }: { email: string; signature: string }) {
   const router = useRouter();
+  const [signature, setSignature] = React.useState(initialSignature);
+  const [sigOpen, setSigOpen] = React.useState(false);
   const [folders, setFolders] = React.useState<Folder[]>([]);
   const [mailbox, setMailbox] = React.useState("INBOX");
   const [messages, setMessages] = React.useState<Envelope[]>([]);
@@ -120,12 +123,15 @@ export function MailClient({ email }: { email: string }) {
 
   const selectFolder = (mb: string) => { setMailbox(mb); setQuery(""); setActiveSearch(""); setUnreadOnly(false); loadList(mb); };
 
+  // Signature insérée en haut du corps (au-dessus d'une éventuelle citation), curseur au début.
+  const sigTop = signature.trim() ? `\n\n${signature.trimEnd()}` : "";
+
   return (
     <div data-accent={accent} className={cn("ik-mail flex overflow-hidden", fullscreen ? "fixed inset-0 z-[90] bg-background" : "surface min-h-0 flex-1")}>
       {/* Dossiers */}
       <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-gradient-to-b from-secondary/40 to-secondary/10 p-3 md:flex">
         <button
-          onClick={() => setCompose({ to: "", cc: "", subject: "", body: "" })}
+          onClick={() => setCompose({ to: "", cc: "", subject: "", body: sigTop })}
           className="mb-3 flex w-full items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/25 transition hover:bg-primary/90 hover:shadow-lg active:scale-[0.98]"
         >
           <PenSquare className="h-4 w-4" /> Nouveau message
@@ -149,10 +155,15 @@ export function MailClient({ email }: { email: string }) {
           <button type="button" onClick={() => chooseAccent("pink")} aria-label="Accent rose Infomaniak" title="Rose Infomaniak" className={cn("h-5 w-5 rounded-full ring-offset-2 ring-offset-secondary transition", accent === "pink" && "ring-2 ring-foreground")} style={{ backgroundColor: "#BC0055" }} />
           <button type="button" onClick={() => chooseAccent("blue")} aria-label="Accent bleu Infomaniak" title="Bleu Infomaniak" className={cn("h-5 w-5 rounded-full ring-offset-2 ring-offset-secondary transition", accent === "blue" && "ring-2 ring-foreground")} style={{ backgroundColor: "#0098FF" }} />
         </div>
+        <button onClick={() => setSigOpen(true)} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">
+          <PenLine className="h-3.5 w-3.5" /> Signature{signature.trim() ? "" : " (aucune)"}
+        </button>
         <button onClick={async () => { if (confirm("Déconnecter cette boîte mail ?")) { await disconnectMailbox(); router.refresh(); } }} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-destructive">
           <X className="h-3.5 w-3.5" /> Déconnecter la boîte
         </button>
       </aside>
+
+      <SignatureSheet open={sigOpen} onClose={() => setSigOpen(false)} initial={signature} onSaved={setSignature} />
 
       {/* Liste des messages */}
       <div className={cn("flex min-h-0 w-full flex-col border-r border-border md:w-80", sel && "hidden md:flex")}>
@@ -218,9 +229,9 @@ export function MailClient({ email }: { email: string }) {
             mailbox={mailbox}
             loading={loadingMsg}
             onBack={() => setSel(null)}
-            onReply={() => setCompose({ to: sel.fromAddr, cc: "", subject: replySubject(sel.subject), body: quoteBody(sel) })}
-            onReplyAll={() => { const r = buildReplyAll(sel); setCompose({ to: r.to, cc: r.cc, subject: replySubject(sel.subject), body: quoteBody(sel) }); }}
-            onForward={() => setCompose({ to: "", cc: "", subject: `Tr: ${sel.subject}`, body: forwardBody(sel) })}
+            onReply={() => setCompose({ to: sel.fromAddr, cc: "", subject: replySubject(sel.subject), body: sigTop + quoteBody(sel) })}
+            onReplyAll={() => { const r = buildReplyAll(sel); setCompose({ to: r.to, cc: r.cc, subject: replySubject(sel.subject), body: sigTop + quoteBody(sel) }); }}
+            onForward={() => setCompose({ to: "", cc: "", subject: `Tr: ${sel.subject}`, body: sigTop + forwardBody(sel) })}
           />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -384,6 +395,45 @@ function LinkToDossier({ msg }: { msg: MsgDetail }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** Édite la signature e-mail (ajoutée en bas des nouveaux messages, réponses et transferts). */
+function SignatureSheet({ open, onClose, initial, onSaved }: { open: boolean; onClose: () => void; initial: string; onSaved: (s: string) => void }) {
+  const [text, setText] = React.useState(initial);
+  const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  // Repart de la valeur enregistrée à chaque ouverture.
+  React.useEffect(() => { if (open) { setText(initial); setErr(null); } }, [open, initial]);
+
+  async function save() {
+    setSaving(true); setErr(null);
+    const fd = new FormData(); fd.set("signature", text);
+    const r = await updateMailSignature(fd);
+    setSaving(false);
+    if (r.ok) { onSaved(text.trimEnd()); onClose(); }
+    else setErr(r.error ?? "Enregistrement impossible.");
+  }
+
+  return (
+    <Sheet open={open} onClose={() => !saving && onClose()} title="Signature e-mail" width="md">
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">Elle est insérée automatiquement au bas de vos nouveaux messages, réponses et transferts. Laissez vide pour ne pas en ajouter.</p>
+        <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={8}
+          placeholder={"Cordialement,\nPrénom NOM\nAdventum Pharma\n+213 …"} />
+        {text.trim() && (
+          <div className="rounded-lg border border-border bg-secondary/30 p-3">
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Aperçu</p>
+            <pre className="whitespace-pre-wrap text-sm">{text.trimEnd()}</pre>
+          </div>
+        )}
+        {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Annuler</Button>
+          <Button type="button" onClick={save} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer</Button>
+        </div>
+      </div>
+    </Sheet>
   );
 }
 

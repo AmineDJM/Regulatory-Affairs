@@ -169,7 +169,7 @@ jamais identique.
 | **Assistant IA** 💬 | **bulle flottante** (partout) | Chatbot interne (boucle agent Claude) **scopé par les droits**, présent sur **toutes les pages**. **Suggestions proactives** sur les messages non lus. → [détails](#-intelligence-artificielle-claude--whisper) |
 | **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation, CNAS, relevé d'émoluments, titre/demandes de congé — annuel, sans solde, exceptionnel, maternité —, sortie exceptionnelle, arrêt maladie, **note de frais avec mois obligatoire**, **entrevue avec les RH** à date négociée) avec **pièces jointes** et **fil d'échange** par demande + onglet **« Mes ordres de mission »**. Carte **« Ma rémunération »** (salaire de base, Ret SS 9 %, Ret IRG, Remb. frais, Net à payer — **jamais** le brut, la Ret SS 35 % ni la TFP). Notification **« salaire versé »** reçue **24 h après** le marquage par les RH. Accès **strict** à ses propres documents. |
 | **Calendrier** | `/calendar` | Agenda d'entreprise (fuseau **Alger**), création de rendez-vous + invitations, **accessible à l'Assistant IA** (créer/inviter par la conversation). |
-| **Réunions** | `/meetings` | Appels & réunions (lien Meet simple) + **enregistrement / transcription / compte-rendu IA** + **rappel 30 min avant** (notification planifiée). |
+| **Réunions** | `/meetings` | Appels & réunions (lien Meet simple) + **enregistrement / transcription / compte-rendu IA** + **rappel 30 min avant** (notification planifiée). L'organisateur peut **modifier** titre, objet, lien, type et **horaire** (heure d'Alger). |
 | **Dashboard** | `/dashboard` | KPIs & graphiques adaptés au rôle. |
 
 ### Pôles métier
@@ -792,6 +792,8 @@ Boîte mail **par utilisateur**, connectée à la plateforme (une seule entité)
 - 👥 **Carnet de contacts** (collègues + correspondants récents internes/externes) avec **autocomplétion**.
 - 📎 **Pièces jointes** : **à l'envoi** (bouton « Joindre », multi-fichiers, retrait/tailles, validées comme les
   téléversements Drive/Documents), et **aperçu** des pièces reçues (PDF / image / texte) avant téléchargement ; **« Lier à un dossier »**.
+- ✍️ **Signature** personnalisable (bouton « Signature », aperçu en direct) — insérée automatiquement en bas des
+  nouveaux messages, réponses et transferts (au-dessus de la citation).
 - 🛡️ **Anti double-envoi** (verrou synchrone) ; couche serveur `src/lib/mail.ts`, routes `/api/mail/{messages,message,attachment,contacts}` (auth + scoping).
 - 🤖 **Connecté à l'Assistant IA** : lire / résumer / chercher dans **votre** boîte, **rédiger** un e-mail (envoyé après confirmation).
 
@@ -1025,6 +1027,12 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot P** — **Signature e-mail** (`MailAccount.signature`) : éditable depuis le Courrier (bouton « Signature »
+  dans la barre latérale, aperçu en direct), **insérée automatiquement** en bas des nouveaux messages, réponses et
+  transferts (au-dessus de la citation, curseur au début) — pas de double-ajout côté serveur. **Réunions
+  modifiables** : l'organisateur (ou une vue globale) peut **modifier titre, objet, lien, type (vidéo/audio) et
+  horaire** d'une réunion non terminée (`updateMeeting`, bouton « Modifier ») ; changer l'horaire **ré-arme** le
+  rappel « 30 min avant ». Horaire saisi/affiché à l'heure d'Alger.
 - **Lot O** — **Drive : téléchargement dossiers & sélection multiple en ZIP**. Télécharger un **dossier** génère
   désormais une **archive ZIP** de tout son contenu (récursif, arborescence préservée) au lieu d'une erreur ·
   **cases à cocher** sur chaque ligne + « Tout sélectionner » → **« Télécharger (ZIP) »** regroupe plusieurs

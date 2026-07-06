@@ -22,7 +22,7 @@ export default async function CourrierPage() {
   return (
     <div className="flex h-[calc(100vh-7.5rem)] flex-col gap-4">
       <PageHeader title="Courrier" description={`Connecté : ${account.email}`} />
-      <MailClient email={account.email} />
+      <MailClient email={account.email} signature={account.signature ?? ""} />
     </div>
   );
 }

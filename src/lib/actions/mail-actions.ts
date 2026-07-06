@@ -37,6 +37,19 @@ export async function connectMailbox(formData: FormData): Promise<ActionResult> 
   return { ok: true };
 }
 
+/** Met à jour la signature e-mail de l'utilisateur (ajoutée en bas des nouveaux messages). */
+export async function updateMailSignature(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const account = await getMailAccount(user.id);
+  if (!account) return { ok: false, error: "Aucune boîte connectée." };
+  // On borne la longueur (garde-fou) ; vide → on retire la signature.
+  const signature = (fdStr(formData, "signature") ?? "").slice(0, 5000).trimEnd();
+  await prisma.mailAccount.update({ where: { userId: user.id }, data: { signature: signature || null } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Courrier", summary: "Signature e-mail mise à jour" });
+  revalidatePath("/courrier");
+  return { ok: true };
+}
+
 export async function disconnectMailbox(): Promise<ActionResult> {
   const user = await requireUser();
   const account = await getMailAccount(user.id);

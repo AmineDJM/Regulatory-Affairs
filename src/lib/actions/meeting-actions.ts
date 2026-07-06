@@ -82,6 +82,31 @@ export async function createMeeting(_prev: ActionResult | undefined, formData: F
   return { ok: true, id: meeting.id };
 }
 
+/** Modifie les informations et l'horaire d'une réunion (organisateur / vue globale). */
+export async function updateMeeting(formData: FormData): Promise<ActionResult> {
+  const res = await loadManaged(fdStr(formData, "id") ?? "");
+  if ("error" in res) return { ok: false, error: res.error };
+  const title = fdStr(formData, "title");
+  if (!title) return { ok: false, error: "Titre de la réunion requis." };
+  const description = fdStr(formData, "description");
+  // Saisie « datetime-local » interprétée à l'heure d'ALGER (serveur en UTC).
+  const scheduledAtRaw = fdStr(formData, "scheduledAt");
+  const scheduledAt = scheduledAtRaw ? algiersInputToUtc(scheduledAtRaw) ?? fdDate(formData, "scheduledAt") : null;
+  const withVideo = formData.get("withVideo") === null ? res.meeting.withVideo : fdBool(formData, "withVideo");
+  const meetLink = normalizeLink(fdStr(formData, "meetLink"));
+  // Si l'horaire change, on ré-arme le rappel « 30 min avant » (sinon il ne repartirait pas).
+  const changedSchedule = (scheduledAt?.getTime() ?? null) !== (res.meeting.scheduledAt?.getTime() ?? null);
+
+  await prisma.meeting.update({
+    where: { id: res.meeting.id },
+    data: { title, description: description ?? null, scheduledAt, withVideo, meetLink, ...(changedSchedule ? { reminderSentAt: null } : {}) },
+  });
+  await recordAudit({ actorId: res.user.id, action: "UPDATE", module: "Réunions", entityId: res.meeting.id, summary: `Réunion « ${title} » modifiée` });
+  revalidatePath(`/meetings/${res.meeting.id}`);
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
 /** Marque la réunion « en cours » (au moment où l'organisateur la démarre). */
 export async function setMeetingLive(formData: FormData): Promise<ActionResult> {
   const res = await loadManaged(fdStr(formData, "id") ?? "");

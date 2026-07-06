@@ -10,11 +10,12 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MeetJoin } from "./meet-join";
-import { formatAlgiers } from "@/lib/calendar-tz";
+import { formatAlgiers, utcToAlgiersInput } from "@/lib/calendar-tz";
 
 const formatDateTime = (d: Date) => formatAlgiers(d, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 import { MeetingRecorder } from "./meeting-recorder";
 import { TranscriptPanel, ProposalActions, ShareLink, ManageBar } from "./meeting-panels";
+import { EditMeetingButton } from "../edit-meeting-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +63,16 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
       <PageHeader title={meeting.title} description={meeting.description ?? undefined}>
         <Badge tone={STATUS[meeting.status]?.tone ?? "neutral"} dot={false}>{STATUS[meeting.status]?.label ?? meeting.status}</Badge>
+        {canManage && meeting.status !== "ENDED" && (
+          <EditMeetingButton
+            id={meeting.id}
+            title={meeting.title}
+            description={meeting.description ?? ""}
+            meetLink={meeting.meetLink ?? ""}
+            scheduledAtInput={meeting.scheduledAt ? utcToAlgiersInput(meeting.scheduledAt) : ""}
+            withVideo={meeting.withVideo}
+          />
+        )}
         {canManage && <ManageBar meetingId={meeting.id} status={meeting.status} />}
         <SuperAdminDeleteButton kind="MEETING" id={meeting.id} name={meeting.title} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
