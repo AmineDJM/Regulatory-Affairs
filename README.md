@@ -1025,6 +1025,13 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot O** — **Drive : téléchargement dossiers & sélection multiple en ZIP**. Télécharger un **dossier** génère
+  désormais une **archive ZIP** de tout son contenu (récursif, arborescence préservée) au lieu d'une erreur ·
+  **cases à cocher** sur chaque ligne + « Tout sélectionner » → **« Télécharger (ZIP) »** regroupe plusieurs
+  fichiers **et/ou** dossiers en une seule archive (`/api/drive/zip?ids=…`) · accès vérifié sur chaque élément de
+  tête (`resolveDriveAccess` + `canViewDrive`), descendants hérités, éléments en corbeille ignorés, garde-fou
+  mémoire 800 Mo, journal d'audit `EXPORT`. Pièces jointes d'e-mail : la composition accepte déjà l'ajout de
+  fichiers (bouton « Joindre » + validation des limites d'upload).
 - **Lot N** — **Compteur d'activité** : pause après **10 min** sans interaction (au lieu de 60 s), reprise au
   mouvement (alimente le score d'adoption) · **Garde anti-capture** (`ScreenGuard`) : flou dissuasif à la détection
   d'une capture (Impr.écran, raccourcis macOS/Windows) et à la perte de focus, **alerte Super Admin** (notification

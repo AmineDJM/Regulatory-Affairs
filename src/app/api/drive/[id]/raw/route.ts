@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
+import { buildDriveZip } from "@/lib/drive-zip";
 import { recordAudit } from "@/lib/audit";
 
 /** Stream a file's current version (decrypted). `?dl=1` forces download. */
@@ -15,7 +16,22 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     where: { id: params.id },
     select: { name: true, mimeType: true, type: true, isTrashed: true },
   });
-  if (!node || node.type !== "FILE") return new NextResponse(null, { status: 404 });
+  if (!node) return new NextResponse(null, { status: 404 });
+
+  // Dossier → téléchargement en archive ZIP (contenu récursif).
+  if (node.type === "FOLDER") {
+    const res = await buildDriveZip([{ id: params.id, name: node.name, type: "FOLDER" }]);
+    if ("error" in res) return NextResponse.json({ error: res.error }, { status: res.status });
+    await recordAudit({ actorId: user.id, action: "EXPORT", module: "Drive", entityType: "DRIVE_NODE", entityId: params.id, summary: `Téléchargement du dossier « ${node.name} » (ZIP, ${res.count} fichier·s)` });
+    return new NextResponse(new Uint8Array(res.buffer), {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(res.filename)}`,
+        "Content-Length": String(res.buffer.length),
+        "Cache-Control": "private, no-store",
+      },
+    });
+  }
 
   const version = await prisma.fileVersion.findFirst({
     where: { nodeId: params.id },

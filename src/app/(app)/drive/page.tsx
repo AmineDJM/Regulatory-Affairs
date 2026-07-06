@@ -11,14 +11,12 @@ import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { DOCS_TABS } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/ui/icon";
 import { EmptyState } from "@/components/shared/empty-state";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDateTime } from "@/lib/utils";
 import { UploadButton } from "./upload-button";
 import { NewFolderButton } from "./new-folder-button";
 import { NewOfficeButton } from "./new-office-button";
-import { NodeActions } from "./node-actions";
+import { DriveTable, type DriveRow } from "./drive-table";
 
 const KIND_ICON: Record<string, string> = { pdf: "FileText", image: "Image", video: "Video", audio: "Music", office: "FileSpreadsheet", text: "FileText", other: "File" };
 
@@ -63,6 +61,22 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
         })),
       ];
 
+  const rows: DriveRow[] = listing.nodes.map((n) => {
+    const isFile = n.type === "FILE";
+    return {
+      id: n.id,
+      name: n.name,
+      isFile,
+      icon: isFile ? KIND_ICON[fileKind(n.mimeType, n.name)] : "Folder",
+      category: n.category ?? null,
+      owner: n.owner?.name ?? "—",
+      sizeLabel: humanSize(n.size),
+      updatedLabel: formatDateTime(n.updatedAt),
+      canEdit: n.canEdit,
+      href: isFile ? `/drive/${n.id}` : `/drive?folder=${n.id}`,
+    };
+  });
+
   return (
     <div className="space-y-5">
       <PageHeader title="Drive" description="Vos fichiers et dossiers — stockage interne chiffré (AES-256).">
@@ -98,47 +112,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
       {listing.nodes.length === 0 ? (
         <EmptyState icon="FolderOpen" title={trash ? "Corbeille vide" : "Dossier vide"} description={trash ? "Aucun élément supprimé." : "Importez des fichiers ou créez un dossier."} />
       ) : (
-        <div className="surface overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nom</TableHead>
-                <TableHead>Propriétaire</TableHead>
-                <TableHead className="text-right">Taille</TableHead>
-                <TableHead>Modifié</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {listing.nodes.map((n) => {
-                const isFile = n.type === "FILE";
-                const icon = isFile ? KIND_ICON[fileKind(n.mimeType, n.name)] : "Folder";
-                const href = isFile ? `/drive/${n.id}` : `/drive?folder=${n.id}`;
-                return (
-                  <TableRow key={n.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Link href={href} className="inline-flex items-center gap-2 font-medium hover:underline">
-                          <Icon name={icon} className={`h-4 w-4 ${isFile ? "text-muted-foreground" : "text-primary"}`} />
-                          <span className="truncate">{n.name}</span>
-                        </Link>
-                        {isFile && n.category && (
-                          <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{n.category}</span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{n.owner?.name ?? "—"}</TableCell>
-                    <TableCell className="text-right text-muted-foreground">{isFile ? humanSize(n.size) : "—"}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatDateTime(n.updatedAt)}</TableCell>
-                    <TableCell className="text-right">
-                      <NodeActions id={n.id} name={n.name} isFile={isFile} canEdit={n.canEdit} trash={trash} moveTargets={n.canEdit && !trash ? moveTargets : undefined} />
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+        <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} />
       )}
     </div>
   );

@@ -44,12 +44,10 @@ export function NodeActions({ id, name, isFile, canEdit, trash, moveTargets }: P
 
   return (
     <div className="flex items-center justify-end gap-0.5">
-      {isFile && (
-        <a href={`/api/drive/${id}/raw?dl=1`} title="Télécharger"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground">
-          <Download className="h-3.5 w-3.5" />
-        </a>
-      )}
+      <a href={`/api/drive/${id}/raw?dl=1`} title={isFile ? "Télécharger" : "Télécharger le dossier (ZIP)"}
+        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground">
+        <Download className="h-3.5 w-3.5" />
+      </a>
       {canEdit && !trash && (
         <>
           <button type="button" title="Renommer" onClick={() => setRenaming(true)}
