@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { encryptSecret, getMailAccount, testImap, sendMail, closeMailConnection } from "@/lib/mail";
+import { encryptSecret, getMailAccount, testImap, sendMail, closeMailConnection, type MailAttachment } from "@/lib/mail";
+import { validateUpload } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 /** Connecte (ou met à jour) la boîte mail Infomaniak de l'utilisateur. Teste IMAP avant d'enregistrer. */
@@ -52,11 +54,27 @@ export async function sendMailAction(formData: FormData): Promise<ActionResult> 
   const to = fdStr(formData, "to");
   const subject = fdStr(formData, "subject") ?? "(sans objet)";
   if (!to) return { ok: false, error: "Destinataire requis." };
+
+  // Pièces jointes (fichiers de l'appareil) : validées comme les autres téléversements.
+  const rawFiles = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+  const attachments: MailAttachment[] = [];
+  if (rawFiles.length) {
+    const maxMb = (await getAppSettings()).maxUploadMb;
+    for (const f of rawFiles) {
+      const invalid = validateUpload(f.name, f.size, maxMb);
+      if (invalid) return { ok: false, error: `Pièce jointe « ${f.name} » : ${invalid}` };
+      attachments.push({ filename: f.name, content: Buffer.from(await f.arrayBuffer()), contentType: f.type || undefined });
+    }
+  }
+
   try {
-    await sendMail(account, { to, cc: fdStr(formData, "cc") ?? undefined, subject, text: fdStr(formData, "body") ?? "" });
+    await sendMail(account, { to, cc: fdStr(formData, "cc") ?? undefined, subject, text: fdStr(formData, "body") ?? "", attachments });
   } catch (e) {
     return { ok: false, error: `Envoi impossible : ${(e as Error)?.message ?? "erreur SMTP"}.` };
   }
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Courrier", summary: `E-mail envoyé à ${to}` });
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Courrier",
+    summary: `E-mail envoyé à ${to}${attachments.length ? ` (${attachments.length} pièce·s jointe·s)` : ""}`,
+  });
   return { ok: true };
 }

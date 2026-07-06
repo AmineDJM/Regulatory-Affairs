@@ -21,6 +21,7 @@ interface MsgDetail { uid: number; subject: string; from: string; fromAddr: stri
 export interface Contact { name: string; address: string; source?: string }
 
 const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
+const fmtSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.ceil(n / 1024))} Ko`);
 const folderIcon = (role: string) => (role === "Sent" ? SendIcon : role === "Trash" ? Trash2 : Inbox);
 const folderLabel = (f: Folder) => ({ Sent: "Envoyés", Trash: "Corbeille", Drafts: "Brouillons", Junk: "Indésirables", Archive: "Archives" }[f.role] || (f.path === "INBOX" ? "Réception" : f.name));
 
@@ -392,6 +393,10 @@ function Composer({ email, initial, onClose }: { email: string; initial: { to: s
   const [sent, setSent] = React.useState(false);
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [showCc, setShowCc] = React.useState(Boolean(initial.cc));
+  const [files, setFiles] = React.useState<File[]>([]);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const addFiles = (list: FileList | null) => { if (list) setFiles((cur) => [...cur, ...Array.from(list)]); if (fileRef.current) fileRef.current.value = ""; };
+  const removeFile = (i: number) => setFiles((cur) => cur.filter((_, idx) => idx !== i));
   // Verrou synchrone : empêche tout double-envoi (double-clic / double soumission)
   // même avant que l'état `saving` ne soit re-rendu.
   const inFlight = React.useRef(false);
@@ -401,6 +406,7 @@ function Composer({ email, initial, onClose }: { email: string; initial: { to: s
     inFlight.current = true;
     setSaving(true); setErr(null);
     try {
+      files.forEach((f) => fd.append("attachments", f));
       const r = await sendMailAction(fd);
       if (r.ok) setSent(true);
       else setErr(r.error ?? "Envoi impossible.");
@@ -444,8 +450,24 @@ function Composer({ email, initial, onClose }: { email: string; initial: { to: s
           {showCc && <div className="space-y-1"><Label>Cc</Label><AddressInput name="cc" defaultValue={initial.cc} contacts={contacts} placeholder="cc@exemple.com" /></div>}
           <div className="space-y-1"><Label>Objet</Label><Input name="subject" defaultValue={initial.subject} /></div>
           <div className="flex min-h-0 flex-1 flex-col space-y-1"><Label>Message</Label><Textarea name="body" defaultValue={initial.body} className="min-h-0 flex-1 resize-none" /></div>
+          {files.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {files.map((f, i) => (
+                <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2 py-1 text-xs">
+                  <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="max-w-[12rem] truncate">{f.name}</span>
+                  <span className="text-muted-foreground">{fmtSize(f.size)}</span>
+                  <button type="button" onClick={() => removeFile(i)} className="rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-destructive" aria-label="Retirer la pièce jointe"><X className="h-3 w-3" /></button>
+                </span>
+              ))}
+            </div>
+          )}
+          <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
           {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {err}</div>}
-          <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>Annuler</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendIcon className="h-4 w-4" />} Envoyer</Button></div>
+          <div className="flex items-center justify-between gap-2">
+            <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm font-medium hover:bg-secondary"><Paperclip className="h-4 w-4" /> Joindre</button>
+            <div className="flex gap-2"><Button type="button" variant="ghost" onClick={onClose}>Annuler</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendIcon className="h-4 w-4" />} Envoyer</Button></div>
+          </div>
         </form>
       )}
     </div>

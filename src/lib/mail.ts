@@ -410,7 +410,8 @@ export async function getAttachment(account: MailAccount, mailbox: string, uid: 
 
 // ───────────────────────────── SMTP (envoi) ─────────────────────────────
 
-export interface SendOptions { to: string; cc?: string; subject: string; text?: string; html?: string }
+export interface MailAttachment { filename: string; content: Buffer; contentType?: string }
+export interface SendOptions { to: string; cc?: string; subject: string; text?: string; html?: string; attachments?: MailAttachment[] }
 
 export async function sendMail(account: MailAccount, opts: SendOptions): Promise<void> {
   const mail = {
@@ -420,6 +421,11 @@ export async function sendMail(account: MailAccount, opts: SendOptions): Promise
     subject: opts.subject,
     text: opts.text || undefined,
     html: opts.html || undefined,
+    // Pièces jointes : intégrées au MIME construit une seule fois → présentes à
+    // l'envoi ET dans la copie déposée dans « Envoyés ».
+    attachments: opts.attachments?.length
+      ? opts.attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType }))
+      : undefined,
   };
 
   // 1) Construit le MIME UNE fois — pour envoyer ET archiver la même copie.

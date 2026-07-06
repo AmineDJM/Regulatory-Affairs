@@ -790,7 +790,8 @@ Boîte mail **par utilisateur**, connectée à la plateforme (une seule entité)
 - 🎚️ **Filtres** rapides (**Tous / Non lus**), effacement de la recherche en un clic, **limite de mails chargés élevée**.
 - ↩️ **Répondre**, **Répondre à tous** (sans se ré-adresser à soi-même), **Transférer** (citation du message d'origine).
 - 👥 **Carnet de contacts** (collègues + correspondants récents internes/externes) avec **autocomplétion**.
-- 📎 **Aperçu des pièces jointes** (PDF / image / texte) avant téléchargement ; **« Lier à un dossier »**.
+- 📎 **Pièces jointes** : **à l'envoi** (bouton « Joindre », multi-fichiers, retrait/tailles, validées comme les
+  téléversements Drive/Documents), et **aperçu** des pièces reçues (PDF / image / texte) avant téléchargement ; **« Lier à un dossier »**.
 - 🛡️ **Anti double-envoi** (verrou synchrone) ; couche serveur `src/lib/mail.ts`, routes `/api/mail/{messages,message,attachment,contacts}` (auth + scoping).
 - 🤖 **Connecté à l'Assistant IA** : lire / résumer / chercher dans **votre** boîte, **rédiger** un e-mail (envoyé après confirmation).
 
