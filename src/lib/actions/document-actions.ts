@@ -1,12 +1,11 @@
 "use server";
 
-import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { Confidentiality, DocumentCategory, EntityType } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { canAccessEntity, ENTITY_MODULE } from "@/lib/entity-access";
-import { saveFile, validateUpload, deleteFileByKey } from "@/lib/storage";
-import { getAppSettings } from "@/lib/settings";
+import { deleteFileByKey } from "@/lib/storage";
+import { persistUploadedDocument } from "@/lib/documents";
 import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -16,6 +15,11 @@ export interface ActionResult {
   error?: string;
 }
 
+/**
+ * Téléversement d'UN document (action serveur historique, conservée pour compat).
+ * Le téléversement en lot / dossier passe désormais par la route `/api/documents/upload`
+ * (flux + parallèle). Les deux partagent `persistUploadedDocument`.
+ */
 export async function uploadDocument(
   _prev: ActionResult | undefined,
   formData: FormData,
@@ -36,48 +40,8 @@ export async function uploadDocument(
   }
   if (!file || file.size === 0) return { ok: false, error: "Aucun fichier sélectionné." };
 
-  const validationError = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
-  if (validationError) return { ok: false, error: validationError };
-
-  const key = `${entityType}/${entityId}/${randomUUID()}__${file.name}`;
-  try {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await saveFile(key, buffer);
-  } catch (err) {
-    // On read-only/unconfigured storage we still record metadata so the
-    // document library stays consistent; the binary can be re-attached later.
-    console.error("[upload] storage write failed, recording metadata only", err);
-  }
-
-  // Versioning: increment based on existing docs with the same name + entity.
-  const previous = await prisma.document.count({
-    where: { entityType, entityId, name: file.name },
-  });
-
-  const doc = await prisma.document.create({
-    data: {
-      name: file.name,
-      category,
-      entityType,
-      entityId,
-      stepKey,
-      fileKey: key,
-      mimeType: file.type || null,
-      sizeBytes: file.size,
-      version: previous + 1,
-      confidentiality,
-      uploadedById: user.id,
-    },
-  });
-
-  await recordAudit({
-    actorId: user.id,
-    action: "UPLOAD",
-    module: ENTITY_TYPE_LABELS[entityType] ?? ENTITY_MODULE[entityType],
-    entityType,
-    entityId,
-    summary: `Document « ${file.name} » téléversé`,
-  });
+  const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, file });
+  if (!r.ok) return r;
 
   if (path) revalidatePath(path);
   return { ok: true };

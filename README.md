@@ -303,8 +303,8 @@ Toute action sensible est **ré-autorisée côté serveur** et **journalisée**.
 - 🛡️ **En-têtes de sécurité** : CSP (`frame-ancestors`, `object-src 'none'`, `base-uri`, `form-action`), **HSTS**
   (2 ans, preload), `X-Frame-Options`, `COOP`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`.
 - 🤖 **Centre de contrôle IA** (Super Admin) : interrupteur général + activation par fonction + journal d'usage.
-- 🔢 Identifiants **cuid** non séquentiels ; upload contrôlé (extension + **taille configurable**) ; download
-  protégé par vérification d'accès.
+- 🔢 Identifiants **cuid** non séquentiels ; upload contrôlé (**exécutables bloqués** + **taille configurable**,
+  tous autres types acceptés) ; download protégé par vérification d'accès.
 
 **Parcours de première connexion** : un nouveau compte doit **définir son mot de passe**, puis suit un
 **onboarding guidé** (`/onboarding`) — coordonnées, **connexion e-mail** et **visite des onglets accessibles**
@@ -632,11 +632,17 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
 
 ### Pièces jointes (pattern standard)
 
+Téléversement **en lot** (plusieurs fichiers **ou un dossier entier**, tous types sauf exécutables,
+**sans limite de nombre**, **en parallèle**) : composant `components/documents/document-upload.tsx` →
+route en flux `POST /api/documents/upload` → `persistUploadedDocument` (`src/lib/documents.ts`), logique
+partagée avec l'action serveur historique `uploadDocument` (compat).
+
 ```ts
 const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
-// validateUpload(name, size, (await getAppSettings()).maxUploadMb) → erreur | null
-// clé : `${ENTITY}/${id}/${randomUUID()}__${name}` ; saveFile(key, buffer) en try/catch (métadonnées quand même)
-// prisma.document.create({ name, category: "OTHER", entityType, entityId, fileKey, mimeType, sizeBytes, confidentiality: "INTERNAL", uploadedById })
+// persistUploadedDocument(userId, { entityType, entityId, category, confidentiality, stepKey, file, maxUploadMb })
+//   → validateDocumentUpload(name, size, maxMb)  (bloque seulement les exécutables ; taille réglable)
+//   → clé `${ENTITY}/${id}/${randomUUID()}__${name}` ; saveFile(key, buffer) en try/catch (métadonnées quand même)
+//   → prisma.document.create({ name, category, entityType, entityId, stepKey, fileKey, mimeType, sizeBytes, version, confidentiality, uploadedById })
 ```
 Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage distinct (`putBlob`/`getBlob`/`releaseBlob`
 — blobs chiffrés dédupliqués + `FileVersion`). La fiche de paie utilise `EmployeeDocument` (blob Drive + `period`).
@@ -667,7 +673,7 @@ Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage 
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
 | **Transverse** | `lib/archive.ts` (Dossier traité), `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
-| **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès), `lib/storage.ts` (Documents), `lib/actions/drive-actions.ts`, `app/api/drive/upload/route.ts` (quotas), `components/documents/`. |
+| **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès), `lib/storage.ts` (Documents + `validateDocumentUpload`), `lib/documents.ts` (`persistUploadedDocument`), `lib/actions/drive-actions.ts` + `document-actions.ts`, `app/api/drive/upload/route.ts` (quotas) + `app/api/documents/upload/route.ts` (lot/dossier, flux, parallèle), `components/documents/`. |
 | **Admin** | `app/(app)/admin/` (`page.tsx` comptes + stockage + activité, `corbeille/`, `drive-storage-settings.tsx`, `access/`, `settings/`…), `lib/actions/admin-actions.ts`, `settings-actions.ts`. |
 | **IA / Brain** | `lib/ai.ts`, `lib/assistant.ts`, `lib/adventum/risks.ts` (+ `risk-detectors.test.ts`), `app/(app)/adventum-brain/`. |
 
@@ -1027,6 +1033,15 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot Q** — **Téléversement de documents refondu** (dossiers CTD & tous objets métier). Avant : **un** fichier à
+  la fois via action serveur (lent, re-rendu complet à chaque envoi, whitelist d'extensions restrictive → l'import
+  « s'arrêtait » au bout de quelques fichiers). Désormais : **plusieurs fichiers OU un dossier entier**
+  (`webkitdirectory`), **tous types** sauf exécutables (`validateDocumentUpload`), **sans limite de nombre**,
+  envoyés **en parallèle** (concurrence 4) via une **route en flux** `POST /api/documents/upload` (hors limite des
+  Server Actions) → **beaucoup plus rapide**, avec **file d'attente** et état par fichier (⏳/✓/✗ + réessai).
+  Logique de persistance partagée `persistUploadedDocument` (`src/lib/documents.ts`). Amélioration **transverse** :
+  le composant `DocumentUpload` est partagé par ~15 modules (Regulatory, Demandes, Dossiers, Sponsoring, Congrès,
+  Logistique, Finances, Info médicale, RH, Missions…).
 - **Lot P** — **Signature e-mail** (`MailAccount.signature`) : éditable depuis le Courrier (bouton « Signature »
   dans la barre latérale, aperçu en direct), **insérée automatiquement** en bas des nouveaux messages, réponses et
   transferts (au-dessus de la citation, curseur au début) — pas de double-ajout côté serveur. **Réunions

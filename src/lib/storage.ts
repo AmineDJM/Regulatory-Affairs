@@ -98,3 +98,25 @@ export function validateDriveUpload(
   }
   return null;
 }
+
+/**
+ * Validation des imports **Documents** (dossiers CTD, factures, pièces jointes des
+ * objets métier…). Comme le Drive : on accepte **tout type** de fichier (PDF, Word,
+ * Excel, images, archives, XML, DWG, e-CTD…) et on ne bloque que les **exécutables /
+ * scripts**. Seule la taille par fichier est plafonnée (réglable en Administration).
+ */
+export function validateDocumentUpload(
+  filename: string,
+  sizeBytes: number,
+  maxMb = Number(process.env.MAX_UPLOAD_MB ?? "25"),
+): string | null {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (BLOCKED_DRIVE_EXTENSIONS.has(ext)) {
+    return `Pour des raisons de sécurité, les fichiers exécutables (.${ext}) ne sont pas autorisés.`;
+  }
+  if (sizeBytes <= 0) return "Fichier vide.";
+  if (sizeBytes > maxMb * 1024 * 1024) {
+    return `Fichier trop volumineux (max ${maxMb} Mo).`;
+  }
+  return null;
+}
