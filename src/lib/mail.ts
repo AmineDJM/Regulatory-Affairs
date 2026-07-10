@@ -250,6 +250,51 @@ function evictColdest(exceptKey: string): void {
   }
 }
 
+/**
+ * **Disjoncteur (circuit breaker) + cache mémoire.** Solution définitive contre les
+ * blocages Infomaniak : quand le fournisseur sature (limite de connexions / IP
+ * momentanément bloquée), CONTINUER à le solliciter **prolonge et aggrave** le
+ * blocage. On ouvre donc un disjoncteur : pendant un temps de repos, on **cesse
+ * totalement** de contacter Infomaniak et on sert la boîte depuis le **dernier
+ * contenu synchronisé** (cache). L'IP « refroidit » et se débloque seule ; côté
+ * utilisateur, la boîte reste consultable en permanence.
+ */
+function isOverloadError(e: unknown): boolean {
+  const m = String((e as Error)?.message ?? "").toLowerCase();
+  return /too many|connection limit|maximum.*connection|command failed|blocked|throttl|rate|temporar|unavailable|busy|try again/.test(m);
+}
+
+let breakerUntil = 0;
+let breakerFails = 0;
+const BREAKER_THRESHOLD = Math.max(1, Number(process.env.MAIL_BREAKER_THRESHOLD ?? "3"));
+const BREAKER_COOLDOWN_MS = Number(process.env.MAIL_BREAKER_COOLDOWN_MS ?? "30000");
+export const mailBreakerRemainingMs = (): number => Math.max(0, breakerUntil - Date.now());
+function noteMailSuccess(): void { breakerFails = 0; breakerUntil = 0; }
+function noteMailFailure(e: unknown): void {
+  if (!isOverloadError(e)) return; // auth/box HS ≠ saturation IP → n'ouvre pas le disjoncteur
+  breakerFails++;
+  if (breakerFails >= BREAKER_THRESHOLD) breakerUntil = Date.now() + BREAKER_COOLDOWN_MS;
+}
+
+interface ListingCacheEntry { at: number; data: { messages: MailEnvelope[]; mailboxes?: MailboxInfo[] } }
+const listingCache = new Map<string, ListingCacheEntry>();
+const LISTING_FRESH_MS = Number(process.env.MAIL_CACHE_FRESH_MS ?? "10000");   // servi sans toucher IMAP (coalescing)
+const LISTING_STALE_MS = Number(process.env.MAIL_CACHE_STALE_MS ?? "900000");  // repli si IMAP indisponible (15 min)
+const listingKey = (email: string, mailbox: string, limit: number, withFolders: boolean, search?: string) =>
+  `${email.toLowerCase()}::${mailbox}::${limit}::${withFolders ? 1 : 0}::${search ?? ""}`;
+
+const messageCache = new Map<string, { at: number; msg: MailMessage }>();
+const MESSAGE_CACHE_MAX = 80;
+const msgKey = (email: string, mailbox: string, uid: number) => `${email.toLowerCase()}::${mailbox}::${uid}`;
+function rememberMessage(key: string, msg: MailMessage): void {
+  messageCache.set(key, { at: Date.now(), msg });
+  // LRU grossier : on borne la taille.
+  if (messageCache.size > MESSAGE_CACHE_MAX) {
+    const oldest = messageCache.keys().next().value as string | undefined;
+    if (oldest) messageCache.delete(oldest);
+  }
+}
+
 /** Ferme et retire la connexion en pool d'un compte (connexion morte / avant diagnostic). */
 function dropPooled(email: string): void {
   const key = poolKey(email);
@@ -260,9 +305,12 @@ function dropPooled(email: string): void {
   try { p.client.close(); } catch { /* déjà fermée */ }
 }
 
-/** Ferme la connexion chaude d'un compte (déconnexion / changement de mot de passe). */
+/** Ferme la connexion chaude d'un compte (déconnexion / changement de mot de passe) et purge son cache. */
 export function closeMailConnection(email: string): void {
   dropPooled(email);
+  const prefix = `${email.toLowerCase()}::`;
+  for (const k of listingCache.keys()) if (k.startsWith(prefix)) listingCache.delete(k);
+  for (const k of messageCache.keys()) if (k.startsWith(prefix)) messageCache.delete(k);
 }
 
 /** Récupère une connexion chaude (réutilisée) ou en ouvre une neuve. */
@@ -422,42 +470,88 @@ export async function listMessages(account: MailAccount, mailbox = "INBOX", limi
   return withClient(account, (c) => readEnvelopes(c, mailbox, limit));
 }
 
-/** Charge la boîte (et éventuellement les dossiers) en **une seule** connexion IMAP. */
+/**
+ * Charge la boîte (et éventuellement les dossiers) en **une seule** connexion IMAP,
+ * protégée par le **cache + disjoncteur** : sert le cache frais sans toucher
+ * Infomaniak (coalescing), NE se connecte PAS pendant le repos du disjoncteur, et
+ * retombe sur le dernier contenu synchronisé si le fournisseur est indisponible
+ * (`stale: true`) — la boîte reste toujours consultable.
+ */
 export async function loadInbox(
   account: MailAccount, mailbox = "INBOX", limit = 30, withFolders = false, search?: string,
-): Promise<{ messages: MailEnvelope[]; mailboxes?: MailboxInfo[] }> {
-  return withClient(account, async (c) => {
-    const messages = await readEnvelopes(c, mailbox, limit, search);
-    const mailboxes = withFolders ? await readBoxes(c) : undefined;
-    return { messages, mailboxes };
-  });
+): Promise<{ messages: MailEnvelope[]; mailboxes?: MailboxInfo[]; stale?: boolean; syncedAt?: number }> {
+  const key = listingKey(account.email, mailbox, limit, withFolders, search);
+  const cached = listingCache.get(key);
+  const now = Date.now();
+
+  // 1) Cache FRAIS → réponse immédiate, aucune connexion (coalescing des actions rapprochées).
+  if (cached && now - cached.at < LISTING_FRESH_MS) return { ...cached.data };
+
+  // 2) Disjoncteur ouvert → on NE contacte PAS Infomaniak ; on sert le dernier contenu connu.
+  if (mailBreakerRemainingMs() > 0) {
+    if (cached && now - cached.at < LISTING_STALE_MS) return { ...cached.data, stale: true, syncedAt: cached.at };
+    throw new Error(`command failed (pause ${Math.ceil(mailBreakerRemainingMs() / 1000)}s)`);
+  }
+
+  // 3) Tentative Infomaniak ; succès → on met en cache ; échec → repli sur le cache.
+  try {
+    const data = await withClient(account, async (c) => {
+      const messages = await readEnvelopes(c, mailbox, limit, search);
+      const mailboxes = withFolders ? await readBoxes(c) : undefined;
+      return { messages, mailboxes };
+    });
+    listingCache.set(key, { at: Date.now(), data });
+    noteMailSuccess();
+    return data;
+  } catch (e) {
+    noteMailFailure(e);
+    if (cached && Date.now() - cached.at < LISTING_STALE_MS) return { ...cached.data, stale: true, syncedAt: cached.at };
+    throw e;
+  }
 }
 
 export async function getMessage(account: MailAccount, mailbox: string, uid: number): Promise<MailMessage | null> {
-  return withClient(account, async (c) => {
-    const lock = await c.getMailboxLock(mailbox);
-    try {
-      const msg = await c.fetchOne(String(uid), { source: true, flags: true }, { uid: true });
-      if (!msg || !msg.source) return null;
-      const parsed = await simpleParser(msg.source as Buffer);
-      const from = { label: parsed.from?.value?.[0]?.name || parsed.from?.value?.[0]?.address || "", addr: parsed.from?.value?.[0]?.address || "" };
-      const toList = Array.isArray(parsed.to) ? parsed.to : parsed.to ? [parsed.to] : [];
-      const to = toList.flatMap((t) => t.value).map((v) => v.address).filter(Boolean).join(", ");
-      const ccList = Array.isArray(parsed.cc) ? parsed.cc : parsed.cc ? [parsed.cc] : [];
-      const cc = ccList.flatMap((t) => t.value).map((v) => v.address).filter(Boolean).join(", ");
-      // Marque comme lu (best-effort).
-      c.messageFlagsAdd(String(uid), ["\\Seen"], { uid: true }).catch(() => {});
-      return {
-        uid,
-        subject: parsed.subject || "(sans objet)",
-        from: from.label, fromAddr: from.addr, to, cc,
-        date: parsed.date?.toISOString() ?? null,
-        html: parsed.html || null,
-        text: parsed.text || null,
-        attachments: (parsed.attachments ?? []).map((a, i) => ({ index: i, filename: a.filename || `piece-${i + 1}`, contentType: a.contentType || "application/octet-stream", size: a.size || 0 })),
-      };
-    } finally { lock.release(); }
-  });
+  const key = msgKey(account.email, mailbox, uid);
+  // Disjoncteur ouvert → on sert le message déjà consulté (cache) sans contacter Infomaniak.
+  if (mailBreakerRemainingMs() > 0) {
+    const c = messageCache.get(key);
+    if (c) return c.msg;
+    throw new Error(`command failed (pause ${Math.ceil(mailBreakerRemainingMs() / 1000)}s)`);
+  }
+  try {
+    const msg = await withClient(account, async (c) => {
+      const lock = await c.getMailboxLock(mailbox);
+      try {
+        const m = await c.fetchOne(String(uid), { source: true, flags: true }, { uid: true });
+        if (!m || !m.source) return null;
+        const parsed = await simpleParser(m.source as Buffer);
+        const from = { label: parsed.from?.value?.[0]?.name || parsed.from?.value?.[0]?.address || "", addr: parsed.from?.value?.[0]?.address || "" };
+        const toList = Array.isArray(parsed.to) ? parsed.to : parsed.to ? [parsed.to] : [];
+        const to = toList.flatMap((t) => t.value).map((v) => v.address).filter(Boolean).join(", ");
+        const ccList = Array.isArray(parsed.cc) ? parsed.cc : parsed.cc ? [parsed.cc] : [];
+        const cc = ccList.flatMap((t) => t.value).map((v) => v.address).filter(Boolean).join(", ");
+        // Marque comme lu (best-effort).
+        c.messageFlagsAdd(String(uid), ["\\Seen"], { uid: true }).catch(() => {});
+        return {
+          uid,
+          subject: parsed.subject || "(sans objet)",
+          from: from.label, fromAddr: from.addr, to, cc,
+          date: parsed.date?.toISOString() ?? null,
+          html: parsed.html || null,
+          text: parsed.text || null,
+          attachments: (parsed.attachments ?? []).map((a, i) => ({ index: i, filename: a.filename || `piece-${i + 1}`, contentType: a.contentType || "application/octet-stream", size: a.size || 0 })),
+        } as MailMessage;
+      } finally { lock.release(); }
+    });
+    noteMailSuccess();
+    if (msg) rememberMessage(key, msg);
+    return msg;
+  } catch (e) {
+    noteMailFailure(e);
+    const c = messageCache.get(key);
+    if (c) return c.msg; // repli : message déjà consulté auparavant
+    throw e;
+  }
 }
 
 export async function getAttachment(account: MailAccount, mailbox: string, uid: number, index: number): Promise<{ filename: string; contentType: string; content: Buffer } | null> {

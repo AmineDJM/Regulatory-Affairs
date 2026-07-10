@@ -791,6 +791,13 @@ Boîte mail **par utilisateur**, connectée à la plateforme (une seule entité)
   chaudes** (`MAIL_MAX_POOL`, éviction LRU) → l'IP ne sature jamais les limites Infomaniak ; **revalidation NOOP**
   d'une connexion inactive avant réutilisation ; **réessais à back-off exponentiel** sur erreur transitoire
   (limite de connexions / IP momentanément bloquée) → l'immense majorité se résorbe sans erreur visible.
+- 🛡️ **Disjoncteur + cache (solution définitive anti-blocage)** : quand Infomaniak sature (≥ N échecs), un
+  **disjoncteur** s'ouvre et on **cesse totalement** de le solliciter pendant un temps de repos
+  (`MAIL_BREAKER_COOLDOWN_MS`) — c'est le fait d'insister qui prolonge un blocage IP ; l'IP « refroidit » et se
+  débloque seule. Pendant ce temps, la boîte est servie depuis un **cache mémoire** (dernier contenu synchronisé,
+  liste + messages déjà ouverts) → l'utilisateur **voit toujours ses mails**, avec un bandeau ambre « dernière
+  synchronisation » et **nouvelle tentative automatique**. Le cache frais (`MAIL_CACHE_FRESH_MS`) **fusionne** aussi
+  les chargements rapprochés (moins de connexions). Résultat : plus de blocage bloquant, jamais.
 - 🎨 **Thème Infomaniak exact** (scopé `.ik-mail` dans `globals.css`, couleurs kMail open-source : rose `#BC0055`
   par défaut ou bleu `#0098FF` au choix, container/statuts exacts) — boutons et états de sélection façon Infomaniak Mail.
 - Webmail **3 volets** (dossiers · liste · lecture/composition), aperçu HTML en **iframe sandbox**, **grand écran
@@ -903,6 +910,8 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `MAIL_ENCRYPTION_KEY` | ⬜ | Clé dédiée au chiffrement des mots de passe e-mail (sinon retombe sur `AUTH_SECRET`). |
 | `MAIL_MAX_CONCURRENCY` | ⬜ | Connexions IMAP simultanées **max, tous comptes** (défaut 3). ↓ si Infomaniak renvoie « command failed » sur IP partagée. |
 | `MAIL_MAX_POOL` · `MAIL_IMAP_IDLE_MS` | ⬜ | Plafond de connexions IMAP chaudes (défaut 8) · durée de maintien au chaud en ms (défaut 90000). |
+| `MAIL_BREAKER_THRESHOLD` · `MAIL_BREAKER_COOLDOWN_MS` | ⬜ | Disjoncteur mail : nb d'échecs avant ouverture (défaut 3) · temps de repos sans solliciter Infomaniak (défaut 30000 ms). |
+| `MAIL_CACHE_FRESH_MS` · `MAIL_CACHE_STALE_MS` | ⬜ | Cache boîte mail : fenêtre « frais » servie sans IMAP (défaut 10000) · repli max sur cache si saturé (défaut 900000). |
 | `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` | ⬜ | Notifications **push** (PWA Web Push). |
 
 > \* Requis **ensemble** uniquement pour activer l'édition Office. Côté **service OnlyOffice**, poser
@@ -1040,6 +1049,15 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot S** — **Anti-blocage Infomaniak définitif : disjoncteur + cache.** Complète le Lot R. Quand Infomaniak
+  sature (≥ `MAIL_BREAKER_THRESHOLD` échecs), un **disjoncteur** s'ouvre et la plateforme **arrête totalement** de
+  le contacter pendant un temps de repos (`MAIL_BREAKER_COOLDOWN_MS`) — insister aggrave/prolonge le blocage IP ;
+  au repos, l'IP se débloque seule. Pendant ce temps, la boîte est servie depuis un **cache mémoire** (dernière
+  liste synchronisée + messages déjà ouverts) → l'utilisateur **voit toujours ses mails**, bandeau ambre « dernière
+  synchronisation » + **nouvelle tentative auto**. Le **cache frais** fusionne aussi les chargements rapprochés
+  (moins de connexions). `src/lib/mail.ts` (`loadInbox`/`getMessage` cache-aware, disjoncteur), route
+  `/api/mail/messages` (`stale`/`syncedAt`), `courrier/mail-client.tsx` (bandeau + retry). Purge du cache à la
+  déconnexion de la boîte.
 - **Lot R** — **Fiabilité e-mail : fin des « command failed » à répétition.** Cause : sur l'hébergeur, **toutes** les
   boîtes sortent par la **même IP** ; Infomaniak limite les connexions IMAP **par IP** — plusieurs utilisateurs
   actifs (ou une rafale de reconnexions) saturaient l'IP → erreur en continu. Le verrou par compte existant ne

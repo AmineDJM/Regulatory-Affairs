@@ -48,6 +48,10 @@ export function MailClient({ email, signature: initialSignature }: { email: stri
   const [activeSearch, setActiveSearch] = React.useState("");
   const [unreadOnly, setUnreadOnly] = React.useState(false);
   const [accent, setAccent] = React.useState<"pink" | "blue">("pink");
+  // « stale » = boîte affichée depuis le cache (Infomaniak momentanément saturé). On ne
+  // montre pas d'erreur rouge : la boîte reste consultable et une nouvelle tentative se planifie.
+  const [stale, setStale] = React.useState<number | null>(null);
+  const retryTimer = React.useRef<number | null>(null);
 
   // Plein écran : verrouille le défilement de la page derrière + sortie au clavier (Échap).
   React.useEffect(() => {
@@ -84,17 +88,31 @@ export function MailClient({ email, signature: initialSignature }: { email: stri
 
   const loadList = React.useCallback(async (mb: string, withFolders = false, search = "") => {
     setLoadingList(true); setErr(null); setSel(null);
+    if (retryTimer.current) { clearTimeout(retryTimer.current); retryTimer.current = null; }
     try {
       const sp = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : "";
       const res = await fetch(`/api/mail/messages?mailbox=${encodeURIComponent(mb)}&limit=300${withFolders ? "&folders=1" : ""}${sp}`, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) { setErr(data.error ?? "Connexion à la boîte impossible."); setMessages([]); }
-      else { setMessages(data.messages ?? []); if (data.mailboxes) setFolders(data.mailboxes); }
-    } catch { setErr("Connexion à la boîte impossible."); }
+      if (!res.ok) { setErr(data.error ?? "Connexion à la boîte impossible."); setMessages([]); setStale(null); }
+      else {
+        setMessages(data.messages ?? []);
+        if (data.mailboxes) setFolders(data.mailboxes);
+        if (data.stale) {
+          // Infomaniak saturé : on affiche le cache et on retente automatiquement (le disjoncteur se referme seul).
+          setStale(data.syncedAt ?? Date.now());
+          retryTimer.current = window.setTimeout(() => loadList(mb, false, search), 20000);
+        } else {
+          setStale(null);
+        }
+      }
+    } catch { setErr("Connexion à la boîte impossible."); setStale(null); }
     finally { setLoadingList(false); }
   }, []);
 
   React.useEffect(() => { loadList("INBOX", true); }, [loadList]);
+
+  // Nettoyage du minuteur de nouvelle tentative (mode « cache ») à la sortie.
+  React.useEffect(() => () => { if (retryTimer.current) clearTimeout(retryTimer.current); }, []);
 
   const runSearch = () => { setActiveSearch(query); loadList(mailbox, false, query); };
   const clearSearch = () => { setQuery(""); setActiveSearch(""); loadList(mailbox); };
@@ -198,6 +216,12 @@ export function MailClient({ email, signature: initialSignature }: { email: stri
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
+          {stale && !err && (
+            <div className="m-3 flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>Serveur Infomaniak momentanément saturé — affichage de la dernière synchronisation ({new Date(stale).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}). Nouvelle tentative automatique…</span>
+            </div>
+          )}
           {err && !loadingList && <div className="m-3 flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {err}</div>}
           {loadingList ? (
             <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Chargement…</div>

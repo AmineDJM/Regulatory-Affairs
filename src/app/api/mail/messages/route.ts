@@ -17,8 +17,9 @@ export async function GET(req: NextRequest) {
   const search = req.nextUrl.searchParams.get("search")?.trim() || undefined;
   try {
     // Une seule connexion IMAP (messages + dossiers) → moins de pression sur le fournisseur.
-    const { messages, mailboxes } = await loadInbox(account, mailbox, limit, withFolders, search);
-    return NextResponse.json({ email: account.email, mailbox, messages, mailboxes });
+    // `stale` = servi depuis le cache (Infomaniak momentanément saturé) → la boîte reste consultable.
+    const { messages, mailboxes, stale, syncedAt } = await loadInbox(account, mailbox, limit, withFolders, search);
+    return NextResponse.json({ email: account.email, mailbox, messages, mailboxes, stale: stale ?? false, syncedAt });
   } catch (e) {
     console.error("[mail] list failed", e);
     return NextResponse.json({ error: friendlyMailError(e) }, { status: 502 });
