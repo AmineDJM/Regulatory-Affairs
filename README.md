@@ -786,6 +786,11 @@ Boîte mail **par utilisateur**, connectée à la plateforme (une seule entité)
 - ⚡ **Connexion IMAP réutilisée (pool par compte, `withImap`)** : la boîte reste connectée entre deux actions
   (TTL ~90 s) au lieu de se reconnecter (TLS + login) à **chaque** lecture / actualisation / ouverture — chargement
   quasi instantané, et **moins** de « too many connections » (c'est l'ouvrir/fermer en rafale qui les provoque).
+- 🧯 **Robustesse anti « command failed »** (IP partagée de l'hébergeur) : **plafond global** de connexions IMAP
+  simultanées tous comptes confondus (`MAIL_MAX_CONCURRENCY`, file d'attente au-delà) + **plafond de connexions
+  chaudes** (`MAIL_MAX_POOL`, éviction LRU) → l'IP ne sature jamais les limites Infomaniak ; **revalidation NOOP**
+  d'une connexion inactive avant réutilisation ; **réessais à back-off exponentiel** sur erreur transitoire
+  (limite de connexions / IP momentanément bloquée) → l'immense majorité se résorbe sans erreur visible.
 - 🎨 **Thème Infomaniak exact** (scopé `.ik-mail` dans `globals.css`, couleurs kMail open-source : rose `#BC0055`
   par défaut ou bleu `#0098FF` au choix, container/statuts exacts) — boutons et états de sélection façon Infomaniak Mail.
 - Webmail **3 volets** (dossiers · liste · lecture/composition), aperçu HTML en **iframe sandbox**, **grand écran
@@ -896,6 +901,8 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `ONLYOFFICE_URL` | ⬜* | URL **publique** du Document Server OnlyOffice. |
 | `ONLYOFFICE_JWT_SECRET` | ⬜* | Secret JWT **identique** à celui du Document Server. |
 | `MAIL_ENCRYPTION_KEY` | ⬜ | Clé dédiée au chiffrement des mots de passe e-mail (sinon retombe sur `AUTH_SECRET`). |
+| `MAIL_MAX_CONCURRENCY` | ⬜ | Connexions IMAP simultanées **max, tous comptes** (défaut 3). ↓ si Infomaniak renvoie « command failed » sur IP partagée. |
+| `MAIL_MAX_POOL` · `MAIL_IMAP_IDLE_MS` | ⬜ | Plafond de connexions IMAP chaudes (défaut 8) · durée de maintien au chaud en ms (défaut 90000). |
 | `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` | ⬜ | Notifications **push** (PWA Web Push). |
 
 > \* Requis **ensemble** uniquement pour activer l'édition Office. Côté **service OnlyOffice**, poser
@@ -1033,6 +1040,14 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot R** — **Fiabilité e-mail : fin des « command failed » à répétition.** Cause : sur l'hébergeur, **toutes** les
+  boîtes sortent par la **même IP** ; Infomaniak limite les connexions IMAP **par IP** — plusieurs utilisateurs
+  actifs (ou une rafale de reconnexions) saturaient l'IP → erreur en continu. Le verrou par compte existant ne
+  bornait pas la concurrence **globale**. Ajouts (`src/lib/mail.ts`) : **plafond global** de connexions IMAP
+  simultanées (`MAIL_MAX_CONCURRENCY`, défaut 3, file d'attente au-delà) · **plafond de connexions chaudes**
+  (`MAIL_MAX_POOL`, éviction LRU) · **revalidation NOOP** d'une connexion inactive avant réutilisation (plus de
+  « command failed » sur socket mort) · **réessais à back-off exponentiel** (0,4 → 0,8 → 1,6 s) sur erreur
+  transitoire. Résultat : l'écrasante majorité des aléas fournisseur se résorbent **sans erreur visible**.
 - **Lot Q** — **Téléversement de documents refondu** (dossiers CTD & tous objets métier). Avant : **un** fichier à
   la fois via action serveur (lent, re-rendu complet à chaque envoi, whitelist d'extensions restrictive → l'import
   « s'arrêtait » au bout de quelques fichiers). Désormais : **plusieurs fichiers OU un dossier entier**

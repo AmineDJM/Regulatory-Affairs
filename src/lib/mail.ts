@@ -191,10 +191,64 @@ function withAccountLock<T>(email: string, fn: () => Promise<T>): Promise<T> {
  * « too many connections » d'Infomaniak (c'est l'ouverture/fermeture en rafale qui les
  * déclenche). Sérialisé par compte : au plus une opération à la fois sur la connexion.
  */
-interface PooledConn { client: ImapFlow; idleTimer: ReturnType<typeof setTimeout> | null }
+interface PooledConn { client: ImapFlow; idleTimer: ReturnType<typeof setTimeout> | null; lastUsed: number }
 const imapPool = new Map<string, PooledConn>();
-const IMAP_IDLE_MS = 90_000;
+const IMAP_IDLE_MS = Number(process.env.MAIL_IMAP_IDLE_MS ?? "90000");
 const poolKey = (email: string) => email.toLowerCase();
+
+/**
+ * **Plafond global de connexions IMAP simultanées** (tous comptes confondus). Sur
+ * l'hébergement, TOUS les comptes sortent par la MÊME adresse IP : Infomaniak limite
+ * les connexions IMAP par IP. Sans plafond, plusieurs utilisateurs actifs en même
+ * temps (ou une rafale de reconnexions) saturent l'IP → « command failed » / IP
+ * bloquée EN CONTINU. On borne donc les opérations IMAP concurrentes ; au-delà, on
+ * attend un créneau (file d'attente). Réglable via `MAIL_MAX_CONCURRENCY`.
+ */
+const MAIL_MAX_CONCURRENCY = Math.max(1, Number(process.env.MAIL_MAX_CONCURRENCY ?? "3"));
+let activeImap = 0;
+const imapWaiters: Array<() => void> = [];
+function acquireSlot(): Promise<void> {
+  if (activeImap < MAIL_MAX_CONCURRENCY) { activeImap++; return Promise.resolve(); }
+  return new Promise<void>((resolve) => imapWaiters.push(resolve));
+}
+function releaseSlot(): void {
+  const next = imapWaiters.shift();
+  if (next) next(); // transfert du créneau au suivant (activeImap inchangé)
+  else activeImap = Math.max(0, activeImap - 1);
+}
+async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
+  await acquireSlot();
+  try { return await fn(); } finally { releaseSlot(); }
+}
+
+// Plafond du nombre de connexions **chaudes** gardées ouvertes (sockets sur l'IP
+// partagée) : au-delà, on ferme la moins récemment utilisée. Réglable via MAIL_MAX_POOL.
+const MAIL_MAX_POOL = Math.max(1, Number(process.env.MAIL_MAX_POOL ?? "8"));
+// Une connexion réutilisée restée inactive plus longtemps que ce seuil est revalidée (NOOP).
+const IMAP_REVALIDATE_MS = 15_000;
+
+/** Attente exponentielle (avec gigue) entre deux tentatives IMAP. */
+function imapBackoff(attempt: number): Promise<void> {
+  const ms = Math.min(4000, 400 * 2 ** attempt) + Math.floor(Math.random() * 200);
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Ferme la connexion chaude la moins récemment utilisée tant que le pool dépasse le plafond. */
+function evictColdest(exceptKey: string): void {
+  while (imapPool.size >= MAIL_MAX_POOL) {
+    let coldKey: string | null = null;
+    let coldest = Infinity;
+    for (const [k, p] of imapPool) {
+      if (k === exceptKey) continue;
+      if (p.lastUsed < coldest) { coldest = p.lastUsed; coldKey = k; }
+    }
+    if (!coldKey) break;
+    const p = imapPool.get(coldKey);
+    if (p?.idleTimer) clearTimeout(p.idleTimer);
+    imapPool.delete(coldKey);
+    try { p?.client.close(); } catch { /* déjà fermée */ }
+  }
+}
 
 /** Ferme et retire la connexion en pool d'un compte (connexion morte / avant diagnostic). */
 function dropPooled(email: string): void {
@@ -217,15 +271,24 @@ async function acquirePooled(account: { email: string; passwordEnc: string; imap
   const existing = imapPool.get(key);
   if (existing) {
     if (existing.idleTimer) { clearTimeout(existing.idleTimer); existing.idleTimer = null; }
-    if (existing.client.usable) return existing.client; // réutilisation → pas de reconnexion
-    dropPooled(account.email); // connexion inutilisable : on repart de zéro
+    if (existing.client.usable) {
+      // Réutilisation immédiate si récente ; sinon on revalide (NOOP) pour ne pas
+      // surfacer un « command failed » sur une connexion morte côté serveur.
+      if (Date.now() - existing.lastUsed < IMAP_REVALIDATE_MS) return existing.client;
+      try { await existing.client.noop(); existing.lastUsed = Date.now(); return existing.client; }
+      catch { dropPooled(account.email); }
+    } else {
+      dropPooled(account.email); // connexion inutilisable : on repart de zéro
+    }
   }
+  // Respecte le plafond de connexions chaudes (ferme la plus ancienne au besoin).
+  evictColdest(key);
   const c = imapClient(account);
   // Un listener 'error' évite que l'événement 'error' d'ImapFlow ne fasse planter le process.
   c.on("error", () => {});
   c.on("close", () => { const p = imapPool.get(key); if (p && p.client === c) imapPool.delete(key); });
   await c.connect();
-  imapPool.set(key, { client: c, idleTimer: null });
+  imapPool.set(key, { client: c, idleTimer: null, lastUsed: Date.now() });
   return c;
 }
 
@@ -234,6 +297,7 @@ function keepWarm(email: string): void {
   const key = poolKey(email);
   const p = imapPool.get(key);
   if (!p) return;
+  p.lastUsed = Date.now();
   if (p.idleTimer) clearTimeout(p.idleTimer);
   p.idleTimer = setTimeout(() => {
     const cur = imapPool.get(key);
@@ -255,9 +319,11 @@ function keepWarm(email: string): void {
 function withImap<T>(
   account: { email: string; passwordEnc: string; imapHost: string; imapPort: number },
   fn: (c: ImapFlow) => Promise<T>,
-  retries = 1,
+  retries = 3,
 ): Promise<T> {
-  return withAccountLock(account.email, async () => {
+  // Sérialisé par compte (≤1 op/compte) PUIS borné globalement (≤N ops toutes boîtes
+  // confondues, cf. plafond de l'IP partagée).
+  return withAccountLock(account.email, () => withSlot(async () => {
     let lastErr: unknown;
     for (let attempt = 0; attempt <= retries; attempt++) {
       let c: ImapFlow;
@@ -266,7 +332,7 @@ function withImap<T>(
       } catch (e) {
         lastErr = e;
         dropPooled(account.email);
-        if (attempt < retries && isTransientMailError(e)) { await new Promise((r) => setTimeout(r, 500 * (attempt + 1))); continue; }
+        if (attempt < retries && isTransientMailError(e)) { await imapBackoff(attempt); continue; }
         throw e;
       }
       try {
@@ -276,12 +342,12 @@ function withImap<T>(
       } catch (e) {
         lastErr = e;
         dropPooled(account.email); // opération en échec : la connexion est douteuse, on la ferme
-        if (attempt < retries && isTransientMailError(e)) { await new Promise((r) => setTimeout(r, 500 * (attempt + 1))); continue; }
+        if (attempt < retries && isTransientMailError(e)) { await imapBackoff(attempt); continue; }
         throw e;
       }
     }
     throw lastErr;
-  });
+  }));
 }
 
 // Alias historique (mêmes garanties, désormais sérialisé par compte).
