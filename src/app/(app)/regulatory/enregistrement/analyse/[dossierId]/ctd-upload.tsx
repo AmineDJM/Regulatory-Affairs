@@ -79,6 +79,7 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
 
   async function sendResumable(file: File) {
     setPhase("uploading"); setProgress(0); setError(null); setSummary(null); setFileName(file.name);
+    let cleanupSessionId: string | null = null;
     try {
       // Ouverture de session avec délai de garde → jamais bloqué à 0 % si le serveur ne répond pas.
       const ctrl = new AbortController();
@@ -96,6 +97,7 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       const meta = await open.json();
       if (!open.ok) throw new Error(meta.error ?? "Ouverture de session refusée.");
       const { sessionId, partSize, expectedParts } = meta as { sessionId: string; partSize: number; expectedParts: number };
+      cleanupSessionId = sessionId; // à libérer si l'envoi échoue → pas de session fantôme
 
       // Progression RÉELLE au niveau octet, agrégée sur toutes les parties en vol → la barre
       // avance dès les premiers octets (plus d'attente « 0 % » jusqu'à la fin d'une partie).
@@ -154,6 +156,8 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
       router.refresh();
     } catch (e) {
+      // Best-effort : libère la session pour ne pas bloquer les envois suivants (« trop d'envois »).
+      if (cleanupSessionId) void fetch(`/api/regulatory/intelligence/upload/session/${cleanupSessionId}`, { method: "DELETE" }).catch(() => undefined);
       setPhase("error"); setError(e instanceof Error ? e.message : "Échec du téléversement résumable.");
     }
   }

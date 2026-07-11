@@ -64,6 +64,27 @@ async function orgUsageBytes(companyId: string): Promise<number> {
   return (versions._sum.totalBytes ?? 0) + inFlight;
 }
 
+/**
+ * Récupère les sessions FANTÔMES avant d'ouvrir un nouvel envoi (sinon un échec précédent laisse
+ * une session « UPLOADING » qui compte à tort dans la limite de concurrence → « trop d'envois »).
+ * Abandonne : (1) tout envoi incomplet du MÊME dossier (le nouvel envoi le remplace) ; (2) les
+ * envois de l'org SANS activité récente (dernière partie — ou création si aucune — trop ancienne).
+ */
+async function reapOrphanSessions(companyId: string, dossierId: string): Promise<void> {
+  const reapMs = Number(process.env.REG_UPLOAD_REAP_MIN ?? 15) * 60_000;
+  const cutoff = new Date(Date.now() - reapMs);
+  const sessions = await prisma.regulatoryUploadSession.findMany({
+    where: { companyId, status: { in: ["UPLOADING", "FINALIZING"] } },
+    select: { id: true, dossierId: true, createdAt: true, parts: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 } },
+  });
+  const toAbort = sessions
+    .filter((s) => s.dossierId === dossierId || (s.parts[0]?.createdAt ?? s.createdAt) < cutoff)
+    .map((s) => s.id);
+  if (toAbort.length === 0) return;
+  await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: { in: toAbort } } });
+  await prisma.regulatoryUploadSession.updateMany({ where: { id: { in: toAbort } }, data: { status: "ABORTED", error: "Envoi remplacé ou abandonné (nettoyage automatique)." } });
+}
+
 /** Ouvre une session d'upload résumable (quota + concurrence + type contrôlés). */
 export async function startUploadSession(opts: {
   companyId: string; dossierId: string; createdById: string; filename: string; contentType?: string | null;
@@ -77,6 +98,8 @@ export async function startUploadSession(opts: {
   const dossier = await prisma.regulatoryDossier.findFirst({ where: { id: opts.dossierId, companyId: opts.companyId }, select: { id: true } });
   if (!dossier) return { ok: false, error: "Dossier introuvable." };
 
+  // Nettoie les sessions fantômes (échecs précédents) AVANT de compter les envois actifs.
+  await reapOrphanSessions(opts.companyId, opts.dossierId);
   const active = await prisma.regulatoryUploadSession.count({ where: { companyId: opts.companyId, status: "UPLOADING" } });
   if (active >= MAX_ACTIVE_SESSIONS_PER_ORG) return { ok: false, error: `Trop d'envois simultanés (max ${MAX_ACTIVE_SESSIONS_PER_ORG}). Terminez ou abandonnez un envoi en cours.` };
 

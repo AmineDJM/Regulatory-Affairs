@@ -116,4 +116,23 @@ describe("upload résumable — flux complet", () => {
     const session = await prisma.regulatoryUploadSession.findUnique({ where: { id: start.sessionId! }, select: { status: true } });
     expect(session?.status).toBe("ABORTED");
   });
+
+  it("récupère les sessions fantômes au lieu de bloquer (« trop d'envois »)", async () => {
+    // Simule 3 échecs précédents : 3 sessions « UPLOADING » laissées pour ce dossier (= la limite).
+    for (let k = 0; k < 3; k++) {
+      await prisma.regulatoryUploadSession.create({
+        data: { companyId, dossierId, createdById: "u", filename: `orphan-${k}.zip`, totalBytes: BigInt(1000), partSize: 1024, status: "UPLOADING" },
+      });
+    }
+    expect(await prisma.regulatoryUploadSession.count({ where: { dossierId, status: "UPLOADING" } })).toBe(3);
+
+    // Nouvel envoi pour le MÊME dossier → réussit (fantômes récupérés), pas « trop d'envois ».
+    const start = await startUploadSession({ companyId, dossierId, createdById: "u", filename: "fresh.zip", totalBytes: 2048, partSize: 1024 });
+    expect(start.ok).toBe(true);
+    expect(start.error).toBeUndefined();
+
+    // Les orphelines sont abandonnées ; seule la nouvelle session reste active.
+    expect(await prisma.regulatoryUploadSession.count({ where: { dossierId, status: "UPLOADING" } })).toBe(1);
+    expect(await prisma.regulatoryUploadSession.count({ where: { dossierId, status: "ABORTED" } })).toBeGreaterThanOrEqual(3);
+  });
 });
