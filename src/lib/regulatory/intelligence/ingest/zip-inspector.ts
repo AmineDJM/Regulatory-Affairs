@@ -26,17 +26,20 @@ export interface ZipLimits {
   maxDepth: number; // profondeur d'arborescence
 }
 
-// Défauts PRUDENTS (l'upload est bufferisé en mémoire avant contrôle) : pic mémoire ≈ archive
-// + plus gros fichier décompressé. Réglables à la hausse par variables d'env si l'hôte a la RAM
-// (REG_ZIP_MAX_ARCHIVE_MB, REG_ZIP_MAX_TOTAL_MB, REG_ZIP_MAX_FILE_MB…). 300 Mo compressés = un
-// très gros dossier CTD (PDF compressent bien).
+// Plafonds de TAILLE volontairement LARGES (gros dossiers CTD réels : plusieurs centaines de Mo).
+// Ces défauts pilotent en un seul point le contrôle d'archive (route directe + session résumable
+// + inspecteur) — voir `MAX_TOTAL_BYTES` (session) aligné dessus. Tout reste réglable par variables
+// d'env : à la HAUSSE si l'hôte a la RAM (l'archive est inspectée en mémoire → pic ≈ archive + plus
+// gros fichier ; prévoir une instance dimensionnée), ou à la BAISSE pour re-durcir.
+// Les gardes anti ZIP-bomb (ratio de compression, profondeur, nombre d'entrées) restent actives :
+// elles protègent contre l'abus SANS brider la taille d'un dossier légitime.
 export const DEFAULT_ZIP_LIMITS: ZipLimits = {
-  maxArchiveBytes: Number(process.env.REG_ZIP_MAX_ARCHIVE_MB ?? "300") * MB,
-  maxEntries: Number(process.env.REG_ZIP_MAX_ENTRIES ?? "5000"),
-  maxTotalUncompressed: Number(process.env.REG_ZIP_MAX_TOTAL_MB ?? "1200") * MB,
-  maxFileUncompressed: Number(process.env.REG_ZIP_MAX_FILE_MB ?? "200") * MB,
-  maxRatio: Number(process.env.REG_ZIP_MAX_RATIO ?? "200"),
-  maxDepth: Number(process.env.REG_ZIP_MAX_DEPTH ?? "12"),
+  maxArchiveBytes: Number(process.env.REG_ZIP_MAX_ARCHIVE_MB ?? "4096") * MB, // 4 Go compressés
+  maxEntries: Number(process.env.REG_ZIP_MAX_ENTRIES ?? "50000"),
+  maxTotalUncompressed: Number(process.env.REG_ZIP_MAX_TOTAL_MB ?? "16384") * MB, // 16 Go décompressés
+  maxFileUncompressed: Number(process.env.REG_ZIP_MAX_FILE_MB ?? "4096") * MB, // 4 Go / fichier
+  maxRatio: Number(process.env.REG_ZIP_MAX_RATIO ?? "500"),
+  maxDepth: Number(process.env.REG_ZIP_MAX_DEPTH ?? "16"),
 };
 
 export type SecurityStatus =
