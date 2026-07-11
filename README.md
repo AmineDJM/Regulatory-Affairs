@@ -1049,6 +1049,41 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Regulatory Intelligence OS — capacités centrales (G1→G14, au-delà de la fondation).** La fondation
+  « Secure CTD Intake » (ci-dessous, phases 0→6) est conservée ; ce lot livre les **critères d'acceptation**
+  du Regulatory Intelligence OS, chacun vérifié (tsc + tests + build), org-scopé, audité, avec **statut réel /
+  simulé / restant** explicité :
+  - **Jumeau numérique sourcé (G1)** : ~30 faits réglementaires (`RegulatoryFact` + occurrences avec document/
+    section/extrait exact/confiance/méthode/statut humain) ; écran de revue/approbation.
+  - **Détection de conflits (G2)** : comparaison des occurrences d'un même fait entre documents → `RegulatoryConflict`
+    (valeurs concurrentes, criticité, action, valeur finale approuvée).
+  - **Corpus versionné (G3)** + **RAG réel (G4)** : `RegulatorySource/Version/Section/CorpusApproval` administrables
+    (import/approuver/activer/retirer) ; recherche **FTS `french` + trigram `pg_trgm`** sur le corpus **ACTIF** avec
+    **citations exactes** (pgvector indisponible ici → socle prêt pour embeddings). Sans source active :
+    « EXIGENCE NON CONFIRMÉE — REVUE HUMAINE REQUISE ».
+  - **Moteur de règles administrable (G5)** : `RegulatoryRulePack`/`RegulatoryRule` versionnés, testables (cas golden),
+    sourçables ; 8 rule packs ANPP amorçables ; **repli** sur les profils codés tant qu'aucun pack actif (aucune régression).
+  - **14 agents spécialisés (G6)** : prompt versionné, périmètre limité, **Zod**, sources autorisées, **citations RAG**,
+    **abstention** (aucune source active → pas d'invention), tests golden ; orchestrateur + panneau à la demande.
+  - **Comparaison V1/V2 (G7)** : fichiers inchangés/ajoutés/supprimés/remplacés (chemin + SHA-256), diff de faits.
+  - **Boucle fournisseur (G8)** : questions + **BROUILLON** d'e-mail (IA ou modèle, **jamais envoyé auto**), échéance,
+    statut, relance, historique.
+  - **Réserves ANPP (G9)** : lettre → **OCR réel** → décomposition en points (verbatim) → catégorisation → réponse
+    proposée → **approbation** → multi-cycles.
+  - **Génération documentaire (G10)** : 10 templates `.docx` versionnés (pizzip + docxtemplater), données du
+    **jumeau APPROUVÉ uniquement** (non approuvé → « [À COMPLÉTER] »).
+  - **Reviewer Simulator (G11)** : stress test 10 perspectives — **simulation interne NON prédictive**.
+  - **OCR RÉEL (G13)** : tesseract.js + mupdf (rastérisation PDF) + sharp, données de langue **locales** fr/en/ar
+    (paquets npm, hors-ligne) ; texte + confiance par page, natif vs OCR séparés, pages faibles → revue humaine.
+    Mesuré : image ~0,4 s ; page PDF ~0,7 s ; confiance 90-94 %.
+  - **Upload résumable (G14)** : session + parties (chemin d'upload borné à **une partie** en RAM), reprise,
+    vérif taille + **SHA-256**, finalisation explicite (assemblage en flux), quotas org, concurrence, nettoyage.
+    Charge mesurée (RSS) : 50/150/300 Mo — pic UPLOAD ≈ une partie ; pic FINALISATION croît avec la taille.
+  - **Lifecycle (G12)** : chronologie (soumission/séquences/modifications/renouvellements/version approuvée),
+    opérations NEW/REPLACE/DELETE/APPEND, **analyse d'impact déterministe**, obligations & certificats expirants.
+  - Réalités infra assumées : stockage = **blobs Postgres chiffrés** (pas S3) ; IA = **opt-in sur clé** (abstention
+    honnête sinon, aucune simulation). Code : `src/lib/regulatory/intelligence/{twin,corpus,rules,agents,diff,ocr,
+    upload,docgen,reserves,supplier,simulator,lifecycle}` ; admin corpus/règles `src/app/(app)/admin/regulatory-corpus/`.
 - **Regulatory Intelligence OS** — **analyseur de dossier CTD (phases 0→6).** Onglet **Analyse CTD**
   sous Regulatory → Enregistrement, débloqué **par organisation** par le Super Admin
   (`RegulatoryFeatureAccess`, bascule dans Administration → Réglages). Circuit : dépôt d'un **dossier CTD

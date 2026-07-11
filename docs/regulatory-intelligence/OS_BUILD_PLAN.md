@@ -5,6 +5,10 @@ Ce plan couvre les **capacités centrales restantes** (critères d'acceptation),
 phases G1→G14 — chacune vérifiée (tsc + tests + build), org-scopée, auditée, avec statut réel /
 simulé / restant explicité (voir §15 du brief).
 
+> **STATUT : G1→G14 LIVRÉES.** Les 15 points du mandat sont implémentés, testés et poussés.
+> Voir le rapport §15 (réel / simulé / restant / tests / limites / perf / validations humaines)
+> dans le journal du README et les messages de commit `Regulatory Intelligence OS — G1..G14`.
+
 ## Réalité d'infrastructure (vérifiée)
 - **pgvector indisponible** dans ce Postgres → le RAG utilise **FTS `french` + `pg_trgm`** (réel).
   Le schéma reste prêt pour un embedding provider ultérieur (Anthropic n'expose pas d'embeddings).
