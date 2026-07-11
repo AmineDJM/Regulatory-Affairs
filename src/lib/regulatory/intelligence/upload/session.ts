@@ -19,10 +19,10 @@ import { regAudit } from "../audit";
  */
 
 const MB = 1024 * 1024;
-// Parties de 8 Mo : premières briques envoyées vite + mémoire modérée (client : concurrence ×
-// 8 Mo). Combiné à l'envoi PARALLÈLE côté client (pool borné) et à la progression d'octets réelle,
-// remplit le lien montant sans laisser la barre figée. Réglable (REG_UPLOAD_PART_MB), borné à 32 Mo.
-export const DEFAULT_PART_SIZE = Number(process.env.REG_UPLOAD_PART_MB ?? 8) * MB;
+// Parties de 4 Mo : chaque requête reste COURTE → termine bien avant tout délai de garde d'un
+// proxy/hébergeur (une partie de 8 Mo sur un lien lent partagé entre 3 envois peut être réinitialisée
+// → « réseau »), retentes plus rapides, mémoire réduite. Réglable (REG_UPLOAD_PART_MB), borné à 32 Mo.
+export const DEFAULT_PART_SIZE = Number(process.env.REG_UPLOAD_PART_MB ?? 4) * MB;
 export const SMALL_FILE_THRESHOLD = Number(process.env.REG_UPLOAD_SMALL_MB ?? 12) * MB; // en-deçà : route directe
 export const MAX_TOTAL_BYTES = DEFAULT_ZIP_LIMITS.maxArchiveBytes; // aligné sur la limite d'archive
 export const MAX_ACTIVE_SESSIONS_PER_ORG = Number(process.env.REG_UPLOAD_MAX_ACTIVE ?? 3);

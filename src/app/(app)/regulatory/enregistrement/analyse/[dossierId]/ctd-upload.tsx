@@ -110,23 +110,28 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       let cursor = 0;
       let aborted = false;
 
+      // Chaque partie est réessayée plusieurs fois avec backoff exponentiel → survit aux coupures
+      // réseau passagères et à un bref redémarrage serveur. Idempotent (upsert par index côté serveur).
+      const MAX_ATTEMPTS = 6;
       const putPart = async (i: number): Promise<void> => {
         const slice = file.slice(i * partSize, Math.min((i + 1) * partSize, file.size));
         const buf = await slice.arrayBuffer();
         let lastErr = "";
-        for (let attempt = 0; attempt < 4; attempt++) {
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
           if (aborted) return;
           try {
+            // Délai de garde 90 s (< délai proxy usuel 100 s) → on retente proprement au lieu d'un reset.
             await putPartXhr(
               `/api/regulatory/intelligence/upload/session/${sessionId}/part?index=${i}`,
-              buf, (l) => { loaded[i] = l; refresh(); }, 120_000,
+              buf, (l) => { loaded[i] = l; refresh(); }, 90_000,
             );
             loaded[i] = buf.byteLength; refresh();
             return;
           } catch (e) {
             loaded[i] = 0; refresh(); // une tentative échouée ne compte pas
             lastErr = e instanceof Error ? e.message : "échec";
-            if (!aborted) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+            // Backoff exponentiel plafonné : 0,5s → 1s → 2s → 4s → 8s (fenêtre de reprise ~15 s/partie).
+            if (!aborted && attempt < MAX_ATTEMPTS - 1) await new Promise((r) => setTimeout(r, Math.min(500 * 2 ** attempt, 16_000)));
           }
         }
         throw new Error(`Échec de la partie ${i + 1}/${expectedParts} (${lastErr}).`);
