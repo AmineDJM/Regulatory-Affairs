@@ -1049,6 +1049,27 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Regulatory Intelligence OS** — **analyseur de dossier CTD (phases 0→6).** Onglet **Analyse CTD**
+  sous Regulatory → Enregistrement, débloqué **par organisation** par le Super Admin
+  (`RegulatoryFeatureAccess`, bascule dans Administration → Réglages). Circuit : dépôt d'un **dossier CTD
+  en ZIP** → **inspection sécurisée** (anti ZIP-bomb, path traversal, exécutables/macros refusés, chemins
+  vérifiés) → chaque fichier **conservé chiffré** (blob SHA-256), **archive originale figée** → **extraction
+  de texte** (txt/docx/xlsx ; PDF via pdf-parse ; scans → OCR requis) + **détection MIME** (octets magiques)
+  → **classification CTD déterministe** (module 1 Algérie + 2-5 ICH ; code/mots-clés/module, avec évidence)
+  + **nom de fichier proposé** → **moteur de règles déterministe** : complétude par type de procédure,
+  **bloqueurs critiques** (section obligatoire manquante, dossier vide), **jamais de fausse conformité**
+  (un score élevé ne rachète pas un bloqueur) → **constats** (sécurité/complétude/extraction/classification)
+  + **bilan de conformité** → **revue IA optionnelle** (fond/forme) **encadrée** : sortie **validée par Zod**,
+  **anti-injection de prompt**, statut **PROJET — REVUE HUMAINE REQUISE**, **jamais bloquante**, active
+  seulement si `ANTHROPIC_API_KEY` (aucune simulation sinon) → **revue humaine** (constat pris en compte /
+  résolu / **levé avec justification** par un rôle d'approbation ; nom proposé **approuvé**) → **porte de
+  soumission** (« prêt pour revue »/« soumis » **verrouillés** tant qu'un bloqueur reste ouvert). Traitement
+  **asynchrone Node-first** (`RegulatoryJob` + runner : verrou, reprise, lots, réessais) branché sur le
+  planificateur interne (+ déclenchement immédiat après upload). Tout est **org-scopé**, **audité**
+  (`RegulatoryAuditLog`), **testé** (inspecteur ZIP, ingestion, extraction, MIME, classification golden,
+  moteur de règles, agent IA, porte de soumission). Cartographie détaillée : `docs/regulatory-intelligence/`.
+  Code : `src/lib/regulatory/intelligence/` (`access`, `ingest`, `extract`, `ctd`, `rules`, `twin`, `agents`,
+  `jobs`, `lifecycle`) + workspace `src/app/(app)/regulatory/enregistrement/analyse/`.
 - **Lot T** — **Regulatory : Enregistrement ANPP (phase 1 — base de connaissance + expertise du bot).**
   **Base de connaissance réglementaire** algérienne intégrée (`src/lib/regulatory/anpp-knowledge.ts`) : droits
   d'enregistrement (bordereaux de versement), délais légaux par phase, pièces, **dossier CTD (5 modules ICH)**,

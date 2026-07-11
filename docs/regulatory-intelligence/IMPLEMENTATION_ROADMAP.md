@@ -5,6 +5,18 @@
 ## Règle de « fait »
 Une capacité n'est « terminée » que si : persistée · protégée par RBAC (rôles secondaires inclus) · isolée par organisation · tracée à l'audit · testée · réellement fonctionnelle (pas seulement visuelle) · sans donnée fictive.
 
+## État d'avancement (implémenté)
+Livré et vérifié (tsc + tests + build verts, RBAC + org-scope + audit + DRAFT respectés, sans donnée fictive) :
+- **Phase 1.a** ✅ accès (`RegulatoryFeatureAccess` par organisation + 26 permissions `regulatory.*` rôle principal/secondaire) + inspecteur ZIP sécurisé (anti-bombe/traversal/exécutables).
+- **Phase 1.b** ✅ ingestion (inspection → blobs chiffrés SHA-256 → manifeste, archive originale figée, rollback), route d'upload en flux (garde mémoire), workspace (liste/détail/manifeste/versions/audit), toggle Super Admin par entité, cascade + libération des blobs.
+- **Phase 2** ✅ extraction texte (txt/docx/xlsx ; PDF via pdf-parse ; scans → OCR_REQUIRED) + détection MIME (octets magiques) + runner Node-first (verrou, reprise, lots, réessais) branché sur le planificateur.
+- **Phase 3** ✅ taxonomie CTD (M1 Algérie + M2-M5 ICH) + classification déterministe (code/​mots-clés/module, évidence) + nom de fichier proposé.
+- **Phase 4** ✅ jumeau numérique (couverture CTD) + moteur de règles déterministe (complétude, bloqueurs critiques, **pas de fausse conformité**) + constats + bilan (`RegulatoryFinding`/`RegulatoryAssessment`).
+- **Phase 5** ✅ agent de revue IA (Zod, anti-injection, DRAFT, non bloquant, appel injectable) — actif uniquement si `ANTHROPIC_API_KEY` (sinon aucune simulation).
+- **Phase 6** ✅ revue humaine des constats (lever un bloqueur = approbation + justification), approbation du nom proposé, relance d'analyse, **porte de soumission** (verrou tant qu'un bloqueur est ouvert), journal d'audit.
+
+**Reste à approfondir** (au-delà du socle livré) : OCR réel branché (clé/coût fournisseur), extraction faits sourcés + détection de conflits (Phase 4 « Digital Twin » avancé), corpus versionné + RAG (Phase 6 brief), boucle fournisseur/portail e-mails (Phase 8), génération de documents OnlyOffice (Phase 9), golden dataset étendu.
+
 ## Phase 0 — Audit ✅ (ce lot)
 Docs `CURRENT_STATE_AUDIT`, `GAP_ANALYSIS`, `TARGET_ARCHITECTURE`, `IMPLEMENTATION_ROADMAP`, `SECURITY_RISK_ASSESSMENT`. Aucun changement de comportement runtime.
 
