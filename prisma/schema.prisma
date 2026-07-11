@@ -3777,10 +3777,11 @@ model RegulatoryDossier {
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
-  versions      RegulatoryDossierVersion[]
-  jobs          RegulatoryJob[]
-  auditLogs     RegulatoryAuditLog[]
-  reserveCycles RegulatoryReserveCycle[]
+  versions         RegulatoryDossierVersion[]
+  jobs             RegulatoryJob[]
+  auditLogs        RegulatoryAuditLog[]
+  reserveCycles    RegulatoryReserveCycle[]
+  supplierRequests RegulatorySupplierRequest[]
 
   @@index([companyId])
   @@index([productId])
@@ -4349,4 +4350,52 @@ model RegulatorySimulation {
   dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
 
   @@index([dossierVersionId])
+}
+
+enum RegSupplierStatus {
+  DRAFT
+  SENT
+  RESPONDED
+  CLOSED
+}
+
+/// BOUCLE FOURNISSEUR (G8) — demande de compléments au fournisseur : tableau de questions,
+/// BROUILLON d'e-mail (l'IA ne crée qu'un brouillon ; l'envoi reste une action humaine),
+/// échéance, réponse, relance, historique. Rattachée au dossier.
+model RegulatorySupplierRequest {
+  id            String            @id @default(cuid())
+  dossierId     String
+  supplierName  String?
+  supplierEmail String?
+  subject       String
+  emailDraft    String? // brouillon (IA ou modèle) — jamais envoyé automatiquement
+  status        RegSupplierStatus @default(DRAFT)
+  deadline      DateTime?
+  createdById   String
+  sentAt        DateTime?
+  remindedAt    DateTime?
+  respondedAt   DateTime?
+  responseNote  String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  dossier   RegulatoryDossier            @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  questions RegulatorySupplierQuestion[]
+
+  @@index([dossierId])
+}
+
+/// Une question posée au fournisseur (+ réponse reçue).
+model RegulatorySupplierQuestion {
+  id        String   @id @default(cuid())
+  requestId String
+  ordinal   Int      @default(0)
+  question  String
+  answer    String?
+  answered  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  request RegulatorySupplierRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
 }
