@@ -110,32 +110,39 @@ export async function putUploadPart(opts: { sessionId: string; companyId: string
   if (sizeErr) return { ok: false, error: sizeErr };
 
   const sha = createHash("sha256").update(opts.data).digest("hex");
-  await prisma.regulatoryUploadPart.upsert({
-    where: { sessionId_index: { sessionId: session.id, index: opts.index } },
-    create: { sessionId: session.id, index: opts.index, size: opts.data.length, sha256: sha, data: opts.data },
-    update: { size: opts.data.length, sha256: sha, data: opts.data },
-  });
-
-  // Recalcule les octets reçus depuis les parties (robuste aux ré-envois).
-  const agg = await prisma.regulatoryUploadPart.aggregate({ where: { sessionId: session.id }, _sum: { size: true }, _count: true });
-  const receivedBytes = agg._sum.size ?? 0;
-  if (receivedBytes > totalBytes) return { ok: false, error: "Octets reçus supérieurs à la taille annoncée." };
-  await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { receivedBytes: BigInt(receivedBytes) } });
-  return { ok: true, receivedBytes, storedParts: agg._count };
+  // Stockage MINIMAL : un seul upsert (idempotent par index → reprise/retente). PAS d'agrégat ni
+  // de mise à jour de la session ici. Sous forte concurrence avec un pool de connexions limité
+  // (défaut Prisma = CPUs×2+1, souvent 3), l'agrégat + la mise à jour de la MÊME ligne de session
+  // épuisaient le pool / créaient de la contention → HTTP 500. `receivedBytes` est recalculé à la
+  // demande (uploadSessionStatus) et fixé à la finalisation. On n'échoue jamais par exception :
+  // toute erreur DB devient un statut réessayable.
+  try {
+    await prisma.regulatoryUploadPart.upsert({
+      where: { sessionId_index: { sessionId: session.id, index: opts.index } },
+      create: { sessionId: session.id, index: opts.index, size: opts.data.length, sha256: sha, data: opts.data },
+      update: { size: opts.data.length, sha256: sha, data: opts.data },
+    });
+  } catch (err) {
+    console.error("[reg-upload] putUploadPart — échec stockage", { sessionId: opts.sessionId, index: opts.index, message: err instanceof Error ? err.message : String(err) });
+    return { ok: false, error: "Stockage de la partie momentanément indisponible — réessai." };
+  }
+  return { ok: true };
 }
 
 /** État d'une session (pour la reprise : quelles parties sont déjà reçues). */
 export async function uploadSessionStatus(sessionId: string, companyId: string): Promise<StatusResult> {
   const session = await prisma.regulatoryUploadSession.findFirst({
-    where: { id: sessionId, companyId }, select: { status: true, totalBytes: true, receivedBytes: true, partSize: true, parts: { select: { index: true }, orderBy: { index: "asc" } } },
+    where: { id: sessionId, companyId }, select: { status: true, totalBytes: true, partSize: true, parts: { select: { index: true, size: true }, orderBy: { index: "asc" } } },
   });
   if (!session) return { ok: false, error: "Session introuvable." };
   const totalBytes = Number(session.totalBytes);
   const expectedParts = expectedPartsFor(totalBytes, session.partSize);
   const receivedIndices = session.parts.map((p) => p.index);
+  // Octets reçus recalculés depuis les parties (le champ session n'est plus maintenu par partie).
+  const receivedBytes = session.parts.reduce((s, p) => s + p.size, 0);
   return {
-    ok: true, status: session.status, totalBytes, receivedBytes: Number(session.receivedBytes),
-    expectedParts, receivedIndices, complete: receivedIndices.length === expectedParts && Number(session.receivedBytes) === totalBytes,
+    ok: true, status: session.status, totalBytes, receivedBytes,
+    expectedParts, receivedIndices, complete: receivedIndices.length === expectedParts && receivedBytes === totalBytes,
   };
 }
 

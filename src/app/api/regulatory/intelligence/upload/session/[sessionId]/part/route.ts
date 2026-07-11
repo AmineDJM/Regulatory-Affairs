@@ -14,24 +14,31 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 export async function PUT(req: NextRequest, { params }: { params: { sessionId: string } }) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
-  if (!regCan(user, "regulatory.dossier.upload")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-  const companyId = await resolveRegCompanyId(getCompanyScope());
-  if (!companyId) return NextResponse.json({ error: "Module non activé." }, { status: 403 });
-
-  const index = Number(req.nextUrl.searchParams.get("index"));
-  if (!Number.isInteger(index) || index < 0) return NextResponse.json({ error: "Index de partie invalide." }, { status: 400 });
-
-  let data: Buffer;
   try {
-    data = Buffer.from(await req.arrayBuffer());
-  } catch {
-    return NextResponse.json({ error: "Lecture de la partie impossible." }, { status: 400 });
-  }
-  if (data.length === 0) return NextResponse.json({ error: "Partie vide." }, { status: 400 });
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
+    if (!regCan(user, "regulatory.dossier.upload")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+    const companyId = await resolveRegCompanyId(getCompanyScope());
+    if (!companyId) return NextResponse.json({ error: "Module non activé." }, { status: 403 });
 
-  const r = await putUploadPart({ sessionId: params.sessionId, companyId, index, data });
-  if (!r.ok) return NextResponse.json({ error: r.error }, { status: 422 });
-  return NextResponse.json({ ok: true, receivedBytes: r.receivedBytes, storedParts: r.storedParts });
+    const index = Number(req.nextUrl.searchParams.get("index"));
+    if (!Number.isInteger(index) || index < 0) return NextResponse.json({ error: "Index de partie invalide." }, { status: 400 });
+
+    let data: Buffer;
+    try {
+      data = Buffer.from(await req.arrayBuffer());
+    } catch {
+      return NextResponse.json({ error: "Lecture de la partie impossible." }, { status: 400 });
+    }
+    if (data.length === 0) return NextResponse.json({ error: "Partie vide." }, { status: 400 });
+
+    const r = await putUploadPart({ sessionId: params.sessionId, companyId, index, data });
+    // 422 = erreur métier/DB RÉESSAYABLE (le client retente la même partie sans perdre le reste).
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 422 });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    // Filet de sécurité : jamais de 500 non géré (sinon le client échoue sèchement). Journalisé.
+    console.error("[reg-upload/part] erreur non gérée", err);
+    return NextResponse.json({ error: "Erreur serveur au stockage de la partie — réessai." }, { status: 500 });
+  }
 }

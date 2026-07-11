@@ -72,7 +72,10 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
    * Chaque tranche n'est lue qu'au moment de son envoi → le navigateur ne charge jamais
    * l'archive entière (pic mémoire ≈ CONCURRENCY × taille de partie).
    */
-  const UPLOAD_CONCURRENCY = 6;
+  // Concurrence alignée sur le pool de connexions DB (défaut Prisma souvent = 3 sur 1 CPU) :
+  // 3 parties en parallèle remplissent le lien sans épuiser le pool → plus de 500. Chaque partie
+  // ne fait qu'un seul upsert côté serveur. (Relevez le pool DB — connection_limit — pour + de //).
+  const UPLOAD_CONCURRENCY = 3;
 
   async function sendResumable(file: File) {
     setPhase("uploading"); setProgress(0); setError(null); setSummary(null); setFileName(file.name);

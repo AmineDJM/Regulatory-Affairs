@@ -74,6 +74,36 @@ describe("upload résumable — flux complet", () => {
     expect(remainingParts).toBe(0);
   });
 
+  it("envoie TOUTES les parties EN PARALLÈLE sans erreur (résistance à la concurrence)", async () => {
+    // Beaucoup de petites parties, envoyées toutes en même temps (Promise.all) → reproduit le
+    // schéma d'upload concurrent du navigateur. Aucune ne doit échouer, l'assemblage doit être exact.
+    const z = new JSZip();
+    z.file("m1/lettre.txt", "Demande d'enregistrement — dossier concurrent.");
+    z.file("m3/data.bin", randomBytes(40_000)); // incompressible → nombreuses parties
+    const zip = await z.generateAsync({ type: "nodebuffer", compression: "STORE" });
+    const sha = createHash("sha256").update(zip).digest("hex");
+
+    const partSize = 1024;
+    const parts: Buffer[] = [];
+    for (let o = 0; o < zip.length; o += partSize) parts.push(zip.subarray(o, Math.min(o + partSize, zip.length)));
+    expect(parts.length).toBeGreaterThan(30);
+
+    const start = await startUploadSession({ companyId, dossierId, createdById: "u", filename: "concurrent.zip", totalBytes: zip.length, partSize, expectedSha256: sha });
+    expect(start.ok).toBe(true);
+
+    // TOUTES les parties en vol simultanément.
+    const results = await Promise.all(parts.map((data, index) => putUploadPart({ sessionId: start.sessionId!, companyId, index, data })));
+    expect(results.every((r) => r.ok)).toBe(true);
+
+    const status = await uploadSessionStatus(start.sessionId!, companyId);
+    expect(status.complete).toBe(true);
+    expect(status.receivedBytes).toBe(zip.length);
+
+    const fin = await finalizeUploadSession(start.sessionId!, companyId, "u");
+    expect(fin.ok).toBe(true);
+    expect(fin.ingest?.versionId).toBeTruthy();
+  });
+
   it("rejette une empreinte SHA-256 non concordante (corruption en transit) et abandonne", async () => {
     const z = new JSZip(); z.file("a.txt", "contenu");
     const zip = await z.generateAsync({ type: "nodebuffer" });
