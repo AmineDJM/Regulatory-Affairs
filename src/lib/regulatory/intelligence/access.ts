@@ -124,3 +124,23 @@ export async function enabledRegCompanyIds(): Promise<string[]> {
     return [];
   }
 }
+
+/**
+ * Résout l'organisation CIBLE du module pour une portée d'entité active :
+ *  - portée précise **et** activée → cette organisation ;
+ *  - « toutes les entités » → l'unique organisation activée s'il n'y en a qu'une (sinon null,
+ *    on demandera de sélectionner l'entité).
+ * Retourne `null` si aucune organisation activée ne correspond → module verrouillé côté serveur.
+ */
+export async function resolveRegCompanyId(scope: string | null): Promise<string | null> {
+  try {
+    if (scope) {
+      const row = await prisma.regulatoryFeatureAccess.findUnique({ where: { companyId: scope }, select: { enabled: true } });
+      return row?.enabled ? scope : null;
+    }
+    const enabled = await prisma.regulatoryFeatureAccess.findMany({ where: { enabled: true }, select: { companyId: true }, take: 2 });
+    return enabled.length === 1 ? enabled[0].companyId : null;
+  } catch {
+    return null;
+  }
+}

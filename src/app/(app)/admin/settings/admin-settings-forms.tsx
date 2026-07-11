@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Loader2, Check, Megaphone, Search } from "lucide-react";
 import { saveAppSettings, setRegEnrollmentEnabled } from "@/lib/actions/settings-actions";
+import { setRegIntelligenceEnabled } from "@/lib/regulatory/intelligence/actions";
 import { sendBroadcast } from "@/lib/actions/notification-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
@@ -79,6 +80,55 @@ export function RegEnrollmentToggle({ enabled: initial }: { enabled: boolean }) 
         </button>
       </div>
       {busy && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Mise à jour…</p>}
+      {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+interface CompanyFlag { id: string; name: string; enabled: boolean }
+
+/** Déblocage du Regulatory Intelligence OS **par organisation** (un interrupteur par entité). */
+export function RegIntelligenceToggles({ companies }: { companies: CompanyFlag[] }) {
+  const [state, setState] = React.useState<Record<string, boolean>>(
+    Object.fromEntries(companies.map((c) => [c.id, c.enabled])),
+  );
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function toggle(companyId: string, next: boolean) {
+    setBusyId(companyId); setError(null);
+    const r = await setRegIntelligenceEnabled(companyId, next);
+    setBusyId(null);
+    if (r.ok) setState((s) => ({ ...s, [companyId]: next }));
+    else setError(r.error ?? "Échec.");
+  }
+
+  if (companies.length === 0) {
+    return <p className="text-sm text-muted-foreground">Aucune organisation active. Créez une entité dans Administration → Entités.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {companies.map((c) => {
+        const enabled = state[c.id];
+        return (
+          <div key={c.id} className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{c.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {enabled ? "Analyse CTD activée — workspace visible pour les rôles réglementaires." : "Verrouillé. Activez pour ouvrir l'analyse intelligente des dossiers CTD."}
+              </p>
+            </div>
+            <button
+              type="button" role="switch" aria-checked={enabled} disabled={busyId === c.id}
+              onClick={() => toggle(c.id, !enabled)}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${enabled ? "bg-primary" : "bg-input"}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`} />
+            </button>
+          </div>
+        );
+      })}
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
     </div>
   );

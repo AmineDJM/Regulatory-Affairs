@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2 } from "lucide-react";
+import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles } from "./admin-settings-forms";
 
 export const metadata = { title: "Réglages & diffusion — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -15,13 +15,17 @@ export default async function AdminSettingsPage() {
   const admin = await requireModule("ADMIN", "UPDATE");
   if (admin.role !== "SUPER_ADMIN") redirect("/admin");
 
-  const [settings, users, mailAccounts] = await Promise.all([
+  const [settings, users, mailAccounts, companies, regFlags] = await Promise.all([
     getAppSettings(),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
     prisma.mailAccount.findMany({ select: { userId: true, email: true, user: { select: { name: true } } }, orderBy: { email: "asc" } }),
+    prisma.company.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
+    prisma.regulatoryFeatureAccess.findMany({ select: { companyId: true, enabled: true } }),
   ]);
   const roleOptions = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }));
   const mailboxes = mailAccounts.map((a) => ({ userId: a.userId, email: a.email, name: a.user?.name ?? a.email }));
+  const regEnabled = new Map(regFlags.map((f) => [f.companyId, f.enabled]));
+  const regIntelligenceCompanies = companies.map((c) => ({ id: c.id, name: c.name, enabled: regEnabled.get(c.id) ?? false }));
 
   return (
     <div className="space-y-5">
@@ -51,6 +55,16 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <RegEnrollmentToggle enabled={settings.regEnrollmentEnabled} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><ScanSearch className="h-4 w-4" /> Regulatory Intelligence — Analyse CTD (par entité)</CardTitle>
+          <p className="text-sm text-muted-foreground">Débloque l'analyse intelligente des dossiers CTD (ingestion ZIP sécurisée, lecture, classement, contrôles réglementaires) pour chaque organisation. Verrouillé par défaut.</p>
+        </CardHeader>
+        <CardContent>
+          <RegIntelligenceToggles companies={regIntelligenceCompanies} />
         </CardContent>
       </Card>
 

@@ -37,18 +37,19 @@ export default async function EnregistrementPage() {
       <ModuleTabs
         tabs={[
           { label: "Dossiers", href: "/regulatory" },
-          { label: "Enregistrement (CTD)", href: "/regulatory/enregistrement" },
+          { label: "Référentiel ANPP", href: "/regulatory/enregistrement" },
+          { label: "Analyse CTD", href: "/regulatory/enregistrement/analyse" },
         ]}
       />
 
-      {/* Analyseur CTD — phase 2 (annonce en produit) */}
+      {/* Analyseur CTD — désormais opérationnel (Regulatory Intelligence OS) */}
       <Card className="border-primary/30 bg-primary/5">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" /> Analyseur de dossier CTD (IA) — bientôt</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" /> Analyseur de dossier CTD</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1.5 text-sm text-muted-foreground">
-          <p>Vous déposerez un dossier CTD en <strong>ZIP</strong> ; le logiciel le <strong>décompressera</strong>, <strong>lira et renommera</strong> chaque fichier, le <strong>classera</strong> dans le bon module CTD (1 à 5), puis produira une <strong>analyse rigoureuse sur le fond et la forme</strong> au regard de la <strong>loi algérienne</strong> (et des références CTD/UE), signalera les manques et <strong>préparera les formulaires</strong> (dont la pré-soumission) pour le pharmacien.</p>
-          <p>Cette page est déjà la <strong>base de connaissance</strong> qui pilotera l'analyseur — l'assistant IA la maîtrise dès à présent (posez-lui vos questions d'enregistrement).</p>
+          <p>Déposez un dossier CTD en <strong>ZIP</strong> dans l'onglet <a href="/regulatory/enregistrement/analyse" className="font-medium text-primary hover:underline">Analyse CTD</a> : le logiciel le <strong>décompresse en sécurité</strong>, <strong>lit et conserve</strong> chaque fichier (chiffré), le <strong>classe</strong> dans le bon module CTD (1 à 5), puis produira une <strong>analyse fond &amp; forme</strong> au regard de la <strong>réglementation algérienne</strong> (et des références CTD/UE), signalera les manques et <strong>préparera les formulaires</strong>.</p>
+          <p>Cette page reste la <strong>base de connaissance</strong> qui pilote l'analyseur — l'assistant IA la maîtrise (posez-lui vos questions d'enregistrement). Toute conclusion IA est un <strong>projet soumis à revue humaine</strong>.</p>
         </CardContent>
       </Card>
 

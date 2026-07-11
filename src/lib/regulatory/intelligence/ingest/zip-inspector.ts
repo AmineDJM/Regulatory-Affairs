@@ -61,6 +61,16 @@ export interface ZipInspection {
   totals: { files: number; totalBytes: number; archiveBytes: number };
 }
 
+/**
+ * Options de l'inspecteur : plafonds + rappel de stockage optionnel.
+ * `onStorableEntry` est appelé pour chaque entrée SÛRE/SUSPECTE avec ses octets déjà
+ * décompressés — permettant à l'ingestion de **stocker immédiatement** le blob (un
+ * fichier à la fois → mémoire bornée) sans re-décompresser ni retenir tout le contenu.
+ */
+export type InspectOptions = Partial<ZipLimits> & {
+  onStorableEntry?: (entry: ManifestEntry, data: Buffer) => Promise<void>;
+};
+
 // Exécutables / scripts / macros / contenu actif : jamais matérialisés.
 const BLOCKED_EXT = new Set([
   "exe", "msi", "bat", "cmd", "com", "scr", "pif", "cpl", "jar", "js", "mjs", "cjs",
@@ -103,8 +113,9 @@ function declaredSizes(file: JSZip.JSZipObject): { compressed?: number; uncompre
   return { compressed: d?.compressedSize, uncompressed: d?.uncompressedSize };
 }
 
-export async function inspectZip(buffer: Buffer, opts: Partial<ZipLimits> = {}): Promise<ZipInspection> {
-  const lim = { ...DEFAULT_ZIP_LIMITS, ...opts };
+export async function inspectZip(buffer: Buffer, opts: InspectOptions = {}): Promise<ZipInspection> {
+  const { onStorableEntry, ...limOpts } = opts;
+  const lim = { ...DEFAULT_ZIP_LIMITS, ...limOpts };
   const archiveBytes = buffer.length;
 
   if (archiveBytes === 0) return reject("EMPTY", "Archive vide.", archiveBytes);
@@ -182,12 +193,15 @@ export async function inspectZip(buffer: Buffer, opts: Partial<ZipLimits> = {}):
     const sha256 = createHash("sha256").update(data).digest("hex");
     const ratio = declared.compressed && declared.compressed > 0 ? data.length / declared.compressed : undefined;
     const nested = NESTED_ARCHIVE_EXT.has(ext);
-    entries.push({
+    const entry: ManifestEntry = {
       path, filename, ext, sizeBytes: data.length, sha256,
       compressionRatio: ratio,
       securityStatus: nested ? "SUSPICIOUS" : "SAFE",
       note: nested ? "Archive imbriquée — non décompressée automatiquement." : undefined,
-    });
+    };
+    entries.push(entry);
+    // Stockage inline (un fichier à la fois) : l'ingestion persiste le blob ici même.
+    if (onStorableEntry) await onStorableEntry(entry, data);
   }
 
   const totalBytes = entries.reduce((s, e) => s + (e.securityStatus === "SAFE" || e.securityStatus === "SUSPICIOUS" ? e.sizeBytes : 0), 0);

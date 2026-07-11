@@ -1,0 +1,124 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { FileArchive, Lock, ShieldCheck, FolderOpen, Info } from "lucide-react";
+import { requireModule } from "@/lib/session";
+import { getCompanyScope } from "@/lib/company";
+import { PageHeader } from "@/components/shared/page-header";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { listDossiers } from "@/lib/regulatory/intelligence/queries";
+import {
+  PROCEDURE_TYPE_LABELS, DOSSIER_STATUS_LABELS, DOSSIER_STATUS_TONE, humanBytes,
+} from "@/lib/regulatory/intelligence/labels";
+import { NewDossier } from "./new-dossier";
+
+export const metadata = { title: "Analyse CTD — Regulatory Intelligence" };
+export const dynamic = "force-dynamic";
+
+const fmtDate = (d: Date) => new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+
+export default async function AnalyseWorkspacePage() {
+  const user = await requireModule("REGULATORY");
+  if (!regCan(user, "regulatory.workspace.view")) notFound();
+
+  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const canCreate = regCan(user, "regulatory.dossier.create");
+
+  const tabs = [
+    { label: "Dossiers", href: "/regulatory" },
+    { label: "Référentiel ANPP", href: "/regulatory/enregistrement" },
+    { label: "Analyse CTD", href: "/regulatory/enregistrement/analyse" },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title="Analyse intelligente des dossiers CTD"
+        description="Réception d'un dossier CTD (ZIP) → décompression sécurisée → lecture, classement et analyse fond/forme au regard de la réglementation. Outil d'aide : la validation finale revient au pharmacien directeur technique."
+      />
+      <ModuleTabs tabs={tabs} />
+
+      <div className="flex items-start gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <p>
+          Toute conclusion produite par l'assistance est un <strong>PROJET — REVUE RÉGLEMENTAIRE HUMAINE REQUISE</strong> :
+          rien n'est soumis à l'ANPP sans validation explicite du responsable. L'archive originale reçue est conservée <strong>intacte et immuable</strong>.
+        </p>
+      </div>
+
+      {!companyId ? (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><Lock className="h-4 w-4 text-amber-600" /> Module non activé pour cette entité</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>Le Regulatory Intelligence OS se débloque <strong>par organisation</strong>, par le Super Admin (Administration → Réglages).</p>
+            <p>Sélectionnez dans la barre supérieure l'<strong>entité</strong> pour laquelle le module a été activé, puis revenez sur cette page.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              <ShieldCheck className="mr-1 inline h-4 w-4 text-success" />
+              Ingestion sécurisée (anti-archive piégée, exécutables refusés, chemins vérifiés).
+            </p>
+            {canCreate && <NewDossier />}
+          </div>
+
+          <DossierList companyId={companyId} />
+        </>
+      )}
+    </div>
+  );
+}
+
+async function DossierList({ companyId }: { companyId: string }) {
+  const dossiers = await listDossiers(companyId);
+
+  if (dossiers.length === 0) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-2 py-10 text-center text-sm text-muted-foreground">
+          <FolderOpen className="h-8 w-8 text-muted-foreground/60" />
+          <p>Aucun dossier pour le moment. Créez un dossier CTD puis téléversez son archive ZIP.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="grid gap-3">
+      {dossiers.map((d) => {
+        const v = d.versions[0];
+        return (
+          <Link key={d.id} href={`/regulatory/enregistrement/analyse/${d.id}`}
+            className="group flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-accent/30">
+            <FileArchive className="h-5 w-5 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="truncate font-medium">{d.title}</p>
+                <Badge tone={DOSSIER_STATUS_TONE[d.status]} dot>{DOSSIER_STATUS_LABELS[d.status]}</Badge>
+              </div>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {d.reference} · {PROCEDURE_TYPE_LABELS[d.procedureType]} · maj {fmtDate(d.updatedAt)}
+              </p>
+            </div>
+            <div className="shrink-0 text-right text-xs text-muted-foreground">
+              {v ? (
+                <>
+                  <p className="font-medium text-foreground">v{v.versionNo} · {v.fileCount} fichier·s</p>
+                  <p>{humanBytes(v.totalBytes)}</p>
+                </>
+              ) : (
+                <p className="italic">aucune archive</p>
+              )}
+            </div>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}

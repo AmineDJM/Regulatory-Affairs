@@ -3665,7 +3665,9 @@ model StockSnapshot {
 
 // ═══════════════════════════ Regulatory Intelligence OS ═══════════════════════════
 // Fondations (Phase 1). Toutes les entités : org-scopées (companyId), auditées, versionnées.
-// FK stockées en String simple (pas de relations Prisma) pour rester auto-portées ; index posés.
+// Relations internes avec ON DELETE CASCADE (contraintes FK posées en migration idempotente) :
+// supprimer un dossier purge versions → documents → jobs → audit. `companyId` reste un String
+// simple (portée multi-entités, pas de FK dure vers Company).
 // Tailles en Int (octets) : ingestion plafonnée < 2 Go ; migrer en BigInt si dossiers plus gros.
 
 enum RegProcedureType {
@@ -3775,6 +3777,10 @@ model RegulatoryDossier {
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
+  versions  RegulatoryDossierVersion[]
+  jobs      RegulatoryJob[]
+  auditLogs RegulatoryAuditLog[]
+
   @@index([companyId])
   @@index([productId])
   @@index([status])
@@ -3792,6 +3798,10 @@ model RegulatoryDossierVersion {
   totalBytes        Int      @default(0)
   createdById       String
   createdAt         DateTime @default(now())
+
+  dossier   RegulatoryDossier    @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  documents RegulatoryDocument[]
+  jobs      RegulatoryJob[]
 
   @@unique([dossierId, versionNo])
   @@index([dossierId])
@@ -3818,6 +3828,8 @@ model RegulatoryDocument {
   blobId            String? // copie de travail chiffrée (si extraite)
   createdAt         DateTime               @default(now())
 
+  dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
+
   @@index([dossierVersionId])
   @@index([sha256])
   @@index([securityStatus])
@@ -3842,6 +3854,9 @@ model RegulatoryJob {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
+  dossier        RegulatoryDossier?        @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  dossierVersion RegulatoryDossierVersion? @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
+
   @@index([status])
   @@index([dossierId])
 }
@@ -3857,6 +3872,8 @@ model RegulatoryAuditLog {
   detail           String
   meta             Json?
   createdAt        DateTime @default(now())
+
+  dossier RegulatoryDossier? @relation(fields: [dossierId], references: [id], onDelete: Cascade)
 
   @@index([dossierId])
   @@index([companyId])
