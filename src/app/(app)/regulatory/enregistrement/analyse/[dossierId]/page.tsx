@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft, Download, FileText, ShieldCheck, ShieldAlert, ShieldX, Layers, History, Eye,
-  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge,
+  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge, Bot,
 } from "lucide-react";
 import type { RegFindingSeverity } from "@prisma/client";
 import { requireModule } from "@/lib/session";
@@ -13,7 +13,10 @@ import { Badge } from "@/components/ui/badge";
 import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
 import { getDossier, listVersions, listVersionDocuments, listDossierAudit, getAssessment, listFindings, listFacts, listConflicts } from "@/lib/regulatory/intelligence/queries";
 import { buildCoverage } from "@/lib/regulatory/intelligence/twin/build-twin";
+import { aiConfigured } from "@/lib/ai";
+import { applicableAgents } from "@/lib/regulatory/intelligence/agents/orchestrator";
 import { TwinPanel } from "./twin-panel";
+import { AgentsPanel } from "./agents-panel";
 import {
   PROCEDURE_TYPE_LABELS, DOSSIER_STATUS_LABELS, DOSSIER_STATUS_TONE,
   SECURITY_LABELS, EXTRACTION_LABELS, humanBytes, isBlockedSecurity,
@@ -63,6 +66,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
   const facts = latest ? await listFacts(latest.id) : [];
   const conflicts = latest ? await listConflicts(latest.id) : [];
   const coverage = latest ? buildCoverage(dossier.procedureType, documents) : [];
+  const agents = latest ? await applicableAgents(latest.id) : [];
   const audit = await listDossierAudit(dossier.id);
 
   const canUpload = regCan(user, "regulatory.dossier.upload");
@@ -272,6 +276,18 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                 </div>
               ))}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Agents spécialisés (revue de fond IA — PROJET, sur demande) */}
+      {latest && agents.length > 0 && canAnalyse && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><Bot className="h-4 w-4 text-primary" /> Agents spécialisés — revue de fond (PROJET)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AgentsPanel dossierId={dossier.id} agents={agents} configured={aiConfigured()} />
           </CardContent>
         </Card>
       )}
