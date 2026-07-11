@@ -74,4 +74,24 @@ describe("runner EXTRACT — extraction pilotée par job (intégration)", () => 
     const d = await prisma.regulatoryDossier.findUnique({ where: { id: dossierId }, select: { status: true } });
     expect(d?.status).toBe("ANALYSING");
   });
+
+  it("enchaîne les contrôles déterministes (RULES) → bilan + constats persistés", async () => {
+    // L'extraction a mis en file un job RULES ; on le traite.
+    const rules = await prisma.regulatoryJob.findFirst({ where: { dossierId, type: "RULES" }, select: { id: true } });
+    expect(rules).toBeTruthy();
+    await runRegulatoryJob(rules!.id);
+
+    const version = await prisma.regulatoryDossierVersion.findFirst({ where: { dossierId }, orderBy: { versionNo: "desc" }, select: { id: true } });
+    const assessment = await prisma.regulatoryAssessment.findUnique({ where: { dossierVersionId: version!.id } });
+    expect(assessment).toBeTruthy();
+    // Le mini-dossier (txt + xlsx) ne couvre pas les sections obligatoires → non conforme, bloqueurs.
+    expect(assessment?.conforme).toBe(false);
+    expect(assessment?.blockers).toBeGreaterThan(0);
+
+    const findings = await prisma.regulatoryFinding.count({ where: { dossierVersionId: version!.id, source: "RULE" } });
+    expect(findings).toBeGreaterThan(0);
+
+    const d = await prisma.regulatoryDossier.findUnique({ where: { id: dossierId }, select: { status: true } });
+    expect(d?.status).toBe("IN_REVIEW");
+  });
 });

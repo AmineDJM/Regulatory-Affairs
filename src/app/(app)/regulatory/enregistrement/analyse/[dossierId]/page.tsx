@@ -2,14 +2,17 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft, Download, FileText, ShieldCheck, ShieldAlert, ShieldX, Layers, History, Eye,
+  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge,
 } from "lucide-react";
+import type { RegFindingSeverity } from "@prisma/client";
 import { requireModule } from "@/lib/session";
 import { getCompanyScope } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
-import { getDossier, listVersions, listVersionDocuments, listDossierAudit } from "@/lib/regulatory/intelligence/queries";
+import { getDossier, listVersions, listVersionDocuments, listDossierAudit, getAssessment, listFindings } from "@/lib/regulatory/intelligence/queries";
+import { buildCoverage } from "@/lib/regulatory/intelligence/twin/build-twin";
 import {
   PROCEDURE_TYPE_LABELS, DOSSIER_STATUS_LABELS, DOSSIER_STATUS_TONE,
   SECURITY_LABELS, EXTRACTION_LABELS, humanBytes, isBlockedSecurity,
@@ -31,6 +34,13 @@ function securityIcon(s: RegDocSecurityStatus) {
 
 const INLINE_EXT = new Set(["pdf", "png", "jpg", "jpeg", "gif", "webp", "txt", "csv", "xml"]);
 
+const SEVERITY_META: Record<RegFindingSeverity, { label: string; cls: string; Icon: typeof XCircle }> = {
+  CRITICAL: { label: "Critique", cls: "border-destructive/40 bg-destructive/5 text-destructive", Icon: XCircle },
+  MAJOR: { label: "Majeur", cls: "border-amber-500/40 bg-amber-500/5 text-amber-600", Icon: AlertTriangle },
+  MINOR: { label: "Mineur", cls: "border-blue-500/30 bg-blue-500/5 text-blue-600", Icon: Info },
+  INFO: { label: "Info", cls: "border-border bg-muted/40 text-muted-foreground", Icon: Info },
+};
+
 export default async function DossierDetailPage({ params }: { params: { dossierId: string } }) {
   const user = await requireModule("REGULATORY");
   if (!regCan(user, "regulatory.workspace.view")) notFound();
@@ -44,6 +54,9 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
   const versions = await listVersions(dossier.id);
   const latest = versions[0];
   const documents = latest ? await listVersionDocuments(latest.id) : [];
+  const assessment = latest ? await getAssessment(latest.id) : null;
+  const findings = latest ? await listFindings(latest.id) : [];
+  const coverage = latest ? buildCoverage(dossier.procedureType, documents) : [];
   const audit = await listDossierAudit(dossier.id);
 
   const canUpload = regCan(user, "regulatory.dossier.upload");
@@ -179,6 +192,84 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                 </tbody>
               </table>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Bilan de conformité (moteur déterministe) */}
+      {assessment && (
+        <Card className={assessment.conforme ? "border-success/40" : "border-destructive/40"}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><Gauge className="h-4 w-4 text-primary" /> Bilan de complétude &amp; conformité</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-4">
+              <div>
+                <p className="text-3xl font-semibold">{assessment.completeness}%</p>
+                <p className="text-xs text-muted-foreground">Complétude ({assessment.requiredPresent}/{assessment.requiredTotal} sections obligatoires)</p>
+              </div>
+              <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${assessment.conforme ? "border-success/40 bg-success/10 text-success" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>
+                {assessment.conforme ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                {assessment.conforme ? "Aucun bloqueur détecté" : `${assessment.blockers} bloqueur·s — non conforme en l'état`}
+              </div>
+              <div className="flex gap-2 text-xs">
+                {assessment.criticals > 0 && <span className="rounded-md bg-destructive/10 px-2 py-1 text-destructive">{assessment.criticals} critique·s</span>}
+                {assessment.majors > 0 && <span className="rounded-md bg-amber-500/10 px-2 py-1 text-amber-600">{assessment.majors} majeur·s</span>}
+                {assessment.minors > 0 && <span className="rounded-md bg-blue-500/10 px-2 py-1 text-blue-600">{assessment.minors} mineur·s</span>}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Un score élevé ne vaut pas conformité : tout <strong>bloqueur</strong> (section obligatoire manquante, dossier vide) prime.
+              Ce bilan est une <strong>aide</strong> — la décision finale revient au pharmacien directeur technique.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Couverture CTD (jumeau numérique) */}
+      {coverage.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ListChecks className="h-4 w-4 text-primary" /> Couverture CTD attendue</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {coverage.map((row) => (
+                <div key={`${row.kind}-${row.code}`} className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-sm">
+                  {row.present ? <CheckCircle2 className="h-4 w-4 shrink-0 text-success" /> : <XCircle className={`h-4 w-4 shrink-0 ${row.kind === "required" ? "text-destructive" : "text-amber-600"}`} />}
+                  <span className="font-medium">{row.code}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground" title={row.title}>{row.title}</span>
+                  {row.kind === "required" && <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/70">obligatoire</span>}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Constats */}
+      {findings.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4 text-primary" /> Constats ({findings.length})</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            {findings.map((f) => {
+              const meta = SEVERITY_META[f.severity];
+              return (
+                <div key={f.id} className={`rounded-lg border px-3 py-2 ${meta.cls}`}>
+                  <div className="flex items-start gap-2">
+                    <meta.Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium text-foreground">{f.title}</span>
+                        {f.blocker && <span className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-semibold text-white">BLOQUEUR</span>}
+                        {f.source === "AI" && f.draft && <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">PROJET IA — REVUE REQUISE</span>}
+                        {f.source === "HUMAN" && <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-white">HUMAIN</span>}
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{f.detail}</p>
+                      {f.evidence && <p className="mt-0.5 text-[11px] italic text-muted-foreground/80">Preuve : {f.evidence}</p>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       )}

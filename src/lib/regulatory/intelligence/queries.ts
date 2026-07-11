@@ -91,6 +91,21 @@ export async function getVersionForCompany(companyId: string, dossierVersionId: 
   });
 }
 
+export async function getAssessment(dossierVersionId: string) {
+  return prisma.regulatoryAssessment.findUnique({ where: { dossierVersionId } });
+}
+
+export async function listFindings(dossierVersionId: string) {
+  return prisma.regulatoryFinding.findMany({
+    where: { dossierVersionId },
+    orderBy: [{ severity: "asc" }, { createdAt: "asc" }],
+    select: {
+      id: true, code: true, severity: true, category: true, title: true, detail: true,
+      evidence: true, sectionCode: true, source: true, status: true, blocker: true, draft: true, createdAt: true,
+    },
+  });
+}
+
 export async function listDossierAudit(dossierId: string, take = 50) {
   return prisma.regulatoryAuditLog.findMany({
     where: { dossierId },

@@ -3799,9 +3799,11 @@ model RegulatoryDossierVersion {
   createdById       String
   createdAt         DateTime @default(now())
 
-  dossier   RegulatoryDossier    @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  documents RegulatoryDocument[]
-  jobs      RegulatoryJob[]
+  dossier    RegulatoryDossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  documents  RegulatoryDocument[]
+  jobs       RegulatoryJob[]
+  findings   RegulatoryFinding[]
+  assessment RegulatoryAssessment?
 
   @@unique([dossierId, versionNo])
   @@index([dossierId])
@@ -3854,6 +3856,72 @@ model RegulatoryExtraction {
   createdAt  DateTime @default(now())
 
   document RegulatoryDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+enum RegFindingSeverity {
+  CRITICAL
+  MAJOR
+  MINOR
+  INFO
+}
+
+enum RegFindingStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  WAIVED
+}
+
+enum RegFindingSource {
+  RULE
+  AI
+  HUMAN
+}
+
+/// Constat d'analyse (moteur de règles déterministe OU agent IA OU humain). Preuve exigée.
+/// Les constats CRITICAL marqués `blocker` verrouillent la soumission (pas de fausse conformité).
+model RegulatoryFinding {
+  id               String             @id @default(cuid())
+  dossierVersionId String
+  code             String // ex. "MISSING_REQUIRED_SECTION"
+  severity         RegFindingSeverity
+  category         String // "completeness" | "security" | "extraction" | "classification" | "content"
+  title            String
+  detail           String
+  evidence         String?
+  sectionCode      String?
+  documentId       String?
+  source           RegFindingSource   @default(RULE)
+  status           RegFindingStatus   @default(OPEN)
+  blocker          Boolean            @default(false)
+  draft            Boolean            @default(true) // sortie IA = DRAFT tant qu'un humain n'a pas revu
+  createdById      String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
+
+  @@index([dossierVersionId])
+  @@index([severity])
+  @@index([source])
+}
+
+/// Bilan de complétude/conformité d'une version (recalculé à chaque passage du moteur).
+/// `conforme` = aucun bloqueur — un score élevé NE suffit PAS si un bloqueur existe.
+model RegulatoryAssessment {
+  id               String   @id @default(cuid())
+  dossierVersionId String   @unique
+  completeness     Int      @default(0) // 0..100
+  conforme         Boolean  @default(false)
+  blockers         Int      @default(0)
+  criticals        Int      @default(0)
+  majors           Int      @default(0)
+  minors           Int      @default(0)
+  requiredPresent  Int      @default(0)
+  requiredTotal    Int      @default(0)
+  computedAt       DateTime @default(now())
+
+  dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
 }
 
 /// File de jobs asynchrones (Node-first, en base). Runner idempotent, reprise, progression.

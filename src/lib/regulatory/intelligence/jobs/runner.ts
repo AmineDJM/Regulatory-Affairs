@@ -4,6 +4,7 @@ import { getBlob } from "@/lib/drive-storage";
 import { extractText } from "../extract/extract-text";
 import { detectMime } from "../extract/mime";
 import { classifyDocument } from "../ctd/classify";
+import { assessVersion, type TwinDoc } from "../rules/engine";
 import { regAudit } from "../audit";
 
 /**
@@ -87,6 +88,8 @@ async function dispatch(job: RegulatoryJob): Promise<void> {
   switch (job.type) {
     case "EXTRACT":
       return handleExtract(job);
+    case "RULES":
+      return handleRules(job);
     default:
       // Type non encore pris en charge à ce stade → terminal propre (pas de boucle).
       await prisma.regulatoryJob.update({
@@ -160,7 +163,71 @@ async function handleExtract(job: RegulatoryJob): Promise<void> {
     if (job.dossierId) {
       await prisma.regulatoryDossier.update({ where: { id: job.dossierId }, data: { status: "ANALYSING" } }).catch(() => undefined);
     }
+    // Enchaîne les contrôles réglementaires déterministes (complétude/conformité).
+    await prisma.regulatoryJob.create({
+      data: { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: "RULES", status: "QUEUED", payload: {} },
+    });
   }
+}
+
+/** RULES : jumeau numérique + moteur déterministe → constats + bilan de conformité. */
+async function handleRules(job: RegulatoryJob): Promise<void> {
+  const versionId = job.dossierVersionId;
+  if (!versionId) {
+    await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } });
+    return;
+  }
+
+  const version = await prisma.regulatoryDossierVersion.findUnique({
+    where: { id: versionId },
+    select: { dossier: { select: { id: true, procedureType: true } } },
+  });
+  if (!version) {
+    await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", finishedAt: new Date() } });
+    return;
+  }
+
+  const docs = await prisma.regulatoryDocument.findMany({
+    where: { dossierVersionId: versionId },
+    select: { id: true, originalFilename: true, ctdSection: true, ctdModule: true, securityStatus: true, extractionStatus: true, classificationMethod: true },
+  });
+  const twinDocs: TwinDoc[] = docs.map((d) => ({ ...d, securityStatus: String(d.securityStatus), extractionStatus: String(d.extractionStatus) }));
+
+  const { findings, summary } = assessVersion({ procedureType: version.dossier.procedureType, documents: twinDocs });
+
+  await prisma.$transaction([
+    // Recalcul idempotent : on remplace les constats du MOTEUR (on préserve IA/HUMAIN).
+    prisma.regulatoryFinding.deleteMany({ where: { dossierVersionId: versionId, source: "RULE" } }),
+    prisma.regulatoryFinding.createMany({
+      data: findings.map((f) => ({
+        dossierVersionId: versionId, code: f.code, severity: f.severity, category: f.category,
+        title: f.title, detail: f.detail, evidence: f.evidence ?? null, sectionCode: f.sectionCode ?? null,
+        documentId: f.documentId ?? null, source: "RULE" as const, blocker: f.blocker ?? false, draft: false,
+      })),
+    }),
+    prisma.regulatoryAssessment.upsert({
+      where: { dossierVersionId: versionId },
+      create: {
+        dossierVersionId: versionId, completeness: summary.completeness, conforme: summary.conforme,
+        blockers: summary.blockers, criticals: summary.criticals, majors: summary.majors, minors: summary.minors,
+        requiredPresent: summary.requiredPresent, requiredTotal: summary.requiredTotal, computedAt: new Date(),
+      },
+      update: {
+        completeness: summary.completeness, conforme: summary.conforme,
+        blockers: summary.blockers, criticals: summary.criticals, majors: summary.majors, minors: summary.minors,
+        requiredPresent: summary.requiredPresent, requiredTotal: summary.requiredTotal, computedAt: new Date(),
+      },
+    }),
+    prisma.regulatoryDossier.update({ where: { id: version.dossier.id }, data: { status: "IN_REVIEW" } }),
+    prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } }),
+  ]);
+
+  await regAudit({
+    companyId: job.companyId, actorId: "system", dossierId: version.dossier.id, dossierVersionId: versionId,
+    action: "RULES_ASSESSED",
+    detail: `Contrôles déterministes : complétude ${summary.completeness}%, ${summary.conforme ? "aucun bloqueur" : `${summary.blockers} bloqueur(s)`} — ${summary.criticals} critique(s), ${summary.majors} majeur(s).`,
+    meta: { ...summary },
+  });
 }
 
 interface ExtractDoc { id: string; ext: string; blobId: string | null; originalPath: string; originalFilename: string }
