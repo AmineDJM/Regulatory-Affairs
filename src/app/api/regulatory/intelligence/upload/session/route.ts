@@ -31,5 +31,5 @@ export async function POST(req: NextRequest) {
     contentType: body.contentType ?? null, totalBytes: Number(body.totalBytes), partSize: body.partSize, expectedSha256: body.sha256 ?? null,
   });
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 422 });
-  return NextResponse.json({ ok: true, sessionId: r.sessionId, partSize: r.partSize, expectedParts: r.expectedParts, smallFileThreshold: SMALL_FILE_THRESHOLD, defaultPartSize: DEFAULT_PART_SIZE, maxTotalBytes: MAX_TOTAL_BYTES });
+  return NextResponse.json({ ok: true, sessionId: r.sessionId, partSize: r.partSize, expectedParts: r.expectedParts, receivedIndices: r.receivedIndices ?? [], resumed: r.resumed ?? false, smallFileThreshold: SMALL_FILE_THRESHOLD, defaultPartSize: DEFAULT_PART_SIZE, maxTotalBytes: MAX_TOTAL_BYTES });
 }

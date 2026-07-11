@@ -79,7 +79,6 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
 
   async function sendResumable(file: File) {
     setPhase("uploading"); setProgress(0); setError(null); setSummary(null); setFileName(file.name);
-    let cleanupSessionId: string | null = null;
     try {
       // Ouverture de session avec délai de garde → jamais bloqué à 0 % si le serveur ne répond pas.
       const ctrl = new AbortController();
@@ -96,16 +95,21 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       } finally { clearTimeout(openTimer); }
       const meta = await open.json();
       if (!open.ok) throw new Error(meta.error ?? "Ouverture de session refusée.");
-      const { sessionId, partSize, expectedParts } = meta as { sessionId: string; partSize: number; expectedParts: number };
-      cleanupSessionId = sessionId; // à libérer si l'envoi échoue → pas de session fantôme
+      const { sessionId, partSize, expectedParts, receivedIndices } = meta as { sessionId: string; partSize: number; expectedParts: number; receivedIndices?: number[] };
+
+      // REPRISE : les parties déjà reçues (session réutilisée) sont marquées « faites » et sautées.
+      const partBytes = (i: number) => (i < expectedParts - 1 ? partSize : file.size - partSize * (expectedParts - 1));
+      const received = new Set<number>((receivedIndices ?? []).filter((i) => i >= 0 && i < expectedParts));
 
       // Progression RÉELLE au niveau octet, agrégée sur toutes les parties en vol → la barre
       // avance dès les premiers octets (plus d'attente « 0 % » jusqu'à la fin d'une partie).
       const loaded = new Array<number>(expectedParts).fill(0);
+      for (const i of received) loaded[i] = partBytes(i); // pré-remplit l'avancement repris
       const refresh = () => {
         const sum = loaded.reduce((a, b) => a + b, 0);
         setProgress(Math.min(99, Math.round((sum / file.size) * 100))); // 100 % réservé à la fin réelle
       };
+      refresh(); // affiche d'emblée l'avancement repris (le cas échéant)
 
       let cursor = 0;
       let aborted = false;
@@ -114,6 +118,7 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       // réseau passagères et à un bref redémarrage serveur. Idempotent (upsert par index côté serveur).
       const MAX_ATTEMPTS = 6;
       const putPart = async (i: number): Promise<void> => {
+        if (received.has(i)) { loaded[i] = partBytes(i); refresh(); return; } // déjà envoyée → on saute
         const slice = file.slice(i * partSize, Math.min((i + 1) * partSize, file.size));
         const buf = await slice.arrayBuffer();
         let lastErr = "";
@@ -161,9 +166,9 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
       router.refresh();
     } catch (e) {
-      // Best-effort : libère la session pour ne pas bloquer les envois suivants (« trop d'envois »).
-      if (cleanupSessionId) void fetch(`/api/regulatory/intelligence/upload/session/${cleanupSessionId}`, { method: "DELETE" }).catch(() => undefined);
-      setPhase("error"); setError(e instanceof Error ? e.message : "Échec du téléversement résumable.");
+      // On NE supprime PAS la session : ses parties déjà reçues sont CONSERVÉES → relancer le même
+      // fichier REPREND là où ça s'était arrêté (les sessions vraiment mortes sont nettoyées auto).
+      setPhase("error"); setError(e instanceof Error ? `${e.message} Relancez le même fichier pour reprendre.` : "Échec du téléversement — relancez pour reprendre.");
     }
   }
 

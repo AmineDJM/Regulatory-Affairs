@@ -135,4 +135,36 @@ describe("upload résumable — flux complet", () => {
     expect(await prisma.regulatoryUploadSession.count({ where: { dossierId, status: "UPLOADING" } })).toBe(1);
     expect(await prisma.regulatoryUploadSession.count({ where: { dossierId, status: "ABORTED" } })).toBeGreaterThanOrEqual(3);
   });
+
+  it("REPREND un envoi interrompu : parties déjà reçues conservées, seules les manquantes renvoyées", async () => {
+    const z = new JSZip();
+    z.file("m1/lettre.txt", "Reprise d'un envoi interrompu (résilience réseau).");
+    z.file("m3/data.bin", randomBytes(20_000));
+    const zip = await z.generateAsync({ type: "nodebuffer", compression: "STORE" });
+    const sha = createHash("sha256").update(zip).digest("hex");
+    const partSize = 1024;
+    const parts: Buffer[] = [];
+    for (let o = 0; o < zip.length; o += partSize) parts.push(zip.subarray(o, Math.min(o + partSize, zip.length)));
+    expect(parts.length).toBeGreaterThan(10);
+
+    // 1er envoi : ouvre la session et n'envoie QUE la première moitié (interruption simulée).
+    const start1 = await startUploadSession({ companyId, dossierId, createdById: "u", filename: "reprise.zip", totalBytes: zip.length, partSize, expectedSha256: sha });
+    expect(start1.ok).toBe(true);
+    expect(start1.resumed).toBe(false);
+    const half = Math.floor(parts.length / 2);
+    for (let i = 0; i < half; i++) await putUploadPart({ sessionId: start1.sessionId!, companyId, index: i, data: parts[i] });
+
+    // 2e ouverture du MÊME fichier → REPREND la même session et renvoie les indices déjà reçus.
+    const start2 = await startUploadSession({ companyId, dossierId, createdById: "u", filename: "reprise.zip", totalBytes: zip.length, partSize, expectedSha256: sha });
+    expect(start2.ok).toBe(true);
+    expect(start2.resumed).toBe(true);
+    expect(start2.sessionId).toBe(start1.sessionId); // même session, pas une nouvelle
+    expect(start2.receivedIndices).toHaveLength(half);
+
+    // Envoie UNIQUEMENT les parties manquantes puis finalise → succès (SHA d'origine vérifié).
+    for (let i = half; i < parts.length; i++) await putUploadPart({ sessionId: start2.sessionId!, companyId, index: i, data: parts[i] });
+    const fin = await finalizeUploadSession(start2.sessionId!, companyId, "u");
+    expect(fin.ok).toBe(true);
+    expect(fin.ingest?.versionId).toBeTruthy();
+  });
 });

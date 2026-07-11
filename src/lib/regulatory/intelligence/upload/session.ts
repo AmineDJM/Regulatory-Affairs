@@ -29,7 +29,7 @@ export const MAX_ACTIVE_SESSIONS_PER_ORG = Number(process.env.REG_UPLOAD_MAX_ACT
 export const ORG_QUOTA_BYTES = Number(process.env.REG_ORG_QUOTA_GB ?? 50) * 1024 * MB;
 const STALE_SESSION_MS = Number(process.env.REG_UPLOAD_STALE_HOURS ?? 12) * 3600_000;
 
-export interface StartResult { ok: boolean; error?: string; sessionId?: string; partSize?: number; expectedParts?: number }
+export interface StartResult { ok: boolean; error?: string; sessionId?: string; partSize?: number; expectedParts?: number; receivedIndices?: number[]; resumed?: boolean }
 export interface PartResult { ok: boolean; error?: string; receivedBytes?: number; storedParts?: number }
 export interface StatusResult {
   ok: boolean; error?: string; status?: string; totalBytes?: number; receivedBytes?: number;
@@ -65,24 +65,36 @@ async function orgUsageBytes(companyId: string): Promise<number> {
 }
 
 /**
- * Récupère les sessions FANTÔMES avant d'ouvrir un nouvel envoi (sinon un échec précédent laisse
- * une session « UPLOADING » qui compte à tort dans la limite de concurrence → « trop d'envois »).
- * Abandonne : (1) tout envoi incomplet du MÊME dossier (le nouvel envoi le remplace) ; (2) les
- * envois de l'org SANS activité récente (dernière partie — ou création si aucune — trop ancienne).
+ * REPRISE + nettoyage des sessions fantômes, à l'ouverture d'un envoi.
+ *  - Cherche une session RÉSUMABLE : même dossier + même fichier (nom + taille) + même découpage,
+ *    encore « UPLOADING » → on la réutilise pour ne renvoyer QUE les parties manquantes (survit à
+ *    une coupure réseau ou un rechargement de page).
+ *  - Abandonne les AUTRES envois du même dossier (remplacés) et les envois de l'org sans activité
+ *    récente (dernière partie — ou création si aucune — trop ancienne), sinon ils satureraient à
+ *    tort la limite de concurrence (« trop d'envois »). Jamais la session résumable.
  */
-async function reapOrphanSessions(companyId: string, dossierId: string): Promise<void> {
+async function reapAndFindResumable(
+  companyId: string, dossierId: string, filename: string, totalBytes: number, partSize: number,
+): Promise<{ id: string; partSize: number } | null> {
   const reapMs = Number(process.env.REG_UPLOAD_REAP_MIN ?? 15) * 60_000;
   const cutoff = new Date(Date.now() - reapMs);
   const sessions = await prisma.regulatoryUploadSession.findMany({
     where: { companyId, status: { in: ["UPLOADING", "FINALIZING"] } },
-    select: { id: true, dossierId: true, createdAt: true, parts: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 } },
+    select: { id: true, dossierId: true, filename: true, totalBytes: true, partSize: true, status: true, createdAt: true, parts: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 } },
   });
+  const wantName = filename.slice(0, 255);
+  const wantBytes = Math.floor(totalBytes);
+  const resumable = sessions.find((s) =>
+    s.status === "UPLOADING" && s.dossierId === dossierId && s.filename === wantName &&
+    Number(s.totalBytes) === wantBytes && s.partSize === partSize) ?? null;
   const toAbort = sessions
-    .filter((s) => s.dossierId === dossierId || (s.parts[0]?.createdAt ?? s.createdAt) < cutoff)
+    .filter((s) => s.id !== resumable?.id && (s.dossierId === dossierId || (s.parts[0]?.createdAt ?? s.createdAt) < cutoff))
     .map((s) => s.id);
-  if (toAbort.length === 0) return;
-  await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: { in: toAbort } } });
-  await prisma.regulatoryUploadSession.updateMany({ where: { id: { in: toAbort } }, data: { status: "ABORTED", error: "Envoi remplacé ou abandonné (nettoyage automatique)." } });
+  if (toAbort.length > 0) {
+    await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: { in: toAbort } } });
+    await prisma.regulatoryUploadSession.updateMany({ where: { id: { in: toAbort } }, data: { status: "ABORTED", error: "Envoi remplacé ou abandonné (nettoyage automatique)." } });
+  }
+  return resumable ? { id: resumable.id, partSize: resumable.partSize } : null;
 }
 
 /** Ouvre une session d'upload résumable (quota + concurrence + type contrôlés). */
@@ -98,8 +110,13 @@ export async function startUploadSession(opts: {
   const dossier = await prisma.regulatoryDossier.findFirst({ where: { id: opts.dossierId, companyId: opts.companyId }, select: { id: true } });
   if (!dossier) return { ok: false, error: "Dossier introuvable." };
 
-  // Nettoie les sessions fantômes (échecs précédents) AVANT de compter les envois actifs.
-  await reapOrphanSessions(opts.companyId, opts.dossierId);
+  // REPRISE : réutilise une session compatible existante (ne renvoie que les parties manquantes) et
+  // nettoie au passage les sessions fantômes/remplacées AVANT de compter les envois actifs.
+  const resumable = await reapAndFindResumable(opts.companyId, opts.dossierId, opts.filename, opts.totalBytes, partSize);
+  if (resumable) {
+    const st = await uploadSessionStatus(resumable.id, opts.companyId);
+    return { ok: true, sessionId: resumable.id, partSize: resumable.partSize, expectedParts: expectedPartsFor(opts.totalBytes, resumable.partSize), receivedIndices: st.receivedIndices ?? [], resumed: true };
+  }
   const active = await prisma.regulatoryUploadSession.count({ where: { companyId: opts.companyId, status: "UPLOADING" } });
   if (active >= MAX_ACTIVE_SESSIONS_PER_ORG) return { ok: false, error: `Trop d'envois simultanés (max ${MAX_ACTIVE_SESSIONS_PER_ORG}). Terminez ou abandonnez un envoi en cours.` };
 
@@ -117,7 +134,7 @@ export async function startUploadSession(opts: {
     select: { id: true },
   });
   await regAudit({ companyId: opts.companyId, actorId: opts.createdById, dossierId: opts.dossierId, action: "UPLOAD_SESSION_START", detail: `Session d'upload « ${opts.filename} » (${Math.round(opts.totalBytes / MB)} Mo, parties de ${Math.round(partSize / MB)} Mo).` });
-  return { ok: true, sessionId: session.id, partSize, expectedParts: expectedPartsFor(opts.totalBytes, partSize) };
+  return { ok: true, sessionId: session.id, partSize, expectedParts: expectedPartsFor(opts.totalBytes, partSize), receivedIndices: [], resumed: false };
 }
 
 /** Stocke UNE partie (idempotent par index → reprise). Contrôle de taille côté stockage. */
