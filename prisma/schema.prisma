@@ -3347,20 +3347,20 @@ model DeletedRecord {
 }
 
 model AppSetting {
-  id               String   @id @default("global")
-  maxUploadMb      Int      @default(25) // pièces jointes des modules (Documents)
-  maxDriveUploadMb Int      @default(100) // fichiers du Drive
-  driveCapacityGb  Int      @default(100) // capacité globale du Drive (modifiable Super Admin)
-  driveUserQuotaGb Int      @default(10) // quota par utilisateur (modifiable Super Admin)
+  id                   String   @id @default("global")
+  maxUploadMb          Int      @default(25) // pièces jointes des modules (Documents)
+  maxDriveUploadMb     Int      @default(100) // fichiers du Drive
+  driveCapacityGb      Int      @default(100) // capacité globale du Drive (modifiable Super Admin)
+  driveUserQuotaGb     Int      @default(10) // quota par utilisateur (modifiable Super Admin)
   // Budget total au-dessus des enveloppes : FIXED (montant figé) ou FLEXIBLE
   // (= somme des enveloppes actives). Réglé par le Super Admin.
-  budgetTotalMode  String   @default("FLEXIBLE")
-  budgetFixedTotal Decimal  @default(0) @db.Decimal(14, 2)
+  budgetTotalMode      String   @default("FLEXIBLE")
+  budgetFixedTotal     Decimal  @default(0) @db.Decimal(14, 2)
   // Onglet Regulatory « Enregistrement » (analyseur de dossier CTD) — masqué tant que
   // le Super Admin ne l'a pas débloqué.
-  regEnrollmentEnabled Boolean @default(false)
-  updatedAt        DateTime @updatedAt
-  updatedById      String?
+  regEnrollmentEnabled Boolean  @default(false)
+  updatedAt            DateTime @updatedAt
+  updatedById          String?
 }
 
 /// Abonnement Web Push (PWA) d'un appareil/navigateur d'un utilisateur, pour les
@@ -3799,7 +3799,7 @@ model RegulatoryDossierVersion {
   createdById       String
   createdAt         DateTime @default(now())
 
-  dossier    RegulatoryDossier      @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  dossier    RegulatoryDossier     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
   documents  RegulatoryDocument[]
   jobs       RegulatoryJob[]
   findings   RegulatoryFinding[]
@@ -3814,28 +3814,28 @@ model RegulatoryDossierVersion {
 /// Un document du dossier = entrée de MANIFEST immuable + statut de sécurité/extraction.
 /// L'ORIGINAL conserve toujours chemin + nom d'origine ; le renommage vise la copie de travail.
 model RegulatoryDocument {
-  id                String                 @id @default(cuid())
-  dossierVersionId  String
-  kind              RegDocKind             @default(ORIGINAL)
-  originalPath      String // chemin exact dans l'archive
-  originalFilename  String
-  suggestedFilename String?
-  approvedFilename  String?
-  ext               String
-  detectedMimeType  String?
-  declaredMimeType  String?
-  sizeBytes         Int                    @default(0)
-  sha256            String
-  compressionRatio  Float?
-  securityStatus    RegDocSecurityStatus   @default(PENDING)
-  extractionStatus  RegDocExtractionStatus @default(PENDING)
-  blobId            String? // copie de travail chiffrée (si extraite)
+  id                   String                 @id @default(cuid())
+  dossierVersionId     String
+  kind                 RegDocKind             @default(ORIGINAL)
+  originalPath         String // chemin exact dans l'archive
+  originalFilename     String
+  suggestedFilename    String?
+  approvedFilename     String?
+  ext                  String
+  detectedMimeType     String?
+  declaredMimeType     String?
+  sizeBytes            Int                    @default(0)
+  sha256               String
+  compressionRatio     Float?
+  securityStatus       RegDocSecurityStatus   @default(PENDING)
+  extractionStatus     RegDocExtractionStatus @default(PENDING)
+  blobId               String? // copie de travail chiffrée (si extraite)
   // Classification CTD déterministe (Phase 3) — proposition, jamais imposée.
   ctdModule            String? // "M1".."M5"
   ctdSection           String? // code CTD, ex. "3.2.P.8"
   ctdConfidence        Float? // 0..1
   classificationMethod String? // "code-path" | "keyword" | "module-only" | "none"
-  createdAt         DateTime               @default(now())
+  createdAt            DateTime               @default(now())
 
   dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
   extraction     RegulatoryExtraction?
@@ -3939,21 +3939,21 @@ model RegulatorySource {
 
 /// Version datée d'une source : texte original + hash, statut (ACTIVE = fait foi), approbation.
 model RegulatorySourceVersion {
-  id            String          @id @default(cuid())
-  sourceId      String
-  version       String
-  publishedAt   DateTime?
-  effectiveAt   DateTime?
-  status        RegSourceStatus @default(DRAFT)
-  hash          String? // sha-256 du texte original
-  originalText  String? // texte intégral (peut être volumineux)
-  supersedesId  String? // version remplacée
-  approvedById  String?
-  approvedAt    DateTime?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id           String          @id @default(cuid())
+  sourceId     String
+  version      String
+  publishedAt  DateTime?
+  effectiveAt  DateTime?
+  status       RegSourceStatus @default(DRAFT)
+  hash         String? // sha-256 du texte original
+  originalText String? // texte intégral (peut être volumineux)
+  supersedesId String? // version remplacée
+  approvedById String?
+  approvedAt   DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
 
-  source    RegulatorySource          @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  source    RegulatorySource           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   sections  RegulatorySourceSection[]
   approvals RegulatoryCorpusApproval[]
 
@@ -4014,7 +4014,7 @@ model RegulatoryFact {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  dossierVersion RegulatoryDossierVersion    @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
+  dossierVersion RegulatoryDossierVersion   @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
   occurrences    RegulatoryFactOccurrence[]
 
   @@unique([dossierVersionId, factKey])
@@ -4134,4 +4134,68 @@ model RegulatoryAuditLog {
   @@index([dossierId])
   @@index([companyId])
   @@index([createdAt])
+}
+
+enum RegRuleKind {
+  SECTION_REQUIRED // section CTD dont l'absence est un bloqueur
+  SECTION_EXPECTED // section CTD attendue (non bloquante)
+  DOCUMENT_PRESENT // au moins un document rattaché à une section
+  FACT_REQUIRED // un fait du jumeau numérique doit être renseigné
+  CUSTOM // logique portée par `params` (réservé, non exécuté par défaut)
+}
+
+/// MOTEUR DE RÈGLES ADMINISTRABLE (G5) — un « rule pack » regroupe des règles versionnées,
+/// approuvées puis activées (ACTIVE = fait foi). Remplace progressivement les profils codés
+/// en dur (`requirements.ts`), conservés comme repli tant qu'aucun pack actif n'existe.
+model RegulatoryRulePack {
+  id           String          @id @default(cuid())
+  code         String          @unique // ex. "ANPP-ENREGISTREMENT-IMPORTE"
+  name         String
+  description  String?
+  jurisdiction String          @default("DZ")
+  version      String          @default("1.0")
+  status       RegSourceStatus @default(DRAFT)
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  rules RegulatoryRule[]
+
+  @@index([status])
+  @@index([jurisdiction])
+}
+
+/// Une règle exécutable, sourcée sur le corpus (citation) — appliquée par le moteur déterministe.
+/// `procedureTypes`/`productTypes` = applicabilité (vide = toutes). `tests` = cas golden (JSON).
+model RegulatoryRule {
+  id              String             @id @default(cuid())
+  packId          String
+  code            String // unique dans le pack
+  kind            RegRuleKind        @default(SECTION_REQUIRED)
+  sectionCode     String? // section CTD ciblée (ex. "3.2.P.8")
+  factKey         String? // pour FACT_REQUIRED
+  severity        RegFindingSeverity @default(CRITICAL)
+  blocker         Boolean            @default(true)
+  title           String
+  detail          String?
+  remediation     String? // comment corriger
+  procedureTypes  String[] // RegProcedureType[] applicables (vide = toutes)
+  productTypes    String[] // "MEDICINE" | "MEDICAL_DEVICE" (vide = tous)
+  sourceVersionId String? // lien corpus (citation)
+  sourcePath      String? // ex. "art. 4" dans la source
+  effectiveAt     DateTime? // date d'entrée en vigueur
+  active          Boolean            @default(true)
+  params          Json? // logique étendue (CUSTOM)
+  tests           Json? // cas de test golden : [{ name, docs:[{section}], facts:[key], expectPass }]
+  ordinal         Int                @default(0)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  pack RegulatoryRulePack @relation(fields: [packId], references: [id], onDelete: Cascade)
+
+  @@unique([packId, code])
+  @@index([packId])
+  @@index([kind])
 }

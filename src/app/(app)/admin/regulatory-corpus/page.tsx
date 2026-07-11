@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Library } from "lucide-react";
+import { ArrowLeft, Library, ShieldCheck } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { listCorpusSources } from "@/lib/regulatory/intelligence/corpus/queries";
 import { activeCorpusSize } from "@/lib/regulatory/intelligence/corpus/rag";
+import { listRulePacks } from "@/lib/regulatory/intelligence/rules/admin-queries";
+import { activeRuleCount } from "@/lib/regulatory/intelligence/rules/rule-engine";
 import { CorpusAdmin } from "./corpus-admin";
+import { RulePacksAdmin } from "./rule-packs-admin";
 
 export const metadata = { title: "Corpus réglementaire — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -16,7 +19,12 @@ export default async function RegulatoryCorpusPage() {
   const admin = await requireModule("ADMIN", "UPDATE");
   if (admin.role !== "SUPER_ADMIN") redirect("/admin");
 
-  const [sources, activeSections] = await Promise.all([listCorpusSources(), activeCorpusSize()]);
+  const [sources, activeSections, rulePacks, activeRules] = await Promise.all([
+    listCorpusSources(),
+    activeCorpusSize(),
+    listRulePacks(),
+    activeRuleCount(),
+  ]);
   const hasAnpp = sources.some((s) => s.code === ANPP_LEGACY_CODE);
 
   // Sérialisation légère pour le composant client (dates → chaînes).
@@ -59,6 +67,19 @@ export default async function RegulatoryCorpusPage() {
         </CardHeader>
         <CardContent>
           <CorpusAdmin sources={serialized} hasAnpp={hasAnpp} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> Moteur de règles — packs de complétude</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Contrôles de complétude CTD pilotés par la base (par procédure), éditables et sourçables.
+            Tant qu'aucun pack n'est ACTIF, les profils codés font foi (aucune régression). {activeRules} règle·s active·s.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <RulePacksAdmin packs={rulePacks} hasPacks={rulePacks.length > 0} />
         </CardContent>
       </Card>
     </div>

@@ -75,8 +75,13 @@ describe("runner EXTRACT — extraction pilotée par job (intégration)", () => 
     expect(d?.status).toBe("ANALYSING");
   });
 
-  it("enchaîne les contrôles déterministes (RULES) → bilan + constats persistés", async () => {
-    // L'extraction a mis en file un job RULES ; on le traite.
+  it("enchaîne FACTS puis les contrôles déterministes (RULES) → bilan + constats persistés", async () => {
+    // Nouvelle chaîne : EXTRACT → FACTS → RULES. L'extraction a mis en file FACTS ; on le traite,
+    // ce qui enfile RULES à son tour (pour que les règles FACT_REQUIRED disposent des faits).
+    const facts = await prisma.regulatoryJob.findFirst({ where: { dossierId, type: "FACTS" }, select: { id: true } });
+    expect(facts).toBeTruthy();
+    await runRegulatoryJob(facts!.id);
+
     const rules = await prisma.regulatoryJob.findFirst({ where: { dossierId, type: "RULES" }, select: { id: true } });
     expect(rules).toBeTruthy();
     await runRegulatoryJob(rules!.id);

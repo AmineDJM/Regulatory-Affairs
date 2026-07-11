@@ -5,6 +5,7 @@ import { extractText } from "../extract/extract-text";
 import { detectMime } from "../extract/mime";
 import { classifyDocument } from "../ctd/classify";
 import { assessVersion, type TwinDoc } from "../rules/engine";
+import { loadActiveRules, loadPresentFactKeys } from "../rules/rule-engine";
 import { buildTwinFacts } from "../twin/build-facts";
 import { detectConflicts } from "../twin/detect-conflicts";
 import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
@@ -172,12 +173,11 @@ async function handleExtract(job: RegulatoryJob): Promise<void> {
     if (job.dossierId) {
       await prisma.regulatoryDossier.update({ where: { id: job.dossierId }, data: { status: "ANALYSING" } }).catch(() => undefined);
     }
-    // Enchaîne les contrôles déterministes (RULES) + le jumeau numérique (FACTS).
-    await prisma.regulatoryJob.createMany({
-      data: [
-        { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: "RULES", status: "QUEUED", payload: {} },
-        { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: "FACTS", status: "QUEUED", payload: {} },
-      ],
+    // Enchaîne le jumeau numérique (FACTS) PUIS les contrôles déterministes (RULES) — dans cet
+    // ordre pour que les règles FACT_REQUIRED disposent des faits extraits. RULES est enchaîné
+    // par handleFacts à sa complétion.
+    await prisma.regulatoryJob.create({
+      data: { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: "FACTS", status: "QUEUED", payload: {} },
     });
   }
 }
@@ -192,6 +192,10 @@ async function handleFacts(job: RegulatoryJob): Promise<void> {
   const facts = await buildTwinFacts(versionId);
   const conflicts = await detectConflicts(versionId);
   await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } });
+  // Enchaîne les contrôles déterministes (RULES) maintenant que les faits existent.
+  await prisma.regulatoryJob.create({
+    data: { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: "RULES", status: "QUEUED", payload: {} },
+  });
   await regAudit({
     companyId: job.companyId, actorId: "system", dossierId: job.dossierId, dossierVersionId: versionId,
     action: "FACTS_BUILT",
@@ -223,7 +227,12 @@ async function handleRules(job: RegulatoryJob): Promise<void> {
   });
   const twinDocs: TwinDoc[] = docs.map((d) => ({ ...d, securityStatus: String(d.securityStatus), extractionStatus: String(d.extractionStatus) }));
 
-  const { findings, summary } = assessVersion({ procedureType: version.dossier.procedureType, documents: twinDocs });
+  // G5 : règles administrables du/des pack(s) ACTIF(s) — sinon repli sur les profils codés.
+  const [rules, factKeys] = await Promise.all([
+    loadActiveRules(version.dossier.procedureType),
+    loadPresentFactKeys(versionId),
+  ]);
+  const { findings, summary } = assessVersion({ procedureType: version.dossier.procedureType, documents: twinDocs, rules, factKeys });
 
   await prisma.$transaction([
     // Recalcul idempotent : on remplace les constats du MOTEUR (on préserve IA/HUMAIN).
