@@ -5,6 +5,9 @@ import { extractText } from "../extract/extract-text";
 import { detectMime } from "../extract/mime";
 import { classifyDocument } from "../ctd/classify";
 import { assessVersion, type TwinDoc } from "../rules/engine";
+import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
+import { sectionByCode } from "../ctd/taxonomy";
+import { aiConfigured } from "@/lib/ai";
 import { regAudit } from "../audit";
 
 /**
@@ -90,6 +93,8 @@ async function dispatch(job: RegulatoryJob): Promise<void> {
       return handleExtract(job);
     case "RULES":
       return handleRules(job);
+    case "AI_REVIEW":
+      return handleAiReview(job);
     default:
       // Type non encore pris en charge à ce stade → terminal propre (pas de boucle).
       await prisma.regulatoryJob.update({
@@ -227,6 +232,67 @@ async function handleRules(job: RegulatoryJob): Promise<void> {
     action: "RULES_ASSESSED",
     detail: `Contrôles déterministes : complétude ${summary.completeness}%, ${summary.conforme ? "aucun bloqueur" : `${summary.blockers} bloqueur(s)`} — ${summary.criticals} critique(s), ${summary.majors} majeur(s).`,
     meta: { ...summary },
+  });
+
+  // Revue IA (PROJET, non bloquante) uniquement si l'IA est configurée — sinon on n'empile
+  // pas de jobs annulés.
+  if (aiConfigured()) {
+    await prisma.regulatoryJob.create({
+      data: { companyId: job.companyId, dossierId: version.dossier.id, dossierVersionId: versionId, type: "AI_REVIEW", status: "QUEUED", payload: {} },
+    });
+  }
+}
+
+// Sections prioritaires pour la revue IA (fond) + plafond de documents (coût/latence).
+const AI_PRIORITY_SECTIONS = new Set(["1.2", "1.3", "2.3", "2.5", "3.2.P.5", "3.2.P.8", "3.2.S.4", "5.3"]);
+const AI_MAX_DOCS = 6;
+
+/** AI_REVIEW : revue de fond/forme (PROJET) sur un sous-ensemble de documents clés. */
+async function handleAiReview(job: RegulatoryJob): Promise<void> {
+  const versionId = job.dossierVersionId;
+  if (!versionId || !aiConfigured()) {
+    await prisma.regulatoryJob.update({
+      where: { id: job.id },
+      data: { status: "CANCELLED", finishedAt: new Date(), error: aiConfigured() ? "Version absente." : "IA non configurée (ANTHROPIC_API_KEY absente) — aucune revue simulée." },
+    });
+    return;
+  }
+
+  const docs = await prisma.regulatoryDocument.findMany({
+    where: { dossierVersionId: versionId, extractionStatus: "TEXT_EXTRACTED", securityStatus: { in: ["SAFE", "SUSPICIOUS"] } },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, originalFilename: true, ctdSection: true, extraction: { select: { content: true } } },
+  });
+  const prioritized = docs.filter((d) => d.ctdSection && AI_PRIORITY_SECTIONS.has(d.ctdSection));
+  const targets = (prioritized.length > 0 ? prioritized : docs).slice(0, AI_MAX_DOCS);
+
+  const collected: (AiFinding & { documentId: string })[] = [];
+  for (const d of targets) {
+    const text = d.extraction?.content ?? "";
+    if (!text) continue;
+    const r = await reviewDocumentText({
+      filename: d.originalFilename, ctdSection: d.ctdSection,
+      ctdTitle: d.ctdSection ? sectionByCode(d.ctdSection)?.title ?? null : null, text,
+    });
+    if (r.ok) for (const f of r.findings) collected.push({ ...f, documentId: d.id });
+  }
+
+  await prisma.$transaction([
+    prisma.regulatoryFinding.deleteMany({ where: { dossierVersionId: versionId, source: "AI" } }),
+    prisma.regulatoryFinding.createMany({
+      data: collected.map((f) => ({
+        dossierVersionId: versionId, code: "AI_REVIEW", severity: f.severity, category: f.category.slice(0, 40),
+        title: f.title.slice(0, 200), detail: f.detail.slice(0, 2000), evidence: f.evidence ? f.evidence.slice(0, 1200) : null,
+        sectionCode: f.sectionCode, documentId: f.documentId, source: "AI" as const, blocker: false, draft: true,
+      })),
+    }),
+    prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } }),
+  ]);
+
+  await regAudit({
+    companyId: job.companyId, actorId: "system", dossierId: job.dossierId, dossierVersionId: versionId,
+    action: "AI_REVIEW_DONE",
+    detail: `Revue IA (PROJET — revue humaine requise) : ${collected.length} constat(s) proposé(s) sur ${targets.length} document(s) clés.`,
   });
 }
 
