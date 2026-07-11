@@ -26,11 +26,15 @@ export interface ZipLimits {
   maxDepth: number; // profondeur d'arborescence
 }
 
+// Défauts PRUDENTS (l'upload est bufferisé en mémoire avant contrôle) : pic mémoire ≈ archive
+// + plus gros fichier décompressé. Réglables à la hausse par variables d'env si l'hôte a la RAM
+// (REG_ZIP_MAX_ARCHIVE_MB, REG_ZIP_MAX_TOTAL_MB, REG_ZIP_MAX_FILE_MB…). 300 Mo compressés = un
+// très gros dossier CTD (PDF compressent bien).
 export const DEFAULT_ZIP_LIMITS: ZipLimits = {
-  maxArchiveBytes: Number(process.env.REG_ZIP_MAX_ARCHIVE_MB ?? "800") * MB,
+  maxArchiveBytes: Number(process.env.REG_ZIP_MAX_ARCHIVE_MB ?? "300") * MB,
   maxEntries: Number(process.env.REG_ZIP_MAX_ENTRIES ?? "5000"),
-  maxTotalUncompressed: Number(process.env.REG_ZIP_MAX_TOTAL_MB ?? "1500") * MB,
-  maxFileUncompressed: Number(process.env.REG_ZIP_MAX_FILE_MB ?? "500") * MB,
+  maxTotalUncompressed: Number(process.env.REG_ZIP_MAX_TOTAL_MB ?? "1200") * MB,
+  maxFileUncompressed: Number(process.env.REG_ZIP_MAX_FILE_MB ?? "200") * MB,
   maxRatio: Number(process.env.REG_ZIP_MAX_RATIO ?? "200"),
   maxDepth: Number(process.env.REG_ZIP_MAX_DEPTH ?? "12"),
 };

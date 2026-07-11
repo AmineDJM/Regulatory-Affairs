@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import JSZip from "jszip";
 import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
-import { releaseBlob } from "@/lib/drive-storage";
+import { releaseBlob, getBlob } from "@/lib/drive-storage";
 import { ingestDossierZip } from "./ingest-dossier";
 
 /**
@@ -72,6 +72,10 @@ describe("ingestDossierZip — pipeline d'ingestion CTD (intégration)", () => {
     expect(stab.securityStatus).toBe("SAFE");
     expect(stab.blobId).toBeTruthy();
     expect(stab.sha256).toBe(createHash("sha256").update(pdf).digest("hex"));
+    // INTÉGRITÉ DU STOCKAGE : le fichier restitué est octet pour octet identique à l'original.
+    const restored = await getBlob(stab.blobId!);
+    expect(restored).not.toBeNull();
+    expect(Buffer.compare(restored!, pdf)).toBe(0);
 
     const version = await prisma.regulatoryDossierVersion.findFirst({ where: { dossierId }, orderBy: { versionNo: "desc" } });
     expect(version?.originalZipBlobId).toBeTruthy();
