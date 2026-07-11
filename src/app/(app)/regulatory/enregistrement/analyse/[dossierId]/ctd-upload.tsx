@@ -36,6 +36,26 @@ function putPartXhr(url: string, body: ArrayBuffer | Blob, onLoaded: (loaded: nu
 }
 
 /**
+ * Lit une réponse JSON SANS jamais lever « Unexpected end of JSON input » : un corps VIDE signifie
+ * que la requête a été coupée (finalisation d'un gros dossier → délai/RAM de l'instance dépassés).
+ * On renvoie alors une erreur explicite plutôt qu'un message cryptique.
+ */
+async function readJsonSafe<T extends { ok?: boolean; error?: string }>(res: Response): Promise<T> {
+  const text = await res.text().catch(() => "");
+  if (!text) {
+    const msg = res.ok
+      ? "Le serveur n'a pas répondu à la finalisation (dossier volumineux : délai ou mémoire de l'instance dépassés). Augmentez la RAM de l'instance, puis relancez le même fichier."
+      : `Serveur indisponible pendant la finalisation (code ${res.status}). Réessayez.`;
+    return { ok: false, error: msg } as T;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return { ok: false, error: `Réponse serveur illisible (code ${res.status}).` } as T;
+  }
+}
+
+/**
  * Téléversement d'un dossier CTD en **ZIP** vers la route d'ingestion sécurisée.
  * Progression réelle (XHR), puis restitution du **manifeste de sécurité** (conservés /
  * bloqués / suspects). L'archive originale est figée ; chaque fichier sain est stocké chiffré.
@@ -92,8 +112,8 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       } catch {
         throw new Error("Ouverture de session : serveur injoignable ou trop lent (30 s).");
       } finally { clearTimeout(openTimer); }
-      const meta = await open.json();
-      if (!open.ok) throw new Error(meta.error ?? "Ouverture de session refusée.");
+      const meta = await readJsonSafe<{ ok?: boolean; error?: string; mode?: string; uploadUrl?: string; sessionId?: string; partSize?: number; expectedParts?: number; receivedIndices?: number[]; concurrency?: number }>(open);
+      if (!open.ok || meta.error) throw new Error(meta.error ?? "Ouverture de session refusée.");
 
       // CHANTIER 1 — envoi DIRECT vers le bucket (S3/R2) si configuré : un seul PUT présigné,
       // navigateur → stockage (bypass serveur + Postgres), puis finalisation serveur (lecture + ingestion).
@@ -112,7 +132,7 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
         setProgress(100);
         setPhase("processing");
         const fin = await fetch(`/api/regulatory/intelligence/upload/direct/${meta.sessionId}/finalize`, { method: "POST" });
-        const data = await fin.json();
+        const data = await readJsonSafe<{ ok?: boolean; error?: string; summary?: Summary }>(fin);
         if (!fin.ok || !data.ok) throw new Error(data.error ?? "Finalisation refusée.");
         setPhase("done"); setSummary(data.summary ?? null);
         fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
@@ -186,7 +206,7 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
 
       setPhase("processing");
       const fin = await fetch(`/api/regulatory/intelligence/upload/session/${sessionId}/finalize`, { method: "POST" });
-      const data = await fin.json();
+      const data = await readJsonSafe<{ ok?: boolean; error?: string; summary?: Summary }>(fin);
       if (!fin.ok || !data.ok) throw new Error(data.error ?? "Finalisation refusée.");
       setPhase("done"); setSummary(data.summary ?? null);
       fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
