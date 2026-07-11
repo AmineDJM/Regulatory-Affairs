@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft, Download, FileText, ShieldCheck, ShieldAlert, ShieldX, Layers, History, Eye,
-  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge, Bot, GitCompare, MailWarning,
+  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge, Bot, GitCompare, MailWarning, FlaskConical,
 } from "lucide-react";
 import type { RegFindingSeverity } from "@prisma/client";
 import { requireModule } from "@/lib/session";
@@ -23,6 +23,8 @@ import { TwinPanel } from "./twin-panel";
 import { AgentsPanel } from "./agents-panel";
 import { DocgenPanel } from "./docgen-panel";
 import { ReservesPanel } from "./reserves-panel";
+import { SimulatorPanel } from "./simulator-panel";
+import type { SimPerspective } from "@/lib/regulatory/intelligence/simulator/run";
 import {
   PROCEDURE_TYPE_LABELS, DOSSIER_STATUS_LABELS, DOSSIER_STATUS_TONE,
   SECURITY_LABELS, EXTRACTION_LABELS, humanBytes, isBlockedSecurity,
@@ -83,6 +85,12 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
   const docTemplates = templateSummaries();
   const reserveCycles = (await listReserveCycles(dossier.id)).map((c) => ({ ...c, receivedAt: c.receivedAt.toISOString() }));
   const canReserve = regCan(user, "regulatory.reserve.manage");
+  const lastSimRow = latest
+    ? await prisma.regulatorySimulation.findFirst({ where: { dossierVersionId: latest.id, configured: true }, orderBy: { createdAt: "desc" }, select: { perspectives: true, overall: true, createdAt: true } })
+    : null;
+  const lastSim = lastSimRow
+    ? { perspectives: lastSimRow.perspectives as unknown as SimPerspective[], overall: lastSimRow.overall, createdAt: lastSimRow.createdAt.toISOString() }
+    : null;
   const audit = await listDossierAudit(dossier.id);
 
   const canUpload = regCan(user, "regulatory.dossier.upload");
@@ -364,6 +372,18 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
           </CardHeader>
           <CardContent>
             <DocgenPanel dossierId={dossier.id} templates={docTemplates} docs={generatedDocs} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Reviewer Simulator — stress test multi-perspectives (simulation non prédictive) */}
+      {latest && canAnalyse && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><FlaskConical className="h-4 w-4 text-primary" /> Simulateur d'examen (multi-perspectives)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SimulatorPanel dossierId={dossier.id} last={lastSim} />
           </CardContent>
         </Card>
       )}

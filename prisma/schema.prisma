@@ -3808,6 +3808,7 @@ model RegulatoryDossierVersion {
   facts         RegulatoryFact[]
   conflicts     RegulatoryConflict[]
   generatedDocs RegulatoryGeneratedDoc[]
+  simulations   RegulatorySimulation[]
 
   @@unique([dossierId, versionNo])
   @@index([dossierId])
@@ -4331,4 +4332,21 @@ model RegulatoryReservePoint {
   cycle RegulatoryReserveCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
 
   @@index([cycleId])
+}
+
+/// REVIEWER SIMULATOR (G11) — stress test MULTI-PERSPECTIVES du dossier, présenté comme une
+/// SIMULATION INTERNE NON PRÉDICTIVE (jamais une décision ANPP). Résultats par perspective
+/// (verdict simulé, questions probables, risques), tracés.
+model RegulatorySimulation {
+  id               String   @id @default(cuid())
+  dossierVersionId String
+  perspectives     Json // [{ perspective, verdict, questions[], risks[] }]
+  overall          String? // synthèse simulée
+  configured       Boolean  @default(false) // IA réellement appelée ?
+  createdById      String
+  createdAt        DateTime @default(now())
+
+  dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
+
+  @@index([dossierVersionId])
 }
