@@ -3356,6 +3356,9 @@ model AppSetting {
   // (= somme des enveloppes actives). Réglé par le Super Admin.
   budgetTotalMode  String   @default("FLEXIBLE")
   budgetFixedTotal Decimal  @default(0) @db.Decimal(14, 2)
+  // Onglet Regulatory « Enregistrement » (analyseur de dossier CTD) — masqué tant que
+  // le Super Admin ne l'a pas débloqué.
+  regEnrollmentEnabled Boolean @default(false)
   updatedAt        DateTime @updatedAt
   updatedById      String?
 }

@@ -30,6 +30,24 @@ export async function saveAppSettings(formData: FormData): Promise<ActionResult>
   return { ok: true };
 }
 
+/** Débloque / masque l'onglet Regulatory « Enregistrement » (analyseur CTD). **Super Admin uniquement.** */
+export async function setRegEnrollmentEnabled(enabled: boolean): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", regEnrollmentEnabled: enabled, updatedById: admin.id },
+    update: { regEnrollmentEnabled: enabled, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Onglet Regulatory « Enregistrement » ${enabled ? "débloqué" : "masqué"}`,
+  });
+  revalidatePath("/admin");
+  revalidatePath("/regulatory");
+  return { ok: true };
+}
+
 /** Capacité globale du Drive + quota par utilisateur (Go). **Super Admin uniquement.** */
 export async function saveDriveStorageSettings(formData: FormData): Promise<ActionResult> {
   const admin = await requireUser();

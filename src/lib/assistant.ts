@@ -40,6 +40,7 @@ import {
   MEDICAL_SECTOR, INFLUENCE_LEVEL, REGULATORY_STATUS, EVENT_STATUS, EVENT_TYPE,
   doctorDisplayName,
 } from "@/lib/labels";
+import { regulatoryKnowledgeDigest } from "@/lib/regulatory/anpp-knowledge";
 
 // ───────────────────────────── Types publics ─────────────────────────────
 
@@ -434,6 +435,9 @@ function buildContext(user: CurrentUser): string {
 }
 
 function systemPrompt(user: CurrentUser): string {
+  // Le bot devient EXPERT du cadre réglementaire ANPP (Algérie) dès que l'utilisateur a
+  // accès au module Regulatory — connaissance intégrée, réponses fondées sur les textes.
+  const regExpertise = userCan(user, "REGULATORY", "VIEW") ? `\n\n${regulatoryKnowledgeDigest()}\n` : "";
   return `Tu es « Assistant IA », l'assistant interne d'AMD Internal OS, l'outil de gestion d'Adventum Pharma
 (laboratoire pharmaceutique algérien ; devise DZD ; principal client la PCH — Pharmacie Centrale des Hôpitaux).
 Tu aides l'employé à comprendre l'application, à retrouver ses informations et à passer à l'action.
@@ -491,7 +495,7 @@ INTERPRÉTATION DES DEMANDES (très important) :
   create_admin_request type=TRAVEL : titre court, description (passager, trajet) et startDate/endDate.
 - Pour tout sujet qualité ou pharmacovigilance, reste prudent et demande confirmation renforcée à l'humain ;
   ne crée rien automatiquement.
-
+${regExpertise}
 STYLE DE RÉPONSE — IMPÉRATIF :
 - Écris en TEXTE SIMPLE, lisible, SANS Markdown : PAS d'astérisques (** ou *), PAS de dièses (#), PAS de
   tableaux, PAS de balises de code. Pour mettre en avant, écris normalement ; pour une liste, utilise des

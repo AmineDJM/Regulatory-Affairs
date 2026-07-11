@@ -1049,6 +1049,16 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot T** — **Regulatory : Enregistrement ANPP (phase 1 — base de connaissance + expertise du bot).**
+  **Base de connaissance réglementaire** algérienne intégrée (`src/lib/regulatory/anpp-knowledge.ts`) : droits
+  d'enregistrement (bordereaux de versement), délais légaux par phase, pièces, **dossier CTD (5 modules ICH)**,
+  formulaire de pré-soumission, modifications (mineure/modérée/majeure), décision (validité 5 ans), motifs de refus,
+  références légales (décret 20-325 ; arrêtés 10/05/2021 et 03/10/2021). **L'assistant IA devient EXPERT** de ce
+  cadre pour tout utilisateur ayant accès à Regulatory (digest injecté dans le system prompt — réponses fondées sur
+  les articles, sans invention). **Onglet « Enregistrement (CTD) »** sous Regulatory, **masqué** tant que le Super
+  Admin ne l'a pas débloqué (`AppSetting.regEnrollmentEnabled`, bascule dans Administration → Réglages) ; il affiche
+  le **référentiel** complet. *Phase 2 à venir : analyseur de dossier CTD (décompression ZIP → lecture/renommage →
+  analyse IA fond/forme vs loi algérienne + UE → préparation des formulaires).*
 - **Lot S** — **Anti-blocage Infomaniak définitif : disjoncteur + cache.** Complète le Lot R. Quand Infomaniak
   sature (≥ `MAIL_BREAKER_THRESHOLD` échecs), un **disjoncteur** s'ouvre et la plateforme **arrête totalement** de
   le contacter pendant un temps de repos (`MAIL_BREAKER_COOLDOWN_MS`) — insister aggrave/prolonge le blocage IP ;

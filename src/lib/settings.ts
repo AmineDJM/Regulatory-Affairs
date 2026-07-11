@@ -21,6 +21,8 @@ export interface AppSettings {
   driveCapacityGb: number;
   /** Quota Drive par utilisateur (Go) — modifiable par le Super Admin. */
   driveUserQuotaGb: number;
+  /** Onglet Regulatory « Enregistrement » (analyseur CTD) — débloqué par le Super Admin. */
+  regEnrollmentEnabled: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -30,6 +32,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   budgetFixedTotal: 0,
   driveCapacityGb: 100,
   driveUserQuotaGb: 10,
+  regEnrollmentEnabled: false,
 };
 
 export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
@@ -43,6 +46,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       budgetFixedTotal: Number(row.budgetFixedTotal),
       driveCapacityGb: row.driveCapacityGb,
       driveUserQuotaGb: row.driveUserQuotaGb,
+      regEnrollmentEnabled: row.regEnrollmentEnabled,
     };
   } catch {
     return DEFAULT_APP_SETTINGS;

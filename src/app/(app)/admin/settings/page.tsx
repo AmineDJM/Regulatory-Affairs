@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning } from "lucide-react";
+import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2 } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle } from "./admin-settings-forms";
 
 export const metadata = { title: "Réglages & diffusion — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -41,6 +41,16 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <AdminLimitsForm settings={settings} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><FileCheck2 className="h-4 w-4" /> Regulatory — Enregistrement (CTD)</CardTitle>
+          <p className="text-sm text-muted-foreground">Débloque l'onglet « Enregistrement » dans Regulatory : référentiel réglementaire ANPP + analyseur de dossier CTD. Masqué par défaut.</p>
+        </CardHeader>
+        <CardContent>
+          <RegEnrollmentToggle enabled={settings.regEnrollmentEnabled} />
         </CardContent>
       </Card>
 

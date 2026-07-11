@@ -3,7 +3,9 @@ import { userCan, scopeRegulatory } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { currentCompanyWhere, getCompanies } from "@/lib/company";
+import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 import { RegulatoryTable, type RegulatoryRow } from "./regulatory-table";
 import { NewProductButton } from "./new-product";
@@ -13,7 +15,7 @@ export default async function RegulatoryPage() {
   const user = await requireModule("REGULATORY");
   const canCreate = userCan(user, "REGULATORY", "CREATE");
 
-  const [products, suppliers, companies] = await Promise.all([
+  const [products, suppliers, companies, settings] = await Promise.all([
     prisma.regulatoryProduct.findMany({
       where: { ...scopeRegulatory(user), ...currentCompanyWhere() },
       orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
@@ -30,6 +32,7 @@ export default async function RegulatoryPage() {
       orderBy: { name: "asc" },
     }),
     getCompanies(),
+    getAppSettings(),
   ]);
 
   const rows: RegulatoryRow[] = products.map((p) => {
@@ -94,6 +97,13 @@ export default async function RegulatoryPage() {
           </div>
         )}
       </PageHeader>
+
+      <ModuleTabs
+        tabs={[
+          { label: "Dossiers", href: "/regulatory" },
+          { label: "Enregistrement (CTD)", href: "/regulatory/enregistrement", show: settings.regEnrollmentEnabled },
+        ]}
+      />
 
       <RegulatoryTable rows={rows} />
     </div>

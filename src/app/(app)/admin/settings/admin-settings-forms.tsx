@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Loader2, Check, Megaphone, Search } from "lucide-react";
-import { saveAppSettings } from "@/lib/actions/settings-actions";
+import { saveAppSettings, setRegEnrollmentEnabled } from "@/lib/actions/settings-actions";
 import { sendBroadcast } from "@/lib/actions/notification-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
@@ -46,6 +46,41 @@ export function AdminLimitsForm({ settings }: { settings: AppSettings }) {
         </Button>
       </div>
     </form>
+  );
+}
+
+/** Débloque / masque l'onglet Regulatory « Enregistrement » (analyseur CTD). */
+export function RegEnrollmentToggle({ enabled: initial }: { enabled: boolean }) {
+  const [enabled, setEnabled] = React.useState(initial);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  async function toggle(next: boolean) {
+    setBusy(true); setError(null);
+    const r = await setRegEnrollmentEnabled(next);
+    setBusy(false);
+    if (r.ok) setEnabled(next);
+    else setError(r.error ?? "Échec.");
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Onglet « Enregistrement » (analyseur de dossier CTD)</p>
+          <p className="text-xs text-muted-foreground">
+            {enabled ? "Visible pour les utilisateurs ayant accès à Regulatory." : "Masqué. Activez pour rendre l'onglet visible dans Regulatory."}
+          </p>
+        </div>
+        <button
+          type="button" role="switch" aria-checked={enabled} disabled={busy}
+          onClick={() => toggle(!enabled)}
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${enabled ? "bg-primary" : "bg-input"}`}
+        >
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`} />
+        </button>
+      </div>
+      {busy && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Mise à jour…</p>}
+      {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+    </div>
   );
 }
 
