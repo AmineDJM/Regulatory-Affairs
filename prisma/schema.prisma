@@ -3855,6 +3855,11 @@ model RegulatoryExtraction {
   charCount  Int      @default(0)
   truncated  Boolean  @default(false)
   content    String // texte brut extrait
+  // OCR (G13) — métadonnées séparées du texte natif : confiance, pages, revue humaine.
+  ocrConfidence Float? // confiance moyenne OCR 0..100 (null si extraction native)
+  pageCount     Int? // nombre de pages (source)
+  ocrPages      Json? // [{ page, confidence, chars, lowConfidence }]
+  needsReview   Boolean @default(false) // pages de faible confiance → revue humaine
   createdAt  DateTime @default(now())
 
   document RegulatoryDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)

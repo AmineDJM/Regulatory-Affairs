@@ -6,6 +6,7 @@ import { detectMime } from "../extract/mime";
 import { classifyDocument } from "../ctd/classify";
 import { assessVersion, type TwinDoc } from "../rules/engine";
 import { loadActiveRules, loadPresentFactKeys } from "../rules/rule-engine";
+import { ocrDocument, canOcr } from "../ocr/ocr-engine";
 import { buildTwinFacts } from "../twin/build-facts";
 import { detectConflicts } from "../twin/detect-conflicts";
 import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
@@ -26,6 +27,9 @@ import { regAudit } from "../audit";
 const STALE_LOCK_MS = 5 * 60_000; // un job « RUNNING » figé > 5 min est repris
 const MAX_JOBS_PER_TICK = 5;
 const EXTRACT_BATCH = 20; // documents traités par passage (le reste est re-mis en file)
+const OCR_BATCH = 3; // OCR = lourd (WASM par page) → peu de documents par passage, reste re-mis en file
+
+const ocrEnabled = () => (process.env.REG_OCR_ENABLED ?? "1") !== "0";
 
 export async function runDueRegulatoryJobs(max = MAX_JOBS_PER_TICK): Promise<void> {
   // Reprise des jobs bloqués (process interrompu) : verrou expiré → re-QUEUED.
@@ -94,6 +98,8 @@ async function dispatch(job: RegulatoryJob): Promise<void> {
   switch (job.type) {
     case "EXTRACT":
       return handleExtract(job);
+    case "OCR":
+      return handleOcr(job);
     case "RULES":
       return handleRules(job);
     case "FACTS":
@@ -173,12 +179,91 @@ async function handleExtract(job: RegulatoryJob): Promise<void> {
     if (job.dossierId) {
       await prisma.regulatoryDossier.update({ where: { id: job.dossierId }, data: { status: "ANALYSING" } }).catch(() => undefined);
     }
-    // Enchaîne le jumeau numérique (FACTS) PUIS les contrôles déterministes (RULES) — dans cet
-    // ordre pour que les règles FACT_REQUIRED disposent des faits extraits. RULES est enchaîné
-    // par handleFacts à sa complétion.
+    // Chaîne : EXTRACT → [OCR si scans] → FACTS → RULES. L'OCR (auto-hébergé) océrise les
+    // documents scannés AVANT le jumeau numérique pour que leur contenu alimente les faits.
+    const ocrPending = ocrEnabled()
+      ? await prisma.regulatoryDocument.count({ where: { dossierVersionId: versionId, extractionStatus: "OCR_REQUIRED", blobId: { not: null } } })
+      : 0;
     await prisma.regulatoryJob.create({
-      data: { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: "FACTS", status: "QUEUED", payload: {} },
+      data: { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: ocrPending > 0 ? "OCR" : "FACTS", status: "QUEUED", payload: {} },
     });
+  }
+}
+
+/**
+ * OCR (G13) : océrise les documents scannés (OCR_REQUIRED) — auto-hébergé (tesseract.js +
+ * mupdf + sharp, données de langue locales). Par lots bornés (WASM lourd), avec reprise.
+ * Le texte OCR est stocké SÉPARÉMENT (method="ocr") ; les pages de faible confiance sont
+ * signalées pour REVUE HUMAINE (statut LOW_CONFIDENCE), jamais présumées correctes.
+ */
+async function handleOcr(job: RegulatoryJob): Promise<void> {
+  const versionId = job.dossierVersionId;
+  if (!versionId || !ocrEnabled()) {
+    await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } });
+    if (versionId) await enqueueFacts(job, versionId);
+    return;
+  }
+
+  const pending = await prisma.regulatoryDocument.findMany({
+    where: { dossierVersionId: versionId, extractionStatus: "OCR_REQUIRED", blobId: { not: null } },
+    orderBy: { createdAt: "asc" },
+    take: OCR_BATCH,
+    select: { id: true, ext: true, blobId: true, originalPath: true, originalFilename: true },
+  });
+
+  for (const doc of pending) {
+    await ocrOne(doc);
+  }
+
+  const remaining = await prisma.regulatoryDocument.count({
+    where: { dossierVersionId: versionId, extractionStatus: "OCR_REQUIRED", blobId: { not: null } },
+  });
+  if (remaining > 0) {
+    // Reprise au prochain tick (sans consommer de tentative) — mémoire/latence bornées.
+    await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "QUEUED", lockedAt: null } });
+  } else {
+    await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } });
+    await enqueueFacts(job, versionId);
+  }
+}
+
+/** Enfile le jumeau numérique (FACTS) — étape suivante après extraction/OCR. */
+async function enqueueFacts(job: RegulatoryJob, versionId: string): Promise<void> {
+  const exists = await prisma.regulatoryJob.count({ where: { dossierVersionId: versionId, type: "FACTS", status: { in: ["QUEUED", "RUNNING"] } } });
+  if (exists === 0) {
+    await prisma.regulatoryJob.create({ data: { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: "FACTS", status: "QUEUED", payload: {} } });
+  }
+}
+
+/** Océrise UN document scanné et persiste texte + confiance + revue. Ne lève jamais. */
+async function ocrOne(doc: { id: string; ext: string; blobId: string | null; originalFilename: string }): Promise<void> {
+  try {
+    const buffer = doc.blobId ? await getBlob(doc.blobId) : null;
+    if (!buffer || !canOcr(doc.ext)) {
+      await prisma.regulatoryDocument.update({ where: { id: doc.id }, data: { extractionStatus: "MANUAL_REVIEW_REQUIRED" } });
+      return;
+    }
+    const r = await ocrDocument({ ext: doc.ext, buffer });
+    const status = r.text.length === 0 ? "MANUAL_REVIEW_REQUIRED" : r.needsReview ? "LOW_CONFIDENCE" : "OCR_COMPLETED";
+    await prisma.$transaction([
+      prisma.regulatoryExtraction.upsert({
+        where: { documentId: doc.id },
+        create: {
+          documentId: doc.id, method: r.method, lang: r.langs, charCount: r.text.length, truncated: r.truncated,
+          content: r.text.slice(0, 1_000_000), ocrConfidence: r.meanConfidence, pageCount: r.pageCount,
+          ocrPages: r.pages as unknown as object, needsReview: r.needsReview,
+        },
+        update: {
+          method: r.method, lang: r.langs, charCount: r.text.length, truncated: r.truncated,
+          content: r.text.slice(0, 1_000_000), ocrConfidence: r.meanConfidence, pageCount: r.pageCount,
+          ocrPages: r.pages as unknown as object, needsReview: r.needsReview,
+        },
+      }),
+      prisma.regulatoryDocument.update({ where: { id: doc.id }, data: { extractionStatus: status } }),
+    ]);
+  } catch (err) {
+    console.error("[reg-ocr] document", doc.id, err);
+    await prisma.regulatoryDocument.update({ where: { id: doc.id }, data: { extractionStatus: "MANUAL_REVIEW_REQUIRED" } }).catch(() => undefined);
   }
 }
 

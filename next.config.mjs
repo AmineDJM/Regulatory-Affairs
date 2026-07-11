@@ -3,8 +3,9 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   experimental: {
-    // Libs Node serveur uniquement (jamais bundlées côté client) : auth, mail (IMAP/SMTP).
-    serverComponentsExternalPackages: ["bcryptjs", "imapflow", "nodemailer", "mailparser", "pdf-parse", "mammoth", "xlsx"],
+    // Libs Node serveur uniquement (jamais bundlées côté client) : auth, mail (IMAP/SMTP),
+    // extraction/OCR (tesseract.js/mupdf/sharp = WASM/natif, à ne pas bundler).
+    serverComponentsExternalPackages: ["bcryptjs", "imapflow", "nodemailer", "mailparser", "pdf-parse", "mammoth", "xlsx", "tesseract.js", "mupdf", "sharp"],
     // Téléversements via Server Action (documents Regulatory/Congrès/Dossiers…) : Next
     // plafonne le corps à 1 Mo par défaut, ce qui rendait inopérante la limite réglée par
     // l'admin. On lève ce plafond à 256 Mo ; la VRAIE limite reste celle définie par le
