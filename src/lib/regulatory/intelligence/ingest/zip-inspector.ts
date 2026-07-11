@@ -1,0 +1,199 @@
+import { createHash } from "crypto";
+import JSZip from "jszip";
+
+/**
+ * INSPECTEUR ZIP SÉCURISÉ (Regulatory Intelligence — Phase 1).
+ *
+ * Traite l'archive fournisseur comme **hostile**. Applique des garde-fous AVANT toute
+ * extraction (anti ZIP-bomb par taille/ratio déclarés, nombre de fichiers, profondeur),
+ * refuse le path traversal et les exécutables/scripts/macros, signale archives imbriquées
+ * et entrées chiffrées, et produit un **manifest** (chemin/nom d'origine, taille, SHA-256,
+ * ratio, statut de sécurité). Fonction PURE (aucune base) → unitairement testable.
+ *
+ * Note d'implémentation : JSZip charge en mémoire ; le durcissement « lecture en flux »
+ * (yauzl) est prévu en Phase 1.b (voir SECURITY_RISK_ASSESSMENT). Ici on rejette les bombes
+ * via les tailles déclarées du répertoire central + un plafond par fichier en défense.
+ */
+
+const MB = 1024 * 1024;
+
+export interface ZipLimits {
+  maxArchiveBytes: number;
+  maxEntries: number;
+  maxTotalUncompressed: number;
+  maxFileUncompressed: number;
+  maxRatio: number; // total décompressé / archive compressée
+  maxDepth: number; // profondeur d'arborescence
+}
+
+export const DEFAULT_ZIP_LIMITS: ZipLimits = {
+  maxArchiveBytes: Number(process.env.REG_ZIP_MAX_ARCHIVE_MB ?? "800") * MB,
+  maxEntries: Number(process.env.REG_ZIP_MAX_ENTRIES ?? "5000"),
+  maxTotalUncompressed: Number(process.env.REG_ZIP_MAX_TOTAL_MB ?? "1500") * MB,
+  maxFileUncompressed: Number(process.env.REG_ZIP_MAX_FILE_MB ?? "500") * MB,
+  maxRatio: Number(process.env.REG_ZIP_MAX_RATIO ?? "200"),
+  maxDepth: Number(process.env.REG_ZIP_MAX_DEPTH ?? "12"),
+};
+
+export type SecurityStatus =
+  | "SAFE" | "BLOCKED_EXECUTABLE" | "BLOCKED_ENCRYPTED" | "BLOCKED_PATH"
+  | "BLOCKED_OVERSIZE" | "SUSPICIOUS" | "CORRUPTED";
+
+export type RejectionCode =
+  | "ARCHIVE_TOO_LARGE" | "TOO_MANY_FILES" | "TOTAL_TOO_LARGE" | "RATIO_EXCEEDED"
+  | "CORRUPT_ARCHIVE" | "EMPTY";
+
+export interface ManifestEntry {
+  path: string;
+  filename: string;
+  ext: string;
+  sizeBytes: number;
+  sha256: string;
+  compressionRatio?: number;
+  securityStatus: SecurityStatus;
+  note?: string;
+}
+
+export interface ZipInspection {
+  ok: boolean;
+  rejection?: { code: RejectionCode; message: string };
+  entries: ManifestEntry[];
+  totals: { files: number; totalBytes: number; archiveBytes: number };
+}
+
+// Exécutables / scripts / macros / contenu actif : jamais matérialisés.
+const BLOCKED_EXT = new Set([
+  "exe", "msi", "bat", "cmd", "com", "scr", "pif", "cpl", "jar", "js", "mjs", "cjs",
+  "vbs", "vbe", "ws", "wsf", "wsh", "ps1", "psm1", "sh", "bash", "zsh", "app", "dmg",
+  "deb", "rpm", "apk", "dll", "so", "sys", "scf", "lnk", "reg", "hta", "jse", "msc",
+  "gadget", "vb", "vba", "docm", "xlsm", "pptm", "dotm", "xltm", "potm", "xlam", "ppam",
+]);
+
+// Archives imbriquées : signalées (non décompressées récursivement).
+const NESTED_ARCHIVE_EXT = new Set(["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "cab", "iso"]);
+
+const extOf = (name: string) => {
+  const base = name.split("/").pop() ?? name;
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
+};
+
+/**
+ * Détecte un chemin dangereux (traversal `..`, absolu, octet nul, backslash, lecteur, `~`).
+ *
+ * Prédicat de sécurité PUR et exhaustif : il ne dépend PAS de JSZip. À noter que JSZip
+ * *normalise* déjà `../a` → `a` à la lecture, et que notre stockage est adressé par
+ * SHA-256 (jamais par ce chemin) — cette fonction reste la défense explicite pour les
+ * vecteurs que JSZip préserve (chemins absolus, backslashes, octet nul, `C:`) et documente
+ * l'intention de sécurité indépendamment de la lib.
+ */
+export function unsafePath(path: string): boolean {
+  if (!path) return true;
+  if (path.includes("\0")) return true;
+  if (path.includes("\\")) return true; // séparateurs Windows normalisés côté sûr
+  if (path.startsWith("/")) return true; // absolu POSIX
+  if (/^[a-zA-Z]:/.test(path)) return true; // lecteur Windows (C:)
+  const segs = path.split("/");
+  return segs.some((s) => s === ".." || s === "~");
+}
+
+/** Tailles déclarées dans le répertoire central (JSZip interne, avec repli). */
+function declaredSizes(file: JSZip.JSZipObject): { compressed?: number; uncompressed?: number } {
+  const d = (file as unknown as { _data?: { compressedSize?: number; uncompressedSize?: number } })._data;
+  return { compressed: d?.compressedSize, uncompressed: d?.uncompressedSize };
+}
+
+export async function inspectZip(buffer: Buffer, opts: Partial<ZipLimits> = {}): Promise<ZipInspection> {
+  const lim = { ...DEFAULT_ZIP_LIMITS, ...opts };
+  const archiveBytes = buffer.length;
+
+  if (archiveBytes === 0) return reject("EMPTY", "Archive vide.", archiveBytes);
+  if (archiveBytes > lim.maxArchiveBytes) {
+    return reject("ARCHIVE_TOO_LARGE", `Archive trop volumineuse (${Math.round(archiveBytes / MB)} Mo > ${Math.round(lim.maxArchiveBytes / MB)} Mo).`, archiveBytes);
+  }
+
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(buffer);
+  } catch {
+    return reject("CORRUPT_ARCHIVE", "Archive illisible ou corrompue.", archiveBytes);
+  }
+
+  const files = Object.values(zip.files).filter((f) => !f.dir);
+  if (files.length === 0) return reject("EMPTY", "Aucun fichier dans l'archive.", archiveBytes);
+  if (files.length > lim.maxEntries) {
+    return reject("TOO_MANY_FILES", `Trop de fichiers (${files.length} > ${lim.maxEntries}).`, archiveBytes);
+  }
+
+  // Pré-contrôle anti-bombe : total décompressé DÉCLARÉ + ratio, sans extraire.
+  let declaredTotal = 0;
+  for (const f of files) {
+    const u = declaredSizes(f).uncompressed;
+    if (typeof u === "number") declaredTotal += u;
+  }
+  if (declaredTotal > lim.maxTotalUncompressed) {
+    return reject("TOTAL_TOO_LARGE", `Contenu décompressé annoncé trop volumineux (${Math.round(declaredTotal / MB)} Mo).`, archiveBytes);
+  }
+  if (archiveBytes > 0 && declaredTotal / archiveBytes > lim.maxRatio) {
+    return reject("RATIO_EXCEEDED", `Ratio de compression suspect (${Math.round(declaredTotal / archiveBytes)}:1) — possible ZIP bomb.`, archiveBytes);
+  }
+
+  const entries: ManifestEntry[] = [];
+  let accumulated = 0;
+
+  for (const f of files) {
+    const path = f.name;
+    const filename = path.split("/").pop() ?? path;
+    const ext = extOf(path);
+    const declared = declaredSizes(f);
+
+    // 1) Chemin dangereux → bloqué, non extrait.
+    if (unsafePath(path) || path.split("/").length - 1 > lim.maxDepth) {
+      entries.push({ path, filename, ext, sizeBytes: declared.uncompressed ?? 0, sha256: "", securityStatus: "BLOCKED_PATH", note: "Chemin non sûr ou profondeur excessive — non extrait." });
+      continue;
+    }
+    // 2) Exécutable / script / macro → jamais matérialisé.
+    if (BLOCKED_EXT.has(ext)) {
+      entries.push({ path, filename, ext, sizeBytes: declared.uncompressed ?? 0, sha256: "", securityStatus: "BLOCKED_EXECUTABLE", note: "Exécutable/script/macro — refusé." });
+      continue;
+    }
+    // 3) Garde total avant extraction.
+    if (typeof declared.uncompressed === "number" && accumulated + declared.uncompressed > lim.maxTotalUncompressed) {
+      return reject("TOTAL_TOO_LARGE", "Dépassement du volume total à l'extraction.", archiveBytes);
+    }
+
+    // 4) Extraction bornée + hash. Entrée chiffrée → JSZip échoue → BLOCKED_ENCRYPTED.
+    let data: Buffer;
+    try {
+      data = await f.async("nodebuffer");
+    } catch {
+      entries.push({ path, filename, ext, sizeBytes: declared.uncompressed ?? 0, sha256: "", securityStatus: "BLOCKED_ENCRYPTED", note: "Entrée chiffrée/illisible — non traitée." });
+      continue;
+    }
+    if (data.length > lim.maxFileUncompressed) {
+      entries.push({ path, filename, ext, sizeBytes: data.length, sha256: "", securityStatus: "BLOCKED_OVERSIZE", note: "Fichier trop volumineux — non conservé." });
+      continue;
+    }
+    accumulated += data.length;
+    if (accumulated > lim.maxTotalUncompressed) {
+      return reject("TOTAL_TOO_LARGE", "Dépassement du volume total à l'extraction.", archiveBytes);
+    }
+
+    const sha256 = createHash("sha256").update(data).digest("hex");
+    const ratio = declared.compressed && declared.compressed > 0 ? data.length / declared.compressed : undefined;
+    const nested = NESTED_ARCHIVE_EXT.has(ext);
+    entries.push({
+      path, filename, ext, sizeBytes: data.length, sha256,
+      compressionRatio: ratio,
+      securityStatus: nested ? "SUSPICIOUS" : "SAFE",
+      note: nested ? "Archive imbriquée — non décompressée automatiquement." : undefined,
+    });
+  }
+
+  const totalBytes = entries.reduce((s, e) => s + (e.securityStatus === "SAFE" || e.securityStatus === "SUSPICIOUS" ? e.sizeBytes : 0), 0);
+  return { ok: true, entries, totals: { files: entries.length, totalBytes, archiveBytes } };
+}
+
+function reject(code: RejectionCode, message: string, archiveBytes: number): ZipInspection {
+  return { ok: false, rejection: { code, message }, entries: [], totals: { files: 0, totalBytes: 0, archiveBytes } };
+}

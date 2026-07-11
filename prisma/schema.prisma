@@ -3662,3 +3662,203 @@ model StockSnapshot {
 
   @@index([productId, scope, annexId, date])
 }
+
+// ═══════════════════════════ Regulatory Intelligence OS ═══════════════════════════
+// Fondations (Phase 1). Toutes les entités : org-scopées (companyId), auditées, versionnées.
+// FK stockées en String simple (pas de relations Prisma) pour rester auto-portées ; index posés.
+// Tailles en Int (octets) : ingestion plafonnée < 2 Go ; migrer en BigInt si dossiers plus gros.
+
+enum RegProcedureType {
+  PRESUBMISSION
+  INITIAL_REGISTRATION
+  NEW_ACTIVE_SUBSTANCE
+  GENERIC
+  BIOSIMILAR
+  IMPORTED
+  LOCAL_MANUFACTURING
+  ADD_DOSAGE
+  ADD_PRESENTATION
+  EXTENSION_INDICATION
+  VARIATION
+  RENEWAL
+  TRANSFER
+  RESERVE_RESPONSE
+  SUPPLEMENT
+  WITHDRAWAL
+  CESSATION
+  OTHER
+}
+
+enum RegDossierStatus {
+  DRAFT
+  INGESTING
+  INGESTED
+  ANALYSING
+  IN_REVIEW
+  SUPPLIER_LOOP
+  READY_FOR_REVIEW
+  SUBMITTED
+  DECISION
+  MAINTAINED
+  ARCHIVED
+  ERROR
+}
+
+enum RegDocKind {
+  ORIGINAL
+  WORKING
+  APPROVED
+}
+
+enum RegDocSecurityStatus {
+  PENDING
+  SAFE
+  BLOCKED_EXECUTABLE
+  BLOCKED_ENCRYPTED
+  BLOCKED_PATH
+  BLOCKED_OVERSIZE
+  SUSPICIOUS
+  CORRUPTED
+}
+
+enum RegDocExtractionStatus {
+  PENDING
+  TEXT_EXTRACTED
+  OCR_REQUIRED
+  OCR_COMPLETED
+  LOW_CONFIDENCE
+  CORRUPTED
+  PASSWORD_PROTECTED
+  UNSUPPORTED
+  MANUAL_REVIEW_REQUIRED
+}
+
+enum RegJobType {
+  INGEST
+  EXTRACT
+  OCR
+  CLASSIFY
+  FACTS
+  RULES
+  AI_REVIEW
+  CHALLENGER
+}
+
+enum RegJobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+/// Déblocage du module Regulatory Intelligence PAR ORGANISATION (Company). Masqué par défaut.
+model RegulatoryFeatureAccess {
+  id          String   @id @default(cuid())
+  companyId   String   @unique
+  enabled     Boolean  @default(false)
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Un dossier réglementaire (un produit × une procédure) pour une organisation.
+model RegulatoryDossier {
+  id            String           @id @default(cuid())
+  companyId     String
+  productId     String? // lien optionnel vers RegulatoryProduct existant
+  reference     String           @unique
+  title         String
+  procedureType RegProcedureType @default(INITIAL_REGISTRATION)
+  status        RegDossierStatus @default(DRAFT)
+  createdById   String
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([companyId])
+  @@index([productId])
+  @@index([status])
+}
+
+/// Une version reçue du dossier (fournisseur V1, V2…). Contient l'archive ORIGINALE figée.
+model RegulatoryDossierVersion {
+  id                String   @id @default(cuid())
+  dossierId         String
+  versionNo         Int
+  label             String?
+  originalZipBlobId String? // blob chiffré de l'archive reçue (immuable)
+  originalSha256    String? // hash de l'archive AVANT toute transformation
+  fileCount         Int      @default(0)
+  totalBytes        Int      @default(0)
+  createdById       String
+  createdAt         DateTime @default(now())
+
+  @@unique([dossierId, versionNo])
+  @@index([dossierId])
+}
+
+/// Un document du dossier = entrée de MANIFEST immuable + statut de sécurité/extraction.
+/// L'ORIGINAL conserve toujours chemin + nom d'origine ; le renommage vise la copie de travail.
+model RegulatoryDocument {
+  id                String                 @id @default(cuid())
+  dossierVersionId  String
+  kind              RegDocKind             @default(ORIGINAL)
+  originalPath      String // chemin exact dans l'archive
+  originalFilename  String
+  suggestedFilename String?
+  approvedFilename  String?
+  ext               String
+  detectedMimeType  String?
+  declaredMimeType  String?
+  sizeBytes         Int                    @default(0)
+  sha256            String
+  compressionRatio  Float?
+  securityStatus    RegDocSecurityStatus   @default(PENDING)
+  extractionStatus  RegDocExtractionStatus @default(PENDING)
+  blobId            String? // copie de travail chiffrée (si extraite)
+  createdAt         DateTime               @default(now())
+
+  @@index([dossierVersionId])
+  @@index([sha256])
+  @@index([securityStatus])
+}
+
+/// File de jobs asynchrones (Node-first, en base). Runner idempotent, reprise, progression.
+model RegulatoryJob {
+  id               String       @id @default(cuid())
+  companyId        String?
+  dossierId        String?
+  dossierVersionId String?
+  type             RegJobType
+  status           RegJobStatus @default(QUEUED)
+  progress         Int          @default(0)
+  attempts         Int          @default(0)
+  maxAttempts      Int          @default(3)
+  lockedAt         DateTime?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  error            String?
+  payload          Json?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([status])
+  @@index([dossierId])
+}
+
+/// Journal d'audit dédié Regulatory Intelligence (qui, quoi, quand, preuve/méta).
+model RegulatoryAuditLog {
+  id               String   @id @default(cuid())
+  companyId        String?
+  actorId          String
+  dossierId        String?
+  dossierVersionId String?
+  action           String
+  detail           String
+  meta             Json?
+  createdAt        DateTime @default(now())
+
+  @@index([dossierId])
+  @@index([companyId])
+  @@index([createdAt])
+}
