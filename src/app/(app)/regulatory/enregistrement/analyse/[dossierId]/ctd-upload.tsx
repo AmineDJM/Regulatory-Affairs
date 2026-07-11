@@ -26,6 +26,9 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
   const [dragOver, setDragOver] = React.useState(false);
   const [fileName, setFileName] = React.useState<string | null>(null);
 
+  // Seuil « petit fichier » : en-deçà, route directe ; au-delà, upload résumable par parties.
+  const SMALL_THRESHOLD = 12 * 1048576;
+
   function pick(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
@@ -34,7 +37,53 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       setError("Le dossier CTD doit être un fichier ZIP (.zip).");
       return;
     }
-    send(file);
+    if (file.size > SMALL_THRESHOLD) sendResumable(file);
+    else send(file);
+  }
+
+  /**
+   * Upload RÉSUMABLE (G14) pour gros fichiers : ouvre une session, envoie le fichier par
+   * PARTIES (une tranche lue à la fois → le navigateur ne charge jamais l'archive entière),
+   * avec retente par partie, puis finalise (vérif taille côté serveur + ingestion).
+   */
+  async function sendResumable(file: File) {
+    setPhase("uploading"); setProgress(0); setError(null); setSummary(null); setFileName(file.name);
+    try {
+      const open = await fetch("/api/regulatory/intelligence/upload/session", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dossierId, filename: file.name, totalBytes: file.size, contentType: file.type }),
+      });
+      const meta = await open.json();
+      if (!open.ok) throw new Error(meta.error ?? "Ouverture de session refusée.");
+      const { sessionId, partSize, expectedParts } = meta as { sessionId: string; partSize: number; expectedParts: number };
+
+      for (let i = 0; i < expectedParts; i++) {
+        const slice = file.slice(i * partSize, Math.min((i + 1) * partSize, file.size));
+        const buf = await slice.arrayBuffer();
+        let ok = false, lastErr = "";
+        for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+          try {
+            const put = await fetch(`/api/regulatory/intelligence/upload/session/${sessionId}/part?index=${i}`, {
+              method: "PUT", headers: { "content-type": "application/octet-stream" }, body: buf,
+            });
+            if (put.ok) ok = true; else { lastErr = (await put.json().catch(() => ({})))?.error ?? `code ${put.status}`; }
+          } catch { lastErr = "réseau"; }
+          if (!ok) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        }
+        if (!ok) throw new Error(`Échec de la partie ${i + 1}/${expectedParts} (${lastErr}).`);
+        setProgress(Math.round(((i + 1) / expectedParts) * 100));
+      }
+
+      setPhase("processing");
+      const fin = await fetch(`/api/regulatory/intelligence/upload/session/${sessionId}/finalize`, { method: "POST" });
+      const data = await fin.json();
+      if (!fin.ok || !data.ok) throw new Error(data.error ?? "Finalisation refusée.");
+      setPhase("done"); setSummary(data.summary ?? null);
+      fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
+      router.refresh();
+    } catch (e) {
+      setPhase("error"); setError(e instanceof Error ? e.message : "Échec du téléversement résumable.");
+    }
   }
 
   function send(file: File) {

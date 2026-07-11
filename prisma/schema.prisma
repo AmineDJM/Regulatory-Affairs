@@ -3848,19 +3848,19 @@ model RegulatoryDocument {
 /// Texte extrait d'un document (une entrée par document). Alimente règles + agents IA.
 /// Contenu plafonné (colonne Text) ; `truncated` signale une troncature.
 model RegulatoryExtraction {
-  id         String   @id @default(cuid())
-  documentId String   @unique
-  method     String // "plain" | "docx" | "xlsx" | "pdf-text" | "ocr" …
-  lang       String?
-  charCount  Int      @default(0)
-  truncated  Boolean  @default(false)
-  content    String // texte brut extrait
+  id            String   @id @default(cuid())
+  documentId    String   @unique
+  method        String // "plain" | "docx" | "xlsx" | "pdf-text" | "ocr" …
+  lang          String?
+  charCount     Int      @default(0)
+  truncated     Boolean  @default(false)
+  content       String // texte brut extrait
   // OCR (G13) — métadonnées séparées du texte natif : confiance, pages, revue humaine.
   ocrConfidence Float? // confiance moyenne OCR 0..100 (null si extraction native)
   pageCount     Int? // nombre de pages (source)
   ocrPages      Json? // [{ page, confidence, chars, lowConfidence }]
-  needsReview   Boolean @default(false) // pages de faible confiance → revue humaine
-  createdAt  DateTime @default(now())
+  needsReview   Boolean  @default(false) // pages de faible confiance → revue humaine
+  createdAt     DateTime @default(now())
 
   document RegulatoryDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
 }
@@ -4203,4 +4203,57 @@ model RegulatoryRule {
   @@unique([packId, code])
   @@index([packId])
   @@index([kind])
+}
+
+enum RegUploadStatus {
+  UPLOADING
+  FINALIZING
+  COMPLETED
+  ABORTED
+}
+
+/// UPLOAD RÉSUMABLE DE GROS FICHIERS (G14) — session d'envoi par parties. Chaque partie est
+/// stockée séparément → le chemin d'upload ne charge JAMAIS l'archive complète en RAM. La
+/// finalisation vérifie taille + SHA-256 côté stockage puis produit un FileBlob (inspection
+/// seulement APRÈS finalisation). Quotas par organisation appliqués à la création.
+model RegulatoryUploadSession {
+  id             String          @id @default(cuid())
+  companyId      String
+  dossierId      String?
+  createdById    String
+  filename       String
+  contentType    String?
+  totalBytes     BigInt // taille annoncée (contrôlée à la création : quota + capacité)
+  partSize       Int // taille de partie attendue
+  expectedSha256 String? // SHA-256 annoncé (vérifié à la finalisation si fourni)
+  receivedBytes  BigInt          @default(0)
+  status         RegUploadStatus @default(UPLOADING)
+  blobId         String? // renseigné après finalisation
+  versionId      String? // version de dossier créée à la finalisation
+  error          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  parts RegulatoryUploadPart[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([dossierId])
+}
+
+/// Une partie reçue d'une session d'upload (octets chiffrés au repos non requis ici : données
+/// transitoires supprimées à la finalisation/abandon). Idempotent par index → reprise possible.
+model RegulatoryUploadPart {
+  id        String   @id @default(cuid())
+  sessionId String
+  index     Int
+  size      Int
+  sha256    String
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  session RegulatoryUploadSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, index])
+  @@index([sessionId])
 }

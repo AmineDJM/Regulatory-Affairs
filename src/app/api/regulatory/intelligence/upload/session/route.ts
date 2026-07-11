@@ -1,0 +1,35 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/session";
+import { getCompanyScope } from "@/lib/company";
+import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { startUploadSession, DEFAULT_PART_SIZE, SMALL_FILE_THRESHOLD, MAX_TOTAL_BYTES } from "@/lib/regulatory/intelligence/upload/session";
+
+/**
+ * Ouverture d'une SESSION d'upload résumable (G14) — pour les gros dossiers CTD.
+ * Les petits fichiers (< seuil) restent servis par la route directe /upload.
+ */
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
+  if (!regCan(user, "regulatory.dossier.upload")) return NextResponse.json({ error: "Téléversement non autorisé." }, { status: 403 });
+  const companyId = await resolveRegCompanyId(getCompanyScope());
+  if (!companyId) return NextResponse.json({ error: "Module non activé pour cette entité." }, { status: 403 });
+
+  let body: { dossierId?: string; filename?: string; totalBytes?: number; partSize?: number; sha256?: string; contentType?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Corps JSON invalide." }, { status: 400 });
+  }
+  if (!body.dossierId || !body.filename || !body.totalBytes) return NextResponse.json({ error: "Paramètres manquants." }, { status: 400 });
+
+  const r = await startUploadSession({
+    companyId, dossierId: body.dossierId, createdById: user.id, filename: body.filename,
+    contentType: body.contentType ?? null, totalBytes: Number(body.totalBytes), partSize: body.partSize, expectedSha256: body.sha256 ?? null,
+  });
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: 422 });
+  return NextResponse.json({ ok: true, sessionId: r.sessionId, partSize: r.partSize, expectedParts: r.expectedParts, smallFileThreshold: SMALL_FILE_THRESHOLD, defaultPartSize: DEFAULT_PART_SIZE, maxTotalBytes: MAX_TOTAL_BYTES });
+}

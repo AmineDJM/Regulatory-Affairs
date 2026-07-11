@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
 import { runDueRegulatoryJobs } from "@/lib/regulatory/intelligence/jobs/runner";
+import { pruneStaleUploadSessions } from "@/lib/regulatory/intelligence/upload/session";
 
 /**
  * Tâches périodiques **sans cron externe** : déclenchées (au plus une fois par minute,
@@ -24,6 +25,8 @@ export async function runScheduledJobs(): Promise<void> {
     await sendDueMeetingReminders();
     await sendDuePayrollNotifications();
     await runDueRegulatoryJobs();
+    await pruneStaleUploadSessions().catch(() => 0); // nettoyage des sessions d'upload incomplètes
+
   } catch (err) {
     console.error("[scheduled] run failed", err);
   } finally {
