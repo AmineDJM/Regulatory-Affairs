@@ -3777,9 +3777,10 @@ model RegulatoryDossier {
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
-  versions  RegulatoryDossierVersion[]
-  jobs      RegulatoryJob[]
-  auditLogs RegulatoryAuditLog[]
+  versions      RegulatoryDossierVersion[]
+  jobs          RegulatoryJob[]
+  auditLogs     RegulatoryAuditLog[]
+  reserveCycles RegulatoryReserveCycle[]
 
   @@index([companyId])
   @@index([productId])
@@ -4278,4 +4279,56 @@ model RegulatoryGeneratedDoc {
   dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
 
   @@index([dossierVersionId])
+}
+
+enum RegReservePointStatus {
+  OPEN
+  DRAFTED
+  APPROVED
+}
+
+/// RÉSERVES ANPP (G9) — un CYCLE de réserves = une lettre reçue de l'ANPP, océrisée (texte
+/// verbatim), décomposée en POINTS catégorisés, chacun avec réponse proposée puis approuvée.
+/// Multi-cycles (1ʳᵉ lettre, 2ᵉ lettre…). Traçable.
+model RegulatoryReserveCycle {
+  id             String   @id @default(cuid())
+  dossierId      String
+  cycle          Int      @default(1)
+  letterFilename String
+  letterBlobId   String? // lettre chiffrée (putBlob)
+  ocrText        String? // texte VERBATIM extrait (OCR réel)
+  ocrConfidence  Float?
+  ocrNeedsReview Boolean  @default(false)
+  status         String   @default("OPEN") // OPEN | RESPONDED | CLOSED
+  receivedAt     DateTime @default(now())
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  dossier RegulatoryDossier        @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  points  RegulatoryReservePoint[]
+
+  @@index([dossierId])
+}
+
+/// Un point de réserve décomposé : extrait verbatim, catégorie, réponse proposée/approuvée.
+model RegulatoryReservePoint {
+  id               String                @id @default(cuid())
+  cycleId          String
+  ordinal          Int                   @default(0)
+  category         String                @default("AUTRE")
+  verbatim         String // extrait EXACT de la lettre
+  proposedResponse String? // brouillon de réponse (humain ou IA)
+  finalResponse    String? // réponse approuvée
+  evidence         String? // preuves/annexes citées (texte libre)
+  status           RegReservePointStatus @default(OPEN)
+  assignedToId     String?
+  resolvedById     String?
+  resolvedAt       DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  cycle RegulatoryReserveCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+
+  @@index([cycleId])
 }

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft, Download, FileText, ShieldCheck, ShieldAlert, ShieldX, Layers, History, Eye,
-  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge, Bot, GitCompare,
+  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge, Bot, GitCompare, MailWarning,
 } from "lucide-react";
 import type { RegFindingSeverity } from "@prisma/client";
 import { requireModule } from "@/lib/session";
@@ -17,10 +17,12 @@ import { buildVersionDiff } from "@/lib/regulatory/intelligence/diff/compare-ver
 import { aiConfigured } from "@/lib/ai";
 import { applicableAgents } from "@/lib/regulatory/intelligence/agents/orchestrator";
 import { templateSummaries } from "@/lib/regulatory/intelligence/docgen/templates";
+import { listReserveCycles } from "@/lib/regulatory/intelligence/reserves/queries";
 import { prisma } from "@/lib/prisma";
 import { TwinPanel } from "./twin-panel";
 import { AgentsPanel } from "./agents-panel";
 import { DocgenPanel } from "./docgen-panel";
+import { ReservesPanel } from "./reserves-panel";
 import {
   PROCEDURE_TYPE_LABELS, DOSSIER_STATUS_LABELS, DOSSIER_STATUS_TONE,
   SECURITY_LABELS, EXTRACTION_LABELS, humanBytes, isBlockedSecurity,
@@ -79,6 +81,8 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
       })).map((d) => ({ ...d, createdAt: d.createdAt.toISOString() }))
     : [];
   const docTemplates = templateSummaries();
+  const reserveCycles = (await listReserveCycles(dossier.id)).map((c) => ({ ...c, receivedAt: c.receivedAt.toISOString() }));
+  const canReserve = regCan(user, "regulatory.reserve.manage");
   const audit = await listDossierAudit(dossier.id);
 
   const canUpload = regCan(user, "regulatory.dossier.upload");
@@ -360,6 +364,18 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
           </CardHeader>
           <CardContent>
             <DocgenPanel dossierId={dossier.id} templates={docTemplates} docs={generatedDocs} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Réserves ANPP — lettre océrisée, points décomposés, réponses */}
+      {(canReserve || reserveCycles.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><MailWarning className="h-4 w-4 text-primary" /> Réserves ANPP</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ReservesPanel dossierId={dossier.id} cycles={reserveCycles} canManage={canReserve} />
           </CardContent>
         </Card>
       )}
