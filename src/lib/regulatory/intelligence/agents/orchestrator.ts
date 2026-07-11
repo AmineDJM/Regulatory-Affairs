@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { regAudit } from "../audit";
+import { AI_READABLE_EXTRACTION_STATUSES } from "../extract/extract-text";
 import { sectionByCode } from "../ctd/taxonomy";
 import { agentByKey, agentsForSections, type AgentSpec } from "./registry";
 import { runAgent, type AgentDoc, type AgentResult } from "./agent-core";
@@ -47,7 +48,7 @@ export async function runAgentOnVersion(
   if (!version) return { ok: false, agentKey, agentName: spec.name, configured: false, abstained: false, findings: 0, error: "Version introuvable." };
 
   const rawDocs = await prisma.regulatoryDocument.findMany({
-    where: { dossierVersionId, securityStatus: { in: ["SAFE", "SUSPICIOUS"] }, extractionStatus: "TEXT_EXTRACTED" },
+    where: { dossierVersionId, securityStatus: { in: ["SAFE", "SUSPICIOUS"] }, extractionStatus: { in: AI_READABLE_EXTRACTION_STATUSES } },
     orderBy: { createdAt: "asc" },
     select: { id: true, originalFilename: true, ctdSection: true, extraction: { select: { content: true } } },
   });

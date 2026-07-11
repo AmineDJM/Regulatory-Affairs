@@ -1,7 +1,7 @@
 import type { RegulatoryJob } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
-import { extractText } from "../extract/extract-text";
+import { extractText, AI_READABLE_EXTRACTION_STATUSES } from "../extract/extract-text";
 import { detectMime } from "../extract/mime";
 import { classifyDocument } from "../ctd/classify";
 import { assessVersion, type TwinDoc } from "../rules/engine";
@@ -378,7 +378,7 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
   }
 
   const docs = await prisma.regulatoryDocument.findMany({
-    where: { dossierVersionId: versionId, extractionStatus: "TEXT_EXTRACTED", securityStatus: { in: ["SAFE", "SUSPICIOUS"] } },
+    where: { dossierVersionId: versionId, extractionStatus: { in: AI_READABLE_EXTRACTION_STATUSES }, securityStatus: { in: ["SAFE", "SUSPICIOUS"] } },
     orderBy: { createdAt: "asc" },
     select: { id: true, originalFilename: true, ctdSection: true, extraction: { select: { content: true } } },
   });

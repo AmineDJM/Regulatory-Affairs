@@ -1,6 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { extractFactsFromDocuments, type DocFactHit } from "./extract-facts";
 import { factLabel } from "./facts-catalog";
+import { TEXTUAL_EXTRACTION_STATUSES } from "../extract/extract-text";
+
+// Fiabilité moindre du texte OCR vs natif : départage les conflits en faveur de la couche
+// texte native quand deux documents proposent des valeurs concurrentes pour un même fait.
+const OCR_CONFIDENCE_FACTOR = 0.9;
 
 /**
  * Construit le JUMEAU NUMÉRIQUE d'une version : extrait les faits sourcés des documents,
@@ -12,15 +17,24 @@ export async function buildTwinFacts(dossierVersionId: string): Promise<{ facts:
   const docs = await prisma.regulatoryDocument.findMany({
     where: {
       dossierVersionId,
-      extractionStatus: "TEXT_EXTRACTED",
+      // Faits construits à partir de TOUT document réellement lu : couche texte native ET
+      // texte OCR des scans (certificats, CPP/GMP, AMM…). Sans cela, le contenu océrisé serait
+      // silencieusement ignoré par le jumeau numérique.
+      extractionStatus: { in: TEXTUAL_EXTRACTION_STATUSES },
       securityStatus: { in: ["SAFE", "SUSPICIOUS"] },
     },
-    select: { id: true, ctdSection: true, extraction: { select: { content: true } } },
+    select: { id: true, ctdSection: true, extraction: { select: { content: true, method: true } } },
   });
+
+  // Provenance OCR (fiabilité moindre) → pondération à la baisse des occurrences.
+  const ocrDocIds = new Set(docs.filter((d) => d.extraction?.method === "ocr").map((d) => d.id));
 
   const hits = extractFactsFromDocuments(
     docs.filter((d) => d.extraction?.content).map((d) => ({ documentId: d.id, sectionCode: d.ctdSection, text: d.extraction!.content })),
   );
+  for (const h of hits) {
+    if (ocrDocIds.has(h.documentId)) h.confidence = Number((h.confidence * OCR_CONFIDENCE_FACTOR).toFixed(3));
+  }
 
   // Regroupe par clé de fait.
   const byKey = new Map<string, DocFactHit[]>();

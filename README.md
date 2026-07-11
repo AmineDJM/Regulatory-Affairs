@@ -1049,6 +1049,17 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Regulatory Intelligence OS — pipeline CTD prouvé de bout en bout + correctif « les scans sont lus jusqu'au
+  bout ».** Test d'intégration **réel** (base + OCR + moteur, aucune simulation) qui télécharge un dossier ZIP
+  multi-formats (txt, docx, xlsx, **scan PNG océrisé**, exécutable **bloqué**) et observe **chaque** étape :
+  décomposition sécurisée → **lecture de TOUS les fichiers** (texte natif *et* OCR réel du scan → « AMOXICILLINE »
+  extrait) → classification CTD (1.0/1.2/3.2.P.8/1.4) → **jumeau numérique** (faits sourcés) → conflits → **règles**
+  (bilan + constats) → `IN_REVIEW`, tous les jobs `DONE`. **Correctif de fond** : le contenu **océrisé** des scans
+  alimente désormais réellement le jumeau, la revue IA et les agents (les statuts `OCR_COMPLETED`/`LOW_CONFIDENCE`
+  étaient auparavant ignorés en aval — seul `TEXT_EXTRACTED` était lu) ; provenance OCR pondérée à la baisse pour
+  départager les conflits en faveur de la couche texte native. Fichiers : `intelligence/pipeline.e2e.test.ts`,
+  `intelligence/twin/build-facts.ts`, `intelligence/extract/extract-text.ts` (statuts textuels partagés),
+  `intelligence/jobs/runner.ts`, `intelligence/agents/orchestrator.ts`.
 - **Regulatory Intelligence OS — capacités centrales (G1→G14, au-delà de la fondation).** La fondation
   « Secure CTD Intake » (ci-dessous, phases 0→6) est conservée ; ce lot livre les **critères d'acceptation**
   du Regulatory Intelligence OS, chacun vérifié (tsc + tests + build), org-scopé, audité, avec **statut réel /
