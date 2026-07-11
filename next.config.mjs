@@ -4,7 +4,7 @@ const nextConfig = {
   poweredByHeader: false,
   experimental: {
     // Libs Node serveur uniquement (jamais bundlées côté client) : auth, mail (IMAP/SMTP).
-    serverComponentsExternalPackages: ["bcryptjs", "imapflow", "nodemailer", "mailparser"],
+    serverComponentsExternalPackages: ["bcryptjs", "imapflow", "nodemailer", "mailparser", "pdf-parse", "mammoth", "xlsx"],
     // Téléversements via Server Action (documents Regulatory/Congrès/Dossiers…) : Next
     // plafonne le corps à 1 Mo par défaut, ce qui rendait inopérante la limite réglée par
     // l'admin. On lève ce plafond à 256 Mo ; la VRAIE limite reste celle définie par le

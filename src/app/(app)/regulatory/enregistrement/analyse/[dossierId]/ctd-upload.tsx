@@ -60,6 +60,10 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
         setPhase("done");
         setSummary(data.summary ?? null);
+        // Lance l'extraction sans attendre le planificateur (filet de sécurité ≤ 1 min).
+        fetch("/api/regulatory/intelligence/process", { method: "POST" })
+          .catch(() => undefined)
+          .finally(() => router.refresh());
         router.refresh();
       } else {
         setPhase("error");

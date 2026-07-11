@@ -100,6 +100,18 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
             </div>
           </CardHeader>
           <CardContent>
+            {(() => {
+              const extracted = documents.filter((d) => d.extractionStatus === "TEXT_EXTRACTED" || d.extractionStatus === "OCR_COMPLETED").length;
+              const ocr = documents.filter((d) => d.extractionStatus === "OCR_REQUIRED").length;
+              const pending = documents.filter((d) => d.extractionStatus === "PENDING").length;
+              return (
+                <p className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>Texte extrait : <span className="font-medium text-foreground">{extracted}</span></span>
+                  {ocr > 0 && <span>OCR requis (scans) : <span className="font-medium text-amber-600">{ocr}</span></span>}
+                  {pending > 0 && <span>En attente d'extraction : <span className="font-medium">{pending}</span></span>}
+                </p>
+              );
+            })()}
             {latest.originalSha256 && (
               <p className="mb-2 truncate font-mono text-[11px] text-muted-foreground" title={latest.originalSha256}>
                 SHA-256 archive : {latest.originalSha256}

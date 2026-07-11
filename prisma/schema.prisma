@@ -3829,10 +3829,26 @@ model RegulatoryDocument {
   createdAt         DateTime               @default(now())
 
   dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
+  extraction     RegulatoryExtraction?
 
   @@index([dossierVersionId])
   @@index([sha256])
   @@index([securityStatus])
+}
+
+/// Texte extrait d'un document (une entrée par document). Alimente règles + agents IA.
+/// Contenu plafonné (colonne Text) ; `truncated` signale une troncature.
+model RegulatoryExtraction {
+  id         String   @id @default(cuid())
+  documentId String   @unique
+  method     String // "plain" | "docx" | "xlsx" | "pdf-text" | "ocr" …
+  lang       String?
+  charCount  Int      @default(0)
+  truncated  Boolean  @default(false)
+  content    String // texte brut extrait
+  createdAt  DateTime @default(now())
+
+  document RegulatoryDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
 }
 
 /// File de jobs asynchrones (Node-first, en base). Runner idempotent, reprise, progression.

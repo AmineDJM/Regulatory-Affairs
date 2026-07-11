@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
+import { runDueRegulatoryJobs } from "@/lib/regulatory/intelligence/jobs/runner";
 
 /**
  * Tâches périodiques **sans cron externe** : déclenchées (au plus une fois par minute,
@@ -22,6 +23,7 @@ export async function runScheduledJobs(): Promise<void> {
   try {
     await sendDueMeetingReminders();
     await sendDuePayrollNotifications();
+    await runDueRegulatoryJobs();
   } catch (err) {
     console.error("[scheduled] run failed", err);
   } finally {

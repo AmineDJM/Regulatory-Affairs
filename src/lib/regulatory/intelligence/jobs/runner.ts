@@ -1,0 +1,197 @@
+import type { RegulatoryJob } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { getBlob } from "@/lib/drive-storage";
+import { extractText } from "../extract/extract-text";
+import { detectMime } from "../extract/mime";
+import { regAudit } from "../audit";
+
+/**
+ * RUNNER de jobs Node-first (en base Postgres, sans Redis/BullMQ). Idempotent, verrou
+ * optimiste, reprise après verrou expiré, réessais bornés. Déclenché par le planificateur
+ * interne (runScheduledJobs) ; borné par tick (mémoire + latence maîtrisées).
+ *
+ * Phase 2 : handler EXTRACT (détection MIME + extraction texte, par lots). Les autres
+ * types (CLASSIFY, RULES, AI_REVIEW…) arrivent aux phases suivantes ; un type sans handler
+ * est marqué CANCELLED (jamais de boucle).
+ */
+
+const STALE_LOCK_MS = 5 * 60_000; // un job « RUNNING » figé > 5 min est repris
+const MAX_JOBS_PER_TICK = 5;
+const EXTRACT_BATCH = 20; // documents traités par passage (le reste est re-mis en file)
+
+export async function runDueRegulatoryJobs(max = MAX_JOBS_PER_TICK): Promise<void> {
+  // Reprise des jobs bloqués (process interrompu) : verrou expiré → re-QUEUED.
+  await prisma.regulatoryJob
+    .updateMany({
+      where: { status: "RUNNING", lockedAt: { lt: new Date(Date.now() - STALE_LOCK_MS) } },
+      data: { status: "QUEUED", error: "Reprise après verrou expiré." },
+    })
+    .catch(() => undefined);
+
+  for (let i = 0; i < max; i++) {
+    const job = await claimNext();
+    if (!job) break;
+    try {
+      await dispatch(job);
+    } catch (err) {
+      await failJob(job, err);
+    }
+  }
+}
+
+/**
+ * Traite UN job précis jusqu'à son état terminal (DONE/FAILED/CANCELLED). Utilisé pour un
+ * traitement ciblé (tests, reprise d'un dossier donné) sans toucher au reste de la file.
+ */
+export async function runRegulatoryJob(jobId: string, maxPasses = 100): Promise<void> {
+  for (let i = 0; i < maxPasses; i++) {
+    const claimed = await prisma.regulatoryJob.updateMany({
+      where: { id: jobId, status: "QUEUED" },
+      data: { status: "RUNNING", lockedAt: new Date(), startedAt: new Date(), error: null },
+    });
+    if (claimed.count === 0) {
+      const cur = await prisma.regulatoryJob.findUnique({ where: { id: jobId }, select: { status: true } });
+      if (!cur || cur.status !== "QUEUED") return; // terminal ou disparu
+      continue;
+    }
+    const job = await prisma.regulatoryJob.findUnique({ where: { id: jobId } });
+    if (!job) return;
+    try {
+      await dispatch(job);
+    } catch (err) {
+      await failJob(job, err);
+    }
+    const after = await prisma.regulatoryJob.findUnique({ where: { id: jobId }, select: { status: true } });
+    if (!after || (after.status !== "QUEUED" && after.status !== "RUNNING")) return;
+  }
+}
+
+/** Réclame atomiquement le prochain job en file (verrou optimiste anti-double-prise). */
+async function claimNext(): Promise<RegulatoryJob | null> {
+  const candidate = await prisma.regulatoryJob.findFirst({
+    where: { status: "QUEUED" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (!candidate) return null;
+  const claim = await prisma.regulatoryJob.updateMany({
+    where: { id: candidate.id, status: "QUEUED" },
+    data: { status: "RUNNING", lockedAt: new Date(), startedAt: new Date(), error: null },
+  });
+  if (claim.count === 0) return null; // pris par un autre passage
+  return prisma.regulatoryJob.findUnique({ where: { id: candidate.id } });
+}
+
+async function dispatch(job: RegulatoryJob): Promise<void> {
+  switch (job.type) {
+    case "EXTRACT":
+      return handleExtract(job);
+    default:
+      // Type non encore pris en charge à ce stade → terminal propre (pas de boucle).
+      await prisma.regulatoryJob.update({
+        where: { id: job.id },
+        data: { status: "CANCELLED", error: `Type ${job.type} non pris en charge (phase ultérieure).`, finishedAt: new Date() },
+      });
+  }
+}
+
+async function failJob(job: RegulatoryJob, err: unknown): Promise<void> {
+  const attempts = job.attempts + 1;
+  const message = err instanceof Error ? err.message : String(err);
+  const terminal = attempts >= job.maxAttempts;
+  await prisma.regulatoryJob
+    .update({
+      where: { id: job.id },
+      data: {
+        attempts,
+        status: terminal ? "FAILED" : "QUEUED",
+        error: message.slice(0, 500),
+        finishedAt: terminal ? new Date() : null,
+        lockedAt: null,
+      },
+    })
+    .catch(() => undefined);
+  if (terminal) {
+    await regAudit({
+      companyId: job.companyId, actorId: "system", dossierId: job.dossierId,
+      action: "JOB_FAILED", detail: `Job ${job.type} en échec définitif : ${message.slice(0, 200)}`,
+    });
+  }
+}
+
+/** EXTRACT : détecte le MIME et extrait le texte des documents sûrs, par lots. */
+async function handleExtract(job: RegulatoryJob): Promise<void> {
+  const versionId = job.dossierVersionId;
+  if (!versionId) {
+    await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } });
+    return;
+  }
+
+  const pending = await prisma.regulatoryDocument.findMany({
+    where: {
+      dossierVersionId: versionId,
+      extractionStatus: "PENDING",
+      securityStatus: { in: ["SAFE", "SUSPICIOUS"] },
+      blobId: { not: null },
+    },
+    orderBy: { createdAt: "asc" },
+    take: EXTRACT_BATCH,
+    select: { id: true, ext: true, blobId: true },
+  });
+
+  for (const doc of pending) {
+    await extractOne(doc.id, doc.ext, doc.blobId!);
+  }
+
+  // Progression + décision de reprise / fin.
+  const scope = { dossierVersionId: versionId, securityStatus: { in: ["SAFE" as const, "SUSPICIOUS" as const] } };
+  const [total, remaining] = await Promise.all([
+    prisma.regulatoryDocument.count({ where: scope }),
+    prisma.regulatoryDocument.count({ where: { ...scope, extractionStatus: "PENDING", blobId: { not: null } } }),
+  ]);
+  const progress = total > 0 ? Math.round(((total - remaining) / total) * 100) : 100;
+
+  if (remaining > 0) {
+    // Reprise au prochain tick (sans consommer de tentative) — mémoire/latence bornées.
+    await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "QUEUED", progress, lockedAt: null } });
+  } else {
+    await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } });
+    if (job.dossierId) {
+      await prisma.regulatoryDossier.update({ where: { id: job.dossierId }, data: { status: "ANALYSING" } }).catch(() => undefined);
+    }
+  }
+}
+
+/** Extrait un document : MIME + texte, persistés ; ne lève jamais (statut d'erreur sinon). */
+async function extractOne(documentId: string, ext: string, blobId: string): Promise<void> {
+  try {
+    const buffer = await getBlob(blobId);
+    if (!buffer) {
+      await prisma.regulatoryDocument.update({ where: { id: documentId }, data: { extractionStatus: "CORRUPTED" } });
+      return;
+    }
+    const mime = detectMime(buffer, ext);
+    const result = await extractText(ext, buffer);
+
+    await prisma.$transaction([
+      prisma.regulatoryDocument.update({
+        where: { id: documentId },
+        data: { extractionStatus: result.status, detectedMimeType: mime.mime },
+      }),
+      ...(result.text
+        ? [
+            prisma.regulatoryExtraction.upsert({
+              where: { documentId },
+              create: { documentId, method: result.method, lang: result.lang ?? null, charCount: result.chars, truncated: result.truncated, content: result.text },
+              update: { method: result.method, lang: result.lang ?? null, charCount: result.chars, truncated: result.truncated, content: result.text },
+            }),
+          ]
+        : []),
+    ]);
+  } catch (err) {
+    console.error("[reg-extract] document", documentId, err);
+    await prisma.regulatoryDocument
+      .update({ where: { id: documentId }, data: { extractionStatus: "MANUAL_REVIEW_REQUIRED" } })
+      .catch(() => undefined);
+  }
+}
