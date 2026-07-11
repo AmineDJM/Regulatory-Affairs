@@ -121,7 +121,8 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                    <th className="py-1.5 pr-3 font-medium">Fichier (chemin d'origine)</th>
+                    <th className="py-1.5 pr-3 font-medium">Fichier &amp; nom proposé</th>
+                    <th className="py-1.5 pr-3 font-medium">Classement CTD</th>
                     <th className="py-1.5 pr-3 font-medium">Taille</th>
                     <th className="py-1.5 pr-3 font-medium">Sécurité</th>
                     <th className="py-1.5 pr-3 font-medium">Extraction</th>
@@ -136,9 +137,25 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                     return (
                       <tr key={doc.id} className="border-b border-border/60 align-top">
                         <td className="py-1.5 pr-3">
-                          <span className="block truncate font-medium" title={doc.originalPath}>{doc.originalFilename}</span>
-                          {doc.originalPath !== doc.originalFilename && (
-                            <span className="block truncate text-[11px] text-muted-foreground" title={doc.originalPath}>{doc.originalPath}</span>
+                          <span className="block max-w-[22rem] truncate font-medium" title={doc.originalPath}>{doc.originalFilename}</span>
+                          {doc.suggestedFilename && !blocked && (
+                            <span className="block max-w-[22rem] truncate text-[11px] text-primary" title={doc.suggestedFilename}>→ {doc.suggestedFilename}</span>
+                          )}
+                        </td>
+                        <td className="py-1.5 pr-3">
+                          {blocked ? (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          ) : doc.ctdSection ? (
+                            <span className="inline-flex flex-col">
+                              <span className="text-xs font-medium">{doc.ctdSection}</span>
+                              <span className="max-w-[12rem] truncate text-[11px] text-muted-foreground" title={`${doc.ctdModule ?? ""} — confiance ${Math.round((doc.ctdConfidence ?? 0) * 100)}%`}>
+                                {doc.ctdModule} · {Math.round((doc.ctdConfidence ?? 0) * 100)}%
+                              </span>
+                            </span>
+                          ) : doc.ctdModule ? (
+                            <span className="text-xs text-muted-foreground">{doc.ctdModule} · à préciser</span>
+                          ) : (
+                            <span className="text-xs text-amber-600">non classé</span>
                           )}
                         </td>
                         <td className="py-1.5 pr-3 whitespace-nowrap text-muted-foreground">{humanBytes(doc.sizeBytes)}</td>

@@ -68,6 +68,7 @@ export async function listVersionDocuments(dossierVersionId: string) {
       id: true, kind: true, originalPath: true, originalFilename: true, suggestedFilename: true,
       approvedFilename: true, ext: true, sizeBytes: true, sha256: true, compressionRatio: true,
       securityStatus: true, extractionStatus: true, blobId: true, detectedMimeType: true,
+      ctdModule: true, ctdSection: true, ctdConfidence: true, classificationMethod: true,
     },
   });
 }

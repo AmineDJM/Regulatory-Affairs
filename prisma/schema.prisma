@@ -3826,6 +3826,11 @@ model RegulatoryDocument {
   securityStatus    RegDocSecurityStatus   @default(PENDING)
   extractionStatus  RegDocExtractionStatus @default(PENDING)
   blobId            String? // copie de travail chiffrée (si extraite)
+  // Classification CTD déterministe (Phase 3) — proposition, jamais imposée.
+  ctdModule            String? // "M1".."M5"
+  ctdSection           String? // code CTD, ex. "3.2.P.8"
+  ctdConfidence        Float? // 0..1
+  classificationMethod String? // "code-path" | "keyword" | "module-only" | "none"
   createdAt         DateTime               @default(now())
 
   dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
 import { extractText } from "../extract/extract-text";
 import { detectMime } from "../extract/mime";
+import { classifyDocument } from "../ctd/classify";
 import { regAudit } from "../audit";
 
 /**
@@ -136,11 +137,11 @@ async function handleExtract(job: RegulatoryJob): Promise<void> {
     },
     orderBy: { createdAt: "asc" },
     take: EXTRACT_BATCH,
-    select: { id: true, ext: true, blobId: true },
+    select: { id: true, ext: true, blobId: true, originalPath: true, originalFilename: true },
   });
 
   for (const doc of pending) {
-    await extractOne(doc.id, doc.ext, doc.blobId!);
+    await extractOne(doc);
   }
 
   // Progression + décision de reprise / fin.
@@ -162,21 +163,38 @@ async function handleExtract(job: RegulatoryJob): Promise<void> {
   }
 }
 
-/** Extrait un document : MIME + texte, persistés ; ne lève jamais (statut d'erreur sinon). */
-async function extractOne(documentId: string, ext: string, blobId: string): Promise<void> {
+interface ExtractDoc { id: string; ext: string; blobId: string | null; originalPath: string; originalFilename: string }
+
+/**
+ * Extrait un document (MIME + texte) PUIS le classe (CTD déterministe, avec le texte en main).
+ * Persiste statut + MIME + classification + nom suggéré. Ne lève jamais (statut d'erreur sinon).
+ */
+async function extractOne(doc: ExtractDoc): Promise<void> {
+  const documentId = doc.id;
   try {
-    const buffer = await getBlob(blobId);
+    const buffer = doc.blobId ? await getBlob(doc.blobId) : null;
     if (!buffer) {
       await prisma.regulatoryDocument.update({ where: { id: documentId }, data: { extractionStatus: "CORRUPTED" } });
       return;
     }
-    const mime = detectMime(buffer, ext);
-    const result = await extractText(ext, buffer);
+    const mime = detectMime(buffer, doc.ext);
+    const result = await extractText(doc.ext, buffer);
+
+    // Classification CTD déterministe (chemin/nom + texte extrait) — proposition.
+    const cls = classifyDocument({ path: doc.originalPath, filename: doc.originalFilename, ext: doc.ext, textSample: result.text });
 
     await prisma.$transaction([
       prisma.regulatoryDocument.update({
         where: { id: documentId },
-        data: { extractionStatus: result.status, detectedMimeType: mime.mime },
+        data: {
+          extractionStatus: result.status,
+          detectedMimeType: mime.mime,
+          ctdModule: cls.module,
+          ctdSection: cls.section,
+          ctdConfidence: cls.confidence,
+          classificationMethod: cls.method,
+          suggestedFilename: cls.suggestedFilename,
+        },
       }),
       ...(result.text
         ? [
