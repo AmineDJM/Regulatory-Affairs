@@ -3799,13 +3799,14 @@ model RegulatoryDossierVersion {
   createdById       String
   createdAt         DateTime @default(now())
 
-  dossier    RegulatoryDossier     @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  documents  RegulatoryDocument[]
-  jobs       RegulatoryJob[]
-  findings   RegulatoryFinding[]
-  assessment RegulatoryAssessment?
-  facts      RegulatoryFact[]
-  conflicts  RegulatoryConflict[]
+  dossier       RegulatoryDossier        @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  documents     RegulatoryDocument[]
+  jobs          RegulatoryJob[]
+  findings      RegulatoryFinding[]
+  assessment    RegulatoryAssessment?
+  facts         RegulatoryFact[]
+  conflicts     RegulatoryConflict[]
+  generatedDocs RegulatoryGeneratedDoc[]
 
   @@unique([dossierId, versionNo])
   @@index([dossierId])
@@ -4256,4 +4257,25 @@ model RegulatoryUploadPart {
 
   @@unique([sessionId, index])
   @@index([sessionId])
+}
+
+/// GÉNÉRATION DOCUMENTAIRE (G10) — un document produit à partir d'un TEMPLATE versionné et des
+/// données du JUMEAU NUMÉRIQUE APPROUVÉ (jamais d'extraction libre). Traçable : quel template,
+/// quelle version, quel instant, quel blob produit.
+model RegulatoryGeneratedDoc {
+  id               String   @id @default(cuid())
+  dossierVersionId String
+  templateCode     String
+  templateVersion  String
+  filename         String
+  blobId           String // docx chiffré (putBlob)
+  sizeBytes        Int      @default(0)
+  factsUsed        Int      @default(0)
+  factsMissing     Int      @default(0)
+  generatedById    String
+  createdAt        DateTime @default(now())
+
+  dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
+
+  @@index([dossierVersionId])
 }

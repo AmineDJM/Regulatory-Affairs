@@ -16,8 +16,11 @@ import { buildCoverage } from "@/lib/regulatory/intelligence/twin/build-twin";
 import { buildVersionDiff } from "@/lib/regulatory/intelligence/diff/compare-versions";
 import { aiConfigured } from "@/lib/ai";
 import { applicableAgents } from "@/lib/regulatory/intelligence/agents/orchestrator";
+import { templateSummaries } from "@/lib/regulatory/intelligence/docgen/templates";
+import { prisma } from "@/lib/prisma";
 import { TwinPanel } from "./twin-panel";
 import { AgentsPanel } from "./agents-panel";
+import { DocgenPanel } from "./docgen-panel";
 import {
   PROCEDURE_TYPE_LABELS, DOSSIER_STATUS_LABELS, DOSSIER_STATUS_TONE,
   SECURITY_LABELS, EXTRACTION_LABELS, humanBytes, isBlockedSecurity,
@@ -69,6 +72,13 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
   const coverage = latest ? buildCoverage(dossier.procedureType, documents) : [];
   const agents = latest ? await applicableAgents(latest.id) : [];
   const diff = versions.length > 1 ? await buildVersionDiff(dossier.id) : null;
+  const generatedDocs = latest
+    ? (await prisma.regulatoryGeneratedDoc.findMany({
+        where: { dossierVersionId: latest.id }, orderBy: { createdAt: "desc" }, take: 20,
+        select: { id: true, filename: true, templateVersion: true, factsUsed: true, factsMissing: true, createdAt: true },
+      })).map((d) => ({ ...d, createdAt: d.createdAt.toISOString() }))
+    : [];
+  const docTemplates = templateSummaries();
   const audit = await listDossierAudit(dossier.id);
 
   const canUpload = regCan(user, "regulatory.dossier.upload");
@@ -338,6 +348,18 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                 </div>
               );
             })}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Génération documentaire — depuis le jumeau numérique approuvé */}
+      {latest && canAnalyse && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4 text-primary" /> Génération documentaire</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DocgenPanel dossierId={dossier.id} templates={docTemplates} docs={generatedDocs} />
           </CardContent>
         </Card>
       )}
