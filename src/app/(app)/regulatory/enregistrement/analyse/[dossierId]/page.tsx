@@ -20,6 +20,9 @@ import {
 import type { RegDocSecurityStatus } from "@prisma/client";
 import { CtdUpload } from "./ctd-upload";
 import { DeleteDossierButton } from "./dossier-actions";
+import { FindingControls } from "./finding-actions";
+import { SubmissionGate } from "./submission-gate";
+import { ApproveNameButton } from "./approve-name";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +67,13 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
     user.role === "SUPER_ADMIN" || regCan(user, "regulatory.admin") ||
     regCan(user, "regulatory.workspace.manage") || dossier.createdById === user.id;
   const canView = regCan(user, "regulatory.document.view");
+  const canEditFinding = regCan(user, "regulatory.finding.edit");
+  const canApproveFinding = regCan(user, "regulatory.finding.approve");
+  const canApproveDoc = regCan(user, "regulatory.document.approve");
+  const canPrepare = regCan(user, "regulatory.submission.prepare");
+  const canApproveSubmission = regCan(user, "regulatory.submission.approve");
+  const canAnalyse = regCan(user, "regulatory.dossier.analyse");
+  const openBlockers = findings.filter((f) => f.blocker && (f.status === "OPEN" || f.status === "ACKNOWLEDGED")).length;
 
   return (
     <div className="space-y-5">
@@ -151,9 +161,14 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                       <tr key={doc.id} className="border-b border-border/60 align-top">
                         <td className="py-1.5 pr-3">
                           <span className="block max-w-[22rem] truncate font-medium" title={doc.originalPath}>{doc.originalFilename}</span>
-                          {doc.suggestedFilename && !blocked && (
-                            <span className="block max-w-[22rem] truncate text-[11px] text-primary" title={doc.suggestedFilename}>→ {doc.suggestedFilename}</span>
-                          )}
+                          {doc.approvedFilename ? (
+                            <span className="block max-w-[22rem] truncate text-[11px] text-success" title={doc.approvedFilename}>✓ {doc.approvedFilename}</span>
+                          ) : doc.suggestedFilename && !blocked ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="min-w-0 max-w-[18rem] truncate text-[11px] text-primary" title={doc.suggestedFilename}>→ {doc.suggestedFilename}</span>
+                              {canApproveDoc && <ApproveNameButton documentId={doc.id} />}
+                            </span>
+                          ) : null}
                         </td>
                         <td className="py-1.5 pr-3">
                           {blocked ? (
@@ -226,6 +241,19 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
         </Card>
       )}
 
+      {/* Porte de soumission */}
+      {latest && (canPrepare || canApproveSubmission || canAnalyse) && (
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-primary" /> Porte de soumission</CardTitle></CardHeader>
+          <CardContent>
+            <SubmissionGate
+              dossierId={dossier.id} status={dossier.status} openBlockers={openBlockers}
+              canPrepare={canPrepare} canApprove={canApproveSubmission} canAnalyse={canAnalyse}
+            />
+          </CardContent>
+        </Card>
+      )}
+
       {/* Couverture CTD (jumeau numérique) */}
       {coverage.length > 0 && (
         <Card>
@@ -265,6 +293,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                       </div>
                       <p className="mt-0.5 text-xs text-muted-foreground">{f.detail}</p>
                       {f.evidence && <p className="mt-0.5 text-[11px] italic text-muted-foreground/80">Preuve : {f.evidence}</p>}
+                      <FindingControls findingId={f.id} status={f.status} blocker={f.blocker} canEdit={canEditFinding} canApprove={canApproveFinding} />
                     </div>
                   </div>
                 </div>

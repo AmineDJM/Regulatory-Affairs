@@ -3895,6 +3895,9 @@ model RegulatoryFinding {
   status           RegFindingStatus   @default(OPEN)
   blocker          Boolean            @default(false)
   draft            Boolean            @default(true) // sortie IA = DRAFT tant qu'un humain n'a pas revu
+  resolutionNote   String? // justification humaine (obligatoire pour lever un bloqueur)
+  reviewedById     String?
+  reviewedAt       DateTime?
   createdById      String?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
