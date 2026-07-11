@@ -11,8 +11,9 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
-import { getDossier, listVersions, listVersionDocuments, listDossierAudit, getAssessment, listFindings } from "@/lib/regulatory/intelligence/queries";
+import { getDossier, listVersions, listVersionDocuments, listDossierAudit, getAssessment, listFindings, listFacts, listConflicts } from "@/lib/regulatory/intelligence/queries";
 import { buildCoverage } from "@/lib/regulatory/intelligence/twin/build-twin";
+import { TwinPanel } from "./twin-panel";
 import {
   PROCEDURE_TYPE_LABELS, DOSSIER_STATUS_LABELS, DOSSIER_STATUS_TONE,
   SECURITY_LABELS, EXTRACTION_LABELS, humanBytes, isBlockedSecurity,
@@ -59,6 +60,8 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
   const documents = latest ? await listVersionDocuments(latest.id) : [];
   const assessment = latest ? await getAssessment(latest.id) : null;
   const findings = latest ? await listFindings(latest.id) : [];
+  const facts = latest ? await listFacts(latest.id) : [];
+  const conflicts = latest ? await listConflicts(latest.id) : [];
   const coverage = latest ? buildCoverage(dossier.procedureType, documents) : [];
   const audit = await listDossierAudit(dossier.id);
 
@@ -269,6 +272,24 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                 </div>
               ))}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Jumeau numérique — faits sourcés + conflits */}
+      {latest && (facts.length > 0 || conflicts.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><Layers className="h-4 w-4 text-primary" /> Jumeau numérique — faits réglementaires</CardTitle>
+            <p className="text-xs text-muted-foreground">Faits extraits (avec preuve sourcée), conflits entre documents, et revue humaine. Valeurs proposées — à confirmer/corriger.</p>
+          </CardHeader>
+          <CardContent>
+            <TwinPanel
+              facts={facts.map((f) => ({ ...f, occurrences: f.occurrences }))}
+              conflicts={conflicts.map((c) => ({ ...c, values: (c.values as unknown as { value: string; documentId: string; sectionCode: string | null; extract: string; confidence: number }[]) }))}
+              canEdit={canEditFinding}
+              canApprove={canApproveFinding}
+            />
           </CardContent>
         </Card>
       )}

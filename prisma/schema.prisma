@@ -3804,6 +3804,8 @@ model RegulatoryDossierVersion {
   jobs       RegulatoryJob[]
   findings   RegulatoryFinding[]
   assessment RegulatoryAssessment?
+  facts      RegulatoryFact[]
+  conflicts  RegulatoryConflict[]
 
   @@unique([dossierId, versionNo])
   @@index([dossierId])
@@ -3907,6 +3909,89 @@ model RegulatoryFinding {
   @@index([dossierVersionId])
   @@index([severity])
   @@index([source])
+}
+
+enum RegFactStatus {
+  PROPOSED
+  CONFIRMED
+  CORRECTED
+  REJECTED
+}
+
+/// JUMEAU NUMÉRIQUE — un fait réglementaire canonique par (version, clé) : valeur proposée
+/// puis approuvée par un humain. Chaque valeur trouvée est une OCCURRENCE sourcée.
+model RegulatoryFact {
+  id               String        @id @default(cuid())
+  dossierVersionId String
+  factKey          String // "INN", "STRENGTH", "SHELF_LIFE"…
+  label            String
+  value            String? // valeur canonique proposée
+  unit             String?
+  status           RegFactStatus @default(PROPOSED)
+  hasConflict      Boolean       @default(false)
+  approvedValue    String?
+  approvedById     String?
+  approvedAt       DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  dossierVersion RegulatoryDossierVersion    @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
+  occurrences    RegulatoryFactOccurrence[]
+
+  @@unique([dossierVersionId, factKey])
+  @@index([dossierVersionId])
+}
+
+/// Une occurrence sourcée d'un fait : document + section (+ page quand l'OCR la fournit),
+/// extrait EXACT, confiance, méthode d'extraction, statut humain, date d'effet.
+model RegulatoryFactOccurrence {
+  id              String    @id @default(cuid())
+  factId          String
+  documentId      String
+  sectionCode     String?
+  page            Int?
+  rawValue        String
+  normalizedValue String?
+  extract         String // extrait exact du document (preuve)
+  confidence      Float     @default(0)
+  method          String // "regex" | "keyword" | "label" | "ai"
+  humanStatus     String    @default("PENDING") // PENDING | ACCEPTED | REJECTED
+  effectiveDate   DateTime?
+  createdAt       DateTime  @default(now())
+
+  fact RegulatoryFact @relation(fields: [factId], references: [id], onDelete: Cascade)
+
+  @@index([factId])
+  @@index([documentId])
+}
+
+enum RegConflictStatus {
+  OPEN
+  RESOLVED
+  WAIVED
+}
+
+/// CONFLIT : valeurs concurrentes d'un même fait entre documents/modules. `values` = toutes
+/// les occurrences opposées (valeur, source, section, extrait). Résolution humaine → valeur finale.
+model RegulatoryConflict {
+  id               String             @id @default(cuid())
+  dossierVersionId String
+  factKey          String
+  label            String
+  severity         RegFindingSeverity @default(MAJOR)
+  status           RegConflictStatus  @default(OPEN)
+  values           Json // [{ value, documentId, sectionCode, extract, confidence }]
+  proposedAction   String?
+  resolutionNote   String?
+  finalValue       String?
+  resolvedById     String?
+  resolvedAt       DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
+
+  @@index([dossierVersionId])
 }
 
 /// Bilan de complétude/conformité d'une version (recalculé à chaque passage du moteur).

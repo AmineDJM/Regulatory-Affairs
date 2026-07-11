@@ -5,7 +5,14 @@
 ## Règle de « fait »
 Une capacité n'est « terminée » que si : persistée · protégée par RBAC (rôles secondaires inclus) · isolée par organisation · tracée à l'audit · testée · réellement fonctionnelle (pas seulement visuelle) · sans donnée fictive.
 
-## État d'avancement (implémenté)
+## PHASE FOUNDATION — Secure CTD Intake & Basic Regulatory Triage ✅ (livrée)
+> Reclassement explicite : le lot ci-dessous est la **fondation** (ingestion sécurisée + triage
+> réglementaire de base), **pas** le Regulatory Intelligence OS complet. Les capacités centrales
+> restantes (OCR réel, faits sourcés / jumeau numérique, conflits, corpus versionné, RAG, moteur
+> de règles administrable, agents spécialisés, diff V1/V2, boucle fournisseur, réserves, génération
+> documentaire, simulateur d'évaluateur, cycle de vie) sont des **critères d'acceptation** et sont
+> construites dans les phases **G1→G14** ci-après (voir `OS_BUILD_PLAN.md`).
+
 Livré et vérifié (tsc + tests + build verts, RBAC + org-scope + audit + DRAFT respectés, sans donnée fictive) :
 - **Phase 1.a** ✅ accès (`RegulatoryFeatureAccess` par organisation + 26 permissions `regulatory.*` rôle principal/secondaire) + inspecteur ZIP sécurisé (anti-bombe/traversal/exécutables).
 - **Phase 1.b** ✅ ingestion (inspection → blobs chiffrés SHA-256 → manifeste, archive originale figée, rollback), route d'upload en flux (garde mémoire), workspace (liste/détail/manifeste/versions/audit), toggle Super Admin par entité, cascade + libération des blobs.

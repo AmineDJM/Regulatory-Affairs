@@ -5,6 +5,8 @@ import { extractText } from "../extract/extract-text";
 import { detectMime } from "../extract/mime";
 import { classifyDocument } from "../ctd/classify";
 import { assessVersion, type TwinDoc } from "../rules/engine";
+import { buildTwinFacts } from "../twin/build-facts";
+import { detectConflicts } from "../twin/detect-conflicts";
 import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
 import { sectionByCode } from "../ctd/taxonomy";
 import { aiConfigured } from "@/lib/ai";
@@ -93,6 +95,8 @@ async function dispatch(job: RegulatoryJob): Promise<void> {
       return handleExtract(job);
     case "RULES":
       return handleRules(job);
+    case "FACTS":
+      return handleFacts(job);
     case "AI_REVIEW":
       return handleAiReview(job);
     default:
@@ -168,11 +172,32 @@ async function handleExtract(job: RegulatoryJob): Promise<void> {
     if (job.dossierId) {
       await prisma.regulatoryDossier.update({ where: { id: job.dossierId }, data: { status: "ANALYSING" } }).catch(() => undefined);
     }
-    // Enchaîne les contrôles réglementaires déterministes (complétude/conformité).
-    await prisma.regulatoryJob.create({
-      data: { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: "RULES", status: "QUEUED", payload: {} },
+    // Enchaîne les contrôles déterministes (RULES) + le jumeau numérique (FACTS).
+    await prisma.regulatoryJob.createMany({
+      data: [
+        { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: "RULES", status: "QUEUED", payload: {} },
+        { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: "FACTS", status: "QUEUED", payload: {} },
+      ],
     });
   }
+}
+
+/** FACTS : jumeau numérique (faits sourcés) + détection de conflits. */
+async function handleFacts(job: RegulatoryJob): Promise<void> {
+  const versionId = job.dossierVersionId;
+  if (!versionId) {
+    await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } });
+    return;
+  }
+  const facts = await buildTwinFacts(versionId);
+  const conflicts = await detectConflicts(versionId);
+  await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } });
+  await regAudit({
+    companyId: job.companyId, actorId: "system", dossierId: job.dossierId, dossierVersionId: versionId,
+    action: "FACTS_BUILT",
+    detail: `Jumeau numérique : ${facts.facts} fait(s) sourcé(s) (${facts.occurrences} occurrence(s)), ${conflicts} conflit(s) détecté(s).`,
+    meta: { ...facts, conflicts },
+  });
 }
 
 /** RULES : jumeau numérique + moteur déterministe → constats + bilan de conformité. */

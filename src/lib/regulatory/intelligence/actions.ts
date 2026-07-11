@@ -294,3 +294,71 @@ export async function submitDossier(formData: FormData): Promise<ActionResult> {
   revalidateDossier(dossierId);
   return { ok: true };
 }
+
+// ───────────────────────── Jumeau numérique : faits & conflits ─────────────────────────
+
+/** Revue d'un fait extrait : CONFIRM (valeur proposée), CORRECT (nouvelle valeur), REJECT. */
+export async function reviewFact(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!regCan(user, "regulatory.finding.edit")) return { ok: false, error: "Non autorisé." };
+  const factId = str(formData, "factId");
+  const decision = str(formData, "decision");
+  const value = str(formData, "value");
+  if (!factId || !decision) return { ok: false, error: "Paramètres manquants." };
+
+  const companyId = await targetCompanyId();
+  if (!companyId) return { ok: false, error: "Module non activé." };
+  const fact = await prisma.regulatoryFact.findFirst({
+    where: { id: factId, dossierVersion: { dossier: { companyId } } },
+    select: { id: true, label: true, value: true, dossierVersion: { select: { dossierId: true } } },
+  });
+  if (!fact) return { ok: false, error: "Fait introuvable." };
+
+  if (decision === "CONFIRM") {
+    const approved = value || fact.value;
+    await prisma.regulatoryFact.update({ where: { id: factId }, data: { status: "CONFIRMED", value: approved, approvedValue: approved, approvedById: user.id, approvedAt: new Date() } });
+  } else if (decision === "CORRECT") {
+    if (!value) return { ok: false, error: "Valeur corrigée requise." };
+    await prisma.regulatoryFact.update({ where: { id: factId }, data: { status: "CORRECTED", value, approvedValue: value, approvedById: user.id, approvedAt: new Date() } });
+  } else if (decision === "REJECT") {
+    await prisma.regulatoryFact.update({ where: { id: factId }, data: { status: "REJECTED", approvedById: user.id, approvedAt: new Date() } });
+  } else {
+    return { ok: false, error: "Décision invalide." };
+  }
+  await regAudit({ companyId, actorId: user.id, dossierId: fact.dossierVersion.dossierId, action: `FACT_${decision}`, detail: `Fait « ${fact.label} » ${decision}${value ? ` → ${value}` : ""}.` });
+  revalidateDossier(fact.dossierVersion.dossierId);
+  return { ok: true };
+}
+
+/** Résolution d'un conflit : valeur finale + justification (rôle d'approbation). */
+export async function resolveConflict(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!regCan(user, "regulatory.finding.approve")) return { ok: false, error: "La résolution d'un conflit requiert un rôle d'approbation." };
+  const conflictId = str(formData, "conflictId");
+  const finalValue = str(formData, "finalValue");
+  const note = str(formData, "note");
+  const status = str(formData, "status") ?? "RESOLVED";
+  if (!conflictId || !finalValue) return { ok: false, error: "Valeur finale requise." };
+
+  const companyId = await targetCompanyId();
+  if (!companyId) return { ok: false, error: "Module non activé." };
+  const conflict = await prisma.regulatoryConflict.findFirst({
+    where: { id: conflictId, dossierVersion: { dossier: { companyId } } },
+    select: { id: true, factKey: true, label: true, dossierVersionId: true, dossierVersion: { select: { dossierId: true } } },
+  });
+  if (!conflict) return { ok: false, error: "Conflit introuvable." };
+
+  const finalStatus = status === "WAIVED" ? "WAIVED" : "RESOLVED";
+  await prisma.regulatoryConflict.update({
+    where: { id: conflictId },
+    data: { status: finalStatus, finalValue, resolutionNote: note ?? null, resolvedById: user.id, resolvedAt: new Date() },
+  });
+  // Répercute la valeur finale sur le fait canonique + lève le drapeau conflit.
+  await prisma.regulatoryFact.updateMany({
+    where: { dossierVersionId: conflict.dossierVersionId, factKey: conflict.factKey },
+    data: { value: finalValue, approvedValue: finalValue, status: "CORRECTED", hasConflict: false, approvedById: user.id, approvedAt: new Date() },
+  });
+  await regAudit({ companyId, actorId: user.id, dossierId: conflict.dossierVersion.dossierId, action: `CONFLICT_${finalStatus}`, detail: `Conflit « ${conflict.label} » ${finalStatus} → ${finalValue}${note ? ` (${note})` : ""}.` });
+  revalidateDossier(conflict.dossierVersion.dossierId);
+  return { ok: true };
+}

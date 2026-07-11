@@ -106,6 +106,29 @@ export async function listFindings(dossierVersionId: string) {
   });
 }
 
+export async function listFacts(dossierVersionId: string) {
+  return prisma.regulatoryFact.findMany({
+    where: { dossierVersionId },
+    orderBy: [{ hasConflict: "desc" }, { factKey: "asc" }],
+    select: {
+      id: true, factKey: true, label: true, value: true, unit: true, status: true, hasConflict: true,
+      approvedValue: true, approvedAt: true,
+      occurrences: {
+        orderBy: { confidence: "desc" },
+        select: { id: true, documentId: true, sectionCode: true, rawValue: true, extract: true, confidence: true, method: true, humanStatus: true },
+      },
+    },
+  });
+}
+
+export async function listConflicts(dossierVersionId: string) {
+  return prisma.regulatoryConflict.findMany({
+    where: { dossierVersionId },
+    orderBy: [{ severity: "asc" }, { createdAt: "asc" }],
+    select: { id: true, factKey: true, label: true, severity: true, status: true, values: true, proposedAction: true, finalValue: true, resolutionNote: true },
+  });
+}
+
 export async function listDossierAudit(dossierId: string, take = 50) {
   return prisma.regulatoryAuditLog.findMany({
     where: { dossierId },
