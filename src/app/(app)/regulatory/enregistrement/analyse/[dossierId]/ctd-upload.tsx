@@ -12,6 +12,30 @@ type Phase = "idle" | "uploading" | "processing" | "done" | "error";
 const humanSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.ceil(n / 1024))} Ko`);
 
 /**
+ * Envoi d'UNE partie via XHR : contrairement à `fetch`, XHR expose la **progression d'octets
+ * en temps réel** (`upload.onprogress`) → la barre bouge dès les premiers octets, sans attendre
+ * la fin de la partie. Délai de garde : une requête réellement bloquée échoue (→ retente).
+ */
+function putPartXhr(url: string, body: ArrayBuffer, onLoaded: (loaded: number) => void, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("content-type", "application/octet-stream");
+    xhr.timeout = timeoutMs;
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onLoaded(e.loaded); };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      let msg = `code ${xhr.status}`;
+      try { msg = JSON.parse(xhr.responseText)?.error ?? msg; } catch { /* corps non-JSON */ }
+      reject(new Error(msg));
+    };
+    xhr.onerror = () => reject(new Error("réseau"));
+    xhr.ontimeout = () => reject(new Error("délai dépassé"));
+    xhr.send(body);
+  });
+}
+
+/**
  * Téléversement d'un dossier CTD en **ZIP** vers la route d'ingestion sécurisée.
  * Progression réelle (XHR), puis restitution du **manifeste de sécurité** (conservés /
  * bloqués / suspects). L'archive originale est figée ; chaque fichier sain est stocké chiffré.
@@ -53,15 +77,31 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
   async function sendResumable(file: File) {
     setPhase("uploading"); setProgress(0); setError(null); setSummary(null); setFileName(file.name);
     try {
-      const open = await fetch("/api/regulatory/intelligence/upload/session", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ dossierId, filename: file.name, totalBytes: file.size, contentType: file.type }),
-      });
+      // Ouverture de session avec délai de garde → jamais bloqué à 0 % si le serveur ne répond pas.
+      const ctrl = new AbortController();
+      const openTimer = setTimeout(() => ctrl.abort(), 30_000);
+      let open: Response;
+      try {
+        open = await fetch("/api/regulatory/intelligence/upload/session", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ dossierId, filename: file.name, totalBytes: file.size, contentType: file.type }),
+          signal: ctrl.signal,
+        });
+      } catch {
+        throw new Error("Ouverture de session : serveur injoignable ou trop lent (30 s).");
+      } finally { clearTimeout(openTimer); }
       const meta = await open.json();
       if (!open.ok) throw new Error(meta.error ?? "Ouverture de session refusée.");
       const { sessionId, partSize, expectedParts } = meta as { sessionId: string; partSize: number; expectedParts: number };
 
-      let done = 0;
+      // Progression RÉELLE au niveau octet, agrégée sur toutes les parties en vol → la barre
+      // avance dès les premiers octets (plus d'attente « 0 % » jusqu'à la fin d'une partie).
+      const loaded = new Array<number>(expectedParts).fill(0);
+      const refresh = () => {
+        const sum = loaded.reduce((a, b) => a + b, 0);
+        setProgress(Math.min(99, Math.round((sum / file.size) * 100))); // 100 % réservé à la fin réelle
+      };
+
       let cursor = 0;
       let aborted = false;
 
@@ -72,13 +112,17 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
         for (let attempt = 0; attempt < 4; attempt++) {
           if (aborted) return;
           try {
-            const put = await fetch(`/api/regulatory/intelligence/upload/session/${sessionId}/part?index=${i}`, {
-              method: "PUT", headers: { "content-type": "application/octet-stream" }, body: buf,
-            });
-            if (put.ok) { done += 1; setProgress(Math.round((done / expectedParts) * 100)); return; }
-            lastErr = (await put.json().catch(() => ({})))?.error ?? `code ${put.status}`;
-          } catch { lastErr = "réseau"; }
-          if (!aborted) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+            await putPartXhr(
+              `/api/regulatory/intelligence/upload/session/${sessionId}/part?index=${i}`,
+              buf, (l) => { loaded[i] = l; refresh(); }, 120_000,
+            );
+            loaded[i] = buf.byteLength; refresh();
+            return;
+          } catch (e) {
+            loaded[i] = 0; refresh(); // une tentative échouée ne compte pas
+            lastErr = e instanceof Error ? e.message : "échec";
+            if (!aborted) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+          }
         }
         throw new Error(`Échec de la partie ${i + 1}/${expectedParts} (${lastErr}).`);
       };
@@ -97,6 +141,7 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
         aborted = true; // stoppe les workers restants au plus tôt
         throw e;
       }
+      setProgress(100);
 
       setPhase("processing");
       const fin = await fetch(`/api/regulatory/intelligence/upload/session/${sessionId}/finalize`, { method: "POST" });
