@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft, Download, FileText, ShieldCheck, ShieldAlert, ShieldX, Layers, History, Eye,
-  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge, Bot,
+  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge, Bot, GitCompare,
 } from "lucide-react";
 import type { RegFindingSeverity } from "@prisma/client";
 import { requireModule } from "@/lib/session";
@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
 import { getDossier, listVersions, listVersionDocuments, listDossierAudit, getAssessment, listFindings, listFacts, listConflicts } from "@/lib/regulatory/intelligence/queries";
 import { buildCoverage } from "@/lib/regulatory/intelligence/twin/build-twin";
+import { buildVersionDiff } from "@/lib/regulatory/intelligence/diff/compare-versions";
 import { aiConfigured } from "@/lib/ai";
 import { applicableAgents } from "@/lib/regulatory/intelligence/agents/orchestrator";
 import { TwinPanel } from "./twin-panel";
@@ -67,6 +68,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
   const conflicts = latest ? await listConflicts(latest.id) : [];
   const coverage = latest ? buildCoverage(dossier.procedureType, documents) : [];
   const agents = latest ? await applicableAgents(latest.id) : [];
+  const diff = versions.length > 1 ? await buildVersionDiff(dossier.id) : null;
   const audit = await listDossierAudit(dossier.id);
 
   const canUpload = regCan(user, "regulatory.dossier.upload");
@@ -339,6 +341,65 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
           </CardContent>
         </Card>
       )}
+
+      {/* Comparaison V1/V2 — ce qui a changé entre les deux dernières versions */}
+      {diff && diff.hasOld && (diff.summary.added + diff.summary.removed + diff.summary.replaced + diff.summary.factsChanged > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><GitCompare className="h-4 w-4 text-primary" /> Comparaison v{diff.oldVersionNo} → v{diff.newVersionNo}</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Fichiers remplacés/ajoutés/supprimés (identité par chemin, contenu par SHA-256) et évolution des faits.
+              Concentrez la ré-évaluation sur ces changements — la décision reste humaine.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2 text-xs">
+              {diff.summary.replaced > 0 && <span className="rounded-md bg-amber-500/10 px-2 py-1 text-amber-600">{diff.summary.replaced} remplacé·s</span>}
+              {diff.summary.added > 0 && <span className="rounded-md bg-success/10 px-2 py-1 text-success">{diff.summary.added} ajouté·s</span>}
+              {diff.summary.removed > 0 && <span className="rounded-md bg-destructive/10 px-2 py-1 text-destructive">{diff.summary.removed} supprimé·s</span>}
+              <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{diff.summary.unchanged} inchangé·s</span>
+              {diff.summary.factsChanged > 0 && <span className="rounded-md bg-blue-500/10 px-2 py-1 text-blue-600">{diff.summary.factsChanged} fait·s modifié·s</span>}
+            </div>
+
+            {diff.files.some((fl) => fl.status !== "unchanged") && (
+              <div className="space-y-1">
+                {diff.files.filter((fl) => fl.status !== "unchanged").map((fl) => (
+                  <div key={`${fl.status}-${fl.path}`} className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-xs">
+                    <span className={`rounded px-1.5 py-0.5 font-medium ${fl.status === "replaced" ? "bg-amber-500/10 text-amber-600" : fl.status === "added" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                      {fl.status === "replaced" ? "Remplacé" : fl.status === "added" ? "Ajouté" : "Supprimé"}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate" title={fl.path}>{fl.filename}</span>
+                    {fl.ctdSection && <span className="shrink-0 text-muted-foreground">{fl.ctdSection}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {diff.facts.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Faits réglementaires</p>
+                {diff.facts.map((ft) => (
+                  <div key={ft.factKey} className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-xs">
+                    <span className={`rounded px-1.5 py-0.5 ${ft.status === "changed" ? "bg-blue-500/10 text-blue-600" : ft.status === "added" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                      {ft.status === "changed" ? "Modifié" : ft.status === "added" ? "Ajouté" : "Supprimé"}
+                    </span>
+                    <span className="font-medium">{ft.label}</span>
+                    {ft.status === "changed" && <span className="text-muted-foreground">{ft.oldValue ?? "—"} → <span className="text-foreground">{ft.newValue ?? "—"}</span></span>}
+                    {ft.status === "added" && <span className="text-foreground">{ft.newValue}</span>}
+                    {ft.status === "removed" && <span className="text-muted-foreground line-through">{ft.oldValue}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {canAnalyse && <p className="text-xs text-muted-foreground">Relancez les contrôles pour ré-évaluer la nouvelle version (les décisions humaines sur les constats sont conservées).</p>}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><GitCompare className="h-4 w-4 text-primary" /> Comparaison v{diff.oldVersionNo} → v{diff.newVersionNo}</CardTitle></CardHeader>
+          <CardContent><p className="text-sm text-muted-foreground">Aucune différence de fichier ni de fait entre ces deux versions.</p></CardContent>
+        </Card>
+      ))}
 
       {/* Historique des versions */}
       {versions.length > 1 && (
