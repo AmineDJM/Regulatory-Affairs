@@ -19,6 +19,7 @@ import { applicableAgents } from "@/lib/regulatory/intelligence/agents/orchestra
 import { templateSummaries } from "@/lib/regulatory/intelligence/docgen/templates";
 import { listReserveCycles } from "@/lib/regulatory/intelligence/reserves/queries";
 import { listSupplierRequests } from "@/lib/regulatory/intelligence/supplier/queries";
+import { listLifecycle } from "@/lib/regulatory/intelligence/lifecycle/queries";
 import { prisma } from "@/lib/prisma";
 import { TwinPanel } from "./twin-panel";
 import { AgentsPanel } from "./agents-panel";
@@ -26,6 +27,7 @@ import { DocgenPanel } from "./docgen-panel";
 import { ReservesPanel } from "./reserves-panel";
 import { SimulatorPanel } from "./simulator-panel";
 import { SupplierPanel } from "./supplier-panel";
+import { LifecyclePanel } from "./lifecycle-panel";
 import type { SimPerspective } from "@/lib/regulatory/intelligence/simulator/run";
 import {
   PROCEDURE_TYPE_LABELS, DOSSIER_STATUS_LABELS, DOSSIER_STATUS_TONE,
@@ -92,6 +94,9 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
     remindedAt: r.remindedAt?.toISOString() ?? null, respondedAt: r.respondedAt?.toISOString() ?? null,
   }));
   const canSupplier = regCan(user, "regulatory.workspace.manage") || regCan(user, "regulatory.dossier.upload");
+  const lifecycle = await listLifecycle(dossier.id);
+  const lifecycleEvents = lifecycle.events.map((e) => ({ ...e, effectiveDate: e.effectiveDate?.toISOString() ?? null, createdAt: e.createdAt.toISOString() }));
+  const obligations = lifecycle.obligations.map((o) => ({ ...o, dueDate: o.dueDate?.toISOString() ?? null }));
   const lastSimRow = latest
     ? await prisma.regulatorySimulation.findFirst({ where: { dossierVersionId: latest.id, configured: true }, orderBy: { createdAt: "desc" }, select: { perspectives: true, overall: true, createdAt: true } })
     : null;
@@ -391,6 +396,18 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
           </CardHeader>
           <CardContent>
             <SimulatorPanel dossierId={dossier.id} last={lastSim} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Lifecycle — chronologie réglementaire + obligations post-enregistrement */}
+      {(canAnalyse || lifecycleEvents.length > 0 || obligations.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><History className="h-4 w-4 text-primary" /> Cycle de vie réglementaire</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <LifecyclePanel dossierId={dossier.id} events={lifecycleEvents} obligations={obligations} canManage={canAnalyse} />
           </CardContent>
         </Card>
       )}

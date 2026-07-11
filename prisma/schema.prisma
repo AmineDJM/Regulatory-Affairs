@@ -3782,6 +3782,8 @@ model RegulatoryDossier {
   auditLogs        RegulatoryAuditLog[]
   reserveCycles    RegulatoryReserveCycle[]
   supplierRequests RegulatorySupplierRequest[]
+  lifecycleEvents  RegulatoryLifecycleEvent[]
+  obligations      RegulatoryObligation[]
 
   @@index([companyId])
   @@index([productId])
@@ -4398,4 +4400,68 @@ model RegulatorySupplierQuestion {
   request RegulatorySupplierRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
   @@index([requestId])
+}
+
+enum RegLifecycleKind {
+  SUBMISSION
+  SEQUENCE
+  SUPPLEMENT
+  MODIFICATION
+  RENEWAL
+  RESPONSE
+  APPROVED
+  WITHDRAWAL
+}
+
+enum RegLifecycleOperation {
+  NEW
+  REPLACE
+  DELETE
+  APPEND
+}
+
+enum RegObligationStatus {
+  OPEN
+  DONE
+  OVERDUE
+}
+
+/// LIFECYCLE (G12) — chronologie réglementaire d'un dossier : soumission initiale, séquences,
+/// compléments, modifications, renouvellements, réponses, version approuvée. Opérations
+/// NEW/REPLACE/DELETE/APPEND sur les pièces. Tracé.
+model RegulatoryLifecycleEvent {
+  id            String                 @id @default(cuid())
+  dossierId     String
+  kind          RegLifecycleKind
+  sequenceNo    Int?
+  operation     RegLifecycleOperation?
+  label         String
+  note          String?
+  effectiveDate DateTime?
+  createdById   String
+  createdAt     DateTime               @default(now())
+
+  dossier RegulatoryDossier @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  @@index([dossierId])
+}
+
+/// OBLIGATION post-enregistrement / certificat expirant (G12) — échéance + suivi.
+model RegulatoryObligation {
+  id          String              @id @default(cuid())
+  dossierId   String
+  label       String
+  certType    String? // "CPP" | "GMP" | "AMM"… si applicable
+  dueDate     DateTime?
+  status      RegObligationStatus @default(OPEN)
+  note        String?
+  createdById String
+  completedAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  dossier RegulatoryDossier @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  @@index([dossierId])
+  @@index([status])
 }
