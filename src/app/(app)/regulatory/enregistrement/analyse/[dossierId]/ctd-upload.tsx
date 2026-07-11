@@ -43,9 +43,13 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
 
   /**
    * Upload RÉSUMABLE (G14) pour gros fichiers : ouvre une session, envoie le fichier par
-   * PARTIES (une tranche lue à la fois → le navigateur ne charge jamais l'archive entière),
-   * avec retente par partie, puis finalise (vérif taille côté serveur + ingestion).
+   * PARTIES en PARALLÈLE (pool borné → on remplit le tuyau au lieu d'un aller-retour à la
+   * fois), avec retente par partie, puis finalise (vérif taille côté serveur + ingestion).
+   * Chaque tranche n'est lue qu'au moment de son envoi → le navigateur ne charge jamais
+   * l'archive entière (pic mémoire ≈ CONCURRENCY × taille de partie).
    */
+  const UPLOAD_CONCURRENCY = 6;
+
   async function sendResumable(file: File) {
     setPhase("uploading"); setProgress(0); setError(null); setSummary(null); setFileName(file.name);
     try {
@@ -57,21 +61,41 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       if (!open.ok) throw new Error(meta.error ?? "Ouverture de session refusée.");
       const { sessionId, partSize, expectedParts } = meta as { sessionId: string; partSize: number; expectedParts: number };
 
-      for (let i = 0; i < expectedParts; i++) {
+      let done = 0;
+      let cursor = 0;
+      let aborted = false;
+
+      const putPart = async (i: number): Promise<void> => {
         const slice = file.slice(i * partSize, Math.min((i + 1) * partSize, file.size));
         const buf = await slice.arrayBuffer();
-        let ok = false, lastErr = "";
-        for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+        let lastErr = "";
+        for (let attempt = 0; attempt < 4; attempt++) {
+          if (aborted) return;
           try {
             const put = await fetch(`/api/regulatory/intelligence/upload/session/${sessionId}/part?index=${i}`, {
               method: "PUT", headers: { "content-type": "application/octet-stream" }, body: buf,
             });
-            if (put.ok) ok = true; else { lastErr = (await put.json().catch(() => ({})))?.error ?? `code ${put.status}`; }
+            if (put.ok) { done += 1; setProgress(Math.round((done / expectedParts) * 100)); return; }
+            lastErr = (await put.json().catch(() => ({})))?.error ?? `code ${put.status}`;
           } catch { lastErr = "réseau"; }
-          if (!ok) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+          if (!aborted) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
         }
-        if (!ok) throw new Error(`Échec de la partie ${i + 1}/${expectedParts} (${lastErr}).`);
-        setProgress(Math.round(((i + 1) / expectedParts) * 100));
+        throw new Error(`Échec de la partie ${i + 1}/${expectedParts} (${lastErr}).`);
+      };
+
+      // Pool de workers : chacun tire la prochaine partie libre jusqu'à épuisement.
+      const worker = async (): Promise<void> => {
+        while (!aborted) {
+          const i = cursor++;
+          if (i >= expectedParts) return;
+          await putPart(i);
+        }
+      };
+      try {
+        await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, expectedParts) }, () => worker()));
+      } catch (e) {
+        aborted = true; // stoppe les workers restants au plus tôt
+        throw e;
       }
 
       setPhase("processing");

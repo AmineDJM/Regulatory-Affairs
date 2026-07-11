@@ -19,7 +19,9 @@ import { regAudit } from "../audit";
  */
 
 const MB = 1024 * 1024;
-export const DEFAULT_PART_SIZE = Number(process.env.REG_UPLOAD_PART_MB ?? 8) * MB;
+// Parties plus grosses (16 Mo) → moins d'allers-retours. Combiné à l'envoi parallèle côté client
+// (pool borné), remplit le lien montant. Borné à 32 Mo côté serveur (startUploadSession).
+export const DEFAULT_PART_SIZE = Number(process.env.REG_UPLOAD_PART_MB ?? 16) * MB;
 export const SMALL_FILE_THRESHOLD = Number(process.env.REG_UPLOAD_SMALL_MB ?? 12) * MB; // en-deçà : route directe
 export const MAX_TOTAL_BYTES = DEFAULT_ZIP_LIMITS.maxArchiveBytes; // aligné sur la limite d'archive
 export const MAX_ACTIVE_SESSIONS_PER_ORG = Number(process.env.REG_UPLOAD_MAX_ACTIVE ?? 3);
