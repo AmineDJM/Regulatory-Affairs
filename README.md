@@ -1049,6 +1049,20 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Regulatory Intelligence OS — téléversement « ultra-rapide » : upload DIRECT S3/R2 + pool DB réglable.**
+  Deux leviers de vitesse, activés par variables d'environnement (absents → comportement inchangé, aucune régression) :
+  - **Chantier 1 — envoi DIRECT (navigateur → bucket S3/R2), bypass serveur + Postgres.** Signatures **AWS SigV4
+    faites main** (aucune dépendance SDK ; clé de signature vérifiée contre un vecteur connu), URL PUT présignée,
+    puis le serveur **lit l'objet** pour l'inspecter/ingérer et **supprime l'archive temporaire**. Repli automatique
+    sur l'upload résumable en base si non configuré. Env : `REG_S3_ENDPOINT`, `REG_S3_BUCKET`, `REG_S3_ACCESS_KEY_ID`,
+    `REG_S3_SECRET_ACCESS_KEY`, `REG_S3_REGION` (défaut `auto`), `REG_S3_FORCE_PATH_STYLE` (défaut `1`).
+    **À provisionner côté fournisseur** : le bucket + une règle **CORS** autorisant `PUT` depuis l'origine de l'app.
+    Fichiers : `intelligence/upload/object-storage.ts`, `…/session.ts` (`startDirectUploadSession`/`finalizeDirectUploadSession`),
+    route `api/…/upload/direct/[sessionId]/finalize`, `…/upload/session` (aiguillage direct/résumable), `ctd-upload.tsx`.
+  - **Chantier 2 — pool de connexions DB + concurrence réglables.** `DB_CONNECTION_LIMIT` (+ `DB_POOL_TIMEOUT`) élargit
+    le pool Prisma (défaut ~3 sur 1 vCPU → cause des 500 sous forte concurrence) ; `REG_UPLOAD_CONCURRENCY` aligne le
+    nombre de parties envoyées en parallèle (surfacé au client). Fichiers : `lib/prisma.ts`, `…/upload/session.ts`.
+  - Réglages d'envoi (déjà en place) : `REG_UPLOAD_PART_MB` (4 Mo), `REG_ZIP_MAX_ARCHIVE_MB` (4 Go), reprise résumable.
 - **Regulatory Intelligence OS — pipeline CTD prouvé de bout en bout + correctif « les scans sont lus jusqu'au
   bout ».** Test d'intégration **réel** (base + OCR + moteur, aucune simulation) qui télécharge un dossier ZIP
   multi-formats (txt, docx, xlsx, **scan PNG océrisé**, exécutable **bloqué**) et observe **chaque** étape :

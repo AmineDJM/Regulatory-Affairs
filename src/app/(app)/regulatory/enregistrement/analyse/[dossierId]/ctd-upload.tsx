@@ -16,11 +16,11 @@ const humanSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo
  * en temps réel** (`upload.onprogress`) → la barre bouge dès les premiers octets, sans attendre
  * la fin de la partie. Délai de garde : une requête réellement bloquée échoue (→ retente).
  */
-function putPartXhr(url: string, body: ArrayBuffer, onLoaded: (loaded: number) => void, timeoutMs: number): Promise<void> {
+function putPartXhr(url: string, body: ArrayBuffer | Blob, onLoaded: (loaded: number) => void, timeoutMs: number, contentType = "application/octet-stream"): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
-    xhr.setRequestHeader("content-type", "application/octet-stream");
+    if (contentType) xhr.setRequestHeader("content-type", contentType);
     xhr.timeout = timeoutMs;
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) onLoaded(e.loaded); };
     xhr.onload = () => {
@@ -72,10 +72,9 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
    * Chaque tranche n'est lue qu'au moment de son envoi → le navigateur ne charge jamais
    * l'archive entière (pic mémoire ≈ CONCURRENCY × taille de partie).
    */
-  // Concurrence alignée sur le pool de connexions DB (défaut Prisma souvent = 3 sur 1 CPU) :
-  // 3 parties en parallèle remplissent le lien sans épuiser le pool → plus de 500. Chaque partie
-  // ne fait qu'un seul upsert côté serveur. (Relevez le pool DB — connection_limit — pour + de //).
-  const UPLOAD_CONCURRENCY = 3;
+  // Concurrence par défaut (le serveur peut la piloter via REG_UPLOAD_CONCURRENCY, aligné sur le
+  // pool DB) : 3 parties en parallèle remplissent le lien sans épuiser le pool → plus de 500.
+  const DEFAULT_UPLOAD_CONCURRENCY = 3;
 
   async function sendResumable(file: File) {
     setPhase("uploading"); setProgress(0); setError(null); setSummary(null); setFileName(file.name);
@@ -95,7 +94,34 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       } finally { clearTimeout(openTimer); }
       const meta = await open.json();
       if (!open.ok) throw new Error(meta.error ?? "Ouverture de session refusée.");
-      const { sessionId, partSize, expectedParts, receivedIndices } = meta as { sessionId: string; partSize: number; expectedParts: number; receivedIndices?: number[] };
+
+      // CHANTIER 1 — envoi DIRECT vers le bucket (S3/R2) si configuré : un seul PUT présigné,
+      // navigateur → stockage (bypass serveur + Postgres), puis finalisation serveur (lecture + ingestion).
+      if (meta.mode === "direct" && meta.uploadUrl && meta.sessionId) {
+        let ok = false, lastErr = "";
+        for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+          try {
+            await putPartXhr(meta.uploadUrl as string, file, (l) => setProgress(Math.min(99, Math.round((l / file.size) * 100))), 20 * 60_000, file.type || "application/zip");
+            ok = true;
+          } catch (e) {
+            lastErr = e instanceof Error ? e.message : "réseau"; setProgress(0);
+            if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+          }
+        }
+        if (!ok) throw new Error(`Envoi direct échoué (${lastErr}). Relancez le même fichier.`);
+        setProgress(100);
+        setPhase("processing");
+        const fin = await fetch(`/api/regulatory/intelligence/upload/direct/${meta.sessionId}/finalize`, { method: "POST" });
+        const data = await fin.json();
+        if (!fin.ok || !data.ok) throw new Error(data.error ?? "Finalisation refusée.");
+        setPhase("done"); setSummary(data.summary ?? null);
+        fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
+        router.refresh();
+        return;
+      }
+
+      const { sessionId, partSize, expectedParts, receivedIndices, concurrency } = meta as { sessionId: string; partSize: number; expectedParts: number; receivedIndices?: number[]; concurrency?: number };
+      const poolSize = Math.max(1, Math.min(concurrency ?? DEFAULT_UPLOAD_CONCURRENCY, expectedParts));
 
       // REPRISE : les parties déjà reçues (session réutilisée) sont marquées « faites » et sautées.
       const partBytes = (i: number) => (i < expectedParts - 1 ? partSize : file.size - partSize * (expectedParts - 1));
@@ -151,7 +177,7 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
         }
       };
       try {
-        await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, expectedParts) }, () => worker()));
+        await Promise.all(Array.from({ length: poolSize }, () => worker()));
       } catch (e) {
         aborted = true; // stoppe les workers restants au plus tôt
         throw e;

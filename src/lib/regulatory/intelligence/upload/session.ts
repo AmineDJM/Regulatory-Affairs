@@ -1,8 +1,11 @@
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { ingestDossierZip, type IngestResult } from "../ingest/ingest-dossier";
 import { DEFAULT_ZIP_LIMITS } from "../ingest/zip-inspector";
+import { presignPutUrl, getObject, deleteObject, objectStorageConfigured } from "./object-storage";
 import { regAudit } from "../audit";
+
+export { objectStorageConfigured } from "./object-storage";
 
 /**
  * UPLOAD RÉSUMABLE DE GROS FICHIERS (G14) — cœur logique.
@@ -26,6 +29,9 @@ export const DEFAULT_PART_SIZE = Number(process.env.REG_UPLOAD_PART_MB ?? 4) * M
 export const SMALL_FILE_THRESHOLD = Number(process.env.REG_UPLOAD_SMALL_MB ?? 12) * MB; // en-deçà : route directe
 export const MAX_TOTAL_BYTES = DEFAULT_ZIP_LIMITS.maxArchiveBytes; // aligné sur la limite d'archive
 export const MAX_ACTIVE_SESSIONS_PER_ORG = Number(process.env.REG_UPLOAD_MAX_ACTIVE ?? 3);
+// Nombre de parties envoyées EN PARALLÈLE par le client. À aligner sur le pool de connexions DB
+// (DB_CONNECTION_LIMIT) : au-delà, les écritures de parties saturent le pool → 500. Défaut prudent 3.
+export const UPLOAD_CONCURRENCY = Math.min(Math.max(Number(process.env.REG_UPLOAD_CONCURRENCY ?? 3), 1), 16);
 export const ORG_QUOTA_BYTES = Number(process.env.REG_ORG_QUOTA_GB ?? 50) * 1024 * MB;
 const STALE_SESSION_MS = Number(process.env.REG_UPLOAD_STALE_HOURS ?? 12) * 3600_000;
 
@@ -243,6 +249,117 @@ export async function finalizeUploadSession(sessionId: string, companyId: string
   await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "COMPLETED", blobId: null, versionId: ingest.versionId ?? null, receivedBytes: BigInt(totalBytes) } });
   await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: session.id } }); // nettoyage des parties
   await regAudit({ companyId, actorId, dossierId: session.dossierId, action: "UPLOAD_SESSION_FINALIZE", detail: `Upload finalisé « ${session.filename} » (${Math.round(totalBytes / MB)} Mo, SHA-256 vérifié).` });
+  return { ok: true, ingest };
+}
+
+// ─────────────────────────── UPLOAD DIRECT S3/R2 (chantier 1) ───────────────────────────
+
+export interface DirectStartResult { ok: boolean; error?: string; sessionId?: string; uploadUrl?: string }
+
+/** Nettoie les sessions directes fantômes du même dossier (+ objets temporaires) avant un nouvel envoi. */
+async function reapDirectSessions(companyId: string, dossierId: string): Promise<void> {
+  const reapMs = Number(process.env.REG_UPLOAD_REAP_MIN ?? 15) * 60_000;
+  const cutoff = new Date(Date.now() - reapMs);
+  const sessions = await prisma.regulatoryUploadSession.findMany({
+    where: { companyId, status: { in: ["UPLOADING", "FINALIZING"] } },
+    select: { id: true, dossierId: true, storageKey: true, createdAt: true },
+  });
+  const toAbort = sessions.filter((s) => s.dossierId === dossierId || s.createdAt < cutoff);
+  if (toAbort.length === 0) return;
+  const ids = toAbort.map((s) => s.id);
+  await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: { in: ids } } });
+  await prisma.regulatoryUploadSession.updateMany({ where: { id: { in: ids } }, data: { status: "ABORTED", error: "Envoi remplacé ou abandonné (nettoyage automatique)." } });
+  for (const s of toAbort) if (s.storageKey) await deleteObject(s.storageKey); // supprime l'archive temporaire du bucket
+}
+
+/**
+ * Ouvre un envoi DIRECT vers le bucket : contrôles (taille/quota/concurrence), génère une clé objet
+ * + une URL présignée PUT. Le navigateur téléverse ensuite DIRECTEMENT (bypass serveur + Postgres).
+ */
+export async function startDirectUploadSession(opts: {
+  companyId: string; dossierId: string; createdById: string; filename: string; contentType?: string | null;
+  totalBytes: number; expectedSha256?: string | null;
+}): Promise<DirectStartResult> {
+  if (!objectStorageConfigured()) return { ok: false, error: "Stockage objet non configuré." };
+  if (!Number.isFinite(opts.totalBytes) || opts.totalBytes <= 0) return { ok: false, error: "Taille invalide." };
+  if (opts.totalBytes > MAX_TOTAL_BYTES) return { ok: false, error: `Archive trop volumineuse (${Math.round(opts.totalBytes / MB)} Mo > ${Math.round(MAX_TOTAL_BYTES / MB)} Mo).` };
+  if (!looksZip(opts.filename)) return { ok: false, error: "Le dossier CTD doit être un ZIP (.zip)." };
+
+  const dossier = await prisma.regulatoryDossier.findFirst({ where: { id: opts.dossierId, companyId: opts.companyId }, select: { id: true } });
+  if (!dossier) return { ok: false, error: "Dossier introuvable." };
+
+  await reapDirectSessions(opts.companyId, opts.dossierId);
+  const active = await prisma.regulatoryUploadSession.count({ where: { companyId: opts.companyId, status: "UPLOADING" } });
+  if (active >= MAX_ACTIVE_SESSIONS_PER_ORG) return { ok: false, error: `Trop d'envois simultanés (max ${MAX_ACTIVE_SESSIONS_PER_ORG}). Terminez ou abandonnez un envoi en cours.` };
+
+  const usage = await orgUsageBytes(opts.companyId);
+  if (usage + opts.totalBytes > ORG_QUOTA_BYTES) {
+    return { ok: false, error: `Quota de l'organisation dépassé (${Math.round((usage + opts.totalBytes) / (1024 * MB))} Go > ${Math.round(ORG_QUOTA_BYTES / (1024 * MB))} Go).` };
+  }
+
+  const key = `reg-uploads/${opts.companyId}/${randomBytes(12).toString("hex")}.zip`;
+  const uploadUrl = presignPutUrl(key, 3600);
+  if (!uploadUrl) return { ok: false, error: "Génération de l'URL d'envoi impossible." };
+
+  const session = await prisma.regulatoryUploadSession.create({
+    data: {
+      companyId: opts.companyId, dossierId: opts.dossierId, createdById: opts.createdById,
+      filename: opts.filename.slice(0, 255), contentType: opts.contentType ?? null,
+      totalBytes: BigInt(Math.floor(opts.totalBytes)), partSize: Math.max(1, Math.min(Math.floor(opts.totalBytes), 2_000_000_000)),
+      expectedSha256: opts.expectedSha256 ?? null, storageKey: key,
+    },
+    select: { id: true },
+  });
+  await regAudit({ companyId: opts.companyId, actorId: opts.createdById, dossierId: opts.dossierId, action: "UPLOAD_SESSION_START", detail: `Envoi DIRECT « ${opts.filename} » (${Math.round(opts.totalBytes / MB)} Mo, bucket).` });
+  return { ok: true, sessionId: session.id, uploadUrl };
+}
+
+/**
+ * Finalise un envoi DIRECT : le serveur LIT l'objet depuis le bucket, vérifie taille (+ SHA-256 si
+ * fourni), lance l'ingestion sécurisée, puis supprime l'archive temporaire du bucket. Une lecture
+ * échouée (objet absent) laisse la session ré-ouverte (le client peut renvoyer le fichier).
+ */
+export async function finalizeDirectUploadSession(sessionId: string, companyId: string, actorId: string): Promise<FinalizeResult> {
+  const session = await prisma.regulatoryUploadSession.findFirst({
+    where: { id: sessionId, companyId }, select: { id: true, status: true, dossierId: true, filename: true, totalBytes: true, storageKey: true, expectedSha256: true },
+  });
+  if (!session) return { ok: false, error: "Session introuvable." };
+  if (session.status === "COMPLETED") return { ok: false, error: "Session déjà finalisée." };
+  if (session.status !== "UPLOADING") return { ok: false, error: `Session non finalisable (${session.status}).` };
+  if (!session.dossierId) return { ok: false, error: "Dossier manquant." };
+  if (!session.storageKey) return { ok: false, error: "Session non directe." };
+
+  await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "FINALIZING" } });
+
+  let buffer: Buffer;
+  try {
+    buffer = await getObject(session.storageKey);
+  } catch {
+    await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "UPLOADING", error: "Fichier introuvable côté stockage — renvoyez-le." } });
+    return { ok: false, error: "Fichier introuvable côté stockage (renvoyez-le)." };
+  }
+
+  const totalBytes = Number(session.totalBytes);
+  const fail = async (error: string, status: "UPLOADING" | "ABORTED"): Promise<FinalizeResult> => {
+    await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status, error } });
+    if (status === "ABORTED" && session.storageKey) await deleteObject(session.storageKey);
+    return { ok: false, error };
+  };
+  if (buffer.length !== totalBytes) return fail(`Taille reçue incohérente (${buffer.length} ≠ ${totalBytes}).`, "UPLOADING");
+  if (session.expectedSha256) {
+    const sha = createHash("sha256").update(buffer).digest("hex");
+    if (sha.toLowerCase() !== session.expectedSha256.toLowerCase()) return fail("Empreinte SHA-256 non concordante (fichier corrompu en transit).", "ABORTED");
+  }
+
+  const ingest = await ingestDossierZip({ companyId, dossierId: session.dossierId, actorId, filename: session.filename, buffer });
+  if (!ingest.ok) {
+    const r = await fail(ingest.error ?? "Ingestion refusée.", "ABORTED");
+    return { ...r, ingest };
+  }
+
+  await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "COMPLETED", versionId: ingest.versionId ?? null, receivedBytes: BigInt(totalBytes) } });
+  await deleteObject(session.storageKey); // archive temporaire : l'originale immuable est déjà stockée par l'ingestion
+  await regAudit({ companyId, actorId, dossierId: session.dossierId, action: "UPLOAD_SESSION_FINALIZE", detail: `Envoi DIRECT finalisé « ${session.filename} » (${Math.round(totalBytes / MB)} Mo).` });
   return { ok: true, ingest };
 }
 
