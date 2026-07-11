@@ -3911,6 +3911,85 @@ model RegulatoryFinding {
   @@index([source])
 }
 
+enum RegSourceStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+/// CORPUS RÉGLEMENTAIRE VERSIONNÉ — une source (texte de loi/arrêté/guideline). Remplace
+/// progressivement `anpp-knowledge.ts` (corpus legacy). Une source a plusieurs versions.
+model RegulatorySource {
+  id           String   @id @default(cuid())
+  authority    String // "ANPP" | "EMA" | "ICH" | "FDA"…
+  jurisdiction String // "DZ" | "EU" | "ICH"…
+  code         String // ex. "Arrêté 2021-05-10"
+  title        String
+  language     String   @default("fr")
+  sourceUrl    String? // référence officielle
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  versions RegulatorySourceVersion[]
+
+  @@index([authority])
+  @@index([jurisdiction])
+}
+
+/// Version datée d'une source : texte original + hash, statut (ACTIVE = fait foi), approbation.
+model RegulatorySourceVersion {
+  id            String          @id @default(cuid())
+  sourceId      String
+  version       String
+  publishedAt   DateTime?
+  effectiveAt   DateTime?
+  status        RegSourceStatus @default(DRAFT)
+  hash          String? // sha-256 du texte original
+  originalText  String? // texte intégral (peut être volumineux)
+  supersedesId  String? // version remplacée
+  approvedById  String?
+  approvedAt    DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  source    RegulatorySource          @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  sections  RegulatorySourceSection[]
+  approvals RegulatoryCorpusApproval[]
+
+  @@index([sourceId])
+  @@index([status])
+}
+
+/// Section/article d'une version — unité de découpage pour le RAG + citation exacte.
+model RegulatorySourceSection {
+  id              String   @id @default(cuid())
+  sourceVersionId String
+  path            String // "art. 4" | "annexe I" | "3.2.P.8"…
+  heading         String?
+  text            String
+  ordinal         Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  sourceVersion RegulatorySourceVersion @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
+
+  @@index([sourceVersionId])
+}
+
+/// Traçabilité d'approbation d'une version de corpus (qui a validé/activé/retiré).
+model RegulatoryCorpusApproval {
+  id              String   @id @default(cuid())
+  sourceVersionId String
+  approverId      String
+  decision        String // "APPROVED" | "ACTIVATED" | "RETIRED" | "REJECTED"
+  note            String?
+  createdAt       DateTime @default(now())
+
+  sourceVersion RegulatorySourceVersion @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
+
+  @@index([sourceVersionId])
+}
+
 enum RegFactStatus {
   PROPOSED
   CONFIRMED

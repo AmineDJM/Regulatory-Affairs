@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Settings2, Activity, Columns3, MessageSquare, ShieldCheck, Factory, Bot, Gauge, Workflow, Trash2, HardDrive, Building2 } from "lucide-react";
+import { Settings2, Activity, Columns3, MessageSquare, ShieldCheck, Factory, Bot, Gauge, Workflow, Trash2, HardDrive, Building2, Library } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -71,6 +71,9 @@ export default async function AdminPage() {
             </Link>
             <Link href="/admin/settings">
               <Button variant="outline"><Settings2 className="h-4 w-4" /> Réglages & diffusion</Button>
+            </Link>
+            <Link href="/admin/regulatory-corpus">
+              <Button variant="outline"><Library className="h-4 w-4" /> Corpus réglementaire</Button>
             </Link>
             <Link href="/admin/workflows">
               <Button variant="outline"><Workflow className="h-4 w-4" /> Circuits de validation</Button>
