@@ -130,16 +130,30 @@ async function signedRequest(method: "GET" | "PUT" | "DELETE", key: string, body
   return fetch(`${protocol}//${host}${resourcePath}`, { method, headers, body });
 }
 
+// Extrait le code d'erreur S3/R2 (`<Code>…</Code>`) du corps XML pour un diagnostic précis.
+function s3ErrorCode(body: string): string {
+  const m = /<Code>([^<]+)<\/Code>/.exec(body);
+  return m ? m[1] : "";
+}
+
 /** Écrit un objet (le serveur pousse les octets vers le bucket — ex. blobs chiffrés). */
 export async function putObject(key: string, body: Buffer, contentType = "application/octet-stream"): Promise<void> {
   const res = await signedRequest("PUT", key, body, contentType);
-  if (!res.ok) throw new Error(`Écriture de l'objet échouée (${res.status}).`);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    const code = s3ErrorCode(detail);
+    throw new Error(`Écriture de l'objet échouée (${res.status}${code ? ` ${code}` : ""}).`);
+  }
 }
 
 /** Lit un objet en mémoire (inspection d'archive après PUT direct, ou lecture d'un blob). */
 export async function getObject(key: string): Promise<Buffer> {
   const res = await signedRequest("GET", key);
-  if (!res.ok) throw new Error(`Lecture de l'objet échouée (${res.status}).`);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    const code = s3ErrorCode(detail);
+    throw new Error(`Lecture de l'objet échouée (${res.status}${code ? ` ${code}` : ""}).`);
+  }
   return Buffer.from(await res.arrayBuffer());
 }
 
