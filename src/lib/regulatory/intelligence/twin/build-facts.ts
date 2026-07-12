@@ -7,6 +7,12 @@ import { TEXTUAL_EXTRACTION_STATUSES } from "../extract/extract-text";
 // texte native quand deux documents proposent des valeurs concurrentes pour un même fait.
 const OCR_CONFIDENCE_FACTOR = 0.9;
 
+function clampInt(raw: string | undefined, def: number, min: number, max: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
 /**
  * Construit le JUMEAU NUMÉRIQUE d'une version : extrait les faits sourcés des documents,
  * choisit une valeur canonique proposée par fait, et persiste faits + occurrences. **Préserve
@@ -23,18 +29,34 @@ export async function buildTwinFacts(dossierVersionId: string): Promise<{ facts:
       extractionStatus: { in: TEXTUAL_EXTRACTION_STATUSES },
       securityStatus: { in: ["SAFE", "SUSPICIOUS"] },
     },
-    select: { id: true, ctdSection: true, extraction: { select: { method: true } } },
+    select: { id: true, ctdSection: true, extraction: { select: { method: true, charCount: true } } },
   });
   // Provenance OCR (fiabilité moindre) → pondération à la baisse des occurrences.
   const ocrDocIds = new Set(docMeta.filter((d) => d.extraction?.method === "ocr").map((d) => d.id));
   const sectionById = new Map(docMeta.map((d) => [d.id, d.ctdSection] as const));
 
-  // Extraction des faits PAR LOTS : le texte n'est chargé que pour un lot à la fois (pic mémoire
-  // borné ≈ un lot), et on n'accumule que les « hits » (petits extraits), jamais le texte intégral.
+  // Extraction des faits PAR LOTS BORNÉS EN OCTETS : un document massif (jusqu'à 10 000 pages
+  // océrisées = plusieurs Mo de texte) rendrait un lot à effectif fixe démesuré (plusieurs Go → OOM).
+  // On PACKE les documents jusqu'à un budget mémoire (via charCount déjà connu) : pic ≈ le budget,
+  // quel que soit le nombre/la taille des documents. On n'accumule que les « hits » (petits extraits).
+  const budgetBytes = clampInt(process.env.REG_FACTS_CONTENT_BUDGET_MB, 64, 8, 2048) * 1024 * 1024;
+  const batches: string[][] = [];
+  let cur: string[] = [];
+  let curBytes = 0;
+  for (const d of docMeta) {
+    const bytes = (d.extraction?.charCount ?? 0) * 2 + 512; // ≈ octets JS (UTF-16) + surcoût
+    if (cur.length > 0 && (curBytes + bytes > budgetBytes || cur.length >= 200)) {
+      batches.push(cur);
+      cur = [];
+      curBytes = 0;
+    }
+    cur.push(d.id);
+    curBytes += bytes;
+  }
+  if (cur.length > 0) batches.push(cur);
+
   const hits: DocFactHit[] = [];
-  const FACT_BATCH = 150;
-  for (let i = 0; i < docMeta.length; i += FACT_BATCH) {
-    const ids = docMeta.slice(i, i + FACT_BATCH).map((d) => d.id);
+  for (const ids of batches) {
     const batch = await prisma.regulatoryDocument.findMany({
       where: { id: { in: ids } },
       select: { id: true, extraction: { select: { content: true } } },

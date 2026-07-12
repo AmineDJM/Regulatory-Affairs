@@ -48,9 +48,16 @@ function clampInt(raw: string | undefined, def: number, min: number, max: number
 function ocrBatchSize(): number {
   return ocrIsCloud() ? clampInt(process.env.REG_OCR_BATCH, 24, 1, 200) : OCR_BATCH_LOCAL;
 }
+// Concurrence AU NIVEAU DOCUMENT (défaut 3). Volontairement modérée : un document massif
+// (8 000–10 000 pages) charge un gros blob + le découpe en mémoire, ET fait lui-même du parallélisme
+// PAR TRANCHES en interne. Trop de gros documents en vol simultané = risque OOM. Ajustable selon la RAM.
 function ocrConcurrency(): number {
-  return ocrIsCloud() ? clampInt(process.env.REG_OCR_CONCURRENCY, 6, 1, 20) : 1;
+  return ocrIsCloud() ? clampInt(process.env.REG_OCR_CONCURRENCY, 3, 1, 20) : 1;
 }
+// Plafond du texte extrait persisté (fin de la troncature 1 M) et des pages OCR détaillées stockées
+// (borne la taille de ligne pour un document de 10 000 pages, sans fausser les agrégats).
+const extractionMaxChars = () => clampInt(process.env.REG_EXTRACTION_MAX_CHARS, 20_000_000, 100_000, 200_000_000);
+const ocrStoredPages = () => clampInt(process.env.REG_OCR_STORED_PAGES, 5000, 100, 20_000);
 
 /**
  * Exécute `fn` sur `items` avec au plus `concurrency` traitements EN VOL (pool à curseur partagé).
@@ -280,20 +287,18 @@ async function ocrOne(doc: { id: string; ext: string; blobId: string | null; ori
     }
     const r = await ocrDocument({ ext: doc.ext, buffer });
     const status = r.text.length === 0 ? "MANUAL_REVIEW_REQUIRED" : r.needsReview ? "LOW_CONFIDENCE" : "OCR_COMPLETED";
+    // Texte complet (cap élevé configurable) + détail par page borné (documents de 10 000 pages :
+    // on garde tous les agrégats exacts mais on limite le JSON par-page stocké).
+    const content = r.text.slice(0, extractionMaxChars());
+    const truncated = r.truncated || content.length < r.text.length;
+    const ocrPages = r.pages.slice(0, ocrStoredPages());
+    const data = {
+      method: r.method, lang: r.langs, charCount: content.length, truncated,
+      content, ocrConfidence: r.meanConfidence, pageCount: r.pageCount,
+      ocrPages: ocrPages as unknown as object, needsReview: r.needsReview,
+    };
     await prisma.$transaction([
-      prisma.regulatoryExtraction.upsert({
-        where: { documentId: doc.id },
-        create: {
-          documentId: doc.id, method: r.method, lang: r.langs, charCount: r.text.length, truncated: r.truncated,
-          content: r.text.slice(0, 1_000_000), ocrConfidence: r.meanConfidence, pageCount: r.pageCount,
-          ocrPages: r.pages as unknown as object, needsReview: r.needsReview,
-        },
-        update: {
-          method: r.method, lang: r.langs, charCount: r.text.length, truncated: r.truncated,
-          content: r.text.slice(0, 1_000_000), ocrConfidence: r.meanConfidence, pageCount: r.pageCount,
-          ocrPages: r.pages as unknown as object, needsReview: r.needsReview,
-        },
-      }),
+      prisma.regulatoryExtraction.upsert({ where: { documentId: doc.id }, create: { documentId: doc.id, ...data }, update: data }),
       prisma.regulatoryDocument.update({ where: { id: doc.id }, data: { extractionStatus: status } }),
     ]);
   } catch (err) {

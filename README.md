@@ -914,7 +914,9 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `MAIL_CACHE_FRESH_MS` · `MAIL_CACHE_STALE_MS` | ⬜ | Cache boîte mail : fenêtre « frais » servie sans IMAP (défaut 10000) · repli max sur cache si saturé (défaut 900000). |
 | `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` | ⬜ | Notifications **push** (PWA Web Push). |
 | `MISTRAL_API_KEY` | ⬜ | Active **Mistral OCR** (moteur OCR primaire, cloud, rapide) pour l'analyse CTD. Absent → repli automatique sur l'OCR local tesseract.js (aucune perte). Service tiers **payant à la page**, réseau sortant requis. |
-| `REG_OCR_ENGINE` · `REG_OCR_CONCURRENCY` · `REG_OCR_BATCH` | ⬜ | Moteur OCR (`auto`\|`mistral`\|`tesseract`, défaut `auto`) · parallélisme Mistral (défaut 6, 1-20) · documents par passage (défaut 24). |
+| `REG_OCR_ENGINE` · `REG_OCR_CONCURRENCY` · `REG_OCR_BATCH` | ⬜ | Moteur OCR (`auto`\|`mistral`\|`tesseract`, défaut `auto`) · documents OCR en parallèle (défaut 3, 1-20 ; modéré car un document massif charge un gros blob) · documents par passage (défaut 24). |
+| `REG_OCR_CHUNK_PAGES` · `REG_OCR_CHUNK_CONCURRENCY` | ⬜ | Découpage des PDF massifs : pages par tranche (défaut 400, sous la limite Mistral 1000) · tranches océrisées en parallèle au sein d'un document (défaut 4). |
+| `REG_EXTRACTION_MAX_CHARS` | ⬜ | Plafond du texte extrait/OCR persisté par document (défaut 20 M — ≈ 10 000 pages ; fin de la troncature 1 M). ↑ demande plus de disque base. |
 
 > \* Requis **ensemble** uniquement pour activer l'édition Office. Côté **service OnlyOffice**, poser
 > `JWT_ENABLED=true` et `JWT_SECRET=<même valeur que ONLYOFFICE_JWT_SECRET>`.
@@ -1111,10 +1113,14 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
     **jumeau APPROUVÉ uniquement** (non approuvé → « [À COMPLÉTER] »).
   - **Reviewer Simulator (G11)** : stress test 10 perspectives — **simulation interne NON prédictive**.
   - **OCR RÉEL (G13)** — **deux moteurs, contrat commun** (`REG_OCR_ENGINE` = `auto`|`mistral`|`tesseract`) :
-    1. **PRIMAIRE — Mistral OCR** (`mistral-ocr-latest`, cloud) quand `MISTRAL_API_KEY` est présent : **un seul
-       appel réseau par document** (multi-pages géré côté serveur), rapide et précis. Le runner **parallélise**
-       l'OCR (pool `REG_OCR_CONCURRENCY`≈6, lot `REG_OCR_BATCH`≈24) → dossier de 50-100 fichiers océrisé en
-       **quelques minutes** (au lieu de 1-3 h). Service **tiers payant à la page**, réseau sortant requis.
+    1. **PRIMAIRE — Mistral OCR** (`mistral-ocr-latest`, cloud) quand `MISTRAL_API_KEY` est présent : **un appel
+       réseau par document** (multi-pages géré côté serveur), rapide et précis. Le runner **parallélise** l'OCR
+       (pool document `REG_OCR_CONCURRENCY`, lot `REG_OCR_BATCH`≈24) → dossier de 50-100 fichiers en **quelques
+       minutes** (au lieu de 1-3 h). **Documents MASSIFS (8 000–10 000 pages) : DÉCOUPAGE automatique par tranches**
+       de pages (`REG_OCR_CHUNK_PAGES`≈400, sous les limites Mistral 1000 pages/50 Mo) via mupdf (`ocr/pdf-split.ts`),
+       tranches océrisées **en parallèle** (`REG_OCR_CHUNK_CONCURRENCY`≈4) puis **fusionnées** dans l'ordre. Une
+       tranche qui échoue → pages vides signalées (revue), les autres passent ; toutes en échec → repli Tesseract.
+       Service **tiers payant à la page**, réseau sortant requis.
     2. **REPLI/AUTO-HÉBERGÉ — tesseract.js** + mupdf (rastérisation PDF) + sharp, langue **locale** fr/en/ar
        (hors-ligne, séquentiel). En mode `auto`, tout échec Mistral (réseau/quota) bascule dessus — **jamais de perte**.
     Texte + confiance par page, natif vs OCR séparés, pages vides/faibles → **revue humaine**. Mistral ne score pas

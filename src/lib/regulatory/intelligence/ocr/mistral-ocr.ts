@@ -1,4 +1,5 @@
 import type { OcrResult, OcrPage } from "./ocr-engine";
+import { openPdf, type PdfSource } from "./pdf-split";
 
 /**
  * MOTEUR OCR CLOUD — Mistral OCR (`mistral-ocr-latest`).
@@ -37,12 +38,15 @@ export function mistralOcrConfigured(): boolean {
 }
 
 /**
- * Vrai si le document PEUT physiquement être traité par Mistral OCR : extension supportée ET
- * taille sous la limite du service. Un document hors limites doit passer par l'OCR local (le
- * caller bascule alors sur Tesseract) — inutile de tenter un appel réseau voué à l'échec (413/4xx).
+ * Vrai si le document PEUT être traité par Mistral OCR. Un PDF est TOUJOURS éligible, même
+ * volumineux : on le DÉCOUPE en tranches de pages sous les limites du service (voir mistralOcrDocument).
+ * Une image (non découpable) reste bornée à la taille max — au-delà, OCR local (Tesseract sait réduire).
  */
 export function mistralOcrEligible(ext: string, buffer: Buffer): boolean {
-  return Boolean(MIME_BY_EXT[ext.toLowerCase()]) && buffer.length <= maxBytes();
+  const e = ext.toLowerCase();
+  if (!MIME_BY_EXT[e]) return false;
+  if (e === "pdf") return true; // découpable → aucune limite de taille bloquante
+  return buffer.length <= maxBytes();
 }
 
 function ocrUrl(): string {
@@ -76,6 +80,31 @@ function maxBytes(): number {
 function lowConfidenceThreshold(): number {
   const n = Number(process.env.REG_OCR_MIN_CONFIDENCE ?? 62);
   return Number.isFinite(n) ? n : 62;
+}
+function clampInt(raw: string | undefined, def: number, min: number, max: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+/** Pages par tranche pour le découpage d'un gros PDF (sous la limite Mistral de 1000 pages/appel). */
+function chunkPageSize(): number {
+  return clampInt(process.env.REG_OCR_CHUNK_PAGES, 400, 25, 1000);
+}
+/** Tranches océrisées EN PARALLÈLE au sein d'UN document (borne le pic mémoire des sous-PDF). */
+function chunkConcurrency(): number {
+  return clampInt(process.env.REG_OCR_CHUNK_CONCURRENCY, 4, 1, 16);
+}
+
+/** Pool à concurrence bornée. `fn` peut lever : l'erreur est propagée (le caller décide). */
+async function runPool<T>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length || 1) }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await fn(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -159,27 +188,122 @@ async function postOcr(apiKey: string, body: string): Promise<unknown> {
   throw lastErr instanceof Error ? lastErr : new Error("Mistral OCR : échec après plusieurs tentatives.");
 }
 
+/** UN appel Mistral OCR pour UN buffer (PDF ou image). Sous les limites du service. */
+async function mistralOcrOnce(apiKey: string, ext: string, buffer: Buffer, opts: { langs: string; maxPages: number; model: string }): Promise<OcrResult> {
+  const mime = MIME_BY_EXT[ext];
+  const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+  // PDF → document_url ; image → image_url (le data-URL embarque le contenu, aucun upload séparé).
+  const document = ext === "pdf" ? { type: "document_url", document_url: dataUrl } : { type: "image_url", image_url: dataUrl };
+  const body = JSON.stringify({ model: opts.model, document, include_image_base64: false });
+  const json = await postOcr(apiKey, body);
+  return parseMistralOcr(json, opts);
+}
+
+/** Concatène des résultats de tranches EN ORDRE en renumérotant les pages 1..N (numéro absolu). */
+function mergeChunkResults(parts: OcrResult[], opts: { langs: string; model: string; totalPages: number }): OcrResult {
+  const pages: OcrPage[] = [];
+  for (const part of parts) for (const p of part.pages) pages.push({ ...p, page: pages.length + 1 });
+  const text = pages.map((p) => p.text).join("\n\n").trim();
+  const withText = pages.filter((p) => p.chars > 0);
+  const meanConfidence = withText.length > 0 ? Math.round(withText.reduce((s, p) => s + p.confidence, 0) / withText.length) : 0;
+  const lowConfidencePages = pages.filter((p) => p.lowConfidence).length;
+  const low = lowConfidenceThreshold();
+  return {
+    engine: `mistral/${opts.model}`, langs: opts.langs, method: "ocr", pages, text,
+    meanConfidence, pageCount: opts.totalPages, lowConfidencePages,
+    needsReview: meanConfidence < low || lowConfidencePages > 0 || text.length === 0,
+    truncated: parts.some((p) => p.truncated),
+  };
+}
+
+/** Tranche de pages illisibles → pages VIDES signalées revue humaine (jamais présumées correctes). */
+function blankPages(count: number): OcrResult {
+  const pages: OcrPage[] = Array.from({ length: Math.max(1, count) }, (_, i) => ({ page: i + 1, text: "", confidence: 0, chars: 0, lowConfidence: true }));
+  return { engine: "mistral", langs: "auto", method: "ocr", pages, text: "", meanConfidence: 0, pageCount: count, lowConfidencePages: pages.length, needsReview: true, truncated: false };
+}
+
+/**
+ * Océrise la plage [start, count) d'un gros PDF. Sérialise la tranche ; si le sous-PDF dépasse
+ * la limite de taille, la plage est RE-COUPÉE en deux (adaptatif) jusqu'à passer. Renvoie les
+ * pages de la plage (numérotées localement — renumérotées globalement à la fusion).
+ */
+async function ocrRange(apiKey: string, src: PdfSource, start: number, count: number, opts: { langs: string; model: string }): Promise<OcrResult> {
+  const buf = src.extractRange(start, count);
+  if (buf.length > maxBytes() && count > 1) {
+    const half = Math.floor(count / 2);
+    const a = await ocrRange(apiKey, src, start, half, opts);
+    const b = await ocrRange(apiKey, src, start + half, count - half, opts);
+    return mergeChunkResults([a, b], { ...opts, totalPages: count });
+  }
+  return mistralOcrOnce(apiKey, "pdf", buf, { langs: opts.langs, maxPages: count, model: opts.model });
+}
+
+/**
+ * Découpe un gros PDF en tranches de pages océrisées EN PARALLÈLE, puis fusionne dans l'ordre.
+ * Robuste : une tranche qui échoue après réessais → pages vides (revue humaine), les autres
+ * passent. Si TOUTES échouent (clé/réseau HS) → on lève (le mode auto bascule alors sur Tesseract).
+ */
+async function ocrLargePdf(apiKey: string, src: PdfSource, opts: { langs: string; model: string }): Promise<OcrResult> {
+  const size = chunkPageSize();
+  const plan: Array<{ start: number; count: number }> = [];
+  for (let s = 0; s < src.pageCount; s += size) plan.push({ start: s, count: Math.min(size, src.pageCount - s) });
+
+  const results: OcrResult[] = new Array(plan.length);
+  let ok = 0;
+  let firstErr: unknown;
+  await runPool(plan, chunkConcurrency(), async (range, i) => {
+    try {
+      results[i] = await ocrRange(apiKey, src, range.start, range.count, opts);
+      ok++;
+    } catch (err) {
+      firstErr = firstErr ?? err;
+      results[i] = blankPages(range.count); // tranche illisible → revue, on continue
+      console.error(`[reg-ocr] tranche ${range.start + 1}-${range.start + range.count} échouée :`, err instanceof Error ? err.message : err);
+    }
+  });
+  if (ok === 0) throw firstErr instanceof Error ? firstErr : new Error("Mistral OCR : toutes les tranches ont échoué.");
+  return mergeChunkResults(results, { ...opts, totalPages: src.pageCount });
+}
+
 /**
  * Océrise UN document (PDF ou image) via Mistral OCR. Renvoie un `OcrResult` (contrat commun).
- * Lève si la clé est absente, l'extension non supportée, ou l'API en échec après réessais.
+ * Un PDF au-delà d'une tranche (`REG_OCR_CHUNK_PAGES`, def. 400 pages) OU trop volumineux est
+ * DÉCOUPÉ automatiquement (documents de 8 000–10 000 pages → dizaines de tranches parallèles,
+ * fusionnées). Lève si clé absente, extension non supportée, ou API en échec (toutes tranches).
  */
 export async function mistralOcrDocument(input: { ext: string; buffer: Buffer; langs?: string[]; maxPages?: number }): Promise<OcrResult> {
   const apiKey = (process.env.MISTRAL_API_KEY ?? "").trim();
   if (!apiKey) throw new Error("MISTRAL_API_KEY absente — Mistral OCR indisponible.");
   const ext = input.ext.toLowerCase();
-  const mime = MIME_BY_EXT[ext];
-  if (!mime) throw new Error(`Mistral OCR non supporté pour « ${ext} ».`);
+  if (!MIME_BY_EXT[ext]) throw new Error(`Mistral OCR non supporté pour « ${ext} ».`);
 
   const langs = input.langs && input.langs.length > 0 ? input.langs.join("+") : "auto";
-  const maxPages = input.maxPages ?? defaultMaxPages();
   const model = ocrModel();
-  const dataUrl = `data:${mime};base64,${input.buffer.toString("base64")}`;
-  // PDF → document_url ; image → image_url (le data-URL embarque le contenu, aucun upload séparé).
-  const document = ext === "pdf" ? { type: "document_url", document_url: dataUrl } : { type: "image_url", image_url: dataUrl };
-  const body = JSON.stringify({ model, document, include_image_base64: false });
 
-  const json = await postOcr(apiKey, body);
-  return parseMistralOcr(json, { langs, maxPages, model });
+  if (ext === "pdf") {
+    let src: PdfSource;
+    try {
+      src = await openPdf(input.buffer);
+    } catch (err) {
+      // PDF non ouvrable par mupdf (structure inhabituelle mais parfois acceptée par Mistral) :
+      // on tente un appel unique direct s'il tient sous la limite de taille ; sinon on relaie l'erreur.
+      console.warn("[reg-ocr] découpage PDF impossible → appel unique :", err instanceof Error ? err.message : err);
+      if (input.buffer.length <= maxBytes()) return await mistralOcrOnce(apiKey, "pdf", input.buffer, { langs, maxPages: defaultMaxPages(), model });
+      throw err instanceof Error ? err : new Error("PDF illisible et trop volumineux pour un appel unique.");
+    }
+    try {
+      // Un seul appel si le PDF tient dans une tranche ET sous la limite de taille ; sinon découpage.
+      if (src.pageCount <= chunkPageSize() && input.buffer.length <= maxBytes()) {
+        return await mistralOcrOnce(apiKey, "pdf", input.buffer, { langs, maxPages: src.pageCount || defaultMaxPages(), model });
+      }
+      return await ocrLargePdf(apiKey, src, { langs, model });
+    } finally {
+      src.close();
+    }
+  }
+
+  // Image : un seul appel (non découpable ; la garde d'éligibilité borne déjà la taille en amont).
+  return mistralOcrOnce(apiKey, ext, input.buffer, { langs, maxPages: input.maxPages ?? defaultMaxPages(), model });
 }
 
 export interface MistralOcrDiag {

@@ -14,8 +14,30 @@ const ENV_KEYS = [
   "REG_MISTRAL_OCR_ATTEMPTS",
   "REG_MISTRAL_OCR_BACKOFF_MS",
   "REG_MISTRAL_OCR_MAX_MB",
+  "REG_OCR_CHUNK_PAGES",
+  "REG_OCR_CHUNK_CONCURRENCY",
   "REG_OCR_MIN_CONFIDENCE",
 ] as const;
+
+// PDF minimal à N pages blanches (xref absent → mupdf répare à l'ouverture). Sert à tester le
+// découpage réel sans dépendre d'un fichier binaire ni du rendu (le réseau OCR est mocké).
+function makePdf(pageCount: number): Buffer {
+  const kids = Array.from({ length: pageCount }, (_, i) => `${i + 3} 0 R`).join(" ");
+  const objs = [
+    `1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj`,
+    `2 0 obj << /Type /Pages /Kids [${kids}] /Count ${pageCount} >> endobj`,
+    ...Array.from({ length: pageCount }, (_, i) => `${i + 3} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] >> endobj`),
+  ];
+  return Buffer.from(`%PDF-1.4\n${objs.join("\n")}\ntrailer << /Root 1 0 R >>\n%%EOF\n`, "latin1");
+}
+
+const ONE_PAGE = { pages: [{ index: 0, markdown: "OCR chunk text" }], usage_info: { pages_processed: 1 } };
+
+function mockFetchAlways(json: unknown) {
+  const fn = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => json, text: async () => "" });
+  global.fetch = fn as unknown as typeof fetch;
+  return fn;
+}
 
 let saved: Record<string, string | undefined> = {};
 const realFetch = global.fetch;
@@ -70,13 +92,57 @@ describe("mistralOcrConfigured — gating par clé", () => {
 });
 
 describe("mistralOcrEligible — garde format + taille", () => {
-  it("accepte une image sous la limite, refuse extension inconnue et document trop volumineux", () => {
+  it("PDF toujours éligible (découpable), image bornée à la taille, format inconnu refusé", () => {
     expect(mistralOcrEligible("png", Buffer.from("x"))).toBe(true);
     expect(mistralOcrEligible("pdf", Buffer.from("x"))).toBe(true);
     expect(mistralOcrEligible("zip", Buffer.from("x"))).toBe(false); // format non OCR-isable par Mistral
     process.env.REG_MISTRAL_OCR_MAX_MB = "1"; // plafond 1 Mo pour tester sans allouer 48 Mo
-    expect(mistralOcrEligible("pdf", Buffer.alloc(2 * 1024 * 1024))).toBe(false); // 2 Mo > 1 Mo → hors limites
-    expect(mistralOcrEligible("pdf", Buffer.alloc(512 * 1024))).toBe(true); // 0,5 Mo → OK
+    expect(mistralOcrEligible("pdf", Buffer.alloc(2 * 1024 * 1024))).toBe(true); // gros PDF → DÉCOUPÉ, éligible
+    expect(mistralOcrEligible("png", Buffer.alloc(2 * 1024 * 1024))).toBe(false); // grosse image (non découpable) → OCR local
+    expect(mistralOcrEligible("png", Buffer.alloc(512 * 1024))).toBe(true); // 0,5 Mo → OK
+  });
+});
+
+describe("mistralOcrDocument — découpage des PDF massifs par tranches", () => {
+  it("découpe un PDF au-delà d'une tranche, appelle l'API par tranche, fusionne le total", async () => {
+    process.env.MISTRAL_API_KEY = "sk-test";
+    process.env.REG_OCR_CHUNK_PAGES = "25"; // tranches de 25 pages
+    const fetchMock = mockFetchAlways(ONE_PAGE);
+    const r = await mistralOcrDocument({ ext: "pdf", buffer: makePdf(60) }); // 60 pages → 3 tranches
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(r.pageCount).toBe(60); // total = pages RÉELLES du document source
+    expect(r.method).toBe("ocr");
+  });
+
+  it("renumérote les pages 1..N dans l'ordre des tranches (exécution séquentielle)", async () => {
+    process.env.MISTRAL_API_KEY = "sk-test";
+    process.env.REG_OCR_CHUNK_PAGES = "25";
+    process.env.REG_OCR_CHUNK_CONCURRENCY = "1"; // ordre déterministe pour l'assertion
+    mockFetch(
+      { ok: true, json: { pages: [{ index: 0, markdown: "PREMIERE" }], usage_info: { pages_processed: 1 } } },
+      { ok: true, json: { pages: [{ index: 0, markdown: "DEUXIEME" }], usage_info: { pages_processed: 1 } } },
+      { ok: true, json: { pages: [{ index: 0, markdown: "TROISIEME" }], usage_info: { pages_processed: 1 } } },
+    );
+    const r = await mistralOcrDocument({ ext: "pdf", buffer: makePdf(60) });
+    expect(r.text.indexOf("PREMIERE")).toBeLessThan(r.text.indexOf("DEUXIEME"));
+    expect(r.text.indexOf("DEUXIEME")).toBeLessThan(r.text.indexOf("TROISIEME"));
+    expect(r.pages.map((p) => p.page)).toEqual(r.pages.map((_, i) => i + 1)); // 1..N contigu
+  });
+
+  it("une tranche en échec → pages vides (revue), les autres passent (jamais tout perdre)", async () => {
+    process.env.MISTRAL_API_KEY = "sk-test";
+    process.env.REG_OCR_CHUNK_PAGES = "25";
+    process.env.REG_OCR_CHUNK_CONCURRENCY = "1";
+    const fetchMock = mockFetch(
+      { ok: false, status: 400, text: "bad" }, // tranche 1 KO (non-retryable)
+      { ok: true, json: ONE_PAGE }, // tranche 2 OK
+    );
+    const r = await mistralOcrDocument({ ext: "pdf", buffer: makePdf(50) }); // 2 tranches
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(r.pageCount).toBe(50);
+    expect(r.needsReview).toBe(true); // tranche KO → pages vides signalées
+    expect(r.pages.some((p) => p.chars === 0)).toBe(true);
+    expect(r.text).toContain("OCR chunk text"); // la tranche OK a bien été conservée
   });
 });
 
