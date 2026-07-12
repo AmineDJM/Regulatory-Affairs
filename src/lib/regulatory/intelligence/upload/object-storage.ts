@@ -22,18 +22,21 @@ interface S3Config {
 }
 
 function config(): S3Config | null {
-  const endpoint = process.env.REG_S3_ENDPOINT;
-  const bucket = process.env.REG_S3_BUCKET;
-  const accessKeyId = process.env.REG_S3_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.REG_S3_SECRET_ACCESS_KEY;
+  // `.trim()` défensif : un secret/clé collé dans Render avec un espace ou un retour-ligne
+  // parasite corromprait silencieusement la clé HMAC → « SignatureDoesNotMatch ». Les clés
+  // S3/R2 ne contiennent jamais d'espace en bordure, ce nettoyage est donc toujours sûr.
+  const endpoint = process.env.REG_S3_ENDPOINT?.trim();
+  const bucket = process.env.REG_S3_BUCKET?.trim();
+  const accessKeyId = process.env.REG_S3_ACCESS_KEY_ID?.trim();
+  const secretAccessKey = process.env.REG_S3_SECRET_ACCESS_KEY?.trim();
   if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) return null;
   return {
     endpoint: endpoint.replace(/\/+$/, ""),
-    region: process.env.REG_S3_REGION || "auto",
+    region: (process.env.REG_S3_REGION || "auto").trim(),
     bucket,
     accessKeyId,
     secretAccessKey,
-    pathStyle: (process.env.REG_S3_FORCE_PATH_STYLE ?? "1") !== "0",
+    pathStyle: (process.env.REG_S3_FORCE_PATH_STYLE ?? "1").trim() !== "0",
   };
 }
 
