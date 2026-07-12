@@ -1118,7 +1118,10 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
     2. **REPLI/AUTO-HÉBERGÉ — tesseract.js** + mupdf (rastérisation PDF) + sharp, langue **locale** fr/en/ar
        (hors-ligne, séquentiel). En mode `auto`, tout échec Mistral (réseau/quota) bascule dessus — **jamais de perte**.
     Texte + confiance par page, natif vs OCR séparés, pages vides/faibles → **revue humaine**. Mistral ne score pas
-    la confiance → page non vide présumée fiable (95), page vide → 0/revue. Code : `ocr/{ocr-engine,mistral-ocr}.ts`.
+    la confiance → page non vide présumée fiable (95), page vide → 0/revue. **Garde de taille** : un document >~48 Mo
+    (`REG_MISTRAL_OCR_MAX_MB`) part directement en OCR local (Mistral le refuserait — pas d'appel payant inutile).
+    **Diagnostic en ligne** (droit d'upload) : `GET /api/regulatory/intelligence/ocr/diagnose` confirme le moteur
+    actif + PING réel de la clé Mistral avant un gros upload. Code : `ocr/{ocr-engine,mistral-ocr}.ts`.
   - **Upload résumable (G14)** : session + parties (chemin d'upload borné à **une partie** en RAM), reprise,
     vérif taille + **SHA-256**, finalisation explicite (assemblage en flux), quotas org, concurrence, nettoyage.
     Charge mesurée (RSS) : 50/150/300 Mo — pic UPLOAD ≈ une partie ; pic FINALISATION croît avec la taille.

@@ -36,6 +36,15 @@ export function mistralOcrConfigured(): boolean {
   return Boolean((process.env.MISTRAL_API_KEY ?? "").trim());
 }
 
+/**
+ * Vrai si le document PEUT physiquement être traité par Mistral OCR : extension supportée ET
+ * taille sous la limite du service. Un document hors limites doit passer par l'OCR local (le
+ * caller bascule alors sur Tesseract) — inutile de tenter un appel réseau voué à l'échec (413/4xx).
+ */
+export function mistralOcrEligible(ext: string, buffer: Buffer): boolean {
+  return Boolean(MIME_BY_EXT[ext.toLowerCase()]) && buffer.length <= maxBytes();
+}
+
 function ocrUrl(): string {
   return (process.env.REG_MISTRAL_OCR_URL ?? "").trim() || DEFAULT_URL;
 }
@@ -58,6 +67,11 @@ function backoffMs(attempt: number): number {
 function defaultMaxPages(): number {
   const n = Number(process.env.REG_MISTRAL_OCR_MAX_PAGES ?? 1000);
   return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1000;
+}
+/** Plafond de taille par document (Mistral OCR ≈ 50 Mo max) — marge de sécurité par défaut à 48 Mo. */
+function maxBytes(): number {
+  const mb = Number(process.env.REG_MISTRAL_OCR_MAX_MB ?? 48);
+  return Math.floor((Number.isFinite(mb) && mb > 0 ? mb : 48) * 1024 * 1024);
 }
 function lowConfidenceThreshold(): number {
   const n = Number(process.env.REG_OCR_MIN_CONFIDENCE ?? 62);
@@ -166,4 +180,32 @@ export async function mistralOcrDocument(input: { ext: string; buffer: Buffer; l
 
   const json = await postOcr(apiKey, body);
   return parseMistralOcr(json, { langs, maxPages, model });
+}
+
+export interface MistralOcrDiag {
+  engine: string;
+  configured: boolean;
+  ok: boolean;
+  pagesProcessed?: number;
+  sample?: string;
+  error?: string;
+}
+
+/**
+ * PING de diagnostic : génère une petite image et l'envoie à Mistral OCR pour PROUVER, en ligne,
+ * que la clé et le réseau sortant fonctionnent AVANT un gros upload. Image raster simple (aucune
+ * dépendance police/SVG) : le but est de valider clé + réseau + réponse, pas la reconnaissance.
+ * Ne lève jamais — renvoie l'erreur classifiée le cas échéant.
+ */
+export async function mistralOcrSelfTest(): Promise<MistralOcrDiag> {
+  const engine = `mistral/${ocrModel()}`;
+  if (!mistralOcrConfigured()) return { engine, configured: false, ok: false, error: "MISTRAL_API_KEY absente." };
+  try {
+    const sharp = (await import("sharp")).default;
+    const png = await sharp({ create: { width: 320, height: 120, channels: 3, background: { r: 255, g: 255, b: 255 } } }).png().toBuffer();
+    const r = await mistralOcrDocument({ ext: "png", buffer: png });
+    return { engine, configured: true, ok: true, pagesProcessed: r.pageCount, sample: r.text.slice(0, 120) };
+  } catch (err) {
+    return { engine, configured: true, ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mistralOcrConfigured, parseMistralOcr, mistralOcrDocument } from "./mistral-ocr";
+import { mistralOcrConfigured, mistralOcrEligible, parseMistralOcr, mistralOcrDocument, mistralOcrSelfTest } from "./mistral-ocr";
 
 /**
  * Tests UNITAIRES du client Mistral OCR (aucun réseau, aucune base) : `fetch` est mocké.
@@ -13,6 +13,7 @@ const ENV_KEYS = [
   "REG_MISTRAL_OCR_MODEL",
   "REG_MISTRAL_OCR_ATTEMPTS",
   "REG_MISTRAL_OCR_BACKOFF_MS",
+  "REG_MISTRAL_OCR_MAX_MB",
   "REG_OCR_MIN_CONFIDENCE",
 ] as const;
 
@@ -65,6 +66,35 @@ describe("mistralOcrConfigured — gating par clé", () => {
     expect(mistralOcrConfigured()).toBe(false); // espaces seuls → non configuré
     process.env.MISTRAL_API_KEY = "sk-abc";
     expect(mistralOcrConfigured()).toBe(true);
+  });
+});
+
+describe("mistralOcrEligible — garde format + taille", () => {
+  it("accepte une image sous la limite, refuse extension inconnue et document trop volumineux", () => {
+    expect(mistralOcrEligible("png", Buffer.from("x"))).toBe(true);
+    expect(mistralOcrEligible("pdf", Buffer.from("x"))).toBe(true);
+    expect(mistralOcrEligible("zip", Buffer.from("x"))).toBe(false); // format non OCR-isable par Mistral
+    process.env.REG_MISTRAL_OCR_MAX_MB = "1"; // plafond 1 Mo pour tester sans allouer 48 Mo
+    expect(mistralOcrEligible("pdf", Buffer.alloc(2 * 1024 * 1024))).toBe(false); // 2 Mo > 1 Mo → hors limites
+    expect(mistralOcrEligible("pdf", Buffer.alloc(512 * 1024))).toBe(true); // 0,5 Mo → OK
+  });
+});
+
+describe("mistralOcrSelfTest — ping de diagnostic", () => {
+  it("sans clé → non configuré (jamais d'exception)", async () => {
+    delete process.env.MISTRAL_API_KEY;
+    const d = await mistralOcrSelfTest();
+    expect(d.configured).toBe(false);
+    expect(d.ok).toBe(false);
+  });
+
+  it("avec clé + API OK → ping réussi", async () => {
+    process.env.MISTRAL_API_KEY = "sk-test";
+    mockFetch({ ok: true, json: SAMPLE });
+    const d = await mistralOcrSelfTest();
+    expect(d.configured).toBe(true);
+    expect(d.ok).toBe(true);
+    expect(d.pagesProcessed).toBe(2);
   });
 });
 

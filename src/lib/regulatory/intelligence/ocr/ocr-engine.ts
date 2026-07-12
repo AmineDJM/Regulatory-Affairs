@@ -1,5 +1,5 @@
 import { ensureLangData, ocrCacheDir, defaultOcrLangs } from "./lang-data";
-import { mistralOcrConfigured, mistralOcrDocument } from "./mistral-ocr";
+import { mistralOcrConfigured, mistralOcrDocument, mistralOcrEligible } from "./mistral-ocr";
 
 /**
  * MOTEUR OCR (G13) — deux moteurs, contrat commun (`OcrResult`) :
@@ -109,13 +109,18 @@ export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: 
   if (!canOcr(ext)) throw new Error(`OCR non supporté pour « ${ext} ».`);
 
   const engine = (process.env.REG_OCR_ENGINE ?? "auto").trim().toLowerCase();
-  if (engine !== "tesseract" && mistralOcrConfigured()) {
+  const mistralUsable = engine !== "tesseract" && mistralOcrConfigured();
+  if (mistralUsable && mistralOcrEligible(ext, input.buffer)) {
     try {
       return await mistralOcrDocument(input);
     } catch (err) {
       if (engine === "mistral") throw err; // moteur forcé → pas de repli silencieux
       console.error("[reg-ocr] Mistral OCR indisponible → repli Tesseract :", err instanceof Error ? err.message : err);
     }
+  } else if (mistralUsable) {
+    // Document hors limites Mistral (taille) → OCR local direct : Mistral le refuserait de toute
+    // façon, inutile de dépenser un appel réseau voué à l'échec. Aucune perte (Tesseract prend le relais).
+    console.warn(`[reg-ocr] document hors limites Mistral (${(input.buffer.length / 1048576).toFixed(1)} Mo) → OCR local Tesseract.`);
   }
   return ocrWithTesseract(input, ext);
 }
