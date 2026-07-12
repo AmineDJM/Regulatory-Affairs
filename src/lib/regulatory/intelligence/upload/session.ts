@@ -34,6 +34,10 @@ export const MAX_ACTIVE_SESSIONS_PER_ORG = Number(process.env.REG_UPLOAD_MAX_ACT
 export const UPLOAD_CONCURRENCY = Math.min(Math.max(Number(process.env.REG_UPLOAD_CONCURRENCY ?? 3), 1), 16);
 export const ORG_QUOTA_BYTES = Number(process.env.REG_ORG_QUOTA_GB ?? 50) * 1024 * MB;
 const STALE_SESSION_MS = Number(process.env.REG_UPLOAD_STALE_HOURS ?? 12) * 3600_000;
+// Bail de finalisation : une session FINALIZING inactive depuis plus longtemps que ce délai est
+// considérée COMME CRASHÉE (OOM/redémarrage), et une nouvelle tentative peut la reprendre. Plus
+// long que la durée d'une finalisation normale → évite de doubler une finalisation encore en cours.
+const FINALIZE_LEASE_MS = Number(process.env.REG_UPLOAD_FINALIZE_LEASE_MIN ?? 10) * 60_000;
 
 export interface StartResult { ok: boolean; error?: string; sessionId?: string; partSize?: number; expectedParts?: number; receivedIndices?: number[]; resumed?: boolean }
 export interface PartResult { ok: boolean; error?: string; receivedBytes?: number; storedParts?: number }
@@ -41,7 +45,7 @@ export interface StatusResult {
   ok: boolean; error?: string; status?: string; totalBytes?: number; receivedBytes?: number;
   expectedParts?: number; receivedIndices?: number[]; complete?: boolean;
 }
-export interface FinalizeResult { ok: boolean; error?: string; ingest?: IngestResult }
+export interface FinalizeResult { ok: boolean; error?: string; ingest?: IngestResult; retryable?: boolean }
 
 const looksZip = (name: string) => /\.zip$/i.test(name);
 export const expectedPartsFor = (totalBytes: number, partSize: number) => Math.max(1, Math.ceil(totalBytes / partSize));
@@ -192,64 +196,138 @@ export async function uploadSessionStatus(sessionId: string, companyId: string):
   };
 }
 
-/** Finalise : vérifie taille + SHA-256, assemble, PUIS ingère (inspection après finalisation). */
-export async function finalizeUploadSession(sessionId: string, companyId: string, actorId: string): Promise<FinalizeResult> {
-  const session = await prisma.regulatoryUploadSession.findFirst({
-    where: { id: sessionId, companyId }, select: { id: true, status: true, dossierId: true, filename: true, totalBytes: true, partSize: true, expectedSha256: true },
+/** Reconstruit un résultat de SUCCÈS depuis une version déjà ingérée (rejeu idempotent). */
+async function finalizeResultFromVersion(versionId: string | null): Promise<FinalizeResult> {
+  if (!versionId) return { ok: true }; // finalisée mais version inconnue (cas limite) — succès quand même
+  const v = await prisma.regulatoryDossierVersion.findUnique({
+    where: { id: versionId }, select: { id: true, versionNo: true, fileCount: true, totalBytes: true },
   });
-  if (!session) return { ok: false, error: "Session introuvable." };
-  if (session.status === "COMPLETED") return { ok: false, error: "Session déjà finalisée." };
-  if (session.status !== "UPLOADING") return { ok: false, error: `Session non finalisable (${session.status}).` };
-  if (!session.dossierId) return { ok: false, error: "Dossier manquant." };
+  if (!v) return { ok: true };
+  const docs = await prisma.regulatoryDocument.findMany({ where: { dossierVersionId: v.id }, select: { securityStatus: true } });
+  const summary = {
+    total: v.fileCount,
+    stored: docs.filter((d) => d.securityStatus === "SAFE").length,
+    blocked: docs.filter((d) => d.securityStatus.startsWith("BLOCKED") || d.securityStatus === "CORRUPTED").length,
+    suspicious: docs.filter((d) => d.securityStatus === "SUSPICIOUS").length,
+    totalBytes: v.totalBytes,
+  };
+  return { ok: true, ingest: { ok: true, versionId: v.id, versionNo: v.versionNo, summary } };
+}
 
+/** Réouvre une session FINALIZING vers UPLOADING (récupérable → reprise) sans jamais lever. */
+async function reopenFinalizing(sessionId: string, error: string): Promise<void> {
+  await prisma.regulatoryUploadSession
+    .updateMany({ where: { id: sessionId, status: "FINALIZING" }, data: { status: "UPLOADING", error } })
+    .catch(() => undefined);
+}
+
+/**
+ * Finalise : vérifie taille + SHA-256, assemble, PUIS ingère (inspection après finalisation).
+ *
+ * ROBUSTESSE (toutes causes d'échec) :
+ *  - IDEMPOTENT : une session déjà COMPLETED renvoie un SUCCÈS avec la version existante — une
+ *    réponse perdue après un succès (proxy 502, coupure) ne doit JAMAIS paraître comme un échec ;
+ *  - BAIL atomique : réclame UPLOADING → FINALIZING ; une FINALIZING PÉRIMÉE (finalisation crashée
+ *    par OOM/redémarrage) est reprise ; une FINALIZING FRAÎCHE renvoie « en cours » (réessayable) →
+ *    pas de double ingestion ;
+ *  - JAMAIS COINCÉE : toute erreur inattendue (mémoire/DB) réouvre la session en UPLOADING (reprise
+ *    possible) au lieu de la laisser bloquée en FINALIZING ;
+ *  - erreurs de DONNÉES (taille/SHA/ingestion refusée) → ABORTED (le renvoi des mêmes octets serait
+ *    vain), erreurs TRANSITOIRES → réouverture/reprise.
+ */
+export async function finalizeUploadSession(sessionId: string, companyId: string, actorId: string): Promise<FinalizeResult> {
+  const pre = await prisma.regulatoryUploadSession.findFirst({ where: { id: sessionId, companyId }, select: { status: true, versionId: true } });
+  if (!pre) return { ok: false, error: "Session introuvable." };
+  if (pre.status === "COMPLETED") return finalizeResultFromVersion(pre.versionId); // rejeu idempotent
+
+  // BAIL : passe UPLOADING → FINALIZING, OU reprend une FINALIZING périmée (crash). Atomique →
+  // deux finalisations concurrentes ne peuvent pas réclamer la même session en même temps.
+  const claim = await prisma.regulatoryUploadSession.updateMany({
+    where: {
+      id: sessionId, companyId,
+      OR: [{ status: "UPLOADING" }, { status: "FINALIZING", updatedAt: { lt: new Date(Date.now() - FINALIZE_LEASE_MS) } }],
+    },
+    data: { status: "FINALIZING", error: null },
+  });
+  if (claim.count === 0) {
+    const s = await prisma.regulatoryUploadSession.findFirst({ where: { id: sessionId, companyId }, select: { status: true, versionId: true } });
+    if (!s) return { ok: false, error: "Session introuvable." };
+    if (s.status === "COMPLETED") return finalizeResultFromVersion(s.versionId);
+    if (s.status === "FINALIZING") return { ok: false, retryable: true, error: "Finalisation déjà en cours — patientez quelques secondes puis réessayez." };
+    return { ok: false, error: `Session non finalisable (${s.status}).` };
+  }
+
+  // On détient le bail (status = FINALIZING). Métadonnées de la session.
+  const session = await prisma.regulatoryUploadSession.findFirst({
+    where: { id: sessionId, companyId }, select: { id: true, dossierId: true, filename: true, totalBytes: true, partSize: true, expectedSha256: true },
+  });
+  if (!session || !session.dossierId) {
+    await reopenFinalizing(sessionId, "Dossier manquant.");
+    return { ok: false, error: "Dossier manquant." };
+  }
+  const dossierId = session.dossierId;
   const totalBytes = Number(session.totalBytes);
   const expectedParts = expectedPartsFor(totalBytes, session.partSize);
-  // Métadonnées SEULEMENT (pas les octets) pour vérifier contiguïté/complétude sans charger le fichier.
-  const meta = await prisma.regulatoryUploadPart.findMany({ where: { sessionId: session.id }, orderBy: { index: "asc" }, select: { index: true, size: true } });
 
   const abort = async (error: string): Promise<FinalizeResult> => {
-    await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "ABORTED", error } });
-    await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: session.id } });
+    await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "ABORTED", error } }).catch(() => undefined);
+    await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: session.id } }).catch(() => undefined);
     return { ok: false, error };
   };
 
-  // Contiguïté + complétude AVANT d'assembler (aucune inspection tant que non finalisé).
-  if (meta.length !== expectedParts) return { ok: false, error: `Parties manquantes (${meta.length}/${expectedParts}).` };
-  for (let i = 0; i < expectedParts; i++) if (meta[i].index !== i) return { ok: false, error: `Partie ${i} manquante.` };
-  const sumBytes = meta.reduce((s, p) => s + p.size, 0);
-  if (sumBytes !== totalBytes) return abort(`Taille reçue incohérente (${sumBytes} ≠ ${totalBytes}).`);
+  try {
+    // Métadonnées SEULEMENT (pas les octets) pour vérifier contiguïté/complétude. Des parties
+    // manquantes sont RÉCUPÉRABLES → on réouvre pour laisser la reprise les renvoyer.
+    const meta = await prisma.regulatoryUploadPart.findMany({ where: { sessionId: session.id }, orderBy: { index: "asc" }, select: { index: true, size: true } });
+    if (meta.length !== expectedParts) {
+      await reopenFinalizing(session.id, `Parties manquantes (${meta.length}/${expectedParts}).`);
+      return { ok: false, error: `Parties manquantes (${meta.length}/${expectedParts}) — relancez pour reprendre.` };
+    }
+    for (let i = 0; i < expectedParts; i++) if (meta[i].index !== i) {
+      await reopenFinalizing(session.id, `Partie ${i} manquante.`);
+      return { ok: false, error: `Partie ${i + 1} manquante — relancez pour reprendre.` };
+    }
+    const sumBytes = meta.reduce((s, p) => s + p.size, 0);
+    if (sumBytes !== totalBytes) return abort(`Taille reçue incohérente (${sumBytes} ≠ ${totalBytes}).`);
 
-  await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "FINALIZING" } });
+    // Assemblage frugal (UNE partie à la fois) vers un buffer pré-alloué + SHA-256 au passage.
+    const buffer = Buffer.allocUnsafe(totalBytes);
+    const hash = createHash("sha256");
+    let offset = 0;
+    for (let i = 0; i < expectedParts; i++) {
+      const part = await prisma.regulatoryUploadPart.findUnique({ where: { sessionId_index: { sessionId: session.id, index: i } }, select: { data: true } });
+      if (!part) {
+        await reopenFinalizing(session.id, `Partie ${i} introuvable.`);
+        return { ok: false, error: `Partie ${i + 1} introuvable — relancez pour reprendre.` };
+      }
+      const b = Buffer.from(part.data);
+      b.copy(buffer, offset);
+      hash.update(b);
+      offset += b.length;
+    }
+    if (offset !== totalBytes) return abort(`Assemblage incohérent (${offset} ≠ ${totalBytes}).`);
+    const sha = hash.digest("hex");
+    if (session.expectedSha256 && session.expectedSha256.toLowerCase() !== sha.toLowerCase()) {
+      return abort(`Empreinte SHA-256 non concordante (fichier corrompu en transit).`);
+    }
 
-  // Assemblage en FLUX vers un buffer pré-alloué : on lit UNE partie à la fois (pic ≈ taille du
-  // fichier + une partie, au lieu de 2× avec un concat), et on calcule le SHA-256 au passage.
-  const buffer = Buffer.allocUnsafe(totalBytes);
-  const hash = createHash("sha256");
-  let offset = 0;
-  for (let i = 0; i < expectedParts; i++) {
-    const part = await prisma.regulatoryUploadPart.findUnique({ where: { sessionId_index: { sessionId: session.id, index: i } }, select: { data: true } });
-    if (!part) return abort(`Partie ${i} introuvable à l'assemblage.`);
-    const b = Buffer.from(part.data);
-    b.copy(buffer, offset);
-    hash.update(b);
-    offset += b.length;
+    const ingest = await ingestDossierZip({ companyId, dossierId, actorId, filename: session.filename, buffer });
+    if (!ingest.ok) {
+      await abort(ingest.error ?? "Ingestion refusée.");
+      return { ok: false, error: ingest.error, ingest };
+    }
+
+    await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "COMPLETED", blobId: null, versionId: ingest.versionId ?? null, receivedBytes: BigInt(totalBytes) } });
+    await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: session.id } }); // nettoyage des parties
+    await regAudit({ companyId, actorId, dossierId, action: "UPLOAD_SESSION_FINALIZE", detail: `Upload finalisé « ${session.filename} » (${Math.round(totalBytes / MB)} Mo, SHA-256 vérifié).` });
+    return { ok: true, ingest };
+  } catch (err) {
+    // Erreur INATTENDUE (mémoire/DB transitoire) → JAMAIS coincer la session : réouvrir en UPLOADING
+    // (reprise possible côté client). Réessayable : le client relance la finalisation.
+    console.error("[reg-upload] finalize — erreur inattendue", { sessionId, message: err instanceof Error ? err.message : String(err) });
+    await reopenFinalizing(session.id, "Finalisation interrompue (serveur) — relancez pour reprendre.");
+    return { ok: false, retryable: true, error: "Finalisation interrompue côté serveur — relancez le même fichier pour reprendre." };
   }
-  if (offset !== totalBytes) return abort(`Assemblage incohérent (${offset} ≠ ${totalBytes}).`);
-  const sha = hash.digest("hex");
-  if (session.expectedSha256 && session.expectedSha256.toLowerCase() !== sha.toLowerCase()) {
-    return abort(`Empreinte SHA-256 non concordante (fichier corrompu en transit).`);
-  }
-
-  const ingest = await ingestDossierZip({ companyId, dossierId: session.dossierId, actorId, filename: session.filename, buffer });
-  if (!ingest.ok) {
-    await abort(ingest.error ?? "Ingestion refusée.");
-    return { ok: false, error: ingest.error, ingest };
-  }
-
-  await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "COMPLETED", blobId: null, versionId: ingest.versionId ?? null, receivedBytes: BigInt(totalBytes) } });
-  await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: session.id } }); // nettoyage des parties
-  await regAudit({ companyId, actorId, dossierId: session.dossierId, action: "UPLOAD_SESSION_FINALIZE", detail: `Upload finalisé « ${session.filename} » (${Math.round(totalBytes / MB)} Mo, SHA-256 vérifié).` });
-  return { ok: true, ingest };
 }
 
 // ─────────────────────────── UPLOAD DIRECT S3/R2 (chantier 1) ───────────────────────────
@@ -321,10 +399,10 @@ export async function startDirectUploadSession(opts: {
  */
 export async function finalizeDirectUploadSession(sessionId: string, companyId: string, actorId: string): Promise<FinalizeResult> {
   const session = await prisma.regulatoryUploadSession.findFirst({
-    where: { id: sessionId, companyId }, select: { id: true, status: true, dossierId: true, filename: true, totalBytes: true, storageKey: true, expectedSha256: true },
+    where: { id: sessionId, companyId }, select: { id: true, status: true, dossierId: true, filename: true, totalBytes: true, storageKey: true, expectedSha256: true, versionId: true },
   });
   if (!session) return { ok: false, error: "Session introuvable." };
-  if (session.status === "COMPLETED") return { ok: false, error: "Session déjà finalisée." };
+  if (session.status === "COMPLETED") return finalizeResultFromVersion(session.versionId); // rejeu idempotent
   if (session.status !== "UPLOADING") return { ok: false, error: `Session non finalisable (${session.status}).` };
   if (!session.dossierId) return { ok: false, error: "Dossier manquant." };
   if (!session.storageKey) return { ok: false, error: "Session non directe." };

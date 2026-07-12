@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { UploadCloud, Loader2, CheckCircle2, AlertCircle, FileArchive, ShieldCheck, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { isRetryableHttpStatus, backoffMs } from "@/lib/regulatory/intelligence/upload/retry";
 
 interface Summary { total: number; stored: number; blocked: number; suspicious: number; totalBytes: number }
 type Phase = "idle" | "uploading" | "processing" | "done" | "error";
@@ -40,19 +41,59 @@ function putPartXhr(url: string, body: ArrayBuffer | Blob, onLoaded: (loaded: nu
  * que la requête a été coupée (finalisation d'un gros dossier → délai/RAM de l'instance dépassés).
  * On renvoie alors une erreur explicite plutôt qu'un message cryptique.
  */
-async function readJsonSafe<T extends { ok?: boolean; error?: string }>(res: Response): Promise<T> {
+async function readJsonSafe<T extends { ok?: boolean; error?: string; retryable?: boolean }>(res: Response): Promise<T> {
   const text = await res.text().catch(() => "");
   if (!text) {
+    // Corps VIDE = requête coupée (proxy 502, délai/mémoire d'instance) → TRANSITOIRE (réessayable).
     const msg = res.ok
-      ? "Le serveur n'a pas répondu à la finalisation (dossier volumineux : délai ou mémoire de l'instance dépassés). Augmentez la RAM de l'instance, puis relancez le même fichier."
-      : `Serveur indisponible pendant la finalisation (code ${res.status}). Réessayez.`;
-    return { ok: false, error: msg } as T;
+      ? "Réponse vide du serveur (dossier volumineux : délai ou mémoire de l'instance) — nouvelle tentative…"
+      : `Serveur momentanément indisponible (code ${res.status}) — nouvelle tentative…`;
+    return { ok: false, error: msg, retryable: true } as T;
   }
   try {
     return JSON.parse(text) as T;
   } catch {
-    return { ok: false, error: `Réponse serveur illisible (code ${res.status}).` } as T;
+    // Corps NON-JSON (page d'erreur HTML du proxy) → transitoire aussi.
+    return { ok: false, error: `Réponse serveur illisible (code ${res.status}).`, retryable: true } as T;
   }
+}
+
+/**
+ * POST avec RETENTE robuste (finalisation) : réessaie sur échec TRANSITOIRE — réseau coupé, délai
+ * dépassé, 5xx du proxy, corps vide/illisible, ou `retryable` renvoyé par le serveur — avec backoff
+ * exponentiel. Une erreur MÉTIER (4xx : quota/type/SHA) est remontée immédiatement, sans retente.
+ * Délai de garde long par tentative (la finalisation d'un gros dossier peut être longue).
+ */
+async function postJsonWithRetry<T extends { ok?: boolean; error?: string; retryable?: boolean }>(
+  url: string, opts: { attempts?: number; timeoutMs?: number; onRetry?: (attempt: number, wait: number) => void } = {},
+): Promise<T> {
+  const attempts = opts.attempts ?? 6;
+  let lastErr = "Échec réseau";
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 300_000);
+    let res: Response | null = null;
+    try {
+      res = await fetch(url, { method: "POST", signal: ctrl.signal });
+    } catch {
+      lastErr = "réseau"; // coupure/annulation/délai → réessayable
+    } finally {
+      clearTimeout(timer);
+    }
+    if (res) {
+      const data = await readJsonSafe<T>(res);
+      if (res.ok && (data.ok ?? true)) return data; // succès
+      const retryable = isRetryableHttpStatus(res.status) || data.retryable === true;
+      if (!retryable) return data; // erreur DÉFINITIVE (métier) → on remonte telle quelle
+      lastErr = data.error ?? `code ${res.status}`;
+    }
+    if (attempt < attempts - 1) {
+      const wait = backoffMs(attempt);
+      opts.onRetry?.(attempt, wait);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  return { ok: false, error: `${lastErr} (après ${attempts} tentatives)` } as T;
 }
 
 /**
@@ -131,9 +172,8 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
         if (!ok) throw new Error(`Envoi direct au bucket échoué (${lastErr}) — vérifiez la règle CORS du bucket (origine exacte de l'app + méthode PUT) et l'endpoint R2.`);
         setProgress(100);
         setPhase("processing");
-        const fin = await fetch(`/api/regulatory/intelligence/upload/direct/${meta.sessionId}/finalize`, { method: "POST" });
-        const data = await readJsonSafe<{ ok?: boolean; error?: string; summary?: Summary }>(fin);
-        if (!fin.ok || !data.ok) throw new Error(data.error ?? "Finalisation refusée.");
+        const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: Summary }>(`/api/regulatory/intelligence/upload/direct/${meta.sessionId}/finalize`);
+        if (!data.ok) throw new Error(data.error ?? "Finalisation refusée.");
         setPhase("done"); setSummary(data.summary ?? null);
         fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
         router.refresh();
@@ -205,9 +245,10 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
       setProgress(100);
 
       setPhase("processing");
-      const fin = await fetch(`/api/regulatory/intelligence/upload/session/${sessionId}/finalize`, { method: "POST" });
-      const data = await readJsonSafe<{ ok?: boolean; error?: string; summary?: Summary }>(fin);
-      if (!fin.ok || !data.ok) throw new Error(data.error ?? "Finalisation refusée.");
+      // Finalisation avec RETENTE : survit à un 502/coupure/redémarrage passager. Idempotente côté
+      // serveur (une session déjà finalisée renvoie un succès) → jamais de faux échec après un succès.
+      const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: Summary }>(`/api/regulatory/intelligence/upload/session/${sessionId}/finalize`);
+      if (!data.ok) throw new Error(data.error ?? "Finalisation refusée.");
       setPhase("done"); setSummary(data.summary ?? null);
       fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
       router.refresh();
