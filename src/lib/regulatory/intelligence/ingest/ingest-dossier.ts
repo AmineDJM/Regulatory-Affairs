@@ -172,46 +172,58 @@ async function ingestCore(
       .filter((e) => isStorable(e.securityStatus))
       .reduce((s, e) => s + e.sizeBytes, 0);
 
-    const versionId = await prisma.$transaction(async (tx) => {
-      const version = await tx.regulatoryDossierVersion.create({
-        data: {
-          dossierId, versionNo, label: opts.label ?? null,
-          originalZipBlobId: originalBlobId, originalSha256: originalSha256 || null,
-          fileCount: inspection.entries.length,
-          totalBytes: clampInt(storableBytes),
-          createdById: actorId,
-        },
-        select: { id: true },
-      });
-
-      await tx.regulatoryDocument.createMany({
-        data: inspection.entries.map((e) => {
-          const storable = isStorable(e.securityStatus);
-          const extraction: RegDocExtractionStatus = storable ? "PENDING" : "UNSUPPORTED";
-          return {
-            dossierVersionId: version.id,
-            kind: "ORIGINAL" as const,
-            originalPath: e.path,
-            originalFilename: e.filename,
-            ext: e.ext,
-            sizeBytes: clampInt(e.sizeBytes),
-            sha256: e.sha256 || "",
-            compressionRatio: e.compressionRatio ?? null,
-            securityStatus: SECURITY_MAP[e.securityStatus],
-            extractionStatus: extraction,
-            blobId: blobByPath.get(e.path) ?? null,
-          };
-        }),
-      });
-
-      // 5) Job EXTRACT (Node-first) — le runner le traitera en arrière-plan.
-      await tx.regulatoryJob.create({
-        data: { companyId, dossierId, dossierVersionId: version.id, type: "EXTRACT", status: "QUEUED", payload: { filename } },
-      });
-
-      await tx.regulatoryDossier.update({ where: { id: dossierId }, data: { status: "INGESTED" } });
-      return version.id;
+    // Lignes documents préparées HORS transaction (le `dossierVersionId` est ajouté au moment de
+    // l'insertion). Insertion PAR LOTS : Postgres plafonne à 65 535 paramètres/requête (~5000 docs
+    // × 11 colonnes) — un très gros dossier CTD dépasse ce seuil, d'où l'échec « enregistrement
+    // annulé ». On découpe donc le createMany, et on ALLONGE le délai de transaction (le défaut
+    // Prisma de 5 s est trop court pour des milliers de lignes).
+    const docData = inspection.entries.map((e) => {
+      const storable = isStorable(e.securityStatus);
+      const extraction: RegDocExtractionStatus = storable ? "PENDING" : "UNSUPPORTED";
+      return {
+        kind: "ORIGINAL" as const,
+        originalPath: e.path,
+        originalFilename: e.filename,
+        ext: e.ext,
+        sizeBytes: clampInt(e.sizeBytes),
+        sha256: e.sha256 || "",
+        compressionRatio: e.compressionRatio ?? null,
+        securityStatus: SECURITY_MAP[e.securityStatus],
+        extractionStatus: extraction,
+        blobId: blobByPath.get(e.path) ?? null,
+      };
     });
+    const DOC_CHUNK = 1000; // 1000 × 11 colonnes = 11 000 paramètres, très en-deçà des 65 535
+
+    const versionId = await prisma.$transaction(
+      async (tx) => {
+        const version = await tx.regulatoryDossierVersion.create({
+          data: {
+            dossierId, versionNo, label: opts.label ?? null,
+            originalZipBlobId: originalBlobId, originalSha256: originalSha256 || null,
+            fileCount: inspection.entries.length,
+            totalBytes: clampInt(storableBytes),
+            createdById: actorId,
+          },
+          select: { id: true },
+        });
+
+        for (let i = 0; i < docData.length; i += DOC_CHUNK) {
+          await tx.regulatoryDocument.createMany({
+            data: docData.slice(i, i + DOC_CHUNK).map((d) => ({ ...d, dossierVersionId: version.id })),
+          });
+        }
+
+        // 5) Job EXTRACT (Node-first) — le runner le traitera en arrière-plan.
+        await tx.regulatoryJob.create({
+          data: { companyId, dossierId, dossierVersionId: version.id, type: "EXTRACT", status: "QUEUED", payload: { filename } },
+        });
+
+        await tx.regulatoryDossier.update({ where: { id: dossierId }, data: { status: "INGESTED" } });
+        return version.id;
+      },
+      { timeout: 120_000, maxWait: 15_000 },
+    );
 
     const summary: IngestSummary = {
       total: inspection.entries.length,

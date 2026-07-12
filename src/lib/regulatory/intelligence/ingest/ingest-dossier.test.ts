@@ -122,6 +122,31 @@ describe("ingestDossierZip — pipeline d'ingestion CTD (intégration)", () => {
     }
   });
 
+  it("ingère un dossier de PLUS de 1000 fichiers (insertion par lots — pas de dépassement de paramètres)", async () => {
+    // Un gros dossier CTD peut avoir des milliers de fichiers : le createMany en une requête
+    // dépasserait la limite Postgres de 65 535 paramètres → « enregistrement annulé ». On vérifie
+    // que l'insertion par lots crée bien TOUTES les lignes. Contenu identique → blob dédupliqué (rapide).
+    const tmp = await prisma.regulatoryDossier.create({
+      data: { companyId, reference: `${TAG}-many`, title: "Many files", createdById: "test-user" },
+      select: { id: true },
+    });
+    const content = Buffer.from("contenu CTD identique (dédupliqué au stockage)");
+    const files: Record<string, Buffer> = {};
+    for (let i = 0; i < 1100; i++) files[`m1/section-${i}/doc-${i}.pdf`] = content;
+    try {
+      const res = await ingestDossierZip({ companyId, dossierId: tmp.id, actorId: "test-user", filename: "many.zip", buffer: await makeZip(files) });
+      expect(res.ok).toBe(true);
+      expect(res.summary?.total).toBe(1100);
+      const count = await prisma.regulatoryDocument.count({ where: { dossierVersion: { dossierId: tmp.id } } });
+      expect(count).toBe(1100); // TOUTES les lignes créées, malgré le seuil de paramètres d'une requête unique
+      const v = await prisma.regulatoryDossierVersion.findFirst({ where: { dossierId: tmp.id }, select: { fileCount: true } });
+      expect(v?.fileCount).toBe(1100);
+    } finally {
+      await releaseDossierBlobs(tmp.id).catch(() => undefined);
+      await prisma.regulatoryDossier.delete({ where: { id: tmp.id } }).catch(() => undefined);
+    }
+  }, 60_000);
+
   it("rejette une archive vide sans rien persister", async () => {
     const before = await prisma.regulatoryDossierVersion.count({ where: { dossierId } });
     const buf = await makeZip({});
