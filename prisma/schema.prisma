@@ -2255,15 +2255,28 @@ model DriveNode {
 
 /// Contenu binaire chiffré (AES-256-GCM), dédupliqué par empreinte du clair (SHA-256).
 model FileBlob {
-  id         String        @id @default(cuid())
-  sha256     String        @unique
-  size       Int
+  id         String          @id @default(cuid())
+  sha256     String          @unique
+  size       Int // taille du CLAIR en octets (≤ ~1,9 Go — borne de l'Int ; la limite d'ingestion est bien en deçà)
   iv         Bytes // nonce AES-GCM
-  data       Bytes? // contenu chiffré EN BASE (null si stocké en objet S/R2 via storageKey)
+  data       Bytes? // contenu chiffré EN BASE, en UNE valeur (petits fichiers) ; null si chunké ou en objet
   storageKey String? // clé objet S3/R2 du contenu chiffré (null = stocké en base) — dé-gonfle le disque BDD
-  refCount   Int           @default(0)
-  createdAt  DateTime      @default(now())
+  refCount   Int             @default(0)
+  createdAt  DateTime        @default(now())
   versions   FileVersion[]
+  chunks     FileBlobChunk[] // gros fichiers : contenu chiffré découpé en TRANCHES ordonnées (mémoire bornée)
+}
+
+/// Tranche de contenu chiffré d'un gros FileBlob (data=null). Concaténées dans l'ordre `idx`, elles
+/// reforment `ciphertext || tag`. Permet des fichiers jusqu'à ~1 Go en base sans encodage hex géant.
+model FileBlobChunk {
+  id     String   @id @default(cuid())
+  blobId String
+  idx    Int // ordre de la tranche (0..n)
+  data   Bytes // fragment de contenu chiffré
+  blob   FileBlob @relation(fields: [blobId], references: [id], onDelete: Cascade)
+
+  @@unique([blobId, idx])
 }
 
 /// Version d'un fichier (historique). Pointe vers un FileBlob partagé.

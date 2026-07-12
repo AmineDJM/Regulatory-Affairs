@@ -30,6 +30,21 @@ export function sha256(buf: Buffer): string {
 // Clé objet du contenu chiffré d'un blob (adressé par le SHA-256 du clair → déduplication naturelle).
 const blobKey = (hash: string) => `blobs/${hash.slice(0, 2)}/${hash}`;
 
+// Taille d'une TRANCHE de contenu chiffré en base (défaut 16 Mo). Au-delà de cette taille, un fichier
+// est stocké en plusieurs lignes ordonnées plutôt qu'en un bytea unique — dont l'encodage hex sur le
+// fil doublerait la taille en mémoire (cause d'OOM). Permet des fichiers jusqu'à ~1 Go en base.
+const blobChunkBytes = () => {
+  const mb = Number(process.env.REG_BLOB_CHUNK_MB ?? 16);
+  return Math.max(1, Number.isFinite(mb) && mb > 0 ? mb : 16) * 1024 * 1024;
+};
+
+/** Chiffre le clair en UN buffer `ciphertext || tag` (petits fichiers / stockage objet). */
+function encryptWhole(plain: Buffer, iv: Buffer): Buffer {
+  const cipher = crypto.createCipheriv("aes-256-gcm", masterKey(), iv);
+  const enc = Buffer.concat([cipher.update(plain), cipher.final()]);
+  return Buffer.concat([enc, cipher.getAuthTag()]);
+}
+
 /** Store bytes (encrypted, deduplicated). Increments the ref-count on reuse. */
 export async function putBlob(plain: Buffer): Promise<{ blobId: string; sha256: string; size: number }> {
   const hash = sha256(plain);
@@ -39,15 +54,11 @@ export async function putBlob(plain: Buffer): Promise<{ blobId: string; sha256: 
     return { blobId: existing.id, sha256: hash, size: existing.size };
   }
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", masterKey(), iv);
-  const enc = Buffer.concat([cipher.update(plain), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  const data = Buffer.concat([enc, tag]); // ciphertext || 16-byte auth tag
 
   // Stockage OBJET (S3/R2) si configuré → la base ne garde que les métadonnées + l'IV.
   if (objectStorageConfigured()) {
     const key = blobKey(hash);
-    await putObject(key, data); // contenu CHIFFRÉ dans le bucket (l'objet stocke du ciphertext)
+    await putObject(key, encryptWhole(plain, iv)); // contenu CHIFFRÉ dans le bucket
     const blob = await prisma.fileBlob.create({
       data: { sha256: hash, size: plain.length, iv, data: null, storageKey: key, refCount: 1 },
       select: { id: true },
@@ -55,19 +66,53 @@ export async function putBlob(plain: Buffer): Promise<{ blobId: string; sha256: 
     return { blobId: blob.id, sha256: hash, size: plain.length };
   }
 
-  // Repli historique : contenu chiffré en base.
+  // Base, gros fichier → écriture EN TRANCHES (mémoire bornée à une tranche, pas d'hex géant).
+  if (plain.length > blobChunkBytes()) return putBlobChunked(plain, hash, iv);
+
+  // Base, petit fichier → une seule valeur bytea (chemin historique, rétrocompatible).
   const blob = await prisma.fileBlob.create({
-    data: { sha256: hash, size: plain.length, iv, data, refCount: 1 },
+    data: { sha256: hash, size: plain.length, iv, data: encryptWhole(plain, iv), refCount: 1 },
     select: { id: true },
   });
   return { blobId: blob.id, sha256: hash, size: plain.length };
 }
 
-/** Retrieve and decrypt bytes by blob id (bucket S3/R2 ou base, selon storageKey). */
+/** Écrit le contenu chiffré en tranches ordonnées (streaming du chiffrement → mémoire bornée). */
+async function putBlobChunked(plain: Buffer, hash: string, iv: Buffer): Promise<{ blobId: string; sha256: string; size: number }> {
+  const blob = await prisma.fileBlob.create({
+    data: { sha256: hash, size: plain.length, iv, data: null, refCount: 1 },
+    select: { id: true },
+  });
+  try {
+    const cipher = crypto.createCipheriv("aes-256-gcm", masterKey(), iv);
+    const step = blobChunkBytes();
+    let idx = 0;
+    for (let off = 0; off < plain.length; off += step) {
+      const enc = cipher.update(plain.subarray(off, Math.min(off + step, plain.length)));
+      if (enc.length > 0) await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: enc } });
+    }
+    // Dernière tranche : reliquat éventuel + tag d'authentification (16 o). Concat des tranches = ciphertext || tag.
+    await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: Buffer.concat([cipher.final(), cipher.getAuthTag()]) } });
+    return { blobId: blob.id, sha256: hash, size: plain.length };
+  } catch (err) {
+    await prisma.fileBlob.delete({ where: { id: blob.id } }).catch(() => undefined); // cascade → supprime les tranches partielles
+    throw err;
+  }
+}
+
+/** Retrieve and decrypt bytes by blob id (objet S3/R2, bytea unique, ou tranches — selon le stockage). */
 export async function getBlob(blobId: string): Promise<Buffer | null> {
-  const blob = await prisma.fileBlob.findUnique({ where: { id: blobId }, select: { iv: true, data: true, storageKey: true } });
+  const blob = await prisma.fileBlob.findUnique({ where: { id: blobId }, select: { iv: true, data: true, storageKey: true, size: true } });
   if (!blob) return null;
-  const cipherBytes = blob.storageKey ? await getObject(blob.storageKey) : blob.data ? Buffer.from(blob.data) : null;
+  let cipherBytes: Buffer | null;
+  if (blob.storageKey) cipherBytes = await getObject(blob.storageKey);
+  else if (blob.data) cipherBytes = Buffer.from(blob.data);
+  else {
+    const chunks = await prisma.fileBlobChunk.findMany({ where: { blobId }, orderBy: { idx: "asc" }, select: { data: true } });
+    cipherBytes = chunks.length > 0 ? Buffer.concat(chunks.map((c) => Buffer.from(c.data))) : null;
+    // Intégrité : le chiffré GCM fait taille_claire + 16 (tag). Un blob chunké incomplet est écarté.
+    if (cipherBytes && cipherBytes.length !== blob.size + 16) return null;
+  }
   if (!cipherBytes) return null;
   const iv = Buffer.from(blob.iv);
   const tag = cipherBytes.subarray(cipherBytes.length - 16);

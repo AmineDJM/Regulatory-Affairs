@@ -37,14 +37,15 @@ const isStorable = (s: SecurityStatus) => s === "SAFE" || s === "SUSPICIOUS";
 const INT32_MAX = 2_147_483_647;
 const clampInt = (n: number) => Math.max(0, Math.min(INT32_MAX, Math.round(n)));
 
-// Plafond de taille d'UN blob stocké EN BASE (Postgres bytea) : au-delà, l'insert d'un seul bytea
-// géant sature la mémoire (protocole hex ≈ 2×) voire dépasse la limite dure ~1 Go → tue le process.
-// En stockage OBJET (R2/S3) cette limite ne s'applique pas. Réglable via REG_MAX_PG_BLOB_MB.
-const maxPgBlobBytes = () => Number(process.env.REG_MAX_PG_BLOB_MB ?? 400) * 1024 * 1024;
-// Même garde pour UN FICHIER individuel du dossier (indépendante de celle de l'archive originale,
-// pour rester réglable séparément) : un fichier unique au-delà du plafond est MARQUÉ (jamais un
-// crash mémoire), les autres fichiers du dossier continuent. Réglable via REG_MAX_PG_FILE_MB.
-const maxPgFileBytes = () => Number(process.env.REG_MAX_PG_FILE_MB ?? 400) * 1024 * 1024;
+// Plafond de taille d'UN blob stocké EN BASE (Postgres) : le contenu est désormais écrit EN TRANCHES
+// (voir drive-storage) → plus d'insert bytea unique géant, mémoire bornée. On peut donc viser ~1 Go.
+// Défaut 950 Mo (≈ 1 Go, sous la borne de l'Int `size`). En stockage OBJET (R2/S3) cette limite ne
+// s'applique pas. Réglable via REG_MAX_PG_BLOB_MB.
+const maxPgBlobBytes = () => Number(process.env.REG_MAX_PG_BLOB_MB ?? 950) * 1024 * 1024;
+// Même garde pour UN FICHIER individuel du dossier (réglable séparément) : un fichier au-delà du
+// plafond est MARQUÉ (jamais un crash), les autres continuent. Défaut 950 Mo. Réglable via
+// REG_MAX_PG_FILE_MB. NB : océriser un PDF proche d'1 Go reste borné par la RAM (voir README).
+const maxPgFileBytes = () => Number(process.env.REG_MAX_PG_FILE_MB ?? 950) * 1024 * 1024;
 
 export interface IngestSummary {
   total: number;

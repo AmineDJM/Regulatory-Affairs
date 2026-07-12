@@ -919,6 +919,7 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `REG_EXTRACTION_MAX_CHARS` | ⬜ | Plafond du texte extrait/OCR persisté par document (défaut 20 M — ≈ 10 000 pages ; fin de la troncature 1 M). ↑ demande plus de disque base. |
 | `REG_AI_CHUNK_PAGES` · `REG_AI_CONCURRENCY` | ⬜ | Revue IA par parts : pages par part envoyée à l'IA (défaut 10) · parts analysées en parallèle (défaut 4). |
 | `REG_AI_MAX_CHUNKS` · `REG_AI_MAX_FINDINGS` | ⬜ | Garde-coût revue IA : parts max analysées par version (défaut 120, **0 = illimité**) · constats IA max persistés (défaut 300). Chaque part = 1 appel Claude facturé. |
+| `REG_MAX_PG_FILE_MB` · `REG_BLOB_CHUNK_MB` | ⬜ | Taille max d'un fichier unique conservé en base (défaut **950 Mo** ≈ 1 Go, stocké en tranches) · taille d'une tranche de blob chiffré (défaut 16 Mo). Fichiers proches d'1 Go : prévoir ≥ 4 Go de RAM ou activer R2. |
 
 > \* Requis **ensemble** uniquement pour activer l'édition Office. Côté **service OnlyOffice**, poser
 > `JWT_ENABLED=true` et `JWT_SECRET=<même valeur que ONLYOFFICE_JWT_SECRET>`.
@@ -1135,9 +1136,22 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
     Charge mesurée (RSS) : 50/150/300 Mo — pic UPLOAD ≈ une partie ; pic FINALISATION croît avec la taille.
   - **Lifecycle (G12)** : chronologie (soumission/séquences/modifications/renouvellements/version approuvée),
     opérations NEW/REPLACE/DELETE/APPEND, **analyse d'impact déterministe**, obligations & certificats expirants.
+  - **PERSISTENCE & RÉUTILISATION** — tout ce que l'analyse produit reste durablement en base (aucune purge
+    après traitement) : documents classés CTD, **texte extrait/OCR** (`RegulatoryExtraction`), **faits du jumeau**
+    + occurrences sourcées (`RegulatoryFact`/`…Occurrence`, décisions humaines incluses), **bilan** (`RegulatoryAssessment`)
+    et **constats** (`RegulatoryFinding`), archive d'origine figée (SHA-256). Une **couche de connaissance**
+    (`knowledge/dossier-knowledge.ts`) expose une surface de LECTURE stable pour la suite — **pré-remplissage de
+    formulaire de présoumission**, **préparation automatique de dossier**, **réponses aux réserves** — et pour
+    l'**interrogation par le chatbot** : `getDossierKnowledge` (snapshot), `getApprovedFactMap` (faits validés →
+    formulaire), `getDossierDocuments` (par module/section CTD), `searchDossierContent` (recherche plein texte,
+    **extrait calculé côté base** → tient même sur un document océrisé de 10 000 pages).
+  - **Stockage blobs — jusqu'à ~1 Go/fichier** : contenu chiffré AES-256-GCM ; un gros fichier est écrit **EN
+    TRANCHES** ordonnées (`FileBlobChunk`, `REG_BLOB_CHUNK_MB`≈16) plutôt qu'en un bytea unique — pas d'encodage
+    hex géant → mémoire bornée en écriture **et** lecture. Plafond par fichier `REG_MAX_PG_FILE_MB` (défaut **950 Mo**).
+    NB honnête : *océriser* un PDF proche d'1 Go reste borné par la RAM (mupdf charge le PDF) — prévoir ≥ 4 Go, ou activer R2.
   - Réalités infra assumées : stockage = **blobs Postgres chiffrés** (pas S3) ; IA = **opt-in sur clé** (abstention
     honnête sinon, aucune simulation). Code : `src/lib/regulatory/intelligence/{twin,corpus,rules,agents,diff,ocr,
-    upload,docgen,reserves,supplier,simulator,lifecycle}` ; admin corpus/règles `src/app/(app)/admin/regulatory-corpus/`.
+    upload,docgen,reserves,supplier,simulator,lifecycle,knowledge}` ; admin corpus/règles `src/app/(app)/admin/regulatory-corpus/`.
 - **Regulatory Intelligence OS** — **analyseur de dossier CTD (phases 0→6).** Onglet **Analyse CTD**
   sous Regulatory → Enregistrement, débloqué **par organisation** par le Super Admin
   (`RegulatoryFeatureAccess`, bascule dans Administration → Réglages). Circuit : dépôt d'un **dossier CTD
