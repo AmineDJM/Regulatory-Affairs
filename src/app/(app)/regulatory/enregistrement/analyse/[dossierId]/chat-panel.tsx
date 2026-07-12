@@ -32,6 +32,8 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
     e?.preventDefault();
     const q = input.trim();
     if (!q || busy) return;
+    // Historique (avant d'ajouter la nouvelle question) — permet les questions de suivi (« et sa DCI ? »).
+    const history = messages.filter((m) => !m.error).slice(-6).map((m) => ({ role: m.role, content: m.text }));
     setMessages((m) => [...m, { role: "user", text: q }]);
     setInput("");
     setBusy(true);
@@ -39,6 +41,7 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
       const fd = new FormData();
       fd.set("dossierId", dossierId);
       fd.set("question", q);
+      fd.set("history", JSON.stringify(history));
       const r = await askDossierAction(fd);
       setMessages((m) => [...m, r.ok
         ? { role: "assistant", text: r.answer || "(réponse vide)", citations: r.citations }

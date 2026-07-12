@@ -25,13 +25,17 @@ describe("askDossier — Q&R sourcée, page exacte, abstention", () => {
       data: { dossierVersionId: versionId, originalPath: "m3/stab.pdf", originalFilename: "3.2.p.8-stab.pdf", ext: "pdf", sha256: `${TAG}-a`, ctdModule: "3", ctdSection: "3.2.P.8", securityStatus: "SAFE", extractionStatus: "OCR_COMPLETED" },
       select: { id: true },
     })).id;
+    // Contenu = concaténation RÉELLE des pages OCR (« \n\n » entre pages) ; ocrPages ne porte QUE des
+    // métadonnées (page, chars) — comme le vrai pipeline. La page exacte se retrouve par le DÉCALAGE.
+    const p1 = "Page de garde du rapport de stabilité.";
+    const p2 = "La durée de conservation est de 24 mois à 25°C/60%HR pour le produit fini.";
+    const content = `${p1}\n\n${p2}`;
     await prisma.regulatoryExtraction.create({
       data: {
-        documentId: docId, method: "ocr", charCount: 90,
-        content: "Page de garde. La durée de conservation est de 24 mois à 25°C/60%HR pour le produit fini.",
+        documentId: docId, method: "ocr", charCount: content.length, content,
         ocrPages: [
-          { page: 1, text: "Page de garde du rapport de stabilité." },
-          { page: 12, text: "La durée de conservation est de 24 mois à 25°C/60%HR pour le produit fini." },
+          { page: 1, chars: p1.length, confidence: 96, lowConfidence: false },
+          { page: 12, chars: p2.length, confidence: 95, lowConfidence: false },
         ] as unknown as object,
       },
     });

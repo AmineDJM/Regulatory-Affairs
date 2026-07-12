@@ -1056,6 +1056,19 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Analyse CTD — fin des fausses « sections manquantes », faits plus propres, chatbot de dossier musclé.**
+  Trois chantiers sur un vrai dossier de 459 Mo (11 fichiers, dont un « Module 3.pdf » de 381 Mo). **(A)** Un PDF de
+  module **consolidé** est désormais reconnu comme couvrant **plusieurs sous-sections** (`ctd/detect-sections.ts` :
+  code CTD **corroboré par son titre**, frontières de mot ; un renvoi « voir 3.2.P.8 » ne compte pas) → stockées
+  dans `containedSections`, la complétude **cesse de signaler ces sections comme manquantes à tort**. **(B)** Extraction
+  de faits **anti-bruit** (`twin/extract-facts.ts`) : mot entier (« gel » ≠ « angel ») + **contexte borné à la phrase**
+  qui écarte une voie « Intravenous » de canule PK, un stockage d'**échantillons** à –70 °C, une forme issue de
+  « gélatine » ; **associations** de teneurs « 50 mg / 300 mg » captées (INN accentués compris). **(C)** Le chatbot
+  **« Discuter avec ce dossier »** répond **sourcé (fichier · section · page EXACTE)** : décomposition question →
+  termes + **synonymes FR/EN** + codes CTD, **récupération multi-termes classée**, **page résolue par décalage →
+  `ocrPages.chars`** (sans ré-océrisation — la résolution précédente, basée sur un champ inexistant, ne marchait pas),
+  **contexte enrichi** (faits, sections manquantes, inventaire) + **historique** pour les questions de suivi, citations
+  `[n]` et **abstention** stricte. +32 tests ciblés.
 - **Stockage des fichiers déporté vers S3/R2 — le disque Postgres arrête de gonfler.** Le backend de blobs
   (`lib/drive-storage.ts`, point unique qui touche les octets) stocke désormais le contenu **chiffré (AES-256-GCM,
   inchangé)** dans un **bucket S3/R2** quand `REG_S3_*` est configuré ; la base ne garde plus que les métadonnées
@@ -1145,6 +1158,26 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
     l'**interrogation par le chatbot** : `getDossierKnowledge` (snapshot), `getApprovedFactMap` (faits validés →
     formulaire), `getDossierDocuments` (par module/section CTD), `searchDossierContent` (recherche plein texte,
     **extrait calculé côté base** → tient même sur un document océrisé de 10 000 pages).
+  - **« Discuter avec ce dossier » — chatbot SOURCÉ (fichier · section · page)** (`knowledge/dossier-chat.ts`,
+    panneau `chat-panel.tsx`) : à chaque question, on **décompose** la question en termes saillants + **synonymes
+    FR/EN** du domaine + codes CTD (`expandQueryTerms`), on **récupère multi-termes classé** les passages des
+    documents réellement lus (`searchDossierPassages` — score = nb de termes distincts, extrait ET décalage du 1ᵉʳ
+    terme calculés **côté base**), et on résout la **PAGE EXACTE** de chaque extrait par le **décalage → `ocrPages.chars`**
+    (`pageForOffset`, sans ré-océrisation). Le modèle ne reçoit que ces extraits + un **CONTEXTE structuré** (faits
+    avec valeur retenue/conflit, complétude, **sections requises encore manquantes**, inventaire des documents avec
+    sous-sections contenues et état d'extraction) et l'**historique récent** (questions de suivi) ; il doit **citer
+    [n]**, distinguer proposé/confirmé, et **s'abstenir** si l'info n'y est pas (contenu traité en donnée non fiable —
+    anti-injection). Sans clé IA : les sources restent affichées, **aucune réponse simulée**.
+  - **PDF de module CONSOLIDÉ → détection MULTI-SECTIONS** (`ctd/detect-sections.ts`) : un « Module 3.pdf » couvre
+    en réalité 3.2.S / 3.2.P / 3.2.P.5 / 3.2.P.8… Un balayage précis (code CTD **corroboré par son titre** à ≤90 car.,
+    frontières de mot — un simple renvoi « voir 3.2.P.8 » ne compte pas) renseigne `RegulatoryDocument.containedSections`
+    (persisté, backfillé à la relance) ; la complétude et le jumeau **cessent de signaler ces sous-sections comme
+    « manquantes » à tort**.
+  - **Extraction de faits — anti-bruit** (`twin/extract-facts.ts`) : recherche par **mot entier** (« gel » ne matche
+    plus « angel ») + **contexte borné à la phrase** (`localCtx`) qui **écarte** une voie « Intravenous » venant d'une
+    canule/prélèvement PK, un stockage d'**échantillons** à –70 °C (≠ conservation du produit), une forme issue de
+    « gélatine »… et **capte les associations** de teneurs « 50 mg / 300 mg » (y compris rédigées « … et … », INN
+    accentués compris) sans confondre avec une posologie.
   - **Stockage blobs — jusqu'à ~1 Go/fichier** : contenu chiffré AES-256-GCM ; un gros fichier est écrit **EN
     TRANCHES** ordonnées (`FileBlobChunk`, `REG_BLOB_CHUNK_MB`≈16) plutôt qu'en un bytea unique — pas d'encodage
     hex géant → mémoire bornée en écriture **et** lecture. Plafond par fichier `REG_MAX_PG_FILE_MB` (défaut **950 Mo**).

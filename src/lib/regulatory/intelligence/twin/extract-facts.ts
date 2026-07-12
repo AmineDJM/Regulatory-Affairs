@@ -32,6 +32,28 @@ function snippet(text: string, index: number, radius = 90): string {
   return norm((start > 0 ? "…" : "") + text.slice(start, end) + (end < text.length ? "…" : ""));
 }
 
+/**
+ * Contexte LOCAL d'une occurrence, BORNÉ À SA PHRASE : on part de `[idx-radius, idx+len+radius]`
+ * puis on coupe à la première frontière forte (« . », « ; », « : », saut de ligne) de part et
+ * d'autre. Essentiel : un « –70 °C » d'échantillons dans la phrase PRÉCÉDENTE ne doit pas
+ * disqualifier la conservation du produit de la phrase COURANTE (et inversement pour la voie).
+ */
+function localCtx(lower: string, idx: number, len: number, radius: number): string {
+  const from = Math.max(0, idx - radius);
+  const to = Math.min(lower.length, idx + len + radius);
+  let start = from;
+  for (let i = idx - 1; i >= from; i--) {
+    const c = lower[i];
+    if (c === "." || c === ";" || c === ":" || c === "\n" || c === "\r") { start = i + 1; break; }
+  }
+  let end = to;
+  for (let i = idx + len; i < to; i++) {
+    const c = lower[i];
+    if (c === "." || c === ";" || c === ":" || c === "\n" || c === "\r") { end = i; break; }
+  }
+  return lower.slice(start, end);
+}
+
 /** Valeur après un libellé (« DCI : … »), jusqu'à fin de ligne / ponctuation forte. */
 function labelValue(text: string, labelRe: RegExp): { value: string; index: number } | null {
   const m = labelRe.exec(text);
@@ -58,17 +80,51 @@ const PACKS = [
   "boîte de", "seringue préremplie", "stylo", "vial",
 ];
 
-function keywordHits(text: string, lower: string, factKey: string, terms: string[], conf: number, cap = 2): FactHit[] {
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Contextes DISQUALIFIANTS (le fait provient d'un passage non pertinent → ignoré) et PERTINENTS
+// (le fait est bien celui du produit → +confiance). Corrige les faux positifs réels observés :
+// « Intravenous » venant d'une canule d'étude PK, « ≤ –70 °C » d'un stockage d'échantillons, etc.
+const CTX = {
+  routeNeg: /canule|cannula|indwelling|pr[ée]l[èe]vement|blood sampl|sampling|pharmacocin|pharmacokinetic|\bpk\b|perfus|infusion|cath[ée]ter|catheter/i,
+  routePos: /voie d'administration|method of administration|mode d'administration|posologie|posology|administered|orally|par voie|to be taken|à prendre|rcp|smpc/i,
+  formNeg: /g[ée]latine|gelatin|gavage|\banimal|non[-\s]?clinical|non[-\s]?clinique|purity|excipient|placebo/i,
+  formPos: /produit fini|drug product|forme pharmaceutique|dosage form|pellicul|film[-\s]?coated|comprim|tablet|posologie|rcp|smpc/i,
+  packNeg: /test[-\s]?tube|centrifug|eppendorf|[ée]chantillon|\bsampl|blood|mobile phase|hplc|vial.{0,15}(inject|sampl|hplc)/i,
+  packPos: /conditionnement|packaging|primary pack|plaquette|blister|bo[îi]te|présentation/i,
+  storeNeg: /[ée]chantillon|\bsampl|aliquot|plasma|s[ée]rum|bioanalyt|below\s*-|-\s?[2-8]0\s?°?\s?c|cong[ée]l|freezer/i,
+  storePos: /conserver|à conserver|ne pas dépasser|store (?:below|at|in)|shelf life|produit fini|drug product/i,
+};
+
+/**
+ * Faits par mot-clé, CONTEXTUALISÉS. Recherche par MOT ENTIER (frontières unicode) — « gel » ne
+ * matche plus « angel », « tube » ne matche plus au milieu d'un mot. Un contexte `negative` autour
+ * de l'occurrence la fait ignorer ; un contexte `positive` augmente la confiance. On garde, par terme,
+ * la MEILLEURE occurrence (contexte le plus favorable) → la valeur canonique écarte le bruit.
+ */
+function keywordFacts(
+  text: string, lower: string, factKey: string, terms: string[],
+  opts: { conf: number; cap: number; positive?: RegExp; negative?: RegExp },
+): FactHit[] {
   const hits: FactHit[] = [];
   const seen = new Set<string>();
   for (const term of terms) {
-    const idx = lower.indexOf(term);
-    if (idx === -1) continue;
     const key = term.toLowerCase();
     if (seen.has(key)) continue;
-    seen.add(key);
-    hits.push({ factKey, rawValue: norm(text.substr(idx, term.length)), extract: snippet(text, idx), confidence: conf, method: "keyword" });
-    if (hits.length >= cap) break;
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(term)}(?![\\p{L}\\p{N}])`, "giu");
+    let m: RegExpExecArray | null;
+    let best: FactHit | null = null;
+    let scanned = 0;
+    while ((m = re.exec(text)) !== null && scanned < 300) {
+      scanned++;
+      const ctx = localCtx(lower, m.index, term.length, 80);
+      if (opts.negative && opts.negative.test(ctx)) continue; // occurrence hors-sujet → ignorée
+      const conf = Math.min(0.9, opts.conf + (opts.positive && opts.positive.test(ctx) ? 0.15 : 0));
+      if (!best || conf > best.confidence) {
+        best = { factKey, rawValue: norm(text.slice(m.index, m.index + term.length)), extract: snippet(text, m.index), confidence: conf, method: "keyword" };
+      }
+    }
+    if (best) { seen.add(key); hits.push(best); if (hits.length >= opts.cap) break; }
   }
   return hits;
 }
@@ -95,9 +151,27 @@ export function extractFactsFromText(text: string, sectionCode: string | null): 
     if (lv) out.push({ factKey: key, rawValue: lv.value, extract: snippet(text, lv.index), confidence: 0.85, method: "label" });
   }
 
-  // Dosage / teneur (regex)
-  const strengthRe = /(\d+(?:[.,]\d+)?)\s?(mg\/ml|mg\/g|µg|mcg|mg|g|ml|ui|iu|%)\b/gi;
+  // Dosage / teneur — COMBINAISON d'abord (« 50 mg / 300 mg », « 50 mg and Lamivudine 300 mg ») :
+  // très fréquent pour les associations (ex. DTF+3TC), plus fiable qu'une teneur isolée. Le trou
+  // entre les deux doses (≤40 car.) DOIT contenir un lien (« and », « / », « + », « contains »…)
+  // pour ne PAS confondre avec une posologie (« 50 mg, max 300 mg »).
   let m: RegExpExecArray | null;
+  // Le trou tolère les lettres ACCENTUÉES (« 50 mg de ténofovir et 300 mg de lamivudine ») via
+  // \p{L}\p{N} + drapeau u — sinon le « é » couperait l'appariement des associations réelles.
+  const comboRe = /(\d+(?:[.,]\d+)?)\s?mg\b([\s\p{L}\p{N},()/+&-]{0,60}?)(\d+(?:[.,]\d+)?)\s?mg\b/giu;
+  let comboScan = 0;
+  while ((m = comboRe.exec(text)) !== null && comboScan < 50) {
+    comboScan++;
+    if (!/\band\b|\bet\b|\/|\+|&|contain|contient|associ|\bplus\b/i.test(m[2])) continue;
+    out.push({
+      factKey: "STRENGTH", rawValue: norm(m[0]).slice(0, 80),
+      normalizedValue: `${m[1].replace(",", ".")} mg / ${m[3].replace(",", ".")} mg`,
+      extract: snippet(text, m.index), confidence: 0.88, method: "regex",
+    });
+    break;
+  }
+  // Teneur isolée (regex).
+  const strengthRe = /(\d+(?:[.,]\d+)?)\s?(mg\/ml|mg\/g|µg|mcg|mg|g|ml|ui|iu|%)\b/gi;
   let strengthCount = 0;
   while ((m = strengthRe.exec(text)) && strengthCount < 3) {
     const near = lower.slice(Math.max(0, m.index - 40), m.index + 40);
@@ -119,10 +193,16 @@ export function extractFactsFromText(text: string, sectionCode: string | null): 
     }
   }
 
-  // Conditions de conservation (température)
-  const tempRe = /(conserver|à conserver|stocker|store|ne pas (?:dépasser|conserver au-del[àa]))[^.\n]{0,60}?(\d{1,2}\s?°?\s?c)/i;
-  const tm = tempRe.exec(text);
-  if (tm) out.push({ factKey: "STORAGE", rawValue: norm(tm[0]).slice(0, 120), extract: snippet(text, tm.index), confidence: 0.7, method: "regex" });
+  // Conditions de conservation (température) — on IGNORE le stockage d'ÉCHANTILLONS (≤ –70/–80 °C,
+  // plasma, bioanalytique) qui n'est PAS la conservation du produit. On garde la meilleure occurrence.
+  const tempRe = /(conserver|à conserver|stocker|store)[^.\n]{0,60}?(-?\s?\d{1,2}\s?°?\s?c)/gi;
+  let tm: RegExpExecArray | null;
+  while ((tm = tempRe.exec(text)) !== null) {
+    const ctx = localCtx(lower, tm.index, tm[0].length, 40);
+    if (CTX.storeNeg.test(ctx)) continue; // stockage d'échantillons/congélateur → pas le produit
+    out.push({ factKey: "STORAGE", rawValue: norm(tm[0]).slice(0, 120), extract: snippet(text, tm.index), confidence: CTX.storePos.test(ctx) ? 0.8 : 0.65, method: "regex" });
+    break;
+  }
 
   // CPP / GMP (numéro à proximité)
   for (const [key, re] of [
@@ -133,10 +213,10 @@ export function extractFactsFromText(text: string, sectionCode: string | null): 
     if (cm) out.push({ factKey: key, rawValue: norm(cm[2] ?? cm[0]).slice(0, 60), extract: snippet(text, cm.index), confidence: 0.75, method: "regex" });
   }
 
-  // Formes / voies / conditionnement (mots-clés)
-  out.push(...keywordHits(text, lower, "DOSAGE_FORM", DOSAGE_FORMS, 0.7, 1));
-  out.push(...keywordHits(text, lower, "ROUTE", ROUTES, 0.7, 1));
-  out.push(...keywordHits(text, lower, "PACKAGING", PACKS, 0.6, 2));
+  // Formes / voies / conditionnement (mots-clés CONTEXTUALISÉS — mot entier + contexte pertinent).
+  out.push(...keywordFacts(text, lower, "DOSAGE_FORM", DOSAGE_FORMS, { conf: 0.7, cap: 1, positive: CTX.formPos, negative: CTX.formNeg }));
+  out.push(...keywordFacts(text, lower, "ROUTE", ROUTES, { conf: 0.7, cap: 1, positive: CTX.routePos, negative: CTX.routeNeg }));
+  out.push(...keywordFacts(text, lower, "PACKAGING", PACKS, { conf: 0.6, cap: 2, positive: CTX.packPos, negative: CTX.packNeg }));
 
   void sectionCode;
   return out;

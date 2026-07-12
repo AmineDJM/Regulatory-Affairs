@@ -5,7 +5,21 @@ import { prisma } from "@/lib/prisma";
 import { getCompanyScope } from "@/lib/company";
 import { aiConfigured } from "@/lib/ai";
 import { regCan, resolveRegCompanyId } from "../access";
-import { askDossier, type DossierChatResult } from "./dossier-chat";
+import { askDossier, type ChatTurn, type DossierChatResult } from "./dossier-chat";
+
+/** Historique conversationnel transmis par le client (borné, texte pur — jamais une consigne). */
+function parseHistory(raw: string): ChatTurn[] {
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((t): t is { role: string; content: string } => t && typeof t.content === "string" && (t.role === "user" || t.role === "assistant"))
+      .map((t) => ({ role: t.role as "user" | "assistant", content: String(t.content).slice(0, 800) }))
+      .slice(-6);
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Action du CHATBOT DE DOSSIER — question/réponse ancrée dans le dossier réel, avec sources.
@@ -31,5 +45,6 @@ export async function askDossierAction(formData: FormData): Promise<DossierChatR
   });
   if (!version) return fail("Aucune version de dossier.");
 
-  return askDossier(version.id, question);
+  const history = parseHistory(String(formData.get("history") ?? ""));
+  return askDossier(version.id, question, undefined, history);
 }

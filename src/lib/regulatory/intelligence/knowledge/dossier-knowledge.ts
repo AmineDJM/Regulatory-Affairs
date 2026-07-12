@@ -155,6 +155,7 @@ export async function getApprovedFactMap(dossierVersionId: string): Promise<Reco
 export interface DossierDoc {
   id: string; originalFilename: string; suggestedFilename: string | null;
   ctdModule: string | null; ctdSection: string | null; sectionTitle: string | null;
+  containedSections: string[]; // sous-sections détectées dans un PDF consolidé (« Module 3.pdf »)
   extractionStatus: string; securityStatus: string;
 }
 
@@ -173,7 +174,7 @@ export async function getDossierDocuments(
     },
     orderBy: [{ ctdModule: "asc" }, { ctdSection: "asc" }, { originalFilename: "asc" }],
     take, skip: opts.skip ?? 0,
-    select: { id: true, originalFilename: true, suggestedFilename: true, ctdModule: true, ctdSection: true, extractionStatus: true, securityStatus: true },
+    select: { id: true, originalFilename: true, suggestedFilename: true, ctdModule: true, ctdSection: true, containedSections: true, extractionStatus: true, securityStatus: true },
   });
   return rows.map((d) => ({ ...d, sectionTitle: d.ctdSection ? sectionByCode(d.ctdSection)?.title ?? null : null }));
 }
@@ -199,4 +200,69 @@ export async function searchDossierContent(dossierVersionId: string, query: stri
     ORDER BY d."ctdSection" ASC NULLS LAST
     LIMIT ${take}`;
   return rows.map((r) => ({ documentId: r.documentid, filename: r.filename, ctdSection: r.ctdsection, snippet: (r.snippet ?? "").trim() }));
+}
+
+export interface OcrPageMeta { page?: number; chars?: number }
+export interface DossierPassage {
+  documentId: string; filename: string; ctdSection: string | null; ctdModule: string | null;
+  snippet: string; score: number; matchOffset: number; ocrPages: OcrPageMeta[] | null;
+}
+
+/**
+ * Recherche MULTI-TERMES classée — le cœur « intelligent » du chatbot. Chaque document est scoré par
+ * le NOMBRE de termes distincts qu'il contient (rappel bien meilleur qu'un ILIKE de la phrase entière) ;
+ * l'extrait ET le décalage de caractère du 1ᵉʳ terme trouvé sont calculés CÔTÉ BASE (aucun contenu
+ * entier chargé en RAM — tient face à un OCR de 10 000 pages). Le décalage sert à retrouver la PAGE
+ * exacte via `ocrPages.chars` (cf. `pageForOffset`). Termes lowercasés/dédupliqués/plafonnés (8).
+ */
+export async function searchDossierPassages(dossierVersionId: string, terms: string[], opts: { take?: number } = {}): Promise<DossierPassage[]> {
+  const clean = [...new Set(terms.map((t) => t.trim().toLowerCase()).filter((t) => t.length >= 2))].slice(0, 8);
+  if (clean.length === 0) return [];
+  const take = Math.min(Math.max(1, opts.take ?? 8), 40);
+  const idx = clean.map((_, i) => i + 2); // $1 = versionId ; $2..$(n+1) = termes ; dernier = take
+  const pos = (i: number) => `position(lower($${i}) IN lower(e.content))`;
+  const scoreExpr = idx.map((i) => `(CASE WHEN ${pos(i)} > 0 THEN 1 ELSE 0 END)`).join(" + ");
+  const firstExpr = `LEAST(${idx.map((i) => `NULLIF(${pos(i)}, 0)`).join(", ")})`; // LEAST ignore les NULL
+  const limIdx = clean.length + 2;
+  const sql = `
+    SELECT d.id AS documentid, d."originalFilename" AS filename, d."ctdSection" AS ctdsection, d."ctdModule" AS ctdmodule,
+      m.score, m.matchoffset, e."ocrPages" AS ocrpages,
+      substring(e.content FROM greatest(1, m.matchoffset - 120) FOR 320) AS snippet
+    FROM "RegulatoryExtraction" e
+    JOIN "RegulatoryDocument" d ON d.id = e."documentId"
+    CROSS JOIN LATERAL (SELECT (${scoreExpr}) AS score, (${firstExpr}) AS matchoffset) m
+    WHERE d."dossierVersionId" = $1 AND m.matchoffset IS NOT NULL
+    ORDER BY m.score DESC, m.matchoffset ASC
+    LIMIT $${limIdx}`;
+  let rows: Array<{ documentid: string; filename: string; ctdsection: string | null; ctdmodule: string | null; score: number | bigint; matchoffset: number | bigint | null; ocrpages: unknown; snippet: string | null }> = [];
+  try {
+    rows = await prisma.$queryRawUnsafe(sql, dossierVersionId, ...clean, take);
+  } catch {
+    rows = [];
+  }
+  return rows.map((r) => ({
+    documentId: r.documentid, filename: r.filename, ctdSection: r.ctdsection, ctdModule: r.ctdmodule,
+    snippet: (r.snippet ?? "").trim(), score: Number(r.score),
+    matchOffset: r.matchoffset == null ? 0 : Number(r.matchoffset),
+    ocrPages: Array.isArray(r.ocrpages) ? (r.ocrpages as OcrPageMeta[]) : null,
+  }));
+}
+
+/**
+ * PAGE exacte d'un décalage de caractère dans le texte OCR concaténé. Le contenu stocké est
+ * `pages.map(p => p.text).join("\n\n")` : on reconstitue les bornes de chaque page par cumul de
+ * `chars` (+2 pour le séparateur). Pur, sans I/O — retourne null si pas de pagination fiable
+ * (texte natif sans `ocrPages`). C'est ce qui permet de citer « fichier · section · page N ».
+ */
+export function pageForOffset(ocrPages: OcrPageMeta[] | null | undefined, offset1Based: number): number | null {
+  if (!Array.isArray(ocrPages) || ocrPages.length === 0 || !(offset1Based > 0)) return null;
+  const off = offset1Based - 1; // 0-based
+  let cum = 0;
+  for (let i = 0; i < ocrPages.length; i++) {
+    const chars = typeof ocrPages[i]?.chars === "number" ? (ocrPages[i].chars as number) : 0;
+    if (off < cum + chars) return typeof ocrPages[i]?.page === "number" ? (ocrPages[i].page as number) : i + 1;
+    cum += chars + 2; // séparateur « \n\n »
+  }
+  const last = ocrPages[ocrPages.length - 1];
+  return typeof last?.page === "number" ? (last.page as number) : ocrPages.length;
 }
