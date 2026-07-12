@@ -1,6 +1,10 @@
 import { createHash, randomBytes } from "crypto";
+import { tmpdir } from "os";
+import { join } from "path";
+import { mkdtemp, rm } from "fs/promises";
+import { createWriteStream } from "fs";
 import { prisma } from "@/lib/prisma";
-import { ingestDossierZip, type IngestResult } from "../ingest/ingest-dossier";
+import { ingestDossierZip, ingestDossierZipFromFile, type IngestResult } from "../ingest/ingest-dossier";
 import { DEFAULT_ZIP_LIMITS } from "../ingest/zip-inspector";
 import { presignPutUrl, getObject, deleteObject, objectStorageConfigured } from "./object-storage";
 import { regAudit } from "../audit";
@@ -290,37 +294,50 @@ export async function finalizeUploadSession(sessionId: string, companyId: string
     const sumBytes = meta.reduce((s, p) => s + p.size, 0);
     if (sumBytes !== totalBytes) return abort(`Taille reçue incohérente (${sumBytes} ≠ ${totalBytes}).`);
 
-    // Assemblage frugal (UNE partie à la fois) vers un buffer pré-alloué + SHA-256 au passage.
-    const buffer = Buffer.allocUnsafe(totalBytes);
-    const hash = createHash("sha256");
-    let offset = 0;
-    for (let i = 0; i < expectedParts; i++) {
-      const part = await prisma.regulatoryUploadPart.findUnique({ where: { sessionId_index: { sessionId: session.id, index: i } }, select: { data: true } });
-      if (!part) {
-        await reopenFinalizing(session.id, `Partie ${i} introuvable.`);
-        return { ok: false, error: `Partie ${i + 1} introuvable — relancez pour reprendre.` };
+    // Assemblage vers un FICHIER TEMPORAIRE sur disque (jamais l'archive entière en RAM) : parties
+    // écrites en flux, SHA-256 calculé au passage. L'ingestion lit ensuite l'archive EN FLUX
+    // (yauzl, une entrée à la fois) → pic mémoire ≈ plus gros fichier, ce qui supprime l'OOM.
+    const tmpDir = await mkdtemp(join(tmpdir(), "reg-ctd-"));
+    const zipPath = join(tmpDir, "archive.zip");
+    try {
+      const ws = createWriteStream(zipPath);
+      const hash = createHash("sha256");
+      let offset = 0;
+      let writeErr: Error | null = null;
+      ws.on("error", (e) => { writeErr = e; });
+      for (let i = 0; i < expectedParts; i++) {
+        const part = await prisma.regulatoryUploadPart.findUnique({ where: { sessionId_index: { sessionId: session.id, index: i } }, select: { data: true } });
+        if (!part) {
+          ws.destroy();
+          await reopenFinalizing(session.id, `Partie ${i} introuvable.`);
+          return { ok: false, error: `Partie ${i + 1} introuvable — relancez pour reprendre.` };
+        }
+        const b = Buffer.from(part.data);
+        if (!ws.write(b)) await new Promise<void>((res) => ws.once("drain", res)); // backpressure disque
+        hash.update(b);
+        offset += b.length;
       }
-      const b = Buffer.from(part.data);
-      b.copy(buffer, offset);
-      hash.update(b);
-      offset += b.length;
-    }
-    if (offset !== totalBytes) return abort(`Assemblage incohérent (${offset} ≠ ${totalBytes}).`);
-    const sha = hash.digest("hex");
-    if (session.expectedSha256 && session.expectedSha256.toLowerCase() !== sha.toLowerCase()) {
-      return abort(`Empreinte SHA-256 non concordante (fichier corrompu en transit).`);
-    }
+      await new Promise<void>((res, rej) => { ws.on("error", rej); ws.end(() => res()); });
+      if (writeErr) throw writeErr;
+      if (offset !== totalBytes) return abort(`Assemblage incohérent (${offset} ≠ ${totalBytes}).`);
+      const sha = hash.digest("hex");
+      if (session.expectedSha256 && session.expectedSha256.toLowerCase() !== sha.toLowerCase()) {
+        return abort(`Empreinte SHA-256 non concordante (fichier corrompu en transit).`);
+      }
 
-    const ingest = await ingestDossierZip({ companyId, dossierId, actorId, filename: session.filename, buffer });
-    if (!ingest.ok) {
-      await abort(ingest.error ?? "Ingestion refusée.");
-      return { ok: false, error: ingest.error, ingest };
-    }
+      const ingest = await ingestDossierZipFromFile({ companyId, dossierId, actorId, filename: session.filename, zipPath });
+      if (!ingest.ok) {
+        await abort(ingest.error ?? "Ingestion refusée.");
+        return { ok: false, error: ingest.error, ingest };
+      }
 
-    await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "COMPLETED", blobId: null, versionId: ingest.versionId ?? null, receivedBytes: BigInt(totalBytes) } });
-    await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: session.id } }); // nettoyage des parties
-    await regAudit({ companyId, actorId, dossierId, action: "UPLOAD_SESSION_FINALIZE", detail: `Upload finalisé « ${session.filename} » (${Math.round(totalBytes / MB)} Mo, SHA-256 vérifié).` });
-    return { ok: true, ingest };
+      await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "COMPLETED", blobId: null, versionId: ingest.versionId ?? null, receivedBytes: BigInt(totalBytes) } });
+      await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: session.id } }); // nettoyage des parties
+      await regAudit({ companyId, actorId, dossierId, action: "UPLOAD_SESSION_FINALIZE", detail: `Upload finalisé « ${session.filename} » (${Math.round(totalBytes / MB)} Mo, SHA-256 vérifié).` });
+      return { ok: true, ingest };
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined); // nettoyage du fichier temporaire
+    }
   } catch (err) {
     // Erreur INATTENDUE (mémoire/DB transitoire) → JAMAIS coincer la session : réouvrir en UPLOADING
     // (reprise possible côté client). Réessayable : le client relance la finalisation.

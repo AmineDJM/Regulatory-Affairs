@@ -1,8 +1,9 @@
+import { readFile } from "fs/promises";
 import type { RegDocExtractionStatus, RegDocSecurityStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { putBlob, releaseBlob } from "@/lib/drive-storage";
 import { regAudit } from "../audit";
-import { inspectZip, type ManifestEntry, type SecurityStatus, type ZipInspection } from "./zip-inspector";
+import { inspectZip, inspectZipFile, type ManifestEntry, type SecurityStatus, type ZipInspection } from "./zip-inspector";
 
 /**
  * SERVICE D'INGESTION d'un dossier CTD (ZIP) — Regulatory Intelligence OS.
@@ -52,6 +53,7 @@ export interface IngestResult {
   summary?: IngestSummary;
 }
 
+/** Ingestion d'un dossier CTD depuis un BUFFER (petits fichiers, route directe). */
 export async function ingestDossierZip(opts: {
   companyId: string;
   dossierId: string;
@@ -60,7 +62,46 @@ export async function ingestDossierZip(opts: {
   buffer: Buffer;
   label?: string | null;
 }): Promise<IngestResult> {
-  const { companyId, dossierId, actorId, filename, buffer } = opts;
+  return ingestCore(
+    opts,
+    (onStorableEntry) => inspectZip(opts.buffer, { onStorableEntry }),
+    async () => opts.buffer,
+  );
+}
+
+/**
+ * Ingestion d'un dossier CTD depuis un FICHIER sur disque (gros dossiers, upload résumable). Lit
+ * l'archive EN FLUX (yauzl, une entrée à la fois) → pic mémoire ≈ plus gros fichier, jamais
+ * l'archive entière. Corrige l'OOM d'ingestion des gros ZIP.
+ */
+export async function ingestDossierZipFromFile(opts: {
+  companyId: string;
+  dossierId: string;
+  actorId: string;
+  filename: string;
+  zipPath: string;
+  label?: string | null;
+}): Promise<IngestResult> {
+  return ingestCore(
+    opts,
+    (onStorableEntry) => inspectZipFile(opts.zipPath, { onStorableEntry }),
+    () => readFile(opts.zipPath),
+  );
+}
+
+/**
+ * Cœur d'ingestion partagé (buffer OU fichier) : inspection sécurisée avec stockage inline,
+ * archive originale immuable, persistance atomique version + manifeste + job EXTRACT, rollback.
+ * `runInspection` fournit la source (buffer/flux) ; `getOriginalBytes` fournit les octets de
+ * l'archive originale à figer (lus seulement APRÈS l'inspection → opérations séquentielles, pas
+ * de double détention mémoire).
+ */
+async function ingestCore(
+  opts: { companyId: string; dossierId: string; actorId: string; filename: string; label?: string | null },
+  runInspection: (onStorableEntry: (entry: ManifestEntry, data: Buffer) => Promise<void>) => Promise<ZipInspection>,
+  getOriginalBytes: () => Promise<Buffer>,
+): Promise<IngestResult> {
+  const { companyId, dossierId, actorId, filename } = opts;
 
   // Blobs stockés pendant l'inspection → à libérer si la suite échoue.
   const blobByPath = new Map<string, string>();
@@ -71,11 +112,9 @@ export async function ingestDossierZip(opts: {
   // 1) + 2) Inspection sécurisée avec stockage inline des fichiers sûrs.
   let inspection: ZipInspection;
   try {
-    inspection = await inspectZip(buffer, {
-      onStorableEntry: async (entry: ManifestEntry, data: Buffer) => {
-        const b = await putBlob(data);
-        blobByPath.set(entry.path, b.blobId);
-      },
+    inspection = await runInspection(async (entry: ManifestEntry, data: Buffer) => {
+      const b = await putBlob(data);
+      blobByPath.set(entry.path, b.blobId);
     });
   } catch (err) {
     console.error("[ingest] inspection échouée", err);
@@ -93,11 +132,11 @@ export async function ingestDossierZip(opts: {
     return { ok: false, error: inspection.rejection?.message ?? "Archive refusée.", rejectionCode: inspection.rejection?.code };
   }
 
-  // 3) Archive ORIGINALE immuable.
+  // 3) Archive ORIGINALE immuable (octets lus seulement maintenant → pas de double détention mémoire).
   let originalBlobId: string;
   let originalSha256: string;
   try {
-    const ob = await putBlob(buffer);
+    const ob = await putBlob(await getOriginalBytes());
     originalBlobId = ob.blobId;
     originalSha256 = ob.sha256;
   } catch (err) {

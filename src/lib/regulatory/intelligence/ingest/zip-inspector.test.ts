@@ -1,12 +1,25 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import JSZip from "jszip";
-import { createHash } from "crypto";
-import { inspectZip, unsafePath } from "./zip-inspector";
+import { createHash, randomBytes } from "crypto";
+import { mkdtemp, writeFile, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
+import { inspectZip, inspectZipFile, unsafePath } from "./zip-inspector";
 
 async function makeZip(files: Record<string, Buffer | string>): Promise<Buffer> {
   const z = new JSZip();
   for (const [name, content] of Object.entries(files)) z.file(name, content);
   return z.generateAsync({ type: "nodebuffer" });
+}
+
+const _tmpDirs: string[] = [];
+/** Écrit un ZIP dans un fichier temporaire (pour tester le chemin STREAMING sur disque). */
+async function makeZipFile(files: Record<string, Buffer | string>): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "zip-inspect-test-"));
+  _tmpDirs.push(dir);
+  const path = join(dir, "archive.zip");
+  await writeFile(path, await makeZip(files));
+  return path;
 }
 
 describe("inspectZip — ingestion CTD sécurisée", () => {
@@ -105,5 +118,76 @@ describe("unsafePath — prédicat de sécurité pur (indépendant de JSZip)", (
     ]) {
       expect(unsafePath(p)).toBe(false);
     }
+  });
+});
+
+describe("inspectZipFile — inspection EN FLUX (mémoire bornée), parité sécurité avec inspectZip", () => {
+  afterAll(async () => {
+    for (const d of _tmpDirs) await rm(d, { recursive: true, force: true }).catch(() => undefined);
+  });
+
+  it("accepte une archive saine, calcule le SHA-256 exact et stocke chaque fichier UNE fois (flux)", async () => {
+    const content = Buffer.from("Rapport de stabilité — données");
+    const path = await makeZipFile({ "m3/3.2.p.8-stabilite.pdf": content, "m1/1.2-formulaire.docx": Buffer.from("form") });
+    const stored: string[] = [];
+    const res = await inspectZipFile(path, { onStorableEntry: async (e) => { stored.push(e.path); } });
+    expect(res.ok).toBe(true);
+    expect(res.entries).toHaveLength(2);
+    const stab = res.entries.find((e) => e.filename.startsWith("3.2.p.8"))!;
+    expect(stab.securityStatus).toBe("SAFE");
+    expect(stab.sha256).toBe(createHash("sha256").update(content).digest("hex"));
+    // Le rappel de stockage inline est bien appelé pour chaque fichier sûr (une entrée à la fois).
+    expect(stored.sort()).toEqual(["m1/1.2-formulaire.docx", "m3/3.2.p.8-stabilite.pdf"]);
+  });
+
+  it("bloque path traversal (absolu + backslash) SANS avorter l'archive, garde les fichiers sains", async () => {
+    const path = await makeZipFile({ "/etc/passwd": Buffer.from("x"), "..\\..\\evil": Buffer.from("w"), "ok.pdf": Buffer.from("y") });
+    const res = await inspectZipFile(path);
+    expect(res.ok).toBe(true);
+    expect(res.entries.filter((e) => e.securityStatus === "BLOCKED_PATH").length).toBeGreaterThanOrEqual(2);
+    expect(res.entries.find((e) => e.filename === "ok.pdf")?.securityStatus).toBe("SAFE");
+  });
+
+  it("refuse les exécutables / macros et bloque la profondeur excessive", async () => {
+    const exe = await makeZipFile({ "setup.exe": Buffer.from("MZ"), "macro.xlsm": Buffer.from("x"), "doc.pdf": Buffer.from("z") });
+    const r1 = await inspectZipFile(exe);
+    expect(r1.entries.find((e) => e.ext === "exe")?.securityStatus).toBe("BLOCKED_EXECUTABLE");
+    expect(r1.entries.find((e) => e.ext === "xlsm")?.securityStatus).toBe("BLOCKED_EXECUTABLE");
+    const deep = await makeZipFile({ "a/b/c/d/e/deep.pdf": Buffer.from("x") });
+    expect((await inspectZipFile(deep, { maxDepth: 2 })).entries[0].securityStatus).toBe("BLOCKED_PATH");
+  });
+
+  it("rejette trop de fichiers, archive vide et ZIP bomb (volume/ratio)", async () => {
+    const many = await makeZipFile({ "a.pdf": "1", "b.pdf": "2", "c.pdf": "3", "d.pdf": "4" });
+    expect((await inspectZipFile(many, { maxEntries: 3 })).rejection?.code).toBe("TOO_MANY_FILES");
+    const empty = await makeZipFile({});
+    expect((await inspectZipFile(empty)).rejection?.code).toBe("EMPTY");
+    const bomb = await makeZipFile({ "zeros.bin": Buffer.alloc(500 * 1024, 0) });
+    expect(["TOTAL_TOO_LARGE", "RATIO_EXCEEDED"]).toContain((await inspectZipFile(bomb, { maxTotalUncompressed: 100 * 1024 })).rejection?.code);
+  });
+
+  it("marque BLOCKED_OVERSIZE un fichier au-delà du plafond par fichier (coupé en flux)", async () => {
+    // Charge incompressible → le flux dépasse réellement le plafond avant d'être stocké.
+    const path = await makeZipFile({ "big.bin": randomBytes(400 * 1024), "small.pdf": Buffer.from("ok") });
+    const res = await inspectZipFile(path, { maxFileUncompressed: 100 * 1024 });
+    expect(res.ok).toBe(true);
+    expect(res.entries.find((e) => e.filename === "big.bin")?.securityStatus).toBe("BLOCKED_OVERSIZE");
+    expect(res.entries.find((e) => e.filename === "small.pdf")?.securityStatus).toBe("SAFE");
+  });
+
+  it("donne le MÊME manifeste que inspectZip (buffer) sur une archive réaliste — parité", async () => {
+    const files = {
+      "m1/1.0-lettre.txt": "DCI Amoxicilline",
+      "m3/3.2.p.8-stab.xlsx": randomBytes(20 * 1024),
+      "outils/run.exe": Buffer.from("MZ"),
+      "/abs.pdf": Buffer.from("x"),
+    };
+    const buf = await makeZip(files);
+    const path = await makeZipFile(files);
+    const viaBuffer = await inspectZip(buf);
+    const viaFile = await inspectZipFile(path);
+    const norm = (r: typeof viaBuffer) =>
+      r.entries.map((e) => ({ path: e.path, status: e.securityStatus, sha: e.sha256 })).sort((a, b) => a.path.localeCompare(b.path));
+    expect(norm(viaFile)).toEqual(norm(viaBuffer));
   });
 });
