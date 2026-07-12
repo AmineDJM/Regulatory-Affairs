@@ -59,6 +59,12 @@ function ocrConcurrency(): number {
 // (borne la taille de ligne pour un document de 10 000 pages, sans fausser les agrégats).
 const extractionMaxChars = () => clampInt(process.env.REG_EXTRACTION_MAX_CHARS, 20_000_000, 100_000, 200_000_000);
 const ocrStoredPages = () => clampInt(process.env.REG_OCR_STORED_PAGES, 5000, 100, 20_000);
+// SOUPAPE DE SÉCURITÉ (désactivée par défaut) : pdf-parse (extraction) et mupdf (OCR) chargent le
+// PDF ENTIER en mémoire ; sur une instance à faible RAM, un fichier de plusieurs centaines de Mo peut
+// provoquer un OOM. Défaut 1000 Mo → au-dessus du plafond de stockage (950 Mo) : aucun fichier n'est
+// bloqué en fonctionnement normal (pas de régression). À ABAISSER (ex. 200) sur une petite instance :
+// un fichier au-delà est alors marqué REVUE MANUELLE (sans être chargé) pour ne pas bloquer le lot.
+const maxProcessBytes = () => clampInt(process.env.REG_MAX_PROCESS_MB, 1000, 20, 4000) * 1024 * 1024;
 
 /**
  * Exécute `fn` sur `items` avec au plus `concurrency` traitements EN VOL (pool à curseur partagé).
@@ -198,9 +204,9 @@ async function handleExtract(job: RegulatoryJob): Promise<void> {
       securityStatus: { in: ["SAFE", "SUSPICIOUS"] },
       blobId: { not: null },
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { sizeBytes: "asc" }, // PETITS D'ABORD : un fichier géant ne bloque jamais les autres
     take: EXTRACT_BATCH,
-    select: { id: true, ext: true, blobId: true, originalPath: true, originalFilename: true },
+    select: { id: true, ext: true, blobId: true, originalPath: true, originalFilename: true, sizeBytes: true },
   });
 
   for (const doc of pending) {
@@ -250,9 +256,9 @@ async function handleOcr(job: RegulatoryJob): Promise<void> {
 
   const pending = await prisma.regulatoryDocument.findMany({
     where: { dossierVersionId: versionId, extractionStatus: "OCR_REQUIRED", blobId: { not: null } },
-    orderBy: { createdAt: "asc" },
+    orderBy: { sizeBytes: "asc" }, // petits d'abord (un scan géant ne bloque pas le lot)
     take: ocrBatchSize(),
-    select: { id: true, ext: true, blobId: true, originalPath: true, originalFilename: true },
+    select: { id: true, ext: true, blobId: true, originalPath: true, originalFilename: true, sizeBytes: true },
   });
 
   // Mistral (cloud) → pool parallèle (rapide) ; Tesseract (local) → concurrence 1 (séquentiel).
@@ -279,8 +285,14 @@ async function enqueueFacts(job: RegulatoryJob, versionId: string): Promise<void
 }
 
 /** Océrise UN document scanné et persiste texte + confiance + revue. Ne lève jamais. */
-async function ocrOne(doc: { id: string; ext: string; blobId: string | null; originalFilename: string }): Promise<void> {
+async function ocrOne(doc: { id: string; ext: string; blobId: string | null; originalFilename: string; sizeBytes: number }): Promise<void> {
   try {
+    // Garde ANTI-OOM (défense) : un scan trop volumineux (mupdf le chargerait en entier) → revue manuelle.
+    if (doc.sizeBytes > maxProcessBytes()) {
+      console.warn(`[reg-ocr] ${doc.originalFilename} (${Math.round(doc.sizeBytes / 1048576)} Mo) > seuil ${Math.round(maxProcessBytes() / 1048576)} Mo → revue manuelle.`);
+      await prisma.regulatoryDocument.update({ where: { id: doc.id }, data: { extractionStatus: "MANUAL_REVIEW_REQUIRED" } });
+      return;
+    }
     const buffer = doc.blobId ? await getBlob(doc.blobId) : null;
     if (!buffer || !canOcr(doc.ext)) {
       await prisma.regulatoryDocument.update({ where: { id: doc.id }, data: { extractionStatus: "MANUAL_REVIEW_REQUIRED" } });
@@ -501,7 +513,7 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
   });
 }
 
-interface ExtractDoc { id: string; ext: string; blobId: string | null; originalPath: string; originalFilename: string }
+interface ExtractDoc { id: string; ext: string; blobId: string | null; originalPath: string; originalFilename: string; sizeBytes: number }
 
 /**
  * Extrait un document (MIME + texte) PUIS le classe (CTD déterministe, avec le texte en main).
@@ -510,6 +522,13 @@ interface ExtractDoc { id: string; ext: string; blobId: string | null; originalP
 async function extractOne(doc: ExtractDoc): Promise<void> {
   const documentId = doc.id;
   try {
+    // Garde ANTI-OOM : un fichier trop volumineux n'est même pas chargé (pdf-parse/mupdf le liraient
+    // en entier) → marqué revue manuelle. Les autres fichiers du dossier continuent.
+    if (doc.sizeBytes > maxProcessBytes()) {
+      console.warn(`[reg-extract] ${doc.originalFilename} (${Math.round(doc.sizeBytes / 1048576)} Mo) > seuil ${Math.round(maxProcessBytes() / 1048576)} Mo → revue manuelle (augmenter REG_MAX_PROCESS_MB / la RAM, ou scinder le PDF).`);
+      await prisma.regulatoryDocument.update({ where: { id: documentId }, data: { extractionStatus: "MANUAL_REVIEW_REQUIRED" } });
+      return;
+    }
     const buffer = doc.blobId ? await getBlob(doc.blobId) : null;
     if (!buffer) {
       await prisma.regulatoryDocument.update({ where: { id: documentId }, data: { extractionStatus: "CORRUPTED" } });

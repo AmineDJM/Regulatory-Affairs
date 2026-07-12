@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft, Download, FileText, ShieldCheck, ShieldAlert, ShieldX, Layers, History, Eye,
-  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge, Bot, GitCompare, MailWarning, FlaskConical, Factory,
+  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge, Bot, GitCompare, MailWarning, FlaskConical, Factory, MessagesSquare,
 } from "lucide-react";
 import type { RegFindingSeverity } from "@prisma/client";
 import { requireModule } from "@/lib/session";
@@ -23,6 +23,7 @@ import { listLifecycle } from "@/lib/regulatory/intelligence/lifecycle/queries";
 import { prisma } from "@/lib/prisma";
 import { TwinPanel } from "./twin-panel";
 import { AgentsPanel } from "./agents-panel";
+import { DossierChatPanel } from "./chat-panel";
 import { DocgenPanel } from "./docgen-panel";
 import { ReservesPanel } from "./reserves-panel";
 import { SimulatorPanel } from "./simulator-panel";
@@ -324,6 +325,22 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
           </CardHeader>
           <CardContent>
             <AgentsPanel dossierId={dossier.id} agents={agents} configured={aiConfigured()} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Chatbot du dossier — questions/réponses ancrées, avec sources exactes (fichier · section · page) */}
+      {latest && canView && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><MessagesSquare className="h-4 w-4 text-primary" /> Discuter avec ce dossier</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Posez vos questions ; chaque réponse s'appuie sur les <strong>documents réellement lus</strong> et cite ses{" "}
+              <strong>sources exactes</strong>. L'assistant s'abstient hors de ce que contient le dossier (jamais d'invention).
+            </p>
+          </CardHeader>
+          <CardContent>
+            <DossierChatPanel dossierId={dossier.id} configured={aiConfigured()} canView={canView} />
           </CardContent>
         </Card>
       )}
