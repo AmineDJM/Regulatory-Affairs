@@ -31,6 +31,7 @@ export interface TwinDoc {
   originalFilename: string;
   ctdSection: string | null;
   ctdModule: string | null;
+  containedSections?: string[]; // sections CTD aussi présentes dans un PDF consolidé (Module X.pdf)
   securityStatus: string;
   extractionStatus: string;
   classificationMethod: string | null;
@@ -114,9 +115,15 @@ const isSectionKind = (k: LoadedRule["kind"]) => k === "SECTION_REQUIRED" || k =
 const isStorable = (s: string) => s === "SAFE" || s === "SUSPICIOUS";
 const isBlockedSec = (s: string) => s.startsWith("BLOCKED") || s === "CORRUPTED";
 
-/** Une section requise est « couverte » par un document classé sur elle ou une sous-section. */
+/**
+ * Une section requise est « couverte » par un document classé sur elle ou une sous-section — soit
+ * par sa section PRINCIPALE, soit par une des sections DÉTECTÉES à l'intérieur (PDF consolidé
+ * « Module X.pdf » qui regroupe plusieurs sections). Évite les fausses « sections manquantes ».
+ */
 function covered(code: string, docs: TwinDoc[]): boolean {
-  return docs.some((d) => d.ctdSection && (d.ctdSection === code || d.ctdSection.startsWith(`${code}.`)));
+  return docs.some((d) =>
+    [d.ctdSection, ...(d.containedSections ?? [])].some((s) => !!s && (s === code || s.startsWith(`${code}.`))),
+  );
 }
 
 const titleFor = (code: string) => sectionByCode(code)?.title ?? code;

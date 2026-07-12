@@ -229,6 +229,12 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                           ) : (
                             <span className="text-xs text-amber-600">non classé</span>
                           )}
+                          {!blocked && doc.containedSections.filter((s) => s !== doc.ctdSection).length > 0 && (
+                            <span className="mt-0.5 block max-w-[13rem] truncate text-[11px] text-primary"
+                              title={`Sections CTD aussi présentes dans ce PDF consolidé : ${doc.containedSections.join(", ")}`}>
+                              contient : {doc.containedSections.filter((s) => s !== doc.ctdSection).slice(0, 6).join(", ")}
+                            </span>
+                          )}
                         </td>
                         <td className="py-1.5 pr-3 whitespace-nowrap text-muted-foreground">{humanBytes(doc.sizeBytes)}</td>
                         <td className="py-1.5 pr-3">

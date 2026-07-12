@@ -23,10 +23,13 @@ export interface TwinDocLite {
   originalFilename: string;
   ctdSection: string | null;
   ctdModule: string | null;
+  containedSections?: string[]; // sections aussi présentes dans un PDF consolidé (Module X.pdf)
 }
 
 function coveredBy(code: string, docs: TwinDocLite[]): TwinDocLite[] {
-  return docs.filter((d) => d.ctdSection && (d.ctdSection === code || d.ctdSection.startsWith(`${code}.`)));
+  return docs.filter((d) =>
+    [d.ctdSection, ...(d.containedSections ?? [])].some((s) => !!s && (s === code || s.startsWith(`${code}.`))),
+  );
 }
 
 export function buildCoverage(procedureType: RegProcedureType, docs: TwinDocLite[]): CoverageRow[] {

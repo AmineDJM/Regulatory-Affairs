@@ -4,6 +4,7 @@ import { getBlob } from "@/lib/drive-storage";
 import { extractText } from "../extract/extract-text";
 import { detectMime } from "../extract/mime";
 import { classifyDocument } from "../ctd/classify";
+import { detectContainedSections } from "../ctd/detect-sections";
 import { assessVersion, type TwinDoc } from "../rules/engine";
 import { loadActiveRules, loadPresentFactKeys } from "../rules/rule-engine";
 import { ocrDocument, canOcr } from "../ocr/ocr-engine";
@@ -361,8 +362,24 @@ async function handleRules(job: RegulatoryJob): Promise<void> {
 
   const docs = await prisma.regulatoryDocument.findMany({
     where: { dossierVersionId: versionId },
-    select: { id: true, originalFilename: true, ctdSection: true, ctdModule: true, securityStatus: true, extractionStatus: true, classificationMethod: true },
+    select: { id: true, originalFilename: true, ctdSection: true, ctdModule: true, containedSections: true, securityStatus: true, extractionStatus: true, classificationMethod: true },
   });
+
+  // Rattrapage multi-sections : pour un document déjà lu MAIS sans sections détectées (dossier
+  // analysé avant cette fonctionnalité, ou « Relancer l'analyse »), on les calcule depuis le texte
+  // déjà stocké (un document à la fois → mémoire bornée) et on les persiste. Corrige les fausses
+  // « sections manquantes » d'un gros PDF consolidé sans devoir tout ré-extraire.
+  for (const d of docs) {
+    if (d.containedSections.length > 0) continue;
+    const ext = await prisma.regulatoryExtraction.findUnique({ where: { documentId: d.id }, select: { content: true } });
+    if (!ext?.content) continue;
+    const detected = detectContainedSections(ext.content).map((x) => x.code);
+    if (detected.length > 0) {
+      await prisma.regulatoryDocument.update({ where: { id: d.id }, data: { containedSections: detected } }).catch(() => undefined);
+      d.containedSections = detected;
+    }
+  }
+
   const twinDocs: TwinDoc[] = docs.map((d) => ({ ...d, securityStatus: String(d.securityStatus), extractionStatus: String(d.extractionStatus) }));
 
   // G5 : règles administrables du/des pack(s) ACTIF(s) — sinon repli sur les profils codés.
@@ -539,6 +556,8 @@ async function extractOne(doc: ExtractDoc): Promise<void> {
 
     // Classification CTD déterministe (chemin/nom + texte extrait) — proposition.
     const cls = classifyDocument({ path: doc.originalPath, filename: doc.originalFilename, ext: doc.ext, textSample: result.text });
+    // MULTI-SECTIONS : sections CTD réellement présentes dans le TEXTE (PDF consolidé « Module X.pdf »).
+    const contained = detectContainedSections(result.text).map((d) => d.code);
 
     await prisma.$transaction([
       prisma.regulatoryDocument.update({
@@ -548,6 +567,7 @@ async function extractOne(doc: ExtractDoc): Promise<void> {
           detectedMimeType: mime.mime,
           ctdModule: cls.module,
           ctdSection: cls.section,
+          containedSections: contained,
           ctdConfidence: cls.confidence,
           classificationMethod: cls.method,
           suggestedFilename: cls.suggestedFilename,
