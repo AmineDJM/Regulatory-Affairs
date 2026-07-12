@@ -1,13 +1,17 @@
 import { ensureLangData, ocrCacheDir, defaultOcrLangs } from "./lang-data";
+import { mistralOcrConfigured, mistralOcrDocument } from "./mistral-ocr";
 
 /**
- * MOTEUR OCR RÉEL (G13) — auto-hébergé, sans service tiers ni clé.
- *  - `mupdf` (WASM) : rastérise chaque page d'un PDF scanné en image ;
- *  - `sharp` : pré-traitement (auto-rotation EXIF, niveaux de gris, normalisation, borne de taille) ;
- *  - `tesseract.js` (WASM) : reconnaissance fr/en/ar avec score de confiance par page.
+ * MOTEUR OCR (G13) — deux moteurs, contrat commun (`OcrResult`) :
+ *  1. PRIMAIRE — Mistral OCR (cloud, `mistral-ocr-latest`) quand `MISTRAL_API_KEY` est présent :
+ *     un appel réseau par document, rapide et précis (multi-pages géré côté serveur) ;
+ *  2. REPLI/AUTO-HÉBERGÉ — `mupdf` (rastérisation) + `sharp` (pré-traitement) + `tesseract.js`
+ *     (reconnaissance fr/en/ar, score de confiance par page), sans service tiers ni clé.
  *
- * Le texte OCR est stocké SÉPARÉMENT du texte natif (méthode = "ocr"). Les pages de faible
- * confiance sont signalées pour REVUE HUMAINE (jamais présumées correctes).
+ * Sélection par `REG_OCR_ENGINE` : "auto" (défaut — Mistral si clé, sinon Tesseract, avec repli
+ * automatique sur Tesseract en cas d'échec Mistral), "mistral" (forcé, pas de repli), "tesseract"
+ * (forcé local). Le texte OCR est stocké SÉPARÉMENT du texte natif (méthode = "ocr"). Les pages de
+ * faible confiance sont signalées pour REVUE HUMAINE (jamais présumées correctes).
  */
 
 export interface OcrPage {
@@ -96,12 +100,28 @@ async function createOcrWorker(langs: string[]): Promise<{ worker: Worker; versi
 }
 
 /**
- * Océrise un document (image ou PDF scanné). Réutilise un seul worker Tesseract pour toutes
- * les pages. Renvoie le texte par page + la confiance + le signalement de revue humaine.
+ * Océrise un document (image ou PDF scanné). Aiguille vers Mistral OCR (cloud) quand il est
+ * configuré et autorisé, sinon vers Tesseract (auto-hébergé). En mode "auto", tout échec Mistral
+ * (réseau, quota, indisponibilité) bascule silencieusement sur Tesseract — jamais de perte.
  */
 export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: string[]; maxPages?: number }): Promise<OcrResult> {
   const ext = input.ext.toLowerCase();
   if (!canOcr(ext)) throw new Error(`OCR non supporté pour « ${ext} ».`);
+
+  const engine = (process.env.REG_OCR_ENGINE ?? "auto").trim().toLowerCase();
+  if (engine !== "tesseract" && mistralOcrConfigured()) {
+    try {
+      return await mistralOcrDocument(input);
+    } catch (err) {
+      if (engine === "mistral") throw err; // moteur forcé → pas de repli silencieux
+      console.error("[reg-ocr] Mistral OCR indisponible → repli Tesseract :", err instanceof Error ? err.message : err);
+    }
+  }
+  return ocrWithTesseract(input, ext);
+}
+
+/** OCR auto-hébergé : rastérisation mupdf + pré-traitement sharp + reconnaissance Tesseract. */
+async function ocrWithTesseract(input: { ext: string; buffer: Buffer; langs?: string[]; maxPages?: number }, ext: string): Promise<OcrResult> {
   const langs = input.langs && input.langs.length > 0 ? input.langs : defaultOcrLangs();
   const maxPages = input.maxPages ?? MAX_PAGES;
 

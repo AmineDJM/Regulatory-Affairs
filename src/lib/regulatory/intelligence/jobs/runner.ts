@@ -7,6 +7,7 @@ import { classifyDocument } from "../ctd/classify";
 import { assessVersion, type TwinDoc } from "../rules/engine";
 import { loadActiveRules, loadPresentFactKeys } from "../rules/rule-engine";
 import { ocrDocument, canOcr } from "../ocr/ocr-engine";
+import { mistralOcrConfigured } from "../ocr/mistral-ocr";
 import { buildTwinFacts } from "../twin/build-facts";
 import { detectConflicts } from "../twin/detect-conflicts";
 import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
@@ -27,9 +28,44 @@ import { regAudit } from "../audit";
 const STALE_LOCK_MS = 5 * 60_000; // un job « RUNNING » figé > 5 min est repris
 const MAX_JOBS_PER_TICK = 5;
 const EXTRACT_BATCH = 20; // documents traités par passage (le reste est re-mis en file)
-const OCR_BATCH = 3; // OCR = lourd (WASM par page) → peu de documents par passage, reste re-mis en file
+const OCR_BATCH_LOCAL = 3; // Tesseract = WASM/CPU lourd → petit lot séquentiel, reste re-mis en file
 
 const ocrEnabled = () => (process.env.REG_OCR_ENABLED ?? "1") !== "0";
+
+/**
+ * Débit OCR adapté au moteur actif. Mistral (cloud) = latence RÉSEAU → on parallélise un gros
+ * lot (plusieurs documents en vol) pour finir un dossier en quelques minutes. Tesseract (WASM
+ * local, CPU/mémoire) reste SÉQUENTIEL (concurrence 1) sur un petit lot pour borner la RAM.
+ */
+function ocrIsCloud(): boolean {
+  return (process.env.REG_OCR_ENGINE ?? "auto").trim().toLowerCase() !== "tesseract" && mistralOcrConfigured();
+}
+function clampInt(raw: string | undefined, def: number, min: number, max: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+function ocrBatchSize(): number {
+  return ocrIsCloud() ? clampInt(process.env.REG_OCR_BATCH, 24, 1, 200) : OCR_BATCH_LOCAL;
+}
+function ocrConcurrency(): number {
+  return ocrIsCloud() ? clampInt(process.env.REG_OCR_CONCURRENCY, 6, 1, 20) : 1;
+}
+
+/**
+ * Exécute `fn` sur `items` avec au plus `concurrency` traitements EN VOL (pool à curseur partagé).
+ * `fn` NE DOIT JAMAIS lever (ici `ocrOne` avale ses erreurs) — le pool n'a donc pas à récupérer.
+ */
+async function runPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length || 1) }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await fn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+}
 
 export async function runDueRegulatoryJobs(max = MAX_JOBS_PER_TICK): Promise<void> {
   // Reprise des jobs bloqués (process interrompu) : verrou expiré → re-QUEUED.
@@ -207,13 +243,12 @@ async function handleOcr(job: RegulatoryJob): Promise<void> {
   const pending = await prisma.regulatoryDocument.findMany({
     where: { dossierVersionId: versionId, extractionStatus: "OCR_REQUIRED", blobId: { not: null } },
     orderBy: { createdAt: "asc" },
-    take: OCR_BATCH,
+    take: ocrBatchSize(),
     select: { id: true, ext: true, blobId: true, originalPath: true, originalFilename: true },
   });
 
-  for (const doc of pending) {
-    await ocrOne(doc);
-  }
+  // Mistral (cloud) → pool parallèle (rapide) ; Tesseract (local) → concurrence 1 (séquentiel).
+  await runPool(pending, ocrConcurrency(), ocrOne);
 
   const remaining = await prisma.regulatoryDocument.count({
     where: { dossierVersionId: versionId, extractionStatus: "OCR_REQUIRED", blobId: { not: null } },

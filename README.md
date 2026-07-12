@@ -913,6 +913,8 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `MAIL_BREAKER_THRESHOLD` · `MAIL_BREAKER_COOLDOWN_MS` | ⬜ | Disjoncteur mail : nb d'échecs avant ouverture (défaut 3) · temps de repos sans solliciter Infomaniak (défaut 30000 ms). |
 | `MAIL_CACHE_FRESH_MS` · `MAIL_CACHE_STALE_MS` | ⬜ | Cache boîte mail : fenêtre « frais » servie sans IMAP (défaut 10000) · repli max sur cache si saturé (défaut 900000). |
 | `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` | ⬜ | Notifications **push** (PWA Web Push). |
+| `MISTRAL_API_KEY` | ⬜ | Active **Mistral OCR** (moteur OCR primaire, cloud, rapide) pour l'analyse CTD. Absent → repli automatique sur l'OCR local tesseract.js (aucune perte). Service tiers **payant à la page**, réseau sortant requis. |
+| `REG_OCR_ENGINE` · `REG_OCR_CONCURRENCY` · `REG_OCR_BATCH` | ⬜ | Moteur OCR (`auto`\|`mistral`\|`tesseract`, défaut `auto`) · parallélisme Mistral (défaut 6, 1-20) · documents par passage (défaut 24). |
 
 > \* Requis **ensemble** uniquement pour activer l'édition Office. Côté **service OnlyOffice**, poser
 > `JWT_ENABLED=true` et `JWT_SECRET=<même valeur que ONLYOFFICE_JWT_SECRET>`.
@@ -1108,9 +1110,15 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   - **Génération documentaire (G10)** : 10 templates `.docx` versionnés (pizzip + docxtemplater), données du
     **jumeau APPROUVÉ uniquement** (non approuvé → « [À COMPLÉTER] »).
   - **Reviewer Simulator (G11)** : stress test 10 perspectives — **simulation interne NON prédictive**.
-  - **OCR RÉEL (G13)** : tesseract.js + mupdf (rastérisation PDF) + sharp, données de langue **locales** fr/en/ar
-    (paquets npm, hors-ligne) ; texte + confiance par page, natif vs OCR séparés, pages faibles → revue humaine.
-    Mesuré : image ~0,4 s ; page PDF ~0,7 s ; confiance 90-94 %.
+  - **OCR RÉEL (G13)** — **deux moteurs, contrat commun** (`REG_OCR_ENGINE` = `auto`|`mistral`|`tesseract`) :
+    1. **PRIMAIRE — Mistral OCR** (`mistral-ocr-latest`, cloud) quand `MISTRAL_API_KEY` est présent : **un seul
+       appel réseau par document** (multi-pages géré côté serveur), rapide et précis. Le runner **parallélise**
+       l'OCR (pool `REG_OCR_CONCURRENCY`≈6, lot `REG_OCR_BATCH`≈24) → dossier de 50-100 fichiers océrisé en
+       **quelques minutes** (au lieu de 1-3 h). Service **tiers payant à la page**, réseau sortant requis.
+    2. **REPLI/AUTO-HÉBERGÉ — tesseract.js** + mupdf (rastérisation PDF) + sharp, langue **locale** fr/en/ar
+       (hors-ligne, séquentiel). En mode `auto`, tout échec Mistral (réseau/quota) bascule dessus — **jamais de perte**.
+    Texte + confiance par page, natif vs OCR séparés, pages vides/faibles → **revue humaine**. Mistral ne score pas
+    la confiance → page non vide présumée fiable (95), page vide → 0/revue. Code : `ocr/{ocr-engine,mistral-ocr}.ts`.
   - **Upload résumable (G14)** : session + parties (chemin d'upload borné à **une partie** en RAM), reprise,
     vérif taille + **SHA-256**, finalisation explicite (assemblage en flux), quotas org, concurrence, nettoyage.
     Charge mesurée (RSS) : 50/150/300 Mo — pic UPLOAD ≈ une partie ; pic FINALISATION croît avec la taille.
