@@ -169,3 +169,51 @@ export async function deleteObject(key: string): Promise<void> {
     console.error("[reg-object-storage] delete", key, err instanceof Error ? err.message : err);
   }
 }
+
+/** Extrait les noms de bucket (`<Name>…</Name>`) d'une réponse S3 ListBuckets. Exporté pour test.
+ *  `<DisplayName>` du propriétaire n'est PAS capturé (le tag n'est pas `<Name>`). */
+export function parseBucketNames(xml: string): string[] {
+  const names: string[] = [];
+  const re = /<Name>([^<]+)<\/Name>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) names.push(m[1]);
+  return names;
+}
+
+/** Hôte de l'endpoint configuré (ex. `<acct>.r2.cloudflarestorage.com`) — pour diagnostic (non sensible). */
+export function configuredEndpointHost(): string {
+  const cfg = config();
+  if (!cfg) return "";
+  try { return new URL(cfg.endpoint).host; } catch { return ""; }
+}
+
+/**
+ * Liste les buckets visibles pour ces identifiants À CET endpoint (S3 ListBuckets, GET `/`).
+ * Diagnostic décisif : si le bucket cible n'apparaît pas ici alors que les clés sont valides
+ * (auth OK), c'est un décalage d'endpoint/JURIDICTION (ex. bucket créé en juridiction UE →
+ * l'endpoint doit contenir `.eu.`). Lève une erreur explicite si l'appel échoue.
+ */
+export async function listBuckets(): Promise<string[]> {
+  const cfg = config();
+  if (!cfg) throw new Error("Stockage objet non configuré.");
+  const base = new URL(cfg.endpoint);
+  const host = base.host;
+  const resourcePath = "/"; // racine du service = ListBuckets (aucun bucket dans le chemin)
+  const { amz, date } = amzDate(new Date());
+  const scope = `${date}/${cfg.region}/${SERVICE}/aws4_request`;
+  const payloadHash = EMPTY_SHA256;
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amz}\n`;
+  const canonicalRequest = ["GET", resourcePath, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const stringToSign = [ALGO, amz, scope, sha256hex(canonicalRequest)].join("\n");
+  const signature = createHmac("sha256", signingKey(cfg, date)).update(stringToSign).digest("hex");
+  const authorization = `${ALGO} Credential=${cfg.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const headers: Record<string, string> = { "x-amz-content-sha256": payloadHash, "x-amz-date": amz, authorization };
+  const res = await fetch(`${base.protocol}//${host}${resourcePath}`, { method: "GET", headers });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    const code = s3ErrorCode(detail);
+    throw new Error(`Liste des buckets échouée (${res.status}${code ? ` ${code}` : ""}).`);
+  }
+  return parseBucketNames(await res.text());
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { objectStorageConfigured, presignPutUrl, _deriveSigningKeyHex } from "./object-storage";
+import { objectStorageConfigured, presignPutUrl, _deriveSigningKeyHex, parseBucketNames } from "./object-storage";
 
 /**
  * Vérifie la signature SigV4 faite main (chantier 1 — upload direct S3/R2) SANS bucket réel :
@@ -50,5 +50,19 @@ describe("object-storage — SigV4 (S3/R2), sans dépendance SDK", () => {
     expect(u.searchParams.get("X-Amz-Credential")).toContain("AKIAEXAMPLE/");
     expect(u.searchParams.get("X-Amz-Credential")).toContain("/auto/s3/aws4_request");
     expect(u.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("parseBucketNames — extrait les noms de bucket, ignore le DisplayName du propriétaire", () => {
+    // Réponse S3/R2 ListBuckets réaliste : le <DisplayName> du <Owner> ne doit PAS être capturé.
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+      <ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+        <Owner><ID>abc123</ID><DisplayName>compte-adventum</DisplayName></Owner>
+        <Buckets>
+          <Bucket><Name>ctd</Name><CreationDate>2026-07-01T00:00:00.000Z</CreationDate></Bucket>
+          <Bucket><Name>drive-blobs</Name><CreationDate>2026-07-02T00:00:00.000Z</CreationDate></Bucket>
+        </Buckets>
+      </ListAllMyBucketsResult>`;
+    expect(parseBucketNames(xml)).toEqual(["ctd", "drive-blobs"]);
+    expect(parseBucketNames("<Buckets></Buckets>")).toEqual([]);
   });
 });
