@@ -210,8 +210,16 @@ export async function inspectZip(buffer: Buffer, opts: InspectOptions = {}): Pro
       note: nested ? "Archive imbriquée — non décompressée automatiquement." : undefined,
     };
     entries.push(entry);
-    // Stockage inline (un fichier à la fois) : l'ingestion persiste le blob ici même.
-    if (onStorableEntry) await onStorableEntry(entry, data);
+    // Stockage inline (un fichier à la fois). Un échec de STOCKAGE marque le fichier SANS faire
+    // tomber toute l'archive (le fichier a été lu, mais non conservé → à renvoyer).
+    if (onStorableEntry) {
+      try { await onStorableEntry(entry, data); }
+      catch (err) {
+        console.error("[inspectZip] stockage entrée échoué", entry.path, err instanceof Error ? err.message : err);
+        entry.securityStatus = "CORRUPTED";
+        entry.note = "Fichier lu mais stockage momentanément indisponible — non conservé, réessayez.";
+      }
+    }
   }
 
   const totalBytes = entries.reduce((s, e) => s + (e.securityStatus === "SAFE" || e.securityStatus === "SUSPICIOUS" ? e.sizeBytes : 0), 0);
@@ -281,6 +289,17 @@ function readEntryCapped(zip: ZipFile, entry: Entry, cap: number): Promise<Buffe
 }
 
 export async function inspectZipFile(zipPath: string, opts: InspectOptions = {}): Promise<ZipInspection> {
+  // Filet ULTIME : `inspectZipFile` ne LÈVE JAMAIS — au pire elle renvoie un rejet propre (jamais
+  // d'exception qui ferait échouer toute l'ingestion avec un message cryptique).
+  try {
+    return await inspectZipFileInner(zipPath, opts);
+  } catch (err) {
+    console.error("[inspectZipFile] erreur inattendue", err);
+    return reject("CORRUPT_ARCHIVE", "Archive illisible (erreur inattendue lors de l'inspection).", 0);
+  }
+}
+
+async function inspectZipFileInner(zipPath: string, opts: InspectOptions = {}): Promise<ZipInspection> {
   const { onStorableEntry, ...limOpts } = opts;
   const lim = { ...DEFAULT_ZIP_LIMITS, ...limOpts };
   const archiveBytes = (await stat(zipPath)).size;
@@ -319,14 +338,19 @@ export async function inspectZipFile(zipPath: string, opts: InspectOptions = {})
   }
 
   // ── PASSE 2 — extraction EN FLUX, une entrée à la fois (pic mémoire ≈ plus gros fichier).
+  // ROBUSTESSE TOTALE : AUCUNE erreur d'entrée n'avorte l'archive. Un fichier illisible / chiffré /
+  // au format non supporté / non stockable est MARQUÉ (avec sa raison exacte) et l'on CONTINUE →
+  // les fichiers sains sont ingérés, les autres remontés au manifeste pour re-soumission ciblée.
   const entries: ManifestEntry[] = [];
   let accumulated = 0;
   let zip: ZipFile;
-  try { zip = await openZipFile(zipPath); } catch { return reject("CORRUPT_ARCHIVE", "Archive illisible ou corrompue.", archiveBytes); }
+  try { zip = await openZipFile(zipPath); } catch { return reject("CORRUPT_ARCHIVE", "Archive illisible ou corrompue (répertoire central).", archiveBytes); }
+  zip.on("error", () => { /* capté → jamais d'évènement 'error' non géré pendant l'extraction */ });
   try {
     for (;;) {
       let e: Entry | null;
-      try { e = await nextEntry(zip); } catch { return reject("CORRUPT_ARCHIVE", "Archive illisible ou corrompue.", archiveBytes); }
+      try { e = await nextEntry(zip); }
+      catch { break; } // erreur structurelle de lecture → on s'arrête proprement AVEC ce qu'on a déjà lu
       if (!e) break;
       const path = entryName(e);
       if (/\/$/.test(path)) continue; // dossier
@@ -334,53 +358,54 @@ export async function inspectZipFile(zipPath: string, opts: InspectOptions = {})
       const ext = extOf(path);
       const declaredU = Number(e.uncompressedSize) || 0;
       const declaredC = Number(e.compressedSize) || 0;
+      const blocked = (securityStatus: SecurityStatus, note: string) =>
+        entries.push({ path, filename, ext, sizeBytes: declaredU, sha256: "", securityStatus, note });
 
-      // 1) Chemin dangereux → bloqué, non extrait.
-      if (unsafePath(path) || path.split("/").length - 1 > lim.maxDepth) {
-        entries.push({ path, filename, ext, sizeBytes: declaredU, sha256: "", securityStatus: "BLOCKED_PATH", note: "Chemin non sûr ou profondeur excessive — non extrait." });
-        continue;
-      }
-      // 2) Exécutable / script / macro → jamais matérialisé.
-      if (BLOCKED_EXT.has(ext)) {
-        entries.push({ path, filename, ext, sizeBytes: declaredU, sha256: "", securityStatus: "BLOCKED_EXECUTABLE", note: "Exécutable/script/macro — refusé." });
-        continue;
-      }
-      // 3) Entrée chiffrée → non traitée (yauzl le signale sans lire).
-      if (typeof e.isEncrypted === "function" && e.isEncrypted()) {
-        entries.push({ path, filename, ext, sizeBytes: declaredU, sha256: "", securityStatus: "BLOCKED_ENCRYPTED", note: "Entrée chiffrée — non traitée." });
-        continue;
-      }
-      // 4) Garde total avant extraction (taille déclarée).
-      if (accumulated + declaredU > lim.maxTotalUncompressed) {
-        return reject("TOTAL_TOO_LARGE", "Dépassement du volume total à l'extraction.", archiveBytes);
-      }
+      try {
+        // 1) Chemin dangereux → bloqué, non extrait.
+        if (unsafePath(path) || path.split("/").length - 1 > lim.maxDepth) { blocked("BLOCKED_PATH", "Chemin non sûr ou profondeur excessive — non extrait."); continue; }
+        // 2) Exécutable / script / macro → jamais matérialisé.
+        if (BLOCKED_EXT.has(ext)) { blocked("BLOCKED_EXECUTABLE", "Exécutable/script/macro — refusé pour raison de sécurité."); continue; }
+        // 3) Entrée chiffrée → non traitée.
+        if (typeof e.isEncrypted === "function" && e.isEncrypted()) { blocked("BLOCKED_ENCRYPTED", "Entrée protégée par mot de passe — retirez le chiffrement et renvoyez ce fichier."); continue; }
+        // 4) Garde total (taille déclarée) → fichier marqué, pas d'abandon de l'archive.
+        if (accumulated + declaredU > lim.maxTotalUncompressed) { blocked("BLOCKED_OVERSIZE", "Volume total du dossier dépassé — ce fichier n'a pas été conservé."); continue; }
 
-      // 5) Extraction EN FLUX bornée + hash.
-      let data: Buffer | "OVERSIZE";
-      try { data = await readEntryCapped(zip, e, lim.maxFileUncompressed); }
-      catch { entries.push({ path, filename, ext, sizeBytes: declaredU, sha256: "", securityStatus: "BLOCKED_ENCRYPTED", note: "Entrée illisible/chiffrée — non traitée." }); continue; }
-      if (data === "OVERSIZE") {
-        entries.push({ path, filename, ext, sizeBytes: declaredU, sha256: "", securityStatus: "BLOCKED_OVERSIZE", note: "Fichier trop volumineux — non conservé." });
-        continue;
-      }
-      accumulated += data.length;
-      if (accumulated > lim.maxTotalUncompressed) {
-        return reject("TOTAL_TOO_LARGE", "Dépassement du volume total à l'extraction.", archiveBytes);
-      }
+        // 5) Extraction EN FLUX bornée + hash. Toute erreur de décompression → marquée, on continue.
+        let data: Buffer | "OVERSIZE";
+        try { data = await readEntryCapped(zip, e, lim.maxFileUncompressed); }
+        catch (err) { console.error("[inspectZipFile] décompression échouée", path, err instanceof Error ? err.message : err); blocked("CORRUPTED", "Décompression impossible (format de compression non supporté ou fichier corrompu) — renvoyez ce fichier."); continue; }
+        if (data === "OVERSIZE") { blocked("BLOCKED_OVERSIZE", "Fichier trop volumineux — non conservé."); continue; }
 
-      const sha256 = createHash("sha256").update(data).digest("hex");
-      const ratio = declaredC > 0 ? data.length / declaredC : undefined;
-      const nested = NESTED_ARCHIVE_EXT.has(ext);
-      const entry: ManifestEntry = {
-        path, filename, ext, sizeBytes: data.length, sha256, compressionRatio: ratio,
-        securityStatus: nested ? "SUSPICIOUS" : "SAFE",
-        note: nested ? "Archive imbriquée — non décompressée automatiquement." : undefined,
-      };
-      entries.push(entry);
-      if (onStorableEntry) await onStorableEntry(entry, data); // stockage inline, un fichier à la fois
+        accumulated += data.length;
+        const sha256 = createHash("sha256").update(data).digest("hex");
+        const ratio = declaredC > 0 ? data.length / declaredC : undefined;
+        const nested = NESTED_ARCHIVE_EXT.has(ext);
+        const entry: ManifestEntry = {
+          path, filename, ext, sizeBytes: data.length, sha256, compressionRatio: ratio,
+          securityStatus: nested ? "SUSPICIOUS" : "SAFE",
+          note: nested ? "Archive imbriquée — non décompressée automatiquement." : undefined,
+        };
+        // 6) Stockage inline (un fichier à la fois). Un échec de STOCKAGE marque le fichier sans
+        // faire tomber l'archive (le fichier a été lu, mais non conservé → à renvoyer).
+        if (onStorableEntry) {
+          try { await onStorableEntry(entry, data); }
+          catch (err) {
+            console.error("[inspectZipFile] stockage entrée échoué", path, err instanceof Error ? err.message : err);
+            entry.securityStatus = "CORRUPTED";
+            entry.note = "Fichier lu mais stockage momentanément indisponible — non conservé, réessayez.";
+          }
+        }
+        entries.push(entry);
+      } catch (err) {
+        // Garde-fou ULTIME par entrée : quoi qu'il arrive, on marque et on continue.
+        console.error("[inspectZipFile] entrée en erreur", path, err instanceof Error ? err.message : err);
+        blocked("CORRUPTED", "Entrée illisible — non traitée, renvoyez ce fichier.");
+      }
     }
   } finally { zip.close(); }
 
+  if (entries.length === 0) return reject("CORRUPT_ARCHIVE", "Aucune entrée exploitable dans l'archive.", archiveBytes);
   const totalBytes = entries.reduce((s, e) => s + (e.securityStatus === "SAFE" || e.securityStatus === "SUSPICIOUS" ? e.sizeBytes : 0), 0);
   return { ok: true, entries, totals: { files: entries.length, totalBytes, archiveBytes } };
 }

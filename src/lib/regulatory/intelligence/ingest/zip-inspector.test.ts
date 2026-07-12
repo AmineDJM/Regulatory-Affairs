@@ -175,6 +175,20 @@ describe("inspectZipFile — inspection EN FLUX (mémoire bornée), parité séc
     expect(res.entries.find((e) => e.filename === "small.pdf")?.securityStatus).toBe("SAFE");
   });
 
+  it("un échec de STOCKAGE d'un fichier ne fait PAS tomber l'archive (marqué, les autres passent)", async () => {
+    // Robustesse « niveau app mondiale » : un fichier qui pose problème est signalé avec sa raison,
+    // les fichiers sains sont quand même ingérés (plus jamais « Échec de l'inspection de l'archive »).
+    const path = await makeZipFile({ "ok1.pdf": "a", "boom.pdf": "b", "ok2.pdf": "c" });
+    const res = await inspectZipFile(path, {
+      onStorableEntry: async (e) => { if (e.filename === "boom.pdf") throw new Error("stockage indisponible"); },
+    });
+    expect(res.ok).toBe(true);
+    expect(res.entries.find((e) => e.filename === "boom.pdf")?.securityStatus).toBe("CORRUPTED");
+    expect(res.entries.find((e) => e.filename === "boom.pdf")?.note).toMatch(/stockage/i);
+    expect(res.entries.find((e) => e.filename === "ok1.pdf")?.securityStatus).toBe("SAFE");
+    expect(res.entries.find((e) => e.filename === "ok2.pdf")?.securityStatus).toBe("SAFE");
+  });
+
   it("donne le MÊME manifeste que inspectZip (buffer) sur une archive réaliste — parité", async () => {
     const files = {
       "m1/1.0-lettre.txt": "DCI Amoxicilline",

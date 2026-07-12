@@ -42,22 +42,32 @@ export function canOcr(ext: string): boolean {
   return e === "pdf" || IMAGE_EXTS.has(e);
 }
 
-/** Rastérise les pages d'un PDF en PNG via mupdf (auto-réparation des PDF imparfaits). */
-async function rasterizePdf(buffer: Buffer, maxPages: number): Promise<{ pages: Buffer[]; total: number }> {
+/**
+ * Rastérise les pages d'un PDF en PNG via mupdf (auto-réparation des PDF imparfaits).
+ * ROBUSTE PAR PAGE : une page qui refuse de se rastériser (page corrompue) est SAUTÉE — on
+ * rastérise toutes les autres. Jamais une seule mauvaise page ne fait perdre tout le document.
+ */
+async function rasterizePdf(buffer: Buffer, maxPages: number): Promise<{ pages: Buffer[]; total: number; failedPages: number }> {
   const mupdf = await import("mupdf");
   const doc = mupdf.Document.openDocument(new Uint8Array(buffer), "application/pdf");
   const total = doc.countPages();
   const pages: Buffer[] = [];
+  let failedPages = 0;
   const limit = Math.min(total, maxPages);
   for (let i = 0; i < limit; i++) {
-    const page = doc.loadPage(i);
-    const pix = page.toPixmap(mupdf.Matrix.scale(RASTER_SCALE, RASTER_SCALE), mupdf.ColorSpace.DeviceRGB, false);
-    pages.push(Buffer.from(pix.asPNG()));
-    pix.destroy?.();
-    page.destroy?.();
+    try {
+      const page = doc.loadPage(i);
+      const pix = page.toPixmap(mupdf.Matrix.scale(RASTER_SCALE, RASTER_SCALE), mupdf.ColorSpace.DeviceRGB, false);
+      pages.push(Buffer.from(pix.asPNG()));
+      pix.destroy?.();
+      page.destroy?.();
+    } catch (err) {
+      failedPages++;
+      console.error("[reg-ocr] page non rastérisée", i + 1, err instanceof Error ? err.message : err);
+    }
   }
   doc.destroy?.();
-  return { pages, total };
+  return { pages, total, failedPages };
 }
 
 /** Pré-traitement image (auto-rotation, niveaux de gris, normalisation, borne de taille). */
@@ -95,7 +105,7 @@ export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: 
   const langs = input.langs && input.langs.length > 0 ? input.langs : defaultOcrLangs();
   const maxPages = input.maxPages ?? MAX_PAGES;
 
-  // 1) Obtenir les images de page.
+  // 1) Obtenir les images de page (rastérisation PDF robuste par page).
   let pageImages: Buffer[] = [];
   let total = 1;
   let truncated = false;
@@ -103,12 +113,14 @@ export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: 
     const r = await rasterizePdf(input.buffer, maxPages);
     pageImages = r.pages;
     total = r.total;
-    truncated = total > pageImages.length;
+    truncated = total > pageImages.length; // pages non rastérisées (plafond OU page corrompue)
   } else {
     pageImages = [input.buffer];
   }
 
-  // 2) OCR page par page (un seul worker).
+  // 2) OCR page par page (un seul worker). ROBUSTE PAR PAGE : une page qui échoue au
+  // pré-traitement OU à la reconnaissance est enregistrée VIDE (revue humaine) et on continue —
+  // les pages lisibles sont océrisées. Jamais une page ne fait échouer tout le document.
   const { worker, version } = await createOcrWorker(langs);
   const pages: OcrPage[] = [];
   try {
@@ -119,10 +131,15 @@ export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: 
       } catch {
         /* pré-traitement best-effort : on OCR l'image brute si sharp échoue */
       }
-      const { data } = await worker.recognize(img);
-      const text = (data.text ?? "").trim();
-      const confidence = Math.round(data.confidence ?? 0);
-      pages.push({ page: i + 1, text, confidence, chars: text.length, lowConfidence: confidence < LOW_CONFIDENCE });
+      try {
+        const { data } = await worker.recognize(img);
+        const text = (data.text ?? "").trim();
+        const confidence = Math.round(data.confidence ?? 0);
+        pages.push({ page: i + 1, text, confidence, chars: text.length, lowConfidence: confidence < LOW_CONFIDENCE });
+      } catch (err) {
+        console.error("[reg-ocr] reconnaissance page échouée", i + 1, err instanceof Error ? err.message : err);
+        pages.push({ page: i + 1, text: "", confidence: 0, chars: 0, lowConfidence: true }); // page illisible → revue humaine
+      }
     }
   } finally {
     await worker.terminate().catch(() => undefined);
