@@ -917,6 +917,8 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `REG_OCR_ENGINE` · `REG_OCR_CONCURRENCY` · `REG_OCR_BATCH` | ⬜ | Moteur OCR (`auto`\|`mistral`\|`tesseract`, défaut `auto`) · documents OCR en parallèle (défaut 3, 1-20 ; modéré car un document massif charge un gros blob) · documents par passage (défaut 24). |
 | `REG_OCR_CHUNK_PAGES` · `REG_OCR_CHUNK_CONCURRENCY` | ⬜ | Découpage des PDF massifs : pages par tranche (défaut 400, sous la limite Mistral 1000) · tranches océrisées en parallèle au sein d'un document (défaut 4). |
 | `REG_EXTRACTION_MAX_CHARS` | ⬜ | Plafond du texte extrait/OCR persisté par document (défaut 20 M — ≈ 10 000 pages ; fin de la troncature 1 M). ↑ demande plus de disque base. |
+| `REG_AI_CHUNK_PAGES` · `REG_AI_CONCURRENCY` | ⬜ | Revue IA par parts : pages par part envoyée à l'IA (défaut 10) · parts analysées en parallèle (défaut 4). |
+| `REG_AI_MAX_CHUNKS` · `REG_AI_MAX_FINDINGS` | ⬜ | Garde-coût revue IA : parts max analysées par version (défaut 120, **0 = illimité**) · constats IA max persistés (défaut 300). Chaque part = 1 appel Claude facturé. |
 
 > \* Requis **ensemble** uniquement pour activer l'édition Office. Côté **service OnlyOffice**, poser
 > `JWT_ENABLED=true` et `JWT_SECRET=<même valeur que ONLYOFFICE_JWT_SECRET>`.
@@ -1148,7 +1150,11 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   (un score élevé ne rachète pas un bloqueur) → **constats** (sécurité/complétude/extraction/classification)
   + **bilan de conformité** → **revue IA optionnelle** (fond/forme) **encadrée** : sortie **validée par Zod**,
   **anti-injection de prompt**, statut **PROJET — REVUE HUMAINE REQUISE**, **jamais bloquante**, active
-  seulement si `ANTHROPIC_API_KEY` (aucune simulation sinon) → **revue humaine** (constat pris en compte /
+  seulement si `ANTHROPIC_API_KEY` (aucune simulation sinon). **Analyse PAR PARTS de ~10 pages** (`agents/chunk-text.ts`)
+  sur **TOUS** les documents lisibles (natif + OCR), sections prioritaires d'abord, **parallélisée**
+  (`REG_AI_CONCURRENCY`) et **robuste** (une part en échec n'arrête pas les autres) ; bornée en coût
+  (`REG_AI_MAX_CHUNKS` parts/version, 0 = illimité) et en volume de constats (`REG_AI_MAX_FINDINGS`, plus
+  sévères d'abord) → **revue humaine** (constat pris en compte /
   résolu / **levé avec justification** par un rôle d'approbation ; nom proposé **approuvé**) → **porte de
   soumission** (« prêt pour revue »/« soumis » **verrouillés** tant qu'un bloqueur reste ouvert). Traitement
   **asynchrone Node-first** (`RegulatoryJob` + runner : verrou, reprise, lots, réessais) branché sur le

@@ -86,9 +86,9 @@ function clampInt(raw: string | undefined, def: number, min: number, max: number
   if (!Number.isFinite(n)) return def;
   return Math.max(min, Math.min(max, Math.round(n)));
 }
-/** Pages par tranche pour le découpage d'un gros PDF (sous la limite Mistral de 1000 pages/appel). */
+/** Pages par tranche pour le découpage d'un PDF (unité par défaut : 10 pages, comme la revue IA). */
 function chunkPageSize(): number {
-  return clampInt(process.env.REG_OCR_CHUNK_PAGES, 400, 25, 1000);
+  return clampInt(process.env.REG_OCR_CHUNK_PAGES, 10, 1, 1000);
 }
 /** Tranches océrisées EN PARALLÈLE au sein d'UN document (borne le pic mémoire des sous-PDF). */
 function chunkConcurrency(): number {

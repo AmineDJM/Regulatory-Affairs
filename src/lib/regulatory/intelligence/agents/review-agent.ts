@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { askClaude, aiConfigured } from "@/lib/ai";
 import { regulatoryKnowledgeDigest } from "@/lib/regulatory/anpp-knowledge";
+import { aiChunkChars } from "./chunk-text";
 
 /**
  * AGENT DE REVUE IA (fond & forme) — Phase 5. **Jamais autonome, jamais bloquant.**
@@ -59,7 +60,7 @@ const SYSTEM_PROMPT = [
 
 function buildPrompt(input: { filename: string; ctdSection: string | null; ctdTitle: string | null; text: string }): string {
   const digest = regulatoryKnowledgeDigest().slice(0, 4000);
-  const doc = input.text.slice(0, 12000);
+  const doc = input.text.slice(0, aiChunkChars()); // une part ≈ 10 pages (jamais le document entier)
   return [
     "CONTEXTE RÉGLEMENTAIRE (référentiel ANPP, fiable) :",
     digest,

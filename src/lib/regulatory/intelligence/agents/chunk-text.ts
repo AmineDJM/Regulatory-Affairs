@@ -1,0 +1,48 @@
+/**
+ * DÉCOUPAGE DU TEXTE POUR L'ANALYSE IA — unité « ~10 pages » (jamais plus par appel).
+ *
+ * Le texte extrait/océrisé d'un document (potentiellement des milliers de pages) est découpé en
+ * parts d'au plus `aiChunkChars()` caractères (≈ 10 pages), sur des frontières de mots/lignes.
+ * Chaque part est envoyée SÉPARÉMENT à l'IA (en parallèle, borné) — jamais le document entier.
+ */
+
+function clampInt(raw: string | undefined, def: number, min: number, max: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+/** Taille d'une part d'analyse en caractères ≈ pages × caractères/page (défaut 10 × 2400 = 24 000). */
+export function aiChunkChars(): number {
+  const pages = clampInt(process.env.REG_AI_CHUNK_PAGES, 10, 1, 100);
+  const perPage = clampInt(process.env.REG_AI_CHARS_PER_PAGE, 2400, 500, 8000);
+  return pages * perPage;
+}
+
+/**
+ * Découpe `text` en parts d'au plus `maxChars`, en coupant de préférence sur un saut de ligne ou
+ * un espace (jamais au milieu d'un mot). Renvoie [] pour un texte vide. Nombre de parts ILLIMITÉ.
+ */
+export function splitTextIntoChunks(text: string, maxChars: number = aiChunkChars()): string[] {
+  const clean = (text ?? "").trim();
+  if (!clean) return [];
+  if (clean.length <= maxChars) return [clean];
+
+  const chunks: string[] = [];
+  let i = 0;
+  while (i < clean.length) {
+    let end = Math.min(i + maxChars, clean.length);
+    if (end < clean.length) {
+      // Recule jusqu'à une frontière propre (mais pas trop tôt : au moins 60 % de la part).
+      const window = clean.slice(i, end);
+      const nl = window.lastIndexOf("\n");
+      const sp = window.lastIndexOf(" ");
+      const cut = nl > maxChars * 0.6 ? nl : sp > maxChars * 0.6 ? sp : -1;
+      if (cut > 0) end = i + cut;
+    }
+    const piece = clean.slice(i, end).trim();
+    if (piece) chunks.push(piece);
+    i = end;
+  }
+  return chunks;
+}

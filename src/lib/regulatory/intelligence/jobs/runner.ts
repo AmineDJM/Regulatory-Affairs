@@ -1,7 +1,7 @@
 import type { RegulatoryJob } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
-import { extractText, AI_READABLE_EXTRACTION_STATUSES } from "../extract/extract-text";
+import { extractText } from "../extract/extract-text";
 import { detectMime } from "../extract/mime";
 import { classifyDocument } from "../ctd/classify";
 import { assessVersion, type TwinDoc } from "../rules/engine";
@@ -11,6 +11,7 @@ import { mistralOcrConfigured } from "../ocr/mistral-ocr";
 import { buildTwinFacts } from "../twin/build-facts";
 import { detectConflicts } from "../twin/detect-conflicts";
 import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
+import { splitTextIntoChunks } from "../agents/chunk-text";
 import { sectionByCode } from "../ctd/taxonomy";
 import { aiConfigured } from "@/lib/ai";
 import { regAudit } from "../audit";
@@ -63,12 +64,12 @@ const ocrStoredPages = () => clampInt(process.env.REG_OCR_STORED_PAGES, 5000, 10
  * Exécute `fn` sur `items` avec au plus `concurrency` traitements EN VOL (pool à curseur partagé).
  * `fn` NE DOIT JAMAIS lever (ici `ocrOne` avale ses erreurs) — le pool n'a donc pas à récupérer.
  */
-async function runPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+async function runPool<T>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<void>): Promise<void> {
   let cursor = 0;
   const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length || 1) }, async () => {
     while (cursor < items.length) {
       const idx = cursor++;
-      await fn(items[idx]);
+      await fn(items[idx], idx);
     }
   });
   await Promise.all(workers);
@@ -402,11 +403,25 @@ async function handleRules(job: RegulatoryJob): Promise<void> {
   }
 }
 
-// Sections prioritaires pour la revue IA (fond) + plafond de documents (coût/latence).
+// Sections prioritaires (analysées EN PREMIER quand le budget de parts est limité).
 const AI_PRIORITY_SECTIONS = new Set(["1.2", "1.3", "2.3", "2.5", "3.2.P.5", "3.2.P.8", "3.2.S.4", "5.3"]);
-const AI_MAX_DOCS = 6;
+// Documents lisibles par l'IA (texte natif + OCR, y compris faible confiance pour couverture max).
+const AI_REVIEWABLE_STATUSES = ["TEXT_EXTRACTED", "OCR_COMPLETED", "LOW_CONFIDENCE"] as const;
+const SEVERITY_ORDER: Record<string, number> = { CRITICAL: 0, MAJOR: 1, MINOR: 2, INFO: 3 };
 
-/** AI_REVIEW : revue de fond/forme (PROJET) sur un sous-ensemble de documents clés. */
+// Parts d'analyse océrisées EN PARALLÈLE (borne le débit vers l'IA) ; plafond de parts par version
+// (coût — 0 = illimité) ; plafond de constats persistés (évite d'inonder l'UI/la base).
+const aiConcurrency = () => clampInt(process.env.REG_AI_CONCURRENCY, 4, 1, 12);
+const aiMaxChunks = () => clampInt(process.env.REG_AI_MAX_CHUNKS, 120, 0, 1_000_000);
+const aiMaxFindings = () => clampInt(process.env.REG_AI_MAX_FINDINGS, 300, 10, 5000);
+
+/**
+ * AI_REVIEW : revue de fond/forme (PROJET, non bloquante). Chaque document lisible est découpé
+ * en PARTS d'environ 10 pages (splitTextIntoChunks) ; chaque part est envoyée SÉPARÉMENT à l'IA,
+ * EN PARALLÈLE (borné) — jamais le document entier. Sections prioritaires d'abord. ROBUSTE : une
+ * part qui échoue est ignorée (les autres passent). Bornée en coût (REG_AI_MAX_CHUNKS) et en
+ * nombre de constats persistés (les plus sévères d'abord). Mémoire bornée : un contenu à la fois.
+ */
 async function handleAiReview(job: RegulatoryJob): Promise<void> {
   const versionId = job.dossierVersionId;
   if (!versionId || !aiConfigured()) {
@@ -418,28 +433,59 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
   }
 
   const docs = await prisma.regulatoryDocument.findMany({
-    where: { dossierVersionId: versionId, extractionStatus: { in: AI_READABLE_EXTRACTION_STATUSES }, securityStatus: { in: ["SAFE", "SUSPICIOUS"] } },
+    where: { dossierVersionId: versionId, extractionStatus: { in: [...AI_REVIEWABLE_STATUSES] }, securityStatus: { in: ["SAFE", "SUSPICIOUS"] } },
     orderBy: { createdAt: "asc" },
-    select: { id: true, originalFilename: true, ctdSection: true, extraction: { select: { content: true } } },
+    select: { id: true, originalFilename: true, ctdSection: true },
   });
-  const prioritized = docs.filter((d) => d.ctdSection && AI_PRIORITY_SECTIONS.has(d.ctdSection));
-  const targets = (prioritized.length > 0 ? prioritized : docs).slice(0, AI_MAX_DOCS);
+  // Sections prioritaires en tête (tri stable), puis le reste → couverture complète, budget permettant.
+  const ordered = [...docs].sort((a, b) => Number(!!b.ctdSection && AI_PRIORITY_SECTIONS.has(b.ctdSection)) - Number(!!a.ctdSection && AI_PRIORITY_SECTIONS.has(a.ctdSection)));
 
+  const maxChunks = aiMaxChunks();
+  const concurrency = aiConcurrency();
   const collected: (AiFinding & { documentId: string })[] = [];
-  for (const d of targets) {
-    const text = d.extraction?.content ?? "";
-    if (!text) continue;
-    const r = await reviewDocumentText({
-      filename: d.originalFilename, ctdSection: d.ctdSection,
-      ctdTitle: d.ctdSection ? sectionByCode(d.ctdSection)?.title ?? null : null, text,
+  let usedChunks = 0;
+  let analyzedDocs = 0;
+
+  for (const d of ordered) {
+    if (maxChunks > 0 && usedChunks >= maxChunks) break;
+    // Contenu chargé UN document à la fois (pic mémoire borné même pour un document de 10 000 pages).
+    const ext = await prisma.regulatoryExtraction.findUnique({ where: { documentId: d.id }, select: { content: true } });
+    let parts = splitTextIntoChunks(ext?.content ?? "");
+    if (parts.length === 0) continue;
+    if (maxChunks > 0) parts = parts.slice(0, maxChunks - usedChunks);
+    usedChunks += parts.length;
+    analyzedDocs++;
+    const ctdTitle = d.ctdSection ? sectionByCode(d.ctdSection)?.title ?? null : null;
+    const total = parts.length;
+    // Parts de CE document envoyées à l'IA en parallèle ; une part en échec n'arrête pas les autres.
+    await runPool(parts, concurrency, async (part, i) => {
+      try {
+        const r = await reviewDocumentText({
+          filename: total > 1 ? `${d.originalFilename} — partie ${i + 1}/${total}` : d.originalFilename,
+          ctdSection: d.ctdSection, ctdTitle, text: part,
+        });
+        if (r.ok) for (const f of r.findings) collected.push({ ...f, documentId: d.id });
+      } catch (err) {
+        console.error("[reg-ai] analyse d'une part échouée", d.id, i, err instanceof Error ? err.message : err);
+      }
     });
-    if (r.ok) for (const f of r.findings) collected.push({ ...f, documentId: d.id });
   }
+
+  // Dédoublonne (même document + même titre) puis garde les constats les PLUS SÉVÈRES (plafond).
+  const seen = new Set<string>();
+  const deduped = collected.filter((f) => {
+    const key = `${f.documentId}|${f.title.trim().toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  deduped.sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9));
+  const kept = deduped.slice(0, aiMaxFindings());
 
   await prisma.$transaction([
     prisma.regulatoryFinding.deleteMany({ where: { dossierVersionId: versionId, source: "AI" } }),
     prisma.regulatoryFinding.createMany({
-      data: collected.map((f) => ({
+      data: kept.map((f) => ({
         dossierVersionId: versionId, code: "AI_REVIEW", severity: f.severity, category: f.category.slice(0, 40),
         title: f.title.slice(0, 200), detail: f.detail.slice(0, 2000), evidence: f.evidence ? f.evidence.slice(0, 1200) : null,
         sectionCode: f.sectionCode, documentId: f.documentId, source: "AI" as const, blocker: false, draft: true,
@@ -451,7 +497,7 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
   await regAudit({
     companyId: job.companyId, actorId: "system", dossierId: job.dossierId, dossierVersionId: versionId,
     action: "AI_REVIEW_DONE",
-    detail: `Revue IA (PROJET — revue humaine requise) : ${collected.length} constat(s) proposé(s) sur ${targets.length} document(s) clés.`,
+    detail: `Revue IA (PROJET — revue humaine requise) : ${kept.length} constat(s) sur ${usedChunks} part(s) de ${analyzedDocs} document(s)${maxChunks > 0 && usedChunks >= maxChunks ? ` (plafond ${maxChunks} parts atteint)` : ""}.`,
   });
 }
 
