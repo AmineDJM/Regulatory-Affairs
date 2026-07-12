@@ -14,26 +14,38 @@ const OCR_CONFIDENCE_FACTOR = 0.9;
  * sont rafraîchies). Retourne le nombre de faits/occurrences.
  */
 export async function buildTwinFacts(dossierVersionId: string): Promise<{ facts: number; occurrences: number }> {
-  const docs = await prisma.regulatoryDocument.findMany({
+  // Métadonnées SEULEMENT (pas le texte) : on connaît la liste + la provenance OCR sans charger
+  // le contenu de TOUS les documents en mémoire — un gros dossier = plusieurs Go de texte → OOM.
+  // Faits construits à partir de TOUT document réellement lu : texte natif ET texte OCR des scans.
+  const docMeta = await prisma.regulatoryDocument.findMany({
     where: {
       dossierVersionId,
-      // Faits construits à partir de TOUT document réellement lu : couche texte native ET
-      // texte OCR des scans (certificats, CPP/GMP, AMM…). Sans cela, le contenu océrisé serait
-      // silencieusement ignoré par le jumeau numérique.
       extractionStatus: { in: TEXTUAL_EXTRACTION_STATUSES },
       securityStatus: { in: ["SAFE", "SUSPICIOUS"] },
     },
-    select: { id: true, ctdSection: true, extraction: { select: { content: true, method: true } } },
+    select: { id: true, ctdSection: true, extraction: { select: { method: true } } },
   });
-
   // Provenance OCR (fiabilité moindre) → pondération à la baisse des occurrences.
-  const ocrDocIds = new Set(docs.filter((d) => d.extraction?.method === "ocr").map((d) => d.id));
+  const ocrDocIds = new Set(docMeta.filter((d) => d.extraction?.method === "ocr").map((d) => d.id));
+  const sectionById = new Map(docMeta.map((d) => [d.id, d.ctdSection] as const));
 
-  const hits = extractFactsFromDocuments(
-    docs.filter((d) => d.extraction?.content).map((d) => ({ documentId: d.id, sectionCode: d.ctdSection, text: d.extraction!.content })),
-  );
-  for (const h of hits) {
-    if (ocrDocIds.has(h.documentId)) h.confidence = Number((h.confidence * OCR_CONFIDENCE_FACTOR).toFixed(3));
+  // Extraction des faits PAR LOTS : le texte n'est chargé que pour un lot à la fois (pic mémoire
+  // borné ≈ un lot), et on n'accumule que les « hits » (petits extraits), jamais le texte intégral.
+  const hits: DocFactHit[] = [];
+  const FACT_BATCH = 150;
+  for (let i = 0; i < docMeta.length; i += FACT_BATCH) {
+    const ids = docMeta.slice(i, i + FACT_BATCH).map((d) => d.id);
+    const batch = await prisma.regulatoryDocument.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, extraction: { select: { content: true } } },
+    });
+    const batchHits = extractFactsFromDocuments(
+      batch.filter((d) => d.extraction?.content).map((d) => ({ documentId: d.id, sectionCode: sectionById.get(d.id) ?? null, text: d.extraction!.content })),
+    );
+    for (const h of batchHits) {
+      if (ocrDocIds.has(h.documentId)) h.confidence = Number((h.confidence * OCR_CONFIDENCE_FACTOR).toFixed(3));
+      hits.push(h);
+    }
   }
 
   // Regroupe par clé de fait.

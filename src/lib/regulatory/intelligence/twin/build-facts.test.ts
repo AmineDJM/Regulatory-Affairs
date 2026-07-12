@@ -61,3 +61,41 @@ describe("buildTwinFacts + detectConflicts — jumeau numérique (intégration)"
     expect(flagged!.hasConflict).toBe(true);
   });
 });
+
+/**
+ * À L'ÉCHELLE : `buildTwinFacts` lit le texte PAR LOTS (pic mémoire borné, jamais tout le dossier
+ * en RAM). Vérifie que la construction reste correcte au-delà d'un lot (160 docs > lot de 150).
+ */
+describe("buildTwinFacts — extraction PAR LOTS au-delà d'un lot (mémoire bornée)", () => {
+  const TAG2 = `test-twin-batch-${Date.now()}`;
+  let companyId2 = "";
+  let versionId2 = "";
+
+  beforeAll(async () => {
+    companyId2 = (await prisma.company.create({ data: { name: `${TAG2}-co` }, select: { id: true } })).id;
+    const dossierId = (await prisma.regulatoryDossier.create({ data: { companyId: companyId2, reference: `${TAG2}-ref`, title: "Batch", createdById: "test-user" }, select: { id: true } })).id;
+    versionId2 = (await prisma.regulatoryDossierVersion.create({ data: { dossierId, versionNo: 1, createdById: "test-user" }, select: { id: true } })).id;
+    for (let i = 0; i < 160; i++) {
+      const doc = await prisma.regulatoryDocument.create({
+        data: { dossierVersionId: versionId2, kind: "ORIGINAL", originalPath: `m1/doc-${i}.txt`, originalFilename: `doc-${i}.txt`, ext: "txt", sizeBytes: 60, sha256: `${TAG2}-${i}`, securityStatus: "SAFE", extractionStatus: "TEXT_EXTRACTED", ctdSection: "1.0" },
+        select: { id: true },
+      });
+      await prisma.regulatoryExtraction.create({ data: { documentId: doc.id, method: "plain", charCount: 50, content: "DCI : Amoxicilline. Nom commercial : Amoxival 500 mg." } });
+    }
+  }, 120_000);
+
+  afterAll(async () => {
+    await prisma.regulatoryDossier.deleteMany({ where: { companyId: companyId2 } }).catch(() => undefined);
+    await prisma.company.deleteMany({ where: { id: companyId2 } }).catch(() => undefined);
+  });
+
+  it("construit les faits correctement sur 160 documents (≥ 2 lots)", async () => {
+    const res = await buildTwinFacts(versionId2);
+    expect(res.facts).toBeGreaterThan(0);
+    const facts = await prisma.regulatoryFact.findMany({ where: { dossierVersionId: versionId2 }, select: { factKey: true, value: true } });
+    const inn = facts.find((f) => f.factKey === "INN");
+    expect(inn).toBeTruthy();
+    expect((inn?.value ?? "").toLowerCase()).toContain("amoxicilline");
+    expect(facts.some((f) => f.factKey === "PRODUCT_NAME")).toBe(true);
+  }, 120_000);
+});
