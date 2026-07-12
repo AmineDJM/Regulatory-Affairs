@@ -128,7 +128,7 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
             if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
           }
         }
-        if (!ok) throw new Error(`Envoi direct échoué (${lastErr}). Relancez le même fichier.`);
+        if (!ok) throw new Error(`Envoi direct au bucket échoué (${lastErr}) — vérifiez la règle CORS du bucket (origine exacte de l'app + méthode PUT) et l'endpoint R2.`);
         setProgress(100);
         setPhase("processing");
         const fin = await fetch(`/api/regulatory/intelligence/upload/direct/${meta.sessionId}/finalize`, { method: "POST" });
