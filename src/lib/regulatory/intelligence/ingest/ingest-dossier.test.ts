@@ -95,6 +95,33 @@ describe("ingestDossierZip — pipeline d'ingestion CTD (intégration)", () => {
     expect(res.versionNo).toBe(2);
   });
 
+  it("archive originale trop volumineuse pour la base → dossier ANALYSÉ quand même (best-effort)", async () => {
+    // Simule le cas « Échec du stockage de l'archive » : plafond base à 0 → l'archive originale ne
+    // peut PAS être stockée en un blob. L'ingestion ne doit PAS échouer : les fichiers sont conservés,
+    // l'empreinte SHA-256 de l'archive est gardée, seule l'archive complète n'est pas retenue.
+    const tmp = await prisma.regulatoryDossier.create({
+      data: { companyId, reference: `${TAG}-bigorig`, title: "Big original", createdById: "test-user" },
+      select: { id: true },
+    });
+    const pdf = Buffer.from("Rapport CTD — contenu conservé");
+    const buf = await makeZip({ "m3/3.2.p.8-stab.pdf": pdf, "m1/1.2-form.docx": Buffer.from("form") });
+    process.env.REG_MAX_PG_BLOB_MB = "0"; // force le dépassement du plafond base pour l'archive
+    try {
+      const res = await ingestDossierZip({ companyId, dossierId: tmp.id, actorId: "test-user", filename: "big.zip", buffer: buf });
+      expect(res.ok).toBe(true); // le dossier est bien analysé
+      expect(res.summary?.stored).toBe(2); // les fichiers sains sont conservés (blobs individuels)
+      const v = await prisma.regulatoryDossierVersion.findFirst({ where: { dossierId: tmp.id } });
+      expect(v?.originalZipBlobId).toBeNull(); // archive complète NON retenue (best-effort)
+      expect(v?.originalSha256).toBe(createHash("sha256").update(buf).digest("hex")); // empreinte conservée
+      const safeDocs = await prisma.regulatoryDocument.count({ where: { dossierVersion: { dossierId: tmp.id }, securityStatus: "SAFE" } });
+      expect(safeDocs).toBe(2);
+    } finally {
+      delete process.env.REG_MAX_PG_BLOB_MB;
+      await releaseDossierBlobs(tmp.id).catch(() => undefined);
+      await prisma.regulatoryDossier.delete({ where: { id: tmp.id } }).catch(() => undefined);
+    }
+  });
+
   it("rejette une archive vide sans rien persister", async () => {
     const before = await prisma.regulatoryDossierVersion.count({ where: { dossierId } });
     const buf = await makeZip({});
