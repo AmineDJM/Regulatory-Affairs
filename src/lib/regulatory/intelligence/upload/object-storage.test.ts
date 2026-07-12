@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { objectStorageConfigured, presignPutUrl, _deriveSigningKeyHex, parseBucketNames } from "./object-storage";
+import { objectStorageConfigured, presignPutUrl, _deriveSigningKeyHex, parseBucketNames, euJurisdictionHost } from "./object-storage";
 
 /**
  * Vérifie la signature SigV4 faite main (chantier 1 — upload direct S3/R2) SANS bucket réel :
@@ -64,5 +64,12 @@ describe("object-storage — SigV4 (S3/R2), sans dépendance SDK", () => {
       </ListAllMyBucketsResult>`;
     expect(parseBucketNames(xml)).toEqual(["ctd", "drive-blobs"]);
     expect(parseBucketNames("<Buckets></Buckets>")).toEqual([]);
+  });
+
+  it("euJurisdictionHost — dérive l'hôte `.eu.` R2, null si déjà UE ou hôte non-R2", () => {
+    expect(euJurisdictionHost("28b9db04.r2.cloudflarestorage.com")).toBe("28b9db04.eu.r2.cloudflarestorage.com");
+    expect(euJurisdictionHost("28b9db04.eu.r2.cloudflarestorage.com")).toBeNull(); // déjà UE
+    expect(euJurisdictionHost("s3.amazonaws.com")).toBeNull(); // non-R2 (S3/MinIO) → pas de variante
+    expect(euJurisdictionHost("minio.local:9000")).toBeNull();
   });
 });

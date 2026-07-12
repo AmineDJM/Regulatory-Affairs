@@ -22,6 +22,11 @@ interface S3Config {
 }
 
 function config(): S3Config | null {
+  // INTERRUPTEUR : REG_S3_DISABLED=1 force le repli sur le stockage en base (Postgres) SANS
+  // effacer les variables REG_S3_* — pratique pour « mettre R2 de côté » et le réactiver plus
+  // tard d'un seul flag. Absent/0 → comportement normal (R2/S3 si le reste est configuré).
+  const disabled = (process.env.REG_S3_DISABLED ?? "").trim().toLowerCase();
+  if (disabled === "1" || disabled === "true") return null;
   // `.trim()` défensif : un secret/clé collé dans Render avec un espace ou un retour-ligne
   // parasite corromprait silencieusement la clé HMAC → « SignatureDoesNotMatch ». Les clés
   // S3/R2 ne contiennent jamais d'espace en bordure, ce nettoyage est donc toujours sûr.
@@ -187,33 +192,85 @@ export function configuredEndpointHost(): string {
   try { return new URL(cfg.endpoint).host; } catch { return ""; }
 }
 
+/** Calcule les en-têtes signés SigV4 (date/content-sha256/authorization) pour une requête à un
+ *  hôte + chemin + querystring canonique donnés. Réservé aux sondes de diagnostic (host variable).
+ *  N'altère pas le chemin PUT/GET éprouvé (`signedRequest`), pour ne pas risquer l'upload. */
+function signAuthHeaders(cfg: S3Config, method: string, host: string, resourcePath: string, canonicalQuery: string, payloadHash: string): Record<string, string> {
+  const { amz, date } = amzDate(new Date());
+  const scope = `${date}/${cfg.region}/${SERVICE}/aws4_request`;
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amz}\n`;
+  const canonicalRequest = [method, resourcePath, canonicalQuery, canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const stringToSign = [ALGO, amz, scope, sha256hex(canonicalRequest)].join("\n");
+  const signature = createHmac("sha256", signingKey(cfg, date)).update(stringToSign).digest("hex");
+  const authorization = `${ALGO} Credential=${cfg.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  return { "x-amz-content-sha256": payloadHash, "x-amz-date": amz, authorization };
+}
+
+/** Variante `.eu.` d'un hôte R2 standard (juridiction Union Européenne), ou null si non applicable
+ *  (déjà `.eu.`, ou hôte non-R2 comme un domaine custom/MinIO). Exporté pour test. */
+export function euJurisdictionHost(host: string): string | null {
+  if (host.includes(".eu.")) return null;
+  const eu = host.replace(/\.r2\.cloudflarestorage\.com$/, ".eu.r2.cloudflarestorage.com");
+  return eu === host ? null : eu;
+}
+
 /**
  * Liste les buckets visibles pour ces identifiants À CET endpoint (S3 ListBuckets, GET `/`).
- * Diagnostic décisif : si le bucket cible n'apparaît pas ici alors que les clés sont valides
- * (auth OK), c'est un décalage d'endpoint/JURIDICTION (ex. bucket créé en juridiction UE →
- * l'endpoint doit contenir `.eu.`). Lève une erreur explicite si l'appel échoue.
+ * NB : un token R2 *scopé* à un bucket renvoie 403 AccessDenied ici (normal) — la sonde décisive
+ * est `probeJurisdiction()`. Lève une erreur explicite si l'appel échoue.
  */
 export async function listBuckets(): Promise<string[]> {
   const cfg = config();
   if (!cfg) throw new Error("Stockage objet non configuré.");
   const base = new URL(cfg.endpoint);
   const host = base.host;
-  const resourcePath = "/"; // racine du service = ListBuckets (aucun bucket dans le chemin)
-  const { amz, date } = amzDate(new Date());
-  const scope = `${date}/${cfg.region}/${SERVICE}/aws4_request`;
-  const payloadHash = EMPTY_SHA256;
-  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
-  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amz}\n`;
-  const canonicalRequest = ["GET", resourcePath, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
-  const stringToSign = [ALGO, amz, scope, sha256hex(canonicalRequest)].join("\n");
-  const signature = createHmac("sha256", signingKey(cfg, date)).update(stringToSign).digest("hex");
-  const authorization = `${ALGO} Credential=${cfg.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-  const headers: Record<string, string> = { "x-amz-content-sha256": payloadHash, "x-amz-date": amz, authorization };
-  const res = await fetch(`${base.protocol}//${host}${resourcePath}`, { method: "GET", headers });
+  const headers = signAuthHeaders(cfg, "GET", host, "/", "", EMPTY_SHA256);
+  const res = await fetch(`${base.protocol}//${host}/`, { method: "GET", headers });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     const code = s3ErrorCode(detail);
     throw new Error(`Liste des buckets échouée (${res.status}${code ? ` ${code}` : ""}).`);
   }
   return parseBucketNames(await res.text());
+}
+
+/** Résultat de la sonde de juridiction : où le bucket cible existe-t-il ? */
+export interface JurisdictionProbe {
+  bucket: string;
+  configuredHost: string;
+  configuredStatus: number | null; // code HTTP à l'endpoint configuré (200/403 = présent, 404 = absent)
+  euHost: string | null;           // variante `.eu.` testée (null si non applicable)
+  euStatus: number | null;         // code HTTP à l'endpoint `.eu.`
+}
+
+// Sonde l'EXISTENCE du bucket à un hôte donné via ListObjectsV2 (max-keys=0) — l'opération
+// la moins gourmande qu'un token « Object Read & Write » peut faire. 200/403 = présent (auth
+// atteint le bucket) ; 404 NoSuchBucket = absent à cette juridiction/endpoint.
+async function probeBucketExists(cfg: S3Config, host: string): Promise<number> {
+  const resourcePath = `/${cfg.bucket}`;
+  const canonicalQuery = "list-type=2&max-keys=0"; // déjà trié (l<m) et sans caractère à encoder
+  const headers = signAuthHeaders(cfg, "GET", host, resourcePath, canonicalQuery, EMPTY_SHA256);
+  const res = await fetch(`https://${host}${resourcePath}?${canonicalQuery}`, { method: "GET", headers });
+  return res.status;
+}
+
+/**
+ * Détecte OÙ vit réellement le bucket cible : sonde l'endpoint configuré ET sa variante `.eu.`.
+ * Diagnostic décisif d'un « 404 NoSuchBucket » quand le nom est avéré correct :
+ *  - présent à l'endpoint configuré (200/403) → ce n'est PAS la juridiction ;
+ *  - absent (404) au configuré mais présent (200/403) en `.eu.` → bucket en juridiction UE :
+ *    corriger REG_S3_ENDPOINT en l'hôte `.eu.` ;
+ *  - absent aux deux → nom/compte réellement faux.
+ */
+export async function probeJurisdiction(): Promise<JurisdictionProbe | null> {
+  const cfg = config();
+  if (!cfg) return null;
+  const configuredHost = new URL(cfg.endpoint).host;
+  const euHost = euJurisdictionHost(configuredHost);
+  const [configuredStatus, euStatus] = await Promise.all([
+    probeBucketExists(cfg, configuredHost).catch(() => null),
+    euHost ? probeBucketExists(cfg, euHost).catch(() => null) : Promise.resolve(null),
+  ]);
+  return { bucket: cfg.bucket, configuredHost, configuredStatus, euHost, euStatus };
 }
