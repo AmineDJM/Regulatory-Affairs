@@ -108,37 +108,46 @@ export function presignPutUrl(key: string, expiresSec = 3600): string | null {
   return `${protocol}//${host}${resourcePath}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
 
-/** Requête S3 signée (en-tête Authorization SigV4) — pour GET/DELETE côté serveur. */
-async function signedRequest(method: "GET" | "DELETE", key: string): Promise<Response> {
+/** Requête S3 signée (en-tête Authorization SigV4) — GET/PUT/DELETE côté serveur. */
+async function signedRequest(method: "GET" | "PUT" | "DELETE", key: string, body?: Buffer, contentType?: string): Promise<Response> {
   const cfg = config();
   if (!cfg) throw new Error("Stockage objet non configuré.");
   const { protocol, host, resourcePath } = hostAndPath(cfg, key);
   const { amz, date } = amzDate(new Date());
   const scope = `${date}/${cfg.region}/${SERVICE}/aws4_request`;
+  const payloadHash = body ? sha256hex(body) : EMPTY_SHA256;
+  // On ne signe QUE host + content-sha256 + date : le content-type éventuel reste non signé
+  // (accepté tel quel par S3/R2) → moins de surface d'erreur de signature.
   const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
-  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${EMPTY_SHA256}\nx-amz-date:${amz}\n`;
-  const canonicalRequest = [method, resourcePath, "", canonicalHeaders, signedHeaders, EMPTY_SHA256].join("\n");
+  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amz}\n`;
+  const canonicalRequest = [method, resourcePath, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
   const stringToSign = [ALGO, amz, scope, sha256hex(canonicalRequest)].join("\n");
   const signature = createHmac("sha256", signingKey(cfg, date)).update(stringToSign).digest("hex");
   const authorization = `${ALGO} Credential=${cfg.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const headers: Record<string, string> = { "x-amz-content-sha256": payloadHash, "x-amz-date": amz, authorization };
+  if (contentType) headers["content-type"] = contentType;
   // `host` est ajouté automatiquement par le client HTTP (et signé ci-dessus).
-  return fetch(`${protocol}//${host}${resourcePath}`, {
-    method,
-    headers: { "x-amz-content-sha256": EMPTY_SHA256, "x-amz-date": amz, authorization },
-  });
+  return fetch(`${protocol}//${host}${resourcePath}`, { method, headers, body });
 }
 
-/** Lit un objet en mémoire (le serveur inspecte l'archive après le PUT direct). */
+/** Écrit un objet (le serveur pousse les octets vers le bucket — ex. blobs chiffrés). */
+export async function putObject(key: string, body: Buffer, contentType = "application/octet-stream"): Promise<void> {
+  const res = await signedRequest("PUT", key, body, contentType);
+  if (!res.ok) throw new Error(`Écriture de l'objet échouée (${res.status}).`);
+}
+
+/** Lit un objet en mémoire (inspection d'archive après PUT direct, ou lecture d'un blob). */
 export async function getObject(key: string): Promise<Buffer> {
   const res = await signedRequest("GET", key);
   if (!res.ok) throw new Error(`Lecture de l'objet échouée (${res.status}).`);
   return Buffer.from(await res.arrayBuffer());
 }
 
-/** Supprime un objet (nettoyage de l'archive temporaire après ingestion / abandon). Ne lève jamais. */
+/** Supprime un objet (nettoyage archive temporaire ou blob déréférencé). Ne lève jamais. */
 export async function deleteObject(key: string): Promise<void> {
   try {
-    await signedRequest("DELETE", key);
+    const res = await signedRequest("DELETE", key);
+    if (!res.ok && res.status !== 404) console.error("[reg-object-storage] delete", key, res.status);
   } catch (err) {
     console.error("[reg-object-storage] delete", key, err instanceof Error ? err.message : err);
   }

@@ -2255,14 +2255,15 @@ model DriveNode {
 
 /// Contenu binaire chiffré (AES-256-GCM), dédupliqué par empreinte du clair (SHA-256).
 model FileBlob {
-  id        String        @id @default(cuid())
-  sha256    String        @unique
-  size      Int
-  iv        Bytes // nonce AES-GCM
-  data      Bytes // contenu chiffré
-  refCount  Int           @default(0)
-  createdAt DateTime      @default(now())
-  versions  FileVersion[]
+  id         String        @id @default(cuid())
+  sha256     String        @unique
+  size       Int
+  iv         Bytes // nonce AES-GCM
+  data       Bytes? // contenu chiffré EN BASE (null si stocké en objet S/R2 via storageKey)
+  storageKey String? // clé objet S3/R2 du contenu chiffré (null = stocké en base) — dé-gonfle le disque BDD
+  refCount   Int           @default(0)
+  createdAt  DateTime      @default(now())
+  versions   FileVersion[]
 }
 
 /// Version d'un fichier (historique). Pointe vers un FileBlob partagé.

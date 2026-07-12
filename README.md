@@ -1049,6 +1049,16 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Stockage des fichiers déporté vers S3/R2 — le disque Postgres arrête de gonfler.** Le backend de blobs
+  (`lib/drive-storage.ts`, point unique qui touche les octets) stocke désormais le contenu **chiffré (AES-256-GCM,
+  inchangé)** dans un **bucket S3/R2** quand `REG_S3_*` est configuré ; la base ne garde plus que les métadonnées
+  (IV + SHA-256 + taille + compteur de refs + clé objet). **Rétrocompatible** : les blobs déjà en base restent lus
+  depuis la colonne `data` (`storageKey` NULL) ; sans config, tout reste en base. Cela répond à la saturation du
+  disque de la base (`No space left on device`) causée par le stockage des dossiers en base. Client objet S3
+  **sans SDK** (SigV4 fait main) étendu avec `putObject`. Migration `FileBlob` (`data` nullable + `storageKey`).
+  **Récupération de l'espace existant** : `npm run blobs:migrate-r2` déplace les blobs historiques vers R2 (un par
+  un, mémoire bornée) puis `VACUUM FULL "FileBlob";` rend l'espace au disque. Test : aller-retour chiffré via un
+  magasin objet en mémoire (`drive-storage.r2.test.ts`).
 - **Regulatory Intelligence OS — téléversement « ultra-rapide » : upload DIRECT S3/R2 + pool DB réglable.**
   Deux leviers de vitesse, activés par variables d'environnement (absents → comportement inchangé, aucune régression) :
   - **Chantier 1 — envoi DIRECT (navigateur → bucket S3/R2), bypass serveur + Postgres.** Signatures **AWS SigV4
