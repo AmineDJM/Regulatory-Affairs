@@ -41,6 +41,10 @@ const clampInt = (n: number) => Math.max(0, Math.min(INT32_MAX, Math.round(n)));
 // géant sature la mémoire (protocole hex ≈ 2×) voire dépasse la limite dure ~1 Go → tue le process.
 // En stockage OBJET (R2/S3) cette limite ne s'applique pas. Réglable via REG_MAX_PG_BLOB_MB.
 const maxPgBlobBytes = () => Number(process.env.REG_MAX_PG_BLOB_MB ?? 400) * 1024 * 1024;
+// Même garde pour UN FICHIER individuel du dossier (indépendante de celle de l'archive originale,
+// pour rester réglable séparément) : un fichier unique au-delà du plafond est MARQUÉ (jamais un
+// crash mémoire), les autres fichiers du dossier continuent. Réglable via REG_MAX_PG_FILE_MB.
+const maxPgFileBytes = () => Number(process.env.REG_MAX_PG_FILE_MB ?? 400) * 1024 * 1024;
 
 export interface IngestSummary {
   total: number;
@@ -119,6 +123,12 @@ async function ingestCore(
   let inspection: ZipInspection;
   try {
     inspection = await runInspection(async (entry: ManifestEntry, data: Buffer) => {
+      // Garde anti-OOM par FICHIER (mode base) : un fichier unique trop volumineux pour un bytea
+      // est refusé PROPREMENT (l'inspecteur le marque et continue) au lieu de tuer le process à
+      // l'insert. Sans objet en stockage R2/S3 (pas de plafond).
+      if (!objectStorageConfigured() && data.length > maxPgFileBytes()) {
+        throw new Error(`Fichier trop volumineux pour le stockage en base (${Math.round(data.length / (1024 * 1024))} Mo > ${Math.round(maxPgFileBytes() / (1024 * 1024))} Mo) — non conservé.`);
+      }
       const b = await putBlob(data);
       blobByPath.set(entry.path, b.blobId);
     });

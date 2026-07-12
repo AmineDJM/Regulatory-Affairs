@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { randomBytes } from "crypto";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
 import sharp from "sharp";
@@ -186,4 +187,41 @@ describe("E2E — VRAI chemin d'upload sur dossier volumineux & sale (0 souci de
     for (const t of ["EXTRACT", "OCR", "FACTS", "RULES"]) expect(jobs.some((j) => j.type === t && j.status === "DONE")).toBe(true);
     expect(jobs.some((j) => j.status === "FAILED")).toBe(false);
   }, 240_000);
+
+  it("PROFIL VOLUMÉTRIQUE réel : ~60 fichiers × ~1 Mo INCOMPRESSIBLE, parties de 4 Mo (prod) — passe de bout en bout", async () => {
+    // Même forme que le dossier cible (dizaines de fichiers de plusieurs Mo, archive multi-parties
+    // en tranches de 4 Mo comme en production). Charge aléatoire → aucun gain de compression : chaque
+    // étage (parties bytea, spool disque, inspection flux, blobs chiffrés, insertion par lots)
+    // traite les VRAIS octets. Le chemin est LINÉAIRE en octets → même code à 459 Mo, en plus long.
+    const volDossierId = (
+      await prisma.regulatoryDossier.create({
+        data: { companyId, reference: `${TAG}-vol`, title: "Profil volumétrique", procedureType: "GENERIC", createdById: "test-user" },
+        select: { id: true },
+      })
+    ).id;
+    const z = new JSZip();
+    z.file("m1/1.0-lettre.txt", "DCI : Amoxicilline\nNom commercial : Amoxival 500 mg");
+    for (let i = 0; i < 60; i++) z.file(`m3/annexe-${i}.pdf`, randomBytes(1024 * 1024)); // ~1 Mo/fichier, incompressible
+    const zip = await z.generateAsync({ type: "nodebuffer" });
+    expect(zip.length).toBeGreaterThan(55 * 1024 * 1024); // archive réellement volumineuse (~60 Mo)
+
+    const start = await startUploadSession({ companyId, dossierId: volDossierId, createdById: "test-user", filename: "gros-dossier.zip", totalBytes: zip.length });
+    expect(start.ok).toBe(true);
+    expect(start.partSize).toBe(4 * 1024 * 1024); // taille de partie de PRODUCTION
+    const parts = start.expectedParts!;
+    expect(parts).toBeGreaterThanOrEqual(14); // vraie session multi-parties
+    for (let i = 0; i < parts; i++) {
+      const data = Buffer.from(zip.subarray(i * start.partSize!, Math.min((i + 1) * start.partSize!, zip.length)));
+      const r = await putUploadPart({ sessionId: start.sessionId!, companyId, index: i, data });
+      expect(r.ok).toBe(true);
+    }
+    const fin = await finalizeUploadSession(start.sessionId!, companyId, "test-user");
+    expect(fin.ok).toBe(true);
+    expect(fin.ingest?.summary?.total).toBe(61);
+    expect(fin.ingest?.summary?.stored).toBe(61); // TOUS les fichiers conservés
+    // Parties nettoyées, session COMPLETED, version en base.
+    expect(await prisma.regulatoryUploadPart.count({ where: { sessionId: start.sessionId! } })).toBe(0);
+    expect(await prisma.regulatoryDossierVersion.count({ where: { dossierId: volDossierId } })).toBe(1);
+    await releaseDossierBlobs(volDossierId).catch(() => undefined);
+  }, 300_000);
 });

@@ -123,7 +123,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         if (!ok) throw new Error(`Envoi direct au bucket échoué (${lastErr}) — vérifiez la règle CORS et l'endpoint R2.`);
         setProgress(100);
         patch(dossierId, { phase: "processing" });
-        const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: UploadSummary }>(`/api/regulatory/intelligence/upload/direct/${meta.sessionId}/finalize`);
+        const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: UploadSummary }>(`/api/regulatory/intelligence/upload/direct/${meta.sessionId}/finalize`, 45);
         if (!data.ok) throw new Error(data.error ?? "Finalisation refusée.");
         patch(dossierId, { phase: "done", summary: data.summary ?? null });
         fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
@@ -166,7 +166,11 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       setProgress(100);
 
       patch(dossierId, { phase: "processing" });
-      const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: UploadSummary }>(`/api/regulatory/intelligence/upload/session/${sessionId}/finalize`);
+      // PATIENCE LONGUE : la finalisation d'un dossier de plusieurs centaines de Mo dure plusieurs
+      // minutes côté serveur. Même si le proxy coupe la réponse (~100 s), le serveur CONTINUE le
+      // travail (bail + battement de cœur) ; le client re-sonde (503 « en cours » → retente) jusqu'à
+      // ~11 min et récupère le SUCCÈS idempotent (session COMPLETED → version + manifeste).
+      const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: UploadSummary }>(`/api/regulatory/intelligence/upload/session/${sessionId}/finalize`, 45);
       if (!data.ok) throw new Error(data.error ?? "Finalisation refusée.");
       patch(dossierId, { phase: "done", summary: data.summary ?? null });
       fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());

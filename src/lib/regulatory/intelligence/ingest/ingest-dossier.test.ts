@@ -122,6 +122,30 @@ describe("ingestDossierZip — pipeline d'ingestion CTD (intégration)", () => {
     }
   });
 
+  it("un FICHIER individuel au-delà du plafond base → MARQUÉ (jamais un crash), les autres continuent", async () => {
+    // Garde anti-OOM par fichier (mode Postgres) : plafond forcé à 0 → tout fichier « dépasse ».
+    // L'ingestion NE crashe PAS et NE rejette PAS l'archive : chaque fichier est marqué CORRUPTED
+    // (raison affichée en UI), la version est créée. Indépendant du plafond de l'archive originale.
+    const tmp = await prisma.regulatoryDossier.create({
+      data: { companyId, reference: `${TAG}-bigfile`, title: "Big file", createdById: "test-user" },
+      select: { id: true },
+    });
+    const buf = await makeZip({ "m1/gros.pdf": Buffer.from("contenu"), "m1/autre.pdf": Buffer.from("autre") });
+    process.env.REG_MAX_PG_FILE_MB = "0";
+    try {
+      const res = await ingestDossierZip({ companyId, dossierId: tmp.id, actorId: "test-user", filename: "bigfile.zip", buffer: buf });
+      expect(res.ok).toBe(true); // l'archive passe, version créée
+      expect(res.summary?.stored).toBe(0); // aucun conservé (plafond 0)
+      const docs = await prisma.regulatoryDocument.findMany({ where: { dossierVersion: { dossierId: tmp.id } }, select: { securityStatus: true, blobId: true } });
+      expect(docs.length).toBe(2);
+      for (const d of docs) { expect(d.securityStatus).toBe("CORRUPTED"); expect(d.blobId).toBeNull(); }
+    } finally {
+      delete process.env.REG_MAX_PG_FILE_MB;
+      await releaseDossierBlobs(tmp.id).catch(() => undefined);
+      await prisma.regulatoryDossier.delete({ where: { id: tmp.id } }).catch(() => undefined);
+    }
+  });
+
   it("ingère un dossier de PLUS de 1000 fichiers (insertion par lots — pas de dépassement de paramètres)", async () => {
     // Un gros dossier CTD peut avoir des milliers de fichiers : le createMany en une requête
     // dépasserait la limite Postgres de 65 535 paramètres → « enregistrement annulé ». On vérifie

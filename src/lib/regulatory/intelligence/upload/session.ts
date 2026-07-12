@@ -261,6 +261,17 @@ export async function finalizeUploadSession(sessionId: string, companyId: string
     return { ok: false, error: `Session non finalisable (${s.status}).` };
   }
 
+  // BATTEMENT DE CŒUR du bail : la finalisation d'un GROS dossier (des centaines de Mo) dure
+  // plusieurs minutes. On rafraîchit `updatedAt` (via un update no-op) toutes les 2 min tant que
+  // le travail est en cours → le bail ne périme JAMAIS pendant un travail actif (aucune double
+  // ingestion possible), et un process réellement crashé cesse de battre → bail repris après délai.
+  const heartbeat = setInterval(() => {
+    prisma.regulatoryUploadSession
+      .updateMany({ where: { id: sessionId, status: "FINALIZING" }, data: { error: null } })
+      .catch(() => undefined);
+  }, 120_000);
+  heartbeat.unref?.();
+  try {
   // On détient le bail (status = FINALIZING). Métadonnées de la session.
   const session = await prisma.regulatoryUploadSession.findFirst({
     where: { id: sessionId, companyId }, select: { id: true, dossierId: true, filename: true, totalBytes: true, partSize: true, expectedSha256: true },
@@ -344,6 +355,9 @@ export async function finalizeUploadSession(sessionId: string, companyId: string
     console.error("[reg-upload] finalize — erreur inattendue", { sessionId, message: err instanceof Error ? err.message : String(err) });
     await reopenFinalizing(session.id, "Finalisation interrompue (serveur) — relancez pour reprendre.");
     return { ok: false, retryable: true, error: "Finalisation interrompue côté serveur — relancez le même fichier pour reprendre." };
+  }
+  } finally {
+    clearInterval(heartbeat); // fin du battement de cœur quel que soit le chemin de sortie
   }
 }
 
