@@ -980,12 +980,14 @@ export const CONGRESS_TABS: NavTab[] = [
   { module: "CONGRESS_INTERNATIONAL", label: "Internationaux", href: "/congress-international" },
   { module: "CONGRESS_NATIONAL", label: "Nationaux", href: "/congress-national" },
 ];
-// Espace personnel fusionné : travail + tableau de bord perso + directives + dossiers.
+// Espace personnel fusionné : travail + espace perso + tableau de bord + calendrier + directives.
+// (« Dossiers » en est sorti → module autonome ; « Dashboard » et « Calendrier » y sont entrés.)
 export const WORKSPACE_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
+  { module: "DASHBOARD", label: "Dashboard", href: "/dashboard" },
+  { module: "WORKSPACE", label: "Calendrier", href: "/calendar" },
   { module: "DIRECTIVES", label: "Directives", href: "/directives" },
-  { module: "DOSSIERS", label: "Dossiers", href: "/dossiers" },
 ];
 // Mon dossier RH + Mes ordres de mission, sous une seule entrée « Mon dossier RH ».
 export const MON_DOSSIER_TABS: NavTab[] = [
@@ -1007,12 +1009,8 @@ export const DOCS_TABS: NavTab[] = [
   { module: "DRIVE", label: "Drive", href: "/drive" },
   { module: "DOCUMENTS", label: "Documents", href: "/documents" },
 ];
-// Promotion médicale + rapports terrain des délégués, sous le module Médical.
-// (Le matériel promotionnel a été déplacé vers le module « Ad & Pro ».)
-export const MEDICAL_TABS: NavTab[] = [
-  { module: "MEDICAL", label: "Promotion médicale", href: "/medical" },
-  { module: "MEDICAL", label: "Rapports terrain", href: "/field-reports" },
-];
+// Promotion médicale (annuaire, segmentation) et Rapports terrain sont désormais DEUX modules
+// distincts (accès configurables séparément dans Administration). Les onglets partagés sont retirés.
 // Adventum Brain + Process Intelligence, dans un seul cockpit Super Admin.
 export const BRAIN_TABS: NavTab[] = [
   { module: "ADVENTUM_BRAIN", label: "Adventum Brain", href: "/adventum-brain" },
@@ -1047,6 +1045,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   SALES: "Ventes",
   LOGISTICS: "Logistique",
   MEDICAL: "Promotion médicale",
+  FIELD_REPORTS: "Rapports terrain",
   BUSINESS_DEVELOPMENT: "Business Development",
   PCH: "PCH — Marchés",
   STOCKS: "Stocks PCH",
@@ -1070,12 +1069,12 @@ export const MODULE_LABELS: Record<Module, string> = {
 // restent accessibles via leurs icônes dans la barre du haut (les routes /messages
 // et /notifications et leurs modules RBAC sont inchangés).
 export const NAVIGATION: NavItem[] = [
-  // Pilotage
-  { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS },
+  // Pilotage — « Mon espace » regroupe désormais Mon travail, Mon espace, Dashboard, Calendrier
+  // et Directives (onglets). `match` couvre ces routes pour l'état actif de la barre latérale.
+  { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-espace", "/dashboard", "/calendar", "/directives"] },
+  { module: "DOSSIERS", label: "Dossiers", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
   { module: "WORKSPACE", label: "Courrier", href: "/courrier", icon: "Mail", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage", tabs: MON_DOSSIER_TABS, match: ["/missions"] },
-  { module: "WORKSPACE", label: "Calendrier", href: "/calendar", icon: "CalendarDays", group: "Pilotage" },
-  { module: "DASHBOARD", label: "Dashboard", href: "/dashboard", icon: "LayoutDashboard", group: "Pilotage" },
   // Pôles
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS, match: ["/promo-material"] },
@@ -1086,7 +1085,8 @@ export const NAVIGATION: NavItem[] = [
   { module: "LOGISTICS", label: "Logistique", href: "/logistics", icon: "Truck", group: "Pôles" },
   { module: "STOCKS", label: "Stocks", href: "/stocks", icon: "Boxes", group: "Pôles" },
   { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
-  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", tabs: MEDICAL_TABS },
+  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles" },
+  { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles" },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
   // Transverse — « Demandes de validations » est le bureau de validation : chacun

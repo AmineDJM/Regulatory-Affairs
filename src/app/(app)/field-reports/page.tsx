@@ -1,23 +1,21 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
-import { getMyFieldReports, getFieldReportsAggregation, managesReports, type ReportSnippet } from "@/lib/queries/field-reports";
+import { getMyFieldReports, getFieldReportsAggregation, viewsAllReports, type ReportSnippet } from "@/lib/queries/field-reports";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FIELD_REPORT_STATUS, MEDICAL_TABS } from "@/lib/labels";
-import { ModuleTabs } from "@/components/shared/module-tabs";
-import { userCan } from "@/lib/rbac";
+import { FIELD_REPORT_STATUS } from "@/lib/labels";
 import { formatDate } from "@/lib/utils";
 import { NewReportButton } from "./new-report-button";
 
 export const dynamic = "force-dynamic";
 
 export default async function FieldReportsPage() {
-  const user = await requireModule("MEDICAL");
-  const isManager = managesReports(user);
+  const user = await requireModule("FIELD_REPORTS");
+  const isManager = viewsAllReports(user);
   const [reports, agg] = await Promise.all([
     getMyFieldReports(user),
     isManager ? getFieldReportsAggregation() : Promise.resolve(null),
@@ -28,7 +26,6 @@ export default async function FieldReportsPage() {
       <PageHeader title="Rapports terrain" description="Comptes rendus de visite des délégués — dictés à la voix, structurés par l'IA, relus et validés.">
         <NewReportButton />
       </PageHeader>
-      <ModuleTabs tabs={MEDICAL_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       {isManager && agg && (
         <section className="space-y-4">

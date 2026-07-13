@@ -19,7 +19,13 @@ export async function getDossier(id: string) {
     include: {
       createdBy: { select: { id: true, name: true } },
       assignedTo: { select: { id: true, name: true } },
-      messages: { include: { author: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
+      messages: {
+        include: {
+          author: { select: { id: true, name: true } },
+          attachments: { orderBy: { createdAt: "asc" }, select: { id: true, name: true, mime: true, size: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 }

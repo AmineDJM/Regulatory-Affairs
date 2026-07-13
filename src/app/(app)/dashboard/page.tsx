@@ -1,10 +1,12 @@
 import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
 import { getDashboardData } from "@/lib/queries/dashboard";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { TrendChart, DonutChart, MiniBarChart } from "@/components/dashboard/charts";
-import { ROLE_LABELS, REGULATORY_STATUS, BUDGET_CATEGORY } from "@/lib/labels";
+import { ROLE_LABELS, REGULATORY_STATUS, BUDGET_CATEGORY, WORKSPACE_TABS } from "@/lib/labels";
 import { formatCurrency, formatCompact, percent } from "@/lib/utils";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -25,6 +27,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-7">
+      <ModuleTabs tabs={WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
           Bonjour {user.name.split(" ")[0]} 👋

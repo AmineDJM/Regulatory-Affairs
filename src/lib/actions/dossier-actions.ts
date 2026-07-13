@@ -7,8 +7,11 @@ import { userCan, hasGlobalView, scopeDossiers, type SessionUser } from "@/lib/r
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
+import { putBlob, releaseBlob } from "@/lib/drive-storage";
 import { createDossierRecord } from "@/lib/dossiers-core";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+
+const MAX_MSG_ATTACHMENT = 25 * 1024 * 1024; // 25 Mo par pièce jointe de message (chat)
 
 const PATH = "/dossiers";
 const STATUSES: DossierStatus[] = ["OPEN", "IN_PROGRESS", "ON_HOLD", "DONE", "ARCHIVED"];
@@ -92,23 +95,54 @@ export async function assignDossier(formData: FormData): Promise<ActionResult> {
   return { ok: true };
 }
 
+/**
+ * Poste un message dans le fil « Suivi & discussion » — vrai chat : texte, **pièces jointes**
+ * intégrées (stockées chiffrées) et **mentions** (@) d'utilisateurs qui doivent d'abord être
+ * membres du dossier (participant / responsable / créateur). Les personnes mentionnées reçoivent
+ * une notification dédiée ; les autres membres sont prévenus normalement.
+ */
 export async function postDossierMessage(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
-  const body = fdStr(formData, "body");
-  if (!id || !body) return { ok: false, error: "Message vide." };
+  if (!id) return { ok: false, error: "Dossier manquant." };
+  const body = (fdStr(formData, "body") ?? "").trim();
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (!body && files.length === 0) return { ok: false, error: "Écrivez un message ou joignez un fichier." };
+
   const d = await prisma.dossier.findUnique({ where: { id }, select: { createdById: true, assignedToId: true, participantIds: true, reference: true } });
   if (!d) return { ok: false, error: "Dossier introuvable." };
   if (!isMember(user, d)) return { ok: false, error: "Non autorisé." };
 
-  await prisma.dossierMessage.create({ data: { dossierId: id, authorId: user.id, body } });
+  // Membres du dossier = seuls destinataires possibles d'une mention.
+  const memberIds = new Set<string>([...(d.createdById ? [d.createdById] : []), ...(d.assignedToId ? [d.assignedToId] : []), ...d.participantIds]);
+  const mentionIds = [...new Set(formData.getAll("mentionIds").map(String).filter((m) => m && memberIds.has(m)))];
+
+  const msg = await prisma.dossierMessage.create({ data: { dossierId: id, authorId: user.id, body, mentionIds } });
+
+  // Pièces jointes (comme la messagerie) — blob chiffré via le backend Drive.
+  for (const f of files) {
+    if (f.size > MAX_MSG_ATTACHMENT) continue;
+    const buf = Buffer.from(await f.arrayBuffer());
+    const { blobId, size } = await putBlob(buf);
+    await prisma.dossierMessageAttachment.create({
+      data: { messageId: msg.id, blobId, name: (f.name || "fichier").slice(0, 200), mime: f.type || "application/octet-stream", size },
+    });
+  }
+
   await prisma.dossier.update({ where: { id }, data: { updatedAt: new Date() } });
 
-  // Prévient les autres membres du dossier.
-  const recipients = new Set<string>([...(d.createdById ? [d.createdById] : []), ...(d.assignedToId ? [d.assignedToId] : []), ...d.participantIds]);
+  // Notifie les autres membres ; les personnes mentionnées reçoivent un message dédié.
+  const recipients = new Set(memberIds);
   recipients.delete(user.id);
   for (const uid of recipients) {
-    await notifyUser({ userId: uid, type: "GENERIC", title: "Nouveau message sur un dossier", body: d.reference, link: `${PATH}/${id}` });
+    const mentioned = mentionIds.includes(uid);
+    await notifyUser({
+      userId: uid,
+      type: mentioned ? "ASSIGNMENT" : "GENERIC",
+      title: mentioned ? "Vous avez été mentionné sur un dossier" : "Nouveau message sur un dossier",
+      body: `${d.reference}${body ? ` — ${body.slice(0, 80)}` : " — pièce jointe"}`,
+      link: `${PATH}/${id}`,
+    });
   }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Dossiers", entityType: "DOSSIER", entityId: id, summary: `Message — ${d.reference}` });
   revalidate(id);
@@ -224,12 +258,14 @@ export async function deleteDossierMessage(formData: FormData): Promise<ActionRe
   if (!id) return { ok: false, error: "Message introuvable." };
   const msg = await prisma.dossierMessage.findUnique({
     where: { id },
-    select: { authorId: true, dossierId: true, dossier: { select: { createdById: true, assignedToId: true, participantIds: true } } },
+    select: { authorId: true, dossierId: true, attachments: { select: { blobId: true } }, dossier: { select: { createdById: true, assignedToId: true, participantIds: true } } },
   });
   if (!msg) return { ok: false, error: "Message introuvable." };
   const allowed = msg.authorId === user.id || isManager(user, msg.dossier);
   if (!allowed) return { ok: false, error: "Suppression non autorisée." };
-  await prisma.dossierMessage.delete({ where: { id } });
+  await prisma.dossierMessage.delete({ where: { id } }); // pièces jointes supprimées en cascade
+  for (const a of msg.attachments) await releaseBlob(a.blobId).catch(() => undefined); // libère le stockage
+
   await recordAudit({ actorId: user.id, action: "DELETE", module: "Dossiers", entityType: "DOSSIER", entityId: msg.dossierId, summary: "Message de dossier supprimé" });
   revalidate(msg.dossierId);
   return { ok: true };

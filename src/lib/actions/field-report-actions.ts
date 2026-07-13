@@ -11,20 +11,20 @@ import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import type { CurrentUser } from "@/lib/session";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 
-/** Un manager / la Direction voit tous les rapports ; un délégué les siens. */
+/** Un manager / la Direction **gère** tous les rapports ; un délégué les siens. */
 function managesReports(user: CurrentUser): boolean {
-  return hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "PRODUCT_MANAGER";
+  return hasGlobalView(user) || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "PRODUCT_MANAGER";
 }
 
 async function canEdit(user: CurrentUser, reportId: string): Promise<boolean> {
-  if (managesReports(user)) return userCan(user, "MEDICAL", "VIEW");
+  if (managesReports(user)) return userCan(user, "FIELD_REPORTS", "VIEW");
   const r = await prisma.fieldReport.findUnique({ where: { id: reportId }, select: { delegateId: true } });
   return Boolean(r && r.delegateId === user.id);
 }
 
 export async function createFieldReport(): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "FIELD_REPORTS", "CREATE")) return { ok: false, error: "Non autorisé." };
   const created = await prisma.fieldReport.create({ data: { delegateId: user.id, status: "DRAFT" }, select: { id: true } });
   revalidatePath("/field-reports");
   return { ok: true, id: created.id };
@@ -152,12 +152,16 @@ export async function submitFieldReport(formData: FormData): Promise<ActionResul
   const transcript = fdStr(formData, "transcript");
   if (!transcript) return { ok: false, error: "Dictez ou saisissez d'abord votre compte rendu." };
 
+  // Nom du médecin saisi MANUELLEMENT par le délégué (prioritaire, jamais écrasé par l'IA).
+  const manualDoctorName = fdStr(formData, "doctorName");
+
   await prisma.fieldReport.update({
     where: { id },
     data: {
       transcript,
       visitDate: fdDate(formData, "visitDate") ?? undefined,
       doctorId: fdStr(formData, "doctorId"),
+      doctorName: manualDoctorName,
     },
   });
 
@@ -181,7 +185,8 @@ export async function submitFieldReport(formData: FormData): Promise<ActionResul
           where: { id },
           data: {
             doctorId,
-            doctorName: d.doctorName || null, institution: d.institution || null, specialty: d.specialty || null,
+            // Le nom saisi manuellement prime ; l'IA ne complète que s'il est absent.
+            doctorName: manualDoctorName || d.doctorName || null, institution: d.institution || null, specialty: d.specialty || null,
             products: d.products || null, interest: d.interest || null, objection: d.objection || null,
             medicalQuestion: d.medicalQuestion || null, documentRequest: d.documentRequest || null,
             sponsoringRequest: d.sponsoringRequest || null, careRequest: d.careRequest || null,

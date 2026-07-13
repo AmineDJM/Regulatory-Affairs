@@ -2,13 +2,38 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Send, AlertCircle, Play, Pause, CheckCircle2, Archive, Users, Trash2, Pencil, Check, X } from "lucide-react";
+import { Loader2, Send, AlertCircle, Play, Pause, CheckCircle2, Archive, Users, Trash2, Pencil, Check, X, Paperclip, AtSign, FileText, Download } from "lucide-react";
 import { updateDossierStatus, archiveDossier, postDossierMessage, assignDossier, deleteDossierMessage, editDossierMessage } from "@/lib/actions/dossier-actions";
 import { Button } from "@/components/ui/button";
 import { Textarea, Select, Label } from "@/components/ui/input";
+import { formatBytes } from "../../messages/format";
 import type { ActionResult } from "@/lib/actions/types";
 
 interface UserLite { id: string; name: string }
+export interface MsgAttachment { id: string; name: string; mime: string; size: number }
+
+/** Pièces jointes d'un message (images en vignette, autres fichiers en puce téléchargeable). */
+function MessageAttachments({ attachments, onDark }: { attachments: MsgAttachment[]; onDark: boolean }) {
+  if (attachments.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {attachments.map((a) => a.mime.startsWith("image/") ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <a key={a.id} href={`/api/dossiers/message-attachment/${a.id}`} target="_blank" rel="noopener noreferrer" title={a.name}>
+          <img src={`/api/dossiers/message-attachment/${a.id}`} alt={a.name} className="max-h-40 rounded-lg border border-black/10 object-cover" />
+        </a>
+      ) : (
+        <a key={a.id} href={`/api/dossiers/message-attachment/${a.id}?dl=1`}
+          className={`inline-flex max-w-[15rem] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs ${onDark ? "bg-white/15 hover:bg-white/25" : "border border-border bg-background hover:bg-secondary"}`}>
+          <FileText className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{a.name}</span>
+          <span className="opacity-70">{formatBytes(a.size)}</span>
+          <Download className="h-3.5 w-3.5 shrink-0" />
+        </a>
+      ))}
+    </div>
+  );
+}
 
 /**
  * Bulle d'un message du fil « Suivi & discussion » : affichage, et — pour l'auteur,
@@ -16,8 +41,8 @@ interface UserLite { id: string; name: string }
  * suppression.
  */
 export function DossierMessageItem({
-  id, body, author, createdAt, mine, canManage,
-}: { id: string; body: string; author: string; createdAt: string; mine: boolean; canManage: boolean }) {
+  id, body, author, createdAt, mine, canManage, attachments = [], mentionNames = [],
+}: { id: string; body: string; author: string; createdAt: string; mine: boolean; canManage: boolean; attachments?: MsgAttachment[]; mentionNames?: string[] }) {
   const router = useRouter();
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(body);
@@ -54,7 +79,15 @@ export function DossierMessageItem({
           </div>
         </div>
       ) : (
-        <p className="whitespace-pre-wrap">{body}</p>
+        <>
+          {mentionNames.length > 0 && (
+            <p className={`mb-1 flex flex-wrap items-center gap-1 text-[11px] font-medium ${mine ? "text-primary-foreground/90" : "text-primary"}`}>
+              {mentionNames.map((n) => <span key={n} className="inline-flex items-center gap-0.5"><AtSign className="h-3 w-3" />{n}</span>)}
+            </p>
+          )}
+          {body && <p className="whitespace-pre-wrap">{body}</p>}
+          <MessageAttachments attachments={attachments} onDark={mine} />
+        </>
       )}
       <p className={`mt-1 flex items-center gap-1.5 text-[11px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
         <span>{author} · {createdAt}</span>
@@ -163,18 +196,84 @@ export function DossierAssign({
   );
 }
 
-export function DossierMessageForm({ id }: { id: string }) {
+/**
+ * Composeur de chat du fil « Suivi & discussion » : texte + pièces jointes (comme la messagerie)
+ * + mentions (@) limitées aux participants du dossier. À l'envoi, tout part dans un seul message.
+ */
+export function DossierMessageForm({ id, members }: { id: string; members: UserLite[] }) {
   const { saving, err, run } = useAction();
-  const ref = React.useRef<HTMLFormElement>(null);
+  const [body, setBody] = React.useState("");
+  const [files, setFiles] = React.useState<File[]>([]);
+  const [mentions, setMentions] = React.useState<Set<string>>(new Set());
+  const [pickMentions, setPickMentions] = React.useState(false);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+
+  const toggleMention = (uid: string) => setMentions((s) => { const n = new Set(s); n.has(uid) ? n.delete(uid) : n.add(uid); return n; });
+  const reset = () => { setBody(""); setFiles([]); setMentions(new Set()); setPickMentions(false); };
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!body.trim() && files.length === 0) return;
+    const fd = new FormData();
+    fd.set("id", id);
+    fd.set("body", body);
+    files.forEach((f) => fd.append("files", f));
+    mentions.forEach((m) => fd.append("mentionIds", m));
+    run(() => postDossierMessage(fd), reset);
+  };
+
+  const mentionNames = [...mentions].map((mid) => members.find((m) => m.id === mid)?.name).filter(Boolean) as string[];
+
   return (
-    <form
-      ref={ref}
-      action={(fd) => { fd.set("id", id); run(() => postDossierMessage(fd), () => ref.current?.reset()); }}
-      className="space-y-2"
-    >
-      <Textarea name="body" required placeholder="Un point d'avancement, une question, un lien…" className="min-h-[70px]" />
+    <form onSubmit={submit} className="space-y-2">
+      <Textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Un point d'avancement, une question, un lien… Joignez un fichier ou mentionnez un participant." className="min-h-[70px]" />
+
+      {/* Pièces jointes sélectionnées */}
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {files.map((f, i) => (
+            <span key={i} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-2.5 py-1 text-xs">
+              <FileText className="h-3.5 w-3.5" /> <span className="max-w-[10rem] truncate">{f.name}</span>
+              <button type="button" onClick={() => setFiles((arr) => arr.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Mentions choisies */}
+      {mentionNames.length > 0 && (
+        <p className="flex flex-wrap items-center gap-1 text-xs text-primary">
+          {mentionNames.map((n) => <span key={n} className="inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-2 py-0.5"><AtSign className="h-3 w-3" />{n}</span>)}
+        </p>
+      )}
+
+      {/* Sélecteur de mentions (participants uniquement) */}
+      {pickMentions && (
+        members.length === 0 ? (
+          <p className="rounded-lg border border-border p-2 text-xs text-muted-foreground">Ajoutez d&apos;abord des participants (panneau « Responsable &amp; participants ») pour pouvoir les mentionner.</p>
+        ) : (
+          <div className="max-h-40 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1">
+            {members.map((m) => (
+              <label key={m.id} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-secondary/50">
+                <input type="checkbox" checked={mentions.has(m.id)} onChange={() => toggleMention(m.id)} className="h-4 w-4 rounded border-input" />
+                {m.name}
+              </label>
+            ))}
+          </div>
+        )
+      )}
+
       <Err msg={err} />
-      <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer</Button>
+
+      <div className="flex items-center gap-2">
+        <input ref={fileRef} type="file" multiple className="hidden"
+          onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) setFiles((arr) => [...arr, ...fs]); e.target.value = ""; }} />
+        <Button type="button" size="sm" variant="outline" onClick={() => fileRef.current?.click()} title="Joindre un fichier"><Paperclip className="h-4 w-4" /></Button>
+        <Button type="button" size="sm" variant={pickMentions ? "secondary" : "outline"} onClick={() => setPickMentions((v) => !v)} title="Mentionner un participant"><AtSign className="h-4 w-4" /></Button>
+        <Button type="submit" size="sm" disabled={saving || (!body.trim() && files.length === 0)} className="ml-auto">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer
+        </Button>
+      </div>
     </form>
   );
 }

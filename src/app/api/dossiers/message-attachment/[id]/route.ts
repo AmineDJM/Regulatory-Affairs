@@ -1,0 +1,38 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/session";
+import { userCan, hasGlobalView } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+import { getBlob } from "@/lib/drive-storage";
+
+export const dynamic = "force-dynamic";
+
+/** Sert une pièce jointe d'un message de dossier — réservé aux membres du dossier. */
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const user = await getCurrentUser();
+  if (!user || !userCan(user, "DOSSIERS", "VIEW")) return new NextResponse(null, { status: 403 });
+
+  const att = await prisma.dossierMessageAttachment.findUnique({
+    where: { id: params.id },
+    select: {
+      blobId: true, name: true, mime: true,
+      message: { select: { dossier: { select: { createdById: true, assignedToId: true, participantIds: true } } } },
+    },
+  });
+  if (!att) return new NextResponse(null, { status: 404 });
+
+  const d = att.message.dossier;
+  const member = hasGlobalView(user.role) || d.createdById === user.id || d.assignedToId === user.id || d.participantIds.includes(user.id);
+  if (!member) return new NextResponse(null, { status: 403 });
+
+  const bytes = await getBlob(att.blobId);
+  if (!bytes) return new NextResponse(null, { status: 404 });
+  const dl = req.nextUrl.searchParams.get("dl") === "1";
+  return new NextResponse(new Uint8Array(bytes), {
+    headers: {
+      "Content-Type": att.mime || "application/octet-stream",
+      "Content-Disposition": `${dl ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(att.name)}`,
+      "Content-Length": String(bytes.length),
+      "Cache-Control": "private, no-store",
+    },
+  });
+}

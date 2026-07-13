@@ -1360,15 +1360,32 @@ model Dossier {
 }
 
 model DossierMessage {
-  id        String   @id @default(cuid())
-  dossierId String
-  dossier   Dossier  @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  authorId  String?
-  author    User?    @relation("DossierMsgAuthor", fields: [authorId], references: [id])
-  body      String
-  createdAt DateTime @default(now())
+  id          String                     @id @default(cuid())
+  dossierId   String
+  dossier     Dossier                    @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  authorId    String?
+  author      User?                      @relation("DossierMsgAuthor", fields: [authorId], references: [id])
+  body        String // peut être vide si le message ne porte qu'une pièce jointe
+  mentionIds  String[]                   @default([]) // utilisateurs tagués (@) — doivent être participants
+  attachments DossierMessageAttachment[]
+  createdAt   DateTime                   @default(now())
 
   @@index([dossierId])
+}
+
+/// Pièce jointe d'un message du fil « Suivi & discussion » (chat) — stockée chiffrée via le
+/// backend Drive (blob), comme la messagerie. Supprimée en cascade avec son message.
+model DossierMessageAttachment {
+  id        String         @id @default(cuid())
+  messageId String
+  message   DossierMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  blobId    String
+  name      String
+  mime      String
+  size      Int
+  createdAt DateTime       @default(now())
+
+  @@index([messageId])
 }
 
 // ───────────────────────────── Sales ─────────────────────────────

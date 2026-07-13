@@ -23,6 +23,7 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
   const [transcript, setTranscript] = React.useState(detail.transcript ?? "");
   const [visitDate, setVisitDate] = React.useState(detail.visitDate.slice(0, 10));
   const [doctorId, setDoctorId] = React.useState(detail.doctorId ?? "");
+  const [doctorName, setDoctorName] = React.useState(detail.doctorName ?? "");
   const [recording, setRecording] = React.useState(false);
   const [transcribing, setTranscribing] = React.useState(false);
   const [sending, setSending] = React.useState(false);
@@ -69,7 +70,7 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
     if (!transcript.trim()) { setMsg("Dictez ou écrivez d'abord votre compte rendu."); return; }
     setSending(true); setMsg(null);
     const f = new FormData();
-    f.set("id", detail.id); f.set("transcript", transcript); f.set("visitDate", visitDate); f.set("doctorId", doctorId);
+    f.set("id", detail.id); f.set("transcript", transcript); f.set("visitDate", visitDate); f.set("doctorId", doctorId); f.set("doctorName", doctorName);
     const r = await submitFieldReport(f);
     setSending(false);
     if (r.ok) router.push("/field-reports"); else setMsg(r.error ?? "Envoi impossible.");
@@ -137,11 +138,16 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5"><Label>Date de visite</Label><Input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)} /></div>
         <div className="space-y-1.5">
-          <Label>Médecin (optionnel)</Label>
+          <Label>Médecin de l&apos;annuaire (optionnel)</Label>
           <Select value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
-            <option value="">— l'IA le déduira si vous le citez —</option>
+            <option value="">— l&apos;IA le déduira si vous le citez —</option>
             {doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </Select>
+        </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label>Nom du médecin (saisie manuelle, si absent de l&apos;annuaire)</Label>
+          <Input value={doctorName} onChange={(e) => setDoctorName(e.target.value)} placeholder="Ex. Dr Karim Benali" />
+          <p className="text-xs text-muted-foreground">Utilisez ce champ pour écrire directement le nom si le médecin n&apos;est pas dans la liste.</p>
         </div>
       </div>
 

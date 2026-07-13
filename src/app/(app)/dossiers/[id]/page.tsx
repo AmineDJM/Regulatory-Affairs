@@ -45,9 +45,17 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
     createdAt: doc.createdAt.toISOString(), hasFile: Boolean(doc.fileKey),
   }));
 
-  const participantNames = d.participantIds.length
-    ? (await prisma.user.findMany({ where: { id: { in: d.participantIds } }, select: { name: true } })).map((u) => u.name)
+  const participants = d.participantIds.length
+    ? await prisma.user.findMany({ where: { id: { in: d.participantIds } }, select: { id: true, name: true } })
     : [];
+  const participantNames = participants.map((u) => u.name);
+  // Membres du dossier = créateur + responsable + participants : seuls mentionnables (@) dans le chat.
+  const members = [
+    ...(d.createdBy ? [{ id: d.createdBy.id, name: d.createdBy.name }] : []),
+    ...(d.assignedTo ? [{ id: d.assignedTo.id, name: d.assignedTo.name }] : []),
+    ...participants,
+  ].filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i);
+  const memberName = new Map(members.map((m) => [m.id, m.name]));
   const canUpload = userCan(user, "DOSSIERS", "UPLOAD") && member;
 
   return (
@@ -114,13 +122,15 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
                           createdAt={formatDateTime(m.createdAt.toISOString())}
                           mine={mine}
                           canManage={mine || manage}
+                          attachments={m.attachments}
+                          mentionNames={m.mentionIds.map((uid) => memberName.get(uid)).filter((n): n is string => Boolean(n))}
                         />
                       </li>
                     );
                   })}
                 </ul>
               )}
-              {member && !archived && <DossierMessageForm id={d.id} />}
+              {member && !archived && <DossierMessageForm id={d.id} members={members} />}
             </CardContent>
           </Card>
 

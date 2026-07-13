@@ -1,11 +1,18 @@
-import { hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 
 /** Lecture des rapports terrain (vocaux). Un délégué voit les siens ; un manager
- *  / la Direction / un chef de produit voient tout et la synthèse agrégée. */
+ *  / la Direction / un chef de produit **gèrent** tout (édition + validation + synthèse).
+ *  Le **superviseur national** (National Sales), lui, **voit** tous les rapports des
+ *  délégués (lecture + synthèse), sans les éditer. */
 
 export function managesReports(user: SessionUser): boolean {
-  return hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "PRODUCT_MANAGER";
+  return hasGlobalView(user) || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "PRODUCT_MANAGER";
+}
+
+/** Voit TOUS les rapports (managers + superviseur national). */
+export function viewsAllReports(user: SessionUser): boolean {
+  return managesReports(user) || hasRole(user, "NATIONAL_SALES");
 }
 
 export interface FieldReportListItem {
@@ -54,7 +61,7 @@ export interface FieldReportDetail {
 
 export async function getMyFieldReports(user: SessionUser): Promise<FieldReportListItem[]> {
   const reports = await prisma.fieldReport.findMany({
-    where: managesReports(user) ? {} : { delegateId: user.id },
+    where: viewsAllReports(user) ? {} : { delegateId: user.id },
     orderBy: { createdAt: "desc" },
     take: 100,
     include: { delegate: { select: { name: true } }, doctor: { select: { name: true } }, _count: { select: { attachments: true } } },
@@ -74,7 +81,8 @@ export async function getFieldReportDetail(user: SessionUser, id: string): Promi
   });
   if (!r) return null;
   const canEdit = managesReports(user) || r.delegateId === user.id;
-  if (!canEdit && !managesReports(user)) return null;
+  // Le superviseur national peut CONSULTER sans éditer.
+  if (!canEdit && !viewsAllReports(user)) return null;
 
   return {
     id: r.id, status: r.status, visitDate: r.visitDate.toISOString(),

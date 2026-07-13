@@ -11,10 +11,9 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
-import { ModuleTabs } from "@/components/shared/module-tabs";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { createDossier } from "@/lib/actions/dossier-actions";
-import { DOSSIER_STATUS, PRIORITY, WORKSPACE_TABS } from "@/lib/labels";
+import { DOSSIER_STATUS, PRIORITY } from "@/lib/labels";
 import { formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -58,7 +57,6 @@ export default async function DossiersPage() {
           />
         )}
       </PageHeader>
-      <ModuleTabs tabs={WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Dossiers" value={dossiers.length} icon="FolderKanban" />

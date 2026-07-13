@@ -7,8 +7,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
-import { VISIT_STATUS, doctorDisplayName, MEDICAL_TABS } from "@/lib/labels";
-import { ModuleTabs } from "@/components/shared/module-tabs";
+import { VISIT_STATUS, doctorDisplayName } from "@/lib/labels";
 import { MedicalDirectory } from "./medical-directory";
 import { VisitsTable, type VisitRow } from "./visits-table";
 import { DelegatePlans } from "./delegate-plans";
@@ -39,7 +38,6 @@ export default async function MedicalPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Promotion médicale" description="Spécialités, médecins (hôpital / libéral), influence & potentiel, et suivi des visites des délégués." />
-      <ModuleTabs tabs={MEDICAL_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Spécialités" value={data.stats.specialties} icon="Tags" tone="info" />
