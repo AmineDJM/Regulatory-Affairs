@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { askClaude, aiConfigured } from "@/lib/ai";
 import { searchCorpus, type Citation } from "../corpus/rag";
+import { extractLooseJson } from "../ai/json";
 import { ABSTENTION_MESSAGE, type AgentSpec } from "./registry";
 
 /**
@@ -102,19 +103,8 @@ function userPrompt(spec: AgentSpec, docs: AgentDoc[], citations: Citation[]): s
   ].join("\n");
 }
 
-function extractJson(text: string): unknown | null {
-  if (!text) return null;
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const raw = fenced ? fenced[1] : text;
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
-  try {
-    return JSON.parse(raw.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-}
+// Parsing TOLÉRANT partagé : récupère aussi une réponse tronquée (plafond de jetons atteint).
+const extractJson = extractLooseJson;
 
 /** Construit la requête RAG d'un agent (nom + axes d'analyse + sections présentes). */
 function ragQuery(spec: AgentSpec, docs: AgentDoc[]): string {
@@ -157,7 +147,7 @@ export async function runAgent(
     return { ok: true, abstained: true, message: ABSTENTION_MESSAGE, findings: [], citations: [], ...base };
   }
 
-  const res = await aiFn(userPrompt(spec, usable, citations), { system: systemPrompt(spec), maxTokens: 1800, temperature: 0.2 });
+  const res = await aiFn(userPrompt(spec, usable, citations), { system: systemPrompt(spec), maxTokens: 3200, temperature: 0.2 });
   if (!res.ok) return { ok: false, abstained: false, findings: [], citations, error: res.error, ...base, configured: res.configured };
 
   const parsed = extractJson(res.text ?? "");

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { askClaude, aiConfigured } from "@/lib/ai";
 import { regulatoryKnowledgeDigest } from "@/lib/regulatory/anpp-knowledge";
+import { extractLooseJson } from "../ai/json";
 import { aiChunkChars } from "./chunk-text";
 
 /**
@@ -78,19 +79,8 @@ function buildPrompt(input: { filename: string; ctdSection: string | null; ctdTi
 }
 
 /** Extrait un objet JSON d'une réponse (tolère les clôtures ```json et le texte parasite). */
-function extractJson(text: string): unknown | null {
-  if (!text) return null;
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const raw = fenced ? fenced[1] : text;
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
-  try {
-    return JSON.parse(raw.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-}
+// Parsing TOLÉRANT partagé (récupère une réponse tronquée au plafond de jetons).
+const extractJson = extractLooseJson;
 
 export async function reviewDocumentText(
   input: { filename: string; ctdSection: string | null; ctdTitle: string | null; text: string },
@@ -99,7 +89,7 @@ export async function reviewDocumentText(
   if (!input.text || input.text.trim().length < 40) {
     return { ok: true, configured: aiConfigured(), findings: [] }; // trop peu de texte → pas d'analyse
   }
-  const res = await aiFn(buildPrompt(input), { system: SYSTEM_PROMPT, maxTokens: 1500, temperature: 0.2 });
+  const res = await aiFn(buildPrompt(input), { system: SYSTEM_PROMPT, maxTokens: 2600, temperature: 0.2 });
   if (!res.ok) return { ok: false, configured: res.configured, findings: [], error: res.error };
 
   const parsed = extractJson(res.text ?? "");

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { askClaude, aiConfigured } from "@/lib/ai";
+import { extractLooseJson } from "../ai/json";
 import { regAudit } from "../audit";
 import { PROCEDURE_TYPE_LABELS } from "../labels";
 
@@ -42,14 +43,6 @@ const SYSTEM = [
   "RÈGLES : 1) réponds UNIQUEMENT en JSON conforme au schéma ; 2) pour chaque perspective, donne un verdict SIMULÉ (FAVORABLE|RESERVES|DEFAVORABLE), des questions probables et des risques ; 3) reste factuel et prudent ; 4) n'invente pas de données absentes du résumé.",
 ].join("\n");
 
-function extractJson(text: string): unknown | null {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const raw = fenced ? fenced[1] : text;
-  const s = raw.indexOf("{"), e = raw.lastIndexOf("}");
-  if (s === -1 || e <= s) return null;
-  try { return JSON.parse(raw.slice(s, e + 1)); } catch { return null; }
-}
-
 /** Résumé compact et FIABLE du dossier (nos propres données structurées) pour le prompt. */
 async function dossierSummary(dossierVersionId: string): Promise<string> {
   const [version, assessment, facts, docs] = await Promise.all([
@@ -85,9 +78,11 @@ export async function runReviewerSimulation(dossierVersionId: string, actorId: s
     'Renvoie STRICTEMENT : {"overall":"synthèse simulée","perspectives":[{"perspective":"...","verdict":"FAVORABLE|RESERVES|DEFAVORABLE","questions":["..."],"risks":["..."]}]}.',
   ].join("\n");
 
-  const res = await aiFn(prompt, { system: SYSTEM, maxTokens: 2500, temperature: 0.3 });
+  // Plafond de jetons LARGE (10 perspectives riches) pour éviter la troncature — cause n°1 des
+  // « Réponse IA non exploitable » ; et parsing TOLÉRANT (récupère même une réponse tronquée).
+  const res = await aiFn(prompt, { system: SYSTEM, maxTokens: 6000, temperature: 0.3 });
   if (!res.ok) return { ok: false, configured: res.configured, perspectives: [], error: res.error };
-  const parsed = extractJson(res.text ?? "");
+  const parsed = extractLooseJson(res.text ?? "");
   if (parsed === null) return { ok: false, configured: res.configured, perspectives: [], error: "Réponse IA non exploitable." };
   const validated = OutputSchema.safeParse(parsed);
   if (!validated.success) return { ok: false, configured: res.configured, perspectives: [], error: "Sortie non conforme au schéma." };
