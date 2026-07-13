@@ -5,6 +5,7 @@ import type { PchTenderStatus, PchOrderStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
@@ -23,8 +24,8 @@ export async function createTender(
   let reference = fdStr(formData, "reference");
   if (!reference) {
     const year = new Date().getFullYear();
-    const n = await prisma.pchTender.count({ where: { reference: { startsWith: `AO-${year}-` } } });
-    reference = `AO-${year}-${String(n + 1).padStart(3, "0")}`;
+    const refs = await prisma.pchTender.findMany({ where: { reference: { startsWith: `AO-${year}-` } }, select: { reference: true } });
+    reference = buildRef("AO", year, refs.map((r) => r.reference));
   }
   const exists = await prisma.pchTender.findUnique({ where: { reference }, select: { id: true } });
   if (exists) return { ok: false, error: "Cette référence existe déjà." };

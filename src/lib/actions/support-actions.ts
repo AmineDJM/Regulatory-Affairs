@@ -5,6 +5,7 @@ import type { SupportCategory, SupportStatus, Priority, UserRole } from "@prisma
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
@@ -29,8 +30,8 @@ function revalidate(id?: string) {
 
 async function nextRef(): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.supportRequest.count({ where: { reference: { startsWith: `SUP-${year}-` } } });
-  return `SUP-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.supportRequest.findMany({ where: { reference: { startsWith: `SUP-${year}-` } }, select: { reference: true } });
+  return buildRef("SUP", year, refs.map((r) => r.reference));
 }
 
 async function notifyResponders(r: { targetUserId: string | null; targetRole: UserRole | null }, reference: string, subject: string, id: string) {

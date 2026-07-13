@@ -7,6 +7,7 @@
  */
 import type { Priority } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 
@@ -22,8 +23,8 @@ export interface DossierInput {
 
 export async function nextDossierRef(): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.dossier.count({ where: { reference: { startsWith: `DOS-${year}-` } } });
-  return `DOS-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.dossier.findMany({ where: { reference: { startsWith: `DOS-${year}-` } }, select: { reference: true } });
+  return buildRef("DOS", year, refs.map((r) => r.reference));
 }
 
 /**

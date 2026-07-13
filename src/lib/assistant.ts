@@ -20,6 +20,7 @@
 
 import type { AdminRequestType, CongressRequestStatus, Priority, CalendarEventKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { buildRef, createWithRetry } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles, broadcastNotification, type BroadcastAudience } from "@/lib/notify";
 import { createEventForUser, algiersInputToUtc, CALENDAR_KINDS } from "@/lib/calendar";
@@ -1119,10 +1120,15 @@ async function activeUserId(id: string | null | undefined): Promise<string | nul
   return u && u.isActive ? u.id : null;
 }
 
+/** Référence ROBUSTE (dérivée du maximum réel, jamais `count()+1` qui entre en collision après une
+ *  suppression → violation d'unicité → « L'action n'a pas pu être exécutée »). */
 async function nextRequestRef(): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.administrativeRequest.count({ where: { reference: { startsWith: `REQ-${year}-` } } });
-  return `REQ-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.administrativeRequest.findMany({
+    where: { reference: { startsWith: `REQ-${year}-` } },
+    select: { reference: true },
+  });
+  return buildRef("REQ", year, refs.map((r) => r.reference));
 }
 
 function priorityOf(p: string | null | undefined): Priority {
@@ -1196,29 +1202,34 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
 
     const assignedToId = await activeUserId(payload.assigneeId);
     const concernedUserId = await activeUserId(payload.concernedId);
-    const reference = await nextRequestRef();
     const extraFields: Record<string, string> = {};
     if (payload.startDate) extraFields.dateDebut = payload.startDate;
     if (payload.endDate) extraFields.dateFin = payload.endDate;
-    const created = await prisma.administrativeRequest.create({
-      data: {
-        reference, title, type,
-        description: payload.description?.trim() || null,
-        priority: priorityOf(payload.priority),
-        deadline: dateValue(payload.deadline) ?? dateValue(payload.startDate),
-        fields: Object.keys(extraFields).length ? extraFields : undefined,
-        assignedToId, concernedUserId, requesterId: user.id, createdById: user.id,
-      },
-      select: { id: true },
+    // Référence recalculée à CHAQUE tentative (robuste à une collision concurrente / post-suppression).
+    const created = await createWithRetry(async () => {
+      const reference = await nextRequestRef();
+      return prisma.administrativeRequest.create({
+        data: {
+          reference, title, type,
+          description: payload.description?.trim() || null,
+          priority: priorityOf(payload.priority),
+          deadline: dateValue(payload.deadline) ?? dateValue(payload.startDate),
+          fields: Object.keys(extraFields).length ? extraFields : undefined,
+          assignedToId, concernedUserId, requesterId: user.id, createdById: user.id,
+        },
+        select: { id: true, reference: true },
+      });
     });
+    // Effets de bord NON bloquants : une notification/un audit en échec ne doit pas faire croire
+    // que la demande n'a pas été créée (elle l'est).
     if (assignedToId && assignedToId !== user.id) {
-      await notifyUser({ userId: assignedToId, type: "ASSIGNMENT", title: "Nouvelle demande administrative", body: `${reference} — ${title}`, link: `/demandes/${created.id}` });
+      await notifyUser({ userId: assignedToId, type: "ASSIGNMENT", title: "Nouvelle demande administrative", body: `${created.reference} — ${title}`, link: `/demandes/${created.id}` }).catch(() => undefined);
     }
     await recordAudit({
       actorId: user.id, action: "CREATE", module: "Assistant IA", entityType: "ADMIN_REQUEST",
-      entityId: created.id, summary: `Demande ${reference} — ${title} créée via l'assistant`,
-    });
-    return { ok: true, message: `Demande ${reference} — « ${title} » créée.`, link: `/demandes/${created.id}`, revalidate: ["/demandes", "/demandes/assistant"] };
+      entityId: created.id, summary: `Demande ${created.reference} — ${title} créée via l'assistant`,
+    }).catch(() => undefined);
+    return { ok: true, message: `Demande ${created.reference} — « ${title} » créée.`, link: `/demandes/${created.id}`, revalidate: ["/demandes", "/demandes/assistant"] };
   }
 
   if (payload?.kind === "send_message") {

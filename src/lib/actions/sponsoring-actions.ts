@@ -5,6 +5,7 @@ import type { Priority, SponsoringStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
@@ -43,8 +44,8 @@ export async function createSponsoring(
   if (!institution) return { ok: false, error: "L'institution est obligatoire." };
 
   const year = new Date().getFullYear();
-  const count = await prisma.sponsoringRequest.count({ where: { reference: { startsWith: `SPO-${year}-` } } });
-  const reference = `SPO-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.sponsoringRequest.findMany({ where: { reference: { startsWith: `SPO-${year}-` } }, select: { reference: true } });
+  const reference = buildRef("SPO", year, refs.map((r) => r.reference));
 
   const created = await prisma.sponsoringRequest.create({
     data: {

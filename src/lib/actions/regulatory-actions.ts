@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
+import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
@@ -80,10 +81,11 @@ export async function createRegulatoryProduct(
   const dci = normalizeDci(rawDci);
 
   const year = new Date().getFullYear();
-  const countThisYear = await prisma.regulatoryProduct.count({
+  const refs = await prisma.regulatoryProduct.findMany({
     where: { reference: { startsWith: `REG-${year}-` } },
+    select: { reference: true },
   });
-  const reference = `REG-${year}-${String(countThisYear + 1).padStart(3, "0")}`;
+  const reference = buildRef("REG", year, refs.map((r) => r.reference));
 
   const responsibleId = str(formData, "responsibleId");
   const assistantId = str(formData, "assistantId");

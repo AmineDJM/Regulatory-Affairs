@@ -1,11 +1,12 @@
 import type { EntityType, FinanceCategory } from "@prisma/client";
+import { buildRef } from "@/lib/refs";
 import { prisma } from "./prisma";
 import { notifyRoles } from "./notify";
 
 export async function nextExpenseRef(): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.expenseOrder.count({ where: { reference: { startsWith: `OD-${year}-` } } });
-  return `OD-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.expenseOrder.findMany({ where: { reference: { startsWith: `OD-${year}-` } }, select: { reference: true } });
+  return buildRef("OD", year, refs.map((r) => r.reference));
 }
 
 interface CreateExpenseOrderInput {

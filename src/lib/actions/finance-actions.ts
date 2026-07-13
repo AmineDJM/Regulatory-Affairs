@@ -5,6 +5,7 @@ import type { FinanceCategory, FinanceDirection, FinanceMethod, FinanceStatus, P
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { buildRef, nextRefNumber } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
@@ -12,8 +13,8 @@ const IN_CATEGORIES = ["RECETTE", "CCA", "PRET"];
 
 async function nextRef(prefix: string): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.financeTransaction.count({ where: { reference: { startsWith: `${prefix}-${year}-` } } });
-  return `${prefix}-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.financeTransaction.findMany({ where: { reference: { startsWith: `${prefix}-${year}-` } }, select: { reference: true } });
+  return buildRef(prefix, year, refs.map((r) => r.reference));
 }
 
 export async function createTransaction(
@@ -147,7 +148,8 @@ export async function importTransactions(
   const lines = csv.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(1);
   let n = 0;
   const year = new Date().getFullYear();
-  let base = await prisma.financeTransaction.count({ where: { reference: { startsWith: `FIN-${year}-` } } });
+  const existingRefs = await prisma.financeTransaction.findMany({ where: { reference: { startsWith: `FIN-${year}-` } }, select: { reference: true } });
+  let base = nextRefNumber(existingRefs.map((r) => r.reference)) - 1; // prochain = base+1 (dérivé du max, robuste aux trous)
   for (const line of lines) {
     const c = line.split(/[;,]/).map((x) => x.trim());
     if (c.length < 5) continue;

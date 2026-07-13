@@ -1,12 +1,13 @@
 import type { EntityType } from "@prisma/client";
+import { buildRef } from "@/lib/refs";
 import { prisma } from "./prisma";
 import { anyRoleFilter } from "./rbac";
 import { notifyRoles } from "./notify";
 
 export async function nextDeclarationRef(): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.medicalInfoDeclaration.count({ where: { reference: { startsWith: `DIM-${year}-` } } });
-  return `DIM-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.medicalInfoDeclaration.findMany({ where: { reference: { startsWith: `DIM-${year}-` } }, select: { reference: true } });
+  return buildRef("DIM", year, refs.map((r) => r.reference));
 }
 
 interface CreateDeclarationInput {

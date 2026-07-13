@@ -5,6 +5,7 @@ import type { DirectiveStatus, Priority, UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
@@ -31,8 +32,8 @@ function revalidate(id?: string) {
 
 async function nextRef(): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.directive.count({ where: { reference: { startsWith: `DIR-${year}-` } } });
-  return `DIR-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.directive.findMany({ where: { reference: { startsWith: `DIR-${year}-` } }, select: { reference: true } });
+  return buildRef("DIR", year, refs.map((r) => r.reference));
 }
 
 // ───────────── Création (Direction) ─────────────

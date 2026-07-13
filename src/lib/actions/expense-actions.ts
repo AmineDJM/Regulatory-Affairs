@@ -5,14 +5,15 @@ import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { ENTITY_MODULE } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
+import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 async function nextFinanceRef(): Promise<string> {
   const year = new Date().getFullYear();
-  const count = await prisma.financeTransaction.count({ where: { reference: { startsWith: `FIN-${year}-` } } });
-  return `FIN-${year}-${String(count + 1).padStart(3, "0")}`;
+  const refs = await prisma.financeTransaction.findMany({ where: { reference: { startsWith: `FIN-${year}-` } }, select: { reference: true } });
+  return buildRef("FIN", year, refs.map((r) => r.reference));
 }
 
 /** Comptable settles an ordre de dépense → generates the treasury OUT entry and marks the source paid. */
