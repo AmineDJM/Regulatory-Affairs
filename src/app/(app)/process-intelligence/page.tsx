@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { getProcessOverview } from "@/lib/queries/process-intelligence";
+import { runIntelligencePulse, getPulse } from "@/lib/adventum/pulse";
+import { PulseStrip } from "@/components/adventum/pulse-strip";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { BRAIN_TABS } from "@/lib/labels";
 import { PageHeader } from "@/components/shared/page-header";
@@ -19,13 +21,17 @@ const ageTone = (d: number) => (d >= 21 ? "text-destructive" : d >= 14 ? "text-w
 
 export default async function ProcessIntelligencePage() {
   const user = await requireModule("PROCESS_INTELLIGENCE");
-  const o = await getProcessOverview();
+  // Analyse EN CONTINU : rafraîchit l'instantané (auto-débounce 1×/h) puis lit la tendance.
+  await runIntelligencePulse();
+  const [o, pulse] = await Promise.all([getProcessOverview(), getPulse()]);
 
   return (
     <div className="space-y-5">
       <ModuleTabs tabs={BRAIN_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
       <PageHeader title="Process Intelligence" description="Où la société ralentit : durées par étape, blocages, dossiers sans action et validations en attente. Réservé au Super Admin." />
       <PiTabs />
+
+      <PulseStrip pulse={pulse} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Dossiers en cours" value={o.stats.inProgress} icon="GitBranch" />

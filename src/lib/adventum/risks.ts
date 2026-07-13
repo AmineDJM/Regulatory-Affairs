@@ -498,10 +498,53 @@ async function lowAttendanceEventRisks(th: RiskThresholds): Promise<Risk[]> {
   return out;
 }
 
+// Demandes du Bureau du secrétariat en retard : échéance dépassée, ou sans action depuis
+// longtemps. Module très sollicité — jusqu'ici absent du Risk Radar. (Suppressions douces exclues.)
+async function adminRequestRisks(): Promise<Risk[]> {
+  const now = new Date();
+  const staleCutoff = new Date(Date.now() - 10 * DAY);
+  const rows = await prisma.administrativeRequest.findMany({
+    where: {
+      status: { notIn: ["DONE", "CANCELLED"] },
+      deletedAt: null,
+      OR: [{ deadline: { lt: now } }, { updatedAt: { lt: staleCutoff } }],
+    },
+    select: { id: true, reference: true, title: true, updatedAt: true, deadline: true, assignedToId: true },
+    take: 100,
+  });
+  const out: Risk[] = [];
+  for (const a of rows) {
+    const overdue = Boolean(a.deadline && a.deadline.getTime() < now.getTime());
+    const age = daysSince(a.updatedAt) ?? 0;
+    const level: RiskLevel = overdue || age >= 21 ? "high" : "medium";
+    out.push({
+      id: `adm-${a.id}`, level, category: "ADMIN", module: "Bureau du secrétariat",
+      title: overdue ? "Demande du secrétariat en retard" : "Demande du secrétariat sans suite",
+      object: `${a.reference} — ${a.title}`,
+      impact: "Demande interne non traitée : agent bloqué en attente.",
+      owner: "Secrétariat", deadline: a.deadline?.toISOString() ?? null, ageDays: age,
+      probableCause: overdue ? "Échéance dépassée sans clôture." : `Aucune action depuis ${age} j.`,
+      recommendation: "Traiter la demande ou informer le demandeur de l'avancement.",
+      evidence: [
+        a.deadline ? `Échéance : ${a.deadline.toLocaleDateString("fr-FR")}${overdue ? " (dépassée)" : ""}` : "Pas d'échéance",
+        `Sans évolution depuis ${age} j`,
+      ],
+      href: `/demandes/${a.id}`, at: (a.deadline && overdue ? a.deadline : a.updatedAt).toISOString(),
+      actions: [
+        a.assignedToId
+          ? { label: "Relancer le traitant", icon: "Bell", payload: { kind: "notify", userId: a.assignedToId, title: "Demande du secrétariat à traiter", body: `${a.reference} — ${overdue ? "en retard" : `depuis ${age} j`}`, link: `/demandes/${a.id}` } }
+          : { label: "Créer une tâche de suivi", icon: "ListChecks", payload: { kind: "task", title: `Traiter la demande secrétariat « ${a.title} » (${overdue ? "en retard" : `${age} j`})`, priority: level === "high" ? "HIGH" : "MEDIUM", module: "Secrétariat" } },
+        { label: "Ouvrir la demande", icon: "ExternalLink", href: `/demandes/${a.id}` },
+      ],
+    });
+  }
+  return out;
+}
+
 const DETECTORS: ((th: RiskThresholds) => Promise<Risk[]>)[] = [
   pchCautionRisks, congressLikeRisks, sponsoringRisks, medicalKolRisks, expenseOrderRisks,
   budgetRisks, medicalInfoRisks, directiveRisks, silentSupplierRisks, qualitySignalRisks,
-  pchStockRisks, deliveryDelayRisks, lowAttendanceEventRisks,
+  pchStockRisks, deliveryDelayRisks, lowAttendanceEventRisks, adminRequestRisks,
 ];
 
 /** Calcule tous les risques (détecteurs en parallèle, tolérants aux pannes), triés par gravité.

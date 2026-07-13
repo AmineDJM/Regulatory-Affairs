@@ -13,7 +13,9 @@ import { Input, Textarea } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { runAutopilot, askBrain, generateBriefing, searchRelations } from "@/lib/actions/adventum-actions";
+import { PulseStrip } from "@/components/adventum/pulse-strip";
 import type { Risk, RiskAction } from "@/lib/adventum/risks";
+import type { PulseView } from "@/lib/adventum/pulse";
 import type { ProductRelations } from "@/lib/adventum/relations";
 
 interface Kpis { critical: number; blocks: number; proposedActions: number; decisions: number; fieldSignals: number }
@@ -28,12 +30,13 @@ const levelEmoji = (l: string) => (l === "critical" ? "🔴" : l === "high" ? "�
 
 const CAT_LABEL: Record<string, string> = {
   all: "Tous", REGULATORY: "Regulatory", PCH: "PCH", BUDGET: "Budget", CONGRESS: "Congrès",
-  SPONSORING: "Sponsoring", FINANCE: "Finance", MEDICAL: "Promotion médicale", QUALITY: "PV / Qualité", DIRECTIVES: "Directives",
+  SPONSORING: "Sponsoring", FINANCE: "Finance", MEDICAL: "Promotion médicale", QUALITY: "PV / Qualité",
+  DIRECTIVES: "Directives", ADMIN: "Secrétariat", EVENTS: "Events",
 };
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
-export function BrainCockpit({ risks, kpis, feed, suggestions }: { risks: Risk[]; kpis: Kpis; feed: Risk[]; suggestions: string[] }) {
+export function BrainCockpit({ risks, kpis, feed, suggestions, pulse }: { risks: Risk[]; kpis: Kpis; feed: Risk[]; suggestions: string[]; pulse: PulseView }) {
   const [tab, setTab] = React.useState<"war" | "risks" | "relations" | "feed">("war");
   const [selected, setSelected] = React.useState<Risk | null>(null);
   const [confirm, setConfirm] = React.useState<{ action: RiskAction; risk: Risk } | null>(null);
@@ -98,6 +101,9 @@ export function BrainCockpit({ risks, kpis, feed, suggestions }: { risks: Risk[]
           </div>
         )}
       </div>
+
+      {/* Analyse continue (Adventum Pulse) — état + tendance persistés à chaque passe horaire */}
+      <PulseStrip pulse={pulse} />
 
       {/* KPIs War Room */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">

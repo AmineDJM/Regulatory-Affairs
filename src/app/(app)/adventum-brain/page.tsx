@@ -3,6 +3,7 @@ import { userCan } from "@/lib/rbac";
 import { getRisks } from "@/lib/adventum/risks";
 import { suggestRelationObjects } from "@/lib/adventum/relations";
 import { getRiskThresholds } from "@/lib/adventum/risk-settings";
+import { runIntelligencePulse, getPulse } from "@/lib/adventum/pulse";
 import { prisma } from "@/lib/prisma";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { BRAIN_TABS } from "@/lib/labels";
@@ -16,11 +17,15 @@ const BLOCK_CATS = ["CONGRESS", "SPONSORING", "REGULATORY", "FINANCE", "VALIDATI
 export default async function AdventumBrainPage() {
   const user = await requireModule("ADVENTUM_BRAIN"); // Super Admin uniquement (module non accordé aux autres rôles)
 
-  const [risks, suggestions, recentSignals, thresholds] = await Promise.all([
+  // Analyse EN CONTINU : garantit un instantané frais à l'ouverture (auto-débounce à 1×/h) ; le tick
+  // planifié le rafraîchit aussi en arrière-plan tant qu'un utilisateur est actif.
+  await runIntelligencePulse();
+  const [risks, suggestions, recentSignals, thresholds, pulse] = await Promise.all([
     getRisks(),
     suggestRelationObjects(),
     prisma.fieldReport.count({ where: { createdAt: { gte: new Date(Date.now() - 7 * 86_400_000) } } }),
     getRiskThresholds(),
+    getPulse(),
   ]);
 
   const kpis = {
@@ -37,7 +42,7 @@ export default async function AdventumBrainPage() {
   return (
     <div className="space-y-4">
       <ModuleTabs tabs={BRAIN_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
-      <BrainCockpit risks={risks} kpis={kpis} feed={feed} suggestions={suggestions} />
+      <BrainCockpit risks={risks} kpis={kpis} feed={feed} suggestions={suggestions} pulse={pulse} />
       <RiskThresholdsForm initial={thresholds} />
     </div>
   );

@@ -742,7 +742,16 @@ Feed** (fil filtré par importance), **Process Intelligence** (lenteurs & blocag
 **Détecteurs Risk Radar (calculés à la volée — aucune table de risque)** : caution PCH proche d'expiration ·
 congrès/sponsoring bloqués · médecin **KOL** non visité · ordre de dépense non réglé · **budget/enveloppe dépassé**
 · information médicale en attente · directive échue · fournisseur silencieux · signal qualité/PV terrain ·
-**rupture / stock bas PCH** · **retard de livraison** · **événement à faible présence**.
+**rupture / stock bas PCH** · **retard de livraison** · **événement à faible présence** · **demande du secrétariat
+en retard**.
+
+> **Analyse EN CONTINU — Adventum Pulse** (`src/lib/adventum/pulse.ts`, table `IntelligenceSnapshot`) : un
+> **instantané horaire** (au plus 1×/h, verrou de bucket) des agrégats Risk Radar + Process Intelligence est
+> persisté par le **tick planifié** (`runScheduledJobs`) tant qu'un utilisateur est actif — et garanti frais à
+> l'ouverture des cockpits. Deux effets : (1) **tendances** (deltas + mini-courbe) affichées via le bandeau
+> `PulseStrip` en tête de Brain **et** de Process Intelligence ; (2) **alerte proactive** — dès qu'un **nouveau
+> risque critique** apparaît vs l'instantané précédent, le Super Admin est notifié (cloche + push) même si
+> personne n'a ouvert le module. Pur calcul déterministe, sans IA ni donnée simulée.
 
 > **Réglage des seuils** (Super Admin), bornés et persistés (`RiskSetting`), lus à chaud. **Règle anti-bureaucratie** :
 > Brain **lit, relie, résume, explique et propose** — il ne duplique aucun workflow et ne crée qu'après confirmation.
@@ -1056,6 +1065,30 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Expérience & intelligence — chatbots propres, réserves, stocks, recherche, rappels, cerveau continu
+  (9 sujets).** **(1) Chatbot « Discuter avec ce dossier » — réponse propre** : sortie nettoyée de tout
+  markdown/caractère spécial (titres `##`, gras `**`, citations `>`, `---`, puces, émojis, `[P]/[C]`) tout en
+  **préservant les citations numériques `[n]`** et la ponctuation française. **(2) Réserves ANPP — « Discuter
+  avec les réserves »** : chat qui **rédige des réponses exigeantes**, scientifiquement/réglementairement
+  justes, **uniquement à partir du dossier** ; **s'abstient** sur le prix / le commercial, **signale ce qu'il
+  faut demander au fournisseur** — sourcé, texte brut, n'invente rien. **(3) Stocks — refonte** : fin des
+  « annexes » (deux périmètres, **Stock PCH** + **Stock hôpitaux**) ; **hôpitaux créés par le Super Admin**, les
+  autres rôles **enregistrent seulement des états** ; enregistrement pour un hôpital exigeant l'hôpital
+  concerné (**corrige le « ça marche pas »**) ; **demande d'état de stock à un instant T** (Direction / Super
+  Admin → délégué : tâche assignée + notification). **(4) Upload CTD illimité & rapide** : aucun plafond serveur
+  sur le nombre de fichiers par module ; les échecs transitoires par fichier sont **réessayés avec backoff**.
+  **(5) Bug création de demande via chatbot** : la référence utilisait `count()+1` (collision avec l'unicité
+  après purge Corbeille) → **`buildRef` (max) + `createWithRetry` (P2002)**, généralisé aux **12 générateurs de
+  références**. **(6) OCR Mistral vraiment utilisé** : la méthode d'extraction est **taguée** (`ocr-mistral` /
+  `ocr-tesseract`) et un **diagnostic en ligne** le confirme — Mistral ne tourne que sur les scans (les PDF
+  natifs n'en consomment pas). **(7) Recherche globale ultra-smart** : multi-termes (AND de OR insensible à la
+  casse) couvrant dossiers CTD, discussions/messages, demandes du secrétariat, congrès, événements, directives.
+  **(8) Rappels en un clic** (`Reminder` + sweep planifié) sur un dossier, un sujet ou une demande du
+  secrétariat — notification cloche + push à l'échéance. **(9) Adventum Brain + Process Intelligence — analyse
+  EN CONTINU (« Adventum Pulse »)** : instantané horaire persisté (`IntelligenceSnapshot`) des agrégats
+  Risk Radar + Process Intelligence, **tendances** (bandeau `PulseStrip` : deltas + mini-courbe) et **alerte
+  proactive** au Super Admin sur tout **nouveau risque critique** — même module fermé ; nouveau détecteur
+  **« demande du secrétariat en retard »**.
 - **Analyse CTD — jumeau numérique par IA, analyse plus exigeante, pièces admin hors CTD, gros fichiers
   blindés (5 sujets).** **(1) Compréhension par IA du jumeau numérique** — le jumeau n'est plus seulement
   déterministe (regex) : une couche IA **comprend le sens** et propose les faits que les règles ne savent pas

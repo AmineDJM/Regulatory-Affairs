@@ -3,6 +3,7 @@ import { notifyUser } from "@/lib/notify";
 import { performAiHealthCheck } from "@/lib/ai-health";
 import { runDueRegulatoryJobs } from "@/lib/regulatory/intelligence/jobs/runner";
 import { pruneStaleUploadSessions } from "@/lib/regulatory/intelligence/upload/session";
+import { runIntelligencePulse } from "@/lib/adventum/pulse";
 
 /**
  * Tâches périodiques **sans cron externe** : déclenchées (au plus une fois par minute,
@@ -29,6 +30,7 @@ export async function runScheduledJobs(): Promise<void> {
     await performAiHealthCheck().catch((e) => console.error("[scheduled] ai health check failed", e)); // test IA 1×/jour + alerte Super Admin
     await runDueRegulatoryJobs();
     await pruneStaleUploadSessions().catch(() => 0); // nettoyage des sessions d'upload incomplètes
+    await runIntelligencePulse(); // Adventum Pulse : instantané horaire (Brain + Process Intelligence) + alerte proactive
 
   } catch (err) {
     console.error("[scheduled] run failed", err);

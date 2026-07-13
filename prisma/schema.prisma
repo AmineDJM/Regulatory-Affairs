@@ -3329,6 +3329,30 @@ model RiskSetting {
   updatedById          String?
 }
 
+/// Adventum Pulse — instantané périodique (au plus 1×/h) de l'état d'intelligence de la société :
+/// agrégats du Risk Radar (Adventum Brain) + de Process Intelligence. Persisté pour l'analyse EN
+/// CONTINU : tendances (deltas, courbe) affichées dans les cockpits, et alertes PROACTIVES (nouveau
+/// risque critique) envoyées au Super Admin même si personne n'ouvre le module. Calculé sur des
+/// données réelles, sans IA. Le champ `bucket` (« YYYY-MM-DDTHH ») sert de verrou : un seul
+/// instantané par heure, y compris sous concurrence (contrainte d'unicité).
+model IntelligenceSnapshot {
+  id                 String   @id @default(cuid())
+  bucket             String   @unique
+  createdAt          DateTime @default(now())
+  riskCritical       Int      @default(0)
+  riskHigh           Int      @default(0)
+  riskMedium         Int      @default(0)
+  riskLow            Int      @default(0)
+  riskTotal          Int      @default(0)
+  inProgress         Int      @default(0)
+  stuck              Int      @default(0)
+  overdue            Int      @default(0)
+  validationsPending Int      @default(0)
+  detail             Json? /// { byCategory: {CAT: n}, criticalIds: [id], topRisks: [{id,level,module,title,object,href}] }
+
+  @@index([createdAt])
+}
+
 /// Réglage du score d'adoption — **poids** de chaque dimension et **seuils** de
 /// libellé, définis librement par le Super Admin. Le score reste calculé sur des
 /// données réelles ; ces valeurs ne font que pondérer/segmenter le résultat.
