@@ -133,3 +133,35 @@ export async function releaseBlob(blobId: string): Promise<void> {
     await prisma.fileBlob.update({ where: { id: blobId }, data: { refCount: { decrement: 1 } } });
   }
 }
+
+/**
+ * RAMASSE-MIETTES du stockage physique : supprime définitivement les blobs qui ne sont plus
+ * référencés par AUCUNE version de fichier (Drive) NI par aucun fichier stocké (Documents, etc.).
+ * C'est ce qui libère RÉELLEMENT l'espace disque de la BDD après des suppressions (les suppressions
+ * en cascade laissent des blobs orphelins avec un compteur de références périmé). Renvoie le nombre
+ * de blobs détruits et les octets physiques récupérés. Les tranches (FileBlobChunk) tombent en cascade.
+ */
+export async function purgeOrphanBlobs(): Promise<{ count: number; bytes: number }> {
+  const orphans = await prisma.$queryRaw<{ id: string; size: number; storageKey: string | null }[]>`
+    DELETE FROM "FileBlob" b
+    WHERE NOT EXISTS (SELECT 1 FROM "FileVersion" v WHERE v."blobId" = b.id)
+      AND NOT EXISTS (SELECT 1 FROM "StoredFile" s WHERE s."blobId" = b.id)
+    RETURNING b.id, b.size, b."storageKey"`;
+  let bytes = 0;
+  for (const o of orphans) {
+    bytes += o.size;
+    if (o.storageKey) await deleteObject(o.storageKey); // ne lève jamais
+  }
+  return { count: orphans.length, bytes };
+}
+
+/** Octets physiques réellement récupérables par un ramasse-miettes (blobs non référencés). */
+export async function countOrphanBlobs(): Promise<{ count: number; bytes: number }> {
+  const rows = await prisma.$queryRaw<{ count: bigint; bytes: bigint | null }[]>`
+    SELECT COUNT(*)::bigint AS count, COALESCE(SUM(b.size), 0)::bigint AS bytes
+    FROM "FileBlob" b
+    WHERE NOT EXISTS (SELECT 1 FROM "FileVersion" v WHERE v."blobId" = b.id)
+      AND NOT EXISTS (SELECT 1 FROM "StoredFile" s WHERE s."blobId" = b.id)`;
+  const r = rows[0];
+  return { count: Number(r?.count ?? 0), bytes: Number(r?.bytes ?? 0) };
+}

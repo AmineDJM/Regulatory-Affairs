@@ -1021,6 +1021,7 @@ export const BRAIN_TABS: NavTab[] = [
 // Administration : console + Contrôle de l'IA + Score d'adoption.
 export const ADMIN_TABS: NavTab[] = [
   { module: "ADMIN", label: "Administration", href: "/admin" },
+  { module: "ADMIN", label: "Bases de données", href: "/admin/bases" },
   { module: "ADMIN", label: "Contrôle de l'IA", href: "/admin/ai" },
   { module: "ADMIN", label: "Score d'adoption", href: "/admin/adoption" },
 ];
