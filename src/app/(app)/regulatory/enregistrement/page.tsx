@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { FileCheck2, Scale, Coins, Timer, Layers, ClipboardList, RefreshCw, ShieldCheck, XCircle, Sparkles } from "lucide-react";
+import { Scale, Coins, Timer, Layers, ClipboardList, RefreshCw, ShieldCheck, XCircle, Sparkles } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   REG_LEGAL_REFERENCES, REGISTRATION_FEES, OTHER_FEES, FEE_SPECIAL_CASES, REGISTRATION_PHASES,
-  CTD_MODULES, CTD_RULES, PRESUBMISSION_FORM, MODIFICATION_CATEGORIES, MODIFICATION_RULES,
+  CTD_MODULES, CTD_RULES, MODIFICATION_CATEGORIES, MODIFICATION_RULES,
   DECISION_MENTIONS, DECISION_RULES, REFUSAL_GROUNDS, REGISTRATION_DOSSIER_PIECES,
 } from "@/lib/regulatory/anpp-knowledge";
 
@@ -148,18 +148,6 @@ export default async function EnregistrementPage() {
         </CardContent>
       </Card>
 
-      {/* Pré-soumission — champs du formulaire officiel */}
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><FileCheck2 className="h-4 w-4 text-primary" /> Formulaire de pré-soumission (modèle arrêté 3 oct. 2021)</CardTitle></CardHeader>
-        <CardContent className="grid gap-3 text-sm md:grid-cols-2">
-          <FormBlock title="Informations sur le produit" items={PRESUBMISSION_FORM.product} />
-          <FormBlock title="Établissement demandeur" items={PRESUBMISSION_FORM.establishment} />
-          <FormBlock title="Positionnement de la demande" items={PRESUBMISSION_FORM.positioning} />
-          <FormBlock title="Type de demande" items={PRESUBMISSION_FORM.requestType} />
-          <FormBlock title="Intérêt thérapeutique & économique" items={PRESUBMISSION_FORM.interests} />
-        </CardContent>
-      </Card>
-
       {/* Modifications post-enregistrement */}
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><RefreshCw className="h-4 w-4 text-primary" /> Modifications post-enregistrement (arrêté 3 oct. 2021)</CardTitle></CardHeader>
@@ -205,17 +193,6 @@ export default async function EnregistrementPage() {
           </ul>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function FormBlock({ title, items }: { title: string; items: readonly string[] }) {
-  return (
-    <div className="rounded-lg border border-border p-3">
-      <p className="mb-1 text-sm font-medium">{title}</p>
-      <ul className="list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
-        {items.map((i) => <li key={i}>{i}</li>)}
-      </ul>
     </div>
   );
 }

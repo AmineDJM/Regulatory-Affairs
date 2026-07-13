@@ -208,12 +208,19 @@ export interface DossierPassage {
   snippet: string; score: number; matchOffset: number; ocrPages: OcrPageMeta[] | null;
 }
 
+type PassageRow = { documentid: string; filename: string; ctdsection: string | null; ctdmodule: string | null; score: number | bigint; matchoffset: number | bigint | null; ocrpages: unknown; snippet: string | null };
+
 /**
  * Recherche MULTI-TERMES classée — le cœur « intelligent » du chatbot. Chaque document est scoré par
  * le NOMBRE de termes distincts qu'il contient (rappel bien meilleur qu'un ILIKE de la phrase entière) ;
  * l'extrait ET le décalage de caractère du 1ᵉʳ terme trouvé sont calculés CÔTÉ BASE (aucun contenu
  * entier chargé en RAM — tient face à un OCR de 10 000 pages). Le décalage sert à retrouver la PAGE
  * exacte via `ocrPages.chars` (cf. `pageForOffset`). Termes lowercasés/dédupliqués/plafonnés (8).
+ *
+ * RANKING SÉMANTIQUE FIN : à rappel égal, on départage par `ts_rank_cd` sur la colonne tsvector
+ * indexée (GIN, config « french », alimentée à l'extraction) → tient compte de la fréquence, de la
+ * densité et de la RACINISATION (pluriels/conjugaisons) des termes, bien plus fin qu'un simple
+ * comptage de sous-chaînes. Repli automatique sur le classement historique si la colonne est absente.
  */
 export async function searchDossierPassages(dossierVersionId: string, terms: string[], opts: { take?: number } = {}): Promise<DossierPassage[]> {
   const clean = [...new Set(terms.map((t) => t.trim().toLowerCase()).filter((t) => t.length >= 2))].slice(0, 8);
@@ -223,22 +230,37 @@ export async function searchDossierPassages(dossierVersionId: string, terms: str
   const pos = (i: number) => `position(lower($${i}) IN lower(e.content))`;
   const scoreExpr = idx.map((i) => `(CASE WHEN ${pos(i)} > 0 THEN 1 ELSE 0 END)`).join(" + ");
   const firstExpr = `LEAST(${idx.map((i) => `NULLIF(${pos(i)}, 0)`).join(", ")})`; // LEAST ignore les NULL
+  // Requête tsquery OR des termes (racinisation « french ») → rang sémantique fin via ts_rank_cd.
+  const tsqExpr = idx.map((i) => `plainto_tsquery('french', $${i})`).join(" || ");
   const limIdx = clean.length + 2;
-  const sql = `
-    SELECT d.id AS documentid, d."originalFilename" AS filename, d."ctdSection" AS ctdsection, d."ctdModule" AS ctdmodule,
-      m.score, m.matchoffset, e."ocrPages" AS ocrpages,
-      substring(e.content FROM greatest(1, m.matchoffset - 120) FOR 320) AS snippet
+  const base = `
     FROM "RegulatoryExtraction" e
     JOIN "RegulatoryDocument" d ON d.id = e."documentId"
     CROSS JOIN LATERAL (SELECT (${scoreExpr}) AS score, (${firstExpr}) AS matchoffset) m
-    WHERE d."dossierVersionId" = $1 AND m.matchoffset IS NOT NULL
+    WHERE d."dossierVersionId" = $1 AND m.matchoffset IS NOT NULL`;
+  const select = `SELECT d.id AS documentid, d."originalFilename" AS filename, d."ctdSection" AS ctdsection, d."ctdModule" AS ctdmodule,
+      m.score, m.matchoffset, e."ocrPages" AS ocrpages,
+      substring(e.content FROM greatest(1, m.matchoffset - 120) FOR 320) AS snippet`;
+  // Classement fin : rappel (nb de termes) d'abord, puis rang sémantique tsvector, puis position.
+  const sqlRanked = `${select}, ts_rank_cd(e."tsv", (${tsqExpr})) AS rank
+    ${base}
+    ORDER BY m.score DESC, rank DESC, m.matchoffset ASC
+    LIMIT $${limIdx}`;
+  const sqlBasic = `${select}
+    ${base}
     ORDER BY m.score DESC, m.matchoffset ASC
     LIMIT $${limIdx}`;
-  let rows: Array<{ documentid: string; filename: string; ctdsection: string | null; ctdmodule: string | null; score: number | bigint; matchoffset: number | bigint | null; ocrpages: unknown; snippet: string | null }> = [];
+
+  let rows: PassageRow[] = [];
   try {
-    rows = await prisma.$queryRawUnsafe(sql, dossierVersionId, ...clean, take);
+    rows = await prisma.$queryRawUnsafe(sqlRanked, dossierVersionId, ...clean, take);
   } catch {
-    rows = [];
+    // Colonne tsvector absente (BDD non migrée) ou erreur tsquery : repli sur le classement historique.
+    try {
+      rows = await prisma.$queryRawUnsafe(sqlBasic, dossierVersionId, ...clean, take);
+    } catch {
+      rows = [];
+    }
   }
   return rows.map((r) => ({
     documentId: r.documentid, filename: r.filename, ctdSection: r.ctdsection, ctdModule: r.ctdmodule,
