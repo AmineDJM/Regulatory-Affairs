@@ -4,7 +4,7 @@ import { ArrowLeft, Download, PencilLine } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { resolveDriveAccess, fileKind } from "@/lib/drive";
+import { resolveDriveAccess, fileKind, fileTypeLabel } from "@/lib/drive";
 import { onlyofficeConfigured, onlyofficeEditable } from "@/lib/onlyoffice";
 import { convertConfigured } from "@/lib/office-convert";
 import { ConvertPdfButton } from "./convert-pdf-button";
@@ -64,8 +64,8 @@ export default async function DriveFilePage({ params }: { params: { id: string }
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h1 className="truncate text-2xl font-semibold tracking-tight">{node.name}</h1>
-          <p className="text-sm text-muted-foreground">{humanSize(node.size)} · {node.mimeType || "fichier"}</p>
+          <h1 className="truncate text-2xl font-semibold tracking-tight" title={node.name}>{node.name}</h1>
+          <p className="truncate text-sm text-muted-foreground">{humanSize(node.size)} · {fileTypeLabel(node.mimeType, node.name)}</p>
         </div>
         <div className="flex items-center gap-2">
           {canEdit && onlyofficeConfigured() && onlyofficeEditable(node.name) && (
@@ -94,7 +94,7 @@ export default async function DriveFilePage({ params }: { params: { id: string }
             <CardContent className="space-y-2 text-sm">
               <Row label="Propriétaire" value={node.owner?.name ?? "—"} />
               <Row label="Taille" value={humanSize(node.size)} />
-              <Row label="Type" value={node.mimeType || "—"} />
+              <Row label="Type" value={fileTypeLabel(node.mimeType, node.name)} title={node.mimeType || undefined} />
               <Row label="Modifié" value={formatDateTime(node.updatedAt)} />
               <Row label="Versions" value={String(node.versions.length)} />
             </CardContent>
@@ -140,11 +140,12 @@ export default async function DriveFilePage({ params }: { params: { id: string }
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium">{value}</span>
+    <div className="flex items-start justify-between gap-3">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      {/* min-w-0 + rupture des mots longs (ex. type MIME) → jamais de débordement/chevauchement. */}
+      <span className="min-w-0 break-words text-right font-medium [overflow-wrap:anywhere]" title={title}>{value}</span>
     </div>
   );
 }
