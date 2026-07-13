@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { canManageEnvelopes } from "@/lib/rbac";
+import { canManageEnvelopes, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getEnvelopes, getBudgetOverview, getEnvelopesGrandTotal } from "@/lib/queries/budget";
 import { getAppSettings } from "@/lib/settings";
@@ -14,6 +14,9 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
   // Gestion des enveloppes : prérogative Super Admin (délégable). La Direction
   // des opérations consulte les budgets mais n'en a pas la gestion par défaut.
   const canManage = canManageEnvelopes(user);
+  // Attribuer une dépense / ajouter une ligne de dépense : Direction (vue globale) OU gestionnaire.
+  // La visibilité d'une enveloppe reste bornée par l'accès (getBudgetOverview) → sûr.
+  const canAttribute = hasGlobalView(user.role) || canManage;
 
   const [envelopes, settings, grandTotal, users] = await Promise.all([
     getEnvelopes(user),
@@ -52,7 +55,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
           description={canManage ? "Créez une enveloppe : un budget total pour une période, que vous répartirez ensuite en catégories." : "Aucune enveloppe ne vous est ouverte pour le moment."}
         />
       ) : (
-        <BudgetBoard overview={overview} envelopes={envelopes} canManage={canManage} budgetTotal={budgetTotal} users={users} />
+        <BudgetBoard overview={overview} envelopes={envelopes} canManage={canManage} canAttribute={canAttribute} budgetTotal={budgetTotal} users={users} />
       )}
     </div>
   );

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   createEnvelope, updateEnvelope, deleteEnvelope, setBudgetTotal,
-  createBudgetCategory, updateBudgetCategory, deleteBudgetCategory, attributeTransaction,
+  createBudgetCategory, updateBudgetCategory, deleteBudgetCategory, attributeTransaction, addBudgetExpense,
 } from "@/lib/actions/budget-envelope-actions";
 import type { BudgetOverview, BudgetEnvelopeOption, BudgetCategoryView, BudgetHealth, EnvelopesGrandTotal } from "@/lib/queries/budget";
 import { ROLE_LABELS } from "@/lib/labels";
@@ -190,7 +190,7 @@ export function CreateEnvelopeButton({ users = [] }: { users?: UserOpt[] }) {
   );
 }
 
-export function BudgetBoard({ overview, envelopes, canManage, budgetTotal, users = [] }: { overview: BudgetOverview; envelopes: BudgetEnvelopeOption[]; canManage: boolean; budgetTotal: BudgetTotalInfo; users?: UserOpt[] }) {
+export function BudgetBoard({ overview, envelopes, canManage, canAttribute = canManage, budgetTotal, users = [] }: { overview: BudgetOverview; envelopes: BudgetEnvelopeOption[]; canManage: boolean; canAttribute?: boolean; budgetTotal: BudgetTotalInfo; users?: UserOpt[] }) {
   const router = useRouter();
   const t = overview.totals;
   // Modules couverts par l'enveloppe (rétrocompat : ancien champ `module` unique).
@@ -272,6 +272,8 @@ export function BudgetBoard({ overview, envelopes, canManage, budgetTotal, users
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Catégories ({overview.categories.length})</h2>
           {canManage && <Button size="sm" onClick={() => setCatSheet({})}><Plus className="h-4 w-4" /> Nouvelle catégorie</Button>}
         </div>
+        {/* Ajout RAPIDE d'une ligne de dépense (référence + montant) qui consomme un budget. */}
+        {canAttribute && overview.categories.length > 0 && <AddExpenseRow categories={overview.categories} />}
         {topCats.length === 0 ? (
           <p className="surface p-4 text-sm text-muted-foreground">Aucune catégorie. {canManage && "Répartissez le budget total en créant des catégories (ex. Promotion, Congrès, Logistique…), avec si besoin des sous-catégories (ex. Table ronde)."}</p>
         ) : (
@@ -307,7 +309,7 @@ export function BudgetBoard({ overview, envelopes, canManage, budgetTotal, users
                   <p className="text-xs text-muted-foreground">{tx.reference} · {formatDate(tx.date)}{tx.counterparty ? ` · ${tx.counterparty}` : ""}</p>
                 </div>
                 <span className="font-semibold text-destructive">{formatCurrency(tx.amount)}</span>
-                {canManage ? (
+                {canAttribute ? (
                   <Select
                     defaultValue=""
                     onChange={(e) => { const fd = new FormData(); fd.set("transactionId", tx.id); if (e.target.value) fd.set("budgetCategoryId", e.target.value); run(() => attributeTransaction(fd)); }}
@@ -324,7 +326,7 @@ export function BudgetBoard({ overview, envelopes, canManage, budgetTotal, users
       </section>
 
       {/* Dépenses attribuées — la Direction peut RÉ-ATTRIBUER la (sous-)catégorie à tout moment */}
-      {canManage && overview.attributed.transactions.length > 0 && (
+      {canAttribute && overview.attributed.transactions.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Dépenses attribuées ({overview.attributed.count}) <span className="font-normal normal-case text-[11px] text-muted-foreground">— modifiez la catégorie à tout moment</span>
@@ -394,6 +396,42 @@ function PeriodPicker({ from, to, onApply }: { from: string; to: string; onApply
       <div className="space-y-1.5"><Label>Au</Label><Input type="date" value={t} onChange={(e) => setT(e.target.value)} className="w-40" /></div>
       <Button variant="outline" size="sm" onClick={() => onApply(f, t)}><SlidersHorizontal className="h-4 w-4" /> Appliquer</Button>
     </div>
+  );
+}
+
+/**
+ * Ajout RAPIDE d'une ligne de dépense qui CONSOMME un budget : (sous-)catégorie + référence
+ * + montant → « + ». Crée une dépense réelle réglée imputée à la catégorie (consommation immédiate).
+ */
+function AddExpenseRow({ categories }: { categories: BudgetCategoryView[] }) {
+  const { busy, err, run } = useRun();
+  const formRef = React.useRef<HTMLFormElement>(null);
+  return (
+    <form
+      ref={formRef}
+      action={(fd) => run(() => addBudgetExpense(fd), () => formRef.current?.reset())}
+      className="surface flex flex-wrap items-end gap-2 p-3"
+    >
+      <div className="space-y-1">
+        <Label className="text-xs">Budget consommé</Label>
+        <Select name="budgetCategoryId" required defaultValue="" className="h-9 w-56">
+          <option value="" disabled>Choisir une (sous-)catégorie…</option>
+          {categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Référence</Label>
+        <Input name="reference" required placeholder="Ex. Facture 2026-042" className="h-9 w-48" />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Montant (DZD)</Label>
+        <Input name="amount" type="number" step="any" min="0" required placeholder="0" className="h-9 w-32" />
+      </div>
+      <Button type="submit" size="sm" disabled={busy}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Ajouter la dépense
+      </Button>
+      {err && <p className="w-full text-xs text-destructive">{err}</p>}
+    </form>
   );
 }
 

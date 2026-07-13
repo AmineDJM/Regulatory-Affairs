@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/session";
 import { canManageEnvelopes, hasGlobalView, userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { buildRef, createWithRetry } from "@/lib/refs";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
 const NOT_ALLOWED: ActionResult = { ok: false, error: "Gestion des enveloppes réservée au Super Admin (ou à un délégué)." };
@@ -164,6 +165,58 @@ export async function attributeTransaction(formData: FormData): Promise<ActionRe
   if (!transactionId) return { ok: false, error: "Transaction manquante." };
   const budgetCategoryId = fdStr(formData, "budgetCategoryId"); // null = retirer
   await prisma.financeTransaction.update({ where: { id: transactionId }, data: { budgetCategoryId } });
+  revalidatePath("/budgets");
+  return { ok: true };
+}
+
+/** Prochaine référence FIN unique (dérivée du maximum réel → robuste aux suppressions). */
+async function nextFinRef(): Promise<string> {
+  const year = new Date().getFullYear();
+  const refs = await prisma.financeTransaction.findMany({ where: { reference: { startsWith: `FIN-${year}-` } }, select: { reference: true } });
+  return buildRef("FIN", year, refs.map((r) => r.reference));
+}
+
+/**
+ * AJOUT RAPIDE d'une ligne de dépense qui CONSOMME un budget, directement depuis le module
+ * Budget (référence + montant). Crée une dépense réelle (FinanceTransaction OUT, RÉGLÉE)
+ * imputée à la (sous-)catégorie choisie → la consommation se met à jour aussitôt. Réservé à
+ * la Direction / aux gestionnaires, et uniquement sur une enveloppe qui leur est ACCESSIBLE.
+ */
+export async function addBudgetExpense(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!(hasGlobalView(user.role) || userCan(user, "BUDGETS", "UPDATE"))) return { ok: false, error: "Ajout réservé à la Direction ou aux gestionnaires de budget." };
+
+  const budgetCategoryId = fdStr(formData, "budgetCategoryId");
+  const reference = fdStr(formData, "reference"); // la « référence » saisie sert de libellé de la dépense
+  const amount = fdNum(formData, "amount");
+  if (!budgetCategoryId) return { ok: false, error: "Choisissez la catégorie de budget." };
+  if (!reference) return { ok: false, error: "Indiquez une référence." };
+  if (amount == null || amount <= 0) return { ok: false, error: "Indiquez un montant positif." };
+
+  const cat = await prisma.budgetCategoryLine.findUnique({
+    where: { id: budgetCategoryId },
+    select: { id: true, name: true, envelope: { select: { accessRoles: true, accessUserIds: true } } },
+  });
+  if (!cat) return { ok: false, error: "Catégorie introuvable." };
+  // Le décideur ne peut imputer qu'à une enveloppe qui lui est OUVERTE (accès Super Admin).
+  const allowed = canManageEnvelopes(user) || hasGlobalView(user.role) || cat.envelope.accessRoles.includes(user.role) || cat.envelope.accessUserIds.includes(user.id);
+  if (!allowed) return { ok: false, error: "Cette enveloppe ne vous est pas ouverte." };
+
+  const date = fdDate(formData, "date") ?? new Date();
+  const label = reference.slice(0, 160);
+  const created = await createWithRetry(async () =>
+    prisma.financeTransaction.create({
+      data: {
+        reference: await nextFinRef(),
+        date, direction: "OUT", category: "AUTRE", label, amount,
+        method: "BANK_TRANSFER", account: "Banque", status: "SETTLED",
+        invoiceRef: reference.slice(0, 120), budgetCategoryId, createdById: user.id,
+        notes: "Ligne de dépense saisie depuis le module Budget.",
+      },
+      select: { id: true },
+    }),
+  );
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Budgets", entityType: "FINANCE_TRANSACTION", entityId: created.id, summary: `Dépense « ${label} » imputée à « ${cat.name} »` });
   revalidatePath("/budgets");
   return { ok: true };
 }
