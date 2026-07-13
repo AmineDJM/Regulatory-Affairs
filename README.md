@@ -1056,6 +1056,24 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot budgets/finances/regulatory/admin/perf (12 sujets).** **(1) Budgets découplés des Finances** — une
+  ligne de dépense ajoutée depuis le module Budget (« + » réf. + montant) crée désormais une **ligne purement
+  budgétaire** (`BudgetExpenseLine`) qui consomme la catégorie **sans** toucher la trésorerie ; le financier
+  enregistre le mouvement réel s'il le souhaite. Les anciennes lignes (créées comme FinanceTransaction) sont
+  **reprises** puis retirées des Finances (migration). **(2) Suppression** des lignes budgétaires (corbeille sur
+  les dépenses imputées ; la consommation se réajuste). **(3) Regulatory — miroir Drive AUTOMATIQUE** : tout
+  document officiellement téléversé sur un produit est répliqué dans le Drive (dossier du produit, partagé), **en
+  arrière-plan** (upload ressenti instantané) — fin du bouton manuel. **(4) Finances & Promotion médicale —
+  lignes modifiables + supprimables** (livre comptable : `updateTransaction`/`deleteTransaction`, trésorerie
+  recalculée ; visites : édition complète de la ligne). **(5) Administration → onglet « Bases de données »**
+  (Super Admin) : liste des bases porteuses de stockage + suppression **définitive** de fichiers/documents/dossiers
+  + **ramasse-miettes** des blobs orphelins qui **libère réellement** l'espace disque (contenu dédupliqué).
+  **(6) Process Intelligence — statuts corrigés** : états terminaux sponsoring (ANNULÉE/APPROUVÉE) exclus, et
+  demandes administratives **supprimées** (suppression douce `deletedAt`) enfin masquées. **(7) Analyse CTD —
+  ranking sémantique fin** : colonne **tsvector indexée (GIN, « french »)** générée à l'extraction ; la recherche
+  du chatbot départage par `ts_rank_cd` (racinisation, fréquence, densité). **(8) Analyse CTD** — retrait du
+  **formulaire de pré-soumission** (tout se fait sur la plateforme ANPP en ligne). **(9) Performance / upload** :
+  lecture unique du binaire, miroir Drive non bloquant, concurrence d'upload 6, `getCompanies` mémoïsé par requête.
 - **Budgets : catégories modifiables, attribution scopée & ré-attribuable, export Excel.** Le **module
   d'une catégorie de tête** est désormais **modifiable et ré-enregistrable** (un bug le laissait figé après
   création). À la **validation définitive** d'une dépense, la Direction choisit la **(sous-)catégorie**
