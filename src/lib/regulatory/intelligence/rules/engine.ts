@@ -1,5 +1,5 @@
 import type { RegProcedureType } from "@prisma/client";
-import { requirementsFor } from "./requirements";
+import { requirementsFor, ADMIN_DOC_CODES } from "./requirements";
 import { sectionByCode } from "../ctd/taxonomy";
 
 /**
@@ -141,7 +141,10 @@ export function assessVersion(input: {
   const { procedureType } = input;
   const all = input.documents;
   const storable = all.filter((d) => isStorable(d.securityStatus));
-  const rules = input.rules ?? [];
+  // Les pièces administratives d'enregistrement (1.0 / 1.2 / 1.2.1) sont fournies HORS dossier CTD :
+  // on écarte du scoring toute règle qui les cible — y compris les packs déjà amorcés en base
+  // (aucune migration requise). Elles n'apparaissent donc jamais comme « section CTD manquante ».
+  const rules = (input.rules ?? []).filter((r) => !(r.sectionCode && ADMIN_DOC_CODES.has(r.sectionCode)));
   const useRules = rules.length > 0; // pack ACTIF → règles en base ; sinon repli profils codés
   const findings: FindingInput[] = [];
 

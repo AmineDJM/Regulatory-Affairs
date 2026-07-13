@@ -48,10 +48,11 @@ describe("evaluateRule — logique déterministe des règles", () => {
 
 describe("assessVersion — pilotage par règles vs repli déterministe", () => {
   it("avec règles ACTIVES : complétude et bloqueurs dérivés des règles", () => {
-    const rules = [sectionRule("1.0", true), sectionRule("3.2.P.8", true), sectionRule("2.1", false)];
+    // 1.3 / 3.2.P.8 = sections CTD ; 2.1 attendue. (On évite 1.0/1.2/1.2.1 = pièces admin hors CTD.)
+    const rules = [sectionRule("1.3", true), sectionRule("3.2.P.8", true), sectionRule("2.1", false)];
     const r = assessVersion({
       procedureType: "INITIAL_REGISTRATION",
-      documents: [doc("1.0"), doc("2.1")], // manque 3.2.P.8 (bloqueur)
+      documents: [doc("1.3"), doc("2.1")], // manque 3.2.P.8 (bloqueur)
       rules,
     });
     expect(r.summary.requiredTotal).toBe(2);
@@ -63,19 +64,29 @@ describe("assessVersion — pilotage par règles vs repli déterministe", () => 
     expect(r.findings.some((f) => f.code === "SEC-3.2.P.8")).toBe(true);
   });
 
+  it("les pièces administratives (1.0/1.2/1.2.1) ne sont JAMAIS des exigences CTD (jamais bloquantes)", () => {
+    // Même seedées en règles bloquantes, elles sont écartées du scoring (fournies hors CTD).
+    const rules = [sectionRule("1.0", true), sectionRule("1.2", true), sectionRule("1.2.1", true), sectionRule("3.2.P.8", true)];
+    const r = assessVersion({ procedureType: "INITIAL_REGISTRATION", documents: [doc("3.2.P.8")], rules });
+    expect(r.summary.requiredTotal).toBe(1); // seule 3.2.P.8 compte
+    expect(r.summary.blockers).toBe(0);
+    expect(r.summary.conforme).toBe(true);
+    expect(r.findings.some((f) => f.sectionCode === "1.0" || f.sectionCode === "1.2" || f.sectionCode === "1.2.1")).toBe(false);
+  });
+
   it("sans règles : repli sur les profils codés (comportement historique préservé)", () => {
-    // PRESUBMISSION historique : required=["1.2"], expected=["1.3"].
-    const r = assessVersion({ procedureType: "PRESUBMISSION", documents: [doc("1.2"), doc("1.3")] });
+    // RENEWAL : required=["1.3"] (1.0/1.2 = pièces admin exclues du CTD), expected=["2.3","3.2.P.8"].
+    const r = assessVersion({ procedureType: "RENEWAL", documents: [doc("1.3")] });
     expect(r.summary.conforme).toBe(true);
     expect(r.summary.requiredTotal).toBe(1);
     expect(r.findings.some((f) => f.code === "MISSING_REQUIRED_SECTION")).toBe(false);
   });
 
   it("règles FACT_REQUIRED intégrées au bilan (non bloquantes ici)", () => {
-    const rules = [sectionRule("1.0", true), factRule("INN")];
-    const withFact = assessVersion({ procedureType: "GENERIC", documents: [doc("1.0")], rules, factKeys: new Set(["INN"]) });
+    const rules = [sectionRule("1.3", true), factRule("INN")];
+    const withFact = assessVersion({ procedureType: "GENERIC", documents: [doc("1.3")], rules, factKeys: new Set(["INN"]) });
     expect(withFact.findings.some((f) => f.code === "FACT-INN")).toBe(false);
-    const noFact = assessVersion({ procedureType: "GENERIC", documents: [doc("1.0")], rules, factKeys: new Set() });
+    const noFact = assessVersion({ procedureType: "GENERIC", documents: [doc("1.3")], rules, factKeys: new Set() });
     expect(noFact.findings.some((f) => f.code === "FACT-INN")).toBe(true);
   });
 });

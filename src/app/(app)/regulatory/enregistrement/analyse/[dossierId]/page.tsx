@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
 import { getDossier, listVersions, listVersionDocuments, listDossierAudit, getAssessment, listFindings, listFacts, listConflicts } from "@/lib/regulatory/intelligence/queries";
-import { buildCoverage } from "@/lib/regulatory/intelligence/twin/build-twin";
+import { buildCoverage, buildRegistrationDocs } from "@/lib/regulatory/intelligence/twin/build-twin";
 import { buildVersionDiff } from "@/lib/regulatory/intelligence/diff/compare-versions";
 import { aiConfigured } from "@/lib/ai";
 import { applicableAgents } from "@/lib/regulatory/intelligence/agents/orchestrator";
@@ -79,6 +79,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
   const facts = latest ? await listFacts(latest.id) : [];
   const conflicts = latest ? await listConflicts(latest.id) : [];
   const coverage = latest ? buildCoverage(dossier.procedureType, documents) : [];
+  const registrationDocs = latest ? buildRegistrationDocs(documents) : [];
   const agents = latest ? await applicableAgents(latest.id) : [];
   const diff = versions.length > 1 ? await buildVersionDiff(dossier.id) : null;
   const generatedDocs = latest
@@ -316,6 +317,36 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                   <span className="font-medium">{row.code}</span>
                   <span className="min-w-0 flex-1 truncate text-muted-foreground" title={row.title}>{row.title}</span>
                   {row.kind === "required" && <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/70">obligatoire</span>}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Pièces administratives d'enregistrement — HORS dossier CTD (fournies de notre côté, en ligne
+          sur le portail ANPP). Rappel obligatoire ; leur absence ne pénalise JAMAIS la complétude CTD. */}
+      {latest && registrationDocs.length > 0 && (
+        <Card className="border-primary/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4 text-primary" /> Documents obligatoires pour l&apos;enregistrement (hors CTD)</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Ces pièces sont fournies de <strong>notre côté</strong> (portail ANPP en ligne) et ne font <strong>pas partie du dossier CTD</strong> :
+              leur absence ici ne pénalise pas la notation du dossier. Rappel de la checklist à joindre à la soumission.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+              {registrationDocs.map((row) => (
+                <div key={row.code} className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-sm">
+                  {row.present
+                    ? <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+                    : <Info className="h-4 w-4 shrink-0 text-muted-foreground/70" />}
+                  <span className="font-medium">{row.code}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground" title={row.label}>{row.label}</span>
+                  <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                    {row.present ? "joint" : "à fournir"}
+                  </span>
                 </div>
               ))}
             </div>
