@@ -14,6 +14,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { CommentThread } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { RegulatoryDriveUpload } from "./regulatory-drive-upload";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { RegulatoryProcess, RegulatoryChecklist } from "./anpp-process";
 import { regProgress, regChecklistProgress, type RegWorkflowState, type RegChecklistState } from "@/lib/regulatory-workflow";
@@ -334,6 +335,12 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   entityId={product.id}
                   categories={REG_DOC_CATEGORIES}
                 />
+              )}
+              {canUpload && (
+                <div className="border-t border-border/60 pt-3">
+                  {/* Dépôt fichiers / dossier / ZIP → miroir Drive (arborescence conservée), dossier nommé d'après le produit. */}
+                  <RegulatoryDriveUpload productId={product.id} />
+                </div>
               )}
               <DocumentList documents={docItems} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload} path={`/regulatory/${product.id}`} />
             </CardContent>
