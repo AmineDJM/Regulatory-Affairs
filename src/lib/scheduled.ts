@@ -24,6 +24,7 @@ export async function runScheduledJobs(): Promise<void> {
   lastRun = now;
   try {
     await sendDueMeetingReminders();
+    await sendDueReminders();
     await sendDuePayrollNotifications();
     await performAiHealthCheck().catch((e) => console.error("[scheduled] ai health check failed", e)); // test IA 1×/jour + alerte Super Admin
     await runDueRegulatoryJobs();
@@ -33,6 +34,25 @@ export async function runScheduledJobs(): Promise<void> {
     console.error("[scheduled] run failed", err);
   } finally {
     running = false;
+  }
+}
+
+/**
+ * Rappels personnels « en un clic » échus : notifie le propriétaire (cloche + push) une seule fois,
+ * puis passe le rappel en SENT (il reste dans « Mes rappels » jusqu'à ce que l'utilisateur le traite).
+ */
+async function sendDueReminders(): Promise<void> {
+  const now = new Date();
+  const due = await prisma.reminder.findMany({
+    where: { status: "PENDING", remindAt: { lte: now } },
+    select: { id: true, userId: true, title: true, link: true },
+    take: 200,
+  });
+  for (const r of due) {
+    // Verrou atomique : ne notifie qu'une fois même sous concurrence (PENDING → SENT).
+    const claimed = await prisma.reminder.updateMany({ where: { id: r.id, status: "PENDING" }, data: { status: "SENT", sentAt: now } });
+    if (claimed.count === 0) continue;
+    await notifyUser({ userId: r.userId, type: "GENERIC", title: "Rappel", body: r.title, link: r.link ?? "/mon-espace" }).catch(() => undefined);
   }
 }
 

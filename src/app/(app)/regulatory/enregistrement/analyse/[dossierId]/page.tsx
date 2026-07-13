@@ -8,6 +8,7 @@ import type { RegFindingSeverity } from "@prisma/client";
 import { requireModule } from "@/lib/session";
 import { getCompanyScope } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
+import { ReminderButton } from "@/components/reminders/reminder-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
@@ -129,6 +130,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
       <div className="flex flex-wrap items-start justify-between gap-3">
         <PageHeader title={dossier.title} description={`${dossier.reference} · ${PROCEDURE_TYPE_LABELS[dossier.procedureType]}`} />
         <div className="flex items-center gap-2">
+          <ReminderButton defaultTitle={`Dossier ${dossier.reference} — ${dossier.title}`} link={`/regulatory/enregistrement/analyse/${dossier.id}`} />
           <Badge tone={DOSSIER_STATUS_TONE[dossier.status]} dot>{DOSSIER_STATUS_LABELS[dossier.status]}</Badge>
           {canDelete && <DeleteDossierButton dossierId={dossier.id} />}
         </div>

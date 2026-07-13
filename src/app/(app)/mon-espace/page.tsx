@@ -11,6 +11,9 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { createTask, requestTask } from "@/lib/actions/task-actions";
 import { requestLeave, requestAdvance } from "@/lib/actions/hr-actions";
 import { ROLE_LABELS, PRIORITY, LEAVE_TYPE, WORKSPACE_TABS, MODULE_LABELS } from "@/lib/labels";
+import { listMyReminders } from "@/lib/queries/reminders";
+import { MyReminders } from "@/components/reminders/my-reminders";
+import { ReminderButton } from "@/components/reminders/reminder-button";
 import { TaskList, type TaskItem } from "./task-list";
 import { MyLeaves, type LeaveItem } from "./my-leaves";
 import { MyAdvances, type AdvanceItem } from "./my-advances";
@@ -20,7 +23,7 @@ export default async function MonEspacePage() {
   const data = await getMyWorkspace(user.id);
   const canCreateDossier = userCan(user, "DOSSIERS", "CREATE");
 
-  const [users, requested] = await Promise.all([
+  const [users, requested, reminders] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     // Tâches **demandées** à l'utilisateur (à accepter / refuser), comme des DM.
     prisma.task.findMany({
@@ -28,7 +31,9 @@ export default async function MonEspacePage() {
       include: { createdBy: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
     }),
+    listMyReminders(user.id),
   ]);
+  const reminderRows = reminders.map((r) => ({ ...r, remindAt: r.remindAt.toISOString(), sentAt: r.sentAt ? r.sentAt.toISOString() : null }));
 
   // Course / livraison : on remonte aussi adresse + horodatages pour le suivi de durée.
   const toItem = (t: (typeof data.myTasks)[number]): TaskItem => ({
@@ -121,6 +126,14 @@ export default async function MonEspacePage() {
           <TaskList tasks={requestedTasks} />
         </section>
       )}
+
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes rappels{reminderRows.length > 0 ? ` (${reminderRows.length})` : ""}</h2>
+          <ReminderButton label="Nouveau rappel" defaultTitle="" link="/mon-espace" />
+        </div>
+        <MyReminders reminders={reminderRows} />
+      </section>
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes tâches</h2>

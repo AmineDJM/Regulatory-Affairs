@@ -20,6 +20,7 @@ import { RequestActions } from "./request-actions";
 import { RequesterWindow } from "./requester-window";
 import { ApprovalButtons } from "../approval-buttons";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { ReminderButton } from "@/components/reminders/reminder-button";
 import { PromoActionPanel } from "../../promo-material/[id]/promo-panels";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
@@ -87,7 +88,10 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
         </div>
         <div className="flex flex-col items-end gap-2">
           <StatusBadge map={ADMIN_REQUEST_STATUS} value={req.status} />
-          <SuperAdminDeleteButton kind="ADMIN_REQUEST" id={req.id} name={`${req.reference} — ${req.title}`} enabled={user.role === "SUPER_ADMIN"} />
+          <div className="flex items-center gap-2">
+            <ReminderButton defaultTitle={`Demande ${req.reference} — ${req.title}`} link={`/demandes/${req.id}`} entityType="ADMIN_REQUEST" entityId={req.id} />
+            <SuperAdminDeleteButton kind="ADMIN_REQUEST" id={req.id} name={`${req.reference} — ${req.title}`} enabled={user.role === "SUPER_ADMIN"} />
+          </div>
         </div>
       </div>
 

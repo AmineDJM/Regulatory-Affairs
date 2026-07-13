@@ -698,8 +698,40 @@ model User {
   meetingParticipations MeetingParticipant[]  @relation("MeetingParticipant")
   meetingTaskProposals  MeetingTaskProposal[] @relation("MeetingTaskAssignee")
 
+  reminders Reminder[] @relation("UserReminders")
+
   @@index([role])
   @@index([departmentId])
+}
+
+/// RAPPEL personnel « en un clic » posé sur n'importe quel sujet (dossier réglementaire, demande du
+/// secrétariat, e-mail, tâche, ou libre). À l'échéance (remindAt), un job planifié notifie le
+/// propriétaire. link/entityType/entityId renvoient vers l'objet concerné.
+model Reminder {
+  id         String         @id @default(cuid())
+  userId     String
+  user       User           @relation("UserReminders", fields: [userId], references: [id], onDelete: Cascade)
+  title      String
+  note       String?
+  link       String?
+  entityType EntityType?
+  entityId   String?
+  remindAt   DateTime
+  status     ReminderStatus @default(PENDING)
+  sentAt     DateTime?
+  createdById String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@index([userId, status])
+  @@index([status, remindAt])
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  DONE
+  CANCELLED
 }
 
 /// Boîte mail personnelle d'un employé (Infomaniak), connectée à la plateforme.
