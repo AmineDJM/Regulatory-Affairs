@@ -240,6 +240,12 @@ export async function createVisit(
   return { ok: true, id: created.id };
 }
 
+/**
+ * Modifie une visite (ligne). Édite les champs de la LIGNE (date, médecin, délégué, région,
+ * objectif, produits) ET/OU le COMPTE RENDU (statut, report, retour médecin, actions de suivi).
+ * Chaque champ n'est mis à jour QUE s'il est présent dans le formulaire : le flux « compte rendu »
+ * et le flux « édition de ligne » cohabitent sans s'écraser mutuellement.
+ */
 export async function updateVisit(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
@@ -249,21 +255,31 @@ export async function updateVisit(formData: FormData): Promise<ActionResult> {
   const before = await prisma.medicalVisit.findUnique({ where: { id } });
   if (!before) return { ok: false, error: "Visite introuvable." };
   const status = (fdStr(formData, "status") as VisitStatus) ?? before.status;
+  const has = (k: string) => formData.has(k);
+  const doctorId = fdStr(formData, "doctorId");
+  const delegateId = fdStr(formData, "delegateId");
 
   await prisma.medicalVisit.update({
     where: { id },
     data: {
       status,
-      report: fdStr(formData, "report"),
-      doctorFeedback: fdStr(formData, "doctorFeedback"),
-      followUpActions: fdStr(formData, "followUpActions"),
       updatedById: user.id,
+      // Champs de la ligne (édition complète) — seulement si soumis.
+      ...(has("date") ? { date: fdDate(formData, "date") ?? before.date } : {}),
+      ...(has("region") ? { region: fdStr(formData, "region") } : {}),
+      ...(has("objective") ? { objective: fdStr(formData, "objective") } : {}),
+      ...(has("presentedProducts") ? { presentedProducts: fdStr(formData, "presentedProducts") } : {}),
+      ...(has("doctorId") ? { doctor: doctorId ? { connect: { id: doctorId } } : { disconnect: true } } : {}),
+      ...(has("delegateId") ? { delegate: delegateId ? { connect: { id: delegateId } } : { disconnect: true } } : {}),
+      // Compte rendu — seulement si soumis.
+      ...(has("report") ? { report: fdStr(formData, "report") } : {}),
+      ...(has("doctorFeedback") ? { doctorFeedback: fdStr(formData, "doctorFeedback") } : {}),
+      ...(has("followUpActions") ? { followUpActions: fdStr(formData, "followUpActions") } : {}),
     },
   });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
-    entityType: "VISIT", entityId: id, field: "status", oldValue: before.status, newValue: status,
-    summary: "Compte rendu de visite",
+    entityType: "VISIT", entityId: id, summary: "Visite modifiée",
   });
   revalidatePath("/medical");
   return { ok: true };

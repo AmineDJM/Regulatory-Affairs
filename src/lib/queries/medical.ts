@@ -57,7 +57,9 @@ export interface MedicalVisitRow {
   id: string;
   date: string;
   doctor: string;
+  doctorId: string | null;
   delegate: string;
+  delegateId: string | null;
   region: string;
   objective: string;
   presentedProducts: string;
@@ -203,7 +205,7 @@ export async function getMedicalData(user: SessionUser): Promise<MedicalData> {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const visitRows: MedicalVisitRow[] = visits.map((v) => ({
-    id: v.id, date: v.date.toISOString(), doctor: v.doctor?.name ?? "—", delegate: v.delegate?.name ?? "",
+    id: v.id, date: v.date.toISOString(), doctor: v.doctor?.name ?? "—", doctorId: v.doctorId, delegate: v.delegate?.name ?? "", delegateId: v.delegateId,
     region: v.region ?? "", objective: v.objective ?? "", presentedProducts: v.presentedProducts ?? "", status: v.status,
   }));
 

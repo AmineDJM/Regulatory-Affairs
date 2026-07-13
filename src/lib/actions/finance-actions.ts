@@ -74,6 +74,66 @@ export async function updateTransactionStatus(formData: FormData): Promise<Actio
   return { ok: true };
 }
 
+/**
+ * Modifie une écriture du livre comptable (tous champs sauf la référence, qui reste stable).
+ * Réservé à qui peut mettre à jour les Finances. La consommation budgétaire et la trésorerie
+ * se recalculent automatiquement à partir des champs mis à jour.
+ */
+export async function updateTransaction(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  const label = fdStr(formData, "label");
+  const amount = fdNum(formData, "amount");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  if (!label || amount === null) return { ok: false, error: "Libellé et montant obligatoires." };
+  const category = (fdStr(formData, "category") as FinanceCategory) ?? "AUTRE";
+  const direction = (fdStr(formData, "direction") as FinanceDirection) ??
+    (IN_CATEGORIES.includes(category) ? "IN" : "OUT");
+
+  await prisma.financeTransaction.update({
+    where: { id },
+    data: {
+      date: fdDate(formData, "date") ?? undefined,
+      direction,
+      category,
+      label,
+      amount: Math.abs(amount),
+      method: (fdStr(formData, "method") as FinanceMethod) ?? "BANK_TRANSFER",
+      account: fdStr(formData, "account") ?? "Banque",
+      counterparty: fdStr(formData, "counterparty"),
+      invoiceRef: fdStr(formData, "invoiceRef"),
+      status: (fdStr(formData, "status") as FinanceStatus) ?? "SETTLED",
+      notes: fdStr(formData, "notes"),
+    },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Finances", entityType: "FINANCE_TRANSACTION",
+    entityId: id, summary: `Écriture modifiée — ${label}`,
+  });
+  revalidatePath("/finances");
+  return { ok: true };
+}
+
+/** Supprime définitivement une écriture du livre comptable (trésorerie recalculée). */
+export async function deleteTransaction(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "FINANCES", "DELETE")) return { ok: false, error: "Suppression non autorisée." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const tx = await prisma.financeTransaction.findUnique({ where: { id }, select: { reference: true, label: true } });
+  if (!tx) return { ok: false, error: "Écriture introuvable." };
+  // Un bulletin de paie réglé peut pointer cette écriture : on délie proprement (repasse en non réglé).
+  await prisma.payrollEntry.updateMany({ where: { transactionId: id }, data: { transactionId: null, status: "VALIDATED", paidDate: null } }).catch(() => {});
+  await prisma.financeTransaction.delete({ where: { id } });
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Finances", entityType: "FINANCE_TRANSACTION",
+    entityId: id, summary: `Écriture supprimée — ${tx.reference} · ${tx.label}`,
+  });
+  revalidatePath("/finances");
+  return { ok: true };
+}
+
 /** CSV import: date,direction(IN/OUT),category,label,amount,method,account,counterparty */
 export async function importTransactions(
   _prev: ActionResult | undefined,

@@ -28,6 +28,7 @@ export default async function FinancesPage() {
   const user = await requireModule("FINANCES");
   const canCreate = userCan(user, "FINANCES", "CREATE");
   const canUpdate = userCan(user, "FINANCES", "UPDATE");
+  const canDelete = userCan(user, "FINANCES", "DELETE");
   const [data, compta] = await Promise.all([getFinanceData(), getComptaData()]);
   const pendingOrders = await prisma.expenseOrder.count({ where: { status: "PENDING" } });
   const companies = await getCompanies();
@@ -126,7 +127,7 @@ export default async function FinancesPage() {
       {/* Ledger */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Livre comptable</h2>
-        <LedgerTable rows={data.rows} />
+        <LedgerTable rows={data.rows} canUpdate={canUpdate} canDelete={canDelete} />
       </section>
     </div>
   );

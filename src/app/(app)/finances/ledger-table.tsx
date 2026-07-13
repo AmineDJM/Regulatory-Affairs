@@ -1,12 +1,35 @@
 "use client";
 
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { Pencil, Trash2, Loader2 } from "lucide-react";
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { Sheet } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { FINANCE_CATEGORY, FINANCE_METHOD, FINANCE_STATUS, FINANCE_DIRECTION } from "@/lib/labels";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { updateTransaction, deleteTransaction } from "@/lib/actions/finance-actions";
 import type { LedgerRow } from "@/lib/queries/finance";
 
-export function LedgerTable({ rows }: { rows: LedgerRow[] }) {
+type Result = { ok: boolean; error?: string };
+
+export function LedgerTable({ rows, canUpdate = false, canDelete = false }: { rows: LedgerRow[]; canUpdate?: boolean; canDelete?: boolean }) {
+  const router = useRouter();
+  const [edit, setEdit] = React.useState<LedgerRow | null>(null);
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+
+  const onDelete = async (r: LedgerRow) => {
+    if (!window.confirm(`Supprimer définitivement l'écriture « ${r.label} » (${r.reference}) ? La trésorerie sera recalculée.`)) return;
+    setBusyId(r.id);
+    const fd = new FormData(); fd.set("id", r.id);
+    const res = await deleteTransaction(fd);
+    setBusyId(null);
+    if (res.ok) router.refresh();
+    else window.alert(res.error ?? "Suppression impossible.");
+  };
+
   const columns: Column<LedgerRow>[] = [
     { key: "date", header: "Date", sortable: true, accessor: (r) => r.date, render: (r) => formatDate(r.date) },
     { key: "reference", header: "Réf.", sortable: true, accessor: (r) => r.reference, render: (r) => <span className="font-mono text-xs">{r.reference}</span> },
@@ -26,9 +49,84 @@ export function LedgerTable({ rows }: { rows: LedgerRow[] }) {
       render: (r) => <StatusBadge map={FINANCE_STATUS} value={r.status} /> },
   ];
 
+  // Colonne d'actions (modifier / supprimer) — visible seulement selon les droits.
+  if (canUpdate || canDelete) {
+    columns.push({
+      key: "actions", header: "", align: "right", accessor: () => "",
+      render: (r) => (
+        <div className="flex items-center justify-end gap-0.5">
+          {canUpdate && (
+            <button title="Modifier l'écriture" onClick={() => setEdit(r)} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground">
+              <Pencil className="h-4 w-4" />
+            </button>
+          )}
+          {canDelete && (
+            <button title="Supprimer l'écriture" onClick={() => onDelete(r)} disabled={busyId === r.id} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+              {busyId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            </button>
+          )}
+        </div>
+      ),
+    });
+  }
+
   return (
-    <DataTable rows={rows} columns={columns} filename="livre-comptable" pageSize={20}
-      searchPlaceholder="Rechercher libellé, tiers, référence…"
-      emptyTitle="Aucune écriture" emptyDescription="Ajoutez une recette ou une dépense." />
+    <>
+      <DataTable rows={rows} columns={columns} filename="livre-comptable" pageSize={20}
+        searchPlaceholder="Rechercher libellé, tiers, référence…"
+        emptyTitle="Aucune écriture" emptyDescription="Ajoutez une recette ou une dépense." />
+      {edit && <EditTransactionSheet row={edit} onClose={() => setEdit(null)} />}
+    </>
+  );
+}
+
+function EditTransactionSheet({ row, onClose }: { row: LedgerRow; onClose: () => void }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const submit = async (fd: FormData) => {
+    fd.set("id", row.id);
+    setBusy(true); setErr(null);
+    const res: Result = await updateTransaction(fd);
+    setBusy(false);
+    if (res.ok) { onClose(); router.refresh(); } else setErr(res.error ?? "Erreur.");
+  };
+  return (
+    <Sheet open onClose={onClose} title={`Modifier l'écriture ${row.reference}`} description="Livre comptable — la trésorerie est recalculée automatiquement." width="md">
+      <form action={submit} className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5"><Label>Date</Label><Input type="date" name="date" defaultValue={row.date.slice(0, 10)} /></div>
+        <div className="space-y-1.5"><Label>Sens</Label>
+          <Select name="direction" defaultValue={row.direction}>
+            {Object.entries(FINANCE_DIRECTION).map(([v, o]) => <option key={v} value={v}>{o.label}</option>)}
+          </Select>
+        </div>
+        <div className="col-span-2 space-y-1.5"><Label>Libellé</Label><Input name="label" defaultValue={row.label} required /></div>
+        <div className="space-y-1.5"><Label>Catégorie</Label>
+          <Select name="category" defaultValue={row.category}>
+            {Object.entries(FINANCE_CATEGORY).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </Select>
+        </div>
+        <div className="space-y-1.5"><Label>Montant (DZD)</Label><Input type="number" step="any" name="amount" defaultValue={row.amount} required /></div>
+        <div className="space-y-1.5"><Label>Moyen de paiement</Label>
+          <Select name="method" defaultValue={row.method}>
+            {Object.entries(FINANCE_METHOD).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </Select>
+        </div>
+        <div className="space-y-1.5"><Label>Compte</Label><Input name="account" defaultValue={row.account} /></div>
+        <div className="space-y-1.5"><Label>Tiers</Label><Input name="counterparty" defaultValue={row.counterparty} /></div>
+        <div className="space-y-1.5"><Label>Réf. facture</Label><Input name="invoiceRef" defaultValue={row.invoiceRef} /></div>
+        <div className="space-y-1.5"><Label>Statut</Label>
+          <Select name="status" defaultValue={row.status}>
+            {Object.entries(FINANCE_STATUS).map(([v, o]) => <option key={v} value={v}>{typeof o === "string" ? o : o.label}</option>)}
+          </Select>
+        </div>
+        <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" defaultValue={row.notes} rows={2} /></div>
+        {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
+        <div className="col-span-2 flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Annuler</Button>
+          <Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button>
+        </div>
+      </form>
+    </Sheet>
   );
 }

@@ -16,6 +16,8 @@ export interface LedgerRow {
   method: string;
   account: string;
   counterparty: string;
+  invoiceRef: string;
+  notes: string;
   status: string;
 }
 
@@ -84,7 +86,7 @@ export async function getFinanceData() {
       id: t.id, reference: t.reference, date: t.date.toISOString(), direction: t.direction,
       category: t.category, label: t.label, amount: amt,
       signedAmount: t.direction === "IN" ? amt : -amt, method: t.method, account: t.account,
-      counterparty: t.counterparty ?? "", status: t.status,
+      counterparty: t.counterparty ?? "", invoiceRef: t.invoiceRef ?? "", notes: t.notes ?? "", status: t.status,
     };
   });
 

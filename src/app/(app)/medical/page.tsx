@@ -65,7 +65,14 @@ export default async function MedicalPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Visites & tournées</h2>
           {canCreate && <CreateRecordButton label="Nouvelle visite" title="Planifier une visite" action={createVisit} fields={visitFields} />}
         </div>
-        <VisitsTable rows={visitRows} canDelete={canDelete} />
+        <VisitsTable
+          rows={visitRows}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          doctors={allDoctors.map((d) => ({ value: d.id, label: doctorDisplayName(d) }))}
+          delegates={delegateOptions}
+          isManager={isManager}
+        />
       </section>
 
       <DelegatePlans
