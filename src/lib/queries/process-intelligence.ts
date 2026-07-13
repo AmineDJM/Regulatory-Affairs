@@ -78,11 +78,16 @@ async function collectWorkItems(users: Map<string, string>): Promise<WorkItem[]>
       select: { id: true, name: true, requestStatus: true, updatedAt: true, productManagerId: true, requesterId: true },
     }),
     prisma.administrativeRequest.findMany({
-      where: { status: { notIn: ["DONE", "CANCELLED"] } },
+      // deletedAt: null → exclut les demandes supprimées (suppression douce traçable : la ligne
+      // reste en base mais ne doit PLUS apparaître dans Process Intelligence).
+      where: { status: { notIn: ["DONE", "CANCELLED"] }, deletedAt: null },
       select: { id: true, reference: true, title: true, status: true, updatedAt: true, deadline: true, assignedToId: true, requesterId: true },
     }),
     prisma.sponsoringRequest.findMany({
-      where: { status: { notIn: ["REFUSED", "PAID", "CLOSED"] } },
+      // Exclut TOUS les états terminaux : refusée, réglée, clôturée, ANNULÉE et APPROUVÉE
+      // (accordée / décision définitive rendue) — sinon une demande « terminée » resterait
+      // comptée comme en cours.
+      where: { status: { notIn: ["REFUSED", "PAID", "CLOSED", "CANCELLED", "APPROVED"] } },
       select: { id: true, reference: true, institution: true, status: true, updatedAt: true, requesterId: true },
     }),
     prisma.validationRequest.findMany({
@@ -244,7 +249,7 @@ export async function getWorkloadAnalysis(): Promise<WorkloadAnalysis> {
     prisma.task.groupBy({ by: ["assignedToId"], where: { status: { in: ["TODO", "IN_PROGRESS"] } }, _count: { id: true } }),
     prisma.task.groupBy({ by: ["assignedToId"], where: { status: { in: ["TODO", "IN_PROGRESS"] }, dueDate: { lt: now } }, _count: { id: true } }),
     prisma.validationStep.groupBy({ by: ["validatorId"], where: { status: "PENDING" }, _count: { id: true } }),
-    prisma.administrativeRequest.groupBy({ by: ["assignedToId"], where: { status: { notIn: ["DONE", "CANCELLED"] } }, _count: { id: true } }),
+    prisma.administrativeRequest.groupBy({ by: ["assignedToId"], where: { status: { notIn: ["DONE", "CANCELLED"] }, deletedAt: null }, _count: { id: true } }),
     prisma.regulatoryProduct.groupBy({ by: ["responsibleId"], where: { status: { notIn: ["DECISION_OBTAINED", "CLOSED"] } }, _count: { id: true } }),
     prisma.auditLog.groupBy({ by: ["actorId"], where: { createdAt: { gte: since30 } }, _count: { id: true } }),
     prisma.task.count({ where: { assignedToId: null, status: { in: ["TODO", "IN_PROGRESS"] } } }),
