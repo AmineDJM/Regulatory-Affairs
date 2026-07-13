@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { ENTITY_TYPE_LABELS } from "@/lib/labels";
-import { PurgeOrphansButton, PermanentDeleteButton, fmtBytes } from "./database-admin";
+import { formatBytes as fmtBytes } from "@/lib/utils";
+import { PurgeOrphansButton, PermanentDeleteButton } from "./database-admin";
 
 export const dynamic = "force-dynamic";
 

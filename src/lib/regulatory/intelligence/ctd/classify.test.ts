@@ -53,6 +53,15 @@ describe("classifyDocument — classification CTD déterministe (golden set)", (
     expect(r.method).toBe("keyword");
   });
 
+  it("le nom « Module N » PRIME sur les mots-clés du contenu (résumé qui cite des sections 3.2.x)", () => {
+    // Un « Module 2.pdf » (résumé global de la qualité) CITE la substance/le produit et des annexes
+    // qualité (3.2.S/3.2.P/3.2.A, M3) sans pour autant en RELEVER : il doit rester en Module 2.
+    const r = c("dossier", "Module 2.pdf", "pdf",
+      "Résumé global de la qualité. Substance active (drug substance) et produit fini (drug product) ; installations (facilities and equipment) et agents adventices (adventitious agents).");
+    expect(r.module).toBe("M2");
+    expect(r.section?.startsWith("3.2")).not.toBe(true); // ne bascule PLUS vers une section M3
+  });
+
   it("module seul détecté (aucune section) → module-only", () => {
     const r = c("racine", "module 4 documents.pdf", "pdf", "contenu générique sans indice de section");
     expect(r.module).toBe("M4");

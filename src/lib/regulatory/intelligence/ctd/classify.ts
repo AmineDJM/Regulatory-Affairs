@@ -52,6 +52,10 @@ export function classifyDocument(input: ClassifyInput): Classification {
   const haySquash = squash(pathFile);
   const nameNorm = norm(pathFile);
   const contentNorm = norm((input.textSample ?? "").slice(0, 8000));
+  // Module CTD EXPLICITE dans le NOM du fichier (ex. « Module 2.pdf ») : signal fort et fiable
+  // qui doit PRIMER sur les mots-clés du contenu — un résumé (Module 2) cite abondamment des
+  // sections d'autres modules (3.2.S/3.2.P…) sans pour autant en RELEVER.
+  const nameModule = detectModule(norm(input.filename));
 
   // 1) Code CTD explicite.
   let best: { section: CtdSection; alias: string } | null = null;
@@ -73,9 +77,12 @@ export function classifyDocument(input: ClassifyInput): Classification {
     };
   }
 
-  // 2) Mots-clés (nom + contenu ; le nom pèse davantage).
+  // 2) Mots-clés (nom + contenu ; le nom pèse davantage). Si le NOM impose un module, on RESTREINT
+  //    les candidats à ce module → un « Module 2.pdf » ne bascule plus vers une section 3.2.x (M3)
+  //    simplement parce que son contenu la mentionne.
   let kwBest: { section: CtdSection; hits: string[]; score: number } | null = null;
   for (const section of CTD_SECTIONS) {
+    if (nameModule && section.module !== nameModule) continue;
     const hits: string[] = [];
     let score = 0;
     for (const kw of section.keywords) {

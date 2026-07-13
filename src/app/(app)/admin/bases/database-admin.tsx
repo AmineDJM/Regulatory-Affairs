@@ -4,12 +4,8 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, Loader2, Recycle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatBytes as fmtBytes } from "@/lib/utils";
 import { purgeOrphanStorage, permanentlyDeleteDriveNode, permanentlyDeleteDocument } from "@/lib/actions/database-admin-actions";
-
-const GB = 1024 ** 3;
-export function fmtBytes(n: number): string {
-  return n >= GB ? `${(n / GB).toFixed(2)} Go` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} Mo` : n >= 1024 ? `${(n / 1024).toFixed(0)} Ko` : `${n} o`;
-}
 
 /** Ramasse-miettes : détruit les blobs orphelins → libère l'espace disque réellement. */
 export function PurgeOrphansButton({ count, bytes }: { count: number; bytes: number }) {

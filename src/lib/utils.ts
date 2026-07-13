@@ -47,6 +47,12 @@ export function formatDate(
   return new Intl.DateTimeFormat("fr-FR", opts).format(date);
 }
 
+/** Taille d'octets lisible (Go / Mo / Ko / o). Server-safe → utilisable côté serveur ET client. */
+export function formatBytes(n: number): string {
+  const GB = 1024 ** 3;
+  return n >= GB ? `${(n / GB).toFixed(2)} Go` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} Mo` : n >= 1024 ? `${(n / 1024).toFixed(0)} Ko` : `${n} o`;
+}
+
 export function formatDateTime(value: Date | string | null | undefined) {
   return formatDate(value, {
     day: "2-digit",

@@ -57,6 +57,9 @@ export async function buildTwinFacts(dossierVersionId: string): Promise<{ facts:
 
   const hits: DocFactHit[] = [];
   for (const ids of batches) {
+    // Extraction de faits = regex lourde sur le texte : on cède la boucle d'événements entre deux
+    // lots pour que l'application reste réactive pendant la construction du jumeau numérique.
+    await new Promise((resolve) => setImmediate(resolve));
     const batch = await prisma.regulatoryDocument.findMany({
       where: { id: { in: ids } },
       select: { id: true, extraction: { select: { content: true } } },

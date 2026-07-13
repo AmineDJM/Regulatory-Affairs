@@ -68,8 +68,17 @@ const ocrStoredPages = () => clampInt(process.env.REG_OCR_STORED_PAGES, 5000, 10
 const maxProcessBytes = () => clampInt(process.env.REG_MAX_PROCESS_MB, 1000, 20, 4000) * 1024 * 1024;
 
 /**
+ * REND LA MAIN À LA BOUCLE D'ÉVÉNEMENTS (macro-tâche). Node est mono-thread : entre deux unités
+ * de travail LOURDES (pdf-parse, OCR WASM, jumeau numérique…), on cède la main pour que les autres
+ * requêtes HTTP (navigation, messagerie, autres utilisateurs) soient servies IMMÉDIATEMENT →
+ * l'application reste fluide PENDANT l'extraction/analyse d'un dossier, au lieu de « geler ».
+ */
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+/**
  * Exécute `fn` sur `items` avec au plus `concurrency` traitements EN VOL (pool à curseur partagé).
  * `fn` NE DOIT JAMAIS lever (ici `ocrOne` avale ses erreurs) — le pool n'a donc pas à récupérer.
+ * On cède la boucle d'événements entre deux unités pour ne jamais monopoliser le thread.
  */
 async function runPool<T>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<void>): Promise<void> {
   let cursor = 0;
@@ -77,6 +86,7 @@ async function runPool<T>(items: T[], concurrency: number, fn: (item: T, index: 
     while (cursor < items.length) {
       const idx = cursor++;
       await fn(items[idx], idx);
+      await yieldToEventLoop(); // laisser respirer les autres requêtes entre deux documents
     }
   });
   await Promise.all(workers);
@@ -212,6 +222,7 @@ async function handleExtract(job: RegulatoryJob): Promise<void> {
 
   for (const doc of pending) {
     await extractOne(doc);
+    await yieldToEventLoop(); // ne pas monopoliser le thread : l'app reste réactive pendant l'extraction
   }
 
   // Progression + décision de reprise / fin.
@@ -370,6 +381,7 @@ async function handleRules(job: RegulatoryJob): Promise<void> {
   // déjà stocké (un document à la fois → mémoire bornée) et on les persiste. Corrige les fausses
   // « sections manquantes » d'un gros PDF consolidé sans devoir tout ré-extraire.
   for (const d of docs) {
+    await yieldToEventLoop(); // détection de sections = regex lourde sur le texte → céder la main entre docs
     if (d.containedSections.length > 0) continue;
     const ext = await prisma.regulatoryExtraction.findUnique({ where: { documentId: d.id }, select: { content: true } });
     if (!ext?.content) continue;
@@ -477,6 +489,7 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
 
   for (const d of ordered) {
     if (maxChunks > 0 && usedChunks >= maxChunks) break;
+    await yieldToEventLoop(); // céder la main entre documents (découpage + appels IA)
     // Contenu chargé UN document à la fois (pic mémoire borné même pour un document de 10 000 pages).
     const ext = await prisma.regulatoryExtraction.findUnique({ where: { documentId: d.id }, select: { content: true } });
     let parts = splitTextIntoChunks(ext?.content ?? "");
