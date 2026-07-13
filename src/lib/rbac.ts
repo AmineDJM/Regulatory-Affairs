@@ -1,6 +1,7 @@
 import { cache } from "react";
 import type { AccessScope, EntityType, Prisma, UserRole } from "@prisma/client";
 import { prisma } from "./prisma";
+import { NAVIGATION } from "./labels"; // labels n'importe de rbac QUE le type `Module` → aucun cycle runtime
 
 // `cache` is a React Server Components API; fall back to identity outside an
 // RSC render (e.g. unit tests) so the module loads everywhere.
@@ -215,6 +216,37 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
   return assigned[module]?.includes(role) ? "ASSIGNED" : "ALL";
 }
 
+/**
+ * Résout le MODULE d'une demande de validation — pour l'accès TEMPORAIRE accordé au
+ * validateur. D'abord via le libellé stocké (l'option de navigation choisie à la
+ * création, ex. « PCH — Marchés »), sinon via l'URL de l'objet lié (préfixe de route
+ * le plus spécifique, ex. `/pch/123` → PCH). Renvoie null si rien de fiable.
+ */
+function moduleFromLink(link: string): Module | null {
+  const path = link.split(/[?#]/)[0];
+  const byHref = [...NAVIGATION]
+    .filter((n) => n.href !== "/")
+    .sort((a, b) => b.href.length - a.href.length) // route la plus spécifique d'abord
+    .find((n) => path === n.href || path.startsWith(`${n.href}/`));
+  return byHref?.module ?? null;
+}
+
+function moduleFromValidation(moduleLabel: string | null, link: string | null): Module | null {
+  let fromLabel: Module | null = null;
+  if (moduleLabel) {
+    const byLabel = NAVIGATION.find((n) => n.label === moduleLabel);
+    if (byLabel) fromLabel = byLabel.module;
+    else {
+      const up = moduleLabel.trim().toUpperCase();
+      if ((MODULES as readonly string[]).includes(up)) fromLabel = up as Module;
+    }
+  }
+  // Le libellé générique « Demandes de validations » (→ VALIDATIONS) n'est jamais la
+  // cible réelle : dans ce cas l'URL de l'objet lié est le signal fiable.
+  if (fromLabel && fromLabel !== "VALIDATIONS") return fromLabel;
+  return (link ? moduleFromLink(link) : null) ?? fromLabel;
+}
+
 // ───────────────────────── Effective (resolved) access ─────────────────────────
 
 export interface EffectiveModuleAccess {
@@ -243,10 +275,15 @@ export interface SessionUser {
  */
 export const getAccess = perRequest(
   async (userId: string, role: UserRole): Promise<EffectiveAccess> => {
-    const [overrides, grants, userRow] = await Promise.all([
+    const [overrides, grants, userRow, pendingValidations] = await Promise.all([
       prisma.userAccess.findMany({ where: { userId } }),
       prisma.rowGrant.findMany({ where: { userId }, select: { entityType: true, entityId: true } }),
       prisma.user.findUnique({ where: { id: userId }, select: { secondaryRole: true } }),
+      // Accès TEMPORAIRE de validation : étapes EN ATTENTE dont je suis le validateur.
+      prisma.validationStep.findMany({
+        where: { validatorId: userId, status: "PENDING", request: { status: "PENDING" } },
+        select: { request: { select: { module: true, link: true, entityType: true, entityId: true } } },
+      }),
     ]);
 
     // « Autre rôle » : l'utilisateur CUMULE son rôle principal ET son rôle secondaire.
@@ -301,6 +338,25 @@ export const getAccess = perRequest(
     for (const g of grants) {
       if (!rowGrants.has(g.entityType)) rowGrants.set(g.entityType, new Set());
       rowGrants.get(g.entityType)!.add(g.entityId);
+    }
+
+    // ── Accès TEMPORAIRE de validation ──────────────────────────────────────────
+    // Un validateur dont une étape est EN ATTENTE obtient, LE TEMPS de décider, une
+    // LECTURE (VIEW/EXPORT) du module concerné + l'accès à la LIGNE liée — de sorte
+    // qu'il puisse RÉELLEMENT ouvrir le document / la demande d'origine à valider.
+    // Dès que l'étape est traitée (approuvée/refusée), elle n'est plus renvoyée par
+    // la requête → l'accès disparaît de lui-même. Toujours en LECTURE SEULE.
+    for (const s of pendingValidations) {
+      const mod = moduleFromValidation(s.request.module, s.request.link);
+      if (mod) {
+        const cur = modules.get(mod);
+        if (cur) { cur.actions.add("VIEW"); cur.actions.add("EXPORT"); }
+        else modules.set(mod, { actions: new Set<Action>(["VIEW", "EXPORT"]), scope: "ASSIGNED" });
+      }
+      if (s.request.entityType && s.request.entityId) {
+        if (!rowGrants.has(s.request.entityType)) rowGrants.set(s.request.entityType, new Set());
+        rowGrants.get(s.request.entityType)!.add(s.request.entityId);
+      }
     }
 
     return { modules, rowGrants, secondaryRole };

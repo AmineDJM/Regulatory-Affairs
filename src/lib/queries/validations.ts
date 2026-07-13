@@ -1,6 +1,8 @@
+import type { EntityType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
+import type { DocItem } from "@/components/documents/document-list";
 
 export interface PendingValidationItem {
   stepId: string;
@@ -16,6 +18,9 @@ export interface PendingValidationItem {
   deadline: string | null;
   link: string;
   createdAt: string;
+  /** Pièces à valider RENDUES SUR PLACE (jointes à la demande + celles de l'objet lié) :
+   *  le validateur voit/prévisualise l'original SANS naviguer dans un autre module. */
+  documents: DocItem[];
 }
 
 export interface MyValidationStep {
@@ -45,9 +50,42 @@ export async function getPendingValidations(userId: string): Promise<PendingVali
     orderBy: { createdAt: "asc" },
     take: 200,
   });
-  return steps
-    .filter((s) => s.request.mode === "PARALLEL" || s.order === s.request.currentOrder)
-    .map((s) => ({
+  const active = steps.filter((s) => s.request.mode === "PARALLEL" || s.order === s.request.currentOrder);
+
+  // Pièces à valider rendues SUR PLACE : celles jointes à la demande (entité
+  // VALIDATION_REQUEST) + celles de l'objet lié quand il est renseigné (ex. le bon
+  // de commande). Récupérées en LOT pour éviter les requêtes N+1.
+  const reqIds = active.map((s) => s.request.id);
+  const linkedPairs = active
+    .filter((s) => s.request.entityType && s.request.entityId)
+    .map((s) => ({ entityType: s.request.entityType as EntityType, entityId: s.request.entityId as string }));
+  const orClauses: Prisma.DocumentWhereInput[] = [];
+  if (reqIds.length) orClauses.push({ entityType: "VALIDATION_REQUEST", entityId: { in: reqIds } });
+  for (const p of linkedPairs) orClauses.push({ entityType: p.entityType, entityId: p.entityId });
+  const documents = orClauses.length
+    ? await prisma.document.findMany({
+        where: { OR: orClauses },
+        include: { uploadedBy: { select: { name: true } } },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+  const toItem = (d: (typeof documents)[number]): DocItem => ({
+    id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
+    confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
+    createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
+  });
+  const byAttachKey = new Map<string, DocItem[]>(); // clé `${entityType}:${entityId}` → pièces
+  for (const d of documents) {
+    const key = `${d.entityType}:${d.entityId}`;
+    (byAttachKey.get(key) ?? byAttachKey.set(key, []).get(key)!).push(toItem(d));
+  }
+
+  return active.map((s) => {
+    const own = byAttachKey.get(`VALIDATION_REQUEST:${s.request.id}`) ?? [];
+    const linked = s.request.entityType && s.request.entityId
+      ? byAttachKey.get(`${s.request.entityType}:${s.request.entityId}`) ?? []
+      : [];
+    return {
       stepId: s.id,
       requestId: s.request.id,
       reference: s.request.reference,
@@ -61,7 +99,9 @@ export async function getPendingValidations(userId: string): Promise<PendingVali
       deadline: s.request.deadline?.toISOString() ?? null,
       link: s.request.link ?? "",
       createdAt: s.request.createdAt.toISOString(),
-    }));
+      documents: [...own, ...linked],
+    };
+  });
 }
 
 export async function getMyValidationRequests(userId: string): Promise<MyValidationItem[]> {

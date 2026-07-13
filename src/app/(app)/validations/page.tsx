@@ -17,6 +17,7 @@ import { NAVIGATION, PRIORITY, VALIDATION_STATUS, VALIDATION_STEP_STATE, VALIDAT
 import { formatCurrency, formatDate, formatDateTime, daysUntil } from "@/lib/utils";
 import { ValidationDecision } from "./validation-decision";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { DocumentList } from "@/components/documents/document-list";
 
 export default async function ValidationsPage() {
   const user = await requireModule("VALIDATIONS");
@@ -101,6 +102,15 @@ export default async function ValidationsPage() {
                         <Link href={v.link} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
                           <ExternalLink className="h-3.5 w-3.5" /> Ouvrir l'élément
                         </Link>
+                      )}
+                      {v.documents.length > 0 && (
+                        <div className="mt-1 rounded-lg border border-border/60 bg-secondary/30 p-2">
+                          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Pièces à valider ({v.documents.length})
+                          </p>
+                          {/* Aperçu SUR PLACE (lecture seule) : le validateur voit l'original sans changer de module. */}
+                          <DocumentList documents={v.documents} />
+                        </div>
                       )}
                     </div>
                     <div className="shrink-0">
