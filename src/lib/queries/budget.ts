@@ -42,6 +42,19 @@ export interface UnattributedTx {
   status: string;
 }
 
+/** Dépense DÉJÀ attribuée à une catégorie — ré-attribuable par la Direction à tout moment. */
+export interface AttributedTx {
+  id: string;
+  reference: string;
+  date: string;
+  label: string;
+  amount: number;
+  counterparty: string | null;
+  status: string;
+  categoryId: string;
+  categoryName: string;
+}
+
 export interface BudgetEnvelopeOption {
   id: string;
   name: string;
@@ -82,6 +95,7 @@ export interface BudgetOverview {
   categories: BudgetCategoryView[];
   totals: { total: number; allocated: number; unallocated: number; consumed: number; committed: number; remaining: number; pct: number };
   unattributed: { total: number; count: number; transactions: UnattributedTx[] };
+  attributed: { count: number; transactions: AttributedTx[] };
 }
 
 function health(allocated: number, consumed: number): BudgetHealth {
@@ -143,19 +157,25 @@ export interface BudgetCategoryOption { id: string; label: string; isSub: boolea
  * une dépense à la validation définitive. Priorité aux enveloppes actives couvrant le
  * module ; sinon toutes les enveloppes actives. Le libellé montre le chemin complet
  * « Enveloppe › Catégorie › Sous-catégorie ».
+ *
+ * `viewer` (la Direction qui décide) RESTREINT aux enveloppes qui lui sont accessibles
+ * — décidées par le Super Admin (rôle ou personne). Omis = toutes les enveloppes actives
+ * (rétrocompatible / contexte purement serveur).
  */
-export async function getBudgetCategoryOptions(module?: string | string[]): Promise<BudgetCategoryOption[]> {
+export async function getBudgetCategoryOptions(module?: string | string[], viewer?: SessionUser): Promise<BudgetCategoryOption[]> {
   const envelopes = await prisma.budgetEnvelope.findMany({
     where: { isActive: true },
     include: { categories: { orderBy: { name: "asc" } } },
     orderBy: [{ periodStart: "desc" }],
   });
+  // Enveloppes ACCESSIBLES au décideur (le Super Admin ouvre l'accès à la Direction).
+  const accessible = viewer ? envelopes.filter((e) => envelopeVisible(viewer, e.accessRoles, e.accessUserIds)) : envelopes;
   // Accepte un module OU une famille de modules (ex. tout Ad & Pro) : la dépense peut
   // être imputée à n'importe quelle enveloppe couvrant la famille, pas seulement le
   // module exact d'où vient la demande.
   const wanted = module ? (Array.isArray(module) ? module : [module]) : null;
-  const relevant = wanted ? envelopes.filter((e) => wanted.some((m) => e.modules.includes(m) || e.module === m)) : envelopes;
-  const list = relevant.length ? relevant : envelopes;
+  const relevant = wanted ? accessible.filter((e) => wanted.some((m) => e.modules.includes(m) || e.module === m)) : accessible;
+  const list = relevant.length ? relevant : accessible;
   const out: BudgetCategoryOption[] = [];
   for (const env of list) {
     const tops = env.categories.filter((c) => c.parentId === null);
@@ -228,6 +248,17 @@ export async function getBudgetOverview(
     select: { id: true, reference: true, date: true, label: true, amount: true, category: true, counterparty: true, status: true },
   });
 
+  // Dépenses DÉJÀ attribuées à une catégorie de CETTE enveloppe — pour ré-attribution.
+  const catNameById = new Map(envelope.categories.map((c) => [c.id, c.name]));
+  const attributedTx = catNameById.size
+    ? await prisma.financeTransaction.findMany({
+        where: { direction: "OUT", budgetCategoryId: { in: [...catNameById.keys()] }, date: { gte: from, lte: to } },
+        orderBy: { date: "desc" },
+        take: 60,
+        select: { id: true, reference: true, date: true, label: true, amount: true, counterparty: true, status: true, budgetCategoryId: true },
+      })
+    : [];
+
   return {
     envelope: { id: envelope.id, name: envelope.name, module: envelope.module, modules: envelope.modules, accessRoles: envelope.accessRoles, accessUserIds: envelope.accessUserIds, periodStart: envelope.periodStart.toISOString(), periodEnd: envelope.periodEnd.toISOString(), total, notes: envelope.notes, isActive: envelope.isActive },
     period: { from: from.toISOString(), to: to.toISOString() },
@@ -244,6 +275,14 @@ export async function getBudgetOverview(
       transactions: unattributedTx.map((t) => ({
         id: t.id, reference: t.reference, date: t.date.toISOString(), label: t.label,
         amount: toNumber(t.amount), category: t.category, counterparty: t.counterparty, status: t.status,
+      })),
+    },
+    attributed: {
+      count: attributedTx.length,
+      transactions: attributedTx.map((t) => ({
+        id: t.id, reference: t.reference, date: t.date.toISOString(), label: t.label,
+        amount: toNumber(t.amount), counterparty: t.counterparty, status: t.status,
+        categoryId: t.budgetCategoryId ?? "", categoryName: catNameById.get(t.budgetCategoryId ?? "") ?? "—",
       })),
     },
   };

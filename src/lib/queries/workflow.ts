@@ -156,7 +156,8 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
   }
 
   const needsCategory = stepViews.some((s) => s.requireCategory || s.powers.includes("SET_CATEGORY"));
-  const budgetCategories = needsCategory && action ? await getBudgetCategoryOptions(AD_PRO_BUDGET_MODULES) : [];
+  // Catégories restreintes aux enveloppes ACCESSIBLES au décideur (Direction) — décidées par le Super Admin.
+  const budgetCategories = needsCategory && action ? await getBudgetCategoryOptions(AD_PRO_BUDGET_MODULES, viewer) : [];
   const outcome = instance.status !== "IN_PROGRESS" || instance.assigneeId ? await loadOutcome(entityType, entityId) : null;
 
   return {

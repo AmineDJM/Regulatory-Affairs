@@ -14,7 +14,7 @@ const suite = dbOk ? describe : describe.skip;
 
 const TAG = "__wftest__";
 const viewer = (id: string, role: UserRole) => ({ id, role, secondaryRole: null, name: role });
-const asSession = (id: string, role: UserRole) => ({ id, role, secondaryRole: null }) as unknown as SessionUser;
+const asSession = (id: string, role: UserRole): SessionUser => ({ id, role, secondaryRole: null, access: { modules: new Map(), rowGrants: new Map(), secondaryRole: null } });
 
 suite("Moteur de workflow — circuit Ad & Pro de bout en bout (congrès international)", () => {
   let nsId = "", pmId = "", dirId = "", delegId = "", otherId = "", congressId = "", catId = "";

@@ -136,7 +136,9 @@ export async function updateBudgetCategory(formData: FormData): Promise<ActionRe
     data: {
       name, allocated: fdNum(formData, "allocated") ?? 0, color: fdStr(formData, "color"), notes: fdStr(formData, "notes"),
       parentId: isSub ? parentId : null,
-      ...(isSub ? { module: null } : {}), // une sous-catégorie ne porte pas de module d'attribution
+      // Le module d'attribution est MODIFIABLE et ré-enregistrable pour une catégorie de tête
+      // (une sous-catégorie n'en porte pas — l'attribution auto se fait au niveau de la tête).
+      module: isSub ? null : (fdStr(formData, "module") || null),
     },
   });
   revalidatePath("/budgets");

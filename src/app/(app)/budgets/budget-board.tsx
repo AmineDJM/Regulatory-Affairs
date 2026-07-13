@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Loader2, SlidersHorizontal, Wallet, CornerDownRight } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, SlidersHorizontal, Wallet, CornerDownRight, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
@@ -246,12 +246,15 @@ export function BudgetBoard({ overview, envelopes, canManage, budgetTotal, users
         </div>
         <PeriodPicker from={d10(overview.period.from)} to={d10(overview.period.to)} onApply={(from, to) => navigate({ from, to })} />
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Période : {formatDate(overview.period.from)} → {formatDate(overview.period.to)}</span>
-          {canManage && (
-            <>
-              <Button variant="outline" size="sm" onClick={() => setEditEnv(true)}><Pencil className="h-4 w-4" /> Enveloppe</Button>
-            </>
-          )}
+          <span className="hidden text-xs text-muted-foreground sm:inline">Période : {formatDate(overview.period.from)} → {formatDate(overview.period.to)}</span>
+          <a
+            href={`/api/budgets/export?env=${overview.envelope.id}&from=${d10(overview.period.from)}&to=${d10(overview.period.to)}`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm font-medium transition-colors hover:bg-secondary"
+            title="Exporter le budget en Excel (avec taux de consommation)"
+          >
+            <Download className="h-4 w-4" /> Excel
+          </a>
+          {canManage && <Button variant="outline" size="sm" onClick={() => setEditEnv(true)}><Pencil className="h-4 w-4" /> Enveloppe</Button>}
         </div>
       </div>
 
@@ -319,6 +322,34 @@ export function BudgetBoard({ overview, envelopes, canManage, budgetTotal, users
           </div>
         )}
       </section>
+
+      {/* Dépenses attribuées — la Direction peut RÉ-ATTRIBUER la (sous-)catégorie à tout moment */}
+      {canManage && overview.attributed.transactions.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Dépenses attribuées ({overview.attributed.count}) <span className="font-normal normal-case text-[11px] text-muted-foreground">— modifiez la catégorie à tout moment</span>
+          </h2>
+          <div className="surface divide-y divide-border">
+            {overview.attributed.transactions.map((tx) => (
+              <div key={tx.id} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{tx.label}</p>
+                  <p className="text-xs text-muted-foreground">{tx.reference} · {formatDate(tx.date)}{tx.counterparty ? ` · ${tx.counterparty}` : ""}</p>
+                </div>
+                <span className="font-semibold text-destructive">{formatCurrency(tx.amount)}</span>
+                <Select
+                  defaultValue={tx.categoryId}
+                  onChange={(e) => { const fd = new FormData(); fd.set("transactionId", tx.id); if (e.target.value) fd.set("budgetCategoryId", e.target.value); run(() => attributeTransaction(fd)); }}
+                  className="h-8 w-48 text-xs"
+                >
+                  <option value="">— Retirer l'attribution —</option>
+                  {overview.categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
+                </Select>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {editEnv && <EnvelopeSheet envelope={overview.envelope} users={users} onClose={() => setEditEnv(false)} onDeleted={() => router.push("/budgets")} canDelete={canManage} />}
       {catSheet && <CategorySheet envelopeId={overview.envelope.id} cat={catSheet.cat} defaultParentId={catSheet.parentId} parentOptions={topCatOptions} onClose={() => setCatSheet(null)} />}
