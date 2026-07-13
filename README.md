@@ -1056,6 +1056,13 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Budgets : catégories modifiables, attribution scopée & ré-attribuable, export Excel.** Le **module
+  d'une catégorie de tête** est désormais **modifiable et ré-enregistrable** (un bug le laissait figé après
+  création). À la **validation définitive** d'une dépense, la Direction choisit la **(sous-)catégorie**
+  uniquement parmi les **enveloppes qui lui sont accessibles** (ouvertes par le Super Admin) ; et **toute
+  dépense reste RÉ-ATTRIBUABLE** à une autre (sous-)catégorie à tout moment depuis le tableau des budgets.
+  Enfin, **export Excel (.xlsx)** du budget avec le **taux de consommation** par catégorie + une feuille
+  « Total enveloppes ». +6 tests (export relu par SheetJS, scoping des options par accès).
 - **Validations, santé du chatbot, dépôt Drive Regulatory & lisibilité.** Cinq sujets. **(1) Accès
   temporaire de validation** — un validateur (ex. un chef de produit recevant un bon de commande à
   valider) obtient, LE TEMPS de décider, une LECTURE du module concerné (résolu depuis le libellé
