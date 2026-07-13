@@ -25,6 +25,7 @@ import { prisma } from "@/lib/prisma";
 import { TwinPanel } from "./twin-panel";
 import { AgentsPanel } from "./agents-panel";
 import { DossierChatPanel } from "./chat-panel";
+import { ReserveChatPanel } from "./reserve-chat-panel";
 import { DocgenPanel } from "./docgen-panel";
 import { ReservesPanel } from "./reserves-panel";
 import { SimulatorPanel } from "./simulator-panel";
@@ -489,8 +490,14 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base"><MailWarning className="h-4 w-4 text-primary" /> Réserves ANPP</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <ReservesPanel dossierId={dossier.id} cycles={reserveCycles} canManage={canReserve} />
+            {reserveCycles.some((c) => c.points.length > 0) && canView && (
+              <div className="space-y-1.5">
+                <p className="flex items-center gap-2 text-sm font-semibold"><MessagesSquare className="h-4 w-4 text-primary" /> Discuter avec les réserves</p>
+                <ReserveChatPanel dossierId={dossier.id} configured={aiConfigured()} />
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

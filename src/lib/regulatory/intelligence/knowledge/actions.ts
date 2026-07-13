@@ -6,6 +6,7 @@ import { getCompanyScope } from "@/lib/company";
 import { aiConfigured } from "@/lib/ai";
 import { regCan, resolveRegCompanyId } from "../access";
 import { askDossier, type ChatTurn, type DossierChatResult } from "./dossier-chat";
+import { askReserves } from "../reserves/chat";
 
 /** Historique conversationnel transmis par le client (borné, texte pur — jamais une consigne). */
 function parseHistory(raw: string): ChatTurn[] {
@@ -47,4 +48,28 @@ export async function askDossierAction(formData: FormData): Promise<DossierChatR
 
   const history = parseHistory(String(formData.get("history") ?? ""));
   return askDossier(version.id, question, undefined, history);
+}
+
+/**
+ * Action « DISCUTER AVEC LES RÉSERVES » — rédige/discute des réponses EXIGEANTES aux réserves ANPP
+ * du dossier, sourcées et dans le périmètre technique (abstention prix/commercial ; renvoi
+ * fournisseur si donnée absente). Mêmes gardes d'accès et d'isolation que le chatbot de dossier.
+ */
+export async function askReservesAction(formData: FormData): Promise<DossierChatResult> {
+  const fail = (error: string): DossierChatResult => ({ ok: false, configured: aiConfigured(), answer: "", citations: [], error });
+  const user = await requireUser();
+  if (!regCan(user, "regulatory.document.view") && user.role !== "SUPER_ADMIN") return fail("Non autorisé.");
+
+  const dossierId = String(formData.get("dossierId") ?? "").trim();
+  const question = String(formData.get("question") ?? "").trim();
+  if (!dossierId || !question) return fail("Paramètres manquants.");
+
+  const companyId = await resolveRegCompanyId(getCompanyScope());
+  if (!companyId) return fail("Module non activé.");
+  // Isolation : le dossier doit appartenir à l'organisation activée.
+  const dossier = await prisma.regulatoryDossier.findFirst({ where: { id: dossierId, companyId }, select: { id: true } });
+  if (!dossier) return fail("Dossier introuvable.");
+
+  const history = parseHistory(String(formData.get("history") ?? ""));
+  return askReserves(dossierId, question, undefined, history);
 }
