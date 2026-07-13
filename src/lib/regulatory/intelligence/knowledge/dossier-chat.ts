@@ -45,9 +45,32 @@ const SYSTEM = [
   "2) Réponds UNIQUEMENT à partir des SOURCES et du CONTEXTE fournis. N'invente aucun fait, chiffre, date, ni référence.",
   "3) Cite la source entre crochets [n] juste après chaque affirmation tirée du CONTENU d'un document (ex. « la durée de conservation est de 24 mois [2] »). Pour une info structurelle (sections manquantes, liste de documents, complétude, faits consolidés), appuie-toi sur le CONTEXTE sans forcément un [n].",
   "4) Si ni les SOURCES ni le CONTEXTE ne permettent de répondre, dis-le explicitement (« Le dossier lu ne contient pas cette information » ou « ce document n'est pas encore extrait »). Ne comble aucun trou.",
-  "5) Distingue une valeur PROPOSÉE automatiquement d'une valeur CONFIRMÉE/CORRIGÉE par un humain quand c'est pertinent.",
+  "5) Distingue une valeur PROPOSÉE automatiquement d'une valeur CONFIRMÉE/CORRIGÉE par un humain quand c'est pertinent — en toutes lettres (« proposée automatiquement, à confirmer »), sans code entre crochets.",
   "6) Français, professionnel et concis. Tu n'émets JAMAIS de conclusion de conformité définitive — l'humain décide.",
+  "7) Écris en TEXTE BRUT LISIBLE, SANS mise en forme markdown : pas de #, de titres, d'astérisques (*), de tirets bas (_), de citations « > », de lignes « --- », d'accents graves (`), de tableaux ni d'emojis. Des phrases et, au besoin, de simples paragraphes. Le SEUL balisage autorisé est le renvoi de source numérique entre crochets, ex. [1].",
 ].join("\n");
+
+/**
+ * Nettoie une réponse IA pour un rendu en TEXTE BRUT (le panneau affiche `whitespace-pre-wrap`,
+ * donc tout markdown apparaîtrait littéralement). On retire titres, gras/italique, citations,
+ * règles, code et emojis, on convertit les puces en « • », les codes [P]/[C] en toutes lettres —
+ * mais on CONSERVE les renvois de source numériques [n] (mécanisme de citation du dossier).
+ */
+export function cleanAnswer(text: string): string {
+  let s = text ?? "";
+  s = s.replace(/```[a-z]*\n?/gi, "").replace(/```/g, "");            // blocs de code (garde le contenu)
+  s = s.replace(/^\s{0,3}#{1,6}\s+/gm, "");                            // titres ## …
+  s = s.replace(/^\s{0,3}>\s?/gm, "");                                 // citations > …
+  s = s.replace(/^\s{0,3}([-*_])\1{2,}\s*$/gm, "");                    // règles horizontales --- *** ___
+  s = s.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/__([^_]+)__/g, "$1"); // gras
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1$2");               // italique *…*
+  s = s.replace(/`([^`]+)`/g, "$1");                                   // code inline `…`
+  s = s.replace(/^\s{0,4}[-*+]\s+/gm, "• ");                           // puces markdown → •
+  s = s.replace(/\[P\]/g, "(proposé, à confirmer)").replace(/\[C\]/g, "(confirmé)"); // codes statut → mots
+  s = s.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}]/gu, ""); // emojis/symboles
+  s = s.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();    // espaces/lignes superflus
+  return s;
+}
 
 // ── Décomposition de la question en termes de recherche ────────────────────────────────────────
 const STOP = new Set([
@@ -119,7 +142,7 @@ function buildOverview(k: DossierKnowledge | null, missing: string[], docs: Doss
       ? `- Sections requises encore signalées manquantes : ${missing.slice(0, 30).join(", ")}${missing.length > 30 ? " …" : ""}.`
       : "- Aucune section requise signalée manquante.",
     k.facts.length > 0
-      ? `- Faits relevés (valeur retenue ; C=confirmé humain, P=proposé) : ${k.facts.slice(0, 30).map((f) => `${f.factKey}=${f.value ?? "?"}${f.unit ? " " + f.unit : ""} [${f.humanValidated ? "C" : "P"}${f.hasConflict ? "/conflit" : ""}]`).join(" ; ")}`
+      ? `- Faits relevés (valeur retenue ; statut entre parenthèses) : ${k.facts.slice(0, 30).map((f) => `${f.factKey}=${f.value ?? "?"}${f.unit ? " " + f.unit : ""} (${f.humanValidated ? "confirmé" : "proposé, à confirmer"}${f.hasConflict ? ", conflit" : ""})`).join(" ; ")}`
       : "- Aucun fait consolidé pour l'instant.",
     "- Inventaire des documents lus (fichier — module/section ; sections aussi contenues ; état) :",
   ];
@@ -198,5 +221,6 @@ export async function askDossier(
 
   const res = await aiFn(buildPrompt(q, citations, overview, history), { system: SYSTEM, maxTokens: 1200, temperature: 0.1 });
   if (!res.ok) return { ok: false, configured: res.configured, answer: "", citations, error: res.error ?? "Réponse IA indisponible." };
-  return { ok: true, configured: res.configured, answer: (res.text ?? "").trim(), citations };
+  // Rendu en TEXTE BRUT (le panneau affiche tel quel) → on nettoie tout markdown résiduel.
+  return { ok: true, configured: res.configured, answer: cleanAnswer(res.text ?? ""), citations };
 }
