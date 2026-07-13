@@ -16,6 +16,8 @@ export interface PersistDocInput {
   file: File;
   /** Limite de taille (Mo) déjà résolue — évite de relire les réglages pour chaque fichier d'un lot. */
   maxUploadMb?: number;
+  /** Contenu déjà lu (évite une 2ᵉ lecture quand l'appelant a besoin du binaire — ex. miroir Drive). */
+  buffer?: Buffer;
 }
 
 /**
@@ -38,7 +40,7 @@ export async function persistUploadedDocument(
 
   const key = `${entityType}/${entityId}/${randomUUID()}__${file.name}`;
   try {
-    const buffer = Buffer.from(await file.arrayBuffer());
+    const buffer = input.buffer ?? Buffer.from(await file.arrayBuffer());
     await saveFile(key, buffer);
   } catch (err) {
     // Stockage indisponible : on garde la métadonnée pour ne pas casser la bibliothèque ;

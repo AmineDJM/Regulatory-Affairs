@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import { canAccessEntity } from "@/lib/entity-access";
 import { getAppSettings } from "@/lib/settings";
 import { persistUploadedDocument } from "@/lib/documents";
+import { mirrorRegulatoryUpload } from "@/lib/regulatory-drive-mirror";
 
 /**
  * Téléversement de documents **en lot** (fichiers ET dossiers) pour un objet métier :
@@ -32,12 +33,27 @@ export async function POST(req: NextRequest) {
 
   // Une seule lecture des réglages pour tout le lot.
   const maxUploadMb = (await getAppSettings()).maxUploadMb;
+  // Regulatory : tout document officiellement téléversé est AUSSI répliqué dans le Drive, sous le
+  // dossier du produit (miroir automatique, plus d'option manuelle). On garde le binaire pour ça.
+  const isRegulatory = entityType === "REGULATORY_PRODUCT";
+  const toMirror: { name: string; data: Buffer; mime?: string }[] = [];
   let created = 0;
   const errors: { name: string; error: string }[] = [];
   for (const file of files) {
-    const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, file, maxUploadMb });
-    if (r.ok) created++;
-    else errors.push({ name: file.name, error: r.error ?? "Échec du téléversement." });
+    // Lecture unique du binaire : réutilisée par l'enregistrement ET le miroir Drive (Regulatory).
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, file, maxUploadMb, buffer });
+    if (r.ok) {
+      created++;
+      if (isRegulatory) toMirror.push({ name: file.name, data: buffer, mime: file.type || undefined });
+    } else {
+      errors.push({ name: file.name, error: r.error ?? "Échec du téléversement." });
+    }
+  }
+
+  // Miroir Drive automatique (best-effort — n'échoue jamais le téléversement).
+  if (isRegulatory && toMirror.length > 0) {
+    await mirrorRegulatoryUpload({ productId: entityId, ownerId: user.id, files: toMirror });
   }
 
   return NextResponse.json({ ok: errors.length === 0, created, errors });

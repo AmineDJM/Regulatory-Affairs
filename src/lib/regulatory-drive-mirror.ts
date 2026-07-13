@@ -127,3 +127,37 @@ export async function mirrorToProductDrive(opts: {
 
   return { productFolderId, created, updated, skipped };
 }
+
+/**
+ * MIROIR AUTOMATIQUE d'un (ou plusieurs) document(s) Regulatory officiellement téléversé(s) :
+ * les réplique aussitôt dans le Drive, sous le dossier du produit, partagés en lecture avec les
+ * parties prenantes du dossier. Appelé après l'enregistrement du document (upload officiel) — il
+ * n'y a plus d'option manuelle. **Best-effort** : ne doit JAMAIS faire échouer le téléversement
+ * (toute erreur est journalisée et avalée). Le stockage physique est dédupliqué (SHA-256), donc
+ * le miroir n'ajoute pas de copie binaire si le contenu existe déjà.
+ */
+export async function mirrorRegulatoryUpload(opts: {
+  productId: string;
+  ownerId: string;
+  files: { name: string; data: Buffer; mime?: string }[];
+}): Promise<void> {
+  if (opts.files.length === 0) return;
+  try {
+    const product = await prisma.regulatoryProduct.findUnique({
+      where: { id: opts.productId },
+      select: { reference: true, dci: true, responsibleId: true, assistantId: true, assignedUsers: { select: { id: true } } },
+    });
+    if (!product) return;
+    const productName = `${product.reference} — ${product.dci}`.trim();
+    const stakeholders = [product.responsibleId, product.assistantId, ...product.assignedUsers.map((u) => u.id)]
+      .filter((v): v is string => Boolean(v));
+    await mirrorToProductDrive({
+      productName,
+      ownerId: opts.ownerId,
+      entries: opts.files.map((f) => ({ path: f.name, data: f.data, mime: f.mime || mimeFromName(f.name) })),
+      shareUserIds: stakeholders,
+    });
+  } catch (err) {
+    console.error("[reg auto-mirror] échec (non bloquant)", err);
+  }
+}
