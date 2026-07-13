@@ -1056,6 +1056,20 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Validations, santé du chatbot, dépôt Drive Regulatory & lisibilité.** Cinq sujets. **(1) Accès
+  temporaire de validation** — un validateur (ex. un chef de produit recevant un bon de commande à
+  valider) obtient, LE TEMPS de décider, une LECTURE du module concerné (résolu depuis le libellé
+  stocké OU l'URL de l'objet) + l'accès à la ligne liée, révoqué dès la décision ; et il **voit/prévisualise
+  l'original SUR PLACE** dans la carte « À valider ». **(2) Test IA quotidien** — le planificateur interne
+  ping l'API du chatbot une fois par jour (`aiSelfTest` → message d'erreur EXACT : clé/crédit/HTTP/réseau),
+  journalise (`AiHealthCheck`) et **alerte tous les Super Admins** en cas de panne (message de rétablissement
+  au retour) ; carte « Santé du chatbot » + bouton « Tester maintenant » au Centre de contrôle IA. **(3) Dépôt
+  Regulatory → miroir Drive** — depuis une fiche produit, déposer un/plusieurs **fichiers**, un **dossier**
+  entier ou une **archive ZIP** : le contenu est répliqué dans le Drive sous un dossier **nommé d'après le
+  produit**, en conservant l'**arborescence exacte** (ZIP décompressé via l'inspecteur sécurisé ; re-dépôt =
+  nouvelle version, pas de doublon ; dossier partagé en lecture avec les parties prenantes). **(4) Lisibilité
+  Drive** — type de fichier **humain** (« Document Word » au lieu du MIME brut) et fin du débordement du
+  panneau d'infos. +19 tests ciblés.
 - **Analyse CTD — fin des fausses « sections manquantes », faits plus propres, chatbot de dossier musclé.**
   Trois chantiers sur un vrai dossier de 459 Mo (11 fichiers, dont un « Module 3.pdf » de 381 Mo). **(A)** Un PDF de
   module **consolidé** est désormais reconnu comme couvrant **plusieurs sous-sections** (`ctd/detect-sections.ts` :
