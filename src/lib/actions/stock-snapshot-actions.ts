@@ -5,37 +5,71 @@ import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { notifyUser } from "@/lib/notify";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
-const SCOPES = ["PCH", "HOSPITAL", "ANNEX"] as const;
+// Deux périmètres seulement : la PCH (centrale) et les HÔPITAUX (liste nommée, gérée par le Super
+// Admin). Les « annexes » ont été retirées. Un hôpital est stocké comme StockAnnex (sans migration).
+const SCOPES = ["PCH", "HOSPITAL"] as const;
 const PATH = "/stocks";
 
-/** Crée une annexe PCH (site de stockage secondaire). */
-export async function createStockAnnex(formData: FormData): Promise<ActionResult> {
+/** Crée un HÔPITAL (réservé au Super Admin). Les autres ne font qu'enregistrer des états. */
+export async function createStockHospital(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "STOCKS", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Seul le Super Admin peut créer un hôpital." };
   const name = fdStr(formData, "name");
-  if (!name) return { ok: false, error: "Indiquez le nom de l'annexe." };
+  if (!name) return { ok: false, error: "Indiquez le nom de l'hôpital." };
   const existing = await prisma.stockAnnex.findUnique({ where: { name } });
-  if (existing) return { ok: false, error: "Cette annexe existe déjà." };
-  const annex = await prisma.stockAnnex.create({ data: { name } });
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Stocks", summary: `Annexe PCH créée — ${name}` });
+  if (existing) return { ok: false, error: "Cet hôpital existe déjà." };
+  const hospital = await prisma.stockAnnex.create({ data: { name } });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Stocks", summary: `Hôpital créé — ${name}` });
   revalidatePath(PATH);
-  return { ok: true, id: annex.id };
+  return { ok: true, id: hospital.id };
 }
 
-/** Supprime une annexe (et ses états de stock, en cascade). */
-export async function deleteStockAnnex(formData: FormData): Promise<ActionResult> {
+/** Supprime un hôpital et ses états de stock (Super Admin). */
+export async function deleteStockHospital(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "STOCKS", "DELETE")) return { ok: false, error: "Suppression réservée (droit Supprimer sur Stocks)." };
+  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Seul le Super Admin peut supprimer un hôpital." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  const annex = await prisma.stockAnnex.findUnique({ where: { id }, select: { name: true } });
-  if (!annex) return { ok: false, error: "Annexe introuvable." };
+  const hospital = await prisma.stockAnnex.findUnique({ where: { id }, select: { name: true } });
+  if (!hospital) return { ok: false, error: "Hôpital introuvable." };
   await prisma.stockAnnex.delete({ where: { id } });
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "Stocks", summary: `Annexe PCH supprimée — ${annex.name}` });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Stocks", summary: `Hôpital supprimé — ${hospital.name}` });
   revalidatePath(PATH);
   return { ok: true };
+}
+
+/**
+ * Demande d'ÉTAT DE STOCK à un instant T (Direction / Super Admin) : on charge une personne
+ * (délégué ou autre) d'aller relever et RENSEIGNER l'état actuel. Créé comme une tâche assignée
+ * (visible dans « Mon espace ») + notification ; la personne enregistre ensuite l'état.
+ */
+export async function requestStockState(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN" && !userCan(user, "STOCKS", "DELETE")) {
+    return { ok: false, error: "Réservé à la Direction / au Super Admin." };
+  }
+  const assigneeId = fdStr(formData, "assigneeId");
+  const note = fdStr(formData, "note");
+  if (!assigneeId) return { ok: false, error: "Choisissez la personne à qui demander l'état de stock." };
+  const assignee = await prisma.user.findFirst({ where: { id: assigneeId, isActive: true }, select: { id: true } });
+  if (!assignee) return { ok: false, error: "Destinataire invalide." };
+
+  const title = "État de stock demandé" + (note ? ` — ${note.slice(0, 120)}` : "");
+  const task = await prisma.task.create({
+    data: {
+      title,
+      description: `${note ? note + "\n\n" : ""}Merci de relever l'état de stock actuel et de le renseigner dans le module Stocks.`,
+      assignedToId: assignee.id, createdById: user.id, priority: "HIGH", module: "STOCKS",
+    },
+    select: { id: true },
+  });
+  await notifyUser({ userId: assignee.id, type: "ASSIGNMENT", title: "État de stock demandé", body: note || "Relevez et renseignez l'état de stock actuel.", link: "/stocks" }).catch(() => undefined);
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Stocks", entityType: "TASK", entityId: task.id, summary: `Demande d'état de stock à un collègue${note ? " — " + note.slice(0, 80) : ""}` });
+  revalidatePath(PATH);
+  return { ok: true, id: task.id };
 }
 
 /**
@@ -52,7 +86,7 @@ export async function recordStockSnapshot(formData: FormData): Promise<ActionRes
   const quantity = fdNum(formData, "quantity");
   const annexId = fdStr(formData, "annexId");
   if (!scope || !(SCOPES as readonly string[]).includes(scope)) return { ok: false, error: "Lieu de stock invalide." };
-  if (scope === "ANNEX" && !annexId) return { ok: false, error: "Choisissez l'annexe concernée." };
+  if (scope === "HOSPITAL" && !annexId) return { ok: false, error: "Choisissez l'hôpital concerné." };
   if (!productId) return { ok: false, error: "Choisissez le produit." };
   if (!date) return { ok: false, error: "Indiquez la date de l'état de stock." };
   if (quantity === null || quantity < 0) return { ok: false, error: "Indiquez la quantité restante (≥ 0)." };
@@ -65,13 +99,13 @@ export async function recordStockSnapshot(formData: FormData): Promise<ActionRes
   const dayStart = new Date(date); dayStart.setUTCHours(0, 0, 0, 0);
   const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000);
   const existing = await prisma.stockSnapshot.findFirst({
-    where: { scope, annexId: scope === "ANNEX" ? annexId : null, productId, date: { gte: dayStart, lt: dayEnd } },
+    where: { scope, annexId: scope === "HOSPITAL" ? annexId : null, productId, date: { gte: dayStart, lt: dayEnd } },
   });
   if (existing) {
     await prisma.stockSnapshot.update({ where: { id: existing.id }, data: { quantity: Math.round(quantity), date, companyId: product.companyId } });
   } else {
     await prisma.stockSnapshot.create({
-      data: { scope, annexId: scope === "ANNEX" ? annexId : null, productId, date, quantity: Math.round(quantity), companyId: product.companyId, createdById: user.id },
+      data: { scope, annexId: scope === "HOSPITAL" ? annexId : null, productId, date, quantity: Math.round(quantity), companyId: product.companyId, createdById: user.id },
     });
   }
   await recordAudit({ actorId: user.id, action: existing ? "UPDATE" : "CREATE", module: "Stocks", summary: `État de stock ${scope} — ${product.brandName ?? product.dci} : ${Math.round(quantity)} u.` });

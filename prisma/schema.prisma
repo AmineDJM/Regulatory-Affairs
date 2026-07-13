@@ -3723,6 +3723,8 @@ model WorkflowStepEvent {
 // (date → quantité) se dessine au fil des saisies, par produit et par lieu.
 
 /// Annexe de la PCH (site de stockage secondaire) — liste créable dans le module Stocks.
+// Hôpitaux (nommés, gérés par le Super Admin). Le nom « StockAnnex » est conservé pour éviter une
+// migration ; les « annexes » ont été retirées du module — seuls PCH et hôpitaux subsistent.
 model StockAnnex {
   id        String          @id @default(cuid())
   name      String          @unique
@@ -3734,7 +3736,7 @@ model StockSnapshot {
   id          String            @id @default(cuid())
   companyId   String? // entité (Adventum / Pharmagène / …)
   company     Company?          @relation(fields: [companyId], references: [id])
-  scope       String // PCH | HOSPITAL | ANNEX
+  scope       String // PCH | HOSPITAL (ANNEX = legacy, plus écrit)
   annexId     String?
   annex       StockAnnex?       @relation(fields: [annexId], references: [id], onDelete: Cascade)
   productId   String
