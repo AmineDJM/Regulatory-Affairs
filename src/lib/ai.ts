@@ -81,6 +81,52 @@ export async function askClaude(prompt: string, opts: AskOptions = {}): Promise<
   }
 }
 
+// ─────────────────────────── Sonde de santé (test quotidien du chatbot) ───────────────────────────
+
+export interface AiHealthResult {
+  ok: boolean;
+  configured: boolean;
+  model: string;
+  latencyMs: number;
+  status?: number; // code HTTP si une réponse a été reçue
+  error?: string; // message EXACT (statut + message de l'API, ou erreur réseau)
+}
+
+/**
+ * PING RÉEL de l'API IA (un `POST /v1/messages` minimal). Contrairement à `askClaude`,
+ * renvoie le message d'erreur EXACT (statut HTTP + `error.message` de l'API, ou l'erreur
+ * réseau) — pour que le Super Admin sache précisément quoi corriger (clé, crédit, réseau).
+ */
+export async function aiSelfTest(): Promise<AiHealthResult> {
+  const model = aiModel();
+  const key = process.env.ANTHROPIC_API_KEY;
+  const started = Date.now();
+  if (!key) {
+    return { ok: false, configured: false, model, latencyMs: 0, error: "Clé ANTHROPIC_API_KEY absente : le chatbot et toutes les fonctions IA sont désactivés. Ajoutez la clé (Render → variables d'environnement)." };
+  }
+  const base = (process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com").replace(/\/$/, "");
+  try {
+    const res = await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model, max_tokens: 8, messages: [{ role: "user", content: "ping" }] }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const latencyMs = Date.now() - started;
+    if (res.ok) {
+      await res.json().catch(() => null); // draine le corps
+      return { ok: true, configured: true, model, latencyMs, status: res.status };
+    }
+    const raw = (await res.text().catch(() => "")).slice(0, 500);
+    let detail = raw;
+    try { detail = (JSON.parse(raw) as { error?: { message?: string } })?.error?.message ?? raw; } catch { /* corps non-JSON */ }
+    return { ok: false, configured: true, model, latencyMs, status: res.status, error: `HTTP ${res.status} — ${detail || res.statusText}` };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, configured: true, model, latencyMs: Date.now() - started, error: `Échec réseau lors de l'appel à l'IA : ${msg}` };
+  }
+}
+
 // ─────────────────────────── Tool-use (boucle agent — Chatbot) ───────────────────────────
 
 export interface ClaudeToolDef {

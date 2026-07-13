@@ -3377,6 +3377,23 @@ model AppSetting {
   updatedById          String?
 }
 
+/// Sonde QUOTIDIENNE de l'API IA (chatbot & fonctions IA). Le planificateur interne
+/// lance un vrai ping /v1/messages une fois par jour ; chaque résultat est journalisé
+/// ici (statut + latence + message EXACT en cas d'échec) et, si l'API est en panne,
+/// le Super Admin est alerté. Sert aussi d'historique de santé pour le Contrôle IA.
+model AiHealthCheck {
+  id         String    @id @default(cuid())
+  checkedAt  DateTime  @default(now())
+  ok         Boolean
+  model      String
+  status     Int? // code HTTP de la réponse (null si échec réseau)
+  latencyMs  Int?
+  error      String? // message exact (statut + extrait du corps, ou erreur réseau)
+  notifiedAt DateTime? // horodatage de l'alerte envoyée aux Super Admins (échec)
+
+  @@index([checkedAt])
+}
+
 /// Abonnement Web Push (PWA) d'un appareil/navigateur d'un utilisateur, pour les
 /// notifications poussées sur le téléphone. Secrets propres au navigateur (pas sensibles).
 model PushSubscription {

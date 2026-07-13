@@ -1,8 +1,9 @@
-import { BrainCircuit, KeyRound, CheckCircle2, XCircle, Activity, Mic } from "lucide-react";
+import { BrainCircuit, KeyRound, CheckCircle2, XCircle, Activity, Mic, HeartPulse } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { aiConfigured, sttConfigured, aiModel } from "@/lib/ai";
+import { getLatestAiHealth } from "@/lib/ai-health";
 import { getAiSettings } from "@/lib/ai-settings";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { ADMIN_TABS } from "@/lib/labels";
@@ -10,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber, formatDateTime } from "@/lib/utils";
 import { AiSettingsForm } from "./ai-settings-form";
+import { AiHealthCheckButton } from "./health-check-button";
 
 export const metadata = { title: "Centre de contrôle IA — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -60,6 +62,9 @@ export default async function AiControlCenterPage() {
 
   const successRate = total30 > 0 ? Math.round((ok30 / total30) * 100) : null;
 
+  // Santé de l'API IA — dernière sonde quotidienne (le chatbot en dépend directement).
+  const health = await getLatestAiHealth();
+
   return (
     <div className="space-y-5">
       <ModuleTabs tabs={ADMIN_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
@@ -92,6 +97,42 @@ export default async function AiControlCenterPage() {
             Les clés sont des secrets serveur (jamais exposés au client) et se définissent dans les variables
             d'environnement Render — pas ici. Cette page contrôle uniquement l'activation des fonctions.
           </p>
+        </CardContent>
+      </Card>
+
+      {/* Santé de l'API (sonde quotidienne automatique + test à la demande) */}
+      <Card>
+        <CardHeader><CardTitle>Santé du chatbot IA — test automatique quotidien</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="flex items-center gap-2">
+              <HeartPulse className={`h-5 w-5 ${!health ? "text-muted-foreground" : health.ok ? "text-success" : "text-destructive"}`} />
+              {!health ? (
+                <Badge tone="neutral" dot={false}>Aucun test encore effectué</Badge>
+              ) : health.ok ? (
+                <Badge tone="success" dot={false}>API opérationnelle</Badge>
+              ) : (
+                <Badge tone="danger" dot={false}>API indisponible</Badge>
+              )}
+            </span>
+            {health && (
+              <span className="text-xs text-muted-foreground">
+                Dernier test : {formatDateTime(health.checkedAt)} · {health.model}
+                {health.latencyMs != null ? ` · ${health.latencyMs} ms` : ""}
+                {health.status != null ? ` · HTTP ${health.status}` : ""}
+              </span>
+            )}
+          </div>
+          {health && !health.ok && health.error && (
+            <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 text-xs text-destructive">
+              <span className="font-semibold">Souci détecté :</span> {health.error}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            L'API IA est testée <strong>automatiquement une fois par jour</strong> ; en cas de panne, tous les Super Admins
+            reçoivent une notification avec le message exact du problème (clé, crédit, réseau).
+          </p>
+          <AiHealthCheckButton />
         </CardContent>
       </Card>
 

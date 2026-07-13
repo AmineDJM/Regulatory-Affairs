@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
+import { performAiHealthCheck } from "@/lib/ai-health";
 import { runDueRegulatoryJobs } from "@/lib/regulatory/intelligence/jobs/runner";
 import { pruneStaleUploadSessions } from "@/lib/regulatory/intelligence/upload/session";
 
@@ -24,6 +25,7 @@ export async function runScheduledJobs(): Promise<void> {
   try {
     await sendDueMeetingReminders();
     await sendDuePayrollNotifications();
+    await performAiHealthCheck().catch((e) => console.error("[scheduled] ai health check failed", e)); // test IA 1×/jour + alerte Super Admin
     await runDueRegulatoryJobs();
     await pruneStaleUploadSessions().catch(() => 0); // nettoyage des sessions d'upload incomplètes
 
