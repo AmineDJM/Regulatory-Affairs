@@ -1056,6 +1056,36 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Analyse CTD — jumeau numérique par IA, analyse plus exigeante, pièces admin hors CTD, gros fichiers
+  blindés (5 sujets).** **(1) Compréhension par IA du jumeau numérique** — le jumeau n'est plus seulement
+  déterministe (regex) : une couche IA **comprend le sens** et propose les faits que les règles ne savent pas
+  saisir (composition, indications, posologie, spécifications, stabilité, procédé, adresses de site…). Chaque
+  fait proposé cite une **preuve** dont on **vérifie l'ancrage** (l'extrait figure réellement dans le
+  document → jamais d'invention), la clé est **bornée au catalogue**, la confiance est **plafonnée** (le
+  déterministe prime à valeur égale), l'appel est **borné** (sections porteuses, un seul appel quel que soit
+  le volume) et **non bloquant**. Tout fait reste **PROPOSED → revue humaine** (marqué « IA » dans les
+  sources). **(2) Analyse beaucoup plus exigeante** — la revue de fond/forme et les 14 agents adoptent la
+  posture d'un examinateur ANPP **sévère** : checklist explicite **fond** (cohérence ANPP/ICH, éléments
+  manquants, incohérences DCI/dosage/lot/dates/unités, données non étayées, références périmées) **et forme**
+  (signatures/dates/cachets, pagination, numérotation CTD, langue/traductions fr-ar, qualité scans/OCR,
+  formats). Garde-fous inchangés (preuve exacte, Zod, jamais bloquant, abstention). **(3) Pièces
+  administratives hors CTD** — `1.0` lettre d'accompagnement, `1.2` formulaire, `1.2.1` bordereau de
+  versement sont fournies **de notre côté** (portail ANPP en ligne) : elles ne **pénalisent plus** la
+  complétude CTD ni ne créent de bloqueur (filtrées du scoring, y compris des packs déjà amorcés — aucune
+  migration), et apparaissent dans une **checklist séparée « Documents obligatoires pour l'enregistrement
+  (hors CTD) »**. **(4) « Réponse IA non exploitable » corrigé** (simulateur d'examen & agents) — cause n°1 =
+  réponse IA **tronquée** au plafond de jetons : extracteur JSON **tolérant** partagé (referme chaînes/
+  structures ouvertes) + plafonds de jetons relevés. **(5) Worker thread pour les gros fichiers (>100 Mo)** —
+  le parse natif (pdf-parse/mammoth/xlsx) tournait **synchronement** sur le thread du serveur → un fichier
+  >100 Mo **figeait toute l'app** ; il est désormais **déchargé dans un worker thread** (transfert zéro-copie,
+  timeout, **repli en ligne** si indisponible), les petits fichiers restant en ligne.
+- **Analyse CTD — correctifs (crash Bases de données, classification « Module N », fluidité).** **(1)** Le
+  crash serveur de **Administration → Bases de données** (`fmtBytes` exporté d'un composant client puis appelé
+  côté serveur) est corrigé via un utilitaire **server-safe** (`formatBytes`). **(2)** Un fichier nommé
+  **« Module 2 »** n'est plus classé en 3.2.x : le **module du nom de fichier prime** sur les mots-clés du
+  contenu (un QOS cite des sections 3.2 sans en être). **(3)** L'app reste **fluide pendant l'extraction et
+  l'analyse** : cession de la boucle d'événements (`setImmediate`) entre documents/lots (le thread n'est plus
+  monopolisé).
 - **Lot budgets/finances/regulatory/admin/perf (12 sujets).** **(1) Budgets découplés des Finances** — une
   ligne de dépense ajoutée depuis le module Budget (« + » réf. + montant) crée désormais une **ligne purement
   budgétaire** (`BudgetExpenseLine`) qui consomme la catégorie **sans** toucher la trésorerie ; le financier
