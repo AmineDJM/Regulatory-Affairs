@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
-import { Upload, Loader2, Search, Eye, Pencil } from "lucide-react";
+import { Upload, Search, Eye, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Label } from "@/components/ui/input";
+import { useBackgroundUpload } from "@/components/layout/background-upload";
 import { cn } from "@/lib/utils";
 
 type Perm = "none" | "view" | "edit";
@@ -22,44 +22,42 @@ export function UploadButton({
   /** Si fourni (import d'un nouveau fichier), ouvre le choix catégorie + permissions. */
   users?: UserLite[];
 }) {
-  const router = useRouter();
+  const { enqueue } = useBackgroundUpload();
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = React.useState(false);
-  const [err, setErr] = React.useState<string | null>(null);
 
-  // Mode simple (nouvelle version, ou pas de liste d'utilisateurs) : envoi immédiat.
+  // Mode simple (nouvelle version, ou pas de liste d'utilisateurs) : envoi en arrière-plan.
   const rich = Boolean(users) && !nodeId;
 
-  // ───────── Mode simple ─────────
-  async function onChangeSimple(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files?.length) return;
-    setBusy(true); setErr(null);
-    try {
-      for (const file of Array.from(files)) {
-        const fd = new FormData();
-        fd.append("file", file);
-        if (nodeId) fd.append("nodeId", nodeId);
-        else if (parentId) fd.append("parentId", parentId);
-        const res = await fetch("/api/drive/upload", { method: "POST", body: fd });
-        if (!res.ok) { const j = await res.json().catch(() => ({})); setErr(j.error ?? "Échec de l'envoi."); break; }
-        if (nodeId) break;
-      }
-      router.refresh();
-    } finally {
-      setBusy(false);
-      if (inputRef.current) inputRef.current.value = "";
+  // ───────── Mode simple (envoi non bloquant, global) ─────────
+  function onChangeSimple(e: React.ChangeEvent<HTMLInputElement>) {
+    const list = e.target.files;
+    if (!list?.length) return;
+    const files = Array.from(list).filter((f) => f.size > 0);
+    if (files.length === 0) return;
+    if (nodeId) {
+      enqueue({
+        label: "Nouvelle version",
+        files: [files[0]],
+        makeRequest: (file) => { const fd = new FormData(); fd.append("file", file); fd.append("nodeId", nodeId); return { url: "/api/drive/upload", formData: fd }; },
+      });
+    } else {
+      enqueue({
+        label: `${files.length} fichier${files.length > 1 ? "s" : ""} (Drive)`,
+        files,
+        concurrency: 6,
+        makeRequest: (file) => { const fd = new FormData(); fd.append("file", file); if (parentId) fd.append("parentId", parentId); return { url: "/api/drive/upload", formData: fd }; },
+      });
     }
+    if (inputRef.current) inputRef.current.value = "";
   }
 
   if (!rich) {
     return (
       <span className="inline-flex items-center gap-2">
         <input ref={inputRef} type="file" multiple={!nodeId} hidden onChange={onChangeSimple} />
-        <Button variant="outline" onClick={() => inputRef.current?.click()} disabled={busy} type="button">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {label ?? "Importer"}
+        <Button variant="outline" onClick={() => inputRef.current?.click()} type="button">
+          <Upload className="h-4 w-4" /> {label ?? "Importer"}
         </Button>
-        {err && <span className="text-xs text-destructive">{err}</span>}
       </span>
     );
   }
@@ -68,13 +66,12 @@ export function UploadButton({
 }
 
 function RichUpload({ parentId, users, label }: { parentId: string | null; users: UserLite[]; label?: string }) {
-  const router = useRouter();
+  const { enqueue } = useBackgroundUpload();
   const [open, setOpen] = React.useState(false);
   const [files, setFiles] = React.useState<File[]>([]);
   const [category, setCategory] = React.useState("");
   const [perm, setPerm] = React.useState<Record<string, Perm>>({});
   const [search, setSearch] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
   const shared = Object.values(perm).filter((p) => p !== "none").length;
@@ -86,26 +83,27 @@ function RichUpload({ parentId, users, label }: { parentId: string | null; users
     setFiles([]); setCategory(""); setPerm({}); setSearch(""); setErr(null);
   }
 
-  async function submit() {
+  /** Confie l'import (avec classement + permissions) au gestionnaire global : non bloquant. */
+  function submit() {
     if (files.length === 0) { setErr("Choisissez au moins un fichier."); return; }
-    setBusy(true); setErr(null);
     const viewers = Object.entries(perm).filter(([, p]) => p === "view").map(([id]) => id);
     const editors = Object.entries(perm).filter(([, p]) => p === "edit").map(([id]) => id);
-    try {
-      for (const file of files) {
+    const cat = category.trim();
+    enqueue({
+      label: `${files.length} fichier${files.length > 1 ? "s" : ""} (Drive)`,
+      files,
+      concurrency: 6,
+      makeRequest: (file) => {
         const fd = new FormData();
         fd.append("file", file);
         if (parentId) fd.append("parentId", parentId);
-        if (category.trim()) fd.append("category", category.trim());
+        if (cat) fd.append("category", cat);
         viewers.forEach((id) => fd.append("viewers", id));
         editors.forEach((id) => fd.append("editors", id));
-        const res = await fetch("/api/drive/upload", { method: "POST", body: fd });
-        if (!res.ok) { const j = await res.json().catch(() => ({})); setErr(j.error ?? "Échec de l'envoi."); setBusy(false); return; }
-      }
-      setOpen(false); reset(); router.refresh();
-    } finally {
-      setBusy(false);
-    }
+        return { url: "/api/drive/upload", formData: fd };
+      },
+    });
+    setOpen(false); reset();
   }
 
   return (
@@ -116,17 +114,17 @@ function RichUpload({ parentId, users, label }: { parentId: string | null; users
 
       <Sheet
         open={open}
-        onClose={() => !busy && setOpen(false)}
+        onClose={() => setOpen(false)}
         title="Importer un document"
-        description="Choisissez le classement et qui peut le voir ou le modifier."
+        description="Choisissez le classement et qui peut le voir ou le modifier. L'envoi se fait en arrière-plan."
         width="lg"
         footer={
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs text-muted-foreground">{files.length} fichier·s · partagé avec {shared}</span>
             <div className="flex gap-2">
-              <Button variant="outline" type="button" onClick={() => setOpen(false)} disabled={busy}>Annuler</Button>
-              <Button type="button" onClick={submit} disabled={busy || files.length === 0}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Importer
+              <Button variant="outline" type="button" onClick={() => setOpen(false)}>Annuler</Button>
+              <Button type="button" onClick={submit} disabled={files.length === 0}>
+                <Upload className="h-4 w-4" /> Importer
               </Button>
             </div>
           </div>

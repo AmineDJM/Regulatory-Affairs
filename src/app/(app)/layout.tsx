@@ -11,6 +11,7 @@ import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
 import { FloatingAssistant } from "@/components/layout/floating-assistant";
 import { PushRegister } from "@/components/layout/push-register";
 import { UploadProvider } from "@/components/layout/upload-manager";
+import { BackgroundUploadProvider } from "@/components/layout/background-upload";
 import { getTotalUnread } from "@/lib/queries/messaging";
 import { getAdoptionBadge } from "@/lib/adoption";
 import { aiConfigured } from "@/lib/ai";
@@ -62,6 +63,7 @@ export default async function AppLayout({
 
   return (
     <UploadProvider>
+    <BackgroundUploadProvider>
     <div className="flex h-screen overflow-hidden bg-background">
       <ActivityTracker />
       <ScreenGuard />
@@ -79,6 +81,7 @@ export default async function AppLayout({
       {/* Notifications push (PWA) : enregistre le service worker + (ré)abonne l'appareil. */}
       <PushRegister />
     </div>
+    </BackgroundUploadProvider>
     </UploadProvider>
   );
 }
