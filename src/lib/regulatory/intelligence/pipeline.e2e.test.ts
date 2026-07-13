@@ -210,7 +210,7 @@ describe("Pipeline Regulatory Intelligence — bout en bout (ingestion → déco
     // ── 3bis) LECTURE EN DÉTAIL — OCR RÉEL du scan ──────────────────────────────────────────
     const png = byExt("png");
     expect(["OCR_COMPLETED", "LOW_CONFIDENCE"]).toContain(png.extractionStatus);
-    expect(png.extraction?.method).toBe("ocr");
+    expect(png.extraction?.method).toMatch(/^ocr/); // « ocr-tesseract » (local) ou « ocr-mistral » (cloud)
     expect(Number(png.extraction?.ocrConfidence)).toBeGreaterThan(0);
     expect(Array.isArray(png.extraction?.ocrPages)).toBe(true);
     expect((png.extraction?.content ?? "").toUpperCase()).toContain("AMOXICILLINE");

@@ -48,7 +48,7 @@ describe("runner OCR — océrisation pilotée par job", () => {
     });
     // Statut terminal d'OCR (complété ou faible confiance selon le rendu), jamais resté "à océriser".
     expect(["OCR_COMPLETED", "LOW_CONFIDENCE"]).toContain(doc?.extractionStatus);
-    expect(doc?.extraction?.method).toBe("ocr");
+    expect(doc?.extraction?.method).toMatch(/^ocr/); // moteur tracé : « ocr-tesseract » / « ocr-mistral »
     expect(doc?.extraction?.content.toUpperCase()).toContain("AMOXICILLINE");
     expect(Number(doc?.extraction?.ocrConfidence)).toBeGreaterThan(0);
     expect(Array.isArray(doc?.extraction?.ocrPages)).toBe(true);
