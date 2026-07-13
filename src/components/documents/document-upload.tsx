@@ -79,24 +79,39 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
 
   async function uploadOne(it: Item) {
     setItems((cur) => cur.map((x) => (x.id === it.id ? { ...x, status: "uploading", error: undefined } : x)));
-    try {
-      const fd = new FormData();
-      fd.set("entityType", entityType);
-      fd.set("entityId", entityId);
-      fd.set("category", category);
-      fd.set("confidentiality", confidentiality);
-      if (stepKey) fd.set("stepKey", stepKey);
-      fd.append("files", it.file, it.file.name);
-      const res = await fetch("/api/documents/upload", { method: "POST", body: fd });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.ok) {
-        setItems((cur) => cur.map((x) => (x.id === it.id ? { ...x, status: "done" } : x)));
-      } else {
+    // Nombre de fichiers ILLIMITÉ : chaque fichier est un envoi indépendant, RÉESSAYÉ en cas
+    // d'échec TRANSITOIRE (réseau, 5xx, 429) avec backoff → un gros lot / dossier entier se
+    // termine de façon fiable (plus de « l'import s'arrête »). Un 4xx clair (droit, taille) échoue
+    // vite, sans réessai inutile.
+    const attempts = 4;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        const fd = new FormData();
+        fd.set("entityType", entityType);
+        fd.set("entityId", entityId);
+        fd.set("category", category);
+        fd.set("confidentiality", confidentiality);
+        if (stepKey) fd.set("stepKey", stepKey);
+        fd.append("files", it.file, it.file.name);
+        const res = await fetch("/api/documents/upload", { method: "POST", body: fd });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          setItems((cur) => cur.map((x) => (x.id === it.id ? { ...x, status: "done" } : x)));
+          return;
+        }
         const msg = data.errors?.[0]?.error ?? data.error ?? "Échec du téléversement.";
-        setItems((cur) => cur.map((x) => (x.id === it.id ? { ...x, status: "error", error: msg } : x)));
+        const retryable = res.status >= 500 || res.status === 429;
+        if (!retryable || attempt === attempts - 1) {
+          setItems((cur) => cur.map((x) => (x.id === it.id ? { ...x, status: "error", error: msg } : x)));
+          return;
+        }
+      } catch {
+        if (attempt === attempts - 1) {
+          setItems((cur) => cur.map((x) => (x.id === it.id ? { ...x, status: "error", error: "Réseau indisponible." } : x)));
+          return;
+        }
       }
-    } catch {
-      setItems((cur) => cur.map((x) => (x.id === it.id ? { ...x, status: "error", error: "Réseau indisponible." } : x)));
+      await new Promise((r) => setTimeout(r, 400 * 2 ** attempt)); // backoff : 0,4s → 0,8s → 1,6s
     }
   }
 
