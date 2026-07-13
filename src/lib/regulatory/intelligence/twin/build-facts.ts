@@ -80,7 +80,7 @@ export async function buildTwinFacts(dossierVersionId: string): Promise<{ facts:
     select: { id: true, ctdSection: true, extraction: { select: { method: true, charCount: true } } },
   });
   // Provenance OCR (fiabilité moindre) → pondération à la baisse des occurrences.
-  const ocrDocIds = new Set(docMeta.filter((d) => d.extraction?.method === "ocr").map((d) => d.id));
+  const ocrDocIds = new Set(docMeta.filter((d) => d.extraction?.method?.startsWith("ocr")).map((d) => d.id));
   const sectionById = new Map(docMeta.map((d) => [d.id, d.ctdSection] as const));
 
   // Extraction des faits PAR LOTS BORNÉS EN OCTETS : un document massif (jusqu'à 10 000 pages

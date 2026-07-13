@@ -312,13 +312,16 @@ async function ocrOne(doc: { id: string; ext: string; blobId: string | null; ori
     }
     const r = await ocrDocument({ ext: doc.ext, buffer });
     const status = r.text.length === 0 ? "MANUAL_REVIEW_REQUIRED" : r.needsReview ? "LOW_CONFIDENCE" : "OCR_COMPLETED";
+    // Trace le MOTEUR OCR réellement utilisé (Mistral cloud vs Tesseract local) pour que ce soit
+    // VISIBLE côté dossier (sources du jumeau) — on ne pouvait pas savoir lequel avait tourné.
+    const ocrMethod = /^mistral/i.test(r.engine) ? "ocr-mistral" : /^tesseract/i.test(r.engine) ? "ocr-tesseract" : "ocr";
     // Texte complet (cap élevé configurable) + détail par page borné (documents de 10 000 pages :
     // on garde tous les agrégats exacts mais on limite le JSON par-page stocké).
     const content = r.text.slice(0, extractionMaxChars());
     const truncated = r.truncated || content.length < r.text.length;
     const ocrPages = r.pages.slice(0, ocrStoredPages());
     const data = {
-      method: r.method, lang: r.langs, charCount: content.length, truncated,
+      method: ocrMethod, lang: r.langs, charCount: content.length, truncated,
       content, ocrConfidence: r.meanConfidence, pageCount: r.pageCount,
       ocrPages: ocrPages as unknown as object, needsReview: r.needsReview,
     };

@@ -11,8 +11,12 @@ interface ConflictValue { value: string; documentId: string; sectionCode: string
 interface Conflict { id: string; factKey: string; label: string; severity: string; status: string; values: ConflictValue[]; proposedAction: string | null; finalValue: string | null }
 
 const STATUS_LABEL: Record<string, string> = { PROPOSED: "proposé", CONFIRMED: "confirmé", CORRECTED: "corrigé", REJECTED: "rejeté" };
-// Méthode d'origine d'une preuve : « IA » (compréhension du sens) vs extraction déterministe.
-const METHOD_LABEL: Record<string, string> = { ai: "IA", regex: "auto", keyword: "auto", label: "auto" };
+// Méthode d'origine d'une preuve : « IA » (compréhension du sens), extraction déterministe, ou
+// OCR (avec le moteur réellement utilisé — Mistral cloud vs Tesseract local, pour la traçabilité).
+const METHOD_LABEL: Record<string, string> = {
+  ai: "IA", regex: "auto", keyword: "auto", label: "auto",
+  "ocr-mistral": "OCR Mistral", "ocr-tesseract": "OCR local", ocr: "OCR",
+};
 const methodLabel = (m: string) => METHOD_LABEL[m] ?? m;
 
 export function TwinPanel({ facts, conflicts, canEdit, canApprove }: { facts: Fact[]; conflicts: Conflict[]; canEdit: boolean; canApprove: boolean }) {
