@@ -51,9 +51,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Miroir Drive automatique (best-effort — n'échoue jamais le téléversement).
+  // Miroir Drive automatique EN ARRIÈRE-PLAN : on NE bloque PAS la réponse dessus. Le document
+  // est déjà enregistré (c'est ce que l'utilisateur voit) ; la copie Drive se termine juste après,
+  // sur le serveur persistant (Render) → téléversement ressenti « instantané », l'utilisateur peut
+  // enchaîner d'autres tâches. Best-effort : toute erreur est journalisée, jamais propagée.
   if (isRegulatory && toMirror.length > 0) {
-    await mirrorRegulatoryUpload({ productId: entityId, ownerId: user.id, files: toMirror });
+    void mirrorRegulatoryUpload({ productId: entityId, ownerId: user.id, files: toMirror }).catch((e) => console.error("[documents upload] miroir Drive en arrière-plan a échoué", e));
   }
 
   return NextResponse.json({ ok: errors.length === 0, created, errors });

@@ -104,7 +104,8 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
     const toSend = items.filter((it) => it.status === "pending" || it.status === "error");
     if (toSend.length === 0) return;
     setBusy(true);
-    await runPool(toSend, uploadOne, 4);
+    // Concurrence élevée : plusieurs fichiers montent en parallèle → lot bien plus rapide.
+    await runPool(toSend, uploadOne, 6);
     setBusy(false);
     router.refresh();
     // On retire les réussis (ils apparaissent dans la liste ci-dessous) ; on garde les échecs pour réessai.

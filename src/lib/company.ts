@@ -1,5 +1,10 @@
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { prisma } from "@/lib/prisma";
+
+// Mémoïsation par requête si React `cache` est disponible ; sinon (tests, hors requête) no-op.
+const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
+  typeof cache === "function" ? (cache as never) : (fn) => fn;
 
 /**
  * Dimension multi-entités (sociétés du groupe : Adventum Pharma, Pharmagène, …).
@@ -21,14 +26,15 @@ export interface CompanyLite {
   color: string | null;
 }
 
-/** Entités actives, triées (ordre d'affichage puis nom). */
-export async function getCompanies(): Promise<CompanyLite[]> {
+/** Entités actives, triées (ordre d'affichage puis nom). Mémoïsé par requête (appelé sur
+ *  de nombreuses pages) → une seule lecture BDD par rendu. */
+export const getCompanies = perRequest(async (): Promise<CompanyLite[]> => {
   return prisma.company.findMany({
     where: { isActive: true },
     select: { id: true, name: true, shortName: true, color: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
-}
+});
 
 /**
  * Portée d'entité active (cookie). `null` = toutes les entités. Défensif : hors
