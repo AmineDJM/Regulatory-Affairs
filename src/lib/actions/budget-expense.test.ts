@@ -9,12 +9,14 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
 import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { getBudgetOverview } from "@/lib/queries/budget";
-import { addBudgetExpense } from "./budget-envelope-actions";
+import { addBudgetExpense, deleteBudgetExpense } from "./budget-envelope-actions";
 
 /**
  * Ajout rapide d'une ligne de dépense depuis le module Budget (référence + montant) : crée une
- * dépense RÉELLE (OUT, réglée) imputée à la catégorie → la CONSOMMATION se met à jour aussitôt.
- * Contrôles : référence/montant obligatoires, montant positif, et droit d'imputer (accès budget).
+ * ligne PUREMENT BUDGÉTAIRE (BudgetExpenseLine) imputée à la catégorie → la CONSOMMATION se met
+ * à jour aussitôt, SANS créer de mouvement de trésorerie (aucune FinanceTransaction). Elle est
+ * ensuite SUPPRIMABLE (la consommation est réajustée). Contrôles : référence/montant obligatoires,
+ * montant positif, et droit d'imputer (accès budget).
  */
 
 let dbOk = false;
@@ -35,7 +37,7 @@ function form(extra: Record<string, string>): FormData {
   return fd;
 }
 
-suite("addBudgetExpense — dépense rapide qui consomme un budget", () => {
+suite("addBudgetExpense — dépense budgétaire (découplée des Finances) qui consomme un budget", () => {
   beforeAll(async () => {
     adminId = (await prisma.user.create({ data: { name: `${TAG}a`, email: `${TAG}a@t.dz`, passwordHash: "x", role: "SUPER_ADMIN" } })).id;
     salesId = (await prisma.user.create({ data: { name: `${TAG}s`, email: `${TAG}s@t.dz`, passwordHash: "x", role: "SALES_USER" } })).id;
@@ -51,28 +53,42 @@ suite("addBudgetExpense — dépense rapide qui consomme un budget", () => {
   });
 
   afterAll(async () => {
-    await prisma.financeTransaction.deleteMany({ where: { label: { startsWith: TAG } } }).catch(() => {});
     await prisma.budgetEnvelope.deleteMany({ where: { name: TAG } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   });
 
-  it("crée une dépense OUT réglée imputée à la catégorie → consommation reflétée", async () => {
+  it("crée une ligne budgétaire (sans FinanceTransaction) → consommation reflétée", async () => {
     ACTOR = await actorFor(adminId, "SUPER_ADMIN");
     const r = await addBudgetExpense(form({ budgetCategoryId: catId, reference: `${TAG} Facture 042`, amount: "300" }));
     expect(r.ok).toBe(true);
 
+    // Ligne purement budgétaire créée…
+    const lines = await prisma.budgetExpenseLine.findMany({ where: { categoryId: catId } });
+    expect(lines).toHaveLength(1);
+    expect(Number(lines[0].amount)).toBe(300);
+    expect(lines[0].reference).toBe(`${TAG} Facture 042`);
+
+    // …et AUCUN mouvement de trésorerie (découplage strict des Finances).
     const txs = await prisma.financeTransaction.findMany({ where: { budgetCategoryId: catId } });
-    expect(txs).toHaveLength(1);
-    expect(txs[0].direction).toBe("OUT");
-    expect(txs[0].status).toBe("SETTLED"); // réglée → comptée comme consommée
-    expect(Number(txs[0].amount)).toBe(300);
-    expect(txs[0].label).toBe(`${TAG} Facture 042`);
-    expect(txs[0].reference).toMatch(/^FIN-\d{4}-/); // référence interne unique auto-générée
+    expect(txs).toHaveLength(0);
 
     const ov = await getBudgetOverview(ACTOR, envId);
     const cat = ov!.categories.find((c) => c.id === catId)!;
     expect(cat.consumed).toBe(300);
-    expect(ov!.attributed.transactions.some((t) => t.amount === 300)).toBe(true);
+    const attributed = ov!.attributed.transactions.find((t) => t.amount === 300);
+    expect(attributed?.kind).toBe("BUDGET");
+  });
+
+  it("supprime la ligne → la consommation revient à zéro", async () => {
+    ACTOR = await actorFor(adminId, "SUPER_ADMIN");
+    const line = await prisma.budgetExpenseLine.findFirstOrThrow({ where: { categoryId: catId } });
+    const r = await deleteBudgetExpense(form({ id: line.id }));
+    expect(r.ok).toBe(true);
+    expect(await prisma.budgetExpenseLine.count({ where: { categoryId: catId } })).toBe(0);
+
+    const ov = await getBudgetOverview(ACTOR, envId);
+    const cat = ov!.categories.find((c) => c.id === catId)!;
+    expect(cat.consumed).toBe(0);
   });
 
   it("refuse une saisie incomplète ou un montant non positif", async () => {

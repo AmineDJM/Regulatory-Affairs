@@ -42,9 +42,16 @@ export interface UnattributedTx {
   status: string;
 }
 
-/** Dépense DÉJÀ attribuée à une catégorie — ré-attribuable par la Direction à tout moment. */
+/**
+ * Dépense DÉJÀ imputée à une catégorie de l'enveloppe. Deux origines :
+ * - `FINANCE` : une vraie dépense de trésorerie (FinanceTransaction OUT) que la Direction a
+ *   attribuée à la catégorie → RÉ-ATTRIBUABLE (elle se supprime, elle, dans les Finances) ;
+ * - `BUDGET` : une ligne purement budgétaire saisie ici (BudgetExpenseLine), sans impact sur
+ *   la trésorerie → SUPPRIMABLE directement depuis le module Budget.
+ */
 export interface AttributedTx {
   id: string;
+  kind: "FINANCE" | "BUDGET";
   reference: string;
   date: string;
   label: string;
@@ -128,14 +135,25 @@ export async function getEnvelopesGrandTotal(viewer: SessionUser): Promise<Envel
   const visible = envelopes.filter((e) => envelopeVisible(viewer, e.accessRoles, e.accessUserIds));
 
   const catIds = visible.flatMap((e) => e.categories.map((c) => c.id));
-  const sums = catIds.length
-    ? await prisma.financeTransaction.groupBy({
-        by: ["budgetCategoryId"],
-        where: { direction: "OUT", status: "SETTLED", budgetCategoryId: { in: catIds } },
-        _sum: { amount: true },
-      })
-    : [];
+  const [sums, expenseSums] = catIds.length
+    ? await Promise.all([
+        prisma.financeTransaction.groupBy({
+          by: ["budgetCategoryId"],
+          where: { direction: "OUT", status: "SETTLED", budgetCategoryId: { in: catIds } },
+          _sum: { amount: true },
+        }),
+        prisma.budgetExpenseLine.groupBy({
+          by: ["categoryId"],
+          where: { categoryId: { in: catIds } },
+          _sum: { amount: true },
+        }),
+      ])
+    : [[], []];
+  // Consommation = dépenses réglées attribuées + lignes purement budgétaires (découplées).
   const consumedByCat = new Map<string | null, number>(sums.map((s) => [s.budgetCategoryId, toNumber(s._sum.amount)]));
+  for (const s of expenseSums) {
+    consumedByCat.set(s.categoryId, (consumedByCat.get(s.categoryId) ?? 0) + toNumber(s._sum.amount));
+  }
 
   const items: EnvelopeSummaryItem[] = visible.map((e) => {
     const total = toNumber(e.totalAmount);
@@ -206,11 +224,22 @@ export async function getBudgetOverview(
   const from = fromArg ?? envelope.periodStart;
   const to = toArg ?? envelope.periodEnd;
 
-  const sums = await prisma.financeTransaction.groupBy({
-    by: ["budgetCategoryId", "status"],
-    where: { direction: "OUT", date: { gte: from, lte: to }, status: { in: ["SETTLED", "PENDING"] } },
-    _sum: { amount: true },
-  });
+  const catIds = envelope.categories.map((c) => c.id);
+  const [sums, expenseSums] = await Promise.all([
+    prisma.financeTransaction.groupBy({
+      by: ["budgetCategoryId", "status"],
+      where: { direction: "OUT", date: { gte: from, lte: to }, status: { in: ["SETTLED", "PENDING"] } },
+      _sum: { amount: true },
+    }),
+    // Lignes purement budgétaires (découplées des Finances) imputées aux catégories de l'enveloppe.
+    catIds.length
+      ? prisma.budgetExpenseLine.groupBy({
+          by: ["categoryId"],
+          where: { categoryId: { in: catIds }, date: { gte: from, lte: to } },
+          _sum: { amount: true },
+        })
+      : Promise.resolve([] as { categoryId: string; _sum: { amount: unknown } }[]),
+  ]);
 
   const consumedByCat = new Map<string | null, number>();
   const committedByCat = new Map<string | null, number>();
@@ -218,6 +247,11 @@ export async function getBudgetOverview(
     const amt = toNumber(s._sum.amount);
     const map = s.status === "SETTLED" ? consumedByCat : committedByCat;
     map.set(s.budgetCategoryId, (map.get(s.budgetCategoryId) ?? 0) + amt);
+  }
+  // Les lignes budgétaires comptent comme consommation (au même titre que les dépenses réglées).
+  for (const s of expenseSums) {
+    const amt = toNumber(s._sum.amount as Parameters<typeof toNumber>[0]);
+    consumedByCat.set(s.categoryId, (consumedByCat.get(s.categoryId) ?? 0) + amt);
   }
 
   const categories: BudgetCategoryView[] = envelope.categories.map((c) => {
@@ -248,16 +282,38 @@ export async function getBudgetOverview(
     select: { id: true, reference: true, date: true, label: true, amount: true, category: true, counterparty: true, status: true },
   });
 
-  // Dépenses DÉJÀ attribuées à une catégorie de CETTE enveloppe — pour ré-attribution.
+  // Dépenses DÉJÀ imputées à une catégorie de CETTE enveloppe. Deux origines fusionnées :
+  // les vraies dépenses de trésorerie (FinanceTransaction, ré-attribuables) et les lignes
+  // purement budgétaires (BudgetExpenseLine, supprimables ici).
   const catNameById = new Map(envelope.categories.map((c) => [c.id, c.name]));
-  const attributedTx = catNameById.size
-    ? await prisma.financeTransaction.findMany({
-        where: { direction: "OUT", budgetCategoryId: { in: [...catNameById.keys()] }, date: { gte: from, lte: to } },
-        orderBy: { date: "desc" },
-        take: 60,
-        select: { id: true, reference: true, date: true, label: true, amount: true, counterparty: true, status: true, budgetCategoryId: true },
-      })
-    : [];
+  const [financeAttr, expenseAttr] = catNameById.size
+    ? await Promise.all([
+        prisma.financeTransaction.findMany({
+          where: { direction: "OUT", budgetCategoryId: { in: [...catNameById.keys()] }, date: { gte: from, lte: to } },
+          orderBy: { date: "desc" },
+          take: 60,
+          select: { id: true, reference: true, date: true, label: true, amount: true, counterparty: true, status: true, budgetCategoryId: true },
+        }),
+        prisma.budgetExpenseLine.findMany({
+          where: { categoryId: { in: [...catNameById.keys()] }, date: { gte: from, lte: to } },
+          orderBy: { date: "desc" },
+          take: 60,
+          select: { id: true, reference: true, date: true, amount: true, categoryId: true },
+        }),
+      ])
+    : [[], []];
+  const attributedTx: AttributedTx[] = [
+    ...financeAttr.map((t) => ({
+      id: t.id, kind: "FINANCE" as const, reference: t.reference, date: t.date.toISOString(), label: t.label,
+      amount: toNumber(t.amount), counterparty: t.counterparty, status: t.status,
+      categoryId: t.budgetCategoryId ?? "", categoryName: catNameById.get(t.budgetCategoryId ?? "") ?? "—",
+    })),
+    ...expenseAttr.map((l) => ({
+      id: l.id, kind: "BUDGET" as const, reference: l.reference, date: l.date.toISOString(), label: l.reference,
+      amount: toNumber(l.amount), counterparty: null, status: "SETTLED",
+      categoryId: l.categoryId, categoryName: catNameById.get(l.categoryId) ?? "—",
+    })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
 
   return {
     envelope: { id: envelope.id, name: envelope.name, module: envelope.module, modules: envelope.modules, accessRoles: envelope.accessRoles, accessUserIds: envelope.accessUserIds, periodStart: envelope.periodStart.toISOString(), periodEnd: envelope.periodEnd.toISOString(), total, notes: envelope.notes, isActive: envelope.isActive },
@@ -279,11 +335,7 @@ export async function getBudgetOverview(
     },
     attributed: {
       count: attributedTx.length,
-      transactions: attributedTx.map((t) => ({
-        id: t.id, reference: t.reference, date: t.date.toISOString(), label: t.label,
-        amount: toNumber(t.amount), counterparty: t.counterparty, status: t.status,
-        categoryId: t.budgetCategoryId ?? "", categoryName: catNameById.get(t.budgetCategoryId ?? "") ?? "—",
-      })),
+      transactions: attributedTx,
     },
   };
 }

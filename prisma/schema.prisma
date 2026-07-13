@@ -976,11 +976,32 @@ model BudgetCategoryLine {
   color        String?
   notes        String?
   transactions FinanceTransaction[]
+  expenseLines BudgetExpenseLine[]
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
 
   @@index([envelopeId])
   @@index([parentId])
+}
+
+// Ligne de dépense purement BUDGÉTAIRE, saisie depuis le module Budget (« + » : référence
+// + montant). Elle CONSOMME une (sous-)catégorie mais ne touche NI la trésorerie NI les
+// Finances : c'est un simple suivi de consommation. Le financier reste libre d'enregistrer
+// (ou non) le mouvement réel côté Finances. Distincte des FinanceTransaction attribuées, qui
+// sont, elles, de vrais mouvements de trésorerie que la Direction impute à une catégorie.
+model BudgetExpenseLine {
+  id          String             @id @default(cuid())
+  categoryId  String
+  category    BudgetCategoryLine @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  reference   String // référence saisie (sert de libellé de la dépense)
+  amount      Decimal            @default(0) @db.Decimal(14, 2)
+  date        DateTime           @default(now())
+  notes       String?
+  createdById String?
+  createdAt   DateTime           @default(now())
+
+  @@index([categoryId])
+  @@index([date])
 }
 
 // ───────────────────────────── Congresses ─────────────────────────────

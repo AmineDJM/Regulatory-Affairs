@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   createEnvelope, updateEnvelope, deleteEnvelope, setBudgetTotal,
-  createBudgetCategory, updateBudgetCategory, deleteBudgetCategory, attributeTransaction, addBudgetExpense,
+  createBudgetCategory, updateBudgetCategory, deleteBudgetCategory, attributeTransaction, addBudgetExpense, deleteBudgetExpense,
 } from "@/lib/actions/budget-envelope-actions";
 import type { BudgetOverview, BudgetEnvelopeOption, BudgetCategoryView, BudgetHealth, EnvelopesGrandTotal } from "@/lib/queries/budget";
 import { ROLE_LABELS } from "@/lib/labels";
@@ -325,28 +325,41 @@ export function BudgetBoard({ overview, envelopes, canManage, canAttribute = can
         )}
       </section>
 
-      {/* Dépenses attribuées — la Direction peut RÉ-ATTRIBUER la (sous-)catégorie à tout moment */}
+      {/* Dépenses imputées à l'enveloppe. Deux origines :
+          • FINANCE = vraie dépense de trésorerie (ré-attribuable ; se supprime dans les Finances) ;
+          • BUDGET = ligne purement budgétaire saisie ici (sans impact trésorerie ; supprimable). */}
       {canAttribute && overview.attributed.transactions.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Dépenses attribuées ({overview.attributed.count}) <span className="font-normal normal-case text-[11px] text-muted-foreground">— modifiez la catégorie à tout moment</span>
+            Dépenses imputées ({overview.attributed.count}) <span className="font-normal normal-case text-[11px] text-muted-foreground">— trésorerie ré-attribuable · ligne budgétaire supprimable</span>
           </h2>
           <div className="surface divide-y divide-border">
             {overview.attributed.transactions.map((tx) => (
-              <div key={tx.id} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
+              <div key={`${tx.kind}-${tx.id}`} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{tx.label}</p>
                   <p className="text-xs text-muted-foreground">{tx.reference} · {formatDate(tx.date)}{tx.counterparty ? ` · ${tx.counterparty}` : ""}</p>
                 </div>
+                {tx.kind === "BUDGET" && <Badge tone="neutral" dot={false}>Budgétaire</Badge>}
                 <span className="font-semibold text-destructive">{formatCurrency(tx.amount)}</span>
-                <Select
-                  defaultValue={tx.categoryId}
-                  onChange={(e) => { const fd = new FormData(); fd.set("transactionId", tx.id); if (e.target.value) fd.set("budgetCategoryId", e.target.value); run(() => attributeTransaction(fd)); }}
-                  className="h-8 w-48 text-xs"
-                >
-                  <option value="">— Retirer l'attribution —</option>
-                  {overview.categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
-                </Select>
+                {tx.kind === "FINANCE" ? (
+                  <Select
+                    defaultValue={tx.categoryId}
+                    onChange={(e) => { const fd = new FormData(); fd.set("transactionId", tx.id); if (e.target.value) fd.set("budgetCategoryId", e.target.value); run(() => attributeTransaction(fd)); }}
+                    className="h-8 w-48 text-xs"
+                  >
+                    <option value="">— Retirer l'attribution —</option>
+                    {overview.categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
+                  </Select>
+                ) : (
+                  <button
+                    title="Supprimer cette ligne de dépense budgétaire"
+                    onClick={() => { if (window.confirm(`Supprimer la dépense « ${tx.label} » ? La consommation de la catégorie sera réajustée.`)) { const fd = new FormData(); fd.set("id", tx.id); run(() => deleteBudgetExpense(fd)); } }}
+                    className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
