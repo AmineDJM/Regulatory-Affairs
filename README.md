@@ -1065,6 +1065,23 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Navigation, modules & flux de travail — téléversements non bloquants, séparation Rapports terrain,
+  réorganisation Mon espace, chat de dossier (4 sujets).** **(1) Téléversements EN ARRIÈRE-PLAN,
+  globaux** — un envoi bloquait la page et changer de module l'annulait ; un `BackgroundUploadProvider`
+  monté dans la mise en page prend en charge **tous** les téléversements (Documents — utilisé dans
+  ~16 pages —, Drive import simple **et** riche) : dès le clic « Téléverser », on peut **naviguer et
+  continuer à travailler**, les fichiers montent **en parallèle** (XHR + progression réelle, retente
+  réseau/5xx/429), une pastille flottante suit la progression partout. Le dossier CTD garde son moteur
+  résumable par parties. **(2) Rapports terrain = module autonome** — séparé de Promotion médicale
+  (nouveau module RBAC `FIELD_REPORTS`, **accès configurables séparément** dans Administration ; deux
+  entrées de menu distinctes). Le **superviseur national** (National Sales) voit **tous** les rapports
+  des délégués ; le délégué ne voit que les siens. **Saisie manuelle du nom du médecin** dans le compte
+  rendu (jamais écrasée par l'IA). **(3) « Mon espace » réorganisé** — regroupe Mon travail, Mon espace,
+  **Dashboard**, **Calendrier** et Directives (onglets) ; **« Dossiers » sort** comme module à part
+  entière. **(4) « Suivi & discussion » d'un dossier = vrai chat** — pièces jointes **intégrées au fil**
+  (comme la messagerie, stockées chiffrées), et **mentions (@)** limitées aux **participants** du
+  dossier (notification dédiée). Nouveaux : `DossierMessage.mentionIds` + table
+  `DossierMessageAttachment`, route de service protégée par l'appartenance.
 - **Expérience & intelligence — chatbots propres, réserves, stocks, recherche, rappels, cerveau continu
   (9 sujets).** **(1) Chatbot « Discuter avec ce dossier » — réponse propre** : sortie nettoyée de tout
   markdown/caractère spécial (titres `##`, gras `**`, citations `>`, `---`, puces, émojis, `[P]/[C]`) tout en
