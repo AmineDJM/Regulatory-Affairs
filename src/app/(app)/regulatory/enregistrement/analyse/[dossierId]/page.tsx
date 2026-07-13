@@ -387,7 +387,10 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base"><Layers className="h-4 w-4 text-primary" /> Jumeau numérique — faits réglementaires</CardTitle>
-            <p className="text-xs text-muted-foreground">Faits extraits (avec preuve sourcée), conflits entre documents, et revue humaine. Valeurs proposées — à confirmer/corriger.</p>
+            <p className="text-xs text-muted-foreground">
+              Faits extraits par <strong>règles déterministes</strong> ET <strong>compréhension IA</strong> (marqués « IA »), chacun avec sa{" "}
+              <strong>preuve sourcée</strong> vérifiée dans le document. Conflits entre documents détectés. Valeurs proposées — à confirmer/corriger.
+            </p>
           </CardHeader>
           <CardContent>
             <TwinPanel

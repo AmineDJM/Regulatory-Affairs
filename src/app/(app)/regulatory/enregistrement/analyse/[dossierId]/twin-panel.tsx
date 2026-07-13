@@ -11,6 +11,9 @@ interface ConflictValue { value: string; documentId: string; sectionCode: string
 interface Conflict { id: string; factKey: string; label: string; severity: string; status: string; values: ConflictValue[]; proposedAction: string | null; finalValue: string | null }
 
 const STATUS_LABEL: Record<string, string> = { PROPOSED: "proposé", CONFIRMED: "confirmé", CORRECTED: "corrigé", REJECTED: "rejeté" };
+// Méthode d'origine d'une preuve : « IA » (compréhension du sens) vs extraction déterministe.
+const METHOD_LABEL: Record<string, string> = { ai: "IA", regex: "auto", keyword: "auto", label: "auto" };
+const methodLabel = (m: string) => METHOD_LABEL[m] ?? m;
 
 export function TwinPanel({ facts, conflicts, canEdit, canApprove }: { facts: Fact[]; conflicts: Conflict[]; canEdit: boolean; canApprove: boolean }) {
   return (
@@ -84,7 +87,7 @@ function FactRow({ fact, canEdit }: { fact: Fact; canEdit: boolean }) {
         <ul className="mt-1.5 space-y-1 border-t border-border/50 pt-1.5">
           {fact.occurrences.slice(0, 5).map((o) => (
             <li key={o.id} className="text-[11px] text-muted-foreground">
-              <span className="inline-flex items-center gap-1"><FileText className="h-3 w-3" /> {o.sectionCode ?? "—"} · {Math.round(o.confidence * 100)}% · {o.method}</span>
+              <span className="inline-flex items-center gap-1"><FileText className="h-3 w-3" /> {o.sectionCode ?? "—"} · {Math.round(o.confidence * 100)}% · {methodLabel(o.method)}</span>
               <span className="ml-1 italic">« {o.extract} »</span>
             </li>
           ))}

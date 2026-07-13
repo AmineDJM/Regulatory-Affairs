@@ -11,7 +11,7 @@ export interface FactHit {
   normalizedValue?: string;
   extract: string;
   confidence: number;
-  method: "regex" | "keyword" | "label";
+  method: "regex" | "keyword" | "label" | "ai";
 }
 
 export interface ExtractDocInput {
