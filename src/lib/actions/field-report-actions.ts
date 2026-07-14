@@ -6,7 +6,7 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
 import { recordAudit } from "@/lib/audit";
-import { analyzeFieldReport, aiModel } from "@/lib/ai";
+import { analyzeFieldReport, aiModelCheap } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import type { CurrentUser } from "@/lib/session";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
@@ -87,7 +87,7 @@ export async function analyzeFieldReportAction(
 
   const t0 = Date.now();
   const r = await analyzeFieldReport(transcript);
-  await logAiUsage({ feature: "field_report", userId: user.id, model: aiModel(), ok: r.ok, latencyMs: Date.now() - t0, errorCode: r.ok ? null : r.error ?? "error" });
+  await logAiUsage({ feature: "field_report", userId: user.id, model: aiModelCheap(), ok: r.ok, latencyMs: Date.now() - t0, errorCode: r.ok ? null : r.error ?? "error" });
   if (!r.ok || !r.data) return { ok: false, configured: r.configured, error: r.error };
 
   const d = r.data;
@@ -170,7 +170,7 @@ export async function submitFieldReport(formData: FormData): Promise<ActionResul
     try {
       const t0 = Date.now();
       const r = await analyzeFieldReport(transcript);
-      await logAiUsage({ feature: "field_report", userId: user.id, model: aiModel(), ok: r.ok, latencyMs: Date.now() - t0, errorCode: r.ok ? null : r.error ?? "error" });
+      await logAiUsage({ feature: "field_report", userId: user.id, model: aiModelCheap(), ok: r.ok, latencyMs: Date.now() - t0, errorCode: r.ok ? null : r.error ?? "error" });
       if (r.ok && r.data) {
         const d = r.data;
         let doctorId = fdStr(formData, "doctorId") ?? undefined;

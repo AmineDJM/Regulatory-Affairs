@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { aiConfigured, aiModel } from "@/lib/ai";
+import { aiConfigured, aiModel, aiModelCheap } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { getUnreadDigest } from "@/lib/assistant-nudge";
 import {
@@ -72,10 +72,12 @@ export async function assistantNudge(prevSignature: string): Promise<NudgeResult
       `Messages internes récents NON LUS reçus par l'utilisateur (analyse le contexte global : plusieurs messages peuvent être liés) :\n\n${digest.text}\n\n` +
       `S'il y a UNE action concrète et utile à proposer (créer une tâche, répondre à un collègue, créer une demande administrative, envoyer un e-mail…), prépare-la (un seul outil d'écriture). ` +
       `Sinon réponds EXACTEMENT « RAS ». Sois bref.`;
+    // Suggestion proactive = enjeu faible, fort volume → palier ÉCO (le nudge ne fait que
+    // PROPOSER ; toute action d'écriture reste interceptée et confirmée par l'humain).
     const t0 = Date.now();
-    const res = await runAssistant(user, [{ role: "user", content: prompt }]);
+    const res = await runAssistant(user, [{ role: "user", content: prompt }], { model: aiModelCheap() });
     await logAiUsage({
-      feature: "nudge", userId: user.id, model: aiModel(),
+      feature: "nudge", userId: user.id, model: aiModelCheap(),
       ok: res.ok, latencyMs: Date.now() - t0, errorCode: res.ok ? null : res.error ?? "error",
     });
     if (!res.configured || !res.ok) return { signature: digest.signature, suggestion: null };

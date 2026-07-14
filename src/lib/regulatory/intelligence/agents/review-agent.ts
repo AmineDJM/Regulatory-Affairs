@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { askClaude, aiConfigured } from "@/lib/ai";
+import { askClaudeCheap, aiConfigured } from "@/lib/ai";
 import { regulatoryKnowledgeDigest } from "@/lib/regulatory/anpp-knowledge";
 import { extractLooseJson } from "../ai/json";
 import { aiChunkChars } from "./chunk-text";
@@ -86,9 +86,14 @@ function buildPrompt(input: { filename: string; ctdSection: string | null; ctdTi
 // Parsing TOLÉRANT partagé (récupère une réponse tronquée au plafond de jetons).
 const extractJson = extractLooseJson;
 
+// La revue de FOND/FORME par PARTS (~10 pages) est appelée un très grand nombre de fois par
+// version (jusqu'à REG_AI_MAX_CHUNKS, défaut 120) : c'est le POSTE DE COÛT PRINCIPAL. On la route
+// donc sur le palier ÉCO par défaut — sortie validée par Zod, constats PROJET non bloquants relus
+// par un humain, et les contrôles critiques restent déterministes (rules/engine) + agents sourcés
+// (palier qualité). Surchargable globalement via AI_MODEL_CHEAP.
 export async function reviewDocumentText(
   input: { filename: string; ctdSection: string | null; ctdTitle: string | null; text: string },
-  aiFn: AiFn = askClaude,
+  aiFn: AiFn = askClaudeCheap,
 ): Promise<ReviewResult> {
   if (!input.text || input.text.trim().length < 40) {
     return { ok: true, configured: aiConfigured(), findings: [] }; // trop peu de texte → pas d'analyse

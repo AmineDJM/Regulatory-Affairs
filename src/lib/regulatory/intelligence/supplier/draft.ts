@@ -1,4 +1,4 @@
-import { askClaude, aiConfigured } from "@/lib/ai";
+import { askClaudeCheap, aiConfigured } from "@/lib/ai";
 
 /**
  * BROUILLON D'E-MAIL FOURNISSEUR (G8) — l'IA ne crée qu'un BROUILLON ; l'envoi reste une action
@@ -46,9 +46,9 @@ const SYSTEM = "Tu rédiges un BROUILLON d'e-mail professionnel en français, de
  * Brouillon assisté par IA si configurée ; sinon repli sur le modèle déterministe. Dans tous
  * les cas, le résultat est un BROUILLON (jamais envoyé automatiquement).
  */
-export async function draftSupplierEmail(input: DraftInput, aiFn: AiFn = askClaude): Promise<{ draft: string; aiUsed: boolean }> {
+export async function draftSupplierEmail(input: DraftInput, aiFn: AiFn = askClaudeCheap): Promise<{ draft: string; aiUsed: boolean }> {
   const fallback = buildSupplierEmailDraft(input);
-  if (!aiConfigured() && aiFn === askClaude) return { draft: fallback, aiUsed: false };
+  if (!aiConfigured() && aiFn === askClaudeCheap) return { draft: fallback, aiUsed: false };
 
   const prompt = [
     `Dossier : ${input.dossierRef}${input.productName ? ` — produit ${input.productName}` : ""}.`,

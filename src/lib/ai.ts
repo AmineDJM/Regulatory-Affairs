@@ -16,14 +16,30 @@ export interface AiTextResult {
   error?: string;
 }
 
-const DEFAULT_MODEL = "claude-sonnet-4-6";
+// Deux PALIERS de modèle pour maîtriser drastiquement le coût sans sacrifier la qualité là
+// où elle compte réellement :
+//  - PALIER QUALITÉ (raisonnement) : revue CTD exigeante (14 agents), simulateur d'examen,
+//    réponse aux réserves, assistant conversationnel, cockpit Adventum Brain. Surchargable
+//    par AI_MODEL.
+//  - PALIER ÉCO : tâches MÉCANIQUES — extraction structurée, résumé, brouillon d'e-mail,
+//    Q&R ANCRÉE sur des sources, nudge proactif. Modèle bon marché (≈ 3× moins cher en
+//    entrée ET en sortie). Surchargable par AI_MODEL_CHEAP. Les garde-fous en aval (schéma
+//    Zod, ancrage des preuves, citations RAG) rendent ces tâches sûres sur un petit modèle.
+const QUALITY_MODEL = "claude-sonnet-4-6";
+const CHEAP_MODEL = "claude-haiku-4-5";
 
 export function aiConfigured(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
+/** Modèle du palier QUALITÉ (raisonnement) — revue CTD, simulateur, assistant, Brain. */
 export function aiModel(): string {
-  return process.env.AI_MODEL ?? DEFAULT_MODEL;
+  return process.env.AI_MODEL ?? QUALITY_MODEL;
+}
+
+/** Modèle du palier ÉCO (tâches mécaniques) — ~3× moins cher, largement suffisant ici. */
+export function aiModelCheap(): string {
+  return process.env.AI_MODEL_CHEAP ?? CHEAP_MODEL;
 }
 
 interface AskOptions {
@@ -45,6 +61,13 @@ export async function askClaude(prompt: string, opts: AskOptions = {}): Promise<
 
   const base = process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
   const model = opts.model ?? aiModel();
+  // Prompt caching du bloc system STABLE : quand le même system est réutilisé dans la fenêtre
+  // de cache (analyses en lot, tours successifs d'un chat de dossier, agents en série), le préfixe
+  // est relu à ~0,1× de son coût. Sans réutilisation l'effet est neutre (préfixe court ignoré, ou
+  // surcoût d'écriture négligeable). Même principe que callClaude côté assistant.
+  const system = opts.system
+    ? [{ type: "text" as const, text: opts.system, cache_control: { type: "ephemeral" as const } }]
+    : undefined;
 
   try {
     const res = await fetch(`${base.replace(/\/$/, "")}/v1/messages`, {
@@ -58,7 +81,7 @@ export async function askClaude(prompt: string, opts: AskOptions = {}): Promise<
         model,
         max_tokens: opts.maxTokens ?? 1024,
         temperature: opts.temperature ?? 0.3,
-        ...(opts.system ? { system: opts.system } : {}),
+        ...(system ? { system } : {}),
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -79,6 +102,15 @@ export async function askClaude(prompt: string, opts: AskOptions = {}): Promise<
     console.error("[ai] call failed", err);
     return { ok: false, configured: true, error: "Appel à l'IA impossible (réseau)." };
   }
+}
+
+/**
+ * Variante ÉCO de `askClaude` : identique, mais route sur le modèle bon marché par défaut
+ * (tâches mécaniques : extraction, résumé, brouillon, Q&R ancrée). Un `opts.model` explicite
+ * reste prioritaire (les tests injectent leur propre fonction, donc inchangés).
+ */
+export async function askClaudeCheap(prompt: string, opts: AskOptions = {}): Promise<AiTextResult> {
+  return askClaude(prompt, { ...opts, model: opts.model ?? aiModelCheap() });
 }
 
 // ─────────────────────────── Sonde de santé (test quotidien du chatbot) ───────────────────────────
@@ -343,7 +375,8 @@ function extractJson(text: string): FieldReportExtraction | null {
 /** Analyse une transcription en champs structurés (Claude). */
 export async function analyzeFieldReport(transcript: string): Promise<FieldAnalysisResult> {
   if (!aiConfigured()) return { ok: false, configured: false, error: "Clé ANTHROPIC_API_KEY non configurée." };
-  const r = await askClaude(`Transcription :\n"""${transcript.slice(0, 8000)}"""\n\nRenvoie le JSON structuré.`, {
+  // Extraction structurée mécanique → palier ÉCO (schéma Zod + ancrage en aval = sûr).
+  const r = await askClaudeCheap(`Transcription :\n"""${transcript.slice(0, 8000)}"""\n\nRenvoie le JSON structuré.`, {
     system: FIELD_REPORT_SYSTEM,
     maxTokens: 1024,
     temperature: 0.1,
@@ -388,7 +421,8 @@ export async function summarizeMeetingTranscript(transcript: string): Promise<Me
   if (!aiConfigured()) return { ok: false, configured: false, error: "Clé ANTHROPIC_API_KEY non configurée." };
   const clean = transcript.trim();
   if (!clean) return { ok: false, configured: true, error: "Transcription vide." };
-  const r = await askClaude(`Transcription de la réunion :\n"""${clean.slice(0, 12000)}"""\n\nRenvoie le JSON (summary + tasks).`, {
+  // Résumé + tâches d'une réunion = tâche mécanique → palier ÉCO.
+  const r = await askClaudeCheap(`Transcription de la réunion :\n"""${clean.slice(0, 12000)}"""\n\nRenvoie le JSON (summary + tasks).`, {
     system: MEETING_SYSTEM,
     maxTokens: 1500,
     temperature: 0.2,

@@ -911,6 +911,7 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `AUTH_TRUST_HOST` | ✅ (prod) | `true` derrière un proxy (Render/Vercel). |
 | `ADMIN_EMAIL` · `ADMIN_PASSWORD` · `ADMIN_NAME` | ✅ | Compte Super Admin initial créé au bootstrap. |
 | `ANTHROPIC_API_KEY` | ⬜ | Active l'**Assistant IA**, l'analyse des rapports vocaux, les synthèses Brain/Process Intelligence/réunions. |
+| `AI_MODEL` · `AI_MODEL_CHEAP` | ⬜ | Les **deux paliers** de modèle IA (maîtrise du coût). Palier **qualité** (défaut `claude-sonnet-4-6`) : revue CTD sourcée (14 agents), simulateur d'examen, réponse aux réserves, assistant conversationnel, Adventum Brain. Palier **éco** (défaut `claude-haiku-4-5`, ≈ 3× moins cher) : tâches **mécaniques** — revue de fond/forme par parts, extraction de faits & de rapports vocaux, résumés de réunion, brouillons fournisseur, Q&R de dossier, suggestion proactive. Baisser encore le coût = pointer `AI_MODEL` vers le palier éco. |
 | `OPENAI_API_KEY` | ⬜ | Active la **transcription vocale** (Whisper). |
 | `MAX_UPLOAD_MB` | ⬜ | Taille max d'upload par défaut (réglable aussi en base depuis l'admin). |
 | `APP_URL` | ⬜* | URL **publique** de l'app — requise pour le callback OnlyOffice. |
@@ -927,7 +928,7 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `REG_OCR_CHUNK_PAGES` · `REG_OCR_CHUNK_CONCURRENCY` | ⬜ | Découpage des PDF massifs : pages par tranche (défaut 400, sous la limite Mistral 1000) · tranches océrisées en parallèle au sein d'un document (défaut 4). |
 | `REG_EXTRACTION_MAX_CHARS` | ⬜ | Plafond du texte extrait/OCR persisté par document (défaut 20 M — ≈ 10 000 pages ; fin de la troncature 1 M). ↑ demande plus de disque base. |
 | `REG_AI_CHUNK_PAGES` · `REG_AI_CONCURRENCY` | ⬜ | Revue IA par parts : pages par part envoyée à l'IA (défaut 10) · parts analysées en parallèle (défaut 4). |
-| `REG_AI_MAX_CHUNKS` · `REG_AI_MAX_FINDINGS` | ⬜ | Garde-coût revue IA : parts max analysées par version (défaut 120, **0 = illimité**) · constats IA max persistés (défaut 300). Chaque part = 1 appel Claude facturé. |
+| `REG_AI_MAX_CHUNKS` · `REG_AI_MAX_FINDINGS` | ⬜ | Garde-coût revue IA : parts max analysées par version (défaut 120, **0 = illimité**) · constats IA max persistés (défaut 300). Chaque part = 1 appel Claude (palier **éco**) facturé — c'est le principal poste de coût CTD, borné ici. |
 | `REG_MAX_PG_FILE_MB` · `REG_BLOB_CHUNK_MB` | ⬜ | Taille max d'un fichier unique conservé en base (défaut **950 Mo** ≈ 1 Go, stocké en tranches) · taille d'une tranche de blob chiffré (défaut 16 Mo). Fichiers proches d'1 Go : prévoir ≥ 4 Go de RAM ou activer R2. |
 
 > \* Requis **ensemble** uniquement pour activer l'édition Office. Côté **service OnlyOffice**, poser
@@ -1065,6 +1066,20 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **« Mon dossier RH » intégré à « Mon espace » + coût IA Claude réduit drastiquement (2 sujets).**
+  **(1) « Mon dossier RH » rejoint « Mon espace »** — plus d'entrée de menu séparée : « Mon dossier RH »
+  et « Mes ordres de mission » deviennent des **onglets** de l'espace personnel (aux côtés de Mon travail,
+  Mon espace, Dashboard, Calendrier, Directives), gardés par leur module comme avant. **(2) Conso de
+  crédits Claude fortement réduite, à qualité préservée** — deux **paliers** de modèle (`ai.ts`) : palier
+  **qualité** (`claude-sonnet-4-6`) réservé à ce qui l'exige vraiment (14 agents CTD sourcés, simulateur
+  d'examen, réponse aux réserves, assistant conversationnel, Adventum Brain) ; palier **éco**
+  (`claude-haiku-4-5`, ≈ 3× moins cher) pour les tâches **mécaniques**. Le **principal poste de coût** —
+  la **revue de fond/forme par parts** (jusqu'à `REG_AI_MAX_CHUNKS`, défaut **120 appels/version**) —
+  bascule sur le palier éco ; idem extraction de faits (jumeau), analyse des rapports vocaux, résumés de
+  réunion, brouillons fournisseur, Q&R de dossier et suggestion proactive (nudge). **Prompt caching** du
+  bloc system stable ajouté à `askClaude` (préfixe relu à ~0,1×). Garde-fous inchangés (sortie Zod,
+  ancrage des preuves, citations RAG, constats PROJET non bloquants, contrôles critiques déterministes).
+  Réglable par `AI_MODEL` / `AI_MODEL_CHEAP`.
 - **Navigation, modules & flux de travail — téléversements non bloquants, séparation Rapports terrain,
   réorganisation Mon espace, chat de dossier (4 sujets).** **(1) Téléversements EN ARRIÈRE-PLAN,
   globaux** — un envoi bloquait la page et changer de module l'annulait ; un `BackgroundUploadProvider`

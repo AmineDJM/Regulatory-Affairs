@@ -1036,7 +1036,7 @@ function textOf(blocks: ClaudeContentBlock[]): string {
  * réinjectés), puis répond. Si Claude appelle un outil d'écriture, on intercepte
  * et on renvoie une action à confirmer (rien n'est exécuté).
  */
-export async function runAssistant(user: CurrentUser, history: ChatTurn[]): Promise<AssistantResult> {
+export async function runAssistant(user: CurrentUser, history: ChatTurn[], opts: { model?: string } = {}): Promise<AssistantResult> {
   if (!aiConfigured()) return { configured: false, ok: false, reply: "", trace: [] };
 
   const messages = toMessages(history);
@@ -1055,7 +1055,7 @@ export async function runAssistant(user: CurrentUser, history: ChatTurn[]): Prom
 
   try {
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const res = await callClaude(messages, { system, tools, maxTokens: 1400, temperature: 0.2 });
+    const res = await callClaude(messages, { system, tools, maxTokens: 1400, temperature: 0.2, model: opts.model });
     if (!res.ok || !res.content) {
       return { configured: res.configured, ok: false, reply: "", trace, error: res.error ?? "Réponse IA indisponible." };
     }

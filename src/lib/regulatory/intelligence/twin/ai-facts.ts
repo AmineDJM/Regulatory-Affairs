@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { askClaude, aiConfigured } from "@/lib/ai";
+import { askClaudeCheap, aiConfigured } from "@/lib/ai";
 import { extractLooseJson } from "../ai/json";
 import { FACT_CATALOG } from "./facts-catalog";
 import type { DocFactHit } from "./extract-facts";
@@ -96,10 +96,10 @@ function evidenceIsGrounded(evidence: string, sourceText: string): boolean {
  * (méthode « ai ») directement fusionnables avec l'extraction déterministe. Ne jette jamais : toute
  * défaillance IA (non configurée, erreur réseau, JSON illisible) renvoie une liste vide.
  */
-export async function extractFactsWithAI(docs: AiFactDoc[], aiFn: AiFn = askClaude): Promise<DocFactHit[]> {
+export async function extractFactsWithAI(docs: AiFactDoc[], aiFn: AiFn = askClaudeCheap): Promise<DocFactHit[]> {
   const usable = docs.filter((d) => d.text && d.text.trim().length >= 40);
   if (usable.length === 0) return [];
-  if (!aiConfigured() && aiFn === askClaude) return []; // pas de clé → pas d'IA (jamais de données simulées)
+  if (!aiConfigured() && aiFn === askClaudeCheap) return []; // pas de clé → pas d'IA (jamais de données simulées)
 
   let res: { ok: boolean; configured: boolean; text?: string; error?: string };
   try {

@@ -1,4 +1,4 @@
-import { askClaude, aiConfigured, type AiTextResult } from "@/lib/ai";
+import { askClaudeCheap, aiConfigured, type AiTextResult } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
 import {
   getDossierKnowledge, getDossierDocuments, searchDossierPassages, pageForOffset,
@@ -188,7 +188,7 @@ function buildPrompt(question: string, citations: ChatCitation[], overview: stri
 export async function askDossier(
   dossierVersionId: string,
   question: string,
-  aiFn: (p: string, o: { system?: string; maxTokens?: number; temperature?: number }) => Promise<AiTextResult> = askClaude,
+  aiFn: (p: string, o: { system?: string; maxTokens?: number; temperature?: number }) => Promise<AiTextResult> = askClaudeCheap,
   history: ChatTurn[] = [],
 ): Promise<DossierChatResult> {
   const configured = aiConfigured();

@@ -980,19 +980,18 @@ export const CONGRESS_TABS: NavTab[] = [
   { module: "CONGRESS_INTERNATIONAL", label: "Internationaux", href: "/congress-international" },
   { module: "CONGRESS_NATIONAL", label: "Nationaux", href: "/congress-national" },
 ];
-// Espace personnel fusionné : travail + espace perso + tableau de bord + calendrier + directives.
-// (« Dossiers » en est sorti → module autonome ; « Dashboard » et « Calendrier » y sont entrés.)
+// Espace personnel fusionné : travail + espace perso + tableau de bord + calendrier +
+// dossier RH + ordres de mission + directives. (« Dossiers » en est sorti → module autonome ;
+// « Dashboard » et « Calendrier » y sont entrés ; « Mon dossier RH » et « Mes ordres de mission »
+// y ont été INTÉGRÉS — plus d'entrée de menu séparée.)
 export const WORKSPACE_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard" },
   { module: "WORKSPACE", label: "Calendrier", href: "/calendar" },
-  { module: "DIRECTIVES", label: "Directives", href: "/directives" },
-];
-// Mon dossier RH + Mes ordres de mission, sous une seule entrée « Mon dossier RH ».
-export const MON_DOSSIER_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
   { module: "WORKSPACE", label: "Mes ordres de mission", href: "/missions" },
+  { module: "DIRECTIVES", label: "Directives", href: "/directives" },
 ];
 // « Ad & Pro » : sponsoring + congrès (international/national) + événements +
 // matériel promotionnel, sous un seul module. Le matériel promotionnel a été
@@ -1071,10 +1070,9 @@ export const MODULE_LABELS: Record<Module, string> = {
 export const NAVIGATION: NavItem[] = [
   // Pilotage — « Mon espace » regroupe désormais Mon travail, Mon espace, Dashboard, Calendrier
   // et Directives (onglets). `match` couvre ces routes pour l'état actif de la barre latérale.
-  { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-espace", "/dashboard", "/calendar", "/directives"] },
+  { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-espace", "/dashboard", "/calendar", "/mon-dossier", "/missions", "/directives"] },
   { module: "DOSSIERS", label: "Dossiers", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
   { module: "WORKSPACE", label: "Courrier", href: "/courrier", icon: "Mail", group: "Pilotage" },
-  { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage", tabs: MON_DOSSIER_TABS, match: ["/missions"] },
   // Pôles
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS, match: ["/promo-material"] },
