@@ -38,6 +38,37 @@ function unlockAudio() {
   audioUnlocked = true;
 }
 
+/**
+ * Notification SUR L'ORDINATEUR (API Notification du navigateur) pour un nouveau message.
+ * Ne s'affiche que si l'utilisateur a autorisé les notifications (bouton « Activer les
+ * notifications » dans /notifications) ET que l'application n'est PAS au premier plan
+ * (sinon la pastille + le son suffisent, inutile de le distraire). Fonctionne tant que
+ * l'onglet est ouvert, même en arrière-plan ou sur un autre site. Clic → revient sur la
+ * messagerie. Best-effort : toute indisponibilité est ignorée (le son a déjà retenti).
+ */
+function notifyDesktop(delta: number) {
+  try {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    // Pas de notification si l'utilisateur regarde déjà l'appli (au premier plan ET focalisée).
+    if (document.visibilityState === "visible" && document.hasFocus()) return;
+    const body = delta > 1 ? `Vous avez ${delta} nouveaux messages.` : "Vous avez reçu un nouveau message.";
+    const n = new Notification("Nouveau message — AMD Internal OS", {
+      body,
+      icon: "/icon.svg",
+      badge: "/icon.svg",
+      tag: "amd-message", // remplace la précédente au lieu d'empiler
+    });
+    n.onclick = () => {
+      try { window.focus(); } catch { /* ignore */ }
+      n.close();
+      window.location.href = "/messages";
+    };
+  } catch {
+    /* notifications indisponibles : on ignore */
+  }
+}
+
 /** Joue un petit « ding » à deux tons quand un nouveau message arrive. */
 function playPing() {
   try {
@@ -96,9 +127,12 @@ export function MessagesIndicator({ initial }: { initial: number }) {
     };
   }, []);
 
-  // Son de notification dès que le total de non-lus augmente (nouveau message reçu).
+  // Son + notification bureau dès que le total de non-lus augmente (nouveau message reçu).
   React.useEffect(() => {
-    if (count > prevCount.current) playPing();
+    if (count > prevCount.current) {
+      playPing();
+      notifyDesktop(count - prevCount.current);
+    }
     prevCount.current = count;
   }, [count]);
 

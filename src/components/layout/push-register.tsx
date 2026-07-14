@@ -49,17 +49,22 @@ export function PushRegister() {
   return null;
 }
 
-/** Bouton visible : demande la permission puis abonne l'appareil aux notifications push. */
+/**
+ * Bouton visible : demande la permission **notifications** puis, si le serveur a des clés
+ * VAPID, abonne l'appareil au **Web Push** (réception même navigateur fermé). Sans VAPID,
+ * la permission suffit : les **notifications bureau** pour un nouveau message s'affichent
+ * quand l'onglet est ouvert (même en arrière-plan / sur un autre site). Donc utile dans
+ * tous les cas — on n'exige plus la configuration serveur pour proposer l'activation.
+ */
 export function EnablePushButton() {
-  const [state, setState] = React.useState<"idle" | "busy" | "on" | "denied" | "unsupported" | "disabled">("idle");
+  const [state, setState] = React.useState<"idle" | "busy" | "on" | "denied" | "unsupported">("idle");
+  const key = React.useRef<{ enabled: boolean; publicKey: string } | null>(null);
 
   React.useEffect(() => {
     if (!supported()) { setState("unsupported"); return; }
-    getKey().then((k) => {
-      if (!k?.enabled) { setState("disabled"); return; }
-      if (Notification.permission === "granted") setState("on");
-      else if (Notification.permission === "denied") setState("denied");
-    });
+    void getKey().then((k) => { key.current = k; }); // pré-charge la clé VAPID (si configurée)
+    if (Notification.permission === "granted") setState("on");
+    else if (Notification.permission === "denied") setState("denied");
   }, []);
 
   async function enable() {
@@ -67,14 +72,15 @@ export function EnablePushButton() {
     try {
       const perm = await Notification.requestPermission();
       if (perm !== "granted") { setState(perm === "denied" ? "denied" : "idle"); return; }
-      const k = await getKey();
-      if (!k?.enabled || !k.publicKey) { setState("disabled"); return; }
-      const ok = await subscribe(k.publicKey);
-      setState(ok ? "on" : "idle");
+      // Web Push (navigateur fermé) uniquement si le serveur a des clés VAPID ; sinon les
+      // notifications bureau locales (onglet ouvert) fonctionnent déjà avec la permission.
+      const k = key.current ?? (await getKey());
+      if (k?.enabled && k.publicKey) await subscribe(k.publicKey).catch(() => {});
+      setState("on");
     } catch { setState("idle"); }
   }
 
-  if (state === "unsupported" || state === "disabled") return null;
+  if (state === "unsupported") return null;
   if (state === "on") {
     return <span className="inline-flex items-center gap-1.5 rounded-lg bg-success/10 px-3 py-1.5 text-sm font-medium text-success"><Check className="h-4 w-4" /> Notifications activées sur cet appareil</span>;
   }
