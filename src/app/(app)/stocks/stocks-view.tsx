@@ -269,9 +269,20 @@ export function StocksView({
           ) : (
             <>
               <div className="flex flex-wrap gap-3 text-sm">
-                <div className="surface px-3 py-2">Dernier état : <span className="font-semibold">{formatNumber(last.quantity)}</span> u. le {formatDate(last.date)}</div>
+                <div className="surface flex items-center gap-2 px-3 py-2">
+                  <span>Dernier état : <span className="font-semibold">{formatNumber(last.quantity)}</span> u. le {formatDate(last.date)}</span>
+                  {(canDelete || last.mine) && (
+                    <button onClick={() => removeSnapshot(last.id)} title="Supprimer ce dernier état de stock"
+                      className="rounded-md p-1 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
                 <div className="surface px-3 py-2 text-muted-foreground">{series.length} relevé·s — {productLabel}</div>
               </div>
+              {(canDelete || series.some((s) => s.mine)) && (
+                <p className="text-xs text-muted-foreground">Astuce : ouvrez la vue <span className="font-medium">Tableau</span> pour supprimer n&apos;importe quel relevé (icône corbeille en fin de ligne).</p>
+              )}
 
               {view === "chart" ? (
                 <div className="surface p-4">
