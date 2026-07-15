@@ -1067,6 +1067,11 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Drive — un seul bouton « Importer » (UI).** Les deux boutons « Importer » et « Importer un dossier »
+  sont **fusionnés** en un seul bouton **« Importer »** qui ouvre un petit menu (façon Google Drive) :
+  **Fichiers ou ZIP** (un ou plusieurs fichiers, ZIP inclus — avec classement + accès) ou **Dossier**
+  (arborescence exacte recréée dans le Drive). Composant `import-folder-button.tsx` retiré, sa logique
+  repliée dans `upload-button.tsx`.
 - **Module « Dossiers » renommé « Projets » · Stocks ouverts à tous les produits (2 sujets).**
   **(1) « Dossiers » → « Projets »** — le module de suivi de sujets ad hoc s'appelle désormais
   **Projets** partout dans l'interface (menu, titres, KPIs, création, notifications, journal d'audit,

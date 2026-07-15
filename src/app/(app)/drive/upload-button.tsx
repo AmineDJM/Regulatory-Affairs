@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Upload, Search, Eye, Pencil } from "lucide-react";
+import { Upload, Search, Eye, Pencil, FolderUp, FileUp, ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Label } from "@/components/ui/input";
 import { useBackgroundUpload } from "@/components/layout/background-upload";
+import { ensureDriveFolders } from "@/lib/actions/drive-actions";
 import { cn } from "@/lib/utils";
 
 type Perm = "none" | "view" | "edit";
@@ -68,11 +69,52 @@ export function UploadButton({
 function RichUpload({ parentId, users, label }: { parentId: string | null; users: UserLite[]; label?: string }) {
   const { enqueue } = useBackgroundUpload();
   const [open, setOpen] = React.useState(false);
+  const [menu, setMenu] = React.useState(false);
   const [files, setFiles] = React.useState<File[]>([]);
   const [category, setCategory] = React.useState("");
   const [perm, setPerm] = React.useState<Record<string, Perm>>({});
   const [search, setSearch] = React.useState("");
   const [err, setErr] = React.useState<string | null>(null);
+
+  // ───────── Import de DOSSIER (arborescence exacte recréée) ─────────
+  const folderInputRef = React.useRef<HTMLInputElement>(null);
+  const [folderBusy, setFolderBusy] = React.useState(false);
+  // `webkitdirectory` n'est pas typé par React → posé sur l'élément via le ref.
+  React.useEffect(() => {
+    const el = folderInputRef.current;
+    if (el) { el.setAttribute("webkitdirectory", ""); el.setAttribute("directory", ""); }
+  }, []);
+
+  const rel = (f: File) => (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+  const dirOf = (p: string) => { const i = p.lastIndexOf("/"); return i >= 0 ? p.slice(0, i) : ""; };
+
+  async function onImportFolder(e: React.ChangeEvent<HTMLInputElement>) {
+    const list = e.target.files;
+    const picked = Array.from(list ?? []).filter((f) => f.size > 0);
+    if (folderInputRef.current) folderInputRef.current.value = "";
+    if (picked.length === 0) return;
+    setFolderBusy(true);
+    // Crée d'abord l'arborescence de dossiers (chemins relatifs uniques) côté serveur.
+    const dirs = [...new Set(picked.map((f) => dirOf(rel(f))).filter(Boolean))];
+    const r = await ensureDriveFolders(parentId ?? null, dirs);
+    setFolderBusy(false);
+    if (!r.ok || !r.map) { window.alert(r.error ?? "Import du dossier impossible."); return; }
+    const map = r.map;
+    const rootName = rel(picked[0]).split("/")[0] || "dossier";
+    enqueue({
+      label: `Dossier « ${rootName} » (${picked.length} fichier${picked.length > 1 ? "s" : ""})`,
+      files: picked,
+      concurrency: 6,
+      makeRequest: (file) => {
+        const fd = new FormData();
+        fd.append("file", file);
+        const dir = dirOf(rel(file));
+        const pid = dir ? map[dir] : (parentId ?? undefined);
+        if (pid) fd.append("parentId", pid);
+        return { url: "/api/drive/upload", formData: fd };
+      },
+    });
+  }
 
   const shared = Object.values(perm).filter((p) => p !== "none").length;
   const filtered = search.trim()
@@ -108,9 +150,31 @@ function RichUpload({ parentId, users, label }: { parentId: string | null; users
 
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)} type="button">
-        <Upload className="h-4 w-4" /> {label ?? "Importer"}
-      </Button>
+      {/* Un seul bouton « Importer » : Fichiers/ZIP OU Dossier (comme Google Drive). */}
+      <input ref={folderInputRef} type="file" hidden multiple onChange={onImportFolder} />
+      <div className="relative inline-flex">
+        <Button variant="outline" type="button" onClick={() => setMenu((v) => !v)} disabled={folderBusy}>
+          {folderBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {label ?? "Importer"}
+          <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+        </Button>
+        {menu && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
+            <div className="absolute right-0 top-full z-20 mt-1 w-60 rounded-xl border border-border bg-popover p-1 shadow-xl">
+              <button type="button" onClick={() => { setMenu(false); setOpen(true); }}
+                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary">
+                <FileUp className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0"><span className="font-medium">Fichiers ou ZIP</span><span className="block text-xs text-muted-foreground">Un ou plusieurs fichiers (ZIP inclus)</span></span>
+              </button>
+              <button type="button" onClick={() => { setMenu(false); folderInputRef.current?.click(); }}
+                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary">
+                <FolderUp className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0"><span className="font-medium">Dossier</span><span className="block text-xs text-muted-foreground">Arborescence exacte recréée dans le Drive</span></span>
+              </button>
+            </div>
+          </>
+        )}
+      </div>
 
       <Sheet
         open={open}

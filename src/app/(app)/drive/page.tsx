@@ -14,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatDateTime } from "@/lib/utils";
 import { UploadButton } from "./upload-button";
-import { ImportFolderButton } from "./import-folder-button";
 import { NewFolderButton } from "./new-folder-button";
 import { NewOfficeButton } from "./new-office-button";
 import { DriveTable, type DriveRow } from "./drive-table";
@@ -86,7 +85,6 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
             <NewFolderButton parentId={folderId} />
             <NewOfficeButton parentId={folderId} officeEnabled={onlyofficeConfigured()} />
             <UploadButton parentId={folderId} users={shareUsers} />
-            <ImportFolderButton parentId={folderId} />
           </>
         )}
         <Link href={trash ? "/drive" : "/drive?trash=1"}>
