@@ -28,14 +28,14 @@ export function AssistantPreview() {
     <Frame title="Assistant — partout, en bas à droite">
       <div className="space-y-2 text-[11px]">
         <div className="ml-auto w-fit max-w-[80%] rounded-2xl rounded-br-sm bg-primary px-3 py-1.5 text-primary-foreground">
-          Crée un dossier « Prix billets congrès Alger » pour Radia
+          Crée un projet « Prix billets congrès Alger » pour Radia
         </div>
         <div className="flex items-start gap-1.5">
           <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground"><Bot className="h-3 w-3" /></span>
           <div className="w-full rounded-2xl rounded-bl-sm bg-secondary px-3 py-2">
-            <p className="mb-1.5 text-muted-foreground">C'est prêt — je crée ce dossier :</p>
+            <p className="mb-1.5 text-muted-foreground">C'est prêt — je crée ce projet :</p>
             <div className="rounded-lg border border-border bg-card p-2">
-              <p className="flex items-center gap-1.5 font-medium"><FolderKanban className="h-3 w-3 text-primary" /> Nouveau dossier de suivi</p>
+              <p className="flex items-center gap-1.5 font-medium"><FolderKanban className="h-3 w-3 text-primary" /> Nouveau projet</p>
               <p className="mt-0.5 text-muted-foreground">Responsable : Radia · Priorité : Normale</p>
               <div className="mt-1.5 flex gap-1.5">
                 <span className="rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground">Confirmer</span>
@@ -60,7 +60,7 @@ export function SearchPreview() {
           <kbd className="ml-auto rounded border border-border px-1 py-0.5 text-[9px]">⌘K</kbd>
         </div>
         {[
-          { i: <FolderKanban className="h-3 w-3" />, t: "Dossiers de suivi", s: "Module" },
+          { i: <FolderKanban className="h-3 w-3" />, t: "Projets", s: "Module" },
           { i: <Mail className="h-3 w-3" />, t: "Courrier", s: "Module" },
           { i: <Sparkles className="h-3 w-3" />, t: "Dr. Benali — visite", s: "Médecin" },
         ].map((r) => (
@@ -112,7 +112,7 @@ export function CourrierPreview() {
 /** Dossier de suivi : un sujet, tout au même endroit. */
 export function DossierPreview() {
   return (
-    <Frame title="Dossier de suivi">
+    <Frame title="Projet">
       <div className="space-y-2 text-[11px]">
         <div className="flex items-center justify-between">
           <p className="flex items-center gap-1.5 font-semibold"><FolderKanban className="h-3.5 w-3.5 text-primary" /> Analyse IQVIA — Cardio</p>

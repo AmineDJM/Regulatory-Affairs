@@ -22,7 +22,7 @@ export function ThirdPartyInvolveButton({ type, id, people }: { type: string; id
   return (
     <>
       <Button variant="outline" size="sm" onClick={() => setOpen(true)}><UserPlus className="h-4 w-4" /> Impliquer une tierce personne</Button>
-      <Sheet open={open} onClose={() => setOpen(false)} title="Impliquer une tierce personne" description="La personne recevra une demande dans son espace et un dossier de suivi indiquant l'événement — sans détail de budget, et sans accès au module." width="md">
+      <Sheet open={open} onClose={() => setOpen(false)} title="Impliquer une tierce personne" description="La personne recevra une demande dans son espace et un projet indiquant l'événement — sans détail de budget, et sans accès au module." width="md">
         <form
           action={async (fd) => {
             setBusy(true); setErr(null);

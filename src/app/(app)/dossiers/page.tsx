@@ -36,18 +36,18 @@ export default async function DossiersPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Dossiers de suivi"
-        description="Un sujet = un dossier : déléguez une recherche / analyse / tâche et suivez tout au même endroit (description, fichiers, discussion)."
+        title="Projets"
+        description="Un sujet = un projet : déléguez une recherche / analyse / tâche et suivez tout au même endroit (description, fichiers, discussion)."
       >
         {canCreate && (
           <CreateRecordButton
-            label="Nouveau dossier"
-            title="Ouvrir un dossier de suivi"
+            label="Nouveau projet"
+            title="Ouvrir un projet"
             description="Décrivez le sujet et, si besoin, désignez un responsable. Vous pourrez ensuite y joindre des fichiers (PPT/Excel/PDF), discuter et ajouter des participants."
             action={createDossier}
             redirectBase="/dossiers"
             fields={[
-              { type: "text", name: "title", label: "Sujet du dossier", required: true, full: true, placeholder: "ex. Recherche prix hôtels — Congrès Paris" },
+              { type: "text", name: "title", label: "Sujet du projet", required: true, full: true, placeholder: "ex. Recherche prix hôtels — Congrès Paris" },
               { type: "textarea", name: "description", label: "Description / brief", placeholder: "Ce que vous attendez, le contexte, l'échéance souhaitée…" },
               { type: "text", name: "category", label: "Catégorie", placeholder: CATEGORY_SUGGESTIONS },
               { type: "select", name: "priority", label: "Priorité", options: optionsFromMap(PRIORITY), defaultValue: "MEDIUM" },
@@ -59,14 +59,14 @@ export default async function DossiersPage() {
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label="Dossiers" value={dossiers.length} icon="FolderKanban" />
+        <KpiCard label="Projets" value={dossiers.length} icon="FolderKanban" />
         <KpiCard label="Actifs" value={active.length} icon="Loader" tone={active.length > 0 ? "info" : "default"} />
         <KpiCard label="Qui me sont confiés" value={mine.length} icon="UserCheck" tone={mine.length > 0 ? "warning" : "default"} />
         <KpiCard label="Aboutis" value={dossiers.filter((d) => d.status === "DONE").length} icon="CheckCircle2" tone="success" />
       </div>
 
       {dossiers.length === 0 ? (
-        <EmptyState icon="FolderKanban" title="Aucun dossier" description={canCreate ? "Ouvrez un dossier pour suivre un sujet (recherche, analyse, demande…)." : "Les dossiers qui vous concernent apparaîtront ici."} />
+        <EmptyState icon="FolderKanban" title="Aucun projet" description={canCreate ? "Ouvrez un projet pour suivre un sujet (recherche, analyse, demande…)." : "Les projets qui vous concernent apparaîtront ici."} />
       ) : (
         <Card>
           <CardContent className="p-0">

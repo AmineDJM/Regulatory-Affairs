@@ -31,7 +31,7 @@ export function AdminLimitsForm({ settings }: { settings: AppSettings }) {
         <div className="space-y-1">
           <Label htmlFor="maxUploadMb">Documents / pièces jointes — taille max (Mo)</Label>
           <Input id="maxUploadMb" name="maxUploadMb" type="number" min="1" max="256" defaultValue={settings.maxUploadMb} />
-          <p className="text-xs text-muted-foreground">S'applique à TOUS les documents (Regulatory, Congrès, Dossiers, RH, médical…). Jusqu'à 256 Mo ; au-delà, passez par le Drive.</p>
+          <p className="text-xs text-muted-foreground">S'applique à TOUS les documents (Regulatory, Congrès, Projets, RH, médical…). Jusqu'à 256 Mo ; au-delà, passez par le Drive.</p>
         </div>
         <div className="space-y-1">
           <Label htmlFor="maxDriveUploadMb">Drive — taille max (Mo)</Label>

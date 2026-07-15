@@ -131,8 +131,8 @@ const REGISTRY: Record<DeletableKind, KindSpec> = {
     },
   },
   DOSSIER: {
-    label: "dossier de suivi",
-    module: "Dossiers",
+    label: "projet",
+    module: "Projets",
     redirect: "/dossiers",
     model: "dossier",
     entityType: "DOSSIER",

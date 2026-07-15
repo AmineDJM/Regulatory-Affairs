@@ -737,7 +737,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   MEDICAL_INFO_DECLARATION: "Information médicale",
   DIRECTIVE: "Directive",
   SUPPORT_REQUEST: "Demande de support",
-  DOSSIER: "Dossier de suivi",
+  DOSSIER: "Projet",
   PROMO_MATERIAL: "Matériel promotionnel",
   HR_REQUEST: "Demande RH",
   EVENT: "Événement",
@@ -1054,7 +1054,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   VALIDATIONS: "Demandes de validations",
   DIRECTIVES: "Directives",
   SUPPORT: "Demandes de support",
-  DOSSIERS: "Dossiers",
+  DOSSIERS: "Projets",
   DOCUMENTS: "Documents",
   DRIVE: "Drive",
   ADMIN_REQUESTS: "Bureau du secrétariat",
@@ -1074,7 +1074,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-espace", "/dashboard", "/directives"] },
   { module: "WORKSPACE", label: "Calendrier", href: "/calendar", icon: "CalendarDays", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage", tabs: MON_DOSSIER_TABS, match: ["/missions"] },
-  { module: "DOSSIERS", label: "Dossiers", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
+  { module: "DOSSIERS", label: "Projets", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
   // « Courrier » (boîte mail intégrée) retiré de la plateforme — la messagerie e-mail se gère
   // désormais directement dans l'app Infomaniak. Le code back-end reste dormant (non exposé).
   // Pôles

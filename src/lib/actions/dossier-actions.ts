@@ -34,7 +34,7 @@ export async function createDossier(_prev: ActionResult | undefined, formData: F
   const user = await requireUser();
   if (!userCan(user, "DOSSIERS", "CREATE")) return { ok: false, error: "Non autorisé." };
   const title = fdStr(formData, "title");
-  if (!title) return { ok: false, error: "L'intitulé du dossier est obligatoire." };
+  if (!title) return { ok: false, error: "L'intitulé du projet est obligatoire." };
 
   const { id } = await createDossierRecord(
     {
@@ -58,10 +58,10 @@ export async function updateDossierStatus(formData: FormData): Promise<ActionRes
   const status = fdStr(formData, "status") as DossierStatus | null;
   if (!id || !status || !STATUSES.includes(status)) return { ok: false, error: "Paramètres invalides." };
   const d = await prisma.dossier.findUnique({ where: { id }, select: { createdById: true, assignedToId: true, participantIds: true, reference: true } });
-  if (!d) return { ok: false, error: "Dossier introuvable." };
+  if (!d) return { ok: false, error: "Projet introuvable." };
   if (!isManager(user, d)) return { ok: false, error: "Réservé au créateur, au responsable ou à la Direction." };
   await prisma.dossier.update({ where: { id }, data: { status } });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Dossiers", entityType: "DOSSIER", entityId: id, summary: `Statut → ${status} (${d.reference})` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Projets", entityType: "DOSSIER", entityId: id, summary: `Statut → ${status} (${d.reference})` });
   revalidate(id);
   return { ok: true };
 }
@@ -69,9 +69,9 @@ export async function updateDossierStatus(formData: FormData): Promise<ActionRes
 export async function assignDossier(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Dossier manquant." };
+  if (!id) return { ok: false, error: "Projet manquant." };
   const d = await prisma.dossier.findUnique({ where: { id }, select: { createdById: true, assignedToId: true, participantIds: true, reference: true, title: true } });
-  if (!d) return { ok: false, error: "Dossier introuvable." };
+  if (!d) return { ok: false, error: "Projet introuvable." };
   if (!isManager(user, d)) return { ok: false, error: "Réservé au créateur, au responsable ou à la Direction." };
 
   const newAssignee = fdStr(formData, "assignedToId");
@@ -87,10 +87,10 @@ export async function assignDossier(formData: FormData): Promise<ActionResult> {
   const after = new Set([...(newAssignee ? [newAssignee] : []), ...validParts]);
   for (const uid of after) {
     if (!before.has(uid) && uid !== user.id) {
-      await notifyUser({ userId: uid, type: "ASSIGNMENT", title: "Dossier qui vous concerne", body: `${d.reference} — ${d.title}`, link: `${PATH}/${id}` });
+      await notifyUser({ userId: uid, type: "ASSIGNMENT", title: "Projet qui vous concerne", body: `${d.reference} — ${d.title}`, link: `${PATH}/${id}` });
     }
   }
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Dossiers", entityType: "DOSSIER", entityId: id, summary: `Responsable/participants mis à jour (${d.reference})` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Projets", entityType: "DOSSIER", entityId: id, summary: `Responsable/participants mis à jour (${d.reference})` });
   revalidate(id);
   return { ok: true };
 }
@@ -104,13 +104,13 @@ export async function assignDossier(formData: FormData): Promise<ActionResult> {
 export async function postDossierMessage(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Dossier manquant." };
+  if (!id) return { ok: false, error: "Projet manquant." };
   const body = (fdStr(formData, "body") ?? "").trim();
   const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
   if (!body && files.length === 0) return { ok: false, error: "Écrivez un message ou joignez un fichier." };
 
   const d = await prisma.dossier.findUnique({ where: { id }, select: { createdById: true, assignedToId: true, participantIds: true, reference: true } });
-  if (!d) return { ok: false, error: "Dossier introuvable." };
+  if (!d) return { ok: false, error: "Projet introuvable." };
   if (!isMember(user, d)) return { ok: false, error: "Non autorisé." };
 
   // Membres du dossier = seuls destinataires possibles d'une mention.
@@ -139,12 +139,12 @@ export async function postDossierMessage(formData: FormData): Promise<ActionResu
     await notifyUser({
       userId: uid,
       type: mentioned ? "ASSIGNMENT" : "GENERIC",
-      title: mentioned ? "Vous avez été mentionné sur un dossier" : "Nouveau message sur un dossier",
+      title: mentioned ? "Vous avez été mentionné sur un projet" : "Nouveau message sur un projet",
       body: `${d.reference}${body ? ` — ${body.slice(0, 80)}` : " — pièce jointe"}`,
       link: `${PATH}/${id}`,
     });
   }
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Dossiers", entityType: "DOSSIER", entityId: id, summary: `Message — ${d.reference}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Projets", entityType: "DOSSIER", entityId: id, summary: `Message — ${d.reference}` });
   revalidate(id);
   return { ok: true };
 }
@@ -186,15 +186,15 @@ export async function linkEmailToDossier(
 
   if (!dossierId) {
     const title = (input.newTitle || input.subject || "").trim();
-    if (!title) return { ok: false, error: "Donnez un intitulé au dossier." };
-    if (!userCan(user, "DOSSIERS", "CREATE")) return { ok: false, error: "Vous ne pouvez pas créer de dossier." };
+    if (!title) return { ok: false, error: "Donnez un intitulé au projet." };
+    if (!userCan(user, "DOSSIERS", "CREATE")) return { ok: false, error: "Vous ne pouvez pas créer de projet." };
     const created = await createDossierRecord({ title, category: "E-mail" }, user.id);
     dossierId = created.id;
     reference = created.reference;
   } else {
     const d = await prisma.dossier.findUnique({ where: { id: dossierId }, select: { createdById: true, assignedToId: true, participantIds: true, reference: true } });
-    if (!d) return { ok: false, error: "Dossier introuvable." };
-    if (!isMember(user, d)) return { ok: false, error: "Vous n'êtes pas membre de ce dossier." };
+    if (!d) return { ok: false, error: "Projet introuvable." };
+    if (!isMember(user, d)) return { ok: false, error: "Vous n'êtes pas membre de ce projet." };
     reference = d.reference;
   }
 
@@ -206,7 +206,7 @@ export async function linkEmailToDossier(
 
   await prisma.dossierMessage.create({ data: { dossierId, authorId: user.id, body: message } });
   await prisma.dossier.update({ where: { id: dossierId }, data: { updatedAt: new Date() } });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Dossiers", entityType: "DOSSIER", entityId: dossierId, summary: `E-mail lié — ${subject}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Projets", entityType: "DOSSIER", entityId: dossierId, summary: `E-mail lié — ${subject}` });
   revalidate(dossierId);
   return { ok: true, dossierId, reference };
 }
@@ -214,7 +214,7 @@ export async function linkEmailToDossier(
 /** Ouvre un dossier de suivi à partir d'une tâche (reprend titre, description, responsable…). */
 export async function createDossierFromTask(taskId: string): Promise<{ ok: boolean; error?: string; dossierId?: string }> {
   const user = await requireUser();
-  if (!userCan(user, "DOSSIERS", "CREATE")) return { ok: false, error: "Vous ne pouvez pas créer de dossier." };
+  if (!userCan(user, "DOSSIERS", "CREATE")) return { ok: false, error: "Vous ne pouvez pas créer de projet." };
   const t = await prisma.task.findUnique({
     where: { id: taskId },
     select: { id: true, title: true, description: true, assignedToId: true, createdById: true, priority: true, dueDate: true, module: true },
@@ -241,12 +241,12 @@ export async function createDossierFromTask(taskId: string): Promise<{ ok: boole
 export async function archiveDossier(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Dossier manquant." };
+  if (!id) return { ok: false, error: "Projet manquant." };
   const d = await prisma.dossier.findUnique({ where: { id }, select: { createdById: true, assignedToId: true, participantIds: true, reference: true } });
-  if (!d) return { ok: false, error: "Dossier introuvable." };
+  if (!d) return { ok: false, error: "Projet introuvable." };
   if (!isManager(user, d)) return { ok: false, error: "Réservé au créateur, au responsable ou à la Direction." };
   await prisma.dossier.update({ where: { id }, data: { status: "ARCHIVED" } });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Dossiers", entityType: "DOSSIER", entityId: id, summary: `Dossier archivé (${d.reference})` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Projets", entityType: "DOSSIER", entityId: id, summary: `Projet archivé (${d.reference})` });
   revalidate(id);
   return { ok: true };
 }
@@ -266,7 +266,7 @@ export async function deleteDossierMessage(formData: FormData): Promise<ActionRe
   await prisma.dossierMessage.delete({ where: { id } }); // pièces jointes supprimées en cascade
   for (const a of msg.attachments) await releaseBlob(a.blobId).catch(() => undefined); // libère le stockage
 
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "Dossiers", entityType: "DOSSIER", entityId: msg.dossierId, summary: "Message de dossier supprimé" });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Projets", entityType: "DOSSIER", entityId: msg.dossierId, summary: "Message de projet supprimé" });
   revalidate(msg.dossierId);
   return { ok: true };
 }
@@ -286,7 +286,7 @@ export async function editDossierMessage(formData: FormData): Promise<ActionResu
   const allowed = msg.authorId === user.id || isManager(user, msg.dossier);
   if (!allowed) return { ok: false, error: "Modification non autorisée." };
   await prisma.dossierMessage.update({ where: { id }, data: { body: body.trim() } });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Dossiers", entityType: "DOSSIER", entityId: msg.dossierId, summary: "Message de dossier modifié" });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Projets", entityType: "DOSSIER", entityId: msg.dossierId, summary: "Message de projet modifié" });
   revalidate(msg.dossierId);
   return { ok: true };
 }

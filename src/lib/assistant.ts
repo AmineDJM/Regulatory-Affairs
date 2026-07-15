@@ -332,7 +332,7 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "create_dossier",
     description:
-      "PROPOSE l'ouverture d'un DOSSIER DE SUIVI pour un sujet à déléguer et suivre dans le temps (ex. « rechercher des prix d'hôtels », « propositions d'hôtels », « analyse IQVIA », « comparer des billets »). À privilégier quand on confie à quelqu'un une recherche / analyse / veille que l'on veut suivre avec des fichiers et une discussion. N'exécute rien : confirmation requise. Résoudre le responsable avec search_people si un nom est cité.",
+      "PROPOSE l'ouverture d'un PROJET pour un sujet à déléguer et suivre dans le temps (ex. « rechercher des prix d'hôtels », « propositions d'hôtels », « analyse IQVIA », « comparer des billets »). À privilégier quand on confie à quelqu'un une recherche / analyse / veille que l'on veut suivre avec des fichiers et une discussion. N'exécute rien : confirmation requise. Résoudre le responsable avec search_people si un nom est cité.",
     input_schema: {
       type: "object",
       properties: {
@@ -794,7 +794,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (due) fields.push({ label: "Échéance", value: due });
     if (priority) fields.push({ label: "Priorité", value: PRIORITY[priority]?.label ?? priority });
     return {
-      kind: "create_dossier", module: "DOSSIERS", title: "Ouvrir un dossier de suivi", fields, warnings,
+      kind: "create_dossier", module: "DOSSIERS", title: "Ouvrir un projet", fields, warnings,
       payload: {
         kind: "create_dossier", title, description: asStr(input, "description") || null, category,
         assigneeId: assignee.id, assigneeName: assignee.name, priority, dueDate: due,

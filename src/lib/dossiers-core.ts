@@ -63,8 +63,8 @@ export async function createDossierRecord(input: DossierInput, actorId: string):
   const recipients = new Set<string>([...(assignedToId ? [assignedToId] : []), ...participantIds]);
   recipients.delete(actorId);
   for (const userId of recipients) {
-    await notifyUser({ userId, type: "ASSIGNMENT", title: "Nouveau dossier de suivi", body: `${reference} — ${created.title}`, link: `/dossiers/${created.id}` });
+    await notifyUser({ userId, type: "ASSIGNMENT", title: "Nouveau projet", body: `${reference} — ${created.title}`, link: `/dossiers/${created.id}` });
   }
-  await recordAudit({ actorId, action: "CREATE", module: "Dossiers", entityType: "DOSSIER", entityId: created.id, summary: `Dossier ${reference} — ${created.title}` });
+  await recordAudit({ actorId, action: "CREATE", module: "Projets", entityType: "DOSSIER", entityId: created.id, summary: `Projet ${reference} — ${created.title}` });
   return { id: created.id, reference: created.reference };
 }

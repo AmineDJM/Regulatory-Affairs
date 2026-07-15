@@ -196,7 +196,7 @@ jamais identique.
 |---|---|---|
 | **Demandes de validations** | `/validations` | **Bureau de validation central** : agrège **toutes les validations en attente** issues des autres modules (Bureau du secrétariat, Ad & Pro, **Finances**, information médicale…) — visible des **validateurs** (pas du demandeur). Le Super Admin définit des **règles configurables** (module, type d'objet, montant, département, rôle, priorité → 1 ou 2 validateurs, séquentiel/parallèle). → [détails](#centre-de-validation-agrégation--configurable) |
 | **Documents** (Drive + Documents) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob`), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), **impression**, versioning. **Imports larges**, **déplacer**, **corbeille en cascade**, **accès par personne** (voir / modifier) à l'import. |
-| **Dossiers** | `/dossiers` | **Dossier de suivi** d'un sujet ad hoc : description, **responsable + participants**, statut, **fichiers** et **fil de discussion**. Créable **manuellement**, **proposé par l'IA**, **alimenté en liant un e-mail** depuis le Courrier, ou **créé automatiquement** quand on implique une tierce personne sur un événement. |
+| **Projets** | `/dossiers` | **Projet** de suivi d'un sujet ad hoc : description, **responsable + participants**, statut, **fichiers** et **fil de discussion**. Créable **manuellement**, **proposé par l'IA**, ou **créé automatiquement** quand on implique une tierce personne sur un événement. (Route interne `/dossiers`, entité `Dossier` inchangées.) |
 | **Bureau du secrétariat** | `/demandes` | « Bureau de l'assistante de direction » : **10 types** de demandes, **catalogue d'articles de fourniture**, **demandes multi-cellules**, **fenêtre de 15 min** pour que le demandeur **modifie TOUT ce qu'il a saisi** ou supprime sa demande, **suppression traçable** (corbeille + motif), **flux par demande** (achat → validation Finances → devis/facture → Fin de la demande), validations, ordres de dépense, **espace Courses** (`/demandes/courses` : courses chauffeur **multi-points A/B/C** avec consigne par point, date **et heure max** — heure d'Alger —, pièces jointes, vue chauffeur en checklist), **accusé de réception des originaux de notes de frais** (section dédiée sur `/demandes`, verrouille/déverrouille le traitement RH), demandes terminées **archivées dans le Drive** (« Dossier traité »). → [workflow](#bureau-du-secrétariat--flux-par-demande) |
 | **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou au **chef de produit**, avec fil + pièces jointes. |
 | **Feedback** | `/feedback` | Retour libre utilisateur → admin, **+ boîte de réception** : les réponses de l'administration s'affichent à l'utilisateur (avec notification). |
@@ -247,9 +247,8 @@ Autres connexions notables :
 - **Regulatory → Finances** : une **Demande de BV** émet un ordre de dépense avec échéance.
 - **Regulatory → Stocks PCH** : les **mouvements de stock** sont liés aux **produits Regulatory**.
 - **Bureau du secrétariat → Finances** : une demande d'achat déclenche une **validation Finances** (devis → facture).
-- **Courrier → Dossiers** : un e-mail peut être **lié à un dossier de suivi** en un clic.
-- **Tâches / Messages → Dossiers** : un message peut devenir une **tâche demandée** ; une tâche peut ouvrir un dossier.
-- **Tierce personne → Dossiers** : impliquer quelqu'un sur un événement **crée automatiquement un dossier** (sans budget).
+- **Tâches / Messages → Projets** : un message peut devenir une **tâche demandée** ; une tâche peut ouvrir un projet.
+- **Tierce personne → Projets** : impliquer quelqu'un sur un événement **crée automatiquement un projet** (sans budget).
 - **Tous les modules → Validations** : chaque circuit d'approbation remonte dans le **bureau de validation central**.
 - **RH (Paie) → Finances & Budgets** : « Transférer dans le budget » crée **une écriture Salaire (sortie) par employé** imputée à la (sous-)catégorie choisie ; la fiche de paie part dans le **dossier RH** de l'employé ; l'employé est notifié **24 h après** (tâches planifiées internes).
 - **Notes de frais : RH ⇄ Bureau du secrétariat** : le traitement RH est **verrouillé** tant que le secrétariat n'a pas **accusé réception des originaux** (accusé tracé, visible des deux côtés, notifié).
@@ -1068,6 +1067,15 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Module « Dossiers » renommé « Projets » · Stocks ouverts à tous les produits (2 sujets).**
+  **(1) « Dossiers » → « Projets »** — le module de suivi de sujets ad hoc s'appelle désormais
+  **Projets** partout dans l'interface (menu, titres, KPIs, création, notifications, journal d'audit,
+  onboarding, assistant IA, suppression Super Admin). Seuls les **libellés utilisateur** changent : la
+  **route `/dossiers`**, l'**entité `Dossier`**, la **clé RBAC `DOSSIERS`** et les liens existants
+  restent inchangés (aucune migration, aucun lien cassé). Le mot « dossier » employé ailleurs (Drive,
+  Mon dossier RH, dossiers Regulatory) n'est **pas** touché. **(2) Stocks — tous les produits** : la
+  saisie d'un état de stock propose de nouveau **tous les produits Regulatory** (on a retiré le filtre
+  « Décision obtenue »), quel que soit leur statut d'enregistrement.
 - **Réunions (gestion des participants) · Courrier retiré · statut Teams · carillon de rappel · clic
   notif = lu (8 sujets, dont 3 déjà couverts).** **(1) Gestion des participants d'une réunion** —
   l'organisateur (et le Super Admin) peut **ajouter** (multi-sélection avec recherche), **retirer** des

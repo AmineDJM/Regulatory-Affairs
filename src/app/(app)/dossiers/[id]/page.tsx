@@ -61,7 +61,7 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
   return (
     <div className="space-y-5">
       <Link href="/dossiers" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Retour aux dossiers
+        <ArrowLeft className="h-4 w-4" /> Retour aux projets
       </Link>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

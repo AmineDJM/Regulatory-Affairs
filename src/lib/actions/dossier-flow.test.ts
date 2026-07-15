@@ -49,7 +49,7 @@ suite("Dossiers — création, visibilité, échange, pilotage, proposition IA",
     expect(d.reference).toMatch(/^DOS-\d{4}-\d{3}$/);
     expect(d.assignedToId).toBe(assigneeId);
     expect(d.status).toBe("OPEN");
-    const notif = await prisma.notification.findFirst({ where: { userId: assigneeId, title: "Nouveau dossier de suivi" } });
+    const notif = await prisma.notification.findFirst({ where: { userId: assigneeId, title: "Nouveau projet" } });
     expect(notif).not.toBeNull();
   });
 
