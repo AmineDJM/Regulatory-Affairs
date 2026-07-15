@@ -35,6 +35,8 @@ export async function broadcastNotification(opts: {
   title: string;
   body?: string;
   link?: string;
+  /** Affiche aussi la notification en **pop-up plein écran** (grande fenêtre centrée) chez le destinataire. */
+  popup?: boolean;
 }): Promise<number> {
   try {
     let ids: string[];
@@ -53,7 +55,7 @@ export async function broadcastNotification(opts: {
     }
     if (ids.length === 0) return 0;
     await prisma.notification.createMany({
-      data: ids.map((userId) => ({ userId, type: "GENERIC" as NotificationType, title: opts.title, body: opts.body, link: opts.link })),
+      data: ids.map((userId) => ({ userId, type: "GENERIC" as NotificationType, title: opts.title, body: opts.body, link: opts.link, popup: opts.popup ?? false })),
     });
     // Push (PWA) sur les appareils de chaque destinataire — best-effort.
     await Promise.all(ids.map((userId) => sendPushToUser(userId, { title: opts.title, body: opts.body, url: opts.link ?? "/" })));

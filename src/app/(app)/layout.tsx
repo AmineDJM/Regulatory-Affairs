@@ -11,6 +11,7 @@ import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
 import { FloatingAssistant } from "@/components/layout/floating-assistant";
 import { PushRegister } from "@/components/layout/push-register";
 import { NotificationChime } from "@/components/layout/notification-chime";
+import { NotificationPopup } from "@/components/layout/notification-popup";
 import { UploadProvider } from "@/components/layout/upload-manager";
 import { BackgroundUploadProvider } from "@/components/layout/background-upload";
 import { getTotalUnread } from "@/lib/queries/messaging";
@@ -91,6 +92,8 @@ export default async function AppLayout({
       <PushRegister />
       {/* Sonnerie de rappel/notification (carillon) + notification bureau à l'arrivée. */}
       <NotificationChime initial={unreadCount} />
+      {/* Notifications pop-up plein écran (grande fenêtre centrée) diffusées depuis l'Administration. */}
+      <NotificationPopup />
     </div>
     </BackgroundUploadProvider>
     </UploadProvider>

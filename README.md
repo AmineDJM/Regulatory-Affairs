@@ -1067,6 +1067,13 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Notifications en pop-up plein écran (depuis l'Administration).** Le compositeur de diffusion
+  (Administration → Réglages) gagne une case **« Afficher en pop-up plein écran »** : la notification
+  s'affiche alors dans une **grande fenêtre centrée** au milieu de l'écran du destinataire (façon alerte
+  importante), en plus de la cloche. Elle **reste jusqu'à l'accusé de réception** (« J'ai compris »),
+  s'enchaîne si plusieurs, et propose « Ouvrir » si un lien est fourni. Nouveau champ `Notification.popup`
+  (migration idempotente), l'endpoint `/api/notifications/poll` renvoie aussi les pop-up non lues, et le
+  composant `NotificationPopup` (monté dans le layout) les affiche et les marque lues à l'accusé.
 - **Drive — un seul bouton « Importer » (UI).** Les deux boutons « Importer » et « Importer un dossier »
   sont **fusionnés** en un seul bouton **« Importer »** qui ouvre un petit menu (façon Google Drive) :
   **Fichiers ou ZIP** (un ou plusieurs fichiers, ZIP inclus — avec classement + accès) ou **Dossier**

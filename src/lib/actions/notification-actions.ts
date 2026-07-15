@@ -22,14 +22,15 @@ export async function sendBroadcast(formData: FormData): Promise<ActionResult> {
   const audience = (fdStr(formData, "audience") ?? "ALL") as BroadcastAudience;
   const role = fdStr(formData, "role");
   const userIds = formData.getAll("userIds").map(String).filter(Boolean);
+  const popup = fdStr(formData, "popup") === "on" || fdStr(formData, "popup") === "true";
 
   if (audience === "USERS" && userIds.length === 0) return { ok: false, error: "Sélectionnez au moins une personne." };
   if (audience === "ROLE" && !role) return { ok: false, error: "Sélectionnez un rôle." };
 
-  const count = await broadcastNotification({ audience, role, userIds, title, body, link });
+  const count = await broadcastNotification({ audience, role, userIds, title, body, link, popup });
   if (count === 0) return { ok: false, error: "Aucun destinataire trouvé pour cette audience." };
 
-  await recordAudit({ actorId: admin.id, action: "CREATE", module: "Administration", summary: `Notification diffusée à ${count} personne·s — « ${title} »` });
+  await recordAudit({ actorId: admin.id, action: "CREATE", module: "Administration", summary: `Notification${popup ? " (pop-up)" : ""} diffusée à ${count} personne·s — « ${title} »` });
   revalidatePath("/admin/settings");
   return { ok: true, message: `Notification envoyée à ${count} personne·s.` };
 }

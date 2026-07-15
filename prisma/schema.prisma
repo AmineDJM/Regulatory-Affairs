@@ -1763,6 +1763,8 @@ model Notification {
   body      String?
   link      String?
   isRead    Boolean          @default(false)
+  // Affichage en pop-up plein écran (grande fenêtre centrée) jusqu'à accusé de réception.
+  popup     Boolean          @default(false)
   createdAt DateTime         @default(now())
 
   @@index([userId, isRead])

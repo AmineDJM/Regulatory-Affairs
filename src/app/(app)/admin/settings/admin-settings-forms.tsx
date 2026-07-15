@@ -214,6 +214,14 @@ export function BroadcastComposer({ roles, users }: { roles: Opt[]; users: UserL
         )}
       </div>
 
+      <label className="flex items-start gap-2.5 rounded-lg border border-border bg-secondary/30 p-3">
+        <input type="checkbox" name="popup" className="mt-0.5 h-4 w-4 rounded border-input" />
+        <span className="text-sm">
+          <span className="font-medium">Afficher en pop-up plein écran</span>
+          <span className="block text-xs text-muted-foreground">Une grande fenêtre s'affiche au milieu de l'écran du destinataire (façon alerte importante), en plus de la cloche. Elle reste jusqu'à ce que la personne clique sur « J'ai compris ».</span>
+        </span>
+      </label>
+
       {result && <p className={`rounded-lg px-3 py-2 text-sm ${result.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>{result.text}</p>}
       <div className="flex justify-end">
         <Button type="submit" disabled={sending}>
