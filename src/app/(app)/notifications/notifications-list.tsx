@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, CheckCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CheckCheck } from "lucide-react";
 import { markNotificationRead, markAllNotificationsRead } from "@/lib/actions/notification-actions";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -21,7 +22,18 @@ export interface NotificationItem {
 }
 
 export function NotificationsList({ items }: { items: NotificationItem[] }) {
-  const hasUnread = items.some((n) => !n.isRead);
+  const router = useRouter();
+  // Marquées lues localement (optimiste) pour retirer la pastille dès le clic.
+  const [readIds, setReadIds] = React.useState<Set<string>>(new Set());
+  const isRead = (n: NotificationItem) => n.isRead || readIds.has(n.id);
+  const hasUnread = items.some((n) => !isRead(n));
+
+  // Cliquer une notification = la marquer comme lue (plus besoin de la coche).
+  const markRead = (id: string, alreadyRead: boolean, refresh: boolean) => {
+    if (alreadyRead) return;
+    setReadIds((s) => new Set(s).add(id));
+    void markNotificationRead(id).then(() => { if (refresh) router.refresh(); });
+  };
 
   return (
     <div className="space-y-3">
@@ -38,29 +50,29 @@ export function NotificationsList({ items }: { items: NotificationItem[] }) {
       ) : (
         <ul className="surface divide-y divide-border overflow-hidden">
           {items.map((n) => {
+            const read = isRead(n);
             const content = (
               <div className="flex items-start gap-3 px-4 py-3">
-                <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", n.isRead ? "bg-transparent" : "bg-primary")} />
+                <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", read ? "bg-transparent" : "bg-primary")} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <StatusBadge map={NOTIFICATION_TYPE} value={n.type} dot={false} />
                     <span className="text-xs text-muted-foreground">{formatDateTime(n.createdAt)}</span>
                   </div>
-                  <p className={cn("mt-0.5 text-sm", n.isRead ? "font-normal" : "font-medium")}>{n.title}</p>
+                  <p className={cn("mt-0.5 text-sm", read ? "font-normal" : "font-medium")}>{n.title}</p>
                   {n.body && <p className="text-sm text-muted-foreground">{n.body}</p>}
                 </div>
-                {!n.isRead && (
-                  <form action={markNotificationRead.bind(null, n.id)}>
-                    <button type="submit" className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary" title="Marquer comme lu">
-                      <Check className="h-4 w-4" />
-                    </button>
-                  </form>
-                )}
               </div>
             );
             return (
-              <li key={n.id} className={cn(!n.isRead && "bg-accent/30")}>
-                {n.link ? <Link href={n.link}>{content}</Link> : content}
+              <li key={n.id} className={cn(!read && "bg-accent/30")}>
+                {n.link ? (
+                  // Clic → navigation ET marquage lu.
+                  <Link href={n.link} onClick={() => markRead(n.id, read, false)}>{content}</Link>
+                ) : (
+                  // Sans lien : le clic marque simplement comme lu.
+                  <button type="button" onClick={() => markRead(n.id, read, true)} className="block w-full text-left">{content}</button>
+                )}
               </li>
             );
           })}

@@ -17,6 +17,7 @@ import { MeetingRecorder } from "./meeting-recorder";
 import { TranscriptPanel, ProposalActions, ShareLink, ManageBar } from "./meeting-panels";
 import { InviteResponse } from "./invite-response";
 import { MeetingChat, type ChatMessage } from "./meeting-chat";
+import { ManageParticipants } from "./manage-participants";
 import { EditMeetingButton } from "../edit-meeting-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -59,6 +60,14 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
   const canManage = canManageMeeting(user, meeting);
   // Le participant courant (invité), pour lui proposer d'accepter / refuser (façon agenda).
   const myParticipant = meeting.participants.find((p) => p.userId === user.id);
+  // Personnes que l'organisateur peut inviter (tous les comptes actifs sauf l'organisateur).
+  const allUsers = canManage
+    ? (await prisma.user.findMany({
+        where: { isActive: true, id: { not: meeting.organizerId } },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }))
+    : [];
 
   // Fil de discussion (chat) : suppression pour l'auteur ou l'organisateur/vue globale.
   const chatMessages: ChatMessage[] = meeting.messages.map((m) => ({
@@ -182,7 +191,16 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           )}
 
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><Users className="h-4 w-4" /> Participants</CardTitle></CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2"><Users className="h-4 w-4" /> Participants</CardTitle>
+              {canManage && (
+                <ManageParticipants
+                  meetingId={meeting.id}
+                  participants={meeting.participants.map((p) => ({ id: p.userId, name: p.user?.name ?? "—" }))}
+                  allUsers={allUsers}
+                />
+              )}
+            </CardHeader>
             <CardContent className="space-y-1.5 text-sm">
               <div className="flex items-center gap-2">
                 <CircleUser className="h-4 w-4 text-primary" />

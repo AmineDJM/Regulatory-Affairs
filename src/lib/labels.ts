@@ -1075,7 +1075,8 @@ export const NAVIGATION: NavItem[] = [
   { module: "WORKSPACE", label: "Calendrier", href: "/calendar", icon: "CalendarDays", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage", tabs: MON_DOSSIER_TABS, match: ["/missions"] },
   { module: "DOSSIERS", label: "Dossiers", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
-  { module: "WORKSPACE", label: "Courrier", href: "/courrier", icon: "Mail", group: "Pilotage" },
+  // « Courrier » (boîte mail intégrée) retiré de la plateforme — la messagerie e-mail se gère
+  // désormais directement dans l'app Infomaniak. Le code back-end reste dormant (non exposé).
   // Pôles
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS, match: ["/promo-material"] },

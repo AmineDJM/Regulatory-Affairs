@@ -10,6 +10,7 @@ import { CommandPalette } from "@/components/layout/command-palette";
 import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
 import { FloatingAssistant } from "@/components/layout/floating-assistant";
 import { PushRegister } from "@/components/layout/push-register";
+import { NotificationChime } from "@/components/layout/notification-chime";
 import { UploadProvider } from "@/components/layout/upload-manager";
 import { BackgroundUploadProvider } from "@/components/layout/background-upload";
 import { getTotalUnread } from "@/lib/queries/messaging";
@@ -88,6 +89,8 @@ export default async function AppLayout({
       <FloatingAssistant userName={user.name} configured={aiConfigured()} />
       {/* Notifications push (PWA) : enregistre le service worker + (ré)abonne l'appareil. */}
       <PushRegister />
+      {/* Sonnerie de rappel/notification (carillon) + notification bureau à l'arrivée. */}
+      <NotificationChime initial={unreadCount} />
     </div>
     </BackgroundUploadProvider>
     </UploadProvider>
