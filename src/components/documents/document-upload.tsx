@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { UploadCloud, CheckCircle2, FileUp, FolderUp, X } from "lucide-react";
+import { UploadCloud, CheckCircle2, FileUp, X } from "lucide-react";
 import type { EntityType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -24,25 +24,20 @@ const humanSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo
 let uid = 0;
 
 /**
- * Téléversement de documents **en lot** : plusieurs fichiers **ou un dossier entier**, tous types
- * (sauf exécutables), **sans limite de nombre**. L'envoi est confié au **gestionnaire d'envois
- * global** (arrière-plan) : dès qu'on clique « Téléverser », on peut **changer de module et
- * continuer à travailler** — les fichiers montent en parallèle et la pastille flottante suit la
- * progression partout. File d'attente locale seulement pour la sélection.
+ * Téléversement de documents : un ou plusieurs **fichiers de tout type**, **ou une archive ZIP**
+ * (pour envoyer un dossier entier, on le compresse en .zip), **sans limite de nombre**. L'envoi est
+ * confié au **gestionnaire d'envois global** (arrière-plan) : dès qu'on clique « Téléverser », on
+ * peut **changer de module et continuer à travailler** — les fichiers montent en parallèle et la
+ * pastille flottante suit la progression partout. En contexte Regulatory, tout est en plus répliqué
+ * dans le **dossier Drive du produit** (le ZIP y reste entier et navigable). File d'attente locale
+ * seulement pour la sélection.
  */
 export function DocumentUpload({ entityType, entityId, categories, stepKey, compact }: DocumentUploadProps) {
   const { enqueue } = useBackgroundUpload();
   const filesRef = React.useRef<HTMLInputElement>(null);
-  const folderRef = React.useRef<HTMLInputElement>(null);
   const [items, setItems] = React.useState<Item[]>([]);
   const [dragOver, setDragOver] = React.useState(false);
   const [queued, setQueued] = React.useState(0); // dernier lot confié à l'arrière-plan
-
-  // Active la sélection d'un dossier entier (attribut non standard posé via ref).
-  React.useEffect(() => {
-    const el = folderRef.current;
-    if (el) { el.setAttribute("webkitdirectory", ""); el.setAttribute("directory", ""); }
-  }, []);
 
   const categoryEntries = categories
     ? categories.map((c) => [c, DOCUMENT_CATEGORY[c] ?? c] as const)
@@ -103,19 +98,15 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
       >
         <div className={cn("flex items-center justify-center gap-2", compact ? "" : "flex-col")}>
           <UploadCloud className={cn("text-muted-foreground", compact ? "h-4 w-4" : "h-6 w-6")} />
-          {!compact && <span className="text-sm font-medium text-foreground">Glissez des fichiers ici, ou :</span>}
+          {!compact && <span className="text-sm font-medium text-foreground">Glissez un fichier ou un ZIP ici, ou :</span>}
           <div className="flex flex-wrap items-center justify-center gap-2">
             <Button type="button" size="sm" variant="outline" onClick={() => filesRef.current?.click()}>
-              <FileUp className="h-4 w-4" /> Fichiers
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => folderRef.current?.click()}>
-              <FolderUp className="h-4 w-4" /> Dossier
+              <FileUp className="h-4 w-4" /> Choisir un fichier ou un ZIP
             </Button>
           </div>
         </div>
-        {!compact && <p className="mt-1.5 text-xs text-muted-foreground">Tous types (sauf exécutables) · plusieurs fichiers ou un dossier entier · sans limite · envoi en arrière-plan</p>}
+        {!compact && <p className="mt-1.5 text-xs text-muted-foreground">Un ou plusieurs <strong>fichiers de tout type</strong>, ou une archive <strong>.ZIP</strong> · sans limite de nombre · envoi en arrière-plan</p>}
         <input ref={filesRef} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
-        <input ref={folderRef} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
       </div>
 
       {!compact && (

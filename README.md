@@ -1066,6 +1066,21 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Upload « Fichiers ou ZIP » partout + visionneuse ZIP dans le Drive + notifications bureau + écran
+  anti-capture retiré (4 sujets).** **(1) Upload simplifié** — le composant de dépôt de documents
+  (partagé par tous les modules) ne propose plus que **« Fichier(s) (tout type) »** ou **« ZIP »**
+  (le mode « Dossier » webkitdirectory est retiré ; pour un dossier entier, on l'envoie compressé en
+  .zip), avec un libellé clair. En **Regulatory**, tout dépôt reste répliqué automatiquement dans le
+  **dossier Drive du produit** (le ZIP y est conservé **entier**). **(2) Visionneuse ZIP dans le Drive**
+  — ouvrir un fichier `.zip` du Drive affiche désormais son **contenu** (liste des entrées + recherche)
+  et permet de **visualiser** chaque fichier interne (image, PDF, texte, vidéo, audio) **inline** ou de
+  le télécharger, sans décompresser l'archive (extraction serveur d'une entrée à la demande, bornée en
+  taille, accès hérité de l'arbre Drive). **(3) Notifications sur l'ordinateur** — à la réception d'un
+  message, si l'onglet n'est pas au premier plan, une **notification bureau** s'affiche (en plus du son) ;
+  le bouton « Activer les notifications » fonctionne même sans clés VAPID (le Web Push reste le
+  complément « navigateur fermé » quand `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` sont posées). **(4) Écran
+  anti-capture retiré** — le voile plein écran « capture surveillée » (au raccourci ET à chaque perte de
+  focus) est supprimé ; seule l'**alerte Super Admin** (audit + notification) est conservée.
 - **« Mon dossier RH » intégré à « Mon espace » + coût IA Claude réduit drastiquement (2 sujets).**
   **(1) « Mon dossier RH » rejoint « Mon espace »** — plus d'entrée de menu séparée : « Mon dossier RH »
   et « Mes ordres de mission » deviennent des **onglets** de l'espace personnel (aux côtés de Mon travail,

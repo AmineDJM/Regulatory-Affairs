@@ -2,10 +2,14 @@
 
 import { Download } from "lucide-react";
 import { DocxView, XlsxView, PptxView } from "@/components/documents/office-viewers";
+import { ZipViewer } from "./zip-viewer";
 
 export function FileViewer({ id, name, kind }: { id: string; name: string; kind: string }) {
   const src = `/api/drive/${id}/raw`;
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
+
+  // Archive ZIP → visionneuse dédiée (naviguer + visualiser l'intérieur sans décompresser).
+  if (ext === "zip") return <ZipViewer id={id} name={name} />;
 
   if (kind === "image") {
     return (
