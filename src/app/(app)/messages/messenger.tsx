@@ -11,6 +11,7 @@ import {
   sendMessage, toggleReaction, togglePinMessage, bookmarkMessage, deleteMessage, editMessage, markRead,
 } from "@/lib/actions/messaging-actions";
 import { ConversationList } from "./conversation-list";
+import { MyStatus } from "./my-status";
 import { MessageThread } from "./message-thread";
 import { InfoPanel } from "./info-panel";
 import { NewConversation } from "./new-conversation";
@@ -21,6 +22,8 @@ interface Props {
   selfId: string;
   selfName: string;
   selfColor: string | null;
+  selfStatus: string | null;
+  selfStatusMessage: string | null;
   initialConversations: ConversationSummaryDTO[];
   initialActiveId: string | null;
   initialDetail: ConversationDetailDTO | null;
@@ -29,7 +32,7 @@ interface Props {
 }
 
 export function Messenger({
-  selfId, selfName, selfColor, initialConversations, initialActiveId, initialDetail, directory, channels,
+  selfId, selfName, selfColor, selfStatus, selfStatusMessage, initialConversations, initialActiveId, initialDetail, directory, channels,
 }: Props) {
   const [convs, setConvs] = React.useState(initialConversations);
   const [activeId, setActiveId] = React.useState<string | null>(initialActiveId);
@@ -259,6 +262,7 @@ export function Messenger({
           onSelect={openConversation}
           onNew={() => setNewOpen(true)}
           onOpenBookmarks={openBookmarks}
+          myStatus={<MyStatus name={selfName} status={selfStatus} message={selfStatusMessage} />}
         />
       </div>
 

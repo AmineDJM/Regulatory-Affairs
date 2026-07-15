@@ -14,7 +14,7 @@ export default async function MessagesPage({ searchParams }: { searchParams: { c
   const user = await requireModule("MESSAGING");
 
   const [me, conversations, directory, channels] = await Promise.all([
-    prisma.user.findUnique({ where: { id: user.id }, select: { avatarColor: true } }),
+    prisma.user.findUnique({ where: { id: user.id }, select: { avatarColor: true, chatStatus: true, statusMessage: true } }),
     getConversationSummaries(user.id),
     getDirectory(user.id),
     getDiscoverableChannels(user.id),
@@ -29,6 +29,8 @@ export default async function MessagesPage({ searchParams }: { searchParams: { c
       selfId={user.id}
       selfName={user.name}
       selfColor={me?.avatarColor ?? null}
+      selfStatus={me?.chatStatus ?? null}
+      selfStatusMessage={me?.statusMessage ?? null}
       initialConversations={conversations}
       initialActiveId={initialActiveId}
       initialDetail={initialDetail}

@@ -578,6 +578,10 @@ model User {
   region        String? // for medical delegates / sales
   lastLoginAt   DateTime?
   lastSeenAt    DateTime? // présence messagerie (heartbeat) : « en ligne / actif il y a… »
+  // Statut messagerie choisi manuellement (façon Teams) : AVAILABLE | BUSY | DND | BRB | AWAY |
+  // OFFLINE (null = automatique selon la présence). `statusMessage` = message perso court.
+  chatStatus    String?
+  statusMessage String?
 
   // Auth hardening: bump tokenVersion to invalidate all existing JWTs;
   // force a password change on next login.

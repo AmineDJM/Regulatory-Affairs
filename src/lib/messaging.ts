@@ -68,7 +68,25 @@ export const messagingUserSelect = {
   avatarColor: true,
   lastSeenAt: true,
   isActive: true,
+  chatStatus: true,
+  statusMessage: true,
 } satisfies Prisma.UserSelect;
+
+/** Statut de messagerie choisi manuellement (façon Teams). */
+export type ChatStatus = "AVAILABLE" | "BUSY" | "DND" | "BRB" | "AWAY" | "OFFLINE";
+export const CHAT_STATUSES: ChatStatus[] = ["AVAILABLE", "BUSY", "DND", "BRB", "AWAY", "OFFLINE"];
+export const CHAT_STATUS_LABEL: Record<ChatStatus, string> = {
+  AVAILABLE: "Disponible",
+  BUSY: "Occupé",
+  DND: "Ne pas déranger",
+  BRB: "De retour bientôt",
+  AWAY: "Absent",
+  OFFLINE: "Hors ligne",
+};
+/** Valide et normalise un statut manuel reçu du client (ou null pour « automatique »). */
+export function normalizeChatStatus(raw: string | null | undefined): ChatStatus | null {
+  return raw && (CHAT_STATUSES as string[]).includes(raw) ? (raw as ChatStatus) : null;
+}
 
 // ─────────────────────────── Signature des pièces jointes ───────────────────────────
 // Une pièce jointe est référencée par l'id de son blob chiffré. Pour empêcher un

@@ -12,7 +12,21 @@ import {
   sanitizeMentionIds,
   verifyBlob,
   preview,
+  normalizeChatStatus,
 } from "@/lib/messaging";
+
+/**
+ * Définit/actualise le **statut de messagerie** (façon Teams) de l'utilisateur : statut manuel
+ * (Disponible / Occupé / Ne pas déranger / De retour bientôt / Absent / Hors ligne) + message
+ * personnel court. Statut vide → retour au mode automatique (présence par heartbeat).
+ */
+export async function setMessagingStatus(formData: FormData): Promise<{ ok: boolean }> {
+  const user = await requireUser();
+  const status = normalizeChatStatus((formData.get("status") as string) || null);
+  const message = ((formData.get("message") as string) || "").trim().slice(0, 120) || null;
+  await prisma.user.update({ where: { id: user.id }, data: { chatStatus: status, statusMessage: message } });
+  return { ok: true };
+}
 import { mapMessage, messageInclude, type MessageRow, type MessageDTO } from "@/lib/queries/messaging";
 import { fdStr, fdBool, type ActionResult } from "@/lib/actions/types";
 

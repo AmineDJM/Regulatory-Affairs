@@ -6,6 +6,7 @@ import { startCall } from "@/lib/actions/meeting-actions";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import type { ConversationDetailDTO, ConvMemberDTO, MessageDTO } from "@/lib/queries/messaging";
+import { CHAT_STATUS_LABEL, CHAT_STATUSES, type ChatStatus } from "@/lib/messaging";
 import { MessageItem } from "./message-item";
 import { Composer, type SendPayload } from "./composer";
 import { PresenceDot, dayLabel, sameDay, presenceLine } from "./format";
@@ -89,7 +90,12 @@ export function MessageThread({
               {typingNames.length > 0 ? (
                 <span className="text-primary">{typingNames.join(", ")} {typingNames.length > 1 ? "écrivent" : "écrit"}…</span>
               ) : detail.type === "DIRECT" ? (
-                presenceLine(detail.presence, detail.otherLastSeenAt)
+                // Statut Teams : message perso > statut manuel > présence auto (« vu à… »).
+                detail.otherStatusMessage
+                  ? detail.otherStatusMessage
+                  : detail.otherChatStatus && (CHAT_STATUSES as string[]).includes(detail.otherChatStatus)
+                    ? CHAT_STATUS_LABEL[detail.otherChatStatus as ChatStatus]
+                    : presenceLine(detail.presence, detail.otherLastSeenAt)
               ) : (
                 `${detail.memberCount} membres${onlineCount > 0 ? ` · ${onlineCount} en ligne` : ""}`
               )}

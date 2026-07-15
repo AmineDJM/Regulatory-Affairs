@@ -16,6 +16,8 @@ interface Props {
   onSelect: (id: string) => void;
   onNew: () => void;
   onOpenBookmarks: () => void;
+  /** Sélecteur de statut personnel (façon Teams) affiché en tête de liste. */
+  myStatus?: React.ReactNode;
 }
 
 /** Avatar contextuel : photo/initiales pour un DM (avec présence), glyphe pour un canal/groupe. */
@@ -44,7 +46,7 @@ export function ConvAvatar({ c, size = "md" }: { c: ConversationSummaryDTO; size
   );
 }
 
-export function ConversationList({ conversations, activeId, onSelect, onNew, onOpenBookmarks }: Props) {
+export function ConversationList({ conversations, activeId, onSelect, onNew, onOpenBookmarks, myStatus }: Props) {
   const [filter, setFilter] = React.useState<Filter>("all");
   const [q, setQ] = React.useState("");
 
@@ -77,7 +79,9 @@ export function ConversationList({ conversations, activeId, onSelect, onNew, onO
         </div>
       </div>
 
-      <div className="px-3 pb-2">
+      {myStatus && <div className="border-y border-border px-2 py-1.5">{myStatus}</div>}
+
+      <div className="px-3 pb-2 pt-2">
         <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input

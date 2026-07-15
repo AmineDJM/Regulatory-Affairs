@@ -106,6 +106,8 @@ export interface ConversationDetailDTO {
   otherUserId: string | null;
   presence: Presence;
   otherLastSeenAt: string | null; // dernière présence de l'autre (DIRECT) → « vu à HH:MM »
+  otherChatStatus: string | null; // statut manuel de l'autre (façon Teams)
+  otherStatusMessage: string | null; // message perso de l'autre
   isPinned: boolean;
   isMuted: boolean;
   notifyLevel: "ALL" | "MENTIONS" | "NONE";
@@ -444,6 +446,8 @@ export async function getConversationDetail(
     otherUserId: d.otherUserId,
     presence: d.presence,
     otherLastSeenAt: otherMember?.user.lastSeenAt ? otherMember.user.lastSeenAt.toISOString() : null,
+    otherChatStatus: otherMember?.user.chatStatus ?? null,
+    otherStatusMessage: otherMember?.user.statusMessage ?? null,
     isPinned: membership.isPinned,
     isMuted: membership.isMuted,
     notifyLevel: membership.notifyLevel,
