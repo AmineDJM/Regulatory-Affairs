@@ -3474,6 +3474,10 @@ model AppSetting {
   // Onglet Regulatory « Enregistrement » (analyseur de dossier CTD) — masqué tant que
   // le Super Admin ne l'a pas débloqué.
   regEnrollmentEnabled Boolean  @default(false)
+  // Clés VAPID (Web Push) auto-générées et persistées si non fournies par l'environnement.
+  // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
+  vapidPublicKey       String?
+  vapidPrivateKey      String?
   updatedAt            DateTime @updatedAt
   updatedById          String?
 }

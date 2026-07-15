@@ -9,17 +9,20 @@ interface NotifyInput {
   title: string;
   body?: string;
   link?: string;
+  /** Options du push (ex. appel entrant : reste affiché + vibre). Non stockées en base. */
+  push?: { tag?: string; requireInteraction?: boolean };
 }
 
 /** Create an internal notification for a user (best-effort) + push sur ses appareils. */
 export async function notifyUser(input: NotifyInput) {
+  const { push, ...row } = input;
   try {
-    await prisma.notification.create({ data: input });
+    await prisma.notification.create({ data: row });
   } catch (err) {
     console.error("[notify] failed", err);
   }
-  // Push (PWA) — best-effort, inerte si VAPID non configuré.
-  await sendPushToUser(input.userId, { title: input.title, body: input.body, url: input.link ?? "/" });
+  // Push (PWA) — best-effort, auto-configuré (VAPID généré/persisté si absent).
+  await sendPushToUser(input.userId, { title: input.title, body: input.body, url: input.link ?? "/", tag: push?.tag, requireInteraction: push?.requireInteraction });
 }
 
 export type BroadcastAudience = "ALL" | "ROLE" | "USERS";

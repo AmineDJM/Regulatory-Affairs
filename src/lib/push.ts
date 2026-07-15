@@ -4,43 +4,102 @@ import { prisma } from "./prisma";
 /**
  * Notifications **push** (Web Push / PWA) — serveur uniquement.
  *
- * **Inerte** tant que `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` ne sont pas définis
- * (comme OnlyOffice) : aucune erreur, on n'envoie simplement rien. La clé privée
- * n'est jamais exposée au navigateur ; la clé publique est servie via `/api/push/key`.
+ * VAPID est **auto-configuré** (Web Push est gratuit et illimité — il passe par les services
+ * push des navigateurs) : si `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` sont fournis par
+ * l'environnement, on les utilise ; sinon on **génère une paire une seule fois** et on la
+ * **persiste** dans `AppSetting` (stable ensuite). Résultat : le push fonctionne par défaut,
+ * sans configuration. La clé privée n'est jamais exposée au navigateur ; la clé publique est
+ * servie via `/api/push/key`.
  */
 
-function keys() {
-  return { pub: process.env.VAPID_PUBLIC_KEY || "", priv: process.env.VAPID_PRIVATE_KEY || "" };
+interface Vapid { pub: string; priv: string }
+
+let cached: Vapid | null = null;
+let inflight: Promise<Vapid | null> | null = null;
+
+function envKeys(): Vapid | null {
+  const pub = process.env.VAPID_PUBLIC_KEY || "";
+  const priv = process.env.VAPID_PRIVATE_KEY || "";
+  return pub && priv ? { pub, priv } : null;
 }
 
-export function pushConfigured(): boolean {
-  const { pub, priv } = keys();
-  return Boolean(pub && priv);
+/** Lit les clés (env → base → génération+persistance). Best-effort : null si la base est indisponible. */
+async function loadOrCreateKeys(): Promise<Vapid | null> {
+  const env = envKeys();
+  if (env) { cached = env; return env; }
+  try {
+    const s = await prisma.appSetting.findUnique({ where: { id: "global" }, select: { vapidPublicKey: true, vapidPrivateKey: true } });
+    if (s?.vapidPublicKey && s?.vapidPrivateKey) { cached = { pub: s.vapidPublicKey, priv: s.vapidPrivateKey }; return cached; }
+    // Aucune clé encore : on en génère une et on la persiste (ligne globale créée au besoin).
+    const gen = webpush.generateVAPIDKeys();
+    await prisma.appSetting.upsert({
+      where: { id: "global" },
+      create: { id: "global", vapidPublicKey: gen.publicKey, vapidPrivateKey: gen.privateKey },
+      update: { vapidPublicKey: gen.publicKey, vapidPrivateKey: gen.privateKey },
+    });
+    // Relit la valeur réellement enregistrée (en cas de course, on prend la gagnante).
+    const fresh = await prisma.appSetting.findUnique({ where: { id: "global" }, select: { vapidPublicKey: true, vapidPrivateKey: true } });
+    cached = fresh?.vapidPublicKey && fresh?.vapidPrivateKey
+      ? { pub: fresh.vapidPublicKey, priv: fresh.vapidPrivateKey }
+      : { pub: gen.publicKey, priv: gen.privateKey };
+    return cached;
+  } catch (err) {
+    console.error("[push] clés VAPID indisponibles", err);
+    return null;
+  }
 }
-export function vapidPublicKey(): string {
-  return keys().pub;
+
+async function getKeys(): Promise<Vapid | null> {
+  if (cached) return cached;
+  const env = envKeys();
+  if (env) { cached = env; return env; }
+  if (!inflight) inflight = loadOrCreateKeys().finally(() => { inflight = null; });
+  return inflight;
+}
+
+/** Toujours vrai en pratique (clés auto-générées) — faux seulement si la base est injoignable. */
+export async function pushConfigured(): Promise<boolean> {
+  return (await getKeys()) !== null;
+}
+
+export async function vapidPublicKey(): Promise<string> {
+  return (await getKeys())?.pub ?? "";
 }
 
 let vapidReady = false;
-function ensureVapid(): boolean {
-  if (!pushConfigured()) return false;
+async function ensureVapid(): Promise<boolean> {
+  const k = await getKeys();
+  if (!k) return false;
   if (!vapidReady) {
-    const { pub, priv } = keys();
-    webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:admin@adventum.dz", pub, priv);
+    webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:admin@adventum.dz", k.pub, k.priv);
     vapidReady = true;
   }
   return true;
 }
 
-export interface PushPayload { title: string; body?: string; url?: string }
+export interface PushPayload {
+  title: string;
+  body?: string;
+  url?: string;
+  /** Regroupe/relance la notification (ex. un appel = un tag unique). */
+  tag?: string;
+  /** Garde la notification affichée jusqu'à interaction (appels entrants). */
+  requireInteraction?: boolean;
+}
 
 /** Pousse une notification à tous les appareils d'un utilisateur (best-effort). */
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
-  if (!ensureVapid()) return;
+  if (!(await ensureVapid())) return;
   try {
     const subs = await prisma.pushSubscription.findMany({ where: { userId } });
     if (subs.length === 0) return;
-    const data = JSON.stringify({ title: payload.title, body: payload.body ?? "", url: payload.url ?? "/" });
+    const data = JSON.stringify({
+      title: payload.title,
+      body: payload.body ?? "",
+      url: payload.url ?? "/",
+      tag: payload.tag,
+      requireInteraction: payload.requireInteraction ?? false,
+    });
     await Promise.all(
       subs.map(async (s) => {
         try {

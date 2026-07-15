@@ -207,8 +207,15 @@ export async function startCall(formData: FormData): Promise<ActionResult> {
   await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: msg.createdAt } });
   await prisma.conversationMember.updateMany({ where: { conversationId, userId: user.id }, data: { lastReadAt: msg.createdAt } });
 
+  // Appel entrant : push qui reste affiché + vibre (façon sonnerie), un tag par appel.
   await Promise.all(others.map((userId) =>
-    notifyUser({ userId, type: "GENERIC", title: `${icon} Appel entrant`, body: `${user.name} vous appelle`, link: `/meetings/${meeting.id}` }),
+    notifyUser({
+      userId, type: "GENERIC",
+      title: `${icon} Appel ${withVideo ? "vidéo" : "audio"} entrant`,
+      body: `${user.name} vous appelle`,
+      link: `/meetings/${meeting.id}`,
+      push: { tag: `call-${meeting.id}`, requireInteraction: true },
+    }),
   ));
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Réunions", entityId: meeting.id, summary: `Appel ${withVideo ? "vidéo" : "audio"} lancé` });
   revalidatePath("/messages");

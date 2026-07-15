@@ -1067,6 +1067,17 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Web Push (VAPID) auto-configuré + intégré partout.** Le push (gratuit et illimité — il passe
+  par les services push des navigateurs) n'est **plus inerte** : si l'environnement ne fournit pas de
+  clés `VAPID_*`, le serveur **génère une paire une seule fois et la persiste** (`AppSetting.vapidPublicKey`
+  / `vapidPrivateKey`, clé privée jamais exposée). Il suffit à chaque utilisateur d'**activer les
+  notifications** une fois (bouton dans le module Notifications) pour recevoir sur son appareil **même
+  plateforme fermée** : **appels & appels vidéo** (notification qui **reste affichée + vibre**, façon
+  sonnerie, un tag par appel), **messages**, **toutes les notifications** (validations, rappels
+  « Me rappeler », affectations…) et les **pop-up d'annonce** de l'Administration — tout ce qui passe par
+  `notifyUser` / `broadcastNotification` pousse désormais réellement. `PushPayload` gagne `tag` +
+  `requireInteraction` (honorés par le service worker). Les variables d'environnement `VAPID_*` restent
+  prioritaires si on veut fixer soi-même les clés.
 - **Notifications en pop-up plein écran (depuis l'Administration).** Le compositeur de diffusion
   (Administration → Réglages) gagne une case **« Afficher en pop-up plein écran »** : la notification
   s'affiche alors dans une **grande fenêtre centrée** au milieu de l'écran du destinataire (façon alerte

@@ -11,7 +11,11 @@ self.addEventListener("push", (event) => {
     body: data.body || "",
     icon: "/icon.svg",
     badge: "/icon.svg",
-    tag: data.url || "amd-notification",
+    tag: data.tag || data.url || "amd-notification",
+    renotify: true,
+    // Appels entrants : la notification reste affichée jusqu'à interaction + vibre.
+    requireInteraction: Boolean(data.requireInteraction),
+    vibrate: data.requireInteraction ? [200, 100, 200, 100, 200] : [100],
     data: { url: data.url || "/" },
   };
   event.waitUntil(self.registration.showNotification(title, options));
