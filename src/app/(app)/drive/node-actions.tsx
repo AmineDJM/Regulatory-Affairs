@@ -2,13 +2,15 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Download, Trash2, RotateCcw, Pencil, Loader2, Check, FolderInput } from "lucide-react";
-import { renameNode, trashNode, restoreNode, deleteNode, moveNode } from "@/lib/actions/drive-actions";
+import { Download, Trash2, RotateCcw, Pencil, Loader2, Check, FolderInput, UserPlus } from "lucide-react";
+import { renameNode, trashNode, restoreNode, deleteNode, moveNode, getDriveNodeShares } from "@/lib/actions/drive-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { SharePanel, type ShareItem } from "./[id]/share-panel";
 
 interface MoveTarget { id: string; name: string }
+interface UserLite { id: string; name: string }
 
 interface Props {
   id: string;
@@ -18,6 +20,32 @@ interface Props {
   trash?: boolean;
   /** Dossiers de destination pour « Déplacer » (présent = action disponible). */
   moveTargets?: MoveTarget[];
+  /** Personnes avec qui partager (présent = action « Gérer l'accès » disponible). */
+  users?: UserLite[];
+}
+
+/** Panneau « Gérer l'accès » d'un nœud (dossier ou fichier) — comme Google Drive, à tout moment. */
+function AccessSheet({ nodeId, name, users, open, onClose }: { nodeId: string; name: string; users: UserLite[]; open: boolean; onClose: () => void }) {
+  const [loading, setLoading] = React.useState(true);
+  const [shares, setShares] = React.useState<ShareItem[]>([]);
+  const [canEdit, setCanEdit] = React.useState(false);
+
+  const load = React.useCallback(() => {
+    getDriveNodeShares(nodeId).then((r) => {
+      if (r.ok) { setShares(r.shares ?? []); setCanEdit(r.canEdit ?? false); }
+      setLoading(false);
+    });
+  }, [nodeId]);
+
+  React.useEffect(() => { if (open) { setLoading(true); load(); } }, [open, load]);
+
+  return (
+    <Sheet open={open} onClose={onClose} title={`Accès — « ${name} »`} description="Qui peut voir ou modifier. Les sous-dossiers et fichiers héritent de cet accès." width="md">
+      {loading
+        ? <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        : <SharePanel nodeId={nodeId} users={users} shares={shares} canEdit={canEdit} onChanged={load} />}
+    </Sheet>
+  );
 }
 
 function IconForm({ action, id, title, children }: { action: (fd: FormData) => Promise<unknown>; id: string; title: string; children: React.ReactNode }) {
@@ -33,10 +61,11 @@ function IconForm({ action, id, title, children }: { action: (fd: FormData) => P
   );
 }
 
-export function NodeActions({ id, name, isFile, canEdit, trash, moveTargets }: Props) {
+export function NodeActions({ id, name, isFile, canEdit, trash, moveTargets, users }: Props) {
   const router = useRouter();
   const [renaming, setRenaming] = React.useState(false);
   const [moving, setMoving] = React.useState(false);
+  const [sharing, setSharing] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [moveErr, setMoveErr] = React.useState<string | null>(null);
   // On ne peut pas déplacer un dossier dans lui-même.
@@ -58,6 +87,12 @@ export function NodeActions({ id, name, isFile, canEdit, trash, moveTargets }: P
             <button type="button" title="Déplacer" onClick={() => { setMoveErr(null); setMoving(true); }}
               className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground">
               <FolderInput className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {users && (
+            <button type="button" title={isFile ? "Gérer l'accès" : "Gérer l'accès (dossier + contenu)"} onClick={() => setSharing(true)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground">
+              <UserPlus className="h-3.5 w-3.5" />
             </button>
           )}
           <IconForm action={trashNode} id={id} title="Corbeille"><Trash2 className="h-3.5 w-3.5" /></IconForm>
@@ -109,6 +144,8 @@ export function NodeActions({ id, name, isFile, canEdit, trash, moveTargets }: P
           </div>
         </form>
       </Sheet>
+
+      {users && <AccessSheet nodeId={id} name={name} users={users} open={sharing} onClose={() => setSharing(false)} />}
     </div>
   );
 }

@@ -10,7 +10,7 @@ import { Select } from "@/components/ui/input";
 export interface ShareItem { userId: string; name: string; access: string }
 
 /** Ligne d'un partage : l'accès est **modifiable** (Lecture / Éditeur / Aucun accès). */
-function ShareRow({ nodeId, share, canEdit }: { nodeId: string; share: ShareItem; canEdit: boolean }) {
+function ShareRow({ nodeId, share, canEdit, onChanged }: { nodeId: string; share: ShareItem; canEdit: boolean; onChanged?: () => void }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
 
@@ -26,6 +26,7 @@ function ShareRow({ nodeId, share, canEdit }: { nodeId: string; share: ShareItem
       await shareNode(fd);
     }
     setBusy(false);
+    onChanged?.();
     router.refresh();
   }
 
@@ -54,12 +55,14 @@ function ShareRow({ nodeId, share, canEdit }: { nodeId: string; share: ShareItem
 }
 
 export function SharePanel({
-  nodeId, users, shares, canEdit,
+  nodeId, users, shares, canEdit, onChanged,
 }: {
   nodeId: string;
   users: { id: string; name: string }[];
   shares: ShareItem[];
   canEdit: boolean;
+  /** Appelé après un ajout / changement / retrait — pour rafraîchir un panneau embarqué. */
+  onChanged?: () => void;
 }) {
   const router = useRouter();
   const [saving, setSaving] = React.useState(false);
@@ -70,13 +73,13 @@ export function SharePanel({
         <p className="text-sm text-muted-foreground">Pas encore partagé.</p>
       ) : (
         <ul className="space-y-1.5">
-          {shares.map((s) => <ShareRow key={s.userId} nodeId={nodeId} share={s} canEdit={canEdit} />)}
+          {shares.map((s) => <ShareRow key={s.userId} nodeId={nodeId} share={s} canEdit={canEdit} onChanged={onChanged} />)}
         </ul>
       )}
 
       {canEdit && users.length > 0 && (
         <form
-          action={async (fd) => { setSaving(true); await shareNode(fd); setSaving(false); router.refresh(); }}
+          action={async (fd) => { setSaving(true); await shareNode(fd); setSaving(false); onChanged?.(); router.refresh(); }}
           className="flex items-end gap-2 border-t border-border pt-3"
         >
           <input type="hidden" name="nodeId" value={nodeId} />

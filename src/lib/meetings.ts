@@ -70,7 +70,11 @@ export function canViewMeeting(user: SessionUser, meeting: MeetingAccessShape): 
   return (meeting.participants ?? []).some((p) => p.userId === user.id);
 }
 
-/** Qui peut gérer (clôturer, supprimer, lancer la transcription) : organisateur ou vue globale. */
+/**
+ * Qui peut gérer une réunion (modifier ses paramètres/infos, clôturer, lancer la transcription,
+ * traiter les tâches proposées) : **uniquement l'organisateur** (le Super Admin reste le filet de
+ * sécurité de la plateforme). La Direction / une vue globale n'édite PAS les réunions des autres.
+ */
 export function canManageMeeting(user: SessionUser, meeting: MeetingAccessShape): boolean {
-  return hasGlobalView(user.role) || meeting.organizerId === user.id;
+  return meeting.organizerId === user.id || user.role === "SUPER_ADMIN";
 }

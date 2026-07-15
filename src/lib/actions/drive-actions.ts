@@ -53,6 +53,65 @@ export async function createFolder(
   return { ok: true, id: node.id };
 }
 
+/**
+ * Import de DOSSIER (façon Google Drive) : recrée l'arborescence exacte à partir des chemins
+ * relatifs des fichiers (`webkitRelativePath`). Pour chaque chemin de dossier, crée les niveaux
+ * manquants sous `parentId` en RÉUTILISANT un dossier existant du même nom (pas de doublon), et
+ * renvoie la carte `chemin relatif → id du dossier` pour y téléverser ensuite chaque fichier.
+ */
+export async function ensureDriveFolders(
+  parentId: string | null,
+  paths: string[],
+): Promise<{ ok: boolean; error?: string; map?: Record<string, string> }> {
+  const user = await requireUser();
+  if (!userCan(user, "DRIVE", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (parentId && (await resolveDriveAccess(user, parentId)) !== "EDIT") return { ok: false, error: "Dossier de destination non autorisé." };
+
+  const map: Record<string, string> = {};
+  for (const raw of paths) {
+    const segments = raw.split("/").map((s) => s.trim()).filter(Boolean);
+    let curParent = parentId;
+    let acc = "";
+    for (const seg of segments) {
+      acc = acc ? `${acc}/${seg}` : seg;
+      if (map[acc]) { curParent = map[acc]; continue; }
+      const existing = await prisma.driveNode.findFirst({
+        where: { parentId: curParent, name: seg, type: "FOLDER", isTrashed: false },
+        select: { id: true },
+      });
+      const id = existing
+        ? existing.id
+        : (await prisma.driveNode.create({
+            data: { name: seg.slice(0, 200), type: "FOLDER", parentId: curParent ?? null, ownerId: user.id, createdById: user.id },
+            select: { id: true },
+          })).id;
+      map[acc] = id;
+      curParent = id;
+    }
+  }
+  revalidatePath("/drive");
+  return { ok: true, map };
+}
+
+/** Partages actuels d'un nœud (dossier OU fichier) pour le panneau « Gérer l'accès ». */
+export async function getDriveNodeShares(
+  nodeId: string,
+): Promise<{ ok: boolean; error?: string; canEdit?: boolean; shares?: { userId: string; name: string; access: string }[] }> {
+  const user = await requireUser();
+  const level = await resolveDriveAccess(user, nodeId);
+  if (level === "NONE") return { ok: false, error: "Non autorisé." };
+  const node = await prisma.driveNode.findUnique({
+    where: { id: nodeId },
+    select: { shares: { include: { user: { select: { id: true, name: true } } } } },
+  });
+  if (!node) return { ok: false, error: "Introuvable." };
+  return {
+    ok: true,
+    canEdit: level === "EDIT",
+    shares: node.shares.map((s) => ({ userId: s.userId, name: s.user?.name ?? "—", access: s.access })),
+  };
+}
+
 export async function renameNode(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");

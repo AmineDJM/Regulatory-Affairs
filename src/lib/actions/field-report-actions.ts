@@ -152,8 +152,10 @@ export async function submitFieldReport(formData: FormData): Promise<ActionResul
   const transcript = fdStr(formData, "transcript");
   if (!transcript) return { ok: false, error: "Dictez ou saisissez d'abord votre compte rendu." };
 
-  // Nom du médecin saisi MANUELLEMENT par le délégué (prioritaire, jamais écrasé par l'IA).
+  // Nom du médecin + établissement saisis MANUELLEMENT par le délégué (optionnels, prioritaires,
+  // jamais écrasés par l'IA).
   const manualDoctorName = fdStr(formData, "doctorName");
+  const manualInstitution = fdStr(formData, "institution");
 
   await prisma.fieldReport.update({
     where: { id },
@@ -162,6 +164,7 @@ export async function submitFieldReport(formData: FormData): Promise<ActionResul
       visitDate: fdDate(formData, "visitDate") ?? undefined,
       doctorId: fdStr(formData, "doctorId"),
       doctorName: manualDoctorName,
+      institution: manualInstitution,
     },
   });
 
@@ -185,8 +188,8 @@ export async function submitFieldReport(formData: FormData): Promise<ActionResul
           where: { id },
           data: {
             doctorId,
-            // Le nom saisi manuellement prime ; l'IA ne complète que s'il est absent.
-            doctorName: manualDoctorName || d.doctorName || null, institution: d.institution || null, specialty: d.specialty || null,
+            // Le nom + l'établissement saisis manuellement priment ; l'IA ne complète que s'ils sont absents.
+            doctorName: manualDoctorName || d.doctorName || null, institution: manualInstitution || d.institution || null, specialty: d.specialty || null,
             products: d.products || null, interest: d.interest || null, objection: d.objection || null,
             medicalQuestion: d.medicalQuestion || null, documentRequest: d.documentRequest || null,
             sponsoringRequest: d.sponsoringRequest || null, careRequest: d.careRequest || null,

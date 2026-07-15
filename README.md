@@ -1068,6 +1068,21 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Drive (accès dossiers + import de dossier + fiabilité) · réunions verrouillées · téléversement
+  déplaçable · rapports terrain épurés (6 sujets).** **(1) Accès des dossiers Drive éditables** — un
+  bouton **« Gérer l'accès »** sur chaque dossier **et** fichier (pas seulement à l'import) ouvre le
+  partage Lecture / Éditeur / Aucun ; l'accès posé sur un dossier est **hérité** par tout son contenu
+  (résolution en remontant l'arbre, façon Google Drive). **(2) Import de DOSSIER** (sans ZIP) — on
+  choisit un dossier de l'ordinateur, son **arborescence exacte** (dossiers dans dossiers…) est
+  recréée dans le Drive puis chaque fichier téléversé au bon endroit (`webkitdirectory` →
+  `ensureDriveFolders` recrée l'arbre sans doublon → envoi par fichier). **(3) Fiabilité des envois** —
+  bouton **« Réessayer »** sur un lot en échec (relance seulement les fichiers ratés, sans perdre la
+  file) + retentes portées à 5 avec backoff 0,5 → 4 s. **(4) Réunions** — seuls **l'organisateur**
+  (et le Super Admin) peuvent modifier les paramètres/infos d'une réunion (plus la Direction).
+  **(5) Fenêtre flottante de téléversement** — **déplaçable** partout à l'écran (glisser l'en-tête) et
+  **réductible** en une petite bulle. **(6) Rapports terrain épurés** — même en vue Direction, plus de
+  listes agrégées (pharmacovigilance, opportunités, objections…) : **juste les rapports, les uns après
+  les autres**. Côté délégué, **hôpital/établissement** et **médecin** sont **optionnels** (champ libre).
 - **Messagerie façon WhatsApp + Stocks affinés (3 sujets).** **(1) Présence en ligne / hors ligne
   avec heure exacte** — l'en-tête d'une conversation directe affiche **« En ligne »** (point vert) ou,
   hors ligne, **« Vu à HH:MM »** (heure exacte du dernier passage, « hier » / date au-delà), mis à jour
