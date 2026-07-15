@@ -1068,6 +1068,32 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Réunions (gestion des participants) · Courrier retiré · statut Teams · carillon de rappel · clic
+  notif = lu (8 sujets, dont 3 déjà couverts).** **(1) Gestion des participants d'une réunion** —
+  l'organisateur (et le Super Admin) peut **ajouter** (multi-sélection avec recherche), **retirer** des
+  participants après création via un panneau **« Gérer les participants »** dans l'en-tête de la carte
+  Participants (`manage-participants.tsx` → `addMeetingParticipants` / `removeMeetingParticipant`).
+  **(2) Documents — visualiser / modifier / imprimer / supprimer** : déjà en place — `DocumentPreview`
+  offre l'aperçu, l'impression (icône imprimante), le renommage, l'édition Office et la suppression,
+  aussi bien dans le module **Documents** que sur les fichiers du **Drive** (visionneuse + actions de
+  nœud). **(3) Accès (Administration) réellement connecté** : déjà le cas — `getAccess` lit
+  `userAccess` **en direct à chaque requête** (`session.ts` l'appelle systématiquement, le JWT ne met
+  **pas** l'accès en cache) ; une modification d'accès prend donc effet **au prochain chargement de
+  page** de l'utilisateur concerné (il peut devoir rafraîchir). **(4) Drive = disque de l'ordinateur en
+  temps réel** : impossible en application **web pure** (un navigateur ne peut pas lire en continu un
+  dossier local en arrière-plan) ; on fournit l'**import de dossier** (arborescence exacte, déjà livré)
+  et une resynchro « dossier vivant » tant que l'onglet est ouvert — une vraie synchro permanente
+  exigerait un **agent bureau natif** (projet séparé). **(5) Boîte mail « Courrier » retirée** —
+  entièrement supprimée du menu et de la plateforme (`/courrier` redirige vers Mon espace) ; Infomaniak
+  reste dans son app dédiée. **(6) Statut façon Teams** — chaque utilisateur choisit son statut
+  (Disponible, Occupé, Ne pas déranger, De retour bientôt, Absent, Hors ligne) **et** un message perso
+  court, affiché dans la messagerie (en-tête de conversation + sélecteur en tête de liste) ; « Auto »
+  repasse en présence automatique (`User.chatStatus` / `statusMessage`, `setMessagingStatus`).
+  **(7) Carillon de rappel** — une **notification sonore** discrète et pro (petit arpège) + une notif
+  bureau se déclenchent quand une notification non lue arrive (rappels « Me rappeler » compris)
+  (`notification-chime.tsx` interroge `/api/notifications/poll`). **(8) Clic sur une notif = lu** —
+  cliquer une notification la marque **lue** (et suit son lien) ; plus besoin de la coche par élément
+  (« Tout marquer comme lu » conservé).
 - **Drive (accès dossiers + import de dossier + fiabilité) · réunions verrouillées · téléversement
   déplaçable · rapports terrain épurés (6 sujets).** **(1) Accès des dossiers Drive éditables** — un
   bouton **« Gérer l'accès »** sur chaque dossier **et** fichier (pas seulement à l'import) ouvre le
