@@ -1068,6 +1068,16 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Messagerie façon WhatsApp + Stocks affinés (3 sujets).** **(1) Présence en ligne / hors ligne
+  avec heure exacte** — l'en-tête d'une conversation directe affiche **« En ligne »** (point vert) ou,
+  hors ligne, **« Vu à HH:MM »** (heure exacte du dernier passage, « hier » / date au-delà), mis à jour
+  en direct via le heartbeat existant (`lastSeenAt`). **(2) Accusés de lecture (coches)** — sur MES
+  messages : **une coche** = envoyé, **deux coches** = distribué (le destinataire a synchronisé),
+  **deux coches bleues** = lu ; calculé à partir de `ConversationMember.lastReadAt` (lu) et `lastSeenAt`
+  (distribué), en groupe il faut que **tout le monde** ait vu/lu (aucune migration, données déjà là).
+  **(3) Stocks — produits filtrés** : seuls les produits Regulatory au statut **« Décision obtenue »**
+  (`DECISION_OBTAINED`) sont proposés pour saisir un état de stock (on ne suit que des produits
+  réellement enregistrés).
 - **Chat de réunion + validation à commentaire optionnel + badges de menu + « Mon dossier RH » autonome
   + Annexes PCH de retour (5 sujets).** **(1) Fil de discussion dans la réunion** — chaque réunion a
   désormais un **vrai chat** (comme les autres discussions) : **texte + pièces jointes intégrées**

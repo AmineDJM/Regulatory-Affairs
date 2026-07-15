@@ -52,6 +52,24 @@ export function presenceText(presence: Presence): string {
   return presence === "online" ? "En ligne" : presence === "away" ? "Absent" : "Hors ligne";
 }
 
+/**
+ * Ligne de présence d'un contact direct, façon messagerie : « En ligne » (vert) sinon
+ * « Vu à HH:MM » / « Vu hier à HH:MM » / « Vu le JJ mois à HH:MM » à partir de l'heure exacte
+ * du dernier passage. Sans horodatage connu → « Hors ligne ».
+ */
+export function presenceLine(presence: Presence, lastSeenAt: string | null): string {
+  if (presence === "online") return "En ligne";
+  if (!lastSeenAt) return "Hors ligne";
+  const d = new Date(lastSeenAt);
+  const time = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return `Vu à ${time}`;
+  const yest = new Date(today);
+  yest.setDate(yest.getDate() - 1);
+  if (d.toDateString() === yest.toDateString()) return `Vu hier à ${time}`;
+  return `Vu le ${d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })} à ${time}`;
+}
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} o`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} Ko`;

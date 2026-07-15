@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import {
-  SmilePlus, Reply, Pin, PinOff, Bookmark, BookmarkCheck, Pencil, Trash2, Copy, Check,
+  SmilePlus, Reply, Pin, PinOff, Bookmark, BookmarkCheck, Pencil, Trash2, Copy, Check, CheckCheck,
   Download, FileText, CornerDownRight,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
@@ -196,9 +196,14 @@ export function MessageItem({
               </div>
             )}
 
-            <span className={cn("mt-0.5 block text-right text-[10px]", isOwn ? "text-primary-foreground/60" : "text-muted-foreground")}>
-              {m.editedAt && "modifié · "}
-              {timeOf(m.createdAt)}
+            <span className={cn("mt-0.5 flex items-center justify-end gap-1 text-[10px]", isOwn ? "text-primary-foreground/60" : "text-muted-foreground")}>
+              {m.editedAt && <span>modifié ·</span>}
+              <span>{timeOf(m.createdAt)}</span>
+              {isOwn && m.receipt && (
+                m.receipt === "sent"
+                  ? <Check className="h-3.5 w-3.5 shrink-0" aria-label="Envoyé" />
+                  : <CheckCheck className={cn("h-3.5 w-3.5 shrink-0", m.receipt === "read" ? "text-sky-300" : "")} aria-label={m.receipt === "read" ? "Lu" : "Distribué"} />
+              )}
             </span>
           </div>
         )}

@@ -81,6 +81,8 @@ export interface MessageDTO {
   refType: string | null;
   refId: string | null;
   refLabel: string | null;
+  // Accusé façon messagerie, uniquement sur MES messages (DIRECT/GROUP) : envoyé → distribué → lu.
+  receipt?: "sent" | "delivered" | "read";
 }
 
 export interface ConvMemberDTO {
@@ -103,6 +105,7 @@ export interface ConversationDetailDTO {
   icon: string | null;
   otherUserId: string | null;
   presence: Presence;
+  otherLastSeenAt: string | null; // dernière présence de l'autre (DIRECT) → « vu à HH:MM »
   isPinned: boolean;
   isMuted: boolean;
   notifyLevel: "ALL" | "MENTIONS" | "NONE";
@@ -186,6 +189,39 @@ export function mapMessage(m: MessageRow, selfId: string): MessageDTO {
     refId: m.refId,
     refLabel: m.refLabel,
   };
+}
+
+// ─────────────────────────── Accusés de lecture (coches façon messagerie) ───────────────────────────
+// « distribué » = tous les AUTRES membres actifs ont un heartbeat (lastSeenAt) postérieur au message
+// (leur client a synchronisé) ; « lu » = tous ont un accusé de lecture (lastReadAt) postérieur. On
+// prend le MINIMUM sur les autres membres : en groupe, il faut que TOUT le monde ait vu/lu (WhatsApp).
+
+type ReceiptMember = { userId: string; lastReadAt: Date | null; user: { lastSeenAt: Date | null } };
+
+function receiptThresholds(members: ReceiptMember[], selfId: string): { read: number | null; delivered: number | null } | null {
+  const others = members.filter((m) => m.userId !== selfId);
+  if (others.length === 0) return null;
+  let read: number | null = Number.POSITIVE_INFINITY;
+  let delivered: number | null = Number.POSITIVE_INFINITY;
+  for (const o of others) {
+    const r = o.lastReadAt ? o.lastReadAt.getTime() : null;
+    const s = o.user.lastSeenAt ? o.user.lastSeenAt.getTime() : null;
+    read = r === null || read === null ? null : Math.min(read, r);
+    delivered = s === null || delivered === null ? null : Math.min(delivered, s);
+  }
+  return { read: read === Number.POSITIVE_INFINITY ? null : read, delivered: delivered === Number.POSITIVE_INFINITY ? null : delivered };
+}
+
+/** Annote MES messages d'un accusé (envoyé → distribué → lu). Ignoré pour les canaux (diffusion). */
+function annotateReceipts(messages: MessageDTO[], members: ReceiptMember[], selfId: string, type: string): void {
+  if (type === "CHANNEL") return;
+  const th = receiptThresholds(members, selfId);
+  if (!th) return;
+  for (const m of messages) {
+    if (m.senderId !== selfId || m.deleted || m.kind === "SYSTEM") continue;
+    const t = new Date(m.createdAt).getTime();
+    m.receipt = th.read !== null && th.read >= t ? "read" : th.delivered !== null && th.delivered >= t ? "delivered" : "sent";
+  }
 }
 
 // ─────────────────────────── Conversation description ───────────────────────────
@@ -394,6 +430,9 @@ export async function getConversationDetail(
   ]);
 
   const d = describe(c, c.members, selfId);
+  const messages = rows.reverse().map((m) => mapMessage(m as unknown as MessageRow, selfId));
+  annotateReceipts(messages, c.members, selfId, c.type);
+  const otherMember = c.type === "DIRECT" ? c.members.find((m) => m.userId !== selfId) : null;
   return {
     id: c.id,
     type: c.type,
@@ -404,6 +443,7 @@ export async function getConversationDetail(
     icon: d.icon,
     otherUserId: d.otherUserId,
     presence: d.presence,
+    otherLastSeenAt: otherMember?.user.lastSeenAt ? otherMember.user.lastSeenAt.toISOString() : null,
     isPinned: membership.isPinned,
     isMuted: membership.isMuted,
     notifyLevel: membership.notifyLevel,
@@ -420,7 +460,7 @@ export async function getConversationDetail(
       avatarColor: m.user.avatarColor,
       presence: presenceOf(m.user.lastSeenAt),
     })),
-    messages: rows.reverse().map((m) => mapMessage(m as unknown as MessageRow, selfId)),
+    messages,
     pinnedMessages: pinnedRows.map((m) => mapMessage(m as unknown as MessageRow, selfId)),
   };
 }
@@ -430,9 +470,10 @@ export interface ThreadRefresh {
   messages: MessageDTO[];
   pinnedMessages: MessageDTO[];
   presence: Record<string, Presence>;
+  otherLastSeenAt: string | null;
 }
 
-/** Rafraîchissement léger du fil actif (polling) — messages + présence membres. */
+/** Rafraîchissement léger du fil actif (polling) — messages + présence membres + accusés. */
 export async function getThreadRefresh(
   selfId: string,
   conversationId: string,
@@ -440,9 +481,9 @@ export async function getThreadRefresh(
 ): Promise<ThreadRefresh> {
   const membership = await prisma.conversationMember.findFirst({
     where: { userId: selfId, conversationId, leftAt: null },
-    select: { id: true },
+    select: { id: true, conversation: { select: { type: true } } },
   });
-  if (!membership) return { ok: false, messages: [], pinnedMessages: [], presence: {} };
+  if (!membership) return { ok: false, messages: [], pinnedMessages: [], presence: {}, otherLastSeenAt: null };
 
   const [rows, pinnedRows, members] = await Promise.all([
     prisma.message.findMany({
@@ -458,18 +499,24 @@ export async function getThreadRefresh(
     }),
     prisma.conversationMember.findMany({
       where: { conversationId, leftAt: null },
-      select: { userId: true, user: { select: { lastSeenAt: true } } },
+      select: { userId: true, lastReadAt: true, user: { select: { lastSeenAt: true } } },
     }),
   ]);
 
   const presence: Record<string, Presence> = {};
   for (const m of members) presence[m.userId] = presenceOf(m.user.lastSeenAt);
 
+  const type = membership.conversation.type;
+  const messages = rows.reverse().map((m) => mapMessage(m as unknown as MessageRow, selfId));
+  annotateReceipts(messages, members, selfId, type);
+  const otherMember = type === "DIRECT" ? members.find((m) => m.userId !== selfId) : null;
+
   return {
     ok: true,
-    messages: rows.reverse().map((m) => mapMessage(m as unknown as MessageRow, selfId)),
+    messages,
     pinnedMessages: pinnedRows.map((m) => mapMessage(m as unknown as MessageRow, selfId)),
     presence,
+    otherLastSeenAt: otherMember?.user.lastSeenAt ? otherMember.user.lastSeenAt.toISOString() : null,
   };
 }
 

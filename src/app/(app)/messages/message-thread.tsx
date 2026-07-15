@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { ConversationDetailDTO, ConvMemberDTO, MessageDTO } from "@/lib/queries/messaging";
 import { MessageItem } from "./message-item";
 import { Composer, type SendPayload } from "./composer";
-import { PresenceDot, dayLabel, sameDay, presenceText } from "./format";
+import { PresenceDot, dayLabel, sameDay, presenceLine } from "./format";
 
 interface Props {
   detail: ConversationDetailDTO;
@@ -89,7 +89,7 @@ export function MessageThread({
               {typingNames.length > 0 ? (
                 <span className="text-primary">{typingNames.join(", ")} {typingNames.length > 1 ? "écrivent" : "écrit"}…</span>
               ) : detail.type === "DIRECT" ? (
-                presenceText(detail.presence)
+                presenceLine(detail.presence, detail.otherLastSeenAt)
               ) : (
                 `${detail.memberCount} membres${onlineCount > 0 ? ` · ${onlineCount} en ligne` : ""}`
               )}

@@ -6,6 +6,7 @@ import { Sheet } from "@/components/ui/sheet";
 import type {
   ConversationSummaryDTO, ConversationDetailDTO, DirectoryUserDTO, ChannelDTO, MessageDTO, BookmarkDTO,
 } from "@/lib/queries/messaging";
+import type { Presence } from "@/lib/messaging";
 import {
   sendMessage, toggleReaction, togglePinMessage, bookmarkMessage, deleteMessage, editMessage, markRead,
 } from "@/lib/actions/messaging-actions";
@@ -100,7 +101,16 @@ export function Messenger({
       setTyping(data.typing ?? []);
       setDetail((d) => {
         if (!d || d.id !== id) return d;
-        return { ...d, messages: data.messages as MessageDTO[], pinnedMessages: data.pinnedMessages as MessageDTO[] };
+        // Présence en direct : met à jour l'en-tête (statut + « vu à… ») et la présence des membres.
+        const presence = (data.presence ?? {}) as Record<string, Presence>;
+        return {
+          ...d,
+          messages: data.messages as MessageDTO[],
+          pinnedMessages: data.pinnedMessages as MessageDTO[],
+          presence: d.otherUserId && presence[d.otherUserId] ? presence[d.otherUserId] : d.presence,
+          otherLastSeenAt: (data.otherLastSeenAt ?? d.otherLastSeenAt) as string | null,
+          members: d.members.map((mem) => (presence[mem.userId] ? { ...mem, presence: presence[mem.userId] } : mem)),
+        };
       });
       // Accusé de lecture quand le dernier message vient d'un autre et que l'onglet est visible.
       const msgs = data.messages as MessageDTO[];
@@ -159,6 +169,7 @@ export function Messenger({
       attachments: payload.attachments.map((a, i) => ({ id: `tmp-${i}`, name: a.name, mime: a.mime, size: a.size, isImage: false })),
       mentionIds: payload.mentions,
       refType: null, refId: null, refLabel: null,
+      receipt: "sent", // une coche immédiate ; le poll passera à distribué/lu
     };
     setDetail((d) => (d && d.id === id ? { ...d, messages: [...d.messages, optimistic] } : d));
 
