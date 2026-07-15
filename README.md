@@ -169,7 +169,7 @@ jamais identique.
 | **Assistant IA** 💬 | **bulle flottante** (partout) | Chatbot interne (boucle agent Claude) **scopé par les droits**, présent sur **toutes les pages**. **Suggestions proactives** sur les messages non lus. → [détails](#-intelligence-artificielle-claude--whisper) |
 | **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation, CNAS, relevé d'émoluments, titre/demandes de congé — annuel, sans solde, exceptionnel, maternité —, sortie exceptionnelle, arrêt maladie, **note de frais avec mois obligatoire**, **entrevue avec les RH** à date négociée) avec **pièces jointes** et **fil d'échange** par demande + onglet **« Mes ordres de mission »**. Carte **« Ma rémunération »** (salaire de base, Ret SS 9 %, Ret IRG, Remb. frais, Net à payer — **jamais** le brut, la Ret SS 35 % ni la TFP). Notification **« salaire versé »** reçue **24 h après** le marquage par les RH. Accès **strict** à ses propres documents. |
 | **Calendrier** | `/calendar` | Agenda d'entreprise (fuseau **Alger**), création de rendez-vous + invitations, **accessible à l'Assistant IA** (créer/inviter par la conversation). |
-| **Réunions** | `/meetings` | Appels & réunions (lien Meet simple) + **enregistrement / transcription / compte-rendu IA** + **rappel 30 min avant** (notification planifiée). L'organisateur peut **modifier** titre, objet, lien, type et **horaire** (heure d'Alger). |
+| **Réunions** | `/meetings` | Appels & réunions (lien Meet simple **ou présentiel avec lieu**) + **fil de discussion** (chat texte + pièces jointes) + **réponse d'invitation** (Oui/Peut-être/Non) + **enregistrement / transcription / compte-rendu IA** + **rappel 30 min avant** (notification planifiée). L'organisateur peut **modifier** titre, objet, lien, type et **horaire** (heure d'Alger). |
 | **Dashboard** | `/dashboard` | KPIs & graphiques adaptés au rôle. |
 
 ### Pôles métier
@@ -184,7 +184,7 @@ jamais identique.
 | **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
 | **Logistique PCH** | `/logistics` | Module autonome : import / expéditions fournisseurs, dates estimées vs réelles, dédouanement. |
 | **PCH — Marchés** | `/pch` | **Marchés publics gagnés** : appels d'offres → **bons de commande** + **caution** (alertes d'expiration). → [détails](#pch--marchés-publics) |
-| **Stocks** | `/stocks` | Refonte en **états datés** (« à cette date, il reste X ») — **sans** entrées/sorties : 3 onglets **Stock PCH · Stock hospitalier · Annexes PCH** (annexes créables/supprimables), **vue par produit** (catalogue Regulatory) en **graphique** (courbe date → quantité) ou **tableau** (avec évolution entre relevés), un état par jour (ressaisie = correction). Le détecteur « Stock PCH bas » du Brain lit en priorité le dernier état. |
+| **Stocks** | `/stocks` | Refonte en **états datés** (« à cette date, il reste X ») — **sans** entrées/sorties : 3 onglets **Stock PCH · Stock hôpitaux · Annexes PCH** (hôpitaux **et** annexes PCH = lieux nommés, créés/supprimés **uniquement par le Super Admin**), **vue par produit** (catalogue Regulatory) en **graphique** (courbe date → quantité) ou **tableau** (avec évolution entre relevés), un état par jour (ressaisie = correction). Le détecteur « Stock PCH bas » du Brain lit en priorité le dernier état. |
 | **Rapports terrain** | `/field-reports` | **Rapports vocaux IA** des délégués : parler → transcription → analyse → relecture → validation. Intégrés à **Promotion médicale**. → [détails](#-intelligence-artificielle-claude--whisper) |
 | **Promotion médicale** | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué**, plans de tournées **duplicables**. |
 | **Information médicale** | `/information-medicale` | Module du **pharmacien responsable de l'information médicale (PRIM)** : déclaration réglementaire **intercalée** entre la validation de la Direction et l'ordre de dépense ; **consultation des pièces de l'événement source**, upload de la déclaration, affichage du demandeur. → [workflow](#information-médicale--déclaration-réglementaire-prim) |
@@ -556,14 +556,16 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
 ### Stocks (états datés)
 
 - **Principe** : plus d'entrées/sorties — un **état daté** par (produit, lieu, jour) : « à cette date, il reste X ».
-  Ressaisir la même date **corrige** la valeur (remplacement jour). Lieux : `PCH` | `HOSPITAL` | `ANNEX`
-  (+ `StockAnnex` créables). Produits = catalogue **Regulatory** (`getProductOptions`).
-- **UI** `/stocks` : 3 onglets, sélecteur produit, **graphique** (recharts, courbe date → quantité) ou **tableau**
-  (delta entre relevés), formulaire inline date + quantité. Suppression d'un relevé : droit DELETE ou auteur.
+  Ressaisir la même date **corrige** la valeur (remplacement jour). Lieux : `PCH` | `HOSPITAL` | `ANNEX` ;
+  hôpitaux et **annexes PCH** sont des `StockAnnex` (discriminés par `kind`), **créés/supprimés par le Super
+  Admin uniquement** (`createStockHospital`/`createStockAnnex`). Produits = catalogue **Regulatory** (`getProductOptions`).
+- **UI** `/stocks` : 3 onglets (PCH · hôpitaux · annexes PCH), sélecteur produit, **graphique** (recharts, courbe
+  date → quantité) ou **tableau** (delta entre relevés), formulaire inline date + quantité. Suppression d'un relevé :
+  droit DELETE ou auteur. Panneau de gestion des lieux nommés (ajout/suppression) réservé au Super Admin.
 - **Brain** : `pchStockRisks` lit **en priorité le dernier état PCH par produit**, avec repli sur les anciens
   mouvements pour les produits sans relevé (transition sans perte).
 - **Fichiers** : `src/lib/actions/stock-snapshot-actions.ts`, `src/app/(app)/stocks/{page,stocks-view}.tsx`,
-  `src/lib/adventum/risks.ts`. Modèles `StockAnnex`, `StockSnapshot` (index produit+scope+annexe+date).
+  `src/lib/adventum/risks.ts`. Modèles `StockAnnex` (`kind` = HOSPITAL | ANNEX), `StockSnapshot` (index produit+scope+annexe+date).
 
 ### Archives « Dossier traité » (Drive)
 
@@ -1066,6 +1068,21 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Chat de réunion + validation à commentaire optionnel + badges de menu + « Mon dossier RH » autonome
+  + Annexes PCH de retour (5 sujets).** **(1) Fil de discussion dans la réunion** — chaque réunion a
+  désormais un **vrai chat** (comme les autres discussions) : **texte + pièces jointes intégrées**
+  (stockées chiffrées via le backend Drive), ouvert à l'organisateur et aux participants ; les membres
+  sont notifiés, l'auteur (ou l'organisateur) peut supprimer un message. Nouveaux `MeetingMessage` +
+  `MeetingMessageAttachment`, route de service protégée par l'accès à la réunion. **(2) Décision de
+  validation à commentaire OPTIONNEL** — Valider / Demander une modification / Refuser s'accompagnent d'un
+  **commentaire facultatif** (le motif n'est **plus obligatoire**, même en cas de refus). **(3) Badges de
+  notification par module** dans le menu — chaque entrée de la barre latérale affiche une **pastille** du
+  nombre de notifications non lues **routées vers ce module** (via le lien de la notif → `moduleForPath`),
+  qui décroît à mesure qu'on les lit. **(4) « Mon dossier RH » ressort de « Mon espace »** — de nouveau
+  une **entrée de menu dédiée** (avec « Mes ordres de mission » en onglet), retirée des onglets de l'espace
+  personnel. **(5) « Annexes PCH » de retour dans les Stocks** — 3ᵉ onglet **Stock annexes PCH** à côté de
+  PCH et hôpitaux ; hôpitaux et annexes sont des **lieux nommés** (`StockAnnex.kind` = HOSPITAL | ANNEX)
+  créés/supprimés **uniquement par le Super Admin** (comme les hôpitaux).
 - **Liste de documents épurée + réunions présentiel & réponses d'invitation + Calendrier autonome
   (5 sujets).** **(1) Liste de documents refondue** — plus de badge « Interne » ni de rangée d'icônes
   entassées (qui débordaient dans les colonnes étroites) : le **nom** (plus petit) est **cliquable** et

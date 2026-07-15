@@ -8,37 +8,61 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
-// Deux périmètres seulement : la PCH (centrale) et les HÔPITAUX (liste nommée, gérée par le Super
-// Admin). Les « annexes » ont été retirées. Un hôpital est stocké comme StockAnnex (sans migration).
-const SCOPES = ["PCH", "HOSPITAL"] as const;
+// Trois périmètres : la PCH (centrale), les HÔPITAUX et les ANNEXES PCH (sites de stockage
+// secondaires). Hôpitaux et annexes sont des lieux nommés (StockAnnex, distingués par `kind`),
+// créés uniquement par le Super Admin. Les autres ne font qu'enregistrer des états de stock.
+const SCOPES = ["PCH", "HOSPITAL", "ANNEX"] as const;
 const PATH = "/stocks";
 
-/** Crée un HÔPITAL (réservé au Super Admin). Les autres ne font qu'enregistrer des états. */
-export async function createStockHospital(formData: FormData): Promise<ActionResult> {
+/** Libellés d'un lieu nommé selon son type (pour messages/audit). */
+const LOC = { HOSPITAL: { un: "un hôpital", ce: "Cet hôpital", le: "Hôpital" }, ANNEX: { un: "une annexe PCH", ce: "Cette annexe PCH", le: "Annexe PCH" } } as const;
+
+/** Crée un lieu nommé (hôpital ou annexe PCH), réservé au Super Admin. */
+async function createStockLocation(formData: FormData, kind: "HOSPITAL" | "ANNEX"): Promise<ActionResult> {
   const user = await requireUser();
-  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Seul le Super Admin peut créer un hôpital." };
+  if (user.role !== "SUPER_ADMIN") return { ok: false, error: `Seul le Super Admin peut créer ${LOC[kind].un}.` };
   const name = fdStr(formData, "name");
-  if (!name) return { ok: false, error: "Indiquez le nom de l'hôpital." };
+  if (!name) return { ok: false, error: "Indiquez le nom." };
   const existing = await prisma.stockAnnex.findUnique({ where: { name } });
-  if (existing) return { ok: false, error: "Cet hôpital existe déjà." };
-  const hospital = await prisma.stockAnnex.create({ data: { name } });
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Stocks", summary: `Hôpital créé — ${name}` });
+  if (existing) return { ok: false, error: `${LOC[kind].ce} existe déjà.` };
+  const loc = await prisma.stockAnnex.create({ data: { name, kind } });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Stocks", summary: `${LOC[kind].le} créé — ${name}` });
   revalidatePath(PATH);
-  return { ok: true, id: hospital.id };
+  return { ok: true, id: loc.id };
+}
+
+/** Supprime un lieu nommé et ses états de stock (Super Admin). */
+async function deleteStockLocation(formData: FormData, kind: "HOSPITAL" | "ANNEX"): Promise<ActionResult> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") return { ok: false, error: `Seul le Super Admin peut supprimer ${LOC[kind].un}.` };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const loc = await prisma.stockAnnex.findUnique({ where: { id }, select: { name: true } });
+  if (!loc) return { ok: false, error: "Lieu introuvable." };
+  await prisma.stockAnnex.delete({ where: { id } });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Stocks", summary: `${LOC[kind].le} supprimé — ${loc.name}` });
+  revalidatePath(PATH);
+  return { ok: true };
+}
+
+/** Crée un HÔPITAL (réservé au Super Admin). */
+export async function createStockHospital(formData: FormData): Promise<ActionResult> {
+  return createStockLocation(formData, "HOSPITAL");
 }
 
 /** Supprime un hôpital et ses états de stock (Super Admin). */
 export async function deleteStockHospital(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Seul le Super Admin peut supprimer un hôpital." };
-  const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Identifiant manquant." };
-  const hospital = await prisma.stockAnnex.findUnique({ where: { id }, select: { name: true } });
-  if (!hospital) return { ok: false, error: "Hôpital introuvable." };
-  await prisma.stockAnnex.delete({ where: { id } });
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "Stocks", summary: `Hôpital supprimé — ${hospital.name}` });
-  revalidatePath(PATH);
-  return { ok: true };
+  return deleteStockLocation(formData, "HOSPITAL");
+}
+
+/** Crée une ANNEXE PCH (réservé au Super Admin, comme les hôpitaux). */
+export async function createStockAnnex(formData: FormData): Promise<ActionResult> {
+  return createStockLocation(formData, "ANNEX");
+}
+
+/** Supprime une annexe PCH et ses états de stock (Super Admin). */
+export async function deleteStockAnnex(formData: FormData): Promise<ActionResult> {
+  return deleteStockLocation(formData, "ANNEX");
 }
 
 /**
@@ -85,8 +109,9 @@ export async function recordStockSnapshot(formData: FormData): Promise<ActionRes
   const date = fdDate(formData, "date");
   const quantity = fdNum(formData, "quantity");
   const annexId = fdStr(formData, "annexId");
+  const isLocationScope = scope === "HOSPITAL" || scope === "ANNEX";
   if (!scope || !(SCOPES as readonly string[]).includes(scope)) return { ok: false, error: "Lieu de stock invalide." };
-  if (scope === "HOSPITAL" && !annexId) return { ok: false, error: "Choisissez l'hôpital concerné." };
+  if (isLocationScope && !annexId) return { ok: false, error: scope === "HOSPITAL" ? "Choisissez l'hôpital concerné." : "Choisissez l'annexe PCH concernée." };
   if (!productId) return { ok: false, error: "Choisissez le produit." };
   if (!date) return { ok: false, error: "Indiquez la date de l'état de stock." };
   if (quantity === null || quantity < 0) return { ok: false, error: "Indiquez la quantité restante (≥ 0)." };
@@ -99,13 +124,13 @@ export async function recordStockSnapshot(formData: FormData): Promise<ActionRes
   const dayStart = new Date(date); dayStart.setUTCHours(0, 0, 0, 0);
   const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000);
   const existing = await prisma.stockSnapshot.findFirst({
-    where: { scope, annexId: scope === "HOSPITAL" ? annexId : null, productId, date: { gte: dayStart, lt: dayEnd } },
+    where: { scope, annexId: isLocationScope ? annexId : null, productId, date: { gte: dayStart, lt: dayEnd } },
   });
   if (existing) {
     await prisma.stockSnapshot.update({ where: { id: existing.id }, data: { quantity: Math.round(quantity), date, companyId: product.companyId } });
   } else {
     await prisma.stockSnapshot.create({
-      data: { scope, annexId: scope === "HOSPITAL" ? annexId : null, productId, date, quantity: Math.round(quantity), companyId: product.companyId, createdById: user.id },
+      data: { scope, annexId: isLocationScope ? annexId : null, productId, date, quantity: Math.round(quantity), companyId: product.companyId, createdById: user.id },
     });
   }
   await recordAudit({ actorId: user.id, action: existing ? "UPDATE" : "CREATE", module: "Stocks", summary: `État de stock ${scope} — ${product.brandName ?? product.dci} : ${Math.round(quantity)} u.` });

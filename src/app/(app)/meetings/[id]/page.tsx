@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
-import { ArrowLeft, Users, Sparkles, ListChecks, FileText, CircleUser, MapPin } from "lucide-react";
+import { ArrowLeft, Users, Sparkles, ListChecks, FileText, CircleUser, MapPin, MessageSquare } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { publicMeetUrl, appBaseUrlForMeet, canViewMeeting, canManageMeeting } from "@/lib/meetings";
@@ -16,6 +16,7 @@ const formatDateTime = (d: Date) => formatAlgiers(d, { day: "2-digit", month: "s
 import { MeetingRecorder } from "./meeting-recorder";
 import { TranscriptPanel, ProposalActions, ShareLink, ManageBar } from "./meeting-panels";
 import { InviteResponse } from "./invite-response";
+import { MeetingChat, type ChatMessage } from "./meeting-chat";
 import { EditMeetingButton } from "../edit-meeting-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -47,6 +48,10 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
       organizer: { select: { id: true, name: true } },
       participants: { include: { user: { select: { id: true, name: true, title: true } } } },
       proposals: { include: { assignee: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
+      messages: {
+        include: { author: { select: { id: true, name: true } }, attachments: { select: { id: true, name: true, mime: true, size: true } } },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!meeting) notFound();
@@ -54,6 +59,17 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
   const canManage = canManageMeeting(user, meeting);
   // Le participant courant (invité), pour lui proposer d'accepter / refuser (façon agenda).
   const myParticipant = meeting.participants.find((p) => p.userId === user.id);
+
+  // Fil de discussion (chat) : suppression pour l'auteur ou l'organisateur/vue globale.
+  const chatMessages: ChatMessage[] = meeting.messages.map((m) => ({
+    id: m.id,
+    body: m.body,
+    author: m.author?.name ?? "Utilisateur",
+    createdAt: formatDateTime(m.createdAt),
+    mine: m.authorId === user.id,
+    canDelete: m.authorId === user.id || canManage,
+    attachments: m.attachments,
+  }));
 
   const base = externalBase();
   const shareUrl = base ? publicMeetUrl(meeting.publicToken, base) : "";
@@ -99,6 +115,14 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           ) : (
             <MeetJoin meetingId={meeting.id} meetLink={meeting.meetLink} canManage={canManage} />
           )}
+
+          {/* Fil de discussion (chat) — texte + pièces jointes, comme les autres discussions */}
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><MessageSquare className="h-4 w-4 text-primary" /> Discussion</CardTitle></CardHeader>
+            <CardContent>
+              <MeetingChat meetingId={meeting.id} messages={chatMessages} />
+            </CardContent>
+          </Card>
 
           {/* Compte rendu IA */}
           {meeting.summary && (

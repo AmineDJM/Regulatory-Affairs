@@ -5,9 +5,8 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileText, Download } from "lucide-react";
-import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE, WORKSPACE_TABS } from "@/lib/labels";
+import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE, MON_DOSSIER_TABS } from "@/lib/labels";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { userCan } from "@/lib/rbac";
 import { formatDate, formatDateTime, formatMonth, formatCurrency } from "@/lib/utils";
 import { NewRequestButton, CancelRequestButton } from "./request-controls";
 import { MeetingControls } from "@/components/shared/hr-meeting-controls";
@@ -18,8 +17,8 @@ export const dynamic = "force-dynamic";
 export default async function MonDossierPage() {
   const user = await requireUser();
   const dossier = await getMyHrDossier(user.id);
-  // Onglets « Mon espace » — « Mon dossier RH » y est désormais intégré (plus d'entrée de menu séparée).
-  const dossierTabs = WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }));
+  // Onglets de « Mon dossier RH » (module autonome) : dossier RH + ordres de mission.
+  const dossierTabs = MON_DOSSIER_TABS.map((t) => ({ label: t.label, href: t.href }));
 
   if (!dossier) {
     return (

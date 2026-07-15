@@ -198,9 +198,7 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
   const req = step.request;
   if (req.status !== "PENDING") return { ok: false, error: "Demande déjà clôturée." };
   if (req.mode === "SEQUENTIAL" && step.order !== req.currentOrder) return { ok: false, error: "Ce n'est pas encore votre tour." };
-  if ((decision === "REJECTED" || decision === "CHANGES_REQUESTED") && !reason) {
-    return { ok: false, error: "Le motif est obligatoire pour un refus ou une demande de modification." };
-  }
+  // Commentaire OPTIONNEL, quelle que soit la décision (approuver / refuser / demander une modif).
 
   await prisma.validationStep.update({ where: { id: stepId }, data: { status: decision, reason, decidedAt: new Date() } });
 

@@ -3,8 +3,7 @@ import { getMyMissions } from "@/lib/queries/missions";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { WORKSPACE_TABS } from "@/lib/labels";
-import { userCan } from "@/lib/rbac";
+import { MON_DOSSIER_TABS } from "@/lib/labels";
 import { MissionItem } from "@/components/missions/mission-item";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +18,7 @@ export default async function MyMissionsPage() {
         title="Mon dossier RH — Mes ordres de mission"
         description="Vos missions d'accompagnement et de représentation (congrès, événements, sponsoring). Demandez ou recevez votre ordre de mission, déposez vos pièces et échangez."
       />
-      <ModuleTabs tabs={WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
+      <ModuleTabs tabs={MON_DOSSIER_TABS.map((t) => ({ label: t.label, href: t.href }))} />
 
       {missions.length === 0 ? (
         <EmptyState icon="MapPin" title="Aucune mission" description="Vous n'êtes assigné à aucune mission pour le moment. Lorsqu'un responsable vous assignera comme accompagnant ou délégué de référence, votre mission apparaîtra ici." />

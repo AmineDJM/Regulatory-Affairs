@@ -697,6 +697,7 @@ model User {
   meetingsOrganized     Meeting[]             @relation("MeetingOrganizer")
   meetingParticipations MeetingParticipant[]  @relation("MeetingParticipant")
   meetingTaskProposals  MeetingTaskProposal[] @relation("MeetingTaskAssignee")
+  meetingMessages       MeetingMessage[]      @relation("MeetingMsgAuthor")
 
   reminders Reminder[] @relation("UserReminders")
 
@@ -3582,6 +3583,7 @@ model Meeting {
 
   participants MeetingParticipant[]
   proposals    MeetingTaskProposal[]
+  messages     MeetingMessage[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3618,6 +3620,36 @@ model MeetingTaskProposal {
   createdAt     DateTime          @default(now())
 
   @@index([meetingId])
+}
+
+/// Fil de discussion (chat) d'une réunion — texte + pièces jointes, comme le chat des dossiers.
+/// Ouvert à l'organisateur et aux participants ; supprimé en cascade avec la réunion.
+model MeetingMessage {
+  id          String                     @id @default(cuid())
+  meetingId   String
+  meeting     Meeting                    @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  authorId    String?
+  author      User?                      @relation("MeetingMsgAuthor", fields: [authorId], references: [id])
+  body        String // peut être vide si le message ne porte qu'une pièce jointe
+  attachments MeetingMessageAttachment[]
+  createdAt   DateTime                   @default(now())
+
+  @@index([meetingId])
+}
+
+/// Pièce jointe d'un message du fil d'une réunion — stockée chiffrée via le backend Drive (blob),
+/// comme la messagerie. Supprimée en cascade avec son message.
+model MeetingMessageAttachment {
+  id        String         @id @default(cuid())
+  messageId String
+  message   MeetingMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  blobId    String
+  name      String
+  mime      String
+  size      Int
+  createdAt DateTime       @default(now())
+
+  @@index([messageId])
 }
 
 // ─────────────── Calendrier (rendez-vous, infos, invitations) ───────────────
@@ -3768,14 +3800,17 @@ model WorkflowStepEvent {
 // Saisie simple : « à telle date, il reste X unités » — sans entrées/sorties. La courbe
 // (date → quantité) se dessine au fil des saisies, par produit et par lieu.
 
-/// Annexe de la PCH (site de stockage secondaire) — liste créable dans le module Stocks.
-// Hôpitaux (nommés, gérés par le Super Admin). Le nom « StockAnnex » est conservé pour éviter une
-// migration ; les « annexes » ont été retirées du module — seuls PCH et hôpitaux subsistent.
+/// Lieu de stockage nommé du module Stocks, géré par le Super Admin. `kind` distingue les
+/// HÔPITAUX (`HOSPITAL`) des ANNEXES PCH (`ANNEX`, sites de stockage secondaires de la PCH).
+/// Le nom « StockAnnex » est conservé (pas de renommage de table) ; il porte désormais les deux.
 model StockAnnex {
   id        String          @id @default(cuid())
   name      String          @unique
+  kind      String          @default("HOSPITAL") // HOSPITAL | ANNEX
   createdAt DateTime        @default(now())
   snapshots StockSnapshot[]
+
+  @@index([kind])
 }
 
 model StockSnapshot {

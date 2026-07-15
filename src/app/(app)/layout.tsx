@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { accessibleModules, userCan } from "@/lib/rbac";
-import { NAVIGATION, type NavItem } from "@/lib/labels";
+import { NAVIGATION, moduleForPath, type NavItem } from "@/lib/labels";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { ActivityTracker } from "@/components/layout/activity-tracker";
@@ -51,15 +51,23 @@ export default async function AppLayout({
     return acc;
   }, []);
   const canMessage = userCan(user, "MESSAGING", "VIEW");
-  const [unreadCount, messagingUnread, adoption, companies] = await Promise.all([
+  const [unreadCount, messagingUnread, adoption, companies, unreadNotifs] = await Promise.all([
     prisma.notification.count({ where: { userId: user.id, isRead: false } }),
     canMessage ? getTotalUnread(user.id) : Promise.resolve(0),
     // Pastille « score d'adoption » de l'utilisateur courant (snapshot mis en cache).
     getAdoptionBadge(user.id, user.role).catch(() => null),
     // Entités (sélecteur multi-sociétés de la barre supérieure).
     getCompanies().catch(() => []),
+    // Notifications non lues (leur lien) → badge par module dans le menu.
+    prisma.notification.findMany({ where: { userId: user.id, isRead: false, link: { not: null } }, select: { link: true }, take: 500 }),
   ]);
   const companyScope = getCompanyScope();
+  // Compte les notifications non lues par MODULE (routées via leur lien) → badges de menu.
+  const moduleBadges: Record<string, number> = {};
+  for (const n of unreadNotifs) {
+    const m = n.link ? moduleForPath(n.link) : null;
+    if (m) moduleBadges[m] = (moduleBadges[m] ?? 0) + 1;
+  }
 
   return (
     <UploadProvider>
@@ -68,7 +76,7 @@ export default async function AppLayout({
       <ActivityTracker />
       <ScreenGuard />
       <CommandPalette navItems={navItems} />
-      <Sidebar items={navItems} messagingUnread={messagingUnread} />
+      <Sidebar items={navItems} messagingUnread={messagingUnread} moduleBadges={moduleBadges} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {user.impersonatedBy && <ImpersonationBanner adminName={user.impersonatedBy.name} viewedName={user.name} />}
         <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} companies={companies} companyScope={companyScope} />

@@ -4,16 +4,17 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { genSlug, genPublicToken, canManageMeeting, appBaseUrlForMeet, roomUrl } from "@/lib/meetings";
+import { genSlug, genPublicToken, canManageMeeting, canViewMeeting, appBaseUrlForMeet, roomUrl } from "@/lib/meetings";
 import { summarizeMeetingTranscript } from "@/lib/ai";
 import { notifyUser } from "@/lib/notify";
-import { releaseBlob } from "@/lib/drive-storage";
+import { putBlob, releaseBlob } from "@/lib/drive-storage";
 import { recordAudit } from "@/lib/audit";
 import { algiersInputToUtc } from "@/lib/calendar-tz";
 import { fdStr, fdBool, fdDate, type ActionResult } from "@/lib/actions/types";
 import type { CalendarInviteStatus } from "@prisma/client";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
+const MAX_MSG_ATTACHMENT = 25 * 1024 * 1024; // 25 Mo par pièce jointe du fil de réunion
 
 /** Normalise un lien de réunion (ajoute https:// si absent ; null si vide/invalide). */
 function normalizeLink(raw: string | null): string | null {
@@ -342,5 +343,70 @@ export async function deleteMeeting(formData: FormData): Promise<ActionResult> {
   if (full?.audioBlobId) await releaseBlob(full.audioBlobId).catch(() => {});
   await recordAudit({ actorId: res.user.id, action: "DELETE", module: "Réunions", entityId: res.meeting.id, summary: `Réunion « ${full?.title ?? ""} » supprimée` });
   revalidatePath("/meetings");
+  return { ok: true };
+}
+
+/**
+ * Poste un message dans le fil de discussion d'une réunion — vrai chat : texte + **pièces jointes**
+ * intégrées (stockées chiffrées via le backend Drive), comme le chat des dossiers. Ouvert à
+ * l'organisateur et aux participants ; les autres membres reçoivent une notification.
+ */
+export async function postMeetingMessage(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Réunion manquante." };
+  const body = (fdStr(formData, "body") ?? "").trim();
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (!body && files.length === 0) return { ok: false, error: "Écrivez un message ou joignez un fichier." };
+
+  const meeting = await prisma.meeting.findUnique({
+    where: { id },
+    select: { id: true, title: true, organizerId: true, participants: { select: { userId: true } } },
+  });
+  if (!meeting) return { ok: false, error: "Réunion introuvable." };
+  if (!canViewMeeting(user, meeting)) return DENIED;
+
+  const msg = await prisma.meetingMessage.create({ data: { meetingId: id, authorId: user.id, body } });
+
+  // Pièces jointes (comme la messagerie) — blob chiffré via le backend Drive.
+  for (const f of files) {
+    if (f.size > MAX_MSG_ATTACHMENT) continue;
+    const buf = Buffer.from(await f.arrayBuffer());
+    const { blobId, size } = await putBlob(buf);
+    await prisma.meetingMessageAttachment.create({
+      data: { messageId: msg.id, blobId, name: (f.name || "fichier").slice(0, 200), mime: f.type || "application/octet-stream", size },
+    });
+  }
+
+  // Notifie les autres membres (organisateur + participants).
+  const recipients = new Set<string>([meeting.organizerId, ...meeting.participants.map((p) => p.userId)]);
+  recipients.delete(user.id);
+  for (const uid of recipients) {
+    await notifyUser({
+      userId: uid, type: "GENERIC",
+      title: "Nouveau message sur une réunion",
+      body: `${meeting.title}${body ? ` — ${body.slice(0, 80)}` : " — pièce jointe"}`,
+      link: `/meetings/${id}`,
+    }).catch(() => undefined);
+  }
+  revalidatePath(`/meetings/${id}`);
+  return { ok: true };
+}
+
+/** Supprime un message du fil d'une réunion (auteur ou organisateur/vue globale). */
+export async function deleteMeetingMessage(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Message introuvable." };
+  const msg = await prisma.meetingMessage.findUnique({
+    where: { id },
+    select: { authorId: true, meetingId: true, attachments: { select: { blobId: true } }, meeting: { select: { organizerId: true } } },
+  });
+  if (!msg) return { ok: false, error: "Message introuvable." };
+  const allowed = msg.authorId === user.id || canManageMeeting(user, msg.meeting);
+  if (!allowed) return { ok: false, error: "Suppression non autorisée." };
+  await prisma.meetingMessage.delete({ where: { id } }); // pièces jointes supprimées en cascade
+  for (const a of msg.attachments) await releaseBlob(a.blobId).catch(() => undefined); // libère le stockage
+  revalidatePath(`/meetings/${msg.meetingId}`);
   return { ok: true };
 }

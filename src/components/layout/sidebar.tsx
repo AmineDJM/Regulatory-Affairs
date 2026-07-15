@@ -10,9 +10,26 @@ import type { NavItem } from "@/lib/labels";
 interface SidebarProps {
   items: NavItem[];
   messagingUnread?: number;
+  /** Notifications non lues par module → badge sur l'entrée de menu concernée. */
+  moduleBadges?: Record<string, number>;
 }
 
 const GROUP_ORDER: NavItem["group"][] = ["Pilotage", "Pôles", "Transverse", "Système"];
+
+/** Nombre de notifications non lues d'une entrée (module + ses onglets fusionnés). */
+function badgeFor(item: NavItem, badges: Record<string, number>): number {
+  const mods = item.tabs ? [...new Set([item.module, ...item.tabs.map((t) => t.module)])] : [item.module];
+  return mods.reduce((a, m) => a + (badges[m] ?? 0), 0);
+}
+
+/** Pastille de compteur statique (badge de menu). */
+function NavBadge({ count }: { count: number }) {
+  return (
+    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-sidebar-accent px-1.5 text-[11px] font-semibold text-sidebar">
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
 
 /** Badge de non-lus de la messagerie : valeur initiale serveur, puis temps réel via l'évènement global. */
 function MessagesNavBadge({ initial }: { initial: number }) {
@@ -33,7 +50,7 @@ function MessagesNavBadge({ initial }: { initial: number }) {
   );
 }
 
-export function Sidebar({ items, messagingUnread = 0 }: SidebarProps) {
+export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: SidebarProps) {
   const pathname = usePathname();
 
   const groups = GROUP_ORDER.map((group) => ({
@@ -76,7 +93,9 @@ export function Sidebar({ items, messagingUnread = 0 }: SidebarProps) {
                     >
                       <Icon name={item.icon} className="h-4 w-4 shrink-0" />
                       <span className="truncate">{item.label}</span>
-                      {item.href === "/messages" && <MessagesNavBadge initial={messagingUnread} />}
+                      {item.href === "/messages"
+                        ? <MessagesNavBadge initial={messagingUnread} />
+                        : (() => { const b = badgeFor(item, moduleBadges); return b > 0 ? <NavBadge count={b} /> : null; })()}
                     </Link>
                   </li>
                 );
