@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Video, Mic, Users, ArrowRight, Radio } from "lucide-react";
+import { Video, Mic, Users, ArrowRight, Radio, MapPin } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -63,7 +63,7 @@ export default async function MeetingsPage() {
 }
 
 type Row = {
-  id: string; title: string; status: string; kind: string; withVideo: boolean;
+  id: string; title: string; status: string; kind: string; withVideo: boolean; inPerson: boolean; location: string | null;
   scheduledAt: Date | null; createdAt: Date; organizer: { name: string } | null; _count: { participants: number };
 };
 
@@ -77,11 +77,11 @@ function Section({ title, items, empty, icon, muted }: { title: string; items: R
           <Link key={m.id} href={`/meetings/${m.id}`}
             className={`group surface flex flex-col gap-2 rounded-xl border border-border p-4 transition hover:border-primary/40 hover:shadow-sm ${muted ? "opacity-80" : ""}`}>
             <div className="flex items-start justify-between gap-2">
-              <span className="flex items-center gap-2 font-medium">
-                {m.withVideo ? <Video className="h-4 w-4 text-primary" /> : <Mic className="h-4 w-4 text-primary" />}
-                <span className="truncate">{m.title}</span>
+              <span className="flex min-w-0 flex-1 items-center gap-2 font-medium">
+                {m.inPerson ? <MapPin className="h-4 w-4 shrink-0 text-primary" /> : m.withVideo ? <Video className="h-4 w-4 shrink-0 text-primary" /> : <Mic className="h-4 w-4 shrink-0 text-primary" />}
+                <span className="truncate" title={m.title}>{m.title}</span>
               </span>
-              <Badge tone={STATUS[m.status]?.tone ?? "neutral"} dot={false}>{STATUS[m.status]?.label ?? m.status}</Badge>
+              <span className="shrink-0"><Badge tone={STATUS[m.status]?.tone ?? "neutral"} dot={false}>{STATUS[m.status]?.label ?? m.status}</Badge></span>
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {m._count.participants + 1}</span>

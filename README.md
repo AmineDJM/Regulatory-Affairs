@@ -1066,6 +1066,18 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Liste de documents épurée + réunions présentiel & réponses d'invitation + Calendrier autonome
+  (5 sujets).** **(1) Liste de documents refondue** — plus de badge « Interne » ni de rangée d'icônes
+  entassées (qui débordaient dans les colonnes étroites) : le **nom** (plus petit) est **cliquable** et
+  ouvre l'aperçu ; **toutes les actions** (imprimer, modifier dans l'éditeur Office, renommer,
+  enregistrer/télécharger, supprimer) vivent dans la **barre d'outils de l'aperçu**. **(2) Réunions en
+  PRÉSENTIEL** — à la création (et à la modification) on choisit **En ligne (lien)** ou **Présentiel** ;
+  en présentiel on saisit un **lieu** (pas de lien) — nouveaux champs `Meeting.inPerson` + `location`.
+  **(3) Réponse d'invitation façon agenda** — chaque invité peut répondre **Oui / Peut-être / Non** ;
+  l'organisateur est notifié et voit le statut de chacun (nouveau `MeetingParticipant.response`, réutilise
+  l'enum `CalendarInviteStatus`). **(4) Cartes de réunion** — titres et badges **bornés/tronqués** (fini le
+  débordement hors des cartes « À venir »). **(5) « Calendrier »** ressort de « Mon espace » comme **module
+  autonome** (entrée de menu dédiée).
 - **Upload « Fichiers ou ZIP » partout + visionneuse ZIP dans le Drive + notifications bureau + écran
   anti-capture retiré (4 sujets).** **(1) Upload simplifié** — le composant de dépôt de documents
   (partagé par tous les modules) ne propose plus que **« Fichier(s) (tout type) »** ou **« ZIP »**

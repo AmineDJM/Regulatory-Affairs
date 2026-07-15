@@ -2,8 +2,6 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
-import { ModuleTabs } from "@/components/shared/module-tabs";
-import { WORKSPACE_TABS } from "@/lib/labels";
 import {
   monthGrid, getCalendarEvents, getUpcomingEvents, algiersInputToUtc, algiersTodayYmd,
 } from "@/lib/calendar";
@@ -33,7 +31,6 @@ export default async function CalendarPage({ searchParams }: { searchParams: { y
 
   return (
     <div className="space-y-5">
-      <ModuleTabs tabs={WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
       <PageHeader title="Calendrier" description="Vos rendez-vous, réunions et informations importantes — au fuseau d'Alger. Créez des rendez-vous et invitez vos collègues. L'assistant IA peut aussi les planifier pour vous." />
       <CalendarView
         year={year}

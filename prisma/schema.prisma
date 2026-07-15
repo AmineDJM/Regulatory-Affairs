@@ -3556,6 +3556,9 @@ model Meeting {
   kind        MeetingKind   @default(MEETING)
   status      MeetingStatus @default(SCHEDULED)
   withVideo   Boolean       @default(true) // appel vidéo (sinon audio seul)
+  // Présentiel : réunion PHYSIQUE (pas de lien en ligne). `location` = lieu du rendez-vous.
+  inPerson    Boolean       @default(false)
+  location    String?
   // Lien de réunion externe (Google Meet / Teams / Zoom…). S'il est présent, on l'utilise
   // comme lien « Rejoindre » à la place de l'embed Jitsi (Jitsi reste dans le code).
   meetLink    String?
@@ -3594,6 +3597,8 @@ model MeetingParticipant {
   meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   userId    String
   user      User     @relation("MeetingParticipant", fields: [userId], references: [id], onDelete: Cascade)
+  // Réponse à l'invitation (façon agenda) : INVITED (défaut) / ACCEPTED / DECLINED / TENTATIVE.
+  response  CalendarInviteStatus @default(INVITED)
   createdAt DateTime @default(now())
 
   @@unique([meetingId, userId])

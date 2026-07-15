@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
-import { ArrowLeft, Users, Sparkles, ListChecks, FileText, CircleUser } from "lucide-react";
+import { ArrowLeft, Users, Sparkles, ListChecks, FileText, CircleUser, MapPin } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { publicMeetUrl, appBaseUrlForMeet, canViewMeeting, canManageMeeting } from "@/lib/meetings";
@@ -15,8 +15,11 @@ import { formatAlgiers, utcToAlgiersInput } from "@/lib/calendar-tz";
 const formatDateTime = (d: Date) => formatAlgiers(d, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 import { MeetingRecorder } from "./meeting-recorder";
 import { TranscriptPanel, ProposalActions, ShareLink, ManageBar } from "./meeting-panels";
+import { InviteResponse } from "./invite-response";
 import { EditMeetingButton } from "../edit-meeting-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { StatusBadge } from "@/components/shared/status-badge";
+import { CALENDAR_INVITE_STATUS } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +52,8 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
   if (!meeting) notFound();
   if (!canViewMeeting(user, meeting)) notFound();
   const canManage = canManageMeeting(user, meeting);
+  // Le participant courant (invité), pour lui proposer d'accepter / refuser (façon agenda).
+  const myParticipant = meeting.participants.find((p) => p.userId === user.id);
 
   const base = externalBase();
   const shareUrl = base ? publicMeetUrl(meeting.publicToken, base) : "";
@@ -71,6 +76,8 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
             meetLink={meeting.meetLink ?? ""}
             scheduledAtInput={meeting.scheduledAt ? utcToAlgiersInput(meeting.scheduledAt) : ""}
             withVideo={meeting.withVideo}
+            inPerson={meeting.inPerson}
+            location={meeting.location ?? ""}
           />
         )}
         {canManage && <ManageBar meetingId={meeting.id} status={meeting.status} />}
@@ -79,7 +86,19 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          <MeetJoin meetingId={meeting.id} meetLink={meeting.meetLink} canManage={canManage} />
+          {myParticipant && meeting.status !== "ENDED" && (
+            <InviteResponse meetingId={meeting.id} current={myParticipant.response} />
+          )}
+          {meeting.inPerson ? (
+            <Card>
+              <CardHeader><CardTitle className="flex items-center gap-2"><MapPin className="h-4 w-4 text-primary" /> Réunion en présentiel</CardTitle></CardHeader>
+              <CardContent>
+                <p className="whitespace-pre-wrap text-sm">{meeting.location || "Lieu à préciser par l'organisateur."}</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <MeetJoin meetingId={meeting.id} meetLink={meeting.meetLink} canManage={canManage} />
+          )}
 
           {/* Compte rendu IA */}
           {meeting.summary && (
@@ -128,13 +147,15 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
         {/* Latéral */}
         <div className="space-y-5">
-          <Card>
-            <CardHeader><CardTitle>Lien externe partageable</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              <p className="text-xs text-muted-foreground">Partagez ce lien à un invité externe (sans compte, sans limite de temps).</p>
-              {shareUrl ? <ShareLink url={shareUrl} /> : <p className="text-xs text-muted-foreground">Définissez <code>APP_URL</code> pour générer un lien absolu.</p>}
-            </CardContent>
-          </Card>
+          {!meeting.inPerson && (
+            <Card>
+              <CardHeader><CardTitle>Lien externe partageable</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xs text-muted-foreground">Partagez ce lien à un invité externe (sans compte, sans limite de temps).</p>
+                {shareUrl ? <ShareLink url={shareUrl} /> : <p className="text-xs text-muted-foreground">Définissez <code>APP_URL</code> pour générer un lien absolu.</p>}
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><Users className="h-4 w-4" /> Participants</CardTitle></CardHeader>
@@ -146,9 +167,9 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
               </div>
               {meeting.participants.map((p) => (
                 <div key={p.id} className="flex items-center gap-2 text-muted-foreground">
-                  <CircleUser className="h-4 w-4" />
-                  <span>{p.user?.name ?? "—"}</span>
-                  {p.user?.title && <span className="text-xs">· {p.user.title}</span>}
+                  <CircleUser className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 truncate">{p.user?.name ?? "—"}</span>
+                  <span className="ml-auto shrink-0"><StatusBadge map={CALENDAR_INVITE_STATUS} value={p.response} dot={false} /></span>
                 </div>
               ))}
             </CardContent>
@@ -157,7 +178,8 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           <Card>
             <CardHeader><CardTitle>Informations</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <Row label="Type" value={meeting.withVideo ? "Vidéo" : "Audio"} />
+              <Row label="Format" value={meeting.inPerson ? "Présentiel" : meeting.withVideo ? "En ligne (vidéo)" : "En ligne (audio)"} />
+              {meeting.inPerson && meeting.location && <Row label="Lieu" value={meeting.location} />}
               {meeting.scheduledAt && <Row label="Planifiée" value={formatDateTime(meeting.scheduledAt)} />}
               {meeting.startedAt && <Row label="Démarrée" value={formatDateTime(meeting.startedAt)} />}
               {meeting.endedAt && <Row label="Terminée" value={formatDateTime(meeting.endedAt)} />}

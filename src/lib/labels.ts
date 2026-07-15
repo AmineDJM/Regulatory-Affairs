@@ -980,15 +980,14 @@ export const CONGRESS_TABS: NavTab[] = [
   { module: "CONGRESS_INTERNATIONAL", label: "Internationaux", href: "/congress-international" },
   { module: "CONGRESS_NATIONAL", label: "Nationaux", href: "/congress-national" },
 ];
-// Espace personnel fusionné : travail + espace perso + tableau de bord + calendrier +
-// dossier RH + ordres de mission + directives. (« Dossiers » en est sorti → module autonome ;
-// « Dashboard » et « Calendrier » y sont entrés ; « Mon dossier RH » et « Mes ordres de mission »
-// y ont été INTÉGRÉS — plus d'entrée de menu séparée.)
+// Espace personnel fusionné : travail + espace perso + tableau de bord + dossier RH +
+// ordres de mission + directives. (« Dossiers » et « Calendrier » en sont sortis → modules
+// autonomes ; « Dashboard » y est entré ; « Mon dossier RH » et « Mes ordres de mission » y
+// ont été INTÉGRÉS — plus d'entrée de menu séparée.)
 export const WORKSPACE_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard" },
-  { module: "WORKSPACE", label: "Calendrier", href: "/calendar" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
   { module: "WORKSPACE", label: "Mes ordres de mission", href: "/missions" },
   { module: "DIRECTIVES", label: "Directives", href: "/directives" },
@@ -1070,7 +1069,8 @@ export const MODULE_LABELS: Record<Module, string> = {
 export const NAVIGATION: NavItem[] = [
   // Pilotage — « Mon espace » regroupe désormais Mon travail, Mon espace, Dashboard, Calendrier
   // et Directives (onglets). `match` couvre ces routes pour l'état actif de la barre latérale.
-  { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-espace", "/dashboard", "/calendar", "/mon-dossier", "/missions", "/directives"] },
+  { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-espace", "/dashboard", "/mon-dossier", "/missions", "/directives"] },
+  { module: "WORKSPACE", label: "Calendrier", href: "/calendar", icon: "CalendarDays", group: "Pilotage" },
   { module: "DOSSIERS", label: "Dossiers", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
   { module: "WORKSPACE", label: "Courrier", href: "/courrier", icon: "Mail", group: "Pilotage" },
   // Pôles

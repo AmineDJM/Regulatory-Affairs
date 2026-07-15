@@ -11,6 +11,7 @@ import { releaseBlob } from "@/lib/drive-storage";
 import { recordAudit } from "@/lib/audit";
 import { algiersInputToUtc } from "@/lib/calendar-tz";
 import { fdStr, fdBool, fdDate, type ActionResult } from "@/lib/actions/types";
+import type { CalendarInviteStatus } from "@prisma/client";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
 
@@ -57,7 +58,10 @@ export async function createMeeting(_prev: ActionResult | undefined, formData: F
   const scheduledAtRaw = fdStr(formData, "scheduledAt");
   const scheduledAt = scheduledAtRaw ? algiersInputToUtc(scheduledAtRaw) ?? fdDate(formData, "scheduledAt") : null;
   const withVideo = formData.get("withVideo") === null ? true : fdBool(formData, "withVideo");
-  const meetLink = normalizeLink(fdStr(formData, "meetLink"));
+  // Présentiel : réunion physique → pas de lien en ligne, un lieu à la place.
+  const inPerson = fdBool(formData, "inPerson");
+  const location = fdStr(formData, "location");
+  const meetLink = inPerson ? null : normalizeLink(fdStr(formData, "meetLink"));
   const participantIds = [...new Set(formData.getAll("participantIds").map(String).filter(Boolean))].filter((id) => id !== user.id);
 
   const valid = participantIds.length
@@ -67,7 +71,7 @@ export async function createMeeting(_prev: ActionResult | undefined, formData: F
   const meeting = await prisma.meeting.create({
     data: {
       title, description: description ?? null, slug: genSlug(), publicToken: genPublicToken(),
-      kind: "MEETING", status: "SCHEDULED", withVideo, scheduledAt, meetLink,
+      kind: "MEETING", status: "SCHEDULED", withVideo, inPerson, location: inPerson ? location ?? null : null, scheduledAt, meetLink,
       organizerId: user.id,
       participants: { create: valid.map((userId) => ({ userId })) },
     },
@@ -93,17 +97,45 @@ export async function updateMeeting(formData: FormData): Promise<ActionResult> {
   const scheduledAtRaw = fdStr(formData, "scheduledAt");
   const scheduledAt = scheduledAtRaw ? algiersInputToUtc(scheduledAtRaw) ?? fdDate(formData, "scheduledAt") : null;
   const withVideo = formData.get("withVideo") === null ? res.meeting.withVideo : fdBool(formData, "withVideo");
-  const meetLink = normalizeLink(fdStr(formData, "meetLink"));
+  const inPerson = formData.get("inPerson") === null ? res.meeting.inPerson : fdBool(formData, "inPerson");
+  const location = formData.get("location") === null ? res.meeting.location : fdStr(formData, "location");
+  const meetLink = inPerson ? null : normalizeLink(fdStr(formData, "meetLink"));
   // Si l'horaire change, on ré-arme le rappel « 30 min avant » (sinon il ne repartirait pas).
   const changedSchedule = (scheduledAt?.getTime() ?? null) !== (res.meeting.scheduledAt?.getTime() ?? null);
 
   await prisma.meeting.update({
     where: { id: res.meeting.id },
-    data: { title, description: description ?? null, scheduledAt, withVideo, meetLink, ...(changedSchedule ? { reminderSentAt: null } : {}) },
+    data: { title, description: description ?? null, scheduledAt, withVideo, inPerson, location: inPerson ? location ?? null : null, meetLink, ...(changedSchedule ? { reminderSentAt: null } : {}) },
   });
   await recordAudit({ actorId: res.user.id, action: "UPDATE", module: "Réunions", entityId: res.meeting.id, summary: `Réunion « ${title} » modifiée` });
   revalidatePath(`/meetings/${res.meeting.id}`);
   revalidatePath("/meetings");
+  return { ok: true };
+}
+
+/**
+ * Réponse d'un INVITÉ à une réunion — accepter / refuser / peut-être (façon agenda).
+ * Chacun ne répond que pour lui-même ; l'organisateur est notifié de la réponse.
+ */
+export async function respondToMeetingInvite(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const meetingId = fdStr(formData, "id");
+  const response = fdStr(formData, "response");
+  if (!meetingId || !response || !["ACCEPTED", "DECLINED", "TENTATIVE"].includes(response)) {
+    return { ok: false, error: "Réponse invalide." };
+  }
+  const part = await prisma.meetingParticipant.findUnique({
+    where: { meetingId_userId: { meetingId, userId: user.id } },
+    select: { id: true, meeting: { select: { title: true, organizerId: true } } },
+  });
+  if (!part) return { ok: false, error: "Vous n'êtes pas invité à cette réunion." };
+  await prisma.meetingParticipant.update({ where: { id: part.id }, data: { response: response as CalendarInviteStatus } });
+  const verb = response === "ACCEPTED" ? "a accepté" : response === "DECLINED" ? "a décliné" : "est peut-être disponible pour";
+  await notifyUser({
+    userId: part.meeting.organizerId, type: "GENERIC",
+    title: "Réponse à une invitation", body: `${user.name} ${verb} « ${part.meeting.title} »`, link: `/meetings/${meetingId}`,
+  }).catch(() => undefined);
+  revalidatePath(`/meetings/${meetingId}`);
   return { ok: true };
 }
 

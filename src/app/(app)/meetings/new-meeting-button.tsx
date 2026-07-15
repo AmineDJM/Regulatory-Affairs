@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { CalendarPlus, Loader2, Check, Video, Mic } from "lucide-react";
+import { CalendarPlus, Loader2, Check, Video, Mic, MapPin } from "lucide-react";
 import { createMeeting } from "@/lib/actions/meeting-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ export function NewMeetingButton({ users }: { users: UserOption[] }) {
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [video, setVideo] = React.useState(true);
+  const [inPerson, setInPerson] = React.useState(false);
   const [picked, setPicked] = React.useState<Set<string>>(new Set());
   const [q, setQ] = React.useState("");
 
@@ -41,6 +42,7 @@ export function NewMeetingButton({ users }: { users: UserOption[] }) {
           action={async (fd) => {
             setSaving(true); setErr(null);
             fd.set("withVideo", video ? "true" : "false");
+            fd.set("inPerson", inPerson ? "true" : "false");
             picked.forEach((id) => fd.append("participantIds", id));
             const r = await createMeeting(undefined, fd);
             setSaving(false);
@@ -58,28 +60,53 @@ export function NewMeetingButton({ users }: { users: UserOption[] }) {
             <Textarea id="description" name="description" rows={2} placeholder="Ordre du jour, contexte…" />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="meetLink">Lien de la réunion (Google Meet, Teams, Zoom…)</Label>
-            <Input id="meetLink" name="meetLink" type="url" placeholder="https://meet.google.com/xxx-xxxx-xxx" />
-            <p className="text-xs text-muted-foreground">Collez le lien de la réunion. Les participants cliqueront simplement dessus pour rejoindre.</p>
+            <Label>Format</Label>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setInPerson(false)}
+                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${!inPerson ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-secondary"}`}>
+                <Video className="h-4 w-4" /> En ligne (lien)
+              </button>
+              <button type="button" onClick={() => setInPerson(true)}
+                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${inPerson ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-secondary"}`}>
+                <MapPin className="h-4 w-4" /> Présentiel
+              </button>
+            </div>
           </div>
+
+          {inPerson ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="location">Lieu</Label>
+              <Input id="location" name="location" placeholder="Ex. Salle de réunion — siège Adventum, Alger" />
+              <p className="text-xs text-muted-foreground">Adresse ou salle où se tiendra la réunion en personne (aucun lien en ligne).</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="meetLink">Lien de la réunion (Google Meet, Teams, Zoom…)</Label>
+              <Input id="meetLink" name="meetLink" type="url" placeholder="https://meet.google.com/xxx-xxxx-xxx" />
+              <p className="text-xs text-muted-foreground">Collez le lien de la réunion. Les participants cliqueront simplement dessus pour rejoindre.</p>
+            </div>
+          )}
+
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="scheduledAt">Date / heure (optionnel)</Label>
               <Input id="scheduledAt" name="scheduledAt" type="datetime-local" />
             </div>
-            <div className="space-y-1.5">
-              <Label>Type</Label>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setVideo(true)}
-                  className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${video ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-secondary"}`}>
-                  <Video className="h-4 w-4" /> Vidéo
-                </button>
-                <button type="button" onClick={() => setVideo(false)}
-                  className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${!video ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-secondary"}`}>
-                  <Mic className="h-4 w-4" /> Audio
-                </button>
+            {!inPerson && (
+              <div className="space-y-1.5">
+                <Label>Type d'appel</Label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setVideo(true)}
+                    className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${video ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-secondary"}`}>
+                    <Video className="h-4 w-4" /> Vidéo
+                  </button>
+                  <button type="button" onClick={() => setVideo(false)}
+                    className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${!video ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-secondary"}`}>
+                    <Mic className="h-4 w-4" /> Audio
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
