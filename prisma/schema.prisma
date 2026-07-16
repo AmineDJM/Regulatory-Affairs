@@ -48,6 +48,21 @@ enum Priority {
   CRITICAL
 }
 
+// Statut de fabrication d'un produit Regulatory (remplace « type de produit » côté UI).
+enum ManufacturingStatus {
+  IMPORTATION
+  SECONDARY_PACKAGING
+  PRIMARY_PACKAGING
+  FULL_PROCESS
+}
+
+// Cycle de vie d'une variation de fabrication (dépôt → décision).
+enum VariationStatus {
+  EN_ATTENTE
+  OBTENUE
+  ANNULE
+}
+
 enum ProductType {
   IMPORTED
   LOCALLY_MANUFACTURED
@@ -812,7 +827,9 @@ model RegulatoryProduct {
   partnerLab             String? // fournisseur / laboratoire partenaire
   countryOfOrigin        String?
   category               RegulatoryCategory @default(MEDICINE) // médicament vs dispositif médical
-  productType            ProductType        @default(IMPORTED)
+  productType            ProductType        @default(IMPORTED) // (legacy) conservé, non affiché
+  // Statut de fabrication courant : démarre en Importation, évolue via les variations.
+  manufacturingStatus    ManufacturingStatus @default(IMPORTATION)
   status                 RegulatoryStatus   @default(PRE_SUBMISSION)
   priority               Priority           @default(MEDIUM)
   targetDate             DateTime? // date cible d'enregistrement
@@ -833,6 +850,7 @@ model RegulatoryProduct {
   assignedUsers User[]  @relation("RegulatoryAssignedUsers")
 
   steps          RegulatoryStep[]
+  variations     RegulatoryVariation[] // variations de fabrication (Importation → packaging local)
   stockMovements StockMovement[] // mouvements de stock PCH rattachés à ce produit
   stockSnapshots StockSnapshot[] // états de stock datés (PCH / hôpital / annexes)
 
@@ -861,6 +879,25 @@ model RegulatoryProduct {
   @@index([assistantId])
   @@index([dci])
   @@index([supplierId])
+}
+
+// Variation de fabrication : après la DE d'un produit, on peut demander une variation
+// vers un packaging local (secondaire / primaire / full process). Chaîne possible dans le temps.
+model RegulatoryVariation {
+  id           String              @id @default(cuid())
+  productId    String
+  product      RegulatoryProduct   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  toStatus     ManufacturingStatus // cible de la variation (SECONDARY / PRIMARY / FULL_PROCESS)
+  status       VariationStatus     @default(EN_ATTENTE)
+  depotDate    DateTime? // date de dépôt de la variation
+  decisionDate DateTime? // date de la décision (obtenue / annulée)
+  manufacturer String? // fabricant associé à la variation
+  note         String?
+  createdById  String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([productId])
 }
 
 model RegulatoryStep {

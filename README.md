@@ -1067,6 +1067,15 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Regulatory — « Statut de fabrication » + cycle de vie des variations.** La forme pharmaceutique
+  gagne **« Capsule molle »**. L'ancien champ **« Type de produit » devient « Statut de fabrication »**
+  avec 4 valeurs — **Importation, Secondary Packaging, Primary Packaging, Full Process** (nouveau champ
+  `RegulatoryProduct.manufacturingStatus`, l'ancien `productType` conservé mais masqué). Nouveau **cycle
+  de vie de variation** (`RegulatoryVariation`) : après la DE, un bouton **« Variation »** ouvre un dépôt
+  vers un statut supérieur (date de dépôt, fabricant, note), suivi d'un statut **En attente → DE de
+  variation obtenue / Annulé** ; à l'obtention, le **statut de fabrication du produit est promu** à la
+  cible. Chaînable dans le temps (Importation → Secondary → Primary → Full Process). Panneau
+  « Variations de fabrication » sur la fiche + colonne « Statut fab. » dans la liste.
 - **Web Push (VAPID) auto-configuré + intégré partout.** Le push (gratuit et illimité — il passe
   par les services push des navigateurs) n'est **plus inerte** : si l'environnement ne fournit pas de
   clés `VAPID_*`, le serveur **génère une paire une seule fois et la persiste** (`AppSetting.vapidPublicKey`

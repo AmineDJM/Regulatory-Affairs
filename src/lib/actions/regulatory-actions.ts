@@ -2,7 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
-import type { Priority, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus } from "@prisma/client";
+import type { Priority, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, ManufacturingStatus, VariationStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
@@ -14,7 +14,7 @@ import { notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
-import { REGULATORY_STEP_ORDER, LOCAL_MANUFACTURING_VARIATIONS } from "@/lib/labels";
+import { REGULATORY_STEP_ORDER, LOCAL_MANUFACTURING_VARIATIONS, VARIATION_TARGETS } from "@/lib/labels";
 import {
   isRegStepKey, isRegStepState, isRegChecklistKey,
   REG_STEPS, REG_CHECKLIST,
@@ -117,6 +117,7 @@ export async function createRegulatoryProduct(
       countryOfOrigin: str(formData, "countryOfOrigin"),
       category: (str(formData, "category") as RegulatoryCategory) ?? "MEDICINE",
       productType: (str(formData, "productType") as ProductType) ?? "IMPORTED",
+      manufacturingStatus: (str(formData, "manufacturingStatus") as ManufacturingStatus) ?? "IMPORTATION",
       status: (str(formData, "status") as RegulatoryStatus) ?? "PRE_SUBMISSION",
       priority: (str(formData, "priority") as Priority) ?? "MEDIUM",
       companyId: str(formData, "companyId") || null,
@@ -195,13 +196,8 @@ export async function updateRegulatoryProduct(
   const targetDateRaw = str(formData, "targetDate");
   const assignIds = Array.from(new Set([responsibleId, assistantId].filter(Boolean))) as string[];
 
-  // Variation d'enregistrement : une fabrication locale exige le fabricant.
-  const manufacturingVariation = str(formData, "manufacturingVariation");
+  // Fabricant courant (les variations de fabrication ont leur propre cycle de vie).
   const manufacturer = str(formData, "manufacturer");
-  if (manufacturingVariation && LOCAL_MANUFACTURING_VARIATIONS.includes(manufacturingVariation) && !manufacturer) {
-    return { ok: false, error: "Le Fabricant est obligatoire pour une fabrication locale (packaging secondaire, primaire ou full process)." };
-  }
-  const variationDateRaw = str(formData, "variationDate");
 
   await prisma.regulatoryProduct.update({
     where: { id },
@@ -218,14 +214,13 @@ export async function updateRegulatoryProduct(
       countryOfOrigin: str(formData, "countryOfOrigin"),
       category: (str(formData, "category") as RegulatoryCategory) ?? before.category,
       productType: (str(formData, "productType") as ProductType) ?? before.productType,
+      manufacturingStatus: (str(formData, "manufacturingStatus") as ManufacturingStatus) ?? before.manufacturingStatus,
       status: (str(formData, "status") as RegulatoryStatus) ?? before.status,
       priority: (str(formData, "priority") as Priority) ?? before.priority,
       targetDate: targetDateRaw ? new Date(targetDateRaw) : null,
       comments: str(formData, "comments"),
       deHolder: str(formData, "deHolder"),
-      manufacturingVariation: !manufacturingVariation || manufacturingVariation === "NONE" ? null : manufacturingVariation,
       manufacturer,
-      variationDate: variationDateRaw ? new Date(variationDateRaw) : null,
       responsibleId,
       assistantId,
       updatedById: user.id,
@@ -491,5 +486,88 @@ export async function setRegulatoryChecklistItem(formData: FormData): Promise<Ac
   const itemLabel = REG_CHECKLIST.flatMap((g) => g.items).find((i) => i.key === itemKey)?.label ?? itemKey;
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId, field: "checklist", newValue: checked ? "coché" : "décoché", summary: `Document présoumission « ${itemLabel} » ${checked ? "fourni" : "retiré"}` });
   revalidatePath(`/regulatory/${productId}`);
+  return { ok: true };
+}
+
+// ─────────────────────────── Variations de fabrication ───────────────────────────
+// Après la DE d'un produit, on peut demander une variation vers un packaging local
+// (secondaire / primaire / full process). Chaîne possible dans le temps ; à l'obtention,
+// le statut de fabrication du produit est mis à jour.
+
+/** Ouvre une variation (dépôt) vers un statut de fabrication supérieur. */
+export async function createVariation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const productId = str(formData, "productId");
+  if (!productId) return { ok: false, error: "Dossier introuvable." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+
+  const toStatus = str(formData, "toStatus");
+  if (!toStatus || !VARIATION_TARGETS.includes(toStatus)) {
+    return { ok: false, error: "Statut de fabrication de variation invalide." };
+  }
+  const depotRaw = str(formData, "depotDate");
+  await prisma.regulatoryVariation.create({
+    data: {
+      productId,
+      toStatus: toStatus as ManufacturingStatus,
+      status: "EN_ATTENTE",
+      depotDate: depotRaw ? new Date(depotRaw) : null,
+      manufacturer: str(formData, "manufacturer"),
+      note: str(formData, "note"),
+      createdById: user.id,
+    },
+  });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId, summary: `Variation déposée → ${toStatus}` });
+  revalidatePath(`/regulatory/${productId}`);
+  return { ok: true };
+}
+
+/** Met à jour le statut d'une variation ; si « DE obtenue », promeut le statut de fabrication du produit. */
+export async function setVariationStatus(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = str(formData, "id");
+  const status = str(formData, "status");
+  if (!id || !status || !["EN_ATTENTE", "OBTENUE", "ANNULE"].includes(status)) {
+    return { ok: false, error: "Paramètres invalides." };
+  }
+  const variation = await prisma.regulatoryVariation.findUnique({ where: { id }, select: { id: true, productId: true, toStatus: true, manufacturer: true } });
+  if (!variation) return { ok: false, error: "Variation introuvable." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", variation.productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+
+  const decisionRaw = str(formData, "decisionDate");
+  const decisionDate = decisionRaw ? new Date(decisionRaw) : status === "OBTENUE" ? new Date() : null;
+  await prisma.regulatoryVariation.update({
+    where: { id },
+    data: { status: status as VariationStatus, decisionDate },
+  });
+
+  // À l'obtention, le statut de fabrication du produit devient la cible de la variation.
+  if (status === "OBTENUE") {
+    await prisma.regulatoryProduct.update({
+      where: { id: variation.productId },
+      data: {
+        manufacturingStatus: variation.toStatus,
+        ...(variation.manufacturer ? { manufacturer: variation.manufacturer } : {}),
+        variationDate: decisionDate,
+        updatedById: user.id,
+      },
+    });
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: variation.productId, summary: `Variation → ${variation.toStatus} : ${status}` });
+  revalidatePath(`/regulatory/${variation.productId}`);
+  return { ok: true };
+}
+
+/** Supprime une variation (responsable / privilégié). */
+export async function deleteVariation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = str(formData, "id");
+  if (!id) return { ok: false, error: "Variation introuvable." };
+  const variation = await prisma.regulatoryVariation.findUnique({ where: { id }, select: { productId: true } });
+  if (!variation) return { ok: false, error: "Variation introuvable." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", variation.productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+  await prisma.regulatoryVariation.delete({ where: { id } });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: variation.productId, summary: "Variation supprimée" });
+  revalidatePath(`/regulatory/${variation.productId}`);
   return { ok: true };
 }

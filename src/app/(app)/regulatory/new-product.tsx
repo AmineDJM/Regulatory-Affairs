@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
 import { DciAssociationField } from "./dci-field";
-import { PRODUCT_TYPE, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 
 interface UserOption {
   id: string;
@@ -75,7 +75,7 @@ export function NewProductButton({ users, suppliers, companies }: { users: UserO
             <SelectField label="Fournisseur" name="supplierId" options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="— Aucun —" />
             <TextField label="Laboratoire partenaire (optionnel)" name="partnerLab" placeholder="Ex. Pharma Lab" />
             <TextField label="Pays d'origine" name="countryOfOrigin" placeholder="Inde" />
-            <SelectField label="Type de produit" name="productType" options={optionsFromMap(PRODUCT_TYPE)} defaultValue="IMPORTED" />
+            <SelectField label="Statut de fabrication" name="manufacturingStatus" options={optionsFromMap(MANUFACTURING_STATUS)} defaultValue="IMPORTATION" />
             <SelectField label="Priorité" name="priority" options={optionsFromMap(PRIORITY)} defaultValue="MEDIUM" />
             <SelectField label="Statut initial" name="status" options={optionsFromMap(REGULATORY_STATUS)} defaultValue="PRE_SUBMISSION" />
             <SelectField label="Responsable" name="responsibleId" options={userOptions} placeholder="—" />

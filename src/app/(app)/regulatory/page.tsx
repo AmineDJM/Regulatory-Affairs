@@ -52,7 +52,7 @@ export default async function RegulatoryPage() {
       therapeuticClass: p.therapeuticClass ?? "",
       supplier: p.supplier?.name ?? "",
       category: p.category,
-      productType: p.productType,
+      manufacturingStatus: p.manufacturingStatus,
       status: p.status,
       priority: p.priority,
       responsible: p.responsible?.name ?? "",

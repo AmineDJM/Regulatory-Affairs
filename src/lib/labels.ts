@@ -60,6 +60,7 @@ export const PHARMA_FORM: Record<string, string> = {
   COMPRIME: "Comprimé",
   COMPRIME_PELLICULE: "Comprimé pelliculé",
   GELULE: "Gélule",
+  CAPSULE_MOLLE: "Capsule molle",
   SIROP: "Sirop",
   SUSPENSION_BUVABLE: "Suspension buvable",
   SOLUTION_BUVABLE: "Solution buvable",
@@ -597,6 +598,26 @@ export const MANUFACTURING_VARIATION: Record<string, string> = {
 };
 /** Variations impliquant une fabrication locale → le fabricant devient obligatoire. */
 export const LOCAL_MANUFACTURING_VARIATIONS = ["SECONDARY_PACKAGING", "PRIMARY_PACKAGING", "FULL_PROCESS"];
+
+/**
+ * Statut de fabrication d'un produit Regulatory (remplace l'ancien « type de produit »).
+ * On démarre en Importation ; une **variation** peut faire évoluer vers un packaging local.
+ */
+export const MANUFACTURING_STATUS: Record<string, string> = {
+  IMPORTATION: "Importation",
+  SECONDARY_PACKAGING: "Secondary Packaging",
+  PRIMARY_PACKAGING: "Primary Packaging",
+  FULL_PROCESS: "Full Process",
+};
+/** Cibles possibles d'une variation (tout sauf le point de départ « Importation »). */
+export const VARIATION_TARGETS = ["SECONDARY_PACKAGING", "PRIMARY_PACKAGING", "FULL_PROCESS"];
+
+/** Cycle de vie d'une variation de fabrication (dépôt → décision). */
+export const VARIATION_STATUS: Record<string, Display> = {
+  EN_ATTENTE: { label: "En attente", tone: "warning" },
+  OBTENUE: { label: "DE de variation obtenue", tone: "success" },
+  ANNULE: { label: "Annulé", tone: "neutral" },
+};
 
 export const HR_REQUEST_TYPE: Record<string, string> = {
   WORK_CERTIFICATE: "Attestation de travail",

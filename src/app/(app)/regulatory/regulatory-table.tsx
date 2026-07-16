@@ -3,7 +3,7 @@
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Progress } from "@/components/ui/progress";
-import { PRIORITY, REGULATORY_STATUS, PRODUCT_TYPE, REGULATORY_CATEGORY } from "@/lib/labels";
+import { PRIORITY, REGULATORY_STATUS, MANUFACTURING_STATUS, REGULATORY_CATEGORY } from "@/lib/labels";
 import { formatDate, daysUntil } from "@/lib/utils";
 
 export interface RegulatoryRow {
@@ -16,7 +16,7 @@ export interface RegulatoryRow {
   therapeuticClass: string;
   supplier: string;
   category: string;
-  productType: string;
+  manufacturingStatus: string;
   status: string;
   priority: string;
   responsible: string;
@@ -66,11 +66,11 @@ export function RegulatoryTable({ rows }: { rows: RegulatoryRow[] }) {
       render: (r) => <StatusBadge map={REGULATORY_CATEGORY} value={r.category} dot={false} />,
     },
     {
-      key: "productType",
-      header: "Type",
+      key: "manufacturingStatus",
+      header: "Statut fab.",
       sortable: true,
-      accessor: (r) => PRODUCT_TYPE[r.productType] ?? r.productType,
-      render: (r) => <span className="text-sm">{PRODUCT_TYPE[r.productType] ?? r.productType}</span>,
+      accessor: (r) => MANUFACTURING_STATUS[r.manufacturingStatus] ?? r.manufacturingStatus,
+      render: (r) => <span className="text-sm">{MANUFACTURING_STATUS[r.manufacturingStatus] ?? r.manufacturingStatus}</span>,
     },
     {
       key: "supplier",

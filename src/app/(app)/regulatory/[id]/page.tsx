@@ -25,7 +25,8 @@ import { toNumber } from "@/lib/utils";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { getFieldDefs } from "@/lib/custom-fields";
 import { suggestedExternalStatus } from "@/lib/regulatory-external";
-import { PRIORITY, REGULATORY_STATUS, PRODUCT_TYPE, REGULATORY_CATEGORY, PHARMA_FORM, DOSAGE_UNIT, MANUFACTURING_VARIATION } from "@/lib/labels";
+import { PRIORITY, REGULATORY_STATUS, MANUFACTURING_STATUS, REGULATORY_CATEGORY, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { VariationPanel } from "./variation-panel";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { SupplierViewCard } from "./supplier-view-card";
 
@@ -52,6 +53,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
       assignedUsers: { select: { id: true, name: true } },
       supplier: { select: { name: true } },
       steps: { orderBy: { order: "asc" } },
+      variations: { orderBy: { createdAt: "desc" } },
     },
   });
   if (!product) notFound();
@@ -174,7 +176,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   supplierId: product.supplierId,
                   countryOfOrigin: product.countryOfOrigin,
                   category: product.category,
-                  productType: product.productType,
+                  manufacturingStatus: product.manufacturingStatus,
                   status: product.status,
                   priority: product.priority,
                   responsibleId: product.responsibleId,
@@ -218,7 +220,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
               <Info label="Dosage" value={dosageLabel} />
               <Info label="Forme" value={formLabel} />
               <Info label="Classe thérapeutique" value={product.therapeuticClass} />
-              <Info label="Type" value={PRODUCT_TYPE[product.productType] ?? product.productType} />
+              <Info label="Statut de fabrication" value={MANUFACTURING_STATUS[product.manufacturingStatus] ?? product.manufacturingStatus} />
               <Info label="Fournisseur" value={product.supplier?.name} />
               <Info label="Laboratoire partenaire" value={product.partnerLab} />
               <Info label="Pays d'origine" value={product.countryOfOrigin} />
@@ -226,13 +228,19 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
               <Info label="Assistante" value={product.assistant?.name} />
               <Info label="Date cible" value={product.targetDate ? formatDate(product.targetDate) : null} />
               <Info label="Détenteur de DE" value={product.deHolder} />
-              <Info label="Variation d'enregistrement" value={product.manufacturingVariation ? MANUFACTURING_VARIATION[product.manufacturingVariation] ?? product.manufacturingVariation : null} />
-              {product.manufacturingVariation && (
-                <>
-                  <Info label="Fabricant" value={product.manufacturer} />
-                  <Info label="Date de la variation" value={product.variationDate ? formatDate(product.variationDate) : null} />
-                </>
-              )}
+              <Info label="Fabricant" value={product.manufacturer} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Variations de fabrication</CardTitle></CardHeader>
+            <CardContent>
+              <VariationPanel
+                productId={product.id}
+                currentStatus={product.manufacturingStatus}
+                variations={product.variations}
+                canEdit={canUpdate}
+              />
             </CardContent>
           </Card>
 

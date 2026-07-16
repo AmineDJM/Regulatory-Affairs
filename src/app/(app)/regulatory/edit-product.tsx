@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
 import { DciAssociationField } from "./dci-field";
-import { PRODUCT_TYPE, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT, MANUFACTURING_VARIATION, LOCAL_MANUFACTURING_VARIATIONS } from "@/lib/labels";
+import { MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 
 interface UserOption {
   id: string;
@@ -29,7 +29,7 @@ export interface EditProductValues {
   supplierId: string | null;
   countryOfOrigin: string | null;
   category: string;
-  productType: string;
+  manufacturingStatus: string;
   status: string;
   priority: string;
   responsibleId: string | null;
@@ -50,8 +50,6 @@ export function EditProductButton({ product, users, suppliers }: { product: Edit
     undefined,
   );
   const [submitting, setSubmitting] = React.useState(false);
-  const [variation, setVariation] = React.useState(product.manufacturingVariation ?? "NONE");
-  const localManufacturing = LOCAL_MANUFACTURING_VARIATIONS.includes(variation);
 
   React.useEffect(() => {
     if (state?.ok) {
@@ -101,35 +99,16 @@ export function EditProductButton({ product, users, suppliers }: { product: Edit
             <SelectField label="Fournisseur" name="supplierId" options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="— Aucun —" defaultValue={product.supplierId ?? ""} />
             <TextField label="Laboratoire partenaire (optionnel)" name="partnerLab" placeholder="Ex. Pharma Lab" defaultValue={product.partnerLab ?? undefined} />
             <TextField label="Pays d'origine" name="countryOfOrigin" placeholder="Inde" defaultValue={product.countryOfOrigin ?? undefined} />
-            <SelectField label="Type de produit" name="productType" options={optionsFromMap(PRODUCT_TYPE)} defaultValue={product.productType} />
+            <SelectField label="Statut de fabrication" name="manufacturingStatus" options={optionsFromMap(MANUFACTURING_STATUS)} defaultValue={product.manufacturingStatus} />
             <SelectField label="Priorité" name="priority" options={optionsFromMap(PRIORITY)} defaultValue={product.priority} />
             <SelectField label="Statut" name="status" options={optionsFromMap(REGULATORY_STATUS)} defaultValue={product.status} />
             <SelectField label="Responsable" name="responsibleId" options={userOptions} placeholder="—" defaultValue={product.responsibleId ?? ""} />
             <SelectField label="Assistante assignée" name="assistantId" options={userOptions} placeholder="—" defaultValue={product.assistantId ?? ""} />
             <TextField label="Date cible d'enregistrement" name="targetDate" type="date" defaultValue={product.targetDate ?? undefined} className="col-span-2" />
 
-            {/* Décision d'enregistrement + variation vers la fabrication locale */}
+            {/* Décision d'enregistrement (les variations de fabrication se gèrent sur la fiche). */}
             <TextField label="Détenteur de DE" name="deHolder" placeholder="Titulaire de la décision d'enregistrement" defaultValue={product.deHolder ?? undefined} className="col-span-2" />
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Variation d&apos;enregistrement</label>
-              <select
-                name="manufacturingVariation"
-                value={variation}
-                onChange={(e) => setVariation(e.target.value)}
-                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
-              >
-                {Object.entries(MANUFACTURING_VARIATION).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-            </div>
-            <TextField label="Date de la variation" name="variationDate" type="date" defaultValue={product.variationDate ?? undefined} />
-            <TextField
-              label={localManufacturing ? "Fabricant (obligatoire — fabrication locale)" : "Fabricant"}
-              name="manufacturer"
-              required={localManufacturing}
-              placeholder="Site de fabrication local"
-              defaultValue={product.manufacturer ?? undefined}
-              className="col-span-2"
-            />
+            <TextField label="Fabricant" name="manufacturer" placeholder="Site de fabrication" defaultValue={product.manufacturer ?? undefined} className="col-span-2" />
           </div>
           <TextAreaField label="Commentaires" name="comments" placeholder="Notes internes…" defaultValue={product.comments ?? undefined} />
 
