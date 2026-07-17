@@ -4,7 +4,10 @@ import {
   PERMISSIONS,
   accessibleModules,
   can,
+  canAnswerRegRequests,
+  canCreateRegRequest,
   canManageEnvelope,
+  canSeeRegRequests,
   canViewEnvelope,
   defaultScope,
   hasGlobalView,
@@ -211,5 +214,28 @@ describe("envelope access (canViewEnvelope / canManageEnvelope)", () => {
 
   it("another person's grant does not leak", () => {
     expect(canViewEnvelope(del, { ...empty, accessUserIds: ["someone-else"], managerUserIds: ["x"] })).toBe(false);
+  });
+});
+
+describe("regulatory requests access (PRIM → Regulatory)", () => {
+  const prim = mkUser("p1", "MEDICAL_INFO_PHARMACIST", fromRole("MEDICAL_INFO_PHARMACIST"));
+  const head = mkUser("h1", "HEAD_OF_REGULATORY", fromRole("HEAD_OF_REGULATORY"));
+  const sales = mkUser("s1", "SALES_USER", fromRole("SALES_USER"));
+
+  it("le PRIM peut créer une demande mais ne répond pas", () => {
+    expect(canCreateRegRequest(prim)).toBe(true);
+    expect(canAnswerRegRequests(prim)).toBe(false);
+    expect(canSeeRegRequests(prim)).toBe(true);
+  });
+
+  it("l'équipe Regulatory répond et voit tout", () => {
+    expect(canAnswerRegRequests(head)).toBe(true);
+    expect(canSeeRegRequests(head)).toBe(true);
+  });
+
+  it("un rôle sans lien ne voit rien", () => {
+    expect(canCreateRegRequest(sales)).toBe(false);
+    expect(canAnswerRegRequests(sales)).toBe(false);
+    expect(canSeeRegRequests(sales)).toBe(false);
   });
 });

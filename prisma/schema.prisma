@@ -704,6 +704,11 @@ model User {
   supportAssigned  SupportRequest[] @relation("SupportAssignee")
   supportMessages  SupportMessage[] @relation("SupportMsgAuthor")
 
+  // Demandes de l'information médicale (PRIM) → Regulatory
+  regRequestsCreated  RegulatoryRequest[]        @relation("RegRequestRequester")
+  regRequestsAssigned RegulatoryRequest[]        @relation("RegRequestAssignee")
+  regRequestMessages  RegulatoryRequestMessage[] @relation("RegRequestMsgAuthor")
+
   // Dossiers de suivi (sujets délégués / suivis)
   dossiersCreated  Dossier[]        @relation("DossierCreator")
   dossiersAssigned Dossier[]        @relation("DossierAssignee")
@@ -855,6 +860,7 @@ model RegulatoryProduct {
   variations     RegulatoryVariation[] // variations de fabrication (Importation → packaging local)
   stockMovements StockMovement[] // mouvements de stock PCH rattachés à ce produit
   stockSnapshots StockSnapshot[] // états de stock datés (PCH / hôpital / annexes)
+  regRequests    RegulatoryRequest[] // demandes de l'information médicale (PRIM) sur ce dossier
 
   // ─── Vue fournisseur (portail externe) — pilotée par l'équipe Regulatory ───
   // Le fournisseur ne voit QUE ces champs externes, jamais le statut/les notes
@@ -1368,6 +1374,62 @@ model SupportMessage {
   author    User?          @relation("SupportMsgAuthor", fields: [authorId], references: [id])
   body      String
   createdAt DateTime       @default(now())
+
+  @@index([requestId])
+}
+
+// Demande de l'information médicale (PRIM) vers l'équipe Regulatory (question réglementaire,
+// document, statut d'enregistrement, variation…), rattachable à un dossier produit, avec fil
+// de discussion et statut. Le PRIM crée ; Regulatory prend en charge et répond.
+enum RegRequestCategory {
+  QUESTION // question réglementaire
+  DOCUMENT // demande de document réglementaire
+  STATUS_UPDATE // point sur le statut d'enregistrement
+  VARIATION // variation / modification
+  OTHER
+}
+
+enum RegRequestStatus {
+  OPEN // ouverte (nouvelle)
+  IN_PROGRESS // prise en charge par Regulatory
+  ANSWERED // réponse apportée
+  CLOSED // clôturée
+}
+
+model RegulatoryRequest {
+  id           String             @id @default(cuid())
+  reference    String             @unique // RRQ-AAAA-NNN
+  subject      String
+  body         String
+  category     RegRequestCategory @default(QUESTION)
+  priority     Priority           @default(MEDIUM)
+  status       RegRequestStatus   @default(OPEN)
+  // Dossier produit concerné (optionnel).
+  productId    String?
+  product      RegulatoryProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  requesterId  String? // le PRIM demandeur
+  requester    User?              @relation("RegRequestRequester", fields: [requesterId], references: [id])
+  assignedToId String? // répondant Regulatory ayant pris en charge
+  assignedTo   User?              @relation("RegRequestAssignee", fields: [assignedToId], references: [id])
+
+  messages  RegulatoryRequestMessage[]
+  createdAt DateTime                   @default(now())
+  updatedAt DateTime                   @updatedAt
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([assignedToId])
+  @@index([productId])
+}
+
+model RegulatoryRequestMessage {
+  id        String            @id @default(cuid())
+  requestId String
+  request   RegulatoryRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?             @relation("RegRequestMsgAuthor", fields: [authorId], references: [id])
+  body      String
+  createdAt DateTime          @default(now())
 
   @@index([requestId])
 }

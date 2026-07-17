@@ -217,6 +217,22 @@ export function canViewEnvelope(user: SessionUser, env: EnvelopeAccessBearer): b
   return canManageEnvelope(user, env) || (env.accessRoles ?? []).includes(user.role) || (env.accessUserIds ?? []).includes(user.id);
 }
 
+// ─────────── Demandes de l'information médicale (PRIM) → Regulatory ───────────
+/** Peut CRÉER une demande à Regulatory : le PRIM (information médicale) ou la vue globale. */
+export function canCreateRegRequest(user: SessionUser): boolean {
+  return user.role === "MEDICAL_INFO_PHARMACIST" || userCan(user, "MEDICAL_INFO", "CREATE") || hasGlobalView(user.role);
+}
+
+/** Peut PRENDRE EN CHARGE / RÉPONDRE : l'équipe Regulatory (droit REGULATORY:UPDATE) ou la vue globale. */
+export function canAnswerRegRequests(user: SessionUser): boolean {
+  return userCan(user, "REGULATORY", "UPDATE") || hasGlobalView(user.role);
+}
+
+/** Peut accéder à l'espace des demandes (demandeur PRIM OU répondant Regulatory). */
+export function canSeeRegRequests(user: SessionUser): boolean {
+  return canCreateRegRequest(user) || canAnswerRegRequests(user);
+}
+
 /** Role-default check (baseline, ignores per-user overrides). */
 export function can(role: UserRole, module: Module, action: Action): boolean {
   return PERMISSIONS[role]?.[module]?.includes(action) ?? false;

@@ -428,6 +428,22 @@ export const PRODUCT_CHANNEL: Record<string, Display> = {
   BOTH: { label: "Ville + Hôpital", tone: "neutral" },
 };
 
+// Demandes de l'information médicale (PRIM) → Regulatory.
+export const REG_REQUEST_STATUS: Record<string, Display> = {
+  OPEN: { label: "Ouverte", tone: "info" },
+  IN_PROGRESS: { label: "En cours", tone: "warning" },
+  ANSWERED: { label: "Répondue", tone: "success" },
+  CLOSED: { label: "Clôturée", tone: "neutral" },
+};
+
+export const REG_REQUEST_CATEGORY: Record<string, string> = {
+  QUESTION: "Question réglementaire",
+  DOCUMENT: "Demande de document",
+  STATUS_UPDATE: "Point statut d'enregistrement",
+  VARIATION: "Variation / modification",
+  OTHER: "Autre",
+};
+
 export const DOCTOR_TITLE: Record<string, string> = {
   PROFESSEUR: "Professeur",
   MAITRE_CONFERENCES: "Maître de conférences",
@@ -1138,6 +1154,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "SALES_PLANNING", label: "Prévisions & Force de vente", href: "/planning", icon: "TrendingUp", group: "Pôles" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles" },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
+  { module: "MEDICAL_INFO", label: "Demandes à Regulatory", href: "/regulatory/requests", icon: "MessageSquareText", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
   // Transverse — « Demandes de validations » est le bureau de validation : chacun
   // y demande une validation professionnelle (selon l'accès accordé par le Super

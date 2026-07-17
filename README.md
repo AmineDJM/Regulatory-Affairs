@@ -1067,6 +1067,17 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Information médicale (PRIM) → demandes à Regulatory.** Le pharmacien responsable de l'information
+  médicale peut désormais **adresser des demandes** à l'équipe Regulatory (question réglementaire,
+  demande de document, point sur un statut d'enregistrement, variation…), **rattachables à un dossier
+  produit**, avec un **fil de discussion** et un cycle de statut **Ouverte → En cours → Répondue →
+  Clôturée**. L'équipe Regulatory **prend en charge** (assignation auto au premier répondant), **répond**
+  et change le statut ; des **notifications** préviennent l'équipe à la création et le demandeur à chaque
+  réponse/changement de statut. Accès strict : le PRIM ne voit que **ses** demandes, Regulatory les voit
+  **toutes** (helpers `canCreateRegRequest` / `canAnswerRegRequests` / `canSeeRegRequests`). Nouveaux
+  modèles `RegulatoryRequest` / `RegulatoryRequestMessage` (migration `20260717150000_regulatory_request`),
+  espace `/regulatory/requests` (entrée de menu côté information médicale + lien depuis le module
+  Regulatory), référence `RRQ-AAAA-NNN`.
 - **Produits — canal de distribution Ville / Hôpital / les deux.** Nouvel attribut **canal**
   (`ProductChannel` : `RETAIL` = ville/officine, `HOSPITAL` = hospitalier, `BOTH` = les deux) porté par
   les **produits promus** (`PromoProduct`, catalogue Force de vente) et les **produits réglementaires**
