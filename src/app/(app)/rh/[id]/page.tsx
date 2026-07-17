@@ -13,6 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS, PAYROLL_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/utils";
 import { getEmployeeHrDossier } from "@/lib/queries/hr-documents";
+import { getCompanies, companyOptions } from "@/lib/company";
+import { aiConfigured } from "@/lib/ai";
 import { EmployeeForm, type EmployeeFormValues } from "./employee-form";
 import { HrDossier } from "./hr-dossier";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
@@ -34,11 +36,12 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
   });
   if (!employee) notFound();
 
-  const [fieldDefs, otherEmployees, unlinkedUsers, hrDossier] = await Promise.all([
+  const [fieldDefs, otherEmployees, unlinkedUsers, hrDossier, companies] = await Promise.all([
     getFieldDefs("EMPLOYEE"),
     prisma.employee.findMany({ where: { id: { not: employee.id } }, select: { id: true, fullName: true }, orderBy: { fullName: "asc" } }),
     prisma.user.findMany({ where: { isActive: true, employee: { is: null } }, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
     getEmployeeHrDossier(employee.id),
+    getCompanies(),
   ]);
 
   const managerOptions = otherEmployees.map((e) => ({ value: e.id, label: e.fullName }));
@@ -78,6 +81,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
     nationalId: employee.nationalId ?? "",
     cnasNumber: employee.cnasNumber ?? "",
     address: employee.address ?? "",
+    companyId: employee.companyId ?? "",
     managerId: employee.managerId ?? "",
     userId: employee.userId ?? "",
     isActive: employee.isActive,
@@ -115,7 +119,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
             <CardHeader><CardTitle>{canUpdate ? "Dossier employé" : "Informations"}</CardTitle></CardHeader>
             <CardContent>
               {canUpdate ? (
-                <EmployeeForm employee={formValues} managerOptions={managerOptions} userOptions={userOptions} />
+                <EmployeeForm employee={formValues} managerOptions={managerOptions} userOptions={userOptions} companyOptions={companyOptions(companies)} aiConfigured={aiConfigured()} />
               ) : (
                 <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
                   <Info label="Poste" value={employee.position} />

@@ -113,6 +113,7 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
     address: fdStr(formData, "address"),
     userId: fdStr(formData, "userId"),
     managerId: fdStr(formData, "managerId"),
+    companyId: fdStr(formData, "companyId") || null, // entité de rattachement (modifiable)
     isActive: fdBool(formData, "isActive"),
   };
 
