@@ -7,6 +7,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { getRecommendations, normText, queryTokens, allTokensIn, type RecRow } from "@/lib/market/engine";
 
 const MODULE = "BUSINESS_DEVELOPMENT" as const;
 const BASE = "/business-development/etudes";
@@ -154,6 +155,59 @@ export async function deleteResearchPlayer(formData: FormData): Promise<ActionRe
   const researchId = fdStr(formData, "researchId");
   if (!id) return { ok: false, error: "Acteur introuvable." };
   await prisma.marketResearchPlayer.delete({ where: { id } });
+  if (researchId) revalidatePath(`${BASE}/${researchId}`);
+  return { ok: true };
+}
+
+// ─────────────────────── Pré-remplissage depuis l'intelligence marché (Pharmatool) ───────────────────────
+/**
+ * Rapproche le produit de la ligne d'une DCI de l'intelligence marché (IQVIA + PCH + Nomenclature)
+ * et remplit automatiquement : marché (volume/valeur), prix moyen, et les acteurs (fabricants locaux
+ * → Fabrication, importateurs → Importation) avec l'état d'enregistrement à la nomenclature.
+ */
+export async function prefillResearchRow(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  const researchId = fdStr(formData, "researchId");
+  if (!id) return { ok: false, error: "Ligne introuvable." };
+  const row = await prisma.marketResearchRow.findUnique({ where: { id }, include: { players: { select: { id: true } } } });
+  if (!row) return { ok: false, error: "Ligne introuvable." };
+
+  const recs = getRecommendations();
+  const q = normText(row.product);
+  const qt = queryTokens(q);
+  let best: RecRow | undefined = recs.find((r) => r.key === q);
+  if (!best && qt.length) {
+    const cands = recs.filter((r) => allTokensIn(r.key, qt) || (r.key && allTokensIn(q, queryTokens(r.key))));
+    best = cands.sort((a, b) => b.valueUsd - a.valueUsd)[0];
+  }
+  if (!best) return { ok: false, error: "Aucune correspondance marché trouvée pour ce produit." };
+
+  const avg = best.volume > 0 ? Math.round((best.valueUsd / best.volume) * 100) / 100 : null;
+  await prisma.marketResearchRow.update({
+    where: { id },
+    data: {
+      marketVolume: best.volume ? Math.round(best.volume) : null,
+      marketValueUsd: best.valueUsd ? Math.round(best.valueUsd) : null,
+      avgPricePerBoxUsd: avg,
+      comment: row.comment || `Nomenclature : ${best.nomLines} ligne(s) · ${best.manufacturers} fabricant(s) / ${best.importers} importateur(s) · ${best.recommendation}`,
+    },
+  });
+
+  // Acteurs à partir des laboratoires détectés — uniquement si la ligne n'en a pas encore.
+  if (row.players.length === 0) {
+    const mfg = best.mfgLabs.split(";").map((s) => s.trim()).filter(Boolean);
+    const imp = best.impLabs.split(";").map((s) => s.trim()).filter(Boolean);
+    let rank = 1;
+    const data = [
+      ...mfg.map((name) => ({ rowId: id, rank: rank++, name, status: "MANUFACTURING" as const })),
+      ...imp.map((name) => ({ rowId: id, rank: rank++, name, status: "IMPORT" as const })),
+    ];
+    if (data.length) await prisma.marketResearchPlayer.createMany({ data });
+  }
+
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Business Development", summary: `Pré-remplissage marché — ${row.product}` });
   if (researchId) revalidatePath(`${BASE}/${researchId}`);
   return { ok: true };
 }

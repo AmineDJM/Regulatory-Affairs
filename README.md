@@ -1074,8 +1074,16 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   puis les **acteurs** (Player 1/2/3…, **non plafonnés**) avec **part de marché** et **statut
   Importation/Fabrication**, et Commentaires. **Enregistrement automatique** à la sortie de chaque champ,
   ajout/suppression de lignes et d'acteurs. Modèles `MarketResearch` / `MarketResearchRow` /
-  `MarketResearchPlayer` (migration `20260717110000_market_research`). Base des prochains lots :
-  **pré-remplissage Pharmatool + graphes + export Excel**, puis **génération de présentation PPTX par IA**.
+  `MarketResearchPlayer` (migration `20260717110000_market_research`).
+  **Pré-remplissage Pharmatool + « Voir plus de détails » + export Excel.** Chaque ligne gagne un bouton
+  **« Pré-remplir »** (✨) qui rapproche le produit d'une **DCI de l'intelligence marché** (IQVIA + PCH +
+  Nomenclature via `getRecommendations()`) et remplit automatiquement **volume, valeur $, prix moyen/boîte**,
+  un **commentaire nomenclature** (lignes enregistrées · fabricants/importateurs · recommandation) et les
+  **acteurs** détectés (laboratoires **fabricants → Fabrication**, **importateurs → Importation**, seulement
+  si la ligne n'en a pas encore). Le bouton **« Voir plus de détails »** déplie une **vue parts de marché**
+  (barres de répartition par acteur, part cumulée) sous la ligne. Enfin un **export Excel (.xlsx)** au
+  **format exact du modèle** (colonnes dynamiques `Player i / Market Share Player i (value) / Status Player i`)
+  via `/api/market-research/[id]/export`. Prochain lot : **génération de présentation PPTX par IA (Claude)**.
 - **Congrès — praticiens pris en charge reliés à l'annuaire.** La liste des personnes prises en charge
   d'un congrès (national/international) n'est plus une simple saisie libre : le panneau **« Personnes
   prises en charge »** propose trois modes — **« Depuis l'annuaire »** (recherche + sélection d'un

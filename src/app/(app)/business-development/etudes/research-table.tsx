@@ -2,14 +2,15 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Loader2 } from "lucide-react";
+import { Plus, Trash2, Loader2, Sparkles, BarChart3, ChevronDown, ChevronRight } from "lucide-react";
 import {
   addResearchRow, updateResearchRow, deleteResearchRow,
-  addResearchPlayer, updateResearchPlayer, deleteResearchPlayer,
+  addResearchPlayer, updateResearchPlayer, deleteResearchPlayer, prefillResearchRow,
 } from "@/lib/actions/market-research-actions";
 import type { ResearchRowDTO } from "@/lib/queries/market-research";
 
 const STATUS_LABEL: Record<string, string> = { IMPORT: "Importation", MANUFACTURING: "Fabrication" };
+const STATUS_COLOR: Record<string, string> = { IMPORT: "#f59e0b", MANUFACTURING: "#0ea5e9" };
 const inp = "h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
 const nOrNull = (s: string) => { const t = s.trim(); if (!t) return ""; return t; };
 
@@ -84,6 +85,7 @@ function RowEditor({
     avgPricePerBoxUsd: row.avgPricePerBoxUsd != null ? String(row.avgPricePerBoxUsd) : "",
     comment: row.comment ?? "",
   });
+  const [open, setOpen] = React.useState(false);
 
   function saveRow() {
     const fd = new FormData();
@@ -96,7 +98,11 @@ function RowEditor({
   const ro = (v: string) => <span>{v || "—"}</span>;
   const cell = "border-b border-border/60 px-1.5 py-1 align-top";
 
+  const shares = row.players.map((p) => ({ name: p.name, value: p.marketShareValue ?? 0, status: p.status }));
+  const totalShare = shares.reduce((sum, x) => sum + x.value, 0);
+
   return (
+    <>
     <tr className="hover:bg-secondary/20">
       <td className={`${cell} text-center text-xs text-muted-foreground`}>{index}</td>
       <td className={cell}>{canEdit ? <input className={inp} value={s.therapeuticClass} onChange={(e) => setS({ ...s, therapeuticClass: e.target.value })} onBlur={saveRow} /> : ro(s.therapeuticClass)}</td>
@@ -116,12 +122,47 @@ function RowEditor({
       </td>
       <td className={cell}>{canEdit ? <input className={inp} value={s.comment} onChange={(e) => setS({ ...s, comment: e.target.value })} onBlur={saveRow} /> : ro(s.comment)}</td>
       <td className={`${cell} text-center`}>
-        {canEdit && (
-          <button type="button" onClick={() => { if (window.confirm(`Supprimer « ${s.product} » ?`)) { const fd = new FormData(); fd.set("id", row.id); fd.set("researchId", researchId); run(deleteResearchRow, fd); } }}
-            className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5" /></button>
-        )}
+        <div className="flex flex-col items-center gap-0.5">
+          <button type="button" onClick={() => setOpen((o) => !o)} title="Voir plus de détails" className="rounded p-1 text-muted-foreground hover:bg-secondary">
+            {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
+          {canEdit && (
+            <button type="button" title="Pré-remplir depuis l'intelligence marché (Pharmatool)" onClick={() => { const fd = new FormData(); fd.set("id", row.id); fd.set("researchId", researchId); run(prefillResearchRow, fd); }} className="rounded p-1 text-primary hover:bg-primary/10"><Sparkles className="h-3.5 w-3.5" /></button>
+          )}
+          {canEdit && (
+            <button type="button" onClick={() => { if (window.confirm(`Supprimer « ${s.product} » ?`)) { const fd = new FormData(); fd.set("id", row.id); fd.set("researchId", researchId); run(deleteResearchRow, fd); } }}
+              className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5" /></button>
+          )}
+        </div>
       </td>
     </tr>
+    {open && (
+      <tr className="bg-secondary/20">
+        <td colSpan={10} className="border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><BarChart3 className="h-3.5 w-3.5" /> Parts de marché — {s.product}</div>
+          {shares.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">Aucun acteur. Ajoutez des acteurs ou utilisez le pré-remplissage marché.</p>
+          ) : (
+            <div className="mt-2 max-w-2xl space-y-1.5">
+              {shares.map((sh, k) => {
+                const pct = totalShare > 0 ? Math.round((sh.value / totalShare) * 100) : 0;
+                return (
+                  <div key={k} className="flex items-center gap-2 text-sm">
+                    <span className="w-40 shrink-0 truncate" title={sh.name}>{sh.name}</span>
+                    <div className="h-3 flex-1 overflow-hidden rounded-full bg-secondary">
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: sh.status ? STATUS_COLOR[sh.status] : "#94a3b8" }} />
+                    </div>
+                    <span className="w-12 shrink-0 text-right tabular-nums text-muted-foreground">{pct}%</span>
+                    {sh.status && <span className="w-20 shrink-0 text-[10px] text-muted-foreground">{STATUS_LABEL[sh.status]}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 

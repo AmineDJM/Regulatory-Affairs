@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileSpreadsheet } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { getMarketResearch } from "@/lib/queries/market-research";
@@ -21,6 +21,7 @@ export default async function MarketResearchDetailPage({ params }: { params: { i
     <div className="space-y-5">
       <PageHeader title={research.title} description="Analyse concurrentielle : taille de marché, prix moyen, acteurs et parts de marché — éditable en place.">
         <Link href="/business-development/etudes"><Button variant="outline"><ArrowLeft className="h-4 w-4" /> Études</Button></Link>
+        <a href={`/api/market-research/${research.id}/export`}><Button variant="outline"><FileSpreadsheet className="h-4 w-4" /> Export Excel</Button></a>
       </PageHeader>
 
       <Card>
