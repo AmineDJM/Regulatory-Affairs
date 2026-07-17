@@ -106,6 +106,13 @@ export default async function MonDossierPage() {
                       </div>
                       {r.details && <p className="text-xs text-muted-foreground">{r.details}</p>}
                       {r.hrNote && <p className="text-xs text-muted-foreground">RH : {r.hrNote}</p>}
+                      {(r.periodStart || r.periodEnd) && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Période : <span className="font-medium text-foreground">{r.periodStart ? formatDate(r.periodStart) : "?"}{r.periodEnd ? ` → ${formatDate(r.periodEnd)}` : ""}</span>
+                          {r.periodDays ? ` · ${r.periodDays} j` : ""}
+                          {r.type === "ANNUAL_LEAVE" && r.balanceApplied ? <span className="text-success"> · solde débité</span> : null}
+                        </p>
+                      )}
                       {r.type === "EXPENSE_REPORT" && (
                         <div className="mt-1 space-y-0.5 text-xs">
                           <p className="text-muted-foreground">

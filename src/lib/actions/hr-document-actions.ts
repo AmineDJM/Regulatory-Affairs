@@ -17,13 +17,24 @@ import { formatMonth, nextMonthYm } from "@/lib/utils";
 import { archiveProcessedRequest } from "@/lib/archive";
 import { getBlob } from "@/lib/drive-storage";
 import { HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
-import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
 const YM = /^\d{4}-\d{2}$/;
 /** Statuts « traités » : la demande part alors dans la boîte « Dossier traité » du Drive. */
 const DONE_STATUSES: HrRequestStatus[] = ["READY", "DELIVERED", "REJECTED"];
+/** Types « congé » à période complète (jours entiers, début + fin obligatoires). */
+const LEAVE_PERIOD_TYPES: HrRequestType[] = ["ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "SICK_LEAVE"];
+/** Types nécessitant au moins une date de début (congés + absence ponctuelle). */
+const PERIOD_TYPES: HrRequestType[] = [...LEAVE_PERIOD_TYPES, "EXCEPTIONAL_EXIT"];
+
+/** Jours calendaires inclusifs entre deux dates (min 1). */
+function daysInclusive(start: Date, end: Date): number {
+  const ms = end.getTime() - start.getTime();
+  if (Number.isNaN(ms) || ms < 0) return 1;
+  return Math.floor(ms / 86_400_000) + 1;
+}
 
 /**
  * Archive une demande RH TRAITÉE dans le Drive du traitant (« Dossier traité / RH ») :
@@ -50,6 +61,7 @@ async function archiveHrRequestIfDone(id: string, actorId: string): Promise<void
     req.hrNote ? `Note RH : ${req.hrNote}` : null,
     req.expenseMonth ? `Mois concerné : ${formatMonth(req.expenseMonth)}` : null,
     req.approvedMonth ? `Validée pour : ${formatMonth(req.approvedMonth)}` : null,
+    req.periodStart ? `Période : du ${formatAlgiers(req.periodStart, { day: "2-digit", month: "long", year: "numeric" })}${req.periodEnd ? ` au ${formatAlgiers(req.periodEnd, { day: "2-digit", month: "long", year: "numeric" })}` : ""}${req.periodDays ? ` (${Number(req.periodDays)} j)` : ""}` : null,
     req.originalsAckAt ? `Originaux réceptionnés le : ${formatAlgiers(req.originalsAckAt, { day: "2-digit", month: "long", year: "numeric" })}` : null,
     req.meetingAt ? `Entrevue : ${formatAlgiers(req.meetingAt, { weekday: "long", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}${req.meetingConfirmedAt ? " (confirmée)" : ""}` : null,
     `Traitée le : ${formatAlgiers(new Date(), { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
@@ -94,10 +106,23 @@ export async function requestHrDocument(formData: FormData): Promise<ActionResul
     return { ok: false, error: "Indiquez le mois concerné par la note de frais." };
   }
 
+  // Congés / absences : période demandée. Début obligatoire ; fin obligatoire pour les congés
+  // à jours entiers. Le nombre de jours est calculé si non fourni (calendaire inclusif).
+  const needsPeriod = PERIOD_TYPES.includes(type);
+  const periodStart = needsPeriod ? fdDate(formData, "periodStart") : null;
+  const periodEnd = needsPeriod ? fdDate(formData, "periodEnd") : null;
+  if (needsPeriod && !periodStart) return { ok: false, error: "Indiquez la date de début du congé / de l'absence." };
+  if (LEAVE_PERIOD_TYPES.includes(type) && !periodEnd) return { ok: false, error: "Indiquez la date de fin du congé." };
+  if (periodStart && periodEnd && periodEnd < periodStart) return { ok: false, error: "La date de fin précède la date de début." };
+  let periodDays = needsPeriod ? fdNum(formData, "periodDays") : null;
+  if (periodDays == null && periodStart && periodEnd) periodDays = daysInclusive(periodStart, periodEnd);
+
   const created = await prisma.hrDocumentRequest.create({
     data: {
       employeeId: employee.id, type, details: fdStr(formData, "details"),
       expenseMonth: type === "EXPENSE_REPORT" ? expenseMonth : null,
+      periodStart, periodEnd,
+      periodDays: periodDays != null ? periodDays : null,
     },
   });
 
@@ -173,18 +198,29 @@ export async function processHrRequest(formData: FormData): Promise<ActionResult
     data: { status, hrNote: fdStr(formData, "hrNote"), handledById: user.id },
     include: { employee: { select: { fullName: true, userId: true } } },
   });
+
+  // Congé ANNUEL approuvé (READY) : débit UNIQUE du solde de congés de l'employé
+  // (verrou balanceAppliedAt). Les congés sans solde / exceptionnels / maternité ne débitent pas.
+  const pd = req.periodDays ? Number(req.periodDays) : 0;
+  if (status === "READY" && req.type === "ANNUAL_LEAVE" && !req.balanceAppliedAt && pd > 0) {
+    await prisma.employee.update({ where: { id: req.employeeId }, data: { leaveBalanceDays: { decrement: pd } } });
+    await prisma.hrDocumentRequest.update({ where: { id }, data: { balanceAppliedAt: new Date() } });
+    await recordAudit({ actorId: user.id, action: "UPDATE", module: "RH", summary: `Congé annuel approuvé — ${req.employee.fullName} (−${pd} j de solde)` });
+  }
+
   if (req.employee.userId) {
     await notifyUser({
       userId: req.employee.userId,
       type: "GENERIC",
       title: "Votre demande RH a été mise à jour",
-      body: `Statut : ${status}.`,
+      body: `Statut : ${HR_REQUEST_STATUS[status]?.label ?? status}.`,
       link: "/mon-dossier",
     });
   }
   await archiveHrRequestIfDone(id, user.id);
   revalidatePath("/mon-dossier");
   revalidatePath(`/rh/${req.employeeId}`);
+  revalidatePath("/rh");
   return { ok: true };
 }
 

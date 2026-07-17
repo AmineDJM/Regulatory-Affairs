@@ -2248,6 +2248,9 @@ model Employee {
   trialRenewalStart DateTime?
   trialRenewalEnd   DateTime?
   leaveBalanceDays  Decimal       @default(30) @db.Decimal(6, 1) // solde de congés (jours)
+  // Acquisition automatique des congés : 2,5 j / mois. Marqueur « YYYY-MM » du dernier
+  // mois crédité (idempotent) — voir accrueMonthlyLeave() dans src/lib/scheduled.ts.
+  leaveAccruedThrough String?
   birthDate         DateTime?
   nationalId        String? // NIN
   cnasNumber        String? // n° sécurité sociale (CNAS)
@@ -2327,6 +2330,13 @@ model HrDocumentRequest {
   meetingAt           DateTime?
   meetingProposedById String?
   meetingConfirmedAt  DateTime?
+
+  // Congés / absences : période demandée + nombre de jours. Pour un CONGÉ ANNUEL approuvé,
+  // le solde de l'employé est débité une seule fois (balanceAppliedAt = verrou).
+  periodStart      DateTime?
+  periodEnd        DateTime?
+  periodDays       Decimal?  @db.Decimal(5, 1)
+  balanceAppliedAt DateTime? // solde de congés déjà débité pour cette demande
 
   // Archivage : dossier « Dossier traité » créé dans le Drive du traitant.
   archivedNodeId String?

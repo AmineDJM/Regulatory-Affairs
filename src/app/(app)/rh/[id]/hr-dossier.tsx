@@ -160,6 +160,18 @@ function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: H
       </div>
       {req.details && <p className="mb-2 text-xs text-muted-foreground">Demande : {req.details}</p>}
 
+      {/* Congé / absence : période demandée + jours + débit du solde (congé annuel) */}
+      {(req.periodStart || req.periodEnd) && (
+        <p className="mb-2 text-xs">
+          <span className="text-muted-foreground">Période : </span>
+          <span className="font-medium">{req.periodStart ? formatDate(req.periodStart) : "?"}{req.periodEnd ? ` → ${formatDate(req.periodEnd)}` : ""}</span>
+          {req.periodDays ? <span className="text-muted-foreground"> · {req.periodDays} j</span> : null}
+          {req.type === "ANNUAL_LEAVE" && (req.balanceApplied
+            ? <span className="ml-1 font-medium text-success">· solde débité</span>
+            : <span className="ml-1 text-muted-foreground">· solde débité à l&apos;approbation</span>)}
+        </p>
+      )}
+
       {/* Note de frais : mois, accusé de réception des originaux, décision en un clic */}
       {req.type === "EXPENSE_REPORT" && (
         <div className="mb-2 space-y-2 rounded-lg border border-border bg-muted/20 p-2.5">

@@ -508,6 +508,26 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
   retiré avant update), `defaults.ts` (seed paresseux reproduisant le circuit historique), `src/lib/queries/workflow.ts`
   (vue caviardée), `src/components/workflow/workflow-panel.tsx` (panneau runtime), builder sous `/admin/workflows`.
 
+### RH — pré-remplissage IA du contrat + congés (acquisition & consommation)
+
+- **Contrat → fiche employé (IA)** : `analyzeEmployeeContract` (`src/lib/actions/hr-actions.ts`, gate `RH:CREATE`)
+  fait **OCR Mistral** (`ocrDocument`, fr/en/ar) puis **Claude** pour renvoyer un objet de champs (nom, poste,
+  type de contrat ∈ CDI/CDD/INTERIM/STAGE/FREELANCE/OTHER, dates ISO, salaire, NIN, CNAS…). **Ne persiste rien** :
+  les valeurs pré-remplissent le formulaire (prop `analyze` de `CreateRecordButton`, re-montage des champs par
+  `key`), le RH corrige puis enregistre via `createEmployee`.
+- **Acquisition automatique — +2,5 j/mois** : `accrueMonthlyLeave()` (`src/lib/scheduled.ts`, appelée par
+  `runScheduledJobs`, ~1×/min). Marqueur `Employee.leaveAccruedThrough` (« YYYY-MM » Alger). Idempotent : crédite
+  `2,5 × nombre de mois` écoulés puis avance le marqueur ; **amorçage sans rétro-crédit** (marqueur posé au mois
+  courant, solde préservé). **Modif manuelle** : champ `leaveBalanceDays` de la fiche (`updateEmployee`).
+- **Consommation du solde** : à l'approbation d'un **congé annuel** — via `LeaveRequest`/`decideLeave` (Mon espace)
+  **ou** via `HrDocumentRequest` type `ANNUAL_LEAVE` passé à READY (`processHrRequest`) — le solde est **débité une
+  fois** (verrou `balanceAppliedAt` côté demande RH). Les congés **sans solde / exceptionnel / maternité** ne
+  débitent pas.
+- **Demandes RH par type** (`requestHrDocument`) : les types congé (`ANNUAL_LEAVE`, `UNPAID_LEAVE`, `SPECIAL_LEAVE`,
+  `MATERNITY_LEAVE`, `SICK_LEAVE`) exigent `periodStart` + `periodEnd` (jours calculés, calendaires inclusifs) ;
+  `EXCEPTIONAL_EXIT` n'exige que `periodStart` ; `EXPENSE_REPORT` garde son `expenseMonth` ; `HR_INTERVIEW` sa
+  négociation de date. Formulaire type-aware : `src/app/(app)/mon-dossier/request-controls.tsx`.
+
 ### Notes de frais (Mon dossier RH → RH, avec verrou secrétariat)
 
 1. **Employé** (`/mon-dossier`) : type « Note de frais » → **mois concerné obligatoire** (`expenseMonth` YYYY-MM),
@@ -1081,6 +1101,26 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **RH « la totale » : contrat de travail pré-rempli par IA + acquisition automatique des congés + demandes par type.**
+  **(1) Pré-remplissage du dossier employé depuis un contrat** — à la création d'un employé, un bloc
+  **« Pré-remplir depuis un contrat de travail (IA) »** permet de téléverser le contrat (PDF ou image) :
+  **OCR Mistral** (`ocrDocument`) puis **Claude** (`analyzeEmployeeContract`) extraient nom, poste, département,
+  type de contrat, dates (embauche, début/fin de contrat, naissance), salaire de base, NIN, CNAS, coordonnées…
+  Les champs se **pré-remplissent** dans le formulaire et **restent tous modifiables** avant l'enregistrement
+  (rien n'est persisté tant que le RH n'a pas validé). Aucun document n'est stocké par l'IA — **les RH versent
+  eux-mêmes les pièces**. Mécanique réutilisable : nouvelle prop `analyze` du composant `CreateRecordButton`.
+  **(2) Acquisition automatique des congés — +2,5 j / mois** (barème algérien 30 j/an) : `accrueMonthlyLeave()`
+  dans `src/lib/scheduled.ts` crédite chaque employé actif au passage d'un nouveau mois, de façon **idempotente**
+  (marqueur `Employee.leaveAccruedThrough`), sans rétro-crédit à l'amorçage (le solde manuel existant est
+  préservé). Le **solde reste modifiable manuellement** par les RH (champ « Solde congés » de la fiche).
+  **(3) Chaque demande RH a son workflow selon le type** — le formulaire « Nouvelle demande » (Mon dossier RH)
+  s'adapte : **congés** (annuel / sans solde / exceptionnel / maternité / arrêt maladie) demandent une **période**
+  (début + fin, durée calculée) ; **arrêt maladie** rappelle de joindre le **certificat** ; **sortie exceptionnelle**
+  ne demande qu'une **date** ; **note de frais** garde son mois + dépôt des originaux au **secrétariat** (accusé de
+  réception verrouillant) ; **entrevue RH** garde la négociation de date ; **documents** (attestations…) restent
+  simples. À l'approbation d'un **congé annuel**, le solde est **débité une seule fois** (verrou
+  `HrDocumentRequest.balanceAppliedAt`). Champs `periodStart` / `periodEnd` / `periodDays` / `balanceAppliedAt` +
+  `Employee.leaveAccruedThrough` (migration `20260717180000_rh_totale`).
 - **PCH — Marché public : la chaîne complète appel d'offres → ventes réelles (OCR Mistral + IA + verrou prix).**
   Un appel d'offres se décompose en **lignes-produits** (`PchTenderLine`). Le bouton **« Analyser le
   document (IA) »** offre deux entrées : (a) **téléverser directement le document** (PDF ou image) —

@@ -27,6 +27,7 @@ export async function runScheduledJobs(): Promise<void> {
     await sendDueMeetingReminders();
     await sendDueReminders();
     await sendDuePayrollNotifications();
+    await accrueMonthlyLeave().catch((e) => console.error("[scheduled] leave accrual failed", e)); // +2,5 j/mois (idempotent)
     await performAiHealthCheck().catch((e) => console.error("[scheduled] ai health check failed", e)); // test IA 1×/jour + alerte Super Admin
     await runDueRegulatoryJobs();
     await pruneStaleUploadSessions().catch(() => 0); // nettoyage des sessions d'upload incomplètes
@@ -36,6 +37,48 @@ export async function runScheduledJobs(): Promise<void> {
     console.error("[scheduled] run failed", err);
   } finally {
     running = false;
+  }
+}
+
+/** Année-mois « YYYY-MM » à l'heure d'Alger (UTC+1, sans changement d'heure). */
+function algiersYm(): string {
+  const alg = new Date(Date.now() + 3_600_000);
+  return `${alg.getUTCFullYear()}-${String(alg.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Nombre de mois entiers écoulés de `a` (exclu) à `b` (inclus) au format « YYYY-MM ». */
+function monthsBetweenYm(a: string, b: string): number {
+  const [ay, am] = a.split("-").map(Number);
+  const [by, bm] = b.split("-").map(Number);
+  if (!ay || !am || !by || !bm) return 0;
+  const diff = (by - ay) * 12 + (bm - am);
+  return diff > 0 ? diff : 0;
+}
+
+/**
+ * Acquisition automatique des congés : **+2,5 j / mois** par employé actif (barème algérien
+ * de 30 j/an). Idempotent grâce au marqueur `leaveAccruedThrough` (le dernier mois crédité) :
+ * la fonction peut tourner à chaque tick, elle ne crédite qu'au passage d'un nouveau mois.
+ * Amorçage sans rétro-crédit : au premier passage on fixe seulement le marqueur au mois courant
+ * (le solde manuel existant est préservé), l'acquisition démarre le mois suivant.
+ */
+async function accrueMonthlyLeave(): Promise<void> {
+  const ym = algiersYm();
+  const employees = await prisma.employee.findMany({
+    where: { isActive: true },
+    select: { id: true, leaveAccruedThrough: true },
+  });
+  for (const e of employees) {
+    if (!e.leaveAccruedThrough) {
+      await prisma.employee.update({ where: { id: e.id }, data: { leaveAccruedThrough: ym } });
+      continue;
+    }
+    const months = monthsBetweenYm(e.leaveAccruedThrough, ym);
+    if (months <= 0) continue;
+    await prisma.employee.update({
+      where: { id: e.id },
+      data: { leaveBalanceDays: { increment: 2.5 * months }, leaveAccruedThrough: ym },
+    });
   }
 }
 

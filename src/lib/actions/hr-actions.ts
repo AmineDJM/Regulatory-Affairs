@@ -7,6 +7,8 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit, recordFieldChanges } from "@/lib/audit";
 import { createExpenseOrder } from "@/lib/expense-orders";
+import { askClaude, aiConfigured } from "@/lib/ai";
+import { ocrDocument, canOcr } from "@/lib/regulatory/intelligence/ocr/ocr-engine";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
 /** Inclusive calendar-day count between two dates (min 1). */
@@ -129,6 +131,78 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
   revalidatePath("/rh");
   revalidatePath(`/rh/${id}`);
   return { ok: true, id };
+}
+
+/**
+ * Analyse d'un CONTRAT DE TRAVAIL par IA (OCR Mistral → Claude) pour PRÉ-REMPLIR la fiche
+ * employé. Renvoie les champs extraits (jamais persistés ici : les RH relisent, corrigent
+ * et enregistrent). N'enregistre AUCUN document (les RH versent eux-mêmes les pièces).
+ */
+const CONTRACT_SYSTEM = `Tu extrais les informations d'un CONTRAT DE TRAVAIL algérien (ou d'un avenant) afin
+de préremplir la fiche RH d'un employé, à partir du texte du document (issu d'un OCR).
+
+Tu renvoies UNIQUEMENT un objet JSON valide (aucun texte autour). Clés (mets "" si l'information
+n'est pas présente dans le document) :
+- "fullName" : nom complet de l'employé.
+- "position" : intitulé du poste.
+- "department" : département / service.
+- "contractType" : l'une exactement de CDI, CDD, INTERIM, STAGE, FREELANCE, OTHER.
+- "baseSalary" : salaire de base mensuel en DZD, chiffres uniquement (ex. "45000"), sinon "".
+- "hireDate", "contractStart", "contractEnd", "birthDate" : au format AAAA-MM-JJ, sinon "".
+- "email", "phone", "iban", "nationalId" (NIN), "cnasNumber" (n° sécurité sociale), "address".
+
+RÈGLES : n'invente RIEN. Si une information est absente ou incertaine, mets "". Ne déduis pas de
+date ou de salaire qui ne figurent pas explicitement dans le texte.`;
+
+const CONTRACT_TYPES_UP = ["CDI", "CDD", "INTERIM", "STAGE", "FREELANCE", "OTHER"];
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+export async function analyzeEmployeeContract(
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string; values?: Record<string, string> }> {
+  const user = await requireUser();
+  if (!userCan(user, "RH", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!aiConfigured()) return { ok: false, error: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choisissez le contrat de travail (PDF ou image)." };
+  const ext = (file.name.split(".").pop() ?? "").toLowerCase();
+  if (!canOcr(ext)) return { ok: false, error: `Format .${ext} non pris en charge pour l'OCR (PDF ou image).` };
+
+  let text = "";
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const ocr = await ocrDocument({ ext, buffer, langs: ["fra", "eng", "ara"], maxPages: 20 });
+    text = ocr.pages.map((p) => p.text).join("\n").trim();
+  } catch (err) {
+    console.error("[hr] contract OCR failed", err);
+    return { ok: false, error: "OCR du contrat impossible." };
+  }
+  if (text.length < 10) return { ok: false, error: "Le contrat ne contient pas de texte exploitable (OCR vide)." };
+
+  const r = await askClaude(`Texte du contrat de travail :\n\n"""${text.slice(0, 20000)}"""\n\nRenvoie le JSON demandé.`, {
+    system: CONTRACT_SYSTEM, maxTokens: 1500, temperature: 0.1,
+  });
+  if (!r.ok || !r.text) return { ok: false, error: r.error ?? "Analyse impossible." };
+  const start = r.text.indexOf("{"); const end = r.text.lastIndexOf("}");
+  if (start === -1 || end <= start) return { ok: false, error: "Réponse IA non exploitable." };
+  let raw: Record<string, unknown>;
+  try { raw = JSON.parse(r.text.slice(start, end + 1)) as Record<string, unknown>; }
+  catch { return { ok: false, error: "Réponse IA non exploitable." }; }
+
+  const s = (k: string) => { const v = raw[k]; return v == null ? "" : String(v).trim(); };
+  const values: Record<string, string> = {};
+  for (const k of ["fullName", "position", "department", "email", "phone", "iban", "nationalId", "cnasNumber", "address"]) {
+    const v = s(k); if (v) values[k] = v;
+  }
+  for (const k of ["hireDate", "contractStart", "contractEnd", "birthDate"]) {
+    const v = s(k); if (ISO_DATE.test(v)) values[k] = v;
+  }
+  const ct = s("contractType").toUpperCase(); if (CONTRACT_TYPES_UP.includes(ct)) values.contractType = ct;
+  const sal = s("baseSalary").replace(/[^\d.]/g, ""); if (sal && Number(sal) > 0) values.baseSalary = String(Math.round(Number(sal)));
+
+  if (!Object.keys(values).length) return { ok: false, error: "Aucune information exploitable détectée dans le contrat." };
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Ressources humaines", summary: `Analyse IA d'un contrat de travail — ${Object.keys(values).length} champ(s) préremplis` });
+  return { ok: true, values };
 }
 
 export async function setEmployeeActive(formData: FormData): Promise<ActionResult> {

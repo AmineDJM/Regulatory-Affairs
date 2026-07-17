@@ -3,12 +3,23 @@
 import * as React from "react";
 import { useFormState } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Plus, Loader2, AlertCircle } from "lucide-react";
+import { Plus, Loader2, AlertCircle, Wand2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import type { ActionResult } from "@/lib/actions/types";
 import { cn } from "@/lib/utils";
+
+/** Pré-remplissage IA optionnel : un fichier est analysé (OCR + IA) → valeurs de champs. */
+export interface AnalyzePrefill {
+  action: (formData: FormData) => Promise<{ ok: boolean; error?: string; values?: Record<string, string> }>;
+  buttonLabel: string; // ex. « Analyser un contrat (IA) »
+  title: string; // titre du bloc
+  hint: string; // explication
+  accept?: string; // types de fichiers acceptés
+  disabled?: boolean; // IA indisponible
+  disabledHint?: string; // message si désactivé
+}
 
 export type FieldDef =
   | {
@@ -50,6 +61,8 @@ interface CreateRecordButtonProps {
   /** Optional base path; on success navigates to `${redirectBase}/${id}`. */
   redirectBase?: string;
   width?: "md" | "lg";
+  /** Optional AI prefill: analyse a file, prefill the fields (editable). */
+  analyze?: AnalyzePrefill;
 }
 
 export function CreateRecordButton({
@@ -60,11 +73,44 @@ export function CreateRecordButton({
   action,
   redirectBase,
   width = "lg",
+  analyze,
 }: CreateRecordButtonProps) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [state, formAction] = useFormState<ActionResult | undefined, FormData>(action, undefined);
+
+  // Pré-remplissage IA : valeurs extraites + compteur pour re-monter (reset) les champs.
+  const [prefill, setPrefill] = React.useState<Record<string, string>>({});
+  const [prefillVersion, setPrefillVersion] = React.useState(0);
+  const [analyzing, setAnalyzing] = React.useState(false);
+  const [analyzeMsg, setAnalyzeMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (!open) { setPrefill({}); setAnalyzeMsg(null); }
+  }, [open]);
+
+  async function runAnalyze() {
+    if (!analyze) return;
+    const f = fileRef.current?.files?.[0];
+    if (!f) { setAnalyzeMsg({ ok: false, text: "Choisissez d'abord un fichier." }); return; }
+    setAnalyzing(true); setAnalyzeMsg(null);
+    const fd = new FormData(); fd.set("file", f);
+    const r = await analyze.action(fd);
+    setAnalyzing(false);
+    if (!r.ok) { setAnalyzeMsg({ ok: false, text: r.error ?? "Analyse impossible." }); return; }
+    setPrefill(r.values ?? {});
+    setPrefillVersion((v) => v + 1);
+    setAnalyzeMsg({ ok: true, text: `${Object.keys(r.values ?? {}).length} champ(s) préremplis — vérifiez et complétez.` });
+  }
+
+  /** Valeur par défaut d'un champ : priorité au pré-remplissage IA. */
+  const dv = (field: FieldDef): string | number | undefined => {
+    const p = prefill[field.name];
+    if (p !== undefined) return p;
+    return "defaultValue" in field ? field.defaultValue : undefined;
+  };
 
   React.useEffect(() => {
     if (state?.ok) {
@@ -85,6 +131,22 @@ export function CreateRecordButton({
       </Button>
 
       <Sheet open={open} onClose={() => setOpen(false)} title={title} description={description} width={width}>
+        {analyze && (
+          <div className="mb-4 space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-primary"><Wand2 className="h-4 w-4" /> {analyze.title}</p>
+            <p className="text-xs text-muted-foreground">{analyze.hint}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input ref={fileRef} type="file" accept={analyze.accept} disabled={analyze.disabled || analyzing}
+                className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-medium" />
+              <Button type="button" size="sm" onClick={runAnalyze} disabled={analyze.disabled || analyzing}
+                title={analyze.disabled ? analyze.disabledHint : undefined}>
+                {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {analyze.buttonLabel}
+              </Button>
+            </div>
+            {analyze.disabled && analyze.disabledHint && <p className="text-xs text-amber-700">{analyze.disabledHint}</p>}
+            {analyzeMsg && <p className={cn("text-xs", analyzeMsg.ok ? "text-success" : "text-destructive")}>{analyzeMsg.text}</p>}
+          </div>
+        )}
         <form
           action={(fd) => {
             setSubmitting(true);
@@ -92,7 +154,7 @@ export function CreateRecordButton({
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div key={prefillVersion} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {fields.map((field) => (
               <div
                 key={field.name}
@@ -120,7 +182,7 @@ export function CreateRecordButton({
                 ) : field.type === "textarea" ? (
                   <Textarea id={field.name} name={field.name} required={field.required} placeholder={field.placeholder} />
                 ) : field.type === "select" ? (
-                  <Select id={field.name} name={field.name} required={field.required} defaultValue={field.defaultValue}>
+                  <Select id={field.name} name={field.name} required={field.required} defaultValue={dv(field) as string | undefined}>
                     {field.placeholder && <option value="">{field.placeholder}</option>}
                     {field.options.map((o) => (
                       <option key={o.value} value={o.value}>
@@ -140,7 +202,7 @@ export function CreateRecordButton({
                     type={field.type}
                     required={field.required}
                     placeholder={field.placeholder}
-                    defaultValue={field.defaultValue}
+                    defaultValue={dv(field)}
                     step={field.type === "number" ? "any" : undefined}
                   />
                 )}

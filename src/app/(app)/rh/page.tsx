@@ -14,7 +14,8 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
-import { createEmployee } from "@/lib/actions/hr-actions";
+import { createEmployee, analyzeEmployeeContract } from "@/lib/actions/hr-actions";
+import { aiConfigured } from "@/lib/ai";
 import { getCompanies, companyOptions } from "@/lib/company";
 import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, toNumber, daysUntil } from "@/lib/utils";
@@ -84,7 +85,16 @@ export default async function RhPage() {
         )}
         {canCreate && (
           <CreateRecordButton label="Nouvel employé" title="Ajouter un employé" redirectBase="/rh"
-            description="Dossier complet : contrat, état civil, solde de congés et compte applicatif." action={createEmployee} fields={employeeFields} />
+            description="Dossier complet : contrat, état civil, solde de congés et compte applicatif." action={createEmployee} fields={employeeFields}
+            analyze={{
+              action: analyzeEmployeeContract,
+              buttonLabel: "Analyser le contrat",
+              title: "Pré-remplir depuis un contrat de travail (IA)",
+              hint: "Téléversez le contrat (PDF ou image) : l'OCR Mistral + l'IA extraient nom, poste, type de contrat, dates, salaire de base, NIN, CNAS… Tout reste modifiable avant l'enregistrement.",
+              accept: ".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff",
+              disabled: !aiConfigured(),
+              disabledHint: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render).",
+            }} />
         )}
       </PageHeader>
 

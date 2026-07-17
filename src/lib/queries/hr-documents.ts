@@ -28,6 +28,11 @@ export interface HrRequestDTO {
   approvedMonth: string | null;
   originalsAckAt: string | null;
   originalsAckByName: string | null;
+  // Congé / absence : période demandée + jours + débit du solde effectué (congé annuel).
+  periodStart: string | null;
+  periodEnd: string | null;
+  periodDays: number | null;
+  balanceApplied: boolean;
   // Entrevue RH
   meetingAt: string | null;
   meetingProposedById: string | null;
@@ -66,6 +71,7 @@ type ReqRow = {
   id: string; type: HrRequestType; status: HrRequestStatus; details: string | null; hrNote: string | null;
   createdAt: Date; fulfilment: { id: string } | null;
   expenseMonth: string | null; approvedMonth: string | null; originalsAckAt: Date | null; originalsAckById: string | null;
+  periodStart: Date | null; periodEnd: Date | null; periodDays: unknown; balanceAppliedAt: Date | null;
   meetingAt: Date | null; meetingProposedById: string | null; meetingConfirmedAt: Date | null;
   archivedNodeId: string | null;
 };
@@ -77,6 +83,10 @@ function mapReq(r: ReqRow): HrRequestDTO {
     expenseMonth: r.expenseMonth, approvedMonth: r.approvedMonth,
     originalsAckAt: r.originalsAckAt?.toISOString() ?? null,
     originalsAckByName: r.originalsAckById, // remplacé par le nom dans attachThreads
+    periodStart: r.periodStart?.toISOString() ?? null,
+    periodEnd: r.periodEnd?.toISOString() ?? null,
+    periodDays: r.periodDays == null ? null : Number(r.periodDays.toString()),
+    balanceApplied: Boolean(r.balanceAppliedAt),
     meetingAt: r.meetingAt?.toISOString() ?? null,
     meetingProposedById: r.meetingProposedById,
     meetingConfirmedAt: r.meetingConfirmedAt?.toISOString() ?? null,
