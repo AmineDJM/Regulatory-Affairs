@@ -9,28 +9,34 @@ const suite = dbOk ? describe : describe.skip;
 
 const TAG = "__accesstest__";
 
-suite("getAccess — le rôle secondaire cumule ses capacités (même par-dessus un override)", () => {
-  let plainId = "", overriddenId = "", primaryOnlyId = "";
+suite("getAccess — un override ne rétrécit pas une portée native ALL (rôle principal ou secondaire)", () => {
+  let plainId = "", overriddenId = "", primaryOnlyId = "", nsPrimaryId = "";
 
   beforeAll(async () => {
     const mk = (s: string, data: Record<string, unknown>) =>
       prisma.user.create({ data: { name: `${TAG}${s}`, email: `${TAG}${s}@t.dz`, passwordHash: "x", ...data } as never });
-    const [a, b, c] = await Promise.all([
+    const [a, b, c, d] = await Promise.all([
       // Le cas rapporté : délégué avec « autre rôle » National Sales, sans override.
       mk("plain", { role: "MEDICAL_DELEGATE", secondaryRole: "NATIONAL_SALES" }),
       // Pire cas : même profil MAIS un ancien « accès personnalisé » ASSIGNED posé
       // du temps où le compte était simple délégué.
       mk("overr", { role: "MEDICAL_DELEGATE", secondaryRole: "NATIONAL_SALES" }),
       // Témoin : délégué SANS rôle secondaire + override — le contrat « l'override
-      // prime sur le rôle principal » doit rester intact.
+      // prime sur le rôle principal » doit rester intact (défaut délégué = ASSIGNED).
       mk("primonly", { role: "MEDICAL_DELEGATE" }),
+      // Le bug « des fois ça ne s'affiche pas » : National Sales EN RÔLE PRINCIPAL dont
+      // l'accès aux congrès a été « personnalisé » (override ASSIGNED) → il ne voyait
+      // plus les demandes à pré-valider. Sa portée native est ALL, l'override ne doit
+      // pas la rétrécir silencieusement.
+      mk("nsprim", { role: "NATIONAL_SALES" }),
     ]);
-    plainId = a.id; overriddenId = b.id; primaryOnlyId = c.id;
+    plainId = a.id; overriddenId = b.id; primaryOnlyId = c.id; nsPrimaryId = d.id;
 
     await prisma.userAccess.createMany({
       data: [
         { userId: overriddenId, module: "CONGRESS_INTERNATIONAL", canView: true, canCreate: true, scope: "ASSIGNED" },
         { userId: primaryOnlyId, module: "CONGRESS_INTERNATIONAL", canView: true, canCreate: true, scope: "ASSIGNED" },
+        { userId: nsPrimaryId, module: "CONGRESS_INTERNATIONAL", canView: true, canCreate: true, scope: "ASSIGNED" },
       ],
     });
   });
@@ -61,5 +67,13 @@ suite("getAccess — le rôle secondaire cumule ses capacités (même par-dessus
   it("témoin : sans rôle secondaire, l'override garde la main sur le rôle principal (ASSIGNED)", async () => {
     const a = await getAccess(primaryOnlyId, "MEDICAL_DELEGATE");
     expect(a.modules.get("CONGRESS_INTERNATIONAL")?.scope).toBe("ASSIGNED");
+  });
+
+  it("National Sales en rôle PRINCIPAL : un override ASSIGNED ne rétrécit pas sa portée native ALL", async () => {
+    const a = await getAccess(nsPrimaryId, "NATIONAL_SALES");
+    const m = a.modules.get("CONGRESS_INTERNATIONAL");
+    expect(m?.scope).toBe("ALL"); // ← il revoit TOUTES les demandes à pré-valider
+    expect(m?.actions.has("VIEW")).toBe(true);
+    expect(m?.actions.has("CREATE")).toBe(true); // conservé de l'override
   });
 });

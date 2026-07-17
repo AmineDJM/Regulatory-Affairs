@@ -376,6 +376,14 @@ export const getAccess = perRequest(
         addRoleDefaults(role);
       }
 
+      // Un « accès personnalisé » (override) ne doit pas RÉTRÉCIR SILENCIEUSEMENT la
+      // portée qu'un rôle possède NATIVEMENT : si le rôle voit tout le module par défaut
+      // (ex. National Sales voit TOUTES les demandes de congrès à pré-valider), on conserve
+      // la portée ALL même quand l'admin a coché « accès personnalisé » sans (re)choisir
+      // « tout » dans le sélecteur de portée (qui retombe sinon sur ASSIGNED). Symétrique
+      // de la règle du rôle secondaire ci-dessous.
+      if (ov?.canView && defaultScope(role, module) === "ALL") scope = "ALL";
+
       // Rôle SECONDAIRE : ses capacités se cumulent TOUJOURS (union des actions,
       // portée la plus large) — y compris par-dessus un override : un ancien réglage
       // « accès personnalisé » ne doit pas neutraliser silencieusement l'« autre

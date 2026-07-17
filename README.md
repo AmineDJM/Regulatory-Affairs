@@ -1101,6 +1101,16 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Fix accès (RBAC) : un « accès personnalisé » ne rétrécit plus la portée native d'un rôle.** Bug observé :
+  un **National Sales** ne voyait « des fois » **pas** les demandes de **congrès internationaux à pré-valider**.
+  Cause : dès qu'un compte recevait un **override** d'accès (matrice « façon Google Drive »), celui-ci **remplaçait**
+  le défaut du rôle et retombait sur une portée `ASSIGNED` (le sélecteur de portée retombe sur ASSIGNED s'il n'est
+  pas repositionné) — or `saveAccessMatrix`/`saveModuleAccess` par défaut à `ASSIGNED`. Le National Sales, qui a
+  nativement la portée **ALL** sur les congrès (`defaultScope`), perdait donc sa visibilité et, à l'étape
+  préliminaire, n'étant ni demandeur ni chef de produit, ne voyait plus rien. Correctif dans `getAccess`
+  (`src/lib/rbac.ts`) : un override ne peut plus **rétrécir silencieusement** une portée que le rôle possède
+  nativement en `ALL` (symétrique de la règle déjà en place pour le rôle secondaire). Test de non-régression
+  ajouté (`rbac-access.test.ts`, cas National Sales en rôle principal + override).
 - **RH « la totale » : contrat de travail pré-rempli par IA + acquisition automatique des congés + demandes par type.**
   **(1) Pré-remplissage du dossier employé depuis un contrat** — à la création d'un employé, un bloc
   **« Pré-remplir depuis un contrat de travail (IA) »** permet de téléverser le contrat (PDF ou image) :
