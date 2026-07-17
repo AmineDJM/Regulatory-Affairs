@@ -430,8 +430,22 @@ Finances, information médicale…) — visible des **validateurs**, pas du dema
 
 ### PCH — Marchés publics
 
-**Appel d'offres gagné** (réf. auto `AO-année-n`) → **caution obligatoire** (montant, dates, alertes) → sous-lignes
-= **bons de commande** (réf, qté, valeur, date réception, date paiement).
+**Appel d'offres** (réf. auto `AO-année-n`) → **lignes-produits** (`PchTenderLine`) → **caution obligatoire**
+(montant, dates, alertes) → **bons de commande** (réf, qté, valeur, date réception, date paiement).
+
+**Chaîne d'automatisation d'une ligne-produit** (`src/lib/actions/pch-tender-line-actions.ts`,
+`src/lib/market/pch-lookup.ts`, RBAC `PCH`/`UPDATE`) :
+1. **Extraction** — `analyzeTenderDocument` (upload PDF/image → **OCR Mistral** `ocrDocument` → Claude) ou
+   `analyzeTenderText` (texte collé → Claude) ; helper commun `extractAndSaveLines` (désignation, DCI, dosage,
+   forme, quantité en unités, `unitsPerBox`). Nombre de boîtes = ⌈unités / `unitsPerBox`⌉.
+2. **Enrichir** (`enrichTenderLine`) — **verrou prix** depuis les **réceptions PCH 2025** (`pchReceptionPrice`,
+   vérifie DCI + dosage + forme → `refPriceDzd` + `refPriceSource`) ; **nomenclature** (`nomenclatureMatch`) ;
+   **notre produit** (`matchOurProduct` sur `RegulatoryProduct` → `ourProductId`, `registeredOurs`, `haveProduct`) ;
+   **concurrents** + **estimation marché** (`getRecommendations`).
+3. **Suivi commercial** : `PchLineStatus` PENDING → QUOTED → SUBMITTED → **WON** → LOST (+ `awardedUnitPriceDzd`).
+4. **Ventes réelles** — une ligne **WON** génère des **bons de commande** = **fractions** (`createOrderFromLine`,
+   `PchOrder.lineId`) ; **taux de réalisation** = Σ quantités des bons / quantité attribuée.
+5. **Logistique** — chaque bon de commande porte `expectedArrival` / `arrivedDate` (`setOrderArrival`).
 
 ### Portail Fournisseur (externe sécurisé)
 
@@ -1067,19 +1081,28 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
-- **PCH — Marché public : tableau produits par appel d'offres (analyse IA + intelligence marché).**
-  Un appel d'offres se décompose désormais en **lignes-produits** (`PchTenderLine`). Un bouton
-  **« Analyser le document (IA) »** prend le **texte du document** (issu de l'OCR Mistral) et **extrait
-  automatiquement** la liste des produits (désignation, DCI, dosage, forme, quantités) via Claude
-  (ancré, sans invention). Chaque ligne gère le **conditionnement** — quantité demandée en **unités** →
-  **« boîte de N » → nombre de boîtes calculé** (⌈unités / N⌉) —, un indicateur **« nous l'avons »**,
-  notre **prix unitaire**, nos **fournisseurs**, et un **suivi commercial** (À étudier → Chiffré →
-  Soumissionné → **Gagné** → Perdu) avec **prix d'attribution**. Le bouton **« Enrichir »** rapproche la
-  ligne de l'**intelligence marché** (`getRecommendations`) et remplit **concurrents**, **présence à la
-  nomenclature**, et **estimation de marché**. Enfin, un bloc **Logistique** suit l'**acheminement** des
-  bons de commande (dates d'**arrivée prévue / réelle**, client = PCH). Modèle `PchTenderLine` + dates
-  d'arrivée sur `PchOrder` (migration `20260717160000_pch_tender_lines`) ; analyse via `askClaude`,
-  enrichissement via le moteur marché.
+- **PCH — Marché public : la chaîne complète appel d'offres → ventes réelles (OCR Mistral + IA + verrou prix).**
+  Un appel d'offres se décompose en **lignes-produits** (`PchTenderLine`). Le bouton **« Analyser le
+  document (IA) »** offre deux entrées : (a) **téléverser directement le document** (PDF ou image) —
+  **OCR Mistral automatique** (`ocrDocument`, `analyzeTenderDocument`) puis extraction IA ; (b) coller un
+  **texte** déjà extrait (`analyzeTenderText`). Dans les deux cas Claude **extrait** la liste des produits
+  (désignation, DCI, dosage, forme, quantités) de façon ancrée, sans invention (helper commun
+  `extractAndSaveLines`). Chaque ligne gère le **conditionnement** — quantité demandée en **unités** →
+  **« boîte de N » → nombre de boîtes calculé** (⌈unités / N⌉, `parseBoxSize` déduit N du conditionnement
+  reçu) —, un indicateur **« nous l'avons »**, notre **prix unitaire**, nos **fournisseurs**, et un **suivi
+  commercial** (À étudier → Chiffré → Soumissionné → **Gagné** → Perdu) avec **prix d'attribution**. Le
+  bouton **« Enrichir »** fait tout d'un coup (`src/lib/market/pch-lookup.ts`) : **① verrou prix** — le
+  **prix unitaire de référence** est **verrouillé depuis les réceptions PCH 2025** (données réelles
+  Pharmatool) en **vérifiant DCI + dosage + forme** (`pchReceptionPrice` → `refPriceDzd` + `refPriceSource`) ;
+  **② présence à la nomenclature** vérifiée dosage + forme (`nomenclatureMatch`) ; **③ auto-détection de
+  notre produit** dans le catalogue Regulatory (`matchOurProduct` → `ourProductId`, `registeredOurs`,
+  « nous l'avons ») ; **④ concurrents** + **estimation de marché** via l'intelligence marché
+  (`getRecommendations`). Une fois une ligne **Gagnée**, le bloc **« Ventes réelles »** permet de saisir
+  les **bons de commande** comme **fractions** de la quantité attribuée (`createOrderFromLine` — chaque bon
+  = une vente réelle, `PchOrder.lineId`), avec un **taux de réalisation** (unités vendues / attribuées, %).
+  Chaque bon de commande alimente le bloc **Logistique** (dates d'**arrivée prévue / réelle**, client = PCH).
+  Champs `refPriceDzd` / `refPriceSource` / `registeredOurs` + `PchOrder.lineId` (migration
+  `20260717170000_pch_tender_totale`, après `20260717160000_pch_tender_lines`).
 - **Information médicale (PRIM) → demandes à Regulatory.** Le pharmacien responsable de l'information
   médicale peut désormais **adresser des demandes** à l'équipe Regulatory (question réglementaire,
   demande de document, point sur un statut d'enregistrement, variation…), **rattachables à un dossier

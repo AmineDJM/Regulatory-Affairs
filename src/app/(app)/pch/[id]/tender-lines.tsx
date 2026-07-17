@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Loader2, Sparkles, Wand2, Package } from "lucide-react";
-import { addTenderLine, updateTenderLine, deleteTenderLine, analyzeTenderText, enrichTenderLine } from "@/lib/actions/pch-tender-line-actions";
+import { Plus, Trash2, Loader2, Sparkles, Wand2, Package, Upload, TrendingUp, ShoppingCart, BadgeCheck } from "lucide-react";
+import { addTenderLine, updateTenderLine, deleteTenderLine, analyzeTenderText, analyzeTenderDocument, enrichTenderLine, createOrderFromLine } from "@/lib/actions/pch-tender-line-actions";
 import type { PchTenderLineDTO } from "@/lib/queries/pch";
 
 type Res = { ok: boolean; error?: string };
@@ -20,6 +20,7 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured }: { tender
   const [analyzing, setAnalyzing] = React.useState(false);
   const [text, setText] = React.useState("");
   const [showAnalyze, setShowAnalyze] = React.useState(false);
+  const fileRef = React.useRef<HTMLInputElement>(null);
 
   async function run(fn: () => Promise<Res>) {
     if (busy) return; setBusy(true);
@@ -27,7 +28,7 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured }: { tender
     if (!r.ok) { window.alert(r.error ?? "Action impossible."); return; }
     router.refresh();
   }
-  async function analyze() {
+  async function analyzeText() {
     if (!text.trim()) return;
     setAnalyzing(true);
     const fd = new FormData(); fd.set("tenderId", tenderId); fd.set("text", text.trim());
@@ -35,6 +36,17 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured }: { tender
     setAnalyzing(false);
     if (!r.ok) { window.alert(r.error ?? "Analyse impossible."); return; }
     setText(""); setShowAnalyze(false); router.refresh();
+  }
+  async function analyzeFile() {
+    const f = fileRef.current?.files?.[0];
+    if (!f) { window.alert("Choisissez d'abord le document de l'appel d'offres."); return; }
+    setAnalyzing(true);
+    const fd = new FormData(); fd.set("tenderId", tenderId); fd.set("file", f);
+    const r: Res = await analyzeTenderDocument(fd);
+    setAnalyzing(false);
+    if (!r.ok) { window.alert(r.error ?? "Analyse impossible."); return; }
+    if (fileRef.current) fileRef.current.value = "";
+    setShowAnalyze(false); router.refresh();
   }
 
   return (
@@ -44,7 +56,7 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured }: { tender
         {canEdit && (
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => setShowAnalyze((s) => !s)} disabled={!aiConfigured}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-50" title={aiConfigured ? "Extraire les produits du document (OCR → IA)" : "IA non configurée"}>
+              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-50" title={aiConfigured ? "Extraire les produits du document (OCR Mistral → IA)" : "IA non configurée"}>
               <Wand2 className="h-4 w-4" /> Analyser le document (IA)
             </button>
             <button type="button" disabled={busy} onClick={() => { const fd = new FormData(); fd.set("tenderId", tenderId); run(() => addTenderLine(fd)); }}
@@ -54,15 +66,29 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured }: { tender
       </div>
 
       {showAnalyze && (
-        <div className="space-y-2 rounded-lg border border-border bg-card p-3">
-          <p className="text-xs text-muted-foreground">Collez le <strong>texte du document d'appel d'offres</strong> (issu de l'OCR Mistral) — l'IA en extrait la liste des produits, dosages, formes et quantités.</p>
-          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} placeholder="Texte de l'appel d'offres…"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-          <div className="flex gap-2">
-            <button type="button" onClick={analyze} disabled={analyzing || !text.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-              {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Extraire les produits
-            </button>
-            <button type="button" onClick={() => setShowAnalyze(false)} disabled={analyzing} className="rounded-lg border border-input px-3 py-2 text-sm hover:bg-secondary">Annuler</button>
+        <div className="space-y-3 rounded-lg border border-border bg-card p-3">
+          {/* 1) Téléversement direct du document → OCR Mistral → extraction IA */}
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Téléverser le document (PDF ou image) — OCR Mistral automatique</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff" disabled={analyzing}
+                className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-medium" />
+              <button type="button" onClick={analyzeFile} disabled={analyzing} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
+                {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Analyser le fichier
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground"><span className="h-px flex-1 bg-border" /> ou coller le texte <span className="h-px flex-1 bg-border" /></div>
+          {/* 2) Texte déjà extrait (OCR externe) */}
+          <div className="space-y-2">
+            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder="Texte de l'appel d'offres (issu d'un OCR)…"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none" />
+            <div className="flex gap-2">
+              <button type="button" onClick={analyzeText} disabled={analyzing || !text.trim()} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-60">
+                {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Extraire du texte
+              </button>
+              <button type="button" onClick={() => setShowAnalyze(false)} disabled={analyzing} className="rounded-lg border border-input px-3 py-2 text-sm hover:bg-secondary">Fermer</button>
+            </div>
           </div>
         </div>
       )}
@@ -107,6 +133,11 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
           <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{LINE_STATUS.find((x) => x.value === line.status)?.label ?? line.status}</span>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">{[line.dci, line.dosage, line.form].filter(Boolean).join(" · ") || "—"} · {fmt(line.quantityUnits)} unités{line.boxesNeeded ? ` = ${fmt(line.boxesNeeded)} boîtes` : ""}</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {line.ourProduct && <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-[11px] text-primary"><BadgeCheck className="h-3 w-3" /> {line.ourProduct}</span>}
+          {line.refPriceDzd != null && <span className="rounded bg-secondary px-2 py-0.5 text-[11px]" title={line.refPriceSource ?? undefined}>Prix réf. PCH : {fmt(line.refPriceDzd)} DZD</span>}
+          {line.fulfillmentPct != null && <span className="rounded bg-success/15 px-2 py-0.5 text-[11px] text-success">Vendu : {fmt(line.soldUnits)}/{fmt(line.quantityUnits)} ({line.fulfillmentPct}%)</span>}
+        </div>
       </div>
     );
   }
@@ -133,16 +164,58 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
+        {line.ourProduct && <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-primary" title={line.registeredOurs ? "Produit enregistré chez nous" : undefined}><BadgeCheck className="h-3.5 w-3.5" /> {line.ourProduct}{line.registeredOurs ? " · enregistré" : ""}</span>}
+        {line.refPriceDzd != null && <span className="rounded bg-secondary px-2 py-0.5" title={line.refPriceSource ?? undefined}>Prix réf. PCH : <strong>{fmt(line.refPriceDzd)}</strong> DZD</span>}
         {line.competitorCount != null && <span className="rounded bg-secondary px-2 py-0.5">Concurrents : <strong>{line.competitorCount}</strong></span>}
         <span className={`rounded px-2 py-0.5 ${line.registeredNomenclature ? "bg-success/15 text-success" : "bg-secondary text-muted-foreground"}`}>Nomenclature : {line.registeredNomenclature ? `oui (${line.nomLines ?? 0})` : "non"}</span>
         {line.marketEstimateDzd != null && <span className="rounded bg-secondary px-2 py-0.5">Marché ≈ {fmt(line.marketEstimateDzd)} DZD</span>}
         <div className="ml-auto flex items-center gap-1.5">
           <button type="button" disabled={busy} onClick={() => { const fd = new FormData(); fd.set("id", line.id); fd.set("tenderId", tenderId); run(() => enrichTenderLine(fd)); }}
-            className="inline-flex items-center gap-1 rounded px-2 py-1 text-primary hover:bg-primary/10" title="Enrichir depuis l'intelligence marché (concurrents, nomenclature, estimation)"><Sparkles className="h-3.5 w-3.5" /> Enrichir</button>
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-primary hover:bg-primary/10" title="Verrou prix Réception 2025 + concurrents + nomenclature + notre produit"><Sparkles className="h-3.5 w-3.5" /> Enrichir</button>
           <button type="button" disabled={busy} onClick={() => { if (window.confirm(`Supprimer « ${line.designation} » ?`)) { const fd = new FormData(); fd.set("id", line.id); fd.set("tenderId", tenderId); run(() => deleteTenderLine(fd)); } }}
             className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5" /></button>
         </div>
       </div>
+
+      {line.status === "WON" && <SalesBlock tenderId={tenderId} line={line} canEdit={canEdit} busy={busy} run={run} />}
+    </div>
+  );
+}
+
+/** Ventes réelles : bons de commande (fractions) rattachés à une ligne GAGNÉE + taux de réalisation. */
+function SalesBlock({ tenderId, line, canEdit, busy, run }: { tenderId: string; line: PchTenderLineDTO; canEdit: boolean; busy: boolean; run: (fn: () => Promise<Res>) => void }) {
+  const [qty, setQty] = React.useState("");
+  const [ref, setRef] = React.useState("");
+  const pct = line.fulfillmentPct ?? 0;
+
+  function addOrder() {
+    const q = Number(qty) || 0;
+    if (q <= 0) { window.alert("Indiquez la quantité vendue (fraction)."); return; }
+    const fd = new FormData();
+    fd.set("lineId", line.id); fd.set("tenderId", tenderId);
+    fd.set("quantity", qty); fd.set("reference", ref);
+    run(() => createOrderFromLine(fd));
+    setQty(""); setRef("");
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border border-success/30 bg-success/5 p-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span className="inline-flex items-center gap-1 font-medium text-success"><TrendingUp className="h-3.5 w-3.5" /> Ventes réelles — bons de commande</span>
+        <span className="text-muted-foreground">{fmt(line.soldUnits)} / {fmt(line.quantityUnits)} unités · {line.orderCount} bon(s) de commande</span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+        <div className="h-full rounded-full bg-success transition-all" style={{ width: `${Math.min(100, pct)}%` }} />
+      </div>
+      <p className="text-right text-[11px] font-medium text-success">{pct}% réalisé</p>
+      {canEdit && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <input className={`${inp} w-32`} inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Quantité vendue" />
+          <input className={`${inp} min-w-[8rem] flex-1`} value={ref} onChange={(e) => setRef(e.target.value)} placeholder="N° bon de commande (optionnel)" />
+          <button type="button" disabled={busy} onClick={addOrder} className="inline-flex items-center gap-1 rounded-lg bg-success px-2.5 py-1.5 text-xs font-medium text-white hover:bg-success/90 disabled:opacity-60"><ShoppingCart className="h-3.5 w-3.5" /> Enregistrer la vente</button>
+        </div>
+      )}
+      <p className="text-[11px] text-muted-foreground">Chaque bon de commande devient une <strong>vente réelle</strong> (fraction de la quantité attribuée) et apparaît dans « Bons de commande » ci-dessous, avec son suivi logistique.</p>
     </div>
   );
 }

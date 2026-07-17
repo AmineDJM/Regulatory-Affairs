@@ -9,6 +9,8 @@ import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { askClaude, aiConfigured } from "@/lib/ai";
 import { getRecommendations, normText, queryTokens, allTokensIn, type RecRow } from "@/lib/market/engine";
+import { pchReceptionPrice, nomenclatureMatch } from "@/lib/market/pch-lookup";
+import { ocrDocument, canOcr } from "@/lib/regulatory/intelligence/ocr/ocr-engine";
 
 const MODULE = "PCH" as const;
 const int = (fd: FormData, key: string): number | null => { const n = fdNum(fd, key); return n == null ? null : Math.max(0, Math.round(n)); };
@@ -85,15 +87,8 @@ information manque, mets "" (texte) ou 0 (nombre). Extrais TOUS les produits lis
 
 interface RawLine { designation?: unknown; dci?: unknown; dosage?: unknown; form?: unknown; quantityUnits?: unknown; unitsPerBox?: unknown }
 
-export async function analyzeTenderText(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
-  if (!aiConfigured()) return { ok: false, error: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
-  const tenderId = fdStr(formData, "tenderId");
-  const text = fdStr(formData, "text");
-  if (!tenderId) return { ok: false, error: "Appel d'offres introuvable." };
-  if (!text || text.trim().length < 10) return { ok: false, error: "Collez le texte du document (issu de l'OCR)." };
-
+/** Cœur commun : envoie le texte à Claude, crée les lignes extraites. */
+async function extractAndSaveLines(tenderId: string, text: string, userId: string, source: string): Promise<ActionResult> {
   const r = await askClaude(`Texte du document d'appel d'offres :\n\n"""${text.slice(0, 24000)}"""\n\nRenvoie le JSON { "lines": [...] }.`, {
     system: ANALYZE_SYSTEM, maxTokens: 3500, temperature: 0.1,
   });
@@ -113,11 +108,75 @@ export async function analyzeTenderText(formData: FormData): Promise<ActionResul
       unitsPerBox: Number(l.unitsPerBox) > 0 ? Math.round(Number(l.unitsPerBox)) : null,
     }))
     .filter((l) => l.designation);
-  if (!clean.length) return { ok: false, error: "Aucun produit détecté dans le texte." };
+  if (!clean.length) return { ok: false, error: "Aucun produit détecté dans le document." };
 
   const base = await prisma.pchTenderLine.count({ where: { tenderId } });
   await prisma.pchTenderLine.createMany({ data: clean.map((l, i) => ({ ...l, tenderId, sortOrder: base + i })) });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "PCH", summary: `Analyse IA appel d'offres — ${clean.length} produit(s) extrait(s)` });
+  await recordAudit({ actorId: userId, action: "UPDATE", module: "PCH", summary: `Analyse IA appel d'offres (${source}) — ${clean.length} produit(s)` });
+  revalidatePath(`/pch/${tenderId}`);
+  return { ok: true };
+}
+
+export async function analyzeTenderText(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!aiConfigured()) return { ok: false, error: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
+  const tenderId = fdStr(formData, "tenderId");
+  const text = fdStr(formData, "text");
+  if (!tenderId) return { ok: false, error: "Appel d'offres introuvable." };
+  if (!text || text.trim().length < 10) return { ok: false, error: "Collez le texte du document (issu de l'OCR)." };
+  return extractAndSaveLines(tenderId, text, user.id, "texte collé");
+}
+
+/** Upload direct du document d'AO : OCR Mistral → texte → extraction IA des produits. */
+export async function analyzeTenderDocument(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!aiConfigured()) return { ok: false, error: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
+  const tenderId = fdStr(formData, "tenderId");
+  const file = formData.get("file");
+  if (!tenderId) return { ok: false, error: "Appel d'offres introuvable." };
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choisissez le document de l'appel d'offres." };
+  const ext = (file.name.split(".").pop() ?? "").toLowerCase();
+  if (!canOcr(ext)) return { ok: false, error: `Format .${ext} non pris en charge pour l'OCR (PDF ou image).` };
+
+  let text = "";
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const ocr = await ocrDocument({ ext, buffer, langs: ["fra", "eng"], maxPages: 40 });
+    text = ocr.pages.map((p) => p.text).join("\n").trim();
+  } catch (err) {
+    console.error("[pch] OCR failed", err);
+    return { ok: false, error: "OCR du document impossible." };
+  }
+  if (text.length < 10) return { ok: false, error: "Le document ne contient pas de texte exploitable (OCR vide)." };
+  return extractAndSaveLines(tenderId, text, user.id, "OCR document");
+}
+
+// ─────────────────── Ventes : bon de commande (vente réelle) depuis une ligne gagnée ───────────────────
+export async function createOrderFromLine(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const lineId = fdStr(formData, "lineId");
+  const tenderId = fdStr(formData, "tenderId");
+  if (!lineId || !tenderId) return { ok: false, error: "Ligne introuvable." };
+  const line = await prisma.pchTenderLine.findUnique({ where: { id: lineId } });
+  if (!line) return { ok: false, error: "Ligne introuvable." };
+  if (line.status !== "WON") return { ok: false, error: "Ligne non attribuée : marquez-la « Gagné » d'abord." };
+
+  const qty = int(formData, "quantity") ?? 0;
+  if (qty <= 0) return { ok: false, error: "Indiquez une quantité (fraction vendue)." };
+  const unit = line.awardedUnitPriceDzd ?? line.unitPriceDzd;
+  const value = unit != null ? Math.round(Number(unit) * qty * 100) / 100 : null;
+
+  await prisma.pchOrder.create({
+    data: {
+      tenderId, lineId, reference: fdStr(formData, "reference"),
+      products: line.designation, quantity: qty, value,
+      status: "PENDING",
+    },
+  });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "PCH", summary: `Bon de commande (vente réelle) — ${line.designation} × ${qty}` });
   revalidatePath(`/pch/${tenderId}`);
   return { ok: true };
 }
@@ -140,22 +199,61 @@ export async function enrichTenderLine(formData: FormData): Promise<ActionResult
     const cands = recs.filter((rec) => allTokensIn(rec.key, qt) || (rec.key && allTokensIn(q, queryTokens(rec.key))));
     best = cands.sort((a, b) => b.valueDzd - a.valueDzd)[0];
   }
-  if (!best) return { ok: false, error: "Aucune correspondance dans l'intelligence marché pour ce produit." };
 
+  // 1) Verrou PRIX depuis les réceptions PCH 2025 (vérifie dosage + forme).
+  const dciForLookup = line.dci || best?.dci || line.designation;
+  const price = pchReceptionPrice(dciForLookup, line.dosage, line.form);
+  // 2) Nomenclature vérifiée dosage + forme (plus précise que l'agrégat DCI).
+  const nom = nomenclatureMatch(dciForLookup, line.dosage, line.form);
+  // 3) Auto-détection de NOTRE produit dans le catalogue Regulatory (dci + dosage).
+  const ours = await matchOurProduct(dciForLookup, line.dosage);
+
+  if (!best && !price && !nom.registered && !ours) {
+    return { ok: false, error: "Aucune correspondance (intelligence marché / réceptions PCH / nomenclature)." };
+  }
+
+  const unitsPerBox = line.unitsPerBox ?? parseBoxSize(price?.cond);
   await prisma.pchTenderLine.update({
     where: { id },
     data: {
-      dci: line.dci || best.dci,
-      competitorCount: best.manufacturers + best.importers,
-      nomLines: best.nomLines,
-      registeredNomenclature: best.nomLines > 0,
-      marketEstimateDzd: best.valueDzd ? Math.round(best.valueDzd) : null,
-      suppliersInfo: line.suppliersInfo || `${best.manufacturers} fabricant(s) / ${best.importers} importateur(s) · ${best.recommendation}`,
+      dci: line.dci || best?.dci || null,
+      unitsPerBox,
+      competitorCount: best ? best.manufacturers + best.importers : line.competitorCount,
+      nomLines: nom.count || best?.nomLines || null,
+      registeredNomenclature: nom.registered || (best ? best.nomLines > 0 : line.registeredNomenclature),
+      marketEstimateDzd: best?.valueDzd ? Math.round(best.valueDzd) : line.marketEstimateDzd,
+      refPriceDzd: price?.unitPriceDzd != null ? Math.round(price.unitPriceDzd * 100) / 100 : line.refPriceDzd,
+      refPriceSource: price ? `Réception PCH 2025 — ${price.label}${price.date ? ` (${price.date})` : ""}` : line.refPriceSource,
+      haveProduct: ours ? true : line.haveProduct,
+      ourProductId: ours?.id ?? line.ourProductId,
+      ourProduct: ours?.label ?? line.ourProduct,
+      registeredOurs: ours ? true : line.registeredOurs,
+      suppliersInfo: line.suppliersInfo || (best ? `${best.manufacturers} fabricant(s) / ${best.importers} importateur(s)${nom.origins ? ` · nomenclature : ${nom.origins}` : ""}` : nom.origins ? `Nomenclature : ${nom.origins}` : null),
     },
   });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "PCH", summary: `Enrichissement marché — ${line.designation}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "PCH", summary: `Enrichissement marché + prix Réception — ${line.designation}` });
   if (tenderId) revalidatePath(`/pch/${tenderId}`);
   return { ok: true };
+}
+
+/** Extrait un nombre d'unités par boîte depuis un conditionnement (« B/30 », « Boîte de 20 », « 30 cp »). */
+function parseBoxSize(cond: string | null | undefined): number | null {
+  if (!cond) return null;
+  const m = cond.match(/(?:b\s*\/|bo[iî]te\s*(?:de)?\s*|x\s*)(\d{1,4})/i) || cond.match(/\b(\d{1,4})\b/);
+  const n = m ? parseInt(m[1], 10) : NaN;
+  return Number.isFinite(n) && n > 0 && n < 100000 ? n : null;
+}
+
+/** Rapproche le produit de NOTRE catalogue Regulatory (dci + dosage), renvoie {id,label} si trouvé. */
+async function matchOurProduct(dci: string, dosage: string | null): Promise<{ id: string; label: string } | null> {
+  const qt = queryTokens(normText([dci, dosage].filter(Boolean).join(" ")));
+  if (!qt.length) return null;
+  const products = await prisma.regulatoryProduct.findMany({ select: { id: true, dci: true, brandName: true, dosage: true, dosageUnit: true, reference: true }, take: 2000 });
+  const hit = products.find((p) => {
+    const hay = normText(`${p.dci} ${p.brandName ?? ""} ${p.dosage ?? ""} ${p.dosageUnit ?? ""}`);
+    return allTokensIn(hay, qt);
+  });
+  return hit ? { id: hit.id, label: `${hit.brandName || hit.dci} · ${hit.reference}` } : null;
 }
 
 // ─────────────────────── Logistique : dates d'arrivée d'un bon de commande ───────────────────────

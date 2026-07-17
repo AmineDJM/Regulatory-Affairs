@@ -2920,9 +2920,13 @@ model PchTenderLine {
   ourProduct    String?
   unitPriceDzd  Decimal?    @db.Decimal(14, 2) // notre prix unitaire (DZD)
   suppliersInfo String? // nos fournisseurs + prix (texte)
+  // Prix de RÉFÉRENCE verrouillé depuis les réceptions PCH 2025 (vérifié dosage + forme).
+  refPriceDzd   Decimal?    @db.Decimal(14, 2)
+  refPriceSource String? // libellé/source de la ligne Réception 2025 rapprochée
   // Enrichissement intelligence marché.
   competitorCount   Int?
-  registeredNomenclature Boolean @default(false) // présent à la nomenclature ?
+  registeredNomenclature Boolean @default(false) // présent à la nomenclature (marché) ?
+  registeredOurs         Boolean @default(false) // NOUS avons un produit enregistré correspondant
   nomLines          Int? // nombre de lignes nomenclature détectées
   marketEstimateDzd Decimal? @db.Decimal(18, 2) // estimation de la taille de marché
   // Suivi commercial de la ligne.
@@ -2939,6 +2943,7 @@ model PchOrder {
   id           String         @id @default(cuid())
   tenderId     String
   tender       PchTender      @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  lineId       String? // ligne-produit gagnée dont ce bon de commande est une FRACTION (vente réelle)
   reference    String? // n° du bon de commande PCH
   products     String?
   quantity     Int            @default(0)
@@ -2955,6 +2960,7 @@ model PchOrder {
   updatedAt    DateTime       @updatedAt
 
   @@index([tenderId])
+  @@index([lineId])
 }
 
 // ─────────────── Stocks (suivi des stocks de nos produits à la PCH) ───────────────
