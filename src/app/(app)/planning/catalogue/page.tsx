@@ -13,7 +13,7 @@ export default async function CataloguePage() {
     return (
       <div className="space-y-5">
         <PageHeader title="Prévisions & Force de vente" description="Catalogue des BU et produits promus." />
-        <PlanningTabs active="catalogue" canEdit={false} />
+        <PlanningTabs active="catalogue" canConfigure={false} />
         <p className="text-sm text-muted-foreground">Accès en lecture seule.</p>
       </div>
     );
@@ -29,7 +29,7 @@ export default async function CataloguePage() {
   return (
     <div className="space-y-5">
       <PageHeader title="Prévisions & Force de vente" description="Catalogue des BU (franchises) et des produits promus." />
-      <PlanningTabs active="catalogue" canEdit />
+      <PlanningTabs active="catalogue" canConfigure />
       <CatalogueManager
         companies={companies.map((c) => ({ id: c.id, name: c.shortName || c.name }))}
         businessUnits={businessUnits.map((b) => ({ id: b.id, name: b.name, code: b.code, color: b.color, companyId: b.companyId, headId: b.headId, isActive: b.isActive, productCount: b._count.products }))}

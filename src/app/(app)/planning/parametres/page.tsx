@@ -15,7 +15,7 @@ export default async function ParametresPage() {
   return (
     <div className="space-y-5">
       <PageHeader title="Prévisions & Force de vente" description="Paramètres 100% configurables : capacité terrain, poids des positions et fréquences par palier de potentiel." />
-      <PlanningTabs active="parametres" canEdit={canEdit} />
+      <PlanningTabs active="parametres" canConfigure={canEdit} />
       <SettingsForm config={config} canEdit={canEdit} />
     </div>
   );

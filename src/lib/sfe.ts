@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
 
 /**
  * Force de vente & prévisions (SFE) — valeurs par défaut **100% configurables** (SfeSettings)
@@ -45,4 +46,87 @@ export async function getSfeConfig(): Promise<SfeConfig> {
 /** Nombre de visites terrain qu'un délégué peut faire dans le cycle (capacité nette terrain). */
 export function fieldVisitsCapacity(cap: SfeConfig["capacity"]): number {
   return Math.round(cap.daysPerMonth * cap.visitsPerDay * (cap.fieldPct / 100));
+}
+
+// ─────────────────────── Phase 2/3 — hiérarchie, affectations & FTE ───────────────────────
+
+/** Positions de détail possibles (rang du produit dans la mallette). */
+export const POSITIONS = [1, 2, 3] as const;
+/** Paliers de potentiel (ordre d'affichage), alignés sur `SegmentLevel`. */
+export const TIERS = ["VERY_HIGH", "HIGH", "MEDIUM", "LOW", "VERY_LOW"] as const;
+export const TIER_LABELS: Record<string, string> = {
+  VERY_HIGH: "Très fort", HIGH: "Fort", MEDIUM: "Moyen", LOW: "Faible", VERY_LOW: "Très faible",
+};
+
+/** Surcharge de capacité individuelle d'un KAM (null = valeur globale). */
+export interface RepCapacityOverride {
+  capDaysPerMonth?: number | null;
+  capVisitsPerDay?: number | null;
+  capFieldPct?: number | null;
+}
+
+/** Capacité terrain nette d'un KAM (visites/mois), en tenant compte de sa surcharge individuelle. */
+export function repCapacity(override: RepCapacityOverride | null | undefined, config: SfeConfig): number {
+  const days = override?.capDaysPerMonth ?? config.capacity.daysPerMonth;
+  const visits = override?.capVisitsPerDay ?? config.capacity.visitsPerDay;
+  const pct = override?.capFieldPct ?? config.capacity.fieldPct;
+  return Math.round(days * visits * (pct / 100));
+}
+
+/** Poids d'une position de détail (P1/P2/P3) selon le paramétrage. */
+export function positionWeight(position: number, weights: Record<string, number>): number {
+  const fallback: Record<string, number> = DEFAULT_POSITION_WEIGHTS;
+  return weights[String(position)] ?? fallback[String(position)] ?? 0;
+}
+
+/** Effort pondéré d'une affectation = visites prévues × poids de la position (en « visites-équivalent »). */
+export function assignmentEffort(plannedVisits: number, position: number, weights: Record<string, number>): number {
+  return (plannedVisits || 0) * positionWeight(position, weights);
+}
+
+/** FTE dérivé d'un effort pondéré rapporté à la capacité (part d'un ETP terrain). */
+export function fteFromEffort(effort: number, capacity: number): number {
+  return capacity > 0 ? effort / capacity : 0;
+}
+
+/** Visites cibles d'un panel selon la fréquence par palier : Σ fréquence(potentiel) sur les praticiens. */
+export function panelRequiredVisits(countByTier: Record<string, number>, freqByTier: Record<string, number>): number {
+  return TIERS.reduce((s, t) => s + (countByTier[t] ?? 0) * (freqByTier[t] ?? 0), 0);
+}
+
+/**
+ * Portée d'accès à la force de vente (profondeur hiérarchique) :
+ *  - `all` : configurateur (Direction / Manager promo / Super Admin) ou vue globale → tous les KAM ;
+ *  - `team` : superviseur national → uniquement les KAM de ses équipes ;
+ *  - `self` : KAM → uniquement lui-même.
+ */
+export interface RepScope {
+  mode: "all" | "team" | "self";
+  canConfigure: boolean;
+  isSupervisor: boolean;
+  teamIds: string[]; // équipes supervisées (pour team/all)
+  repIds: string[] | null; // null = tous ; sinon liste explicite
+}
+
+export async function resolveRepScope(user: SessionUser): Promise<RepScope> {
+  const canConfigure = userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user);
+  const supervised = await prisma.salesTeam.findMany({ where: { supervisorId: user.id }, select: { id: true } });
+  const teamIds = supervised.map((t) => t.id);
+  const isSupervisor = teamIds.length > 0;
+
+  if (canConfigure) return { mode: "all", canConfigure: true, isSupervisor, teamIds, repIds: null };
+  if (isSupervisor) {
+    const members = await prisma.salesRepProfile.findMany({ where: { teamId: { in: teamIds } }, select: { repId: true } });
+    const repIds = Array.from(new Set([...members.map((m) => m.repId), user.id]));
+    return { mode: "team", canConfigure: false, isSupervisor: true, teamIds, repIds };
+  }
+  return { mode: "self", canConfigure: false, isSupervisor: false, teamIds: [], repIds: [user.id] };
+}
+
+/** Le user peut-il éditer les affectations de ce KAM ? Configurateur, superviseur du KAM, ou lui-même. */
+export async function canEditRep(user: SessionUser, repId: string): Promise<boolean> {
+  if (userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user)) return true;
+  if (repId === user.id) return true;
+  const prof = await prisma.salesRepProfile.findUnique({ where: { repId }, select: { team: { select: { supervisorId: true } } } });
+  return prof?.team?.supervisorId === user.id;
 }

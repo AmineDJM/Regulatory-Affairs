@@ -1067,6 +1067,30 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Force de vente — hiérarchie, affectations par KAM & pilotage terrain (SFE Phase 2/3).**
+  Extension profonde du module `SALES_PLANNING` : on descend de la prévision produit jusqu'au **KAM
+  individuel** et jusqu'au **réalisé terrain**. Trois nouveaux modèles — **`SalesTeam`** (équipe pilotée
+  par un **superviseur national**, rattachable à une BU ou transverse), **`SalesRepProfile`**
+  (**configuration individuelle** de chaque KAM : équipe, **capacité surchargée** jours×visites×%terrain,
+  **ETP contractuel**, secteur, statut) et **`PromotionAssignment`** (matrice **KAM × produit × cycle**
+  avec **rang de détail P1/P2/P3** et visites prévues, transverse aux BU). Trois onglets s'ajoutent :
+  **(2) Affectations** — par KAM (groupé par équipe), on affecte des produits à un rang de détail avec un
+  nombre de visites ; le **FTE et la charge** se calculent en direct (barre de charge, alerte surcharge),
+  avec **synthèse par produit** et bouton **« Reporter le mois précédent »**. **(3) Équipes & KAM** —
+  gestion des équipes (superviseur, BU, couleur) et **tableau de configuration de tous les KAM**.
+  **(4) Pilotage** — cockpit **planifié vs réalisé** : par KAM (et sous-totaux d'équipe), capacité, panel
+  (praticiens par palier de potentiel, **réutilise l'annuaire médical existant** `MedicalDoctor`),
+  **fréquence cible** (Σ fréquence×effectif du panel selon le paramétrage), visites planifiées, **visites
+  réellement réalisées le mois** (dérivées des `MedicalVisit` `COMPLETED`), **taux de réalisation** et
+  **couverture** (praticiens visités / panel). Le **FTE affecté remonte automatiquement dans les
+  Prévisions** (nouvelle colonne « FTE affecté » + écart vs FTE cible) : la boucle Direction → KAM →
+  terrain est bouclée. **Profondeur d'accès** : les onglets et les données sont filtrés par rôle —
+  configurateur (Direction / Manager promo / Super Admin) voit et édite tout ; **superviseur national**
+  (`NATIONAL_SALES`, `SALES_PLANNING:READ`) voit et édite **ses équipes** (autorisation métier
+  `canEditRep`, sans droit de configuration globale) ; **KAM** (`MEDICAL_DELEGATE`) voit **son** Pilotage.
+  Tout reste **non bureaucratique** : le terrain ne saisit que ses visites, le reste est dérivé. Helpers
+  purs testés (`src/lib/sfe.ts` : `repCapacity`, `assignmentEffort`, `fteFromEffort`, `panelRequiredVisits`,
+  `resolveRepScope`, `canEditRep` — `src/lib/sfe.test.ts`). Migration idempotente `20260717090000_sfe_force_hierarchy`.
 - **Nouveau module « Prévisions & Force de vente » (SFE) — l'espace prévisionnel de la Direction.**
   Première pierre d'un modèle **Société → BU (franchise) → Produit** pour piloter la force de vente.
   Nouveau module RBAC **`SALES_PLANNING`** (route `/planning`, accordé par défaut à la Direction et au

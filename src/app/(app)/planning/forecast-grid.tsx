@@ -10,6 +10,7 @@ interface Row {
   buName: string;
   buColor: string | null;
   targetFte: number;
+  assignedFte: number; // somme des FTE issus des affectations KAM (lecture seule)
   coverageTargetPct: number | null;
   plannedVisits: number | null;
   budget: number | null;
@@ -31,7 +32,8 @@ const fmtDZD = (n: number) => new Intl.NumberFormat("fr-DZ").format(Math.round(n
 
 /**
  * Grille de prévision par produit (façon tableur) — regroupée par BU, avec sous-totaux et total.
- * Chaque ligne s'enregistre automatiquement à la sortie d'un champ (auto-save).
+ * La colonne « FTE affecté » (lecture seule) remonte la somme des affectations KAM du cycle :
+ * l'écart FTE cible ↔ FTE affecté matérialise le pont Prévision Direction ↔ terrain.
  */
 export function ForecastGrid({ cycleId, rows, canEdit }: { cycleId: string; rows: Row[]; canEdit: boolean }) {
   const [drafts, setDrafts] = React.useState<Record<string, Draft>>(() =>
@@ -39,6 +41,7 @@ export function ForecastGrid({ cycleId, rows, canEdit }: { cycleId: string; rows
   );
   const [saving, setSaving] = React.useState<string | null>(null);
   const [saved, setSaved] = React.useState<string | null>(null);
+  const assignedOf = React.useMemo(() => new Map(rows.map((r) => [r.productId, r.assignedFte])), [rows]);
 
   function set(productId: string, field: keyof Draft, value: string) {
     setDrafts((d) => ({ ...d, [productId]: { ...d[productId], [field]: value } }));
@@ -71,20 +74,25 @@ export function ForecastGrid({ cycleId, rows, canEdit }: { cycleId: string; rows
   }
 
   const sum = (items: Row[], f: (d: Draft) => number) => items.reduce((s, r) => s + f(drafts[r.productId]), 0);
+  const sumAssigned = (items: Row[]) => items.reduce((s, r) => s + (assignedOf.get(r.productId) ?? 0), 0);
   const grandFte = sum(rows, (d) => nOr0(d.targetFte));
+  const grandAssigned = sumAssigned(rows);
   const grandVisits = sum(rows, (d) => nOr0(d.plannedVisits));
   const grandBudget = sum(rows, (d) => nOr0(d.budget));
 
   const cell = "border-b border-border px-2 py-1.5 text-sm";
   const input = "h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
 
+  const otherFields: (keyof Draft)[] = ["coverageTargetPct", "plannedVisits", "budget"];
+
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] border-collapse">
+      <table className="w-full min-w-[820px] border-collapse">
         <thead>
           <tr className="border-b border-border bg-secondary/40 text-left text-xs font-medium text-muted-foreground">
             <th className="px-3 py-2">Produit</th>
             <th className="px-2 py-2 w-24">FTE cible</th>
+            <th className="px-2 py-2 w-24">FTE affecté</th>
             <th className="px-2 py-2 w-24">Couv. %</th>
             <th className="px-2 py-2 w-28">Visites</th>
             <th className="px-2 py-2 w-36">Budget (DZD)</th>
@@ -95,12 +103,13 @@ export function ForecastGrid({ cycleId, rows, canEdit }: { cycleId: string; rows
         <tbody>
           {groups.map((g) => {
             const subFte = sum(g.items, (d) => nOr0(d.targetFte));
+            const subAssigned = sumAssigned(g.items);
             const subVisits = sum(g.items, (d) => nOr0(d.plannedVisits));
             const subBudget = sum(g.items, (d) => nOr0(d.budget));
             return (
               <React.Fragment key={g.buName}>
                 <tr className="bg-accent/40">
-                  <td colSpan={7} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide">
+                  <td colSpan={8} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide">
                     <span className="inline-flex items-center gap-2">
                       <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: g.buColor ?? "#94a3b8" }} />
                       {g.buName}
@@ -109,10 +118,23 @@ export function ForecastGrid({ cycleId, rows, canEdit }: { cycleId: string; rows
                 </tr>
                 {g.items.map((r) => {
                   const d = drafts[r.productId];
+                  const assigned = assignedOf.get(r.productId) ?? 0;
+                  const target = nOr0(d.targetFte);
+                  const gapTone = assigned + 0.001 < target ? "text-warning" : assigned > 0 ? "text-success" : "text-muted-foreground";
                   return (
                     <tr key={r.productId} className="hover:bg-secondary/30">
                       <td className={`${cell} font-medium`}>{r.productName}</td>
-                      {(["targetFte", "coverageTargetPct", "plannedVisits", "budget"] as (keyof Draft)[]).map((f) => (
+                      <td className={cell}>
+                        {canEdit ? (
+                          <input inputMode="decimal" className={input} value={d.targetFte} onChange={(e) => set(r.productId, "targetFte", e.target.value)} onBlur={() => save(r.productId)} />
+                        ) : (
+                          <span>{d.targetFte || "—"}</span>
+                        )}
+                      </td>
+                      <td className={`${cell} font-medium tabular-nums ${gapTone}`} title="Somme des FTE issus des affectations KAM">
+                        {assigned.toFixed(2)}
+                      </td>
+                      {otherFields.map((f) => (
                         <td key={f} className={cell}>
                           {canEdit ? (
                             <input inputMode="decimal" className={input} value={d[f]} onChange={(e) => set(r.productId, f, e.target.value)} onBlur={() => save(r.productId)} />
@@ -137,6 +159,7 @@ export function ForecastGrid({ cycleId, rows, canEdit }: { cycleId: string; rows
                 <tr className="bg-secondary/30 text-sm font-medium">
                   <td className="px-3 py-1.5 text-right text-xs text-muted-foreground">Sous-total {g.buName}</td>
                   <td className="px-2 py-1.5">{subFte.toFixed(2)}</td>
+                  <td className="px-2 py-1.5 tabular-nums">{subAssigned.toFixed(2)}</td>
                   <td className="px-2 py-1.5" />
                   <td className="px-2 py-1.5">{subVisits}</td>
                   <td className="px-2 py-1.5">{fmtDZD(subBudget)}</td>
@@ -150,6 +173,7 @@ export function ForecastGrid({ cycleId, rows, canEdit }: { cycleId: string; rows
           <tr className="border-t-2 border-border bg-primary/5 text-sm font-bold">
             <td className="px-3 py-2 text-right">Total</td>
             <td className="px-2 py-2">{grandFte.toFixed(2)}</td>
+            <td className="px-2 py-2 tabular-nums">{grandAssigned.toFixed(2)}</td>
             <td className="px-2 py-2" />
             <td className="px-2 py-2">{grandVisits}</td>
             <td className="px-2 py-2">{fmtDZD(grandBudget)}</td>

@@ -4706,7 +4706,8 @@ model BusinessUnit {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  products PromoProduct[]
+  products   PromoProduct[]
+  salesTeams SalesTeam[]
 
   @@index([companyId])
 }
@@ -4724,7 +4725,8 @@ model PromoProduct {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  forecasts ProductForecast[]
+  forecasts   ProductForecast[]
+  assignments PromotionAssignment[]
 
   @@index([businessUnitId])
 }
@@ -4738,7 +4740,8 @@ model PromoCycle {
   status    CycleStatus @default(OPEN)
   createdAt DateTime    @default(now())
 
-  forecasts ProductForecast[]
+  forecasts   ProductForecast[]
+  assignments PromotionAssignment[]
 
   @@unique([year, month])
   @@index([year, month])
@@ -4773,4 +4776,69 @@ model SfeSettings {
   frequencyByTier Json? // { VERY_HIGH: 3, HIGH: 2, MEDIUM: 1, LOW: 1, VERY_LOW: 0 }
   updatedById     String?
   updatedAt       DateTime @updatedAt
+}
+
+// ─────────────────── Force de vente : hiérarchie & affectations (Phase 2/3) ───────────────────
+
+// Équipe de KAM pilotée par un superviseur national. Rattachable à une BU (franchise) ou transverse.
+model SalesTeam {
+  id             String        @id @default(cuid())
+  name           String
+  code           String?
+  supervisorId   String? // superviseur national (id utilisateur, résolu en requête)
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  color          String?
+  sortOrder      Int           @default(0)
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  members SalesRepProfile[]
+
+  @@index([supervisorId])
+  @@index([businessUnitId])
+}
+
+// Profil de KAM / délégué — configuration INDIVIDUELLE (équipe, capacité surchargée, ETP contractuel).
+model SalesRepProfile {
+  id              String     @id @default(cuid())
+  repId           String     @unique // utilisateur KAM / délégué
+  teamId          String?
+  team            SalesTeam? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  region          String?
+  // Capacité individuelle : surcharge du paramétrage global (null = valeur globale).
+  capDaysPerMonth Int?
+  capVisitsPerDay Int?
+  capFieldPct     Int?
+  fteBudget       Decimal    @default(1) @db.Decimal(6, 2) // ETP contractuel (temps plein = 1,0)
+  seniority       String? // libellé libre : junior / senior / expert…
+  isActive        Boolean    @default(true)
+  note            String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([teamId])
+}
+
+// Affectation d'un produit à un KAM pour un cycle, avec rang de détail (position) et visites prévues.
+// Matrice KAM × produit × cycle — transverse aux BU (un KAM peut porter des produits de plusieurs BU).
+model PromotionAssignment {
+  id            String       @id @default(cuid())
+  cycleId       String
+  cycle         PromoCycle   @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  repId         String // utilisateur KAM / délégué
+  productId     String
+  product       PromoProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  position      Int          @default(1) // rang de détail : 1 = P1 (prioritaire), 2 = P2, 3 = P3
+  plannedVisits Int          @default(0)
+  note          String?
+  updatedById   String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([cycleId, repId, productId])
+  @@index([cycleId])
+  @@index([repId])
+  @@index([productId])
 }
