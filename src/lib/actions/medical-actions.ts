@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { DoctorTitle, InfluenceLevel, MedicalSector, Priority, SegmentLevel, VisitStatus } from "@prisma/client";
+import type { DoctorTitle, InfluenceLevel, InstitutionSector, InstitutionType, MedicalSector, Priority, SegmentLevel, VisitStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
@@ -39,6 +39,89 @@ const segToPriority: Record<SegmentLevel, Priority> = {
 };
 function parseTitle(v: string | null): DoctorTitle {
   return v && TITLES.includes(v as DoctorTitle) ? (v as DoctorTitle) : "AUTRE";
+}
+
+const INSTITUTION_TYPES: InstitutionType[] = [
+  "CHU", "EPH", "EHS", "CLINIQUE_PRIVEE", "POLYCLINIQUE", "CABINET", "CENTRE_SANTE", "PHARMACIE", "GROSSISTE", "AUTRE",
+];
+function parseInstitutionType(v: string | null): InstitutionType {
+  return v && INSTITUTION_TYPES.includes(v as InstitutionType) ? (v as InstitutionType) : "AUTRE";
+}
+function parseInstitutionSector(v: string | null): InstitutionSector {
+  return v === "PRIVE" ? "PRIVE" : "PUBLIC";
+}
+
+/** Résout le nom d'un établissement (dénormalisé sur le médecin dans `institution`). */
+async function institutionName(id: string | null): Promise<string | null> {
+  if (!id) return null;
+  const i = await prisma.medicalInstitution.findUnique({ where: { id }, select: { name: true } });
+  return i?.name ?? null;
+}
+
+// ─────────────────────────── Établissements médicaux ───────────────────────────
+
+export async function createInstitution(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
+  const name = fdStr(formData, "name");
+  if (!name) return { ok: false, error: "Le nom de l'établissement est obligatoire." };
+  const created = await prisma.medicalInstitution.create({
+    data: {
+      name,
+      type: parseInstitutionType(fdStr(formData, "type")),
+      sector: parseInstitutionSector(fdStr(formData, "sector")),
+      wilaya: fdStr(formData, "wilaya"),
+      city: fdStr(formData, "city"),
+      region: fdStr(formData, "region"),
+      address: fdStr(formData, "address"),
+      phone: fdStr(formData, "phone"),
+      email: fdStr(formData, "email"),
+      notes: fdStr(formData, "notes"),
+      createdById: user.id,
+    },
+  });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Promotion médicale", summary: `Établissement « ${name} »` });
+  revalidatePath("/medical");
+  return { ok: true, id: created.id };
+}
+
+export async function updateInstitution(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  const name = fdStr(formData, "name");
+  if (!id || !name) return { ok: false, error: "Paramètres manquants." };
+  await prisma.medicalInstitution.update({
+    where: { id },
+    data: {
+      name,
+      type: parseInstitutionType(fdStr(formData, "type")),
+      sector: parseInstitutionSector(fdStr(formData, "sector")),
+      wilaya: fdStr(formData, "wilaya"),
+      city: fdStr(formData, "city"),
+      region: fdStr(formData, "region"),
+      address: fdStr(formData, "address"),
+      phone: fdStr(formData, "phone"),
+      email: fdStr(formData, "email"),
+      notes: fdStr(formData, "notes"),
+      isActive: formData.get("isActive") === "on" ? true : formData.get("isActive") === "off" ? false : undefined,
+    },
+  });
+  // Re-synchronise le libellé dénormalisé sur les praticiens rattachés.
+  await prisma.medicalDoctor.updateMany({ where: { institutionId: id }, data: { institution: name } });
+  revalidatePath("/medical");
+  return { ok: true };
+}
+
+export async function deleteInstitution(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  // FK SetNull : les praticiens rattachés basculent en « Sans établissement » (non supprimés).
+  await prisma.medicalInstitution.delete({ where: { id } });
+  revalidatePath("/medical");
+  return { ok: true };
 }
 
 // ─────────────────────────── Spécialités ───────────────────────────
@@ -129,6 +212,8 @@ export async function createDoctor(
   const delegateId = user.role === "MEDICAL_DELEGATE" ? user.id : fdStr(formData, "delegateId") ?? null;
   const specialtyId = fdStr(formData, "specialtyId");
   const sName = await specialtyName(specialtyId);
+  const institutionId = fdStr(formData, "institutionId");
+  const iName = await institutionName(institutionId);
 
   const created = await prisma.medicalDoctor.create({
     data: {
@@ -137,7 +222,8 @@ export async function createDoctor(
       specialtyId,
       specialty: sName ?? fdStr(formData, "specialty"),
       sector: parseSector(fdStr(formData, "sector")),
-      institution: fdStr(formData, "institution"),
+      institutionId,
+      institution: iName ?? fdStr(formData, "institution"),
       city: fdStr(formData, "city"),
       region: fdStr(formData, "region"),
       phone: fdStr(formData, "phone"),
@@ -174,6 +260,8 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
   const name = fdStr(formData, "name") ?? before.name;
   const specialtyId = fdStr(formData, "specialtyId");
   const sName = await specialtyName(specialtyId);
+  const institutionId = fdStr(formData, "institutionId");
+  const iName = await institutionName(institutionId);
   // Un manager (vue globale) peut réassigner le délégué ; un délégué reste propriétaire.
   const isManager = user.role !== "MEDICAL_DELEGATE";
 
@@ -185,7 +273,8 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
       specialtyId,
       specialty: sName ?? (specialtyId ? before.specialty : fdStr(formData, "specialty")),
       sector: parseSector(fdStr(formData, "sector")),
-      institution: fdStr(formData, "institution"),
+      institutionId,
+      institution: iName ?? (institutionId ? before.institution : fdStr(formData, "institution")),
       city: fdStr(formData, "city"),
       region: fdStr(formData, "region"),
       phone: fdStr(formData, "phone"),

@@ -1067,6 +1067,15 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Établissements médicaux (référentiel structuré).** L'« hôpital / clinique » d'un praticien
+  n'est plus un simple texte libre : nouvelle entité **`MedicalInstitution`** (type — CHU, EPH, EHS,
+  clinique privée, polyclinique, cabinet, centre de santé, pharmacie, grossiste… — secteur public/privé,
+  wilaya, ville, adresse, contacts). Le médecin porte un **`institutionId`** (FK `SetNull`, libellé
+  dénormalisé conservé pour la rétrocompatibilité). La **migration backfill** crée automatiquement un
+  établissement par libellé distinct existant et rattache les praticiens (idempotente). L'annuaire
+  Promotion médicale gagne un bouton **« Établissements »** (gestion CRUD complète, compteur de
+  praticiens) et le formulaire médecin un **sélecteur d'établissement**. Socle du rattachement
+  praticien→établissement réutilisé ensuite dans la prise en charge des congrès.
 - **Force de vente — hiérarchie, affectations par KAM & pilotage terrain (SFE Phase 2/3).**
   Extension profonde du module `SALES_PLANNING` : on descend de la prévision produit jusqu'au **KAM
   individuel** et jusqu'au **réalisé terrain**. Trois nouveaux modèles — **`SalesTeam`** (équipe pilotée

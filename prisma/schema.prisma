@@ -1548,7 +1548,9 @@ model MedicalDoctor {
   specialtyId           String?
   specialtyRef          MedicalSpecialty? @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
   sector                MedicalSector     @default(LIBERAL)
-  institution           String? // hôpital / clinique
+  institution           String? // hôpital / clinique (libellé dénormalisé, hérité)
+  institutionId         String?
+  institutionRef        MedicalInstitution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
   city                  String?
   region                String?
   phone                 String?
@@ -1580,9 +1582,53 @@ model MedicalDoctor {
 
   @@index([delegateId])
   @@index([specialtyId])
+  @@index([institutionId])
   @@index([sector])
   @@index([region])
   @@index([city])
+}
+
+// Établissement médical (hôpital, clinique, cabinet, pharmacie…) — référentiel structuré.
+enum InstitutionType {
+  CHU // Centre hospitalo-universitaire
+  EPH // Établissement public hospitalier
+  EHS // Établissement hospitalier spécialisé
+  CLINIQUE_PRIVEE
+  POLYCLINIQUE
+  CABINET // Cabinet médical
+  CENTRE_SANTE
+  PHARMACIE
+  GROSSISTE // Grossiste répartiteur
+  AUTRE
+}
+
+enum InstitutionSector {
+  PUBLIC
+  PRIVE
+}
+
+model MedicalInstitution {
+  id          String            @id @default(cuid())
+  name        String
+  type        InstitutionType   @default(AUTRE)
+  sector      InstitutionSector @default(PUBLIC)
+  wilaya      String?
+  city        String?
+  region      String?
+  address     String?
+  phone       String?
+  email       String?
+  notes       String?
+  isActive    Boolean           @default(true)
+  createdById String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  doctors MedicalDoctor[]
+
+  @@index([type])
+  @@index([wilaya])
+  @@index([name])
 }
 
 model MedicalVisit {

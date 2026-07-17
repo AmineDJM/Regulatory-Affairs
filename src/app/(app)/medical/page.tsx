@@ -39,8 +39,9 @@ export default async function MedicalPage() {
     <div className="space-y-6">
       <PageHeader title="Promotion médicale" description="Spécialités, médecins (hôpital / libéral), influence & potentiel, et suivi des visites des délégués." />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <KpiCard label="Spécialités" value={data.stats.specialties} icon="Tags" tone="info" />
+        <KpiCard label="Établissements" value={data.stats.institutions} icon="Hospital" />
         <KpiCard label="Médecins" value={data.stats.doctors} icon="Stethoscope" />
         <KpiCard label="Leaders d'opinion" value={data.stats.kol} icon="Star" tone={data.stats.kol > 0 ? "info" : "default"} />
         <KpiCard label="Visites réalisées (mois)" value={data.stats.completedThisMonth} icon="CheckCircle2" tone="success" />
@@ -49,6 +50,7 @@ export default async function MedicalPage() {
       <MedicalDirectory
         groups={data.groups}
         specialties={data.specialties}
+        institutions={data.institutions}
         delegates={data.delegates}
         companies={companies}
         canCreate={canCreate}

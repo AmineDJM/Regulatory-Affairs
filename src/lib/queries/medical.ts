@@ -18,6 +18,7 @@ export interface DoctorDTO {
   specialtyName: string | null;
   sector: MedicalSector;
   institution: string;
+  institutionId: string | null;
   city: string;
   region: string;
   phone: string;
@@ -53,6 +54,22 @@ export interface SpecialtyDTO {
   count: number;
 }
 
+export interface InstitutionDTO {
+  id: string;
+  name: string;
+  type: string;
+  sector: string;
+  wilaya: string | null;
+  city: string | null;
+  region: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  isActive: boolean;
+  count: number;
+}
+
 export interface MedicalVisitRow {
   id: string;
   date: string;
@@ -69,14 +86,16 @@ export interface MedicalVisitRow {
 export interface MedicalData {
   groups: SpecialtyGroupDTO[];
   specialties: SpecialtyDTO[];
+  institutions: InstitutionDTO[];
   visits: MedicalVisitRow[];
   delegates: { id: string; name: string }[];
-  stats: { doctors: number; specialties: number; kol: number; visitsTotal: number; completedThisMonth: number; planned: number };
+  stats: { doctors: number; specialties: number; institutions: number; kol: number; visitsTotal: number; completedThisMonth: number; planned: number };
 }
 
 function mapDoctor(d: {
   id: string; name: string; title: DoctorTitle; specialtyId: string | null; specialty: string | null;
   specialtyRef: { name: string } | null; sector: MedicalSector; institution: string | null; city: string | null;
+  institutionId: string | null; institutionRef: { name: string } | null;
   region: string | null; phone: string | null; email: string | null; influenceLevel: InfluenceLevel;
   prescriptionPotential: Priority; influence: SegmentLevel; potential: SegmentLevel; affinity: SegmentLevel;
   targetProducts: string | null; comments: string | null;
@@ -90,7 +109,8 @@ function mapDoctor(d: {
     specialtyId: d.specialtyId,
     specialtyName: d.specialtyRef?.name ?? d.specialty ?? null,
     sector: d.sector,
-    institution: d.institution ?? "",
+    institution: d.institutionRef?.name ?? d.institution ?? "",
+    institutionId: d.institutionId,
     city: d.city ?? "",
     region: d.region ?? "",
     phone: d.phone ?? "",
@@ -151,13 +171,14 @@ export async function getDelegatePlans(user: SessionUser): Promise<DelegatePlanD
 export async function getMedicalData(user: SessionUser): Promise<MedicalData> {
   const isManager = hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER";
 
-  const [doctors, specialties, visits, delegates] = await Promise.all([
+  const [doctors, specialties, institutions, visits, delegates] = await Promise.all([
     prisma.medicalDoctor.findMany({
       where: { ...scopeMedicalDoctors(user), ...currentCompanyWhere() },
       orderBy: [{ name: "asc" }],
-      include: { delegate: { select: { name: true } }, specialtyRef: { select: { name: true } } },
+      include: { delegate: { select: { name: true } }, specialtyRef: { select: { name: true } }, institutionRef: { select: { name: true } } },
     }),
     prisma.medicalSpecialty.findMany({ orderBy: { name: "asc" } }),
+    prisma.medicalInstitution.findMany({ orderBy: [{ name: "asc" }] }),
     prisma.medicalVisit.findMany({
       where: scopeMedicalVisits(user),
       orderBy: { date: "desc" },
@@ -202,6 +223,13 @@ export async function getMedicalData(user: SessionUser): Promise<MedicalData> {
     id: s.id, name: s.name, color: s.color, notes: s.notes, count: byId.get(s.id)?.length ?? 0,
   }));
 
+  const instCount = new Map<string, number>();
+  for (const d of doctors) if (d.institutionId) instCount.set(d.institutionId, (instCount.get(d.institutionId) ?? 0) + 1);
+  const institutionDTOs: InstitutionDTO[] = institutions.map((i) => ({
+    id: i.id, name: i.name, type: i.type, sector: i.sector, wilaya: i.wilaya, city: i.city, region: i.region,
+    address: i.address, phone: i.phone, email: i.email, notes: i.notes, isActive: i.isActive, count: instCount.get(i.id) ?? 0,
+  }));
+
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const visitRows: MedicalVisitRow[] = visits.map((v) => ({
@@ -212,11 +240,13 @@ export async function getMedicalData(user: SessionUser): Promise<MedicalData> {
   return {
     groups,
     specialties: specialtyDTOs,
+    institutions: institutionDTOs,
     visits: visitRows,
     delegates,
     stats: {
       doctors: doctors.length,
       specialties: specialties.length,
+      institutions: institutions.length,
       kol: doctors.filter((d) => d.influenceLevel === "KEY_OPINION_LEADER").length,
       visitsTotal: visits.length,
       completedThisMonth: visits.filter((v) => v.status === "COMPLETED" && v.date >= monthStart).length,

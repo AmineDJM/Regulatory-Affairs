@@ -403,6 +403,24 @@ export const MEDICAL_SECTOR: Record<string, Display> = {
   BOTH: { label: "Public + Privé", tone: "neutral" },
 };
 
+export const INSTITUTION_TYPE: Record<string, string> = {
+  CHU: "CHU",
+  EPH: "Établissement public hospitalier",
+  EHS: "Établissement hospitalier spécialisé",
+  CLINIQUE_PRIVEE: "Clinique privée",
+  POLYCLINIQUE: "Polyclinique",
+  CABINET: "Cabinet médical",
+  CENTRE_SANTE: "Centre de santé",
+  PHARMACIE: "Pharmacie",
+  GROSSISTE: "Grossiste répartiteur",
+  AUTRE: "Autre",
+};
+
+export const INSTITUTION_SECTOR: Record<string, Display> = {
+  PUBLIC: { label: "Public", tone: "info" },
+  PRIVE: { label: "Privé", tone: "purple" },
+};
+
 export const DOCTOR_TITLE: Record<string, string> = {
   PROFESSEUR: "Professeur",
   MAITRE_CONFERENCES: "Maître de conférences",

@@ -12,16 +12,17 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { cn } from "@/lib/utils";
 import {
-  SEGMENT_LEVEL, MEDICAL_SECTOR, DOCTOR_TITLE, doctorDisplayName,
+  SEGMENT_LEVEL, MEDICAL_SECTOR, DOCTOR_TITLE, INSTITUTION_TYPE, INSTITUTION_SECTOR, doctorDisplayName,
 } from "@/lib/labels";
-import { createDoctor, updateDoctor, createSpecialty, updateSpecialty, deleteSpecialty, deleteDoctor } from "@/lib/actions/medical-actions";
-import type { SpecialtyGroupDTO, SpecialtyDTO, DoctorDTO } from "@/lib/queries/medical";
+import { createDoctor, updateDoctor, createSpecialty, updateSpecialty, deleteSpecialty, deleteDoctor, createInstitution, updateInstitution, deleteInstitution } from "@/lib/actions/medical-actions";
+import type { SpecialtyGroupDTO, SpecialtyDTO, DoctorDTO, InstitutionDTO } from "@/lib/queries/medical";
 
 type Result = { ok: boolean; error?: string };
 
 interface Props {
   groups: SpecialtyGroupDTO[];
   specialties: SpecialtyDTO[];
+  institutions: InstitutionDTO[];
   delegates: { id: string; name: string }[];
   companies: { id: string; name: string; shortName: string | null }[];
   canCreate: boolean;
@@ -47,11 +48,12 @@ function useSubmit() {
   return { saving, err, setErr, submit };
 }
 
-export function MedicalDirectory({ groups, specialties, delegates, companies, canCreate, canEdit, canManageSpecialties, canDelete, isManager }: Props) {
+export function MedicalDirectory({ groups, specialties, institutions, delegates, companies, canCreate, canEdit, canManageSpecialties, canDelete, isManager }: Props) {
   const router = useRouter();
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
   const [doctorSheet, setDoctorSheet] = React.useState<{ mode: "create" | "edit"; doctor?: DoctorDTO } | null>(null);
   const [specSheet, setSpecSheet] = React.useState(false);
+  const [instSheet, setInstSheet] = React.useState(false);
 
   const isOpen = (key: string) => open[key] ?? true; // ouvert par défaut
   const toggle = (key: string) => setOpen((o) => ({ ...o, [key]: !isOpen(key) }));
@@ -63,6 +65,9 @@ export function MedicalDirectory({ groups, specialties, delegates, companies, ca
         <div className="flex gap-2">
           {canManageSpecialties && (
             <Button variant="outline" size="sm" onClick={() => setSpecSheet(true)}><Tags className="h-4 w-4" /> Spécialités</Button>
+          )}
+          {canManageSpecialties && (
+            <Button variant="outline" size="sm" onClick={() => setInstSheet(true)}><Hospital className="h-4 w-4" /> Établissements</Button>
           )}
           {canCreate && (
             <Button size="sm" onClick={() => setDoctorSheet({ mode: "create" })}><Plus className="h-4 w-4" /> Nouveau médecin</Button>
@@ -156,6 +161,7 @@ export function MedicalDirectory({ groups, specialties, delegates, companies, ca
           mode={doctorSheet.mode}
           doctor={doctorSheet.doctor}
           specialties={specialties}
+          institutions={institutions}
           delegates={delegates}
           companies={companies}
           isManager={isManager}
@@ -163,6 +169,7 @@ export function MedicalDirectory({ groups, specialties, delegates, companies, ca
         />
       )}
       {specSheet && <SpecialtiesManager specialties={specialties} canDelete={canDelete} onClose={() => setSpecSheet(false)} />}
+      {instSheet && <InstitutionsManager institutions={institutions} canDelete={canDelete} onClose={() => setInstSheet(false)} />}
     </section>
   );
 }
@@ -172,11 +179,12 @@ function W({ label, children, full }: { label: string; children: React.ReactNode
 }
 
 function DoctorSheet({
-  mode, doctor, specialties, delegates, companies, isManager, onClose,
+  mode, doctor, specialties, institutions, delegates, companies, isManager, onClose,
 }: {
   mode: "create" | "edit";
   doctor?: DoctorDTO;
   specialties: SpecialtyDTO[];
+  institutions: InstitutionDTO[];
   delegates: { id: string; name: string }[];
   companies: { id: string; name: string; shortName: string | null }[];
   isManager: boolean;
@@ -217,7 +225,12 @@ function DoctorSheet({
               {companies.map((c) => <option key={c.id} value={c.id}>{c.shortName || c.name}</option>)}
             </Select>
           </W>
-          <W label="Hôpital / Clinique"><Input name="institution" defaultValue={d?.institution} /></W>
+          <W label="Établissement (hôpital / clinique…)">
+            <Select name="institutionId" defaultValue={d?.institutionId ?? ""}>
+              <option value="">— Sans établissement —</option>
+              {institutions.map((i) => <option key={i.id} value={i.id}>{i.name}{i.city ? ` · ${i.city}` : ""}</option>)}
+            </Select>
+          </W>
           <W label="Ville"><Input name="city" defaultValue={d?.city} /></W>
           <W label="Région"><Input name="region" defaultValue={d?.region} /></W>
           <W label="Influence (produit / spécialité)">
@@ -298,6 +311,68 @@ function SpecialtiesManager({ specialties, canDelete, onClose }: { specialties: 
               {canDelete && (
                 <button
                   onClick={() => { if (window.confirm(`Supprimer « ${s.name} » ? Les médecins rattachés passeront en « Sans spécialité ».`)) { const fd = new FormData(); fd.set("id", s.id); submit(() => deleteSpecialty(fd), () => undefined); } }}
+                  className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                ><Trash2 className="h-4 w-4" /></button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Sheet>
+  );
+}
+
+function InstitutionsManager({ institutions, canDelete, onClose }: { institutions: InstitutionDTO[]; canDelete: boolean; onClose: () => void }) {
+  const { saving, err, submit } = useSubmit();
+  const [editing, setEditing] = React.useState<InstitutionDTO | null>(null);
+  const empty = { name: "", type: "AUTRE", sector: "PUBLIC", wilaya: "", city: "" };
+  const [f, setF] = React.useState(empty);
+
+  const start = (i: InstitutionDTO | null) => {
+    setEditing(i);
+    setF(i ? { name: i.name, type: i.type, sector: i.sector, wilaya: i.wilaya ?? "", city: i.city ?? "" } : empty);
+  };
+
+  const save = () => {
+    const fd = new FormData();
+    fd.set("name", f.name); fd.set("type", f.type); fd.set("sector", f.sector); fd.set("wilaya", f.wilaya); fd.set("city", f.city);
+    if (editing) { fd.set("id", editing.id); submit(() => updateInstitution(fd), () => start(null)); }
+    else submit(() => createInstitution(fd), () => setF(empty));
+  };
+
+  return (
+    <Sheet open onClose={onClose} title="Établissements médicaux" description="Hôpitaux, cliniques, cabinets, pharmacies… le référentiel rattaché aux praticiens." width="lg">
+      <div className="space-y-4">
+        <div className="rounded-xl border border-border p-3">
+          <p className="mb-2 text-sm font-medium">{editing ? "Modifier l'établissement" : "Nouvel établissement"}</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="col-span-2 space-y-1.5"><Label>Nom</Label><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Ex. CHU Mustapha" /></div>
+            <div className="space-y-1.5"><Label>Type</Label><Select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>{Object.entries(INSTITUTION_TYPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></div>
+            <div className="space-y-1.5"><Label>Secteur</Label><Select value={f.sector} onChange={(e) => setF({ ...f, sector: e.target.value })}>{Object.entries(INSTITUTION_SECTOR).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}</Select></div>
+            <div className="space-y-1.5"><Label>Wilaya</Label><Input value={f.wilaya} onChange={(e) => setF({ ...f, wilaya: e.target.value })} placeholder="Ex. Alger" /></div>
+            <div className="space-y-1.5"><Label>Ville / Commune</Label><Input value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} /></div>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <Button onClick={save} disabled={saving || !f.name.trim()}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}{editing ? "Enregistrer" : "Ajouter"}</Button>
+            {editing && <Button variant="outline" onClick={() => start(null)}>Annuler</Button>}
+          </div>
+          {err && <p className="mt-2 text-xs text-destructive">{err}</p>}
+        </div>
+
+        <ul className="divide-y divide-border rounded-xl border border-border">
+          {institutions.length === 0 && <li className="p-4 text-center text-sm text-muted-foreground">Aucun établissement.</li>}
+          {institutions.map((i) => (
+            <li key={i.id} className="flex items-center gap-3 px-3 py-2">
+              <Hospital className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <span className="font-medium">{i.name}</span>
+                <p className="truncate text-xs text-muted-foreground">{[INSTITUTION_TYPE[i.type], i.wilaya || i.city].filter(Boolean).join(" · ")}</p>
+              </div>
+              <span className="text-xs text-muted-foreground">{i.count} praticien{i.count > 1 ? "s" : ""}</span>
+              <button onClick={() => start(i)} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-4 w-4" /></button>
+              {canDelete && (
+                <button
+                  onClick={() => { if (window.confirm(`Supprimer « ${i.name} » ? Les praticiens rattachés passeront en « Sans établissement ».`)) { const fd = new FormData(); fd.set("id", i.id); submit(() => deleteInstitution(fd), () => undefined); } }}
                   className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 ><Trash2 className="h-4 w-4" /></button>
               )}
