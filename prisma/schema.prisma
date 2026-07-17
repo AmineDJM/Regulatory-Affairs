@@ -803,6 +803,7 @@ model Company {
   stockSnapshots          StockSnapshot[]
   logisticsOrders         LogisticsOrder[]
   sales                   Sale[]
+  businessUnits           BusinessUnit[]
 
   @@index([isActive])
 }
@@ -4680,4 +4681,96 @@ model RegulatoryObligation {
 
   @@index([dossierId])
   @@index([status])
+}
+
+// ═══════════════════════ Force de vente & prévisions (SFE) ═══════════════════════
+// Fondation « par produit » : Société → BU (franchise) → produits promus ; cycles mensuels ;
+// prévisions Direction par produit ; paramètres 100% configurables (capacité, positions, fréquences).
+
+enum CycleStatus {
+  OPEN
+  CLOSED
+}
+
+// Business Unit / franchise thérapeutique (Neurology, Infectiologie, Urologie…). Rattachée à une société.
+model BusinessUnit {
+  id        String   @id @default(cuid())
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+  name      String
+  code      String?
+  color     String?
+  headId    String? // chef de BU (id utilisateur, résolu en requête)
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products PromoProduct[]
+
+  @@index([companyId])
+}
+
+// Produit promu (marque marketing) — catalogue structuré pour l'affectation et les prévisions.
+model PromoProduct {
+  id             String        @id @default(cuid())
+  name           String
+  code           String?
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  managerId      String? // chef de produit (id utilisateur)
+  isActive       Boolean       @default(true)
+  sortOrder      Int           @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  forecasts ProductForecast[]
+
+  @@index([businessUnitId])
+}
+
+// Cycle promotionnel mensuel.
+model PromoCycle {
+  id        String      @id @default(cuid())
+  year      Int
+  month     Int // 1..12
+  label     String
+  status    CycleStatus @default(OPEN)
+  createdAt DateTime    @default(now())
+
+  forecasts ProductForecast[]
+
+  @@unique([year, month])
+  @@index([year, month])
+}
+
+// Prévision Direction par produit et par cycle (FTE cible, couverture, visites, budget).
+model ProductForecast {
+  id                String       @id @default(cuid())
+  cycleId           String
+  cycle             PromoCycle   @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  productId         String
+  product           PromoProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  targetFte         Decimal      @default(0) @db.Decimal(8, 2)
+  coverageTargetPct Int?
+  plannedVisits     Int?
+  budget            Decimal?     @db.Decimal(14, 2)
+  note              String?
+  updatedById       String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@unique([cycleId, productId])
+  @@index([cycleId])
+  @@index([productId])
+}
+
+// Paramètres SFE (ligne globale) : 100% configurables par la Direction / le Super Admin.
+model SfeSettings {
+  id              String   @id @default("global")
+  positionWeights Json? // { "1": 1, "2": 0.5, "3": 0.25 }
+  capacity        Json? // { daysPerMonth: 20, visitsPerDay: 7, fieldPct: 80 }
+  frequencyByTier Json? // { VERY_HIGH: 3, HIGH: 2, MEDIUM: 1, LOW: 1, VERY_LOW: 0 }
+  updatedById     String?
+  updatedAt       DateTime @updatedAt
 }

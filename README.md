@@ -1067,6 +1067,26 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Nouveau module « Prévisions & Force de vente » (SFE) — l'espace prévisionnel de la Direction.**
+  Première pierre d'un modèle **Société → BU (franchise) → Produit** pour piloter la force de vente.
+  Nouveau module RBAC **`SALES_PLANNING`** (route `/planning`, accordé par défaut à la Direction et au
+  Manager promotion médicale, ouvrable à tout rôle par le Super Admin dans Administration). Trois onglets :
+  **(1) Prévisions** — une **grille façon tableur, par produit et par mois** (cycle mensuel `PromoCycle`),
+  où la Direction saisit **FTE cible, couverture %, visites prévues, budget (DZD) et note** ; lignes
+  **regroupées par BU** avec sous-totaux + total, **enregistrement automatique** à la sortie de chaque
+  champ, KPIs (FTE cible total, ETP KAM disponibles, visites, capacité/KAM) et navigateur mois précédent/
+  suivant. **(2) Catalogue** — gestion des **Business Units** (franchises : société, chef de BU, couleur)
+  et des **produits promus** (BU + chef de produit), un produit étant l'**unité atomique d'affectation**
+  (un KAM peut porter des produits de plusieurs BU). **(3) Paramètres** — **100 % configurables** :
+  **capacité terrain** (jours/mois × visites/jour × % terrain, avec aperçu de la capacité nette), **poids
+  des positions** de détail (P1/P2/P3) et **fréquence cible par palier de potentiel** (Très fort → Très
+  faible). Modèles : `BusinessUnit`, `PromoProduct`, `PromoCycle`, `ProductForecast`, `SfeSettings`
+  (migration idempotente `20260715080000_sfe_foundation`) ; helpers `src/lib/sfe.ts` (config fusionnée
+  aux valeurs par défaut + `fieldVisitsCapacity`) ; actions `src/lib/actions/sales-planning-actions.ts`.
+  **Vision (non bureaucratique)** : la Direction *prévoit* ici par produit ; le terrain ne saisira que ses
+  **visites**, d'où le FTE/couverture *réels* seront **dérivés** — d'où la feuille de route **Phase 2**
+  (matrice d'affectation KAM × produit × position × FTE, transversale aux BU) et **Phase 3** (panel par
+  médecin + tournée assistée + FTE réel calculé à partir des visites).
 - **Regulatory — « Statut de fabrication » + cycle de vie des variations.** La forme pharmaceutique
   gagne **« Capsule molle »**. L'ancien champ **« Type de produit » devient « Statut de fabrication »**
   avec 4 valeurs — **Importation, Secondary Packaging, Primary Packaging, Full Process** (nouveau champ
