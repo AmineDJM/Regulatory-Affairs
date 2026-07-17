@@ -103,7 +103,7 @@ export async function getCongressDetail(type: CongressType, user: SessionUser, i
     participants: participants.map((p) => ({ id: p.id, name: p.name, title: p.title ?? "" })),
     expenseOrder: expenseOrder ? { reference: expenseOrder.reference, status: expenseOrder.status, amount: toNumber(expenseOrder.amount) } : null,
     beneficiaries: (Array.isArray((c as { beneficiaries?: unknown }).beneficiaries)
-      ? ((c as { beneficiaries?: unknown }).beneficiaries as { id: string; name: string; role?: string }[])
+      ? ((c as { beneficiaries?: unknown }).beneficiaries as { id: string; name: string; role?: string; doctorId?: string; institution?: string }[])
       : []),
     createdAt: c.createdAt.toISOString(),
   };

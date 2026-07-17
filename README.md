@@ -1067,6 +1067,15 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Congrès — praticiens pris en charge reliés à l'annuaire.** La liste des personnes prises en charge
+  d'un congrès (national/international) n'est plus une simple saisie libre : le panneau **« Personnes
+  prises en charge »** propose trois modes — **« Depuis l'annuaire »** (recherche + sélection d'un
+  praticien existant), **« Nouveau médecin »** (création *inline* d'un profil `MedicalDoctor` — nom,
+  spécialité, secteur, **établissement** — directement rattaché, sans quitter le congrès) et **« Personne
+  libre »** (comme avant). Chaque bénéficiaire issu de l'annuaire affiche son **établissement** et un
+  badge « annuaire », et le profil créé est **réutilisable partout** (segmentation, tournées, historique).
+  Le référentiel (annuaire, spécialités, établissements) est chargé à la demande via une action serveur ;
+  les pièces d'identité et la demande de pièces restent inchangées.
 - **Établissements médicaux (référentiel structuré).** L'« hôpital / clinique » d'un praticien
   n'est plus un simple texte libre : nouvelle entité **`MedicalInstitution`** (type — CHU, EPH, EHS,
   clinique privée, polyclinique, cabinet, centre de santé, pharmacie, grossiste… — secteur public/privé,
