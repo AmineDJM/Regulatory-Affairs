@@ -3301,12 +3301,15 @@ model FieldReport {
   transcript  String? // transcription brute (Whisper) ou saisie manuelle
   audioBlobId String? // audio chiffré (optionnel)
 
-  // Champs structurés — suggérés par l'IA, modifiables avant validation.
+  // Identité de la visite. doctorId = médecin principal (compat) ; doctorIds = tous les
+  // médecins de la visite (un compte rendu peut concerner plusieurs praticiens).
   doctorId          String?
   doctor            MedicalDoctor? @relation(fields: [doctorId], references: [id], onDelete: SetNull)
+  doctorIds         String[]       @default([]) // médecins (annuaire) rattachés à la visite
   doctorName        String? // nom tel que dicté (si non rattaché)
   institution       String?
   specialty         String?
+  // Anciens champs structurés (IA) — conservés pour l'historique, plus alimentés.
   products          String? // produits discutés
   interest          String? // intérêt du médecin
   objection         String?

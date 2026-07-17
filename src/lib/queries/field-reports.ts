@@ -37,6 +37,7 @@ export interface FieldReportDetail {
   transcript: string | null;
   hasAudio: boolean;
   doctorId: string | null;
+  doctorIds: string[]; // médecins (annuaire) de la visite
   doctorName: string | null;
   institution: string | null;
   specialty: string | null;
@@ -87,7 +88,8 @@ export async function getFieldReportDetail(user: SessionUser, id: string): Promi
   return {
     id: r.id, status: r.status, visitDate: r.visitDate.toISOString(),
     transcript: r.transcript, hasAudio: Boolean(r.audioBlobId),
-    doctorId: r.doctorId, doctorName: r.doctorName, institution: r.institution, specialty: r.specialty,
+    doctorId: r.doctorId, doctorIds: r.doctorIds.length ? r.doctorIds : (r.doctorId ? [r.doctorId] : []),
+    doctorName: r.doctorName, institution: r.institution, specialty: r.specialty,
     products: r.products, interest: r.interest, objection: r.objection, medicalQuestion: r.medicalQuestion,
     documentRequest: r.documentRequest, sponsoringRequest: r.sponsoringRequest, careRequest: r.careRequest,
     competitorInfo: r.competitorInfo, opportunity: r.opportunity, qualitySignal: r.qualitySignal,

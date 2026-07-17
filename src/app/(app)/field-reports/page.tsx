@@ -19,7 +19,7 @@ export default async function FieldReportsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Rapports terrain" description="Comptes rendus de visite des délégués — dictés à la voix, structurés par l'IA, relus et validés.">
+      <PageHeader title="Rapports terrain" description="Comptes rendus de visite — dictés à la voix ou saisis, avec médecin(s), établissement, spécialité et pièces jointes.">
         <NewReportButton />
       </PageHeader>
 

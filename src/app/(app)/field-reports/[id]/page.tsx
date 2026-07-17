@@ -16,8 +16,8 @@ export default async function FieldReportPage({ params }: { params: { id: string
   const user = await requireModule("MEDICAL");
   const detail = await getFieldReportDetail(user, params.id);
   if (!detail) notFound();
-  // Le délégué a une vue ultra-simple (parler → envoyer, l'IA classe seule) ; la
-  // Direction / le chef de produit gardent la vue analytique complète.
+  // Compte rendu (synthèse) simple pour tous : dicter/écrire + médecin(s), établissement,
+  // spécialité, date, pièces jointes. Le gestionnaire peut aussi valider/rouvrir.
   const isManager = managesReports(user);
 
   const doctors = await prisma.medicalDoctor.findMany({
@@ -36,8 +36,8 @@ export default async function FieldReportPage({ params }: { params: { id: string
         title={isManager ? "Rapport de visite" : "Mon compte rendu de visite"}
         description={
           isManager
-            ? (detail.delegateName ? `Délégué : ${detail.delegateName} · classé par l'IA, relecture et validation.` : "Classé par l'IA — relecture et validation.")
-            : "Parlez (ou écrivez), envoyez. L'IA comprend et classe tout pour la Direction."
+            ? (detail.delegateName ? `Délégué : ${detail.delegateName} · relecture et validation.` : "Relecture et validation.")
+            : "Parlez (ou écrivez) votre compte rendu, puis envoyez."
         }
       >
         <SuperAdminDeleteButton kind="FIELD_REPORT" id={detail.id} name={detail.delegateName ? `Rapport — ${detail.delegateName}` : "Rapport de visite"} enabled={user.role === "SUPER_ADMIN"} />

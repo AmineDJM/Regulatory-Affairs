@@ -36,31 +36,28 @@ export async function updateFieldReport(formData: FormData): Promise<ActionResul
   if (!id) return { ok: false, error: "Rapport introuvable." };
   if (!(await canEdit(user, id))) return { ok: false, error: "Non autorisé." };
 
+  const summary = fdStr(formData, "summary");
+  const doctorIds = parseIds(formData, "doctorIds");
   await prisma.fieldReport.update({
     where: { id },
     data: {
       visitDate: fdDate(formData, "visitDate") ?? undefined,
-      transcript: fdStr(formData, "transcript"),
-      doctorId: fdStr(formData, "doctorId"),
+      summary,
+      transcript: summary, // le compte rendu (synthèse) EST le contenu dicté / saisi
+      doctorIds,
+      doctorId: doctorIds[0] ?? null,
       doctorName: fdStr(formData, "doctorName"),
       institution: fdStr(formData, "institution"),
       specialty: fdStr(formData, "specialty"),
-      products: fdStr(formData, "products"),
-      interest: fdStr(formData, "interest"),
-      objection: fdStr(formData, "objection"),
-      medicalQuestion: fdStr(formData, "medicalQuestion"),
-      documentRequest: fdStr(formData, "documentRequest"),
-      sponsoringRequest: fdStr(formData, "sponsoringRequest"),
-      careRequest: fdStr(formData, "careRequest"),
-      competitorInfo: fdStr(formData, "competitorInfo"),
-      opportunity: fdStr(formData, "opportunity"),
-      qualitySignal: fdStr(formData, "qualitySignal"),
-      nextAction: fdStr(formData, "nextAction"),
-      summary: fdStr(formData, "summary"),
     },
   });
   revalidatePath(`/field-reports/${id}`);
   return { ok: true };
+}
+
+/** Liste d'IDs depuis un champ « a,b,c » (médecins de la visite). */
+function parseIds(formData: FormData, key: string): string[] {
+  return (fdStr(formData, key) ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 /** Analyse la transcription en champs structurés (Claude). Ne valide jamais.
@@ -139,9 +136,8 @@ export async function analyzeFieldReportAction(
 }
 
 /**
- * Soumission **simplifiée** (délégué) : enregistre la transcription, laisse l'IA
- * comprendre et classer SEULE (best-effort, jamais bloquant), puis valide. Le délégué
- * n'a aucun champ structuré à remplir ; la Direction voit ensuite le classement complet.
+ * Envoi du compte rendu (délégué) : un seul champ **synthèse** (dicté à la voix ou saisi)
+ * + médecin(s), établissement, spécialité, date, pièces jointes. Aucune classification IA.
  */
 export async function submitFieldReport(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -149,63 +145,26 @@ export async function submitFieldReport(formData: FormData): Promise<ActionResul
   if (!id) return { ok: false, error: "Rapport introuvable." };
   if (!(await canEdit(user, id))) return { ok: false, error: "Non autorisé." };
 
-  const transcript = fdStr(formData, "transcript");
-  if (!transcript) return { ok: false, error: "Dictez ou saisissez d'abord votre compte rendu." };
-
-  // Nom du médecin + établissement saisis MANUELLEMENT par le délégué (optionnels, prioritaires,
-  // jamais écrasés par l'IA).
-  const manualDoctorName = fdStr(formData, "doctorName");
-  const manualInstitution = fdStr(formData, "institution");
+  const summary = fdStr(formData, "summary");
+  if (!summary) return { ok: false, error: "Dictez ou saisissez d'abord votre compte rendu." };
+  const doctorIds = parseIds(formData, "doctorIds");
 
   await prisma.fieldReport.update({
     where: { id },
     data: {
-      transcript,
+      summary,
+      transcript: summary,
       visitDate: fdDate(formData, "visitDate") ?? undefined,
-      doctorId: fdStr(formData, "doctorId"),
-      doctorName: manualDoctorName,
-      institution: manualInstitution,
+      doctorIds,
+      doctorId: doctorIds[0] ?? null,
+      doctorName: fdStr(formData, "doctorName"),
+      institution: fdStr(formData, "institution"),
+      specialty: fdStr(formData, "specialty"),
+      status: "VALIDATED",
+      validatedAt: new Date(),
     },
   });
-
-  // L'IA classe seule (best-effort) : on n'empêche jamais l'envoi si l'IA échoue/est coupée.
-  if (await aiFeatureEnabled("field_report").catch(() => false)) {
-    try {
-      const t0 = Date.now();
-      const r = await analyzeFieldReport(transcript);
-      await logAiUsage({ feature: "field_report", userId: user.id, model: aiModelCheap(), ok: r.ok, latencyMs: Date.now() - t0, errorCode: r.ok ? null : r.error ?? "error" });
-      if (r.ok && r.data) {
-        const d = r.data;
-        let doctorId = fdStr(formData, "doctorId") ?? undefined;
-        if (!doctorId && d.doctorName) {
-          const match = await prisma.medicalDoctor.findFirst({
-            where: { name: { contains: d.doctorName.replace(/^(pr\.?|dr\.?|professeur|docteur)\s+/i, "").trim(), mode: "insensitive" } },
-            select: { id: true },
-          });
-          doctorId = match?.id ?? undefined;
-        }
-        await prisma.fieldReport.update({
-          where: { id },
-          data: {
-            doctorId,
-            // Le nom + l'établissement saisis manuellement priment ; l'IA ne complète que s'ils sont absents.
-            doctorName: manualDoctorName || d.doctorName || null, institution: manualInstitution || d.institution || null, specialty: d.specialty || null,
-            products: d.products || null, interest: d.interest || null, objection: d.objection || null,
-            medicalQuestion: d.medicalQuestion || null, documentRequest: d.documentRequest || null,
-            sponsoringRequest: d.sponsoringRequest || null, careRequest: d.careRequest || null,
-            competitorInfo: d.competitorInfo || null, opportunity: d.opportunity || null,
-            qualitySignal: d.qualitySignal || null, nextAction: d.nextAction || null,
-            summary: d.summary || null, aiNotes: d.aiNotes || null,
-          },
-        });
-      }
-    } catch (e) {
-      console.error("[field-report] auto-analyse échouée (envoi quand même)", e);
-    }
-  }
-
-  await prisma.fieldReport.update({ where: { id }, data: { status: "VALIDATED", validatedAt: new Date() } });
-  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Rapports terrain", summary: "Compte rendu de visite envoyé (classé par l'IA)" });
+  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Rapports terrain", summary: "Compte rendu de visite envoyé" });
   revalidatePath(`/field-reports/${id}`);
   revalidatePath("/field-reports");
   return { ok: true };

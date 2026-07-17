@@ -2,29 +2,30 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Mic, Square, Loader2, Send, Paperclip, FileText, Download, Trash2, RotateCcw, CheckCircle2, Sparkles } from "lucide-react";
+import { Mic, Square, Loader2, Send, Paperclip, FileText, Download, Trash2, RotateCcw, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea, Select, Label } from "@/components/ui/input";
+import { Input, Textarea, Label } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { FIELD_REPORT_STATUS } from "@/lib/labels";
 import { formatBytes } from "../../messages/format";
 import { submitFieldReport, reopenFieldReport, deleteFieldReportAttachment } from "@/lib/actions/field-report-actions";
 import type { FieldReportDetail } from "@/lib/queries/field-reports";
+import { DoctorPicker } from "./doctor-picker";
 
 /**
- * Vue **délégué** ultra-simple : on parle (ou on écrit), on envoie. L'IA comprend et
- * classe seule en arrière-plan ; le délégué ne remplit aucun champ structuré. Une fois
- * envoyé, le compte rendu est en lecture seule (réouverture possible pour corriger).
+ * Vue **délégué** simple : un seul compte rendu (synthèse) — on parle (ou on écrit) —
+ * + médecin(s), établissement, spécialité, date, pièces jointes. On envoie.
  */
 export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDetail; doctors: { id: string; name: string }[] }) {
   const router = useRouter();
   const sent = detail.status === "VALIDATED";
 
-  const [transcript, setTranscript] = React.useState(detail.transcript ?? "");
+  const [summary, setSummary] = React.useState(detail.summary ?? detail.transcript ?? "");
   const [visitDate, setVisitDate] = React.useState(detail.visitDate.slice(0, 10));
-  const [doctorId, setDoctorId] = React.useState(detail.doctorId ?? "");
+  const [doctorIds, setDoctorIds] = React.useState<string[]>(detail.doctorIds);
   const [doctorName, setDoctorName] = React.useState(detail.doctorName ?? "");
   const [institution, setInstitution] = React.useState(detail.institution ?? "");
+  const [specialty, setSpecialty] = React.useState(detail.specialty ?? "");
   const [recording, setRecording] = React.useState(false);
   const [transcribing, setTranscribing] = React.useState(false);
   const [sending, setSending] = React.useState(false);
@@ -44,10 +45,7 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
       const rec = new MediaRecorder(stream);
       chunks.current = [];
       rec.ondataavailable = (e) => { if (e.data.size) chunks.current.push(e.data); };
-      rec.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        await uploadAudio(new Blob(chunks.current, { type: rec.mimeType || "audio/webm" }));
-      };
+      rec.onstop = async () => { stream.getTracks().forEach((t) => t.stop()); await uploadAudio(new Blob(chunks.current, { type: rec.mimeType || "audio/webm" })); };
       rec.start(); mr.current = rec; setRecording(true);
     } catch {
       setMsg("Micro inaccessible — autorisez-le dans le navigateur, ou écrivez votre compte rendu ci-dessous.");
@@ -61,17 +59,19 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
       const f = new FormData(); f.set("file", blob, "audio.webm");
       const res = await fetch(`/api/field-reports/${detail.id}/transcribe`, { method: "POST", body: f });
       const data = await res.json();
-      if (data.transcript) setTranscript((prev) => (prev ? `${prev}\n${data.transcript}` : data.transcript));
+      if (data.transcript) setSummary((prev) => (prev ? `${prev}\n${data.transcript}` : data.transcript));
       else setMsg(data.error ?? "Transcription indisponible — vous pouvez écrire à la main.");
     } catch { setMsg("Envoi de l'audio impossible."); }
     finally { setTranscribing(false); }
   };
 
   const send = async () => {
-    if (!transcript.trim()) { setMsg("Dictez ou écrivez d'abord votre compte rendu."); return; }
+    if (!summary.trim()) { setMsg("Dictez ou écrivez d'abord votre compte rendu."); return; }
     setSending(true); setMsg(null);
     const f = new FormData();
-    f.set("id", detail.id); f.set("transcript", transcript); f.set("visitDate", visitDate); f.set("doctorId", doctorId); f.set("doctorName", doctorName); f.set("institution", institution);
+    f.set("id", detail.id); f.set("summary", summary); f.set("visitDate", visitDate);
+    f.set("doctorIds", doctorIds.join(",")); f.set("doctorName", doctorName);
+    f.set("institution", institution); f.set("specialty", specialty);
     const r = await submitFieldReport(f);
     setSending(false);
     if (r.ok) router.push("/field-reports"); else setMsg(r.error ?? "Envoi impossible.");
@@ -85,31 +85,23 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
     if (res.ok) router.refresh(); else { const d = await res.json(); setMsg(d.error ?? "Échec de la pièce jointe."); }
   };
 
-  // ───────────── Envoyé : vue lecture seule, simple ─────────────
   if (sent) {
     return (
       <div className="space-y-4">
         <div className="surface flex flex-wrap items-center gap-3 p-3">
           <StatusBadge map={FIELD_REPORT_STATUS} value={detail.status} />
-          <span className="inline-flex items-center gap-1.5 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> Envoyé — l'IA a classé votre compte rendu pour la Direction.</span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> Compte rendu envoyé.</span>
           <Button variant="outline" size="sm" className="ml-auto" onClick={reopen}><RotateCcw className="h-4 w-4" /> Corriger / renvoyer</Button>
         </div>
-        {detail.summary && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Sparkles className="h-3.5 w-3.5" /> Synthèse (IA)</p>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed">{detail.summary}</p>
-          </div>
-        )}
         <div>
-          <Label>Ce que vous avez dicté</Label>
-          <p className="mt-1 whitespace-pre-wrap rounded-lg border border-border bg-secondary/30 p-3 text-sm">{detail.transcript || "—"}</p>
+          <Label>Compte rendu (synthèse)</Label>
+          <p className="mt-1 whitespace-pre-wrap rounded-lg border border-border bg-secondary/30 p-3 text-sm">{detail.summary || detail.transcript || "—"}</p>
         </div>
         <Attachments detail={detail} readOnly />
       </div>
     );
   }
 
-  // ───────────── Brouillon : parler / écrire → envoyer ─────────────
   return (
     <div className="space-y-4">
       <div className="surface flex flex-wrap items-center gap-3 p-3">
@@ -117,38 +109,26 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
         {recording ? (
           <Button variant="destructive" size="sm" onClick={stopRec}><Square className="h-4 w-4" /> Arrêter</Button>
         ) : (
-          <Button size="sm" onClick={startRec} disabled={transcribing}>
-            {transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />} Parler
-          </Button>
+          <Button size="sm" onClick={startRec} disabled={transcribing}>{transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />} Parler</Button>
         )}
-        <Button size="sm" className="ml-auto" onClick={send} disabled={sending}>
-          {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer mon compte rendu
-        </Button>
+        <Button size="sm" className="ml-auto" onClick={send} disabled={sending}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer mon compte rendu</Button>
       </div>
 
-      {recording && <p className="flex items-center gap-2 text-sm text-destructive"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" /> Enregistrement… parlez naturellement (médecin, produits, demandes, prochaine action…).</p>}
+      {recording && <p className="flex items-center gap-2 text-sm text-destructive"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" /> Enregistrement… parlez naturellement.</p>}
       {msg && <p className="rounded-lg bg-accent/60 px-3 py-2 text-sm text-accent-foreground">{msg}</p>}
 
       <div className="space-y-1.5">
-        <Label>Votre compte rendu</Label>
-        <Textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={7}
-          placeholder="Dictez avec « Parler », ou écrivez ici : qui vous avez vu, ce qui s'est dit, les demandes, la prochaine action… L'IA s'occupe du reste." />
-        <p className="text-xs text-muted-foreground">Pas besoin de remplir des cases : l'IA comprend et classe automatiquement pour la Direction.</p>
+        <Label>Compte rendu (synthèse)</Label>
+        <Textarea value={summary} onChange={(e) => setSummary(e.target.value)} rows={7} placeholder="Dictez avec « Parler », ou écrivez ici votre compte rendu de visite…" />
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5"><Label>Date de visite</Label><Input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)} /></div>
-        <div className="space-y-1.5">
-          <Label>Médecin de l&apos;annuaire (optionnel)</Label>
-          <Select value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
-            <option value="">— l&apos;IA le déduira si vous le citez —</option>
-            {doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </Select>
-        </div>
+        <div className="space-y-1.5"><Label>Spécialité (optionnel)</Label><Input value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder="Ex. Cardiologie" /></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Médecin(s) — annuaire</Label><DoctorPicker doctors={doctors} value={doctorIds} onChange={setDoctorIds} /></div>
         <div className="space-y-1.5 sm:col-span-2">
-          <Label>Nom du médecin (saisie manuelle, si absent de l&apos;annuaire)</Label>
+          <Label>Nom du médecin (si absent de l&apos;annuaire)</Label>
           <Input value={doctorName} onChange={(e) => setDoctorName(e.target.value)} placeholder="Ex. Dr Karim Benali" />
-          <p className="text-xs text-muted-foreground">Tout est optionnel : écrivez le nom si vous le souhaitez, ou laissez l&apos;IA le déduire.</p>
         </div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label>Établissement / hôpital (optionnel)</Label>
@@ -158,7 +138,7 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label>Photos / pièces jointes (optionnel)</Label>
+          <Label>Pièces jointes (tout type)</Label>
           <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><Paperclip className="h-4 w-4" /> Ajouter</Button>
           <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadAttachment(f); e.target.value = ""; }} />
         </div>
