@@ -1067,6 +1067,19 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **PCH — Marché public : tableau produits par appel d'offres (analyse IA + intelligence marché).**
+  Un appel d'offres se décompose désormais en **lignes-produits** (`PchTenderLine`). Un bouton
+  **« Analyser le document (IA) »** prend le **texte du document** (issu de l'OCR Mistral) et **extrait
+  automatiquement** la liste des produits (désignation, DCI, dosage, forme, quantités) via Claude
+  (ancré, sans invention). Chaque ligne gère le **conditionnement** — quantité demandée en **unités** →
+  **« boîte de N » → nombre de boîtes calculé** (⌈unités / N⌉) —, un indicateur **« nous l'avons »**,
+  notre **prix unitaire**, nos **fournisseurs**, et un **suivi commercial** (À étudier → Chiffré →
+  Soumissionné → **Gagné** → Perdu) avec **prix d'attribution**. Le bouton **« Enrichir »** rapproche la
+  ligne de l'**intelligence marché** (`getRecommendations`) et remplit **concurrents**, **présence à la
+  nomenclature**, et **estimation de marché**. Enfin, un bloc **Logistique** suit l'**acheminement** des
+  bons de commande (dates d'**arrivée prévue / réelle**, client = PCH). Modèle `PchTenderLine` + dates
+  d'arrivée sur `PchOrder` (migration `20260717160000_pch_tender_lines`) ; analyse via `askClaude`,
+  enrichissement via le moteur marché.
 - **Information médicale (PRIM) → demandes à Regulatory.** Le pharmacien responsable de l'information
   médicale peut désormais **adresser des demandes** à l'équipe Regulatory (question réglementaire,
   demande de document, point sur un statut d'enregistrement, variation…), **rattachables à un dossier

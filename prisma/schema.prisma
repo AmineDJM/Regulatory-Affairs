@@ -2883,12 +2883,56 @@ model PchTender {
 
   notes       String?
   orders      PchOrder[]
+  lines       PchTenderLine[]
   createdById String?
   updatedById String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
   @@index([status])
+}
+
+// Suivi par produit d'un appel d'offres (ligne du tableau du marché) : issu de l'analyse IA du
+// document (OCR), enrichi par l'intelligence marché (concurrents, nomenclature, estimation, prix).
+enum PchLineStatus {
+  PENDING // à étudier
+  QUOTED // chiffré (prix posé)
+  SUBMITTED // soumissionné
+  WON // attribué (gagné)
+  LOST // perdu
+}
+
+model PchTenderLine {
+  id          String        @id @default(cuid())
+  tenderId    String
+  tender      PchTender     @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  sortOrder   Int           @default(0)
+  designation String // produit demandé (libellé du marché)
+  dci         String?
+  dosage      String?
+  form        String? // forme galénique
+  // Conditionnement : le marché demande des UNITÉS ; nos produits sont en BOÎTES de N unités.
+  quantityUnits Int         @default(0) // quantité demandée (unités)
+  unitsPerBox   Int? // « boîte de N » → nombre de boîtes = ceil(unités / N)
+  // Avons-nous ce produit ? + rattachement au produit Regulatory (id + libellé dénormalisé).
+  haveProduct   Boolean     @default(false)
+  ourProductId  String?
+  ourProduct    String?
+  unitPriceDzd  Decimal?    @db.Decimal(14, 2) // notre prix unitaire (DZD)
+  suppliersInfo String? // nos fournisseurs + prix (texte)
+  // Enrichissement intelligence marché.
+  competitorCount   Int?
+  registeredNomenclature Boolean @default(false) // présent à la nomenclature ?
+  nomLines          Int? // nombre de lignes nomenclature détectées
+  marketEstimateDzd Decimal? @db.Decimal(18, 2) // estimation de la taille de marché
+  // Suivi commercial de la ligne.
+  status              PchLineStatus @default(PENDING)
+  awardedUnitPriceDzd Decimal?      @db.Decimal(14, 2) // prix d'attribution si gagné
+  note                String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenderId])
 }
 
 model PchOrder {
@@ -2902,6 +2946,9 @@ model PchOrder {
   status       PchOrderStatus @default(PENDING)
   receivedDate DateTime?
   paymentDate  DateTime?
+  // Logistique : suivi de l'acheminement de la marchandise (client = PCH).
+  expectedArrival DateTime? // date d'arrivée prévue
+  arrivedDate     DateTime? // date d'arrivée réelle (marchandise reçue)
   notes        String?
   createdById  String?
   createdAt    DateTime       @default(now())

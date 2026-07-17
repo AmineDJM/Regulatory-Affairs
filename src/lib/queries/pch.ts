@@ -13,7 +13,31 @@ export interface PchOrderDTO {
   status: string;
   receivedDate: string | null;
   paymentDate: string | null;
+  expectedArrival: string | null;
+  arrivedDate: string | null;
   notes: string;
+}
+
+export interface PchTenderLineDTO {
+  id: string;
+  designation: string;
+  dci: string | null;
+  dosage: string | null;
+  form: string | null;
+  quantityUnits: number;
+  unitsPerBox: number | null;
+  boxesNeeded: number | null; // calculé : ceil(unités / unitsPerBox)
+  haveProduct: boolean;
+  ourProduct: string | null;
+  unitPriceDzd: number | null;
+  suppliersInfo: string | null;
+  competitorCount: number | null;
+  registeredNomenclature: boolean;
+  nomLines: number | null;
+  marketEstimateDzd: number | null;
+  status: string;
+  awardedUnitPriceDzd: number | null;
+  note: string | null;
 }
 
 export interface PchTenderDTO {
@@ -36,17 +60,33 @@ export interface PchTenderDTO {
   orderCount: number;
   orderedValue: number;
   orders: PchOrderDTO[];
+  lines: PchTenderLineDTO[];
 }
 
-function toOrderDTO(o: { id: string; reference: string | null; products: string | null; quantity: number; value: unknown; status: string; receivedDate: Date | null; paymentDate: Date | null; notes: string | null }): PchOrderDTO {
+function toOrderDTO(o: { id: string; reference: string | null; products: string | null; quantity: number; value: unknown; status: string; receivedDate: Date | null; paymentDate: Date | null; expectedArrival: Date | null; arrivedDate: Date | null; notes: string | null }): PchOrderDTO {
   return {
     id: o.id, reference: o.reference ?? "", products: o.products ?? "", quantity: o.quantity,
     value: dec(o.value), status: o.status,
-    receivedDate: o.receivedDate?.toISOString() ?? null, paymentDate: o.paymentDate?.toISOString() ?? null, notes: o.notes ?? "",
+    receivedDate: o.receivedDate?.toISOString() ?? null, paymentDate: o.paymentDate?.toISOString() ?? null,
+    expectedArrival: o.expectedArrival?.toISOString() ?? null, arrivedDate: o.arrivedDate?.toISOString() ?? null,
+    notes: o.notes ?? "",
   };
 }
 
-function toTenderDTO(t: Awaited<ReturnType<typeof fetchTenders>>[number]): PchTenderDTO {
+type LineRow = { id: string; designation: string; dci: string | null; dosage: string | null; form: string | null; quantityUnits: number; unitsPerBox: number | null; haveProduct: boolean; ourProduct: string | null; unitPriceDzd: unknown; suppliersInfo: string | null; competitorCount: number | null; registeredNomenclature: boolean; nomLines: number | null; marketEstimateDzd: unknown; status: string; awardedUnitPriceDzd: unknown; note: string | null };
+function toLineDTO(l: LineRow): PchTenderLineDTO {
+  const boxesNeeded = l.unitsPerBox && l.unitsPerBox > 0 ? Math.ceil(l.quantityUnits / l.unitsPerBox) : null;
+  return {
+    id: l.id, designation: l.designation, dci: l.dci, dosage: l.dosage, form: l.form,
+    quantityUnits: l.quantityUnits, unitsPerBox: l.unitsPerBox, boxesNeeded,
+    haveProduct: l.haveProduct, ourProduct: l.ourProduct, unitPriceDzd: dec(l.unitPriceDzd),
+    suppliersInfo: l.suppliersInfo, competitorCount: l.competitorCount,
+    registeredNomenclature: l.registeredNomenclature, nomLines: l.nomLines, marketEstimateDzd: dec(l.marketEstimateDzd),
+    status: l.status, awardedUnitPriceDzd: dec(l.awardedUnitPriceDzd), note: l.note,
+  };
+}
+
+function toTenderDTO(t: Awaited<ReturnType<typeof fetchTenders>>[number], lines: LineRow[] = []): PchTenderDTO {
   const orders = t.orders.map(toOrderDTO);
   return {
     id: t.id, reference: t.reference, title: t.title ?? "", products: t.products ?? "",
@@ -58,6 +98,7 @@ function toTenderDTO(t: Awaited<ReturnType<typeof fetchTenders>>[number]): PchTe
     orderCount: orders.length,
     orderedValue: orders.reduce((a, o) => a + (o.value ?? 0), 0),
     orders,
+    lines: lines.map(toLineDTO),
   };
 }
 
@@ -70,12 +111,15 @@ function fetchTenders() {
 }
 
 export async function getPchTenders(): Promise<PchTenderDTO[]> {
-  return (await fetchTenders()).map(toTenderDTO);
+  return (await fetchTenders()).map((t) => toTenderDTO(t));
 }
 
 export async function getPchTenderDetail(id: string): Promise<PchTenderDTO | null> {
-  const t = await prisma.pchTender.findUnique({ where: { id }, include: { orders: { orderBy: { createdAt: "desc" } } } });
-  return t ? toTenderDTO(t) : null;
+  const t = await prisma.pchTender.findUnique({
+    where: { id },
+    include: { orders: { orderBy: { createdAt: "desc" } }, lines: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] } },
+  });
+  return t ? toTenderDTO(t, t.lines) : null;
 }
 
 export function pchSummary(tenders: PchTenderDTO[]) {

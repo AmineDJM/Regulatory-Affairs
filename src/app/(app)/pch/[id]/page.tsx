@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { aiConfigured } from "@/lib/ai";
 import { getPchTenderDetail } from "@/lib/queries/pch";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -11,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { PCH_TENDER_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { EditTenderButton, OrdersManager } from "./pch-detail-client";
+import { TenderLines } from "./tender-lines";
+import { TenderLogistics } from "./tender-logistics";
 
 export default async function PchTenderPage({ params }: { params: { id: string } }) {
   const user = await requireModule("PCH");
@@ -62,7 +65,21 @@ export default async function PchTenderPage({ params }: { params: { id: string }
         </Card>
       </div>
 
+      <Card>
+        <CardContent className="p-4">
+          <TenderLines tenderId={t.id} lines={t.lines} canEdit={canEdit} aiConfigured={aiConfigured()} />
+        </CardContent>
+      </Card>
+
       <OrdersManager tenderId={t.id} orders={t.orders} canEdit={canEdit} canDelete={canDelete} />
+
+      {t.orders.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <TenderLogistics tenderId={t.id} orders={t.orders} canEdit={canEdit} />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
