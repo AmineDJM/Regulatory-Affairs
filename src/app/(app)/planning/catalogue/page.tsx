@@ -33,7 +33,7 @@ export default async function CataloguePage() {
       <CatalogueManager
         companies={companies.map((c) => ({ id: c.id, name: c.shortName || c.name }))}
         businessUnits={businessUnits.map((b) => ({ id: b.id, name: b.name, code: b.code, color: b.color, companyId: b.companyId, headId: b.headId, isActive: b.isActive, productCount: b._count.products }))}
-        products={products.map((p) => ({ id: p.id, name: p.name, code: p.code, businessUnitId: p.businessUnitId, buName: p.businessUnit?.name ?? null, managerId: p.managerId, isActive: p.isActive }))}
+        products={products.map((p) => ({ id: p.id, name: p.name, code: p.code, channel: p.channel, businessUnitId: p.businessUnitId, buName: p.businessUnit?.name ?? null, managerId: p.managerId, isActive: p.isActive }))}
         users={users}
       />
     </div>

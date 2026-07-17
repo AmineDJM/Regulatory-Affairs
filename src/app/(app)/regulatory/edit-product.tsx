@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
 import { DciAssociationField } from "./dci-field";
-import { MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRODUCT_CHANNEL, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 
 interface UserOption {
   id: string;
@@ -29,6 +29,7 @@ export interface EditProductValues {
   supplierId: string | null;
   countryOfOrigin: string | null;
   category: string;
+  channel: string;
   manufacturingStatus: string;
   status: string;
   priority: string;
@@ -89,7 +90,8 @@ export function EditProductButton({ product, users, suppliers }: { product: Edit
         >
           <input type="hidden" name="id" value={product.id} />
           <div className="grid grid-cols-2 gap-3">
-            <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue={product.category} className="col-span-2" />
+            <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue={product.category} />
+            <SelectField label="Canal (Ville / Hôpital)" name="channel" options={optionsFromMap(PRODUCT_CHANNEL)} defaultValue={product.channel} />
             <DciAssociationField defaultMolecules={product.molecules} />
             <TextField label="Nom commercial" name="brandName" placeholder="Ex. Adventor" defaultValue={product.brandName ?? undefined} className="col-span-2" />
             <TextField label="Dosage" name="dosage" placeholder="20" defaultValue={product.dosage ?? undefined} />

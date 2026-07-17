@@ -25,7 +25,7 @@ import { toNumber } from "@/lib/utils";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { getFieldDefs } from "@/lib/custom-fields";
 import { suggestedExternalStatus } from "@/lib/regulatory-external";
-import { PRIORITY, REGULATORY_STATUS, MANUFACTURING_STATUS, REGULATORY_CATEGORY, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { PRIORITY, REGULATORY_STATUS, MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRODUCT_CHANNEL, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 import { VariationPanel } from "./variation-panel";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { SupplierViewCard } from "./supplier-view-card";
@@ -154,6 +154,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs text-muted-foreground">{product.reference}</span>
             <StatusBadge map={REGULATORY_CATEGORY} value={product.category} dot={false} />
+            <StatusBadge map={PRODUCT_CHANNEL} value={product.channel} dot={false} />
             <StatusBadge map={PRIORITY} value={product.priority} />
             {associationLabel && <Badge tone="info" dot={false}>{associationLabel}</Badge>}
           </div>
@@ -176,6 +177,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   supplierId: product.supplierId,
                   countryOfOrigin: product.countryOfOrigin,
                   category: product.category,
+                  channel: product.channel,
                   manufacturingStatus: product.manufacturingStatus,
                   status: product.status,
                   priority: product.priority,

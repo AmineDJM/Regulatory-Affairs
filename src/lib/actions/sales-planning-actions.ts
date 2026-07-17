@@ -18,6 +18,11 @@ function num(fd: FormData, key: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Canal produit (Ville / Hôpital / les deux) — défaut BOTH si non renseigné. */
+function parseChannel(v: string | null): "RETAIL" | "HOSPITAL" | "BOTH" {
+  return v === "RETAIL" || v === "HOSPITAL" || v === "BOTH" ? v : "BOTH";
+}
+
 /** Récupère (ou crée) le cycle mensuel donné. */
 export async function ensureCycle(year: number, month: number): Promise<{ id: string } | null> {
   if (!Number.isInteger(year) || month < 1 || month > 12) return null;
@@ -78,7 +83,7 @@ export async function createPromoProduct(formData: FormData): Promise<ActionResu
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom du produit est obligatoire." };
   await prisma.promoProduct.create({
-    data: { name, code: fdStr(formData, "code") ?? undefined, businessUnitId: fdStr(formData, "businessUnitId") || null, managerId: fdStr(formData, "managerId") || null },
+    data: { name, code: fdStr(formData, "code") ?? undefined, channel: parseChannel(fdStr(formData, "channel")), businessUnitId: fdStr(formData, "businessUnitId") || null, managerId: fdStr(formData, "managerId") || null },
   });
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `Produit « ${name} »` });
   revalidatePath(`${PATH}/catalogue`);
@@ -95,6 +100,7 @@ export async function updatePromoProduct(formData: FormData): Promise<ActionResu
     data: {
       name: fdStr(formData, "name") ?? undefined,
       code: fdStr(formData, "code"),
+      channel: parseChannel(fdStr(formData, "channel")),
       businessUnitId: fdStr(formData, "businessUnitId") || null,
       managerId: fdStr(formData, "managerId") || null,
       isActive: formData.get("isActive") === null ? undefined : formData.get("isActive") === "on",

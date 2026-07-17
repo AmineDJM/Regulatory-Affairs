@@ -11,9 +11,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface Opt { id: string; name: string }
 interface BU { id: string; name: string; code: string | null; color: string | null; companyId: string | null; headId: string | null; isActive: boolean; productCount: number }
-interface Prod { id: string; name: string; code: string | null; businessUnitId: string | null; buName: string | null; managerId: string | null; isActive: boolean }
+interface Prod { id: string; name: string; code: string | null; channel: string; businessUnitId: string | null; buName: string | null; managerId: string | null; isActive: boolean }
 
 const inputCls = "h-9 rounded-lg border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
+const CHANNELS: { value: string; label: string }[] = [
+  { value: "BOTH", label: "Ville + Hôpital" },
+  { value: "RETAIL", label: "Ville" },
+  { value: "HOSPITAL", label: "Hôpital" },
+];
 
 export function CatalogueManager({ companies, businessUnits, products, users }: { companies: Opt[]; businessUnits: BU[]; products: Prod[]; users: Opt[] }) {
   const router = useRouter();
@@ -68,6 +73,7 @@ export function CatalogueManager({ companies, businessUnits, products, users }: 
             <input name="name" required placeholder="Nom du produit" className={`${inputCls} col-span-2`} />
             <select name="businessUnitId" className={inputCls} defaultValue=""><option value="">— BU —</option>{buOptions.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
             <select name="managerId" className={inputCls} defaultValue=""><option value="">— Chef de produit —</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select>
+            <select name="channel" className={`${inputCls} col-span-2`} defaultValue="BOTH" title="Canal de distribution">{CHANNELS.map((c) => <option key={c.value} value={c.value}>Canal : {c.label}</option>)}</select>
             <button type="submit" disabled={busy} className="col-span-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Ajouter le produit
             </button>
@@ -113,13 +119,14 @@ function ProdRow({ prod, buOptions, users, onSave, onDelete }: { prod: Prod; buO
   function save(next: Prod) {
     setS(next);
     const fd = new FormData();
-    fd.set("id", next.id); fd.set("name", next.name); fd.set("code", next.code ?? "");
+    fd.set("id", next.id); fd.set("name", next.name); fd.set("code", next.code ?? ""); fd.set("channel", next.channel);
     fd.set("businessUnitId", next.businessUnitId ?? ""); fd.set("managerId", next.managerId ?? ""); if (next.isActive) fd.set("isActive", "on");
     onSave(fd);
   }
   return (
     <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border p-1.5">
       <input className={`${inputCls} min-w-28 flex-1`} value={s.name} onChange={(e) => setS({ ...s, name: e.target.value })} onBlur={() => save(s)} />
+      <select className={inputCls} value={s.channel} onChange={(e) => save({ ...s, channel: e.target.value })} title="Canal de distribution">{CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select>
       <select className={inputCls} value={s.businessUnitId ?? ""} onChange={(e) => save({ ...s, businessUnitId: e.target.value || null })}><option value="">— BU —</option>{buOptions.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
       <select className={inputCls} value={s.managerId ?? ""} onChange={(e) => save({ ...s, managerId: e.target.value || null })}><option value="">— Chef produit —</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select>
       <label className="flex items-center gap-1 text-xs text-muted-foreground"><input type="checkbox" checked={s.isActive} onChange={(e) => save({ ...s, isActive: e.target.checked })} /> Actif</label>

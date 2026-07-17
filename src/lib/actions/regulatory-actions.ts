@@ -2,7 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
-import type { Priority, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, ManufacturingStatus, VariationStatus } from "@prisma/client";
+import type { Priority, ProductChannel, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, ManufacturingStatus, VariationStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
@@ -30,6 +30,11 @@ export interface ActionResult {
 function str(formData: FormData, key: string): string | null {
   const v = formData.get(key);
   return v ? String(v) : null;
+}
+
+/** Canal produit (Ville / Hôpital / les deux). undefined si absent → laisse la valeur en place. */
+function parseProductChannel(v: string | null): ProductChannel | undefined {
+  return v === "RETAIL" || v === "HOSPITAL" || v === "BOTH" ? v : undefined;
 }
 
 /** Uniformise la casse des DCI : MAJUSCULES, espaces normalisés autour des « + ». */
@@ -116,6 +121,7 @@ export async function createRegulatoryProduct(
       supplierId: str(formData, "supplierId"),
       countryOfOrigin: str(formData, "countryOfOrigin"),
       category: (str(formData, "category") as RegulatoryCategory) ?? "MEDICINE",
+      channel: parseProductChannel(str(formData, "channel")) ?? "BOTH",
       productType: (str(formData, "productType") as ProductType) ?? "IMPORTED",
       manufacturingStatus: (str(formData, "manufacturingStatus") as ManufacturingStatus) ?? "IMPORTATION",
       status: (str(formData, "status") as RegulatoryStatus) ?? "PRE_SUBMISSION",
@@ -213,6 +219,7 @@ export async function updateRegulatoryProduct(
       supplierId: str(formData, "supplierId"),
       countryOfOrigin: str(formData, "countryOfOrigin"),
       category: (str(formData, "category") as RegulatoryCategory) ?? before.category,
+      channel: parseProductChannel(str(formData, "channel")) ?? before.channel,
       productType: (str(formData, "productType") as ProductType) ?? before.productType,
       manufacturingStatus: (str(formData, "manufacturingStatus") as ManufacturingStatus) ?? before.manufacturingStatus,
       status: (str(formData, "status") as RegulatoryStatus) ?? before.status,

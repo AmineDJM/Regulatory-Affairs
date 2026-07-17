@@ -1067,6 +1067,13 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Produits — canal de distribution Ville / Hôpital / les deux.** Nouvel attribut **canal**
+  (`ProductChannel` : `RETAIL` = ville/officine, `HOSPITAL` = hospitalier, `BOTH` = les deux) porté par
+  les **produits promus** (`PromoProduct`, catalogue Force de vente) et les **produits réglementaires**
+  (`RegulatoryProduct`, registre). Sélecteur de canal dans le catalogue promo (création + édition en
+  ligne) et dans les formulaires produit Regulatory (création + édition), badge de canal sur la fiche
+  dossier. Libellés `PRODUCT_CHANNEL` (`src/lib/labels.ts`), migration
+  `20260717140000_product_channel`. Base du filtrage ville/hôpital en segmentation et prise en charge.
 - **Budgets — accès par enveloppe strictement encadrés (visualisation vs gestion).** Les accès aux
   enveloppes sont désormais à **deux niveaux**, tous deux décidés par l'admin (Super Admin / délégué
   `BUDGETS:DELETE`), **par rôle ET par personne précise** : **Visualisation** (consulter l'enveloppe et

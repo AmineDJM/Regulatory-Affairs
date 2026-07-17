@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
 import { DciAssociationField } from "./dci-field";
-import { MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRODUCT_CHANNEL, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 
 interface UserOption {
   id: string;
@@ -65,6 +65,7 @@ export function NewProductButton({ users, suppliers, companies }: { users: UserO
         >
           <div className="grid grid-cols-2 gap-3">
             <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue="MEDICINE" />
+            <SelectField label="Canal (Ville / Hôpital)" name="channel" options={optionsFromMap(PRODUCT_CHANNEL)} defaultValue="BOTH" />
             <SelectField label="Entité" name="companyId" options={companies.map((c) => ({ value: c.id, label: c.shortName || c.name }))} placeholder="— Entité —" />
             <DciAssociationField />
             <TextField label="Nom commercial envisagé" name="brandName" placeholder="Ex. Adventor" className="col-span-2" />

@@ -828,6 +828,7 @@ model RegulatoryProduct {
   partnerLab             String? // fournisseur / laboratoire partenaire
   countryOfOrigin        String?
   category               RegulatoryCategory @default(MEDICINE) // médicament vs dispositif médical
+  channel                ProductChannel     @default(BOTH) // canal : Ville / Hôpital / les deux
   productType            ProductType        @default(IMPORTED) // (legacy) conservé, non affiché
   // Statut de fabrication courant : démarre en Importation, évolue via les variations.
   manufacturingStatus    ManufacturingStatus @default(IMPORTATION)
@@ -4765,15 +4766,23 @@ model BusinessUnit {
 }
 
 // Produit promu (marque marketing) — catalogue structuré pour l'affectation et les prévisions.
+// Canal de distribution d'un produit : officine de VILLE, secteur HOSPITALIER, ou LES DEUX.
+enum ProductChannel {
+  RETAIL // produit de ville (officine)
+  HOSPITAL // produit hospitalier
+  BOTH // les deux
+}
+
 model PromoProduct {
-  id             String        @id @default(cuid())
+  id             String         @id @default(cuid())
   name           String
   code           String?
+  channel        ProductChannel @default(BOTH) // Ville / Hôpital / les deux
   businessUnitId String?
-  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  businessUnit   BusinessUnit?  @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
   managerId      String? // chef de produit (id utilisateur)
-  isActive       Boolean       @default(true)
-  sortOrder      Int           @default(0)
+  isActive       Boolean        @default(true)
+  sortOrder      Int            @default(0)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 

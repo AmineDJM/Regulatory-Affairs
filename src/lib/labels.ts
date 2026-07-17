@@ -421,6 +421,13 @@ export const INSTITUTION_SECTOR: Record<string, Display> = {
   PRIVE: { label: "Privé", tone: "purple" },
 };
 
+// Canal de distribution d'un produit : Ville (officine) / Hôpital / les deux.
+export const PRODUCT_CHANNEL: Record<string, Display> = {
+  RETAIL: { label: "Ville", tone: "purple" },
+  HOSPITAL: { label: "Hôpital", tone: "info" },
+  BOTH: { label: "Ville + Hôpital", tone: "neutral" },
+};
+
 export const DOCTOR_TITLE: Record<string, string> = {
   PROFESSEUR: "Professeur",
   MAITRE_CONFERENCES: "Maître de conférences",
