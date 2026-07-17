@@ -3,11 +3,13 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, FileSpreadsheet } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { getMarketResearch } from "@/lib/queries/market-research";
+import { aiConfigured } from "@/lib/ai";
+import { getMarketResearch, listResearchPresentations } from "@/lib/queries/market-research";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ResearchTable } from "../research-table";
+import { PresentationPanel } from "../presentation-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,7 @@ export default async function MarketResearchDetailPage({ params }: { params: { i
   const canEdit = userCan(user, "BUSINESS_DEVELOPMENT", "UPDATE");
   const research = await getMarketResearch(params.id);
   if (!research) notFound();
+  const presentations = await listResearchPresentations(research.id);
 
   return (
     <div className="space-y-5">
@@ -27,6 +30,12 @@ export default async function MarketResearchDetailPage({ params }: { params: { i
       <Card>
         <CardContent className="p-0">
           <ResearchTable researchId={research.id} rows={research.rows} canEdit={canEdit} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4">
+          <PresentationPanel researchId={research.id} presentations={presentations} canEdit={canEdit} aiConfigured={aiConfigured()} rowCount={research.rows.length} />
         </CardContent>
       </Card>
     </div>

@@ -4911,7 +4911,8 @@ model MarketResearch {
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
 
-  rows MarketResearchRow[]
+  rows          MarketResearchRow[]
+  presentations MarketResearchPresentation[]
 
   @@index([createdById])
 }
@@ -4949,4 +4950,40 @@ model MarketResearchPlayer {
   updatedAt        DateTime          @updatedAt
 
   @@index([rowId])
+}
+
+// Présentation stratégique (PPTX) générée par IA à partir d'une étude de marché.
+// Une présentation regroupe plusieurs VERSIONS : chaque relance d'analyse (avec des
+// commentaires ajoutés) produit une nouvelle version, historisée. Le .pptx est
+// (re)construit à la demande à partir de l'analyse structurée stockée (source de vérité).
+model MarketResearchPresentation {
+  id          String         @id @default(cuid())
+  researchId  String
+  research    MarketResearch @relation(fields: [researchId], references: [id], onDelete: Cascade)
+  title       String
+  createdById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  versions MarketResearchPresentationVersion[]
+
+  @@index([researchId])
+}
+
+// Une version = une passe d'analyse IA. `instruction` = commentaires ajoutés par
+// l'utilisateur pour cette relance ; `analysis` = JSON structuré (synthèse, analyse par
+// produit, opinion, recommandation) ancré sur les données de l'étude ; `model` = modèle utilisé.
+model MarketResearchPresentationVersion {
+  id             String                     @id @default(cuid())
+  presentationId String
+  presentation   MarketResearchPresentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+  version        Int                        @default(1)
+  instruction    String? // commentaires ajoutés pour cette relance d'analyse
+  analysis       Json // analyse structurée renvoyée par l'IA (ancrée sur l'étude)
+  model          String? // modèle IA ayant produit l'analyse
+  createdById    String?
+  createdAt      DateTime                   @default(now())
+
+  @@unique([presentationId, version])
+  @@index([presentationId])
 }

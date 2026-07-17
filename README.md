@@ -1067,6 +1067,21 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Business Development — Présentation stratégique PPTX générée par IA (Claude).** Sur une étude de
+  marché, un panneau **« Présentations stratégiques (IA) »** permet de **générer une présentation
+  PowerPoint (.pptx)** analysée par Claude : l'IA reçoit **tout le contexte** de l'étude (toutes les
+  lignes, acteurs, chiffres, commentaires) et renvoie une **analyse structurée ancrée** — synthèse
+  factuelle, panorama, analyse **par produit**, paysage concurrentiel, opportunités/risques, **opinion**
+  argumentée et **recommandation**. Garde-fous : l'IA **n'invente aucun chiffre** (droit au but, elle
+  s'en tient aux données), et son **avis n'apparaît que** dans les champs « opinion / recommandation ».
+  Un **angle/consignes** optionnel oriente l'analyse. Le fichier est **construit à la demande** au
+  téléchargement (`pptxgenjs` : page de titre, tableau du marché, graphe des valeurs, une diapo par
+  produit avec camembert des parts de marché, diapo opinion) — **téléchargeable et modifiable** dans
+  PowerPoint. Enfin, on peut **ré-analyser en ajoutant des commentaires autant de fois que nécessaire** :
+  chaque relance crée une **nouvelle version historisée** (téléchargeable individuellement). Modèles
+  `MarketResearchPresentation` / `MarketResearchPresentationVersion` (migration
+  `20260717120000_market_presentation`) ; analyse via le palier QUALITÉ (`askClaude`, surchargable
+  `AI_MODEL`) ; route `/api/market-research/presentation/[versionId]`.
 - **Business Development — Études de marché (Market Research).** Nouveau sous-espace `/business-development/etudes` :
   bouton **« New market research »** (titre + une ou plusieurs **molécules**, une par ligne → une ligne de
   tableau créée par molécule) puis un **tableau éditable façon tableur** aux colonnes exactes demandées —

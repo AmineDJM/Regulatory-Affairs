@@ -45,6 +45,56 @@ export async function listMarketResearch(): Promise<ResearchListItem[]> {
   return list.map((r) => ({ id: r.id, title: r.title, status: r.status, rowCount: r._count.rows, updatedAt: r.updatedAt.toISOString() }));
 }
 
+export interface PresentationVersionDTO {
+  id: string;
+  version: number;
+  instruction: string | null;
+  model: string | null;
+  createdAt: string;
+}
+
+export interface PresentationDTO {
+  id: string;
+  title: string;
+  createdAt: string;
+  versions: PresentationVersionDTO[]; // triées de la plus récente à la plus ancienne
+}
+
+/** Présentations d'une étude, avec l'historique de versions (métadonnées seulement). */
+export async function listResearchPresentations(researchId: string): Promise<PresentationDTO[]> {
+  const list = await prisma.marketResearchPresentation.findMany({
+    where: { researchId },
+    orderBy: { createdAt: "desc" },
+    include: { versions: { orderBy: { version: "desc" }, select: { id: true, version: true, instruction: true, model: true, createdAt: true } } },
+  });
+  return list.map((p) => ({
+    id: p.id,
+    title: p.title,
+    createdAt: p.createdAt.toISOString(),
+    versions: p.versions.map((v) => ({ id: v.id, version: v.version, instruction: v.instruction, model: v.model, createdAt: v.createdAt.toISOString() })),
+  }));
+}
+
+export interface PresentationVersionExport {
+  version: number;
+  presentationTitle: string;
+  createdAt: Date;
+  analysis: unknown; // JSON structuré (PresentationAnalysis)
+  research: ResearchDetail;
+}
+
+/** Charge une version + son étude complète pour (re)construire le .pptx à la demande. */
+export async function getPresentationVersionForExport(versionId: string): Promise<PresentationVersionExport | null> {
+  const v = await prisma.marketResearchPresentationVersion.findUnique({
+    where: { id: versionId },
+    include: { presentation: true },
+  });
+  if (!v) return null;
+  const research = await getMarketResearch(v.presentation.researchId);
+  if (!research) return null;
+  return { version: v.version, presentationTitle: v.presentation.title, createdAt: v.createdAt, analysis: v.analysis, research };
+}
+
 export async function getMarketResearch(id: string): Promise<ResearchDetail | null> {
   const r = await prisma.marketResearch.findUnique({
     where: { id },
