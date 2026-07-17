@@ -97,6 +97,38 @@ function accessUsersField(users: UserOpt[], defaultIds: string[] = []) {
 }
 
 /**
+ * GESTION déléguée : rôles / personnes autorisés par l'admin à GÉRER le contenu de CETTE
+ * enveloppe (catégories, allocations, dépenses budgétaires) — au-delà de la simple consultation.
+ * La modification de l'enveloppe elle-même et de ses accès reste réservée à l'admin.
+ */
+function managersField(users: UserOpt[], defaultRoles: string[] = [], defaultIds: string[] = []) {
+  return (
+    <div className="col-span-2 space-y-2 rounded-lg border border-dashed border-input p-2.5">
+      <Label>Déléguer la gestion (au-delà de la consultation)</Label>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+        {ACCESS_ROLE_OPTIONS.map((r) => (
+          <label key={r} className="flex items-center gap-1.5 text-sm">
+            <input type="checkbox" name="managerRoles" value={r} defaultChecked={defaultRoles.includes(r)} className="h-4 w-4 rounded border-input" />
+            {ROLE_LABELS[r] ?? r}
+          </label>
+        ))}
+      </div>
+      {users.length > 0 && (
+        <div className="grid max-h-36 grid-cols-2 gap-x-4 gap-y-1.5 overflow-y-auto rounded-lg border border-input p-2">
+          {users.map((u) => (
+            <label key={u.id} className="flex items-center gap-1.5 text-sm">
+              <input type="checkbox" name="managerUserIds" value={u.id} defaultChecked={defaultIds.includes(u.id)} className="h-4 w-4 rounded border-input" />
+              {u.name}
+            </label>
+          ))}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">Gestionnaires : peuvent créer/modifier catégories et dépenses de cette enveloppe (pas les accès ni le montant).</p>
+    </div>
+  );
+}
+
+/**
  * Vue consolidée « total des enveloppes » : visible du Super Admin et des personnes/
  * rôles qu'il a autorisés (la requête n'agrège que les enveloppes accessibles).
  */
@@ -181,6 +213,7 @@ export function CreateEnvelopeButton({ users = [] }: { users?: UserOpt[] }) {
           {field("periodEnd", "Fin de période", { type: "date", defaultValue: `${year}-12-31` })}
           {accessRolesField()}
           {accessUsersField(users)}
+          {managersField(users)}
           <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" rows={2} /></div>
           {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
           <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Créer</Button></div>
@@ -190,7 +223,7 @@ export function CreateEnvelopeButton({ users = [] }: { users?: UserOpt[] }) {
   );
 }
 
-export function BudgetBoard({ overview, envelopes, canManage, canAttribute = canManage, budgetTotal, users = [] }: { overview: BudgetOverview; envelopes: BudgetEnvelopeOption[]; canManage: boolean; canAttribute?: boolean; budgetTotal: BudgetTotalInfo; users?: UserOpt[] }) {
+export function BudgetBoard({ overview, envelopes, canManage, canManageAccess = canManage, canAttribute = canManage, budgetTotal, users = [] }: { overview: BudgetOverview; envelopes: BudgetEnvelopeOption[]; canManage: boolean; canManageAccess?: boolean; canAttribute?: boolean; budgetTotal: BudgetTotalInfo; users?: UserOpt[] }) {
   const router = useRouter();
   const t = overview.totals;
   // Modules couverts par l'enveloppe (rétrocompat : ancien champ `module` unique).
@@ -241,7 +274,7 @@ export function BudgetBoard({ overview, envelopes, canManage, canAttribute = can
           </Label>
           <div className="flex items-center gap-2">
             <p className="text-lg font-semibold tabular-nums">{formatCurrency(budgetTotal.value)}</p>
-            {canManage && <Button type="button" variant="outline" size="sm" onClick={() => setTotalSheet(true)}><SlidersHorizontal className="h-3.5 w-3.5" /> Régler</Button>}
+            {canManageAccess && <Button type="button" variant="outline" size="sm" onClick={() => setTotalSheet(true)}><SlidersHorizontal className="h-3.5 w-3.5" /> Régler</Button>}
           </div>
         </div>
         <PeriodPicker from={d10(overview.period.from)} to={d10(overview.period.to)} onApply={(from, to) => navigate({ from, to })} />
@@ -254,7 +287,7 @@ export function BudgetBoard({ overview, envelopes, canManage, canAttribute = can
           >
             <Download className="h-4 w-4" /> Excel
           </a>
-          {canManage && <Button variant="outline" size="sm" onClick={() => setEditEnv(true)}><Pencil className="h-4 w-4" /> Enveloppe</Button>}
+          {canManageAccess && <Button variant="outline" size="sm" onClick={() => setEditEnv(true)}><Pencil className="h-4 w-4" /> Enveloppe</Button>}
         </div>
       </div>
 
@@ -366,7 +399,7 @@ export function BudgetBoard({ overview, envelopes, canManage, canAttribute = can
         </section>
       )}
 
-      {editEnv && <EnvelopeSheet envelope={overview.envelope} users={users} onClose={() => setEditEnv(false)} onDeleted={() => router.push("/budgets")} canDelete={canManage} />}
+      {editEnv && <EnvelopeSheet envelope={overview.envelope} users={users} onClose={() => setEditEnv(false)} onDeleted={() => router.push("/budgets")} canDelete={canManageAccess} />}
       {catSheet && <CategorySheet envelopeId={overview.envelope.id} cat={catSheet.cat} defaultParentId={catSheet.parentId} parentOptions={topCatOptions} onClose={() => setCatSheet(null)} />}
       {totalSheet && <BudgetTotalSheet info={budgetTotal} onClose={() => setTotalSheet(false)} />}
     </div>
@@ -513,6 +546,7 @@ function EnvelopeSheet({ envelope, users, onClose, onDeleted, canDelete }: { env
         {field("periodEnd", "Fin", { type: "date", defaultValue: d10(envelope.periodEnd) })}
         {accessRolesField(envelope.accessRoles)}
         {accessUsersField(users, envelope.accessUserIds)}
+        {managersField(users, envelope.managerRoles, envelope.managerUserIds)}
         <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" defaultValue={envelope.notes ?? ""} rows={2} /></div>
         <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="isActive" defaultChecked={envelope.isActive} className="h-4 w-4 rounded border-input" /> Enveloppe active</label>
         {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}

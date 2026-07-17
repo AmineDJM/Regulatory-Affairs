@@ -857,7 +857,7 @@ comme sur **toutes les pièces jointes des modules**.
 |---|---|
 | **Identité & accès** | `User` (`role` + `secondaryRole`, `lastSeenAt`), `UserAccess` (overrides), `RowGrant` (grants par ligne), `UserSession` (révocable, `lastSeenAt` = dernier clic), `LoginAttempt`, `AppSetting` (limites d'upload + `driveCapacityGb`/`driveUserQuotaGb` + mode budget total). |
 | **Ad & Pro** | `SponsoringRequest`, `CongressInternational`, `CongressNational`, `Event` (+ `EventRegistration`), `PromoMaterial`, `MissionAssignment`. |
-| **Budgets & Finances** | `BudgetEnvelope` (`accessRoles`, `accessUserIds`, `modules[]`), `BudgetCategoryLine` (auto-relation `parentId` = sous-catégories), `ExpenseOrder`, `FinanceTransaction` (`budgetCategoryId` = imputation), `PayrollEntry` (`payslipDocumentId`, `employeeNotifyAt/NotifiedAt`, `budgetTransferredAt`, `budgetCategoryId`), `SalaryAdvance`. |
+| **Budgets & Finances** | `BudgetEnvelope` (`accessRoles`, `accessUserIds` = visualisation ; `managerRoles`, `managerUserIds` = gestion déléguée ; `modules[]`), `BudgetCategoryLine` (auto-relation `parentId` = sous-catégories), `ExpenseOrder`, `FinanceTransaction` (`budgetCategoryId` = imputation), `PayrollEntry` (`payslipDocumentId`, `employeeNotifyAt/NotifiedAt`, `budgetTransferredAt`, `budgetCategoryId`), `SalaryAdvance`. |
 | **Regulatory & PCH** | `RegulatoryProduct` (+ étapes/documents, `deHolder`, `manufacturingVariation`, `manufacturer`, `variationDate`), `Supplier`, `PchTender` + bons de commande + caution, `StockAnnex` + `StockSnapshot` (états datés — le suivi actif), `StockMovement` (legacy, encore lu par le Brain en repli). |
 | **Information médicale** | `MedicalInfoDeclaration` (`sourceType`/`sourceId` polymorphe → événement source, clé unique). |
 | **Promotion médicale** | `MedicalDoctor`, `MedicalVisit`, `DelegatePlan`, segmentation par spécialité/produit. |
@@ -1067,6 +1067,17 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Budgets — accès par enveloppe strictement encadrés (visualisation vs gestion).** Les accès aux
+  enveloppes sont désormais à **deux niveaux**, tous deux décidés par l'admin (Super Admin / délégué
+  `BUDGETS:DELETE`), **par rôle ET par personne précise** : **Visualisation** (consulter l'enveloppe et
+  ses chiffres — `accessRoles` / `accessUserIds`) et **Gestion déléguée** (gérer le contenu de CETTE
+  enveloppe : catégories, allocations, dépenses budgétaires — nouveaux `managerRoles` / `managerUserIds`).
+  Par défaut une enveloppe est **invisible** de tous sauf des gouverneurs (encadrement strict). Un
+  gestionnaire délégué peut gérer le contenu **sans** pouvoir toucher au **montant**, à la **période** ni
+  aux **listes d'accès** — modifier l'enveloppe elle-même et ses accès reste réservé à l'admin. Toute
+  modification des accès est **journalisée** (audit). Helpers `canViewEnvelope` / `canManageEnvelope`
+  (`src/lib/rbac.ts`), enforcement dans `queries/budget.ts` + `budget-envelope-actions.ts`, éditeur
+  d'accès enrichi dans `budget-board.tsx` (migration `20260717130000_budget_envelope_managers`).
 - **Business Development — Présentation stratégique PPTX générée par IA (Claude).** Sur une étude de
   marché, un panneau **« Présentations stratégiques (IA) »** permet de **générer une présentation
   PowerPoint (.pptx)** analysée par Claude : l'IA reçoit **tout le contexte** de l'étude (toutes les

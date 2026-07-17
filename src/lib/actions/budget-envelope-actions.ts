@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { canManageEnvelopes, hasGlobalView, userCan } from "@/lib/rbac";
+import { canManageEnvelopes, canManageEnvelope, canViewEnvelope, hasGlobalView, userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
@@ -11,7 +11,24 @@ const NOT_ALLOWED: ActionResult = { ok: false, error: "Gestion des enveloppes r�
 
 const readAccessRoles = (formData: FormData) => formData.getAll("accessRoles").map(String).filter(Boolean);
 const readAccessUserIds = (formData: FormData) => [...new Set(formData.getAll("accessUserIds").map(String).filter(Boolean))];
+const readManagerRoles = (formData: FormData) => formData.getAll("managerRoles").map(String).filter(Boolean);
+const readManagerUserIds = (formData: FormData) => [...new Set(formData.getAll("managerUserIds").map(String).filter(Boolean))];
 const readModules = (formData: FormData) => [...new Set(formData.getAll("modules").map(String).filter(Boolean))];
+
+/** GESTION du CONTENU d'une enveloppe (catégories, dépenses budgétaires) : gestionnaire global
+ *  OU délégué désigné par l'admin sur CETTE enveloppe. Charge les listes d'accès puis vérifie. */
+async function ensureCanManageEnvelope(user: Awaited<ReturnType<typeof requireUser>>, envelopeId: string): Promise<ActionResult | null> {
+  const env = await prisma.budgetEnvelope.findUnique({ where: { id: envelopeId }, select: { managerRoles: true, managerUserIds: true } });
+  if (!env) return { ok: false, error: "Enveloppe introuvable." };
+  return canManageEnvelope(user, env) ? null : NOT_ALLOWED;
+}
+
+/** Idem via l'id d'une (sous-)catégorie : on remonte à son enveloppe pour vérifier la gestion. */
+async function ensureCanManageCategory(user: Awaited<ReturnType<typeof requireUser>>, categoryId: string): Promise<ActionResult | null> {
+  const cat = await prisma.budgetCategoryLine.findUnique({ where: { id: categoryId }, select: { envelope: { select: { managerRoles: true, managerUserIds: true } } } });
+  if (!cat) return { ok: false, error: "Catégorie introuvable." };
+  return canManageEnvelope(user, cat.envelope) ? null : NOT_ALLOWED;
+}
 
 // ─────────────────────── Budget total (fixe / flexible) ───────────────────────
 
@@ -49,6 +66,8 @@ export async function createEnvelope(formData: FormData): Promise<ActionResult> 
       module: modules[0] ?? null, // compat : module principal
       accessRoles: readAccessRoles(formData),
       accessUserIds: readAccessUserIds(formData),
+      managerRoles: readManagerRoles(formData),
+      managerUserIds: readManagerUserIds(formData),
       periodStart,
       periodEnd,
       totalAmount: fdNum(formData, "totalAmount") ?? 0,
@@ -69,20 +88,31 @@ export async function updateEnvelope(formData: FormData): Promise<ActionResult> 
   const name = fdStr(formData, "name");
   if (!id || !name) return { ok: false, error: "Paramètres manquants." };
   const modules = readModules(formData);
+  const accessRoles = readAccessRoles(formData);
+  const accessUserIds = readAccessUserIds(formData);
+  const managerRoles = readManagerRoles(formData);
+  const managerUserIds = readManagerUserIds(formData);
   await prisma.budgetEnvelope.update({
     where: { id },
     data: {
       name,
       modules,
       module: modules[0] ?? null, // compat : module principal
-      accessRoles: readAccessRoles(formData),
-      accessUserIds: readAccessUserIds(formData),
+      accessRoles,
+      accessUserIds,
+      managerRoles,
+      managerUserIds,
       periodStart: fdDate(formData, "periodStart") ?? undefined,
       periodEnd: fdDate(formData, "periodEnd") ?? undefined,
       totalAmount: fdNum(formData, "totalAmount") ?? 0,
       notes: fdStr(formData, "notes"),
       isActive: fdBool(formData, "isActive"),
     },
+  });
+  // Traçabilité : toute modification des ACCÈS (visualisation / gestion) est journalisée.
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Budgets",
+    summary: `Enveloppe « ${name} » modifiée — accès : ${accessRoles.length} rôle(s) + ${accessUserIds.length} personne(s) en consultation, ${managerRoles.length} rôle(s) + ${managerUserIds.length} personne(s) en gestion`,
   });
   revalidatePath("/budgets");
   return { ok: true };
@@ -93,7 +123,8 @@ export async function deleteEnvelope(formData: FormData): Promise<ActionResult> 
   if (!canManageEnvelopes(user)) return NOT_ALLOWED;
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  await prisma.budgetEnvelope.delete({ where: { id } });
+  const env = await prisma.budgetEnvelope.delete({ where: { id } });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Budgets", summary: `Enveloppe budgétaire « ${env.name} » supprimée` });
   revalidatePath("/budgets");
   return { ok: true };
 }
@@ -102,10 +133,11 @@ export async function deleteEnvelope(formData: FormData): Promise<ActionResult> 
 
 export async function createBudgetCategory(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!canManageEnvelopes(user)) return NOT_ALLOWED;
   const envelopeId = fdStr(formData, "envelopeId");
   const name = fdStr(formData, "name");
   if (!envelopeId || !name) return { ok: false, error: "Nom de catégorie manquant." };
+  const denied = await ensureCanManageEnvelope(user, envelopeId);
+  if (denied) return denied;
   // Sous-catégorie : rattachée à une catégorie parente. Elle n'a pas de module
   // (l'attribution automatique des dépenses se fait au niveau de la catégorie de tête).
   const parentId = fdStr(formData, "parentId");
@@ -125,10 +157,11 @@ export async function createBudgetCategory(formData: FormData): Promise<ActionRe
 
 export async function updateBudgetCategory(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!canManageEnvelopes(user)) return NOT_ALLOWED;
   const id = fdStr(formData, "id");
   const name = fdStr(formData, "name");
   if (!id || !name) return { ok: false, error: "Paramètres manquants." };
+  const denied = await ensureCanManageCategory(user, id);
+  if (denied) return denied;
   const parentId = fdStr(formData, "parentId");
   const isSub = Boolean(parentId) && parentId !== id; // pas d'auto-rattachement
   await prisma.budgetCategoryLine.update({
@@ -147,9 +180,10 @@ export async function updateBudgetCategory(formData: FormData): Promise<ActionRe
 
 export async function deleteBudgetCategory(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!canManageEnvelopes(user)) return NOT_ALLOWED;
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
+  const denied = await ensureCanManageCategory(user, id);
+  if (denied) return denied;
   // Les dépenses attribuées repassent en « non attribué » (FK SetNull).
   await prisma.budgetCategoryLine.delete({ where: { id } });
   revalidatePath("/budgets");
@@ -172,11 +206,13 @@ export async function attributeTransaction(formData: FormData): Promise<ActionRe
 async function resolveExpenseCategory(user: Awaited<ReturnType<typeof requireUser>>, budgetCategoryId: string) {
   const cat = await prisma.budgetCategoryLine.findUnique({
     where: { id: budgetCategoryId },
-    select: { id: true, name: true, envelope: { select: { accessRoles: true, accessUserIds: true } } },
+    select: { id: true, name: true, envelope: { select: { accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true } } },
   });
   if (!cat) return { error: "Catégorie introuvable." as const };
-  // Le décideur ne peut imputer qu'à une enveloppe qui lui est OUVERTE (accès Super Admin).
-  const allowed = canManageEnvelopes(user) || hasGlobalView(user.role) || cat.envelope.accessRoles.includes(user.role) || cat.envelope.accessUserIds.includes(user.id);
+  // Peut imputer : un GESTIONNAIRE de l'enveloppe (global ou délégué par l'admin), OU la
+  // Direction / un titulaire BUDGETS:UPDATE à condition que l'enveloppe lui soit OUVERTE.
+  const allowed = canManageEnvelope(user, cat.envelope)
+    || ((hasGlobalView(user.role) || userCan(user, "BUDGETS", "UPDATE")) && canViewEnvelope(user, cat.envelope));
   if (!allowed) return { error: "Cette enveloppe ne vous est pas ouverte." as const };
   return { cat };
 }
@@ -190,8 +226,8 @@ async function resolveExpenseCategory(user: Awaited<ReturnType<typeof requireUse
  */
 export async function addBudgetExpense(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!(hasGlobalView(user.role) || userCan(user, "BUDGETS", "UPDATE"))) return { ok: false, error: "Ajout réservé à la Direction ou aux gestionnaires de budget." };
-
+  // L'autorisation fine (gestionnaire de l'enveloppe OU Direction sur enveloppe ouverte) est
+  // décidée par resolveExpenseCategory une fois la catégorie — donc l'enveloppe — connue.
   const budgetCategoryId = fdStr(formData, "budgetCategoryId");
   const reference = fdStr(formData, "reference"); // la « référence » saisie sert de libellé de la dépense
   const amount = fdNum(formData, "amount");
@@ -220,15 +256,15 @@ export async function addBudgetExpense(formData: FormData): Promise<ActionResult
  */
 export async function deleteBudgetExpense(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!(hasGlobalView(user.role) || userCan(user, "BUDGETS", "UPDATE"))) return { ok: false, error: "Suppression réservée à la Direction ou aux gestionnaires de budget." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const line = await prisma.budgetExpenseLine.findUnique({
     where: { id },
-    select: { id: true, reference: true, categoryId: true, category: { select: { name: true, envelope: { select: { accessRoles: true, accessUserIds: true } } } } },
+    select: { id: true, reference: true, categoryId: true, category: { select: { name: true, envelope: { select: { accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true } } } } },
   });
   if (!line) return { ok: false, error: "Ligne introuvable." };
-  const allowed = canManageEnvelopes(user) || hasGlobalView(user.role) || line.category.envelope.accessRoles.includes(user.role) || line.category.envelope.accessUserIds.includes(user.id);
+  const env = line.category.envelope;
+  const allowed = canManageEnvelope(user, env) || ((hasGlobalView(user.role) || userCan(user, "BUDGETS", "UPDATE")) && canViewEnvelope(user, env));
   if (!allowed) return { ok: false, error: "Cette enveloppe ne vous est pas ouverte." };
   await prisma.budgetExpenseLine.delete({ where: { id } });
   await recordAudit({ actorId: user.id, action: "DELETE", module: "Budgets", entityId: id, summary: `Dépense budgétaire « ${line.reference} » retirée de « ${line.category.name} »` });

@@ -191,6 +191,32 @@ export function canManageEnvelopes(user: SessionUser): boolean {
   return user.role === "SUPER_ADMIN" || userCan(user, "BUDGETS", "DELETE");
 }
 
+/** Listes d'accès d'une enveloppe (visualisation + gestion déléguée). Toutes optionnelles. */
+export interface EnvelopeAccessBearer {
+  accessRoles?: string[];
+  accessUserIds?: string[];
+  managerRoles?: string[];
+  managerUserIds?: string[];
+}
+
+/**
+ * GESTION du CONTENU d'une enveloppe précise (catégories, allocations, dépenses budgétaires) :
+ * un gestionnaire global OU une personne/rôle que l'admin a explicitement désigné(e) sur CETTE
+ * enveloppe. Ne confère PAS le droit de modifier l'enveloppe elle-même (montant, période, accès) —
+ * cela reste réservé à `canManageEnvelopes`.
+ */
+export function canManageEnvelope(user: SessionUser, env: EnvelopeAccessBearer): boolean {
+  return canManageEnvelopes(user) || (env.managerRoles ?? []).includes(user.role) || (env.managerUserIds ?? []).includes(user.id);
+}
+
+/**
+ * VISUALISATION d'une enveloppe : quiconque peut la gérer (global ou délégué) OU à qui l'admin
+ * a ouvert la consultation (par rôle ou nommément). Défaut = invisible (encadrement strict).
+ */
+export function canViewEnvelope(user: SessionUser, env: EnvelopeAccessBearer): boolean {
+  return canManageEnvelope(user, env) || (env.accessRoles ?? []).includes(user.role) || (env.accessUserIds ?? []).includes(user.id);
+}
+
 /** Role-default check (baseline, ignores per-user overrides). */
 export function can(role: UserRole, module: Module, action: Action): boolean {
   return PERMISSIONS[role]?.[module]?.includes(action) ?? false;

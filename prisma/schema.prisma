@@ -1021,6 +1021,12 @@ model BudgetEnvelope {
   // Utilisateurs nommément autorisés par le Super Admin à consulter cette enveloppe
   // (en plus des rôles ci-dessus). Permet d'ouvrir l'accès à des personnes précises.
   accessUserIds String[]             @default([])
+  // GESTION (niveau supérieur à la simple visualisation) : rôles / personnes autorisés
+  // par l'admin à GÉRER le CONTENU de cette enveloppe précise (catégories, allocations,
+  // lignes de dépense budgétaire) — sans être gestionnaire global. La modification de
+  // l'enveloppe elle-même (montant, période, listes d'accès) reste réservée à l'admin.
+  managerRoles   String[]            @default([])
+  managerUserIds String[]            @default([])
   periodStart   DateTime
   periodEnd     DateTime
   totalAmount   Decimal              @default(0) @db.Decimal(14, 2)

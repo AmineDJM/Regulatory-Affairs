@@ -4,6 +4,8 @@ import {
   PERMISSIONS,
   accessibleModules,
   can,
+  canManageEnvelope,
+  canViewEnvelope,
   defaultScope,
   hasGlobalView,
   scopeMedicalDoctors,
@@ -176,5 +178,38 @@ describe("row-level scoping", () => {
     expect(scopeMedicalDoctors(del)).toEqual({ OR: [{ delegateId: "d1" }] });
     const mgr = mkUser("m1", "MEDICAL_PROMOTION_MANAGER", fromRole("MEDICAL_PROMOTION_MANAGER"));
     expect(scopeMedicalDoctors(mgr)).toEqual({});
+  });
+});
+
+describe("envelope access (canViewEnvelope / canManageEnvelope)", () => {
+  const admin = mkUser("a1", "SUPER_ADMIN", fromRole("SUPER_ADMIN"));
+  const del = mkUser("d1", "MEDICAL_DELEGATE", fromRole("MEDICAL_DELEGATE"));
+  const empty = { accessRoles: [], accessUserIds: [], managerRoles: [], managerUserIds: [] };
+
+  it("hides an envelope by default (encadrement strict)", () => {
+    expect(canViewEnvelope(del, empty)).toBe(false);
+    expect(canManageEnvelope(del, empty)).toBe(false);
+  });
+
+  it("the global manager (Super Admin) always sees and manages", () => {
+    expect(canViewEnvelope(admin, empty)).toBe(true);
+    expect(canManageEnvelope(admin, empty)).toBe(true);
+  });
+
+  it("opening visualisation (role/person) grants VIEW but not MANAGE", () => {
+    expect(canViewEnvelope(del, { ...empty, accessRoles: ["MEDICAL_DELEGATE"] })).toBe(true);
+    expect(canManageEnvelope(del, { ...empty, accessRoles: ["MEDICAL_DELEGATE"] })).toBe(false);
+    expect(canViewEnvelope(del, { ...empty, accessUserIds: ["d1"] })).toBe(true);
+    expect(canManageEnvelope(del, { ...empty, accessUserIds: ["d1"] })).toBe(false);
+  });
+
+  it("delegating gestion (role/person) grants MANAGE and therefore VIEW", () => {
+    expect(canManageEnvelope(del, { ...empty, managerUserIds: ["d1"] })).toBe(true);
+    expect(canViewEnvelope(del, { ...empty, managerUserIds: ["d1"] })).toBe(true);
+    expect(canManageEnvelope(del, { ...empty, managerRoles: ["MEDICAL_DELEGATE"] })).toBe(true);
+  });
+
+  it("another person's grant does not leak", () => {
+    expect(canViewEnvelope(del, { ...empty, accessUserIds: ["someone-else"], managerUserIds: ["x"] })).toBe(false);
   });
 });

@@ -43,7 +43,7 @@ const analysis: PresentationAnalysis = {
 describe("buildPresentationPptx", () => {
   it("produit un .pptx valide (signature ZIP) à partir de l'étude et de l'analyse", async () => {
     const buf = await buildPresentationPptx(research, analysis, { presentationTitle: "Test", version: 1, generatedAt: new Date("2026-07-17") });
-    expect(Buffer.isBuffer(buf) || buf instanceof Uint8Array).toBe(true);
+    expect(ArrayBuffer.isView(buf)).toBe(true); // Buffer / Uint8Array
     // Un .pptx est une archive ZIP → commence par "PK".
     expect(buf[0]).toBe(0x50);
     expect(buf[1]).toBe(0x4b);
