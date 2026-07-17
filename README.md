@@ -1067,6 +1067,15 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Business Development — Études de marché (Market Research).** Nouveau sous-espace `/business-development/etudes` :
+  bouton **« New market research »** (titre + une ou plusieurs **molécules**, une par ligne → une ligne de
+  tableau créée par molécule) puis un **tableau éditable façon tableur** aux colonnes exactes demandées —
+  Classe thérapeutique, N, Produit, Marché (volume), Marché ($), Prix moyen/boîte $, **Nombre d'acteurs**,
+  puis les **acteurs** (Player 1/2/3…, **non plafonnés**) avec **part de marché** et **statut
+  Importation/Fabrication**, et Commentaires. **Enregistrement automatique** à la sortie de chaque champ,
+  ajout/suppression de lignes et d'acteurs. Modèles `MarketResearch` / `MarketResearchRow` /
+  `MarketResearchPlayer` (migration `20260717110000_market_research`). Base des prochains lots :
+  **pré-remplissage Pharmatool + graphes + export Excel**, puis **génération de présentation PPTX par IA**.
 - **Congrès — praticiens pris en charge reliés à l'annuaire.** La liste des personnes prises en charge
   d'un congrès (national/international) n'est plus une simple saisie libre : le panneau **« Personnes
   prises en charge »** propose trois modes — **« Depuis l'annuaire »** (recherche + sélection d'un

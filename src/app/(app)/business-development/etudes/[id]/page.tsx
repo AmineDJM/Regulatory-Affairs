@@ -1,0 +1,33 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
+import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
+import { getMarketResearch } from "@/lib/queries/market-research";
+import { PageHeader } from "@/components/shared/page-header";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { ResearchTable } from "../research-table";
+
+export const dynamic = "force-dynamic";
+
+export default async function MarketResearchDetailPage({ params }: { params: { id: string } }) {
+  const user = await requireModule("BUSINESS_DEVELOPMENT");
+  const canEdit = userCan(user, "BUSINESS_DEVELOPMENT", "UPDATE");
+  const research = await getMarketResearch(params.id);
+  if (!research) notFound();
+
+  return (
+    <div className="space-y-5">
+      <PageHeader title={research.title} description="Analyse concurrentielle : taille de marché, prix moyen, acteurs et parts de marché — éditable en place.">
+        <Link href="/business-development/etudes"><Button variant="outline"><ArrowLeft className="h-4 w-4" /> Études</Button></Link>
+      </PageHeader>
+
+      <Card>
+        <CardContent className="p-0">
+          <ResearchTable researchId={research.id} rows={research.rows} canEdit={canEdit} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

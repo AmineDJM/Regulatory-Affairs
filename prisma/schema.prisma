@@ -4888,3 +4888,65 @@ model PromotionAssignment {
   @@index([repId])
   @@index([productId])
 }
+
+// ─────────────────── Business Development : études de marché (Market Research) ───────────────────
+
+enum MarketResearchStatus {
+  DRAFT
+  FINAL
+}
+
+// Statut d'un acteur du marché : importateur ou fabricant local.
+enum PlayerStatus {
+  IMPORT
+  MANUFACTURING
+}
+
+model MarketResearch {
+  id          String               @id @default(cuid())
+  title       String
+  status      MarketResearchStatus @default(DRAFT)
+  notes       String?
+  createdById String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  rows MarketResearchRow[]
+
+  @@index([createdById])
+}
+
+// Une ligne = un produit / une molécule dans une classe thérapeutique.
+model MarketResearchRow {
+  id                String         @id @default(cuid())
+  researchId        String
+  research          MarketResearch @relation(fields: [researchId], references: [id], onDelete: Cascade)
+  therapeuticClass  String?
+  product           String // DCI / molécule / marque
+  marketVolume      Decimal?       @db.Decimal(18, 2) // taille du marché en volume (boîtes)
+  marketValueUsd    Decimal?       @db.Decimal(18, 2) // taille du marché en valeur ($)
+  avgPricePerBoxUsd Decimal?       @db.Decimal(14, 2) // prix moyen par boîte ($)
+  comment           String?
+  sortOrder         Int            @default(0)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  players MarketResearchPlayer[]
+
+  @@index([researchId])
+}
+
+// Un acteur du marché sur une ligne (Player 1, 2, 3… — non plafonné).
+model MarketResearchPlayer {
+  id               String            @id @default(cuid())
+  rowId            String
+  row              MarketResearchRow @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  rank             Int               @default(1)
+  name             String
+  marketShareValue Decimal?          @db.Decimal(18, 2) // part de marché (valeur)
+  status           PlayerStatus? // Import ou Manufacturing
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([rowId])
+}
