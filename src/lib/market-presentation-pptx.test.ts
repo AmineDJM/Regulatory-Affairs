@@ -8,6 +8,8 @@ const research: ResearchDetail = {
   title: "Marché des IPP en Algérie",
   status: "DRAFT",
   notes: "Étude test",
+  sources: "IQVIA 2025-2026",
+  participants: [],
   rows: [
     {
       id: "row1", therapeuticClass: "Antiulcéreux", product: "Oméprazole 20mg",
@@ -51,7 +53,7 @@ describe("buildPresentationPptx", () => {
   });
 
   it("ne plante pas quand les acteurs / valeurs sont absents", async () => {
-    const bare: ResearchDetail = { id: "r2", title: "Vide", status: "DRAFT", notes: null, rows: [{ id: "x", therapeuticClass: null, product: "Produit X", marketVolume: null, marketValueUsd: null, avgPricePerBoxUsd: null, comment: null, players: [] }] };
+    const bare: ResearchDetail = { id: "r2", title: "Vide", status: "DRAFT", notes: null, sources: null, participants: [], rows: [{ id: "x", therapeuticClass: null, product: "Produit X", marketVolume: null, marketValueUsd: null, avgPricePerBoxUsd: null, comment: null, players: [] }] };
     const minimal: PresentationAnalysis = { executiveSummary: "", marketOverview: "", productAnalyses: [], competition: "", opportunities: [], risks: [], opinion: "", recommendation: "" };
     const buf = await buildPresentationPptx(bare, minimal, { presentationTitle: "Vide", version: 1, generatedAt: new Date() });
     expect(buf[0]).toBe(0x50);

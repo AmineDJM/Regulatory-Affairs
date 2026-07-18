@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { getRecommendations, normText, queryTokens, allTokensIn, type RecRow } from "@/lib/market/engine";
+import { DEFAULT_RESEARCH_SOURCES } from "@/lib/queries/market-research";
 
 const MODULE = "BUSINESS_DEVELOPMENT" as const;
 const BASE = "/business-development/etudes";
@@ -25,7 +26,7 @@ export async function createMarketResearch(_prev: ActionResult | undefined, form
   if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
   const title = fdStr(formData, "title");
   if (!title) return { ok: false, error: "Le titre de l'étude est obligatoire." };
-  const research = await prisma.marketResearch.create({ data: { title, notes: fdStr(formData, "notes"), createdById: user.id } });
+  const research = await prisma.marketResearch.create({ data: { title, notes: fdStr(formData, "notes"), sources: fdStr(formData, "sources") || DEFAULT_RESEARCH_SOURCES, createdById: user.id } });
 
   // Molécules initiales (une par ligne) → une ligne de tableau par molécule.
   const molecules = (fdStr(formData, "molecules") ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
@@ -50,10 +51,24 @@ export async function updateMarketResearch(formData: FormData): Promise<ActionRe
       title: fdStr(formData, "title") ?? undefined,
       status: (fdStr(formData, "status") as MarketResearchStatus) ?? undefined,
       notes: fdStr(formData, "notes"),
+      sources: fdStr(formData, "sources"),
     },
   });
   revalidatePath(`${BASE}/${id}`);
   revalidatePath(BASE);
+  return { ok: true };
+}
+
+/** Participants (collaborateurs) d'une étude de marché. */
+export async function setMarketResearchParticipants(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Étude introuvable." };
+  const participantIds = formData.getAll("participantIds").map(String).filter(Boolean);
+  await prisma.marketResearch.update({ where: { id }, data: { participantIds } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Business Development", summary: `Participants de l'étude — ${participantIds.length}` });
+  revalidatePath(`${BASE}/${id}`);
   return { ok: true };
 }
 

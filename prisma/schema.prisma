@@ -5050,6 +5050,8 @@ model MarketResearch {
   title       String
   status      MarketResearchStatus @default(DRAFT)
   notes       String?
+  sources     String? // sources de données de l'étude (IQVIA, Nomenclature, Réceptions PCH…), modifiables
+  participantIds String[] @default([]) // collaborateurs de l'étude (utilisateurs)
   createdById String?
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt

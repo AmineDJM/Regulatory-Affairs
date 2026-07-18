@@ -1,6 +1,17 @@
 import { prisma } from "@/lib/prisma";
+import { getMarketData } from "@/lib/market/data";
 
 const toNum = (v: unknown): number | null => (v == null ? null : Number(v));
+
+/** DCI normalisés (MAJUSCULES) issus de la nomenclature DZ — pour le menu déroulant produit. */
+export function nomenclatureDciOptions(): string[] {
+  const set = new Set<string>();
+  for (const r of getMarketData().nom) {
+    const dci = (r.dci ?? "").trim();
+    if (dci) set.add(dci.toUpperCase());
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+}
 
 export interface ResearchListItem {
   id: string;
@@ -34,8 +45,13 @@ export interface ResearchDetail {
   title: string;
   status: string;
   notes: string | null;
+  sources: string | null;
+  participants: { id: string; name: string }[];
   rows: ResearchRowDTO[];
 }
+
+/** Sources de données par défaut d'une étude (jeux réels disponibles dans l'app). */
+export const DEFAULT_RESEARCH_SOURCES = "IQVIA 2025-2026 · Nomenclature DZ (enregistrements) · Réceptions PCH 2025";
 
 export async function listMarketResearch(): Promise<ResearchListItem[]> {
   const list = await prisma.marketResearch.findMany({
@@ -106,11 +122,16 @@ export async function getMarketResearch(id: string): Promise<ResearchDetail | nu
     },
   });
   if (!r) return null;
+  const participants = r.participantIds.length
+    ? await prisma.user.findMany({ where: { id: { in: r.participantIds } }, select: { id: true, name: true } })
+    : [];
   return {
     id: r.id,
     title: r.title,
     status: r.status,
     notes: r.notes,
+    sources: r.sources,
+    participants,
     rows: r.rows.map((row) => ({
       id: row.id,
       therapeuticClass: row.therapeuticClass,

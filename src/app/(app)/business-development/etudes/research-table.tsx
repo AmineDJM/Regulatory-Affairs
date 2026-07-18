@@ -14,7 +14,7 @@ const STATUS_COLOR: Record<string, string> = { IMPORT: "#f59e0b", MANUFACTURING:
 const inp = "h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
 const nOrNull = (s: string) => { const t = s.trim(); if (!t) return ""; return t; };
 
-export function ResearchTable({ researchId, rows, canEdit }: { researchId: string; rows: ResearchRowDTO[]; canEdit: boolean }) {
+export function ResearchTable({ researchId, rows, canEdit, dciOptions = [] }: { researchId: string; rows: ResearchRowDTO[]; canEdit: boolean; dciOptions?: string[] }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
 
@@ -30,6 +30,8 @@ export function ResearchTable({ researchId, rows, canEdit }: { researchId: strin
 
   return (
     <div className="space-y-3 p-3">
+      {/* Menu déroulant des DCI normalisés de la nomenclature (saisie assistée du produit). */}
+      <datalist id="dci-nomenclature">{dciOptions.map((d) => <option key={d} value={d} />)}</datalist>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1100px] border-collapse text-sm">
           <thead>
@@ -106,7 +108,7 @@ function RowEditor({
     <tr className="hover:bg-secondary/20">
       <td className={`${cell} text-center text-xs text-muted-foreground`}>{index}</td>
       <td className={cell}>{canEdit ? <input className={inp} value={s.therapeuticClass} onChange={(e) => setS({ ...s, therapeuticClass: e.target.value })} onBlur={saveRow} /> : ro(s.therapeuticClass)}</td>
-      <td className={cell}>{canEdit ? <input className={inp} value={s.product} onChange={(e) => setS({ ...s, product: e.target.value })} onBlur={saveRow} /> : ro(s.product)}</td>
+      <td className={cell}>{canEdit ? <input className={inp} list="dci-nomenclature" value={s.product} onChange={(e) => setS({ ...s, product: e.target.value })} onBlur={saveRow} placeholder="DCI (nomenclature)…" /> : ro(s.product)}</td>
       <td className={cell}>{canEdit ? <input inputMode="decimal" className={inp} value={s.marketVolume} onChange={(e) => setS({ ...s, marketVolume: e.target.value })} onBlur={saveRow} /> : ro(s.marketVolume)}</td>
       <td className={cell}>{canEdit ? <input inputMode="decimal" className={inp} value={s.marketValueUsd} onChange={(e) => setS({ ...s, marketValueUsd: e.target.value })} onBlur={saveRow} /> : ro(s.marketValueUsd)}</td>
       <td className={cell}>{canEdit ? <input inputMode="decimal" className={inp} value={s.avgPricePerBoxUsd} onChange={(e) => setS({ ...s, avgPricePerBoxUsd: e.target.value })} onBlur={saveRow} /> : ro(s.avgPricePerBoxUsd)}</td>

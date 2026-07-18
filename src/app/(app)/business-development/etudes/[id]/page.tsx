@@ -4,11 +4,13 @@ import { ArrowLeft, FileSpreadsheet } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { aiConfigured } from "@/lib/ai";
-import { getMarketResearch, listResearchPresentations } from "@/lib/queries/market-research";
+import { prisma } from "@/lib/prisma";
+import { getMarketResearch, listResearchPresentations, nomenclatureDciOptions } from "@/lib/queries/market-research";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ResearchTable } from "../research-table";
+import { ResearchMeta } from "./research-meta";
 import { PresentationPanel } from "../presentation-panel";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +21,10 @@ export default async function MarketResearchDetailPage({ params }: { params: { i
   const research = await getMarketResearch(params.id);
   if (!research) notFound();
   const presentations = await listResearchPresentations(research.id);
+  const dciOptions = nomenclatureDciOptions();
+  const allUsers = canEdit
+    ? await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+    : [];
 
   return (
     <div className="space-y-5">
@@ -28,8 +34,15 @@ export default async function MarketResearchDetailPage({ params }: { params: { i
       </PageHeader>
 
       <Card>
+        <CardHeader><CardTitle>Étude — sources, participants & nom</CardTitle></CardHeader>
+        <CardContent>
+          <ResearchMeta research={research} allUsers={allUsers} canEdit={canEdit} />
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardContent className="p-0">
-          <ResearchTable researchId={research.id} rows={research.rows} canEdit={canEdit} />
+          <ResearchTable researchId={research.id} rows={research.rows} canEdit={canEdit} dciOptions={dciOptions} />
         </CardContent>
       </Card>
 
