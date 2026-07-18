@@ -839,7 +839,8 @@ model RegulatoryProduct {
   manufacturingStatus    ManufacturingStatus @default(IMPORTATION)
   status                 RegulatoryStatus   @default(PRE_SUBMISSION)
   priority               Priority           @default(MEDIUM)
-  targetDate             DateTime? // date cible d'enregistrement
+  targetSubmissionDate   DateTime? // date cible de dépôt du dossier (fixée par la supervision)
+  targetDate             DateTime? // date cible d'enregistrement (fixée après le dépôt)
   comments               String?
   // Décision d'enregistrement : détenteur de la DE, et variation d'enregistrement
   // vers la fabrication locale (packaging secondaire / primaire / full process).
@@ -3693,6 +3694,10 @@ model AppSetting {
   // Onglet Regulatory « Enregistrement » (analyseur de dossier CTD) — masqué tant que
   // le Super Admin ne l'a pas débloqué.
   regEnrollmentEnabled Boolean  @default(false)
+  // Rôles « superviseurs Regulatory » (en plus du Super Admin, toujours inclus) : fixent
+  // la priorité et les dates cibles, reçoivent les notifications (nouveau dossier / dépôt),
+  // et peuvent demander des mises à jour de statut. Configurable en Administration.
+  regulatorySupervisorRoles String[] @default([])
   // Clés VAPID (Web Push) auto-générées et persistées si non fournies par l'environnement.
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
   vapidPublicKey       String?

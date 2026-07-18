@@ -173,6 +173,18 @@ export function hasRole(u: RoleBearer, role: UserRole): boolean {
   return u.role === role || u.secondaryRole === role;
 }
 
+/**
+ * Superviseur Regulatory : le **Super Admin** (toujours) OU un rôle **configuré en
+ * Administration** (`AppSetting.regulatorySupervisorRoles`), porté en principal OU
+ * secondaire. Il fixe la **priorité** et les **dates cibles** des dossiers, reçoit les
+ * notifications (nouveau dossier à prioriser / dossier déposé) et peut **demander des
+ * mises à jour de statut**. Les rôles sont passés depuis les réglages (pas en dur).
+ */
+export function isRegulatorySupervisor(u: RoleBearer, supervisorRoles: string[]): boolean {
+  if (u.role === "SUPER_ADMIN") return true;
+  return supervisorRoles.includes(u.role) || (u.secondaryRole != null && supervisorRoles.includes(u.secondaryRole));
+}
+
 /** Filtre Prisma « porte l'un de ces rôles » — principal **OU secondaire**. À utiliser
  *  pour TOUTE sélection d'utilisateurs par rôle (notifications, candidats désignables,
  *  pharmacien PRIM, annuaires…), sinon un rôle attribué en secondaire est ignoré. */

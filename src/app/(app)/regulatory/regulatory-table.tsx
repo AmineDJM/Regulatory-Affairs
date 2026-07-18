@@ -25,6 +25,7 @@ export interface RegulatoryRow {
   priority: string;
   responsible: string;
   assistant: string;
+  targetSubmissionDate: string | null;
   targetDate: string | null;
   progress: number;
   stepsDone: number;
@@ -64,8 +65,17 @@ const COLS: Col[] = [
   { key: "priority", header: "Priorité", text: (r) => lbl(PRIORITY as never, r.priority), raw: (r) => r.priority, options: PRIORITY_OPTS },
   { key: "status", header: "Statut", text: (r) => lbl(REGULATORY_STATUS as never, r.status), raw: (r) => r.status, options: STATUS_OPTS },
   { key: "responsible", header: "Responsable", text: (r) => r.responsible },
-  { key: "targetDate", header: "Date cible", text: (r) => r.targetDate ?? "" },
+  { key: "targetSubmissionDate", header: "Date cible dépôt", text: (r) => r.targetSubmissionDate ?? "" },
+  { key: "targetDate", header: "Date cible enreg.", text: (r) => r.targetDate ?? "" },
 ];
+
+/** Teinte de la priorité (Critique = rouge, Haute = ambre, Moyenne = bleu, Basse = neutre). */
+const PRIORITY_CLASS: Record<string, string> = {
+  CRITICAL: "border-red-400 bg-red-50 text-red-700 dark:border-red-500/50 dark:bg-red-500/15 dark:text-red-300",
+  HIGH: "border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-500/50 dark:bg-amber-500/15 dark:text-amber-300",
+  MEDIUM: "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/50 dark:bg-blue-500/15 dark:text-blue-300",
+  LOW: "border-input bg-background text-muted-foreground",
+};
 
 export function RegulatoryTable({ rows, canEditPriority = false }: { rows: RegulatoryRow[]; canEditPriority?: boolean }) {
   const router = useRouter();
@@ -127,7 +137,7 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
             <tr className="border-b border-border">
               {COLS.map((c) => (
                 <th key={c.key} className="px-2 py-1.5">
-                  {c.key === "targetDate" ? null : c.options ? (
+                  {(c.key === "targetDate" || c.key === "targetSubmissionDate") ? null : c.options ? (
                     <select value={filters[c.key] ?? ""} onChange={(e) => setFilters((f) => ({ ...f, [c.key]: e.target.value }))}
                       className="h-7 w-full rounded border border-input bg-background px-1 text-xs font-normal normal-case">
                       <option value="">Tous</option>
@@ -158,7 +168,7 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
                     {canEditPriority ? (
                       <span className="inline-flex items-center gap-1">
                         <select value={r.priority} onChange={(e) => changePriority(r.id, e.target.value)} disabled={busyId === r.id}
-                          className="h-7 rounded border border-input bg-background px-1 text-xs">
+                          className={`h-7 rounded border px-1 text-xs font-medium ${PRIORITY_CLASS[r.priority] ?? "border-input bg-background"}`}>
                           {PRIORITY_OPTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
                         {busyId === r.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
@@ -167,6 +177,7 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
                   </td>
                   <td className="px-3 py-2"><StatusBadge map={REGULATORY_STATUS} value={r.status} /></td>
                   <td className="px-3 py-2">{r.responsible || "—"}</td>
+                  <td className="px-3 py-2 text-muted-foreground">{r.targetSubmissionDate ? formatDate(r.targetSubmissionDate) : "—"}</td>
                   <td className={`px-3 py-2 ${d !== null && d < 0 ? "text-destructive" : ""}`}>{r.targetDate ? formatDate(r.targetDate) : "—"}</td>
                 </tr>
               );

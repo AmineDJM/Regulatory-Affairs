@@ -23,6 +23,8 @@ export interface AppSettings {
   driveUserQuotaGb: number;
   /** Onglet Regulatory « Enregistrement » (analyseur CTD) — débloqué par le Super Admin. */
   regEnrollmentEnabled: boolean;
+  /** Rôles superviseurs Regulatory (en plus du Super Admin) : priorité/dates, notifs, MàJ statut. */
+  regulatorySupervisorRoles: string[];
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -33,6 +35,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   driveCapacityGb: 100,
   driveUserQuotaGb: 10,
   regEnrollmentEnabled: false,
+  regulatorySupervisorRoles: [],
 };
 
 export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
@@ -47,6 +50,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       driveCapacityGb: row.driveCapacityGb,
       driveUserQuotaGb: row.driveUserQuotaGb,
       regEnrollmentEnabled: row.regEnrollmentEnabled,
+      regulatorySupervisorRoles: row.regulatorySupervisorRoles ?? [],
     };
   } catch {
     return DEFAULT_APP_SETTINGS;

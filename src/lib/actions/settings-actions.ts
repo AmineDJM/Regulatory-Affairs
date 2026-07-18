@@ -48,6 +48,29 @@ export async function setRegEnrollmentEnabled(enabled: boolean): Promise<ActionR
   return { ok: true };
 }
 
+/**
+ * Rôles « superviseurs Regulatory » (en plus du Super Admin) : fixent priorité et dates
+ * cibles, reçoivent les notifications (nouveau dossier / dépôt) et demandent des MàJ de
+ * statut. **Super Admin uniquement.**
+ */
+export async function setRegulatorySupervisorRoles(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const roles = [...new Set(formData.getAll("roles").map(String).filter(Boolean))];
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", regulatorySupervisorRoles: roles, updatedById: admin.id },
+    update: { regulatorySupervisorRoles: roles, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Superviseurs Regulatory — ${roles.length} rôle(s) configuré(s)`,
+  });
+  revalidatePath("/admin");
+  revalidatePath("/regulatory");
+  return { ok: true };
+}
+
 /** Capacité globale du Drive + quota par utilisateur (Go). **Super Admin uniquement.** */
 export async function saveDriveStorageSettings(formData: FormData): Promise<ActionResult> {
   const admin = await requireUser();

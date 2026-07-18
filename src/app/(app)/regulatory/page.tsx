@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { MessageSquareText } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, scopeRegulatory } from "@/lib/rbac";
+import { userCan, scopeRegulatory, isRegulatorySupervisor } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
+import { regProgress, regTreatmentStarted, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { currentCompanyWhere, getCompanies } from "@/lib/company";
 import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
@@ -13,18 +13,19 @@ import { RegulatoryTable, type RegulatoryRow } from "./regulatory-table";
 import { NewProductButton } from "./new-product";
 import { SuppliersManager } from "./suppliers-manager";
 
-/** Étape de traitement d'un dossier : Nouveau → En cours (BV présoumission) → Terminé (DE). */
-function regStage(status: string, hasBv: boolean): "new" | "in_progress" | "done" {
+/** Étape de traitement d'un dossier : Nouveau → En cours → Terminé (DE).
+ *  Le traitement DÉMARRE à l'étape 3 de la préparation (« Demande du BV 25 % » de
+ *  présoumission) marquée faite — ou, à défaut de suivi d'étapes, à la présence d'un
+ *  ordre de BV (hasBv) ou d'un statut avancé. Il se TERMINE à la décision (DE obtenue). */
+function regStage(status: string, treatmentStarted: boolean, hasBv: boolean): "new" | "in_progress" | "done" {
   if (status === "DECISION_OBTAINED" || status === "CLOSED") return "done";
-  if (hasBv || ["SUBMITTED", "AWAITING_BV_PAYMENT", "AWAITING_ANPP", "RESPONDING_TO_QUERIES", "BLOCKED"].includes(status)) return "in_progress";
+  if (treatmentStarted || hasBv || ["SUBMITTED", "AWAITING_BV_PAYMENT", "AWAITING_ANPP", "RESPONDING_TO_QUERIES", "BLOCKED"].includes(status)) return "in_progress";
   return "new";
 }
 
 export default async function RegulatoryPage() {
   const user = await requireModule("REGULATORY");
   const canCreate = userCan(user, "REGULATORY", "CREATE");
-
-  const canUpdate = userCan(user, "REGULATORY", "UPDATE");
   const [products, suppliers, companies, settings, bvOrders] = await Promise.all([
     prisma.regulatoryProduct.findMany({
       where: { ...scopeRegulatory(user), ...currentCompanyWhere() },
@@ -48,6 +49,8 @@ export default async function RegulatoryPage() {
     prisma.expenseOrder.findMany({ where: { sourceType: "REGULATORY_PRODUCT" }, select: { sourceId: true } }),
   ]);
   const bvSet = new Set(bvOrders.map((o) => o.sourceId).filter((x): x is string => Boolean(x)));
+  // Supervision Regulatory : Super Admin + rôles configurés (priorité, dates, MàJ de statut).
+  const canSupervise = isRegulatorySupervisor(user, settings.regulatorySupervisorRoles);
 
   const rows: RegulatoryRow[] = products.map((p) => {
     const prog = regProgress(p.workflow as RegWorkflowState | null);
@@ -71,11 +74,12 @@ export default async function RegulatoryPage() {
       priority: p.priority,
       responsible: p.responsible?.name ?? "",
       assistant: p.assistant?.name ?? "",
+      targetSubmissionDate: p.targetSubmissionDate?.toISOString() ?? null,
       targetDate: p.targetDate?.toISOString() ?? null,
       progress: Math.round((done / total) * 100),
       stepsDone: done,
       stepsTotal: total,
-      stage: regStage(p.status, bvSet.has(p.id)),
+      stage: regStage(p.status, regTreatmentStarted(p.workflow as RegWorkflowState | null), bvSet.has(p.id)),
     };
   });
 
@@ -125,7 +129,7 @@ export default async function RegulatoryPage() {
         ]}
       />
 
-      <RegulatoryTable rows={rows} canEditPriority={canUpdate} />
+      <RegulatoryTable rows={rows} canEditPriority={canSupervise} />
     </div>
   );
 }

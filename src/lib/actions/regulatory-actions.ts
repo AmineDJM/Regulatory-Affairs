@@ -2,15 +2,15 @@
 
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
-import type { Priority, ProductChannel, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, ManufacturingStatus, VariationStatus } from "@prisma/client";
+import type { Priority, ProductChannel, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, ManufacturingStatus, VariationStatus, UserRole } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, isRegulatorySupervisor } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
-import { notifyUser } from "@/lib/notify";
+import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
@@ -42,6 +42,18 @@ function normalizeDci(value: string): string {
   return value.trim().toUpperCase().replace(/\s*\+\s*/g, " + ").replace(/\s+/g, " ");
 }
 const upperMolecules = (list: string[]): string[] => list.map((m) => m.trim().toUpperCase()).filter(Boolean);
+
+/** Rôles superviseurs Regulatory = Super Admin (toujours) + rôles configurés en Administration. */
+async function regSupervisorRoles(): Promise<UserRole[]> {
+  const settings = await getAppSettings();
+  return Array.from(new Set(["SUPER_ADMIN", ...settings.regulatorySupervisorRoles])) as UserRole[];
+}
+
+/** L'utilisateur courant est-il superviseur Regulatory (fixe priorité/dates, demande des MàJ) ? */
+async function ensureRegSupervisor(user: Awaited<ReturnType<typeof requireUser>>): Promise<boolean> {
+  const settings = await getAppSettings();
+  return isRegulatorySupervisor(user, settings.regulatorySupervisorRoles);
+}
 
 /**
  * Création d'un fournisseur depuis le module Regulatory (par les Responsables
@@ -95,6 +107,7 @@ export async function createRegulatoryProduct(
   const responsibleId = str(formData, "responsibleId");
   const assistantId = str(formData, "assistantId");
   const targetDateRaw = str(formData, "targetDate");
+  const targetSubmissionDateRaw = str(formData, "targetSubmissionDate");
 
   // Variation d'enregistrement : une fabrication locale exige le fabricant.
   const manufacturingVariation = str(formData, "manufacturingVariation");
@@ -127,6 +140,7 @@ export async function createRegulatoryProduct(
       status: (str(formData, "status") as RegulatoryStatus) ?? "PRE_SUBMISSION",
       priority: (str(formData, "priority") as Priority) ?? "MEDIUM",
       companyId: str(formData, "companyId") || null,
+      targetSubmissionDate: targetSubmissionDateRaw ? new Date(targetSubmissionDateRaw) : null,
       targetDate: targetDateRaw ? new Date(targetDateRaw) : null,
       comments: str(formData, "comments"),
       deHolder: str(formData, "deHolder"),
@@ -168,6 +182,15 @@ export async function createRegulatoryProduct(
     });
   }
 
+  // Supervision : prévenir les superviseurs Regulatory (Super Admin + rôles configurés)
+  // qu'un nouveau dossier attend une priorité et une date cible de dépôt.
+  await notifyRoles(await regSupervisorRoles(), {
+    type: "GENERIC",
+    title: "Nouveau dossier Regulatory à prioriser",
+    body: `${reference} — ${dci} · définir la priorité et la date cible de dépôt.`,
+    link: `/regulatory/${product.id}`,
+  });
+
   revalidatePath("/regulatory");
   return { ok: true, id: product.id };
 }
@@ -200,6 +223,7 @@ export async function updateRegulatoryProduct(
   const responsibleId = str(formData, "responsibleId");
   const assistantId = str(formData, "assistantId");
   const targetDateRaw = str(formData, "targetDate");
+  const targetSubmissionDateRaw = str(formData, "targetSubmissionDate");
   // Préserve les participants déjà rattachés (collaboration) + garantit l'accès du
   // responsable et de l'assistant. La modification d'un dossier ne doit JAMAIS retirer
   // les collaborateurs ajoutés via le panneau « Participants ».
@@ -227,6 +251,7 @@ export async function updateRegulatoryProduct(
       manufacturingStatus: (str(formData, "manufacturingStatus") as ManufacturingStatus) ?? before.manufacturingStatus,
       status: (str(formData, "status") as RegulatoryStatus) ?? before.status,
       priority: (str(formData, "priority") as Priority) ?? before.priority,
+      targetSubmissionDate: targetSubmissionDateRaw ? new Date(targetSubmissionDateRaw) : null,
       targetDate: targetDateRaw ? new Date(targetDateRaw) : null,
       comments: str(formData, "comments"),
       deHolder: str(formData, "deHolder"),
@@ -283,16 +308,68 @@ export async function setRegulatoryParticipants(formData: FormData): Promise<Act
 }
 
 /** Modifier la priorité d'un dossier (Direction / équipe Regulatory) depuis le tableau. */
+/** La priorité est fixée par la SUPERVISION (Super Admin + rôles configurés en Administration). */
 export async function setRegulatoryPriority(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = str(formData, "id");
   const priority = str(formData, "priority");
   if (!id || !priority) return { ok: false, error: "Paramètres manquants." };
-  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", id, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+  if (!(await ensureRegSupervisor(user))) return { ok: false, error: "Réservé à la supervision Regulatory." };
   await prisma.regulatoryProduct.update({ where: { id }, data: { priority: priority as Priority } });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: id, field: "priority", newValue: priority, summary: "Priorité du dossier modifiée" });
   revalidatePath("/regulatory");
   revalidatePath(`/regulatory/${id}`);
+  return { ok: true };
+}
+
+/** Dates cibles (dépôt + enregistrement) — fixées par la supervision Regulatory. */
+export async function setRegulatoryTargetDates(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = str(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  if (!(await ensureRegSupervisor(user))) return { ok: false, error: "Réservé à la supervision Regulatory." };
+  const subRaw = str(formData, "targetSubmissionDate");
+  const regRaw = str(formData, "targetDate");
+  await prisma.regulatoryProduct.update({
+    where: { id },
+    data: {
+      targetSubmissionDate: subRaw ? new Date(subRaw) : null,
+      targetDate: regRaw ? new Date(regRaw) : null,
+    },
+  });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: id, summary: "Dates cibles (dépôt / enregistrement) mises à jour" });
+  revalidatePath("/regulatory");
+  revalidatePath(`/regulatory/${id}`);
+  return { ok: true };
+}
+
+/**
+ * La supervision (Super Admin / rôle configuré) DEMANDE une mise à jour de statut sur
+ * l'enregistrement d'un produit : notifie le responsable, l'assistant et les participants
+ * du dossier. N'écrit pas le statut — c'est une relance traçable.
+ */
+export async function requestRegulatoryStatusUpdate(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = str(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  if (!(await ensureRegSupervisor(user))) return { ok: false, error: "Réservé à la supervision Regulatory." };
+  const product = await prisma.regulatoryProduct.findUnique({
+    where: { id },
+    select: { reference: true, dci: true, responsibleId: true, assistantId: true, assignedUsers: { select: { id: true } } },
+  });
+  if (!product) return { ok: false, error: "Dossier introuvable." };
+  const note = str(formData, "note");
+  const targets = Array.from(new Set([
+    product.responsibleId, product.assistantId, ...product.assignedUsers.map((u) => u.id),
+  ].filter((x): x is string => Boolean(x) && x !== user.id)));
+  await Promise.all(targets.map((userId) => notifyUser({
+    userId,
+    type: "GENERIC",
+    title: "Mise à jour de statut demandée",
+    body: `${product.reference} — ${product.dci}${note ? ` · ${note}` : ""}`,
+    link: `/regulatory/${id}`,
+  })));
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: id, summary: `Demande de mise à jour de statut (${targets.length} destinataire(s))` });
   return { ok: true };
 }
 
@@ -374,6 +451,16 @@ export async function updateRegulatoryStatus(formData: FormData): Promise<Action
     newValue: status,
     summary: `Statut du dossier ${before.reference} → ${status}`,
   });
+
+  // Dépôt effectué : prévenir la supervision de fixer la date cible d'enregistrement.
+  if (status === "SUBMITTED" && before.status !== "SUBMITTED") {
+    await notifyRoles(await regSupervisorRoles(), {
+      type: "GENERIC",
+      title: "Dossier déposé — fixer la date cible d'enregistrement",
+      body: `${before.reference} — ${before.dci} vient d'être déposé à l'ANPP.`,
+      link: `/regulatory/${id}`,
+    });
+  }
 
   revalidatePath(`/regulatory/${id}`);
   revalidatePath("/regulatory");

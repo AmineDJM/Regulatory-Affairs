@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, isRegulatorySupervisor } from "@/lib/rbac";
+import { getAppSettings } from "@/lib/settings";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { addRegulatoryComment } from "@/lib/actions/regulatory-actions";
@@ -28,6 +29,7 @@ import { suggestedExternalStatus } from "@/lib/regulatory-external";
 import { PRIORITY, REGULATORY_STATUS, MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRODUCT_CHANNEL, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 import { VariationPanel } from "./variation-panel";
 import { ParticipantsPanel } from "./participants-panel";
+import { SupervisionControls } from "./supervision-controls";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { SupplierViewCard } from "./supplier-view-card";
 
@@ -62,6 +64,8 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
   const canUpdate = userCan(user, "REGULATORY", "UPDATE");
   const canUpload = userCan(user, "REGULATORY", "UPLOAD");
   const canDelete = userCan(user, "REGULATORY", "DELETE");
+  // Supervision (Super Admin + rôles configurés) : dates cibles + demande de MàJ de statut.
+  const canSupervise = isRegulatorySupervisor(user, (await getAppSettings()).regulatorySupervisorRoles);
 
   const [documents, comments, fieldDefs, suppliers, bvOrders, users] = await Promise.all([
     prisma.document.findMany({
@@ -202,6 +206,14 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
           <SuperAdminDeleteButton kind="REGULATORY_PRODUCT" id={product.id} name={`${product.reference} — ${product.dci}`} enabled={user.role === "SUPER_ADMIN"} />
         </div>
       </div>
+
+      {canSupervise && (
+        <SupervisionControls
+          id={product.id}
+          targetSubmissionDate={product.targetSubmissionDate ? product.targetSubmissionDate.toISOString().slice(0, 10) : null}
+          targetDate={product.targetDate ? product.targetDate.toISOString().slice(0, 10) : null}
+        />
+      )}
 
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">

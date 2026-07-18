@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch } from "lucide-react";
+import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch, ShieldCheck } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm } from "./admin-settings-forms";
 
 export const metadata = { title: "Réglages & diffusion — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -55,6 +55,16 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <RegEnrollmentToggle enabled={settings.regEnrollmentEnabled} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> Regulatory — Superviseurs (priorités, dates, notifications)</CardTitle>
+          <p className="text-sm text-muted-foreground">Rôles autorisés (en plus du Super Admin, toujours inclus) à fixer la priorité et les dates cibles des dossiers, à recevoir les notifications (nouveau dossier / dépôt) et à demander des mises à jour de statut.</p>
+        </CardHeader>
+        <CardContent>
+          <RegulatorySupervisorForm roles={roleOptions} selected={settings.regulatorySupervisorRoles} />
         </CardContent>
       </Card>
 
