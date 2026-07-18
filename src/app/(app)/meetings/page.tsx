@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { formatAlgiers } from "@/lib/calendar-tz";
 import { NewMeetingButton } from "./new-meeting-button";
+import { MeetingsTabs } from "./meetings-tabs";
 
 const fmtMeeting = (d: Date) => formatAlgiers(d, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -39,9 +40,16 @@ export default async function MeetingsPage() {
     orderBy: { name: "asc" },
   });
 
+  // Une réunion PLANIFIÉE dont l'heure est déjà passée (avec 60 min de tolérance, le temps
+  // qu'elle se déroule) bascule en « Passées » : on la retire du listing actif, mais elle
+  // reste au Calendrier (module distinct). Une réunion LIVE reste toujours active.
+  const pastCutoff = Date.now() - 60 * 60 * 1000;
+  const isPastScheduled = (m: Row) => m.status === "SCHEDULED" && m.scheduledAt != null && m.scheduledAt.getTime() < pastCutoff;
   const live = meetings.filter((m) => m.status === "LIVE");
-  const upcoming = meetings.filter((m) => m.status === "SCHEDULED");
-  const past = meetings.filter((m) => m.status === "ENDED");
+  const upcoming = meetings.filter((m) => m.status === "SCHEDULED" && !isPastScheduled(m));
+  const past = meetings
+    .filter((m) => m.status === "ENDED" || isPastScheduled(m))
+    .sort((a, b) => (b.scheduledAt ?? b.createdAt).getTime() - (a.scheduledAt ?? a.createdAt).getTime());
 
   return (
     <div className="space-y-6">
@@ -52,11 +60,24 @@ export default async function MeetingsPage() {
       {meetings.length === 0 ? (
         <EmptyState icon="Video" title="Aucune réunion" description="Créez une réunion : un lien de salle est généré aussitôt, partageable même en externe." />
       ) : (
-        <div className="space-y-6">
-          <Section title="En cours" icon={<Radio className="h-4 w-4 text-success" />} items={live} empty="Aucune réunion en cours." />
-          <Section title="À venir" items={upcoming} empty="Aucune réunion planifiée." />
-          <Section title="Historique" items={past} empty="Aucune réunion passée." muted />
-        </div>
+        <MeetingsTabs
+          activeCount={live.length + upcoming.length}
+          pastCount={past.length}
+          active={
+            <div className="space-y-6">
+              <Section title="En cours" icon={<Radio className="h-4 w-4 text-success" />} items={live} empty="" />
+              <Section title="À venir" items={upcoming} empty="" />
+              {live.length === 0 && upcoming.length === 0 && (
+                <p className="text-sm text-muted-foreground">Aucune réunion à venir ou en cours. Les réunions passées sont dans l&apos;onglet « Passées » (et au Calendrier).</p>
+              )}
+            </div>
+          }
+          past={
+            past.length === 0
+              ? <p className="text-sm text-muted-foreground">Aucune réunion passée.</p>
+              : <Section title="Passées" items={past} empty="" muted />
+          }
+        />
       )}
     </div>
   );
