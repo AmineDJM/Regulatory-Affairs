@@ -188,7 +188,7 @@ export async function updateRegulatoryProduct(
   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", id, "UPDATE"))) {
     return { ok: false, error: "Modification non autorisée." };
   }
-  const before = await prisma.regulatoryProduct.findUnique({ where: { id } });
+  const before = await prisma.regulatoryProduct.findUnique({ where: { id }, include: { assignedUsers: { select: { id: true } } } });
   if (!before) return { ok: false, error: "Dossier introuvable." };
 
   // DCI : recompose depuis les molécules saisies, sinon depuis le champ libre.
@@ -200,7 +200,10 @@ export async function updateRegulatoryProduct(
   const responsibleId = str(formData, "responsibleId");
   const assistantId = str(formData, "assistantId");
   const targetDateRaw = str(formData, "targetDate");
-  const assignIds = Array.from(new Set([responsibleId, assistantId].filter(Boolean))) as string[];
+  // Préserve les participants déjà rattachés (collaboration) + garantit l'accès du
+  // responsable et de l'assistant. La modification d'un dossier ne doit JAMAIS retirer
+  // les collaborateurs ajoutés via le panneau « Participants ».
+  const assignIds = Array.from(new Set([...before.assignedUsers.map((u) => u.id), responsibleId, assistantId].filter(Boolean))) as string[];
 
   // Fabricant courant (les variations de fabrication ont leur propre cycle de vie).
   const manufacturer = str(formData, "manufacturer");
@@ -257,6 +260,26 @@ export async function updateRegulatoryProduct(
   revalidatePath(`/regulatory/${id}`);
   revalidatePath("/regulatory");
   return { ok: true, id };
+}
+
+/**
+ * Participants du dossier : collaborateurs qui peuvent VOIR et travailler le dossier
+ * (accès ligne via `assignedUsers`, cf. scopeRegulatory). Le responsable et l'assistant
+ * y sont toujours inclus. Ouvre la collaboration à plusieurs, dossiers actuels ET nouveaux.
+ */
+export async function setRegulatoryParticipants(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = str(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", id, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+  const product = await prisma.regulatoryProduct.findUnique({ where: { id }, select: { responsibleId: true, assistantId: true } });
+  if (!product) return { ok: false, error: "Dossier introuvable." };
+  const participantIds = formData.getAll("participantIds").map(String).filter(Boolean);
+  const ids = Array.from(new Set([product.responsibleId, product.assistantId, ...participantIds].filter(Boolean))) as string[];
+  await prisma.regulatoryProduct.update({ where: { id }, data: { assignedUsers: { set: ids.map((uid) => ({ id: uid })) } } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: id, summary: `Participants du dossier — ${ids.length} collaborateur(s)` });
+  revalidatePath(`/regulatory/${id}`);
+  return { ok: true };
 }
 
 export async function updateRegulatoryStep(formData: FormData): Promise<ActionResult> {

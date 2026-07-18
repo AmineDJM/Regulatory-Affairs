@@ -27,6 +27,7 @@ import { getFieldDefs } from "@/lib/custom-fields";
 import { suggestedExternalStatus } from "@/lib/regulatory-external";
 import { PRIORITY, REGULATORY_STATUS, MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRODUCT_CHANNEL, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 import { VariationPanel } from "./variation-panel";
+import { ParticipantsPanel } from "./participants-panel";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { SupplierViewCard } from "./supplier-view-card";
 
@@ -231,6 +232,19 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
               <Info label="Date cible" value={product.targetDate ? formatDate(product.targetDate) : null} />
               <Info label="Détenteur de DE" value={product.deHolder} />
               <Info label="Fabricant" value={product.manufacturer} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Participants</CardTitle></CardHeader>
+            <CardContent>
+              <ParticipantsPanel
+                productId={product.id}
+                participants={product.assignedUsers}
+                allUsers={users.map((u) => ({ id: u.id, name: u.name }))}
+                coreIds={[product.responsibleId, product.assistantId].filter((x): x is string => Boolean(x))}
+                canEdit={canUpdate}
+              />
             </CardContent>
           </Card>
 
