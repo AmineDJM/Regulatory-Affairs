@@ -13,11 +13,19 @@ import { RegulatoryTable, type RegulatoryRow } from "./regulatory-table";
 import { NewProductButton } from "./new-product";
 import { SuppliersManager } from "./suppliers-manager";
 
+/** Étape de traitement d'un dossier : Nouveau → En cours (BV présoumission) → Terminé (DE). */
+function regStage(status: string, hasBv: boolean): "new" | "in_progress" | "done" {
+  if (status === "DECISION_OBTAINED" || status === "CLOSED") return "done";
+  if (hasBv || ["SUBMITTED", "AWAITING_BV_PAYMENT", "AWAITING_ANPP", "RESPONDING_TO_QUERIES", "BLOCKED"].includes(status)) return "in_progress";
+  return "new";
+}
+
 export default async function RegulatoryPage() {
   const user = await requireModule("REGULATORY");
   const canCreate = userCan(user, "REGULATORY", "CREATE");
 
-  const [products, suppliers, companies, settings] = await Promise.all([
+  const canUpdate = userCan(user, "REGULATORY", "UPDATE");
+  const [products, suppliers, companies, settings, bvOrders] = await Promise.all([
     prisma.regulatoryProduct.findMany({
       where: { ...scopeRegulatory(user), ...currentCompanyWhere() },
       orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
@@ -35,7 +43,11 @@ export default async function RegulatoryPage() {
     }),
     getCompanies(),
     getAppSettings(),
+    // Une demande de BV de présoumission = un ordre de dépense rattaché au dossier :
+    // sa présence fait basculer le dossier en « En cours de traitement ».
+    prisma.expenseOrder.findMany({ where: { sourceType: "REGULATORY_PRODUCT" }, select: { sourceId: true } }),
   ]);
+  const bvSet = new Set(bvOrders.map((o) => o.sourceId).filter((x): x is string => Boolean(x)));
 
   const rows: RegulatoryRow[] = products.map((p) => {
     const prog = regProgress(p.workflow as RegWorkflowState | null);
@@ -63,6 +75,7 @@ export default async function RegulatoryPage() {
       progress: Math.round((done / total) * 100),
       stepsDone: done,
       stepsTotal: total,
+      stage: regStage(p.status, bvSet.has(p.id)),
     };
   });
 
@@ -112,7 +125,7 @@ export default async function RegulatoryPage() {
         ]}
       />
 
-      <RegulatoryTable rows={rows} />
+      <RegulatoryTable rows={rows} canEditPriority={canUpdate} />
     </div>
   );
 }

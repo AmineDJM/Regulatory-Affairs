@@ -282,6 +282,20 @@ export async function setRegulatoryParticipants(formData: FormData): Promise<Act
   return { ok: true };
 }
 
+/** Modifier la priorité d'un dossier (Direction / équipe Regulatory) depuis le tableau. */
+export async function setRegulatoryPriority(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = str(formData, "id");
+  const priority = str(formData, "priority");
+  if (!id || !priority) return { ok: false, error: "Paramètres manquants." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", id, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+  await prisma.regulatoryProduct.update({ where: { id }, data: { priority: priority as Priority } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: id, field: "priority", newValue: priority, summary: "Priorité du dossier modifiée" });
+  revalidatePath("/regulatory");
+  revalidatePath(`/regulatory/${id}`);
+  return { ok: true };
+}
+
 export async function updateRegulatoryStep(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const stepId = str(formData, "stepId");
