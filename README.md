@@ -1101,6 +1101,14 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Perf disque — écritures `lastSeenAt` throttlées (fin des pics « Disk Operations » réguliers).**
+  `lastSeenAt` (session + présence messagerie) était réécrit **à chaque requête** ET **à chaque
+  battement de polling** (~6 s) → un flux constant d'UPDATE Postgres (WAL) visible en pics réguliers
+  sur l'hébergeur, même sans activité réelle. Un garde process-wide (`src/lib/touch-throttle.ts`) limite
+  ces écritures à **≈ 1×/min** par session/utilisateur (granularité largement suffisante pour la présence
+  et le « dernier clic ») — appliqué dans `session.ts` et `messaging.ts` (`touchPresence`).
+- **Organigramme — vue « Carte » en glisser-déposer** (en plus de l'« Arbre ») : boîtes reliées par des
+  connecteurs, placement automatique puis **positions mémorisées** (`Employee.orgX/orgY`), clic = fiche RH.
 - **Lot « supervision & durcissement » (budget, paie, réunions, Regulatory, organigramme, annuaire).**
   ① **Budget — accès enveloppe STRICT** : la gouvernance globale (voir/gérer toutes les enveloppes) n'est
   plus conférée par un simple droit de module (`BUDGETS:DELETE` du bundle `MANAGE`) — seul le Super Admin ;

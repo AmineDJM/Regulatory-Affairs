@@ -16,6 +16,8 @@ export interface OrgNode {
   managerId: string | null;
   entity: string | null;
   color: string | null;
+  orgX: number | null;
+  orgY: number | null;
 }
 
 /** Organigramme éditable (arbre RH). Rattachement (N+1) + poste modifiables par le Super Admin. */

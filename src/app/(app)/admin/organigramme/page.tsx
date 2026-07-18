@@ -5,7 +5,8 @@ import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { OrgChartEditor, type OrgNode } from "./org-chart-editor";
+import type { OrgNode } from "./org-chart-editor";
+import { OrgWorkspace } from "./org-workspace";
 
 export const metadata = { title: "Organigramme — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export default async function OrganigrammePage() {
   const employees = await prisma.employee.findMany({
     where: { isActive: true },
     select: {
-      id: true, fullName: true, position: true, department: true, managerId: true,
+      id: true, fullName: true, position: true, department: true, managerId: true, orgX: true, orgY: true,
       company: { select: { name: true, shortName: true, color: true } },
     },
     orderBy: { fullName: "asc" },
@@ -30,6 +31,8 @@ export default async function OrganigrammePage() {
     managerId: e.managerId,
     entity: e.company?.shortName ?? e.company?.name ?? null,
     color: e.company?.color ?? null,
+    orgX: e.orgX,
+    orgY: e.orgY,
   }));
 
   return (
@@ -49,7 +52,7 @@ export default async function OrganigrammePage() {
       <Card>
         <CardHeader><CardTitle>Structure hiérarchique</CardTitle></CardHeader>
         <CardContent>
-          <OrgChartEditor nodes={nodes} />
+          <OrgWorkspace nodes={nodes} />
         </CardContent>
       </Card>
     </div>

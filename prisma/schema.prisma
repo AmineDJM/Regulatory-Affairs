@@ -2265,6 +2265,9 @@ model Employee {
   managerId String?
   manager   Employee?  @relation("EmployeeManager", fields: [managerId], references: [id])
   reports   Employee[] @relation("EmployeeManager")
+  // Position mémorisée sur la CARTE de l'organigramme (glisser-déposer). Null = placement auto.
+  orgX      Float?
+  orgY      Float?
 
   payrolls      PayrollEntry[]
   transactions  FinanceTransaction[]

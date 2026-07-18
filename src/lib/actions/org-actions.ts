@@ -49,3 +49,22 @@ export async function saveOrgNode(formData: FormData): Promise<ActionResult> {
   revalidatePath("/admin/organigramme");
   return { ok: true };
 }
+
+/**
+ * Mémorise la position d'un nœud sur la CARTE de l'organigramme (glisser-déposer).
+ * Écrit uniquement au relâchement (pas pendant le drag). **Super Admin uniquement.**
+ */
+export async function saveOrgPosition(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Employé introuvable." };
+  const x = Number(fdStr(formData, "x"));
+  const y = Number(fdStr(formData, "y"));
+  await prisma.employee.update({
+    where: { id },
+    data: { orgX: Number.isFinite(x) ? x : null, orgY: Number.isFinite(y) ? y : null },
+  });
+  revalidatePath("/admin/organigramme");
+  return { ok: true };
+}
