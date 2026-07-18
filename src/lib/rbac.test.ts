@@ -194,6 +194,17 @@ describe("envelope access (canViewEnvelope / canManageEnvelope)", () => {
     expect(canManageEnvelope(del, empty)).toBe(false);
   });
 
+  it("un droit BUDGETS:DELETE (rôle Finance/Budget) ne rend PAS gouverneur global — strict par enveloppe", () => {
+    // Régression fuite : DELETE fait partie du bundle MANAGE et suffisait à voir/gérer
+    // TOUTES les enveloppes. Désormais seul le Super Admin gouverne globalement ; le
+    // titulaire du module Budget ne voit une enveloppe que si l'admin la lui ouvre.
+    const fin = mkUser("f1", "FINANCE_BUDGET_MANAGER", fromRole("FINANCE_BUDGET_MANAGER"));
+    expect(userCan(fin, "BUDGETS", "DELETE")).toBe(true); // il a bien le droit module…
+    expect(canViewEnvelope(fin, empty)).toBe(false); // …mais ne voit pas une enveloppe non partagée
+    expect(canManageEnvelope(fin, empty)).toBe(false);
+    expect(canViewEnvelope(fin, { ...empty, accessRoles: ["FINANCE_BUDGET_MANAGER"] })).toBe(true);
+  });
+
   it("the global manager (Super Admin) always sees and manages", () => {
     expect(canViewEnvelope(admin, empty)).toBe(true);
     expect(canManageEnvelope(admin, empty)).toBe(true);

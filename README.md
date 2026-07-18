@@ -1171,17 +1171,24 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   ligne) et dans les formulaires produit Regulatory (création + édition), badge de canal sur la fiche
   dossier. Libellés `PRODUCT_CHANNEL` (`src/lib/labels.ts`), migration
   `20260717140000_product_channel`. Base du filtrage ville/hôpital en segmentation et prise en charge.
-- **Budgets — accès par enveloppe strictement encadrés (visualisation vs gestion).** Les accès aux
-  enveloppes sont désormais à **deux niveaux**, tous deux décidés par l'admin (Super Admin / délégué
-  `BUDGETS:DELETE`), **par rôle ET par personne précise** : **Visualisation** (consulter l'enveloppe et
-  ses chiffres — `accessRoles` / `accessUserIds`) et **Gestion déléguée** (gérer le contenu de CETTE
-  enveloppe : catégories, allocations, dépenses budgétaires — nouveaux `managerRoles` / `managerUserIds`).
-  Par défaut une enveloppe est **invisible** de tous sauf des gouverneurs (encadrement strict). Un
-  gestionnaire délégué peut gérer le contenu **sans** pouvoir toucher au **montant**, à la **période** ni
-  aux **listes d'accès** — modifier l'enveloppe elle-même et ses accès reste réservé à l'admin. Toute
+- **Budgets — accès par enveloppe STRICTEMENT encadrés (visualisation vs gestion).** La **gouvernance
+  globale** (créer / supprimer une enveloppe, régler le budget total et **décider qui voit ou gère
+  chaque enveloppe**) est **exclusivement au Super Admin** (`canManageEnvelopes`). Les accès à une
+  enveloppe sont à **deux niveaux**, **par rôle ET par personne précise** : **Visualisation** (consulter
+  l'enveloppe et ses chiffres — `accessRoles` / `accessUserIds`) et **Gestion déléguée** (gérer le
+  contenu de CETTE enveloppe : catégories, allocations, dépenses budgétaires — `managerRoles` /
+  `managerUserIds`). Par défaut une enveloppe est **invisible** de tous **sauf du Super Admin**
+  (encadrement strict). ⚠️ **Correctif de fuite** : un droit large sur le *module* Budget
+  (`BUDGETS:DELETE`, présent dans le bundle `MANAGE` du rôle Finance/Budget et cochable dans la matrice
+  d'accès) **ne confère PLUS** la visibilité de toutes les enveloppes — il fallait auparavant y être
+  listé nommément ou par rôle, mais `canManageEnvelopes` retombait sur `BUDGETS:DELETE` et
+  court-circuitait les listes. La délégation est **désormais uniquement par enveloppe** (listes ci-dessus).
+  Un gestionnaire délégué gère le contenu **sans** pouvoir toucher au **montant**, à la **période** ni
+  aux **listes d'accès** — modifier l'enveloppe elle-même et ses accès reste réservé au Super Admin. Toute
   modification des accès est **journalisée** (audit). Helpers `canViewEnvelope` / `canManageEnvelope`
-  (`src/lib/rbac.ts`), enforcement dans `queries/budget.ts` + `budget-envelope-actions.ts`, éditeur
-  d'accès enrichi dans `budget-board.tsx` (migration `20260717130000_budget_envelope_managers`).
+  (`src/lib/rbac.ts`, régression verrouillée dans `rbac.test.ts`), enforcement dans `queries/budget.ts`
+  (y c. `getBudgetCategoryOptions(viewer)` sur la Paie) + `budget-envelope-actions.ts`, éditeur d'accès
+  dans `budget-board.tsx` (migration `20260717130000_budget_envelope_managers`).
 - **Business Development — Présentation stratégique PPTX générée par IA (Claude).** Sur une étude de
   marché, un panneau **« Présentations stratégiques (IA) »** permet de **générer une présentation
   PowerPoint (.pptx)** analysée par Claude : l'IA reçoit **tout le contexte** de l'étude (toutes les

@@ -25,7 +25,9 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
       orderBy: { fullName: "asc" },
     }),
     prisma.payrollEntry.findMany({ where: { year } }),
-    getBudgetCategoryOptions(),
+    // Options de catégories budgétaires RESTREINTES aux enveloppes ouvertes à ce compte
+    // (encadrement strict — pas de fuite des libellés d'enveloppes non partagées).
+    getBudgetCategoryOptions(undefined, user),
   ]);
 
   const byKey = new Map(entries.map((e) => [`${e.employeeId}:${e.month}`, e]));

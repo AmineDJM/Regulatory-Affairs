@@ -181,14 +181,23 @@ export function anyRoleFilter(roles: UserRole[]): Prisma.UserWhereInput {
 }
 
 /**
- * Gouvernance des **enveloppes budgétaires** : prérogative du Super Admin, qu'il
- * peut déléguer en accordant le droit `BUDGETS:DELETE` (le plus élevé du module)
- * à qui il souhaite via la matrice d'accès. La Direction des opérations, elle,
- * ne fait que **consulter** les enveloppes qui lui sont ouvertes — elle n'en a
- * pas la gestion (sauf délégation explicite).
+ * GOUVERNANCE GLOBALE des **enveloppes budgétaires** (créer / supprimer une enveloppe,
+ * régler le budget total et surtout DÉCIDER QUI voit ou gère chaque enveloppe) :
+ * **strictement le Super Admin**.
+ *
+ * On NE dérive PLUS ce pouvoir d'un droit de module. Auparavant `BUDGETS:DELETE`
+ * suffisait — or `DELETE` fait partie du bundle `MANAGE` (porté par le rôle
+ * Finance/Budget, et cochable dans la matrice d'accès quand l'admin ouvre le module) :
+ * quiconque « gérait » le module devenait de facto gouverneur et voyait / gérait
+ * TOUTES les enveloppes, court-circuitant les listes d'accès par enveloppe (fuite).
+ *
+ * La délégation se fait désormais **par enveloppe**, granulaire et stricte, via ses
+ * listes `managerRoles`/`managerUserIds` (gestion du contenu) et
+ * `accessRoles`/`accessUserIds` (consultation). Une personne non listée sur une
+ * enveloppe — quel que soit son droit sur le module Budget — ne la voit pas.
  */
 export function canManageEnvelopes(user: SessionUser): boolean {
-  return user.role === "SUPER_ADMIN" || userCan(user, "BUDGETS", "DELETE");
+  return user.role === "SUPER_ADMIN";
 }
 
 /** Listes d'accès d'une enveloppe (visualisation + gestion déléguée). Toutes optionnelles. */
