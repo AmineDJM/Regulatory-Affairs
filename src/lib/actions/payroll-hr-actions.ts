@@ -43,25 +43,29 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
   const existing = await prisma.payrollEntry.findUnique({ where: { employeeId_year_month: { employeeId, year, month } } });
   if (existing?.status === "PAID") return { ok: false, error: "Ce mois est déjà marqué payé pour cet employé." };
 
-  // Fiche de paie (obligatoire) → dossier RH de l'employé (visible par lui).
+  // Fiche de paie (FACULTATIVE) → si fournie, déposée dans le dossier RH de l'employé
+  // (visible par lui). Sinon le mois est marqué payé sans pièce jointe.
   const file = formData.get("payslip");
-  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Joignez la fiche de paie." };
-  const invalid = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
-  if (invalid) return { ok: false, error: invalid };
-  const { blobId } = await putBlob(Buffer.from(await file.arrayBuffer()));
-  const payslip = await prisma.employeeDocument.create({
-    data: {
-      employeeId, category: "PAYSLIP", name: file.name, blobId,
-      mime: file.type || "application/pdf", size: file.size,
-      period: ym(year, month), visibleToEmployee: true, uploadedById: user.id,
-    },
-    select: { id: true },
-  });
+  let payslipDocumentId: string | null = null;
+  if (file instanceof File && file.size > 0) {
+    const invalid = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
+    if (invalid) return { ok: false, error: invalid };
+    const { blobId } = await putBlob(Buffer.from(await file.arrayBuffer()));
+    const payslip = await prisma.employeeDocument.create({
+      data: {
+        employeeId, category: "PAYSLIP", name: file.name, blobId,
+        mime: file.type || "application/pdf", size: file.size,
+        period: ym(year, month), visibleToEmployee: true, uploadedById: user.id,
+      },
+      select: { id: true },
+    });
+    payslipDocumentId = payslip.id;
+  }
 
   const now = new Date();
   const data = {
     net: amount, status: "PAID" as const, paidDate: now,
-    payslipDocumentId: payslip.id,
+    payslipDocumentId,
     employeeNotifyAt: new Date(now.getTime() + NOTIFY_DELAY_MS),
     employeeNotifiedAt: null,
     createdById: existing ? undefined : user.id,

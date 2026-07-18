@@ -124,7 +124,7 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
         open={paying !== null}
         onClose={() => !busy && setPaying(null)}
         title={paying ? `Payer — ${paying.row.name}` : ""}
-        description={paying ? `${formatMonth(ym(year, paying.month))} · la fiche de paie sera déposée dans son dossier RH ; il sera notifié dans 24 h.` : undefined}
+        description={paying ? `${formatMonth(ym(year, paying.month))} · la fiche de paie (facultative), si jointe, sera déposée dans son dossier RH ; il sera notifié dans 24 h.` : undefined}
         width="md"
       >
         {paying && (
@@ -146,8 +146,9 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
               <p className="text-xs text-muted-foreground">Pré-rempli avec le « Net à payer » de la fiche employé — modifiable.</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="pay-file">Fiche de paie <span className="text-destructive">*</span></Label>
-              <input id="pay-file" name="payslip" type="file" required className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
+              <Label htmlFor="pay-file">Fiche de paie <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
+              <input id="pay-file" name="payslip" type="file" className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
+              <p className="text-xs text-muted-foreground">Optionnel — vous pouvez marquer payé sans joindre la fiche.</p>
             </div>
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
             <div className="flex justify-end gap-2">
