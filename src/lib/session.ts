@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { prisma } from "./prisma";
 import { getAccess, userCan, type Action, type EffectiveAccess, type Module } from "./rbac";
 import { firstAccessibleHref } from "./labels";
+import { shouldTouch } from "./touch-throttle";
 
 /** Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. */
 export const IMPERSONATE_COOKIE = "amd_impersonate";
@@ -36,9 +37,13 @@ async function build(session: Session | null): Promise<CurrentUser | null> {
       select: { revokedAt: true, expiresAt: true },
     });
     if (!us || us.revokedAt || us.expiresAt < new Date()) return null;
-    prisma.userSession
-      .update({ where: { id: sid }, data: { lastSeenAt: new Date() } })
-      .catch(() => undefined);
+    // `lastSeenAt` = « dernier clic » : granularité à la minute suffit. On throttle donc
+    // l'UPDATE (au plus 1×/min par session) au lieu d'écrire à CHAQUE requête (WAL/disque).
+    if (shouldTouch(`sess:${sid}`, 60_000)) {
+      prisma.userSession
+        .update({ where: { id: sid }, data: { lastSeenAt: new Date() } })
+        .catch(() => undefined);
+    }
   }
 
   // « Vue exacte » : un Super Admin peut visualiser l'OS exactement comme un autre

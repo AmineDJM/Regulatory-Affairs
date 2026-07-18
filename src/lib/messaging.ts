@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import type { ConversationMember, Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
+import { shouldTouch } from "./touch-throttle";
 
 /**
  * Cœur de la messagerie interne — règles d'accès & présence.
@@ -112,8 +113,11 @@ export function verifyBlob(blobId: string, sig: string): boolean {
   }
 }
 
-/** Met à jour la présence (best-effort, ne casse jamais l'appel parent). */
+/** Met à jour la présence (best-effort, ne casse jamais l'appel parent). Throttlé à ≈ 1×/min
+ *  par utilisateur : le polling messagerie appelle cette fonction toutes les ~6 s — inutile de
+ *  réécrire `lastSeenAt` aussi souvent (réduction drastique des écritures disque). */
 export async function touchPresence(userId: string): Promise<void> {
+  if (!shouldTouch(`pres:${userId}`, 45_000)) return;
   await prisma.user
     .update({ where: { id: userId }, data: { lastSeenAt: new Date() } })
     .catch(() => undefined);
