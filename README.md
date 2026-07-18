@@ -1101,6 +1101,19 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Lot « supervision & durcissement » (budget, paie, réunions, Regulatory, organigramme, annuaire).**
+  ① **Budget — accès enveloppe STRICT** : la gouvernance globale (voir/gérer toutes les enveloppes) n'est
+  plus conférée par un simple droit de module (`BUDGETS:DELETE` du bundle `MANAGE`) — seul le Super Admin ;
+  sinon, strictement les listes d'accès par enveloppe (fuite corrigée, régression verrouillée). ② **Paie** :
+  la fiche de paie devient **facultative** comme fichier. ③ **Réunions & appels** : onglet **« Passées »** —
+  une réunion planifiée dont l'heure est dépassée quitte le listing actif (mais reste au Calendrier).
+  ④ **Regulatory — supervision** : bascule *Nouveau→En cours* dès l'**étape 3 de la préparation** (« Demande
+  du BV 25 % » de présoumission) faite ; **priorités colorées** ; **date cible de dépôt** + d'enregistrement ;
+  **rôles superviseurs configurables** en Administration (Super Admin toujours inclus) — eux seuls priorisent/datent,
+  sont notifiés (nouveau dossier / dépôt) et **demandent des MàJ de statut**. ⑤ **Administration — Organigramme** :
+  arbre hiérarchique **éditable** branché sur RH (`Employee.managerId`), rattachement (N+1) + poste modifiables,
+  garde anti-boucle. ⑥ **Annuaire médecins & pharmaciens** : filtre **Médecins / Pharmaciens** sur l'annuaire médical
+  (le pharmacien = grade « Pharmacien »).
 - **Fix accès (RBAC) : un « accès personnalisé » ne rétrécit plus la portée native d'un rôle.** Bug observé :
   un **National Sales** ne voyait « des fois » **pas** les demandes de **congrès internationaux à pré-valider**.
   Cause : dès qu'un compte recevait un **override** d'accès (matrice « façon Google Drive »), celui-ci **remplaçait**

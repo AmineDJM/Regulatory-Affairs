@@ -58,10 +58,23 @@ export function MedicalDirectory({ groups, specialties, institutions, delegates,
   const isOpen = (key: string) => open[key] ?? true; // ouvert par défaut
   const toggle = (key: string) => setOpen((o) => ({ ...o, [key]: !isOpen(key) }));
 
+  // Annuaire médecins / pharmaciens : le pharmacien = praticien dont le grade est « Pharmacien ».
+  const [ptype, setPtype] = React.useState<"all" | "med" | "pharm">("all");
+  const isPharm = (t: string) => t === "PHARMACIEN";
+  const matchesType = (d: { title: string }) => ptype === "all" || (ptype === "pharm" ? isPharm(d.title) : !isPharm(d.title));
+
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Annuaire par spécialité</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Annuaire médecins &amp; pharmaciens</h2>
+          <div className="flex gap-1">
+            {([["all", "Tous"], ["med", "Médecins"], ["pharm", "Pharmaciens"]] as const).map(([v, l]) => (
+              <button key={v} type="button" onClick={() => setPtype(v)}
+                className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${ptype === v ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}>{l}</button>
+            ))}
+          </div>
+        </div>
         <div className="flex gap-2">
           {canManageSpecialties && (
             <Button variant="outline" size="sm" onClick={() => setSpecSheet(true)}><Tags className="h-4 w-4" /> Spécialités</Button>
@@ -84,14 +97,16 @@ export function MedicalDirectory({ groups, specialties, institutions, delegates,
         <div className="space-y-2.5">
           {groups.map((g) => {
             const key = g.id ?? "none";
-            const bySector = SECTOR_ORDER.map((s) => ({ sector: s, doctors: g.doctors.filter((d) => d.sector === s) })).filter((b) => b.doctors.length > 0);
+            const gd = g.doctors.filter(matchesType);
+            if (gd.length === 0) return null; // masqué par le filtre médecins / pharmaciens
+            const bySector = SECTOR_ORDER.map((s) => ({ sector: s, doctors: gd.filter((d) => d.sector === s) })).filter((b) => b.doctors.length > 0);
             return (
               <div key={key} className="surface overflow-hidden">
                 <button onClick={() => toggle(key)} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-secondary/40">
                   {isOpen(key) ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
                   <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: g.color ?? "#64748b" }} />
                   <span className="font-semibold">{g.name}</span>
-                  <span className="text-xs text-muted-foreground">{g.count} médecin{g.count > 1 ? "s" : ""}</span>
+                  <span className="text-xs text-muted-foreground">{gd.length} {ptype === "pharm" ? "pharmacien" : "praticien"}{gd.length > 1 ? "s" : ""}</span>
                   {g.kol > 0 && <Badge tone="purple" dot={false} className="gap-1"><Star className="h-3 w-3" /> {g.kol} KOL</Badge>}
                 </button>
 
