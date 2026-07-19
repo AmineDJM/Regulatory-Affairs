@@ -50,9 +50,14 @@ suite("Visibilité des demandes de validation", () => {
       },
     });
     requestId = req.id;
+    // Une pièce jointe à la demande : TOUT validateur assigné doit la voir sur place.
+    await prisma.document.create({
+      data: { name: `${TAG}piece.pdf`, category: "OTHER", entityType: "VALIDATION_REQUEST", entityId: requestId, fileKey: `${TAG}/k`, confidentiality: "INTERNAL", uploadedById: ids.requester },
+    });
   });
 
   afterAll(async () => {
+    await prisma.document.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.validationRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   });
@@ -70,6 +75,13 @@ suite("Visibilité des demandes de validation", () => {
     // Cœur du correctif : auparavant cette étape était filtrée → invisible pour v2.
     expect(mine).toBeDefined();
     expect(mine!.actionable).toBe(false);
+  });
+
+  it("les DEUX validateurs voient la pièce jointe à la demande (aperçu sur place)", async () => {
+    for (const id of [ids.v1, ids.v2]) {
+      const mine = (await getPendingValidations(id)).find((i) => i.requestId === requestId);
+      expect(mine!.documents.some((doc) => doc.name === `${TAG}piece.pdf`)).toBe(true);
+    }
   });
 
   it("la Direction (vue globale) SUPERVISE la demande sans y être partie", async () => {

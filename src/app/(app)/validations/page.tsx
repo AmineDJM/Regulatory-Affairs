@@ -3,7 +3,7 @@ import { ExternalLink } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { accessibleModules } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getMyValidations } from "@/lib/queries/validations";
+import { getMyValidations, type PendingValidationItem } from "@/lib/queries/validations";
 import { createValidationRequest } from "@/lib/actions/validation-actions";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -82,47 +82,7 @@ export default async function ValidationsPage() {
           <EmptyState icon="CheckCheck" title="Aucune validation en attente" description="Les éléments qui requièrent votre validation apparaîtront ici." />
         ) : (
           <div className="space-y-3">
-            {actionable.map((v) => {
-              const d = v.deadline ? daysUntil(v.deadline) : null;
-              return (
-                <Card key={v.stepId}>
-                  <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0 space-y-1.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-xs text-muted-foreground">{v.reference}</span>
-                        <Badge tone="neutral" dot={false}>{v.module}</Badge>
-                        {v.objectType && <Badge tone="neutral" dot={false}>{v.objectType}</Badge>}
-                        <StatusBadge map={PRIORITY} value={v.priority} dot={false} />
-                        {v.amount !== null && <span className="text-sm font-semibold">{formatCurrency(v.amount)}</span>}
-                      </div>
-                      <p className="font-medium">{v.title}</p>
-                      {v.description && <p className="text-sm text-muted-foreground">{v.description}</p>}
-                      <p className="text-xs text-muted-foreground">
-                        Demandé par {v.requester || "—"} · {formatDateTime(v.createdAt)}
-                        {v.deadline ? ` · échéance ${formatDate(v.deadline)}${d !== null && d < 0 ? " (en retard)" : ""}` : ""}
-                      </p>
-                      {v.link && (
-                        <Link href={v.link} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                          <ExternalLink className="h-3.5 w-3.5" /> Ouvrir l'élément
-                        </Link>
-                      )}
-                      {v.documents.length > 0 && (
-                        <div className="mt-1 rounded-lg border border-border/60 bg-secondary/30 p-2">
-                          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                            Pièces à valider ({v.documents.length})
-                          </p>
-                          {/* Aperçu SUR PLACE (lecture seule) : le validateur voit l'original sans changer de module. */}
-                          <DocumentList documents={v.documents} />
-                        </div>
-                      )}
-                    </div>
-                    <div className="shrink-0">
-                      <ValidationDecision stepId={v.stepId} />
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {actionable.map((v) => <PendingValidationCard key={v.stepId} v={v} actionable />)}
           </div>
         )}
       </section>
@@ -130,24 +90,9 @@ export default async function ValidationsPage() {
       {upcoming.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Qui vous reviendront — en attente du validateur précédent ({upcoming.length})</h2>
-          <div className="space-y-2">
-            {upcoming.map((v) => (
-              <Card key={v.stepId}>
-                <CardContent className="flex flex-col gap-1 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs text-muted-foreground">{v.reference}</span>
-                      <Badge tone="neutral" dot={false}>{v.module}</Badge>
-                      <StatusBadge map={PRIORITY} value={v.priority} dot={false} />
-                      {v.amount !== null && <span className="text-sm font-semibold">{formatCurrency(v.amount)}</span>}
-                    </div>
-                    <p className="truncate font-medium">{v.title}</p>
-                    <p className="text-xs text-muted-foreground">Demandé par {v.requester || "—"} · {formatDateTime(v.createdAt)}</p>
-                  </div>
-                  <Badge tone="warning" dot={false}>En attente de votre tour</Badge>
-                </CardContent>
-              </Card>
-            ))}
+          <p className="text-xs text-muted-foreground">Vous êtes validateur de ces demandes : consultez-les et leurs pièces dès maintenant ; vous pourrez décider quand ce sera votre tour.</p>
+          <div className="space-y-3">
+            {upcoming.map((v) => <PendingValidationCard key={v.stepId} v={v} actionable={false} />)}
           </div>
         </section>
       )}
@@ -259,5 +204,59 @@ export default async function ValidationsPage() {
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * Carte d'une demande qui M'EST assignée comme validateur. Le validateur y a un ACCÈS
+ * COMPLET à la demande : contexte, échéance, lien vers l'objet, et surtout les PIÈCES
+ * (aperçu sur place, lecture seule). Quand c'est son tour (`actionable`), le panneau de
+ * décision permet de VALIDER / demander une MODIFICATION / REFUSER — avec un commentaire
+ * optionnel dans les trois cas. Sinon (circuit séquentiel, pas encore son tour), il
+ * consulte déjà tout mais un badge indique qu'il décidera le moment venu.
+ */
+function PendingValidationCard({ v, actionable }: { v: PendingValidationItem; actionable: boolean }) {
+  const d = v.deadline ? daysUntil(v.deadline) : null;
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs text-muted-foreground">{v.reference}</span>
+            <Badge tone="neutral" dot={false}>{v.module}</Badge>
+            {v.objectType && <Badge tone="neutral" dot={false}>{v.objectType}</Badge>}
+            <StatusBadge map={PRIORITY} value={v.priority} dot={false} />
+            {v.amount !== null && <span className="text-sm font-semibold">{formatCurrency(v.amount)}</span>}
+          </div>
+          <p className="font-medium">{v.title}</p>
+          {v.description && <p className="text-sm text-muted-foreground">{v.description}</p>}
+          <p className="text-xs text-muted-foreground">
+            Demandé par {v.requester || "—"} · {formatDateTime(v.createdAt)}
+            {v.deadline ? ` · échéance ${formatDate(v.deadline)}${d !== null && d < 0 ? " (en retard)" : ""}` : ""}
+          </p>
+          {v.link && (
+            <Link href={v.link} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+              <ExternalLink className="h-3.5 w-3.5" /> Ouvrir l&apos;élément
+            </Link>
+          )}
+          {v.documents.length > 0 && (
+            <div className="mt-1 rounded-lg border border-border/60 bg-secondary/30 p-2">
+              <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Pièces à valider ({v.documents.length})
+              </p>
+              {/* Aperçu SUR PLACE (lecture seule) : le validateur voit l'original sans changer de module. */}
+              <DocumentList documents={v.documents} />
+            </div>
+          )}
+        </div>
+        <div className="shrink-0">
+          {actionable ? (
+            <ValidationDecision stepId={v.stepId} />
+          ) : (
+            <Badge tone="warning" dot={false}>En attente de votre tour</Badge>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
