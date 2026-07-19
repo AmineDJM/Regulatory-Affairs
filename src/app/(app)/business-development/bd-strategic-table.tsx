@@ -254,7 +254,7 @@ export function BdStrategicTable({
                             <Td width={W_ACT}>
                               {canUpdate && (
                                 <div className="flex items-center justify-end gap-1">
-                                  <button onClick={() => setAddProductFor(addProductFor === r.id ? null : r.id)} className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Ajouter un produit"><Plus className="h-4 w-4" /></button>
+                                  <button onClick={() => { if (addProductFor === r.id) { setAddProductFor(null); } else { setAddProductFor(r.id); setOpenRanges((s) => { const n = new Set(s); n.add(r.id); return n; }); } }} className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Ajouter un produit"><Plus className="h-4 w-4" /></button>
                                   {canDelete && <DeleteBtn title="Supprimer cette gamme et ses produits ?" onConfirm={() => submit(() => deleteBdRange(fd({ id: r.id })))} />}
                                 </div>
                               )}
