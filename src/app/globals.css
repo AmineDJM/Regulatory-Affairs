@@ -96,6 +96,18 @@
       touch-action: manipulation;
     }
   }
+  /* iPhone/iOS : Safari ZOOME automatiquement quand on met le focus dans un champ dont
+     la police fait moins de 16px — très désagréable sur mobile (la page saute). On force
+     donc 16px sur les champs natifs des PETITS écrans (téléphones) : plus de zoom parasite
+     et meilleure lisibilité de la saisie. N'affecte ni les cases/boutons radio, ni le
+     rendu tablette/ordinateur. */
+  @media (max-width: 767px) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
   /* Refined scrollbars for the data-dense ERP feel */
   ::-webkit-scrollbar {
     width: 10px;
