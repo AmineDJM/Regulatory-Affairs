@@ -13,13 +13,25 @@ export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (user.mustChangePassword) return NextResponse.json({ error: "Mot de passe à changer." }, { status: 403 });
-  if (!userCan(user, "DRIVE", "UPLOAD")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
 
   const form = await req.formData();
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "Fichier manquant." }, { status: 400 });
   const parentId = (form.get("parentId") as string) || null;
   const nodeId = (form.get("nodeId") as string) || null;
+
+  // Autorisation d'écriture. Un accès **ÉDITEUR** explicite (partage) sur la cible SUFFIT,
+  // même si le rôle de la personne n'a pas le droit module « Téléverser » :
+  //  - nouvelle version d'un fichier → éditeur sur CE fichier ;
+  //  - nouveau fichier dans un dossier → éditeur sur CE dossier ;
+  //  - nouveau fichier à la racine (espace perso) → droit module « Téléverser ».
+  if (nodeId) {
+    if ((await resolveDriveAccess(user, nodeId)) !== "EDIT") return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+  } else if (parentId) {
+    if ((await resolveDriveAccess(user, parentId)) !== "EDIT") return NextResponse.json({ error: "Dossier non autorisé." }, { status: 403 });
+  } else if (!userCan(user, "DRIVE", "UPLOAD")) {
+    return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+  }
 
   const settings = await getAppSettings();
   const err = validateDriveUpload(file.name, file.size, settings.maxDriveUploadMb);
@@ -37,13 +49,6 @@ export async function POST(req: NextRequest) {
   }
   if ((physical._sum.size ?? 0) + file.size > settings.driveCapacityGb * GB) {
     return NextResponse.json({ error: "Capacité globale du Drive atteinte. Contactez le Super Admin." }, { status: 400 });
-  }
-
-  // Editability: a new version requires EDIT on the node; a new file requires EDIT on its parent.
-  if (nodeId) {
-    if ((await resolveDriveAccess(user, nodeId)) !== "EDIT") return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-  } else if (parentId) {
-    if ((await resolveDriveAccess(user, parentId)) !== "EDIT") return NextResponse.json({ error: "Dossier non autorisé." }, { status: 403 });
   }
 
   const buf = Buffer.from(await file.arrayBuffer());

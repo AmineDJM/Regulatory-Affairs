@@ -38,11 +38,16 @@ export async function createFolder(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "DRIVE", "CREATE")) return DENIED;
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Nom du dossier requis." };
   const parentId = fdStr(formData, "parentId");
-  if (parentId && (await resolveDriveAccess(user, parentId)) !== "EDIT") return DENIED;
+  // Un accès ÉDITEUR sur le dossier parent (partage) suffit à y créer un sous-dossier,
+  // même sans le droit module « Créer » ; à la racine (espace perso), ce droit est requis.
+  if (parentId) {
+    if ((await resolveDriveAccess(user, parentId)) !== "EDIT") return DENIED;
+  } else if (!userCan(user, "DRIVE", "CREATE")) {
+    return DENIED;
+  }
 
   const node = await prisma.driveNode.create({
     data: { name, type: "FOLDER", parentId: parentId ?? null, ownerId: user.id, createdById: user.id },
@@ -64,8 +69,12 @@ export async function ensureDriveFolders(
   paths: string[],
 ): Promise<{ ok: boolean; error?: string; map?: Record<string, string> }> {
   const user = await requireUser();
-  if (!userCan(user, "DRIVE", "CREATE")) return { ok: false, error: "Non autorisé." };
-  if (parentId && (await resolveDriveAccess(user, parentId)) !== "EDIT") return { ok: false, error: "Dossier de destination non autorisé." };
+  // Éditeur sur le dossier de destination (partage) suffit ; sinon droit module « Créer ».
+  if (parentId) {
+    if ((await resolveDriveAccess(user, parentId)) !== "EDIT") return { ok: false, error: "Dossier de destination non autorisé." };
+  } else if (!userCan(user, "DRIVE", "CREATE")) {
+    return { ok: false, error: "Non autorisé." };
+  }
 
   const map: Record<string, string> = {};
   for (const raw of paths) {
@@ -238,11 +247,15 @@ export async function unshareNode(formData: FormData): Promise<ActionResult> {
  */
 export async function createOfficeNode(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "DRIVE", "CREATE")) return DENIED;
   const kind = fdStr(formData, "kind");
   if (!kind || !isOfficeKind(kind)) return { ok: false, error: "Type de document invalide." };
   const parentId = fdStr(formData, "parentId");
-  if (parentId && (await resolveDriveAccess(user, parentId)) !== "EDIT") return DENIED;
+  // Éditeur sur le dossier de destination (partage) suffit ; sinon droit module « Créer ».
+  if (parentId) {
+    if ((await resolveDriveAccess(user, parentId)) !== "EDIT") return DENIED;
+  } else if (!userCan(user, "DRIVE", "CREATE")) {
+    return DENIED;
+  }
 
   const { data, ext, mime } = blankOffice(kind);
   const base = (fdStr(formData, "name") ?? "Document").replace(/\.(docx|xlsx|pptx)$/i, "").trim() || "Document";

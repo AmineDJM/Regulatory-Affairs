@@ -1232,6 +1232,20 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   + `scopeDossiers` / `getDriveListing` / `resolveDriveAccess` ; régression verrouillée dans
   `queries/drive-dossiers-scope.test.ts`. La délégation fine reste possible **par partage explicite**
   (Drive : lecteurs/éditeurs par fichier ; Projets : responsable/participants).
+- **Drive — l'accès ÉDITEUR donne un vrai pouvoir d'écriture + commentaires par document.**
+  **(1) Éditeur = écriture complète.** Ajouter quelqu'un en **« Éditeur »** sur un dossier ou un fichier
+  lui permet désormais de **modifier, supprimer, renommer, déplacer ET téléverser / créer** dans l'élément
+  partagé — même si le **rôle** de la personne n'a pas le droit module « Téléverser » / « Créer ». Un accès
+  ÉDITEUR explicite (`DriveShare.access = EDIT`, hérité en descendant l'arbre) **suffit** : les actions
+  d'écriture (`renameNode` / `moveNode` / `trashNode` / `deleteNode`, édition OnlyOffice, route
+  `/api/drive/upload`, `createFolder` / `createOfficeNode` / `ensureDriveFolders`) s'appuient sur
+  `resolveDriveAccess(...) === "EDIT"` ; le droit **module** n'est requis que pour créer/téléverser **à la
+  racine** (espace perso). La page d'un document offre aussi **Renommer / Corbeille** aux éditeurs
+  (`file-actions.tsx`). **(2) Commentaires par document.** Chaque fichier a son **fil de commentaires**
+  (`DriveComment`, migration `20260719140000_drive_comments`) — utile pour tracer le **motif d'une
+  modification**. Toute personne **ayant accès** au document peut commenter ; l'auteur (ou un éditeur /
+  Super Admin) peut supprimer ; le **propriétaire est notifié**. UI `DriveComments` sur `/drive/[id]`,
+  actions `drive-comment-actions.ts` (`postDriveComment` / `deleteDriveComment`).
 - **Business Development — Présentation stratégique PPTX générée par IA (Claude).** Sur une étude de
   marché, un panneau **« Présentations stratégiques (IA) »** permet de **générer une présentation
   PowerPoint (.pptx)** analysée par Claude : l'IA reçoit **tout le contexte** de l'étude (toutes les

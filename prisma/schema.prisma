@@ -658,6 +658,7 @@ model User {
   expenseOrders    ExpenseOrder[]  @relation("ExpenseOrderRequester")
   driveNodes       DriveNode[]     @relation("DriveOwner")
   driveShares      DriveShare[]    @relation("DriveShareUser")
+  driveComments    DriveComment[]  @relation("DriveCommentAuthor")
 
   // Demandes administratives
   adminRequests           AdministrativeRequest[] @relation("ReqRequester")
@@ -2488,6 +2489,7 @@ model DriveNode {
   isTrashed   Boolean       @default(false)
   versions    FileVersion[]
   shares      DriveShare[]
+  comments    DriveComment[]
   createdById String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -2553,6 +2555,21 @@ model DriveShare {
 
   @@unique([nodeId, userId])
   @@index([userId])
+}
+
+/// Commentaire sur un nœud du Drive (fichier ou dossier) : fil de discussion PAR document,
+/// utile notamment quand quelqu'un modifie un document (contexte, motif du changement…).
+/// Chaque document a ses propres commentaires ; visible/écrit par qui a accès au nœud.
+model DriveComment {
+  id        String    @id @default(cuid())
+  nodeId    String
+  node      DriveNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?     @relation("DriveCommentAuthor", fields: [authorId], references: [id])
+  body      String
+  createdAt DateTime  @default(now())
+
+  @@index([nodeId])
 }
 
 // ───────────────────── Centre de demandes administratives ─────────────────────

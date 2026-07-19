@@ -16,6 +16,8 @@ import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { formatDateTime } from "@/lib/utils";
 import { FileViewer } from "./file-viewer";
 import { SharePanel, type ShareItem } from "./share-panel";
+import { DriveComments, type DriveCommentItem } from "./drive-comments";
+import { FileActions } from "./file-actions";
 import { UploadButton } from "../upload-button";
 
 function humanSize(n: number): string {
@@ -39,10 +41,19 @@ export default async function DriveFilePage({ params }: { params: { id: string }
       owner: { select: { name: true } },
       shares: { include: { user: { select: { id: true, name: true } } } },
       versions: { orderBy: { version: "desc" }, take: 20 },
+      comments: { orderBy: { createdAt: "asc" }, include: { author: { select: { name: true } } } },
     },
   });
   if (!node) notFound();
   if (node.type === "FOLDER") redirect(`/drive?folder=${node.id}`);
+
+  const commentItems: DriveCommentItem[] = node.comments.map((c) => ({
+    id: c.id,
+    author: c.author?.name ?? "—",
+    body: c.body,
+    createdLabel: formatDateTime(c.createdAt),
+    canDelete: c.authorId === user.id || canEdit,
+  }));
 
   const [fieldDefs, users] = await Promise.all([
     getFieldDefs("DRIVE_NODE"),
@@ -80,12 +91,19 @@ export default async function DriveFilePage({ params }: { params: { id: string }
           <a href={`/api/drive/${node.id}/raw?dl=1`}>
             <Button variant="outline"><Download className="h-4 w-4" /> Télécharger</Button>
           </a>
+          {canEdit && <FileActions id={node.id} name={node.name} parentHref={node.parentId ? `/drive?folder=${node.parentId}` : "/drive"} />}
         </div>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="space-y-5 lg:col-span-2">
           <FileViewer id={node.id} name={node.name} kind={kind} />
+          <Card>
+            <CardHeader><CardTitle>Commentaires</CardTitle></CardHeader>
+            <CardContent>
+              <DriveComments nodeId={node.id} comments={commentItems} />
+            </CardContent>
+          </Card>
         </div>
 
         <div className="space-y-5">
