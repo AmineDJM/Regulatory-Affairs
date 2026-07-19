@@ -374,6 +374,11 @@ export const getAccess = perRequest(
 
     for (const module of MODULES) {
       const ov = overrideMap.get(module);
+      // Override « BLOQUÉ » (ligne présente, canView=false) : **absolu**. Il retire le
+      // module quoi qu'il arrive — y compris par-dessus un défaut de rôle PRINCIPAL **ou
+      // SECONDAIRE**. C'est ce qui rend l'action de l'admin (« bloquer X à Untel »)
+      // réellement effective en temps réel, même si son « autre rôle » l'accorde.
+      const blocked = !!ov && !ov.canView;
       const actions = new Set<Action>();
       let scope: AccessScope = "ASSIGNED";
       let hasView = false;
@@ -412,14 +417,16 @@ export const getAccess = perRequest(
       // de la règle du rôle secondaire ci-dessous.
       if (ov?.canView && defaultScope(role, module) === "ALL") scope = "ALL";
 
-      // Rôle SECONDAIRE : ses capacités se cumulent TOUJOURS (union des actions,
-      // portée la plus large) — y compris par-dessus un override : un ancien réglage
-      // « accès personnalisé » ne doit pas neutraliser silencieusement l'« autre
-      // rôle » attribué ensuite dans le tableau des rôles (ex. un National Sales en
-      // rôle secondaire doit voir TOUTES les demandes de congrès à pré-valider).
-      if (secondaryRole && secondaryRole !== role) addRoleDefaults(secondaryRole);
+      // Rôle SECONDAIRE : ses capacités se cumulent (union des actions, portée la plus
+      // large) — SAUF si l'admin a explicitement **BLOQUÉ** ce module pour ce compte :
+      // un blocage prime sur l'« autre rôle » (sinon on ne pourrait jamais retirer un
+      // module à quelqu'un qui le détient via son rôle secondaire). Hors blocage, un
+      // ancien réglage « accès personnalisé » ne doit pas neutraliser silencieusement
+      // l'« autre rôle » attribué ensuite (ex. un National Sales en secondaire doit voir
+      // TOUTES les demandes de congrès à pré-valider).
+      if (!blocked && secondaryRole && secondaryRole !== role) addRoleDefaults(secondaryRole);
 
-      if (hasView) modules.set(module, { actions, scope });
+      if (hasView && !blocked) modules.set(module, { actions, scope });
     }
 
     // ── Confidentialité STRICTE du Drive et des Projets (Dossiers) ──────────────
