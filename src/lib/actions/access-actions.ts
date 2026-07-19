@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/session";
 import { userCan, MODULES, type Module } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { clearAttempts } from "@/lib/login-throttle";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 /** Only a Super Admin (ADMIN/UPDATE) may manage accounts & access. */
@@ -144,14 +145,38 @@ export async function adminResetPassword(formData: FormData): Promise<ActionResu
   if (!userId || !password || password.length < 8) {
     return { ok: false, error: "Mot de passe trop court (min. 8)." };
   }
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  if (!target) return { ok: false, error: "Utilisateur introuvable." };
+
   const force = formData.get("mustChange") === "on";
-  await prisma.user.update({
-    where: { id: userId },
-    data: { passwordHash: await bcrypt.hash(password, 10), mustChangePassword: force },
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  // Applique le nouveau mot de passe à TOUTES les lignes portant cet e-mail
+  // (insensible à la casse). La connexion résout le compte par e-mail insensible
+  // à la casse (`findFirst … orderBy createdAt asc`) alors que la contrainte SQL
+  // `@unique` est, elle, sensible à la casse : d'anciennes données peuvent donc
+  // contenir des variantes (« Amine@x.dz » et « amine@x.dz »). Ne mettre à jour
+  // que la ligne cliquée laisserait parfois la connexion authentifier une AUTRE
+  // ligne avec l'ANCIEN mot de passe → la réinitialisation « ne changeait rien ».
+  const targets = await prisma.user.findMany({
+    where: { email: { equals: target.email, mode: "insensitive" } },
+    select: { id: true },
   });
-  // Invalidate existing sessions so the new password takes effect everywhere.
+  const ids = targets.map((u) => u.id);
+
+  await prisma.user.updateMany({
+    where: { id: { in: ids } },
+    data: { passwordHash, mustChangePassword: force },
+  });
+  // Lève tout verrouillage anti-bruteforce en cours pour cet e-mail : un compte
+  // verrouillé (trop d'échecs) doit pouvoir se reconnecter IMMÉDIATEMENT avec le
+  // nouveau mot de passe, sans attendre l'expiration du verrou. (La clé de verrou
+  // est l'e-mail en minuscules, cf. auth.ts.)
+  await clearAttempts(target.email.toLowerCase());
+  // Invalide les sessions existantes de toutes ces lignes pour que le nouveau mot
+  // de passe s'applique partout (déconnexion immédiate des sessions actives).
   await prisma.userSession.updateMany({
-    where: { userId, revokedAt: null }, data: { revokedAt: new Date() },
+    where: { userId: { in: ids }, revokedAt: null }, data: { revokedAt: new Date() },
   });
   await recordAudit({
     actorId: admin.id, action: "UPDATE", module: "Administration", entityId: userId,
