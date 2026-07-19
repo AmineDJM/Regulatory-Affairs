@@ -440,6 +440,29 @@ export const getAccess = perRequest(
       }
     }
 
+    // ── Accès IMPLICITE au module Budget quand une enveloppe est PARTAGÉE avec ce compte ──
+    // Partager une enveloppe (par personne OU par rôle, en visualisation ou en gestion) doit
+    // suffire à ce que le destinataire puisse OUVRIR le module Budget et l'y voir — même si son
+    // rôle n'a AUCUN accès Budget par défaut (sinon la porte `requireModule("BUDGETS")` le
+    // redirige et l'enveloppe partagée reste invisible). On n'accorde qu'une LECTURE ; le
+    // filtrage fin (quelles enveloppes) reste assuré par `canViewEnvelope` dans les requêtes.
+    if (!modules.has("BUDGETS")) {
+      const roles = [role, secondaryRole].filter(Boolean) as string[];
+      const shared = await prisma.budgetEnvelope
+        .findFirst({
+          where: {
+            OR: [
+              { accessUserIds: { has: userId } },
+              { managerUserIds: { has: userId } },
+              ...(roles.length ? [{ accessRoles: { hasSome: roles } }, { managerRoles: { hasSome: roles } }] : []),
+            ],
+          },
+          select: { id: true },
+        })
+        .catch(() => null);
+      if (shared) modules.set("BUDGETS", { actions: new Set<Action>(["VIEW", "EXPORT"]), scope: "ASSIGNED" });
+    }
+
     return { modules, rowGrants, secondaryRole };
   },
 );

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getBudgetCategoryOptions } from "@/lib/queries/budget";
-import type { SessionUser } from "@/lib/rbac";
+import { getAccess, type SessionUser } from "@/lib/rbac";
 
 /**
  * Options de (sous-)catégories budgétaires à la validation : RESTREINTES aux enveloppes
@@ -56,5 +56,34 @@ suite("getBudgetCategoryOptions — restreint aux enveloppes accessibles", () =>
   it("sans viewer (contexte serveur) → non filtré (rétrocompatible)", async () => {
     const opts = await getBudgetCategoryOptions();
     expect(mine(opts).some((o) => o.label.includes("Promotion"))).toBe(true);
+  });
+});
+
+/**
+ * Régression : PARTAGER une enveloppe avec un compte dont le rôle n'a AUCUN accès Budget
+ * doit lui ouvrir la LECTURE du module (sinon la porte `requireModule("BUDGETS")` le
+ * redirige et l'enveloppe partagée reste invisible « chez lui »).
+ */
+suite("partage d'enveloppe → accès implicite au module Budget", () => {
+  const TAG2 = `__budshare__${Date.now()}`;
+  beforeAll(async () => {
+    await prisma.budgetEnvelope.create({
+      data: {
+        name: TAG2, modules: [], accessRoles: ["MEDICAL_DELEGATE"], accessUserIds: ["shared-user-x"],
+        periodStart: new Date("2026-01-01"), periodEnd: new Date("2026-12-31"), totalAmount: 0,
+      },
+    });
+  });
+  afterAll(async () => { await prisma.budgetEnvelope.deleteMany({ where: { name: TAG2 } }).catch(() => {}); });
+
+  it("un compte partagé NOMMÉMENT obtient la lecture du module Budget", async () => {
+    const acc = await getAccess("shared-user-x", "SALES_USER"); // SALES_USER n'a pas Budget par défaut
+    expect(acc.modules.has("BUDGETS")).toBe(true);
+    expect(acc.modules.get("BUDGETS")?.actions.has("VIEW")).toBe(true);
+  });
+
+  it("un compte partagé PAR RÔLE obtient la lecture du module Budget", async () => {
+    const acc = await getAccess("someone-else-z", "MEDICAL_DELEGATE"); // partagé via son rôle
+    expect(acc.modules.has("BUDGETS")).toBe(true);
   });
 });
