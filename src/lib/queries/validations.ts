@@ -21,6 +21,9 @@ export interface PendingValidationItem {
   /** Pièces à valider RENDUES SUR PLACE (jointes à la demande + celles de l'objet lié) :
    *  le validateur voit/prévisualise l'original SANS naviguer dans un autre module. */
   documents: DocItem[];
+  /** Décidable MAINTENANT (parallèle, ou séquentiel : c'est mon tour). Sinon l'étape
+   *  m'est assignée mais j'attends le validateur précédent → visible mais non décidable. */
+  actionable: boolean;
 }
 
 export interface MyValidationStep {
@@ -42,7 +45,12 @@ export interface MyValidationItem {
   steps: MyValidationStep[];
 }
 
-/** Étapes en attente où je suis le validateur actif (séquentiel = mon tour ; parallèle = toujours actif). */
+/**
+ * Étapes en attente où je suis validateur — qu'elles soient à traiter MAINTENANT
+ * (mon tour) ou à venir (séquentiel : j'attends le validateur précédent). Toutes
+ * VISIBLES pour que le validateur concerné n'en manque aucune ; le champ `actionable`
+ * indique si la décision est déjà possible. Les « actionnables » sont renvoyées en tête.
+ */
 export async function getPendingValidations(userId: string): Promise<PendingValidationItem[]> {
   const steps = await prisma.validationStep.findMany({
     where: { validatorId: userId, status: "PENDING", request: { status: "PENDING" } },
@@ -50,13 +58,13 @@ export async function getPendingValidations(userId: string): Promise<PendingVali
     orderBy: { createdAt: "asc" },
     take: 200,
   });
-  const active = steps.filter((s) => s.request.mode === "PARALLEL" || s.order === s.request.currentOrder);
+  const isActionable = (s: (typeof steps)[number]) => s.request.mode === "PARALLEL" || s.order === s.request.currentOrder;
 
   // Pièces à valider rendues SUR PLACE : celles jointes à la demande (entité
   // VALIDATION_REQUEST) + celles de l'objet lié quand il est renseigné (ex. le bon
   // de commande). Récupérées en LOT pour éviter les requêtes N+1.
-  const reqIds = active.map((s) => s.request.id);
-  const linkedPairs = active
+  const reqIds = steps.map((s) => s.request.id);
+  const linkedPairs = steps
     .filter((s) => s.request.entityType && s.request.entityId)
     .map((s) => ({ entityType: s.request.entityType as EntityType, entityId: s.request.entityId as string }));
   const orClauses: Prisma.DocumentWhereInput[] = [];
@@ -80,28 +88,32 @@ export async function getPendingValidations(userId: string): Promise<PendingVali
     (byAttachKey.get(key) ?? byAttachKey.set(key, []).get(key)!).push(toItem(d));
   }
 
-  return active.map((s) => {
-    const own = byAttachKey.get(`VALIDATION_REQUEST:${s.request.id}`) ?? [];
-    const linked = s.request.entityType && s.request.entityId
-      ? byAttachKey.get(`${s.request.entityType}:${s.request.entityId}`) ?? []
-      : [];
-    return {
-      stepId: s.id,
-      requestId: s.request.id,
-      reference: s.request.reference,
-      title: s.request.title,
-      description: s.request.description ?? "",
-      module: s.request.module,
-      objectType: s.request.objectType ?? "",
-      amount: s.request.amount === null ? null : toNumber(s.request.amount),
-      priority: s.request.priority,
-      requester: s.request.requester?.name ?? "",
-      deadline: s.request.deadline?.toISOString() ?? null,
-      link: s.request.link ?? "",
-      createdAt: s.request.createdAt.toISOString(),
-      documents: [...own, ...linked],
-    };
-  });
+  return steps
+    .map((s) => {
+      const own = byAttachKey.get(`VALIDATION_REQUEST:${s.request.id}`) ?? [];
+      const linked = s.request.entityType && s.request.entityId
+        ? byAttachKey.get(`${s.request.entityType}:${s.request.entityId}`) ?? []
+        : [];
+      return {
+        stepId: s.id,
+        requestId: s.request.id,
+        reference: s.request.reference,
+        title: s.request.title,
+        description: s.request.description ?? "",
+        module: s.request.module,
+        objectType: s.request.objectType ?? "",
+        amount: s.request.amount === null ? null : toNumber(s.request.amount),
+        priority: s.request.priority,
+        requester: s.request.requester?.name ?? "",
+        deadline: s.request.deadline?.toISOString() ?? null,
+        link: s.request.link ?? "",
+        createdAt: s.request.createdAt.toISOString(),
+        documents: [...own, ...linked],
+        actionable: isActionable(s),
+      };
+    })
+    // Les demandes à traiter maintenant d'abord, puis celles à venir.
+    .sort((a, b) => Number(b.actionable) - Number(a.actionable));
 }
 
 export async function getMyValidationRequests(userId: string): Promise<MyValidationItem[]> {
@@ -227,13 +239,59 @@ export async function getCrossModuleValidations(user: SessionUser): Promise<Cros
   return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+export interface SupervisedValidationItem {
+  id: string;
+  reference: string;
+  title: string;
+  module: string;
+  amount: number | null;
+  status: string;
+  mode: string;
+  requester: string;
+  createdAt: string;
+  steps: MyValidationStep[];
+}
+
+/**
+ * SUPERVISION (Super Admin / Direction) : toutes les demandes de validation EN COURS
+ * dont l'utilisateur n'est ni le demandeur ni un validateur assigné — de sorte qu'un
+ * responsable à vue globale VOIE l'intégralité des demandes de validation de la société,
+ * même celles qui ne le concernent pas directement. Renvoie une liste vide sinon.
+ */
+export async function getSupervisedValidations(user: SessionUser): Promise<SupervisedValidationItem[]> {
+  if (!hasGlobalView(user.role)) return [];
+  const reqs = await prisma.validationRequest.findMany({
+    where: {
+      status: "PENDING",
+      requesterId: { not: user.id },
+      steps: { none: { validatorId: user.id } },
+    },
+    include: { requester: { select: { name: true } }, steps: { include: { validator: { select: { name: true } } }, orderBy: { order: "asc" } } },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+  return reqs.map((r) => ({
+    id: r.id,
+    reference: r.reference,
+    title: r.title,
+    module: r.module,
+    amount: r.amount === null ? null : toNumber(r.amount),
+    status: r.status,
+    mode: r.mode,
+    requester: r.requester?.name ?? "",
+    createdAt: r.createdAt.toISOString(),
+    steps: r.steps.map((s) => ({ order: s.order, validator: s.validator?.name ?? "", status: s.status, reason: s.reason ?? "" })),
+  }));
+}
+
 export async function getMyValidations(user: SessionUser) {
-  const [toValidate, myRequests, crossModule] = await Promise.all([
+  const [toValidate, myRequests, crossModule, supervised] = await Promise.all([
     getPendingValidations(user.id),
     getMyValidationRequests(user.id),
     getCrossModuleValidations(user),
+    getSupervisedValidations(user),
   ]);
-  return { toValidate, myRequests, crossModule };
+  return { toValidate, myRequests, crossModule, supervised };
 }
 
 /** Vue Super Admin : règles + dernières demandes (supervision). */

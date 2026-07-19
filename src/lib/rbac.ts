@@ -469,6 +469,16 @@ export const getAccess = perRequest(
         rowGrants.get(s.request.entityType)!.add(s.request.entityId);
       }
     }
+    // Un validateur qui a une étape EN ATTENTE doit TOUJOURS pouvoir ouvrir la page
+    // « Demandes de validations » pour décider — même si son rôle n'accorde pas ce
+    // module par défaut (ex. un VIEWER, ou un compte dont l'accès a été personnalisé
+    // sans VALIDATIONS). Sinon `requireModule("VALIDATIONS")` le redirige et la demande
+    // qui l'attend reste invisible. On garantit donc au moins la LECTURE de la page.
+    if (pendingValidations.length > 0) {
+      const cur = modules.get("VALIDATIONS");
+      if (cur) cur.actions.add("VIEW");
+      else modules.set("VALIDATIONS", { actions: new Set<Action>(["VIEW"]), scope: "ASSIGNED" });
+    }
 
     // ── Accès IMPLICITE au module Budget quand une enveloppe est PARTAGÉE avec ce compte ──
     // Partager une enveloppe (par personne OU par rôle, en visualisation ou en gestion) doit

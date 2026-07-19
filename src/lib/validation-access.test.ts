@@ -44,10 +44,15 @@ suite("getAccess — accès temporaire de validation", () => {
     requesterId = await mkUser("req", "DIRECTION_ASSISTANT");
     // Chef de produit : AUCUN accès PCH / Ventes par défaut → parfait pour prouver l'octroi temporaire.
     for (const slug of ["none", "label", "link", "row", "done"]) ids[slug] = await mkUser(slug, "PRODUCT_MANAGER");
+    // VIEWER : rôle SANS le module VALIDATIONS par défaut → prouve qu'un validateur choisi
+    // peut malgré tout ouvrir la page des validations dès qu'une étape l'attend.
+    ids.viewer = await mkUser("viewer", "VIEWER");
+    ids.viewerNone = await mkUser("viewerNone", "VIEWER");
     await mkValidation(ids.label, { module: "PCH — Marchés" });
     await mkValidation(ids.link, { module: "Demandes de validations", link: "/pch/abc123?tab=bc" });
     await mkValidation(ids.row, { module: "Ventes", entityType: "SALE", entityId: "sale-xyz" });
     await mkValidation(ids.done, { module: "PCH — Marchés", status: "APPROVED", stepStatus: "APPROVED" });
+    await mkValidation(ids.viewer, { module: "Demandes de validations", link: "/pch/def456" });
   });
 
   afterAll(async () => {
@@ -82,5 +87,16 @@ suite("getAccess — accès temporaire de validation", () => {
   it("étape déjà traitée → l'accès temporaire a DISPARU", async () => {
     const a = await getAccess(ids.done, "PRODUCT_MANAGER");
     expect(a.modules.has("PCH")).toBe(false);
+  });
+
+  it("un VIEWER (sans droit VALIDATIONS) avec une étape en attente PEUT ouvrir la page des validations", async () => {
+    const a = await getAccess(ids.viewer, "VIEWER");
+    // Cœur du correctif : sinon `requireModule(\"VALIDATIONS\")` le redirige et la demande reste invisible.
+    expect(a.modules.get("VALIDATIONS")?.actions.has("VIEW")).toBe(true);
+  });
+
+  it("un VIEWER SANS étape en attente n'a toujours PAS le module VALIDATIONS", async () => {
+    const a = await getAccess(ids.viewerNone, "VIEWER");
+    expect(a.modules.has("VALIDATIONS")).toBe(false);
   });
 });

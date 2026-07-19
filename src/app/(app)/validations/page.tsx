@@ -21,7 +21,10 @@ import { DocumentList } from "@/components/documents/document-list";
 
 export default async function ValidationsPage() {
   const user = await requireModule("VALIDATIONS");
-  const { toValidate, myRequests, crossModule } = await getMyValidations(user);
+  const { toValidate, myRequests, crossModule, supervised } = await getMyValidations(user);
+  // À traiter maintenant (mon tour) vs assignées mais en attente du validateur précédent.
+  const actionable = toValidate.filter((v) => v.actionable);
+  const upcoming = toValidate.filter((v) => !v.actionable);
 
   const mods = accessibleModules(user);
   const seen = new Set<string>();
@@ -68,18 +71,18 @@ export default async function ValidationsPage() {
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <KpiCard label="À valider" value={toValidate.length + crossModule.length} icon="ShieldCheck" tone={toValidate.length + crossModule.length > 0 ? "warning" : "default"} />
+        <KpiCard label="À valider" value={actionable.length + crossModule.length} icon="ShieldCheck" tone={actionable.length + crossModule.length > 0 ? "warning" : "default"} />
         <KpiCard label="Mes demandes en cours" value={pendingMine} icon="Hourglass" tone="info" />
         <KpiCard label="Total de mes demandes" value={myRequests.length} icon="ListChecks" />
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">À valider ({toValidate.length})</h2>
-        {toValidate.length === 0 ? (
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">À valider ({actionable.length})</h2>
+        {actionable.length === 0 ? (
           <EmptyState icon="CheckCheck" title="Aucune validation en attente" description="Les éléments qui requièrent votre validation apparaîtront ici." />
         ) : (
           <div className="space-y-3">
-            {toValidate.map((v) => {
+            {actionable.map((v) => {
               const d = v.deadline ? daysUntil(v.deadline) : null;
               return (
                 <Card key={v.stepId}>
@@ -123,6 +126,71 @@ export default async function ValidationsPage() {
           </div>
         )}
       </section>
+
+      {upcoming.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Qui vous reviendront — en attente du validateur précédent ({upcoming.length})</h2>
+          <div className="space-y-2">
+            {upcoming.map((v) => (
+              <Card key={v.stepId}>
+                <CardContent className="flex flex-col gap-1 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs text-muted-foreground">{v.reference}</span>
+                      <Badge tone="neutral" dot={false}>{v.module}</Badge>
+                      <StatusBadge map={PRIORITY} value={v.priority} dot={false} />
+                      {v.amount !== null && <span className="text-sm font-semibold">{formatCurrency(v.amount)}</span>}
+                    </div>
+                    <p className="truncate font-medium">{v.title}</p>
+                    <p className="text-xs text-muted-foreground">Demandé par {v.requester || "—"} · {formatDateTime(v.createdAt)}</p>
+                  </div>
+                  <Badge tone="warning" dot={false}>En attente de votre tour</Badge>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {supervised.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Supervision — toutes les demandes en cours ({supervised.length})</h2>
+          <p className="text-xs text-muted-foreground">Vue d&apos;ensemble (Direction / Super Admin) : les demandes de validation en cours de toute la société, même celles qui ne vous sont pas assignées.</p>
+          <div className="space-y-2">
+            {supervised.map((r) => (
+              <Card key={r.id}>
+                <CardContent className="space-y-2 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs text-muted-foreground">{r.reference}</span>
+                      <span className="font-medium">{r.title}</span>
+                      <Badge tone="neutral" dot={false}>{r.module}</Badge>
+                      <span className="text-xs text-muted-foreground">{VALIDATION_MODE[r.mode]}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {r.amount !== null && <span className="text-sm font-semibold">{formatCurrency(r.amount)}</span>}
+                      <StatusBadge map={VALIDATION_STATUS} value={r.status} />
+                      <span className="text-xs text-muted-foreground">par {r.requester || "—"}</span>
+                      {user.role === "SUPER_ADMIN" && (
+                        <SuperAdminDeleteButton kind="VALIDATION_REQUEST" id={r.id} name={`${r.reference} — ${r.title}`} enabled />
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {r.steps.map((s) => (
+                      <span key={s.order} className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs" title={s.reason || undefined}>
+                        <span className="text-muted-foreground">{s.order}.</span>
+                        <span>{s.validator}</span>
+                        <StatusBadge map={VALIDATION_STEP_STATE} value={s.status} dot={false} />
+                      </span>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
 
       {crossModule.length > 0 && (
         <section className="space-y-3">
