@@ -238,10 +238,17 @@ export function canViewEnvelope(user: SessionUser, env: EnvelopeAccessBearer): b
   return canManageEnvelope(user, env) || (env.accessRoles ?? []).includes(user.role) || (env.accessUserIds ?? []).includes(user.id);
 }
 
-// ─────────── Demandes de l'information médicale (PRIM) → Regulatory ───────────
-/** Peut CRÉER une demande à Regulatory : le PRIM (information médicale) ou la vue globale. */
-export function canCreateRegRequest(user: SessionUser): boolean {
-  return user.role === "MEDICAL_INFO_PHARMACIST" || userCan(user, "MEDICAL_INFO", "CREATE") || hasGlobalView(user.role);
+// ─────────── Demandes à Regulatory (émission → prise en charge) ───────────
+/**
+ * Peut ÉMETTRE une demande à Regulatory : **strictement** le PRIM (information médicale,
+ * toujours autorisé), le **Super Admin**, ou un rôle **configuré en Administration**
+ * (`AppSetting.regRequestCreatorRoles`), porté en principal OU secondaire. L'équipe
+ * Regulatory **répond** aux demandes mais n'en **crée pas** (sauf si l'admin l'ajoute
+ * explicitement à cette liste). Les rôles sont passés depuis les réglages (pas en dur).
+ */
+export function canCreateRegRequest(user: SessionUser, creatorRoles: string[] = []): boolean {
+  if (user.role === "SUPER_ADMIN" || user.role === "MEDICAL_INFO_PHARMACIST") return true;
+  return creatorRoles.includes(user.role) || (user.secondaryRole != null && creatorRoles.includes(user.secondaryRole));
 }
 
 /** Peut PRENDRE EN CHARGE / RÉPONDRE : l'équipe Regulatory (droit REGULATORY:UPDATE) ou la vue globale. */
@@ -249,9 +256,9 @@ export function canAnswerRegRequests(user: SessionUser): boolean {
   return userCan(user, "REGULATORY", "UPDATE") || hasGlobalView(user.role);
 }
 
-/** Peut accéder à l'espace des demandes (demandeur PRIM OU répondant Regulatory). */
-export function canSeeRegRequests(user: SessionUser): boolean {
-  return canCreateRegRequest(user) || canAnswerRegRequests(user);
+/** Peut accéder à l'espace des demandes (émetteur autorisé OU répondant Regulatory). */
+export function canSeeRegRequests(user: SessionUser, creatorRoles: string[] = []): boolean {
+  return canCreateRegRequest(user, creatorRoles) || canAnswerRegRequests(user);
 }
 
 /** Role-default check (baseline, ignores per-user overrides). */

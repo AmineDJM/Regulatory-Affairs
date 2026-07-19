@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { Priority, RegRequestCategory, RegRequestStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { canCreateRegRequest, canAnswerRegRequests, type SessionUser } from "@/lib/rbac";
+import { getAppSettings } from "@/lib/settings";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { buildRef } from "@/lib/refs";
@@ -34,7 +35,10 @@ async function loadAccessible(user: SessionUser, id: string) {
 // ─────────────────────────── Création (PRIM) ───────────────────────────
 export async function createRegRequest(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!canCreateRegRequest(user)) return { ok: false, error: "Réservé à l'information médicale (PRIM)." };
+  const { regRequestCreatorRoles } = await getAppSettings();
+  if (!canCreateRegRequest(user, regRequestCreatorRoles)) {
+    return { ok: false, error: "Création réservée au PRIM et aux rôles autorisés par le Super Admin. L'équipe Regulatory répond aux demandes." };
+  }
   const subject = fdStr(formData, "subject");
   const body = fdStr(formData, "body");
   if (!subject) return { ok: false, error: "L'objet de la demande est obligatoire." };

@@ -1185,6 +1185,14 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   modèles `RegulatoryRequest` / `RegulatoryRequestMessage` (migration `20260717150000_regulatory_request`),
   espace `/regulatory/requests` (entrée de menu côté information médicale + lien depuis le module
   Regulatory), référence `RRQ-AAAA-NNN`.
+  **Émission réservée (configurable).** Seuls **le PRIM**, **le Super Admin** et les **rôles désignés en
+  Administration** (`AppSetting.regRequestCreatorRoles`, carte « Demandes à Regulatory — Émetteurs
+  autorisés » dans `/admin/settings`, action `setRegRequestCreatorRoles`) peuvent **créer** une demande —
+  rôle porté en **principal OU secondaire**. L'équipe **Regulatory répond** aux demandes mais **n'en crée
+  pas** (sauf si l'admin ajoute explicitement son rôle à la liste) : `canCreateRegRequest(user, creatorRoles)`
+  ignore désormais `hasGlobalView`/`MEDICAL_INFO:CREATE` et s'appuie sur la liste configurée
+  (migration `20260719120000_reg_request_creators`). Le bouton « Nouvelle demande » et la porte de création
+  de l'action sont gardés par ce même helper.
 - **Produits — canal de distribution Ville / Hôpital / les deux.** Nouvel attribut **canal**
   (`ProductChannel` : `RETAIL` = ville/officine, `HOSPITAL` = hospitalier, `BOTH` = les deux) porté par
   les **produits promus** (`PromoProduct`, catalogue Force de vente) et les **produits réglementaires**

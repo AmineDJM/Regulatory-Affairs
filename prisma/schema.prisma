@@ -3701,6 +3701,9 @@ model AppSetting {
   // la priorité et les dates cibles, reçoivent les notifications (nouveau dossier / dépôt),
   // et peuvent demander des mises à jour de statut. Configurable en Administration.
   regulatorySupervisorRoles String[] @default([])
+  // Rôles autorisés à CRÉER des « Demandes à Regulatory » (en plus du PRIM, toujours inclus).
+  // L'équipe Regulatory RÉPOND mais ne crée pas. Configurable en Administration.
+  regRequestCreatorRoles    String[] @default([])
   // Clés VAPID (Web Push) auto-générées et persistées si non fournies par l'environnement.
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
   vapidPublicKey       String?

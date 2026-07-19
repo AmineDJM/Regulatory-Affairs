@@ -25,6 +25,8 @@ export interface AppSettings {
   regEnrollmentEnabled: boolean;
   /** Rôles superviseurs Regulatory (en plus du Super Admin) : priorité/dates, notifs, MàJ statut. */
   regulatorySupervisorRoles: string[];
+  /** Rôles autorisés à CRÉER des « Demandes à Regulatory » (en plus du PRIM). Regulatory RÉPOND mais ne crée pas. */
+  regRequestCreatorRoles: string[];
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -36,6 +38,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   driveUserQuotaGb: 10,
   regEnrollmentEnabled: false,
   regulatorySupervisorRoles: [],
+  regRequestCreatorRoles: [],
 };
 
 export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
@@ -51,6 +54,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       driveUserQuotaGb: row.driveUserQuotaGb,
       regEnrollmentEnabled: row.regEnrollmentEnabled,
       regulatorySupervisorRoles: row.regulatorySupervisorRoles ?? [],
+      regRequestCreatorRoles: row.regRequestCreatorRoles ?? [],
     };
   } catch {
     return DEFAULT_APP_SETTINGS;

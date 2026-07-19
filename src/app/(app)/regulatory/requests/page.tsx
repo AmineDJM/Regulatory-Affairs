@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/session";
 import { canSeeRegRequests, canCreateRegRequest, canAnswerRegRequests } from "@/lib/rbac";
 import { listRegRequests, regRequestProductOptions } from "@/lib/queries/regulatory-requests";
 import { createRegRequest } from "@/lib/actions/regulatory-request-actions";
+import { getAppSettings } from "@/lib/settings";
 import { REG_REQUEST_STATUS, REG_REQUEST_CATEGORY, PRIORITY } from "@/lib/labels";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,9 +16,10 @@ export const dynamic = "force-dynamic";
 
 export default async function RegulatoryRequestsPage() {
   const user = await requireUser();
-  if (!canSeeRegRequests(user)) notFound();
+  const { regRequestCreatorRoles } = await getAppSettings();
+  if (!canSeeRegRequests(user, regRequestCreatorRoles)) notFound();
   const [items, products] = await Promise.all([listRegRequests(user), regRequestProductOptions()]);
-  const canCreate = canCreateRegRequest(user);
+  const canCreate = canCreateRegRequest(user, regRequestCreatorRoles);
   const isAnswerer = canAnswerRegRequests(user);
 
   const fields: FieldDef[] = [

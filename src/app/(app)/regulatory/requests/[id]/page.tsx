@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { canSeeRegRequests, canAnswerRegRequests } from "@/lib/rbac";
+import { getAppSettings } from "@/lib/settings";
 import { getRegRequest } from "@/lib/queries/regulatory-requests";
 import { REG_REQUEST_STATUS, REG_REQUEST_CATEGORY, PRIORITY } from "@/lib/labels";
 import { PageHeader } from "@/components/shared/page-header";
@@ -15,7 +16,8 @@ export const dynamic = "force-dynamic";
 
 export default async function RegulatoryRequestDetailPage({ params }: { params: { id: string } }) {
   const user = await requireUser();
-  if (!canSeeRegRequests(user)) notFound();
+  const { regRequestCreatorRoles } = await getAppSettings();
+  if (!canSeeRegRequests(user, regRequestCreatorRoles)) notFound();
   const request = await getRegRequest(user, params.id);
   if (!request) notFound();
 
