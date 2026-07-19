@@ -428,6 +428,17 @@ Finances, information médicale…) — visible des **validateurs**, pas du dema
 **règles** : module, type d'objet, montant min/max, département, rôle, priorité → **1 ou 2 validateurs**, en
 **séquentiel ou parallèle**. Une demande administrative peut être **escaladée** à la Direction.
 
+**Accès & décision du validateur** (`src/app/(app)/validations/page.tsx`, `src/lib/queries/validations.ts`) :
+tout validateur assigné voit la demande **complète et ses pièces** (aperçu sur place), même le 2ᵉ d'un circuit
+séquentiel **avant son tour** (badge « En attente de votre tour »). La Direction/Super Admin **supervise** toutes
+les demandes en cours (`getSupervisedValidations`). Deux niveaux de décision :
+- **Globale** — `decideValidation` (`ValidationDecision`) : Valider / Modifier / Refuser + commentaire **optionnel** ;
+  fait **avancer le circuit** (séquentiel → validateur suivant ; sinon clôture + notifie le demandeur).
+- **Par élément** — `reviewValidationItem` / `clearValidationItem` (`ValidationItemDecision`, `itemKey` = `"MESSAGE"`
+  ou id de pièce ; `ItemReview` + `ValidationAttachments`) : le validateur approuve / demande une révision / refuse
+  **le message ET chaque pièce jointe séparément**, commentaire **optionnel**. Ce retour détaillé remonte au
+  demandeur dans « Mes demandes » (libellés lisibles des pièces).
+
 ### PCH — Marchés publics
 
 **Appel d'offres** (réf. auto `AO-année-n`) → **lignes-produits** (`PchTenderLine`) → **caution obligatoire**

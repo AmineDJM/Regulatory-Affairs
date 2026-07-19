@@ -2845,8 +2845,29 @@ model ValidationStep {
   decidedAt   DateTime?
   createdAt   DateTime            @default(now())
 
+  itemDecisions ValidationItemDecision[]
+
   @@index([validatorId, status])
   @@index([requestId])
+}
+
+// Décision GRANULAIRE d'un validateur, élément par élément : le « message » de la
+// demande (itemKey = "MESSAGE") ET chaque pièce jointe (itemKey = id du Document).
+// Chaque élément peut être approuvé / refusé / à réviser, avec un commentaire
+// OPTIONNEL. Vient EN PLUS de la décision globale de l'étape (qui, elle, fait
+// avancer le circuit) : elle donne au demandeur un retour précis par pièce.
+model ValidationItemDecision {
+  id        String              @id @default(cuid())
+  stepId    String
+  step      ValidationStep      @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  itemKey   String // "MESSAGE" | id du Document (pièce jointe)
+  decision  ValidationStepState // APPROVED | REJECTED | CHANGES_REQUESTED
+  comment   String?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@unique([stepId, itemKey])
+  @@index([stepId])
 }
 
 // ─────────────── Portail Fournisseur (comptes externes isolés) ───────────────

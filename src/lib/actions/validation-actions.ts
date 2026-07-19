@@ -259,3 +259,65 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
   revalidatePath("/mon-travail");
   return { ok: true };
 }
+
+const ITEM_DECISIONS: ValidationStepState[] = ["APPROVED", "REJECTED", "CHANGES_REQUESTED"];
+
+/**
+ * Décision GRANULAIRE d'un validateur sur UN élément de la demande : le « message »
+ * (itemKey = "MESSAGE") ou une pièce jointe précise (itemKey = id du Document).
+ * Approuver / Refuser / Demander une révision, avec commentaire OPTIONNEL. Vient EN
+ * PLUS de la décision globale (qui fait avancer le circuit) : c'est un retour détaillé,
+ * pièce par pièce, pour le demandeur. Idempotent — réenregistrer met à jour le verdict.
+ */
+export async function reviewValidationItem(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const stepId = fdStr(formData, "stepId");
+  const itemKey = fdStr(formData, "itemKey");
+  const decision = fdStr(formData, "decision") as ValidationStepState | null;
+  const comment = fdStr(formData, "comment");
+  if (!stepId || !itemKey || !decision || !ITEM_DECISIONS.includes(decision)) {
+    return { ok: false, error: "Décision invalide." };
+  }
+  const step = await prisma.validationStep.findUnique({
+    where: { id: stepId },
+    include: { request: { select: { status: true, mode: true, currentOrder: true } } },
+  });
+  if (!step) return { ok: false, error: "Étape introuvable." };
+  const isSuper = user.role === "SUPER_ADMIN";
+  if (step.validatorId !== user.id && !isSuper) return { ok: false, error: "Vous n'êtes pas le validateur de cette étape." };
+  if (step.status !== "PENDING") return { ok: false, error: "Étape déjà traitée." };
+  if (step.request.status !== "PENDING") return { ok: false, error: "Demande déjà clôturée." };
+  if (step.request.mode === "SEQUENTIAL" && step.order !== step.request.currentOrder && !isSuper) {
+    return { ok: false, error: "Ce n'est pas encore votre tour." };
+  }
+  // L'itemKey doit désigner soit le message, soit une pièce RÉELLEMENT jointe à la demande.
+  if (itemKey !== "MESSAGE") {
+    const doc = await prisma.document.findFirst({
+      where: { id: itemKey, entityType: "VALIDATION_REQUEST", entityId: step.requestId },
+      select: { id: true },
+    });
+    if (!doc) return { ok: false, error: "Pièce introuvable." };
+  }
+  await prisma.validationItemDecision.upsert({
+    where: { stepId_itemKey: { stepId, itemKey } },
+    create: { stepId, itemKey, decision, comment: comment || null },
+    update: { decision, comment: comment || null },
+  });
+  revalidatePath("/validations");
+  return { ok: true };
+}
+
+/** Retire le verdict d'un élément (le validateur revient à « non évalué »). */
+export async function clearValidationItem(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const stepId = fdStr(formData, "stepId");
+  const itemKey = fdStr(formData, "itemKey");
+  if (!stepId || !itemKey) return { ok: false, error: "Paramètres manquants." };
+  const step = await prisma.validationStep.findUnique({ where: { id: stepId }, select: { validatorId: true, status: true } });
+  if (!step) return { ok: false, error: "Étape introuvable." };
+  if (step.validatorId !== user.id && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
+  if (step.status !== "PENDING") return { ok: false, error: "Étape déjà traitée." };
+  await prisma.validationItemDecision.deleteMany({ where: { stepId, itemKey } });
+  revalidatePath("/validations");
+  return { ok: true };
+}

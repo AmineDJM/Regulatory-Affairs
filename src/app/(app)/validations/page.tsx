@@ -16,6 +16,8 @@ import { optionsFromMap } from "@/components/shared/form-fields";
 import { NAVIGATION, PRIORITY, VALIDATION_STATUS, VALIDATION_STEP_STATE, VALIDATION_MODE } from "@/lib/labels";
 import { formatCurrency, formatDate, formatDateTime, daysUntil } from "@/lib/utils";
 import { ValidationDecision } from "./validation-decision";
+import { ItemReview } from "./validation-item-review";
+import { ValidationAttachments } from "./validation-attachments";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { DocumentList } from "@/components/documents/document-list";
 
@@ -197,6 +199,26 @@ export default async function ValidationsPage() {
                       </span>
                     ))}
                   </div>
+                  {/* Retour DÉTAILLÉ par élément (message + pièces) : le demandeur voit exactement ce qui va / ne va pas. */}
+                  {r.steps.some((s) => s.items && s.items.length > 0) && (
+                    <div className="space-y-1.5 rounded-lg border border-border/60 bg-secondary/20 p-2">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Retour détaillé par élément</p>
+                      {r.steps.filter((s) => s.items && s.items.length > 0).map((s) => (
+                        <div key={s.order} className="space-y-0.5">
+                          <p className="text-xs font-medium">{s.validator}</p>
+                          <ul className="space-y-0.5 pl-3">
+                            {s.items!.map((it, i) => (
+                              <li key={i} className="flex flex-wrap items-center gap-1.5 text-xs">
+                                <span className="text-muted-foreground">{it.label}</span>
+                                <StatusBadge map={VALIDATION_STEP_STATE} value={it.decision} dot={false} />
+                                {it.comment && <span className="text-muted-foreground">— {it.comment}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -217,6 +239,7 @@ export default async function ValidationsPage() {
  */
 function PendingValidationCard({ v, actionable }: { v: PendingValidationItem; actionable: boolean }) {
   const d = v.deadline ? daysUntil(v.deadline) : null;
+  const msgDecision = v.itemDecisions.find((x) => x.itemKey === "MESSAGE");
   return (
     <Card>
       <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-start lg:justify-between">
@@ -230,6 +253,13 @@ function PendingValidationCard({ v, actionable }: { v: PendingValidationItem; ac
           </div>
           <p className="font-medium">{v.title}</p>
           {v.description && <p className="text-sm text-muted-foreground">{v.description}</p>}
+          {/* Verdict par ÉLÉMENT (message) : approuver / réviser / refuser + commentaire optionnel. */}
+          {actionable && (
+            <div className="rounded-lg border border-border/60 bg-secondary/20 p-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Votre avis sur le message</p>
+              <ItemReview stepId={v.stepId} itemKey="MESSAGE" current={msgDecision?.decision} currentComment={msgDecision?.comment} />
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
             Demandé par {v.requester || "—"} · {formatDateTime(v.createdAt)}
             {v.deadline ? ` · échéance ${formatDate(v.deadline)}${d !== null && d < 0 ? " (en retard)" : ""}` : ""}
@@ -244,8 +274,12 @@ function PendingValidationCard({ v, actionable }: { v: PendingValidationItem; ac
               <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 Pièces à valider ({v.documents.length})
               </p>
-              {/* Aperçu SUR PLACE (lecture seule) : le validateur voit l'original sans changer de module. */}
-              <DocumentList documents={v.documents} />
+              {/* Actionnable : aperçu sur place + verdict PAR pièce. Sinon : lecture seule. */}
+              {actionable ? (
+                <ValidationAttachments stepId={v.stepId} documents={v.documents} decisions={v.itemDecisions} />
+              ) : (
+                <DocumentList documents={v.documents} />
+              )}
             </div>
           )}
         </div>

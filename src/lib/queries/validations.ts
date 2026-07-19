@@ -24,6 +24,9 @@ export interface PendingValidationItem {
   /** Décidable MAINTENANT (parallèle, ou séquentiel : c'est mon tour). Sinon l'étape
    *  m'est assignée mais j'attends le validateur précédent → visible mais non décidable. */
   actionable: boolean;
+  /** Mes verdicts GRANULAIRES déjà posés (message + pièces), pour réafficher l'état.
+   *  itemKey = "MESSAGE" ou l'id d'un document. */
+  itemDecisions: { itemKey: string; decision: string; comment: string }[];
 }
 
 export interface MyValidationStep {
@@ -31,6 +34,9 @@ export interface MyValidationStep {
   validator: string;
   status: string;
   reason: string;
+  /** Retour GRANULAIRE de ce validateur, élément par élément (message + pièces),
+   *  avec le libellé lisible de l'élément. Vide si le validateur n'a rien détaillé. */
+  items?: { label: string; decision: string; comment: string }[];
 }
 
 export interface MyValidationItem {
@@ -54,7 +60,10 @@ export interface MyValidationItem {
 export async function getPendingValidations(userId: string): Promise<PendingValidationItem[]> {
   const steps = await prisma.validationStep.findMany({
     where: { validatorId: userId, status: "PENDING", request: { status: "PENDING" } },
-    include: { request: { include: { requester: { select: { name: true } } } } },
+    include: {
+      request: { include: { requester: { select: { name: true } } } },
+      itemDecisions: { select: { itemKey: true, decision: true, comment: true } },
+    },
     orderBy: { createdAt: "asc" },
     take: 200,
   });
@@ -110,6 +119,7 @@ export async function getPendingValidations(userId: string): Promise<PendingVali
         createdAt: s.request.createdAt.toISOString(),
         documents: [...own, ...linked],
         actionable: isActionable(s),
+        itemDecisions: s.itemDecisions.map((d) => ({ itemKey: d.itemKey, decision: d.decision, comment: d.comment ?? "" })),
       };
     })
     // Les demandes à traiter maintenant d'abord, puis celles à venir.
@@ -119,10 +129,22 @@ export async function getPendingValidations(userId: string): Promise<PendingVali
 export async function getMyValidationRequests(userId: string): Promise<MyValidationItem[]> {
   const reqs = await prisma.validationRequest.findMany({
     where: { requesterId: userId },
-    include: { steps: { include: { validator: { select: { name: true } } }, orderBy: { order: "asc" } } },
+    include: {
+      steps: {
+        include: { validator: { select: { name: true } }, itemDecisions: { select: { itemKey: true, decision: true, comment: true } } },
+        orderBy: { order: "asc" },
+      },
+    },
     orderBy: { createdAt: "desc" },
     take: 100,
   });
+  // Libellés lisibles des pièces référencées par les verdicts granulaires (itemKey = id de Document).
+  const docIds = [...new Set(reqs.flatMap((r) => r.steps.flatMap((s) => s.itemDecisions.map((d) => d.itemKey))).filter((k) => k !== "MESSAGE"))];
+  const docNames = new Map(
+    docIds.length
+      ? (await prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, name: true } })).map((d) => [d.id, d.name])
+      : [],
+  );
   return reqs.map((r) => ({
     id: r.id,
     reference: r.reference,
@@ -132,7 +154,17 @@ export async function getMyValidationRequests(userId: string): Promise<MyValidat
     status: r.status,
     mode: r.mode,
     createdAt: r.createdAt.toISOString(),
-    steps: r.steps.map((s) => ({ order: s.order, validator: s.validator?.name ?? "", status: s.status, reason: s.reason ?? "" })),
+    steps: r.steps.map((s) => ({
+      order: s.order,
+      validator: s.validator?.name ?? "",
+      status: s.status,
+      reason: s.reason ?? "",
+      items: s.itemDecisions.map((d) => ({
+        label: d.itemKey === "MESSAGE" ? "Message" : docNames.get(d.itemKey) ?? "Pièce jointe",
+        decision: d.decision,
+        comment: d.comment ?? "",
+      })),
+    })),
   }));
 }
 
