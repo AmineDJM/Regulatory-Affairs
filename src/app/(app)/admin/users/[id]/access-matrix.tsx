@@ -91,7 +91,16 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
                     </TableCell>
                   ))}
                   <TableCell>
-                    {r.rowScoped ? (
+                    {r.module === "DRIVE" || r.module === "DOSSIERS" ? (
+                      // Drive & Projets : privés par conception — toujours cloisonnés
+                      // (chacun ne voit que SES éléments + ceux partagés). La portée
+                      // « tout » est réservée à la vue globale (Direction / Super Admin)
+                      // et neutralisée ici pour un compte ordinaire (cf. getAccess).
+                      <>
+                        <span className="text-xs text-muted-foreground" title="Confidentialité stricte : l'utilisateur ne voit que ses propres fichiers / projets et ceux qu'on lui a partagés ou confiés.">Privé (assignées)</span>
+                        <input type="hidden" name={`scope_${r.module}`} value="ASSIGNED" />
+                      </>
+                    ) : r.rowScoped ? (
                       <Select
                         name={`scope_${r.module}`}
                         value={r.scope}

@@ -422,6 +422,22 @@ export const getAccess = perRequest(
       if (hasView) modules.set(module, { actions, scope });
     }
 
+    // ── Confidentialité STRICTE du Drive et des Projets (Dossiers) ──────────────
+    // Ces deux modules sont « privés par conception » : on ne voit que SES fichiers /
+    // SES projets + ceux qu'on nous a explicitement PARTAGÉS ou CONFIÉS (portée
+    // ASSIGNED). Seule la **vue globale** (Super Admin / Direction) voit tout. On
+    // NEUTRALISE donc toute portée « ALL » pour un rôle ordinaire — qu'elle vienne
+    // d'un override de la matrice, d'un réglage hérité ou d'un rôle secondaire — afin
+    // qu'un compte comme l'Assistante de Direction n'ait JAMAIS accès à l'ensemble
+    // des drives / projets de la société. (La visibilité fine reste assurée par
+    // `scopeDossiers` / `getDriveListing` / `resolveDriveAccess`.)
+    if (!hasGlobalView({ role, secondaryRole })) {
+      for (const mod of ["DRIVE", "DOSSIERS"] as const) {
+        const m = modules.get(mod);
+        if (m && m.scope === "ALL") m.scope = "ASSIGNED";
+      }
+    }
+
     const rowGrants = new Map<EntityType, Set<string>>();
     for (const g of grants) {
       if (!rowGrants.has(g.entityType)) rowGrants.set(g.entityType, new Set());

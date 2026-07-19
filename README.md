@@ -1218,6 +1218,20 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   (`src/lib/rbac.ts`, régression verrouillée dans `rbac.test.ts`), enforcement dans `queries/budget.ts`
   (y c. `getBudgetCategoryOptions(viewer)` sur la Paie) + `budget-envelope-actions.ts`, éditeur d'accès
   dans `budget-board.tsx` (migration `20260717130000_budget_envelope_managers`).
+- **Drive & Projets — confidentialité STRICTE (privés par conception).** Le **Drive** (fichiers) et les
+  **Projets** (`DOSSIERS`) sont **cloisonnés** : chacun ne voit que **ses propres** fichiers / projets +
+  ceux qu'on lui a **explicitement partagés ou confiés** (participation) — jamais l'ensemble de la
+  société. Seule la **vue globale** (Super Admin / Direction) voit tout. ⚠️ **Correctif de fuite** :
+  un compte ordinaire (ex. l'**Assistante de Direction**) pouvait se retrouver avec la portée **« tout »**
+  sur ces deux modules via un **override de la matrice d'accès** (mode « personnalisé » réglé sur *toutes
+  les lignes*), et voir alors **l'intégralité** des drives / projets. `getAccess` **neutralise désormais
+  toute portée `ALL`** sur `DRIVE` et `DOSSIERS` **hors vue globale** (ramenée à `ASSIGNED`), quelle que
+  soit son origine (override, réglage hérité, rôle secondaire). Les matrices d'accès (par utilisateur et
+  « par module ») affichent ces deux modules comme **« Privé (assignées) »** — l'option *toutes les lignes*
+  n'y est plus proposée (elle serait de toute façon ignorée). Enforcement : `getAccess` (`src/lib/rbac.ts`)
+  + `scopeDossiers` / `getDriveListing` / `resolveDriveAccess` ; régression verrouillée dans
+  `queries/drive-dossiers-scope.test.ts`. La délégation fine reste possible **par partage explicite**
+  (Drive : lecteurs/éditeurs par fichier ; Projets : responsable/participants).
 - **Business Development — Présentation stratégique PPTX générée par IA (Claude).** Sur une étude de
   marché, un panneau **« Présentations stratégiques (IA) »** permet de **générer une présentation
   PowerPoint (.pptx)** analysée par Claude : l'IA reçoit **tout le contexte** de l'étude (toutes les
