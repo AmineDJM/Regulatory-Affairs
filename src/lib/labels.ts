@@ -1084,6 +1084,7 @@ export const ADMIN_TABS: NavTab[] = [
   { module: "ADMIN", label: "Bases de données", href: "/admin/bases" },
   { module: "ADMIN", label: "Contrôle de l'IA", href: "/admin/ai" },
   { module: "ADMIN", label: "Score d'adoption", href: "/admin/adoption" },
+  { module: "ADMIN", label: "Diagnostic", href: "/admin/diagnostic" },
 ];
 
 /**

@@ -1123,6 +1123,18 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Diagnostic de plateforme (Administration → Diagnostic, Super Admin) — « le médecin » dopé à l'IA.** Onglet qui
+  **sonde le fonctionnement réel** (lecture seule, données réelles, aucune simulation) : base de données + latence,
+  IA/STT, stockage, notifications push ; **couverture des rôles critiques** (ex. plus aucun *National Sales* → les
+  demandes de délégués resteraient bloquées au préliminaire) ; **files d'attente bloquées** (circuits Ad & Pro,
+  ordres de dépense, demandes de validation en souffrance depuis > 21 j) ; **formats de fichiers acceptés par espace**
+  — testés **en direct** sur les vrais validateurs (« cet espace refuse .svg/.heic/.mp4… ») ; **cohérence
+  navigation ↔ RBAC** ; **volumétrie** par domaine ; **matrice rôles → modules**. Un **score de santé /100** et des
+  **constats** classés (critique / à surveiller / info). Bouton **« Générer des idées » (IA)** : Claude analyse ces
+  faits et rend des **corrections prioritaires, simplifications, améliorations et réglages rapides** concrets et
+  spécifiques aux données. Fichiers : `src/lib/platform-audit/{engine,ai}.ts`, action `platform-audit-actions.ts`,
+  page `/admin/diagnostic`, onglet dans `ADMIN_TABS`. Complète l'**auto-testeur CLI** (`npm run autotest`, cohérence
+  statique + crawl navigateur) : le Diagnostic vit **dans l'app** et se concentre sur la santé **runtime** + les idées.
 - **Ad & Pro — routage intelligent : personne n'approuve sa propre demande.** À la création d'une demande
   (sponsoring / congrès / événement), on **saute** toute étape d'approbation au niveau ou en dessous du rang du
   créateur. Le **National Sales** désigne directement le chef de produit (sélecteur ajouté aux formulaires) et
