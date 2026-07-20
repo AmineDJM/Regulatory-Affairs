@@ -8,6 +8,7 @@ import { seedSyntheticUsers } from "./synthetic";
 import { cleanupRun, verifyClean } from "./manifest";
 import { smokeFindings } from "./smoke";
 import { deepAudit } from "./deep-audit";
+import { infraChecks } from "./infra-checks";
 import { redact } from "./redact";
 
 /**
@@ -59,13 +60,18 @@ export async function executeRun(opts: { mode: TestRunMode; initiatedById: strin
     await persistFindings(runId, smoke.findings);
 
     // 2b) Audit approfondi : invariants métier (§28) + machines à états (§29) + couverture.
-    await prisma.testRun.update({ where: { id: runId }, data: { step: "audit approfondi — invariants & machines à états", progress: 66 } });
+    await prisma.testRun.update({ where: { id: runId }, data: { step: "audit approfondi — invariants & machines à états", progress: 60 } });
     const deep = await deepAudit();
     await persistFindings(runId, deep.findings);
 
-    const allFindings = [...smoke.findings, ...deep.findings];
+    // 2c) Infra : cohérence multi-oracles (§30) + migrations/reprise (§35, roundtrip si écriture).
+    await prisma.testRun.update({ where: { id: runId }, data: { step: "cohérence multi-oracles & certification migrations", progress: 72 } });
+    const infra = await infraChecks(runId, writes);
+    await persistFindings(runId, infra.findings);
+
+    const allFindings = [...smoke.findings, ...deep.findings, ...infra.findings];
     const criticalCount = allFindings.filter((f) => f.severity === "CRITICAL").length;
-    const blockingFailures = deep.blockingFailures;
+    const blockingFailures = deep.blockingFailures + infra.blockingFailures;
 
     // 3) Nettoyage garanti + vérification.
     let cleanupStatus: "DONE" | "INCOMPLETE" | "NOT_REQUIRED" = "NOT_REQUIRED";
@@ -93,6 +99,9 @@ export async function executeRun(opts: { mode: TestRunMode; initiatedById: strin
           invariants: { total: deep.invariants.total, passed: deep.invariants.passed, failed: deep.invariants.failed, skipped: deep.invariants.skipped },
           transitionCoverage: deep.coverage.transition, businessObjectCoverage: deep.coverage.business.coverage,
           rbacGrantDensity: deep.coverage.rbac.grantDensity,
+          oracleDisagreements: infra.oracles.disagreements,
+          migrations: { onDisk: infra.migration.onDisk, applied: infra.migration.applied, missing: infra.migration.missing.length },
+          backupRestoreOk: infra.migration.backupRestore?.ok ?? null,
         }) as object,
       },
     });

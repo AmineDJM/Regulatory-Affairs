@@ -61,22 +61,23 @@ export const STATE_MACHINES: StateMachine[] = [
       holds: (r) => (r.status === "IN_PROGRESS" ? r.currentSlug != null : r.currentSlug == null),
     },
   },
-  {
-    id: "congressRequest",
-    label: "Demande de congrès",
+  // Le champ `status` des congrès porte l'enum CongressStatus (cycle d'organisation). Le circuit
+  // d'approbation (préliminaire → chef de produit → définitive) est suivi à part (WorkflowInstance).
+  ...(["congressInternational", "congressNational"] as const).map((model) => ({
+    id: model,
+    label: model === "congressInternational" ? "Congrès international" : "Congrès national",
     module: "SPONSORING",
-    model: "congressRequest",
+    model,
     statusField: "status",
-    states: ["AWAITING_PRELIMINARY", "PRELIMINARY_APPROVED", "AWAITING_FINAL", "APPROVED", "REJECTED", "CANCELLED", "COMPLETED"],
-    initial: ["AWAITING_PRELIMINARY", "PRELIMINARY_APPROVED", "AWAITING_FINAL"], // routage intelligent
-    terminal: ["REJECTED", "CANCELLED", "COMPLETED"],
+    states: ["CONSIDERED", "VALIDATED", "ORGANIZED", "COMPLETED", "CANCELLED"],
+    initial: ["CONSIDERED"],
+    terminal: ["COMPLETED", "CANCELLED"],
     transitions: [
-      ["AWAITING_PRELIMINARY", "PRELIMINARY_APPROVED"], ["AWAITING_PRELIMINARY", "REJECTED"], ["AWAITING_PRELIMINARY", "CANCELLED"],
-      ["PRELIMINARY_APPROVED", "AWAITING_FINAL"], ["PRELIMINARY_APPROVED", "REJECTED"], ["PRELIMINARY_APPROVED", "CANCELLED"],
-      ["AWAITING_FINAL", "APPROVED"], ["AWAITING_FINAL", "REJECTED"], ["AWAITING_FINAL", "CANCELLED"],
-      ["APPROVED", "COMPLETED"], ["APPROVED", "CANCELLED"],
-    ],
-  },
+      ["CONSIDERED", "VALIDATED"], ["CONSIDERED", "CANCELLED"],
+      ["VALIDATED", "ORGANIZED"], ["VALIDATED", "COMPLETED"], ["VALIDATED", "CANCELLED"],
+      ["ORGANIZED", "COMPLETED"], ["ORGANIZED", "CANCELLED"],
+    ] as [string, string][],
+  })),
   {
     id: "event",
     label: "Événement national",
