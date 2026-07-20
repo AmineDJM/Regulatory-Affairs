@@ -125,7 +125,8 @@ export async function exploreStateMachines(): Promise<StateExploreResult> {
   const undeclaredObserved: string[] = [];
   for (const pair of observed) {
     const [a, b] = pair.split("→");
-    if (allStates.has(a) && allStates.has(b) && !allDeclared.has(pair)) undeclaredObserved.push(pair);
+    // Une auto-boucle (a→a) est une ré-écriture du même statut (no-op), pas une transition : on l'ignore.
+    if (a !== b && allStates.has(a) && allStates.has(b) && !allDeclared.has(pair)) undeclaredObserved.push(pair);
   }
   if (undeclaredObserved.length > 0) {
     findings.push({

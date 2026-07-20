@@ -4,7 +4,10 @@
  * et on tronque les valeurs très longues.
  */
 
-const SENSITIVE_KEY = /pass(word)?|secret|token|api[-_]?key|authorization|cookie|vapid|hash|salt|nin|cnas|iban|rib|ssn/i;
+// Masque les vrais secrets par nom de clé. On évite deux faux positifs : « passed » (compteur
+// d'invariants) ne doit PAS matcher « pass », et le « hash » d'intégrité du paquet de preuves ne
+// doit PAS être masqué — mais « passwordHash », « tokenHash »… (secrets) le restent via \w+hash.
+const SENSITIVE_KEY = /password|passwd|secret|token|api[-_]?key|authorization|cookie|vapid|\w+hash|salt|nin|cnas|iban|rib|ssn/i;
 const MAX_STR = 500;
 
 export function redact<T>(value: T, depth = 0): T {
