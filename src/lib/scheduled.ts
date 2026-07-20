@@ -41,18 +41,30 @@ export async function runScheduledJobs(): Promise<void> {
 }
 
 /** Année-mois « YYYY-MM » à l'heure d'Alger (UTC+1, sans changement d'heure). */
-function algiersYm(): string {
-  const alg = new Date(Date.now() + 3_600_000);
+export function algiersYm(at: number = Date.now()): string {
+  const alg = new Date(at + 3_600_000);
   return `${alg.getUTCFullYear()}-${String(alg.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 /** Nombre de mois entiers écoulés de `a` (exclu) à `b` (inclus) au format « YYYY-MM ». */
-function monthsBetweenYm(a: string, b: string): number {
+export function monthsBetweenYm(a: string, b: string): number {
   const [ay, am] = a.split("-").map(Number);
   const [by, bm] = b.split("-").map(Number);
   if (!ay || !am || !by || !bm) return 0;
   const diff = (by - ay) * 12 + (bm - am);
   return diff > 0 ? diff : 0;
+}
+
+/**
+ * Logique **pure** d'acquisition (barème algérien : +2,5 j / mois). Source de vérité unique,
+ * réutilisée par le job réel ci-dessous ET par le moteur « Time Travel » du Test Center pour
+ * prouver l'idempotence (once-and-only-once). `marker` = dernier mois crédité (« YYYY-MM ») ou
+ * null (amorçage sans rétro-crédit) ; renvoie le nouveau marqueur et le crédit à appliquer.
+ */
+export function accrualStep(marker: string | null, ym: string): { marker: string; credit: number } {
+  if (!marker) return { marker: ym, credit: 0 }; // amorçage : on fixe le marqueur, pas de rétro-crédit
+  const months = monthsBetweenYm(marker, ym);
+  return months <= 0 ? { marker, credit: 0 } : { marker: ym, credit: 2.5 * months };
 }
 
 /**
@@ -69,15 +81,11 @@ async function accrueMonthlyLeave(): Promise<void> {
     select: { id: true, leaveAccruedThrough: true },
   });
   for (const e of employees) {
-    if (!e.leaveAccruedThrough) {
-      await prisma.employee.update({ where: { id: e.id }, data: { leaveAccruedThrough: ym } });
-      continue;
-    }
-    const months = monthsBetweenYm(e.leaveAccruedThrough, ym);
-    if (months <= 0) continue;
+    const { marker, credit } = accrualStep(e.leaveAccruedThrough, ym);
+    if (credit === 0 && marker === e.leaveAccruedThrough) continue; // rien à faire (déjà à jour)
     await prisma.employee.update({
       where: { id: e.id },
-      data: { leaveBalanceDays: { increment: 2.5 * months }, leaveAccruedThrough: ym },
+      data: { leaveAccruedThrough: marker, ...(credit > 0 ? { leaveBalanceDays: { increment: credit } } : {}) },
     });
   }
 }

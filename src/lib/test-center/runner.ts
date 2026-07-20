@@ -7,6 +7,7 @@ import { WRITE_MODES, type RunConfig, type TestRunMode, type FindingInput } from
 import { seedSyntheticUsers } from "./synthetic";
 import { cleanupRun, verifyClean } from "./manifest";
 import { smokeFindings } from "./smoke";
+import { deepAudit } from "./deep-audit";
 import { redact } from "./redact";
 
 /**
@@ -53,10 +54,18 @@ export async function executeRun(opts: { mode: TestRunMode; initiatedById: strin
     }
 
     // 2) Smoke (santé + cohérence).
-    await prisma.testRun.update({ where: { id: runId }, data: { step: "smoke — santé & cohérence", progress: 55 } });
+    await prisma.testRun.update({ where: { id: runId }, data: { step: "smoke — santé & cohérence", progress: 50 } });
     const smoke = await smokeFindings();
     await persistFindings(runId, smoke.findings);
-    const criticalCount = smoke.findings.filter((f) => f.severity === "CRITICAL").length;
+
+    // 2b) Audit approfondi : invariants métier (§28) + machines à états (§29) + couverture.
+    await prisma.testRun.update({ where: { id: runId }, data: { step: "audit approfondi — invariants & machines à états", progress: 66 } });
+    const deep = await deepAudit();
+    await persistFindings(runId, deep.findings);
+
+    const allFindings = [...smoke.findings, ...deep.findings];
+    const criticalCount = allFindings.filter((f) => f.severity === "CRITICAL").length;
+    const blockingFailures = deep.blockingFailures;
 
     // 3) Nettoyage garanti + vérification.
     let cleanupStatus: "DONE" | "INCOMPLETE" | "NOT_REQUIRED" = "NOT_REQUIRED";
@@ -72,14 +81,19 @@ export async function executeRun(opts: { mode: TestRunMode; initiatedById: strin
       }
     }
 
-    const status = cleanupStatus === "INCOMPLETE" ? "CLEANUP_INCOMPLETE" : criticalCount > 0 ? "FAILED" : "PASSED";
-    const findingsCount = smoke.findings.length + (cleanupStatus === "INCOMPLETE" ? 1 : 0);
+    const status = cleanupStatus === "INCOMPLETE" ? "CLEANUP_INCOMPLETE" : criticalCount > 0 || blockingFailures > 0 ? "FAILED" : "PASSED";
+    const findingsCount = allFindings.length + (cleanupStatus === "INCOMPLETE" ? 1 : 0);
     await prisma.testRun.update({
       where: { id: runId },
       data: {
         status, cleanupStatus, finishedAt: new Date(), progress: 100, step: "terminé",
         score: smoke.score, criticalCount, findingsCount, resourcesCreated: created, resourcesDeleted: deleted,
-        summary: redact({ coverage: smoke.coverage, mode: opts.mode }) as object,
+        summary: redact({
+          mode: opts.mode, smokeCoverage: smoke.coverage, blockingFailures,
+          invariants: { total: deep.invariants.total, passed: deep.invariants.passed, failed: deep.invariants.failed, skipped: deep.invariants.skipped },
+          transitionCoverage: deep.coverage.transition, businessObjectCoverage: deep.coverage.business.coverage,
+          rbacGrantDensity: deep.coverage.rbac.grantDensity,
+        }) as object,
       },
     });
     await recordAudit({ actorId: opts.initiatedById, action: "UPDATE", module: "Administration", summary: `Test Center — run ${runId.slice(0, 8)} (${opts.mode}) : ${status} · ${created} créées / ${deleted} supprimées` });
