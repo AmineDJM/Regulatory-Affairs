@@ -13,7 +13,11 @@ import { SimpleReportEditor } from "./simple-report-editor";
 export const dynamic = "force-dynamic";
 
 export default async function FieldReportPage({ params }: { params: { id: string } }) {
-  const user = await requireModule("MEDICAL");
+  // La fiche d'un rapport est gardée par le MÊME module que la liste (« Rapports terrain »),
+  // et non plus par « Promotion médicale » : sinon un profil ayant accès aux rapports mais pas
+  // à la promotion médicale (ex. Direction des opérations) était renvoyé vers « Mon espace »
+  // en ouvrant un rapport. L'accès fin (voir/éditer CE rapport) reste géré par getFieldReportDetail.
+  const user = await requireModule("FIELD_REPORTS");
   const detail = await getFieldReportDetail(user, params.id);
   if (!detail) notFound();
   // Compte rendu (synthèse) simple pour tous : dicter/écrire + médecin(s), établissement,

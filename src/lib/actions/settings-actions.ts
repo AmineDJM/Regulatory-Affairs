@@ -116,6 +116,28 @@ export async function setDriveSpaceCreatorRoles(formData: FormData): Promise<Act
   return { ok: true };
 }
 
+/**
+ * Rôles autorisés à voir l'onglet « Overview » des Rapports terrain (graphes d'analyse),
+ * en plus du Super Admin toujours autorisé. **Super Admin uniquement.**
+ */
+export async function setFieldReportsOverviewRoles(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const roles = [...new Set(formData.getAll("roles").map(String).filter(Boolean))];
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", fieldReportsOverviewRoles: roles, updatedById: admin.id },
+    update: { fieldReportsOverviewRoles: roles, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Accès Overview Rapports terrain — ${roles.length} rôle(s) configuré(s)`,
+  });
+  revalidatePath("/admin");
+  revalidatePath("/field-reports/overview");
+  return { ok: true };
+}
+
 /** Capacité globale du Drive + quota par utilisateur (Go). **Super Admin uniquement.** */
 export async function saveDriveStorageSettings(formData: FormData): Promise<ActionResult> {
   const admin = await requireUser();

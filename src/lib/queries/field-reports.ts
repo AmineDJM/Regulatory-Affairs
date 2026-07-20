@@ -15,6 +15,12 @@ export function viewsAllReports(user: SessionUser): boolean {
   return managesReports(user) || hasRole(user, "NATIONAL_SALES");
 }
 
+/** Peut voir l'onglet « Overview » (graphes d'analyse) : Super Admin, ou un rôle que le Super
+ *  Admin a explicitement autorisé (réglage `fieldReportsOverviewRoles`, configuré en Administration). */
+export function canViewFieldReportsOverview(user: SessionUser, overviewRoles: string[]): boolean {
+  return user.role === "SUPER_ADMIN" || overviewRoles.includes(user.role) || overviewRoles.includes(user.secondaryRole ?? "");
+}
+
 export interface FieldReportListItem {
   id: string;
   status: string;
@@ -155,5 +161,94 @@ export async function getFieldReportsAggregation(): Promise<FieldReportAggregati
     qualitySignals: collect((r) => r.qualitySignal),
     nextActions: collect((r) => r.nextAction),
     sponsoringRequests: collect((r) => r.sponsoringRequest),
+  };
+}
+
+// ─────────── Overview (graphes d'analyse) — suivi des rapports terrain ───────────
+
+export interface NamedCount { name: string; value: number }
+export interface FieldReportsOverview {
+  kpis: { reports: number; validated: number; doctors: number; institutions: number; delegates: number; specialties: number };
+  byMonth: NamedCount[]; // 12 derniers mois (nombre de visites)
+  byDoctor: NamedCount[]; // top médecins visités
+  byInstitution: NamedCount[]; // top hôpitaux / établissements
+  byDelegate: NamedCount[]; // visites par délégué
+  bySpecialty: NamedCount[]; // visites par spécialité
+  byStatus: NamedCount[]; // brouillon / validé / archivé
+  topProducts: NamedCount[]; // produits les plus discutés
+}
+
+const MONTHS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+
+/**
+ * Données d'analyse des rapports terrain (onglet « Overview ») : volumes de visites par
+ * médecin / hôpital / délégué / spécialité, tendance sur 12 mois, répartition par statut et
+ * produits les plus discutés. Calculé sur l'ensemble des rapports (cap raisonnable).
+ */
+export async function getFieldReportsOverview(): Promise<FieldReportsOverview> {
+  const reports = await prisma.fieldReport.findMany({
+    orderBy: { visitDate: "desc" },
+    take: 5000,
+    include: { delegate: { select: { name: true } }, doctor: { select: { name: true } } },
+  });
+
+  const top = (m: Map<string, number>, n: number): NamedCount[] =>
+    [...m.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, n);
+
+  const byDoctor = new Map<string, number>();
+  const byInstitution = new Map<string, number>();
+  const byDelegate = new Map<string, number>();
+  const bySpecialty = new Map<string, number>();
+  const byProduct = new Map<string, number>();
+  const byStatus = new Map<string, number>();
+  const institutionSet = new Set<string>();
+  const doctorSet = new Set<string>();
+  const specialtySet = new Set<string>();
+  const delegateSet = new Set<string>();
+
+  // 12 derniers mois (buckets ordonnés, du plus ancien au plus récent).
+  const now = new Date();
+  const monthKeys: string[] = [];
+  const monthLabels = new Map<string, string>();
+  const byMonth = new Map<string, number>();
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    monthKeys.push(key);
+    monthLabels.set(key, `${MONTHS_FR[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`);
+    byMonth.set(key, 0);
+  }
+
+  const inc = (m: Map<string, number>, k: string | null | undefined) => {
+    const key = (k ?? "").trim();
+    if (key) m.set(key, (m.get(key) ?? 0) + 1);
+  };
+
+  let validated = 0;
+  for (const r of reports) {
+    const doctor = (r.doctor?.name ?? r.doctorName ?? "").trim();
+    const institution = (r.institution ?? "").trim();
+    const delegate = (r.delegate?.name ?? "").trim();
+    const specialty = (r.specialty ?? "").trim();
+    if (doctor) { inc(byDoctor, doctor); doctorSet.add(doctor.toLowerCase()); }
+    if (institution) { inc(byInstitution, institution); institutionSet.add(institution.toLowerCase()); }
+    if (delegate) { inc(byDelegate, delegate); delegateSet.add(delegate.toLowerCase()); }
+    if (specialty) { inc(bySpecialty, specialty); specialtySet.add(specialty.toLowerCase()); }
+    for (const p of (r.products ?? "").split(/[,;/]/).map((s) => s.trim()).filter(Boolean)) inc(byProduct, p);
+    byStatus.set(r.status, (byStatus.get(r.status) ?? 0) + 1);
+    if (r.status === "VALIDATED") validated++;
+    const mk = `${r.visitDate.getFullYear()}-${r.visitDate.getMonth()}`;
+    if (byMonth.has(mk)) byMonth.set(mk, (byMonth.get(mk) ?? 0) + 1);
+  }
+
+  return {
+    kpis: { reports: reports.length, validated, doctors: doctorSet.size, institutions: institutionSet.size, delegates: delegateSet.size, specialties: specialtySet.size },
+    byMonth: monthKeys.map((k) => ({ name: monthLabels.get(k)!, value: byMonth.get(k) ?? 0 })),
+    byDoctor: top(byDoctor, 12),
+    byInstitution: top(byInstitution, 12),
+    byDelegate: top(byDelegate, 15),
+    bySpecialty: top(bySpecialty, 10),
+    byStatus: [...byStatus.entries()].map(([name, value]) => ({ name, value })),
+    topProducts: top(byProduct, 10),
   };
 }

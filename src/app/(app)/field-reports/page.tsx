@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
-import { getMyFieldReports, viewsAllReports } from "@/lib/queries/field-reports";
+import { getMyFieldReports, viewsAllReports, canViewFieldReportsOverview } from "@/lib/queries/field-reports";
+import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { FIELD_REPORT_STATUS } from "@/lib/labels";
@@ -15,13 +17,19 @@ export default async function FieldReportsPage() {
   const isManager = viewsAllReports(user);
   // Vue simple : rien que les rapports, les uns après les autres (pas de listes agrégées
   // pharmacovigilance / opportunités / etc.), y compris en vue Direction.
-  const reports = await getMyFieldReports(user);
+  const [reports, settings] = await Promise.all([getMyFieldReports(user), getAppSettings()]);
+  const canOverview = canViewFieldReportsOverview(user, settings.fieldReportsOverviewRoles);
+  const tabs = [
+    { label: "Rapports", href: "/field-reports" },
+    { label: "Overview", href: "/field-reports/overview", show: canOverview },
+  ];
 
   return (
     <div className="space-y-6">
       <PageHeader title="Rapports terrain" description="Comptes rendus de visite — dictés à la voix ou saisis, avec médecin(s), établissement, spécialité et pièces jointes.">
         <NewReportButton />
       </PageHeader>
+      <ModuleTabs tabs={tabs} />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{isManager ? "Tous les rapports" : "Mes rapports"} ({reports.length})</h2>

@@ -275,12 +275,18 @@ export interface SupervisedValidationItem {
   id: string;
   reference: string;
   title: string;
+  description: string;
   module: string;
   amount: number | null;
   status: string;
   mode: string;
   requester: string;
   createdAt: string;
+  /** Lien vers l'objet original (ex. /courrier/…, /demandes/…) quand le demandeur l'a renseigné. */
+  link: string;
+  /** Pièces de la demande ORIGINALE (celles jointes à la demande + celles de l'objet lié),
+   *  pour un aperçu sur place — la Direction / le Super Admin accède à tout sans naviguer. */
+  documents: DocItem[];
   steps: MyValidationStep[];
 }
 
@@ -288,7 +294,8 @@ export interface SupervisedValidationItem {
  * SUPERVISION (Super Admin / Direction) : toutes les demandes de validation EN COURS
  * dont l'utilisateur n'est ni le demandeur ni un validateur assigné — de sorte qu'un
  * responsable à vue globale VOIE l'intégralité des demandes de validation de la société,
- * même celles qui ne le concernent pas directement. Renvoie une liste vide sinon.
+ * même celles qui ne le concernent pas directement. Chaque demande expose son LIEN et ses
+ * PIÈCES ORIGINALES (aperçu sur place). Renvoie une liste vide sinon.
  */
 export async function getSupervisedValidations(user: SessionUser): Promise<SupervisedValidationItem[]> {
   if (!hasGlobalView(user.role)) return [];
@@ -302,18 +309,45 @@ export async function getSupervisedValidations(user: SessionUser): Promise<Super
     orderBy: { createdAt: "desc" },
     take: 100,
   });
-  return reqs.map((r) => ({
-    id: r.id,
-    reference: r.reference,
-    title: r.title,
-    module: r.module,
-    amount: r.amount === null ? null : toNumber(r.amount),
-    status: r.status,
-    mode: r.mode,
-    requester: r.requester?.name ?? "",
-    createdAt: r.createdAt.toISOString(),
-    steps: r.steps.map((s) => ({ order: s.order, validator: s.validator?.name ?? "", status: s.status, reason: s.reason ?? "" })),
-  }));
+
+  // Pièces des demandes ORIGINALES chargées EN LOT : celles jointes à la demande
+  // (entité VALIDATION_REQUEST) + celles de l'objet lié quand il est renseigné.
+  const reqIds = reqs.map((r) => r.id);
+  const linkedPairs = reqs
+    .filter((r) => r.entityType && r.entityId)
+    .map((r) => ({ entityType: r.entityType as EntityType, entityId: r.entityId as string }));
+  const orClauses: Prisma.DocumentWhereInput[] = [];
+  if (reqIds.length) orClauses.push({ entityType: "VALIDATION_REQUEST", entityId: { in: reqIds } });
+  for (const p of linkedPairs) orClauses.push({ entityType: p.entityType, entityId: p.entityId });
+  const documents = orClauses.length
+    ? await prisma.document.findMany({ where: { OR: orClauses }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } })
+    : [];
+  const byKey = new Map<string, DocItem[]>();
+  for (const d of documents) {
+    const key = `${d.entityType}:${d.entityId}`;
+    const item: DocItem = { id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes, confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null, createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey) };
+    (byKey.get(key) ?? byKey.set(key, []).get(key)!).push(item);
+  }
+
+  return reqs.map((r) => {
+    const own = byKey.get(`VALIDATION_REQUEST:${r.id}`) ?? [];
+    const linked = r.entityType && r.entityId ? byKey.get(`${r.entityType}:${r.entityId}`) ?? [] : [];
+    return {
+      id: r.id,
+      reference: r.reference,
+      title: r.title,
+      description: r.description ?? "",
+      module: r.module,
+      amount: r.amount === null ? null : toNumber(r.amount),
+      status: r.status,
+      mode: r.mode,
+      requester: r.requester?.name ?? "",
+      createdAt: r.createdAt.toISOString(),
+      link: r.link ?? "",
+      documents: [...own, ...linked],
+      steps: r.steps.map((s) => ({ order: s.order, validator: s.validator?.name ?? "", status: s.status, reason: s.reason ?? "" })),
+    };
+  });
 }
 
 export async function getMyValidations(user: SessionUser) {

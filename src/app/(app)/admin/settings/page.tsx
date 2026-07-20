@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch, ShieldCheck, MessageSquarePlus, FolderPlus } from "lucide-react";
+import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch, ShieldCheck, MessageSquarePlus, FolderPlus, BarChart3 } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegRequestCreatorForm, DriveSpaceCreatorForm } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegRequestCreatorForm, DriveSpaceCreatorForm, FieldReportsOverviewForm } from "./admin-settings-forms";
 
 export const metadata = { title: "Réglages & diffusion — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -85,6 +85,16 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <DriveSpaceCreatorForm roles={roleOptions} selected={settings.driveSpaceCreatorRoles} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><BarChart3 className="h-4 w-4" /> Rapports terrain — Accès à l'onglet « Overview »</CardTitle>
+          <p className="text-sm text-muted-foreground">Rôles autorisés (en plus du Super Admin, toujours inclus) à voir l'onglet « Overview » des Rapports terrain : graphes d'analyse (visites par médecin, hôpital, délégué, spécialité, tendance sur 12 mois…).</p>
+        </CardHeader>
+        <CardContent>
+          <FieldReportsOverviewForm roles={roleOptions} selected={settings.fieldReportsOverviewRoles} />
         </CardContent>
       </Card>
 

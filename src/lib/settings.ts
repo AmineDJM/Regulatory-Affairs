@@ -29,6 +29,8 @@ export interface AppSettings {
   regRequestCreatorRoles: string[];
   /** Rôles autorisés à CRÉER des catégories de Drive (espaces partagés en onglets). En plus du Super Admin. */
   driveSpaceCreatorRoles: string[];
+  /** Rôles autorisés à voir l'onglet « Overview » des Rapports terrain (graphes d'analyse). En plus du Super Admin. */
+  fieldReportsOverviewRoles: string[];
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -42,6 +44,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   regulatorySupervisorRoles: [],
   regRequestCreatorRoles: [],
   driveSpaceCreatorRoles: [],
+  fieldReportsOverviewRoles: [],
 };
 
 export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
@@ -59,6 +62,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       regulatorySupervisorRoles: row.regulatorySupervisorRoles ?? [],
       regRequestCreatorRoles: row.regRequestCreatorRoles ?? [],
       driveSpaceCreatorRoles: row.driveSpaceCreatorRoles ?? [],
+      fieldReportsOverviewRoles: row.fieldReportsOverviewRoles ?? [],
     };
   } catch {
     return DEFAULT_APP_SETTINGS;
