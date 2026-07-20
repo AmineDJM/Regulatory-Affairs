@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { Priority, SponsoringStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
@@ -11,6 +11,7 @@ import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { involveThirdParty } from "@/lib/third-party";
 import { reopenInstance } from "@/lib/workflow/engine";
+import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/sponsoring";
@@ -43,6 +44,15 @@ export async function createSponsoring(
   const institution = fdStr(formData, "institution");
   if (!institution) return { ok: false, error: "L'institution est obligatoire." };
 
+  // Routage intelligent : on saute les étapes d'approbation au niveau/en dessous du créateur.
+  const pmId = fdStr(formData, "productManagerId");
+  if (pmId) {
+    const okPm = await prisma.user.count({ where: { id: pmId, isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) } });
+    if (!okPm) return { ok: false, error: "Le chef de produit sélectionné est introuvable." };
+  }
+  const init = adProInit(user, pmId);
+  const now = new Date();
+
   const year = new Date().getFullYear();
   const refs = await prisma.sponsoringRequest.findMany({ where: { reference: { startsWith: `SPO-${year}-` } }, select: { reference: true } });
   const reference = buildRef("SPO", year, refs.map((r) => r.reference));
@@ -61,22 +71,33 @@ export async function createSponsoring(
       amountProposed: fdNum(formData, "amountProposed"),
       product: fdStr(formData, "product"),
       strategicImportance: (fdStr(formData, "strategicImportance") as Priority) ?? "MEDIUM",
-      status: "AWAITING_PRELIMINARY",
+      status: init.status as SponsoringStatus,
       requesterId: user.id,
       createdById: user.id,
+      ...(init.productManagerId ? { productManagerId: init.productManagerId } : {}),
+      ...(init.preliminaryBySelf ? { preliminaryById: user.id, preliminaryAt: now } : {}),
     },
   });
 
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${reference} — ${institution}` });
-  await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], {
-    type: "SPONSORING_VALIDATION",
-    title: "Sponsoring — à attribuer (National Sales)",
-    body: `${reference} — ${institution}`,
-    link: `${PATH}/${created.id}`,
-  });
+  await notifyAdProCreation(init, created.id, `${reference} — ${institution}`);
 
   revalidatePath(PATH);
   return { ok: true, id: created.id };
+}
+
+/** Notifie l'acteur de l'étape de DÉPART d'un sponsoring, selon le routage à la création. */
+async function notifyAdProCreation(init: ReturnType<typeof adProInit>, id: string, body: string) {
+  const link = `${PATH}/${id}`;
+  if (init.stage === "ANALYSIS" && init.productManagerId) {
+    await notifyUser({ userId: init.productManagerId, type: "ASSIGNMENT", title: "Sponsoring à analyser", body, link });
+    return;
+  }
+  if (init.stage === "FINAL") {
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "SPONSORING_VALIDATION", title: "Sponsoring — validation définitive", body, link });
+    return;
+  }
+  await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "SPONSORING_VALIDATION", title: "Sponsoring — à attribuer (National Sales)", body, link });
 }
 
 // ─────────────────── Attribution d'un chef de produit (Direction Marketing) ───────────────────

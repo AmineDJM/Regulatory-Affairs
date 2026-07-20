@@ -12,7 +12,9 @@ import { NATIONAL_EVENT_TYPE, ROLE_LABELS } from "@/lib/labels";
 export interface DoctorOpt { id: string; name: string; specialty: string; city: string }
 export interface UserOpt { id: string; name: string; role: string }
 
-export function CongressRequestButton({ national, doctors, users }: { national?: boolean; doctors: DoctorOpt[]; users: UserOpt[] }) {
+const PM_ROLES = ["PRODUCT_MANAGER", "MEDICAL_PROMOTION_MANAGER"];
+
+export function CongressRequestButton({ national, doctors, users, canDesignatePM }: { national?: boolean; doctors: DoctorOpt[]; users: UserOpt[]; canDesignatePM?: boolean }) {
   const router = useRouter();
   const formRef = React.useRef<HTMLFormElement>(null);
   const [open, setOpen] = React.useState(false);
@@ -23,6 +25,12 @@ export function CongressRequestButton({ national, doctors, users }: { national?:
   const [pickedDoctors, setPickedDoctors] = React.useState<Set<string>>(new Set());
   const [pickedUsers, setPickedUsers] = React.useState<Set<string>>(new Set());
   const [userQuery, setUserQuery] = React.useState("");
+  const [productManagerId, setProductManagerId] = React.useState("");
+
+  // National Sales créant lui-même : il désigne le chef de produit (l'analyse lui est
+  // confiée) et n'a pas à approuver préliminairement sa propre demande.
+  const pmCandidates = React.useMemo(() => users.filter((u) => PM_ROLES.includes(u.role)), [users]);
+  const showPmPicker = Boolean(canDesignatePM) && pmCandidates.length > 0;
 
   const specialties = React.useMemo(() => [...new Set(doctors.map((d) => d.specialty))].sort(), [doctors]);
   const doctorsInSpecialty = React.useMemo(() => doctors.filter((d) => d.specialty === specialty), [doctors, specialty]);
@@ -39,7 +47,7 @@ export function CongressRequestButton({ national, doctors, users }: { national?:
     setter(n);
   };
 
-  const reset = () => { setSpecialty(""); setPickedDoctors(new Set()); setPickedUsers(new Set()); setUserQuery(""); setErr(null); };
+  const reset = () => { setSpecialty(""); setPickedDoctors(new Set()); setPickedUsers(new Set()); setUserQuery(""); setProductManagerId(""); setErr(null); };
 
   const submit = async () => {
     const form = formRef.current;
@@ -48,7 +56,9 @@ export function CongressRequestButton({ national, doctors, users }: { national?:
     fd.set("type", national ? "NATIONAL" : "INTL");
     pickedDoctors.forEach((id) => fd.append("invitedDoctorIds", id));
     pickedUsers.forEach((id) => fd.append("participantIds", id));
+    if (showPmPicker) fd.set("productManagerId", productManagerId);
     if (!String(fd.get("name") ?? "").trim()) { setErr("Le nom de l'événement est obligatoire."); return; }
+    if (showPmPicker && !productManagerId) { setErr("Désignez le chef de produit qui analysera la demande."); return; }
     setSaving(true); setErr(null);
     const r = await createCongressRequest(undefined, fd);
     setSaving(false);
@@ -86,6 +96,18 @@ export function CongressRequestButton({ national, doctors, users }: { national?:
             )}
             <Field label="Budget estimé (DZD)"><Input name="estimatedBudget" type="number" step="any" placeholder="Estimation du demandeur" /></Field>
           </div>
+
+          {/* National Sales : désignation directe du chef de produit (pas d'auto-approbation préliminaire) */}
+          {showPmPicker && (
+            <div className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 p-3">
+              <Label>Chef de produit (analyse) <span className="text-destructive">*</span></Label>
+              <p className="text-xs text-muted-foreground">Vous créez la demande : désignez le chef de produit qui l'analysera — l'étape préliminaire est franchie automatiquement.</p>
+              <Select value={productManagerId} onChange={(e) => setProductManagerId(e.target.value)}>
+                <option value="">— Sélectionner le chef de produit —</option>
+                {pmCandidates.map((u) => <option key={u.id} value={u.id}>{u.name} · {ROLE_LABELS[u.role] ?? u.role}</option>)}
+              </Select>
+            </div>
+          )}
 
           {/* Médecins invités : spécialité → liste */}
           <div className="space-y-2 rounded-lg border border-border p-3">

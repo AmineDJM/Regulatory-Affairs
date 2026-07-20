@@ -1,11 +1,12 @@
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, anyRoleFilter } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
-import { CreateRecordButton } from "@/components/shared/create-record-button";
+import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
+import { canDesignateProductManagerAtCreation, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { PRIORITY, SPONSORING_TYPES, EVENTS_TABS } from "@/lib/labels";
 import { SponsoringTable, type SponsoringRow } from "./sponsoring-table";
@@ -13,6 +14,16 @@ import { SponsoringTable, type SponsoringRow } from "./sponsoring-table";
 export default async function SponsoringPage() {
   const user = await requireModule("SPONSORING");
   const canCreate = userCan(user, "SPONSORING", "CREATE");
+
+  // Le National Sales, en créant lui-même une demande, désigne directement le chef de
+  // produit (l'analyse lui est confiée) : il n'a pas à approuver préliminairement.
+  const canDesignatePM = canDesignateProductManagerAtCreation(user);
+  const pmCandidates = canDesignatePM
+    ? await prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+    : [];
+  const pmField: FieldDef[] = canDesignatePM && pmCandidates.length > 0
+    ? [{ type: "select", name: "productManagerId", label: "Chef de produit (analyse)", required: true, placeholder: "— Sélectionner le chef de produit —", full: true, options: pmCandidates.map((u) => ({ value: u.id, label: u.name })) }]
+    : [];
 
   const requests = await prisma.sponsoringRequest.findMany({
     orderBy: { requestDate: "desc" },
@@ -45,6 +56,7 @@ export default async function SponsoringPage() {
             action={createSponsoring}
             redirectBase="/sponsoring"
             fields={[
+              ...pmField,
               { type: "text", name: "institution", label: "Institution / Association", required: true },
               { type: "text", name: "doctor", label: "Médecin concerné" },
               { type: "text", name: "specialty", label: "Spécialité" },

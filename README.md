@@ -515,9 +515,17 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
   **projette les statuts legacy** sur les entités (les listes/badges existants continuent de fonctionner). Les
   étapes `confidential` (analyse chef de produit) sont **caviardées** pour le demandeur. Méta du workflow +
   **historique complet** visibles **uniquement du Super Admin**.
+- **Routage intelligent à la création (saut d'étapes selon le rang du créateur)** : personne n'approuve une demande
+  qu'il émet lui-même. `src/lib/workflow/origin.ts` (`adProOriginRank`, `adProInit`) choisit le **statut de départ** :
+  un **délégué** part du préliminaire (National Sales) ; le **National Sales**, en désignant le chef de produit à la
+  création (sélecteur ajouté aux formulaires sponsoring/congrès/événement), **saute son propre préliminaire** →
+  `PRELIMINARY_APPROVED` ; un **chef de produit**, la **Direction** ou le **Super Admin** **sautent préliminaire + analyse**
+  → `AWAITING_FINAL` (Direction). Le statut legacy de départ pilote à la fois les actions historiques et le moteur
+  (`positionFromLegacy`). Câblé dans `createSponsoring`, `createCongressRequest`, `submitEventForApproval`.
 - **Fichiers** : `src/lib/workflow/engine.ts` (avance/refus/projection ; ⚠ `Event` n'a pas `updatedById` — il est
-  retiré avant update), `defaults.ts` (seed paresseux reproduisant le circuit historique), `src/lib/queries/workflow.ts`
-  (vue caviardée), `src/components/workflow/workflow-panel.tsx` (panneau runtime), builder sous `/admin/workflows`.
+  retiré avant update), `defaults.ts` (seed paresseux reproduisant le circuit historique), `origin.ts` (routage à la
+  création), `src/lib/queries/workflow.ts` (vue caviardée), `src/components/workflow/workflow-panel.tsx` (panneau runtime),
+  builder sous `/admin/workflows`.
 
 ### RH — pré-remplissage IA du contrat + congés (acquisition & consommation)
 
@@ -1045,6 +1053,8 @@ npx prisma migrate deploy
 | `npm run db:migrate` | Migration de développement |
 | `npm run db:bootstrap` | Crée le Super Admin initial |
 | `npm run db:reset` | Réinitialise la base |
+| `npm run autotest` | **Auto-testeur** — audit de cohérence pages ↔ gardes ↔ menu ↔ matrice RBAC (déterministe, aucun serveur). Voir `scripts/auto-test/README.md`. |
+| `npm run autotest:live -- --base-url=…` | Crawl **en direct** (Playwright) : passe anonyme (fuites d'accès) + passes par rôle (accès réel vs RBAC, uploads jetables). |
 
 ---
 
@@ -1113,6 +1123,20 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Ad & Pro — routage intelligent : personne n'approuve sa propre demande.** À la création d'une demande
+  (sponsoring / congrès / événement), on **saute** toute étape d'approbation au niveau ou en dessous du rang du
+  créateur. Le **National Sales** désigne directement le chef de produit (sélecteur ajouté aux formulaires) et
+  **saute son préliminaire** ; un **chef de produit**, la **Direction** ou le **Super Admin** **sautent préliminaire
+  ET analyse** → validation définitive Direction. Logique centralisée dans `src/lib/workflow/origin.ts`
+  (`adProOriginRank`/`adProInit`, testé) et câblée dans `createSponsoring`, `createCongressRequest`,
+  `submitEventForApproval` ; le statut legacy de départ pilote à la fois les actions historiques et le moteur.
+- **Auto-testeur dopé à l'IA (`npm run autotest`).** Outil sous `scripts/auto-test/` qui importe le **vrai** code
+  RBAC/navigation et confronte pages ↔ gardes `requireModule` ↔ menu ↔ matrice rôles→modules : liens de menu morts,
+  gardes de module inconnues, incohérences menu/réalité, modules orphelins (déterministe, aucun serveur ; code de
+  sortie CI). Option **crawl en direct** (Playwright) : passe **anonyme** (détection de fuites d'accès), passes
+  **par rôle** (comptes fournis ou semés jetables) comparant l'accès **réel** à l'accès prédit, dépôt de **pièces
+  jointes jetables** (PDF+ZIP) dans les zones d'upload, capture des erreurs console / overlays Next. Option **triage
+  IA** (`--ai`) réutilisant `src/lib/ai.ts`. Rapports `auto-test-report.{md,json}`.
 - **Perf disque — écritures `lastSeenAt` throttlées (fin des pics « Disk Operations » réguliers).**
   `lastSeenAt` (session + présence messagerie) était réécrit **à chaque requête** ET **à chaque
   battement de polling** (~6 s) → un flux constant d'UPDATE Postgres (WAL) visible en pics réguliers

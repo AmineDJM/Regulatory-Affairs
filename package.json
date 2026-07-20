@@ -19,7 +19,9 @@
     "db:reset": "prisma migrate reset --force",
     "graphify:refresh": "bash scripts/graphify-refresh.sh",
     "graphify:report": "cat graphify-out/GRAPH_REPORT.md",
-    "graphify:query": "bash scripts/graphify-query.sh"
+    "graphify:query": "bash scripts/graphify-query.sh",
+    "autotest": "tsx scripts/auto-test/run.ts",
+    "autotest:live": "tsx scripts/auto-test/run.ts --live"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"

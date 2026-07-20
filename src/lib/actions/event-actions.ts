@@ -4,11 +4,13 @@ import { revalidatePath } from "next/cache";
 import {
   EventType, EventScope, EventFormat, EventStatus, ParticipantRole, RegistrationStatus,
 } from "@prisma/client";
+import type { CongressRequestStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, anyRoleFilter } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { notifyRoles } from "@/lib/notify";
+import { notifyRoles, notifyUser } from "@/lib/notify";
+import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 const inEnum = <T extends Record<string, string>>(e: T, v: string | null, fallback: T[keyof T]): T[keyof T] =>
@@ -109,17 +111,35 @@ export async function submitEventForApproval(formData: FormData): Promise<Action
   const ev = await prisma.event.findUnique({ where: { id }, select: { id: true, name: true, requestStatus: true, requesterId: true } });
   if (!ev) return { ok: false, error: "Événement introuvable." };
   if (ev.requestStatus) return { ok: false, error: "Une demande de prise en charge est déjà en cours pour cet événement." };
+
+  // Routage intelligent : on saute les étapes d'approbation au niveau/en dessous du créateur.
+  const pmId = fdStr(formData, "productManagerId");
+  if (pmId) {
+    const okPm = await prisma.user.count({ where: { id: pmId, isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) } });
+    if (!okPm) return { ok: false, error: "Le chef de produit sélectionné est introuvable." };
+  }
+  const init = adProInit(user, pmId);
+  const now = new Date();
+
   await prisma.event.update({
     where: { id },
-    data: { requestStatus: "AWAITING_PRELIMINARY", requesterId: ev.requesterId ?? user.id, status: "AWAITING_VALIDATION" },
+    data: {
+      requestStatus: init.status as CongressRequestStatus,
+      requesterId: ev.requesterId ?? user.id,
+      status: "AWAITING_VALIDATION",
+      ...(init.productManagerId ? { productManagerId: init.productManagerId } : {}),
+      ...(init.preliminaryBySelf ? { preliminaryById: user.id, preliminaryAt: now } : {}),
+    },
   });
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Events", entityType: "EVENT", entityId: id, summary: `Demande de prise en charge — ${ev.name}` });
-  await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], {
-    type: "VALIDATION_REQUIRED",
-    title: "Événement — à attribuer (National Sales)",
-    body: ev.name,
-    link: `/events/${id}`,
-  });
+  const link = `/events/${id}`;
+  if (init.stage === "ANALYSIS" && init.productManagerId) {
+    await notifyUser({ userId: init.productManagerId, type: "ASSIGNMENT", title: "Événement à analyser", body: ev.name, link });
+  } else if (init.stage === "FINAL") {
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Événement — validation définitive", body: ev.name, link });
+  } else {
+    await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Événement — à attribuer (National Sales)", body: ev.name, link });
+  }
   revalidatePath(`/events/${id}`);
   revalidatePath("/events");
   return { ok: true };

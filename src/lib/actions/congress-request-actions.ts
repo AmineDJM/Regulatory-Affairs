@@ -10,6 +10,7 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { involveThirdParty } from "@/lib/third-party";
+import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 // Le **même** circuit de prise en charge sert les congrès internationaux/nationaux
@@ -56,6 +57,16 @@ export async function createCongressRequest(
   const eventType: NationalEventType = EVENT_TYPES.includes(fdStr(formData, "eventType") as NationalEventType)
     ? (fdStr(formData, "eventType") as NationalEventType)
     : "CONGRESS";
+
+  // Routage intelligent : on saute les étapes d'approbation au niveau/en dessous du créateur.
+  const pmId = fdStr(formData, "productManagerId");
+  if (pmId) {
+    const okPm = await prisma.user.count({ where: { id: pmId, isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) } });
+    if (!okPm) return { ok: false, error: "Le chef de produit sélectionné est introuvable." };
+  }
+  const init = adProInit(user, pmId);
+  const now = new Date();
+
   const common = {
     name,
     eventType,
@@ -64,8 +75,10 @@ export async function createCongressRequest(
     invitedDoctorIds: fdList(formData, "invitedDoctorIds"),
     participantIds: fdList(formData, "participantIds"),
     requesterId: user.id,
-    requestStatus: "AWAITING_PRELIMINARY" as CongressRequestStatus,
+    requestStatus: init.status as CongressRequestStatus,
     createdById: user.id,
+    ...(init.productManagerId ? { productManagerId: init.productManagerId } : {}),
+    ...(init.preliminaryBySelf ? { preliminaryById: user.id, preliminaryAt: now } : {}),
   };
 
   const created =
@@ -89,14 +102,18 @@ export async function createCongressRequest(
         });
 
   await recordAudit({ actorId: user.id, action: "CREATE", module: ML(t), entityType: entityFor(t), entityId: created.id, summary: `Demande de congrès « ${name} »` });
-  // Demande émise (souvent par un délégué) → approbation préliminaire par le
-  // National Sales (ou la Direction Marketing), qui désigne le chef de produit.
-  await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], {
-    type: "VALIDATION_REQUIRED",
-    title: "Demande de congrès — à attribuer (National Sales)",
-    body: name,
-    link: `${pathFor(t)}/${created.id}`,
-  });
+  // Notifie l'acteur de l'étape de DÉPART selon le routage à la création :
+  //  · délégué → National Sales (approbation préliminaire + choix chef de produit) ;
+  //  · National Sales ayant désigné → le chef de produit (analyse) ;
+  //  · chef de produit / Direction / Super Admin → la Direction (validation définitive).
+  const link = `${pathFor(t)}/${created.id}`;
+  if (init.stage === "ANALYSIS" && init.productManagerId) {
+    await notifyUser({ userId: init.productManagerId, type: "ASSIGNMENT", title: `${NOUN(t)} à analyser`, body: name, link });
+  } else if (init.stage === "FINAL") {
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: `${NOUN(t)} — validation définitive`, body: name, link });
+  } else {
+    await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Demande de congrès — à attribuer (National Sales)", body: name, link });
+  }
   revalidatePath(pathFor(t));
   return { ok: true, id: created.id };
 }

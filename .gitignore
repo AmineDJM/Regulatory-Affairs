@@ -49,3 +49,7 @@ next-env.d.ts
 /graphify-out/.graphify_root
 /graphify-out/manifest.json
 .ocr-cache/
+
+# auto-testeur — rapports générés (régénérables via `npm run autotest`)
+/auto-test-report.md
+/auto-test-report.json

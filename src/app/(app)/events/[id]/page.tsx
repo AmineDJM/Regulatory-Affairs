@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Video } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView, hasRole } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole, anyRoleFilter } from "@/lib/rbac";
+import { canDesignateProductManagerAtCreation, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { prisma } from "@/lib/prisma";
 import { getEventDetail } from "@/lib/queries/events";
 import { PageHeader } from "@/components/shared/page-header";
@@ -34,10 +35,16 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
   const canValidate = hasGlobalView(user);
   const canSubmit = userCan(user, "EVENTS", "CREATE");
-  const [responsibles, missions, workflow] = await Promise.all([
+  // National Sales soumettant lui-même : il désigne le chef de produit (l'analyse lui
+  // est confiée) au lieu d'approuver préliminairement sa propre demande.
+  const canDesignatePM = canDesignateProductManagerAtCreation(user);
+  const [responsibles, missions, workflow, pmCandidates] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
     getWorkflowForEntity(user, "EVENT", e.id, null),
+    canDesignatePM
+      ? prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+      : Promise.resolve([]),
   ]);
 
   return (
@@ -111,6 +118,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
             requestSubmitted={!!e.requestStatus}
             canSubmit={canSubmit}
             workflow={workflow}
+            pmCandidates={canDesignatePM ? pmCandidates : []}
           />
           {(canManage || canMarketing || canValidate) && (
             <div className="mt-4 border-t border-border pt-3">

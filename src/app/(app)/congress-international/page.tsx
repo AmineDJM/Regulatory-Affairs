@@ -1,5 +1,6 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { canDesignateProductManagerAtCreation } from "@/lib/workflow/origin";
 import { getCongressList, getCongressFormData } from "@/lib/queries/congress";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -20,7 +21,7 @@ export default async function CongressInternationalPage() {
   return (
     <div className="space-y-5">
       <PageHeader title="Congrès internationaux" description="Demandes de prise en charge des congrès internationaux — validation préliminaire Direction, analyse chef de produit, validation définitive.">
-        {canCreate && <CongressRequestButton doctors={form.doctors} users={form.users} />}
+        {canCreate && <CongressRequestButton doctors={form.doctors} users={form.users} canDesignatePM={canDesignateProductManagerAtCreation(user)} />}
       </PageHeader>
 
       <ModuleTabs tabs={EVENTS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
