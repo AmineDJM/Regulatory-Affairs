@@ -22,17 +22,20 @@ async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentU
 }
 
 suite("Directives — émission, suivi, échange, diffusion par rôle", () => {
-  let dirId = "", roleDirId = "", directionId = "", delegateId = "", delegate2Id = "";
+  let dirId = "", roleDirId = "", directionId = "", delegateId = "", delegate2Id = "", financeId = "";
 
   beforeAll(async () => {
     const mk = (s: string, role: SessionUser["role"]) =>
       prisma.user.create({ data: { name: `${TAG}${s}`, email: `${TAG}${s}@t.dz`, role, passwordHash: "x" } });
-    const [dir, dg, dg2] = await Promise.all([
+    const [dir, dg, dg2, fin] = await Promise.all([
       mk("direction", "DIRECTION"),
       mk("deleg", "MEDICAL_DELEGATE"),
       mk("deleg2", "MEDICAL_DELEGATE"),
+      // Un compte d'un AUTRE rôle (non ciblé) : getAccess résout le rôle EN DIRECT de la base,
+      // on ne peut donc plus « forcer » un rôle sur l'id de la Direction — il faut un vrai compte.
+      mk("finance", "FINANCE_BUDGET_MANAGER"),
     ]);
-    directionId = dir.id; delegateId = dg.id; delegate2Id = dg2.id;
+    directionId = dir.id; delegateId = dg.id; delegate2Id = dg2.id; financeId = fin.id;
   });
 
   afterAll(async () => {
@@ -107,8 +110,8 @@ suite("Directives — émission, suivi, échange, diffusion par rôle", () => {
     const dg2 = await actorFor(delegate2Id, "MEDICAL_DELEGATE");
     const found = await prisma.directive.findFirst({ where: { AND: [{ id: roleDirId }, scopeDirectives(dg2)] }, select: { id: true } });
     expect(found?.id).toBe(roleDirId);
-    // Un rôle non ciblé ne la voit pas.
-    const finance = await actorFor(directionId, "FINANCE_BUDGET_MANAGER"); // réutilise l'id mais force le rôle
+    // Un rôle non ciblé ne la voit pas (vrai compte Finances : son rôle réel est résolu en base).
+    const finance = await actorFor(financeId, "FINANCE_BUDGET_MANAGER");
     const notFound = await prisma.directive.findFirst({ where: { AND: [{ id: roleDirId }, scopeDirectives(finance)] }, select: { id: true } });
     expect(notFound).toBeNull();
   });
