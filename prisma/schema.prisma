@@ -2483,6 +2483,11 @@ model DriveNode {
   children    DriveNode[]   @relation("DriveTree")
   ownerId     String?
   owner       User?         @relation("DriveOwner", fields: [ownerId], references: [id])
+  // Catégorie/espace partagé (ex. « Promotion Médicale ») auquel ce nœud appartient. null =
+  // Drive PERSONNEL (comportement historique). Tout le sous-arbre d'un espace porte le même
+  // spaceId (l'invariant est maintenu à la création et au déplacement).
+  spaceId     String?
+  space       DriveSpace?   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   mimeType    String? // version courante (fichier)
   size        Int           @default(0) // octets de la version courante ; 0 pour un dossier
   category    String? // classement choisi à l'import (Contrat, Facture, Réglementaire…)
@@ -2497,6 +2502,31 @@ model DriveNode {
   @@index([parentId])
   @@index([ownerId])
   @@index([isTrashed])
+  @@index([spaceId])
+}
+
+/// Catégorie / espace PARTAGÉ du Drive (ex. « Promotion Médicale »), présenté comme un onglet
+/// à côté de « Drive » et « Documents ». Créé par le Super Admin ou un rôle qu'il a autorisé
+/// (AppSetting.driveSpaceCreatorRoles). L'accès est encadré exactement comme une enveloppe
+/// budgétaire : rôles/personnes en CONSULTATION (accessRoles/accessUserIds) et rôles/personnes
+/// GESTIONNAIRES (managerRoles/managerUserIds : déposer, organiser, supprimer, régler les accès).
+/// Le créateur est ajouté d'office aux gestionnaires. Les fichiers d'un espace sont partagés
+/// entre les personnes autorisées (DriveNode.spaceId), indépendamment de la propriété perso.
+model DriveSpace {
+  id             String      @id @default(cuid())
+  name           String
+  icon           String? // nom d'icône lucide (optionnel, pour l'onglet)
+  accessRoles    String[]    @default([])
+  accessUserIds  String[]    @default([])
+  managerRoles   String[]    @default([])
+  managerUserIds String[]    @default([])
+  isArchived     Boolean     @default(false)
+  nodes          DriveNode[]
+  createdById    String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([isArchived])
 }
 
 /// Contenu binaire chiffré (AES-256-GCM), dédupliqué par empreinte du clair (SHA-256).
@@ -3742,6 +3772,10 @@ model AppSetting {
   // Rôles autorisés à CRÉER des « Demandes à Regulatory » (en plus du PRIM, toujours inclus).
   // L'équipe Regulatory RÉPOND mais ne crée pas. Configurable en Administration.
   regRequestCreatorRoles    String[] @default([])
+  // Rôles autorisés à CRÉER des « catégories » de Drive (espaces partagés type « Promotion
+  // Médicale » présentés en onglets à côté de Drive/Documents). En plus du Super Admin,
+  // toujours inclus. Configurable en Administration.
+  driveSpaceCreatorRoles    String[] @default([])
   // Clés VAPID (Web Push) auto-générées et persistées si non fournies par l'environnement.
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
   vapidPublicKey       String?

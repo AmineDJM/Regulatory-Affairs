@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
 import { validateDriveUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
-import { resolveDriveAccess } from "@/lib/drive";
+import { resolveDriveAccess, effectiveSpaceId, canCreateInSpace } from "@/lib/drive";
 import { recordAudit } from "@/lib/audit";
 
 /** Upload a new file (under `parentId`) or a new version (of `nodeId`). */
@@ -19,16 +19,20 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof File)) return NextResponse.json({ error: "Fichier manquant." }, { status: 400 });
   const parentId = (form.get("parentId") as string) || null;
   const nodeId = (form.get("nodeId") as string) || null;
+  const spaceId = (form.get("spaceId") as string) || null;
 
-  // Autorisation d'écriture. Un accès **ÉDITEUR** explicite (partage) sur la cible SUFFIT,
-  // même si le rôle de la personne n'a pas le droit module « Téléverser » :
+  // Autorisation d'écriture. Un accès **ÉDITEUR** explicite (partage/catégorie) sur la cible
+  // SUFFIT, même si le rôle de la personne n'a pas le droit module « Téléverser » :
   //  - nouvelle version d'un fichier → éditeur sur CE fichier ;
   //  - nouveau fichier dans un dossier → éditeur sur CE dossier ;
+  //  - nouveau fichier à la racine d'une CATÉGORIE → gestionnaire de la catégorie ;
   //  - nouveau fichier à la racine (espace perso) → droit module « Téléverser ».
   if (nodeId) {
     if ((await resolveDriveAccess(user, nodeId)) !== "EDIT") return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   } else if (parentId) {
     if ((await resolveDriveAccess(user, parentId)) !== "EDIT") return NextResponse.json({ error: "Dossier non autorisé." }, { status: 403 });
+  } else if (spaceId) {
+    if (!(await canCreateInSpace(user, spaceId))) return NextResponse.json({ error: "Catégorie non autorisée." }, { status: 403 });
   } else if (!userCan(user, "DRIVE", "UPLOAD")) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   }
@@ -69,9 +73,10 @@ export async function POST(req: NextRequest) {
   const viewers = form.getAll("viewers").map(String).filter(Boolean);
   const editors = form.getAll("editors").map(String).filter(Boolean);
 
+  const effSpaceId = await effectiveSpaceId(parentId, spaceId);
   const node = await prisma.driveNode.create({
     data: {
-      name: file.name, type: "FILE", parentId, ownerId: user.id, mimeType, size, category, createdById: user.id,
+      name: file.name, type: "FILE", parentId, spaceId: effSpaceId, ownerId: user.id, mimeType, size, category, createdById: user.id,
       versions: { create: { blobId, version: 1, size, mimeType, createdById: user.id } },
     },
     select: { id: true },

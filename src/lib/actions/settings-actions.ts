@@ -94,6 +94,28 @@ export async function setRegRequestCreatorRoles(formData: FormData): Promise<Act
   return { ok: true };
 }
 
+/**
+ * Rôles autorisés à CRÉER des catégories de Drive (espaces partagés en onglets), en plus du
+ * Super Admin toujours autorisé. **Super Admin uniquement.**
+ */
+export async function setDriveSpaceCreatorRoles(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const roles = [...new Set(formData.getAll("roles").map(String).filter(Boolean))];
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", driveSpaceCreatorRoles: roles, updatedById: admin.id },
+    update: { driveSpaceCreatorRoles: roles, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Créateurs de catégories Drive — ${roles.length} rôle(s) configuré(s)`,
+  });
+  revalidatePath("/admin");
+  revalidatePath("/drive");
+  return { ok: true };
+}
+
 /** Capacité globale du Drive + quota par utilisateur (Go). **Super Admin uniquement.** */
 export async function saveDriveStorageSettings(formData: FormData): Promise<ActionResult> {
   const admin = await requireUser();

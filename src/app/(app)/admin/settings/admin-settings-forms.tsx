@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Loader2, Check, Megaphone, Search } from "lucide-react";
-import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegRequestCreatorRoles } from "@/lib/actions/settings-actions";
+import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegRequestCreatorRoles, setDriveSpaceCreatorRoles } from "@/lib/actions/settings-actions";
 import { setRegIntelligenceEnabled } from "@/lib/regulatory/intelligence/actions";
 import { sendBroadcast } from "@/lib/actions/notification-actions";
 import { Button } from "@/components/ui/button";
@@ -383,6 +383,49 @@ export function RegRequestCreatorForm({ roles, selected }: { roles: Opt[]; selec
       <Button type="submit" size="sm" disabled={saving}>
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
         {saved ? "Enregistré" : "Enregistrer les émetteurs"}
+      </Button>
+    </form>
+  );
+}
+
+/** Sélection des rôles autorisés à CRÉER des catégories de Drive (Super Admin toujours inclus). */
+export function DriveSpaceCreatorForm({ roles, selected }: { roles: Opt[]; selected: string[] }) {
+  const [picked, setPicked] = React.useState<string[]>(selected);
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const toggle = (v: string) => setPicked((p) => (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]));
+
+  return (
+    <form
+      action={async () => {
+        setSaving(true);
+        const fd = new FormData();
+        picked.forEach((r) => fd.append("roles", r));
+        const res = await setDriveSpaceCreatorRoles(fd);
+        setSaving(false);
+        if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
+      }}
+      className="space-y-3"
+    >
+      <div className="flex flex-wrap gap-2">
+        {roles.filter((r) => r.value !== "SUPER_ADMIN").map((r) => {
+          const on = picked.includes(r.value);
+          return (
+            <button
+              key={r.value}
+              type="button"
+              onClick={() => toggle(r.value)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+            >
+              {r.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">Le Super Admin peut toujours créer des catégories de Drive (espaces partagés type « Promotion Médicale », présentés en onglets). Ajoutez ici les rôles qui pourront aussi en créer et gérer les accès.</p>
+      <Button type="submit" size="sm" disabled={saving}>
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
+        {saved ? "Enregistré" : "Enregistrer les créateurs"}
       </Button>
     </form>
   );

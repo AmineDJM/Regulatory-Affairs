@@ -1,5 +1,5 @@
 import type { DriveNodeType } from "@prisma/client";
-import type { SessionUser } from "@/lib/rbac";
+import { canManageDriveSpace, canViewDriveSpace, userCan, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { resolveDriveAccess, driveBreadcrumb, type DriveAccessLevel } from "@/lib/drive";
 
@@ -25,13 +25,40 @@ export interface DriveListing {
   /** Droit sur le dossier courant (gouverne « Nouveau dossier / Importer ici »). */
   level: DriveAccessLevel;
   trash: boolean;
+  /** Catégorie (espace partagé) en cours de consultation ; null = Drive personnel. */
+  space?: { id: string; name: string; canManage: boolean } | null;
 }
+
+/** Onglet d'une catégorie visible par l'utilisateur (à côté de Drive · Documents). */
+export interface DriveSpaceTab { id: string; name: string; icon: string | null; canManage: boolean }
 
 type RawNode = {
   id: string; name: string; type: DriveNodeType; mimeType: string | null; size: number;
-  category: string | null; isTrashed: boolean; ownerId: string | null; updatedAt: Date;
+  category: string | null; isTrashed: boolean; ownerId: string | null; spaceId: string | null; updatedAt: Date;
   owner: { name: string } | null; shares: { access: string }[];
 };
+
+/** Catégories (espaces partagés) que l'utilisateur peut voir — pour les onglets du Drive. */
+export async function getDriveSpacesForUser(user: SessionUser): Promise<DriveSpaceTab[]> {
+  const spaces = await prisma.driveSpace.findMany({ where: { isArchived: false }, orderBy: { name: "asc" } });
+  return spaces
+    .filter((s) => canViewDriveSpace(user, s))
+    .map((s) => ({ id: s.id, name: s.name, icon: s.icon, canManage: canManageDriveSpace(user, s) }));
+}
+
+/**
+ * Onglets du module Documents : « Drive » · « Documents » PUIS chaque CATÉGORIE visible
+ * (« Promotion Médicale »…), présentés côte à côte. Utilisé par /drive, /documents et
+ * /drive/espace/[id] pour une barre d'onglets identique.
+ */
+export async function getDriveTabs(user: SessionUser): Promise<{ label: string; href: string; show: boolean }[]> {
+  const spaces = await getDriveSpacesForUser(user);
+  return [
+    { label: "Drive", href: "/drive", show: userCan(user, "DRIVE", "VIEW") },
+    { label: "Documents", href: "/documents", show: userCan(user, "DOCUMENTS", "VIEW") },
+    ...spaces.map((s) => ({ label: s.name, href: `/drive/espace/${s.id}`, show: true })),
+  ];
+}
 
 function nodeInclude(userId: string) {
   return {
@@ -62,36 +89,62 @@ function toRow(user: SessionUser, n: RawNode, inheritedEdit: boolean): DriveNode
   };
 }
 
-/** List a folder's contents (or the user's roots / trash), enforcing access. */
+/**
+ * List a folder's contents (or the roots / trash), enforcing access.
+ * `spaceId` = null → Drive PERSONNEL (racine = ses fichiers + partages) ; sinon → la
+ * CATÉGORIE partagée correspondante (racine = tous les nœuds de la catégorie).
+ */
 export async function getDriveListing(
   user: SessionUser,
   folderId: string | null,
   trash: boolean,
+  spaceId: string | null = null,
 ): Promise<DriveListing | null> {
+  // Catégorie demandée : la charger et vérifier l'accès en amont.
+  let space: DriveListing["space"] = null;
+  let spaceManage = false;
+  if (spaceId) {
+    const s = await prisma.driveSpace.findUnique({ where: { id: spaceId } });
+    if (!s || s.isArchived || !canViewDriveSpace(user, s)) return null;
+    spaceManage = canManageDriveSpace(user, s);
+    space = { id: s.id, name: s.name, canManage: spaceManage };
+  }
+
   if (trash) {
-    // Corbeille : seulement les éléments de **plus haut niveau** mis à la corbeille
-    // (un dossier corbeillé apparaît, pas chacun de ses enfants).
-    const nodes = (await prisma.driveNode.findMany({
-      where: { ownerId: user.id, isTrashed: true, OR: [{ parentId: null }, { parent: { isTrashed: false } }] },
-      ...nodeArgs(user.id),
-    })) as RawNode[];
-    return { folder: null, breadcrumb: [], nodes: nodes.map((n) => toRow(user, n, true)), level: "EDIT", trash: true };
+    // La corbeille d'une catégorie est réservée à ses gestionnaires.
+    if (spaceId && !spaceManage) return null;
+    const where = spaceId
+      ? { spaceId, isTrashed: true, OR: [{ parentId: null }, { parent: { isTrashed: false } }] }
+      : { ownerId: user.id, spaceId: null, isTrashed: true, OR: [{ parentId: null }, { parent: { isTrashed: false } }] };
+    const nodes = (await prisma.driveNode.findMany({ where, ...nodeArgs(user.id) })) as RawNode[];
+    const inherited = spaceId ? spaceManage : true;
+    return { folder: null, breadcrumb: [], nodes: nodes.map((n) => toRow(user, n, inherited)), level: inherited ? "EDIT" : "VIEW", trash: true, space };
   }
 
   if (folderId) {
     const level = await resolveDriveAccess(user, folderId);
     if (level === "NONE") return null;
-    const folder = await prisma.driveNode.findUnique({ where: { id: folderId }, select: { id: true, name: true, isTrashed: true } });
+    const folder = await prisma.driveNode.findUnique({ where: { id: folderId }, select: { id: true, name: true, isTrashed: true, spaceId: true } });
     if (!folder || folder.isTrashed) return null; // pas de navigation dans un dossier corbeillé
+    // Garde-fou : un dossier consulté via l'onglet d'une catégorie doit appartenir à CETTE catégorie
+    // (et un dossier personnel ne se consulte pas via un onglet de catégorie, et inversement).
+    if ((folder.spaceId ?? null) !== (spaceId ?? null)) return null;
     const nodes = (await prisma.driveNode.findMany({ where: { parentId: folderId, isTrashed: false }, ...nodeArgs(user.id) })) as RawNode[];
     const breadcrumb = await driveBreadcrumb(folderId);
-    return { folder, breadcrumb, nodes: nodes.map((n) => toRow(user, n, level === "EDIT")), level, trash: false };
+    return { folder: { id: folder.id, name: folder.name }, breadcrumb, nodes: nodes.map((n) => toRow(user, n, level === "EDIT")), level, trash: false, space };
   }
 
-  // Racine : ses propres dossiers/fichiers + ceux partagés (ou tout, si scope ALL).
+  // Racine d'une CATÉGORIE : tous ses nœuds de 1er niveau (partagés entre les membres).
+  if (spaceId) {
+    const nodes = (await prisma.driveNode.findMany({ where: { spaceId, parentId: null, isTrashed: false }, ...nodeArgs(user.id) })) as RawNode[];
+    return { folder: null, breadcrumb: [], nodes: nodes.map((n) => toRow(user, n, spaceManage)), level: spaceManage ? "EDIT" : "VIEW", trash: false, space };
+  }
+
+  // Racine PERSONNELLE : ses propres dossiers/fichiers + ceux partagés (ou tout, si scope ALL) —
+  // à l'EXCLUSION des nœuds de catégories (spaceId null), qui vivent dans leurs propres onglets.
   const scopeAll = user.role === "SUPER_ADMIN" || user.access.modules.get("DRIVE")?.scope === "ALL";
   const owned = (await prisma.driveNode.findMany({
-    where: { parentId: null, isTrashed: false, ...(scopeAll ? {} : { ownerId: user.id }) },
+    where: { parentId: null, isTrashed: false, spaceId: null, ...(scopeAll ? {} : { ownerId: user.id }) },
     ...nodeArgs(user.id),
   })) as RawNode[];
 
@@ -100,10 +153,10 @@ export async function getDriveListing(
     const shares = await prisma.driveShare.findMany({ where: { userId: user.id }, include: { node: { include: nodeInclude(user.id) } } });
     for (const s of shares) {
       const node = s.node as RawNode | null;
-      if (node && !node.isTrashed) map.set(node.id, node);
+      if (node && !node.isTrashed && node.spaceId == null) map.set(node.id, node);
     }
   }
   const merged = [...map.values()].sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "FOLDER" ? -1 : 1));
   // À la racine il n'y a pas d'héritage : chaque nœud est éditable selon sa propre propriété/partage.
-  return { folder: null, breadcrumb: [], nodes: merged.map((n) => toRow(user, n, false)), level: "EDIT", trash: false };
+  return { folder: null, breadcrumb: [], nodes: merged.map((n) => toRow(user, n, false)), level: "EDIT", trash: false, space: null };
 }

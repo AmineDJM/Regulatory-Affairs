@@ -16,7 +16,7 @@ const TYPES: { kind: OfficeKind; label: string; hint: string; icon: React.Elemen
 ];
 
 /** Crée un document Office vierge dans le Drive ; ouvre l'éditeur si OnlyOffice est actif. */
-export function NewOfficeButton({ parentId, officeEnabled }: { parentId: string | null; officeEnabled: boolean }) {
+export function NewOfficeButton({ parentId, officeEnabled, spaceId }: { parentId: string | null; officeEnabled: boolean; spaceId?: string | null }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [kind, setKind] = React.useState<OfficeKind>("word");
@@ -44,6 +44,7 @@ export function NewOfficeButton({ parentId, officeEnabled }: { parentId: string 
           className="space-y-4"
         >
           {parentId && <input type="hidden" name="parentId" value={parentId} />}
+          {spaceId && <input type="hidden" name="spaceId" value={spaceId} />}
 
           <div className="space-y-1.5">
             <Label>Type de document</Label>

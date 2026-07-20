@@ -15,13 +15,15 @@ interface UserLite { id: string; name: string }
 const CATEGORY_SUGGESTIONS = ["Contrat", "Facture", "Réglementaire", "Présentation", "Analyse", "Compte rendu", "RH", "Marché PCH", "Autre"];
 
 export function UploadButton({
-  parentId, nodeId, label, users,
+  parentId, nodeId, label, users, spaceId,
 }: {
   parentId?: string | null;
   nodeId?: string;
   label?: string;
   /** Si fourni (import d'un nouveau fichier), ouvre le choix catégorie + permissions. */
   users?: UserLite[];
+  /** Catégorie (espace partagé) de destination à la racine — hérité par les nouveaux nœuds. */
+  spaceId?: string | null;
 }) {
   const { enqueue } = useBackgroundUpload();
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -46,7 +48,7 @@ export function UploadButton({
         label: `${files.length} fichier${files.length > 1 ? "s" : ""} (Drive)`,
         files,
         concurrency: 6,
-        makeRequest: (file) => { const fd = new FormData(); fd.append("file", file); if (parentId) fd.append("parentId", parentId); return { url: "/api/drive/upload", formData: fd }; },
+        makeRequest: (file) => { const fd = new FormData(); fd.append("file", file); if (parentId) fd.append("parentId", parentId); if (spaceId) fd.append("spaceId", spaceId); return { url: "/api/drive/upload", formData: fd }; },
       });
     }
     if (inputRef.current) inputRef.current.value = "";
@@ -63,10 +65,10 @@ export function UploadButton({
     );
   }
 
-  return <RichUpload parentId={parentId ?? null} users={users!} label={label} />;
+  return <RichUpload parentId={parentId ?? null} users={users!} label={label} spaceId={spaceId ?? null} />;
 }
 
-function RichUpload({ parentId, users, label }: { parentId: string | null; users: UserLite[]; label?: string }) {
+function RichUpload({ parentId, users, label, spaceId }: { parentId: string | null; users: UserLite[]; label?: string; spaceId: string | null }) {
   const { enqueue } = useBackgroundUpload();
   const [open, setOpen] = React.useState(false);
   const [menu, setMenu] = React.useState(false);
@@ -96,7 +98,7 @@ function RichUpload({ parentId, users, label }: { parentId: string | null; users
     setFolderBusy(true);
     // Crée d'abord l'arborescence de dossiers (chemins relatifs uniques) côté serveur.
     const dirs = [...new Set(picked.map((f) => dirOf(rel(f))).filter(Boolean))];
-    const r = await ensureDriveFolders(parentId ?? null, dirs);
+    const r = await ensureDriveFolders(parentId ?? null, dirs, spaceId);
     setFolderBusy(false);
     if (!r.ok || !r.map) { window.alert(r.error ?? "Import du dossier impossible."); return; }
     const map = r.map;
@@ -111,6 +113,7 @@ function RichUpload({ parentId, users, label }: { parentId: string | null; users
         const dir = dirOf(rel(file));
         const pid = dir ? map[dir] : (parentId ?? undefined);
         if (pid) fd.append("parentId", pid);
+        else if (spaceId) fd.append("spaceId", spaceId);
         return { url: "/api/drive/upload", formData: fd };
       },
     });
@@ -139,6 +142,7 @@ function RichUpload({ parentId, users, label }: { parentId: string | null; users
         const fd = new FormData();
         fd.append("file", file);
         if (parentId) fd.append("parentId", parentId);
+        if (spaceId) fd.append("spaceId", spaceId);
         if (cat) fd.append("category", cat);
         viewers.forEach((id) => fd.append("viewers", id));
         editors.forEach((id) => fd.append("editors", id));

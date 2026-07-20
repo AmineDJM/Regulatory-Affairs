@@ -27,6 +27,8 @@ export interface AppSettings {
   regulatorySupervisorRoles: string[];
   /** Rôles autorisés à CRÉER des « Demandes à Regulatory » (en plus du PRIM). Regulatory RÉPOND mais ne crée pas. */
   regRequestCreatorRoles: string[];
+  /** Rôles autorisés à CRÉER des catégories de Drive (espaces partagés en onglets). En plus du Super Admin. */
+  driveSpaceCreatorRoles: string[];
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -39,6 +41,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   regEnrollmentEnabled: false,
   regulatorySupervisorRoles: [],
   regRequestCreatorRoles: [],
+  driveSpaceCreatorRoles: [],
 };
 
 export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
@@ -55,6 +58,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       regEnrollmentEnabled: row.regEnrollmentEnabled,
       regulatorySupervisorRoles: row.regulatorySupervisorRoles ?? [],
       regRequestCreatorRoles: row.regRequestCreatorRoles ?? [],
+      driveSpaceCreatorRoles: row.driveSpaceCreatorRoles ?? [],
     };
   } catch {
     return DEFAULT_APP_SETTINGS;

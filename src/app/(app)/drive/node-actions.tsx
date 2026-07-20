@@ -22,6 +22,8 @@ interface Props {
   moveTargets?: MoveTarget[];
   /** Personnes avec qui partager (présent = action « Gérer l'accès » disponible). */
   users?: UserLite[];
+  /** Catégorie courante (racine) : transmise au déplacement pour préserver l'espace de destination. */
+  spaceId?: string | null;
 }
 
 /** Panneau « Gérer l'accès » d'un nœud (dossier ou fichier) — comme Google Drive, à tout moment. */
@@ -61,7 +63,7 @@ function IconForm({ action, id, title, children }: { action: (fd: FormData) => P
   );
 }
 
-export function NodeActions({ id, name, isFile, canEdit, trash, moveTargets, users }: Props) {
+export function NodeActions({ id, name, isFile, canEdit, trash, moveTargets, users, spaceId }: Props) {
   const router = useRouter();
   const [renaming, setRenaming] = React.useState(false);
   const [moving, setMoving] = React.useState(false);
@@ -131,6 +133,7 @@ export function NodeActions({ id, name, isFile, canEdit, trash, moveTargets, use
           className="space-y-3"
         >
           <input type="hidden" name="id" value={id} />
+          {spaceId && <input type="hidden" name="spaceId" value={spaceId} />}
           <div className="space-y-1.5">
             <Label htmlFor={`target-${id}`}>Dossier de destination</Label>
             <Select id={`target-${id}`} name="targetId" defaultValue="">

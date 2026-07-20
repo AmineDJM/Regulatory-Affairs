@@ -1,4 +1,4 @@
-import type { SessionUser } from "./rbac";
+import { canManageDriveSpace, canViewDriveSpace, type SessionUser } from "./rbac";
 import { prisma } from "./prisma";
 
 export type DriveAccessLevel = "NONE" | "VIEW" | "EDIT";
@@ -7,10 +7,23 @@ export type DriveAccessLevel = "NONE" | "VIEW" | "EDIT";
  * Effective access to a Drive node. A Super Admin manages everything; a user with
  * DRIVE scope = ALL (admin-granted, e.g. Direction) gets org-wide read; otherwise
  * access comes from ownership or a share — inherited down the folder tree.
+ *
+ * Un nœud rattaché à une CATÉGORIE partagée (spaceId) tire d'abord son niveau de la
+ * catégorie : gestionnaire → ÉDITION, lecteur → CONSULTATION. Un partage nominatif explicite
+ * peut ensuite rehausser ce niveau (la boucle ownership/partage ci-dessous).
  */
 export async function resolveDriveAccess(user: SessionUser, nodeId: string): Promise<DriveAccessLevel> {
   if (user.role === "SUPER_ADMIN") return "EDIT";
   let best: DriveAccessLevel = user.access.modules.get("DRIVE")?.scope === "ALL" ? "VIEW" : "NONE";
+
+  const withSpace = await prisma.driveNode.findUnique({
+    where: { id: nodeId },
+    select: { space: { select: { accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true } } },
+  });
+  if (withSpace?.space) {
+    if (canManageDriveSpace(user, withSpace.space)) return "EDIT";
+    if (canViewDriveSpace(user, withSpace.space)) best = "VIEW";
+  }
 
   let currentId: string | null = nodeId;
   const seen = new Set<string>();
@@ -34,6 +47,28 @@ export async function resolveDriveAccess(user: SessionUser, nodeId: string): Pro
 
 export const canEditDrive = (level: DriveAccessLevel) => level === "EDIT";
 export const canViewDrive = (level: DriveAccessLevel) => level === "VIEW" || level === "EDIT";
+
+/**
+ * spaceId EFFECTIF d'un NOUVEAU nœud : hérité du parent s'il y en a un (invariant « tout le
+ * sous-arbre d'une catégorie porte le même spaceId »), sinon le spaceId explicite (création à la
+ * racine d'une catégorie), sinon null (Drive personnel).
+ */
+export async function effectiveSpaceId(parentId: string | null, explicitSpaceId: string | null): Promise<string | null> {
+  if (parentId) {
+    const p = await prisma.driveNode.findUnique({ where: { id: parentId }, select: { spaceId: true } });
+    return p?.spaceId ?? null;
+  }
+  return explicitSpaceId ?? null;
+}
+
+/** Peut créer/déposer à la RACINE d'une catégorie (spaceId sans parent) : réservé aux gestionnaires. */
+export async function canCreateInSpace(user: SessionUser, spaceId: string): Promise<boolean> {
+  const s = await prisma.driveSpace.findUnique({
+    where: { id: spaceId },
+    select: { accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true },
+  });
+  return s ? canManageDriveSpace(user, s) : false;
+}
 
 /** Breadcrumb from root to the given node (inclusive). */
 export async function driveBreadcrumb(nodeId: string | null): Promise<{ id: string; name: string }[]> {

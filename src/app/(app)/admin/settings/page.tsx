@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch, ShieldCheck, MessageSquarePlus } from "lucide-react";
+import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch, ShieldCheck, MessageSquarePlus, FolderPlus } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegRequestCreatorForm } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegRequestCreatorForm, DriveSpaceCreatorForm } from "./admin-settings-forms";
 
 export const metadata = { title: "Réglages & diffusion — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -75,6 +75,16 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <RegRequestCreatorForm roles={roleOptions} selected={settings.regRequestCreatorRoles} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><FolderPlus className="h-4 w-4" /> Drive — Créateurs de catégories</CardTitle>
+          <p className="text-sm text-muted-foreground">Rôles autorisés (en plus du Super Admin, toujours inclus) à créer des « catégories » de Drive : des espaces partagés (type « Promotion Médicale ») présentés en onglets à côté de Drive et Documents. Le créateur en gère les accès (qui consulte, qui dépose).</p>
+        </CardHeader>
+        <CardContent>
+          <DriveSpaceCreatorForm roles={roleOptions} selected={settings.driveSpaceCreatorRoles} />
         </CardContent>
       </Card>
 

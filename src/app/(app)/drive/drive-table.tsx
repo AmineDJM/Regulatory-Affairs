@@ -27,7 +27,7 @@ interface UserLite { id: string; name: string }
  * « Télécharger (ZIP) » → une seule archive (route `/api/drive/zip`). Chaque ligne garde
  * ses actions (télécharger seul, renommer, déplacer, gérer l'accès, corbeille).
  */
-export function DriveTable({ rows, moveTargets, trash, users }: { rows: DriveRow[]; moveTargets: MoveTarget[]; trash: boolean; users?: UserLite[] }) {
+export function DriveTable({ rows, moveTargets, trash, users, spaceId }: { rows: DriveRow[]; moveTargets: MoveTarget[]; trash: boolean; users?: UserLite[]; spaceId?: string | null }) {
   const [sel, setSel] = React.useState<Set<string>>(new Set());
   const [zipping, setZipping] = React.useState(false);
   const allChecked = rows.length > 0 && sel.size === rows.length;
@@ -94,7 +94,7 @@ export function DriveTable({ rows, moveTargets, trash, users }: { rows: DriveRow
                 <TableCell className="text-right text-muted-foreground">{n.isFile ? n.sizeLabel : "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{n.updatedLabel}</TableCell>
                 <TableCell className="text-right">
-                  <NodeActions id={n.id} name={n.name} isFile={n.isFile} canEdit={n.canEdit} trash={trash} moveTargets={n.canEdit && !trash ? moveTargets : undefined} users={n.canEdit && !trash ? users : undefined} />
+                  <NodeActions id={n.id} name={n.name} isFile={n.isFile} canEdit={n.canEdit} trash={trash} moveTargets={n.canEdit && !trash ? moveTargets : undefined} users={n.canEdit && !trash ? users : undefined} spaceId={spaceId} />
                 </TableCell>
               </TableRow>
             ))}

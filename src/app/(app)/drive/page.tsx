@@ -2,20 +2,21 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Trash2, ChevronRight, HardDrive } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, canCreateDriveSpace } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getDriveListing } from "@/lib/queries/drive";
+import { getDriveListing, getDriveTabs } from "@/lib/queries/drive";
 import { fileKind } from "@/lib/drive";
+import { getAppSettings } from "@/lib/settings";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { DOCS_TABS } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatDateTime } from "@/lib/utils";
 import { UploadButton } from "./upload-button";
 import { NewFolderButton } from "./new-folder-button";
 import { NewOfficeButton } from "./new-office-button";
+import { CreateSpaceButton } from "./drive-space-manager";
 import { DriveTable, type DriveRow } from "./drive-table";
 
 const KIND_ICON: Record<string, string> = { pdf: "FileText", image: "Image", video: "Video", audio: "Music", office: "FileSpreadsheet", text: "FileText", other: "File" };
@@ -39,18 +40,20 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
   // Droit de créer/importer DANS le dossier courant (à la racine : on crée chez soi).
   const canEditHere = listing.level === "EDIT";
   const canCreate = userCan(user, "DRIVE", "CREATE") && canEditHere;
-  // Personnes avec qui partager à l'import (choix lecteurs/éditeurs).
-  const shareUsers = canCreate
+  const [settings, tabs] = await Promise.all([getAppSettings(), getDriveTabs(user)]);
+  const canCreateSpace = canCreateDriveSpace(user, settings.driveSpaceCreatorRoles);
+  // Personnes avec qui partager à l'import / ouvrir une catégorie (hors soi-même).
+  const users = (canCreate || canCreateSpace)
     ? await prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [];
-  // Dossiers de destination pour « Déplacer » (ceux que l'utilisateur peut éditer).
+  // Dossiers de destination pour « Déplacer » (Drive PERSONNEL uniquement : spaceId null).
   const moveTargets = trash
     ? []
     : [
         { id: "", name: "Racine (Drive)" },
         ...(await prisma.driveNode.findMany({
           where: {
-            type: "FOLDER", isTrashed: false,
+            type: "FOLDER", isTrashed: false, spaceId: null,
             ...(user.role === "SUPER_ADMIN"
               ? {}
               : { OR: [{ ownerId: user.id }, { shares: { some: { userId: user.id, access: "EDIT" } } }] }),
@@ -84,14 +87,15 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
           <>
             <NewFolderButton parentId={folderId} />
             <NewOfficeButton parentId={folderId} officeEnabled={onlyofficeConfigured()} />
-            <UploadButton parentId={folderId} users={shareUsers} />
+            <UploadButton parentId={folderId} users={users} />
           </>
         )}
+        {!trash && canCreateSpace && <CreateSpaceButton users={users} />}
         <Link href={trash ? "/drive" : "/drive?trash=1"}>
           <Button variant="outline"><Trash2 className="h-4 w-4" /> {trash ? "Mes fichiers" : "Corbeille"}</Button>
         </Link>
       </PageHeader>
-      <ModuleTabs tabs={DOCS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
+      <ModuleTabs tabs={tabs} />
 
       {/* Breadcrumb */}
       {!trash && (
@@ -112,7 +116,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
       {listing.nodes.length === 0 ? (
         <EmptyState icon="FolderOpen" title={trash ? "Corbeille vide" : "Dossier vide"} description={trash ? "Aucun élément supprimé." : "Importez des fichiers ou créez un dossier."} />
       ) : (
-        <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canCreate ? shareUsers : undefined} />
+        <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canCreate ? users : undefined} />
       )}
     </div>
   );

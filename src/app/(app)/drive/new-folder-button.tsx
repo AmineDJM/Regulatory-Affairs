@@ -8,7 +8,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
-export function NewFolderButton({ parentId }: { parentId: string | null }) {
+export function NewFolderButton({ parentId, spaceId }: { parentId: string | null; spaceId?: string | null }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -28,6 +28,7 @@ export function NewFolderButton({ parentId }: { parentId: string | null }) {
           className="space-y-3"
         >
           {parentId && <input type="hidden" name="parentId" value={parentId} />}
+          {spaceId && <input type="hidden" name="spaceId" value={spaceId} />}
           <div className="space-y-1.5">
             <Label htmlFor="name">Nom du dossier</Label>
             <Input id="name" name="name" required />

@@ -1,15 +1,14 @@
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { accessibleDocumentWhere } from "@/lib/queries/documents";
+import { getDriveTabs } from "@/lib/queries/drive";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { DOCS_TABS } from "@/lib/labels";
 import { DocumentsTable, type DocumentRow } from "./documents-table";
 
 export default async function DocumentsPage() {
   const user = await requireModule("DOCUMENTS");
-  const where = await accessibleDocumentWhere(user);
+  const [where, tabs] = await Promise.all([accessibleDocumentWhere(user), getDriveTabs(user)]);
 
   const documents = await prisma.document.findMany({
     where,
@@ -37,7 +36,7 @@ export default async function DocumentsPage() {
         title="Documents"
         description="Bibliothèque documentaire centralisée — tous les fichiers, filtrés selon vos accès."
       />
-      <ModuleTabs tabs={DOCS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
+      <ModuleTabs tabs={tabs} />
       <DocumentsTable rows={rows} />
     </div>
   );

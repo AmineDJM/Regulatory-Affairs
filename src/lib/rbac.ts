@@ -238,6 +238,45 @@ export function canViewEnvelope(user: SessionUser, env: EnvelopeAccessBearer): b
   return canManageEnvelope(user, env) || (env.accessRoles ?? []).includes(user.role) || (env.accessUserIds ?? []).includes(user.id);
 }
 
+// ─────────── Catégories (espaces partagés) du Drive ───────────
+/**
+ * Une « catégorie » de Drive (ex. « Promotion Médicale ») est un espace partagé présenté en
+ * onglet à côté de « Drive » et « Documents ». Son accès est encadré EXACTEMENT comme une
+ * enveloppe budgétaire : rôles/personnes en CONSULTATION (accès) et rôles/personnes
+ * GESTIONNAIRES (déposer, organiser, supprimer, régler les accès).
+ */
+export interface DriveSpaceAccessBearer {
+  accessRoles?: string[];
+  accessUserIds?: string[];
+  managerRoles?: string[];
+  managerUserIds?: string[];
+}
+
+/**
+ * Peut CRÉER une catégorie de Drive : le Super Admin, ou un rôle que le Super Admin a
+ * explicitement autorisé (réglage `driveSpaceCreatorRoles`, configuré en Administration).
+ */
+export function canCreateDriveSpace(user: SessionUser, creatorRoles: string[]): boolean {
+  return user.role === "SUPER_ADMIN" || creatorRoles.includes(user.role);
+}
+
+/**
+ * GESTION d'une catégorie (déposer/organiser/supprimer des fichiers, régler ses accès,
+ * la renommer) : Super Admin, ou un rôle/personne « gestionnaire » désigné sur CETTE
+ * catégorie. Le créateur y est ajouté d'office (managerUserIds).
+ */
+export function canManageDriveSpace(user: SessionUser, space: DriveSpaceAccessBearer): boolean {
+  return user.role === "SUPER_ADMIN" || (space.managerRoles ?? []).includes(user.role) || (space.managerUserIds ?? []).includes(user.id);
+}
+
+/**
+ * VISUALISATION d'une catégorie : quiconque peut la gérer OU à qui la consultation est
+ * ouverte (par rôle ou nommément). Défaut = invisible (encadrement strict, comme les enveloppes).
+ */
+export function canViewDriveSpace(user: SessionUser, space: DriveSpaceAccessBearer): boolean {
+  return canManageDriveSpace(user, space) || (space.accessRoles ?? []).includes(user.role) || (space.accessUserIds ?? []).includes(user.id);
+}
+
 // ─────────── Demandes à Regulatory (émission → prise en charge) ───────────
 /**
  * Peut ÉMETTRE une demande à Regulatory : **strictement** le PRIM (information médicale,
@@ -510,6 +549,30 @@ export const getAccess = perRequest(
         })
         .catch(() => null);
       if (shared) modules.set("BUDGETS", { actions: new Set<Action>(["VIEW", "EXPORT"]), scope: "ASSIGNED" });
+    }
+
+    // ── Accès IMPLICITE au module Drive quand une CATÉGORIE est PARTAGÉE avec ce compte ──
+    // Être membre d'une catégorie (par personne OU par rôle, consultation ou gestion) doit
+    // suffire à OUVRIR le module Drive et à y voir l'onglet de la catégorie — même si le rôle
+    // n'accorde aucun accès Drive par défaut. On n'accorde qu'une LECTURE du module ; le
+    // filtrage fin (quelles catégories, quels droits) reste assuré par canViewDriveSpace /
+    // canManageDriveSpace dans les requêtes.
+    if (!modules.has("DRIVE")) {
+      const roles = [role, secondaryRole].filter(Boolean) as string[];
+      const shared = await prisma.driveSpace
+        .findFirst({
+          where: {
+            isArchived: false,
+            OR: [
+              { accessUserIds: { has: userId } },
+              { managerUserIds: { has: userId } },
+              ...(roles.length ? [{ accessRoles: { hasSome: roles } }, { managerRoles: { hasSome: roles } }] : []),
+            ],
+          },
+          select: { id: true },
+        })
+        .catch(() => null);
+      if (shared) modules.set("DRIVE", { actions: new Set<Action>(["VIEW"]), scope: "ASSIGNED" });
     }
 
     return { modules, rowGrants, secondaryRole, role };
