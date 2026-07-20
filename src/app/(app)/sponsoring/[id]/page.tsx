@@ -35,7 +35,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   const canDirection = hasGlobalView(user) || userCan(user, "SPONSORING", "VALIDATE");
   // Étape préliminaire (attribuer le chef de produit) : réservée au National Sales
   // (la demande émane d'un délégué). Ni la Direction ni la Direction Marketing n'y interviennent.
-  const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
+  const canPreliminary = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
   const isProductManager = req.productManagerId === user.id;
   const isRequester = req.requesterId === user.id;
 
@@ -83,7 +83,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
         </div>
         <div className="flex flex-col items-end gap-2">
           <StatusBadge map={SPONSORING_STATUS} value={req.status} />
-          {(canMarketing || canDirection || isProductManager || isRequester) && <ThirdPartyButton id={req.id} people={missionUsers} />}
+          {(canPreliminary || canDirection || isProductManager || isRequester) && <ThirdPartyButton id={req.id} people={missionUsers} />}
           <SuperAdminDeleteButton kind="SPONSORING" id={req.id} name={`${req.reference} — ${req.institution}`} enabled={user.role === "SUPER_ADMIN"} />
         </div>
       </div>

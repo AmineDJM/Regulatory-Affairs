@@ -78,7 +78,11 @@ async function build(session: Session | null): Promise<CurrentUser | null> {
     id: session.user.id,
     name: session.user.name ?? "",
     email: session.user.email ?? "",
-    role: session.user.role,
+    // Rôle EN DIRECT depuis la base (résolu par getAccess) : le JWT fige le rôle au login,
+    // donc un compte dont le rôle a changé (ex. promu National Sales) verrait sinon un accès
+    // ET un libellé de rôle périmés jusqu'à sa reconnexion. La « Vue exacte » lisant déjà le
+    // rôle en base, l'écran réel de l'utilisateur devient fidèle à ce que l'admin y voit.
+    role: access.role ?? session.user.role,
     secondaryRole: access.secondaryRole,
     access,
     sid,

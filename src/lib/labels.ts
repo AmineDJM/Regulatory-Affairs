@@ -209,7 +209,7 @@ export const SPONSORING_STATUS: Record<string, Display> = {
   AWAITING_DIRECTION: { label: "Attente Direction", tone: "warning" },
   PAID: { label: "Payé", tone: "success" },
   CLOSED: { label: "Clôturé", tone: "neutral" },
-  AWAITING_PRELIMINARY: { label: "Attente Direction Marketing", tone: "warning" },
+  AWAITING_PRELIMINARY: { label: "Attente National Sales", tone: "warning" },
   PRELIMINARY_APPROVED: { label: "Analyse chef de produit", tone: "info" },
   AWAITING_FINAL: { label: "Attente décision Direction", tone: "warning" },
   APPROVED: { label: "Accordé", tone: "success" },
@@ -259,7 +259,7 @@ export const CONGRESS_STATUS: Record<string, Display> = {
 };
 
 export const CONGRESS_REQUEST_STATUS: Record<string, Display> = {
-  AWAITING_PRELIMINARY: { label: "Attente Direction Marketing", tone: "warning" },
+  AWAITING_PRELIMINARY: { label: "Attente National Sales", tone: "warning" },
   PRELIMINARY_APPROVED: { label: "Analyse chef de produit", tone: "info" },
   AWAITING_FINAL: { label: "Attente validation définitive", tone: "warning" },
   APPROVED: { label: "Validé — pris en charge", tone: "success" },

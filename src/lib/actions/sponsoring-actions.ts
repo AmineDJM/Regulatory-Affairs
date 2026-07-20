@@ -22,7 +22,7 @@ function isDirection(user: SessionUser): boolean {
  *  émane d'un délégué). Il approuve/refuse et désigne le chef de produit — la
  *  décision définitive reste à la Direction. Ni la Direction ni la Direction
  *  Marketing n'interviennent à l'étape préliminaire. */
-function isDirectionMarketing(user: SessionUser): boolean {
+function canDoPreliminary(user: SessionUser): boolean {
   return hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
 }
 
@@ -83,7 +83,7 @@ export async function createSponsoring(
 
 export async function sponsoringPreliminary(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!isDirectionMarketing(user)) return { ok: false, error: "Attribution réservée à la Direction Marketing." };
+  if (!canDoPreliminary(user)) return { ok: false, error: "Approbation préliminaire réservée au National Sales." };
   const id = fdStr(formData, "id");
   const decision = fdStr(formData, "decision"); // APPROVE | REJECT
   if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
@@ -130,7 +130,7 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
   if (!id || !personId) return { ok: false, error: "Indiquez la personne à impliquer." };
   const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
   if (!req) return { ok: false, error: "Demande introuvable." };
-  const isActor = hasGlobalView(user) || isDirectionMarketing(user) || req.productManagerId === user.id || req.requesterId === user.id;
+  const isActor = hasGlobalView(user) || canDoPreliminary(user) || req.productManagerId === user.id || req.requesterId === user.id;
   if (!isActor) return { ok: false, error: "Non autorisé." };
 
   // Espace de la personne : demande de validation + dossier de suivi indiquant

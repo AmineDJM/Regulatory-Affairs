@@ -339,6 +339,10 @@ export interface EffectiveAccess {
   /** Rôle secondaire résolu (toujours renseigné par `getAccess` ; optionnel pour les
    *  fabriques de test qui construisent un accès minimal). */
   secondaryRole?: UserRole | null;
+  /** Rôle principal résolu EN DIRECT depuis la base (le JWT fige le rôle au login →
+   *  il peut être périmé après un changement de rôle). Utilisé par la session comme
+   *  rôle faisant autorité. Optionnel : les fabriques de test peuvent l'omettre. */
+  role?: UserRole;
 }
 export interface SessionUser {
   id: string;
@@ -354,11 +358,11 @@ export interface SessionUser {
  * Cached per request so repeated `scope*`/`userCan` calls hit the DB once.
  */
 export const getAccess = perRequest(
-  async (userId: string, role: UserRole): Promise<EffectiveAccess> => {
+  async (userId: string, roleHint: UserRole): Promise<EffectiveAccess> => {
     const [overrides, grants, userRow, pendingValidations] = await Promise.all([
       prisma.userAccess.findMany({ where: { userId } }),
       prisma.rowGrant.findMany({ where: { userId }, select: { entityType: true, entityId: true } }),
-      prisma.user.findUnique({ where: { id: userId }, select: { secondaryRole: true } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { role: true, secondaryRole: true } }),
       // Accès TEMPORAIRE de validation : étapes EN ATTENTE dont je suis le validateur.
       prisma.validationStep.findMany({
         where: { validatorId: userId, status: "PENDING", request: { status: "PENDING" } },
@@ -366,6 +370,11 @@ export const getAccess = perRequest(
       }),
     ]);
 
+    // Rôle principal résolu EN DIRECT depuis la base : le JWT fige le rôle au login, donc
+    // un compte promu (ex. Délégué Médical → National Sales) garderait un accès et un
+    // libellé périmés jusqu'à sa reconnexion. On prend le rôle réel de la base (repli sur
+    // l'indice du JWT si l'utilisateur est introuvable — cas des fabriques de test).
+    const role = (userRow?.role ?? roleHint) as UserRole;
     // « Autre rôle » : l'utilisateur CUMULE son rôle principal ET son rôle secondaire.
     const secondaryRole = userRow?.secondaryRole ?? null;
 
@@ -503,7 +512,7 @@ export const getAccess = perRequest(
       if (shared) modules.set("BUDGETS", { actions: new Set<Action>(["VIEW", "EXPORT"]), scope: "ASSIGNED" });
     }
 
-    return { modules, rowGrants, secondaryRole };
+    return { modules, rowGrants, secondaryRole, role };
   },
 );
 

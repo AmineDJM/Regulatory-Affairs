@@ -10,12 +10,12 @@ const suite = dbOk ? describe : describe.skip;
 const TAG = "__accesstest__";
 
 suite("getAccess — un override ne rétrécit pas une portée native ALL (rôle principal ou secondaire)", () => {
-  let plainId = "", overriddenId = "", primaryOnlyId = "", nsPrimaryId = "";
+  let plainId = "", overriddenId = "", primaryOnlyId = "", nsPrimaryId = "", nsStaleId = "";
 
   beforeAll(async () => {
     const mk = (s: string, data: Record<string, unknown>) =>
       prisma.user.create({ data: { name: `${TAG}${s}`, email: `${TAG}${s}@t.dz`, passwordHash: "x", ...data } as never });
-    const [a, b, c, d] = await Promise.all([
+    const [a, b, c, d, e] = await Promise.all([
       // Le cas rapporté : délégué avec « autre rôle » National Sales, sans override.
       mk("plain", { role: "MEDICAL_DELEGATE", secondaryRole: "NATIONAL_SALES" }),
       // Pire cas : même profil MAIS un ancien « accès personnalisé » ASSIGNED posé
@@ -29,8 +29,11 @@ suite("getAccess — un override ne rétrécit pas une portée native ALL (rôle
       // plus les demandes à pré-valider. Sa portée native est ALL, l'override ne doit
       // pas la rétrécir silencieusement.
       mk("nsprim", { role: "NATIONAL_SALES" }),
+      // Rôle réel = National Sales, SANS override : sert à prouver que getAccess prend le
+      // rôle EN DIRECT de la base même si on lui passe un indice de rôle PÉRIMÉ (JWT).
+      mk("nsstale", { role: "NATIONAL_SALES" }),
     ]);
-    plainId = a.id; overriddenId = b.id; primaryOnlyId = c.id; nsPrimaryId = d.id;
+    plainId = a.id; overriddenId = b.id; primaryOnlyId = c.id; nsPrimaryId = d.id; nsStaleId = e.id;
 
     await prisma.userAccess.createMany({
       data: [
@@ -75,5 +78,17 @@ suite("getAccess — un override ne rétrécit pas une portée native ALL (rôle
     expect(m?.scope).toBe("ALL"); // ← il revoit TOUTES les demandes à pré-valider
     expect(m?.actions.has("VIEW")).toBe(true);
     expect(m?.actions.has("CREATE")).toBe(true); // conservé de l'override
+  });
+
+  it("le rôle est résolu EN DIRECT depuis la base : un indice de rôle PÉRIMÉ (JWT) est ignoré", async () => {
+    // Compte RÉELLEMENT National Sales en base ; on simule un JWT périmé en passant
+    // l'ancien rôle « MEDICAL_DELEGATE » comme indice. getAccess doit prendre le rôle RÉEL
+    // → c'est ce qui rend l'écran du National Sales fidèle (préliminaire Ad & Pro visible,
+    // libellé « National Sales », accès enveloppes par rôle) sans le forcer à se reconnecter.
+    const a = await getAccess(nsStaleId, "MEDICAL_DELEGATE");
+    expect(a.role).toBe("NATIONAL_SALES");
+    // Preuve fonctionnelle : SPONSORING (Ad & Pro) — absent du délégué — est ouvert par le rôle réel.
+    expect(a.modules.has("SPONSORING")).toBe(true);
+    expect(a.modules.get("SPONSORING")?.scope).toBe("ALL");
   });
 });
