@@ -29,7 +29,7 @@ interface LiveOpts {
 interface LiveResult { markdown: string; findings: Finding[] }
 
 interface Cred { role: UserRole; email: string; password: string; disposable?: boolean }
-interface PageVisit { route: string; status: number | null; finalUrl: string; denied: boolean; consoleErrors: number; nextError: boolean; uploadTried: boolean }
+interface PageVisit { route: string; status: number | null; finalUrl: string; denied: boolean; consoleErrors: number; nextError: boolean; uploadTried: boolean; loadMs: number; mobileOverflow: boolean }
 
 // Cible de « landing sûr » : une redirection vers l'une de ces routes = accès refusé.
 const SAFE_LANDING = ["/mon-espace", "/mon-travail", "/dashboard", "/no-access"];
@@ -121,15 +121,19 @@ function isDenied(requested: string, finalUrl: string): boolean {
   }
 }
 
-/** Visite une route dans un contexte donné, capture le résultat. */
-async function visit(context: any, baseUrl: string, route: string, files: { pdf: string; zip: string } | null): Promise<PageVisit> {
+/** Visite une route dans un contexte donné, capture le résultat (+ mesures UX si demandé). */
+async function visit(context: any, baseUrl: string, route: string, files: { pdf: string; zip: string } | null, measureUx = false): Promise<PageVisit> {
   const page = await context.newPage();
   let consoleErrors = 0;
   page.on("console", (m: any) => { if (m.type() === "error") consoleErrors++; });
   let status: number | null = null;
   let uploadTried = false;
+  let loadMs = 0;
+  let mobileOverflow = false;
   try {
+    const t0 = Date.now();
     const resp = await page.goto(`${baseUrl}${route}`, { waitUntil: "domcontentloaded", timeout: 20000 });
+    loadMs = Date.now() - t0; // proxy « temps de chargement »
     status = resp ? resp.status() : null;
     await page.waitForTimeout(150);
     // Dépose (sans soumettre) une pièce jointe jetable si une zone d'upload existe.
@@ -141,9 +145,17 @@ async function visit(context: any, baseUrl: string, route: string, files: { pdf:
     }
     const nextError = (await page.$("nextjs-portal, [data-nextjs-dialog], .nextjs-container-errors-header")) != null;
     const finalUrl = page.url();
-    return { route, status, finalUrl, denied: isDenied(route, finalUrl), consoleErrors, nextError, uploadTried };
+    // Responsivité : à 375 px de large (mobile), la page ne doit PAS déborder horizontalement.
+    if (measureUx && !isDenied(route, finalUrl)) {
+      try {
+        await page.setViewportSize({ width: 375, height: 812 });
+        await page.waitForTimeout(120);
+        mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2);
+      } catch { /* noop */ }
+    }
+    return { route, status, finalUrl, denied: isDenied(route, finalUrl), consoleErrors, nextError, uploadTried, loadMs, mobileOverflow };
   } catch (e) {
-    return { route, status, finalUrl: `${baseUrl}${route}`, denied: false, consoleErrors, nextError: true, uploadTried, ...{ error: (e as Error).message } } as PageVisit;
+    return { route, status, finalUrl: `${baseUrl}${route}`, denied: false, consoleErrors, nextError: true, uploadTried, loadMs, mobileOverflow, ...{ error: (e as Error).message } } as PageVisit;
   } finally {
     await page.close();
   }
@@ -208,7 +220,9 @@ export async function runLiveCrawl(opts: LiveOpts): Promise<LiveResult> {
       md.push("", "_Aucun compte fourni (`AUTOTEST_CREDENTIALS`) ni semé (`--seed`) : passes par rôle ignorées._");
     }
 
-    for (const cred of creds) {
+    for (let ci = 0; ci < creds.length; ci++) {
+      const cred = creds[ci];
+      const measureUx = ci === 0; // mesures UX (responsivité, temps de charge) une fois suffit (layout ≈ indépendant du rôle)
       const ctx = await browser.newContext();
       const ok = await login(ctx, baseUrl, cred);
       if (!ok) {
@@ -216,9 +230,11 @@ export async function runLiveCrawl(opts: LiveOpts): Promise<LiveResult> {
         await ctx.close();
         continue;
       }
-      let mismatches = 0, errors = 0, uploads = 0;
+      let mismatches = 0, errors = 0, uploads = 0, slow = 0, overflow = 0;
+      let visited: PageVisit | null = null;
       for (const r of testable) {
-        const v = await visit(ctx, baseUrl, r.route, files);
+        const v = await visit(ctx, baseUrl, r.route, files, measureUx);
+        if (!v.denied) visited = v;
         const predicted = predictAccess(cred.role, r);
         const actual = v.denied ? "deny" : "allow";
         if (predicted !== "n/a" && predicted !== actual) {
@@ -231,9 +247,24 @@ export async function runLiveCrawl(opts: LiveOpts): Promise<LiveResult> {
           findings.push({ severity: "bug", code: "PAGE_ERROR", route: r.route,
             message: `Rôle ${cred.role} : erreur d'exécution / overlay Next sur ${r.route} (statut ${v.status}).` });
         }
+        if (measureUx && !v.denied) {
+          if (v.loadMs > 4000) { slow++; findings.push({ severity: "warning", code: "SLOW_PAGE", route: r.route, message: `Temps de chargement élevé (${v.loadMs} ms) — au-delà de ~3 s l'utilisateur décroche.` }); }
+          if (v.mobileOverflow) { overflow++; findings.push({ severity: "warning", code: "RESPONSIVE_OVERFLOW", route: r.route, message: `Débordement horizontal à 375 px (mobile) — la page n'est pas responsive à cette largeur.` }); }
+          if (v.consoleErrors > 0) findings.push({ severity: "info", code: "CONSOLE_ERRORS", route: r.route, message: `${v.consoleErrors} erreur(s) console sur ${r.route}.` });
+        }
         if (v.uploadTried) uploads++;
       }
-      md.push(`- Rôle **${cred.role}** : ${testable.length} pages · ${mismatches} écart(s) RBAC · ${errors} erreur(s) · ${uploads} upload(s) testé(s)${cred.disposable ? " · _compte jetable_" : ""}`);
+      // Résilience : comportement hors-ligne sur une page réelle (uniquement 1re passe).
+      if (measureUx && visited) {
+        try {
+          await ctx.setOffline(true);
+          const off = await visit(ctx, baseUrl, visited.route, null, false);
+          if (off.nextError) findings.push({ severity: "warning", code: "OFFLINE_UNHANDLED", route: visited.route, message: "Perte de connexion : la page affiche une erreur brute plutôt qu'un état hors-ligne géré." });
+          await ctx.setOffline(false);
+        } catch { /* noop */ }
+      }
+      const ux = measureUx ? ` · ${slow} lente(s) · ${overflow} débordement(s) mobile` : "";
+      md.push(`- Rôle **${cred.role}** : ${testable.length} pages · ${mismatches} écart(s) RBAC · ${errors} erreur(s) · ${uploads} upload(s)${ux}${cred.disposable ? " · _compte jetable_" : ""}`);
       await ctx.close();
     }
   } finally {

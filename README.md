@@ -1135,6 +1135,16 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   spécifiques aux données. Fichiers : `src/lib/platform-audit/{engine,ai}.ts`, action `platform-audit-actions.ts`,
   page `/admin/diagnostic`, onglet dans `ADMIN_TABS`. Complète l'**auto-testeur CLI** (`npm run autotest`, cohérence
   statique + crawl navigateur) : le Diagnostic vit **dans l'app** et se concentre sur la santé **runtime** + les idées.
+  - **Élévation « jury de design de classe mondiale ».** L'engine ajoute des **repères d'ergonomie** : densité de
+    navigation (loi de Miller / nav Lightning), **rôles au périmètre de vue identique** (candidats à fusion — détecté
+    réellement : Ventes = Logistique), cohérence des règles d'upload (*consistency* Apple HIG), **temps de réponse**
+    d'une requête type, adéquation pharma. Le bouton « Idées » invoque un **jury d'experts** (Apple HIG · Microsoft
+    Fluent 2 · Salesforce Lightning · WCAG 2.2 · heuristiques Nielsen) qui **note chaque axe /5** (responsivité,
+    contenu/fond, forme/contenant, cohérence, navigation & vues, rôles, performance, résilience/hors-ligne, fichiers &
+    formats, accessibilité, adéquation pharma) et rend points forts, corrections prioritaires et **inspirations à
+    adopter**. Les axes navigateur sont réellement **mesurés** par le crawler `autotest:live` : temps de chargement,
+    **débordement horizontal à 375 px** (responsivité mobile), **perte de connexion** (offline), erreurs console —
+    constats `RESPONSIVE_OVERFLOW`, `SLOW_PAGE`, `OFFLINE_UNHANDLED`, `CONSOLE_ERRORS`.
 - **Ad & Pro — routage intelligent : personne n'approuve sa propre demande.** À la création d'une demande
   (sponsoring / congrès / événement), on **saute** toute étape d'approbation au niveau ou en dessous du rang du
   créateur. Le **National Sales** désigne directement le chef de produit (sélecteur ajouté aux formulaires) et

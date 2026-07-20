@@ -28,6 +28,17 @@ export interface UploadSurface { key: string; label: string; strategy: "allowlis
 export interface RoleCoverage { role: UserRole; label: string; active: number; critical: boolean; impact: string }
 export interface ModuleStat { key: string; label: string; count: number }
 
+/** Repères d'ergonomie / structure / performance — nourrissent le jury de design IA. */
+export interface DesignSignals {
+  menuTopLevel: number; // entrées de menu de 1er niveau
+  menuTotal: number; // entrées + onglets
+  roleCount: number;
+  roleModules: { min: number; max: number; avg: number };
+  redundantRoleGroups: string[][]; // rôles au périmètre de VUE identique
+  uploadPolicies: number; // nombre de politiques d'upload distinctes
+  sampleQueryMs: number; // temps d'une requête représentative (proxy « temps de réponse »)
+}
+
 export interface PlatformDiagnostic {
   generatedAt: string;
   healthScore: number; // 0-100
@@ -37,6 +48,7 @@ export interface PlatformDiagnostic {
   roles: RoleCoverage[];
   moduleStats: ModuleStat[];
   rbac: { role: string; label: string; globalView: boolean; modules: number }[];
+  design: DesignSignals;
   counts: { pages: number; roles: number; modules: number };
 }
 
@@ -211,6 +223,79 @@ async function moduleStats(): Promise<ModuleStat[]> {
   return out;
 }
 
+// ───────────────────────────── Ergonomie / structure (UX) ─────────────────────────────
+
+/**
+ * Repères d'ergonomie inspirés des systèmes de référence (Apple HIG, Microsoft Fluent,
+ * Salesforce Lightning) : densité de navigation, clarté des rôles, cohérence des règles.
+ */
+function probeErgonomics(rbac: PlatformDiagnostic["rbac"], uploads: UploadSurface[]): { design: Omit<DesignSignals, "sampleQueryMs">; findings: Finding[] } {
+  const findings: Finding[] = [];
+  const menuTopLevel = NAVIGATION.length;
+  const menuTotal = NAVIGATION.reduce((n, x) => n + 1 + (x.tabs?.length ?? 0), 0);
+
+  // Densité de menu (loi de Miller ~7±2 ; les apps Lightning regroupent au-delà de ~12 entrées).
+  if (menuTopLevel > 14) {
+    findings.push({ severity: "info", area: "Ergonomie", title: `Navigation dense (${menuTopLevel} entrées de 1er niveau)`, detail: "Au-delà d'une douzaine d'entrées, la charge cognitive augmente et la barre latérale se sature (réf. Salesforce Lightning app nav, Fluent nav).", suggestion: "Regrouper les modules proches en onglets/sections (comme « Ad & Pro » ou « Mon espace »)." });
+  }
+
+  // Rôles au périmètre de VUE identique (ensemble exact de modules) → candidats à simplification.
+  const redundant = groupByViewSignature(rbac).filter((g) => g.length > 1);
+  if (redundant.length) {
+    findings.push({ severity: "info", area: "Rôles", title: `${redundant.length} groupe(s) de rôles au périmètre de vue identique`, detail: `Ex. ${redundant[0].join(", ")} voient exactement les mêmes modules.`, suggestion: "Vérifier s'ils doivent rester distincts (sinon fusionner pour clarifier — principe de simplicité Apple HIG)." });
+  }
+
+  // Cohérence des règles d'upload (Apple HIG : « consistency »).
+  const policies = new Set(uploads.map((u) => `${u.strategy}:${[...u.accepted].sort().join(",")}`)).size;
+  if (policies > 1) {
+    findings.push({ severity: "info", area: "Cohérence", title: "Règles de fichiers différentes selon l'espace", detail: `Il existe ${policies} politiques d'upload distinctes : un même utilisateur ne sait pas quels formats passent où (Drive large, pièces jointes strictes…).`, suggestion: "Harmoniser les formats acceptés entre espaces, ou afficher clairement les formats admis dans chaque zone de dépôt." });
+  }
+
+  const mods = rbac.filter((r) => !r.globalView).map((r) => r.modules);
+  const roleModules = { min: Math.min(...mods, 0), max: Math.max(...mods, 0), avg: mods.length ? Math.round((mods.reduce((a, b) => a + b, 0) / mods.length) * 10) / 10 : 0 };
+
+  return {
+    design: { menuTopLevel, menuTotal, roleCount: rbac.length, roleModules, redundantRoleGroups: redundant, uploadPolicies: policies },
+    findings,
+  };
+}
+
+function groupByViewSignature(rbac: PlatformDiagnostic["rbac"]): string[][] {
+  const map = new Map<string, string[]>();
+  for (const r of rbac) {
+    if (r.globalView || r.modules === 0) continue;
+    // Signature EXACTE : ensemble des modules visibles (recalculé depuis le rôle).
+    const key = MODULES.filter((m) => can(r.role as UserRole, m as Module, "VIEW")).join(",");
+    const arr = map.get(key) ?? [];
+    arr.push(r.label);
+    map.set(key, arr);
+  }
+  return [...map.values()];
+}
+
+async function probeTiming(): Promise<{ probe: HealthProbe; findings: Finding[]; ms: number }> {
+  const t0 = Date.now();
+  // Requête représentative (jointure + tri) plutôt qu'un simple SELECT 1.
+  await safe(() => prisma.user.findMany({ where: { isActive: true }, select: { id: true, role: true }, orderBy: { createdAt: "desc" }, take: 50 }), []);
+  const ms = Date.now() - t0;
+  const findings: Finding[] = ms > 1200
+    ? [{ severity: "warning", area: "Performance", title: "Temps de réponse élevé sur une requête type", detail: `Une requête représentative a mis ${ms} ms — perçu comme lent (au-delà de ~1 s, l'utilisateur décroche).`, suggestion: "Vérifier les index, la taille des tables et la latence réseau de l'hébergeur." }]
+    : [];
+  return { probe: { key: "latency", label: "Temps de réponse (requête type)", ok: ms <= 1200, value: `${ms} ms` }, findings, ms };
+}
+
+function probePharma(): Finding[] {
+  const findings: Finding[] = [];
+  const navModules = new Set<string>();
+  for (const n of NAVIGATION) { navModules.add(n.module); for (const t of n.tabs ?? []) navModules.add(t.module); }
+  const needed: [Module, string][] = [["REGULATORY", "Regulatory (dossiers ANPP)"], ["MEDICAL_INFO", "Information médicale (PRIM)"], ["MEDICAL", "Promotion médicale"], ["PCH", "PCH — marchés publics"]];
+  const absent = needed.filter(([m]) => !navModules.has(m));
+  if (absent.length) {
+    findings.push({ severity: "warning", area: "Pharma", title: "Module pharma clé sans entrée de menu", detail: `Non exposé dans la navigation : ${absent.map((a) => a[1]).join(", ")}.`, suggestion: "Vérifier que ces piliers métier (réglementaire, information médicale) restent accessibles." });
+  }
+  return findings;
+}
+
 // ───────────────────────────── Orchestration ─────────────────────────────
 
 function scoreFrom(findings: Finding[]): number {
@@ -220,32 +305,37 @@ function scoreFrom(findings: Finding[]): number {
 }
 
 export async function runDiagnostic(): Promise<PlatformDiagnostic> {
-  const [db, uploads, roles, accounts, stuck, stats] = await Promise.all([
-    probeDatabase(), Promise.resolve(probeUploads()), probeRoles(), probeAccounts(), probeStuck(), moduleStats(),
+  const [db, uploads, roles, accounts, stuck, stats, timing] = await Promise.all([
+    probeDatabase(), Promise.resolve(probeUploads()), probeRoles(), probeAccounts(), probeStuck(), moduleStats(), probeTiming(),
   ]);
   const ai = probeAi();
   const env = probeEnv();
   const nav = probeNavCoherence();
 
+  const rbac = (Object.keys(PERMISSIONS) as UserRole[])
+    .map((r) => ({ role: r, label: ROLE_LABELS[r] ?? r, globalView: hasGlobalView(r), modules: hasGlobalView(r) ? MODULES.length : MODULES.filter((m) => can(r, m as Module, "VIEW")).length }));
+
+  const ergo = probeErgonomics(rbac, uploads.uploads);
+  const pharma = probePharma();
+
   const findings: Finding[] = [
     ...db.findings, ...uploads.findings, ...roles.findings, ...accounts, ...stuck, ...ai.findings, ...env.findings, ...nav,
+    ...timing.findings, ...ergo.findings, ...pharma,
   ];
   // Tri : critique → avertissement → info.
   const order: Record<Severity, number> = { critical: 0, warning: 1, info: 2, ok: 3 };
   findings.sort((a, b) => order[a.severity] - order[b.severity]);
 
-  const rbac = (Object.keys(PERMISSIONS) as UserRole[])
-    .map((r) => ({ role: r, label: ROLE_LABELS[r] ?? r, globalView: hasGlobalView(r), modules: hasGlobalView(r) ? MODULES.length : MODULES.filter((m) => can(r, m as Module, "VIEW")).length }));
-
   return {
     generatedAt: new Date().toISOString(),
     healthScore: scoreFrom(findings),
-    probes: [db.probe, ...ai.probes, ...env.probes],
+    probes: [db.probe, timing.probe, ...ai.probes, ...env.probes],
     findings,
     uploads: uploads.uploads,
     roles: roles.roles,
     moduleStats: stats,
     rbac,
+    design: { ...ergo.design, sampleQueryMs: timing.ms },
     counts: { pages: NAVIGATION.length, roles: rbac.length, modules: MODULES.length },
   };
 }

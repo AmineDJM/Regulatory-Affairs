@@ -47,6 +47,10 @@ npm run autotest -- --ai
 | `BAD_MODULE_GATE` | 🔴 bug | `requireModule("X")` avec un module inconnu (garde morte). |
 | `AUTH_LEAK` *(live)* | 🔴 bug | Une page s'ouvre **sans authentification**. |
 | `PAGE_ERROR` *(live)* | 🔴 bug | Erreur d'exécution / overlay Next sur une page. |
+| `RESPONSIVE_OVERFLOW` *(live)* | 🟠 | Débordement horizontal à 375 px (page non responsive sur mobile). |
+| `SLOW_PAGE` *(live)* | 🟠 | Temps de chargement > 4 s (perçu comme lent). |
+| `OFFLINE_UNHANDLED` *(live)* | 🟠 | Perte de connexion → erreur brute au lieu d'un état hors-ligne géré. |
+| `CONSOLE_ERRORS` *(live)* | 🔵 | Erreurs JavaScript en console sur une page. |
 | `NAV_MODULE_MISMATCH` | 🟠 | Le module annoncé au menu ≠ la garde réelle de la page. |
 | `MODULEFORPATH_MISMATCH` | 🟠 | `moduleForPath()` ≠ garde réelle (badge/onglet actif incohérent). |
 | `NO_MODULE_GATE` | 🟠 | Page sans garde de module explicite (à confirmer). |

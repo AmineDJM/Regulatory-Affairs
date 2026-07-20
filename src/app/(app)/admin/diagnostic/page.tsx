@@ -152,6 +152,34 @@ export default async function DiagnosticPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Repères ergonomie & structure (référentiels Apple / Fluent / Lightning) */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Repères ergonomie & structure</CardTitle>
+          <CardDescription>Densité de navigation, clarté des rôles, cohérence, temps de réponse — nourrissent la revue de design IA.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { k: "Entrées de menu", v: `${d.design.menuTopLevel} (${d.design.menuTotal} avec onglets)` },
+            { k: "Rôles", v: `${d.design.roleCount}` },
+            { k: "Modules/rôle (moy.)", v: `${d.design.roleModules.avg}` },
+            { k: "Rôles au périmètre identique", v: `${d.design.redundantRoleGroups.length}` },
+            { k: "Politiques d'upload", v: `${d.design.uploadPolicies}` },
+            { k: "Temps requête type", v: `${d.design.sampleQueryMs} ms` },
+          ].map((x) => (
+            <div key={x.k} className="rounded-lg border border-border p-2.5">
+              <p className="text-lg font-semibold tabular-nums">{x.v}</p>
+              <p className="text-[11px] text-muted-foreground">{x.k}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <p className="text-xs text-muted-foreground">
+        Les axes navigateur (responsivité multi-écrans, temps de chargement, perte de connexion, accessibilité clavier)
+        se mesurent avec le crawl <code className="rounded bg-muted px-1">npm run autotest:live</code> — le bouton « Idées » ci-dessus en tient compte.
+      </p>
     </div>
   );
 }
