@@ -5219,3 +5219,113 @@ model MarketResearchPresentationVersion {
   @@unique([presentationId, version])
   @@index([presentationId])
 }
+
+// ─────────────────────────── Adventum Autonomous Test Center ───────────────────────────
+// Certification autonome de la plateforme. Un run ne supprime QUE les ressources dont
+// l'ID exact figure dans son manifeste (TestArtifact) — jamais par nom/préfixe.
+
+enum TestRunMode {
+  READ_ONLY_AUDIT
+  SAFE_SYNTHETIC_TEST
+  STAGING_FULL_TEST
+  CHAOS_TEST
+  SECURITY_AUDIT
+  PERFORMANCE_BENCHMARK
+}
+
+enum TestRunStatus {
+  PENDING
+  RUNNING
+  PASSED
+  FAILED
+  ABORTED
+  CLEANUP_INCOMPLETE
+}
+
+enum TestCleanupStatus {
+  NOT_REQUIRED
+  PENDING
+  RUNNING
+  DONE
+  INCOMPLETE
+}
+
+enum TestSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+model TestRun {
+  id            String            @id @default(cuid())
+  mode          TestRunMode       @default(SAFE_SYNTHETIC_TEST)
+  environment   String            @default("unknown") // dev | staging | production
+  status        TestRunStatus     @default(PENDING)
+  cleanupStatus TestCleanupStatus @default(NOT_REQUIRED)
+
+  initiatedById String // ID de l'initiateur (Super Admin) — pas de FK pour ne pas alourdir User
+  gitCommit     String?
+  gitBranch     String?
+  config        Json? // périmètre : modules, rôles, entités, profondeur…
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  progress   Int       @default(0) // 0-100
+  step       String? // étape courante (exécution en direct)
+
+  score            Int? // 0-100
+  criticalCount    Int  @default(0)
+  findingsCount    Int  @default(0)
+  resourcesCreated Int  @default(0)
+  resourcesDeleted Int  @default(0)
+  summary          Json?
+
+  artifacts TestArtifact[]
+  findings  TestFinding[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, startedAt])
+}
+
+// Le MANIFESTE : chaque ressource synthétique créée par le run. Le nettoyage s'appuie
+// EXCLUSIVEMENT sur `recordId` (l'ID réel), en ordre inverse de dépendance.
+model TestArtifact {
+  id           String    @id @default(cuid())
+  testRunId    String
+  run          TestRun   @relation(fields: [testRunId], references: [id], onDelete: Cascade)
+  resourceType String // "user" | "document" | "blob" | "notification" | …
+  model        String? // nom du modèle Prisma (pour la suppression typée)
+  recordId     String // ID réel de l'enregistrement créé
+  blobKey      String? // clé S3/R2 / StoredFile éventuelle
+  dependsOn    String[]  @default([]) // IDs (TestArtifact) dont dépend cette ressource
+  deleteMethod String    @default("prisma") // prisma | blob | noop
+  deletedAt    DateTime?
+  cleanupResult String? // "deleted" | "already-absent" | "error: …"
+  createdAt    DateTime  @default(now())
+
+  @@index([testRunId])
+  @@index([testRunId, deletedAt])
+}
+
+model TestFinding {
+  id         String       @id @default(cuid())
+  testRunId  String
+  run        TestRun      @relation(fields: [testRunId], references: [id], onDelete: Cascade)
+  severity   TestSeverity @default(INFO)
+  category   String // functional | rbac | data | ux | security | performance | ai | coverage
+  module     String?
+  route      String?
+  roleTested String?
+  title      String
+  detail     String
+  evidence   Json? // assertion, log, réponse API, différence base… (expurgé)
+  suggestion String?
+  confidence String? // high | medium | low
+  createdAt  DateTime     @default(now())
+
+  @@index([testRunId, severity])
+}

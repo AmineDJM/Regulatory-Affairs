@@ -1,0 +1,111 @@
+import { prisma } from "@/lib/prisma";
+import { recordAudit } from "@/lib/audit";
+import { PERMISSIONS } from "@/lib/rbac";
+import type { UserRole } from "@prisma/client";
+import { guardMode } from "./guard";
+import { WRITE_MODES, type RunConfig, type TestRunMode, type FindingInput } from "./types";
+import { seedSyntheticUsers } from "./synthetic";
+import { cleanupRun, verifyClean } from "./manifest";
+import { smokeFindings } from "./smoke";
+import { redact } from "./redact";
+
+/**
+ * Orchestrateur d'un run (phase 1). Cycle : préflight → (identités synthétiques) → smoke
+ * → **nettoyage garanti** → **vérification post-nettoyage** → clôture. Toute exception
+ * tente quand même le nettoyage (sûreté) avant de marquer l'état. Aucune donnée
+ * préexistante n'est touchée : seules les ressources du manifeste sont supprimées.
+ */
+
+function gitInfo() {
+  return {
+    commit: process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? null,
+    branch: process.env.RENDER_GIT_BRANCH ?? process.env.GIT_BRANCH ?? null,
+  };
+}
+
+export interface RunResult { ok: boolean; runId?: string; error?: string }
+
+export async function executeRun(opts: { mode: TestRunMode; initiatedById: string; config?: RunConfig }): Promise<RunResult> {
+  const config = opts.config ?? {};
+  const guard = guardMode(opts.mode, config);
+  if (!guard.ok) return { ok: false, error: guard.error };
+
+  const writes = WRITE_MODES.includes(opts.mode);
+  const git = gitInfo();
+  const run = await prisma.testRun.create({
+    data: {
+      mode: opts.mode, environment: guard.environment, status: "RUNNING",
+      cleanupStatus: writes ? "PENDING" : "NOT_REQUIRED",
+      initiatedById: opts.initiatedById, gitCommit: git.commit, gitBranch: git.branch,
+      config: redact(config) as object, step: "préflight",
+    },
+    select: { id: true },
+  });
+  const runId = run.id;
+
+  try {
+    // 1) Identités synthétiques (modes d'écriture) : un compte INACTIF par rôle réel.
+    let created = 0;
+    if (writes) {
+      await prisma.testRun.update({ where: { id: runId }, data: { step: "création des identités synthétiques", progress: 20 } });
+      const roles = Object.keys(PERMISSIONS) as UserRole[];
+      created = (await seedSyntheticUsers(runId, roles)).length;
+    }
+
+    // 2) Smoke (santé + cohérence).
+    await prisma.testRun.update({ where: { id: runId }, data: { step: "smoke — santé & cohérence", progress: 55 } });
+    const smoke = await smokeFindings();
+    await persistFindings(runId, smoke.findings);
+    const criticalCount = smoke.findings.filter((f) => f.severity === "CRITICAL").length;
+
+    // 3) Nettoyage garanti + vérification.
+    let cleanupStatus: "DONE" | "INCOMPLETE" | "NOT_REQUIRED" = "NOT_REQUIRED";
+    let deleted = 0;
+    if (writes) {
+      await prisma.testRun.update({ where: { id: runId }, data: { step: "nettoyage", cleanupStatus: "RUNNING", progress: 82 } });
+      const clean = await cleanupRun(runId);
+      deleted = clean.deleted;
+      const verify = await verifyClean(runId);
+      cleanupStatus = verify.clean && clean.errors === 0 ? "DONE" : "INCOMPLETE";
+      if (!verify.clean) {
+        await persistFindings(runId, [{ severity: "CRITICAL", category: "cleanup", title: "Nettoyage incomplet", detail: `${verify.residuals.length} ressource(s) synthétique(s) subsistent après nettoyage — intervention requise.`, evidence: verify.residuals, confidence: "high" }]);
+      }
+    }
+
+    const status = cleanupStatus === "INCOMPLETE" ? "CLEANUP_INCOMPLETE" : criticalCount > 0 ? "FAILED" : "PASSED";
+    const findingsCount = smoke.findings.length + (cleanupStatus === "INCOMPLETE" ? 1 : 0);
+    await prisma.testRun.update({
+      where: { id: runId },
+      data: {
+        status, cleanupStatus, finishedAt: new Date(), progress: 100, step: "terminé",
+        score: smoke.score, criticalCount, findingsCount, resourcesCreated: created, resourcesDeleted: deleted,
+        summary: redact({ coverage: smoke.coverage, mode: opts.mode }) as object,
+      },
+    });
+    await recordAudit({ actorId: opts.initiatedById, action: "UPDATE", module: "Administration", summary: `Test Center — run ${runId.slice(0, 8)} (${opts.mode}) : ${status} · ${created} créées / ${deleted} supprimées` });
+    return { ok: true, runId };
+  } catch (e) {
+    // Sûreté : on TENTE le nettoyage même en cas d'échec inattendu.
+    let cleanupStatus: "DONE" | "INCOMPLETE" | "NOT_REQUIRED" = writes ? "INCOMPLETE" : "NOT_REQUIRED";
+    if (writes) {
+      try { await cleanupRun(runId); cleanupStatus = (await verifyClean(runId)).clean ? "DONE" : "INCOMPLETE"; } catch { cleanupStatus = "INCOMPLETE"; }
+    }
+    await prisma.testRun.update({
+      where: { id: runId },
+      data: { status: cleanupStatus === "INCOMPLETE" ? "CLEANUP_INCOMPLETE" : "FAILED", cleanupStatus, finishedAt: new Date(), step: "erreur", summary: redact({ error: (e as Error).message }) as object },
+    }).catch(() => undefined);
+    return { ok: false, runId, error: (e as Error).message };
+  }
+}
+
+async function persistFindings(runId: string, findings: FindingInput[]) {
+  if (!findings.length) return;
+  await prisma.testFinding.createMany({
+    data: findings.map((f) => ({
+      testRunId: runId, severity: f.severity, category: f.category, module: f.module ?? null, route: f.route ?? null,
+      roleTested: f.roleTested ?? null, title: f.title, detail: f.detail,
+      evidence: f.evidence === undefined ? undefined : (redact(f.evidence) as object),
+      suggestion: f.suggestion ?? null, confidence: f.confidence ?? null,
+    })),
+  });
+}

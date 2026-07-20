@@ -1123,6 +1123,27 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Adventum Autonomous Test Center (Administration → Test Center, Super Admin) — Phase 1 : fondation de sûreté.**
+  Infrastructure de certification autonome, **conçue sécurité d'abord** : un run ne touche **aucune** donnée
+  préexistante — il ne supprime **que** les ressources qu'il a lui-même créées, inscrites au fur et à mesure dans un
+  **manifeste** (`TestArtifact`) par **ID exact**. Règle absolue : *jamais* de suppression par nom ni par préfixe
+  (« ce n'est pas parce qu'un nom contient “test” qu'on le supprime »). Le nettoyage s'exécute en **ordre inverse de
+  dépendance**, puis une **vérification post-nettoyage** re-interroge la base par ID pour prouver l'absence de tout
+  résidu ; un modèle non pris en charge est **refusé** (pas deviné). Deux modes en phase 1 : **Audit lecture seule**
+  (aucune écriture — réutilise le moteur de Diagnostic pour la santé/cohérence) et **Test synthétique sûr** (crée une
+  identité **inactive** par rôle réel sur un domaine **non routable** `qa.adventum.invalid` — jamais de vrai e-mail ni
+  de connexion possible —, exécute les smoke tests, puis **nettoie et vérifie**). **Production en lecture seule par
+  défaut** : tout mode d'écriture y exige une confirmation explicite **+ phrase de sécurité**. Les **secrets/mots de
+  passe/tokens/données RH** sont **expurgés** des rapports et journaux (`redact`). **Reprise sur interruption** : les
+  runs restés en cours ou au nettoyage incomplet sont détectés et rejouables (jamais de nettoyage automatique
+  silencieux). Chaque run porte un `TestRunMode`, un statut, un `cleanupStatus` vérifié, un score, des **constats**
+  (`TestFinding`, preuves expurgées) et un historique. Livré **testé** : invariant de sûreté (leurre hors-manifeste
+  préservé, modèle inconnu refusé) + run synthétique de bout en bout (créées = supprimées, 0 résidu vérifié en base).
+  Fichiers : `src/lib/test-center/{types,redact,guard,manifest,synthetic,smoke,runner,recovery}.ts` (+ `README.md`
+  d'architecture), actions `test-center-actions.ts`, requêtes `queries/test-center.ts`, page `/admin/test-center`,
+  modèles Prisma `TestRun`/`TestArtifact`/`TestFinding`, onglet dans `ADMIN_TABS`. Phases suivantes (2→5) :
+  auto-cartographie & rôles/multi-entités/workflows, fichiers/OCR/IA/injection & sécurité, UX/responsive/a11y/perf,
+  chaos & comparaison de runs / certification pré-release.
 - **Diagnostic de plateforme (Administration → Diagnostic, Super Admin) — « le médecin » dopé à l'IA.** Onglet qui
   **sonde le fonctionnement réel** (lecture seule, données réelles, aucune simulation) : base de données + latence,
   IA/STT, stockage, notifications push ; **couverture des rôles critiques** (ex. plus aucun *National Sales* → les
