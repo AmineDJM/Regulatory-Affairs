@@ -93,7 +93,9 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
       <PageHeader title={meeting.title} description={meeting.description ?? undefined}>
         <Badge tone={STATUS[meeting.status]?.tone ?? "neutral"} dot={false}>{STATUS[meeting.status]?.label ?? meeting.status}</Badge>
-        {canManage && meeting.status !== "ENDED" && (
+        {/* L'organisateur peut modifier SA réunion à TOUT MOMENT — y compris une réunion
+            terminée (corriger l'intitulé, replanifier…). L'action serveur l'autorise déjà. */}
+        {canManage && (
           <EditMeetingButton
             id={meeting.id}
             title={meeting.title}
