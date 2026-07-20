@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { getTestCenterDashboard } from "@/lib/queries/test-center";
+import { resolveEnvironment } from "@/lib/test-center/guard";
 import { LaunchPanel, ResumeCleanupButton } from "./test-center-client";
 import type { TestRunStatus, TestCleanupStatus, TestSeverity, TestCertification } from "@prisma/client";
 
@@ -82,7 +83,7 @@ export default async function TestCenterPage() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
-        <LaunchPanel />
+        <LaunchPanel environment={resolveEnvironment()} />
 
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-base">Dernier run</CardTitle></CardHeader>
