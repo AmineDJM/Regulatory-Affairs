@@ -9,8 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { runTestCenter, resumeTestCleanup } from "@/lib/actions/test-center-actions";
 
 const MODES = [
-  { value: "SAFE_SYNTHETIC_TEST", label: "Test synthétique sûr (recommandé)", hint: "Crée des identités synthétiques, exécute les smoke tests, puis nettoie et vérifie." },
-  { value: "READ_ONLY_AUDIT", label: "Audit lecture seule", hint: "Aucune écriture : santé, cohérence RBAC/navigation, formats, ergonomie." },
+  { value: "SAFE_SYNTHETIC_TEST", label: "Test synthétique sûr (recommandé)", hint: "Identités synthétiques + smoke, audit approfondi (invariants, machines à états, oracles), migrations & roundtrip sauvegarde/restauration, auto-validation du testeur (mutation, fuzz, time-travel), nettoyage vérifié, certification scellée." },
+  { value: "READ_ONLY_AUDIT", label: "Audit lecture seule", hint: "Aucune écriture : santé, invariants métier, machines à états, cohérence multi-oracles, migrations, auto-validation du testeur, certification." },
 ];
 
 /** Panneau de lancement d'un run (phase 1 : deux modes sûrs). */
@@ -50,7 +50,7 @@ export function LaunchPanel() {
         <Button onClick={launch} disabled={pending} size="sm">
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} {pending ? "Exécution…" : "Lancer le run"}
         </Button>
-        <p className="text-[11px] text-muted-foreground">Modes avancés (Staging complet, Chaos, Sécurité, Performance) : phases suivantes.</p>
+        <p className="text-[11px] text-muted-foreground">Chaque run rend un verdict (Certifié / avec réserves / Bloqué / Non concluant) et scelle un paquet de preuves haché. Modes avancés (Staging complet, Chaos, Sécurité, Performance) : phases suivantes.</p>
       </CardContent>
     </Card>
   );

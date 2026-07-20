@@ -64,7 +64,12 @@ suite("Test Center — runner : run de bout en bout (création → nettoyage gar
     // 6) Manifeste cohérent : chaque artefact est marqué supprimé (aucun en attente).
     const pending = await prisma.testArtifact.count({ where: { testRunId: runId, deletedAt: null } });
     expect(pending).toBe(0);
-  }, 60_000);
+
+    // 7) Certification (§36) : un verdict est rendu et le paquet de preuves est scellé (hash).
+    expect(run.certification).not.toBeNull();
+    expect(["CERTIFIED", "CERTIFIED_WITH_RESERVATIONS", "BLOCKED", "INCONCLUSIVE"]).toContain(run.certification);
+    expect(run.evidenceHash).toMatch(/^[0-9a-f]{64}$/);
+  }, 90_000);
 
   it("READ_ONLY_AUDIT : aucune écriture, aucun nettoyage requis", async () => {
     const res = await executeRun({ mode: "READ_ONLY_AUDIT", initiatedById: initiatorId });

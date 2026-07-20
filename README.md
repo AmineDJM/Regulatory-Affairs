@@ -1141,9 +1141,33 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   préservé, modèle inconnu refusé) + run synthétique de bout en bout (créées = supprimées, 0 résidu vérifié en base).
   Fichiers : `src/lib/test-center/{types,redact,guard,manifest,synthetic,smoke,runner,recovery}.ts` (+ `README.md`
   d'architecture), actions `test-center-actions.ts`, requêtes `queries/test-center.ts`, page `/admin/test-center`,
-  modèles Prisma `TestRun`/`TestArtifact`/`TestFinding`, onglet dans `ADMIN_TABS`. Phases suivantes (2→5) :
-  auto-cartographie & rôles/multi-entités/workflows, fichiers/OCR/IA/injection & sécurité, UX/responsive/a11y/perf,
-  chaos & comparaison de runs / certification pré-release.
+  modèles Prisma `TestRun`/`TestArtifact`/`TestFinding`, onglet dans `ADMIN_TABS`.
+  - **Phases 2→5 (GOD MODE) — l'audit devient certification.** Chaque run (les deux modes sûrs) enchaîne désormais
+    smoke → **audit approfondi** → **infra** → **auto-validation du testeur** → **certification** :
+    - **Invariants métier (§28)** indépendants de l'UI : 8 invariants prouvables (rôle RBAC connu, couplage
+      instance-workflow, couplage validation décision↔date, montant ≥ 0, modules d'enveloppe ⊆ RBAC, marqueur de
+      congés, intégrité référentielle congé→employé et audit→auteur) ; un invariant critique **bloque la certification**.
+    - **Machines à états (§29)** : 6 objets métier déclarés (ordre de dépense, validation, instance workflow, congrès
+      intl/national, événement, congé) — distribution vivante, violations de couplage structurel, et **couverture des
+      transitions** réellement observées via le journal d'audit.
+    - **Cohérence multi-oracles (§30)** : Σ(états)=total, liens `expenseOrderId` module↔finance, couverture d'audit.
+    - **Environnements éphémères (§31)** : schéma PostgreSQL jetable (garde-fou `tc_eph_`, destruction vérifiée) ;
+      **certification migrations & reprise (§35)** : migrations disque↔`_prisma_migrations` + **roundtrip
+      sauvegarde→perte→restauration** prouvé dans un schéma jetable.
+    - **GOD MODE — le testeur se valide lui-même (§27)** : moteur de **property-based testing** maison (générateurs
+      semés + réduction §34), **mutation testing** (corruptions synthétiques → la suite doit toutes les tuer, 0
+      survivant = suffisante), **tests métamorphiques** (dont robustesse de l'extraction JSON d'IA au bruit de
+      formatage), **fuzzing** des validateurs d'upload (totalité + refus des exécutables), **détection d'instabilité**
+      (reproductibilité), **Time Travel (§33)** (acquisition de congés idempotente, « une fois par période », sans
+      toucher l'horloge serveur).
+    - **Certification (§36)** : verdict **CERTIFIÉ / avec réserves / BLOQUÉ / NON CONCLUANT** (jamais un run incomplet
+      présenté comme réussi), **paquet de preuves immuable** scellé par un **sha256** (commit, env, couverture,
+      exclusions, résultats, manifeste, nettoyage, versions des modèles IA, empreinte des constats), et **différentiel
+      (§32)** vs run précédent (améliorations / régressions). Dashboard : badge de certification, auto-validation,
+      couvertures, différentiel, empreinte de preuve.
+    Fichiers : `src/lib/test-center/{invariants/*,state-machines/*,oracles/*,coverage,deep-audit,ephemeral,
+    migration-cert,infra-checks,god/*,certify,evidence,differential}.ts` ; migration `..._test_center_certification`.
+    Tout est **pur ou lecture seule** hors identités synthétiques nettoyées ; aucune règle de sûreté §1 n'est enfreinte.
 - **Diagnostic de plateforme (Administration → Diagnostic, Super Admin) — « le médecin » dopé à l'IA.** Onglet qui
   **sonde le fonctionnement réel** (lecture seule, données réelles, aucune simulation) : base de données + latence,
   IA/STT, stockage, notifications push ; **couverture des rôles critiques** (ex. plus aucun *National Sales* → les

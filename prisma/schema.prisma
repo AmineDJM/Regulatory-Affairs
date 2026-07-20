@@ -5258,6 +5258,14 @@ enum TestSeverity {
   INFO
 }
 
+/// Verdict de certification (§36) — un run incomplet n'est jamais présenté comme réussi.
+enum TestCertification {
+  CERTIFIED
+  CERTIFIED_WITH_RESERVATIONS
+  BLOCKED
+  INCONCLUSIVE
+}
+
 model TestRun {
   id            String            @id @default(cuid())
   mode          TestRunMode       @default(SAFE_SYNTHETIC_TEST)
@@ -5281,6 +5289,12 @@ model TestRun {
   resourcesCreated Int  @default(0)
   resourcesDeleted Int  @default(0)
   summary          Json?
+
+  // Certification (§36) : verdict + paquet de preuves immuable (haché) + différentiel (§32).
+  certification TestCertification?
+  evidenceHash  String? // sha256 du paquet de preuves (immuabilité)
+  evidence      Json? // paquet de preuves (commit, env, couverture, résultats, hashs…)
+  differential  Json? // comparaison avec le run de référence précédent
 
   artifacts TestArtifact[]
   findings  TestFinding[]

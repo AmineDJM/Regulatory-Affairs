@@ -9,7 +9,7 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { getTestCenterDashboard } from "@/lib/queries/test-center";
 import { LaunchPanel, ResumeCleanupButton } from "./test-center-client";
-import type { TestRunStatus, TestCleanupStatus, TestSeverity } from "@prisma/client";
+import type { TestRunStatus, TestCleanupStatus, TestSeverity, TestCertification } from "@prisma/client";
 
 export const metadata = { title: "Test Center — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -30,6 +30,20 @@ const SEV: Record<TestSeverity, { label: string; cls: string; icon: string }> = 
   LOW: { label: "Faible", cls: "text-blue-600", icon: "Info" },
   INFO: { label: "Info", cls: "text-blue-600", icon: "Info" },
 };
+const CERT: Record<TestCertification, { label: string; tone: "neutral" | "success" | "warning" | "danger"; icon: string }> = {
+  CERTIFIED: { label: "CERTIFIÉ", tone: "success", icon: "ShieldCheck" },
+  CERTIFIED_WITH_RESERVATIONS: { label: "CERTIFIÉ AVEC RÉSERVES", tone: "warning", icon: "ShieldAlert" },
+  BLOCKED: { label: "BLOQUÉ", tone: "danger", icon: "ShieldX" },
+  INCONCLUSIVE: { label: "NON CONCLUANT", tone: "neutral", icon: "ShieldQuestion" },
+};
+type Summary = {
+  certificationReasons?: string[];
+  selfValidation?: { ok?: boolean; mutationKillRate?: number; reproducibility?: number; timeTravelOk?: boolean; fuzzSecurityBreaches?: number };
+  invariants?: { total?: number; passed?: number; failed?: number; skipped?: number };
+  transitionCoverage?: number; businessObjectCoverage?: number; backupRestoreOk?: boolean | null;
+};
+type DifferentialJson = { regressions?: number; improvements?: number; baselineCommit?: string | null; diffs?: { metric: string; before: number | null; after: number | null; classification: string; note: string }[] };
+const pct = (v?: number) => (typeof v === "number" ? `${Math.round(v * 100)}%` : "—");
 
 const fmt = (d: Date) => new Date(d).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
@@ -76,22 +90,43 @@ export default async function TestCenterPage() {
             {!last ? (
               <p className="text-sm text-muted-foreground">Aucun run pour l'instant — lancez le premier.</p>
             ) : (
+              (() => {
+                const sum = (last.summary ?? {}) as Summary;
+                const sv = sum.selfValidation ?? {};
+                return (
               <div className="space-y-2 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
+                  {last.certification && (
+                    <Badge tone={CERT[last.certification].tone} dot={false} className="gap-1">
+                      <Icon name={CERT[last.certification].icon} className="h-3.5 w-3.5" /> {CERT[last.certification].label}
+                    </Badge>
+                  )}
                   <Badge tone={STATUS[last.status].tone} dot={false}>{STATUS[last.status].label}</Badge>
                   <span className="text-muted-foreground">{last.mode} · {last.environment} · {fmt(last.startedAt)}</span>
                 </div>
+                {last.certification && sum.certificationReasons && sum.certificationReasons.length > 0 && (
+                  <p className="text-xs text-muted-foreground">{sum.certificationReasons.join(" ")}</p>
+                )}
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
                   <Kv k="Score santé" v={last.score != null ? `${last.score}/100` : "—"} />
                   <Kv k="Constats" v={String(last.findingsCount)} />
                   <Kv k="Critiques" v={String(last.criticalCount)} />
-                  <Kv k="Créées" v={String(last.resourcesCreated)} />
-                  <Kv k="Supprimées" v={String(last.resourcesDeleted)} />
-                  <Kv k="Manifeste" v={String(lastArtifacts)} />
+                  <Kv k="Invariants" v={sum.invariants ? `${sum.invariants.passed ?? 0}/${sum.invariants.total ?? 0}` : "—"} />
+                  <Kv k="Couv. transitions" v={pct(sum.transitionCoverage)} />
+                  <Kv k="Couv. objets" v={pct(sum.businessObjectCoverage)} />
+                  <Kv k="Mutations tuées" v={pct(sv.mutationKillRate)} />
+                  <Kv k="Reproductibilité" v={pct(sv.reproducibility)} />
+                  <Kv k="Auto-validation" v={sv.ok == null ? "—" : sv.ok ? "OK ✓" : "échec ⚠"} />
+                  <Kv k="Créées/Suppr." v={`${last.resourcesCreated}/${last.resourcesDeleted}`} />
+                  <Kv k="Sauv./restaur." v={sum.backupRestoreOk == null ? "—" : sum.backupRestoreOk ? "OK ✓" : "⚠"} />
                   <Kv k="Nettoyage" v={CLEANUP[last.cleanupStatus]} />
-                  <Kv k="Progression" v={`${last.progress}%`} />
                 </div>
+                {last.evidenceHash && (
+                  <p className="text-[11px] text-muted-foreground">Preuve scellée (sha256) : <span className="font-mono">{last.evidenceHash.slice(0, 24)}…</span></p>
+                )}
               </div>
+                );
+              })()
             )}
           </CardContent>
         </Card>
@@ -121,13 +156,39 @@ export default async function TestCenterPage() {
         </Card>
       )}
 
+      {last?.differential != null && (() => {
+        const d = last.differential as DifferentialJson;
+        if (!d.diffs || d.diffs.length === 0) return null;
+        const cls: Record<string, { tone: "neutral" | "success" | "warning" | "danger"; label: string }> = {
+          improvement: { tone: "success", label: "amélioration" }, regression: { tone: "danger", label: "régression" },
+          expected: { tone: "neutral", label: "stable" }, ambiguous: { tone: "warning", label: "ambigu" },
+        };
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Différentiel vs run précédent</CardTitle>
+              <CardDescription>{d.improvements ?? 0} amélioration(s) · {d.regressions ?? 0} régression(s){d.baselineCommit ? ` · base ${d.baselineCommit.slice(0, 7)}` : ""}</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-1.5 sm:grid-cols-2">
+              {d.diffs.filter((x) => x.classification !== "expected").map((x) => (
+                <div key={x.metric} className="flex items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5 text-sm">
+                  <span className="text-muted-foreground">{x.metric}</span>
+                  <span className="flex items-center gap-2"><span className="font-mono text-xs">{x.note}</span><Badge tone={cls[x.classification]?.tone ?? "neutral"} dot={false}>{cls[x.classification]?.label ?? x.classification}</Badge></span>
+                </div>
+              ))}
+              {d.diffs.every((x) => x.classification === "expected") && <p className="text-sm text-muted-foreground">Aucun changement par rapport au run précédent.</p>}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base">Historique ({runs.length})</CardTitle></CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                <th className="py-1.5 pr-3">Run</th><th className="pr-3">Mode</th><th className="pr-3">Statut</th><th className="pr-3">Score</th>
+                <th className="py-1.5 pr-3">Run</th><th className="pr-3">Mode</th><th className="pr-3">Certification</th><th className="pr-3">Statut</th><th className="pr-3">Score</th>
                 <th className="pr-3">Créées/Suppr.</th><th className="pr-3">Nettoyage</th><th className="pr-3">Début</th>
               </tr>
             </thead>
@@ -136,6 +197,7 @@ export default async function TestCenterPage() {
                 <tr key={r.id} className="border-b border-border/50">
                   <td className="py-1.5 pr-3 font-mono text-xs">{r.id.slice(0, 8)}</td>
                   <td className="pr-3">{r.mode}</td>
+                  <td className="pr-3">{r.certification ? <Badge tone={CERT[r.certification].tone} dot={false}>{CERT[r.certification].label}</Badge> : "—"}</td>
                   <td className="pr-3"><Badge tone={STATUS[r.status].tone} dot={false}>{STATUS[r.status].label}</Badge></td>
                   <td className="pr-3 tabular-nums">{r.score ?? "—"}</td>
                   <td className="pr-3 tabular-nums">{r.resourcesCreated}/{r.resourcesDeleted}</td>
@@ -143,7 +205,7 @@ export default async function TestCenterPage() {
                   <td className="pr-3 text-muted-foreground">{fmt(r.startedAt)}</td>
                 </tr>
               ))}
-              {runs.length === 0 && <tr><td colSpan={7} className="py-3 text-center text-muted-foreground">Aucun run.</td></tr>}
+              {runs.length === 0 && <tr><td colSpan={8} className="py-3 text-center text-muted-foreground">Aucun run.</td></tr>}
             </tbody>
           </table>
         </CardContent>

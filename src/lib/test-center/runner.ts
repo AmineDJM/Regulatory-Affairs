@@ -10,6 +10,9 @@ import { smokeFindings } from "./smoke";
 import { deepAudit } from "./deep-audit";
 import { infraChecks } from "./infra-checks";
 import { godModeSelfValidation } from "./god";
+import { computeCertification } from "./certify";
+import { buildEvidence, fingerprintFindings } from "./evidence";
+import { differential, type Metrics } from "./differential";
 import { redact } from "./redact";
 
 /**
@@ -96,29 +99,70 @@ export async function executeRun(opts: { mode: TestRunMode; initiatedById: strin
 
     const status = cleanupStatus === "INCOMPLETE" ? "CLEANUP_INCOMPLETE" : criticalCount > 0 || blockingFailures > 0 ? "FAILED" : "PASSED";
     const findingsCount = allFindings.length + (cleanupStatus === "INCOMPLETE" ? 1 : 0);
+    const bySev = (s: string) => allFindings.filter((f) => f.severity === s).length;
+    const findingCounts = { critical: criticalCount, high: bySev("HIGH"), medium: bySev("MEDIUM"), low: bySev("LOW"), info: bySev("INFO") };
+
+    // 4) Certification (§36) — verdict + différentiel (§32) + paquet de preuves immuable.
+    await prisma.testRun.update({ where: { id: runId }, data: { step: "certification & paquet de preuves", progress: 95 } });
+    const cert = computeCertification({
+      criticalCount, blockingFailures, cleanupStatus,
+      selfValidationOk: god.selfValidationOk, invariantsSkipped: deep.invariants.skipped,
+      migrationsChecked: infra.migration.migrationsChecked, findingCounts,
+    });
+
+    const candidateMetrics: Metrics = {
+      score: smoke.score ?? null, criticalCount, findingsCount,
+      blockingFailures, transitionCoverage: deep.coverage.transition,
+      businessObjectCoverage: deep.coverage.business.coverage, mutationKillRate: god.mutation.killRate,
+    };
+    const prev = await prisma.testRun.findFirst({
+      where: { id: { not: runId }, finishedAt: { not: null } },
+      orderBy: { finishedAt: "desc" },
+      select: { id: true, gitCommit: true, score: true, criticalCount: true, findingsCount: true, summary: true },
+    });
+    const diff = differential(candidateMetrics, prev ? metricsFromRun(prev) : null, {
+      baselineRunId: prev?.id ?? null, baselineCommit: prev?.gitCommit ?? null, candidateCommit: git.commit,
+    });
+
+    const summary = {
+      mode: opts.mode, smokeCoverage: smoke.coverage, blockingFailures,
+      invariants: { total: deep.invariants.total, passed: deep.invariants.passed, failed: deep.invariants.failed, skipped: deep.invariants.skipped },
+      transitionCoverage: deep.coverage.transition, businessObjectCoverage: deep.coverage.business.coverage,
+      rbacGrantDensity: deep.coverage.rbac.grantDensity,
+      oracleDisagreements: infra.oracles.disagreements,
+      migrations: { onDisk: infra.migration.onDisk, applied: infra.migration.applied, missing: infra.migration.missing.length },
+      backupRestoreOk: infra.migration.backupRestore?.ok ?? null,
+      selfValidation: {
+        ok: god.selfValidationOk, mutationKillRate: god.mutation.killRate, mutationsSurvived: god.mutation.survived,
+        propertiesFailed: god.properties.failed, metamorphicFailed: god.metamorphic.failed,
+        fuzzCrashes: god.fuzz.crashes, fuzzSecurityBreaches: god.fuzz.securityBreaches,
+        flaky: god.flaky.flakyCount, reproducibility: god.flaky.reproducibility, timeTravelOk: god.timeTravel.ok,
+      },
+      certification: cert.status, certificationReasons: cert.reasons,
+    };
+
+    const evidence = buildEvidence({
+      runId, mode: opts.mode, environment: guard.environment, commit: git.commit, branch: git.branch,
+      config: redact(config), coverage: { transition: deep.coverage.transition, business: deep.coverage.business.coverage, rbacGrantDensity: deep.coverage.rbac.grantDensity, invariants: deep.invariants },
+      results: { findingCounts, status, blockingFailures, selfValidation: summary.selfValidation, oracles: { disagreements: infra.oracles.disagreements } },
+      manifest: { created, deleted, cleanupStatus, artifacts: created },
+      certification: cert.status, certificationReasons: cert.reasons,
+      exclusions: buildExclusions(opts.mode, guard.environment),
+      findingsFingerprint: fingerprintFindings(allFindings.map((f) => ({ severity: f.severity, title: f.title, category: f.category }))),
+    });
+
     await prisma.testRun.update({
       where: { id: runId },
       data: {
         status, cleanupStatus, finishedAt: new Date(), progress: 100, step: "terminé",
         score: smoke.score, criticalCount, findingsCount, resourcesCreated: created, resourcesDeleted: deleted,
-        summary: redact({
-          mode: opts.mode, smokeCoverage: smoke.coverage, blockingFailures,
-          invariants: { total: deep.invariants.total, passed: deep.invariants.passed, failed: deep.invariants.failed, skipped: deep.invariants.skipped },
-          transitionCoverage: deep.coverage.transition, businessObjectCoverage: deep.coverage.business.coverage,
-          rbacGrantDensity: deep.coverage.rbac.grantDensity,
-          oracleDisagreements: infra.oracles.disagreements,
-          migrations: { onDisk: infra.migration.onDisk, applied: infra.migration.applied, missing: infra.migration.missing.length },
-          backupRestoreOk: infra.migration.backupRestore?.ok ?? null,
-          selfValidation: {
-            ok: god.selfValidationOk, mutationKillRate: god.mutation.killRate, mutationsSurvived: god.mutation.survived,
-            propertiesFailed: god.properties.failed, metamorphicFailed: god.metamorphic.failed,
-            fuzzCrashes: god.fuzz.crashes, fuzzSecurityBreaches: god.fuzz.securityBreaches,
-            flaky: god.flaky.flakyCount, reproducibility: god.flaky.reproducibility, timeTravelOk: god.timeTravel.ok,
-          },
-        }) as object,
+        certification: cert.status, evidenceHash: evidence.hash,
+        summary: redact(summary) as object,
+        evidence: redact(evidence) as object,
+        differential: diff as unknown as object,
       },
     });
-    await recordAudit({ actorId: opts.initiatedById, action: "UPDATE", module: "Administration", summary: `Test Center — run ${runId.slice(0, 8)} (${opts.mode}) : ${status} · ${created} créées / ${deleted} supprimées` });
+    await recordAudit({ actorId: opts.initiatedById, action: "UPDATE", module: "Administration", summary: `Test Center — run ${runId.slice(0, 8)} (${opts.mode}) : ${cert.status} · ${status} · ${created} créées / ${deleted} supprimées` });
     return { ok: true, runId };
   } catch (e) {
     // Sûreté : on TENTE le nettoyage même en cas d'échec inattendu.
@@ -128,10 +172,38 @@ export async function executeRun(opts: { mode: TestRunMode; initiatedById: strin
     }
     await prisma.testRun.update({
       where: { id: runId },
-      data: { status: cleanupStatus === "INCOMPLETE" ? "CLEANUP_INCOMPLETE" : "FAILED", cleanupStatus, finishedAt: new Date(), step: "erreur", summary: redact({ error: (e as Error).message }) as object },
+      data: { status: cleanupStatus === "INCOMPLETE" ? "CLEANUP_INCOMPLETE" : "FAILED", cleanupStatus, finishedAt: new Date(), step: "erreur", certification: cleanupStatus === "INCOMPLETE" ? "BLOCKED" : "INCONCLUSIVE", summary: redact({ error: (e as Error).message }) as object },
     }).catch(() => undefined);
     return { ok: false, runId, error: (e as Error).message };
   }
+}
+
+/** Métriques comparables d'un run passé (pour le différentiel §32). */
+function metricsFromRun(r: { score: number | null; criticalCount: number; findingsCount: number; summary: unknown }): Metrics {
+  const s = (r.summary ?? {}) as Record<string, unknown>;
+  const sv = (s.selfValidation ?? {}) as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === "number" ? v : null);
+  return {
+    score: r.score ?? null,
+    criticalCount: r.criticalCount,
+    findingsCount: r.findingsCount,
+    blockingFailures: typeof s.blockingFailures === "number" ? s.blockingFailures : 0,
+    transitionCoverage: num(s.transitionCoverage),
+    businessObjectCoverage: num(s.businessObjectCoverage),
+    mutationKillRate: num(sv.mutationKillRate),
+  };
+}
+
+/** Ce que le run N'A PAS testé (exclusions §36) — jamais présenté comme couvert. */
+function buildExclusions(mode: TestRunMode, environment: string): string[] {
+  const ex = [
+    "Parcours navigateur réels (UX / responsive / accessibilité) — mesurés hors app via autotest:live.",
+    "Envois d'e-mails / SMS / notifications réels — jamais déclenchés.",
+    "Paiements et écritures irréversibles réels — jamais déclenchés.",
+  ];
+  if (!WRITE_MODES.includes(mode)) ex.push("Création de données synthétiques — mode lecture seule.");
+  if (environment === "production") ex.push("Opérations destructives en production — lecture seule par défaut.");
+  return ex;
 }
 
 async function persistFindings(runId: string, findings: FindingInput[]) {
