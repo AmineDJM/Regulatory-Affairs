@@ -216,11 +216,28 @@ export async function getBudgetOverview(
   fromArg?: Date | null,
   toArg?: Date | null,
 ): Promise<BudgetOverview | null> {
-  const envelope = envelopeId
-    ? await prisma.budgetEnvelope.findUnique({ where: { id: envelopeId }, include: { categories: { orderBy: { name: "asc" } } } })
-    : await prisma.budgetEnvelope.findFirst({ where: { isActive: true }, orderBy: { periodStart: "desc" }, include: { categories: { orderBy: { name: "asc" } } } });
+  // Sélection de l'enveloppe à afficher :
+  //  • enveloppe explicitement demandée (sélecteur) → on la charge telle quelle ;
+  //  • vue PAR DÉFAUT (aucun `env`) → la plus récente enveloppe VISIBLE PAR LE SPECTATEUR,
+  //    et NON l'enveloppe globale la plus récente. Sinon un compte à qui l'on n'a ouvert
+  //    qu'une enveloppe « secondaire » (ex. Ad & Pro) tomberait sur l'enveloppe par défaut
+  //    (une autre, plus récente, qui lui est fermée) → `null` → écran « aucune enveloppe »,
+  //    alors même que l'enveloppe qui lui est ouverte figure bien dans le sélecteur. On
+  //    reprend l'ordre de `getEnvelopes` (actives d'abord, puis récence) pour que l'enveloppe
+  //    ouverte par défaut soit exactement la 1re du sélecteur.
+  let envelope;
+  if (envelopeId) {
+    envelope = await prisma.budgetEnvelope.findUnique({ where: { id: envelopeId }, include: { categories: { orderBy: { name: "asc" } } } });
+  } else {
+    const candidates = await prisma.budgetEnvelope.findMany({
+      orderBy: [{ isActive: "desc" }, { periodStart: "desc" }],
+      include: { categories: { orderBy: { name: "asc" } } },
+    });
+    envelope = candidates.find((e) => envelopeVisible(viewer, e)) ?? null;
+  }
   if (!envelope) return null;
-  // Accès : un non-gestionnaire ne peut ouvrir qu'une enveloppe qui lui est ouverte.
+  // Accès : un non-gestionnaire ne peut ouvrir qu'une enveloppe qui lui est ouverte
+  // (garde-fou pour le cas d'une enveloppe explicitement demandée via `env`).
   if (!envelopeVisible(viewer, envelope)) return null;
 
   const from = fromArg ?? envelope.periodStart;
