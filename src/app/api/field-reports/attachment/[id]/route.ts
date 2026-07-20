@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 /** Sert une pièce jointe de rapport — auteur du rapport ou manager. */
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser();
-  if (!user || !userCan(user, "MEDICAL", "VIEW")) return new NextResponse(null, { status: 403 });
+  // Garde sur le module RAPPORTS TERRAIN (et non « Promotion médicale ») depuis leur séparation.
+  if (!user || !userCan(user, "FIELD_REPORTS", "VIEW")) return new NextResponse(null, { status: 403 });
 
   const att = await prisma.fieldReportAttachment.findUnique({
     where: { id: params.id },

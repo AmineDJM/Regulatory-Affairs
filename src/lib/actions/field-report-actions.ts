@@ -24,7 +24,12 @@ async function canEdit(user: CurrentUser, reportId: string): Promise<boolean> {
 
 export async function createFieldReport(): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "FIELD_REPORTS", "CREATE")) return { ok: false, error: "Non autorisé." };
+  // Rédiger SON PROPRE rapport (brouillon dicté) est ouvert à tout profil ayant accès au
+  // module Rapports terrain — le bouton « Parler » est d'ailleurs proposé à tous ceux qui
+  // ouvrent la page, et le brouillon appartient à son auteur (delegateId = user.id).
+  // Sans quoi la Direction (des opérations) — qui a la VUE globale mais pas l'action CREATE
+  // par défaut — se voyait refuser (« Non autorisé ») en cliquant sur « Parler ».
+  if (!userCan(user, "FIELD_REPORTS", "VIEW")) return { ok: false, error: "Non autorisé." };
   const created = await prisma.fieldReport.create({ data: { delegateId: user.id, status: "DRAFT" }, select: { id: true } });
   revalidatePath("/field-reports");
   return { ok: true, id: created.id };

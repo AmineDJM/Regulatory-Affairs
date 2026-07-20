@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
 /** Pièce jointe d'un rapport terrain : photo, carte de visite, programme, PDF… */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser();
-  if (!user || !userCan(user, "MEDICAL", "VIEW")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+  // Garde sur le module RAPPORTS TERRAIN (et non « Promotion médicale ») depuis leur séparation.
+  if (!user || !userCan(user, "FIELD_REPORTS", "VIEW")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
 
   const report = await prisma.fieldReport.findUnique({ where: { id: params.id }, select: { delegateId: true } });
   if (!report) return NextResponse.json({ error: "Rapport introuvable." }, { status: 404 });
