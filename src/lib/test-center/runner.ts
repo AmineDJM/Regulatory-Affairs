@@ -9,6 +9,7 @@ import { cleanupRun, verifyClean } from "./manifest";
 import { smokeFindings } from "./smoke";
 import { deepAudit } from "./deep-audit";
 import { infraChecks } from "./infra-checks";
+import { godModeSelfValidation } from "./god";
 import { redact } from "./redact";
 
 /**
@@ -69,9 +70,15 @@ export async function executeRun(opts: { mode: TestRunMode; initiatedById: strin
     const infra = await infraChecks(runId, writes);
     await persistFindings(runId, infra.findings);
 
-    const allFindings = [...smoke.findings, ...deep.findings, ...infra.findings];
+    // 2d) GOD MODE — auto-validation du testeur (§27/§33/§34) : PBT, mutation, métamorphique,
+    //     fuzzing, instabilité, minimisation, time-travel. Pur (aucune écriture).
+    await prisma.testRun.update({ where: { id: runId }, data: { step: "auto-validation du testeur (mutation, propriétés, fuzz, time-travel)", progress: 88 } });
+    const god = godModeSelfValidation();
+    await persistFindings(runId, god.findings);
+
+    const allFindings = [...smoke.findings, ...deep.findings, ...infra.findings, ...god.findings];
     const criticalCount = allFindings.filter((f) => f.severity === "CRITICAL").length;
-    const blockingFailures = deep.blockingFailures + infra.blockingFailures;
+    const blockingFailures = deep.blockingFailures + infra.blockingFailures + god.blockingFailures;
 
     // 3) Nettoyage garanti + vérification.
     let cleanupStatus: "DONE" | "INCOMPLETE" | "NOT_REQUIRED" = "NOT_REQUIRED";
@@ -102,6 +109,12 @@ export async function executeRun(opts: { mode: TestRunMode; initiatedById: strin
           oracleDisagreements: infra.oracles.disagreements,
           migrations: { onDisk: infra.migration.onDisk, applied: infra.migration.applied, missing: infra.migration.missing.length },
           backupRestoreOk: infra.migration.backupRestore?.ok ?? null,
+          selfValidation: {
+            ok: god.selfValidationOk, mutationKillRate: god.mutation.killRate, mutationsSurvived: god.mutation.survived,
+            propertiesFailed: god.properties.failed, metamorphicFailed: god.metamorphic.failed,
+            fuzzCrashes: god.fuzz.crashes, fuzzSecurityBreaches: god.fuzz.securityBreaches,
+            flaky: god.flaky.flakyCount, reproducibility: god.flaky.reproducibility, timeTravelOk: god.timeTravel.ok,
+          },
         }) as object,
       },
     });
