@@ -38,8 +38,12 @@ services:
         value: "true"
       - key: NODE_VERSION
         value: "20"
+      # Limites d'upload par DÉFAUT (repli si la ligne de réglages est absente). Généreuses :
+      # un ZIP de dossier entier passe. Réglables ensuite en Administration (base fait foi).
       - key: MAX_UPLOAD_MB
-        value: "25"
+        value: "200"
+      - key: MAX_DRIVE_UPLOAD_MB
+        value: "1024"
       # Your first login — set these in the Render dashboard when prompted.
       - key: ADMIN_EMAIL
         sync: false

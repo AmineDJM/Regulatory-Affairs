@@ -204,6 +204,7 @@ function BgUploadWidget({ jobs, onDismiss, onRetry }: { jobs: BgJob[]; onDismiss
           {jobs.map((j) => {
             const done = j.files.filter((f) => f.status === "done").length;
             const failed = j.files.filter((f) => f.status === "error").length;
+            const firstErr = j.files.find((f) => f.status === "error")?.error;
             const pct = Math.round((j.files.reduce((a, f) => a + (f.status === "done" ? 100 : f.progress), 0) / (j.files.length * 100)) * 100);
             return (
               <li key={j.id} className="px-3 py-2.5 text-sm">
@@ -226,9 +227,12 @@ function BgUploadWidget({ jobs, onDismiss, onRetry }: { jobs: BgJob[]; onDismiss
                 )}
                 {j.phase === "done" && <p className="mt-1 text-xs text-success">{done} fichier·s téléversé·s{failed > 0 ? `, ${failed} en échec` : ""}.</p>}
                 {j.phase === "error" && (
-                  <div className="mt-1 flex items-center justify-between gap-2">
-                    <p className="text-xs text-destructive">{done} réussi·s, {failed} en échec.</p>
-                    <button type="button" onClick={() => onRetry(j.id)} className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted">Réessayer</button>
+                  <div className="mt-1 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-destructive">{done} réussi·s, {failed} en échec.</p>
+                      <button type="button" onClick={() => onRetry(j.id)} className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted">Réessayer</button>
+                    </div>
+                    {firstErr && <p className="rounded bg-destructive/10 px-2 py-1 text-[11px] leading-snug text-destructive" title={firstErr}>{firstErr}</p>}
                   </div>
                 )}
               </li>
