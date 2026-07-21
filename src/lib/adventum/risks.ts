@@ -541,10 +541,56 @@ async function adminRequestRisks(): Promise<Risk[]> {
   return out;
 }
 
+// FRICTION DE PROCESS (anti-bureaucratie) : détecte les étapes de validation Ad&Pro qui
+// APPROUVENT À 100 % — elles ne filtrent rien et ne font que ralentir. Candidates à un seuil
+// d'auto-skip (petits montants) ou à la suppression dans le builder no-code. + circuits en
+// souffrance (bloqués longtemps à une étape). Source : WorkflowStepEvent / WorkflowInstance réels.
+async function processFrictionRisks(): Promise<Risk[]> {
+  const MIN_EVENTS = 8; // ne juger qu'une étape avec un historique suffisant
+  const [approves, negatives, stuck] = await Promise.all([
+    prisma.workflowStepEvent.groupBy({ by: ["stepSlug", "stepTitle"], where: { action: "APPROVE" }, _count: { _all: true } }),
+    prisma.workflowStepEvent.groupBy({ by: ["stepSlug"], where: { action: { in: ["REJECT", "OPINION_AGAINST"] } }, _count: { _all: true } }),
+    prisma.workflowInstance.count({ where: { status: "IN_PROGRESS", updatedAt: { lt: new Date(Date.now() - 12 * DAY) } } }),
+  ]);
+  const negBySlug = new Map(negatives.map((n) => [n.stepSlug, n._count._all]));
+  const out: Risk[] = [];
+  for (const a of approves) {
+    const approveCount = a._count._all;
+    const negCount = negBySlug.get(a.stepSlug) ?? 0;
+    if (approveCount < MIN_EVENTS || negCount > 0) continue; // filtre au moins une fois → utile
+    out.push({
+      id: `friction-step-${a.stepSlug}`, level: "low", category: "VALIDATION", module: "Adventum Brain — Process",
+      title: "Étape de validation qui ne filtre rien", object: a.stepTitle,
+      impact: "Bureaucratie : une étape approuvée à 100 % ralentit le circuit sans jamais rien bloquer.",
+      owner: "Super Admin / Direction", deadline: null, ageDays: null,
+      probableCause: `L'étape « ${a.stepTitle} » a été approuvée ${approveCount} fois, jamais refusée ni contestée.`,
+      recommendation: "Poser un seuil de montant qui l'auto-saute pour les petits enjeux, ou la retirer du circuit (builder no-code). Un saut manuel tracé reste possible à tout moment.",
+      evidence: [`Approuvée ${approveCount} fois`, "0 refus / avis défavorable", "Aucun filtrage observé sur l'historique"],
+      href: "/admin/workflows", at: new Date().toISOString(),
+      actions: [{ label: "Ouvrir le builder de circuits", icon: "ExternalLink", href: "/admin/workflows" }],
+    });
+  }
+  // Signal global : nombre de circuits Ad&Pro en souffrance (bloqués > 12 j à une étape).
+  if (stuck >= 3) {
+    out.push({
+      id: "friction-stuck-instances", level: stuck >= 8 ? "high" : "medium", category: "VALIDATION", module: "Adventum Brain — Process",
+      title: "Files de validation en souffrance", object: `${stuck} demande·s bloquée·s`,
+      impact: "Plusieurs demandes Ad&Pro stagnent à une étape : effet goulot / lassitude, contournement de l'outil.",
+      owner: "Direction", deadline: null, ageDays: null,
+      probableCause: "Approbateurs surchargés ou étapes trop nombreuses.",
+      recommendation: "Alléger le circuit (auto-skip par seuil, suppression d'étapes), ou relancer les approbateurs goulots.",
+      evidence: [`${stuck} circuits Ad&Pro sans évolution depuis plus de 12 j`],
+      href: "/admin/workflows", at: new Date().toISOString(),
+      actions: [{ label: "Ouvrir le builder de circuits", icon: "ExternalLink", href: "/admin/workflows" }],
+    });
+  }
+  return out;
+}
+
 const DETECTORS: ((th: RiskThresholds) => Promise<Risk[]>)[] = [
   pchCautionRisks, congressLikeRisks, sponsoringRisks, medicalKolRisks, expenseOrderRisks,
   budgetRisks, medicalInfoRisks, directiveRisks, silentSupplierRisks, qualitySignalRisks,
-  pchStockRisks, deliveryDelayRisks, lowAttendanceEventRisks, adminRequestRisks,
+  pchStockRisks, deliveryDelayRisks, lowAttendanceEventRisks, adminRequestRisks, processFrictionRisks,
 ];
 
 /** Calcule tous les risques (détecteurs en parallèle, tolérants aux pannes), triés par gravité.
