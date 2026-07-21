@@ -507,14 +507,29 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
 - **Modèles** : `WorkflowDefinition` (1 par catégorie) → `WorkflowStep[]` (position, slug, titre, `actorRoles[]`,
   `actorScope` ROLE|ASSIGNEE|GLOBAL_VIEW|REQUESTER, `powers[]` APPROVE|REJECT|ASSIGN|SET_AMOUNT|SET_CATEGORY|COMMENT,
   `assignRole`, `requireAmount/Category/Note`, `emitDeclaration/ExpenseOrder`, `notifyRoles[]`, `optional`,
-  `confidential`, `legacyStatus`) → `WorkflowInstance` (unique par entityType+entityId, `currentSlug`, statut
+  `confidential`, `autoSkipMaxAmount` (seuil DZD anti-bureaucratie), `autoApproveIfRequester`, `legacyStatus`) →
+  `WorkflowInstance` (unique par entityType+entityId, `currentSlug`, statut
   IN_PROGRESS|APPROVED|REJECTED, `amount`, `budgetCategoryId`, `assigneeId`) → `WorkflowStepEvent`
-  (APPROVE|REJECT|OPINION_AGAINST|COMMENT).
+  (APPROVE|REJECT|OPINION_AGAINST|COMMENT|SKIP|AUTO_SKIP|AUTO_APPROVE_REQUESTER).
 - **Règles clés** : un REJECT **non terminal** = `OPINION_AGAINST` (avis défavorable) et **le flux continue**
   (l'assignation reste requise) ; seul le refus de la **dernière étape** (Direction) est éliminatoire. Le moteur
   **projette les statuts legacy** sur les entités (les listes/badges existants continuent de fonctionner). Les
   étapes `confidential` (analyse chef de produit) sont **caviardées** pour le demandeur. Méta du workflow +
   **historique complet** visibles **uniquement du Super Admin**.
+- **Anti-bureaucratie — 3 mécanismes par étape (`src/lib/workflow/engine.ts`, tous tracés)** :
+  1. **Saut manuel** (`SKIP`) — un acteur habilité peut **sauter une étape intermédiaire** avec **raison obligatoire**
+     (tracée + notifiée à l'étape suivante). Jamais sur une désignation ni la décision finale.
+  2. **Seuil de montant** (`autoSkipMaxAmount`, → `AUTO_SKIP`) — si le montant de travail (montant fixé à une étape
+     « Fixer un montant », à défaut l'**estimation du demandeur**) est **≤ le seuil**, l'étape est **franchie
+     automatiquement**. Les petites demandes ne remontent pas toute la chaîne.
+  3. **Auto-accord si autorité** (`autoApproveIfRequester`, → `AUTO_APPROVE_REQUESTER`) — si le **demandeur détient
+     déjà le rôle/la portée** d'une étape, elle est **approuvée automatiquement en son nom** (on ne fait pas valider
+     à quelqu'un sa propre demande — généralisation de l'« originator skip » du Centre de validation).
+  Gardes communes : `AUTO_SKIP` / `AUTO_APPROVE_REQUESTER` ne franchissent **jamais** une désignation (ASSIGN), une
+  émission financière (déclaration info médicale / ordre de dépense) ni la **décision finale** — un humain tranche
+  toujours l'accord définitif. Ces mécanismes se **cascadent** (settleAutoSkips) et sont **opt-in** dans le builder
+  no-code (défaut inactif ⇒ aucun changement de comportement). Le détecteur de friction d'Adventum Brain repère les
+  étapes qui **ne filtrent rien** (100 % d'`APPROVE`) et les files bloquées.
 - **Routage intelligent à la création (saut d'étapes selon le rang du créateur)** : personne n'approuve une demande
   qu'il émet lui-même. `src/lib/workflow/origin.ts` (`adProOriginRank`, `adProInit`) choisit le **statut de départ** :
   un **délégué** part du préliminaire (National Sales) ; le **National Sales**, en désignant le chef de produit à la
