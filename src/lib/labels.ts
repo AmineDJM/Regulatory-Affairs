@@ -1067,10 +1067,10 @@ export const EVENTS_TABS: NavTab[] = [
   { module: "EVENTS", label: "Événements", href: "/events" },
   { module: "PROMO_MATERIAL", label: "Matériel promotionnel", href: "/promo-material" },
 ];
-// Drive (fichiers) + Documents (pièces liées aux dossiers) sous un seul module.
+// Drive personnel = « Accueil ». L'onglet « Documents » a été retiré (tout est consolidé dans
+// l'Accueil + les catégories partagées ; on y glisse des dossiers à la souris).
 export const DOCS_TABS: NavTab[] = [
-  { module: "DRIVE", label: "Drive", href: "/drive" },
-  { module: "DOCUMENTS", label: "Documents", href: "/documents" },
+  { module: "DRIVE", label: "Accueil", href: "/drive" },
 ];
 // Promotion médicale (annuaire, segmentation) et Rapports terrain sont désormais DEUX modules
 // distincts (accès configurables séparément dans Administration). Les onglets partagés sont retirés.
@@ -1165,7 +1165,7 @@ export const NAVIGATION: NavItem[] = [
   // attente restent aussi visibles dans « Mon espace » (Action Center).
   { module: "VALIDATIONS", label: "Demandes de validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
   { module: "MESSAGING", label: "Réunions & appels", href: "/meetings", icon: "Video", group: "Transverse" },
-  { module: "DRIVE", label: "Drive", href: "/drive", icon: "FolderOpen", group: "Transverse", tabs: DOCS_TABS },
+  { module: "DRIVE", label: "Accueil", href: "/drive", icon: "House", group: "Transverse", tabs: DOCS_TABS },
   { module: "ADMIN_REQUESTS", label: "Bureau du secrétariat", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   // Système

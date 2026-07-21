@@ -12,38 +12,38 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    /* Brand — bleu nuit (navy) */
-    --primary: 222 47% 24%;
-    --primary-foreground: 210 40% 98%;
+    /* Brand — azur vif & joyeux (science UX Apple / Salesforce Lightning), accessible sur blanc */
+    --primary: 208 94% 43%;
+    --primary-foreground: 0 0% 100%;
 
-    /* Neutrals */
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 18%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 214 95% 93%;
-    --accent-foreground: 222 47% 24%;
+    /* Neutrals — légère nuance bleutée pour un rendu plus vivant */
+    --secondary: 210 45% 96%;
+    --secondary-foreground: 216 40% 22%;
+    --muted: 210 45% 96%;
+    --muted-foreground: 214 16% 46%;
+    --accent: 205 100% 94%;
+    --accent-foreground: 208 94% 38%;
 
-    /* Status — green validation / orange warning / red blocage */
-    --success: 142 71% 36%;
+    /* Status — palette vive et lisible (vert succès / orange alerte / rouge blocage) */
+    --success: 150 64% 40%;
     --success-foreground: 0 0% 100%;
-    --warning: 32 95% 44%;
+    --warning: 33 96% 48%;
     --warning-foreground: 0 0% 100%;
-    --destructive: 0 72% 48%;
+    --destructive: 358 75% 55%;
     --destructive-foreground: 0 0% 100%;
 
     /* Lines & inputs */
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 222 47% 40%;
+    --border: 214 32% 90%;
+    --input: 214 32% 90%;
+    --ring: 208 94% 48%;
 
-    /* Sidebar — deep navy */
-    --sidebar: 222 47% 13%;
-    --sidebar-foreground: 210 40% 96%;
-    --sidebar-muted: 217 33% 65%;
-    --sidebar-accent: 213 94% 68%;
+    /* Sidebar — bleu profond vibrant + accent sky lumineux */
+    --sidebar: 217 54% 15%;
+    --sidebar-foreground: 210 40% 97%;
+    --sidebar-muted: 214 28% 70%;
+    --sidebar-accent: 202 100% 63%;
 
-    --radius: 0.6rem;
+    --radius: 0.65rem;
     --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
       Helvetica, Arial, sans-serif;
   }
@@ -122,9 +122,10 @@
 }
 
 @layer components {
-  /* Subtle elevation used across cards and panels */
+  /* Élévation douce et légèrement teintée (rendu « carte » Apple / Salesforce) */
   .surface {
-    @apply rounded-xl border border-border bg-card shadow-sm;
+    @apply rounded-xl border border-border bg-card;
+    box-shadow: 0 1px 2px hsl(216 45% 22% / 0.04), 0 6px 16px hsl(216 45% 22% / 0.06);
   }
   .focus-ring {
     @apply outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-ring;

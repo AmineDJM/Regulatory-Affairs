@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Trash2, ChevronRight, HardDrive } from "lucide-react";
+import { Trash2, ChevronRight, House } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, canCreateDriveSpace } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getDriveListing, getDriveTabs } from "@/lib/queries/drive";
-import { fileKind } from "@/lib/drive";
+import { getDriveListing, getDriveTabs, getDriveSpacesForUser } from "@/lib/queries/drive";
+import { fileKind, canCreateInSpace } from "@/lib/drive";
 import { getAppSettings } from "@/lib/settings";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
@@ -40,8 +40,14 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
   // Droit de créer/importer DANS le dossier courant (à la racine : on crée chez soi).
   const canEditHere = listing.level === "EDIT";
   const canCreate = userCan(user, "DRIVE", "CREATE") && canEditHere;
-  const [settings, tabs] = await Promise.all([getAppSettings(), getDriveTabs(user)]);
+  const [settings, tabs, spaces] = await Promise.all([getAppSettings(), getDriveTabs(user), getDriveSpacesForUser(user)]);
   const canCreateSpace = canCreateDriveSpace(user, settings.driveSpaceCreatorRoles);
+  // Catégories où l'on peut DÉPOSER (glisser-déposer) : celles que l'utilisateur gère.
+  const dropCategories = trash
+    ? []
+    : (await Promise.all(spaces.map(async (s) => ({ id: s.id, name: s.name, ok: await canCreateInSpace(user, s.id) }))))
+        .filter((s) => s.ok)
+        .map((s) => ({ id: s.id, name: s.name }));
   // Personnes avec qui partager à l'import / ouvrir une catégorie (hors soi-même).
   const users = (canCreate || canCreateSpace)
     ? await prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
@@ -82,7 +88,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Drive" description="Vos fichiers et dossiers — stockage interne chiffré (AES-256).">
+      <PageHeader title="Accueil" description="Vos fichiers et dossiers — stockage interne chiffré (AES-256). Glissez-déposez pour ranger.">
         {!trash && canCreate && (
           <>
             <NewFolderButton parentId={folderId} />
@@ -101,7 +107,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
       {!trash && (
         <div className="flex flex-wrap items-center gap-1 text-sm">
           <Link href="/drive" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-            <HardDrive className="h-4 w-4" /> Drive
+            <House className="h-4 w-4" /> Accueil
           </Link>
           {listing.breadcrumb.map((c) => (
             <span key={c.id} className="inline-flex items-center gap-1">
@@ -116,7 +122,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
       {listing.nodes.length === 0 ? (
         <EmptyState icon="FolderOpen" title={trash ? "Corbeille vide" : "Dossier vide"} description={trash ? "Aucun élément supprimé." : "Importez des fichiers ou créez un dossier."} />
       ) : (
-        <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canCreate ? users : undefined} />
+        <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canCreate ? users : undefined} spaceId={null} categories={dropCategories} />
       )}
     </div>
   );

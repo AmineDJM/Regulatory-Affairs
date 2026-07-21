@@ -53,9 +53,10 @@ export async function getDriveSpacesForUser(user: SessionUser): Promise<DriveSpa
  */
 export async function getDriveTabs(user: SessionUser): Promise<{ label: string; href: string; show: boolean }[]> {
   const spaces = await getDriveSpacesForUser(user);
+  // « Accueil » = le Drive personnel (ex-« Drive »). L'onglet « Documents » a été retiré : tout
+  // passe par l'Accueil et les catégories. Depuis l'Accueil, on glisse des dossiers vers une catégorie.
   return [
-    { label: "Drive", href: "/drive", show: userCan(user, "DRIVE", "VIEW") },
-    { label: "Documents", href: "/documents", show: userCan(user, "DOCUMENTS", "VIEW") },
+    { label: "Accueil", href: "/drive", show: userCan(user, "DRIVE", "VIEW") },
     ...spaces.map((s) => ({ label: s.name, href: `/drive/espace/${s.id}`, show: true })),
   ];
 }

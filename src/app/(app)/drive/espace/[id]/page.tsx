@@ -3,8 +3,8 @@ import { notFound } from "next/navigation";
 import { Trash2, ChevronRight, FolderOpen } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getDriveListing, getDriveTabs } from "@/lib/queries/drive";
-import { fileKind } from "@/lib/drive";
+import { getDriveListing, getDriveTabs, getDriveSpacesForUser } from "@/lib/queries/drive";
+import { fileKind, canCreateInSpace } from "@/lib/drive";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
@@ -66,6 +66,12 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
         })),
       ];
 
+  // Autres catégories où DÉPOSER (glisser-déposer) — celles que l'utilisateur gère, hors la courante.
+  const otherSpaces = trash ? [] : await getDriveSpacesForUser(user);
+  const dropCategories = (await Promise.all(
+    otherSpaces.filter((s) => s.id !== spaceId).map(async (s) => ({ id: s.id, name: s.name, ok: await canCreateInSpace(user, s.id) })),
+  )).filter((s) => s.ok).map((s) => ({ id: s.id, name: s.name }));
+
   const rows: DriveRow[] = listing.nodes.map((n) => {
     const isFile = n.type === "FILE";
     return {
@@ -126,7 +132,7 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
           description={trash ? "Aucun élément supprimé." : canEditHere ? "Importez des fichiers ou créez un dossier dans cette catégorie." : "Aucun fichier n'a encore été déposé ici."}
         />
       ) : (
-        <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canEditHere ? users : undefined} spaceId={spaceId} />
+        <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canEditHere ? users : undefined} spaceId={spaceId} categories={dropCategories} />
       )}
     </div>
   );
