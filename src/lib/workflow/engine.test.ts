@@ -170,3 +170,58 @@ suite("Moteur — avis défavorable non éliminatoire + refus final d'événemen
     expect(inst.status).toBe("REJECTED");
   });
 });
+
+const TAG3 = "__wfskip__";
+
+suite("Moteur — sauter une étape (tracé & noté, anti-bureaucratie)", () => {
+  let nsId = "", pmId = "", dirId = "", delegId = "", otherId = "", congressId = "";
+
+  beforeAll(async () => {
+    const mk = (s: string, role: UserRole) => prisma.user.create({ data: { name: `${TAG3}${s}`, email: `${TAG3}${s}@t.dz`, role, passwordHash: "x" } });
+    const [ns, pm, dir, dg, ot] = await Promise.all([
+      mk("ns", "NATIONAL_SALES"), mk("pm", "PRODUCT_MANAGER"), mk("dir", "DIRECTION"), mk("deleg", "MEDICAL_DELEGATE"), mk("other", "SALES_USER"),
+    ]);
+    nsId = ns.id; pmId = pm.id; dirId = dir.id; delegId = dg.id; otherId = ot.id;
+    const c = await prisma.congressInternational.create({ data: { name: `${TAG3}Congrès`, requestStatus: "AWAITING_PRELIMINARY", requesterId: delegId, estimatedBudget: 20000 } });
+    congressId = c.id;
+  });
+
+  afterAll(async () => {
+    await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: congressId } } }).catch(() => {});
+    await prisma.workflowInstance.deleteMany({ where: { entityId: congressId } }).catch(() => {});
+    await prisma.congressInternational.deleteMany({ where: { name: { startsWith: TAG3 } } }).catch(() => {});
+    await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG3 } } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAG3 } } }).catch(() => {});
+  });
+
+  it("on ne peut pas sauter une étape de désignation (préliminaire)", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "SKIP", note: "raison" });
+    expect(r.ok).toBe(false);
+    // On avance normalement le préliminaire (désigne le chef de produit).
+    const ok = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", assigneeId: pmId, note: "OK" });
+    expect(ok.ok).toBe(true);
+  });
+
+  it("le saut exige une raison et n'est ouvert qu'à l'acteur de l'étape", async () => {
+    const noReason = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "SKIP", note: "" });
+    expect(noReason.ok).toBe(false);
+    const thirdParty = await advanceWorkflowInstance({ viewer: viewer(otherId, "SALES_USER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "SKIP", note: "je saute" });
+    expect(thirdParty.ok).toBe(false);
+  });
+
+  it("le chef de produit saute son étape avec raison → avance vers la Direction, tracé", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "SKIP", note: "Rien à redire, on file à la Direction" });
+    expect(r.ok).toBe(true);
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: congressId } } });
+    expect(inst.status).toBe("IN_PROGRESS");
+    expect(inst.currentSlug).not.toBe("analysis"); // on a bien avancé
+    const ev = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "SKIP" } });
+    expect(ev).not.toBeNull();
+    expect(ev?.note).toContain("Direction");
+  });
+
+  it("on ne peut pas sauter la décision finale (Direction)", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(dirId, "DIRECTION"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "SKIP", note: "raison" });
+    expect(r.ok).toBe(false);
+  });
+});

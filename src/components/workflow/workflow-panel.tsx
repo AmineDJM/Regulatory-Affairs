@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, X, Loader2, MessageSquare, ArrowRight } from "lucide-react";
+import { Check, X, Loader2, MessageSquare, ArrowRight, SkipForward } from "lucide-react";
 import type { EntityType } from "@prisma/client";
 import { advanceWorkflow } from "@/lib/actions/workflow-actions";
 import type { WorkflowView } from "@/lib/queries/workflow";
@@ -36,7 +36,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
   const router = useRouter();
   const [pending, start] = React.useTransition();
   const [err, setErr] = React.useState<string | null>(null);
-  const [mode, setMode] = React.useState<null | "approve" | "reject" | "comment">(null);
+  const [mode, setMode] = React.useState<null | "approve" | "reject" | "comment" | "skip">(null);
 
   const a = view.action;
   const [assignee, setAssignee] = React.useState("");
@@ -44,7 +44,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
   const [category, setCategory] = React.useState("");
   const [note, setNote] = React.useState("");
 
-  const submit = (action: "APPROVE" | "REJECT" | "COMMENT") => {
+  const submit = (action: "APPROVE" | "REJECT" | "COMMENT" | "SKIP") => {
     const fd = new FormData();
     fd.set("entityType", entityType);
     fd.set("entityId", entityId);
@@ -76,6 +76,9 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
   const canApprove = !!a?.powers.includes("APPROVE");
   const canReject = !!a?.powers.includes("REJECT");
   const canComment = !!a?.powers.includes("COMMENT");
+  // Sauter l'étape : possible sur une étape INTERMÉDIAIRE non terminale et qui ne désigne
+  // pas le responsable de la suite (sinon plus personne en charge). Toujours tracé + noté.
+  const canSkip = !!a && !actionIsLast && !needsAssign;
 
   const approveDisabled =
     pending ||
@@ -132,6 +135,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                       <div className="flex flex-wrap gap-2">
                         {canApprove && <Button size="sm" variant="success" onClick={() => setMode("approve")}><Check className="h-4 w-4" /> Approuver</Button>}
                         {canReject && <Button size="sm" variant="destructive" onClick={() => setMode("reject")}><X className="h-4 w-4" /> {actionIsLast ? "Refuser" : "Avis défavorable"}</Button>}
+                        {canSkip && <Button size="sm" variant="outline" onClick={() => setMode("skip")}><SkipForward className="h-4 w-4" /> Sauter l&apos;étape</Button>}
                         {canComment && <Button size="sm" variant="ghost" onClick={() => setMode("comment")}><MessageSquare className="h-4 w-4" /> Commenter</Button>}
                       </div>
                     ) : (
@@ -139,6 +143,11 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                         {mode === "reject" && !actionIsLast && (
                           <p className="rounded bg-warning/10 px-2 py-1.5 text-xs text-warning">
                             Votre avis défavorable sera consigné mais n'est pas éliminatoire : le circuit continue vers l'étape suivante.
+                          </p>
+                        )}
+                        {mode === "skip" && (
+                          <p className="rounded bg-warning/10 px-2 py-1.5 text-xs text-warning">
+                            L&apos;étape sera <strong>sautée</strong> : le circuit passe directement à la suivante. Le saut, son auteur et sa raison sont <strong>tracés</strong> (historique + journal d&apos;audit) et notifiés à l&apos;étape suivante.
                           </p>
                         )}
                         {needsAssign && (mode === "approve" || (mode === "reject" && !actionIsLast)) && (
@@ -173,7 +182,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                         <Textarea
                           value={note}
                           onChange={(e) => setNote(e.target.value)}
-                          placeholder={mode === "reject" ? (actionIsLast ? "Motif du refus (obligatoire)…" : "Motif de l'avis défavorable (obligatoire)…") : mode === "comment" ? "Votre commentaire…" : a.requireNote ? "Commentaire (obligatoire)…" : "Note (optionnel)…"}
+                          placeholder={mode === "reject" ? (actionIsLast ? "Motif du refus (obligatoire)…" : "Motif de l'avis défavorable (obligatoire)…") : mode === "skip" ? "Raison du saut d'étape (obligatoire)…" : mode === "comment" ? "Votre commentaire…" : a.requireNote ? "Commentaire (obligatoire)…" : "Note (optionnel)…"}
                           className="min-h-[56px]"
                         />
                         {err && <p className="text-xs text-destructive">{err}</p>}
@@ -186,6 +195,11 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                           {mode === "reject" && (
                             <Button size="sm" variant="destructive" disabled={pending || !note.trim() || (!actionIsLast && needsAssign && !assignee)} onClick={() => submit("REJECT")}>
                               {pending && <Loader2 className="h-4 w-4 animate-spin" />} {actionIsLast ? "Refuser" : "Émettre l'avis défavorable"}
+                            </Button>
+                          )}
+                          {mode === "skip" && (
+                            <Button size="sm" variant="outline" disabled={pending || !note.trim()} onClick={() => submit("SKIP")}>
+                              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SkipForward className="h-4 w-4" />} Confirmer le saut
                             </Button>
                           )}
                           {mode === "comment" && (
@@ -236,7 +250,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
             {view.events.map((e, i) => (
               <li key={i} className="text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">{e.actorName ?? "—"}</span> · {e.stepTitle} ·{" "}
-                {e.action === "APPROVE" ? "approuvé" : e.action === "REJECT" ? "refusé" : e.action === "OPINION_AGAINST" ? "avis défavorable" : "commenté"}
+                {e.action === "APPROVE" ? "approuvé" : e.action === "REJECT" ? "refusé" : e.action === "OPINION_AGAINST" ? "avis défavorable" : e.action === "SKIP" ? "étape sautée" : "commenté"}
                 {e.amount != null ? ` · ${formatCurrency(e.amount)}` : ""}
                 {e.note ? ` — ${e.note}` : ""} <span className="opacity-70">({formatDateTime(e.createdAt)})</span>
               </li>

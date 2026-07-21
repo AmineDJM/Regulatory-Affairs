@@ -22,9 +22,9 @@ export async function advanceWorkflow(formData: FormData): Promise<ActionResult>
   const user = await requireUser();
   const entityType = fdStr(formData, "entityType") as EntityType | null;
   const entityId = fdStr(formData, "entityId");
-  const action = fdStr(formData, "action"); // APPROVE | REJECT | COMMENT
+  const action = fdStr(formData, "action"); // APPROVE | REJECT | COMMENT | SKIP
   if (!entityType || !WORKFLOW_ENTITIES.includes(entityType) || !entityId) return { ok: false, error: "Paramètres manquants." };
-  if (action !== "APPROVE" && action !== "REJECT" && action !== "COMMENT") return { ok: false, error: "Action invalide." };
+  if (action !== "APPROVE" && action !== "REJECT" && action !== "COMMENT" && action !== "SKIP") return { ok: false, error: "Action invalide." };
 
   const res = await advanceWorkflowInstance({
     viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },

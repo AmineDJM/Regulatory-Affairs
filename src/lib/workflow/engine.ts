@@ -209,7 +209,7 @@ export interface AdvanceInput {
   viewer: Viewer;
   entityType: EntityType;
   entityId: string;
-  action: "APPROVE" | "REJECT" | "COMMENT";
+  action: "APPROVE" | "REJECT" | "COMMENT" | "SKIP";
   note?: string | null;
   amount?: number | null;
   budgetCategoryId?: string | null;
@@ -289,6 +289,33 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
       await notifyUser({ userId: summary.requesterId, type: "GENERIC", title: `${CATEGORY_LABELS[category]} — demande refusée`, body: summary.name, link: `${entityPath(entityType, entityId)}` });
     }
     await recordAudit({ actorId: viewer.id, action: "REFUSE", module: auditModule(entityType), entityType, entityId, summary: `Refus définitif (${step.title}) — ${summary.name}` });
+    return { ok: true, category };
+  }
+
+  // SKIP : sauter une étape INTERMÉDIAIRE, à la main, avec RAISON OBLIGATOIRE (anti-bureaucratie).
+  // C'est tracé (WorkflowStepEvent « SKIP » + audit) et notifié à l'étape suivante. Interdit sur la
+  // décision finale (pas d'étape suivante) et sur une étape de désignation (sinon plus personne en charge).
+  if (action === "SKIP") {
+    const next = nextStepAfter(def, step);
+    if (!next) return { ok: false, error: "L'étape de décision finale ne peut pas être sautée." };
+    if (step.powers.includes("ASSIGN")) return { ok: false, error: "Cette étape désigne le responsable de la suite : elle ne peut pas être sautée." };
+    if (!note) return { ok: false, error: "Indiquez la raison du saut d'étape (elle est tracée et notifiée)." };
+
+    // Avance sans approuver ni émettre : on projette uniquement le statut de l'étape suivante.
+    await projectApprove(entityType, entityId, step, next, {
+      viewer, note, amount: null, assigneeId: null, emitResult: null,
+      nextLegacyStatus: next.legacyStatus ?? null, emitStep: false,
+    });
+    await prisma.workflowInstance.update({ where: { id: instance.id }, data: { currentSlug: next.slug, status: "IN_PROGRESS" } });
+    await recordEvent(instance.id, step, "SKIP", viewer, note, null);
+
+    const skipTitle = `${CATEGORY_LABELS[category]} — ${next.title} (étape « ${step.title} » sautée)`;
+    if (next.actorScope === "ASSIGNEE" && instance.assigneeId) {
+      await notifyUser({ userId: instance.assigneeId, type: "ASSIGNMENT", title: skipTitle, body: summary.name, link: entityPath(entityType, entityId) });
+    }
+    const skipRoles = (next.notifyRoles as UserRole[]).filter(Boolean);
+    if (skipRoles.length) await notifyRoles(skipRoles, { type: "VALIDATION_REQUIRED", title: skipTitle, body: summary.name, link: entityPath(entityType, entityId) });
+    await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Étape sautée : « ${step.title} » — ${summary.name} (raison : ${note})` });
     return { ok: true, category };
   }
 
