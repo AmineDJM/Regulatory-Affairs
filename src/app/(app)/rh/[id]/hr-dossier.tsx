@@ -8,7 +8,8 @@ import { Input, Select, Label } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
 import { formatDate, formatMonth } from "@/lib/utils";
-import { processHrRequest, deleteEmployeeDocument, decideExpenseReport, deleteHrRequest } from "@/lib/actions/hr-document-actions";
+import { processHrRequest, deleteEmployeeDocument, decideExpenseReport, decideHrLeave, deleteHrRequest } from "@/lib/actions/hr-document-actions";
+import { hrNature, HR_DOCUMENT_STATUSES } from "@/lib/hr-request-flow";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
 import { MeetingControls } from "@/components/shared/hr-meeting-controls";
 import type { HrDocumentDTO, HrRequestDTO } from "@/lib/queries/hr-documents";
@@ -116,6 +117,9 @@ function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: H
   const [decideErr, setDecideErr] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
+  // Nature de la demande : pilote l'interface (document à préparer vs décision d'accord…).
+  const nature = hrNature(req.type);
+
   // Décision note de frais : la note RH saisie est enregistrée avec la décision.
   const decide = async (decision: "APPROVE" | "APPROVE_NEXT" | "REJECT") => {
     setDeciding(decision); setDecideErr(null);
@@ -123,6 +127,17 @@ function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: H
     fd.set("id", req.id); fd.set("decision", decision);
     if (note) fd.set("hrNote", note);
     const r = await decideExpenseReport(fd);
+    setDeciding(null);
+    if (!r.ok) setDecideErr(r.error ?? "Échec."); else router.refresh();
+  };
+
+  // Décision congé / absence / autorisation (nature APPROBATION) : accorder ou refuser.
+  const decideLeave = async (decision: "APPROVE" | "REJECT") => {
+    setDeciding(decision); setDecideErr(null);
+    const fd = new FormData();
+    fd.set("id", req.id); fd.set("decision", decision);
+    if (note) fd.set("hrNote", note);
+    const r = await decideHrLeave(fd);
     setDeciding(null);
     if (!r.ok) setDecideErr(r.error ?? "Échec."); else router.refresh();
   };
@@ -222,21 +237,57 @@ function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: H
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="space-y-1.5"><Label>Statut</Label>
-          <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
-            {Object.entries(HR_REQUEST_STATUS).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}
-          </Select>
+      {/* Nature APPROBATION (congé / absence / autorisation de sortie) : décision Accorder / Refuser
+          — pas de document à préparer, pas de « statut de préparation ». */}
+      {nature === "APPROVAL" && (
+        <div className="mb-2 space-y-2 rounded-lg border border-border bg-muted/20 p-2.5">
+          {req.status === "APPROVED" || req.status === "REJECTED" ? (
+            <p className={`text-xs font-medium ${req.status === "APPROVED" ? "text-success" : "text-destructive"}`}>
+              {req.status === "APPROVED" ? "Demande accordée." : "Demande refusée."}
+              {req.type === "ANNUAL_LEAVE" && req.balanceApplied ? " Solde de congés débité." : ""}
+              {req.hrNote ? ` — ${req.hrNote}` : ""}
+            </p>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">Demande d&apos;accord — accordez ou refusez (aucun document à remettre).</p>
+              <div className="space-y-1.5"><Label>Note RH (facultative)</Label>
+                <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Motif / précision communiqué à l'employé" />
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <Button size="sm" disabled={deciding !== null} onClick={() => decideLeave("APPROVE")}>
+                  {deciding === "APPROVE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Accorder
+                </Button>
+                <Button size="sm" variant="outline" disabled={deciding !== null} onClick={() => { if (window.confirm("Refuser cette demande ?")) decideLeave("REJECT"); }} className="text-destructive hover:bg-destructive/10">
+                  {deciding === "REJECT" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Refuser
+                </Button>
+              </div>
+            </>
+          )}
+          {decideErr && <p className="text-xs text-destructive">{decideErr}</p>}
         </div>
-        <div className="space-y-1.5 sm:col-span-2"><Label>Note RH</Label><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note interne / message" /></div>
-        <div className="flex items-end gap-1.5">
-          <Button size="sm" variant="outline" disabled={saving} onClick={save}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Enregistrer</Button>
-        </div>
-      </div>
-      <div className="mt-2">
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => fileRef.current?.click()}><Paperclip className="h-4 w-4" /> Joindre le document & marquer prêt</Button>
-        <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFulfil(f, { category: REQ_TO_CAT[req.type] ?? "OTHER", requestId: req.id }); e.target.value = ""; }} />
-      </div>
+      )}
+
+      {/* Nature DOCUMENT (attestations, relevés, titres, ordre de mission…) + notes de frais / entrevues :
+          flux de préparation d'un document (statut de préparation, note, pièce à joindre). */}
+      {nature !== "APPROVAL" && (
+        <>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="space-y-1.5"><Label>Statut</Label>
+              <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
+                {HR_DOCUMENT_STATUSES.map((v) => <option key={v} value={v}>{HR_REQUEST_STATUS[v].label}</option>)}
+              </Select>
+            </div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Note RH</Label><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note interne / message" /></div>
+            <div className="flex items-end gap-1.5">
+              <Button size="sm" variant="outline" disabled={saving} onClick={save}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Enregistrer</Button>
+            </div>
+          </div>
+          <div className="mt-2">
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => fileRef.current?.click()}><Paperclip className="h-4 w-4" /> Joindre le document & marquer prêt</Button>
+            <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFulfil(f, { category: REQ_TO_CAT[req.type] ?? "OTHER", requestId: req.id }); e.target.value = ""; }} />
+          </div>
+        </>
+      )}
       <HrRequestThread requestId={req.id} documents={req.documents} comments={req.comments} canManage currentUserId={currentUserId} path={`/rh/${employeeId}`} />
     </li>
   );

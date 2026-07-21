@@ -17,13 +17,14 @@ import { formatMonth, nextMonthYm } from "@/lib/utils";
 import { archiveProcessedRequest } from "@/lib/archive";
 import { getBlob } from "@/lib/drive-storage";
 import { HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
+import { HR_APPROVAL_TYPES, hrNature } from "@/lib/hr-request-flow";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
 const YM = /^\d{4}-\d{2}$/;
 /** Statuts « traités » : la demande part alors dans la boîte « Dossier traité » du Drive. */
-const DONE_STATUSES: HrRequestStatus[] = ["READY", "DELIVERED", "REJECTED"];
+const DONE_STATUSES: HrRequestStatus[] = ["READY", "DELIVERED", "APPROVED", "REJECTED"];
 /** Types « congé » à période complète (jours entiers, début + fin obligatoires). */
 const LEAVE_PERIOD_TYPES: HrRequestType[] = ["ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "SICK_LEAVE"];
 /** Types nécessitant au moins une date de début (congés + absence ponctuelle). */
@@ -34,6 +35,24 @@ function daysInclusive(start: Date, end: Date): number {
   const ms = end.getTime() - start.getTime();
   if (Number.isNaN(ms) || ms < 0) return 1;
   return Math.floor(ms / 86_400_000) + 1;
+}
+
+/**
+ * Débit UNIQUE du solde de congés d'un employé lorsqu'un congé ANNUEL est accordé.
+ * Verrou `balanceAppliedAt` : idempotent (jamais débité deux fois). Les congés sans
+ * solde / exceptionnels / maternité / maladie ne débitent pas. Renvoie le nb de jours débités.
+ */
+async function applyAnnualLeaveBalance(
+  req: { id: string; type: HrRequestType; employeeId: string; balanceAppliedAt: Date | null; periodDays: unknown },
+  actorId: string,
+  employeeName: string,
+): Promise<number> {
+  const pd = req.periodDays ? Number(req.periodDays) : 0;
+  if (req.type !== "ANNUAL_LEAVE" || req.balanceAppliedAt || !(pd > 0)) return 0;
+  await prisma.employee.update({ where: { id: req.employeeId }, data: { leaveBalanceDays: { decrement: pd } } });
+  await prisma.hrDocumentRequest.update({ where: { id: req.id }, data: { balanceAppliedAt: new Date() } });
+  await recordAudit({ actorId, action: "UPDATE", module: "RH", summary: `Congé annuel accordé — ${employeeName} (−${pd} j de solde)` });
+  return pd;
 }
 
 /**
@@ -199,13 +218,10 @@ export async function processHrRequest(formData: FormData): Promise<ActionResult
     include: { employee: { select: { fullName: true, userId: true } } },
   });
 
-  // Congé ANNUEL approuvé (READY) : débit UNIQUE du solde de congés de l'employé
-  // (verrou balanceAppliedAt). Les congés sans solde / exceptionnels / maternité ne débitent pas.
-  const pd = req.periodDays ? Number(req.periodDays) : 0;
-  if (status === "READY" && req.type === "ANNUAL_LEAVE" && !req.balanceAppliedAt && pd > 0) {
-    await prisma.employee.update({ where: { id: req.employeeId }, data: { leaveBalanceDays: { decrement: pd } } });
-    await prisma.hrDocumentRequest.update({ where: { id }, data: { balanceAppliedAt: new Date() } });
-    await recordAudit({ actorId: user.id, action: "UPDATE", module: "RH", summary: `Congé annuel approuvé — ${req.employee.fullName} (−${pd} j de solde)` });
+  // Congé ANNUEL approuvé (READY) : débit UNIQUE du solde de congés de l'employé.
+  // (Les congés/absences passent normalement par decideHrLeave ; garde de compat.)
+  if (status === "READY") {
+    await applyAnnualLeaveBalance(req, user.id, req.employee.fullName);
   }
 
   if (req.employee.userId) {
@@ -264,6 +280,56 @@ export async function decideExpenseReport(formData: FormData): Promise<ActionRes
   await recordAudit({
     actorId: user.id, action: decision === "REJECT" ? "REFUSE" : "VALIDATE", module: "RH",
     summary: `Note de frais ${req.employee.fullName} (${req.expenseMonth}) — ${decision === "REJECT" ? "refusée" : `validée pour ${approvedMonth}`}`,
+  });
+  await archiveHrRequestIfDone(id, user.id);
+  revalidatePath("/mon-dossier");
+  revalidatePath(`/rh/${req.employeeId}`);
+  revalidatePath("/rh");
+  return { ok: true };
+}
+
+/**
+ * Décision RH sur une demande de NATURE APPROBATION (congé / absence / autorisation de
+ * sortie) : Accorder ou Refuser — pas de document à préparer. Un congé annuel accordé
+ * débite le solde de l'employé (verrou balanceAppliedAt). Une note RH facultative peut être jointe.
+ */
+export async function decideHrLeave(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  const decision = fdStr(formData, "decision"); // APPROVE | REJECT
+  if (!id || !decision || !["APPROVE", "REJECT"].includes(decision)) return { ok: false, error: "Décision invalide." };
+  const req = await prisma.hrDocumentRequest.findUnique({ where: { id }, include: { employee: { select: { userId: true, fullName: true } } } });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (hrNature(req.type) !== "APPROVAL") return { ok: false, error: "Cette demande ne relève pas d'une décision d'accord." };
+
+  const approved = decision === "APPROVE";
+  const note = fdStr(formData, "hrNote");
+  await prisma.hrDocumentRequest.update({
+    where: { id },
+    data: { status: approved ? "APPROVED" : "REJECTED", handledById: user.id, ...(note ? { hrNote: note } : {}) },
+  });
+
+  // Congé annuel accordé : débit du solde (idempotent). Autres congés/absences : pas de solde.
+  const debited = approved ? await applyAnnualLeaveBalance(req, user.id, req.employee.fullName) : 0;
+
+  const label = HR_REQUEST_TYPE[req.type] ?? req.type;
+  const periodTxt = req.periodStart
+    ? ` (du ${formatAlgiers(req.periodStart, { day: "2-digit", month: "long", year: "numeric" })}${req.periodEnd ? ` au ${formatAlgiers(req.periodEnd, { day: "2-digit", month: "long", year: "numeric" })}` : ""})`
+    : "";
+  if (req.employee.userId) {
+    await notifyUser({
+      userId: req.employee.userId, type: "GENERIC",
+      title: approved ? "Demande accordée" : "Demande refusée",
+      body: approved
+        ? `Votre demande « ${label} »${periodTxt} a été accordée.${debited > 0 ? ` ${debited} j déduits de votre solde de congés.` : ""}`
+        : `Votre demande « ${label} »${periodTxt} a été refusée.${note ? ` Motif : ${note}` : ""}`,
+      link: "/mon-dossier",
+    });
+  }
+  await recordAudit({
+    actorId: user.id, action: approved ? "VALIDATE" : "REFUSE", module: "RH",
+    summary: `${label} — ${req.employee.fullName} : ${approved ? "accordée" : "refusée"}`,
   });
   await archiveHrRequestIfDone(id, user.id);
   revalidatePath("/mon-dossier");

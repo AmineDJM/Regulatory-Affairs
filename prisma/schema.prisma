@@ -2210,6 +2210,7 @@ enum HrRequestStatus {
   IN_PROGRESS // en préparation
   READY // prête (document disponible)
   DELIVERED // remise à l'employé
+  APPROVED // accordée (congé / absence / autorisation — décision, pas un document)
   REJECTED
 }
 

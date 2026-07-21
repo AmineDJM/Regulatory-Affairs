@@ -684,6 +684,7 @@ export const HR_REQUEST_STATUS: Record<string, Display> = {
   IN_PROGRESS: { label: "En préparation", tone: "info" },
   READY: { label: "Prête", tone: "success" },
   DELIVERED: { label: "Remise", tone: "neutral" },
+  APPROVED: { label: "Accordée", tone: "success" },
   REJECTED: { label: "Refusée", tone: "danger" },
 };
 
