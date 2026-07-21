@@ -202,7 +202,7 @@ jamais identique.
 | **Feedback** | `/feedback` | Retour libre utilisateur → admin, **+ boîte de réception** : les réponses de l'administration s'affichent à l'utilisateur (avec notification). |
 
 > **Menu simplifié** : modules fusionnés en **onglets** — « Mon espace » (Mon travail · Mon espace · Directives),
-> « Ad & Pro » (Sponsoring · Congrès · Événements · Matériel promotionnel), « Documents » (Drive · Documents · **catégories partagées**),
+> « Ad & Pro » (Sponsoring · Congrès · Événements · Matériel promotionnel), « **Accueil** » (Drive personnel + **catégories partagées** ; l'onglet « Documents » a été retiré, tout est consolidé dans l'Accueil),
 > « Mon dossier RH » (RH perso · Mes ordres de mission). **Messagerie** et **Notifications** restent accessibles
 > via leurs **icônes** dans la barre du haut.
 
@@ -1123,6 +1123,24 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Drive « Accueil » façon vrai drive + téléversements fiables + thème plus vif.** Le **Drive** est renommé
+  **« Accueil »** (onglet, navigation, fil d'Ariane, titre) et l'onglet **« Documents »** est retiré des onglets du
+  Drive (tout est consolidé dans l'Accueil + les catégories partagées). **Glisser-déposer à la souris** (`drive-table`) :
+  on attrape un fichier/dossier et on le lâche sur un **autre dossier** (rangement) ou sur une **pastille de catégorie**
+  (déplacement vers la catégorie), avec pastille « Accueil (mon Drive) » pour revenir au personnel — s'appuie sur
+  `moveNode` (RBAC + anti-cycle côté serveur), barre de dépôt + retour visuel + toast. La **visionneuse ZIP** navigue
+  désormais **dossier par dossier** comme un explorateur (fil d'Ariane, entrée dans les sous-dossiers, aperçu inline),
+  au lieu d'une liste plate de chemins. **Téléversements fiables** : les limites de taille (25 Mo Documents / 100 Mo
+  Drive) faisaient échouer à 100 % l'envoi d'un ZIP de dossier entier → relevées à **200 Mo / 1 Go** (défauts + ligne
+  `AppSetting` existante via migration `GREATEST`, jamais de baisse d'un réglage volontaire ; `putBlob` stocke déjà en
+  tranches ~1 Go). **Thème** rafraîchi (science UX Apple HIG / Salesforce Lightning) : primaire **azur vif** accessible,
+  accents et statuts plus lumineux, sidebar bleu profond, élévation « carte » plus douce.
+- **RH — workflow par nature de demande.** Le module RH s'adapte à la **nature** de chaque demande : un **congé /
+  absence / autorisation de sortie** (congé exceptionnel, sortie exceptionnelle, congé annuel…) affiche une décision
+  **Accorder / Refuser** (`decideHrLeave`, nouveau statut `APPROVED` « Accordée ») au lieu du flux documentaire
+  (Soumise → Prête → Remise). Classifieur `hrNature()` (`hr-request-flow.ts`) : DOCUMENT / APPROBATION / NOTE DE FRAIS /
+  ENTREVUE. Un congé annuel accordé débite le solde (verrou `balanceAppliedAt`). Le flux documentaire (statut de
+  préparation + « joindre le document ») reste réservé aux vraies demandes de document.
 - **Adventum Autonomous Test Center (Administration → Test Center, Super Admin) — Phase 1 : fondation de sûreté.**
   Infrastructure de certification autonome, **conçue sécurité d'abord** : un run ne touche **aucune** donnée
   préexistante — il ne supprime **que** les ressources qu'il a lui-même créées, inscrites au fur et à mesure dans un
