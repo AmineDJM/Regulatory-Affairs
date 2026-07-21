@@ -42,9 +42,11 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   });
   if (!req) notFound();
 
-  const canManage = hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE") || req.assignedToId === user.id;
+  // L'Assistante de Direction tient le bureau du secrétariat : elle gère et modère toute demande.
+  const isSecretary = user.role === "DIRECTION_ASSISTANT";
+  const canManage = hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE") || req.assignedToId === user.id || isSecretary;
   const canValidate = userCan(user, "ADMIN_REQUESTS", "VALIDATE") || hasGlobalView(user.role);
-  const canUpload = userCan(user, "ADMIN_REQUESTS", "UPLOAD");
+  const canUpload = userCan(user, "ADMIN_REQUESTS", "UPLOAD") || isSecretary;
 
   const [documents, comments, history, users, financeUsers, linkedValidations, siblings] = await Promise.all([
     prisma.document.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),

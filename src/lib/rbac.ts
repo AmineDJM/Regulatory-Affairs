@@ -604,6 +604,7 @@ export function scopeRegulatory(user: SessionUser): Prisma.RegulatoryProductWher
   if (!m) return { id: "__none__" };
   if (m.scope === "ALL") return {};
   const ors: Prisma.RegulatoryProductWhereInput[] = [
+    { createdById: user.id }, // le créateur voit toujours son propre dossier (sinon 404 après création)
     { responsibleId: user.id },
     { assistantId: user.id },
     { assignedUsers: { some: { id: user.id } } },

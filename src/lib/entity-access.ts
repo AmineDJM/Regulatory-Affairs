@@ -108,6 +108,13 @@ export async function canAccessEntity(
     return true;
   }
 
+  // L'Assistante de Direction tient le **bureau du secrétariat** : elle modère TOUTE
+  // demande administrative (éditer/supprimer les messages, supprimer / renommer /
+  // re-téléverser les pièces jointes), quel que soit le demandeur ou l'assignation.
+  if (entityType === "ADMIN_REQUEST" && user.role === "DIRECTION_ASSISTANT") {
+    return true;
+  }
+
   // Information médicale : le pharmacien responsable (ou un manager info médicale)
   // qui instruit une déclaration peut CONSULTER les pièces de l'événement SOURCE
   // (congrès / sponsoring), même sans accès au module concerné.
