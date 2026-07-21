@@ -88,8 +88,9 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
     void doMove(id, { destSpaceId: cat ? cat.id : "", label: cat ? `catégorie « ${cat.name} »` : "Accueil (mon Drive)" });
   };
 
-  // Pastilles de destination (catégories + retour à l'Accueil) affichées seulement pendant un glisser.
-  const showDropBar = dndEnabled && dragId !== null && ((categories?.length ?? 0) > 0 || spaceId != null);
+  // Pastilles de destination (catégories + retour à l'Accueil) TOUJOURS visibles quand il y a des
+  // cibles : affichage stable (pas de saut de mise en page en plein glisser, cause de « ça marche mal »).
+  const showDropBar = dndEnabled && ((categories?.length ?? 0) > 0 || spaceId != null);
 
   return (
     <div className="space-y-2">
@@ -115,7 +116,8 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
           <span className="text-xs font-medium text-muted-foreground">Déposer dans :</span>
           {spaceId != null && (
             <button type="button"
-              onDragOver={(e) => { e.preventDefault(); setOverId("root"); }}
+              onDragEnter={(e) => { e.preventDefault(); setOverId("root"); }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setOverId("root"); }}
               onDragLeave={() => setOverId((o) => (o === "root" ? null : o))}
               onDrop={onDropCategory(null)}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${overId === "root" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground"}`}>
@@ -124,7 +126,8 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
           )}
           {categories?.map((c) => (
             <button key={c.id} type="button"
-              onDragOver={(e) => { e.preventDefault(); setOverId(`cat:${c.id}`); }}
+              onDragEnter={(e) => { e.preventDefault(); setOverId(`cat:${c.id}`); }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setOverId(`cat:${c.id}`); }}
               onDragLeave={() => setOverId((o) => (o === `cat:${c.id}` ? null : o))}
               onDrop={onDropCategory(c)}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${overId === `cat:${c.id}` ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground"}`}>
@@ -160,9 +163,10 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
                 <TableRow
                   key={n.id}
                   draggable={dndEnabled && n.canEdit}
-                  onDragStart={(e) => { e.dataTransfer.setData("text/drive-node", n.id); e.dataTransfer.effectAllowed = "move"; setDragId(n.id); }}
+                  onDragStart={(e) => { e.dataTransfer.setData("text/drive-node", n.id); e.dataTransfer.setData("text/plain", n.name); e.dataTransfer.effectAllowed = "move"; setDragId(n.id); }}
                   onDragEnd={() => { setDragId(null); setOverId(null); }}
-                  onDragOver={isFolderTarget ? (e) => { e.preventDefault(); setOverId(n.id); } : undefined}
+                  onDragEnter={isFolderTarget ? (e) => { e.preventDefault(); setOverId(n.id); } : undefined}
+                  onDragOver={isFolderTarget ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setOverId(n.id); } : undefined}
                   onDragLeave={isFolderTarget ? () => setOverId((o) => (o === n.id ? null : o)) : undefined}
                   onDrop={isFolderTarget ? onDropFolder(n.id) : undefined}
                   className={`${sel.has(n.id) ? "bg-accent/40" : ""} ${isOver && isFolderTarget ? "ring-2 ring-inset ring-primary bg-primary/5" : ""} ${dragId === n.id ? "opacity-50" : ""}`}
@@ -173,7 +177,7 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
                   <TableCell>
                     <div className="flex items-center gap-2">
                       {dndEnabled && n.canEdit && <GripVertical className="h-3.5 w-3.5 shrink-0 cursor-grab text-muted-foreground/50" aria-hidden />}
-                      <Link href={n.href} className="inline-flex items-center gap-2 font-medium hover:underline">
+                      <Link href={n.href} draggable={false} className="inline-flex items-center gap-2 font-medium hover:underline">
                         <Icon name={n.icon} className={`h-4 w-4 ${n.isFile ? "text-muted-foreground" : "text-primary"}`} />
                         <span className="truncate">{n.name}</span>
                       </Link>

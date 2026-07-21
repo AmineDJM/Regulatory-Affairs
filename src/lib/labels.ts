@@ -1165,7 +1165,7 @@ export const NAVIGATION: NavItem[] = [
   // attente restent aussi visibles dans « Mon espace » (Action Center).
   { module: "VALIDATIONS", label: "Demandes de validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
   { module: "MESSAGING", label: "Réunions & appels", href: "/meetings", icon: "Video", group: "Transverse" },
-  { module: "DRIVE", label: "Accueil", href: "/drive", icon: "House", group: "Transverse", tabs: DOCS_TABS },
+  { module: "DRIVE", label: "Drive", href: "/drive", icon: "FolderOpen", group: "Transverse", tabs: DOCS_TABS },
   { module: "ADMIN_REQUESTS", label: "Bureau du secrétariat", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   // Système
