@@ -250,7 +250,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
             {view.events.map((e, i) => (
               <li key={i} className="text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">{e.actorName ?? "—"}</span> · {e.stepTitle} ·{" "}
-                {e.action === "APPROVE" ? "approuvé" : e.action === "REJECT" ? "refusé" : e.action === "OPINION_AGAINST" ? "avis défavorable" : e.action === "SKIP" ? "étape sautée" : e.action === "AUTO_SKIP" ? "étape franchie automatiquement" : "commenté"}
+                {e.action === "APPROVE" ? "approuvé" : e.action === "REJECT" ? "refusé" : e.action === "OPINION_AGAINST" ? "avis défavorable" : e.action === "SKIP" ? "étape sautée" : e.action === "AUTO_SKIP" ? "étape franchie automatiquement" : e.action === "AUTO_APPROVE_REQUESTER" ? "auto-accord (demandeur habilité)" : "commenté"}
                 {e.amount != null ? ` · ${formatCurrency(e.amount)}` : ""}
                 {e.note ? ` — ${e.note}` : ""} <span className="opacity-70">({formatDateTime(e.createdAt)})</span>
               </li>

@@ -278,3 +278,46 @@ suite("Moteur — franchissement automatique par seuil de montant (anti-bureaucr
     expect(auto).toBeNull();
   });
 });
+
+const TAG5 = "__wfreqauth__";
+
+suite("Moteur — auto-accord si le demandeur détient l'autorité de l'étape (skip-demandeur généralisé)", () => {
+  let nsId = "", reqPmId = "", congressId = "";
+  let original: { actorScope: string; actorRoles: string[]; autoApproveIfRequester: boolean } | null = null;
+
+  beforeAll(async () => {
+    const mk = (s: string, role: UserRole) => prisma.user.create({ data: { name: `${TAG5}${s}`, email: `${TAG5}${s}@t.dz`, role, passwordHash: "x" } });
+    const [ns, reqPm] = await Promise.all([mk("ns", "NATIONAL_SALES"), mk("reqpm", "PRODUCT_MANAGER")]);
+    nsId = ns.id; reqPmId = reqPm.id;
+    // Le DEMANDEUR est un chef de produit ; budget au-dessus de tout seuil pour isoler le motif « autorité ».
+    const c = await prisma.congressInternational.create({ data: { name: `${TAG5}Congrès`, requestStatus: "AWAITING_PRELIMINARY", requesterId: reqPmId, estimatedBudget: 90000 } });
+    congressId = c.id;
+    // Reconfigure temporairement l'étape « analysis » en portée ROLE[PRODUCT_MANAGER] + auto-accord si demandeur.
+    const def = await getDefinition("CONGRESS_INTERNATIONAL");
+    const a = await prisma.workflowStep.findFirstOrThrow({ where: { definitionId: def.id, slug: "analysis" } });
+    original = { actorScope: a.actorScope, actorRoles: a.actorRoles, autoApproveIfRequester: a.autoApproveIfRequester };
+    await prisma.workflowStep.update({ where: { id: a.id }, data: { actorScope: "ROLE", actorRoles: ["PRODUCT_MANAGER"], autoApproveIfRequester: true } });
+  });
+
+  afterAll(async () => {
+    const def = await getDefinition("CONGRESS_INTERNATIONAL").catch(() => null);
+    if (def && original) await prisma.workflowStep.updateMany({ where: { definitionId: def.id, slug: "analysis" }, data: original }).catch(() => {});
+    await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: congressId } } }).catch(() => {});
+    await prisma.workflowInstance.deleteMany({ where: { entityId: congressId } }).catch(() => {});
+    await prisma.congressInternational.deleteMany({ where: { name: { startsWith: TAG5 } } }).catch(() => {});
+    await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG5 } } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAG5 } } }).catch(() => {});
+  });
+
+  it("l'étape dont le demandeur détient déjà le rôle est approuvée automatiquement en son nom (tracé), sans franchir la décision finale", async () => {
+    // Le National Sales approuve le préliminaire et désigne le demandeur (chef de produit) ; l'étape d'analyse,
+    // dont il détient le rôle, est auto-accordée → on se pose directement sur la décision finale (Direction).
+    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", assigneeId: reqPmId, note: "OK" });
+    expect(r.ok).toBe(true);
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: congressId } } });
+    expect(inst.currentSlug).toBe("final");
+    expect(inst.status).toBe("IN_PROGRESS");
+    const ev = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "AUTO_APPROVE_REQUESTER", stepSlug: "analysis" } });
+    expect(ev).not.toBeNull();
+  });
+});

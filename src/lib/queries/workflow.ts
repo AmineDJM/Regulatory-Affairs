@@ -20,6 +20,7 @@ export interface WorkflowStepView {
   assignRole: string | null;
   requireAmount: boolean;
   autoSkipMaxAmount: number | null;
+  autoApproveIfRequester: boolean;
   requireCategory: boolean;
   requireNote: boolean;
   optional: boolean;
@@ -131,7 +132,7 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
     else state = "todo";
     return {
       slug: s.slug, title: s.title, description: s.description, actorRoles: s.actorRoles, actorScope: s.actorScope as ActorScope,
-      powers: s.powers as WorkflowPower[], assignRole: s.assignRole, requireAmount: s.requireAmount, autoSkipMaxAmount: s.autoSkipMaxAmount ? toNumber(s.autoSkipMaxAmount) : null, requireCategory: s.requireCategory,
+      powers: s.powers as WorkflowPower[], assignRole: s.assignRole, requireAmount: s.requireAmount, autoSkipMaxAmount: s.autoSkipMaxAmount ? toNumber(s.autoSkipMaxAmount) : null, autoApproveIfRequester: s.autoApproveIfRequester, requireCategory: s.requireCategory,
       requireNote: s.requireNote, optional: s.optional, confidential: s.confidential, emitDeclaration: s.emitDeclaration, emitExpenseOrder: s.emitExpenseOrder,
       notifyRoles: s.notifyRoles, legacyStatus: s.legacyStatus, state,
     };
@@ -201,7 +202,7 @@ export async function getWorkflowDefinitions(): Promise<DefinitionAdminView[]> {
       id: def.id, category, categoryLabel: CATEGORY_LABELS[category], name: def.name, description: def.description, isActive: def.isActive, instanceCount,
       steps: orderedSteps(def).map((s) => ({
         slug: s.slug, title: s.title, description: s.description, actorRoles: s.actorRoles, actorScope: s.actorScope as ActorScope,
-        powers: s.powers as WorkflowPower[], assignRole: s.assignRole, requireAmount: s.requireAmount, autoSkipMaxAmount: s.autoSkipMaxAmount ? toNumber(s.autoSkipMaxAmount) : null, requireCategory: s.requireCategory,
+        powers: s.powers as WorkflowPower[], assignRole: s.assignRole, requireAmount: s.requireAmount, autoSkipMaxAmount: s.autoSkipMaxAmount ? toNumber(s.autoSkipMaxAmount) : null, autoApproveIfRequester: s.autoApproveIfRequester, requireCategory: s.requireCategory,
         requireNote: s.requireNote, optional: s.optional, confidential: s.confidential, emitDeclaration: s.emitDeclaration, emitExpenseOrder: s.emitExpenseOrder,
         notifyRoles: s.notifyRoles, legacyStatus: s.legacyStatus, state: "todo" as const,
       })),

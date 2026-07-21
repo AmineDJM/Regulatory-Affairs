@@ -4066,6 +4066,11 @@ model WorkflowStep {
   // l'étape est franchie AUTOMATIQUEMENT (tracée : WorkflowStepEvent « AUTO_SKIP »). Jamais
   // appliqué à une étape de désignation, d'émission financière, ni à la décision finale.
   autoSkipMaxAmount Decimal? @db.Decimal(14, 2)
+  // Auto-accord si autorité : si le DEMANDEUR détient déjà le rôle/portée de cette étape,
+  // elle est approuvée automatiquement en son nom (tracée : « AUTO_APPROVE_REQUESTER ») — on ne
+  // fait pas valider quelqu'un sa propre demande. Mêmes gardes que le seuil (jamais désignation,
+  // émission ni décision finale). Opt-in ; défaut false ⇒ aucun changement de comportement.
+  autoApproveIfRequester Boolean @default(false)
   requireCategory  Boolean  @default(false)
   requireNote      Boolean  @default(false)
   emitDeclaration  Boolean  @default(false) // à l'approbation : créer une déclaration info médicale (si PRIM)

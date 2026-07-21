@@ -82,6 +82,8 @@ export interface StepInput {
   requireAmount?: boolean;
   /** Seuil DZD : montant de l'instance ≤ ce seuil ⇒ étape franchie automatiquement (tracée). */
   autoSkipMaxAmount?: number | null;
+  /** Si le demandeur détient déjà l'autorité de l'étape, elle est approuvée automatiquement en son nom (tracée). */
+  autoApproveIfRequester?: boolean;
   requireCategory?: boolean;
   requireNote?: boolean;
   emitDeclaration?: boolean;

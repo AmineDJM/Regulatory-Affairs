@@ -18,7 +18,7 @@ type Draft = Omit<WorkflowStepView, "state">;
 function blankStep(): Draft {
   return {
     slug: "", title: "Nouvelle étape", description: "", actorRoles: [], actorScope: "ROLE", powers: ["APPROVE", "REJECT"],
-    assignRole: null, requireAmount: false, autoSkipMaxAmount: null, requireCategory: false, requireNote: false, optional: false, confidential: false,
+    assignRole: null, requireAmount: false, autoSkipMaxAmount: null, autoApproveIfRequester: false, requireCategory: false, requireNote: false, optional: false, confidential: false,
     emitDeclaration: false, emitExpenseOrder: false, notifyRoles: [], legacyStatus: null,
   };
 }
@@ -207,6 +207,13 @@ function StepEditor({ index, total, step, onChange, onMove, onRemove }: {
           placeholder="ex. 50000 — en deçà, l'étape est franchie sans validation humaine"
         />
         <p className="text-[11px] text-muted-foreground">Sous ce seuil, l'étape est franchie automatiquement (tracé : « étape franchie automatiquement »). Sans effet sur une désignation, une émission financière ou la décision finale.</p>
+        <label className="mt-2 flex cursor-pointer items-start gap-2 border-t border-primary/20 pt-2 text-sm">
+          <input type="checkbox" checked={step.autoApproveIfRequester} onChange={(e) => onChange({ autoApproveIfRequester: e.target.checked })} className="mt-0.5 h-4 w-4 rounded border-border accent-primary" />
+          <span>
+            <span className={step.autoApproveIfRequester ? "font-medium" : "text-muted-foreground"}>Auto-accord si le demandeur détient l'autorité</span>
+            <span className="block text-[11px] text-muted-foreground">Si l'auteur de la demande a déjà le rôle (ou la portée) de cette étape, elle est approuvée automatiquement en son nom (tracé) — on ne fait pas valider quelqu'un sa propre demande.</span>
+          </span>
+        </label>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

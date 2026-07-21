@@ -43,6 +43,7 @@ function stepCreate(s: StepInput, i: number): Prisma.WorkflowStepCreateWithoutDe
     assignRole: s.assignRole ?? null,
     requireAmount: s.requireAmount ?? false,
     autoSkipMaxAmount: s.autoSkipMaxAmount ?? null,
+    autoApproveIfRequester: s.autoApproveIfRequester ?? false,
     requireCategory: s.requireCategory ?? false,
     requireNote: s.requireNote ?? false,
     emitDeclaration: s.emitDeclaration ?? false,
@@ -103,29 +104,56 @@ function autoSkipEligible(step: LoadedStep, amount: number): boolean {
 }
 
 /**
- * Franchissement AUTOMATIQUE par seuil de montant (anti-bureaucratie configurable).
- * À partir de l'étape où l'instance vient d'arriver (`landing`), tant que cette étape
- * déclare un seuil et que le montant connu est ≤ ce seuil, l'étape est franchie SANS
- * action humaine — c'est tracé (`WorkflowStepEvent « AUTO_SKIP »`) et la projection legacy
- * suit l'étape réelle où l'on se pose. Ne franchit jamais la décision finale (dernière
- * étape sans successeur) : un humain tranche toujours. Retourne l'étape de repos.
+ * Franchissements AUTOMATIQUES d'étapes intermédiaires (anti-bureaucratie configurable).
+ * À partir de l'étape où l'instance vient d'arriver (`landing`), tant qu'elle est éligible,
+ * elle est franchie SANS action humaine — tracé, avec projection legacy sur l'étape réelle
+ * de repos. Deux motifs, tous deux opt-in par étape :
+ *   • SEUIL DE MONTANT — montant de travail ≤ `autoSkipMaxAmount` → « AUTO_SKIP ».
+ *   • AUTORITÉ DU DEMANDEUR — le demandeur détient déjà le rôle/la portée de l'étape
+ *     (`autoApproveIfRequester`) → « AUTO_APPROVE_REQUESTER » (on ne fait pas valider quelqu'un
+ *     sa propre demande).
+ * Ne franchit JAMAIS une désignation (ASSIGN), une émission financière, ni la décision finale
+ * (dernière étape sans successeur) : un humain tranche toujours l'accord définitif.
+ * Retourne l'étape de repos.
  */
 async function settleAutoSkips(
   entityType: EntityType, entityId: string, def: LoadedDefinition,
-  instanceId: string, amount: number, landing: LoadedStep | null, viewer: Viewer,
+  instanceId: string, amount: number, requesterId: string | null, landing: LoadedStep | null, viewer: Viewer,
 ): Promise<LoadedStep | null> {
   let current = landing;
   let guard = 0;
+  // Rôle du demandeur — chargé paresseusement (uniquement si une étape « auto-accord si autorité » l'exige).
+  let reqRole: { role: UserRole; secondaryRole: UserRole | null } | null | undefined = undefined;
+  const requesterHoldsAuthority = async (step: LoadedStep): Promise<boolean> => {
+    if (!step.autoApproveIfRequester || !requesterId) return false;
+    if (step.powers.includes("ASSIGN") || step.emitDeclaration || step.emitExpenseOrder) return false;
+    const scope = step.actorScope as ActorScope;
+    if (scope === "REQUESTER") return true;
+    if (scope !== "ROLE") return false; // GLOBAL_VIEW / ASSIGNEE : pas d'auto-accord demandeur
+    if (reqRole === undefined) {
+      const u = await prisma.user.findUnique({ where: { id: requesterId }, select: { role: true, secondaryRole: true } });
+      reqRole = u ? { role: u.role, secondaryRole: u.secondaryRole ?? null } : null;
+    }
+    if (!reqRole) return false;
+    const asViewer = { id: requesterId, role: reqRole.role, secondaryRole: reqRole.secondaryRole };
+    return step.actorRoles.some((r) => hasRole(asViewer, r as UserRole));
+  };
+
   while (current && guard++ < 50) {
-    if (!autoSkipEligible(current, amount)) break;
+    const byAmount = autoSkipEligible(current, amount);
+    const byRequester = !byAmount && (await requesterHoldsAuthority(current));
+    if (!byAmount && !byRequester) break;
     const after = nextStepAfter(def, current);
-    if (!after) break; // pas de successeur (décision finale) → on ne saute pas
-    const reason = `Montant ${amount} DZD ≤ seuil ${toNumber(current.autoSkipMaxAmount)} DZD — étape franchie automatiquement.`;
+    if (!after) break; // pas de successeur (décision finale) → on ne franchit pas
+    const action = byAmount ? "AUTO_SKIP" : "AUTO_APPROVE_REQUESTER";
+    const reason = byAmount
+      ? `Montant ${amount} DZD ≤ seuil ${toNumber(current.autoSkipMaxAmount)} DZD — étape franchie automatiquement.`
+      : "Le demandeur détient déjà l'autorité de cette étape — approuvée automatiquement en son nom.";
     await projectApprove(entityType, entityId, current, after, {
       viewer, note: reason, amount: null, assigneeId: null, emitResult: null,
       nextLegacyStatus: after.legacyStatus ?? null, emitStep: false,
     });
-    await recordEvent(instanceId, current, "AUTO_SKIP", viewer, reason, null);
+    await recordEvent(instanceId, current, action, viewer, reason, null);
     current = after;
   }
   return current;
@@ -351,7 +379,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
     });
     // Enchaîne d'éventuels franchissements automatiques par seuil de montant.
     const skipKnownAmount = toNumber(instance.amount) || (summary.estimatedAmount ?? 0);
-    const landed = (await settleAutoSkips(entityType, entityId, def, instance.id, skipKnownAmount, next, viewer)) ?? next;
+    const landed = (await settleAutoSkips(entityType, entityId, def, instance.id, skipKnownAmount, summary.requesterId, next, viewer)) ?? next;
     await prisma.workflowInstance.update({ where: { id: instance.id }, data: { currentSlug: landed.slug, status: "IN_PROGRESS" } });
     await recordEvent(instance.id, step, "SKIP", viewer, note, null);
 
@@ -417,7 +445,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   // Franchissements AUTOMATIQUES par seuil de montant (anti-bureaucratie) à partir de l'étape suivante.
   // Montant de référence : montant de travail de l'instance, à défaut l'estimation du demandeur.
   const knownAmount = toNumber(liveInstance.amount) || (summary.estimatedAmount ?? 0);
-  const landed = await settleAutoSkips(entityType, entityId, def, instance.id, knownAmount, next, viewer);
+  const landed = await settleAutoSkips(entityType, entityId, def, instance.id, knownAmount, summary.requesterId, next, viewer);
 
   // Avance l'instance (ou clôture).
   await prisma.workflowInstance.update({
