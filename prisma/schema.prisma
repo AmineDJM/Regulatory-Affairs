@@ -3755,8 +3755,8 @@ model DeletedRecord {
 
 model AppSetting {
   id                   String   @id @default("global")
-  maxUploadMb          Int      @default(25) // pièces jointes des modules (Documents)
-  maxDriveUploadMb     Int      @default(100) // fichiers du Drive
+  maxUploadMb          Int      @default(200) // pièces jointes des modules (Documents/messagerie/RH) — ZIP de dossier
+  maxDriveUploadMb     Int      @default(1024) // fichiers du Drive (~1 Go, stockage en tranches)
   driveCapacityGb      Int      @default(100) // capacité globale du Drive (modifiable Super Admin)
   driveUserQuotaGb     Int      @default(10) // quota par utilisateur (modifiable Super Admin)
   // Budget total au-dessus des enveloppes : FIXED (montant figé) ou FLEXIBLE

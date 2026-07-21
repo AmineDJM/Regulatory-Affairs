@@ -34,8 +34,11 @@ export interface AppSettings {
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
-  maxUploadMb: Number(process.env.MAX_UPLOAD_MB ?? "25"),
-  maxDriveUploadMb: Number(process.env.MAX_DRIVE_UPLOAD_MB ?? process.env.MAX_UPLOAD_MB ?? "100"),
+  // Limites généreuses : un ZIP de dossier entier (Documents/Regulatory/messagerie) dépasse
+  // facilement les anciennes 25 Mo → l'envoi montait à 100 % puis « échec ». putBlob stocke en
+  // tranches (~1 Go) donc le stockage suit. Réglable en Administration.
+  maxUploadMb: Number(process.env.MAX_UPLOAD_MB ?? "200"),
+  maxDriveUploadMb: Number(process.env.MAX_DRIVE_UPLOAD_MB ?? process.env.MAX_UPLOAD_MB ?? "1024"),
   budgetTotalMode: "FLEXIBLE",
   budgetFixedTotal: 0,
   driveCapacityGb: 100,
