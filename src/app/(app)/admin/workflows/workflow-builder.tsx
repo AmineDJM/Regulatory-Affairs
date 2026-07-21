@@ -18,7 +18,7 @@ type Draft = Omit<WorkflowStepView, "state">;
 function blankStep(): Draft {
   return {
     slug: "", title: "Nouvelle étape", description: "", actorRoles: [], actorScope: "ROLE", powers: ["APPROVE", "REJECT"],
-    assignRole: null, requireAmount: false, requireCategory: false, requireNote: false, optional: false, confidential: false,
+    assignRole: null, requireAmount: false, autoSkipMaxAmount: null, requireCategory: false, requireNote: false, optional: false, confidential: false,
     emitDeclaration: false, emitExpenseOrder: false, notifyRoles: [], legacyStatus: null,
   };
 }
@@ -194,6 +194,19 @@ function StepEditor({ index, total, step, onChange, onMove, onRemove }: {
         <Flag label="Confidentiel (masqué au demandeur)" checked={step.confidential} onChange={(v) => onChange({ confidential: v })} />
         <Flag label="Émet une déclaration info médicale" checked={step.emitDeclaration} onChange={(v) => onChange({ emitDeclaration: v })} />
         <Flag label="Émet un ordre de dépense" checked={step.emitExpenseOrder} onChange={(v) => onChange({ emitExpenseOrder: v })} />
+      </div>
+
+      <div className="space-y-1 rounded-lg border border-dashed border-primary/40 bg-primary/[0.03] p-2.5">
+        <Label>Franchir automatiquement si le montant ≤ <span className="text-xs font-normal text-muted-foreground">(DZD — optionnel, anti-bureaucratie)</span></Label>
+        <Input
+          type="number"
+          min={0}
+          step={1000}
+          value={step.autoSkipMaxAmount ?? ""}
+          onChange={(e) => onChange({ autoSkipMaxAmount: e.target.value === "" ? null : Math.max(0, Number(e.target.value)) })}
+          placeholder="ex. 50000 — en deçà, l'étape est franchie sans validation humaine"
+        />
+        <p className="text-[11px] text-muted-foreground">Sous ce seuil, l'étape est franchie automatiquement (tracé : « étape franchie automatiquement »). Sans effet sur une désignation, une émission financière ou la décision finale.</p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

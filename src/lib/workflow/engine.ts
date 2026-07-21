@@ -42,6 +42,7 @@ function stepCreate(s: StepInput, i: number): Prisma.WorkflowStepCreateWithoutDe
     powers: s.powers,
     assignRole: s.assignRole ?? null,
     requireAmount: s.requireAmount ?? false,
+    autoSkipMaxAmount: s.autoSkipMaxAmount ?? null,
     requireCategory: s.requireCategory ?? false,
     requireNote: s.requireNote ?? false,
     emitDeclaration: s.emitDeclaration ?? false,
@@ -90,6 +91,46 @@ export function nextStepAfter(def: LoadedDefinition, step: LoadedStep): LoadedSt
   return orderedSteps(def).find((s) => s.position > step.position) ?? null;
 }
 
+/** Une étape est-elle éligible au franchissement automatique pour un montant donné ? */
+function autoSkipEligible(step: LoadedStep, amount: number): boolean {
+  if (step.autoSkipMaxAmount == null) return false;
+  const threshold = toNumber(step.autoSkipMaxAmount);
+  if (!(threshold > 0) || !(amount > 0) || amount > threshold) return false;
+  // Ne JAMAIS franchir automatiquement une désignation ni une émission financière
+  // (sinon plus personne en charge / dépense émise sans décision).
+  if (step.powers.includes("ASSIGN") || step.emitDeclaration || step.emitExpenseOrder) return false;
+  return true;
+}
+
+/**
+ * Franchissement AUTOMATIQUE par seuil de montant (anti-bureaucratie configurable).
+ * À partir de l'étape où l'instance vient d'arriver (`landing`), tant que cette étape
+ * déclare un seuil et que le montant connu est ≤ ce seuil, l'étape est franchie SANS
+ * action humaine — c'est tracé (`WorkflowStepEvent « AUTO_SKIP »`) et la projection legacy
+ * suit l'étape réelle où l'on se pose. Ne franchit jamais la décision finale (dernière
+ * étape sans successeur) : un humain tranche toujours. Retourne l'étape de repos.
+ */
+async function settleAutoSkips(
+  entityType: EntityType, entityId: string, def: LoadedDefinition,
+  instanceId: string, amount: number, landing: LoadedStep | null, viewer: Viewer,
+): Promise<LoadedStep | null> {
+  let current = landing;
+  let guard = 0;
+  while (current && guard++ < 50) {
+    if (!autoSkipEligible(current, amount)) break;
+    const after = nextStepAfter(def, current);
+    if (!after) break; // pas de successeur (décision finale) → on ne saute pas
+    const reason = `Montant ${amount} DZD ≤ seuil ${toNumber(current.autoSkipMaxAmount)} DZD — étape franchie automatiquement.`;
+    await projectApprove(entityType, entityId, current, after, {
+      viewer, note: reason, amount: null, assigneeId: null, emitResult: null,
+      nextLegacyStatus: after.legacyStatus ?? null, emitStep: false,
+    });
+    await recordEvent(instanceId, current, "AUTO_SKIP", viewer, reason, null);
+    current = after;
+  }
+  return current;
+}
+
 // ───────────────────────────── Statut « legacy » de l'entité ─────────────────────────────
 
 const LEGACY_FIELD: Record<string, "status" | "requestStatus"> = {
@@ -123,28 +164,30 @@ interface EntitySummary {
   beneficiary: string | null;
   label: string;
   legacyStatus: string | null;
+  /** Montant estimé/demandé par le demandeur — repli pour le routage par seuil tant qu'aucun montant de travail n'est fixé. */
+  estimatedAmount: number | null;
 }
 
 async function loadEntity(entityType: EntityType, entityId: string): Promise<EntitySummary | null> {
   if (entityType === "SPONSORING") {
-    const r = await prisma.sponsoringRequest.findUnique({ where: { id: entityId }, select: { reference: true, institution: true, requesterId: true, status: true } });
+    const r = await prisma.sponsoringRequest.findUnique({ where: { id: entityId }, select: { reference: true, institution: true, requesterId: true, status: true, amountRequested: true } });
     if (!r) return null;
-    return { name: r.institution, requesterId: r.requesterId, beneficiary: r.institution, label: `Sponsoring ${r.reference} — ${r.institution}`, legacyStatus: r.status };
+    return { name: r.institution, requesterId: r.requesterId, beneficiary: r.institution, label: `Sponsoring ${r.reference} — ${r.institution}`, legacyStatus: r.status, estimatedAmount: r.amountRequested != null ? toNumber(r.amountRequested) : null };
   }
   if (entityType === "CONGRESS_INTERNATIONAL") {
-    const c = await prisma.congressInternational.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true } });
+    const c = await prisma.congressInternational.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true, estimatedBudget: true } });
     if (!c) return null;
-    return { name: c.name, requesterId: c.requesterId, beneficiary: c.name, label: `Congrès — ${c.name}`, legacyStatus: c.requestStatus };
+    return { name: c.name, requesterId: c.requesterId, beneficiary: c.name, label: `Congrès — ${c.name}`, legacyStatus: c.requestStatus, estimatedAmount: c.estimatedBudget != null ? toNumber(c.estimatedBudget) : null };
   }
   if (entityType === "CONGRESS_NATIONAL") {
-    const c = await prisma.congressNational.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true } });
+    const c = await prisma.congressNational.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true, estimatedBudget: true } });
     if (!c) return null;
-    return { name: c.name, requesterId: c.requesterId, beneficiary: c.name, label: `Congrès — ${c.name}`, legacyStatus: c.requestStatus };
+    return { name: c.name, requesterId: c.requesterId, beneficiary: c.name, label: `Congrès — ${c.name}`, legacyStatus: c.requestStatus, estimatedAmount: c.estimatedBudget != null ? toNumber(c.estimatedBudget) : null };
   }
   if (entityType === "EVENT") {
-    const e = await prisma.event.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true } });
+    const e = await prisma.event.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true, estimatedBudget: true } });
     if (!e) return null;
-    return { name: e.name, requesterId: e.requesterId, beneficiary: e.name, label: `Événement — ${e.name}`, legacyStatus: e.requestStatus };
+    return { name: e.name, requesterId: e.requesterId, beneficiary: e.name, label: `Événement — ${e.name}`, legacyStatus: e.requestStatus, estimatedAmount: e.estimatedBudget != null ? toNumber(e.estimatedBudget) : null };
   }
   return null;
 }
@@ -306,14 +349,17 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
       viewer, note, amount: null, assigneeId: null, emitResult: null,
       nextLegacyStatus: next.legacyStatus ?? null, emitStep: false,
     });
-    await prisma.workflowInstance.update({ where: { id: instance.id }, data: { currentSlug: next.slug, status: "IN_PROGRESS" } });
+    // Enchaîne d'éventuels franchissements automatiques par seuil de montant.
+    const skipKnownAmount = toNumber(instance.amount) || (summary.estimatedAmount ?? 0);
+    const landed = (await settleAutoSkips(entityType, entityId, def, instance.id, skipKnownAmount, next, viewer)) ?? next;
+    await prisma.workflowInstance.update({ where: { id: instance.id }, data: { currentSlug: landed.slug, status: "IN_PROGRESS" } });
     await recordEvent(instance.id, step, "SKIP", viewer, note, null);
 
-    const skipTitle = `${CATEGORY_LABELS[category]} — ${next.title} (étape « ${step.title} » sautée)`;
-    if (next.actorScope === "ASSIGNEE" && instance.assigneeId) {
+    const skipTitle = `${CATEGORY_LABELS[category]} — ${landed.title} (étape « ${step.title} » sautée)`;
+    if (landed.actorScope === "ASSIGNEE" && instance.assigneeId) {
       await notifyUser({ userId: instance.assigneeId, type: "ASSIGNMENT", title: skipTitle, body: summary.name, link: entityPath(entityType, entityId) });
     }
-    const skipRoles = (next.notifyRoles as UserRole[]).filter(Boolean);
+    const skipRoles = (landed.notifyRoles as UserRole[]).filter(Boolean);
     if (skipRoles.length) await notifyRoles(skipRoles, { type: "VALIDATION_REQUIRED", title: skipTitle, body: summary.name, link: entityPath(entityType, entityId) });
     await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Étape sautée : « ${step.title} » — ${summary.name} (raison : ${note})` });
     return { ok: true, category };
@@ -347,7 +393,9 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   const instData: Prisma.WorkflowInstanceUpdateInput = {};
   if (assigneeId) instData.assigneeId = assigneeId;
   if (budgetCategoryId) instData.budgetCategoryId = budgetCategoryId;
-  if (emitStep && amount != null) instData.amount = amount;
+  // Le montant d'une étape « Fixer un montant » (proposition) OU de l'étape d'émission (accordé)
+  // devient le montant de TRAVAIL de l'instance : base des franchissements auto par seuil en aval.
+  if (amount != null && (emitStep || step.powers.includes("SET_AMOUNT"))) instData.amount = amount;
   if (Object.keys(instData).length) await prisma.workflowInstance.update({ where: { id: instance.id }, data: instData });
 
   const refreshed = await prisma.workflowInstance.findUnique({ where: { id: instance.id } });
@@ -366,21 +414,26 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
     emitStep,
   });
 
+  // Franchissements AUTOMATIQUES par seuil de montant (anti-bureaucratie) à partir de l'étape suivante.
+  // Montant de référence : montant de travail de l'instance, à défaut l'estimation du demandeur.
+  const knownAmount = toNumber(liveInstance.amount) || (summary.estimatedAmount ?? 0);
+  const landed = await settleAutoSkips(entityType, entityId, def, instance.id, knownAmount, next, viewer);
+
   // Avance l'instance (ou clôture).
   await prisma.workflowInstance.update({
     where: { id: instance.id },
-    data: { currentSlug: next ? next.slug : null, status: next ? "IN_PROGRESS" : "APPROVED" },
+    data: { currentSlug: landed ? landed.slug : null, status: landed ? "IN_PROGRESS" : "APPROVED" },
   });
 
   await recordEvent(instance.id, step, "APPROVE", viewer, note, emitStep ? amount : amount);
 
-  // Notifications d'entrée de l'étape suivante (+ personne désignée).
-  if (next) {
-    if (assigneeId && next.actorScope === "ASSIGNEE") {
-      await notifyUser({ userId: assigneeId, type: "ASSIGNMENT", title: `${CATEGORY_LABELS[category]} — ${next.title}`, body: summary.name, link: entityPath(entityType, entityId) });
+  // Notifications d'entrée de l'étape où l'on se pose réellement (après d'éventuels franchissements auto).
+  if (landed) {
+    if (assigneeId && landed.actorScope === "ASSIGNEE") {
+      await notifyUser({ userId: assigneeId, type: "ASSIGNMENT", title: `${CATEGORY_LABELS[category]} — ${landed.title}`, body: summary.name, link: entityPath(entityType, entityId) });
     }
-    const roles = (next.notifyRoles as UserRole[]).filter(Boolean);
-    if (roles.length) await notifyRoles(roles, { type: "VALIDATION_REQUIRED", title: `${CATEGORY_LABELS[category]} — ${next.title}`, body: summary.name, link: entityPath(entityType, entityId) });
+    const roles = (landed.notifyRoles as UserRole[]).filter(Boolean);
+    if (roles.length) await notifyRoles(roles, { type: "VALIDATION_REQUIRED", title: `${CATEGORY_LABELS[category]} — ${landed.title}`, body: summary.name, link: entityPath(entityType, entityId) });
   } else if (summary.requesterId) {
     await notifyUser({ userId: summary.requesterId, type: "GENERIC", title: `${CATEGORY_LABELS[category]} — pris en charge`, body: summary.name, link: entityPath(entityType, entityId) });
   }

@@ -4062,6 +4062,10 @@ model WorkflowStep {
 
   assignRole       String? // rôle désignable si pouvoir ASSIGN
   requireAmount    Boolean  @default(false)
+  // Seuil anti-bureaucratie : si le montant de travail de l'instance est ≤ ce seuil (DZD),
+  // l'étape est franchie AUTOMATIQUEMENT (tracée : WorkflowStepEvent « AUTO_SKIP »). Jamais
+  // appliqué à une étape de désignation, d'émission financière, ni à la décision finale.
+  autoSkipMaxAmount Decimal? @db.Decimal(14, 2)
   requireCategory  Boolean  @default(false)
   requireNote      Boolean  @default(false)
   emitDeclaration  Boolean  @default(false) // à l'approbation : créer une déclaration info médicale (si PRIM)

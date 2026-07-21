@@ -5,7 +5,7 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
-import { advanceWorkflowInstance } from "./engine";
+import { advanceWorkflowInstance, getDefinition } from "./engine";
 import { getWorkflowForEntity } from "@/lib/queries/workflow";
 
 let dbOk = false;
@@ -223,5 +223,58 @@ suite("Moteur — sauter une étape (tracé & noté, anti-bureaucratie)", () => 
   it("on ne peut pas sauter la décision finale (Direction)", async () => {
     const r = await advanceWorkflowInstance({ viewer: viewer(dirId, "DIRECTION"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "SKIP", note: "raison" });
     expect(r.ok).toBe(false);
+  });
+});
+
+const TAG4 = "__wfauto__";
+
+suite("Moteur — franchissement automatique par seuil de montant (anti-bureaucratie configurable)", () => {
+  let nsId = "", pmId = "", dirId = "", delegId = "", lowId = "", highId = "";
+
+  beforeAll(async () => {
+    const mk = (s: string, role: UserRole) => prisma.user.create({ data: { name: `${TAG4}${s}`, email: `${TAG4}${s}@t.dz`, role, passwordHash: "x" } });
+    const [ns, pm, dir, dg] = await Promise.all([
+      mk("ns", "NATIONAL_SALES"), mk("pm", "PRODUCT_MANAGER"), mk("dir", "DIRECTION"), mk("deleg", "MEDICAL_DELEGATE"),
+    ]);
+    nsId = ns.id; pmId = pm.id; dirId = dir.id; delegId = dg.id;
+    // Petit budget estimé (5 000) sous le seuil / gros budget (50 000) au-dessus.
+    const [low, high] = await Promise.all([
+      prisma.congressInternational.create({ data: { name: `${TAG4}Low`, requestStatus: "AWAITING_PRELIMINARY", requesterId: delegId, estimatedBudget: 5000 } }),
+      prisma.congressInternational.create({ data: { name: `${TAG4}High`, requestStatus: "AWAITING_PRELIMINARY", requesterId: delegId, estimatedBudget: 50000 } }),
+    ]);
+    lowId = low.id; highId = high.id;
+    // Configure un seuil de 10 000 sur l'étape « analysis » (partagée) — restaurée en afterAll.
+    const def = await getDefinition("CONGRESS_INTERNATIONAL");
+    await prisma.workflowStep.updateMany({ where: { definitionId: def.id, slug: "analysis" }, data: { autoSkipMaxAmount: 10000 } });
+  });
+
+  afterAll(async () => {
+    const def = await getDefinition("CONGRESS_INTERNATIONAL").catch(() => null);
+    if (def) await prisma.workflowStep.updateMany({ where: { definitionId: def.id, slug: "analysis" }, data: { autoSkipMaxAmount: null } }).catch(() => {});
+    await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: { in: [lowId, highId] } } } }).catch(() => {});
+    await prisma.workflowInstance.deleteMany({ where: { entityId: { in: [lowId, highId] } } }).catch(() => {});
+    await prisma.congressInternational.deleteMany({ where: { name: { startsWith: TAG4 } } }).catch(() => {});
+    await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG4 } } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAG4 } } }).catch(() => {});
+  });
+
+  it("montant estimé ≤ seuil : l'étape « analysis » est franchie automatiquement (tracé) → on se pose sur la décision finale", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: lowId, action: "APPROVE", assigneeId: pmId, note: "OK" });
+    expect(r.ok).toBe(true);
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: lowId } } });
+    // L'analyse chef de produit a été franchie automatiquement : on est sur la décision finale, PAS clôturé.
+    expect(inst.currentSlug).toBe("final");
+    expect(inst.status).toBe("IN_PROGRESS");
+    const auto = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "AUTO_SKIP", stepSlug: "analysis" } });
+    expect(auto).not.toBeNull();
+  });
+
+  it("montant estimé > seuil : l'étape n'est PAS franchie automatiquement (validation humaine conservée)", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: highId, action: "APPROVE", assigneeId: pmId, note: "OK" });
+    expect(r.ok).toBe(true);
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: highId } } });
+    expect(inst.currentSlug).toBe("analysis");
+    const auto = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "AUTO_SKIP" } });
+    expect(auto).toBeNull();
   });
 });

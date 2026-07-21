@@ -80,6 +80,8 @@ export interface StepInput {
   powers: WorkflowPower[];
   assignRole?: string | null;
   requireAmount?: boolean;
+  /** Seuil DZD : montant de l'instance ≤ ce seuil ⇒ étape franchie automatiquement (tracée). */
+  autoSkipMaxAmount?: number | null;
   requireCategory?: boolean;
   requireNote?: boolean;
   emitDeclaration?: boolean;

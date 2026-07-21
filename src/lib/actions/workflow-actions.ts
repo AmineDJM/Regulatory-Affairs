@@ -83,11 +83,15 @@ function sanitizeStep(raw: unknown, index: number, usedSlugs: Set<string>): Step
   if (actorScope === "ROLE" && actorRoles.length === 0) return { error: `L'étape « ${title} » (portée « Rôles listés ») doit lister au moins un rôle.` };
   if (powers.length === 0) return { error: `L'étape « ${title} » doit accorder au moins un pouvoir.` };
 
+  const rawSkip = typeof r.autoSkipMaxAmount === "number" ? r.autoSkipMaxAmount : typeof r.autoSkipMaxAmount === "string" ? Number(r.autoSkipMaxAmount) : NaN;
+  const autoSkipMaxAmount = Number.isFinite(rawSkip) && rawSkip > 0 ? rawSkip : null;
+
   return {
     slug, title,
     description: typeof r.description === "string" ? r.description.trim() || null : null,
     actorRoles, actorScope, powers, assignRole, notifyRoles,
     requireAmount: r.requireAmount === true,
+    autoSkipMaxAmount,
     requireCategory: r.requireCategory === true,
     requireNote: r.requireNote === true,
     emitDeclaration: r.emitDeclaration === true,
@@ -144,7 +148,8 @@ export async function saveWorkflowDefinition(formData: FormData): Promise<Action
       data: steps.map((s, i) => ({
         definitionId: def.id, position: i, slug: s.slug, title: s.title, description: s.description ?? null,
         actorRoles: s.actorRoles, actorScope: s.actorScope, powers: s.powers, assignRole: s.assignRole ?? null,
-        requireAmount: s.requireAmount ?? false, requireCategory: s.requireCategory ?? false, requireNote: s.requireNote ?? false,
+        requireAmount: s.requireAmount ?? false, autoSkipMaxAmount: s.autoSkipMaxAmount ?? null,
+        requireCategory: s.requireCategory ?? false, requireNote: s.requireNote ?? false,
         emitDeclaration: s.emitDeclaration ?? false, emitExpenseOrder: s.emitExpenseOrder ?? false,
         notifyRoles: s.notifyRoles ?? [], optional: s.optional ?? false, confidential: s.confidential ?? false, legacyStatus: s.legacyStatus ?? null,
       })),
