@@ -30,6 +30,7 @@ export async function saveAdoptionSettings(formData: FormData): Promise<ActionRe
     wDurable: weight("wDurable", D.weights.durable),
     wInteraction: weight("wInteraction", D.weights.interaction),
     wRecency: weight("wRecency", D.weights.recency),
+    wCycle: weight("wCycle", D.weights.cycle),
   };
   if (Object.values(w).reduce((s, x) => s + x, 0) <= 0) {
     return { ok: false, error: "Au moins un poids doit être supérieur à zéro." };
@@ -56,6 +57,7 @@ export async function saveAdoptionSettings(formData: FormData): Promise<ActionRe
     tgtDurable: tgt("tgtDurable", D.targets.durable, 1, 500),
     tgtInteraction: tgt("tgtInteraction", D.targets.interaction, 1, 1000),
     tgtModules: tgt("tgtModules", D.targets.modules, 0, 30),
+    tgtCycleHours: tgt("tgtCycleHours", D.targets.cycleHours, 1, 2000),
   };
 
   await prisma.adoptionSetting.upsert({

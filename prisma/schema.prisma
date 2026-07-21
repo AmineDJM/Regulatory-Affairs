@@ -3682,6 +3682,7 @@ model AdoptionSetting {
   wDurable       Int      @default(15)
   wInteraction   Int      @default(18)
   wRecency       Int      @default(8)
+  wCycle         Int      @default(12) // temps de cycle : vitesse à traiter les éléments qui vous incombent (pas le volume de clics)
   tChampion      Int      @default(80)
   tActive        Int      @default(60)
   tModerate      Int      @default(40)
@@ -3694,6 +3695,7 @@ model AdoptionSetting {
   tgtDurable     Int      @default(12) // contributions abouties pour 100 % de travail durable
   tgtInteraction Int      @default(40) // points d'interaction pour 100 % d'interaction
   tgtModules     Int      @default(0) // modules utilisés pour 100 % d'étendue (0 = auto par rôle)
+  tgtCycleHours  Int      @default(48) // délai médian (h) entre l'arrivée d'un élément et son traitement, pour 100 % (plus rapide = mieux)
   updatedAt      DateTime @updatedAt
   updatedById    String?
 }

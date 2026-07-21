@@ -12,13 +12,13 @@ import { Input, Label } from "@/components/ui/input";
 
 const FIELD_KEY: Record<string, string> = {
   regularity: "wRegularity", time: "wTime", breadth: "wBreadth", diversity: "wDiversity",
-  durable: "wDurable", interaction: "wInteraction", recency: "wRecency",
+  durable: "wDurable", interaction: "wInteraction", recency: "wRecency", cycle: "wCycle",
   champion: "tChampion", active: "tActive", moderate: "tModerate", weak: "tWeak",
 };
 // Champs « cibles » → nom de l'input (clé de colonne tgt*).
 const TARGET_NAME: Record<string, string> = {
   timeHours: "tgtTimeHours", activeDays: "tgtActiveDays", diversity: "tgtDiversity",
-  durable: "tgtDurable", interaction: "tgtInteraction", modules: "tgtModules",
+  durable: "tgtDurable", interaction: "tgtInteraction", modules: "tgtModules", cycleHours: "tgtCycleHours",
 };
 
 /** Réglage (Super Admin) des poids et seuils du score d'adoption. */

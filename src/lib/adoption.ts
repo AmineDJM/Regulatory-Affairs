@@ -61,23 +61,23 @@ export interface AdoptionScore {
 
 export interface AdoptionWeights {
   regularity: number; time: number; breadth: number; diversity: number;
-  durable: number; interaction: number; recency: number;
+  durable: number; interaction: number; recency: number; cycle: number;
 }
 export interface AdoptionThresholds {
   champion: number; active: number; moderate: number; weak: number;
 }
 /** Cibles « 100 % » par dimension : combien il faut pour atteindre le plein sous-score. */
 export interface AdoptionTargets {
-  activeDays: number; timeHours: number; diversity: number; durable: number; interaction: number; modules: number;
+  activeDays: number; timeHours: number; diversity: number; durable: number; interaction: number; modules: number; cycleHours: number;
 }
 export interface AdoptionSettings { weights: AdoptionWeights; thresholds: AdoptionThresholds; targets: AdoptionTargets }
 
-/** Valeurs par défaut (somme des poids = 100) — utilisées si la ligne n'existe pas. */
+/** Valeurs par défaut (poids normalisés à l'exécution, la somme n'a pas à valoir 100). */
 export const DEFAULT_ADOPTION_SETTINGS: AdoptionSettings = {
-  weights: { regularity: 22, time: 10, breadth: 15, diversity: 12, durable: 15, interaction: 18, recency: 8 },
+  weights: { regularity: 22, time: 10, breadth: 15, diversity: 12, durable: 15, interaction: 18, recency: 8, cycle: 12 },
   thresholds: { champion: 80, active: 60, moderate: 40, weak: 20 },
   // modules=0 → cible automatique selon les droits du rôle (équitable).
-  targets: { activeDays: 18, timeHours: 10, diversity: 8, durable: 12, interaction: 40, modules: 0 },
+  targets: { activeDays: 18, timeHours: 10, diversity: 8, durable: 12, interaction: 40, modules: 0, cycleHours: 48 },
 };
 
 /** Métadonnées des dimensions, pour le formulaire de réglage (rendu générique). */
@@ -85,6 +85,7 @@ export const ADOPTION_WEIGHT_FIELDS: { key: keyof AdoptionWeights; label: string
   { key: "regularity", label: "Régularité", help: "Jours distincts d'activité (anti-burst)." },
   { key: "interaction", label: "Interaction", help: "Fils, mentions reçues, messages (bilatéral)." },
   { key: "durable", label: "Travail durable", help: "Tâches terminées, validations, directives accusées." },
+  { key: "cycle", label: "Temps de cycle", help: "Vitesse à traiter ce qui vous incombe (délai arrivée→traitement), pas le volume de clics." },
   { key: "breadth", label: "Étendue (modules)", help: "Modules réellement utilisés (vs droits du rôle)." },
   { key: "diversity", label: "Diversité d'actions", help: "Variété des actions concrètes." },
   { key: "time", label: "Temps d'activité", help: "Durée cumulée (plafonnée)." },
@@ -104,6 +105,7 @@ export const ADOPTION_TARGET_FIELDS: { key: keyof AdoptionTargets; label: string
   { key: "durable", label: "Travail durable", unit: "contributions", help: "Tâches terminées + validations + directives accusées pour 100 %." },
   { key: "interaction", label: "Interaction", unit: "points", help: "Points d'interaction (fils ×3, mentions ×4, messages ×0,5) pour 100 %." },
   { key: "modules", label: "Étendue (modules)", unit: "modules (0 = auto)", help: "Modules utilisés pour 100 %. 0 = cible automatique selon le rôle." },
+  { key: "cycleHours", label: "Temps de cycle", unit: "heures (médiane)", help: "Délai médian arrivée→traitement d'un élément (validation, tâche) donnant 100 %. Plus rapide = mieux ; aucun élément à traiter = dimension neutre." },
 ];
 
 /** Lit les réglages (poids + seuils + cibles) ; valeurs par défaut si absent / souci BDD. */
@@ -112,9 +114,9 @@ export async function getAdoptionSettings(): Promise<AdoptionSettings> {
     const row = await prisma.adoptionSetting.findUnique({ where: { id: "global" } });
     if (!row) return DEFAULT_ADOPTION_SETTINGS;
     return {
-      weights: { regularity: row.wRegularity, time: row.wTime, breadth: row.wBreadth, diversity: row.wDiversity, durable: row.wDurable, interaction: row.wInteraction, recency: row.wRecency },
+      weights: { regularity: row.wRegularity, time: row.wTime, breadth: row.wBreadth, diversity: row.wDiversity, durable: row.wDurable, interaction: row.wInteraction, recency: row.wRecency, cycle: row.wCycle },
       thresholds: { champion: row.tChampion, active: row.tActive, moderate: row.tModerate, weak: row.tWeak },
-      targets: { activeDays: row.tgtActiveDays, timeHours: row.tgtTimeHours, diversity: row.tgtDiversity, durable: row.tgtDurable, interaction: row.tgtInteraction, modules: row.tgtModules },
+      targets: { activeDays: row.tgtActiveDays, timeHours: row.tgtTimeHours, diversity: row.tgtDiversity, durable: row.tgtDurable, interaction: row.tgtInteraction, modules: row.tgtModules, cycleHours: row.tgtCycleHours },
     };
   } catch {
     return DEFAULT_ADOPTION_SETTINGS;
@@ -149,6 +151,8 @@ interface RawRow {
 interface UserMetrics {
   activeDays: number; engagedMin: number; modBreadth: number; diversity: number;
   durable: number; msg: number; conv: number; ment: number; lastSeen: Date | null; prevDays: number;
+  /** Délai médian (h) arrivée→traitement d'un élément (validation/tâche) ; null = aucun élément traité. */
+  cycleMedianHours: number | null;
 }
 type ScoredUser = { id: string; name: string; email: string; role: UserRole; isActive: boolean };
 
@@ -174,6 +178,15 @@ function buildScore(u: ScoredUser, m: UserMetrics, settings: AdoptionSettings): 
     { key: "interaction", label: "Interaction", weight: W.interaction, score: Math.round(clamp01(interaction / tg(T.interaction, 40)) * 100), detail: `${m.conv} fil·s · ${m.ment} mention·s · ${m.msg} msg` },
     { key: "recency", label: "Récence", weight: W.recency, score: Math.round(recency * 100), detail: m.lastSeen ? `vu il y a ${Math.max(0, Math.round(sinceSeenDays))} j` : "jamais vu" },
   ];
+
+  // Temps de cycle : mesuré uniquement pour qui a réellement des éléments à traiter (validations,
+  // tâches). Sinon la dimension est OMISE (pas de pénalité pour un rôle sans file d'attente).
+  // Sous-score = cible / médiane (plafonné) : traiter aussi vite que la cible = 100 %, 2× plus lent = 50 %.
+  if (m.cycleMedianHours != null) {
+    const cycleTarget = tg(T.cycleHours, 48);
+    const cycleScore = Math.round(clamp01(cycleTarget / Math.max(m.cycleMedianHours, 0.1)) * 100);
+    comps.push({ key: "cycle", label: "Temps de cycle", weight: W.cycle, score: cycleScore, detail: `médiane ${m.cycleMedianHours.toFixed(1)} h / cible ${cycleTarget} h` });
+  }
 
   // Normalisé par la somme des poids → toujours 0–100, quels que soient les poids.
   const totalW = comps.reduce((s, c) => s + c.weight, 0) || 1;
@@ -210,6 +223,7 @@ export async function getAdoptionScores(): Promise<AdoptionResult> {
     directivesAck,
     messagesSent,
     mentions,
+    cycleAgg,
   ] = await Promise.all([
     prisma.user.findMany({
       where: { role: { not: "SUPER_ADMIN" } }, // l'admin ne se mesure pas lui-même
@@ -251,6 +265,22 @@ export async function getAdoptionScores(): Promise<AdoptionResult> {
     prisma.directive.groupBy({ by: ["acknowledgedById"], where: { acknowledgedAt: { gte: since } }, _count: { _all: true } }),
     prisma.message.groupBy({ by: ["senderId"], where: { kind: "TEXT", createdAt: { gte: since } }, _count: { _all: true } }),
     prisma.messageMention.groupBy({ by: ["userId"], where: { message: { createdAt: { gte: since } } }, _count: { _all: true } }),
+    // Temps de cycle : délai MÉDIAN (heures) entre l'arrivée d'un élément et son traitement, par acteur.
+    // Sources réelles : validations décidées (createdAt→decidedAt) + tâches terminées (createdAt→completedAt).
+    // Plus court = meilleur. Median (percentile_cont) = robuste aux valeurs extrêmes.
+    prisma.$queryRaw<RawRow[]>`
+      SELECT uid, percentile_cont(0.5) WITHIN GROUP (ORDER BY hrs) AS med FROM (
+        SELECT "validatorId" AS uid, EXTRACT(EPOCH FROM ("decidedAt" - "createdAt")) / 3600.0 AS hrs
+          FROM "ValidationStep"
+          WHERE "validatorId" IS NOT NULL AND "decidedAt" IS NOT NULL
+            AND "decidedAt" >= ${since} AND "decidedAt" >= "createdAt"
+        UNION ALL
+        SELECT "assignedToId" AS uid, EXTRACT(EPOCH FROM ("completedAt" - "createdAt")) / 3600.0 AS hrs
+          FROM "Task"
+          WHERE "assignedToId" IS NOT NULL AND "completedAt" IS NOT NULL
+            AND "completedAt" >= ${since} AND "completedAt" >= "createdAt"
+      ) x
+      GROUP BY uid`,
   ]);
 
   // Indexation par utilisateur.
@@ -273,6 +303,8 @@ export async function getAdoptionScores(): Promise<AdoptionResult> {
   const directiveM = new Map(directivesAck.map((r) => [r.acknowledgedById ?? "", r._count._all]));
   const msgM = new Map(messagesSent.map((r) => [r.senderId ?? "", r._count._all]));
   const mentionM = new Map(mentions.map((r) => [r.userId, r._count._all]));
+  const cycleMed = new Map<string, number>();
+  for (const r of cycleAgg) { const v = num((r as { med?: unknown }).med); if (Number.isFinite(v) && v >= 0) cycleMed.set(r.uid, v); }
 
   const scores: AdoptionScore[] = users.map((u) => buildScore(u, {
     activeDays: days.get(u.id) ?? 0,
@@ -285,6 +317,7 @@ export async function getAdoptionScores(): Promise<AdoptionResult> {
     ment: mentionM.get(u.id) ?? 0,
     lastSeen: u.lastSeenAt ?? u.lastLoginAt ?? null,
     prevDays: prevDays.get(u.id) ?? 0,
+    cycleMedianHours: cycleMed.has(u.id) ? (cycleMed.get(u.id) as number) : null,
   }, settings));
 
   // Tendance du score : delta vs l'instantané le plus ancien de la dernière semaine.
@@ -374,7 +407,7 @@ async function gatherUserMetrics(userId: string): Promise<UserMetrics> {
   const since = new Date(Date.now() - WINDOW_DAYS * 86400000);
   const prevSince = new Date(Date.now() - 2 * WINDOW_DAYS * 86400000);
 
-  const [actAgg, modRows, comboAgg, convAgg, prevAgg, tasksDone, validations, directivesAck, messagesSent, mentions] = await Promise.all([
+  const [actAgg, modRows, comboAgg, convAgg, prevAgg, tasksDone, validations, directivesAck, messagesSent, mentions, cycleAgg] = await Promise.all([
     prisma.$queryRaw<RawRow[]>`
       SELECT COUNT(DISTINCT DATE("createdAt")) AS days,
              COALESCE(SUM(LEAST(COALESCE("durationMs",0), 1800000)),0) AS durms
@@ -399,9 +432,21 @@ async function gatherUserMetrics(userId: string): Promise<UserMetrics> {
     prisma.directive.count({ where: { acknowledgedById: userId, acknowledgedAt: { gte: since } } }),
     prisma.message.count({ where: { senderId: userId, kind: "TEXT", createdAt: { gte: since } } }),
     prisma.messageMention.count({ where: { userId, message: { createdAt: { gte: since } } } }),
+    prisma.$queryRaw<RawRow[]>`
+      SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY hrs) AS med FROM (
+        SELECT EXTRACT(EPOCH FROM ("decidedAt" - "createdAt")) / 3600.0 AS hrs
+          FROM "ValidationStep"
+          WHERE "validatorId" = ${userId} AND "decidedAt" IS NOT NULL AND "decidedAt" >= ${since} AND "decidedAt" >= "createdAt"
+        UNION ALL
+        SELECT EXTRACT(EPOCH FROM ("completedAt" - "createdAt")) / 3600.0 AS hrs
+          FROM "Task"
+          WHERE "assignedToId" = ${userId} AND "completedAt" IS NOT NULL AND "completedAt" >= ${since} AND "completedAt" >= "createdAt"
+      ) x`,
   ]);
 
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { lastSeenAt: true, lastLoginAt: true } });
+  const cycleRaw = (cycleAgg[0] as { med?: unknown } | undefined)?.med;
+  const cycleMedianHours = cycleRaw == null ? null : ((v) => (Number.isFinite(v) && v >= 0 ? v : null))(num(cycleRaw));
 
   return {
     activeDays: num(actAgg[0]?.days),
@@ -414,6 +459,7 @@ async function gatherUserMetrics(userId: string): Promise<UserMetrics> {
     ment: mentions,
     lastSeen: user?.lastSeenAt ?? user?.lastLoginAt ?? null,
     prevDays: num(prevAgg[0]?.days),
+    cycleMedianHours,
   };
 }
 
