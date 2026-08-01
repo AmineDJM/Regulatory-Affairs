@@ -21,7 +21,7 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
   const [employees, entries, budgetOptions] = await Promise.all([
     prisma.employee.findMany({
       where: { isActive: true },
-      select: { id: true, fullName: true, netToPay: true, baseSalary: true },
+      select: { id: true, fullName: true, netToPay: true, grossSalary: true, baseSalary: true },
       orderBy: { fullName: "asc" },
     }),
     prisma.payrollEntry.findMany({ where: { year } }),
@@ -34,13 +34,17 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
   const rows: PayrollRow[] = employees.map((emp) => ({
     employeeId: emp.id,
     name: emp.fullName,
-    defaultAmount: emp.netToPay != null ? toNumber(emp.netToPay) : emp.baseSalary != null ? toNumber(emp.baseSalary) : null,
+    // Pré-remplissage : brut depuis le salaire brut de la fiche (à défaut le salaire de base), net depuis le net à payer.
+    defaultGross: emp.grossSalary != null ? toNumber(emp.grossSalary) : emp.baseSalary != null ? toNumber(emp.baseSalary) : null,
+    defaultNet: emp.netToPay != null ? toNumber(emp.netToPay) : emp.baseSalary != null ? toNumber(emp.baseSalary) : null,
     months: Array.from({ length: 12 }, (_, i) => {
       const e = byKey.get(`${emp.id}:${i + 1}`);
-      if (!e || e.status !== "PAID") return { state: "UNPAID" as const, amount: null, entryId: e?.id ?? null };
+      if (!e || e.status !== "PAID") return { state: "UNPAID" as const, amount: null, net: null, entryId: e?.id ?? null };
       return {
         state: e.budgetTransferredAt ? ("TRANSFERRED" as const) : ("PAID" as const),
-        amount: toNumber(e.net),
+        // `amount` = BRUT (base du transfert budgétaire) ; `net` = ce que perçoit le salarié.
+        amount: toNumber(e.gross),
+        net: toNumber(e.net),
         entryId: e.id,
       };
     }),

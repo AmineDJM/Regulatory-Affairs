@@ -33,9 +33,13 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
   const employeeId = fdStr(formData, "employeeId");
   const year = fdNum(formData, "year");
   const month = fdNum(formData, "month");
-  const amount = fdNum(formData, "amount");
+  // Brut = total imputé au BUDGET ; net = salaire affiché au SALARIÉ.
+  const gross = fdNum(formData, "gross");
+  const net = fdNum(formData, "net");
   if (!employeeId || !year || !month || month < 1 || month > 12) return { ok: false, error: "Paramètres invalides." };
-  if (amount === null || amount <= 0) return { ok: false, error: "Indiquez le montant total du versement." };
+  if (gross === null || gross <= 0) return { ok: false, error: "Indiquez le salaire brut (total imputé au budget)." };
+  if (net === null || net <= 0) return { ok: false, error: "Indiquez le salaire net (montant affiché au salarié)." };
+  if (net > gross) return { ok: false, error: "Le salaire net ne peut pas dépasser le brut." };
 
   const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { fullName: true } });
   if (!employee) return { ok: false, error: "Employé introuvable." };
@@ -64,18 +68,18 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
 
   const now = new Date();
   const data = {
-    net: amount, status: "PAID" as const, paidDate: now,
+    gross, net, status: "PAID" as const, paidDate: now,
     payslipDocumentId,
     employeeNotifyAt: new Date(now.getTime() + NOTIFY_DELAY_MS),
     employeeNotifiedAt: null,
     createdById: existing ? undefined : user.id,
   };
   if (existing) await prisma.payrollEntry.update({ where: { id: existing.id }, data });
-  else await prisma.payrollEntry.create({ data: { employeeId, year, month, gross: amount, ...data, createdById: user.id } });
+  else await prisma.payrollEntry.create({ data: { employeeId, year, month, ...data, createdById: user.id } });
 
   await recordAudit({
     actorId: user.id, action: "VALIDATE", module: "RH", entityType: "PAYROLL",
-    summary: `Paie ${ym(year, month)} — ${employee.fullName} : payé (${amount.toLocaleString("fr-FR")} DZD)`,
+    summary: `Paie ${ym(year, month)} — ${employee.fullName} : payé (brut ${gross.toLocaleString("fr-FR")} → budget · net ${net.toLocaleString("fr-FR")} DZD au salarié)`,
   });
   revalidatePath(PATH);
   return { ok: true };
@@ -149,8 +153,9 @@ export async function transferPayrollToBudget(formData: FormData): Promise<Actio
         date: new Date(),
         direction: "OUT",
         category: "SALAIRE",
-        label: `Salaire ${ym(year, month)} — ${entry.employee.fullName}`,
-        amount: entry.net,
+        label: `Salaire ${ym(year, month)} — ${entry.employee.fullName} (brut)`,
+        // Le BRUT est le coût réel imputé au budget (le net est ce que perçoit le salarié).
+        amount: entry.gross,
         method: "BANK_TRANSFER",
         account: "Banque",
         counterparty: entry.employee.fullName,
@@ -165,7 +170,7 @@ export async function transferPayrollToBudget(formData: FormData): Promise<Actio
       where: { id: entry.id },
       data: { transactionId: tx.id, budgetTransferredAt: new Date(), budgetCategoryId },
     });
-    total += Number(entry.net);
+    total += Number(entry.gross);
   }
 
   await recordAudit({

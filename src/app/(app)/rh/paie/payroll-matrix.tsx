@@ -12,14 +12,18 @@ import { formatCurrency, formatMonth } from "@/lib/utils";
 
 export interface PayrollCell {
   state: "UNPAID" | "PAID" | "TRANSFERRED";
+  /** Brut = base du transfert budgétaire. */
   amount: number | null;
+  /** Net = ce que perçoit le salarié. */
+  net: number | null;
   entryId: string | null;
 }
 export interface PayrollRow {
   employeeId: string;
   name: string;
-  /** Net à payer de la fiche employé (pré-rempli au marquage). */
-  defaultAmount: number | null;
+  /** Pré-remplissage au marquage : salaire brut (→ budget) et net (→ salarié). */
+  defaultGross: number | null;
+  defaultNet: number | null;
   months: PayrollCell[]; // index 0 = janvier
 }
 
@@ -94,7 +98,7 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
                       <div className="group relative inline-flex flex-col items-center">
                         <span
                           className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${cell.state === "TRANSFERRED" ? "bg-primary/10 text-primary" : "bg-success/15 text-success"}`}
-                          title={`${cell.amount != null ? formatCurrency(cell.amount) : ""}${cell.state === "TRANSFERRED" ? " · transféré au budget" : " · payé (annulable avant transfert)"}`}
+                          title={`${cell.amount != null ? `Brut ${formatCurrency(cell.amount)} (→ budget)` : ""}${cell.net != null ? ` · Net ${formatCurrency(cell.net)} (salarié)` : ""}${cell.state === "TRANSFERRED" ? " · transféré au budget" : " · payé (annulable avant transfert)"}`}
                         >
                           <Check className="h-3 w-3" /> Payé
                         </span>
@@ -140,10 +144,17 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
             }}
             className="space-y-4"
           >
-            <div className="space-y-1.5">
-              <Label htmlFor="pay-amount">Montant total du versement (DZD) <span className="text-destructive">*</span></Label>
-              <Input id="pay-amount" name="amount" type="number" step="any" min="1" required defaultValue={paying.row.defaultAmount ?? undefined} />
-              <p className="text-xs text-muted-foreground">Pré-rempli avec le « Net à payer » de la fiche employé — modifiable.</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="pay-gross">Salaire brut (DZD) <span className="text-destructive">*</span></Label>
+                <Input id="pay-gross" name="gross" type="number" step="any" min="1" required defaultValue={paying.row.defaultGross ?? undefined} />
+                <p className="text-xs text-muted-foreground">Total imputé au <span className="font-medium text-foreground">budget</span>. Pré-rempli depuis la fiche employé — modifiable.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pay-net">Salaire net (DZD) <span className="text-destructive">*</span></Label>
+                <Input id="pay-net" name="net" type="number" step="any" min="1" required defaultValue={paying.row.defaultNet ?? undefined} />
+                <p className="text-xs text-muted-foreground">Montant <span className="font-medium text-foreground">affiché au salarié</span>. Ne peut pas dépasser le brut.</p>
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pay-file">Fiche de paie <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
@@ -179,7 +190,7 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                {transferable.length} salaire·s payé·s non transféré·s pour {formatMonth(ym(year, tMonth))} — total {formatCurrency(transferTotal)}.
+                {transferable.length} salaire·s payé·s non transféré·s pour {formatMonth(ym(year, tMonth))} — total <span className="font-medium text-foreground">brut</span> {formatCurrency(transferTotal)} (montant imputé au budget).
               </p>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setTransfer(false)}>Annuler</Button>
@@ -199,12 +210,12 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
                   ))}
                 </ul>
                 <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
-                  <span className="font-medium">Total ({transferable.length} salaire·s)</span>
+                  <span className="font-medium">Total brut ({transferable.length} salaire·s)</span>
                   <span className="text-base font-semibold">{formatCurrency(transferTotal)}</span>
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">Catégorie budgétaire : <span className="font-medium text-foreground">{categoryLabel}</span></p>
               </div>
-              <p className="text-xs text-muted-foreground">Une écriture de trésorerie « Salaire » (sortie) est créée par employé, imputée à cette catégorie. Les lignes transférées sont ensuite verrouillées.</p>
+              <p className="text-xs text-muted-foreground">Une écriture de trésorerie « Salaire » (sortie) est créée par employé sur le montant <span className="font-medium text-foreground">brut</span> (coût réel), imputée à cette catégorie. Le net reste ce que perçoit le salarié. Les lignes transférées sont ensuite verrouillées.</p>
               {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
               <div className="flex justify-between gap-2">
                 <Button type="button" variant="outline" onClick={() => setStep(1)} disabled={busy}><ArrowLeft className="h-4 w-4" /> Retour / modifier</Button>
