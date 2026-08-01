@@ -49,22 +49,31 @@ export async function persistUploadedDocument(
   }
 
   // Versionnage : incrémente selon les documents existants de même nom sur l'entité.
-  const previous = await prisma.document.count({ where: { entityType, entityId, name: file.name } });
-  await prisma.document.create({
-    data: {
-      name: file.name,
-      category,
-      entityType,
-      entityId,
-      stepKey,
-      fileKey: key,
-      mimeType: file.type || null,
-      sizeBytes: file.size,
-      version: previous + 1,
-      confidentiality,
-      uploadedById: userId,
-    },
-  });
+  // Toute erreur d'écriture est CAPTURÉE et renvoyée telle quelle (jamais une 500 opaque) : le
+  // widget de téléversement affiche alors la vraie cause, et un fichier fautif ne fait pas échouer
+  // le lot entier.
+  try {
+    const previous = await prisma.document.count({ where: { entityType, entityId, name: file.name } });
+    await prisma.document.create({
+      data: {
+        name: file.name,
+        category,
+        entityType,
+        entityId,
+        stepKey,
+        fileKey: key,
+        mimeType: file.type || null,
+        sizeBytes: file.size,
+        version: previous + 1,
+        confidentiality,
+        uploadedById: userId,
+      },
+    });
+  } catch (err) {
+    console.error("[upload] document.create failed", { name: file.name, entityType, entityId }, err);
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Enregistrement impossible : ${msg}` };
+  }
 
   await recordAudit({
     actorId: userId,
@@ -73,6 +82,6 @@ export async function persistUploadedDocument(
     entityType,
     entityId,
     summary: `Document « ${file.name} » téléversé`,
-  });
+  }).catch((e) => console.error("[upload] audit failed (non-bloquant)", e));
   return { ok: true };
 }

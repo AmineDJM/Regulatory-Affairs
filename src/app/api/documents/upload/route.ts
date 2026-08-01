@@ -31,8 +31,8 @@ export async function POST(req: NextRequest) {
   }
   if (files.length === 0) return NextResponse.json({ error: "Aucun fichier." }, { status: 400 });
 
-  // Une seule lecture des réglages pour tout le lot.
-  const maxUploadMb = (await getAppSettings()).maxUploadMb;
+  // Une seule lecture des réglages pour tout le lot (repli généreux si la lecture échoue).
+  const maxUploadMb = await getAppSettings().then((s) => s.maxUploadMb).catch(() => 200);
   // Regulatory : tout document officiellement téléversé est AUSSI répliqué dans le Drive, sous le
   // dossier du produit (miroir automatique, plus d'option manuelle). On garde le binaire pour ça.
   const isRegulatory = entityType === "REGULATORY_PRODUCT";
@@ -40,14 +40,21 @@ export async function POST(req: NextRequest) {
   let created = 0;
   const errors: { name: string; error: string }[] = [];
   for (const file of files) {
-    // Lecture unique du binaire : réutilisée par l'enregistrement ET le miroir Drive (Regulatory).
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, file, maxUploadMb, buffer });
-    if (r.ok) {
-      created++;
-      if (isRegulatory) toMirror.push({ name: file.name, data: buffer, mime: file.type || undefined });
-    } else {
-      errors.push({ name: file.name, error: r.error ?? "Échec du téléversement." });
+    // Chaque fichier est isolé : une erreur (lecture, stockage, base) devient une erreur DE CE
+    // fichier avec sa cause exacte — jamais une 500 opaque qui ferait échouer tout le lot.
+    try {
+      // Lecture unique du binaire : réutilisée par l'enregistrement ET le miroir Drive (Regulatory).
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, file, maxUploadMb, buffer });
+      if (r.ok) {
+        created++;
+        if (isRegulatory) toMirror.push({ name: file.name, data: buffer, mime: file.type || undefined });
+      } else {
+        errors.push({ name: file.name, error: r.error ?? "Échec du téléversement." });
+      }
+    } catch (err) {
+      console.error("[documents upload] fichier en échec", { name: file.name, entityType, entityId }, err);
+      errors.push({ name: file.name, error: err instanceof Error ? err.message : "Échec du téléversement." });
     }
   }
 
