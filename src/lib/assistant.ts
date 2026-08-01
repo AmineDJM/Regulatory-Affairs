@@ -18,7 +18,7 @@
  * affiche « IA non configurée ».
  */
 
-import type { AdminRequestType, CongressRequestStatus, Priority, CalendarEventKind } from "@prisma/client";
+import type { AdminRequestType, CongressRequestStatus, Priority, CalendarEventKind, HrRequestType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
@@ -134,6 +134,14 @@ export type AssistantActionPayload =
       description?: string | null;
       inviteeIds?: string[];
       inviteeNames?: string | null;
+    }
+  | {
+      kind: "create_hr_request";
+      type: string; // HrRequestType
+      details?: string | null;
+      expenseMonth?: string | null; // YYYY-MM (note de frais)
+      periodStart?: string | null;
+      periodEnd?: string | null;
     };
 
 export type AssistantActionKind = AssistantActionPayload["kind"];
@@ -175,6 +183,23 @@ const MODULE_FR: Partial<Record<Module, string>> = {
   VALIDATIONS: "Demandes de validations", DRIVE: "Drive", ADMIN_REQUESTS: "Bureau du secrétariat",
   PROCESS_INTELLIGENCE: "Process Intelligence", ADMIN: "Administration",
 };
+
+// Libellés FR des types de demande RH (self-service) — pour l'outil + la carte de confirmation.
+const HR_REQUEST_FR: Record<string, string> = {
+  WORK_CERTIFICATE: "Attestation de travail", CNAS_CERTIFICATE: "Attestation CNAS",
+  SALARY_STATEMENT: "Relevé des émoluments", DOMICILIATION: "Domiciliation de salaire",
+  LEAVE_CERTIFICATE: "Attestation de congé", LEAVE_TITLE: "Titre de congé",
+  MISSION_ORDER: "Ordre de mission", EXPENSE_REPORT: "Note de frais",
+  EXCEPTIONAL_EXIT: "Sortie exceptionnelle", SICK_LEAVE: "Arrêt maladie",
+  ANNUAL_LEAVE: "Congé annuel", UNPAID_LEAVE: "Congé sans solde",
+  SPECIAL_LEAVE: "Congé exceptionnel", MATERNITY_LEAVE: "Congé de maternité",
+  HR_INTERVIEW: "Entrevue RH", OTHER: "Autre demande RH",
+};
+const HR_REQUEST_TYPES = Object.keys(HR_REQUEST_FR);
+// Types exigeant une PÉRIODE (début requis) et, pour les congés, une fin.
+const HR_LEAVE_TYPES = new Set(["ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "SICK_LEAVE"]);
+const HR_PERIOD_TYPES = new Set([...HR_LEAVE_TYPES, "EXCEPTIONAL_EXIT"]);
+const YM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 // ───────────────────────────── Définition des outils ─────────────────────────────
 
@@ -414,6 +439,22 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
         inviteeNames: { type: "string", description: "Noms des collègues à inviter, séparés par des virgules (optionnel)." },
       },
       required: ["title", "date"],
+    },
+  },
+  {
+    name: "create_hr_request",
+    description:
+      "PROPOSE une DEMANDE RH en libre-service POUR LE COMPTE DE L'UTILISATEUR (son propre dossier RH) : note de frais, ordre de mission, titre/attestation de congé, congé annuel/sans solde/exceptionnel/maternité, arrêt maladie, sortie exceptionnelle, attestation de travail/CNAS, relevé des émoluments, domiciliation, entrevue RH. N'exécute rien : confirmation requise. Choisir le `type` exact. Pour une NOTE DE FRAIS, `expenseMonth` (AAAA-MM) est obligatoire. Pour un CONGÉ/absence, indiquer `periodStart` (et `periodEnd` pour les congés). Ne rien inventer : demander les dates/mois manquants à l'utilisateur.",
+    input_schema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: HR_REQUEST_TYPES, description: "Type de demande RH. Ex. EXPENSE_REPORT = note de frais, MISSION_ORDER = ordre de mission, ANNUAL_LEAVE = congé annuel." },
+        details: { type: "string", description: "Précisions / motif / objet de la demande." },
+        expenseMonth: { type: "string", description: "Mois concerné par la note de frais, AAAA-MM (obligatoire pour EXPENSE_REPORT)." },
+        periodStart: { type: "string", description: "Début du congé / de l'absence, AAAA-MM-JJ (congés & absences)." },
+        periodEnd: { type: "string", description: "Fin du congé, AAAA-MM-JJ (congés à jours entiers)." },
+      },
+      required: ["type"],
     },
   },
 ];
@@ -918,6 +959,32 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  if (toolName === "create_hr_request") {
+    // Libre-service RH : tout employé peut faire une demande pour SON dossier (vérif. du dossier à l'exécution).
+    if (!userCan(user, "WORKSPACE", "VIEW")) return { error: "Vous n'avez pas accès aux demandes RH." };
+    const type = asStr(input, "type").toUpperCase();
+    if (!HR_REQUEST_TYPES.includes(type)) return { error: "Type de demande RH inconnu." };
+    const expenseMonth = asStr(input, "expenseMonth").trim() || null;
+    if (type === "EXPENSE_REPORT" && !(expenseMonth && YM_RE.test(expenseMonth))) {
+      return { error: "Pour une note de frais, précisez le mois concerné (AAAA-MM)." };
+    }
+    const periodStart = asStr(input, "periodStart") ? isoDate(asStr(input, "periodStart")) : null;
+    const periodEnd = asStr(input, "periodEnd") ? isoDate(asStr(input, "periodEnd")) : null;
+    if (HR_PERIOD_TYPES.has(type) && !periodStart) return { error: "Indiquez la date de début du congé / de l'absence (AAAA-MM-JJ)." };
+    if (HR_LEAVE_TYPES.has(type) && !periodEnd) return { error: "Indiquez la date de fin du congé (AAAA-MM-JJ)." };
+    if (periodStart && periodEnd && periodEnd < periodStart) return { error: "La date de fin précède la date de début." };
+    pastWarning("Le début de la période", periodStart, warnings);
+    const details = asStr(input, "details").trim() || null;
+    const fields = [{ label: "Demande RH", value: HR_REQUEST_FR[type] }];
+    if (type === "EXPENSE_REPORT" && expenseMonth) fields.push({ label: "Mois", value: expenseMonth });
+    if (periodStart || periodEnd) fields.push({ label: "Période", value: [periodStart, periodEnd].filter(Boolean).join(" → ") });
+    if (details) fields.push({ label: "Précisions", value: details });
+    return {
+      kind: "create_hr_request", module: "RH", title: "Créer une demande RH", fields, warnings,
+      payload: { kind: "create_hr_request", type, details, expenseMonth: type === "EXPENSE_REPORT" ? expenseMonth : null, periodStart, periodEnd },
+    };
+  }
+
   if (toolName === "create_calendar_event") {
     if (!userCan(user, "WORKSPACE", "CREATE")) return { error: "Vous n'avez pas accès au calendrier." };
     const title = asStr(input, "title");
@@ -1323,6 +1390,32 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", entityType: scope === "INTL" ? "CONGRESS_INTERNATIONAL" : "CONGRESS_NATIONAL", entityId: created.id, summary: `Demande de congrès « ${name} » créée via l'assistant` });
     await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Demande de congrès à valider (préliminaire)", body: name, link: `${path}/${created.id}` });
     return { ok: true, message: `Demande de congrès « ${name} » créée (en attente de validation préliminaire de la Direction).`, link: `${path}/${created.id}`, revalidate: [path] };
+  }
+
+  if (payload?.kind === "create_hr_request") {
+    const type = (payload.type ?? "").toUpperCase();
+    if (!HR_REQUEST_TYPES.includes(type)) return { ok: false, error: "Type de demande RH inconnu." };
+    // Libre-service : la demande est créée pour le dossier RH de l'utilisateur (jamais pour un autre).
+    const employee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true, fullName: true } });
+    if (!employee) return { ok: false, error: "Aucun dossier RH n'est lié à votre compte. Contactez les RH." };
+    const expenseMonth = type === "EXPENSE_REPORT" ? (payload.expenseMonth ?? "").trim() : "";
+    if (type === "EXPENSE_REPORT" && !YM_RE.test(expenseMonth)) return { ok: false, error: "Mois de la note de frais manquant ou invalide (AAAA-MM)." };
+    const periodStart = dateValue(payload.periodStart);
+    const periodEnd = dateValue(payload.periodEnd);
+    if (HR_PERIOD_TYPES.has(type) && !periodStart) return { ok: false, error: "Date de début du congé / de l'absence manquante." };
+    if (HR_LEAVE_TYPES.has(type) && !periodEnd) return { ok: false, error: "Date de fin du congé manquante." };
+    if (periodStart && periodEnd && periodEnd < periodStart) return { ok: false, error: "La date de fin précède la date de début." };
+    const periodDays = periodStart && periodEnd ? Math.floor((periodEnd.getTime() - periodStart.getTime()) / 86400000) + 1 : null;
+    await prisma.hrDocumentRequest.create({
+      data: {
+        employeeId: employee.id, type: type as HrRequestType, details: payload.details?.trim() || null,
+        expenseMonth: type === "EXPENSE_REPORT" ? expenseMonth : null,
+        periodStart, periodEnd, periodDays,
+      },
+    });
+    await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", entityType: "EMPLOYEE", entityId: employee.id, summary: `Demande RH « ${HR_REQUEST_FR[type]} » créée via l'assistant` });
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Nouvelle demande RH", body: `${employee.fullName} — ${HR_REQUEST_FR[type]}`, link: `/rh/${employee.id}` });
+    return { ok: true, message: `Demande RH « ${HR_REQUEST_FR[type]} » créée (en attente de traitement RH).`, link: "/mon-dossier", revalidate: ["/mon-dossier", "/rh"] };
   }
 
   if (payload?.kind === "create_notification") {
