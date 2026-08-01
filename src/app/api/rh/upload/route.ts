@@ -8,6 +8,7 @@ import { validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
+import { mirrorEmployeeContractToDrive } from "@/lib/hr-drive-mirror";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof File)) return NextResponse.json({ error: "Fichier manquant." }, { status: 400 });
   const employeeId = (form.get("employeeId") as string) || "";
   if (!employeeId) return NextResponse.json({ error: "Employé manquant." }, { status: 400 });
-  const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { id: true, userId: true } });
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { id: true, userId: true, fullName: true } });
   if (!employee) return NextResponse.json({ error: "Employé introuvable." }, { status: 404 });
 
   const err = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
@@ -56,6 +57,13 @@ export async function POST(req: NextRequest) {
     if (employee.userId) {
       await notifyUser({ userId: employee.userId, type: "GENERIC", title: "Votre document RH est prêt", body: doc.name, link: "/mon-dossier" });
     }
+  }
+
+  // Contrat / avenant : AUSSI enregistré dans le Drive (« RH — Contrats / <employé> »), en
+  // arrière-plan et best-effort — ne bloque jamais le dépôt RH.
+  if (category === "CONTRACT" || category === "AMENDMENT") {
+    void mirrorEmployeeContractToDrive({ ownerId: user.id, employeeName: employee.fullName, filename: doc.name, data: buf, mime: file.type || undefined })
+      .catch((e) => console.error("[rh upload] miroir contrat → Drive échoué", e));
   }
 
   await recordAudit({ actorId: user.id, action: "UPLOAD", module: "RH", entityType: "EMPLOYEE", entityId: employeeId, summary: `Document RH « ${doc.name} »` });
