@@ -25,6 +25,9 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles, broadcastNotification, type BroadcastAudience } from "@/lib/notify";
 import { createEventForUser, algiersInputToUtc, CALENDAR_KINDS } from "@/lib/calendar";
 import { createDossierRecord } from "@/lib/dossiers-core";
+import { createSponsoring } from "@/lib/actions/sponsoring-actions";
+import { createEvent } from "@/lib/actions/event-actions";
+import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
 import { findDirectConversation } from "@/lib/messaging";
 import { getMailAccount, listMessages, getMessage, sendMail } from "@/lib/mail";
 import {
@@ -142,6 +145,35 @@ export type AssistantActionPayload =
       expenseMonth?: string | null; // YYYY-MM (note de frais)
       periodStart?: string | null;
       periodEnd?: string | null;
+    }
+  | {
+      kind: "create_sponsoring_request";
+      institution: string;
+      type?: string | null;
+      specialty?: string | null;
+      city?: string | null;
+      amountRequested?: number | null;
+      product?: string | null;
+      description?: string | null;
+      doctorName?: string | null;
+    }
+  | {
+      kind: "create_event_request";
+      name: string;
+      specialty?: string | null;
+      city?: string | null;
+      country?: string | null;
+      startDate?: string | null;
+      endDate?: string | null;
+      estimatedBudget?: number | null;
+      description?: string | null;
+    }
+  | {
+      kind: "create_promo_material_request";
+      title: string;
+      materialType?: string | null;
+      amount?: number | null;
+      description?: string | null;
     };
 
 export type AssistantActionKind = AssistantActionPayload["kind"];
@@ -179,7 +211,7 @@ const MODULE_FR: Partial<Record<Module, string>> = {
   FINANCES: "Finances", RH: "Ressources humaines", CONGRESS_INTERNATIONAL: "Congrès internationaux",
   CONGRESS_NATIONAL: "Congrès nationaux", EVENTS: "Events (billetterie)", SALES: "Ventes",
   LOGISTICS: "Logistique PCH", PCH: "Marchés PCH", STOCKS: "Stocks PCH",
-  MEDICAL: "Promotion médicale", BUSINESS_DEVELOPMENT: "Business Development",
+  MEDICAL: "Promotion médicale", BUSINESS_DEVELOPMENT: "Business Development", PROMO_MATERIAL: "Matériel promotionnel",
   VALIDATIONS: "Demandes de validations", DRIVE: "Drive", ADMIN_REQUESTS: "Bureau du secrétariat",
   PROCESS_INTELLIGENCE: "Process Intelligence", ADMIN: "Administration",
 };
@@ -455,6 +487,59 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
         periodEnd: { type: "string", description: "Fin du congé, AAAA-MM-JJ (congés à jours entiers)." },
       },
       required: ["type"],
+    },
+  },
+  {
+    name: "create_sponsoring_request",
+    description:
+      "PROPOSE une demande de prise en charge de SPONSORING (institution / association / service), au stade préliminaire (validation Direction ensuite). N'exécute rien : confirmation requise. Réservé aux utilisateurs ayant le module Sponsoring. Pour un médecin lié, le retrouver via search_doctors (jamais d'invention).",
+    input_schema: {
+      type: "object",
+      properties: {
+        institution: { type: "string", description: "Institution / association / service bénéficiaire (obligatoire)." },
+        type: { type: "string", description: "Type de sponsoring (ex. congrès, formation, association…)." },
+        specialty: { type: "string", description: "Spécialité concernée." },
+        city: { type: "string", description: "Ville." },
+        amountRequested: { type: "number", description: "Montant demandé en DZD." },
+        product: { type: "string", description: "Produit concerné." },
+        doctorName: { type: "string", description: "Médecin lié (optionnel), tel que retrouvé via search_doctors." },
+        description: { type: "string", description: "Objet / motif de la demande." },
+      },
+      required: ["institution"],
+    },
+  },
+  {
+    name: "create_event_request",
+    description:
+      "PROPOSE la création d'un ÉVÉNEMENT (congrès/séminaire/webinar organisé par l'entreprise). N'exécute rien : confirmation requise. Réservé aux utilisateurs ayant le module Events.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Nom de l'événement (obligatoire)." },
+        specialty: { type: "string", description: "Spécialité concernée." },
+        city: { type: "string", description: "Ville." },
+        country: { type: "string", description: "Pays." },
+        startDate: { type: "string", description: "Date de début AAAA-MM-JJ." },
+        endDate: { type: "string", description: "Date de fin AAAA-MM-JJ." },
+        estimatedBudget: { type: "number", description: "Budget estimé en DZD." },
+        description: { type: "string", description: "Détails / objet." },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "create_promo_material_request",
+    description:
+      "PROPOSE une demande de MATÉRIEL PROMOTIONNEL (Ad & Pro) : lance la prospection d'agences via l'assistante de direction. N'exécute rien : confirmation requise. Réservé au Marketing (module Matériel promotionnel).",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Intitulé du matériel demandé (obligatoire)." },
+        materialType: { type: "string", description: "Type de matériel (optionnel)." },
+        amount: { type: "number", description: "Montant estimé en DZD (optionnel)." },
+        description: { type: "string", description: "Précisions / cahier des charges." },
+      },
+      required: ["title"],
     },
   },
 ];
@@ -985,6 +1070,80 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  if (toolName === "create_sponsoring_request") {
+    if (!userCan(user, "SPONSORING", "CREATE")) return { error: "Vous n'avez pas accès aux demandes de sponsoring." };
+    const institution = asStr(input, "institution").trim();
+    if (!institution) return { error: "L'institution / bénéficiaire est obligatoire." };
+    let doctorName: string | null = null;
+    const doctorQuery = asStr(input, "doctorName");
+    if (doctorQuery) {
+      const d = await findDoctor(doctorQuery, user);
+      if (d) doctorName = d.name;
+      else warnings.push(`Médecin « ${doctorQuery} » introuvable dans votre périmètre — la demande sera créée sans médecin lié.`);
+    }
+    const amountRaw = input.amountRequested;
+    const amountRequested = typeof amountRaw === "number" && Number.isFinite(amountRaw) ? amountRaw : null;
+    const fields = [{ label: "Bénéficiaire", value: institution }];
+    if (asStr(input, "type")) fields.push({ label: "Type", value: asStr(input, "type") });
+    if (asStr(input, "specialty")) fields.push({ label: "Spécialité", value: asStr(input, "specialty") });
+    if (asStr(input, "city")) fields.push({ label: "Ville", value: asStr(input, "city") });
+    if (asStr(input, "product")) fields.push({ label: "Produit", value: asStr(input, "product") });
+    if (doctorName) fields.push({ label: "Médecin", value: doctorName });
+    if (amountRequested !== null) fields.push({ label: "Montant demandé", value: `${amountRequested.toLocaleString("fr-FR")} DZD` });
+    if (asStr(input, "description")) fields.push({ label: "Objet", value: asStr(input, "description") });
+    return {
+      kind: "create_sponsoring_request", module: "SPONSORING", title: "Créer une demande de sponsoring", fields, warnings,
+      payload: {
+        kind: "create_sponsoring_request", institution,
+        type: asStr(input, "type") || null, specialty: asStr(input, "specialty") || null, city: asStr(input, "city") || null,
+        amountRequested, product: asStr(input, "product") || null, description: asStr(input, "description") || null, doctorName,
+      },
+    };
+  }
+
+  if (toolName === "create_event_request") {
+    if (!userCan(user, "EVENTS", "CREATE")) return { error: "Vous n'avez pas accès aux événements." };
+    const name = asStr(input, "name").trim();
+    if (!name) return { error: "Le nom de l'événement est obligatoire." };
+    const startDate = asStr(input, "startDate") ? isoDate(asStr(input, "startDate")) : null;
+    const endDate = asStr(input, "endDate") ? isoDate(asStr(input, "endDate")) : null;
+    pastWarning("La date de début", startDate, warnings);
+    if (startDate && endDate && endDate < startDate) warnings.push("La date de fin précède la date de début.");
+    const budgetRaw = input.estimatedBudget;
+    const estimatedBudget = typeof budgetRaw === "number" && Number.isFinite(budgetRaw) ? budgetRaw : null;
+    const fields = [{ label: "Événement", value: name }];
+    if (asStr(input, "specialty")) fields.push({ label: "Spécialité", value: asStr(input, "specialty") });
+    const place = [asStr(input, "city"), asStr(input, "country")].filter(Boolean).join(", ");
+    if (place) fields.push({ label: "Lieu", value: place });
+    if (startDate || endDate) fields.push({ label: "Dates", value: [startDate, endDate].filter(Boolean).join(" → ") });
+    if (estimatedBudget !== null) fields.push({ label: "Budget estimé", value: `${estimatedBudget.toLocaleString("fr-FR")} DZD` });
+    if (asStr(input, "description")) fields.push({ label: "Détails", value: asStr(input, "description") });
+    return {
+      kind: "create_event_request", module: "EVENTS", title: "Créer un événement", fields, warnings,
+      payload: {
+        kind: "create_event_request", name,
+        specialty: asStr(input, "specialty") || null, city: asStr(input, "city") || null, country: asStr(input, "country") || null,
+        startDate, endDate, estimatedBudget, description: asStr(input, "description") || null,
+      },
+    };
+  }
+
+  if (toolName === "create_promo_material_request") {
+    if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { error: "La demande de matériel promotionnel est réservée au Marketing." };
+    const title = asStr(input, "title").trim();
+    if (!title) return { error: "L'intitulé du matériel est obligatoire." };
+    const amountRaw = input.amount;
+    const amount = typeof amountRaw === "number" && Number.isFinite(amountRaw) ? amountRaw : null;
+    const fields = [{ label: "Matériel", value: title }];
+    if (asStr(input, "materialType")) fields.push({ label: "Type", value: asStr(input, "materialType") });
+    if (amount !== null) fields.push({ label: "Montant estimé", value: `${amount.toLocaleString("fr-FR")} DZD` });
+    if (asStr(input, "description")) fields.push({ label: "Précisions", value: asStr(input, "description") });
+    return {
+      kind: "create_promo_material_request", module: "PROMO_MATERIAL", title: "Créer une demande de matériel promotionnel", fields, warnings,
+      payload: { kind: "create_promo_material_request", title, materialType: asStr(input, "materialType") || null, amount, description: asStr(input, "description") || null },
+    };
+  }
+
   if (toolName === "create_calendar_event") {
     if (!userCan(user, "WORKSPACE", "CREATE")) return { error: "Vous n'avez pas accès au calendrier." };
     const title = asStr(input, "title");
@@ -1416,6 +1575,56 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", entityType: "EMPLOYEE", entityId: employee.id, summary: `Demande RH « ${HR_REQUEST_FR[type]} » créée via l'assistant` });
     await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Nouvelle demande RH", body: `${employee.fullName} — ${HR_REQUEST_FR[type]}`, link: `/rh/${employee.id}` });
     return { ok: true, message: `Demande RH « ${HR_REQUEST_FR[type]} » créée (en attente de traitement RH).`, link: "/mon-dossier", revalidate: ["/mon-dossier", "/rh"] };
+  }
+
+  if (payload?.kind === "create_sponsoring_request") {
+    if (!userCan(user, "SPONSORING", "CREATE")) return { ok: false, error: "Vous n'avez pas le droit de créer une demande de sponsoring." };
+    const institution = (payload.institution ?? "").trim();
+    if (!institution) return { ok: false, error: "L'institution / bénéficiaire est obligatoire." };
+    const fd = new FormData();
+    fd.set("institution", institution);
+    if (payload.type) fd.set("type", payload.type);
+    if (payload.specialty) fd.set("specialty", payload.specialty);
+    if (payload.city) fd.set("city", payload.city);
+    if (payload.product) fd.set("product", payload.product);
+    if (payload.doctorName) fd.set("doctor", payload.doctorName);
+    if (payload.description) fd.set("description", payload.description);
+    if (payload.amountRequested != null) fd.set("amountRequested", String(payload.amountRequested));
+    const r = await createSponsoring(undefined, fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La demande de sponsoring n'a pas pu être créée." };
+    return { ok: true, message: `Demande de sponsoring « ${institution} » créée (en attente de validation).`, link: "/sponsoring", revalidate: ["/sponsoring"] };
+  }
+
+  if (payload?.kind === "create_event_request") {
+    if (!userCan(user, "EVENTS", "CREATE")) return { ok: false, error: "Vous n'avez pas le droit de créer un événement." };
+    const name = (payload.name ?? "").trim();
+    if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
+    const fd = new FormData();
+    fd.set("name", name);
+    if (payload.specialty) fd.set("specialty", payload.specialty);
+    if (payload.city) fd.set("city", payload.city);
+    if (payload.country) fd.set("country", payload.country);
+    if (payload.startDate) fd.set("startDate", payload.startDate);
+    if (payload.endDate) fd.set("endDate", payload.endDate);
+    if (payload.description) fd.set("description", payload.description);
+    if (payload.estimatedBudget != null) fd.set("estimatedBudget", String(payload.estimatedBudget));
+    const r = await createEvent(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "L'événement n'a pas pu être créé." };
+    return { ok: true, message: `Événement « ${name} » créé.`, link: "/events", revalidate: ["/events"] };
+  }
+
+  if (payload?.kind === "create_promo_material_request") {
+    if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "La demande de matériel promotionnel est réservée au Marketing." };
+    const title = (payload.title ?? "").trim();
+    if (!title) return { ok: false, error: "L'intitulé du matériel est obligatoire." };
+    const fd = new FormData();
+    fd.set("title", title);
+    if (payload.materialType) fd.set("materialType", payload.materialType);
+    if (payload.description) fd.set("description", payload.description);
+    if (payload.amount != null) fd.set("amount", String(payload.amount));
+    const r = await createPromoMaterial(undefined, fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La demande de matériel promotionnel n'a pas pu être créée." };
+    return { ok: true, message: `Demande de matériel promotionnel « ${title} » créée (prospection d'agences lancée).`, revalidate: ["/demandes"] };
   }
 
   if (payload?.kind === "create_notification") {
