@@ -783,10 +783,13 @@ affiche proprement « IA non configurée » — **aucune fonctionnalité ne cass
 - **Assistant IA** — **bulle flottante présente partout** + page plein écran `/assistant`. **Boucle agent Claude**,
   comprend l'app et les données **filtrées par les droits**. **Proactif** sur les messages non lus. Outils de
   **lecture** (annuaire, tâches, médecins, produits, **e-mails de sa boîte**, **calendrier**…) exécutés et
-  **scopés** ; outils d'**écriture** **jamais** exécutés seuls → **carte de confirmation** (créer une tâche, une
-  demande administrative, **envoyer un message**, **envoyer un e-mail**, créer une **demande de congrès**, créer un
-  **rendez-vous**). Garde-fous : n'invente jamais médecin/produit/adresse, **avertit sur les dates passées**,
-  **texte simple**, **robuste** (timeout + retry, ne lève jamais).
+  **scopés** ; outils d'**écriture** **jamais** exécutés seuls → **carte de confirmation**. **Anti-formulaire** — il
+  crée en langage naturel : tâche, demande administrative, **message**, **e-mail**, **rendez-vous**, dossier,
+  **demande de congrès**, **demande RH** (note de frais, ordre de mission, congés annuel/sans solde/maladie/maternité,
+  attestations, entrevue…), **demande de sponsoring**, **événement**, **demande de matériel promotionnel**. Chaque
+  action réutilise l'action métier existante (mêmes circuits/notifications) et est **revérifiée RBAC** par module.
+  Garde-fous : n'invente jamais médecin/produit/adresse, **avertit sur les dates passées**, **texte simple**,
+  **robuste** (timeout + retry, ne lève jamais).
 - **Rapports terrain vocaux** (`/field-reports`) — *Parler → Whisper → Claude (champs structurés) → relecture →
   validation*. **L'IA ne valide jamais seule.** 100 % utilisable en saisie manuelle sans clé.
 - **Comptes-rendus de réunion** — transcription + synthèse IA des appels.
