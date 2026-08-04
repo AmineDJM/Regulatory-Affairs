@@ -79,6 +79,9 @@ export function CreateRecordButton({
   const [open, setOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [state, formAction] = useFormState<ActionResult | undefined, FormData>(action, undefined);
+  // Verrou SYNCHRONE anti double-création : un double-clic (ou double Entrée) déclenche un 2ᵉ
+  // envoi AVANT que `submitting` n'ait désactivé le bouton — le verrou bloque ce 2ᵉ envoi.
+  const lock = React.useRef(false);
 
   // Pré-remplissage IA : valeurs extraites + compteur pour re-monter (reset) les champs.
   const [prefill, setPrefill] = React.useState<Record<string, string>>({});
@@ -120,12 +123,13 @@ export function CreateRecordButton({
       if (redirectBase && state.id) router.push(`${redirectBase}/${state.id}`);
     } else if (state?.error) {
       setSubmitting(false);
+      lock.current = false; // échec → nouvelle tentative autorisée
     }
   }, [state, router, redirectBase]);
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
+      <Button onClick={() => { lock.current = false; setOpen(true); }}>
         <Plus className="h-4 w-4" />
         {label}
       </Button>
@@ -149,6 +153,8 @@ export function CreateRecordButton({
         )}
         <form
           action={(fd) => {
+            if (lock.current) return;
+            lock.current = true;
             setSubmitting(true);
             formAction(fd);
           }}

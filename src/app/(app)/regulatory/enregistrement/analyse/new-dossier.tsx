@@ -14,17 +14,24 @@ export function NewDossier() {
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // Verrou SYNCHRONE : bloque un 2ᵉ envoi déclenché par un double-clic (ou double Entrée) AVANT
+  // que le ré-affichage n'ait désactivé le bouton — évite la création en double.
+  const lock = React.useRef(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (lock.current) return;
+    lock.current = true;
     setBusy(true);
     setError(null);
     const res = await createDossier(new FormData(e.currentTarget));
-    setBusy(false);
     if (res.ok && res.id) {
+      // Navigation → le composant se démonte ; on garde le verrou pour ne pas ré-ouvrir la porte.
       router.push(`/regulatory/enregistrement/analyse/${res.id}`);
     } else {
       setError(res.error ?? "Échec de la création.");
+      setBusy(false);
+      lock.current = false;
     }
   }
 

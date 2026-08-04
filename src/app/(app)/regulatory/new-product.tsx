@@ -25,6 +25,8 @@ export function NewProductButton({ users, suppliers, companies }: { users: UserO
     undefined,
   );
   const [submitting, setSubmitting] = React.useState(false);
+  // Verrou SYNCHRONE anti double-soumission (double-clic / double Entrée avant re-render).
+  const lock = React.useRef(false);
 
   React.useEffect(() => {
     if (state?.ok) {
@@ -34,6 +36,7 @@ export function NewProductButton({ users, suppliers, companies }: { users: UserO
       if (state.id) router.push(`/regulatory/${state.id}`);
     } else if (state?.error) {
       setSubmitting(false);
+      lock.current = false; // échec → on autorise une nouvelle tentative
     }
   }, [state, router]);
 
@@ -58,6 +61,8 @@ export function NewProductButton({ users, suppliers, companies }: { users: UserO
       >
         <form
           action={(fd) => {
+            if (lock.current) return;
+            lock.current = true;
             setSubmitting(true);
             formAction(fd);
           }}
