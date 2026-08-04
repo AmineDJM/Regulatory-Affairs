@@ -62,7 +62,7 @@ async function archiveAdminRequestIfDone(id: string, actorId: string): Promise<v
 }
 
 /** Fenêtre pendant laquelle le demandeur peut encore modifier/supprimer sa demande. */
-const EDIT_WINDOW_MS = 15 * 60 * 1000;
+const EDIT_WINDOW_MS = 30 * 60 * 1000;
 
 /** Référence robuste (dérivée du maximum réel, pas de `count()+1` fragile). */
 async function nextRequestRef(): Promise<string> {
@@ -74,7 +74,7 @@ async function nextRequestRef(): Promise<string> {
   return buildRef("REQ", year, refs.map((r) => r.reference));
 }
 
-/** Le demandeur peut agir tant que la demande est NEW et dans les 15 minutes. */
+/** Le demandeur peut agir tant que la demande est NEW et dans les 30 minutes. */
 function withinRequesterWindow(req: { requesterId: string | null; status: AdminRequestStatus; createdAt: Date; processingStartedAt: Date | null }, userId: string): boolean {
   if (req.requesterId !== userId) return false;
   if (req.status !== "NEW") return false;
@@ -479,16 +479,16 @@ export async function createRequestBatch(
   return { ok: true, id: createdIds[0] };
 }
 
-// ─────────────────────────── Fenêtre demandeur (15 min) ───────────────────────────
+// ─────────────────────────── Fenêtre demandeur (30 min) ───────────────────────────
 
-/** Le demandeur modifie sa propre demande dans les 15 minutes (avant traitement). */
+/** Le demandeur modifie sa propre demande dans les 30 minutes (avant traitement). */
 export async function editOwnRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
   const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { requesterId: true, status: true, createdAt: true, processingStartedAt: true, fields: true, deletedAt: true } });
   if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
-  if (!withinRequesterWindow(req, user.id)) return { ok: false, error: "Le délai de modification (15 min) est dépassé." };
+  if (!withinRequesterWindow(req, user.id)) return { ok: false, error: "Le délai de modification (30 min) est dépassé." };
 
   const title = fdStr(formData, "title");
   if (!title) return { ok: false, error: "Le titre est obligatoire." };
@@ -509,24 +509,24 @@ export async function editOwnRequest(formData: FormData): Promise<ActionResult> 
       fields,
     },
   });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: "Demande modifiée par le demandeur (≤ 15 min)" });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: "Demande modifiée par le demandeur (≤ 30 min)" });
   revalidatePath(`/demandes/${id}`);
   revalidatePath("/demandes");
   return { ok: true };
 }
 
-/** Le demandeur supprime sa propre demande dans les 15 minutes (soft delete tracé). */
+/** Le demandeur supprime sa propre demande dans les 30 minutes (soft delete tracé). */
 export async function deleteOwnRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
   const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { requesterId: true, status: true, createdAt: true, processingStartedAt: true, reference: true, deletedAt: true } });
   if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
-  if (!withinRequesterWindow(req, user.id)) return { ok: false, error: "Le délai de suppression (15 min) est dépassé." };
+  if (!withinRequesterWindow(req, user.id)) return { ok: false, error: "Le délai de suppression (30 min) est dépassé." };
 
   await prisma.administrativeRequest.update({
     where: { id },
-    data: { deletedAt: new Date(), deletedById: user.id, deletionReason: "Supprimée par le demandeur (≤ 15 min)", status: "CANCELLED", cancelledAt: new Date() },
+    data: { deletedAt: new Date(), deletedById: user.id, deletionReason: "Supprimée par le demandeur (≤ 30 min)", status: "CANCELLED", cancelledAt: new Date() },
   });
   await recordAudit({ actorId: user.id, action: "DELETE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Demande ${req.reference} supprimée par le demandeur` });
   revalidatePath("/demandes");

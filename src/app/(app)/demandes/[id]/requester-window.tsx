@@ -10,7 +10,7 @@ import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { PRIORITY } from "@/lib/labels";
 
-const WINDOW_MS = 15 * 60 * 1000;
+const WINDOW_MS = 30 * 60 * 1000;
 
 /** Champ spécifique au type de demande (sérialisable depuis le serveur). */
 export interface EditField {
@@ -78,7 +78,7 @@ export function RequesterWindow({
       </div>
       {err && <p className="w-full text-xs text-destructive">{err}</p>}
 
-      <Sheet open={edit} onClose={() => setEdit(false)} title="Modifier ma demande" description="Possible uniquement dans les 15 minutes suivant la création." width="md">
+      <Sheet open={edit} onClose={() => setEdit(false)} title="Modifier ma demande" description="Possible uniquement dans les 30 minutes suivant la création." width="md">
         <form action={(fd) => { fd.set("id", requestId); return run(editOwnRequest, fd, () => setEdit(false)); }} className="space-y-3">
           <div className="space-y-1">
             <Label>Objet</Label>
