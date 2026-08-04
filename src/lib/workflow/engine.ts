@@ -331,6 +331,10 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
       // éliminatoire — c'est un AVIS DÉFAVORABLE. Il est consigné et le circuit
       // continue vers l'étape suivante (la décision finale reste à la Direction).
       const assigneeId = input.assigneeId?.trim() || null;
+      // Montant révisé OPTIONNEL joint à l'avis défavorable : uniquement si l'étape porte le
+      // pouvoir « fixer un montant » (SET_AMOUNT, ex. analyse chef de produit) et qu'un montant
+      // positif est fourni. Sinon on reste sur le comportement actuel (aucun montant).
+      const revisedAmount = step.powers.includes("SET_AMOUNT") && input.amount != null && input.amount > 0 ? input.amount : null;
       if (step.powers.includes("ASSIGN")) {
         if (!assigneeId) return { ok: false, error: "Même en cas d'avis défavorable, désignez la personne en charge de l'étape suivante." };
         const okUser = await prisma.user.count({ where: { id: assigneeId, isActive: true } });
@@ -338,11 +342,15 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
         await prisma.workflowInstance.update({ where: { id: instance.id }, data: { assigneeId } });
       }
       await projectApprove(entityType, entityId, step, next, {
-        viewer, note, amount: null, assigneeId, emitResult: null,
+        viewer, note, amount: revisedAmount, assigneeId, emitResult: null,
         nextLegacyStatus: next.legacyStatus ?? null, emitStep: false,
       });
-      await prisma.workflowInstance.update({ where: { id: instance.id }, data: { currentSlug: next.slug, status: "IN_PROGRESS" } });
-      await recordEvent(instance.id, step, "OPINION_AGAINST", viewer, note, null);
+      // Le montant révisé devient le montant de TRAVAIL de l'instance (proposition portée à la
+      // décision finale de la Direction + base des franchissements auto par seuil en aval).
+      const rejectInst: Prisma.WorkflowInstanceUpdateInput = { currentSlug: next.slug, status: "IN_PROGRESS" };
+      if (revisedAmount != null) rejectInst.amount = revisedAmount;
+      await prisma.workflowInstance.update({ where: { id: instance.id }, data: rejectInst });
+      await recordEvent(instance.id, step, "OPINION_AGAINST", viewer, note, revisedAmount);
       if (assigneeId && next.actorScope === "ASSIGNEE") {
         await notifyUser({ userId: assigneeId, type: "ASSIGNMENT", title: `${CATEGORY_LABELS[category]} — ${next.title} (avis défavorable en amont)`, body: summary.name, link: entityPath(entityType, entityId) });
       }

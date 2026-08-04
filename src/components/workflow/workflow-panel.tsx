@@ -55,8 +55,13 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
       if (amount) fd.set("amount", amount);
       if (category) fd.set("budgetCategoryId", category);
     }
-    // Avis défavorable sur une étape intermédiaire : la désignation reste requise.
-    if (action === "REJECT" && assignee) fd.set("assigneeId", assignee);
+    // Avis défavorable sur une étape intermédiaire : la désignation reste requise et le
+    // chef de produit peut, DE MANIÈRE OPTIONNELLE, joindre un montant révisé (ex. « montant
+    // revu à la hausse »). Ignoré sur un refus définitif (dernière étape).
+    if (action === "REJECT") {
+      if (assignee) fd.set("assigneeId", assignee);
+      if (!actionIsLast && amount) fd.set("amount", amount);
+    }
     start(async () => {
       setErr(null);
       const r = await advanceWorkflow(fd);
@@ -160,24 +165,27 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                             {a.assigneeCandidates.length === 0 && <p className="text-xs text-warning">Aucun compte disponible pour ce rôle.</p>}
                           </div>
                         )}
-                        {mode === "approve" && (
-                          <>
-                            {needsAmount && (
-                              <div className="space-y-1">
-                                <Label>Montant (DZD){a.requireAmount && <span className="text-destructive"> *</span>}</Label>
-                                <Input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Montant" />
-                              </div>
-                            )}
-                            {needsCategory && (
-                              <div className="space-y-1">
-                                <Label>(Sous-)catégorie budgétaire{a.requireCategory && <span className="text-destructive"> *</span>}</Label>
-                                <Select value={category} onChange={(e) => setCategory(e.target.value)}>
-                                  <option value="">— Choisir la (sous-)catégorie à imputer —</option>
-                                  {view.budgetCategories.map((c) => <option key={c.id} value={c.id}>{c.isSub ? " ↳ " : ""}{c.label}</option>)}
-                                </Select>
-                              </div>
-                            )}
-                          </>
+                        {/* Montant : sur APPROUVER (obligatoire ou non selon l'étape), ET de
+                            manière OPTIONNELLE sur un AVIS DÉFAVORABLE intermédiaire — le chef de
+                            produit peut y joindre un montant révisé (ex. « revu à la hausse »). */}
+                        {needsAmount && (mode === "approve" || (mode === "reject" && !actionIsLast)) && (
+                          <div className="space-y-1">
+                            <Label>
+                              Montant (DZD)
+                              {mode === "approve" && a.requireAmount && <span className="text-destructive"> *</span>}
+                              {mode === "reject" && <span className="font-normal text-muted-foreground"> — optionnel (montant révisé)</span>}
+                            </Label>
+                            <Input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={mode === "reject" ? "Montant révisé (optionnel)" : "Montant"} />
+                          </div>
+                        )}
+                        {mode === "approve" && needsCategory && (
+                          <div className="space-y-1">
+                            <Label>(Sous-)catégorie budgétaire{a.requireCategory && <span className="text-destructive"> *</span>}</Label>
+                            <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+                              <option value="">— Choisir la (sous-)catégorie à imputer —</option>
+                              {view.budgetCategories.map((c) => <option key={c.id} value={c.id}>{c.isSub ? " ↳ " : ""}{c.label}</option>)}
+                            </Select>
+                          </div>
                         )}
                         <Textarea
                           value={note}
@@ -242,8 +250,11 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
         </div>
       )}
 
-      {/* Historique — réservé au Super Admin. */}
-      {view.isSuperAdmin && view.events.length > 0 && (
+      {/* Historique — visible des spectateurs privilégiés (Super Admin, Direction /
+          Directeur des opérations, National Sales, chef de produit désigné). L'avis et le
+          montant des étapes confidentielles restent masqués pour les autres (déjà caviardés
+          côté requête), qui ne voient pas ce bloc du tout. */}
+      {view.canViewHistory && view.events.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Historique</p>
           <ul className="space-y-1.5">

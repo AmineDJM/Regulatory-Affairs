@@ -154,11 +154,21 @@ suite("Moteur — avis défavorable non éliminatoire + refus final d'événemen
     expect(ev).not.toBeNull();
   });
 
-  it("l'avis défavorable du chef de produit avance vers la Direction", async () => {
-    const r = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "EVENT", entityId: eventId, action: "REJECT", note: "avis défavorable chef" });
+  it("l'avis défavorable du chef de produit avance vers la Direction, avec montant révisé optionnel tracé", async () => {
+    // Le chef de produit joint, EN OPTION, un montant révisé (« revu à la hausse ») à son avis
+    // défavorable — l'étape « analysis » porte le pouvoir SET_AMOUNT.
+    const r = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "EVENT", entityId: eventId, action: "REJECT", note: "Montant revu à la hausse", amount: 1_500_000 });
     expect(r.ok).toBe(true);
     const e = await prisma.event.findUniqueOrThrow({ where: { id: eventId } });
     expect(e.requestStatus).toBe("AWAITING_FINAL");
+    // Le montant révisé est consigné : budget chef de produit + montant de travail de l'instance…
+    expect(Number(e.productManagerBudget)).toBe(1_500_000);
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "EVENT", entityId: eventId } } });
+    expect(Number(inst.amount)).toBe(1_500_000);
+    // …et l'événement d'historique porte ce montant (visible de la Direction).
+    const ev = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, stepSlug: "analysis", action: "OPINION_AGAINST" } });
+    expect(ev).not.toBeNull();
+    expect(Number(ev!.amount)).toBe(1_500_000);
   });
 
   it("le refus de la Direction (dernière étape) est définitif — sans exception serveur (Event sans updatedById)", async () => {

@@ -70,9 +70,14 @@ export interface WorkflowView {
   action: WorkflowActionView | null; // ce que le spectateur peut faire MAINTENANT
   budgetCategories: BudgetCategoryOption[];
   outcome: WorkflowOutcome | null;
-  /** Les détails techniques du circuit (rôles/portées/pouvoirs, historique) ne sont
-   *  montrés qu'au Super Admin. */
+  /** Les détails techniques du circuit (rôles/portées/pouvoirs) ne sont montrés
+   *  qu'au Super Admin. */
   isSuperAdmin: boolean;
+  /** L'HISTORIQUE complet (dont l'avis confidentiel du chef de produit + montant
+   *  révisé) est réservé aux spectateurs « privilégiés » : Super Admin, Direction /
+   *  Directeur des opérations (vue globale), National Sales et le chef de produit
+   *  désigné. Pour les autres (ex. délégué demandeur) il reste masqué. */
+  canViewHistory: boolean;
 }
 
 /** Une dépense Ad & Pro accordée peut être imputée à n'importe quelle enveloppe
@@ -165,6 +170,7 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
   return {
     category, definitionName: def.name, status: instance.status, currentSlug: instance.currentSlug,
     isSuperAdmin: viewer.role === "SUPER_ADMIN",
+    canViewHistory: privileged,
     steps: stepViews, assigneeName: assignee?.name ?? null,
     events: events.map((e) => {
       const hide = !privileged && confidentialSlugs.has(e.stepSlug);
