@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import {
   Sparkles, Send, Loader2, Bot, CheckCircle2, AlertTriangle, KeyRound,
-  Search, ArrowRight, X, Wand2, Paperclip, FolderOpen, FileText,
+  Search, ArrowRight, X, Wand2, Paperclip, FolderOpen, FileText, Mic, Square,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { assistantChat, executeAssistantAction, listAssistantFiles } from "@/lib/actions/assistant-actions";
@@ -65,7 +65,7 @@ export function cleanReply(text: string): string {
     .trim();
 }
 
-export function AssistantChat({ userName, configured }: { userName: string; configured: boolean }) {
+export function AssistantChat({ userName, configured, voiceConfigured = false }: { userName: string; configured: boolean; voiceConfigured?: boolean }) {
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
   const [sending, setSending] = React.useState(false);
@@ -92,6 +92,50 @@ export function AssistantChat({ userName, configured }: { userName: string; conf
     setAttachments((prev) => (prev.some((a) => a.kind === "drive" && a.nodeId === f.id) ? prev : [...prev, { id: f.id, kind: "drive" as const, name: f.name, nodeId: f.id }].slice(0, 6)));
   };
   const removeAttachment = (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id));
+
+  // ── Dictée vocale : on parle, Whisper transcrit, le texte arrive dans la zone de saisie
+  //    (ÉDITABLE) — l'utilisateur relit/corrige avant d'envoyer. L'audio n'est pas conservé.
+  const [recording, setRecording] = React.useState(false);
+  const [transcribing, setTranscribing] = React.useState(false);
+  const [voiceMsg, setVoiceMsg] = React.useState<string | null>(null);
+  const mr = React.useRef<MediaRecorder | null>(null);
+  const chunks = React.useRef<Blob[]>([]);
+
+  const startRec = async () => {
+    setVoiceMsg(null);
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setVoiceMsg("Le micro nécessite une connexion sécurisée (HTTPS). Vous pouvez aussi écrire votre message.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      chunks.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size) chunks.current.push(e.data); };
+      rec.onstop = async () => { stream.getTracks().forEach((t) => t.stop()); await transcribe(new Blob(chunks.current, { type: rec.mimeType || "audio/webm" })); };
+      rec.start(); mr.current = rec; setRecording(true);
+    } catch {
+      setVoiceMsg("Micro inaccessible — autorisez-le dans le navigateur, ou écrivez votre message.");
+    }
+  };
+  const stopRec = () => { mr.current?.stop(); setRecording(false); };
+
+  const transcribe = async (blob: Blob) => {
+    setTranscribing(true); setVoiceMsg(null);
+    try {
+      const f = new FormData(); f.set("file", blob, "audio.webm");
+      const res = await fetch("/api/assistant/transcribe", { method: "POST", body: f });
+      const data = await res.json();
+      if (data.transcript) {
+        setInput((prev) => (prev.trim() ? `${prev.trim()} ${data.transcript}` : data.transcript));
+        taRef.current?.focus();
+      } else setVoiceMsg(data.error ?? "Transcription indisponible — vous pouvez écrire à la main.");
+    } catch {
+      setVoiceMsg("Envoi de l'audio impossible.");
+    } finally {
+      setTranscribing(false);
+    }
+  };
 
   const send = async (text: string) => {
     const content = text.trim();
@@ -219,6 +263,14 @@ export function AssistantChat({ userName, configured }: { userName: string; conf
           </div>
         )}
 
+        {(recording || transcribing || voiceMsg) && (
+          <div className="mb-2 space-y-1">
+            {recording && <p className="flex items-center gap-2 text-xs text-destructive"><span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> Enregistrement… parlez, puis cliquez sur le carré pour transcrire.</p>}
+            {transcribing && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Transcription en cours…</p>}
+            {voiceMsg && <p className="rounded-lg bg-accent/60 px-3 py-1.5 text-xs text-accent-foreground">{voiceMsg}</p>}
+          </div>
+        )}
+
         <form
           onSubmit={(e) => { e.preventDefault(); send(input); }}
           onDragOver={(e) => { if (configured) { e.preventDefault(); setDragOver(true); } }}
@@ -228,6 +280,17 @@ export function AssistantChat({ userName, configured }: { userName: string; conf
         >
           <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
           <div className="flex items-center gap-1">
+            {voiceConfigured && (recording ? (
+              <button type="button" title="Arrêter et transcrire" onClick={stopRec}
+                className="flex h-[2.75rem] w-9 items-center justify-center rounded-xl text-destructive transition hover:bg-destructive/10">
+                <Square className="h-4 w-4" />
+              </button>
+            ) : (
+              <button type="button" title="Dicter — la voix est transcrite en texte, éditable avant l'envoi" onClick={startRec} disabled={!configured || sending || transcribing}
+                className="flex h-[2.75rem] w-9 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50">
+                {transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+              </button>
+            ))}
             <button type="button" title="Joindre un fichier (glisser-déposer possible)" onClick={() => fileRef.current?.click()} disabled={!configured || sending}
               className="flex h-[2.75rem] w-9 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50">
               <Paperclip className="h-4 w-4" />

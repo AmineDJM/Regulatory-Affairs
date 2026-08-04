@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { aiConfigured } from "@/lib/ai";
+import { aiConfigured, sttConfigured } from "@/lib/ai";
 import { PageHeader } from "@/components/shared/page-header";
 import { AssistantChat } from "./assistant-chat";
 
@@ -13,7 +13,7 @@ export default async function AssistantPage() {
         title="Assistant IA"
         description="Votre copilote interne : il comprend l'application et vos données, répond à vos questions et prépare vos actions (toujours confirmées par vous)."
       />
-      <AssistantChat userName={user.name} configured={aiConfigured()} />
+      <AssistantChat userName={user.name} configured={aiConfigured()} voiceConfigured={sttConfigured()} />
     </div>
   );
 }
