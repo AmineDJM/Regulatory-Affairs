@@ -123,6 +123,7 @@ export type AssistantActionPayload =
       title: string;
       body?: string | null;
       link?: string | null;
+      popup?: boolean;
     }
   | {
       kind: "create_calendar_event";
@@ -330,7 +331,7 @@ const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "create_notification",
     description:
-      "RÉSERVÉ AU SUPER ADMIN : PROPOSE l'envoi d'une NOTIFICATION (diffusion) — à TOUS les comptes actifs, à un RÔLE précis, ou à des PERSONNES précises. N'exécute rien : confirmation requise. Pour des personnes précises, donner leurs noms séparés par des virgules (les résoudre via search_people si besoin). Pour un rôle, donner le libellé du rôle (ex. « Délégué médical », « Coordination », « Comptable »). La notification arrive dans la cloche + en push sur le téléphone des destinataires.",
+      "RÉSERVÉ AU SUPER ADMIN : PROPOSE l'envoi d'une NOTIFICATION (diffusion) — à TOUS les comptes actifs, à un RÔLE précis, ou à des PERSONNES précises. N'exécute rien : confirmation requise. Pour des personnes précises, donner leurs noms séparés par des virgules (les résoudre via search_people si besoin). Pour un rôle, donner le libellé du rôle (ex. « Délégué médical », « Coordination », « Comptable »). La notification arrive dans la cloche + en push sur le téléphone des destinataires. Mettre popup=true pour une ANNONCE IMPORTANTE affichée en POP-UP PLEIN ÉCRAN (grande fenêtre centrée, accusé de réception « J'ai compris ») — à réserver aux messages vraiment importants.",
     input_schema: {
       type: "object",
       properties: {
@@ -340,6 +341,7 @@ const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
         title: { type: "string", description: "Titre de la notification." },
         body: { type: "string", description: "Texte du message (optionnel)." },
         link: { type: "string", description: "Lien interne optionnel (ex. /mon-espace, /notifications)." },
+        popup: { type: "boolean", description: "true = pop-up plein écran (annonce importante) ; false/absent = cloche + push seulement." },
       },
       required: ["audience", "title"],
     },
@@ -574,7 +576,8 @@ toute l'entreprise (tous les modules, tous les comptes, toutes les données). Tu
 comptes et leur charge (list_accounts), interroger n'importe quel pôle, et RELANCER/PILOTER n'importe
 qui (créer une tâche pour un collaborateur, lui envoyer un message). Tu peux aussi DIFFUSER UNE
 NOTIFICATION (create_notification) à tous les comptes, à un rôle précis, ou à des personnes précises
-(elle arrive dans la cloche + en push sur leur téléphone). Sers le pilotage de l'entreprise : détecte les
+(elle arrive dans la cloche + en push sur leur téléphone) — ou en POP-UP PLEIN ÉCRAN pour une annonce
+importante (popup=true, accusé de réception « J'ai compris »). Sers le pilotage de l'entreprise : détecte les
 blocages, désigne les responsables, propose des relances. Les actions restent soumises à confirmation.
 ` : ""}
 CONTEXTE :
@@ -1196,6 +1199,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (!["ALL", "ROLE", "USERS"].includes(audience)) return { error: "Audience invalide (ALL, ROLE ou USERS)." };
     const body = asStr(input, "body") || null;
     const link = asStr(input, "link") || null;
+    const popup = input.popup === true || asStr(input, "popup").toLowerCase() === "true";
 
     const fields = [{ label: "Titre", value: title }];
     let role: string | null = null;
@@ -1222,10 +1226,11 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     }
     if (body) fields.push({ label: "Message", value: body });
     if (link) fields.push({ label: "Lien", value: link });
+    if (popup) fields.push({ label: "Format", value: "Pop-up plein écran (accusé de réception requis)" });
 
     return {
-      kind: "create_notification", module: "ADMIN", title: "Diffuser une notification", fields, warnings,
-      payload: { kind: "create_notification", audience: audience as BroadcastAudience, role, userIds, recipientNames, title, body, link },
+      kind: "create_notification", module: "ADMIN", title: popup ? "Diffuser une annonce (pop-up)" : "Diffuser une notification", fields, warnings,
+      payload: { kind: "create_notification", audience: audience as BroadcastAudience, role, userIds, recipientNames, title, body, link, popup },
     };
   }
 
@@ -1644,13 +1649,15 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
       title,
       body: payload.body?.trim() || undefined,
       link: payload.link?.trim() || undefined,
+      popup: payload.popup === true,
     });
     if (count === 0) return { ok: false, error: "Aucun destinataire correspondant — rien n'a été envoyé." };
     const who = payload.audience === "ALL" ? "tous les comptes"
       : payload.audience === "ROLE" ? `le rôle ${ROLE_LABELS[(payload.role ?? "") as keyof typeof ROLE_LABELS] ?? payload.role}`
       : (payload.recipientNames ?? "les destinataires choisis");
-    await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", summary: `Notification « ${title} » diffusée via l'assistant à ${count} destinataire(s) (${who})` });
-    return { ok: true, message: `Notification envoyée à ${count} destinataire(s) — ${who}.`, link: "/notifications", revalidate: ["/notifications"] };
+    const fmt = payload.popup === true ? " en pop-up plein écran" : "";
+    await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", summary: `Notification « ${title} »${fmt} diffusée via l'assistant à ${count} destinataire(s) (${who})` });
+    return { ok: true, message: `Notification envoyée${fmt} à ${count} destinataire(s) — ${who}.`, link: "/notifications", revalidate: ["/notifications"] };
   }
 
   return { ok: false, error: "Action non reconnue." };
