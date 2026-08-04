@@ -16,7 +16,7 @@ import { UploadProvider } from "@/components/layout/upload-manager";
 import { BackgroundUploadProvider } from "@/components/layout/background-upload";
 import { getTotalUnread } from "@/lib/queries/messaging";
 import { getAdoptionBadge } from "@/lib/adoption";
-import { aiConfigured } from "@/lib/ai";
+import { aiConfigured, sttConfigured } from "@/lib/ai";
 import { getCompanies, getCompanyScope } from "@/lib/company";
 import { prisma } from "@/lib/prisma";
 
@@ -87,7 +87,7 @@ export default async function AppLayout({
         </main>
       </div>
       {/* Assistant flottant — présent partout (remplace l'onglet Assistant IA). */}
-      <FloatingAssistant userName={user.name} configured={aiConfigured()} />
+      <FloatingAssistant userName={user.name} configured={aiConfigured()} voiceConfigured={sttConfigured()} />
       {/* Notifications push (PWA) : enregistre le service worker + (ré)abonne l'appareil. */}
       <PushRegister />
       {/* Sonnerie de rappel/notification (carillon) + notification bureau à l'arrivée. */}

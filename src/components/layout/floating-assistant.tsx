@@ -13,7 +13,7 @@ import { AssistantChat } from "@/app/(app)/assistant/assistant-chat";
  * (en ouvrant la bulle puis en posant la question / en ouvrant un message).
  * Une seule conversation à l'écran. Gracieux sans clé API.
  */
-export function FloatingAssistant({ userName, configured }: { userName: string; configured: boolean }) {
+export function FloatingAssistant({ userName, configured, voiceConfigured = false }: { userName: string; configured: boolean; voiceConfigured?: boolean }) {
   const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
 
@@ -44,7 +44,7 @@ export function FloatingAssistant({ userName, configured }: { userName: string; 
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col">
-            <AssistantChat userName={userName} configured={configured} />
+            <AssistantChat userName={userName} configured={configured} voiceConfigured={voiceConfigured} />
           </div>
         </div>
       )}
