@@ -35,6 +35,7 @@ export default async function PchPage() {
               { type: "text", name: "reference", label: "Référence (optionnel)" },
               { type: "select", name: "companyId", label: "Entité", options: companyOptions(companies), placeholder: "— Entité —" },
               { type: "text", name: "title", label: "Intitulé", full: true },
+              { type: "file", name: "tenderDoc", label: "Appel d'offres (fichiers, optionnel)", multiple: true, hint: "Cahier des charges, PV d'ouverture… — ajoutables aussi plus tard depuis le marché.", full: true },
               { type: "textarea", name: "products", label: "Produits concernés", full: true },
               { type: "text", name: "supplier", label: "Fournisseur" },
               { type: "text", name: "supplierCountry", label: "Pays du fournisseur" },

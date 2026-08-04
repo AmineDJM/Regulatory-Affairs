@@ -4,11 +4,14 @@ import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { aiConfigured } from "@/lib/ai";
+import { prisma } from "@/lib/prisma";
 import { getPchTenderDetail } from "@/lib/queries/pch";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { DocumentUpload } from "@/components/documents/document-upload";
+import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { PCH_TENDER_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { EditTenderButton, OrdersManager } from "./pch-detail-client";
@@ -21,7 +24,20 @@ export default async function PchTenderPage({ params }: { params: { id: string }
   if (!t) notFound();
   const canEdit = userCan(user, "PCH", "UPDATE");
   const canDelete = userCan(user, "PCH", "DELETE");
+  const canUpload = userCan(user, "PCH", "UPLOAD");
   const cautionExpired = t.cautionEnd && new Date(t.cautionEnd) < new Date();
+
+  // Documents du marché : l'APPEL D'OFFRES et les pièces liées (cahier des charges, PV…).
+  const docs = await prisma.document.findMany({
+    where: { entityType: "PCH_TENDER", entityId: t.id },
+    include: { uploadedBy: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  const docItems: DocItem[] = docs.map((d) => ({
+    id: d.id, name: d.name, category: d.category, version: d.version,
+    sizeBytes: d.sizeBytes, confidentiality: d.confidentiality,
+    uploadedBy: d.uploadedBy?.name ?? null, createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
+  }));
 
   return (
     <div className="space-y-5">
@@ -64,6 +80,18 @@ export default async function PchTenderPage({ params }: { params: { id: string }
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader><CardTitle>Documents — appel d&apos;offres &amp; pièces</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {docItems.length > 0 ? (
+            <DocumentList documents={docItems} canDelete={canDelete || canUpload} canRename={canUpload} path={`/pch/${t.id}`} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Aucun document. Téléversez l&apos;appel d&apos;offres (cahier des charges, PV d&apos;ouverture…) et les pièces liées.</p>
+          )}
+          {canUpload && <DocumentUpload entityType="PCH_TENDER" entityId={t.id} categories={["SUPPORTING_DOC", "PURCHASE_ORDER", "INVOICE", "OTHER"]} />}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="p-4">

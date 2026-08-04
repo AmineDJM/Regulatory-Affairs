@@ -805,6 +805,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   HR_REQUEST: "Demande RH",
   EVENT: "Événement",
   MISSION_ASSIGNMENT: "Ordre de mission",
+  PCH_TENDER: "Appel d'offres",
 };
 
 /** Accompagnant ou délégué de référence assigné à une mission. */

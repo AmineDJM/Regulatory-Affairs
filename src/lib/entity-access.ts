@@ -54,6 +54,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   // Polymorphe : l'accès réel est résolu spécifiquement (assigné ou entité parente).
   MISSION_ASSIGNMENT: "WORKSPACE",
   OFFICE_SUPPLY_ARTICLE: "ADMIN_REQUESTS",
+  PCH_TENDER: "PCH",
 };
 
 /**

@@ -375,6 +375,7 @@ enum EntityType {
   EVENT
   MISSION_ASSIGNMENT
   OFFICE_SUPPLY_ARTICLE
+  PCH_TENDER
 }
 
 enum DocumentCategory {

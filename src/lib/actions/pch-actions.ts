@@ -7,6 +7,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
+import { persistUploadedDocument } from "@/lib/documents";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
 const TENDER_STATUSES: PchTenderStatus[] = ["NOT_STARTED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
@@ -52,7 +53,18 @@ export async function createTender(
       createdById: user.id,
     },
   });
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "PCH", summary: `Appel d'offres ${reference}` });
+  // Pièces de l'appel d'offres jointes à la création (optionnel) : enregistrées comme documents
+  // du marché (best-effort — une pièce en échec n'annule pas la création du marché déjà fait).
+  const files = formData.getAll("tenderDoc").filter((f): f is File => f instanceof File && f.size > 0);
+  for (const file of files) {
+    try {
+      await persistUploadedDocument(user.id, { entityType: "PCH_TENDER", entityId: created.id, category: "SUPPORTING_DOC", confidentiality: "INTERNAL", stepKey: null, file });
+    } catch (err) {
+      console.error("[pch] appel d'offres upload failed", err);
+    }
+  }
+
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "PCH", summary: `Appel d'offres ${reference}${files.length ? ` (${files.length} pièce·s jointe·s)` : ""}` });
   revalidatePath("/pch");
   return { ok: true, id: created.id };
 }
