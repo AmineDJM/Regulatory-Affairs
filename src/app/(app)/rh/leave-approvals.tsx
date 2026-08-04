@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LEAVE_TYPE } from "@/lib/labels";
 import { formatDate, cn } from "@/lib/utils";
+import { LeaveEditButton } from "./leave-edit";
 
 export interface PendingLeave {
   id: string;
@@ -48,7 +49,7 @@ function DecideButton({
   );
 }
 
-export function LeaveApprovals({ leaves }: { leaves: PendingLeave[] }) {
+export function LeaveApprovals({ leaves, canManage = false }: { leaves: PendingLeave[]; canManage?: boolean }) {
   if (leaves.length === 0) {
     return <EmptyState icon="CheckCheck" title="Aucune demande en attente" description="Les demandes de congés à valider apparaîtront ici." />;
   }
@@ -77,6 +78,9 @@ export function LeaveApprovals({ leaves }: { leaves: PendingLeave[] }) {
                 <div className="flex items-center justify-end gap-1.5">
                   <DecideButton id={l.id} decision="APPROVED" label="Approuver" icon={Check} />
                   <DecideButton id={l.id} decision="REJECTED" label="Refuser" icon={X} danger />
+                  {canManage && (
+                    <LeaveEditButton leave={{ id: l.id, employee: l.employee, type: l.type, startDate: l.startDate, endDate: l.endDate, days: l.days, reason: l.reason, status: "PENDING", decisionNote: null }} />
+                  )}
                 </div>
               </TableCell>
             </TableRow>

@@ -20,12 +20,14 @@ import { getCompanies, companyOptions } from "@/lib/company";
 import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, toNumber, daysUntil } from "@/lib/utils";
 import { LeaveApprovals, type PendingLeave } from "./leave-approvals";
+import { LeaveEditButton } from "./leave-edit";
 import { AdvanceApprovals, type AdvanceRow } from "./advance-approvals";
 
 export default async function RhPage() {
   const user = await requireModule("RH");
   const canCreate = userCan(user, "RH", "CREATE");
   const canValidate = userCan(user, "RH", "VALIDATE");
+  const canManage = userCan(user, "RH", "UPDATE"); // RH/DRH : modifier toute demande de congé (dont l'historique)
   const data = await getRhData();
   const companies = await getCompanies();
 
@@ -151,7 +153,7 @@ export default async function RhPage() {
       {canValidate && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Demandes de congés à traiter</h2>
-          <LeaveApprovals leaves={pendingLeaves} />
+          <LeaveApprovals leaves={pendingLeaves} canManage={canManage} />
         </section>
       )}
 
@@ -237,6 +239,7 @@ export default async function RhPage() {
                   <TableHead>Période</TableHead>
                   <TableHead className="text-right">Jours</TableHead>
                   <TableHead>Statut</TableHead>
+                  {canManage && <TableHead className="text-right">Modifier</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -247,6 +250,13 @@ export default async function RhPage() {
                     <TableCell>{formatDate(l.startDate)} → {formatDate(l.endDate)}</TableCell>
                     <TableCell className="text-right">{Number(l.days)}</TableCell>
                     <TableCell><StatusBadge map={LEAVE_STATUS} value={l.status} /></TableCell>
+                    {canManage && (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end">
+                          <LeaveEditButton leave={{ id: l.id, employee: l.employee.fullName, type: l.type, startDate: l.startDate.toISOString(), endDate: l.endDate.toISOString(), days: Number(l.days), reason: l.reason, status: l.status, decisionNote: l.decisionNote }} />
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

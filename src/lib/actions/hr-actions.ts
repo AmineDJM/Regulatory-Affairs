@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { ContractType, LeaveType } from "@prisma/client";
+import type { ContractType, LeaveType, LeaveStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -338,6 +338,61 @@ export async function cancelLeave(formData: FormData): Promise<ActionResult> {
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "LEAVE_REQUEST",
     entityId: id, field: "status", newValue: "CANCELLED", summary: "Demande de congé annulée",
+  });
+  revalidatePath("/rh");
+  revalidatePath("/mon-espace");
+  return { ok: true };
+}
+
+const LEAVE_STATUSES: LeaveStatus[] = ["PENDING", "APPROVED", "REJECTED", "CANCELLED"];
+
+/**
+ * MODIFICATION par les RH (DRH) d'une demande de congé — Y COMPRIS déjà décidée (historique) :
+ * type, dates, jours, motif, STATUT (décision) et note. Le solde de congé annuel est réajusté
+ * proprement : on annule le débit précédent (si la demande était approuvée en annuel) et on
+ * applique le nouveau (si elle reste/est approuvée en annuel). Réservé au RH (droit UPDATE).
+ */
+export async function updateLeaveRequest(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Réservé aux ressources humaines." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const leave = await prisma.leaveRequest.findUnique({ where: { id }, include: { employee: true } });
+  if (!leave) return { ok: false, error: "Demande introuvable." };
+
+  const startDate = fdDate(formData, "startDate") ?? leave.startDate;
+  const endDate = fdDate(formData, "endDate") ?? leave.endDate;
+  if (endDate < startDate) return { ok: false, error: "La date de fin précède la date de début." };
+  const type = (fdStr(formData, "type") as LeaveType | null) ?? leave.type;
+  const days = fdNum(formData, "days") ?? Number(leave.days);
+  if (!(days >= 0)) return { ok: false, error: "Nombre de jours invalide." };
+  const reason = formData.has("reason") ? fdStr(formData, "reason") : leave.reason;
+  const statusRaw = fdStr(formData, "status");
+  const status: LeaveStatus = statusRaw && (LEAVE_STATUSES as string[]).includes(statusRaw) ? (statusRaw as LeaveStatus) : leave.status;
+  const decisionNote = formData.has("decisionNote") ? fdStr(formData, "decisionNote") : leave.decisionNote;
+
+  // Réajustement du solde annuel : différence entre l'ancien débit et le nouveau.
+  const oldDebit = leave.status === "APPROVED" && leave.type === "ANNUAL" ? Number(leave.days) : 0;
+  const newDebit = status === "APPROVED" && type === "ANNUAL" ? days : 0;
+  const balanceDelta = oldDebit - newDebit; // > 0 = on recrédite ; < 0 = on débite davantage
+
+  const statusChanged = status !== leave.status;
+  await prisma.leaveRequest.update({
+    where: { id },
+    data: {
+      type, startDate, endDate, days, reason, status, decisionNote,
+      // Décision retracée si elle change : décideur/date (ou remise à zéro si repassée « en attente »).
+      ...(statusChanged
+        ? { decidedById: status === "PENDING" ? null : user.id, decidedAt: status === "PENDING" ? null : new Date() }
+        : {}),
+    },
+  });
+  if (balanceDelta !== 0) {
+    await prisma.employee.update({ where: { id: leave.employeeId }, data: { leaveBalanceDays: { increment: balanceDelta } } });
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "LEAVE_REQUEST", entityId: id,
+    summary: `Congé modifié par RH — ${leave.employee.fullName} (${days} j, ${status})`,
   });
   revalidatePath("/rh");
   revalidatePath("/mon-espace");
