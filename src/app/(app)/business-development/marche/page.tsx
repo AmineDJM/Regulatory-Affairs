@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, TrendingUp, TrendingDown, Target, Radar, Swords, Tag } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Target, Radar, Swords, Tag, PackageSearch } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { getMarketOverview } from "@/lib/market/overview";
 import { PageHeader } from "@/components/shared/page-header";
@@ -30,6 +30,9 @@ export default async function MarketOverviewPage() {
         title="Intelligence marché — Vue d'ensemble"
         description={`Marché pharmaceutique algérien (IQVIA ville). Source : ${o.meta.iqviaFile} · période ${o.meta.period} · ${formatNumber(o.meta.nProducts)} produits. Données officielles réconciliées.`}
       >
+        <Link href="/business-development/marche/produits">
+          <Button variant="outline"><PackageSearch className="h-4 w-4" /> Explorateur produits</Button>
+        </Link>
         <Link href="/business-development/marche/opportunites">
           <Button variant="outline"><Target className="h-4 w-4" /> Opportunités stratégiques</Button>
         </Link>
