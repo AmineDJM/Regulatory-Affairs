@@ -512,10 +512,14 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
   IN_PROGRESS|APPROVED|REJECTED, `amount`, `budgetCategoryId`, `assigneeId`) → `WorkflowStepEvent`
   (APPROVE|REJECT|OPINION_AGAINST|COMMENT|SKIP|AUTO_SKIP|AUTO_APPROVE_REQUESTER).
 - **Règles clés** : un REJECT **non terminal** = `OPINION_AGAINST` (avis défavorable) et **le flux continue**
-  (l'assignation reste requise) ; seul le refus de la **dernière étape** (Direction) est éliminatoire. Le moteur
-  **projette les statuts legacy** sur les entités (les listes/badges existants continuent de fonctionner). Les
-  étapes `confidential` (analyse chef de produit) sont **caviardées** pour le demandeur. Méta du workflow +
-  **historique complet** visibles **uniquement du Super Admin**.
+  (l'assignation reste requise) ; seul le refus de la **dernière étape** (Direction) est éliminatoire. Sur une étape
+  `SET_AMOUNT` (analyse chef de produit), l'avis défavorable peut porter un **montant révisé OPTIONNEL** (« revu à la
+  hausse ») → consigné en budget chef de produit, en `amount` de l'instance et sur l'événement `OPINION_AGAINST`. Le
+  moteur **projette les statuts legacy** sur les entités (les listes/badges existants continuent de fonctionner). Les
+  étapes `confidential` (analyse chef de produit) sont **caviardées** pour le demandeur. La **méta du workflow**
+  (rôles/portées/pouvoirs) reste réservée au **Super Admin** ; l'**historique complet** (dont l'avis confidentiel + le
+  montant révisé) est visible des spectateurs **privilégiés** : Super Admin, **Direction / Directeur des opérations**,
+  National Sales et le chef de produit désigné (`canViewHistory`). Les autres n'y ont pas accès.
 - **Anti-bureaucratie — 3 mécanismes par étape (`src/lib/workflow/engine.ts`, tous tracés)** :
   1. **Saut manuel** (`SKIP`) — un acteur habilité peut **sauter une étape intermédiaire** avec **raison obligatoire**
      (tracée + notifiée à l'étape suivante). Jamais sur une désignation ni la décision finale.
@@ -1702,8 +1706,9 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   ligne de dépense ajoutée depuis le module Budget (« + » réf. + montant) crée désormais une **ligne purement
   budgétaire** (`BudgetExpenseLine`) qui consomme la catégorie **sans** toucher la trésorerie ; le financier
   enregistre le mouvement réel s'il le souhaite. Les anciennes lignes (créées comme FinanceTransaction) sont
-  **reprises** puis retirées des Finances (migration). **(2) Suppression** des lignes budgétaires (corbeille sur
-  les dépenses imputées ; la consommation se réajuste). **(3) Regulatory — miroir Drive AUTOMATIQUE** : tout
+  **reprises** puis retirées des Finances (migration). **(2) Modification & suppression** des lignes budgétaires
+  (sur les dépenses imputées : édition réf./montant/date + **ré-imputation** vers une autre (sous-)catégorie, ou
+  corbeille ; la consommation se réajuste — `updateBudgetExpense`/`deleteBudgetExpense`). **(3) Regulatory — miroir Drive AUTOMATIQUE** : tout
   document officiellement téléversé sur un produit est répliqué dans le Drive (dossier du produit, partagé), **en
   arrière-plan** (upload ressenti instantané) — fin du bouton manuel. **(4) Finances & Promotion médicale —
   lignes modifiables + supprimables** (livre comptable : `updateTransaction`/`deleteTransaction`, trésorerie
