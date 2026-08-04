@@ -1067,10 +1067,10 @@ export const EVENTS_TABS: NavTab[] = [
   { module: "EVENTS", label: "Événements", href: "/events" },
   { module: "PROMO_MATERIAL", label: "Matériel promotionnel", href: "/promo-material" },
 ];
-// Drive personnel = « Accueil ». L'onglet « Documents » a été retiré (tout est consolidé dans
-// l'Accueil + les catégories partagées ; on y glisse des dossiers à la souris).
+// Module « Drive » (Drive personnel). L'onglet « Documents » a été retiré (tout est consolidé
+// dans le Drive + les catégories partagées ; on y glisse des dossiers à la souris).
 export const DOCS_TABS: NavTab[] = [
-  { module: "DRIVE", label: "Accueil", href: "/drive" },
+  { module: "DRIVE", label: "Drive", href: "/drive" },
 ];
 // Promotion médicale (annuaire, segmentation) et Rapports terrain sont désormais DEUX modules
 // distincts (accès configurables séparément dans Administration). Les onglets partagés sont retirés.

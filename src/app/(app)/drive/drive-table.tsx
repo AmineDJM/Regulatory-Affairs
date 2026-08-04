@@ -85,10 +85,10 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
     const id = e.dataTransfer.getData("text/drive-node") || dragId;
     setOverId(null);
     if (!id) return;
-    void doMove(id, { destSpaceId: cat ? cat.id : "", label: cat ? `catégorie « ${cat.name} »` : "Accueil (mon Drive)" });
+    void doMove(id, { destSpaceId: cat ? cat.id : "", label: cat ? `catégorie « ${cat.name} »` : "Mon Drive" });
   };
 
-  // Pastilles de destination (catégories + retour à l'Accueil) TOUJOURS visibles quand il y a des
+  // Pastilles de destination (catégories + retour au Drive personnel) TOUJOURS visibles quand il y a des
   // cibles : affichage stable (pas de saut de mise en page en plein glisser, cause de « ça marche mal »).
   const showDropBar = dndEnabled && ((categories?.length ?? 0) > 0 || spaceId != null);
 
@@ -110,7 +110,7 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
         </p>
       )}
 
-      {/* Barre de dépôt (apparaît pendant le glisser) : catégories + retour à l'Accueil */}
+      {/* Barre de dépôt (apparaît pendant le glisser) : catégories + retour au Drive personnel */}
       {showDropBar && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-2">
           <span className="text-xs font-medium text-muted-foreground">Déposer dans :</span>
@@ -121,7 +121,7 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
               onDragLeave={() => setOverId((o) => (o === "root" ? null : o))}
               onDrop={onDropCategory(null)}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${overId === "root" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground"}`}>
-              <House className="h-3.5 w-3.5" /> Accueil (mon Drive)
+              <House className="h-3.5 w-3.5" /> Mon Drive
             </button>
           )}
           {categories?.map((c) => (

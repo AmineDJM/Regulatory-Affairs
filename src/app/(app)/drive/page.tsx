@@ -88,7 +88,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Accueil" description="Vos fichiers et dossiers — stockage interne chiffré (AES-256). Glissez-déposez pour ranger.">
+      <PageHeader title="Drive" description="Vos fichiers et dossiers — stockage interne chiffré (AES-256). Glissez-déposez pour ranger.">
         {!trash && canCreate && (
           <>
             <NewFolderButton parentId={folderId} />
@@ -107,7 +107,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
       {!trash && (
         <div className="flex flex-wrap items-center gap-1 text-sm">
           <Link href="/drive" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-            <House className="h-4 w-4" /> Accueil
+            <House className="h-4 w-4" /> Drive
           </Link>
           {listing.breadcrumb.map((c) => (
             <span key={c.id} className="inline-flex items-center gap-1">
