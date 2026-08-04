@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { Check, Loader2, CircleDot, ArrowRight, ChevronDown, Paperclip, MessageSquare } from "lucide-react";
 import {
   REG_PHASES, REG_STEPS, REG_STEP_STATE, REG_CHECKLIST,
+  PRESUB_ANSWER_STEP, REG_PRESUB_OUTCOME, REG_PRESUB_OUTCOME_ORDER, presubOutcome,
   regProgress, regStepStatus, regChecklistProgress,
-  type RegWorkflowState, type RegChecklistState, type RegStepState,
+  type RegWorkflowState, type RegChecklistState, type RegStepState, type RegPresubOutcome,
 } from "@/lib/regulatory-workflow";
-import { setRegulatoryStepState, setRegulatoryStepNote, setRegulatoryChecklistItem } from "@/lib/actions/regulatory-actions";
+import { setRegulatoryStepState, setRegulatoryStepNote, setRegulatoryChecklistItem, setRegulatoryPresubOutcome } from "@/lib/actions/regulatory-actions";
 import { Badge } from "@/components/ui/badge";
 import { Select, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,25 @@ export function RegulatoryProcess({
     const fd = new FormData();
     fd.set("productId", productId); fd.set("stepKey", key); fd.set("status", status);
     await setRegulatoryStepState(fd);
+    setBusy(null);
+    router.refresh();
+  }
+
+  // Avis de présoumission : favorable → « Fait » (le flux continue) ; défavorable → « Bloqué » ;
+  // en attente → « En cours ». Le statut de l'étape est dérivé de l'avis (source unique).
+  async function setPresub(outcome: RegPresubOutcome) {
+    setBusy(PRESUB_ANSWER_STEP);
+    const mapped = REG_PRESUB_OUTCOME[outcome];
+    setState((prev) => ({
+      ...prev,
+      [PRESUB_ANSWER_STEP]: {
+        ...prev[PRESUB_ANSWER_STEP], status: mapped.status, outcome,
+        date: mapped.status === "DONE" && !prev[PRESUB_ANSWER_STEP]?.date ? new Date().toISOString().slice(0, 10) : prev[PRESUB_ANSWER_STEP]?.date,
+      },
+    }));
+    const fd = new FormData();
+    fd.set("productId", productId); fd.set("outcome", outcome);
+    await setRegulatoryPresubOutcome(fd);
     setBusy(null);
     router.refresh();
   }
@@ -109,7 +129,24 @@ export function RegulatoryProcess({
                           <span className="inline-flex items-center gap-0.5 text-primary"><ChevronDown className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`} /> {expanded ? "Réduire" : "Pièces & note"}</span>
                         </span>
                       </button>
-                      {canUpdate ? (
+                      {s.key === PRESUB_ANSWER_STEP ? (
+                        // Réponse de présoumission : AVIS explicite (favorable → le flux continue).
+                        canUpdate ? (
+                          <Select
+                            value={presubOutcome(state) ?? ""}
+                            onChange={(e) => setPresub(e.target.value as RegPresubOutcome)}
+                            disabled={busy === s.key}
+                            className="h-8 w-44 shrink-0 text-xs"
+                          >
+                            <option value="" disabled>— Avis présoumission —</option>
+                            {REG_PRESUB_OUTCOME_ORDER.map((o) => <option key={o} value={o}>{REG_PRESUB_OUTCOME[o].label}</option>)}
+                          </Select>
+                        ) : presubOutcome(state) ? (
+                          <Badge tone={REG_PRESUB_OUTCOME[presubOutcome(state)!].tone} dot={false}>{busy === s.key ? <Loader2 className="h-3 w-3 animate-spin" /> : REG_PRESUB_OUTCOME[presubOutcome(state)!].label}</Badge>
+                        ) : (
+                          <Badge tone={REG_STEP_STATE[st].tone} dot={false}>{REG_STEP_STATE[st].label}</Badge>
+                        )
+                      ) : canUpdate ? (
                         <Select
                           value={st}
                           onChange={(e) => setStep(s.key, e.target.value as RegStepState)}

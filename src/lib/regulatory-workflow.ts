@@ -106,7 +106,11 @@ export const REG_CHECKLIST: RegChecklistGroup[] = [
 
 // ───────────────────────── État stocké (JSON par produit) ─────────────────────────
 
-export interface RegStepEntry { status?: RegStepState; date?: string; note?: string }
+/** Avis d'une réponse de présoumission (étape « presub_ans ») : favorable → le processus
+ *  continue ; défavorable → à corriger et redemander ; en attente → réponse ANPP pendante. */
+export type RegPresubOutcome = "FAVORABLE" | "DEFAVORABLE" | "EN_ATTENTE";
+
+export interface RegStepEntry { status?: RegStepState; date?: string; note?: string; outcome?: RegPresubOutcome }
 export type RegWorkflowState = Record<string, RegStepEntry>;
 export interface RegChecklistEntry { checked?: boolean; note?: string }
 export type RegChecklistState = Record<string, RegChecklistEntry>;
@@ -120,6 +124,28 @@ export function isRegStepState(s: string): s is RegStepState { return s === "TOD
 
 export function regStepStatus(state: RegWorkflowState | null | undefined, key: string): RegStepState {
   return state?.[key]?.status ?? "TODO";
+}
+
+// ───────────────────────── Avis de présoumission (étape « presub_ans ») ─────────────────────────
+
+/** Étape « Réponse de la présoumission » : elle porte un AVIS explicite. */
+export const PRESUB_ANSWER_STEP = "presub_ans";
+
+/** Avis de présoumission → libellé, ton et STATUT d'étape dérivé (favorable = le flux continue). */
+export const REG_PRESUB_OUTCOME: Record<RegPresubOutcome, { label: string; tone: "success" | "danger" | "info"; status: RegStepState }> = {
+  FAVORABLE: { label: "Avis favorable", tone: "success", status: "DONE" },
+  DEFAVORABLE: { label: "Avis défavorable", tone: "danger", status: "BLOCKED" },
+  EN_ATTENTE: { label: "En attente", tone: "info", status: "DOING" },
+};
+export const REG_PRESUB_OUTCOME_ORDER: RegPresubOutcome[] = ["FAVORABLE", "EN_ATTENTE", "DEFAVORABLE"];
+
+export function isRegPresubOutcome(s: string): s is RegPresubOutcome {
+  return s === "FAVORABLE" || s === "DEFAVORABLE" || s === "EN_ATTENTE";
+}
+
+/** Avis actuel de la réponse de présoumission (null si pas encore renseigné). */
+export function presubOutcome(state: RegWorkflowState | null | undefined): RegPresubOutcome | null {
+  return state?.[PRESUB_ANSWER_STEP]?.outcome ?? null;
 }
 
 export interface RegProgress { done: number; total: number; pct: number; current: RegStep | null }

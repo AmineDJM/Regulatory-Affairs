@@ -16,8 +16,8 @@ import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { REGULATORY_STEP_ORDER, LOCAL_MANUFACTURING_VARIATIONS, VARIATION_TARGETS } from "@/lib/labels";
 import {
-  isRegStepKey, isRegStepState, isRegChecklistKey,
-  REG_STEPS, REG_CHECKLIST,
+  isRegStepKey, isRegStepState, isRegChecklistKey, isRegPresubOutcome,
+  REG_STEPS, REG_CHECKLIST, REG_PRESUB_OUTCOME, PRESUB_ANSWER_STEP,
   type RegWorkflowState, type RegChecklistState,
 } from "@/lib/regulatory-workflow";
 
@@ -511,6 +511,38 @@ export async function setRegulatoryStepState(formData: FormData): Promise<Action
   await prisma.regulatoryProduct.update({ where: { id: productId }, data: { workflow: wf as unknown as Prisma.InputJsonValue } });
   const stepLabel = REG_STEPS.find((s) => s.key === stepKey)?.label ?? stepKey;
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId, field: "workflow", newValue: status, summary: `Étape ANPP « ${stepLabel} » → ${status}` });
+  revalidatePath(`/regulatory/${productId}`);
+  return { ok: true };
+}
+
+/**
+ * AVIS de la réponse de présoumission (étape « presub_ans ») : Favorable → le processus
+ * CONTINUE (étape « Fait ») ; Défavorable → étape « Bloqué » (à corriger et redemander) ;
+ * En attente → étape « En cours ». Le statut d'étape est dérivé de l'avis (source unique).
+ */
+export async function setRegulatoryPresubOutcome(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const productId = str(formData, "productId");
+  const outcome = str(formData, "outcome");
+  if (!productId || !outcome) return { ok: false, error: "Paramètres manquants." };
+  if (!isRegPresubOutcome(outcome)) return { ok: false, error: "Avis invalide." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+
+  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { workflow: true } });
+  if (!product) return { ok: false, error: "Dossier introuvable." };
+
+  const wf = { ...((product.workflow as RegWorkflowState | null) ?? {}) };
+  const mapped = REG_PRESUB_OUTCOME[outcome];
+  const note = str(formData, "note");
+  wf[PRESUB_ANSWER_STEP] = {
+    status: mapped.status,
+    outcome,
+    date: mapped.status === "DONE" ? new Date().toISOString().slice(0, 10) : wf[PRESUB_ANSWER_STEP]?.date,
+    note: note !== null ? (note.trim() || undefined) : wf[PRESUB_ANSWER_STEP]?.note,
+  };
+
+  await prisma.regulatoryProduct.update({ where: { id: productId }, data: { workflow: wf as unknown as Prisma.InputJsonValue } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId, field: "workflow", newValue: outcome, summary: `Présoumission → ${mapped.label}` });
   revalidatePath(`/regulatory/${productId}`);
   return { ok: true };
 }

@@ -3,6 +3,7 @@ import {
   REG_PHASES, REG_STEPS, REG_CHECKLIST,
   regProgress, regChecklistProgress, regStepStatus,
   isRegStepKey, isRegChecklistKey, isRegStepState,
+  PRESUB_ANSWER_STEP, REG_PRESUB_OUTCOME, isRegPresubOutcome, presubOutcome,
   type RegWorkflowState, type RegChecklistState,
 } from "./regulatory-workflow";
 
@@ -57,5 +58,20 @@ describe("regulatory ANPP workflow", () => {
     expect(isRegChecklistKey("xxx")).toBe(false);
     expect(isRegStepState("DONE")).toBe(true);
     expect(isRegStepState("MAYBE")).toBe(false);
+  });
+
+  it("avis de présoumission : favorable → le flux continue (DONE), défavorable → BLOCKED, en attente → DOING", () => {
+    expect(PRESUB_ANSWER_STEP).toBe("presub_ans");
+    expect(REG_PRESUB_OUTCOME.FAVORABLE.status).toBe("DONE");   // continue
+    expect(REG_PRESUB_OUTCOME.DEFAVORABLE.status).toBe("BLOCKED");
+    expect(REG_PRESUB_OUTCOME.EN_ATTENTE.status).toBe("DOING");
+    expect(isRegPresubOutcome("FAVORABLE")).toBe(true);
+    expect(isRegPresubOutcome("PEUT_ETRE")).toBe(false);
+
+    // Un avis favorable rend l'étape « Fait » → comptée dans l'avancement.
+    const favorable: RegWorkflowState = { [PRESUB_ANSWER_STEP]: { status: "DONE", outcome: "FAVORABLE" } };
+    expect(presubOutcome(favorable)).toBe("FAVORABLE");
+    expect(regStepStatus(favorable, PRESUB_ANSWER_STEP)).toBe("DONE");
+    expect(presubOutcome(null)).toBeNull();
   });
 });
