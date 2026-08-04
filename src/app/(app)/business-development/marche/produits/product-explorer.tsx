@@ -32,18 +32,32 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
   const [pending, start] = React.useTransition();
   const [err, setErr] = React.useState<string | null>(null);
 
+  // Chaque recherche porte un numéro de séquence : une réponse arrivée APRÈS une frappe plus
+  // récente est ignorée (pas de résultats périmés qui « clignotent » en temps réel).
+  const seq = React.useRef(0);
   const runSearch = React.useCallback((query: string, klass: string, laboratory: string) => {
+    const mySeq = ++seq.current;
     start(async () => {
-      setErr(null);
       const r = await searchMarketProducts({ q: query, cls: klass, lab: laboratory });
+      if (mySeq !== seq.current) return; // réponse périmée → ignorée
       if (!r.ok) { setErr(r.error ?? "Recherche impossible."); return; }
+      setErr(null);
       setResults(r.products);
       setTotal(r.total);
     });
   }, []);
 
+  // Recherche EN TEMPS RÉEL : à chaque frappe OU changement de filtre (anti-rebond 200 ms).
+  // Le jeu initial (props) couvre déjà l'état vide → on saute le tout premier rendu.
+  const didMount = React.useRef(false);
+  React.useEffect(() => {
+    if (!didMount.current) { didMount.current = true; return; }
+    const t = setTimeout(() => runSearch(q.trim(), cls, lab), 200);
+    return () => clearTimeout(t);
+  }, [q, cls, lab, runSearch]);
+
   const onSubmit = (e: React.FormEvent) => { e.preventDefault(); runSearch(q.trim(), cls, lab); };
-  const reset = () => { setQ(""); setCls(""); setLab(""); runSearch("", "", ""); };
+  const reset = () => { setQ(""); setCls(""); setLab(""); }; // les filtres vidés relancent la recherche via l'effet
 
   const toggle = (p: MarketProduct) => {
     setSelected((prev) => {
@@ -68,7 +82,8 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
           <Label className="text-xs">Recherche (marque, molécule, laboratoire…)</Label>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ex. amoxicilline, ALOCLAIR, Sinclair…" className="h-9 pl-8" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ex. amoxicilline, ALOCLAIR, Sinclair…" className="h-9 pl-8 pr-8" />
+            {pending && <Loader2 className="absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
           </div>
         </div>
         <div className="space-y-1">
