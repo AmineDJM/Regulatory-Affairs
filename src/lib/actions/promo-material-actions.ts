@@ -209,12 +209,24 @@ export async function submitBcForFinance(formData: FormData): Promise<ActionResu
   if (!isAssistant(user)) return { ok: false, error: "Réservé à l'assistante de direction." };
   if (pm.status !== "AGENCY_CHOSEN") return { ok: false, error: "Étape déjà passée." };
 
+  // Bon(s) de commande joints (un ou plusieurs) pour transmission aux Finances : enregistrés
+  // comme documents du dossier AVANT d'avancer — si une pièce échoue, on n'avance pas (isolation
+  // par fichier, cause exacte affichée). Catégorie « bon de commande ».
+  const files = formData.getAll("bcFiles").filter((f): f is File => f instanceof File && f.size > 0);
+  let attached = 0;
+  for (const file of files) {
+    const r = await persistUploadedDocument(user.id, { entityType: "PROMO_MATERIAL", entityId: id, category: "PURCHASE_ORDER", confidentiality: "INTERNAL", stepKey: "bc_finance", file });
+    if (!r.ok) return { ok: false, error: `Pièce « ${file.name} » : ${r.error ?? "téléversement impossible"}` };
+    attached++;
+  }
+
   await prisma.promoMaterial.update({
     where: { id },
     data: { status: "BC_FINANCE_REVIEW", bcReference: fdStr(formData, "bcReference"), financeReminderAt: null, updatedById: user.id },
   });
+  const attachNote = attached > 0 ? ` (${attached} fichier${attached > 1 ? "s" : ""})` : "";
   await notifyGroup(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], pm, "Matériel promotionnel — bon de commande à valider");
-  await audit(user, id, "UPDATE", "Bon de commande transmis aux finances");
+  await audit(user, id, "UPDATE", `Bon de commande transmis aux finances${attachNote}`);
   revalidate(id);
   return { ok: true };
 }

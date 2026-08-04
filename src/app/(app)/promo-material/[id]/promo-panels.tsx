@@ -78,9 +78,10 @@ export function PromoActionPanel(props: Props) {
   }
   if (status === "AGENCY_CHOSEN" && flags.isAssistant) {
     panels.push(
-      <StepForm key="bc" title="Bon de commande" hint="Déposez le bon de commande (ci-dessus) et sollicitez la validation des finances."
-        onSubmit={(form) => run(() => submitBcForFinance(fd({ bcReference: String(form.get("bcReference") || "") })))} saving={saving} err={err} submit="Transmettre aux finances">
+      <StepForm key="bc" title="Bon de commande" hint="Renseignez le n° et joignez le(s) bon(s) de commande (un ou plusieurs), puis transmettez aux finances pour validation."
+        onSubmit={(form) => { form.set("id", id); run(() => submitBcForFinance(form)); }} saving={saving} err={err} submit="Transmettre aux finances">
         <Field name="bcReference" label="N° de bon de commande" />
+        <FileField name="bcFiles" label="Bon(s) de commande (fichiers)" />
       </StepForm>,
     );
   }
