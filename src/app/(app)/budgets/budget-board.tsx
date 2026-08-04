@@ -132,8 +132,40 @@ function managersField(users: UserOpt[], defaultRoles: string[] = [], defaultIds
  * Vue consolidée « total des enveloppes » : visible du Super Admin et des personnes/
  * rôles qu'il a autorisés (la requête n'agrège que les enveloppes accessibles).
  */
+/**
+ * Graphique à barres comparatives (inline, sans dépendance, thème-aware) : pour chaque ligne,
+ * une barre « budget » (claire) sur laquelle se superpose la barre « consommé » (pleine),
+ * toutes deux à l'échelle du plus grand budget → comparaison visuelle immédiate.
+ */
+function CompareBars({ rows }: { rows: { label: string; budget: number; consumed: number }[] }) {
+  const max = Math.max(1, ...rows.map((r) => Math.max(r.budget, r.consumed)));
+  return (
+    <div className="space-y-2.5">
+      {rows.map((r, i) => {
+        const budgetPct = Math.min(100, (r.budget / max) * 100);
+        const consumedPct = Math.min(100, (r.consumed / max) * 100);
+        const over = r.budget > 0 && r.consumed > r.budget;
+        const cpct = r.budget > 0 ? Math.round((r.consumed / r.budget) * 100) : 0;
+        return (
+          <div key={i} className="space-y-1">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="truncate font-medium">{r.label}</span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">{formatCurrency(r.consumed)} / {formatCurrency(r.budget)} · <span className={over ? "text-destructive" : cpct > 80 ? "text-warning" : "text-success"}>{cpct}%</span></span>
+            </div>
+            <div className="relative h-3 w-full overflow-hidden rounded-full bg-secondary/60">
+              <div className="absolute inset-y-0 left-0 rounded-full bg-primary/20" style={{ width: `${budgetPct}%` }} />
+              <div className={cn("absolute inset-y-0 left-0 rounded-full", over ? "bg-destructive" : cpct > 80 ? "bg-warning" : "bg-success")} style={{ width: `${consumedPct}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function EnvelopesGrandTotalPanel({ data }: { data: EnvelopesGrandTotal }) {
   const pct = data.total > 0 ? Math.round((data.consumed / data.total) * 100) : 0;
+  const chartRows = data.items.filter((e) => e.total > 0 || e.consumed > 0).map((e) => ({ label: e.name, budget: e.total, consumed: e.consumed }));
   return (
     <section className="surface space-y-3 p-4">
       <div className="flex items-center gap-2">
@@ -164,6 +196,12 @@ export function EnvelopesGrandTotalPanel({ data }: { data: EnvelopesGrandTotal }
           </tbody>
         </table>
       </div>
+      {chartRows.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Consommation par enveloppe</p>
+          <CompareBars rows={chartRows} />
+        </div>
+      )}
     </section>
   );
 }
@@ -241,6 +279,8 @@ export function BudgetBoard({ overview, envelopes, canManage, canManageAccess = 
     if (c.parentId) subsByParent.set(c.parentId, [...(subsByParent.get(c.parentId) ?? []), c]);
   }
   const topCatOptions = topCats.map((c) => ({ id: c.id, name: c.name }));
+  // Données du graphique de consommation par catégorie (catégories de tête ayant un budget/consommation).
+  const chartCats = topCats.filter((c) => c.allocated > 0 || c.consumed > 0).map((c) => ({ label: c.name, budget: c.allocated, consumed: c.consumed }));
   const editCat = (cat: BudgetCategoryView) => setCatSheet({ cat });
   const deleteCat = (cat: BudgetCategoryView) => {
     if (window.confirm(`Supprimer « ${cat.name} » ?${cat.parentId === null ? " Ses sous-catégories seront aussi supprimées." : ""} Les dépenses repasseront en « non attribué ».`)) {
@@ -299,6 +339,14 @@ export function BudgetBoard({ overview, envelopes, canManage, canManageAccess = 
         <Kpi label="Consommé" value={formatCurrency(t.consumed)} hint={`${t.pct}% du total${t.committed ? ` · ${formatCurrency(t.committed)} engagé` : ""}`} tone="warning" />
         <Kpi label="Reste" value={formatCurrency(t.remaining)} tone={t.remaining < 0 ? "danger" : "success"} />
       </div>
+
+      {/* Graphique de consommation par catégorie de cette enveloppe */}
+      {chartCats.length > 0 && (
+        <section className="surface space-y-3 p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Consommation par catégorie</h2>
+          <CompareBars rows={chartCats} />
+        </section>
+      )}
 
       {/* Catégories */}
       <section className="space-y-3">
