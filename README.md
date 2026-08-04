@@ -202,7 +202,7 @@ jamais identique.
 | **Feedback** | `/feedback` | Retour libre utilisateur → admin, **+ boîte de réception** : les réponses de l'administration s'affichent à l'utilisateur (avec notification). |
 
 > **Menu simplifié** : modules fusionnés en **onglets** — « Mon espace » (Mon travail · Mon espace · Directives),
-> « Ad & Pro » (Sponsoring · Congrès · Événements · Matériel promotionnel), « **Accueil** » (Drive personnel + **catégories partagées** ; l'onglet « Documents » a été retiré, tout est consolidé dans l'Accueil),
+> « Ad & Pro » (Sponsoring · Congrès · Événements · Matériel promotionnel), « **Drive** » (Drive personnel + **catégories partagées** ; l'onglet « Documents » a été retiré, tout est consolidé dans le Drive),
 > « Mon dossier RH » (RH perso · Mes ordres de mission). **Messagerie** et **Notifications** restent accessibles
 > via leurs **icônes** dans la barre du haut.
 
@@ -389,7 +389,7 @@ personne** (ex. l'assistante de direction) **même si elle n'a aucun accès au m
 
 ```
 Demande (employé) — simple OU multi-cellules (lot), articles depuis le catalogue
-   → 15 min : le demandeur peut encore MODIFIER (tous les champs saisis) ou SUPPRIMER sa demande
+   → 30 min : le demandeur peut encore MODIFIER (tous les champs saisis) ou SUPPRIMER sa demande
    → l'assistante « Commence le traitement »
    → SI ACHAT : upload du DEVIS → « Demande de validation des Finances »
         → bureau central des validations (Finances) : accord / refus / « trop cher, autre agence, réduire »
@@ -1986,8 +1986,8 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   auto-créé** indiquant l'événement (sans budget) et une demande dans l'espace de la personne.
 - **Budgets** — **sous-catégories** (ex. Table ronde sous Événement), **vue consolidée du total des enveloppes**,
   **accès par personne** (en plus des rôles), attribution auto des dépenses à la catégorie du module.
-- **Bureau du secrétariat** — dans la fenêtre de 15 min, le demandeur peut modifier **tous les champs** qu'il a
-  saisis (plus seulement la description).
+- **Bureau du secrétariat** — dans la fenêtre de **30 min** (tous types de demandes), le demandeur peut modifier
+  **tous les champs** qu'il a saisis (plus seulement la description) ou supprimer sa demande.
 - **Messagerie** — **notification sonore** qui fonctionne en arrière-plan ; **aperçu / téléchargement** des pièces
   jointes (plus de téléchargement automatique au clic).
 - **Information médicale** — le PRIM **visualise les pièces de l'événement source**, **upload** de la déclaration
