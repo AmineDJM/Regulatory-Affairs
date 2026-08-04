@@ -4,11 +4,31 @@ import * as React from "react";
 import Link from "next/link";
 import {
   Sparkles, Send, Loader2, Bot, CheckCircle2, AlertTriangle, KeyRound,
-  Search, ArrowRight, X, Wand2,
+  Search, ArrowRight, X, Wand2, Paperclip, FolderOpen, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { assistantChat, executeAssistantAction } from "@/lib/actions/assistant-actions";
+import { assistantChat, executeAssistantAction, listAssistantFiles } from "@/lib/actions/assistant-actions";
 import type { ProposedAction, AssistantActionPayload, ChatTurn } from "@/lib/assistant";
+import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
+
+/** Pièce jointe en attente d'envoi : fichier local (upload) ou fichier du Drive (référence). */
+type PendingAttach =
+  | { id: string; kind: "upload"; name: string; file: File }
+  | { id: string; kind: "drive"; name: string; nodeId: string };
+
+/** Lit un fichier local en base64 (sans le préfixe data:) pour l'envoyer à l'action serveur. */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = String(reader.result ?? "");
+      const comma = res.indexOf(",");
+      resolve(comma >= 0 ? res.slice(comma + 1) : res);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 export type ActionState = "pending" | "running" | "done" | "cancelled" | "error";
 
@@ -16,6 +36,7 @@ interface Msg {
   id: number;
   role: "user" | "assistant";
   content: string;
+  attachmentNames?: string[];
   trace?: string[];
   proposal?: ProposedAction;
   actionState?: ActionState;
@@ -48,26 +69,53 @@ export function AssistantChat({ userName, configured }: { userName: string; conf
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
   const [sending, setSending] = React.useState(false);
+  const [attachments, setAttachments] = React.useState<PendingAttach[]>([]);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const [dragOver, setDragOver] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const taRef = React.useRef<HTMLTextAreaElement>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, sending]);
 
+  const addFiles = (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setAttachments((prev) => [
+      ...prev,
+      ...list.map((file) => ({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, kind: "upload" as const, name: file.name, file })),
+    ].slice(0, 6));
+  };
+  const addDriveFile = (f: AssistantFileOption) => {
+    setAttachments((prev) => (prev.some((a) => a.kind === "drive" && a.nodeId === f.id) ? prev : [...prev, { id: f.id, kind: "drive" as const, name: f.name, nodeId: f.id }].slice(0, 6)));
+  };
+  const removeAttachment = (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id));
+
   const send = async (text: string) => {
     const content = text.trim();
-    if (!content || sending || !configured) return;
-    const userMsg: Msg = { id: nextId(), role: "user", content };
+    const pending = attachments;
+    if ((!content && pending.length === 0) || sending || !configured) return;
+    const userMsg: Msg = { id: nextId(), role: "user", content: content || "(pièces jointes)", attachmentNames: pending.map((a) => a.name) };
     const next = [...messages, userMsg];
     setMessages(next);
     setInput("");
+    setAttachments([]);
     setSending(true);
     const history: ChatTurn[] = next
       .filter((m) => m.content.trim().length > 0)
       .map((m) => ({ role: m.role, content: m.content }));
     try {
-      const res = await assistantChat(history);
+      // Conversion des fichiers locaux en base64 ; les fichiers du Drive partent par référence.
+      const payload: AssistantAttachment[] = await Promise.all(
+        pending.map(async (a) =>
+          a.kind === "upload"
+            ? ({ kind: "upload", name: a.name, dataB64: await fileToBase64(a.file) } as AssistantAttachment)
+            : ({ kind: "drive", nodeId: a.nodeId, name: a.name } as AssistantAttachment),
+        ),
+      );
+      const res = await assistantChat(history, payload.length ? payload : undefined);
       if (!res.configured) {
         setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "IA non configurée." }]);
       } else if (res.ok) {
@@ -154,22 +202,52 @@ export function AssistantChat({ userName, configured }: { userName: string; conf
         )}
       </div>
 
-      <div className="border-t border-border bg-card/60 p-3">
+      <div className="relative border-t border-border bg-card/60 p-3">
+        {pickerOpen && <DriveFilePicker onPick={addDriveFile} onClose={() => setPickerOpen(false)} />}
+
+        {/* Pièces jointes en attente */}
+        {attachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {attachments.map((a) => (
+              <span key={a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/60 px-2 py-1 text-xs">
+                <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="max-w-[180px] truncate">{a.name}</span>
+                {a.kind === "drive" && <span className="text-[10px] text-muted-foreground">Drive</span>}
+                <button type="button" onClick={() => removeAttachment(a.id)} className="text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <form
           onSubmit={(e) => { e.preventDefault(); send(input); }}
-          className="flex items-end gap-2"
+          onDragOver={(e) => { if (configured) { e.preventDefault(); setDragOver(true); } }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); if (configured && e.dataTransfer.files?.length) addFiles(e.dataTransfer.files); }}
+          className={`flex items-end gap-2 rounded-xl ${dragOver ? "ring-2 ring-primary/50" : ""}`}
         >
+          <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
+          <div className="flex items-center gap-1">
+            <button type="button" title="Joindre un fichier (glisser-déposer possible)" onClick={() => fileRef.current?.click()} disabled={!configured || sending}
+              className="flex h-[2.75rem] w-9 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50">
+              <Paperclip className="h-4 w-4" />
+            </button>
+            <button type="button" title="Choisir un fichier de mon Drive (sans le re-téléverser)" onClick={() => setPickerOpen((o) => !o)} disabled={!configured || sending}
+              className={`flex h-[2.75rem] w-9 items-center justify-center rounded-xl transition hover:bg-secondary disabled:opacity-50 ${pickerOpen ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+              <FolderOpen className="h-4 w-4" />
+            </button>
+          </div>
           <textarea
             ref={taRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-            placeholder={configured ? "Écrivez votre demande…  (Entrée pour envoyer, Maj+Entrée pour un retour à la ligne)" : "Assistant indisponible — clé IA manquante."}
+            placeholder={configured ? (dragOver ? "Déposez vos fichiers ici…" : "Écrivez votre demande, ou glissez un fichier…  (Entrée pour envoyer)") : "Assistant indisponible — clé IA manquante."}
             disabled={!configured || sending}
             rows={1}
             className="max-h-40 min-h-[2.75rem] flex-1 resize-none rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none transition placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
           />
-          <Button type="submit" size="lg" disabled={!configured || sending || !input.trim()} className="h-[2.75rem] px-4">
+          <Button type="submit" size="lg" disabled={!configured || sending || (!input.trim() && attachments.length === 0)} className="h-[2.75rem] px-4">
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </form>
@@ -186,6 +264,55 @@ function Avatar() {
   );
 }
 
+/** Sélecteur de fichiers du Drive personnel : on référence un fichier existant (aucun
+ *  re-téléversement) — recherche par nom, chargée à la demande. */
+function DriveFilePicker({ onPick, onClose }: { onPick: (f: AssistantFileOption) => void; onClose: () => void }) {
+  const [q, setQ] = React.useState("");
+  const [files, setFiles] = React.useState<AssistantFileOption[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    const t = setTimeout(async () => {
+      const res = await listAssistantFiles(q);
+      if (alive) { setFiles(res); setLoading(false); }
+    }, q ? 250 : 0);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q]);
+
+  return (
+    <div className="absolute bottom-full left-3 right-3 z-20 mb-2 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <FolderOpen className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Mes fichiers du Drive</span>
+        <button type="button" onClick={onClose} className="ml-auto text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+      </div>
+      <div className="p-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Rechercher un fichier…" className="w-full rounded-lg border border-border bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:border-primary/60" />
+        </div>
+      </div>
+      <div className="max-h-52 overflow-y-auto px-2 pb-2">
+        {loading ? (
+          <p className="px-2 py-3 text-sm text-muted-foreground"><Loader2 className="mr-1 inline h-4 w-4 animate-spin" /> Chargement…</p>
+        ) : files.length === 0 ? (
+          <p className="px-2 py-3 text-sm text-muted-foreground">Aucun fichier{q ? " pour cette recherche" : ""}.</p>
+        ) : (
+          files.map((f) => (
+            <button key={f.id} type="button" onClick={() => { onPick(f); onClose(); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-secondary">
+              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="flex-1 truncate">{f.name}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{Math.max(1, Math.round(f.size / 1024))} Ko</span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({
   msg, onConfirm, onCancel,
 }: {
@@ -195,7 +322,16 @@ function MessageBubble({
 }) {
   if (msg.role === "user") {
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-1">
+        {msg.attachmentNames && msg.attachmentNames.length > 0 && (
+          <div className="flex max-w-[80%] flex-wrap justify-end gap-1">
+            {msg.attachmentNames.map((n, i) => (
+              <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                <FileText className="h-3 w-3" /> <span className="max-w-[160px] truncate">{n}</span>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm">
           {msg.content}
         </div>

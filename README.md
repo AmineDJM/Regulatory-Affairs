@@ -794,6 +794,12 @@ affiche proprement « IA non configurée » — **aucune fonctionnalité ne cass
   action réutilise l'action métier existante (mêmes circuits/notifications) et est **revérifiée RBAC** par module.
   Garde-fous : n'invente jamais médecin/produit/adresse, **avertit sur les dates passées**, **texte simple**,
   **robuste** (timeout + retry, ne lève jamais).
+  **Lecture de pièces jointes** — on peut joindre des fichiers à la conversation (`/assistant`) : **glisser-déposer**
+  ou bouton trombone pour un fichier local, **ou référencer un fichier du Drive** (bouton dossier → sélecteur ;
+  **aucun téléchargement + re-téléversement**). Le contenu est extrait **côté serveur** — **Excel complet** (toutes
+  les feuilles), **PowerPoint** (texte des diapositives), **Word**, **PDF** (couche texte), **CSV/texte** — puis
+  injecté dans le message pour que l'assistant s'appuie dessus (résumé, extraction de chiffres, comparaison). Fichiers
+  du Drive lus **après contrôle d'accès** ; formats scannés/binaires hérités signalés (`lib/assistant-files.ts`).
 - **Rapports terrain vocaux** (`/field-reports`) — *Parler → Whisper → Claude (champs structurés) → relecture →
   validation*. **L'IA ne valide jamais seule.** 100 % utilisable en saisie manuelle sans clé.
 - **Comptes-rendus de réunion** — transcription + synthèse IA des appels.

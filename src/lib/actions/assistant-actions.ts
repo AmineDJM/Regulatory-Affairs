@@ -3,13 +3,73 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+import { getBlob } from "@/lib/drive-storage";
+import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { aiConfigured, aiModel, aiModelCheap } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { getUnreadDigest } from "@/lib/assistant-nudge";
+import { extractAttachmentText, buildAttachmentContext, type AttachmentText } from "@/lib/assistant-files";
+import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import {
   runAssistant, performAction,
   type AssistantActionPayload, type AssistantResult, type ChatTurn, type ExecuteResult, type ProposedAction,
 } from "@/lib/assistant";
+
+const MAX_ATTACHMENTS = 6;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20 Mo par pièce jointe
+
+/**
+ * Résout une pièce jointe en `{ name, buffer }` :
+ *  • upload → décodage base64 (borné en taille) ;
+ *  • drive  → lecture du blob de la version courante, APRÈS contrôle d'accès Drive.
+ * Renvoie null si inaccessible/invalide (jamais d'exception).
+ */
+async function resolveAttachment(user: Awaited<ReturnType<typeof requireUser>>, a: AssistantAttachment): Promise<{ name: string; buffer: Buffer } | null> {
+  try {
+    if (a.kind === "upload") {
+      if (!a.name || !a.dataB64) return null;
+      const buffer = Buffer.from(a.dataB64, "base64");
+      if (buffer.length === 0 || buffer.length > MAX_UPLOAD_BYTES) return null;
+      return { name: a.name, buffer };
+    }
+    // drive : le fichier doit être ACCESSIBLE au demandeur (aucun re-téléversement).
+    if (!canViewDrive(await resolveDriveAccess(user, a.nodeId))) return null;
+    const node = await prisma.driveNode.findUnique({ where: { id: a.nodeId }, select: { name: true, type: true } });
+    if (!node || node.type !== "FILE") return null;
+    const version = await prisma.fileVersion.findFirst({ where: { nodeId: a.nodeId }, orderBy: { version: "desc" }, select: { blobId: true } });
+    if (!version) return null;
+    const bytes = await getBlob(version.blobId);
+    if (!bytes) return null;
+    return { name: node.name, buffer: bytes };
+  } catch (err) {
+    console.error("[assistant] resolveAttachment failed", err);
+    return null;
+  }
+}
+
+/**
+ * Injecte le contenu des pièces jointes dans le DERNIER message utilisateur : chaque fichier
+ * est résolu (upload ou Drive) puis extrait en texte (Excel complet, PPTX, Word, PDF, CSV…).
+ * Renvoie l'historique augmenté (l'original si rien d'exploitable).
+ */
+async function withAttachmentContext(user: Awaited<ReturnType<typeof requireUser>>, history: ChatTurn[], attachments: AssistantAttachment[]): Promise<ChatTurn[]> {
+  const texts: AttachmentText[] = [];
+  for (const a of attachments.slice(0, MAX_ATTACHMENTS)) {
+    const resolved = await resolveAttachment(user, a);
+    if (!resolved) { texts.push({ name: a.kind === "upload" ? a.name : "fichier", text: "", note: "Fichier inaccessible.", truncated: false }); continue; }
+    texts.push(await extractAttachmentText(resolved.name, resolved.buffer));
+  }
+  const ctx = buildAttachmentContext(texts);
+  if (!ctx) return history;
+  // Rattache au dernier tour utilisateur (ou en crée un si l'historique n'en a pas).
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === "user") {
+      return history.map((t, j) => (j === i ? { ...t, content: `${t.content}\n\n${ctx}` } : t));
+    }
+  }
+  return [...history, { role: "user", content: ctx }];
+}
 
 export interface NudgeResult {
   signature: string;
@@ -21,7 +81,7 @@ export interface NudgeResult {
  * Ne lève JAMAIS d'exception vers le client — toute erreur revient en résultat
  * structuré (fini le « Appel à l'assistant impossible »).
  */
-export async function assistantChat(history: ChatTurn[]): Promise<AssistantResult> {
+export async function assistantChat(history: ChatTurn[], attachments?: AssistantAttachment[]): Promise<AssistantResult> {
   try {
     const user = await requireUser();
     // Tout employé a accès à l'assistant (espace de travail universel).
@@ -32,8 +92,14 @@ export async function assistantChat(history: ChatTurn[]): Promise<AssistantResul
     if (!(await aiFeatureEnabled("assistant"))) {
       return { configured: true, ok: false, reply: "", trace: [], error: "L'assistant IA est actuellement désactivé par l'administrateur." };
     }
+    let turns = Array.isArray(history) ? history : [];
+    // Pièces jointes (téléversées OU référencées depuis le Drive) : leur contenu est extrait
+    // côté serveur et injecté dans le message — l'assistant « lit » Excel/PPTX/Word/PDF, etc.
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      turns = await withAttachmentContext(user, turns, attachments);
+    }
     const t0 = Date.now();
-    const res = await runAssistant(user, Array.isArray(history) ? history : []);
+    const res = await runAssistant(user, turns);
     await logAiUsage({
       feature: "assistant", userId: user.id, model: aiModel(),
       ok: res.ok, latencyMs: Date.now() - t0, errorCode: res.ok ? null : res.error ?? "error",
@@ -101,5 +167,27 @@ export async function executeAssistantAction(payload: AssistantActionPayload): P
   } catch (err) {
     console.error("[assistant] executeAssistantAction failed", err);
     return { ok: false, error: "L'action n'a pas pu être exécutée. Réessayez dans un instant." };
+  }
+}
+
+/**
+ * Fichiers du Drive personnel proposés au « glisser » dans l'assistant (sélecteur) : on les
+ * référence directement, SANS téléchargement + re-téléversement. Recherche optionnelle par nom.
+ */
+export async function listAssistantFiles(query?: string): Promise<AssistantFileOption[]> {
+  try {
+    const user = await requireUser();
+    if (!userCan(user, "DRIVE", "VIEW")) return [];
+    const q = (query ?? "").trim();
+    const files = await prisma.driveNode.findMany({
+      where: { ownerId: user.id, type: "FILE", isTrashed: false, ...(q ? { name: { contains: q, mode: "insensitive" } } : {}) },
+      orderBy: { updatedAt: "desc" },
+      take: 40,
+      select: { id: true, name: true, mimeType: true, size: true },
+    });
+    return files;
+  } catch (err) {
+    console.error("[assistant] listAssistantFiles failed", err);
+    return [];
   }
 }
