@@ -99,6 +99,9 @@ export default async function AdminPage() {
             <Link href="/admin/organigramme">
               <Button variant="outline"><Network className="h-4 w-4" /> Organigramme</Button>
             </Link>
+            <Link href="/admin/departments">
+              <Button variant="outline"><Building2 className="h-4 w-4" /> Départements</Button>
+            </Link>
             <Link href="/admin/corbeille">
               <Button variant="outline"><Trash2 className="h-4 w-4" /> Corbeille</Button>
             </Link>

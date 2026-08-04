@@ -570,11 +570,18 @@ model Department {
   id        String   @id @default(cuid())
   name      String   @unique
   code      String   @unique
+  // Hiérarchie « comme une vraie boîte » : un département peut avoir un département parent
+  // (→ ses enfants sont ses SOUS-DÉPARTEMENTS). Racine = parentId null.
+  parentId  String?
+  parent    Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Department[] @relation("DepartmentTree")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   users         User[]
   adminRequests AdministrativeRequest[]
+
+  @@index([parentId])
 }
 
 model User {
