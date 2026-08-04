@@ -11,9 +11,9 @@ import { cn } from "@/lib/utils";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   createEnvelope, updateEnvelope, deleteEnvelope, setBudgetTotal,
-  createBudgetCategory, updateBudgetCategory, deleteBudgetCategory, attributeTransaction, addBudgetExpense, deleteBudgetExpense,
+  createBudgetCategory, updateBudgetCategory, deleteBudgetCategory, attributeTransaction, addBudgetExpense, updateBudgetExpense, deleteBudgetExpense,
 } from "@/lib/actions/budget-envelope-actions";
-import type { BudgetOverview, BudgetEnvelopeOption, BudgetCategoryView, BudgetHealth, EnvelopesGrandTotal } from "@/lib/queries/budget";
+import type { BudgetOverview, BudgetEnvelopeOption, BudgetCategoryView, BudgetHealth, EnvelopesGrandTotal, AttributedTx } from "@/lib/queries/budget";
 import { ROLE_LABELS } from "@/lib/labels";
 
 interface BudgetTotalInfo { mode: "FIXED" | "FLEXIBLE"; value: number; fixed: number }
@@ -231,6 +231,7 @@ export function BudgetBoard({ overview, envelopes, canManage, canManageAccess = 
   const [editEnv, setEditEnv] = React.useState(false);
   const [totalSheet, setTotalSheet] = React.useState(false);
   const [catSheet, setCatSheet] = React.useState<{ cat?: BudgetCategoryView; parentId?: string } | null>(null);
+  const [editExpense, setEditExpense] = React.useState<AttributedTx | null>(null);
   const { run } = useRun();
 
   // Catégories de 1er niveau + leurs sous-catégories (regroupées par parent).
@@ -364,7 +365,7 @@ export function BudgetBoard({ overview, envelopes, canManage, canManageAccess = 
       {canAttribute && overview.attributed.transactions.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Dépenses imputées ({overview.attributed.count}) <span className="font-normal normal-case text-[11px] text-muted-foreground">— trésorerie ré-attribuable · ligne budgétaire supprimable</span>
+            Dépenses imputées ({overview.attributed.count}) <span className="font-normal normal-case text-[11px] text-muted-foreground">— trésorerie ré-attribuable · ligne budgétaire modifiable / supprimable</span>
           </h2>
           <div className="surface divide-y divide-border">
             {overview.attributed.transactions.map((tx) => (
@@ -385,13 +386,22 @@ export function BudgetBoard({ overview, envelopes, canManage, canManageAccess = 
                     {overview.categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
                   </Select>
                 ) : (
-                  <button
-                    title="Supprimer cette ligne de dépense budgétaire"
-                    onClick={() => { if (window.confirm(`Supprimer la dépense « ${tx.label} » ? La consommation de la catégorie sera réajustée.`)) { const fd = new FormData(); fd.set("id", tx.id); run(() => deleteBudgetExpense(fd)); } }}
-                    className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      title="Modifier cette ligne de dépense budgétaire"
+                      onClick={() => setEditExpense(tx)}
+                      className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      title="Supprimer cette ligne de dépense budgétaire"
+                      onClick={() => { if (window.confirm(`Supprimer la dépense « ${tx.label} » ? La consommation de la catégorie sera réajustée.`)) { const fd = new FormData(); fd.set("id", tx.id); run(() => deleteBudgetExpense(fd)); } }}
+                      className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -402,6 +412,7 @@ export function BudgetBoard({ overview, envelopes, canManage, canManageAccess = 
       {editEnv && <EnvelopeSheet envelope={overview.envelope} users={users} onClose={() => setEditEnv(false)} onDeleted={() => router.push("/budgets")} canDelete={canManageAccess} />}
       {catSheet && <CategorySheet envelopeId={overview.envelope.id} cat={catSheet.cat} defaultParentId={catSheet.parentId} parentOptions={topCatOptions} onClose={() => setCatSheet(null)} />}
       {totalSheet && <BudgetTotalSheet info={budgetTotal} onClose={() => setTotalSheet(false)} />}
+      {editExpense && <ExpenseEditSheet tx={editExpense} categories={overview.categories} onClose={() => setEditExpense(null)} />}
     </div>
   );
 }
@@ -478,6 +489,33 @@ function AddExpenseRow({ categories }: { categories: BudgetCategoryView[] }) {
       </Button>
       {err && <p className="w-full text-xs text-destructive">{err}</p>}
     </form>
+  );
+}
+
+/**
+ * Édition d'une ligne de dépense purement budgétaire (BudgetExpenseLine) : référence, montant,
+ * date et RÉ-IMPUTATION vers une autre (sous-)catégorie. La consommation se réajuste aussitôt.
+ * (Les dépenses de trésorerie, elles, se modifient dans les Finances.)
+ */
+function ExpenseEditSheet({ tx, categories, onClose }: { tx: AttributedTx; categories: BudgetCategoryView[]; onClose: () => void }) {
+  const { busy, err, run } = useRun();
+  return (
+    <Sheet open onClose={onClose} title="Modifier la dépense" description="Ligne purement budgétaire — la consommation de la catégorie est réajustée aussitôt." width="md">
+      <form action={(fd) => { fd.set("id", tx.id); run(() => updateBudgetExpense(fd), onClose); }} className="grid grid-cols-2 gap-3">
+        {field("reference", "Référence", { defaultValue: tx.reference, placeholder: "Ex. Facture 2026-042", required: true }, true)}
+        {field("amount", "Montant (DZD)", { type: "number", step: "any", min: 0, defaultValue: tx.amount, required: true })}
+        {field("date", "Date", { type: "date", defaultValue: d10(tx.date) })}
+        <div className="col-span-2 space-y-1.5">
+          <Label>Budget consommé</Label>
+          <Select name="budgetCategoryId" defaultValue={tx.categoryId}>
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
+          </Select>
+          <p className="text-xs text-muted-foreground">Changez la (sous-)catégorie pour ré-imputer la dépense.</p>
+        </div>
+        {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
+        <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
+      </form>
+    </Sheet>
   );
 }
 

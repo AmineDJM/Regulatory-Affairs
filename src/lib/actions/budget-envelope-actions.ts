@@ -250,6 +250,51 @@ export async function addBudgetExpense(formData: FormData): Promise<ActionResult
 }
 
 /**
+ * MODIFIE une ligne de dépense purement budgétaire (BudgetExpenseLine) : référence, montant,
+ * date et, éventuellement, RÉ-IMPUTATION vers une autre (sous-)catégorie. La consommation des
+ * catégories concernées est réajustée aussitôt. Réservé à la Direction / aux gestionnaires
+ * ayant accès à l'enveloppe — et, en cas de ré-imputation, à l'enveloppe CIBLE.
+ * (Les dépenses réelles, elles, se modifient dans les Finances.)
+ */
+export async function updateBudgetExpense(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const line = await prisma.budgetExpenseLine.findUnique({
+    where: { id },
+    select: { id: true, reference: true, categoryId: true, category: { select: { name: true, envelope: { select: { accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true } } } } },
+  });
+  if (!line) return { ok: false, error: "Ligne introuvable." };
+  // Droit sur l'enveloppe ACTUELLE de la ligne.
+  const env = line.category.envelope;
+  const allowed = canManageEnvelope(user, env) || ((hasGlobalView(user.role) || userCan(user, "BUDGETS", "UPDATE")) && canViewEnvelope(user, env));
+  if (!allowed) return { ok: false, error: "Cette enveloppe ne vous est pas ouverte." };
+
+  const reference = fdStr(formData, "reference"); // sert de libellé de la dépense
+  const amount = fdNum(formData, "amount");
+  if (!reference) return { ok: false, error: "Indiquez une référence." };
+  if (amount == null || amount <= 0) return { ok: false, error: "Indiquez un montant positif." };
+  const date = fdDate(formData, "date");
+
+  // Ré-imputation éventuelle vers une autre (sous-)catégorie : on vérifie l'accès à la CIBLE.
+  const targetCategoryId = fdStr(formData, "budgetCategoryId") || line.categoryId;
+  let targetName = line.category.name;
+  if (targetCategoryId !== line.categoryId) {
+    const resolved = await resolveExpenseCategory(user, targetCategoryId);
+    if ("error" in resolved) return { ok: false, error: resolved.error };
+    targetName = resolved.cat.name;
+  }
+
+  await prisma.budgetExpenseLine.update({
+    where: { id },
+    data: { reference: reference.slice(0, 160), amount, categoryId: targetCategoryId, ...(date ? { date } : {}) },
+  });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Budgets", entityId: id, summary: `Dépense budgétaire « ${reference.slice(0, 160)} » modifiée (imputée à « ${targetName} »)` });
+  revalidatePath("/budgets");
+  return { ok: true };
+}
+
+/**
  * Supprime une ligne de dépense purement budgétaire (BudgetExpenseLine) — la consommation
  * de la catégorie est réajustée aussitôt. Réservé à la Direction / aux gestionnaires ayant
  * accès à l'enveloppe. (Les dépenses réelles, elles, se suppriment dans les Finances.)

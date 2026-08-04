@@ -9,7 +9,7 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
 import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { getBudgetOverview } from "@/lib/queries/budget";
-import { addBudgetExpense, deleteBudgetExpense } from "./budget-envelope-actions";
+import { addBudgetExpense, updateBudgetExpense, deleteBudgetExpense } from "./budget-envelope-actions";
 
 /**
  * Ajout rapide d'une ligne de dépense depuis le module Budget (référence + montant) : crée une
@@ -103,5 +103,56 @@ suite("addBudgetExpense — dépense budgétaire (découplée des Finances) qui 
     ACTOR = await actorFor(salesId, "SALES_USER");
     const r = await addBudgetExpense(form({ budgetCategoryId: catId, reference: `${TAG} X`, amount: "100" }));
     expect(r.ok).toBe(false);
+  });
+
+  it("modifie une ligne (référence + montant) → consommation réajustée", async () => {
+    ACTOR = await actorFor(adminId, "SUPER_ADMIN");
+    await addBudgetExpense(form({ budgetCategoryId: catId, reference: `${TAG} orig`, amount: "200" }));
+    const line = await prisma.budgetExpenseLine.findFirstOrThrow({ where: { categoryId: catId, reference: `${TAG} orig` } });
+
+    const r = await updateBudgetExpense(form({ id: line.id, reference: `${TAG} révisée`, amount: "450" }));
+    expect(r.ok).toBe(true);
+
+    const updated = await prisma.budgetExpenseLine.findUniqueOrThrow({ where: { id: line.id } });
+    expect(Number(updated.amount)).toBe(450);
+    expect(updated.reference).toBe(`${TAG} révisée`);
+
+    const ov = await getBudgetOverview(ACTOR, envId);
+    expect(ov!.categories.find((c) => c.id === catId)!.consumed).toBe(450);
+    await prisma.budgetExpenseLine.delete({ where: { id: line.id } });
+  });
+
+  it("ré-impute une ligne vers une autre catégorie → la consommation suit", async () => {
+    ACTOR = await actorFor(adminId, "SUPER_ADMIN");
+    const cat2 = await prisma.budgetCategoryLine.create({ data: { envelopeId: envId, name: `${TAG} Autre`, module: "SPONSORING", allocated: 500 } });
+    await addBudgetExpense(form({ budgetCategoryId: catId, reference: `${TAG} move`, amount: "120" }));
+    const line = await prisma.budgetExpenseLine.findFirstOrThrow({ where: { categoryId: catId, reference: `${TAG} move` } });
+
+    const r = await updateBudgetExpense(form({ id: line.id, reference: `${TAG} move`, amount: "120", budgetCategoryId: cat2.id }));
+    expect(r.ok).toBe(true);
+
+    const moved = await prisma.budgetExpenseLine.findUniqueOrThrow({ where: { id: line.id } });
+    expect(moved.categoryId).toBe(cat2.id);
+
+    const ov = await getBudgetOverview(ACTOR, envId);
+    expect(ov!.categories.find((c) => c.id === catId)!.consumed).toBe(0);
+    expect(ov!.categories.find((c) => c.id === cat2.id)!.consumed).toBe(120);
+    await prisma.budgetExpenseLine.delete({ where: { id: line.id } });
+    await prisma.budgetCategoryLine.delete({ where: { id: cat2.id } });
+  });
+
+  it("refuse une modification incohérente ou sans droit", async () => {
+    ACTOR = await actorFor(adminId, "SUPER_ADMIN");
+    await addBudgetExpense(form({ budgetCategoryId: catId, reference: `${TAG} guard`, amount: "80" }));
+    const line = await prisma.budgetExpenseLine.findFirstOrThrow({ where: { categoryId: catId, reference: `${TAG} guard` } });
+
+    expect((await updateBudgetExpense(form({ id: line.id, reference: "", amount: "80" }))).ok).toBe(false); // référence vide
+    expect((await updateBudgetExpense(form({ id: line.id, reference: "X", amount: "-5" }))).ok).toBe(false); // montant négatif
+
+    ACTOR = await actorFor(salesId, "SALES_USER");
+    expect((await updateBudgetExpense(form({ id: line.id, reference: "X", amount: "50" }))).ok).toBe(false); // sans droit
+
+    ACTOR = await actorFor(adminId, "SUPER_ADMIN");
+    await prisma.budgetExpenseLine.delete({ where: { id: line.id } });
   });
 });
