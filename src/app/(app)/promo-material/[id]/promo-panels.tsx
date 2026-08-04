@@ -67,10 +67,11 @@ export function PromoActionPanel(props: Props) {
   }
   if (status === "QUOTES_UPLOADED" && flags.isMarketing) {
     panels.push(
-      <StepForm key="choose" title="Choix de l'agence" hint="Choisissez l'agence/devis retenu et demandez la création du bon de commande."
-        onSubmit={(form) => run(() => chooseAgency(fd({ chosenAgency: String(form.get("chosenAgency") || ""), chosenAmount: String(form.get("chosenAmount") || ""), comment: String(form.get("comment") || "") })))} saving={saving} err={err} submit="Valider l'agence & demander le BC">
+      <StepForm key="choose" title="Choix de l'agence" hint="Choisissez l'agence/devis retenu, joignez si besoin une ou plusieurs pièces (devis retenu, comparatif, contrat…) et demandez la création du bon de commande."
+        onSubmit={(form) => { form.set("id", id); run(() => chooseAgency(form)); }} saving={saving} err={err} submit="Valider l'agence & demander le BC">
         <Field name="chosenAgency" label="Agence retenue" required defaultValue={props.chosenAgency ?? ""} />
         <Field name="chosenAmount" label="Montant du devis (DZD)" type="number" />
+        <FileField name="attachments" label="Pièces jointes (optionnel — une ou plusieurs)" />
         <Area name="comment" label="Commentaire (motif du choix)" />
       </StepForm>,
     );
@@ -258,6 +259,14 @@ function Area({ name, label }: { name: string; label: string }) {
     <div className="space-y-1">
       <Label htmlFor={name}>{label}</Label>
       <Textarea id={name} name={name} className="min-h-[60px]" />
+    </div>
+  );
+}
+function FileField({ name, label }: { name: string; label: string }) {
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={name}>{label}</Label>
+      <input id={name} name={name} type="file" multiple className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-secondary/80" />
     </div>
   );
 }

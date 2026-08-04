@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
+import { persistUploadedDocument } from "@/lib/documents";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
@@ -171,14 +172,28 @@ export async function chooseAgency(formData: FormData): Promise<ActionResult> {
   const agency = fdStr(formData, "chosenAgency");
   if (!agency) return { ok: false, error: "Indiquez l'agence retenue." };
 
+  // Pièces jointes OPTIONNELLES au choix de l'agence (devis retenu, comparatif, contrat…) : une ou
+  // plusieurs. Enregistrées AVANT d'avancer, pour que le dossier ne progresse pas si une pièce
+  // échoue. Chaque fichier est isolé — une erreur affiche sa cause exacte sans corrompre le lot.
+  const files = formData.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+  let attached = 0;
+  for (const file of files) {
+    const r = await persistUploadedDocument(user.id, { entityType: "PROMO_MATERIAL", entityId: id, category: "QUOTE", confidentiality: "INTERNAL", stepKey: "agency_choice", file });
+    if (!r.ok) return { ok: false, error: `Pièce « ${file.name} » : ${r.error ?? "téléversement impossible"}` };
+    attached++;
+  }
+
   await prisma.promoMaterial.update({
     where: { id },
     data: { status: "AGENCY_CHOSEN", chosenAgency: agency, chosenAmount: fdNum(formData, "chosenAmount") ?? null, updatedById: user.id },
   });
   const note = fdStr(formData, "comment");
-  if (note) await prisma.comment.create({ data: { entityType: "PROMO_MATERIAL", entityId: id, body: `Agence retenue : ${agency}. ${note}`, authorId: user.id } });
+  const attachNote = attached > 0 ? ` (${attached} pièce${attached > 1 ? "s" : ""} jointe${attached > 1 ? "s" : ""})` : "";
+  if (note || attached > 0) {
+    await prisma.comment.create({ data: { entityType: "PROMO_MATERIAL", entityId: id, body: `Agence retenue : ${agency}.${note ? ` ${note}` : ""}${attachNote}`, authorId: user.id } });
+  }
   await notifyAssistant(pm, "Matériel promotionnel — création du bon de commande demandée");
-  await audit(user, id, "UPDATE", `Agence retenue : ${agency} — création du BC demandée`);
+  await audit(user, id, "UPDATE", `Agence retenue : ${agency}${attachNote} — création du BC demandée`);
   revalidate(id);
   return { ok: true };
 }
