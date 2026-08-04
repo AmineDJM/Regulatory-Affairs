@@ -91,7 +91,7 @@ Comprendre l'OS, c'est comprendre le métier qu'il digitalise. Termes récurrent
 | Terme | Signification |
 |---|---|
 | **AMM** | **Autorisation de Mise sur le Marché** — dossier réglementaire d'un médicament (module Regulatory). |
-| **ANPP** | **Agence Nationale des Produits Pharmaceutiques** — autorité algérienne d'enregistrement. Le workflow Regulatory suit son **processus officiel (22 étapes / 5 phases)**. |
+| **ANPP** | **Agence Nationale des Produits Pharmaceutiques** — autorité algérienne d'enregistrement. Le workflow Regulatory suit son **processus officiel (22 étapes / 5 phases)**. L'étape « Réponse de la présoumission » porte un **avis explicite** : **favorable** → le processus continue · **défavorable** → à corriger et redemander · **en attente**. |
 | **PCH** | **Pharmacie Centrale des Hôpitaux** — centrale d'achat publique. Client institutionnel majeur : **appels d'offres → bons de commande → caution**. |
 | **DCI** | **Dénomination Commune Internationale** (principe actif). Un produit peut être **mono / double / triple** DCI (1, 2 ou 3 principes actifs associés). |
 | **Ad & Pro** | **Advertising & Promotion** — le pôle sponsoring / congrès / événements / matériel promotionnel. |
@@ -442,7 +442,9 @@ les demandes en cours (`getSupervisedValidations`). Deux niveaux de décision :
 ### PCH — Marchés publics
 
 **Appel d'offres** (réf. auto `AO-année-n`) → **lignes-produits** (`PchTenderLine`) → **caution obligatoire**
-(montant, dates, alertes) → **bons de commande** (réf, qté, valeur, date réception, date paiement).
+(montant, dates, alertes) → **bons de commande** (réf, qté, valeur, date réception, date paiement). **Documents du
+marché** : on téléverse **l'appel d'offres** (cahier des charges, PV…) et pièces liées, à la création OU depuis la
+fiche du marché — entité polymorphe `PCH_TENDER` (Document/Drive, versionné, mêmes contrôles d'accès PCH).
 
 **Chaîne d'automatisation d'une ligne-produit** (`src/lib/actions/pch-tender-line-actions.ts`,
 `src/lib/market/pch-lookup.ts`, RBAC `PCH`/`UPDATE`) :
