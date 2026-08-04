@@ -26,6 +26,7 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
   const [q, setQ] = React.useState("");
   const [cls, setCls] = React.useState("");
   const [lab, setLab] = React.useState("");
+  const [segment, setSegment] = React.useState(""); // "" = ville + hôpital
   const [results, setResults] = React.useState<MarketProduct[]>(initial);
   const [total, setTotal] = React.useState(initialTotal);
   const [selected, setSelected] = React.useState<Map<string, MarketProduct>>(new Map());
@@ -35,10 +36,10 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
   // Chaque recherche porte un numéro de séquence : une réponse arrivée APRÈS une frappe plus
   // récente est ignorée (pas de résultats périmés qui « clignotent » en temps réel).
   const seq = React.useRef(0);
-  const runSearch = React.useCallback((query: string, klass: string, laboratory: string) => {
+  const runSearch = React.useCallback((query: string, klass: string, laboratory: string, seg: string) => {
     const mySeq = ++seq.current;
     start(async () => {
-      const r = await searchMarketProducts({ q: query, cls: klass, lab: laboratory });
+      const r = await searchMarketProducts({ q: query, cls: klass, lab: laboratory, segment: seg || undefined });
       if (mySeq !== seq.current) return; // réponse périmée → ignorée
       if (!r.ok) { setErr(r.error ?? "Recherche impossible."); return; }
       setErr(null);
@@ -52,12 +53,12 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
   const didMount = React.useRef(false);
   React.useEffect(() => {
     if (!didMount.current) { didMount.current = true; return; }
-    const t = setTimeout(() => runSearch(q.trim(), cls, lab), 200);
+    const t = setTimeout(() => runSearch(q.trim(), cls, lab, segment), 200);
     return () => clearTimeout(t);
-  }, [q, cls, lab, runSearch]);
+  }, [q, cls, lab, segment, runSearch]);
 
-  const onSubmit = (e: React.FormEvent) => { e.preventDefault(); runSearch(q.trim(), cls, lab); };
-  const reset = () => { setQ(""); setCls(""); setLab(""); }; // les filtres vidés relancent la recherche via l'effet
+  const onSubmit = (e: React.FormEvent) => { e.preventDefault(); runSearch(q.trim(), cls, lab, segment); };
+  const reset = () => { setQ(""); setCls(""); setLab(""); setSegment(""); }; // les filtres vidés relancent la recherche via l'effet
 
   const toggle = (p: MarketProduct) => {
     setSelected((prev) => {
@@ -100,8 +101,16 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
             {labs.map((l) => <option key={l} value={l}>{l}</option>)}
           </Select>
         </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Marché</Label>
+          <Select value={segment} onChange={(e) => setSegment(e.target.value)} className="h-9 w-40">
+            <option value="">Ville + hôpital</option>
+            <option value="VILLE">Ville (IQVIA)</option>
+            <option value="HOPITAL">Hôpital (PCH)</option>
+          </Select>
+        </div>
         <Button type="submit" size="sm" disabled={pending}>{pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Rechercher</Button>
-        {(q || cls || lab) && <Button type="button" size="sm" variant="outline" onClick={reset} disabled={pending}>Réinitialiser</Button>}
+        {(q || cls || lab || segment) && <Button type="button" size="sm" variant="outline" onClick={reset} disabled={pending}>Réinitialiser</Button>}
         {err && <p className="w-full text-xs text-destructive">{err}</p>}
       </form>
 
@@ -129,7 +138,10 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
               <TableBody>
                 {selectedArr.map((p) => (
                   <TableRow key={p.key}>
-                    <TableCell className="font-medium">{p.brand}<span className="block text-xs font-normal text-muted-foreground">{p.pres}</span></TableCell>
+                    <TableCell className="font-medium">
+                      <span className="flex flex-wrap items-center gap-1.5">{p.brand}<SegmentBadge segment={p.segment} /></span>
+                      <span className="block text-xs font-normal text-muted-foreground">{p.pres}</span>
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{p.lab}</TableCell>
                     <TableCell className="text-right">{formatNumber(p.volume)}</TableCell>
                     <TableCell className="text-right">{fmtDzd(p.valueDzd)}</TableCell>
@@ -195,7 +207,10 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
                           {on ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
                         </button>
                       </TableCell>
-                      <TableCell className="font-medium">{p.brand}<span className="block text-xs font-normal text-muted-foreground">{p.pres}{p.cls ? ` · ${p.cls}` : ""}</span></TableCell>
+                      <TableCell className="font-medium">
+                        <span className="flex flex-wrap items-center gap-1.5">{p.brand}<SegmentBadge segment={p.segment} /></span>
+                        <span className="block text-xs font-normal text-muted-foreground">{p.pres}{p.cls ? ` · ${p.cls}` : ""}</span>
+                      </TableCell>
                       <TableCell className="text-muted-foreground">{p.mol || "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{p.lab}</TableCell>
                       <TableCell className="text-right">{formatNumber(p.volume)}</TableCell>
@@ -211,5 +226,14 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/** Marché d'origine du produit : ville (IQVIA) ou hôpital (PCH). */
+function SegmentBadge({ segment }: { segment: MarketProduct["segment"] }) {
+  return (
+    <Badge tone={segment === "HOPITAL" ? "purple" : "info"} dot={false} className="text-[10px]">
+      {segment === "HOPITAL" ? "Hôpital" : "Ville"}
+    </Badge>
   );
 }
