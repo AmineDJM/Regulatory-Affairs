@@ -16,6 +16,7 @@ export interface EntityRow {
   isActive: boolean;
   products: number;
   employees: number;
+  departments: number;
 }
 
 const PALETTE = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#475569"];
@@ -64,6 +65,7 @@ export function EntitiesManager({ rows }: { rows: EntityRow[] }) {
               <th className="px-3 py-2 text-left">Libellé court</th>
               <th className="px-3 py-2 text-right">Produits</th>
               <th className="px-3 py-2 text-right">Employés</th>
+              <th className="px-3 py-2 text-right">Départements</th>
               <th className="px-3 py-2 text-center">Statut</th>
               <th className="px-3 py-2 text-right">Actions</th>
             </tr>
@@ -80,6 +82,7 @@ export function EntitiesManager({ rows }: { rows: EntityRow[] }) {
                 <td className="px-3 py-2 text-muted-foreground">{r.shortName || "—"}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{r.products}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{r.employees}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{r.departments}</td>
                 <td className="px-3 py-2 text-center">
                   {r.isActive ? (
                     <span className="rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success">Active</span>
@@ -151,7 +154,7 @@ export function EntitiesManager({ rows }: { rows: EntityRow[] }) {
             </div>
             {row && (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Building2 className="h-3.5 w-3.5" /> {row.products} produit·s · {row.employees} employé·s rattaché·s.
+                <Building2 className="h-3.5 w-3.5" /> {row.products} produit·s · {row.employees} employé·s · {row.departments} département·s rattaché·s.
               </p>
             )}
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}

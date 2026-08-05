@@ -166,7 +166,7 @@ jamais identique.
 | **Messagerie** | `/messages` | Messagerie interne complète (DM / groupes / canaux). Badge non-lus live **+ notification sonore** qui retentit même quand l'onglet est en arrière-plan. → [détails](#-messagerie-interne-temps-réel) |
 | **Courrier** | `/courrier` | **Webmail Infomaniak** intégré par utilisateur (IMAP + SMTP) : dossiers (Réception · **Envoyés** · Corbeille…), **recherche** plein-texte, **filtres** (tous / non lus), **Répondre · Répondre à tous · Transférer**, **carnet de contacts externes**, **aperçu des pièces jointes**, **« Lier à un dossier »**. → [détails](#-courrier--webmail-infomaniak-intégré) |
 | **Directives** | `/directives` | **Instructions priorisées de la Direction** vers une personne ou un rôle entier, avec échéance, statut et **fil d'échange**. |
-| **Assistant IA** 💬 | **bulle flottante** (partout) | Chatbot interne (boucle agent Claude) **scopé par les droits**, présent sur **toutes les pages**. **Suggestions proactives** sur les messages non lus. → [détails](#-intelligence-artificielle-claude--whisper) |
+| **Assistant IA** 💬 | `/assistant` (module dédié) | Chatbot interne (boucle agent Claude) **scopé par les droits**, présent sur **toutes les pages**. **Suggestions proactives** sur les messages non lus. → [détails](#-intelligence-artificielle-claude--whisper) |
 | **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation, CNAS, relevé d'émoluments, titre/demandes de congé — annuel, sans solde, exceptionnel, maternité —, sortie exceptionnelle, arrêt maladie, **note de frais avec mois obligatoire**, **entrevue avec les RH** à date négociée) avec **pièces jointes** et **fil d'échange** par demande + onglet **« Mes ordres de mission »**. Carte **« Ma rémunération »** (salaire de base, Ret SS 9 %, Ret IRG, Remb. frais, Net à payer — **jamais** le brut, la Ret SS 35 % ni la TFP). Notification **« salaire versé »** reçue **24 h après** le marquage par les RH. Accès **strict** à ses propres documents. |
 | **Calendrier** | `/calendar` | Agenda d'entreprise (fuseau **Alger**), création de rendez-vous + invitations, **accessible à l'Assistant IA** (créer/inviter par la conversation). |
 | **Réunions** | `/meetings` | Appels & réunions (lien Meet simple **ou présentiel avec lieu**) + **fil de discussion** (chat texte + pièces jointes) + **réponse d'invitation** (Oui/Peut-être/Non) + **enregistrement / transcription / compte-rendu IA** + **rappel 30 min avant** (notification planifiée). L'organisateur peut **modifier** titre, objet, lien, type et **horaire** (heure d'Alger). |
@@ -714,6 +714,11 @@ L'entreprise se pense **par département**, pas seulement par personne. Deux axe
 | **Rôle** (17 rôles) | « qu'ai-je le droit de faire ? » | `User.role` / `secondaryRole` → `MODULE_PERMISSIONS` |
 | **Département** | « sur quel périmètre ? **qui me valide ?** » | `Employee.departmentId` → `Department` |
 
+- **Une structure PAR ENTITÉ** : `Department.companyId` — chaque société du groupe (Adventum,
+  Pharmagène…) a ses propres départements, et deux sociétés peuvent avoir un « Commercial »
+  distinct (nom unique **par entité**). Un sous-département **hérite** de l'entité de son parent ;
+  un département sans entité est **transverse au groupe**. La page RH suit le sélecteur d'entité
+  de la barre du haut (une entité = sa structure ; « toutes » = vue groupe).
 - **Structure sur N niveaux** : `Department.parentId` (auto-relation). Un département a un **responsable**
   (`headId`) et un éventuel **adjoint** (`deputyId`), tous deux des `Employee` — cohérent avec l'organigramme.
   Le re-rattachement est protégé contre les **cycles** ; la suppression fait **remonter** les sous-départements
@@ -743,6 +748,25 @@ L'entreprise se pense **par département**, pas seulement par personne. Deux axe
 
 Fichiers : `src/lib/departments.ts` (arbre, membres, N+1), `src/lib/actions/department-actions.ts`,
 `src/app/(app)/rh/departements/`, `src/lib/workflow/{types,engine}.ts` (portées + gating).
+
+### Mobile — l'app installée doit se comporter comme une app
+
+L'OS est utilisé au quotidien depuis un téléphone (« Ajouter à l'écran d'accueil » → PWA
+`standalone`). La navigation mobile est donc **native dans l'esprit**, pas un site rétréci :
+
+- **Barre d'onglets basse** (`components/layout/mobile-tabbar.tsx`, masquée dès `lg`) : quatre
+  cibles au pouce — **Espace**, **Messages**, **Assistant**, **Tout** — avec badges de non-lus,
+  indicateur d'onglet actif et respect de la **safe-area iOS**.
+- **« Tout »** ouvre la **grille plein écran de tous les modules autorisés**, groupée
+  (Pilotage / Pôles / Transverse / Système) et **filtrable par recherche** : toute la navigation
+  reste accessible sans menu latéral. Le tiroir se referme à chaque navigation.
+- **Tableaux lisibles au téléphone** : `<Table mobileCards>` transforme, sous 640 px, chaque
+  **ligne en carte empilée** (`intitulé → valeur`, repris de `<TableCell label="…">`), donc
+  **aucun défilement horizontal**. En CSS pur (`.mobile-cards` dans `globals.css`), sans JS.
+  Appliqué à RH, PCH et à la vue consolidée des enveloppes ; les autres tableaux gardent un
+  défilement tactile à inertie. Les cellules ont des **cibles tactiles élargies** sur mobile.
+- La barre latérale et la palette de commandes restent le confort **desktop** ; la barre
+  d'onglets est le mode **mobile**. Aucune fonctionnalité n'est retirée sur téléphone.
 
 ### Pièces jointes (pattern standard)
 
@@ -826,7 +850,8 @@ Le module **Budgets** (`/budgets`) est un vrai système de gestion budgétaire m
 La couche IA (`src/lib/ai.ts`) est **serveur uniquement** ; sans clé, elle renvoie `configured:false` et l'UI
 affiche proprement « IA non configurée » — **aucune fonctionnalité ne casse**.
 
-- **Assistant IA** — **bulle flottante présente partout** + page plein écran `/assistant`. **Boucle agent Claude**,
+- **Assistant IA** — **module à part entière** (entrée de menu dédiée, page plein écran
+  `/assistant` ; l'ancienne bulle flottante a été retirée). **Boucle agent Claude**,
   comprend l'app et les données **filtrées par les droits**. **Proactif** sur les messages non lus. Outils de
   **lecture** (annuaire, tâches, médecins, produits, **e-mails de sa boîte**, **calendrier**…) exécutés et
   **scopés** ; outils d'**écriture** **jamais** exécutés seuls → **carte de confirmation**. **Anti-formulaire** — il

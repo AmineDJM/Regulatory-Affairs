@@ -14,13 +14,16 @@ export default async function EntitesPage() {
   const admin = await requireModule("ADMIN");
   if (!userCan(admin, "ADMIN", "CREATE")) redirect("/admin");
 
-  const [companies, byProduct, byEmployee] = await Promise.all([
+  const [companies, byProduct, byEmployee, byDepartment] = await Promise.all([
     prisma.company.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
     prisma.regulatoryProduct.groupBy({ by: ["companyId"], _count: true }),
     prisma.employee.groupBy({ by: ["companyId"], _count: true }),
+    // Structure : nombre de départements propres à chaque entité.
+    prisma.department.groupBy({ by: ["companyId"], _count: true }),
   ]);
   const prodCount = new Map(byProduct.map((r) => [r.companyId, r._count]));
   const empCount = new Map(byEmployee.map((r) => [r.companyId, r._count]));
+  const deptCount = new Map(byDepartment.map((r) => [r.companyId, r._count]));
 
   const rows: EntityRow[] = companies.map((c) => ({
     id: c.id,
@@ -30,6 +33,7 @@ export default async function EntitesPage() {
     isActive: c.isActive,
     products: prodCount.get(c.id) ?? 0,
     employees: empCount.get(c.id) ?? 0,
+    departments: deptCount.get(c.id) ?? 0,
   }));
 
   return (
