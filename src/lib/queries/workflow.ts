@@ -148,7 +148,7 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
   // Action disponible pour ce spectateur à l'étape courante ?
   let action: WorkflowActionView | null = null;
   const current = stepBySlug(def, instance.currentSlug);
-  if (instance.status === "IN_PROGRESS" && current && canActOnStep(viewer, current, instance, { requesterId })) {
+  if (instance.status === "IN_PROGRESS" && current && (await canActOnStep(viewer, current, instance, { requesterId }))) {
     const candidates = current.assignRole
       ? await prisma.user.findMany({ where: { ...anyRoleFilter([current.assignRole as UserRole]), isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : [];

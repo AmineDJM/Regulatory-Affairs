@@ -16,6 +16,7 @@ export interface EmployeeFormValues {
   fullName: string;
   position: string;
   department: string;
+  departmentId: string;
   contractType: string;
   baseSalary: string;
   retSS9: string;
@@ -51,6 +52,7 @@ export interface EmployeeFormValues {
 interface Props {
   employee: EmployeeFormValues;
   managerOptions: Option[];
+  departmentOptions: Option[];
   userOptions: Option[];
   companyOptions: Option[];
   aiConfigured: boolean;
@@ -77,7 +79,7 @@ function SelectInput({ name, label, defaultValue, options, placeholder }: { name
   );
 }
 
-export function EmployeeForm({ employee, managerOptions, userOptions, companyOptions, aiConfigured }: Props) {
+export function EmployeeForm({ employee, managerOptions, departmentOptions, userOptions, companyOptions, aiConfigured }: Props) {
   const router = useRouter();
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
@@ -137,7 +139,7 @@ export function EmployeeForm({ employee, managerOptions, userOptions, companyOpt
         <div key={prefillVersion} className="grid grid-cols-2 gap-3">
           <TextInput name="fullName" label="Nom complet" defaultValue={v.fullName} full required />
           <TextInput name="position" label="Poste" defaultValue={v.position} />
-          <TextInput name="department" label="Département" defaultValue={v.department} />
+          <SelectInput name="departmentId" label="Département" defaultValue={v.departmentId} options={departmentOptions} placeholder="— Non affecté —" />
           <SelectInput name="companyId" label="Entité" defaultValue={v.companyId} options={companyOptions} placeholder="— Entité —" />
           <SelectInput name="contractType" label="Type de contrat" defaultValue={v.contractType} options={contractOptions} />
           <TextInput name="leaveBalanceDays" label="Solde congés (jours)" type="number" defaultValue={v.leaveBalanceDays} />

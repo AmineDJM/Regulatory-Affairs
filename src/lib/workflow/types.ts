@@ -7,7 +7,7 @@ import type { EntityType } from "@prisma/client";
  * POUVOIRS. Le moteur (`engine.ts`) pilote le gating et la progression au runtime.
  */
 
-export const ACTOR_SCOPES = ["ROLE", "ASSIGNEE", "GLOBAL_VIEW", "REQUESTER"] as const;
+export const ACTOR_SCOPES = ["ROLE", "ASSIGNEE", "GLOBAL_VIEW", "REQUESTER", "DEPARTMENT_MANAGER", "DEPARTMENT_HEAD"] as const;
 export type ActorScope = (typeof ACTOR_SCOPES)[number];
 
 export const SCOPE_LABELS: Record<ActorScope, string> = {
@@ -15,6 +15,8 @@ export const SCOPE_LABELS: Record<ActorScope, string> = {
   ASSIGNEE: "Personne désignée à une étape précédente",
   GLOBAL_VIEW: "Direction / Super Admin (vue globale)",
   REQUESTER: "Le demandeur",
+  DEPARTMENT_MANAGER: "Responsable hiérarchique du demandeur (N+1)",
+  DEPARTMENT_HEAD: "Responsable du département du demandeur",
 };
 
 export const SCOPE_HINTS: Record<ActorScope, string> = {
@@ -22,6 +24,10 @@ export const SCOPE_HINTS: Record<ActorScope, string> = {
   ASSIGNEE: "La personne désignée à une étape amont (ex. le chef de produit choisi).",
   GLOBAL_VIEW: "Réservé à la Direction des opérations et au Super Admin.",
   REQUESTER: "L'auteur de la demande (ex. le délégué).",
+  DEPARTMENT_MANAGER:
+    "Le N+1 RÉEL du demandeur : son manager désigné dans l'organigramme, à défaut le responsable de son département, à défaut celui du département parent. Toute la chaîne hiérarchique au-dessus de lui peut aussi trancher (escalade).",
+  DEPARTMENT_HEAD:
+    "Le responsable du département du demandeur (ou, s'il n'y en a pas, celui du département parent). L'adjoint supplée en cas d'absence.",
 };
 
 export const WORKFLOW_POWERS = ["APPROVE", "REJECT", "ASSIGN", "SET_AMOUNT", "SET_CATEGORY", "COMMENT"] as const;

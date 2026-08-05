@@ -566,22 +566,34 @@ enum FeedbackStatus {
 
 // ───────────────────────────── Core / identity ─────────────────────────────
 
+/// Département de l'entreprise. Hiérarchie sur N NIVEAUX (« comme une vraie boîte ») :
+/// un département peut avoir un parent → ses enfants sont ses SOUS-DÉPARTEMENTS.
+/// Racine = parentId null. Chaque département porte un RESPONSABLE (head) et un
+/// éventuel ADJOINT (deputy) — ce sont eux qui incarnent le « N+1 » quand un employé
+/// n'a pas de manager explicite (voir src/lib/departments.ts).
 model Department {
   id        String   @id @default(cuid())
   name      String   @unique
   code      String   @unique
-  // Hiérarchie « comme une vraie boîte » : un département peut avoir un département parent
-  // (→ ses enfants sont ses SOUS-DÉPARTEMENTS). Racine = parentId null.
   parentId  String?
   parent    Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: SetNull)
   children  Department[] @relation("DepartmentTree")
+  // Responsable et adjoint : employés (cohérent avec l'organigramme, qui relie des Employee).
+  // L'adjoint prend le relais quand le responsable est le demandeur ou est absent.
+  headId    String?
+  head      Employee? @relation("DepartmentHead", fields: [headId], references: [id], onDelete: SetNull)
+  deputyId  String?
+  deputy    Employee? @relation("DepartmentDeputy", fields: [deputyId], references: [id], onDelete: SetNull)
+  description String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  members       Employee[] @relation("DepartmentMembers")
   users         User[]
   adminRequests AdministrativeRequest[]
 
   @@index([parentId])
+  @@index([headId])
 }
 
 model User {
@@ -2229,7 +2241,13 @@ model Employee {
   company       Company?  @relation(fields: [companyId], references: [id])
   fullName      String
   position      String?
+  /// Libellé du département — CACHE dénormalisé du département structuré ci-dessous
+  /// (`departmentRef.name`), tenu à jour à chaque rattachement. Conservé pour les vues
+  /// et statistiques historiques ; la SOURCE DE VÉRITÉ est `departmentId`.
   department    String?
+  /// Rattachement STRUCTURÉ : département OU sous-département (n'importe quel niveau).
+  departmentId  String?
+  departmentRef Department? @relation("DepartmentMembers", fields: [departmentId], references: [id], onDelete: SetNull)
   email         String?
   phone         String?
   iban          String?
@@ -2271,10 +2289,14 @@ model Employee {
   userId String? @unique
   user   User?   @relation("UserEmployee", fields: [userId], references: [id])
 
-  // Hiérarchie (manager / N+1)
+  // Hiérarchie (manager / N+1) — manager EXPLICITE ; à défaut, le N+1 est déduit du
+  // département (responsable, puis responsable du parent). Voir src/lib/departments.ts.
   managerId String?
   manager   Employee?  @relation("EmployeeManager", fields: [managerId], references: [id])
   reports   Employee[] @relation("EmployeeManager")
+  // Départements dont cet employé est responsable / adjoint.
+  headOf    Department[] @relation("DepartmentHead")
+  deputyOf  Department[] @relation("DepartmentDeputy")
   // Position mémorisée sur la CARTE de l'organigramme (glisser-déposer). Null = placement auto.
   orgX      Float?
   orgY      Float?
@@ -2291,6 +2313,7 @@ model Employee {
 
   @@index([isActive])
   @@index([department])
+  @@index([departmentId])
   @@index([managerId])
   @@index([contractEnd])
 }

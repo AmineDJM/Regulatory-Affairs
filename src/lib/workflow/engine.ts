@@ -4,6 +4,7 @@ import { notifyRoles, notifyUser } from "@/lib/notify";
 import { recordAudit } from "@/lib/audit";
 import { anyRoleFilter, hasGlobalView, hasRole } from "@/lib/rbac";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
+import { isManagerOfUser, getManagerOfUser } from "@/lib/departments";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { toNumber } from "@/lib/utils";
 import { defaultDefinition } from "./defaults";
@@ -259,7 +260,7 @@ export async function ensureInstance(entityType: EntityType, entityId: string): 
 
 // ───────────────────────────── Gating ─────────────────────────────
 
-export function canActOnStep(viewer: Viewer, step: LoadedStep, instance: LoadedInstance, ctx: { requesterId?: string | null }): boolean {
+export async function canActOnStep(viewer: Viewer, step: LoadedStep, instance: LoadedInstance, ctx: { requesterId?: string | null }): Promise<boolean> {
   if (viewer.role === "SUPER_ADMIN") return true; // le Super Admin passe partout
   switch (step.actorScope as ActorScope) {
     case "GLOBAL_VIEW":
@@ -268,6 +269,24 @@ export function canActOnStep(viewer: Viewer, step: LoadedStep, instance: LoadedI
       return instance.assigneeId === viewer.id || hasGlobalView(viewer);
     case "REQUESTER":
       return (ctx.requesterId ?? null) === viewer.id;
+    // Le N+1 RÉEL du demandeur valide (manager explicite → responsable de département →
+    // responsable du parent). Toute la chaîne AU-DESSUS peut aussi trancher : c'est
+    // l'escalade normale d'une entreprise (et ça évite qu'une demande reste bloquée).
+    // La Direction garde sa vue globale.
+    case "DEPARTMENT_MANAGER": {
+      if (hasGlobalView(viewer)) return true;
+      const requesterId = ctx.requesterId ?? null;
+      if (!requesterId || requesterId === viewer.id) return false; // on ne se valide pas soi-même
+      return isManagerOfUser(viewer.id, requesterId);
+    }
+    // Strictement le responsable (ou l'adjoint) du département du demandeur.
+    case "DEPARTMENT_HEAD": {
+      if (hasGlobalView(viewer)) return true;
+      const requesterId = ctx.requesterId ?? null;
+      if (!requesterId || requesterId === viewer.id) return false;
+      const mgr = await getManagerOfUser(requesterId);
+      return Boolean(mgr && mgr.userId === viewer.id);
+    }
     case "ROLE":
     default:
       return step.actorRoles.some((r) => hasRole(viewer, r as UserRole));
@@ -306,7 +325,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   const summary = await loadEntity(entityType, entityId);
   if (!summary) return { ok: false, error: "Demande introuvable." };
 
-  if (!canActOnStep(viewer, step, instance, { requesterId: summary.requesterId })) {
+  if (!(await canActOnStep(viewer, step, instance, { requesterId: summary.requesterId }))) {
     return { ok: false, error: "Vous n'êtes pas habilité à agir à cette étape." };
   }
 
@@ -354,6 +373,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
       if (assigneeId && next.actorScope === "ASSIGNEE") {
         await notifyUser({ userId: assigneeId, type: "ASSIGNMENT", title: `${CATEGORY_LABELS[category]} — ${next.title} (avis défavorable en amont)`, body: summary.name, link: entityPath(entityType, entityId) });
       }
+      await notifyStepManager(next, summary.requesterId, `${CATEGORY_LABELS[category]} — ${next.title}`, `${summary.name} — avis défavorable en amont`, entityPath(entityType, entityId));
       const roles = (next.notifyRoles as UserRole[]).filter(Boolean);
       if (roles.length) await notifyRoles(roles, { type: "VALIDATION_REQUIRED", title: `${CATEGORY_LABELS[category]} — ${next.title}`, body: `${summary.name} — avis défavorable en amont`, link: entityPath(entityType, entityId) });
       await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Avis défavorable (${step.title}) — ${summary.name}` });
@@ -395,6 +415,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
     if (landed.actorScope === "ASSIGNEE" && instance.assigneeId) {
       await notifyUser({ userId: instance.assigneeId, type: "ASSIGNMENT", title: skipTitle, body: summary.name, link: entityPath(entityType, entityId) });
     }
+    await notifyStepManager(landed, summary.requesterId, skipTitle, summary.name, entityPath(entityType, entityId));
     const skipRoles = (landed.notifyRoles as UserRole[]).filter(Boolean);
     if (skipRoles.length) await notifyRoles(skipRoles, { type: "VALIDATION_REQUIRED", title: skipTitle, body: summary.name, link: entityPath(entityType, entityId) });
     await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Étape sautée : « ${step.title} » — ${summary.name} (raison : ${note})` });
@@ -468,6 +489,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
     if (assigneeId && landed.actorScope === "ASSIGNEE") {
       await notifyUser({ userId: assigneeId, type: "ASSIGNMENT", title: `${CATEGORY_LABELS[category]} — ${landed.title}`, body: summary.name, link: entityPath(entityType, entityId) });
     }
+    await notifyStepManager(landed, summary.requesterId, `${CATEGORY_LABELS[category]} — ${landed.title}`, summary.name, entityPath(entityType, entityId));
     const roles = (landed.notifyRoles as UserRole[]).filter(Boolean);
     if (roles.length) await notifyRoles(roles, { type: "VALIDATION_REQUIRED", title: `${CATEGORY_LABELS[category]} — ${landed.title}`, body: summary.name, link: entityPath(entityType, entityId) });
   } else if (summary.requesterId) {
@@ -583,6 +605,24 @@ async function projectReject(entityType: EntityType, entityId: string, viewer: V
 }
 
 // ───────────────────────────── Divers ─────────────────────────────
+
+/**
+ * Notifie le **responsable hiérarchique du demandeur** quand l'étape où l'on arrive lui est
+ * confiée (portées `DEPARTMENT_MANAGER` / `DEPARTMENT_HEAD`). Sans cela, une étape « N+1 »
+ * n'aurait aucun destinataire : personne ne saurait qu'il y a quelque chose à valider.
+ * Best-effort : ne fait jamais échouer la progression.
+ */
+async function notifyStepManager(step: LoadedStep, requesterId: string | null, title: string, body: string, link: string): Promise<void> {
+  const scope = step.actorScope as ActorScope;
+  if (scope !== "DEPARTMENT_MANAGER" && scope !== "DEPARTMENT_HEAD") return;
+  if (!requesterId) return;
+  try {
+    const mgr = await getManagerOfUser(requesterId);
+    if (mgr?.userId) await notifyUser({ userId: mgr.userId, type: "VALIDATION_REQUIRED", title, body, link });
+  } catch (err) {
+    console.error("[workflow] notification N+1 impossible", err);
+  }
+}
 
 async function recordEvent(instanceId: string, step: LoadedStep, action: string, viewer: Viewer, note: string | null, amount: number | null) {
   await prisma.workflowStepEvent.create({

@@ -331,3 +331,100 @@ suite("Moteur — auto-accord si le demandeur détient l'autorité de l'étape (
     expect(ev).not.toBeNull();
   });
 });
+
+// ─────────────────────────── Validation par le N+1 (départements) ───────────────────────────
+
+const TAG_MGR = "__wfmgr__";
+
+/**
+ * Étape à portée `DEPARTMENT_MANAGER` : c'est le **responsable hiérarchique du demandeur**
+ * qui valide — résolu depuis les départements (et non depuis un rôle figé). On vérifie
+ * qu'un collègue du même département ne peut pas valider, que le N+1 le peut, et que la
+ * hiérarchie au-dessus (escalade) le peut aussi.
+ */
+suite("Moteur — étape validée par le N+1 réel du demandeur", () => {
+  let deptId = "", subId = "";
+  let chefUser = "", dgUser = "", agentUser = "", collegueUser = "";
+  let eventId = "", instanceId = "", stepSlug = "";
+  let originalStep: { id: string; actorScope: string; powers: string[]; assignRole: string | null } | null = null;
+
+  beforeAll(async () => {
+    const mkUser = (s: string, role: UserRole) =>
+      prisma.user.create({ data: { name: `${TAG_MGR}${s}`, email: `${TAG_MGR}${s}@t.dz`, role, passwordHash: "x" } });
+    const [dg, chef, agent, collegue] = await Promise.all([
+      mkUser("dg", "SALES_USER"), mkUser("chef", "SALES_USER"), mkUser("agent", "SALES_USER"), mkUser("collegue", "SALES_USER"),
+    ]);
+    dgUser = dg.id; chefUser = chef.id; agentUser = agent.id; collegueUser = collegue.id;
+
+    const dept = await prisma.department.create({ data: { name: `${TAG_MGR} Direction`, code: `${TAG_MGR}_DIR` } });
+    const sub = await prisma.department.create({ data: { name: `${TAG_MGR} Équipe`, code: `${TAG_MGR}_EQ`, parentId: dept.id } });
+    deptId = dept.id; subId = sub.id;
+
+    const mkEmp = (s: string, userId: string, departmentId: string) =>
+      prisma.employee.create({ data: { fullName: `${TAG_MGR} ${s}`, userId, departmentId } });
+    const [empDg, empChef] = await Promise.all([mkEmp("DG", dgUser, deptId), mkEmp("Chef", chefUser, subId)]);
+    await Promise.all([mkEmp("Agent", agentUser, subId), mkEmp("Collègue", collegueUser, subId)]);
+    await prisma.department.update({ where: { id: deptId }, data: { headId: empDg.id } });
+    await prisma.department.update({ where: { id: subId }, data: { headId: empChef.id } });
+
+    // Un événement demandé par l'agent, positionné sur une étape « N+1 ».
+    const ev = await prisma.event.create({
+      data: { name: `${TAG_MGR}Event`, type: "ROUND_TABLE", scope: "NATIONAL", format: "PRESENTIAL", status: "DRAFT", requestStatus: "AWAITING_PRELIMINARY", requesterId: agentUser },
+    });
+    eventId = ev.id;
+
+    const def = await getDefinition("EVENTS");
+    const first = [...def.steps].sort((a, b) => a.position - b.position)[0];
+    stepSlug = first.slug;
+    // La définition EVENTS est PARTAGÉE avec les autres suites (et persiste en base) :
+    // on mémorise la configuration d'origine pour la restaurer intégralement après.
+    originalStep = { id: first.id, actorScope: first.actorScope, powers: [...first.powers], assignRole: first.assignRole };
+    await prisma.workflowStep.update({ where: { id: first.id }, data: { actorScope: "DEPARTMENT_MANAGER", powers: ["APPROVE", "REJECT"], assignRole: null } });
+    const inst = await prisma.workflowInstance.create({
+      data: { definitionId: def.id, entityType: "EVENT", entityId: eventId, category: "EVENTS", currentSlug: stepSlug, status: "IN_PROGRESS" },
+    });
+    instanceId = inst.id;
+  });
+
+  afterAll(async () => {
+    // Restauration INTÉGRALE de l'étape partagée (portée, pouvoirs, désignation) :
+    // sans cela, les autres suites — et les exécutions suivantes — héritent d'un circuit modifié.
+    if (originalStep) {
+      await prisma.workflowStep.update({
+        where: { id: originalStep.id },
+        data: { actorScope: originalStep.actorScope, powers: originalStep.powers, assignRole: originalStep.assignRole },
+      }).catch(() => {});
+    }
+    await prisma.workflowStepEvent.deleteMany({ where: { instanceId } }).catch(() => {});
+    await prisma.workflowInstance.deleteMany({ where: { entityId: eventId } }).catch(() => {});
+    await prisma.event.deleteMany({ where: { name: { startsWith: TAG_MGR } } }).catch(() => {});
+    await prisma.department.updateMany({ where: { code: { startsWith: TAG_MGR } }, data: { headId: null, deputyId: null } }).catch(() => {});
+    await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG_MGR } } }).catch(() => {});
+    await prisma.department.deleteMany({ where: { code: { startsWith: TAG_MGR } } }).catch(() => {});
+    await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG_MGR } } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAG_MGR } } }).catch(() => {});
+  });
+
+  it("un COLLÈGUE du même département ne peut pas valider", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(collegueUser, "SALES_USER"), entityType: "EVENT", entityId: eventId, action: "APPROVE", note: "ok" });
+    expect(r.ok).toBe(false);
+  });
+
+  it("le DEMANDEUR ne peut pas se valider lui-même", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(agentUser, "SALES_USER"), entityType: "EVENT", entityId: eventId, action: "APPROVE", note: "auto" });
+    expect(r.ok).toBe(false);
+  });
+
+  it("le N+1 (responsable du sous-département) voit l'action dans sa vue", async () => {
+    const view = await getWorkflowForEntity(asSession(chefUser, "SALES_USER"), "EVENT", eventId, agentUser);
+    expect(view?.action?.slug).toBe(stepSlug);
+    // Le collègue, lui, n'a aucune action disponible.
+    const collegueView = await getWorkflowForEntity(asSession(collegueUser, "SALES_USER"), "EVENT", eventId, agentUser);
+    expect(collegueView?.action).toBeNull();
+  });
+
+  it("la hiérarchie AU-DESSUS du N+1 peut aussi trancher (escalade)", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(dgUser, "SALES_USER"), entityType: "EVENT", entityId: eventId, action: "APPROVE", note: "escalade" });
+    expect(r.ok).toBe(true);
+  });
+});

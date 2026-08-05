@@ -19,6 +19,8 @@ export default async function OrganigrammePage() {
     where: { isActive: true },
     select: {
       id: true, fullName: true, position: true, department: true, managerId: true, orgX: true, orgY: true,
+      // Département STRUCTURÉ (source de vérité) ; le champ texte n'est qu'un cache de secours.
+      departmentRef: { select: { name: true } },
       company: { select: { name: true, shortName: true, color: true } },
     },
     orderBy: { fullName: "asc" },
@@ -27,7 +29,7 @@ export default async function OrganigrammePage() {
     id: e.id,
     fullName: e.fullName,
     position: e.position,
-    department: e.department,
+    department: e.departmentRef?.name ?? e.department,
     managerId: e.managerId,
     entity: e.company?.shortName ?? e.company?.name ?? null,
     color: e.company?.color ?? null,

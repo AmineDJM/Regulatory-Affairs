@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Banknote } from "lucide-react";
+import { Banknote, Building2 } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -19,6 +19,7 @@ import { aiConfigured } from "@/lib/ai";
 import { getCompanies, companyOptions } from "@/lib/company";
 import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, toNumber, daysUntil } from "@/lib/utils";
+import { getDepartmentOptions } from "@/lib/departments";
 import { LeaveApprovals, type PendingLeave } from "./leave-approvals";
 import { LeaveEditButton } from "./leave-edit";
 import { AdvanceApprovals, type AdvanceRow } from "./advance-approvals";
@@ -30,6 +31,7 @@ export default async function RhPage() {
   const canManage = userCan(user, "RH", "UPDATE"); // RH/DRH : modifier toute demande de congé (dont l'historique)
   const data = await getRhData();
   const companies = await getCompanies();
+  const departmentOptions = await getDepartmentOptions();
 
   // Demandes « Mon Dossier RH » de TOUS les employés — traitées ICI, dans le module RH
   // (les statuts se règlent sur la fiche employé, section Dossier RH).
@@ -60,7 +62,8 @@ export default async function RhPage() {
   const employeeFields: FieldDef[] = [
     { type: "text", name: "fullName", label: "Nom complet", required: true, full: true },
     { type: "text", name: "position", label: "Poste" },
-    { type: "text", name: "department", label: "Département" },
+    // Rattachement STRUCTURÉ (département ou sous-département) — remplace l'ancien texte libre.
+    { type: "select", name: "departmentId", label: "Département", options: departmentOptions.map((o) => ({ value: o.id, label: o.label })), placeholder: "— Non affecté —" },
     { type: "select", name: "companyId", label: "Entité", options: companyOptions(companies), placeholder: "— Entité —" },
     { type: "select", name: "contractType", label: "Type de contrat", options: optionsFromMap(CONTRACT_TYPE), placeholder: "—" },
     { type: "number", name: "baseSalary", label: "Salaire de base (DZD)" },
@@ -82,6 +85,7 @@ export default async function RhPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Ressources humaines" description="Dossiers employés, contrats, congés et présence — toute l'équipe au même endroit.">
+        <Link href="/rh/departements"><Button variant="outline"><Building2 className="h-4 w-4" /> Départements</Button></Link>
         {canValidate && (
           <Link href="/rh/paie"><Button variant="outline"><Banknote className="h-4 w-4" /> Paie</Button></Link>
         )}

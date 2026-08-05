@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Building2, ChevronRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -14,6 +14,7 @@ import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS, PAYROLL_STATUS } from "@/lib/l
 import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/utils";
 import { getEmployeeHrDossier } from "@/lib/queries/hr-documents";
 import { getCompanies, companyOptions } from "@/lib/company";
+import { getDepartmentOptions, getDepartmentPath, getManagerOf } from "@/lib/departments";
 import { aiConfigured } from "@/lib/ai";
 import { EmployeeForm, type EmployeeFormValues } from "./employee-form";
 import { HrDossier } from "./hr-dossier";
@@ -36,13 +37,17 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
   });
   if (!employee) notFound();
 
-  const [fieldDefs, otherEmployees, unlinkedUsers, hrDossier, companies] = await Promise.all([
+  const [fieldDefs, otherEmployees, unlinkedUsers, hrDossier, companies, departmentOptions, manager] = await Promise.all([
     getFieldDefs("EMPLOYEE"),
     prisma.employee.findMany({ where: { id: { not: employee.id } }, select: { id: true, fullName: true }, orderBy: { fullName: "asc" } }),
     prisma.user.findMany({ where: { isActive: true, employee: { is: null } }, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
     getEmployeeHrDossier(employee.id),
     getCompanies(),
+    getDepartmentOptions(),
+    // N+1 EFFECTIF, résolu par la cascade (manager désigné → responsable de département → parent).
+    getManagerOf(employee.id),
   ]);
+  const departmentPath = employee.departmentId ? await getDepartmentPath(employee.departmentId) : [];
 
   const managerOptions = otherEmployees.map((e) => ({ value: e.id, label: e.fullName }));
   const userOptions = [
@@ -55,6 +60,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
     fullName: employee.fullName,
     position: employee.position ?? "",
     department: employee.department ?? "",
+    departmentId: employee.departmentId ?? "",
     contractType: employee.contractType ?? "",
     baseSalary: String(toNumber(employee.baseSalary)),
     retSS9: employee.retSS9 != null ? String(toNumber(employee.retSS9)) : "",
@@ -113,13 +119,51 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
         </div>
       </div>
 
+      {/* Rattachement dans la structure + responsable hiérarchique EFFECTIF (N+1 résolu). */}
+      <Card>
+        <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Building2 className="h-4 w-4" /> Rattachement &amp; hiérarchie</CardTitle></CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="text-xs text-muted-foreground">Département</p>
+            {departmentPath.length > 0 ? (
+              <p className="flex flex-wrap items-center gap-1 font-medium">
+                {departmentPath.map((p, i) => (
+                  <span key={p.id} className="inline-flex items-center gap-1">
+                    {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+                    {p.name}
+                  </span>
+                ))}
+              </p>
+            ) : (
+              <p className="font-medium text-warning">Non affecté — <Link href="/rh/departements" className="text-primary hover:underline">rattacher</Link></p>
+            )}
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Responsable hiérarchique (N+1)</p>
+            {manager ? (
+              <p className="font-medium">
+                {manager.fullName}
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  {manager.source === "MANAGER" ? "manager désigné (organigramme)"
+                    : manager.source === "DEPARTMENT_HEAD" ? "responsable du département"
+                      : manager.source === "DEPARTMENT_DEPUTY" ? "adjoint du département"
+                        : "responsable du département parent"}
+                </span>
+              </p>
+            ) : (
+              <p className="font-medium text-muted-foreground">Aucun — sommet de la hiérarchie ou département sans responsable.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>{canUpdate ? "Dossier employé" : "Informations"}</CardTitle></CardHeader>
             <CardContent>
               {canUpdate ? (
-                <EmployeeForm employee={formValues} managerOptions={managerOptions} userOptions={userOptions} companyOptions={companyOptions(companies)} aiConfigured={aiConfigured()} />
+                <EmployeeForm employee={formValues} managerOptions={managerOptions} departmentOptions={departmentOptions.map((o) => ({ value: o.id, label: o.label }))} userOptions={userOptions} companyOptions={companyOptions(companies)} aiConfigured={aiConfigured()} />
               ) : (
                 <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
                   <Info label="Poste" value={employee.position} />

@@ -34,13 +34,14 @@ export async function createEmployee(
   const fullName = fdStr(formData, "fullName");
   if (!fullName) return { ok: false, error: "Le nom complet est obligatoire." };
 
+  const dept = await resolveDepartmentFields(formData);
   let created;
   try {
     created = await prisma.employee.create({
       data: {
         fullName,
         position: fdStr(formData, "position"),
-        department: fdStr(formData, "department"),
+        ...(dept ?? {}),
         email: fdStr(formData, "email"),
         phone: fdStr(formData, "phone"),
         iban: fdStr(formData, "iban"),
@@ -63,12 +64,42 @@ export async function createEmployee(
     return { ok: false, error: "Création impossible : ce compte applicatif est déjà lié à un employé." };
   }
 
+  // Le compte applicatif lié hérite du département (permissions, périmètres, notifications).
+  if (created.userId && created.departmentId) {
+    await prisma.user.update({ where: { id: created.userId }, data: { departmentId: created.departmentId } }).catch(() => undefined);
+  }
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Ressources humaines",
-    entityType: "EMPLOYEE", entityId: created.id, summary: `Employé « ${fullName} »`,
+    entityType: "EMPLOYEE", entityId: created.id, summary: `Employé « ${fullName} »${created.department ? ` — ${created.department}` : ""}`,
   });
   revalidatePath("/rh");
+  revalidatePath("/rh/departements");
   return { ok: true, id: created.id };
+}
+
+/**
+ * Résout le rattachement au département à partir du formulaire :
+ *   • `departmentId` (sélecteur structuré) → on lie et on met à jour le libellé cache ;
+ *   • à défaut `department` (texte libre, ex. extrait d'un contrat par l'IA) → on tente de
+ *     retrouver un département de même nom pour le lier, sinon on garde le texte seul.
+ * Renvoie `undefined` si le formulaire ne parle pas de département (update partiel).
+ */
+async function resolveDepartmentFields(formData: FormData): Promise<{ departmentId: string | null; department: string | null } | undefined> {
+  const hasId = formData.has("departmentId");
+  const hasText = formData.has("department");
+  if (!hasId && !hasText) return undefined;
+
+  const departmentId = fdStr(formData, "departmentId");
+  if (departmentId) {
+    const dept = await prisma.department.findUnique({ where: { id: departmentId }, select: { name: true } });
+    if (dept) return { departmentId, department: dept.name };
+  }
+  const label = fdStr(formData, "department");
+  if (label) {
+    const match = await prisma.department.findFirst({ where: { name: { equals: label, mode: "insensitive" } }, select: { id: true, name: true } });
+    return match ? { departmentId: match.id, department: match.name } : { departmentId: null, department: label };
+  }
+  return { departmentId: null, department: null };
 }
 
 export async function updateEmployee(formData: FormData): Promise<ActionResult> {
@@ -80,10 +111,12 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
   const before = await prisma.employee.findUnique({ where: { id } });
   if (!before) return { ok: false, error: "Employé introuvable." };
 
+  const deptFields = await resolveDepartmentFields(formData);
   const data = {
     fullName: fdStr(formData, "fullName") ?? before.fullName,
     position: fdStr(formData, "position"),
-    department: fdStr(formData, "department"),
+    // Rattachement structuré + libellé cache (inchangés si le formulaire n'en parle pas).
+    ...(deptFields ?? { department: before.department, departmentId: before.departmentId }),
     email: fdStr(formData, "email"),
     phone: fdStr(formData, "phone"),
     iban: fdStr(formData, "iban"),
@@ -123,6 +156,10 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
   } catch {
     return { ok: false, error: "Modification impossible : ce compte applicatif est déjà lié à un autre employé." };
   }
+  // Le compte applicatif suit le rattachement de la fiche (permissions, périmètres, notifications).
+  if (after.userId && after.departmentId !== before.departmentId) {
+    await prisma.user.update({ where: { id: after.userId }, data: { departmentId: after.departmentId } }).catch(() => undefined);
+  }
   await recordFieldChanges(
     { actorId: user.id, module: "Ressources humaines", entityType: "EMPLOYEE", entityId: id, summary: `Fiche de ${after.fullName}` },
     before as unknown as Record<string, unknown>,
@@ -131,6 +168,7 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
   );
   revalidatePath("/rh");
   revalidatePath(`/rh/${id}`);
+  revalidatePath("/rh/departements");
   return { ok: true, id };
 }
 
