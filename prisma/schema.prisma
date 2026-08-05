@@ -4462,11 +4462,16 @@ model RegulatoryDossier {
   title         String
   procedureType RegProcedureType @default(INITIAL_REGISTRATION)
   status        RegDossierStatus @default(DRAFT)
+  /// BUDGET IA MAXIMUM du dossier, en dollars. Au-delà, les analyses économiques s'arrêtent
+  /// et l'écran le dit clairement plutôt que de laisser filer la facture. null = pas de
+  /// plafond propre au dossier (le plafond global de `AppSetting` s'applique).
+  aiBudgetUsd   Decimal?         @db.Decimal(10, 4)
   createdById   String
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
   versions         RegulatoryDossierVersion[]
+  aiCalls          RegulatoryAiCall[]
   jobs             RegulatoryJob[]
   auditLogs        RegulatoryAuditLog[]
   reserveCycles    RegulatoryReserveCycle[]
@@ -5026,6 +5031,215 @@ model RegulatoryReservePoint {
   cycle RegulatoryReserveCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
 
   @@index([cycleId])
+}
+
+/// COÛT DE L'IA, appel par appel — la seule façon honnête de répondre à « combien coûte ce
+/// dossier ? ». Rattaché au DOSSIER, à l'ÉTAPE et au FICHIER : c'est ce niveau de détail qui
+/// permet de voir quel document ou quelle étape mange le budget, et de le corriger.
+///
+/// `cacheKey` est l'empreinte de l'entrée (SHA-256 du prompt + modèle + schéma) : deux analyses
+/// identiques ne sont facturées qu'une fois, et un fichier inchangé entre deux versions du
+/// dossier n'est jamais ré-analysé.
+model RegulatoryAiCall {
+  id               String   @id @default(cuid())
+  dossierId        String?
+  dossierVersionId String?
+  documentId       String? /// fichier concerné, quand l'appel porte sur un document précis
+  step             String /// "classify" | "review" | "facts" | "reserve-extract" | "reserve-similar"…
+  provider         String   @default("openai") /// openai | anthropic | mistral
+  model            String
+  batch            Boolean  @default(false)
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  cachedTokens     Int      @default(0)
+  costUsd          Decimal  @default(0) @db.Decimal(10, 6)
+  latencyMs        Int?
+  ok               Boolean  @default(true)
+  errorCode        String?
+  /// Empreinte de l'entrée : permet de retrouver un résultat déjà calculé (0 $ au lieu de refacturer).
+  cacheKey         String?
+  /// Vrai si la réponse a été SERVIE DEPUIS LE CACHE (coût réel nul, tracé quand même).
+  fromCache        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  dossier RegulatoryDossier? @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  @@index([dossierId, createdAt])
+  @@index([dossierVersionId])
+  @@index([step])
+  @@index([cacheKey])
+}
+
+/// RÉSULTAT D'ANALYSE MIS EN CACHE — indexé par empreinte d'entrée. C'est ce qui rend
+/// l'analyse d'une V2 quasi gratuite quand seuls quelques fichiers ont changé : tout ce qui
+/// est identique est relu ici, jamais recalculé.
+model RegulatoryAiCache {
+  id         String   @id @default(cuid())
+  cacheKey   String   @unique
+  step       String
+  model      String
+  /// Réponse brute (texte ou JSON) telle qu'elle a été produite.
+  payload    String
+  hits       Int      @default(0)
+  lastHitAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([step])
+}
+
+// ═══════════════════ BIBLIOTHÈQUE DES RÉSERVES ANPP (apprentissage) ═══════════════════
+//
+// Les modèles `RegulatoryReserveCycle` / `RegulatoryReservePoint` ci-dessus restent : ils
+// gèrent le TRAITEMENT d'une lettre de réserves sur UN dossier. Ce qui suit est autre chose —
+// une bibliothèque TRANSVERSE, indépendante des dossiers, qui permet de répondre à :
+//   « cette réserve, l'avons-nous déjà reçue ? sur quel produit ? qu'avions-nous répondu ?
+//     l'ANPP l'a-t-elle acceptée ? ce fournisseur la déclenche-t-il souvent ? »
+//
+// RÈGLE ABSOLUE — pas d'apprentissage aveugle : une réserve historique n'est JAMAIS une règle
+// opposable. Elle devient un PRÉCÉDENT que l'on montre, et éventuellement une RÈGLE DÉRIVÉE
+// qu'un humain du Regulatory doit valider explicitement avant qu'elle ne produise le moindre
+// finding.
+
+/// Cycle de vie d'une réserve, du point de vue de l'apprentissage.
+enum AnppReserveStatus {
+  OPEN /// reçue, pas encore répondue
+  ANSWERED /// réponse envoyée à l'ANPP
+  ACCEPTED /// l'ANPP a accepté la réponse → exemple POSITIF
+  REITERATED /// l'ANPP a redemandé → exemple NÉGATIF (la réponse n'a pas suffi)
+  CLOSED /// clôturée (acceptée ou abandonnée), plus d'action attendue
+}
+
+enum AnppReserveSeverity {
+  CRITICAL /// bloque l'enregistrement
+  MAJOR /// exige une correction documentée
+  MINOR /// remarque de forme
+}
+
+/// LOT DE RÉSERVES — une lettre, un courriel, un tableau reçu de l'ANPP. Conserve le fichier
+/// d'origine et son empreinte : la preuve doit rester vérifiable des années plus tard.
+model AnppReserveBatch {
+  id             String   @id @default(cuid())
+  companyId      String?
+  /// Dossier d'origine, quand la lettre vient d'un dossier suivi dans la plateforme.
+  dossierId      String?
+  /// Cycle de réserves d'origine, si l'import vient du traitement d'une lettre.
+  sourceCycleId  String?
+  sourceFilename String
+  sourceKind     String   @default("PDF") /// PDF | SCAN | DOCX | XLSX | EMAIL | TEXT
+  blobId         String? /// fichier d'origine, chiffré
+  sha256         String /// empreinte du fichier : dédoublonne les imports
+  receivedAt     DateTime @default(now())
+  /// Texte VERBATIM extrait (OCR ou parse) — jamais réécrit.
+  rawText        String?
+  ocrConfidence  Float?
+  pageCount      Int      @default(0)
+  extractedCount Int      @default(0)
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  reserves AnppReserve[]
+
+  @@unique([sha256])
+  @@index([companyId])
+  @@index([dossierId])
+  @@index([receivedAt])
+}
+
+/// UNE RÉSERVE ANPP, normalisée et rattachée à son contexte produit et CTD.
+model AnppReserve {
+  id        String @id @default(cuid())
+  batchId   String
+  ordinal   Int    @default(0)
+
+  // ── Contexte produit (ce qui permet de dire « déjà vu sur ce type de produit »)
+  productName   String?
+  dci           String?
+  pharmaForm    String?
+  dosage        String?
+  procedureType String? /// INITIAL_REGISTRATION | VARIATION | RENEWAL…
+  supplier      String? /// fournisseur / fabricant visé — clé des statistiques par fournisseur
+  productId     String? /// rattachement au catalogue Regulatory, si identifié
+
+  // ── Localisation CTD
+  ctdModule  String? /// "M1".."M5"
+  ctdSection String? /// "3.2.P.8.3"…
+
+  // ── La réserve elle-même
+  verbatim      String /// TEXTE EXACT de la réserve — jamais reformulé
+  category      String              @default("AUTRE")
+  severity      AnppReserveSeverity @default(MAJOR)
+  targetDocument String? /// document ou donnée visé(e) par la réserve
+  legalBasis    String? /// justification réglementaire citée par l'ANPP, le cas échéant
+  requestedAction String? /// ce que l'ANPP demande concrètement
+
+  // ── Notre réponse et son issue
+  response        String? /// réponse envoyée par Adventum ou le fournisseur
+  responseAt      DateTime?
+  correctiveDocs  String[] @default([]) /// documents correctifs fournis
+  status          AnppReserveStatus @default(OPEN)
+  outcomeNote     String? /// pourquoi acceptée / pourquoi réitérée — l'enseignement réel
+  closedAt        DateTime?
+
+  // ── PREUVE : sans elle, rien n'est opposable
+  evidenceFile    String? /// nom du fichier d'où vient la réserve
+  evidencePage    Int? /// page exacte
+  evidenceExcerpt String? /// extrait exact, tel quel
+
+  /// Confiance de l'EXTRACTION automatique (0..1). Une extraction peu sûre doit être relue.
+  extractionConfidence Float?
+  /// Un humain a-t-il vérifié cette fiche ? Tant que non, elle ne sert que d'indication.
+  verifiedById String?
+  verifiedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  batch AnppReserveBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@index([ctdModule, ctdSection])
+  @@index([category])
+  @@index([status])
+  @@index([supplier])
+  @@index([dci])
+}
+
+enum AnppRuleStatus {
+  PROPOSED /// dérivée automatiquement — n'a AUCUN effet tant qu'elle n'est pas validée
+  VALIDATED /// un humain du Regulatory l'a acceptée : elle peut produire des findings
+  REJECTED /// écartée — conservée pour ne pas la reproposer sans fin
+}
+
+/// RÈGLE DÉRIVÉE d'un ensemble de réserves récurrentes.
+///
+/// C'est ici que se joue « apprendre sans apprendre aveuglément » : le système PROPOSE une
+/// règle quand il voit le même reproche revenir, mais elle reste inerte jusqu'à validation
+/// humaine. Elle cite toujours les réserves qui la fondent — on peut donc toujours remonter
+/// aux preuves.
+model AnppDerivedRule {
+  id          String @id @default(cuid())
+  title       String
+  statement   String /// la règle, formulée en une phrase vérifiable
+  ctdModule   String?
+  ctdSection  String?
+  category    String @default("AUTRE")
+  severity    AnppReserveSeverity @default(MAJOR)
+  /// Identifiants des réserves qui fondent la règle — la preuve, toujours.
+  evidenceReserveIds String[] @default([])
+  /// Nombre de réserves observées à l'appui.
+  occurrences Int    @default(0)
+  /// Confiance (0..1) : croît avec le nombre d'occurrences et les acceptations obtenues.
+  confidence  Float  @default(0)
+  status      AnppRuleStatus @default(PROPOSED)
+  reviewNote  String?
+  reviewedById String?
+  reviewedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([ctdModule, ctdSection])
 }
 
 /// REVIEWER SIMULATOR (G11) — stress test MULTI-PERSPECTIVES du dossier, présenté comme une

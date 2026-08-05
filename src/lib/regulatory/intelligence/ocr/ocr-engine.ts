@@ -51,7 +51,7 @@ export function canOcr(ext: string): boolean {
  * ROBUSTE PAR PAGE : une page qui refuse de se rastériser (page corrompue) est SAUTÉE — on
  * rastérise toutes les autres. Jamais une seule mauvaise page ne fait perdre tout le document.
  */
-async function rasterizePdf(buffer: Buffer, maxPages: number): Promise<{ pages: Buffer[]; total: number; failedPages: number }> {
+export async function rasterizePdf(buffer: Buffer, maxPages: number): Promise<{ pages: Buffer[]; total: number; failedPages: number }> {
   const mupdf = await import("mupdf");
   const doc = mupdf.Document.openDocument(new Uint8Array(buffer), "application/pdf");
   const total = doc.countPages();
