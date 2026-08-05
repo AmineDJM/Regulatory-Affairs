@@ -1068,6 +1068,14 @@ export const BUDGET_TABS: NavTab[] = [
   { module: "BUDGETS", label: "Dépenses", href: "/budgets/depenses" },
   { module: "BUDGETS", label: "Réglages", href: "/budgets/reglages" },
 ];
+// RH — quatre écrans au lieu d'une page à sept sections : ce qu'il faut TRAITER, l'ANNUAIRE
+// de l'équipe, les CONGÉS (qui est absent, historique), et la structure (départements).
+export const HR_TABS: NavTab[] = [
+  { module: "RH", label: "À traiter", href: "/rh" },
+  { module: "RH", label: "Équipe", href: "/rh/equipe" },
+  { module: "RH", label: "Congés", href: "/rh/conges" },
+  { module: "RH", label: "Départements", href: "/rh/departements" },
+];
 // Mon dossier RH + Mes ordres de mission, sous une seule entrée de menu « Mon dossier RH ».
 export const MON_DOSSIER_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
@@ -1167,7 +1175,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS, match: ["/promo-material"] },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/reglages"] },
   { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
-  { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles" },
+  { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie"] },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
   { module: "LOGISTICS", label: "Logistique", href: "/logistics", icon: "Truck", group: "Pôles" },
   { module: "STOCKS", label: "Stocks", href: "/stocks", icon: "Boxes", group: "Pôles" },

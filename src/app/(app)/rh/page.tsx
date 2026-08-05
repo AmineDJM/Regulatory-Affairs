@@ -1,27 +1,26 @@
 import Link from "next/link";
-import { Banknote, Building2 } from "lucide-react";
+import { Banknote, Building2, Users, CalendarOff } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getRhData } from "@/lib/queries/hr";
 import { PageHeader } from "@/components/shared/page-header";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { visibleTabs } from "@/lib/nav-tabs";
 import { Button } from "@/components/ui/button";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { EmptyState } from "@/components/shared/empty-state";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { createEmployee, analyzeEmployeeContract } from "@/lib/actions/hr-actions";
 import { aiConfigured } from "@/lib/ai";
 import { getCompanies, companyOptions } from "@/lib/company";
-import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
-import { formatCurrency, formatDate, toNumber, daysUntil } from "@/lib/utils";
+import { CONTRACT_TYPE, HR_REQUEST_TYPE, HR_REQUEST_STATUS, HR_TABS } from "@/lib/labels";
+import { formatCurrency, formatDate, daysUntil } from "@/lib/utils";
 import { getDepartmentOptions } from "@/lib/departments";
 import { LeaveApprovals, type PendingLeave } from "./leave-approvals";
-import { LeaveEditButton } from "./leave-edit";
 import { AdvanceApprovals, type AdvanceRow } from "./advance-approvals";
 
 export default async function RhPage() {
@@ -32,6 +31,7 @@ export default async function RhPage() {
   const data = await getRhData();
   const companies = await getCompanies();
   const departmentOptions = await getDepartmentOptions();
+  const tabs = await visibleTabs(user, HR_TABS);
 
   // Demandes « Mon Dossier RH » de TOUS les employés — traitées ICI, dans le module RH
   // (les statuts se règlent sur la fiche employé, section Dossier RH).
@@ -84,8 +84,7 @@ export default async function RhPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Ressources humaines" description="Dossiers employés, contrats, congés et présence — toute l'équipe au même endroit.">
-        <Link href="/rh/departements"><Button variant="outline"><Building2 className="h-4 w-4" /> Départements</Button></Link>
+      <PageHeader title="Ressources humaines" description="Ce qui attend une décision : demandes, congés, avances et échéances.">
         {canValidate && (
           <Link href="/rh/paie"><Button variant="outline"><Banknote className="h-4 w-4" /> Paie</Button></Link>
         )}
@@ -103,6 +102,7 @@ export default async function RhPage() {
             }} />
         )}
       </PageHeader>
+      <ModuleTabs tabs={tabs} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <KpiCard label="Effectif" value={data.stats.total} icon="Users" />
@@ -188,86 +188,20 @@ export default async function RhPage() {
         </Card>
       )}
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Équipe</h2>
-        {data.employees.length === 0 ? (
-          <EmptyState icon="Users" title="Aucun employé" description="Ajoutez les membres de l'équipe pour démarrer." />
-        ) : (
-          <div className="surface overflow-hidden">
-            <Table mobileCards>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nom</TableHead>
-                  <TableHead>Poste</TableHead>
-                  <TableHead>Département</TableHead>
-                  <TableHead>Contrat</TableHead>
-                  <TableHead className="text-right">Salaire base</TableHead>
-                  <TableHead className="text-right">Solde congés</TableHead>
-                  <TableHead>Compte</TableHead>
-                  <TableHead>Statut</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.employees.map((e) => (
-                  <TableRow key={e.id}>
-                    <TableCell className="font-medium">
-                      <Link href={`/rh/${e.id}`} className="hover:underline">{e.fullName}</Link>
-                    </TableCell>
-                    <TableCell>{e.position || "—"}</TableCell>
-                    <TableCell>{e.department || "—"}</TableCell>
-                    <TableCell>
-                      {e.contractType ? CONTRACT_TYPE[e.contractType] : "—"}
-                      {e.contractEnd && <span className="block text-xs text-muted-foreground">→ {formatDate(e.contractEnd)}</span>}
-                    </TableCell>
-                    <TableCell className="text-right">{formatCurrency(toNumber(e.baseSalary))}</TableCell>
-                    <TableCell className="text-right">{toNumber(e.leaveBalanceDays)} j</TableCell>
-                    <TableCell>{e.user ? <Badge tone="info" dot={false}>Lié</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
-                    <TableCell>{e.isActive ? <Badge tone="success" dot={false}>Actif</Badge> : <Badge tone="danger" dot={false}>Inactif</Badge>}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </section>
+      {/* L'ANNUAIRE et l'HISTORIQUE des congés vivent dans leurs propres onglets : cet écran
+          ne garde que ce qui appelle une décision. */}
+      <div className="flex flex-wrap gap-2">
+        <Link href="/rh/equipe" className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-sm font-medium transition hover:bg-secondary">
+          <Users className="h-4 w-4" /> Voir l&apos;équipe ({data.stats.active})
+        </Link>
+        <Link href="/rh/conges" className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-sm font-medium transition hover:bg-secondary">
+          <CalendarOff className="h-4 w-4" /> Congés & absences
+        </Link>
+        <Link href="/rh/departements" className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-sm font-medium transition hover:bg-secondary">
+          <Building2 className="h-4 w-4" /> Départements
+        </Link>
+      </div>
 
-      {data.recentLeaves.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Historique des congés</h2>
-          <div className="surface overflow-hidden">
-            <Table mobileCards>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Employé</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Période</TableHead>
-                  <TableHead className="text-right">Jours</TableHead>
-                  <TableHead>Statut</TableHead>
-                  {canManage && <TableHead className="text-right">Modifier</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.recentLeaves.map((l) => (
-                  <TableRow key={l.id}>
-                    <TableCell className="font-medium">{l.employee.fullName}</TableCell>
-                    <TableCell>{LEAVE_TYPE[l.type] ?? l.type}</TableCell>
-                    <TableCell>{formatDate(l.startDate)} → {formatDate(l.endDate)}</TableCell>
-                    <TableCell className="text-right">{Number(l.days)}</TableCell>
-                    <TableCell><StatusBadge map={LEAVE_STATUS} value={l.status} /></TableCell>
-                    {canManage && (
-                      <TableCell className="text-right">
-                        <div className="flex justify-end">
-                          <LeaveEditButton leave={{ id: l.id, employee: l.employee.fullName, type: l.type, startDate: l.startDate.toISOString(), endDate: l.endDate.toISOString(), days: Number(l.days), reason: l.reason, status: l.status, decisionNote: l.decisionNote }} />
-                        </div>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </section>
-      )}
     </div>
   );
 }
