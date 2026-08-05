@@ -868,6 +868,89 @@ c'est la cause des blocages à répétition. L'envoi passe désormais par une **
   pour les trois fournisseurs, signature juste acceptée / fausse / absente / **corps falsifié après
   signature** refusés, normalisation des trois dialectes entrants.
 
+### Assistant — plein écran, conversations, réponse en flux
+
+L'assistant ne renvoie plus son texte d'un bloc après un long silence : il **s'écrit**.
+
+- **Vrai streaming** (pas un effet de machine à écrire) : `callClaudeStream` (`lib/ai.ts`)
+  remonte le texte au fil de sa génération et réassemble les `tool_use` à partir des fragments
+  JSON, si bien que la boucle agent n'a rien à changer. `runAssistantStream` (`lib/assistant.ts`)
+  émet des événements : `trace` (« je consulte vos validations… ») dès qu'un outil s'exécute,
+  puis `delta` mot à mot, puis `done` avec le résultat complet.
+- **Route** : `POST /api/assistant/stream` (SSE, runtime Node). Identité issue de la **session**,
+  jamais du client ; assistant **désactivé en « Vue exacte »** ; toute action d'écriture reste
+  interceptée et soumise à confirmation. En-tête `X-Accel-Buffering: no` — sans elle, un proxy
+  remettrait le flux en tampon et le livrerait… d'un bloc.
+- **`reset`** : si un tour se révèle être un appel d'outil, le texte déjà affiché n'était qu'un
+  préambule → le client l'efface avant la vraie réponse. Rare en pratique, mais l'affichage
+  reste juste dans tous les cas.
+- **Écran** : plein écran (pas d'en-tête de page), colonne de lecture centrée, rail des
+  conversations **regroupées par ancienneté** (aujourd'hui / 7 j / 30 j / plus ancien), curseur
+  d'écriture, bouton **arrêter** qui conserve le texte déjà produit.
+- Les **pièces jointes** passent par l'action serveur (il faut les résoudre et les extraire
+  avant l'appel au modèle) ; tout le reste passe par le flux. La persistance du fil est
+  mutualisée entre les deux chemins (`rememberExchange`), pour que la règle de cloisonnement
+  n'existe qu'à un seul endroit.
+
+### Regulatory — niveau de process (la variation obtenue fait foi)
+
+Colonne **Niveau de process** : Importation → Secondary Packaging → Primary Packaging →
+Full Process, la trajectoire d'industrialisation locale d'un médicament importé.
+
+**Règle** : le niveau saisi sur la fiche n'est qu'une **déclaration** ; dès qu'une variation est
+**OBTENUE**, c'est SA cible qui fait foi. Le niveau est donc **calculé à la lecture**
+(`lib/regulatory/manufacturing-stage.ts` → `effectiveStage`, pure et testée), et non recopié à
+l'écriture : une modification ultérieure de la fiche ne peut plus le faire diverger de la
+réalité réglementaire.
+
+- La cellule affiche la **provenance** (« déclaré » / « variation obtenue ») — c'est la question
+  qu'on se pose vraiment — et signale une variation **en attente** sans jamais la compter comme
+  acquise. La colonne se filtre comme les autres.
+- Départage : la variation la plus **récente** décide (une décision peut en corriger une autre,
+  même vers un niveau moins avancé) ; à date égale, le niveau le plus avancé gagne — on ne fait
+  pas reculer une industrialisation actée ; sans date de décision, on retombe sur la création.
+- Tests : `manufacturing-stage.test.ts` (11 tests), dont le cas « la fiche a divergé ».
+
+### RH — quatre écrans, et les questions du quotidien
+
+Le module était **une page à sept sections** : on y trouvait tout, sauf vite. Désormais :
+
+| Écran | Route | Ce qu'on y fait |
+|---|---|---|
+| **À traiter** | `/rh` | Ce qui attend une décision : demandes RH, congés, avances, contrats à échéance. |
+| **Équipe** | `/rh/equipe` | L'annuaire **cherchable** + la répartition de l'effectif (camembert). |
+| **Congés** | `/rh/conges` | L'état de l'équipe **maintenant** + l'historique des décisions. |
+| **Départements** | `/rh/departements` | La structure (hiérarchie, responsables, rattachements). |
+
+**Sur le fond** — `lib/queries/hr-pulse.ts` (`getHrPulse`) répond à ce que le module ignorait :
+
+- **qui est absent aujourd'hui** (nombre sur l'effectif, motif, date de retour) — LA question
+  quotidienne d'un service RH ;
+- **qui part dans les 14 jours** : anticiper au lieu de constater ;
+- **les échéances qu'on oublie** : fin de **période d'essai** (la renouvelée prime) et fin de
+  contrat sous 60 jours, côte à côte — laisser filer une fin d'essai a des conséquences
+  juridiques ;
+- **les soldes de congés** les plus élevés : ce qui risque d'être reporté ou perdu ;
+- **la recherche** dans l'annuaire (nom, poste, département, e-mail, téléphone — un seul champ,
+  filtrage local, réponse à la frappe).
+
+Salaire et masse salariale restent réservés aux comptes qui **valident**, comme partout ailleurs.
+
+### Mobile — l'écran respire
+
+Sur 375 px, chaque carte mangeait ~32 px en marges, bordures et arrondis : l'application
+paraissait « boxée » au lieu de native.
+
+- Les cartes de **premier niveau** passent **bord à bord** sur téléphone (ni bordure latérale,
+  ni arrondi sur les côtés) ; les cartes **imbriquées** gardent leur cadre — c'est lui qui montre
+  l'imbrication. Porté par une seule classe `page-shell` sur le conteneur de page
+  (`app/(app)/layout.tsx` + `globals.css`), donc aucun composant à retoucher un par un.
+- Un tableau qui déborde défile **bord à bord** ; marges de page 16 → 12 px ; ombres allégées ;
+  titres compacts ; `text-size-adjust: 100%` (iOS n'agrandit plus le texte en paysage).
+- **Les tiroirs deviennent des feuilles** : sur téléphone, `<Sheet>` monte du bas, arrondi en
+  haut, avec une poignée, et s'arrête à 95 % de la hauteur pour qu'on voie ce qu'il y a derrière.
+  Sur ordinateur, rien ne change.
+
 ### Frontière client / serveur (règle de compilation)
 
 Un composant `"use client"` est compilé **pour le navigateur**. S'il importe — même
@@ -1010,6 +1093,9 @@ Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage 
 | **Budgets (3 écrans)** | `app/(app)/budgets/` — `page.tsx` (vue d'ensemble, lecture seule), `depenses/`, `reglages/`, `budget-context-bar.tsx`, `budget-expenses.tsx`, `budget-settings.tsx`, `budget-forms.tsx` (tiroirs partagés). `lib/queries/budget.ts` → `buildMonthlySeries` (+ `budget-monthly.test.ts`). |
 | **Intelligence marché — molécule** | `lib/market/molecule.ts` (`moleculeStem`, `canonicalForm`, `extractDosage`, `labKey`, `analyzeMolecule`, suggestions) + `molecule.test.ts` ; `lib/actions/market-actions.ts` ; `app/(app)/business-development/marche/produits/` (`product-explorer.tsx`, `molecule-panel.tsx`). |
 | **PCH — lecture IA d'un AO** | `lib/actions/pch-tender-line-actions.ts` (`extractAndSaveLines` → `enrichLineById` → `analyzeMolecule`, `enrichAllTenderLines`, `dominantOrigin`), `lib/pch-tender-export.ts` (+ tests), `app/api/pch/export/route.ts`, `app/(app)/pch/[id]/tender-lines.tsx`. |
+| **Assistant — flux (streaming)** | `lib/ai.ts` → `callClaudeStream`, `lib/assistant.ts` → `runAssistantStream`, `app/api/assistant/stream/route.ts` (SSE), `app/(app)/assistant/assistant-chat.tsx`. |
+| **Regulatory — niveau de process** | `lib/regulatory/manufacturing-stage.ts` (`effectiveStage`, pure) + tests ; colonne et cellule dans `app/(app)/regulatory/regulatory-table.tsx` ; fiche `app/(app)/regulatory/[id]/page.tsx`. |
+| **RH — 4 écrans** | `lib/queries/hr-pulse.ts` (`getHrPulse` : absents, départs, échéances, soldes) ; `app/(app)/rh/` — `page.tsx` (à traiter), `equipe/`, `conges/`, `departements/`, `team-directory.tsx`. |
 | **Courrier smart (sans SMTP)** | `lib/mail-smart.ts` (agnostique fournisseur, `buildProviderCall`/`verifyInboundSignature`/`normalizeInbound`) + `mail-smart.test.ts`, `lib/actions/smart-mail-actions.ts` (journal), `app/api/mail/inbound/route.ts` (webhook signé), `app/(app)/admin/courrier/`. Modèles `OutboundEmail`/`InboundEmail`. |
 
 ---
@@ -1431,6 +1517,28 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Assistant : plein écran, conversations, et une réponse qui s'écrit.** Fini le long silence
+  suivi d'un pavé : vrai **streaming** (le texte remonte au fil de sa génération), étapes de
+  lecture annoncées en direct, rail des conversations regroupées par ancienneté, bouton
+  **arrêter** qui conserve ce qui a déjà été écrit. Les garanties ne bougent pas : identité
+  issue de la session, assistant désactivé en « Vue exacte », toute action d'écriture
+  interceptée et confirmée. → [référence](#assistant--plein-écran-conversations-réponse-en-flux)
+- **Regulatory : colonne « niveau de process », et la variation obtenue fait foi.** Importation
+  → Secondary → Primary → Full Process. Le niveau est désormais **calculé** à la lecture plutôt
+  que recopié à l'écriture : une modification de la fiche ne peut plus diverger de la décision
+  de l'ANPP. La cellule dit d'où vient la valeur (« déclaré » / « variation obtenue ») et
+  signale une variation en attente sans la compter comme acquise.
+  → [référence](#regulatory--niveau-de-process-la-variation-obtenue-fait-foi)
+- **RH : quatre écrans, et les questions du quotidien.** La page à sept sections devient
+  *À traiter* / *Équipe* / *Congés* / *Départements*. Sur le fond, ce qui manquait vraiment :
+  **qui est absent aujourd'hui**, qui part dans les 14 jours, les **fins de période d'essai** et
+  de contrat côte à côte, les soldes de congés à risque, et une **recherche** dans l'annuaire.
+  → [référence](#rh--quatre-écrans-et-les-questions-du-quotidien)
+- **Mobile : l'écran respire.** Cartes de premier niveau **bord à bord**, tableaux qui défilent
+  bord à bord, marges réduites, titres compacts — et les tiroirs deviennent des **feuilles qui
+  montent du bas**, avec une poignée, comme dans une application native.
+  → [référence](#mobile--lécran-respire)
 
 - **Budgets : un module simple — on regarde, on travaille, on règle.** Tout tenait sur un écran : sélecteur
   d'enveloppe, budget total et son réglage, période, export, édition, quatre indicateurs, un graphique, les
