@@ -868,6 +868,77 @@ c'est la cause des blocages à répétition. L'envoi passe désormais par une **
   pour les trois fournisseurs, signature juste acceptée / fausse / absente / **corps falsifié après
   signature** refusés, normalisation des trois dialectes entrants.
 
+### Graphiques — une seule palette, vérifiée
+
+Tous les graphiques de la plateforme partagent les mêmes primitives (`src/components/charts/` :
+`Donut`, `Trend`, `Bars`, `Meter`) et la **même palette catégorielle**, définie une fois dans
+`palette.ts`.
+
+- L'**ordre des teintes n'est pas décoratif** : il a été vérifié par l'outil de validation —
+  écart CVD ≥ 8 sur toutes les paires voisines, écart en vision normale ≥ 15, sur le fond
+  **blanc réel** de nos cartes. Ne pas réordonner.
+- Trois teintes passent sous 3:1 de contraste sur blanc → règle tenue partout : **jamais la
+  couleur seule**. Chaque part est reprise dans une **légende chiffrée** (qui vaut vue
+  tabulaire) et décrite dans son `<title>` (info-bulle native, accessible).
+- Au-delà de **6 catégories**, `foldTail` replie la queue dans « Autres » — on n'invente
+  jamais une 7ᵉ teinte, indistinguable d'une existante en vision daltonienne.
+- **Un seul axe** par graphique (jamais deux échelles), écart de 2 px entre tranches, marques
+  fines, grille discrète. Composants **serveur** : aucun JS envoyé au navigateur.
+
+### Intelligence marché — la maille MOLÉCULE
+
+On cherche **par la case que l'on remplit** : **molécule**, **nom de produit**, ou
+**laboratoire** (les trois se cumulent). Remplir la molécule débloque en plus l'**analyse
+concurrentielle** — c'est la seule maille qui a un sens pour comparer des acteurs entre eux.
+
+Une molécule, au sens métier, est un **triplet molécule + dosage + forme** : l'amoxicilline
+500 mg gélule et l'amoxicilline 1 g injectable ne s'affrontent pas sur le même marché.
+
+**Ce que l'analyse répond** (`src/lib/market/molecule.ts` → `analyzeMolecule`) :
+- le **poids du marché** (valeur DZD/USD, volume, nombre d'acteurs) ;
+- le **marché adressable** : part **ville** et part **hôpital** en %, avec les acteurs de chaque côté ;
+- les **parts de marché** de chaque laboratoire, le leader, la **concentration** (HHI : > 2500 = concentré) ;
+- qui est **enregistré** à la nomenclature, et surtout s'il **fabrique en Algérie ou importe** ;
+- les **dosages et formes réellement présents**, pour affiner la recherche.
+
+**Le vrai travail : réconcilier trois sources qui n'écrivent rien pareil.**
+
+| Normalisation | Ce qu'elle résout |
+|---|---|
+| `moleculeStem` / `moleculeMatches` | « AMOXICILLIN » (IQVIA, anglais) ≡ « AMOXICILLINE TRIHYDRATÉE EXPRIMÉE EN AMOXICILLINE » (nomenclature). Les **sels** et l'hydratation ne font pas une molécule différente. Une association demandée exige **tous** ses composants. |
+| `canonicalForm` | Décode les présentations abrégées d'IQVIA (`PD.SAC`, `P/SUS`, `FL+SOLV`, `STYL PRE REM`…). Formes non reconnues : **32,6 % → 3,8 %** de la valeur du marché. Stylos et seringues préremplies = **injectables** (c'est ainsi qu'ils s'achètent) ; bandelettes et lecteurs = **dispositifs**, pas des médicaments. L'ordre des règles est la règle métier (`GELULE` avant `GEL`, `PERFUSION` avant `INJECTABLE`). |
+| `extractDosage` / `dosageMatches` | « CP.PE 875MG/ 125 MG 10 » → `875MG/125MG`. Renvoie `null` plutôt que d'inventer. |
+| `labKey` | « SAIDAL » ≡ « GROUPE SAIDAL » ≡ « EPE / SPA GROUPE SAIDAL » — sans quoi le même acteur apparaissait trois fois et son origine ne se rattachait à rien. |
+
+Saisie **assistée** (`moleculeSuggestions`, `labSuggestions`) : on ne propose que ce qui existe
+réellement dans les données, les plus gros marchés d'abord. Écran : `/business-development/marche/produits`.
+Tests : `src/lib/market/molecule.test.ts` (20 tests, cas tirés des données réelles).
+
+### PCH — un appel d'offres lu par l'IA devient un tableau Excel
+
+Téléverser le document suffit : **OCR → extraction IA des produits → enrichissement
+automatique de chaque ligne** par l'intelligence marché. Avant, il fallait cliquer « Enrichir »
+ligne par ligne — sur un marché de quarante produits, personne ne le faisait.
+
+- **Nature de l'unité demandée** (`unitLabel`) : un appel d'offres ne parle pas toujours de
+  comprimés — flacon, ampoule, seringue, poche, sachet. C'est ce mot qui donne son sens à la
+  quantité ; sans lui on compare des flacons à des comprimés.
+- **Analyse de marché par ligne** (`enrichLineById` → `analyzeMolecule`) : taille du marché,
+  nombre d'acteurs, partage **ville / hôpital** en %, principaux concurrents avec leur part,
+  concentration, et **production locale ou importée**. L'origine est **pondérée par le poids
+  des acteurs**, pas par leur nombre : un marché à 80 % importé reste importé même s'il compte
+  dix petits fabricants locaux (`dominantOrigin`).
+- **Enrichir tout** (`enrichAllTenderLines`) rejoue l'analyse sur l'ensemble des lignes.
+- **Export Excel** (`/api/pch/export?id=…`, `src/lib/pch-tender-export.ts`) — deux feuilles :
+  - *Produits demandés* : désignation, molécule, dosage, forme, **unité demandée**, quantité,
+    conditionnement, **boîtes à fournir** (arrondi au **supérieur** — on ne livre pas une
+    demi-boîte), prix de référence verrouillé sur les réceptions PCH, valeur du marché à ce
+    prix, et notre position ;
+  - *Analyse de marché* : taille, concurrents, ville/hôpital, concentration, principaux
+    acteurs, production locale ou importée.
+  Les colonnes sans donnée **restent vides** : pas de demi-vérité dans le fichier qui sert à
+  chiffrer une offre. Tests : `src/lib/pch-tender-export.test.ts` (11 tests).
+
 ### Pièces jointes (pattern standard)
 
 Téléversement **en lot** (plusieurs fichiers **ou un dossier entier**, tous types sauf exécutables,
@@ -919,13 +990,31 @@ Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage 
 | **Assistant — mémoire personnelle** | `lib/assistant-memory.ts` (**seule** porte d'entrée, tout scopé par `userId`) + `assistant-memory.test.ts` (tests de fuite), `lib/actions/assistant-actions.ts` (garde impersonation, persistance, distillation), `app/(app)/assistant/assistant-chat.tsx` (rail des conversations). Modèles `AssistantThread`/`AssistantMessage`/`AssistantMemory`. |
 | **Versions test → prod** | `lib/features.ts` (+ `features.test.ts`), `lib/nav-tabs.ts` (`visibleTabs`), `app/(app)/admin/versions/`, `components/layout/test-mode-banner.tsx`. Modèles `FeatureFlag` + `User.testMode`. |
 | **Aujourd'hui & point du matin** | `lib/queries/today.ts` (`rankToday`, pure + testée) + `today.test.ts`, `app/(app)/aujourdhui/`, `lib/daily-brief.ts` (cache `DailyBrief`, 1 appel IA/jour/personne), `components/shared/morning-brief.tsx`. |
+| **Graphiques (partagés)** | `components/charts/palette.ts` (palette catégorielle **vérifiée** — ne pas réordonner), `donut.tsx` (camembert), `trend.tsx` (courbe + rythme théorique), `bars.tsx` (barres statut + jauge). Composants serveur, zéro JS. |
+| **Budgets (3 écrans)** | `app/(app)/budgets/` — `page.tsx` (vue d'ensemble, lecture seule), `depenses/`, `reglages/`, `budget-context-bar.tsx`, `budget-expenses.tsx`, `budget-settings.tsx`, `budget-forms.tsx` (tiroirs partagés). `lib/queries/budget.ts` → `buildMonthlySeries` (+ `budget-monthly.test.ts`). |
+| **Intelligence marché — molécule** | `lib/market/molecule.ts` (`moleculeStem`, `canonicalForm`, `extractDosage`, `labKey`, `analyzeMolecule`, suggestions) + `molecule.test.ts` ; `lib/actions/market-actions.ts` ; `app/(app)/business-development/marche/produits/` (`product-explorer.tsx`, `molecule-panel.tsx`). |
+| **PCH — lecture IA d'un AO** | `lib/actions/pch-tender-line-actions.ts` (`extractAndSaveLines` → `enrichLineById` → `analyzeMolecule`, `enrichAllTenderLines`, `dominantOrigin`), `lib/pch-tender-export.ts` (+ tests), `app/api/pch/export/route.ts`, `app/(app)/pch/[id]/tender-lines.tsx`. |
 | **Courrier smart (sans SMTP)** | `lib/mail-smart.ts` (agnostique fournisseur, `buildProviderCall`/`verifyInboundSignature`/`normalizeInbound`) + `mail-smart.test.ts`, `lib/actions/smart-mail-actions.ts` (journal), `app/api/mail/inbound/route.ts` (webhook signé), `app/(app)/admin/courrier/`. Modèles `OutboundEmail`/`InboundEmail`. |
 
 ---
 
 ## 💰 Budgets, enveloppes & sous-catégories
 
-Le module **Budgets** (`/budgets`) est un vrai système de gestion budgétaire multi-niveaux.
+Le module **Budgets** est un vrai système de gestion budgétaire multi-niveaux, réparti sur **trois écrans, un par
+intention** — on ne consulte plus son budget en traversant tout ce qui le modifie :
+
+| Écran | Route | Ce qu'on y fait |
+|---|---|---|
+| **Vue d'ensemble** | `/budgets` | **Que de la lecture.** Le reste à dépenser en grand, une jauge, un **camembert** de la répartition, une **courbe** de la consommation cumulée face au **rythme théorique**, des **barres** par catégorie. Aucun bouton d'action. |
+| **Dépenses** | `/budgets/depenses` | **Le travail.** Ce qui est **à imputer** vient en premier (tant que ces lignes traînent, la vue d'ensemble est fausse), puis la saisie d'une dépense, puis l'historique. |
+| **Réglages** | `/budgets/reglages` | **Le paramétrage.** L'enveloppe, ses catégories et sous-catégories, le budget total au-dessus des enveloppes. |
+
+La **barre de contexte** (`budget-context-bar.tsx`) ne porte que ce qui change ce qu'on **regarde** : l'enveloppe et
+la période. Une **alerte actionnable** unique remplace l'ancienne section « dépenses non attribuées » dépliée.
+
+**Lecture de la courbe** : le pointillé gris est le budget dépensé régulièrement sur la période. Au-dessus = on
+dépense trop vite. `buildMonthlySeries` (pure, testée) couvre **tous** les mois de la période même vides, garantit un
+cumul strictement croissant, et fait atterrir le rythme théorique **exactement** sur le budget au dernier mois.
 
 - **Enveloppe budgétaire** — créée / modifiée / supprimée par le **Super Admin** (délégable via le droit
   `BUDGETS:DELETE`). Chaque enveloppe porte : une **période**, **un ou plusieurs modules rattachés**, un **montant
@@ -1326,6 +1415,28 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Budgets : un module simple — on regarde, on travaille, on règle.** Tout tenait sur un écran : sélecteur
+  d'enveloppe, budget total et son réglage, période, export, édition, quatre indicateurs, un graphique, les
+  catégories et leurs boutons, un formulaire de saisie, deux listes de dépenses, quatre tiroirs. On ne pouvait pas
+  **consulter** son budget sans traverser tout ce qui le **modifie**. Désormais **trois écrans, un par intention** :
+  la **vue d'ensemble** ne fait que lire (le reste à dépenser en grand, une jauge, un **camembert**, une **courbe**
+  face au **rythme théorique**, des **barres** par catégorie) ; les **dépenses** mettent en premier ce qui est à
+  imputer ; les **réglages** réunissent ce qui se paramètre. → [référence](#-budgets-enveloppes--sous-catégories)
+- **Intelligence marché : la maille MOLÉCULE, et l'environnement concurrentiel.** On cherche par la case que l'on
+  remplit — molécule, produit, ou laboratoire. Une molécule au sens métier est un **triplet molécule + dosage +
+  forme** : l'amoxicilline 500 mg gélule et l'amoxicilline 1 g injectable ne s'affrontent pas sur le même marché.
+  L'analyse répond : poids du marché, **part ville / part hôpital** en %, **parts de marché** de chaque laboratoire,
+  concentration, et **fabriqué en Algérie ou importé**. Le vrai travail a été de réconcilier trois sources qui
+  n'écrivent rien pareil — radical de molécule, forme galénique canonique (formes non reconnues : **32,6 % → 3,8 %**
+  de la valeur), noyau de raison sociale. → [référence](#intelligence-marché--la-maille-molécule)
+- **PCH : un appel d'offres lu par l'IA devient un tableau Excel prêt à chiffrer.** Téléverser le document suffit :
+  OCR, extraction des produits, **puis enrichissement automatique de chaque ligne** (avant, il fallait cliquer
+  ligne par ligne — sur quarante produits, personne ne le faisait). L'IA extrait en plus la **nature de l'unité**
+  demandée (flacon, ampoule, seringue…) : c'est ce mot qui donne son sens à la quantité. Chaque ligne reçoit la
+  taille du marché, le partage ville / hôpital, les principaux concurrents et leur part, et la **production locale
+  ou importée**. Livrable : un **Excel en deux feuilles**, avec les **boîtes à fournir** arrondies au supérieur et
+  les colonnes sans donnée laissées vides. → [référence](#pch--un-appel-doffres-lu-par-lia-devient-un-tableau-excel)
 
 - **Version de TEST → version de PRODUCTION, validée d'un clic.** Toute nouveauté arrive au stade **TEST** :
   invisible de l'entreprise, visible du seul compte en **mode test**. Le Super Admin la parcourt puis la **valide en
