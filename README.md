@@ -868,6 +868,22 @@ c'est la cause des blocages à répétition. L'envoi passe désormais par une **
   pour les trois fournisseurs, signature juste acceptée / fausse / absente / **corps falsifié après
   signature** refusés, normalisation des trois dialectes entrants.
 
+### Frontière client / serveur (règle de compilation)
+
+Un composant `"use client"` est compilé **pour le navigateur**. S'il importe — même
+indirectement — un module qui lit des fichiers (`fs`, `zlib`…), la compilation de production
+échoue avec **« Module not found: Can't resolve 'fs' »**. Le typecheck ne le voit pas, et un
+`npm run build` local peut le rater à cause du cache `.next`.
+
+- Les **actions serveur** (`"use server"`) ne comptent pas : Next.js les remplace par un appel
+  distant. Un composant client peut les appeler librement.
+- Pattern appliqué dans le code : les fonctions **pures** vivent dans un module dédié sans
+  dépendance lourde — `src/lib/market/text.ts` (normalisation) et `galenic.ts` (molécule,
+  dosage, forme) — tandis que `molecule.ts`, qui **lit les données**, les réexporte pour les
+  modules serveur. L'explorateur de produits importe donc `galenic`, jamais `molecule`.
+- **`src/lib/client-bundle-guard.test.ts`** remonte les chaînes d'import de chaque composant
+  client et fait échouer `npm test` en affichant le chemin fautif, module par module.
+
 ### Graphiques — une seule palette, vérifiée
 
 Tous les graphiques de la plateforme partagent les mêmes primitives (`src/components/charts/` :

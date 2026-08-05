@@ -8,7 +8,8 @@
  */
 import { getMarketData, DZD_PER_USD, type IqviaRow } from "./data";
 import { normText } from "./engine";
-import { moleculeMatches, canonicalForm, extractDosage, dosageMatches, labKey, type GalenicForm } from "./molecule";
+import { moleculeMatches, canonicalForm, extractDosage, dosageMatches, type GalenicForm } from "./galenic";
+import { labKey } from "./molecule";
 
 export type MarketSegment = "VILLE" | "HOPITAL";
 

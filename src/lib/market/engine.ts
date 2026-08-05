@@ -9,28 +9,12 @@
  */
 import { getMarketData, DZD_PER_USD, SRC_IQVIA, SRC_PCH, type IqviaRow, type PchRow } from "./data";
 import { weightedGrowthPy } from "./overview";
+// Les primitives de texte vivent dans `text.ts` — un module PUR, sans `fs`, donc importable
+// par les composants client. On les réexporte ici : les modules serveur historiques qui les
+// importent depuis `engine` n'ont rien à changer.
+import { normText, tokens, queryTokens } from "./text";
 
-const STOPWORDS = new Set(
-  ("ACIDE ACID BASE BASIQUE SODIUM POTASSIUM CALCIUM MAGNESIUM HYDROCHLORIDE CHLORHYDRATE DICHLORHYDRATE " +
-    "MONOHYDRATE DIHYDRATE TRIHYDRATE ANHYDRE MALEATE MESILATE PHOSPHATE SULFATE SULPHATE NITRATE LA LE LES DE DU DES ET OU AVEC SANS " +
-    "COMPRIME COMP GELULE GLES SIROP SOLUTION INJECTABLE INJ SOL SUSPENSION BUVABLE FLACON AMP AMPOULE BTE BOITE B").split(/\s+/),
-);
-
-/** Normalisation pharma-safe (sans accents, MAJUSCULES, séparateurs → espaces). */
-export function normText(s: string | null | undefined): string {
-  if (s == null) return "";
-  let t = String(s).normalize("NFKD").replace(/[̀-ͯ]/g, "").toUpperCase();
-  t = t.replace(/µ/g, "U").replace(/μ/g, "U");
-  t = t.replace(/[/\\|,;:+()[\]{}]/g, " ");
-  t = t.replace(/[^A-Z0-9.%\s-]/g, " ");
-  return t.replace(/\s+/g, " ").trim();
-}
-
-/** Jetons signifiants (hors mots-vides). */
-export function tokens(s: string | null | undefined): string[] {
-  return normText(s).split(" ").filter((t) => t && !STOPWORDS.has(t));
-}
-export const queryTokens = (key: string): string[] => tokens(key).filter((t) => t.length >= 3);
+export { normText, tokens, queryTokens };
 
 /** Teste si `text` contient le token `tok` borné (mêmes frontières que le moteur Python). */
 function tokenInText(text: string, tok: string): boolean {

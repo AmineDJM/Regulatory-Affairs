@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { moleculeStem, moleculeMatches, canonicalForm, extractDosage, dosageMatches, labKey } from "./molecule";
+import { moleculeStem, moleculeMatches, canonicalForm, extractDosage, dosageMatches } from "./galenic";
+import { labKey } from "./molecule";
 
 /**
  * Ces normalisations sont le PONT entre trois sources qui n'écrivent rien pareil :

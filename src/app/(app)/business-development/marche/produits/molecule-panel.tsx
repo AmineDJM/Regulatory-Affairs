@@ -4,7 +4,7 @@ import * as React from "react";
 import { Loader2, Building2, Factory, Ship, Trophy, AlertTriangle } from "lucide-react";
 import { analyzeMarketMolecule } from "@/lib/actions/market-actions";
 import type { MoleculeAnalysis } from "@/lib/market/molecule";
-import { FORM_LABEL } from "@/lib/market/molecule";
+import { FORM_LABEL } from "@/lib/market/galenic";
 import { Badge } from "@/components/ui/badge";
 import { Donut } from "@/components/charts/donut";
 import { foldTail, seriesColor, SERIES } from "@/components/charts/palette";

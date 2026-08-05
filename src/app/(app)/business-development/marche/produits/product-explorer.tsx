@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Search, Plus, Check, X, Loader2, Scale } from "lucide-react";
 import { searchMarketProducts, marketSuggestions } from "@/lib/actions/market-actions";
-import { GALENIC_FORMS, FORM_LABEL } from "@/lib/market/molecule";
+import { GALENIC_FORMS, FORM_LABEL } from "@/lib/market/galenic";
 import { MoleculePanel } from "./molecule-panel";
 import type { MarketProduct } from "@/lib/market/products";
 import { Button } from "@/components/ui/button";
