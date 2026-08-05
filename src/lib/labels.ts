@@ -1141,6 +1141,9 @@ export const NAVIGATION: NavItem[] = [
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-espace", "/dashboard", "/directives"] },
   { module: "WORKSPACE", label: "Calendrier", href: "/calendar", icon: "CalendarDays", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage", tabs: MON_DOSSIER_TABS, match: ["/missions"] },
+  // Assistant IA : MODULE À PART ENTIÈRE (l'ancienne bulle flottante a été retirée) —
+  // page plein écran avec dictée vocale et lecture de pièces jointes.
+  { module: "WORKSPACE", label: "Assistant IA", href: "/assistant", icon: "Sparkles", group: "Pilotage" },
   { module: "DOSSIERS", label: "Projets", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
   // « Courrier » (boîte mail intégrée) retiré de la plateforme — la messagerie e-mail se gère
   // désormais directement dans l'app Infomaniak. Le code back-end reste dormant (non exposé).

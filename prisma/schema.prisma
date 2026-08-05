@@ -573,8 +573,12 @@ enum FeedbackStatus {
 /// n'a pas de manager explicite (voir src/lib/departments.ts).
 model Department {
   id        String   @id @default(cuid())
-  name      String   @unique
+  /// Nom unique PAR ENTITÉ (chaque société peut avoir son propre « Commercial »).
+  name      String
   code      String   @unique
+  /// Entité de rattachement (Adventum, Pharmagène…). Null = département transverse au groupe.
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
   parentId  String?
   parent    Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: SetNull)
   children  Department[] @relation("DepartmentTree")
@@ -592,8 +596,10 @@ model Department {
   users         User[]
   adminRequests AdministrativeRequest[]
 
+  @@unique([companyId, name])
   @@index([parentId])
   @@index([headId])
+  @@index([companyId])
 }
 
 model User {
@@ -830,6 +836,7 @@ model Company {
   logisticsOrders         LogisticsOrder[]
   sales                   Sale[]
   businessUnits           BusinessUnit[]
+  departments             Department[]
 
   @@index([isActive])
 }

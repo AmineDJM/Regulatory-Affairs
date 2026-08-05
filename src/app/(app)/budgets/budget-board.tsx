@@ -180,17 +180,17 @@ export function EnvelopesGrandTotalPanel({ data }: { data: EnvelopesGrandTotal }
         <Kpi label="Reste" value={formatCurrency(data.remaining)} tone={data.remaining < 0 ? "danger" : "success"} />
       </div>
       <div className="overflow-hidden rounded-lg border border-border">
-        <table className="w-full text-sm">
+        <table className="mobile-cards w-full text-sm">
           <thead className="bg-secondary/50 text-xs text-muted-foreground">
             <tr><th className="px-3 py-1.5 text-left font-medium">Enveloppe</th><th className="px-3 py-1.5 text-right font-medium">Budget</th><th className="px-3 py-1.5 text-right font-medium">Consommé</th><th className="px-3 py-1.5 text-right font-medium">Reste</th></tr>
           </thead>
           <tbody className="divide-y divide-border">
             {data.items.map((e) => (
               <tr key={e.id}>
-                <td className="px-3 py-1.5">{e.name}{!e.isActive && <span className="ml-1 text-xs text-muted-foreground">(archivée)</span>}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{formatCurrency(e.total)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums text-warning">{formatCurrency(e.consumed)}</td>
-                <td className={cn("px-3 py-1.5 text-right tabular-nums", e.remaining < 0 ? "text-destructive" : "text-success")}>{formatCurrency(e.remaining)}</td>
+                <td data-label="Enveloppe" className="px-3 py-1.5">{e.name}{!e.isActive && <span className="ml-1 text-xs text-muted-foreground">(archivée)</span>}</td>
+                <td data-label="Budget" className="px-3 py-1.5 text-right tabular-nums">{formatCurrency(e.total)}</td>
+                <td data-label="Consommé" className="px-3 py-1.5 text-right tabular-nums text-warning">{formatCurrency(e.consumed)}</td>
+                <td data-label="Reste" className={cn("px-3 py-1.5 text-right tabular-nums", e.remaining < 0 ? "text-destructive" : "text-success")}>{formatCurrency(e.remaining)}</td>
               </tr>
             ))}
           </tbody>

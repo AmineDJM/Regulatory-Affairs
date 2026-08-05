@@ -122,7 +122,7 @@ export default async function RhPage() {
               {hrRequests.length === 0 ? (
                 <p className="px-4 py-6 text-sm text-muted-foreground">Aucune demande.</p>
               ) : (
-                <Table>
+                <Table mobileCards>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Employé</TableHead>
@@ -194,7 +194,7 @@ export default async function RhPage() {
           <EmptyState icon="Users" title="Aucun employé" description="Ajoutez les membres de l'équipe pour démarrer." />
         ) : (
           <div className="surface overflow-hidden">
-            <Table>
+            <Table mobileCards>
               <TableHeader>
                 <TableRow>
                   <TableHead>Nom</TableHead>
@@ -235,7 +235,7 @@ export default async function RhPage() {
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Historique des congés</h2>
           <div className="surface overflow-hidden">
-            <Table>
+            <Table mobileCards>
               <TableHeader>
                 <TableRow>
                   <TableHead>Employé</TableHead>

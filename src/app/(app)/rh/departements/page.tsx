@@ -4,6 +4,7 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getDepartmentTree, flattenTree } from "@/lib/departments";
+import { getCompanies, getCompanyScope, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -16,19 +17,24 @@ export default async function DepartmentsPage() {
   const user = await requireModule("RH");
   const canManage = userCan(user, "RH", "UPDATE");
 
-  const [tree, employees, unassigned] = await Promise.all([
-    getDepartmentTree(),
+  // Périmètre d'ENTITÉ actif (sélecteur de la barre supérieure) : chaque société a ses
+  // propres départements ; « toutes les entités » donne la vue groupe.
+  const companyScope = getCompanyScope();
+  const [companies, tree, employees, unassigned] = await Promise.all([
+    getCompanies(),
+    getDepartmentTree(companyScope),
     prisma.employee.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...(companyScope ? { companyId: companyScope } : {}) },
       select: { id: true, fullName: true, position: true },
       orderBy: { fullName: "asc" },
     }),
     prisma.employee.findMany({
-      where: { isActive: true, departmentId: null },
+      where: { isActive: true, departmentId: null, ...(companyScope ? { companyId: companyScope } : {}) },
       select: { id: true, fullName: true, position: true },
       orderBy: { fullName: "asc" },
     }),
   ]);
+  const scopedCompany = companyScope ? companies.find((c) => c.id === companyScope) ?? null : null;
 
   const flat = flattenTree(tree);
   const totalAffected = tree.reduce((a, d) => a + d.totalMembers, 0);
@@ -41,7 +47,11 @@ export default async function DepartmentsPage() {
       </Link>
       <PageHeader
         title="Départements"
-        description="La structure de l'entreprise : départements et sous-départements sur autant de niveaux que nécessaire. Chaque département a un responsable — c'est lui qui incarne le N+1 des personnes rattachées."
+        description={
+          scopedCompany
+            ? `Structure de ${companyLabel(scopedCompany)} : départements et sous-départements sur autant de niveaux que nécessaire. Chaque département a un responsable — c'est lui qui incarne le N+1 des personnes rattachées.`
+            : "Structure du groupe (toutes entités) : départements et sous-départements sur autant de niveaux que nécessaire. Chaque département a un responsable — c'est lui qui incarne le N+1 des personnes rattachées. Choisissez une entité dans la barre du haut pour ne voir que la sienne."
+        }
       >
         <Link href="/admin/organigramme"><Button variant="outline"><Network className="h-4 w-4" /> Organigramme</Button></Link>
       </PageHeader>
@@ -64,7 +74,11 @@ export default async function DepartmentsPage() {
         </div>
       )}
 
-      <DepartmentsManager tree={tree} options={flat} employees={employees} unassigned={unassigned} canManage={canManage} />
+      <DepartmentsManager
+        tree={tree} options={flat} employees={employees} unassigned={unassigned} canManage={canManage}
+        companies={companies.map((c) => ({ id: c.id, label: companyLabel(c) }))}
+        companyScope={companyScope}
+      />
     </div>
   );
 }

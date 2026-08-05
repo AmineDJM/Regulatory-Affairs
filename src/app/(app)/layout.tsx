@@ -4,11 +4,11 @@ import { accessibleModules, userCan } from "@/lib/rbac";
 import { NAVIGATION, moduleForPath, type NavItem } from "@/lib/labels";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
+import { MobileTabBar } from "@/components/layout/mobile-tabbar";
 import { ActivityTracker } from "@/components/layout/activity-tracker";
 import { ScreenGuard } from "@/components/layout/screen-guard";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
-import { FloatingAssistant } from "@/components/layout/floating-assistant";
 import { PushRegister } from "@/components/layout/push-register";
 import { NotificationChime } from "@/components/layout/notification-chime";
 import { NotificationPopup } from "@/components/layout/notification-popup";
@@ -82,12 +82,12 @@ export default async function AppLayout({
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {user.impersonatedBy && <ImpersonationBanner adminName={user.impersonatedBy.name} viewedName={user.name} />}
         <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} companies={companies} companyScope={companyScope} />
-        <main className="flex-1 overflow-y-auto px-4 pb-24 pt-6 lg:px-8 lg:pb-8">
+        <main className="flex-1 overflow-y-auto px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-4 sm:pt-6 lg:px-8 lg:pb-8">
           <div className="mx-auto max-w-[1400px] space-y-6">{children}</div>
         </main>
       </div>
-      {/* Assistant flottant — présent partout (remplace l'onglet Assistant IA). */}
-      <FloatingAssistant userName={user.name} configured={aiConfigured()} voiceConfigured={sttConfigured()} />
+      {/* Navigation MOBILE : barre d'onglets basse + grille complète des modules. */}
+      <MobileTabBar items={navItems} messagingUnread={messagingUnread} moduleBadges={moduleBadges} />
       {/* Notifications push (PWA) : enregistre le service worker + (ré)abonne l'appareil. */}
       <PushRegister />
       {/* Sonnerie de rappel/notification (carillon) + notification bureau à l'arrivée. */}

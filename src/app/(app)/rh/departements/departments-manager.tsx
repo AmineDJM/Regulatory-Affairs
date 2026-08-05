@@ -31,14 +31,18 @@ function useRun() {
   return { busy, err, setErr, run };
 }
 
+type CompanyOpt = { id: string; label: string };
+
 export function DepartmentsManager({
-  tree, options, employees, unassigned, canManage,
+  tree, options, employees, unassigned, canManage, companies, companyScope,
 }: {
   tree: DepartmentNode[];
   options: DepartmentOption[];
   employees: EmpOpt[];
   unassigned: EmpOpt[];
   canManage: boolean;
+  companies: CompanyOpt[];
+  companyScope: string | null;
 }) {
   const { run } = useRun();
   const [sheet, setSheet] = React.useState<SheetState | null>(null);
@@ -78,7 +82,7 @@ export function DepartmentsManager({
       )}
 
       {sheet && (
-        <DeptSheet sheet={sheet} options={options} employees={employees} onClose={() => setSheet(null)} />
+        <DeptSheet sheet={sheet} options={options} employees={employees} companies={companies} companyScope={companyScope} onClose={() => setSheet(null)} />
       )}
     </div>
   );
@@ -101,6 +105,7 @@ function DeptCard({
         {!isRoot && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
         <span className={isRoot ? "font-semibold" : "text-sm font-medium"}>{node.name}</span>
         <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{node.code}</span>
+        {isRoot && node.companyName && <Badge tone="purple" dot={false} className="text-[10px]">{node.companyName}</Badge>}
 
         {node.headName ? (
           <Badge tone="info" dot={false} className="gap-1"><ShieldCheck className="h-3 w-3" /> {node.headName}</Badge>
@@ -174,11 +179,13 @@ function UnassignedPanel({ employees, options }: { employees: EmpOpt[]; options:
 }
 
 function DeptSheet({
-  sheet, options, employees, onClose,
+  sheet, options, employees, companies, companyScope, onClose,
 }: {
   sheet: SheetState;
   options: DepartmentOption[];
   employees: EmpOpt[];
+  companies: CompanyOpt[];
+  companyScope: string | null;
   onClose: () => void;
 }) {
   const { busy, err, run } = useRun();
@@ -215,6 +222,16 @@ function DeptSheet({
           <Label>Code (généré si vide)</Label>
           <Input name="code" defaultValue={editing?.code ?? ""} placeholder="COMMERCIAL" />
         </div>
+        {(sheet.mode === "edit" ? !editing?.parentId : !sheet.parentId) && companies.length > 0 && (
+          <div className="col-span-2 space-y-1.5">
+            <Label>Entité</Label>
+            <Select name="companyId" defaultValue={editing ? editing.companyId ?? "" : companyScope ?? ""}>
+              <option value="">— Transverse au groupe —</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </Select>
+            <p className="text-xs text-muted-foreground">Chaque société (Adventum, Pharmagène…) a ses propres départements. Un sous-département hérite automatiquement de l&apos;entité de son parent.</p>
+          </div>
+        )}
         <div className="space-y-1.5">
           <Label>Rattaché à</Label>
           <Select name="parentId" defaultValue={editing ? editing.parentId ?? "" : sheet.mode === "create" ? sheet.parentId ?? "" : ""}>

@@ -52,19 +52,23 @@ export async function createDepartment(formData: FormData): Promise<ActionResult
   if (!canManageStructure(user)) return DENIED;
   const name = fdStr(formData, "name")?.trim();
   if (!name) return { ok: false, error: "Le nom du département est obligatoire." };
-  if (await prisma.department.findUnique({ where: { name }, select: { id: true } })) {
-    return { ok: false, error: "Un département porte déjà ce nom." };
-  }
 
   const parentId = fdStr(formData, "parentId") || null;
-  if (parentId && !(await prisma.department.findUnique({ where: { id: parentId }, select: { id: true } }))) {
-    return { ok: false, error: "Département parent introuvable." };
+  // L'entité vient du parent (cohérence de l'arbre) ou du formulaire pour un département de tête.
+  let companyId = fdStr(formData, "companyId") || null;
+  if (parentId) {
+    const parent = await prisma.department.findUnique({ where: { id: parentId }, select: { id: true, companyId: true } });
+    if (!parent) return { ok: false, error: "Département parent introuvable." };
+    companyId = parent.companyId; // un sous-département appartient à l'entité de son parent
+  }
+  if (await prisma.department.findFirst({ where: { name, companyId }, select: { id: true } })) {
+    return { ok: false, error: "Cette entité a déjà un département portant ce nom." };
   }
 
   const code = await uniqueCode(codeFromName(fdStr(formData, "code") || name));
   const created = await prisma.department.create({
     data: {
-      name, code, parentId,
+      name, code, parentId, companyId,
       description: fdStr(formData, "description"),
       headId: fdStr(formData, "headId") || null,
       deputyId: fdStr(formData, "deputyId") || null,
@@ -90,29 +94,30 @@ export async function updateDepartment(formData: FormData): Promise<ActionResult
   const id = fdStr(formData, "id");
   const name = fdStr(formData, "name")?.trim();
   if (!id || !name) return { ok: false, error: "Paramètres manquants." };
-  const dept = await prisma.department.findUnique({ where: { id }, select: { id: true, name: true } });
+  const dept = await prisma.department.findUnique({ where: { id }, select: { id: true, name: true, companyId: true } });
   if (!dept) return { ok: false, error: "Département introuvable." };
-  if (await prisma.department.findFirst({ where: { name, NOT: { id } }, select: { id: true } })) {
-    return { ok: false, error: "Un autre département porte déjà ce nom." };
-  }
 
   const parentId = fdStr(formData, "parentId") || null;
+  let companyId = formData.has("companyId") ? (fdStr(formData, "companyId") || null) : dept.companyId;
   if (parentId) {
     if (parentId === id) return { ok: false, error: "Un département ne peut pas être son propre parent." };
     const descendants = await getDepartmentSubtreeIds(id);
     if (descendants.includes(parentId)) {
       return { ok: false, error: "Rattachement impossible : la cible est un sous-département de celui-ci (cycle)." };
     }
-    if (!(await prisma.department.findUnique({ where: { id: parentId }, select: { id: true } }))) {
-      return { ok: false, error: "Département parent introuvable." };
-    }
+    const parent = await prisma.department.findUnique({ where: { id: parentId }, select: { companyId: true } });
+    if (!parent) return { ok: false, error: "Département parent introuvable." };
+    companyId = parent.companyId; // le sous-arbre suit toujours l'entité du parent
+  }
+  if (await prisma.department.findFirst({ where: { name, companyId, NOT: { id } }, select: { id: true } })) {
+    return { ok: false, error: "Cette entité a déjà un département portant ce nom." };
   }
 
   const code = fdStr(formData, "code") ? await uniqueCode(codeFromName(fdStr(formData, "code")!), id) : undefined;
   await prisma.department.update({
     where: { id },
     data: {
-      name, parentId,
+      name, parentId, companyId,
       description: fdStr(formData, "description"),
       headId: fdStr(formData, "headId") || null,
       deputyId: fdStr(formData, "deputyId") || null,

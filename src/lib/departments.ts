@@ -24,6 +24,9 @@ export interface DepartmentNode {
   code: string;
   description: string | null;
   parentId: string | null;
+  /** Entité de rattachement (null = transverse au groupe). */
+  companyId: string | null;
+  companyName: string | null;
   /** Profondeur dans l'arbre : 0 = département de tête. */
   depth: number;
   headId: string | null;
@@ -39,6 +42,7 @@ export interface DepartmentNode {
 
 type RawDept = {
   id: string; name: string; code: string; description: string | null; parentId: string | null;
+  companyId: string | null; company: { name: string; shortName: string | null } | null;
   headId: string | null; deputyId: string | null;
   head: { fullName: string } | null;
   deputy: { fullName: string } | null;
@@ -52,6 +56,7 @@ function buildTree(rows: RawDept[], parentId: string | null, depth: number): Dep
       const children = buildTree(rows, d.id, depth + 1);
       const node: DepartmentNode = {
         id: d.id, name: d.name, code: d.code, description: d.description, parentId: d.parentId, depth,
+        companyId: d.companyId, companyName: d.company?.shortName ?? d.company?.name ?? null,
         headId: d.headId, headName: d.head?.fullName ?? null,
         deputyId: d.deputyId, deputyName: d.deputy?.fullName ?? null,
         members: d._count.members,
@@ -63,10 +68,16 @@ function buildTree(rows: RawDept[], parentId: string | null, depth: number): Dep
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Arbre COMPLET des départements (N niveaux) avec responsable, adjoint et effectifs. */
-export async function getDepartmentTree(): Promise<DepartmentNode[]> {
+/**
+ * Arbre des départements (N niveaux) avec responsable, adjoint et effectifs.
+ * `companyId` restreint à une ENTITÉ ; `undefined` = toutes les entités (vue groupe).
+ * Les départements transverses (sans entité) sont toujours inclus.
+ */
+export async function getDepartmentTree(companyId?: string | null): Promise<DepartmentNode[]> {
   const rows = (await prisma.department.findMany({
+    where: companyId ? { OR: [{ companyId }, { companyId: null }] } : {},
     include: {
+      company: { select: { name: true, shortName: true } },
       head: { select: { fullName: true } },
       deputy: { select: { fullName: true } },
       _count: { select: { members: true } },
@@ -77,18 +88,18 @@ export async function getDepartmentTree(): Promise<DepartmentNode[]> {
 }
 
 /** Liste à plat pour les sélecteurs : libellé indenté selon la profondeur. */
-export interface DepartmentOption { id: string; label: string; depth: number; parentId: string | null }
+export interface DepartmentOption { id: string; label: string; depth: number; parentId: string | null; companyId: string | null }
 
 export function flattenTree(nodes: DepartmentNode[], out: DepartmentOption[] = []): DepartmentOption[] {
   for (const n of nodes) {
-    out.push({ id: n.id, label: `${"— ".repeat(n.depth)}${n.name}`, depth: n.depth, parentId: n.parentId });
+    out.push({ id: n.id, label: `${"— ".repeat(n.depth)}${n.name}`, depth: n.depth, parentId: n.parentId, companyId: n.companyId });
     flattenTree(n.children, out);
   }
   return out;
 }
 
-export async function getDepartmentOptions(): Promise<DepartmentOption[]> {
-  return flattenTree(await getDepartmentTree());
+export async function getDepartmentOptions(companyId?: string | null): Promise<DepartmentOption[]> {
+  return flattenTree(await getDepartmentTree(companyId));
 }
 
 // ───────────────────────────── Descendance / membres ─────────────────────────────

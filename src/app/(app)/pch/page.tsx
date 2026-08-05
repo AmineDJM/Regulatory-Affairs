@@ -66,7 +66,7 @@ export default async function PchPage() {
         <EmptyState icon="Gavel" title="Aucun appel d'offres" description={canCreate ? "Créez un appel d'offres gagné, puis ajoutez les bons de commande reçus." : "Les marchés PCH apparaîtront ici."} />
       ) : (
         <div className="surface overflow-x-auto">
-          <Table>
+          <Table mobileCards>
             <TableHeader>
               <TableRow>
                 <TableHead>Référence</TableHead><TableHead>Intitulé / Produits</TableHead><TableHead>Fournisseur</TableHead>
@@ -79,20 +79,20 @@ export default async function PchPage() {
                 const cautionExpired = t.cautionEnd && new Date(t.cautionEnd) < new Date();
                 return (
                   <TableRow key={t.id}>
-                    <TableCell className="font-mono text-xs"><Link href={`/pch/${t.id}`} className="hover:underline">{t.reference}</Link></TableCell>
-                    <TableCell className="font-medium">{t.title || "—"}{t.products && <p className="text-xs text-muted-foreground">{t.products}</p>}</TableCell>
-                    <TableCell className="text-muted-foreground">{[t.supplier, t.supplierCountry].filter(Boolean).join(" · ") || "—"}</TableCell>
-                    <TableCell className="text-right">{formatNumber(t.quantity)}</TableCell>
-                    <TableCell className="text-right">{t.value !== null ? formatCurrency(t.value) : "—"}</TableCell>
-                    <TableCell>
+                    <TableCell label="Référence" className="font-mono text-xs"><Link href={`/pch/${t.id}`} className="hover:underline">{t.reference}</Link></TableCell>
+                    <TableCell label="Intitulé" className="font-medium">{t.title || "—"}{t.products && <p className="text-xs text-muted-foreground">{t.products}</p>}</TableCell>
+                    <TableCell label="Fournisseur" className="text-muted-foreground">{[t.supplier, t.supplierCountry].filter(Boolean).join(" · ") || "—"}</TableCell>
+                    <TableCell label="Qté" className="text-right">{formatNumber(t.quantity)}</TableCell>
+                    <TableCell label="Valeur" className="text-right">{t.value !== null ? formatCurrency(t.value) : "—"}</TableCell>
+                    <TableCell label="Caution">
                       {(t.cautionAmount ?? 0) > 0 || t.cautionDeposited ? (
                         <Badge tone={t.cautionDeposited ? (cautionExpired ? "danger" : "success") : "warning"} dot={false}>
                           {t.cautionDeposited ? (cautionExpired ? "Expirée" : "Déposée") : "Non déposée"}
                         </Badge>
                       ) : <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{t.orderCount}</TableCell>
-                    <TableCell><StatusBadge map={PCH_TENDER_STATUS} value={t.status} /></TableCell>
+                    <TableCell label="Bons" className="text-muted-foreground">{t.orderCount}</TableCell>
+                    <TableCell label="Statut"><StatusBadge map={PCH_TENDER_STATUS} value={t.status} /></TableCell>
                   </TableRow>
                 );
               })}
