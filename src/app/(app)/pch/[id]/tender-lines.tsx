@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Loader2, Sparkles, Wand2, Package, Upload, TrendingUp, ShoppingCart, BadgeCheck } from "lucide-react";
-import { addTenderLine, updateTenderLine, deleteTenderLine, analyzeTenderText, analyzeTenderDocument, enrichTenderLine, createOrderFromLine } from "@/lib/actions/pch-tender-line-actions";
+import { Plus, Trash2, Loader2, Sparkles, Wand2, Package, Upload, TrendingUp, ShoppingCart, BadgeCheck, Download, Factory, Ship } from "lucide-react";
+import { addTenderLine, updateTenderLine, deleteTenderLine, analyzeTenderText, analyzeTenderDocument, enrichTenderLine, enrichAllTenderLines, createOrderFromLine } from "@/lib/actions/pch-tender-line-actions";
 import type { PchTenderLineDTO } from "@/lib/queries/pch";
 
 type Res = { ok: boolean; error?: string };
@@ -59,9 +59,21 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured }: { tender
               className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-50" title={aiConfigured ? "Extraire les produits du document (OCR Mistral → IA)" : "IA non configurée"}>
               <Wand2 className="h-4 w-4" /> Analyser le document (IA)
             </button>
+            <button type="button" disabled={busy || lines.length === 0} onClick={() => { const fd = new FormData(); fd.set("tenderId", tenderId); run(() => enrichAllTenderLines(fd)); }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-50"
+              title="Rejouer l'intelligence marché sur TOUTES les lignes : prix de référence, nomenclature, concurrents, production locale ou importée">
+              <Sparkles className="h-4 w-4" /> Enrichir tout
+            </button>
             <button type="button" disabled={busy} onClick={() => { const fd = new FormData(); fd.set("tenderId", tenderId); run(() => addTenderLine(fd)); }}
               className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-60"><Plus className="h-4 w-4" /> Ajouter</button>
           </div>
+        )}
+        {lines.length > 0 && (
+          <a href={`/api/pch/export?id=${tenderId}`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary"
+            title="Tableau Excel : produits demandés (unité, conditionnement, boîtes, prix de référence) + analyse de marché">
+            <Download className="h-4 w-4" /> Tableau Excel
+          </a>
         )}
       </div>
 
@@ -108,6 +120,7 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
   const [s, setS] = React.useState({
     designation: line.designation, dci: line.dci ?? "", dosage: line.dosage ?? "", form: line.form ?? "",
     quantityUnits: String(line.quantityUnits || ""), unitsPerBox: line.unitsPerBox != null ? String(line.unitsPerBox) : "",
+    unitLabel: line.unitLabel ?? "",
     haveProduct: line.haveProduct, unitPriceDzd: line.unitPriceDzd != null ? String(line.unitPriceDzd) : "",
     status: line.status, awardedUnitPriceDzd: line.awardedUnitPriceDzd != null ? String(line.awardedUnitPriceDzd) : "",
     suppliersInfo: line.suppliersInfo ?? "", note: line.note ?? "",
@@ -118,7 +131,7 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
     const fd = new FormData();
     fd.set("id", line.id); fd.set("tenderId", tenderId);
     fd.set("designation", s.designation); fd.set("dci", s.dci); fd.set("dosage", s.dosage); fd.set("form", s.form);
-    fd.set("quantityUnits", s.quantityUnits); fd.set("unitsPerBox", s.unitsPerBox);
+    fd.set("quantityUnits", s.quantityUnits); fd.set("unitsPerBox", s.unitsPerBox); fd.set("unitLabel", s.unitLabel);
     if (s.haveProduct) fd.set("haveProduct", "on");
     fd.set("unitPriceDzd", s.unitPriceDzd); fd.set("status", s.status); fd.set("awardedUnitPriceDzd", s.awardedUnitPriceDzd);
     fd.set("suppliersInfo", s.suppliersInfo); fd.set("note", s.note);
@@ -132,7 +145,7 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
           <span className="font-medium">{line.designation}</span>
           <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{LINE_STATUS.find((x) => x.value === line.status)?.label ?? line.status}</span>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">{[line.dci, line.dosage, line.form].filter(Boolean).join(" · ") || "—"} · {fmt(line.quantityUnits)} unités{line.boxesNeeded ? ` = ${fmt(line.boxesNeeded)} boîtes` : ""}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{[line.dci, line.dosage, line.form].filter(Boolean).join(" · ") || "—"} · {fmt(line.quantityUnits)} {line.unitLabel ? `${line.unitLabel}(s)` : "unités"}{line.boxesNeeded ? ` = ${fmt(line.boxesNeeded)} boîtes` : ""}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {line.ourProduct && <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-[11px] text-primary"><BadgeCheck className="h-3 w-3" /> {line.ourProduct}</span>}
           {line.refPriceDzd != null && <span className="rounded bg-secondary px-2 py-0.5 text-[11px]" title={line.refPriceSource ?? undefined}>Prix réf. PCH : {fmt(line.refPriceDzd)} DZD</span>}
@@ -152,7 +165,11 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
         </select>
         <input className={`${inp} sm:col-span-3`} value={s.dosage} onChange={(e) => setS({ ...s, dosage: e.target.value })} onBlur={save} placeholder="Dosage" />
         <input className={`${inp} sm:col-span-3`} value={s.form} onChange={(e) => setS({ ...s, form: e.target.value })} onBlur={save} placeholder="Forme" />
-        <input className={`${inp} sm:col-span-3`} inputMode="numeric" value={s.quantityUnits} onChange={(e) => setS({ ...s, quantityUnits: e.target.value })} onBlur={save} placeholder="Quantité (unités)" />
+        <div className="flex items-center gap-1 sm:col-span-3">
+          <input className={inp} inputMode="numeric" value={s.quantityUnits} onChange={(e) => setS({ ...s, quantityUnits: e.target.value })} onBlur={save} placeholder="Quantité" />
+          {/* Un appel d'offres ne parle pas toujours de comprimés : flacon, seringue, ampoule… */}
+          <input className={`${inp} w-28`} value={s.unitLabel} onChange={(e) => setS({ ...s, unitLabel: e.target.value })} onBlur={save} placeholder="comprimé…" title="Nature de l'unité demandée" />
+        </div>
         <div className="flex items-center gap-1 sm:col-span-3">
           <input className={inp} inputMode="numeric" value={s.unitsPerBox} onChange={(e) => setS({ ...s, unitsPerBox: e.target.value })} onBlur={save} placeholder="Boîte de N" />
           <span className="whitespace-nowrap text-xs font-medium text-primary">{boxes != null ? `= ${fmt(boxes)} bt` : ""}</span>
@@ -169,6 +186,7 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
         {line.competitorCount != null && <span className="rounded bg-secondary px-2 py-0.5">Concurrents : <strong>{line.competitorCount}</strong></span>}
         <span className={`rounded px-2 py-0.5 ${line.registeredNomenclature ? "bg-success/15 text-success" : "bg-secondary text-muted-foreground"}`}>Nomenclature : {line.registeredNomenclature ? `oui (${line.nomLines ?? 0})` : "non"}</span>
         {line.marketEstimateDzd != null && <span className="rounded bg-secondary px-2 py-0.5">Marché ≈ {fmt(line.marketEstimateDzd)} DZD</span>}
+        <MarketBadges line={line} />
         <div className="ml-auto flex items-center gap-1.5">
           <button type="button" disabled={busy} onClick={() => { const fd = new FormData(); fd.set("id", line.id); fd.set("tenderId", tenderId); run(() => enrichTenderLine(fd)); }}
             className="inline-flex items-center gap-1 rounded px-2 py-1 text-primary hover:bg-primary/10" title="Verrou prix Réception 2025 + concurrents + nomenclature + notre produit"><Sparkles className="h-3.5 w-3.5" /> Enrichir</button>
@@ -179,6 +197,43 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
 
       {line.status === "WON" && <SalesBlock tenderId={tenderId} line={line} canEdit={canEdit} busy={busy} run={run} />}
     </div>
+  );
+}
+
+/**
+ * PAYSAGE CONCURRENTIEL de la ligne, calculé par l'intelligence marché sur le triplet
+ * molécule + dosage + forme : où est le marché (ville ou hôpital), qui le tient, et
+ * s'il est fourni par des fabricants locaux ou des importateurs. Ne s'affiche que
+ * lorsque l'enrichissement a réellement trouvé quelque chose — jamais de case vide.
+ */
+function MarketBadges({ line }: { line: PchTenderLineDTO }) {
+  const hasSplit = line.marketVillePct != null && line.marketHopitalPct != null;
+  const origin = line.marketOrigin;
+  const concentration = line.marketHhi == null ? null : line.marketHhi >= 2500 ? "concentré" : line.marketHhi >= 1500 ? "modéré" : "fragmenté";
+  if (!hasSplit && !origin && !line.competitorsTop && !concentration) return null;
+  return (
+    <>
+      {hasSplit && (
+        <span className="rounded bg-secondary px-2 py-0.5" title="Répartition du marché de cette molécule">
+          Ville {Math.round(line.marketVillePct as number)} % · Hôpital {Math.round(line.marketHopitalPct as number)} %
+        </span>
+      )}
+      {origin && (
+        <span
+          className={`inline-flex items-center gap-1 rounded px-2 py-0.5 ${origin === "LOCAL" ? "bg-success/15 text-success" : origin === "IMPORT" ? "bg-primary/10 text-primary" : "bg-secondary"}`}
+          title="Origine dominante des acteurs qui pèsent sur ce marché (nomenclature)"
+        >
+          {origin === "IMPORT" ? <Ship className="h-3 w-3" /> : <Factory className="h-3 w-3" />}
+          {origin === "LOCAL" ? "Fabriqué local" : origin === "IMPORT" ? "Importé" : "Local + importé"}
+        </span>
+      )}
+      {concentration && <span className="rounded bg-secondary px-2 py-0.5" title={`HHI ${line.marketHhi}`}>Marché {concentration}</span>}
+      {line.competitorsTop && (
+        <span className="max-w-[22rem] truncate rounded bg-secondary px-2 py-0.5" title={line.competitorsTop}>
+          {line.competitorsTop}
+        </span>
+      )}
+    </>
   );
 }
 

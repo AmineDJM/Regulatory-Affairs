@@ -27,6 +27,8 @@ export interface PchTenderLineDTO {
   form: string | null;
   quantityUnits: number;
   unitsPerBox: number | null;
+  /** Nature de l'unité demandée : comprimé, flacon, seringue… (un AO ne parle pas que de comprimés). */
+  unitLabel: string | null;
   boxesNeeded: number | null; // calculé : ceil(unités / unitsPerBox)
   haveProduct: boolean;
   ourProduct: string | null;
@@ -40,6 +42,12 @@ export interface PchTenderLineDTO {
   registeredOurs: boolean; // nous avons un produit enregistré correspondant
   nomLines: number | null;
   marketEstimateDzd: number | null;
+  // Paysage concurrentiel calculé par l'intelligence marché (molécule + dosage + forme).
+  marketOrigin: string | null; // LOCAL | IMPORT | MIXTE
+  marketVillePct: number | null;
+  marketHopitalPct: number | null;
+  marketHhi: number | null;
+  competitorsTop: string | null;
   status: string;
   awardedUnitPriceDzd: number | null;
   note: string | null;
@@ -82,7 +90,7 @@ function toOrderDTO(o: { id: string; lineId: string | null; reference: string | 
   };
 }
 
-type LineRow = { id: string; designation: string; dci: string | null; dosage: string | null; form: string | null; quantityUnits: number; unitsPerBox: number | null; haveProduct: boolean; ourProduct: string | null; ourProductId: string | null; unitPriceDzd: unknown; refPriceDzd: unknown; refPriceSource: string | null; suppliersInfo: string | null; competitorCount: number | null; registeredNomenclature: boolean; registeredOurs: boolean; nomLines: number | null; marketEstimateDzd: unknown; status: string; awardedUnitPriceDzd: unknown; note: string | null };
+type LineRow = { id: string; designation: string; dci: string | null; dosage: string | null; form: string | null; quantityUnits: number; unitsPerBox: number | null; unitLabel: string | null; haveProduct: boolean; ourProduct: string | null; ourProductId: string | null; unitPriceDzd: unknown; refPriceDzd: unknown; refPriceSource: string | null; suppliersInfo: string | null; competitorCount: number | null; registeredNomenclature: boolean; registeredOurs: boolean; nomLines: number | null; marketEstimateDzd: unknown; marketOrigin: string | null; marketVillePct: unknown; marketHopitalPct: unknown; marketHhi: number | null; competitorsTop: string | null; status: string; awardedUnitPriceDzd: unknown; note: string | null };
 function toLineDTO(l: LineRow, sold?: { units: number; orders: number }): PchTenderLineDTO {
   const boxesNeeded = l.unitsPerBox && l.unitsPerBox > 0 ? Math.ceil(l.quantityUnits / l.unitsPerBox) : null;
   const soldUnits = sold?.units ?? 0;
@@ -90,11 +98,12 @@ function toLineDTO(l: LineRow, sold?: { units: number; orders: number }): PchTen
   const fulfillmentPct = l.status === "WON" && l.quantityUnits > 0 ? Math.round((soldUnits / l.quantityUnits) * 100) : null;
   return {
     id: l.id, designation: l.designation, dci: l.dci, dosage: l.dosage, form: l.form,
-    quantityUnits: l.quantityUnits, unitsPerBox: l.unitsPerBox, boxesNeeded,
+    quantityUnits: l.quantityUnits, unitsPerBox: l.unitsPerBox, unitLabel: l.unitLabel, boxesNeeded,
     haveProduct: l.haveProduct, ourProduct: l.ourProduct, ourProductId: l.ourProductId, unitPriceDzd: dec(l.unitPriceDzd),
     refPriceDzd: dec(l.refPriceDzd), refPriceSource: l.refPriceSource,
     suppliersInfo: l.suppliersInfo, competitorCount: l.competitorCount,
     registeredNomenclature: l.registeredNomenclature, registeredOurs: l.registeredOurs, nomLines: l.nomLines, marketEstimateDzd: dec(l.marketEstimateDzd),
+    marketOrigin: l.marketOrigin, marketVillePct: dec(l.marketVillePct), marketHopitalPct: dec(l.marketHopitalPct), marketHhi: l.marketHhi, competitorsTop: l.competitorsTop,
     status: l.status, awardedUnitPriceDzd: dec(l.awardedUnitPriceDzd), note: l.note,
     soldUnits, orderCount, fulfillmentPct,
   };

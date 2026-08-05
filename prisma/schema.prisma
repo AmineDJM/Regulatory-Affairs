@@ -3179,6 +3179,10 @@ model PchTenderLine {
   // Conditionnement : le marché demande des UNITÉS ; nos produits sont en BOÎTES de N unités.
   quantityUnits Int         @default(0) // quantité demandée (unités)
   unitsPerBox   Int? // « boîte de N » → nombre de boîtes = ceil(unités / N)
+  /// Nature de l'unité demandée : « comprimé », « flacon », « seringue », « ampoule »…
+  /// Un appel d'offres ne parle pas toujours de comprimés — le dire évite de comparer
+  /// des flacons à des comprimés.
+  unitLabel     String?
   // Avons-nous ce produit ? + rattachement au produit Regulatory (id + libellé dénormalisé).
   haveProduct   Boolean     @default(false)
   ourProductId  String?
@@ -3194,6 +3198,14 @@ model PchTenderLine {
   registeredOurs         Boolean @default(false) // NOUS avons un produit enregistré correspondant
   nomLines          Int? // nombre de lignes nomenclature détectées
   marketEstimateDzd Decimal? @db.Decimal(18, 2) // estimation de la taille de marché
+  /// PAYSAGE CONCURRENTIEL, calculé par l'intelligence marché (`analyzeMolecule`) sur le
+  /// triplet molécule + dosage + forme de la ligne. Dénormalisé ici pour rester lisible
+  /// dans le tableau et dans l'export Excel, sans recalcul à chaque affichage.
+  marketOrigin      String? // LOCAL | IMPORT | MIXTE — fabriqué en Algérie ou importé
+  marketVillePct    Decimal? @db.Decimal(5, 2) // part du marché de ville (%)
+  marketHopitalPct  Decimal? @db.Decimal(5, 2) // part du marché hospitalier (%)
+  marketHhi         Int? // concentration (Herfindahl) : > 2500 = marché concentré
+  competitorsTop    String? // « GSK 45 % · HIKMA 25 % · BIOCARE 14 % »
   // Suivi commercial de la ligne.
   status              PchLineStatus @default(PENDING)
   awardedUnitPriceDzd Decimal?      @db.Decimal(14, 2) // prix d'attribution si gagné

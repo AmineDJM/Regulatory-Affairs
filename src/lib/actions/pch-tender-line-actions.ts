@@ -10,6 +10,7 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { askClaude, aiConfigured } from "@/lib/ai";
 import { getRecommendations, normText, queryTokens, allTokensIn, type RecRow } from "@/lib/market/engine";
 import { pchReceptionPrice, nomenclatureMatch } from "@/lib/market/pch-lookup";
+import { analyzeMolecule, canonicalForm, type MoleculeAnalysis } from "@/lib/market/molecule";
 import { ocrDocument, canOcr } from "@/lib/regulatory/intelligence/ocr/ocr-engine";
 
 const MODULE = "PCH" as const;
@@ -45,6 +46,7 @@ export async function updateTenderLine(formData: FormData): Promise<ActionResult
       form: fdStr(formData, "form"),
       quantityUnits: int(formData, "quantityUnits") ?? 0,
       unitsPerBox: int(formData, "unitsPerBox"),
+      unitLabel: fdStr(formData, "unitLabel"),
       haveProduct: fdStr(formData, "haveProduct") === "on",
       unitPriceDzd: fdNum(formData, "unitPriceDzd"),
       suppliersInfo: fdStr(formData, "suppliersInfo"),
@@ -81,11 +83,15 @@ Chaque élément de "lines" = un produit demandé, avec ces clés :
 - "quantityUnits" : quantité demandée en UNITÉS (nombre entier). Si le document donne un nombre de
   boîtes et le conditionnement, convertis en unités si évident ; sinon mets la quantité telle quelle.
 - "unitsPerBox" : nombre d'unités par boîte (« boîte de N ») si mentionné, sinon 0.
+- "unitLabel" : NATURE de l'unité demandée, au singulier et en minuscules — « comprimé », « gélule »,
+  « flacon », « ampoule », « seringue », « sachet », « suppositoire », « poche », « tube », « unité ».
+  Un appel d'offres ne parle pas toujours de comprimés : c'est ce mot qui donne son sens à la quantité.
+  Si le document ne le dit pas, déduis-le de la forme galénique ; en dernier recours mets "unité".
 
 RÈGLES : n'invente aucun produit absent du document. N'invente pas de dosage ni de quantité. Si une
 information manque, mets "" (texte) ou 0 (nombre). Extrais TOUS les produits listés.`;
 
-interface RawLine { designation?: unknown; dci?: unknown; dosage?: unknown; form?: unknown; quantityUnits?: unknown; unitsPerBox?: unknown }
+interface RawLine { designation?: unknown; dci?: unknown; dosage?: unknown; form?: unknown; quantityUnits?: unknown; unitsPerBox?: unknown; unitLabel?: unknown }
 
 /** Cœur commun : envoie le texte à Claude, crée les lignes extraites. */
 async function extractAndSaveLines(tenderId: string, text: string, userId: string, source: string): Promise<ActionResult> {
@@ -106,13 +112,32 @@ async function extractAndSaveLines(tenderId: string, text: string, userId: strin
       form: String(l.form ?? "").trim() || null,
       quantityUnits: Math.max(0, Math.round(Number(l.quantityUnits) || 0)),
       unitsPerBox: Number(l.unitsPerBox) > 0 ? Math.round(Number(l.unitsPerBox)) : null,
+      unitLabel: String(l.unitLabel ?? "").trim().toLowerCase() || null,
     }))
     .filter((l) => l.designation);
   if (!clean.length) return { ok: false, error: "Aucun produit détecté dans le document." };
 
   const base = await prisma.pchTenderLine.count({ where: { tenderId } });
   await prisma.pchTenderLine.createMany({ data: clean.map((l, i) => ({ ...l, tenderId, sortOrder: base + i })) });
-  await recordAudit({ actorId: userId, action: "UPDATE", module: "PCH", summary: `Analyse IA appel d'offres (${source}) — ${clean.length} produit(s)` });
+
+  // ENRICHISSEMENT AUTOMATIQUE de chaque ligne extraite : prix de référence, nomenclature,
+  // notre catalogue, ET l'analyse de marché (poids, ville/hôpital, concurrents, local ou
+  // importé). Lire le document ne servirait à rien s'il fallait ensuite cliquer sur chaque
+  // ligne pour savoir ce que vaut le marché. Aucun échec ici n'annule l'extraction.
+  const created = await prisma.pchTenderLine.findMany({
+    where: { tenderId, sortOrder: { gte: base } },
+    select: { id: true },
+    orderBy: { sortOrder: "asc" },
+  });
+  let enriched = 0;
+  for (const c of created) {
+    try { if (await enrichLineById(c.id)) enriched++; } catch (e) { console.error("[pch] enrichissement ligne impossible", e); }
+  }
+
+  await recordAudit({
+    actorId: userId, action: "UPDATE", module: "PCH",
+    summary: `Analyse IA appel d'offres (${source}) — ${clean.length} produit(s), ${enriched} enrichi(s) par l'intelligence marché`,
+  });
   revalidatePath(`/pch/${tenderId}`);
   return { ok: true };
 }
@@ -188,8 +213,46 @@ export async function enrichTenderLine(formData: FormData): Promise<ActionResult
   const id = fdStr(formData, "id");
   const tenderId = fdStr(formData, "tenderId");
   if (!id) return { ok: false, error: "Ligne introuvable." };
-  const line = await prisma.pchTenderLine.findUnique({ where: { id } });
+  const line = await prisma.pchTenderLine.findUnique({ where: { id }, select: { designation: true } });
   if (!line) return { ok: false, error: "Ligne introuvable." };
+
+  const ok = await enrichLineById(id);
+  if (!ok) return { ok: false, error: "Aucune correspondance (intelligence marché / réceptions PCH / nomenclature)." };
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "PCH", summary: `Enrichissement marché + prix Réception — ${line.designation}` });
+  if (tenderId) revalidatePath(`/pch/${tenderId}`);
+  return { ok: true };
+}
+
+/** Ré-enrichit TOUTES les lignes d'un appel d'offres d'un seul geste. */
+export async function enrichAllTenderLines(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const tenderId = fdStr(formData, "tenderId");
+  if (!tenderId) return { ok: false, error: "Appel d'offres introuvable." };
+  const lines = await prisma.pchTenderLine.findMany({ where: { tenderId }, select: { id: true }, orderBy: { sortOrder: "asc" } });
+  if (lines.length === 0) return { ok: false, error: "Aucune ligne à enrichir." };
+  let done = 0;
+  for (const l of lines) {
+    try { if (await enrichLineById(l.id)) done++; } catch (e) { console.error("[pch] enrichissement ligne impossible", e); }
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "PCH", summary: `Enrichissement marché de ${done}/${lines.length} ligne(s)` });
+  revalidatePath(`/pch/${tenderId}`);
+  return done > 0 ? { ok: true } : { ok: false, error: "Aucune correspondance trouvée pour ces lignes." };
+}
+
+/**
+ * ENRICHISSEMENT D'UNE LIGNE — le cœur, appelé aussi bien à l'unité qu'en lot après l'analyse
+ * du document. Quatre apports, tous issus de données réelles :
+ *   1. le **prix de référence** verrouillé sur les réceptions PCH (dosage + forme vérifiés) ;
+ *   2. la **nomenclature** (qui est enregistré sur ce produit) ;
+ *   3. **notre** produit correspondant au catalogue Regulatory ;
+ *   4. l'**analyse de marché** par molécule (poids, ville / hôpital, concurrents, part de
+ *      chacun, fabriqué localement ou importé) — la même que l'Intelligence marché.
+ * Renvoie false si RIEN n'a pu être rapproché (on n'écrit alors pas de demi-vérité).
+ */
+async function enrichLineById(id: string): Promise<boolean> {
+  const line = await prisma.pchTenderLine.findUnique({ where: { id } });
+  if (!line) return false;
 
   const recs = getRecommendations();
   const q = normText(line.dci || line.designation);
@@ -208,9 +271,11 @@ export async function enrichTenderLine(formData: FormData): Promise<ActionResult
   // 3) Auto-détection de NOTRE produit dans le catalogue Regulatory (dci + dosage).
   const ours = await matchOurProduct(dciForLookup, line.dosage);
 
-  if (!best && !price && !nom.registered && !ours) {
-    return { ok: false, error: "Aucune correspondance (intelligence marché / réceptions PCH / nomenclature)." };
-  }
+  // 4) Analyse de marché par MOLÉCULE (la même que l'Intelligence marché) : combien pèse ce
+  //    marché, comment il se partage ville / hôpital, qui le détient, et depuis où.
+  const market = analyzeMoleculeSafe(dciForLookup, line.dosage, line.form);
+
+  if (!best && !price && !nom.registered && !ours && !market) return false;
 
   const unitsPerBox = line.unitsPerBox ?? parseBoxSize(price?.cond);
   await prisma.pchTenderLine.update({
@@ -218,10 +283,8 @@ export async function enrichTenderLine(formData: FormData): Promise<ActionResult
     data: {
       dci: line.dci || best?.dci || null,
       unitsPerBox,
-      competitorCount: best ? best.manufacturers + best.importers : line.competitorCount,
       nomLines: nom.count || best?.nomLines || null,
       registeredNomenclature: nom.registered || (best ? best.nomLines > 0 : line.registeredNomenclature),
-      marketEstimateDzd: best?.valueDzd ? Math.round(best.valueDzd) : line.marketEstimateDzd,
       refPriceDzd: price?.unitPriceDzd != null ? Math.round(price.unitPriceDzd * 100) / 100 : line.refPriceDzd,
       refPriceSource: price ? `Réception PCH 2025 — ${price.label}${price.date ? ` (${price.date})` : ""}` : line.refPriceSource,
       haveProduct: ours ? true : line.haveProduct,
@@ -229,11 +292,50 @@ export async function enrichTenderLine(formData: FormData): Promise<ActionResult
       ourProduct: ours?.label ?? line.ourProduct,
       registeredOurs: ours ? true : line.registeredOurs,
       suppliersInfo: line.suppliersInfo || (best ? `${best.manufacturers} fabricant(s) / ${best.importers} importateur(s)${nom.origins ? ` · nomenclature : ${nom.origins}` : ""}` : nom.origins ? `Nomenclature : ${nom.origins}` : null),
+      // Paysage concurrentiel — l'analyse par molécule prime sur l'agrégat DCI historique.
+      marketEstimateDzd: market?.total.valueDzd ? Math.round(market.total.valueDzd) : (best?.valueDzd ? Math.round(best.valueDzd) : line.marketEstimateDzd),
+      competitorCount: market ? market.total.players : (best ? best.manufacturers + best.importers : line.competitorCount),
+      marketOrigin: market ? dominantOrigin(market) : line.marketOrigin,
+      marketVillePct: market ? Math.round(market.ville.pct * 100) / 100 : line.marketVillePct,
+      marketHopitalPct: market ? Math.round(market.hopital.pct * 100) / 100 : line.marketHopitalPct,
+      marketHhi: market ? market.hhi : line.marketHhi,
+      competitorsTop: market && market.competitors.length
+        ? market.competitors.slice(0, 3).map((c) => `${c.lab} ${c.share.toFixed(0)} %`).join(" · ")
+        : line.competitorsTop,
     },
   });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "PCH", summary: `Enrichissement marché + prix Réception — ${line.designation}` });
-  if (tenderId) revalidatePath(`/pch/${tenderId}`);
-  return { ok: true };
+  return true;
+}
+
+/** L'analyse de marché ne doit jamais faire échouer un enrichissement : elle est un bonus. */
+function analyzeMoleculeSafe(dci: string, dosage: string | null, form: string | null) {
+  try {
+    const molecule = (dci ?? "").trim();
+    if (molecule.length < 3) return null;
+    return analyzeMolecule({ molecule, dosage: dosage || null, form: canonicalForm(form) === "AUTRE" ? null : canonicalForm(form) });
+  } catch (e) {
+    console.error("[pch] analyse molécule impossible", e);
+    return null;
+  }
+}
+
+/**
+ * Origine dominante du marché : ce que font les acteurs qui pèsent, pas le simple décompte.
+ * Un marché à 80 % détenu par des importateurs est un marché « importé », même s'il compte
+ * dix petits fabricants locaux.
+ */
+function dominantOrigin(market: MoleculeAnalysis): string | null {
+  let local = 0, imported = 0;
+  for (const c of market.competitors) {
+    if (c.origin === "LOCAL") local += c.share;
+    else if (c.origin === "IMPORT") imported += c.share;
+    else if (c.origin === "MIXTE") { local += c.share / 2; imported += c.share / 2; }
+  }
+  if (local === 0 && imported === 0) return null;
+  const total = local + imported;
+  if (local / total >= 0.7) return "LOCAL";
+  if (imported / total >= 0.7) return "IMPORT";
+  return "MIXTE";
 }
 
 /** Extrait un nombre d'unités par boîte depuis un conditionnement (« B/30 », « Boîte de 20 », « 30 cp »). */
