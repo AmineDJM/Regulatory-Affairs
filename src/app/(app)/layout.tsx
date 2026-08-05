@@ -9,6 +9,7 @@ import { ActivityTracker } from "@/components/layout/activity-tracker";
 import { ScreenGuard } from "@/components/layout/screen-guard";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
+import { TestModeBanner } from "@/components/layout/test-mode-banner";
 import { PushRegister } from "@/components/layout/push-register";
 import { NotificationChime } from "@/components/layout/notification-chime";
 import { NotificationPopup } from "@/components/layout/notification-popup";
@@ -18,6 +19,7 @@ import { getTotalUnread } from "@/lib/queries/messaging";
 import { getAdoptionBadge } from "@/lib/adoption";
 import { aiConfigured, sttConfigured } from "@/lib/ai";
 import { getCompanies, getCompanyScope } from "@/lib/company";
+import { isTestUser } from "@/lib/features";
 import { prisma } from "@/lib/prisma";
 
 export default async function AppLayout({
@@ -64,6 +66,8 @@ export default async function AppLayout({
     prisma.notification.findMany({ where: { userId: user.id, isRead: false, link: { not: null } }, select: { link: true }, take: 500 }),
   ]);
   const companyScope = getCompanyScope();
+  // Mode test : la personne voit des nouveautés non encore validées en production.
+  const testMode = await isTestUser(user.id).catch(() => false);
   // Compte les notifications non lues par MODULE (routées via leur lien) → badges de menu.
   const moduleBadges: Record<string, number> = {};
   for (const n of unreadNotifs) {
@@ -81,6 +85,7 @@ export default async function AppLayout({
       <Sidebar items={navItems} messagingUnread={messagingUnread} moduleBadges={moduleBadges} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {user.impersonatedBy && <ImpersonationBanner adminName={user.impersonatedBy.name} viewedName={user.name} />}
+        {testMode && <TestModeBanner />}
         <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} companies={companies} companyScope={companyScope} />
         <main className="flex-1 overflow-y-auto px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-4 sm:pt-6 lg:px-8 lg:pb-8">
           <div className="mx-auto max-w-[1400px] space-y-6">{children}</div>

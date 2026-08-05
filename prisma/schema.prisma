@@ -602,6 +602,32 @@ model Department {
   @@index([companyId])
 }
 
+/// Stade de diffusion d'une nouveauté.
+enum FeatureStage {
+  TEST /// visible UNIQUEMENT des comptes en mode test
+  PROD /// validée : active pour tout le monde
+  OFF /// désactivée (ni test ni production)
+}
+
+/// DRAPEAU DE VERSION — chaque nouveauté livrée arrive au stade TEST : elle n'est visible
+/// que des comptes en « mode test ». L'administrateur la valide depuis /admin/versions et
+/// elle passe en PROD pour tout le monde. Le retour arrière est toujours possible.
+/// Le catalogue s'auto-alimente : un drapeau inconnu est créé au premier appel (stade TEST).
+model FeatureFlag {
+  id           String       @id @default(cuid())
+  key          String       @unique
+  label        String
+  description  String?
+  stage        FeatureStage @default(TEST)
+  promotedAt   DateTime?
+  promotedById String?
+  promotedBy   User?        @relation("FeaturePromoter", fields: [promotedById], references: [id])
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([stage])
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -633,6 +659,10 @@ model User {
   // Super Admin (« demander le setup à la prochaine connexion »). Vérifié à chaud
   // (lecture BDD) par le layout, jamais via le JWT — pas de re-login nécessaire.
   mustOnboard Boolean   @default(false)
+  /// MODE TEST : la personne voit les nouveautés encore en phase de test (drapeaux
+  /// `FeatureFlag` au stade TEST). Réservé à l'administration — tout le monde voit
+  /// la production. Voir src/lib/features.ts.
+  testMode    Boolean   @default(false)
   onboardedAt DateTime?
 
   // Score d'adoption (snapshot mis en cache) — affiché en pastille dans la barre du
@@ -677,6 +707,7 @@ model User {
 
   // RH & espace de travail
   employee         Employee?       @relation("UserEmployee")
+  promotedFeatures FeatureFlag[]   @relation("FeaturePromoter")
   tasksAssigned    Task[]          @relation("TaskAssignee")
   tasksCreated     Task[]          @relation("TaskCreator")
   leaveDecisions   LeaveRequest[]  @relation("LeaveDecider")
