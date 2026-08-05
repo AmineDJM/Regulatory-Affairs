@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, isRegulatorySupervisor } from "@/lib/rbac";
+import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { getAppSettings } from "@/lib/settings";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
@@ -60,6 +61,10 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
     },
   });
   if (!product) notFound();
+
+  // Niveau de process QUI FAIT FOI : une variation obtenue prime toujours sur le niveau
+  // déclaré sur la fiche (voir `lib/regulatory/manufacturing-stage.ts`).
+  const stage = effectiveStage(product.manufacturingStatus, product.variations);
 
   const canUpdate = userCan(user, "REGULATORY", "UPDATE");
   const canUpload = userCan(user, "REGULATORY", "UPLOAD");
@@ -183,7 +188,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   countryOfOrigin: product.countryOfOrigin,
                   category: product.category,
                   channel: product.channel,
-                  manufacturingStatus: product.manufacturingStatus,
+                  manufacturingStatus: stage.status,
                   status: product.status,
                   priority: product.priority,
                   responsibleId: product.responsibleId,
@@ -235,7 +240,12 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
               <Info label="Dosage" value={dosageLabel} />
               <Info label="Forme" value={formLabel} />
               <Info label="Classe thérapeutique" value={product.therapeuticClass} />
-              <Info label="Statut de fabrication" value={MANUFACTURING_STATUS[product.manufacturingStatus] ?? product.manufacturingStatus} />
+              {/* Niveau de process QUI FAIT FOI : une variation obtenue prime sur la déclaration
+                  de la fiche. On dit d'où vient la valeur, pour qu'elle ne soit jamais ambiguë. */}
+              <Info
+                label="Niveau de process"
+                value={`${MANUFACTURING_STATUS[stage.status] ?? stage.status}${stage.source === "VARIATION" ? " — acté par variation obtenue" : " — déclaré"}${stage.pendingTo ? ` · ${MANUFACTURING_STATUS[stage.pendingTo] ?? stage.pendingTo} en cours` : ""}`}
+              />
               <Info label="Fournisseur" value={product.supplier?.name} />
               <Info label="Laboratoire partenaire" value={product.partnerLab} />
               <Info label="Pays d'origine" value={product.countryOfOrigin} />
@@ -265,7 +275,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
             <CardContent>
               <VariationPanel
                 productId={product.id}
-                currentStatus={product.manufacturingStatus}
+                currentStatus={stage.status}
                 variations={product.variations}
                 canEdit={canUpdate}
               />

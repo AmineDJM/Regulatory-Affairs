@@ -9,6 +9,7 @@ import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { RegulatoryTable, type RegulatoryRow } from "./regulatory-table";
 import { NewProductButton } from "./new-product";
 import { SuppliersManager } from "./suppliers-manager";
@@ -35,6 +36,8 @@ export default async function RegulatoryPage() {
         assistant: { select: { name: true } },
         supplier: { select: { name: true } },
         company: { select: { id: true, name: true, shortName: true, color: true } },
+        // Variations : c'est la variation OBTENUE qui fait foi sur le niveau de process.
+        variations: { select: { toStatus: true, status: true, decisionDate: true, createdAt: true } },
       },
     }),
     prisma.supplier.findMany({
@@ -59,6 +62,7 @@ export default async function RegulatoryPage() {
     const dosage = [p.dosage, p.dosageUnit ? DOSAGE_UNIT[p.dosageUnit] ?? p.dosageUnit : null]
       .filter(Boolean)
       .join(" ");
+    const stage = effectiveStage(p.manufacturingStatus, p.variations);
     return {
       id: p.id,
       reference: p.reference,
@@ -69,7 +73,10 @@ export default async function RegulatoryPage() {
       therapeuticClass: p.therapeuticClass ?? "",
       supplier: p.supplier?.name ?? "",
       category: p.category,
-      manufacturingStatus: p.manufacturingStatus,
+      // RÈGLE : une variation OBTENUE fait foi ; sinon, le niveau déclaré sur la fiche.
+      manufacturingStatus: stage.status,
+      manufacturingSource: stage.source,
+      manufacturingPending: stage.pendingTo,
       status: p.status,
       priority: p.priority,
       responsible: p.responsible?.name ?? "",

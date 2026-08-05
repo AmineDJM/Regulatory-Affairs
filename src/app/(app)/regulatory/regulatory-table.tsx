@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Filter } from "lucide-react";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { PRIORITY, REGULATORY_STATUS, REGULATORY_CATEGORY } from "@/lib/labels";
+import { PRIORITY, REGULATORY_STATUS, REGULATORY_CATEGORY, MANUFACTURING_STATUS } from "@/lib/labels";
 import { formatDate, daysUntil } from "@/lib/utils";
 import { setRegulatoryPriority } from "@/lib/actions/regulatory-actions";
 
@@ -20,7 +20,12 @@ export interface RegulatoryRow {
   therapeuticClass: string;
   supplier: string;
   category: string;
+  /** Niveau de process qui FAIT FOI (variation obtenue prioritaire sur la déclaration). */
   manufacturingStatus: string;
+  /** D'où vient ce niveau : « DECLARED » (fiche) ou « VARIATION » (décision obtenue). */
+  manufacturingSource: string;
+  /** Variation déposée et en attente de décision, le cas échéant. */
+  manufacturingPending: string | null;
   status: string;
   priority: string;
   responsible: string;
@@ -46,6 +51,7 @@ const lbl = (m: Record<string, unknown>, v: string): string => {
 const PRIORITY_OPTS = Object.keys(PRIORITY).map((v) => ({ value: v, label: lbl(PRIORITY as never, v) }));
 const STATUS_OPTS = Object.keys(REGULATORY_STATUS).map((v) => ({ value: v, label: lbl(REGULATORY_STATUS as never, v) }));
 const CATEGORY_OPTS = Object.keys(REGULATORY_CATEGORY).map((v) => ({ value: v, label: lbl(REGULATORY_CATEGORY as never, v) }));
+const STAGE_OPTS = Object.keys(MANUFACTURING_STATUS).map((v) => ({ value: v, label: MANUFACTURING_STATUS[v] }));
 
 type Col = {
   key: string;
@@ -53,6 +59,8 @@ type Col = {
   text: (r: RegulatoryRow) => string; // valeur texte (recherche + filtre + tri)
   raw?: (r: RegulatoryRow) => string; // valeur brute pour un filtre « select »
   options?: { value: string; label: string }[]; // filtre déroulant façon Excel
+  /** Rendu enrichi ; à défaut, `text` est affiché tel quel. */
+  cell?: (r: RegulatoryRow) => React.ReactNode;
 };
 
 const COLS: Col[] = [
@@ -62,6 +70,12 @@ const COLS: Col[] = [
   { key: "therapeuticClass", header: "Classe thérapeutique", text: (r) => r.therapeuticClass },
   { key: "category", header: "Catégorie", text: (r) => lbl(REGULATORY_CATEGORY as never, r.category), raw: (r) => r.category, options: CATEGORY_OPTS },
   { key: "supplier", header: "Fournisseur", text: (r) => r.supplier },
+  {
+    key: "manufacturingStatus", header: "Niveau de process",
+    text: (r) => MANUFACTURING_STATUS[r.manufacturingStatus] ?? r.manufacturingStatus,
+    raw: (r) => r.manufacturingStatus, options: STAGE_OPTS,
+    cell: (r) => <StageCell row={r} />,
+  },
   { key: "priority", header: "Priorité", text: (r) => lbl(PRIORITY as never, r.priority), raw: (r) => r.priority, options: PRIORITY_OPTS },
   { key: "status", header: "Statut", text: (r) => lbl(REGULATORY_STATUS as never, r.status), raw: (r) => r.status, options: STATUS_OPTS },
   { key: "responsible", header: "Responsable", text: (r) => r.responsible },
@@ -164,6 +178,7 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
                   <td className="px-3 py-2">{r.therapeuticClass || "—"}</td>
                   <td className="px-3 py-2"><StatusBadge map={REGULATORY_CATEGORY} value={r.category} dot={false} /></td>
                   <td className="px-3 py-2">{r.supplier || "—"}</td>
+                  <td className="px-3 py-2"><StageCell row={r} /></td>
                   <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                     {canEditPriority ? (
                       <span className="inline-flex items-center gap-1">
@@ -185,6 +200,43 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** Teinte du niveau : plus la fabrication est locale, plus la pastille est « verte ». */
+const STAGE_CLASS: Record<string, string> = {
+  IMPORTATION: "border-input bg-background text-muted-foreground",
+  SECONDARY_PACKAGING: "border-blue-300 bg-blue-50 text-blue-700",
+  PRIMARY_PACKAGING: "border-teal-300 bg-teal-50 text-teal-700",
+  FULL_PROCESS: "border-emerald-400 bg-emerald-50 text-emerald-700",
+};
+
+/**
+ * NIVEAU DE PROCESS d'un produit. La pastille montre le niveau **qui fait foi** ; le petit
+ * texte dessous dit **d'où il vient** — c'est la question qu'on se pose vraiment : est-ce une
+ * simple déclaration sur la fiche, ou une variation réellement OBTENUE auprès de l'ANPP ?
+ * Une variation encore en attente est signalée sans jamais être comptée comme acquise.
+ */
+function StageCell({ row }: { row: RegulatoryRow }) {
+  const label = MANUFACTURING_STATUS[row.manufacturingStatus] ?? row.manufacturingStatus;
+  const fromVariation = row.manufacturingSource === "VARIATION";
+  return (
+    <div className="space-y-0.5">
+      <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${STAGE_CLASS[row.manufacturingStatus] ?? STAGE_CLASS.IMPORTATION}`}>
+        {label}
+      </span>
+      <p className="text-[11px] text-muted-foreground">
+        {fromVariation ? "variation obtenue" : "déclaré"}
+        {row.manufacturingPending && (
+          <>
+            {" · "}
+            <span className="text-warning">
+              {MANUFACTURING_STATUS[row.manufacturingPending] ?? row.manufacturingPending} en cours
+            </span>
+          </>
+        )}
+      </p>
     </div>
   );
 }
