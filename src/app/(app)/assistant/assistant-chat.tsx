@@ -5,11 +5,16 @@ import Link from "next/link";
 import {
   Sparkles, Send, Loader2, Bot, CheckCircle2, AlertTriangle, KeyRound,
   Search, ArrowRight, X, Wand2, Paperclip, FolderOpen, FileText, Mic, Square,
+  History, Plus, Trash2, Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { assistantChat, executeAssistantAction, listAssistantFiles } from "@/lib/actions/assistant-actions";
+import {
+  assistantChat, executeAssistantAction, listAssistantFiles,
+  myAssistantThreads, myAssistantThread, deleteMyAssistantThread, forgetMyAssistantMemory,
+} from "@/lib/actions/assistant-actions";
 import type { ProposedAction, AssistantActionPayload, ChatTurn } from "@/lib/assistant";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
+import type { ThreadSummary } from "@/lib/assistant-memory";
 
 /** Pièce jointe en attente d'envoi : fichier local (upload) ou fichier du Drive (référence). */
 type PendingAttach =
@@ -65,7 +70,9 @@ export function cleanReply(text: string): string {
     .trim();
 }
 
-export function AssistantChat({ userName, configured, voiceConfigured = false }: { userName: string; configured: boolean; voiceConfigured?: boolean }) {
+export function AssistantChat({
+  userName, configured, voiceConfigured = false, memoryEnabled = false,
+}: { userName: string; configured: boolean; voiceConfigured?: boolean; memoryEnabled?: boolean }) {
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
   const [sending, setSending] = React.useState(false);
@@ -76,9 +83,56 @@ export function AssistantChat({ userName, configured, voiceConfigured = false }:
   const taRef = React.useRef<HTMLTextAreaElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
+  // ── Mémoire personnelle : fil courant + historique de MES conversations.
+  //    Le serveur ne renvoie jamais que les fils du demandeur (cf. assistant-memory.ts).
+  const [threadId, setThreadId] = React.useState<string | null>(null);
+  const [threads, setThreads] = React.useState<ThreadSummary[]>([]);
+  const [histOpen, setHistOpen] = React.useState(false);
+  const [loadingThread, setLoadingThread] = React.useState(false);
+
+  const refreshThreads = React.useCallback(async () => {
+    if (!memoryEnabled) return;
+    setThreads(await myAssistantThreads());
+  }, [memoryEnabled]);
+
+  React.useEffect(() => { void refreshThreads(); }, [refreshThreads]);
+
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, sending]);
+
+  const newConversation = () => {
+    setThreadId(null); setMessages([]); setInput(""); setAttachments([]); setHistOpen(false);
+    taRef.current?.focus();
+  };
+
+  const openThread = async (id: string) => {
+    setHistOpen(false);
+    if (id === threadId) return;
+    setLoadingThread(true);
+    try {
+      const stored = await myAssistantThread(id);
+      if (!stored) { await refreshThreads(); return; } // fil disparu (ou jamais le mien)
+      setThreadId(id);
+      setMessages(stored.map((m) => ({ id: nextId(), role: m.role, content: m.content })));
+    } finally {
+      setLoadingThread(false);
+    }
+  };
+
+  const removeThread = async (id: string) => {
+    const r = await deleteMyAssistantThread(id);
+    if (r.ok) {
+      if (id === threadId) { setThreadId(null); setMessages([]); }
+      await refreshThreads();
+    }
+  };
+
+  const forgetAll = async () => {
+    if (!window.confirm("Effacer TOUTE la mémoire de votre assistant (conversations et souvenirs) ? Cette action est définitive.")) return;
+    const r = await forgetMyAssistantMemory();
+    if (r.ok) { setThreadId(null); setMessages([]); await refreshThreads(); }
+  };
 
   const addFiles = (files: FileList | File[]) => {
     const list = Array.from(files);
@@ -159,7 +213,7 @@ export function AssistantChat({ userName, configured, voiceConfigured = false }:
             : ({ kind: "drive", nodeId: a.nodeId, name: a.name } as AssistantAttachment),
         ),
       );
-      const res = await assistantChat(history, payload.length ? payload : undefined);
+      const res = await assistantChat(history, payload.length ? payload : undefined, threadId);
       if (!res.configured) {
         setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "IA non configurée." }]);
       } else if (res.ok) {
@@ -167,6 +221,8 @@ export function AssistantChat({ userName, configured, voiceConfigured = false }:
           id: nextId(), role: "assistant", content: res.reply, trace: res.trace,
           proposal: res.proposal, actionState: res.proposal ? "pending" : undefined,
         }]);
+        // Le serveur a mémorisé l'échange : on retient le fil et on rafraîchit la liste.
+        if (res.threadId) { setThreadId(res.threadId); void refreshThreads(); }
       } else {
         setMessages((m) => [...m, { id: nextId(), role: "assistant", content: res.error ?? "Une erreur est survenue." }]);
       }
@@ -196,8 +252,38 @@ export function AssistantChat({ userName, configured, voiceConfigured = false }:
     setMessages((m) => m.map((x) => (x.id === msgId ? { ...x, actionState: "cancelled" } : x)));
   };
 
+  const rail = memoryEnabled ? (
+    <ThreadRail
+      threads={threads} current={threadId}
+      onNew={newConversation} onOpen={openThread} onDelete={removeThread} onForget={forgetAll}
+    />
+  ) : null;
+
   return (
+    <div className="flex min-h-0 flex-1 gap-3">
+      {memoryEnabled && <div className="hidden w-60 shrink-0 lg:block">{rail}</div>}
+      {memoryEnabled && histOpen && (
+        <div className="fixed inset-0 z-40 flex lg:hidden" role="dialog" aria-modal="true">
+          <button type="button" aria-label="Fermer l'historique" className="absolute inset-0 bg-black/40" onClick={() => setHistOpen(false)} />
+          <div className="relative z-10 h-full w-72 max-w-[85vw] p-2">{rail}</div>
+        </div>
+      )}
+
     <div className="surface flex min-h-0 flex-1 flex-col overflow-hidden">
+      {memoryEnabled && (
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+          <button type="button" onClick={() => setHistOpen(true)} className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground lg:hidden">
+            <History className="h-4 w-4" /> Historique
+          </button>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+            {loadingThread ? "Ouverture…" : threads.find((t) => t.id === threadId)?.title ?? "Nouvelle conversation"}
+          </span>
+          <button type="button" onClick={newConversation} title="Nouvelle conversation"
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground">
+            <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Nouvelle</span>
+          </button>
+        </div>
+      )}
       {!configured && (
         <div className="flex items-start gap-2 border-b border-border bg-warning/10 px-4 py-2.5 text-sm text-warning">
           <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
@@ -314,6 +400,68 @@ export function AssistantChat({ userName, configured, voiceConfigured = false }:
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </form>
+      </div>
+    </div>
+    </div>
+  );
+}
+
+/**
+ * Historique de MES conversations. Le serveur ne renvoie jamais les fils d'autrui : cette
+ * liste est, par construction, strictement personnelle (cf. `src/lib/assistant-memory.ts`).
+ */
+function ThreadRail({
+  threads, current, onNew, onOpen, onDelete, onForget,
+}: {
+  threads: ThreadSummary[];
+  current: string | null;
+  onNew: () => void;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+  onForget: () => void;
+}) {
+  return (
+    <div className="surface flex h-full flex-col overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+        <History className="h-4 w-4 text-muted-foreground" />
+        <span className="flex-1 text-sm font-medium">Mes conversations</span>
+      </div>
+      <div className="p-2">
+        <button type="button" onClick={onNew}
+          className="flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-2.5 py-2 text-sm text-muted-foreground transition hover:border-primary/50 hover:text-foreground">
+          <Plus className="h-4 w-4" /> Nouvelle conversation
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-2">
+        {threads.length === 0 ? (
+          <p className="px-2 py-3 text-xs text-muted-foreground">
+            Vos échanges seront conservés ici pour que l'assistant se souvienne de votre contexte.
+          </p>
+        ) : (
+          threads.map((t) => (
+            <div key={t.id}
+              className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm transition ${t.id === current ? "bg-secondary text-foreground" : "hover:bg-secondary/60"}`}>
+              <button type="button" onClick={() => onOpen(t.id)} className="min-w-0 flex-1 truncate text-left" title={t.title}>
+                {t.title}
+              </button>
+              <button type="button" onClick={() => onDelete(t.id)} title="Supprimer cette conversation"
+                className="shrink-0 text-muted-foreground opacity-0 transition hover:text-destructive focus:opacity-100 group-hover:opacity-100">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="border-t border-border px-3 py-2">
+        <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+          <Lock className="mt-0.5 h-3 w-3 shrink-0" />
+          Mémoire strictement personnelle : personne d'autre — pas même un administrateur — n'y a accès.
+        </p>
+        {threads.length > 0 && (
+          <button type="button" onClick={onForget} className="mt-1.5 text-[11px] text-muted-foreground underline-offset-2 transition hover:text-destructive hover:underline">
+            Tout effacer
+          </button>
+        )}
       </div>
     </div>
   );

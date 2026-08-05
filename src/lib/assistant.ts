@@ -201,6 +201,8 @@ export interface AssistantResult {
   trace: string[];
   /** Action à confirmer avant exécution, le cas échéant. */
   proposal?: ProposedAction;
+  /** Fil de conversation dans lequel l'échange a été mémorisé (mémoire personnelle). */
+  threadId?: string | null;
   error?: string;
 }
 
@@ -1272,7 +1274,11 @@ function textOf(blocks: ClaudeContentBlock[]): string {
  * réinjectés), puis répond. Si Claude appelle un outil d'écriture, on intercepte
  * et on renvoie une action à confirmer (rien n'est exécuté).
  */
-export async function runAssistant(user: CurrentUser, history: ChatTurn[], opts: { model?: string } = {}): Promise<AssistantResult> {
+export async function runAssistant(
+  user: CurrentUser,
+  history: ChatTurn[],
+  opts: { model?: string; personalContext?: string | null } = {},
+): Promise<AssistantResult> {
   if (!aiConfigured()) return { configured: false, ok: false, reply: "", trace: [] };
 
   const messages = toMessages(history);
@@ -1280,7 +1286,11 @@ export async function runAssistant(user: CurrentUser, history: ChatTurn[], opts:
     return { configured: true, ok: false, reply: "", trace: [], error: "Message utilisateur manquant." };
   }
 
-  const system = systemPrompt(user);
+  // Contexte PERSONNEL (identité, rattachement, N+1, mémoire des échanges passés) — fourni
+  // par l'appelant, qui l'a résolu pour CE compte uniquement. Voir lib/assistant-memory.ts.
+  const system = opts.personalContext
+    ? `${systemPrompt(user)}\n\nCONTEXTE PERSONNEL\n${opts.personalContext}`
+    : systemPrompt(user);
   // Le Super Admin dispose d'outils exclusifs (vision globale de tous les comptes).
   const tools = [
     ...READ_TOOLS,

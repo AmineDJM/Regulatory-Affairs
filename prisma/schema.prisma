@@ -602,6 +602,51 @@ model Department {
   @@index([companyId])
 }
 
+/// FIL DE CONVERSATION avec l'assistant — STRICTEMENT PERSONNEL.
+/// Chaque fil appartient à un compte et un seul. Toute lecture passe par un helper qui
+/// exige le `userId` (src/lib/assistant-memory.ts) : un identifiant deviné ne donne rien.
+model AssistantThread {
+  id        String             @id @default(cuid())
+  userId    String
+  user      User               @relation("AssistantThreads", fields: [userId], references: [id], onDelete: Cascade)
+  title     String?
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  messages  AssistantMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+/// Message d'un fil. `userId` est VOLONTAIREMENT redondant avec `thread.userId` :
+/// il permet de filtrer par propriétaire sans jointure et rend une fuite de données
+/// structurellement impossible, même en cas d'erreur de requête.
+model AssistantMessage {
+  id        String          @id @default(cuid())
+  threadId  String
+  thread    AssistantThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId    String
+  role      String /// « user » ou « assistant »
+  content   String
+  createdAt DateTime        @default(now())
+
+  @@index([threadId, createdAt])
+  @@index([userId])
+}
+
+/// MÉMOIRE DISTILLÉE d'une personne : ce que l'assistant retient d'elle sur la durée
+/// (habitudes, dossiers récurrents, préférences), régénéré à partir de ses conversations.
+/// Une ligne par compte, jamais partagée.
+model AssistantMemory {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation("AssistantMemory", fields: [userId], references: [id], onDelete: Cascade)
+  summary   String
+  turns     Int      @default(0) /// nombre de messages pris en compte lors de la dernière distillation
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
 /// Stade de diffusion d'une nouveauté.
 enum FeatureStage {
   TEST /// visible UNIQUEMENT des comptes en mode test
@@ -708,6 +753,8 @@ model User {
   // RH & espace de travail
   employee         Employee?       @relation("UserEmployee")
   promotedFeatures FeatureFlag[]   @relation("FeaturePromoter")
+  assistantThreads AssistantThread[] @relation("AssistantThreads")
+  assistantMemory  AssistantMemory?  @relation("AssistantMemory")
   tasksAssigned    Task[]          @relation("TaskAssignee")
   tasksCreated     Task[]          @relation("TaskCreator")
   leaveDecisions   LeaveRequest[]  @relation("LeaveDecider")

@@ -6,9 +6,16 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
-import { aiConfigured, aiModel, aiModelCheap } from "@/lib/ai";
+import { aiConfigured, aiModel, aiModelCheap, askClaudeCheap } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { getUnreadDigest } from "@/lib/assistant-nudge";
+import { featureEnabled, FEATURES } from "@/lib/features";
+import {
+  personalContext, createThread, appendExchange, listThreads, getThreadMessages,
+  deleteThread as deleteThreadScoped, forgetEverything,
+  distillationDue, countMessages, recentMessages, getMemory, saveMemory,
+  type ThreadSummary, type StoredMessage,
+} from "@/lib/assistant-memory";
 import { extractAttachmentText, buildAttachmentContext, type AttachmentText } from "@/lib/assistant-files";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import {
@@ -77,16 +84,67 @@ export interface NudgeResult {
 }
 
 /**
+ * DISTILLATION DE LA MÉMOIRE — la « grande mémoire » de l'assistant.
+ *
+ * Tous les ~12 messages, on relit les échanges RÉCENTS DE CETTE PERSONNE (helpers scopés) et
+ * on réécrit une note durable : ses sujets, ses dossiers, ses habitudes, ses préférences de
+ * formulation. Cette note est réinjectée au prochain tour via `personalContext`.
+ * Appel économique et épisodique ; toute erreur est silencieuse (la mémoire est un confort,
+ * jamais un point de rupture du chat).
+ */
+async function maybeDistillMemory(userId: string): Promise<void> {
+  try {
+    if (!aiConfigured()) return;
+    if (!(await distillationDue(userId))) return;
+    const [msgs, previous] = await Promise.all([recentMessages(userId, 60), getMemory(userId)]);
+    if (msgs.length === 0) return;
+    const transcript = msgs
+      .map((m) => `${m.role === "user" ? "Personne" : "Assistant"} : ${m.content.slice(0, 800)}`)
+      .join("\n");
+    const res = await askClaudeCheap(
+      `${previous ? `NOTE ACTUELLE (à mettre à jour, pas à jeter) :\n${previous}\n\n` : ""}` +
+      `ÉCHANGES RÉCENTS :\n${transcript}\n\n` +
+      `Rédige la note de mémoire à jour (12 lignes maximum, en français, sans Markdown).`,
+      {
+        system:
+          "Tu tiens la mémoire durable d'un assistant interne, pour UNE seule personne. " +
+          "Retiens ce qui reste vrai dans le temps : son périmètre, ses dossiers et produits suivis, " +
+          "ses interlocuteurs habituels, ses préférences de travail et de formulation, ses échéances récurrentes. " +
+          "Ignore le bavardage et tout ce qui est déjà périmé. Écris des phrases courtes et factuelles.",
+        maxTokens: 500,
+      },
+    );
+    if (!res.ok || !res.text) return;
+    await saveMemory(userId, res.text, await countMessages(userId));
+  } catch (e) {
+    console.error("[assistant] distillation de la mémoire impossible (non bloquant)", e);
+  }
+}
+
+/**
  * Tour de conversation : exécute la boucle agent côté serveur (clé jamais exposée).
  * Ne lève JAMAIS d'exception vers le client — toute erreur revient en résultat
  * structuré (fini le « Appel à l'assistant impossible »).
  */
-export async function assistantChat(history: ChatTurn[], attachments?: AssistantAttachment[]): Promise<AssistantResult> {
+export async function assistantChat(
+  history: ChatTurn[],
+  attachments?: AssistantAttachment[],
+  threadId?: string | null,
+): Promise<AssistantResult> {
   try {
     const user = await requireUser();
     // Tout employé a accès à l'assistant (espace de travail universel).
     if (!userCan(user, "WORKSPACE", "VIEW")) {
       return { configured: true, ok: false, reply: "", trace: [], error: "Non autorisé." };
+    }
+    // CLOISONNEMENT : en « Vue exacte » (un admin regarde l'app comme quelqu'un d'autre),
+    // l'assistant est DÉSACTIVÉ. Sa mémoire est strictement personnelle : on n'ouvre jamais
+    // celle d'un tiers, même à un administrateur.
+    if (user.impersonatedBy) {
+      return {
+        configured: true, ok: false, reply: "", trace: [],
+        error: "L'assistant est désactivé en « Vue exacte » : sa mémoire est strictement personnelle.",
+      };
     }
     // Interrupteur du Centre de contrôle IA (Super Admin).
     if (!(await aiFeatureEnabled("assistant"))) {
@@ -98,12 +156,36 @@ export async function assistantChat(history: ChatTurn[], attachments?: Assistant
     if (Array.isArray(attachments) && attachments.length > 0) {
       turns = await withAttachmentContext(user, turns, attachments);
     }
+    // Mémoire personnelle (derrière le drapeau de version) : identité, rattachement,
+    // hiérarchie et ce que l'assistant a retenu de CETTE personne.
+    const memoryOn = await featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id);
+    const personal = memoryOn ? await personalContext(user.id).catch(() => null) : null;
+
     const t0 = Date.now();
-    const res = await runAssistant(user, turns);
+    const res = await runAssistant(user, turns, { personalContext: personal });
     await logAiUsage({
       feature: "assistant", userId: user.id, model: aiModel(),
       ok: res.ok, latencyMs: Date.now() - t0, errorCode: res.ok ? null : res.error ?? "error",
     });
+    // Persistance du fil — uniquement pour SON propriétaire (helpers scopés par userId).
+    if (memoryOn && res.ok && res.reply) {
+      try {
+        const lastUser = [...turns].reverse().find((t) => t.role === "user")?.content ?? "";
+        let tid = threadId ?? null;
+        if (tid) {
+          const ok = await appendExchange(user.id, tid, lastUser, res.reply);
+          if (!ok) tid = null; // fil inconnu ou n'appartenant pas au demandeur → on repart proprement
+        }
+        if (!tid) {
+          tid = await createThread(user.id, lastUser);
+          await appendExchange(user.id, tid, lastUser, res.reply);
+        }
+        res.threadId = tid;
+        await maybeDistillMemory(user.id);
+      } catch (e) {
+        console.error("[assistant] mémorisation impossible (non bloquant)", e);
+      }
+    }
     return res;
   } catch (err) {
     console.error("[assistant] assistantChat failed", err);
@@ -189,5 +271,55 @@ export async function listAssistantFiles(query?: string): Promise<AssistantFileO
   } catch (err) {
     console.error("[assistant] listAssistantFiles failed", err);
     return [];
+  }
+}
+
+
+// ─────────────────────── Mémoire personnelle (fils de conversation) ───────────────────────
+
+/** Mes conversations passées. Personne d'autre ne peut les lister. */
+export async function myAssistantThreads(): Promise<ThreadSummary[]> {
+  try {
+    const user = await requireUser();
+    if (user.impersonatedBy) return [];
+    if (!(await featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id))) return [];
+    return await listThreads(user.id);
+  } catch {
+    return [];
+  }
+}
+
+/** Les messages d'UNE de mes conversations (null si ce n'est pas la mienne). */
+export async function myAssistantThread(threadId: string): Promise<StoredMessage[] | null> {
+  try {
+    const user = await requireUser();
+    if (user.impersonatedBy) return null;
+    return await getThreadMessages(user.id, threadId);
+  } catch {
+    return null;
+  }
+}
+
+/** Supprime UNE de mes conversations. */
+export async function deleteMyAssistantThread(threadId: string): Promise<ExecuteResult> {
+  try {
+    const user = await requireUser();
+    if (user.impersonatedBy) return { ok: false, error: "Indisponible en « Vue exacte »." };
+    const ok = await deleteThreadScoped(user.id, threadId);
+    return ok ? { ok: true, message: "Conversation supprimée." } : { ok: false, error: "Conversation introuvable." };
+  } catch {
+    return { ok: false, error: "Suppression impossible." };
+  }
+}
+
+/** Droit à l'oubli : efface TOUTE ma mémoire d'assistant (conversations + mémoire retenue). */
+export async function forgetMyAssistantMemory(): Promise<ExecuteResult> {
+  try {
+    const user = await requireUser();
+    if (user.impersonatedBy) return { ok: false, error: "Indisponible en « Vue exacte »." };
+    await forgetEverything(user.id);
+    return { ok: true, message: "Mémoire effacée." };
+  } catch {
+    return { ok: false, error: "Effacement impossible." };
   }
 }
