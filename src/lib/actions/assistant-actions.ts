@@ -123,6 +123,35 @@ async function maybeDistillMemory(userId: string): Promise<void> {
 }
 
 /**
+ * Mémorise un échange dans le fil de CETTE personne et renvoie l'identifiant du fil.
+ *
+ * Un fil inconnu — ou appartenant à quelqu'un d'autre — n'est jamais écrit : on en ouvre
+ * simplement un nouveau. C'est la seule écriture de mémoire de l'assistant, partagée par
+ * l'action serveur et la route de flux, pour que la règle de cloisonnement n'existe qu'en
+ * un seul endroit.
+ */
+export async function rememberExchange(
+  userId: string, threadId: string | null, userMessage: string, reply: string,
+): Promise<string | null> {
+  try {
+    let tid = threadId;
+    if (tid) {
+      const ok = await appendExchange(userId, tid, userMessage, reply);
+      if (!ok) tid = null; // fil inconnu ou n'appartenant pas au demandeur → on repart proprement
+    }
+    if (!tid) {
+      tid = await createThread(userId, userMessage);
+      await appendExchange(userId, tid, userMessage, reply);
+    }
+    await maybeDistillMemory(userId);
+    return tid;
+  } catch (e) {
+    console.error("[assistant] mémorisation impossible (non bloquant)", e);
+    return threadId;
+  }
+}
+
+/**
  * Tour de conversation : exécute la boucle agent côté serveur (clé jamais exposée).
  * Ne lève JAMAIS d'exception vers le client — toute erreur revient en résultat
  * structuré (fini le « Appel à l'assistant impossible »).
@@ -172,17 +201,7 @@ export async function assistantChat(
     if (memoryOn && res.ok && res.reply) {
       try {
         const lastUser = [...turns].reverse().find((t) => t.role === "user")?.content ?? "";
-        let tid = threadId ?? null;
-        if (tid) {
-          const ok = await appendExchange(user.id, tid, lastUser, res.reply);
-          if (!ok) tid = null; // fil inconnu ou n'appartenant pas au demandeur → on repart proprement
-        }
-        if (!tid) {
-          tid = await createThread(user.id, lastUser);
-          await appendExchange(user.id, tid, lastUser, res.reply);
-        }
-        res.threadId = tid;
-        await maybeDistillMemory(user.id);
+        res.threadId = await rememberExchange(user.id, threadId ?? null, lastUser, res.reply);
       } catch (e) {
         console.error("[assistant] mémorisation impossible (non bloquant)", e);
       }

@@ -2,7 +2,6 @@ import { requireModule } from "@/lib/session";
 import { aiConfigured, sttConfigured } from "@/lib/ai";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import { getDailyBrief } from "@/lib/daily-brief";
-import { PageHeader } from "@/components/shared/page-header";
 import { MorningBrief } from "@/components/shared/morning-brief";
 import { AssistantChat } from "./assistant-chat";
 
@@ -18,11 +17,10 @@ export default async function AssistantPage() {
   ]);
   const brief = proactive ? await getDailyBrief(user).catch(() => null) : null;
   return (
-    <div className="flex h-[calc(100vh-7.5rem)] flex-col gap-4">
-      <PageHeader
-        title="Assistant IA"
-        description="Votre copilote interne : il comprend l'application et vos données, répond à vos questions et prépare vos actions (toujours confirmées par vous)."
-      />
+    // PLEIN ÉCRAN : l'assistant prend toute la hauteur disponible, comme une application de
+    // discussion. Les marges du conteneur principal sont neutralisées pour que le rail des
+    // conversations touche le bord — c'est ce qui fait la différence avec « une page ».
+    <div className="-mx-3 -mt-3 flex h-[calc(100dvh-3.5rem)] flex-col gap-3 px-2 pt-2 sm:-mx-4 sm:-mt-6 sm:px-3 sm:pt-4 lg:-mx-8 lg:h-[calc(100dvh-4rem)] lg:px-6">
       {brief?.text && <MorningBrief initial={brief.text} />}
       <AssistantChat
         userName={user.name}

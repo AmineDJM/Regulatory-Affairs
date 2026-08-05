@@ -31,7 +31,7 @@ import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
 import { findDirectConversation } from "@/lib/messaging";
 import { getMailAccount, listMessages, getMessage, sendMail } from "@/lib/mail";
 import {
-  callClaude, aiConfigured,
+  callClaude, callClaudeStream, aiConfigured,
   type ClaudeMessage, type ClaudeContentBlock, type ClaudeToolDef,
 } from "@/lib/ai";
 import {
@@ -1345,6 +1345,114 @@ export async function runAssistant(
   return { configured: true, ok: true, reply: "Je n'ai pas pu finaliser la demande en peu d'étapes. Reformulez en précisant l'objectif.", trace };
   } catch (err) {
     console.error("[assistant] runAssistant failed", err);
+    return { configured: true, ok: false, reply: "", trace, error: "Une erreur est survenue côté assistant. Reformulez votre demande ou réessayez dans un instant." };
+  }
+}
+
+/** Événements poussés au navigateur pendant que l'assistant travaille. */
+export type AssistantStreamEvent =
+  | { type: "trace"; label: string }
+  | { type: "delta"; text: string }
+  /** Le texte déjà affiché n'était qu'un préambule à un appel d'outil : le client l'efface. */
+  | { type: "reset" }
+  | { type: "done"; result: AssistantResult };
+
+/**
+ * VARIANTE STREAMING de `runAssistant` — même boucle agent, même garde-fous, mais la réponse
+ * est poussée **au fil de sa génération** au lieu d'arriver en un bloc.
+ *
+ * Ce que voit l'utilisateur, dans l'ordre réel des événements :
+ *   • `trace` — « je consulte vos validations… » dès qu'un outil de lecture est exécuté ;
+ *   • `delta` — le texte, mot à mot, tel que le modèle l'écrit ;
+ *   • `done`  — le résultat complet (réponse, trace, proposition d'action à confirmer).
+ *
+ * Les garanties de `runAssistant` sont inchangées : une action d'écriture est TOUJOURS
+ * interceptée et proposée, jamais exécutée. Ne lève jamais.
+ */
+export async function runAssistantStream(
+  user: CurrentUser,
+  history: ChatTurn[],
+  emit: (e: AssistantStreamEvent) => void,
+  opts: { model?: string; personalContext?: string | null } = {},
+): Promise<AssistantResult> {
+  if (!aiConfigured()) return { configured: false, ok: false, reply: "", trace: [] };
+
+  const messages = toMessages(history);
+  if (messages.length === 0 || messages[messages.length - 1].role !== "user") {
+    return { configured: true, ok: false, reply: "", trace: [], error: "Message utilisateur manquant." };
+  }
+
+  const system = opts.personalContext
+    ? `${systemPrompt(user)}\n\nCONTEXTE PERSONNEL\n${opts.personalContext}`
+    : systemPrompt(user);
+  const tools = [
+    ...READ_TOOLS,
+    ...(user.role === "SUPER_ADMIN" ? [...SUPERADMIN_TOOLS, ...SUPERADMIN_WRITE_TOOLS] : []),
+    ...WRITE_TOOLS,
+  ];
+  const trace: string[] = [];
+
+  try {
+    for (let turn = 0; turn < MAX_TURNS; turn++) {
+      // Le texte part AU FIL DE L'EAU. Si le tour se révèle finalement être un appel d'outil,
+      // ce qui a été écrit n'était qu'un préambule : on demande alors au client de l'effacer
+      // (`reset`) avant que la vraie réponse n'arrive. En pratique le modèle appelle ses outils
+      // sans préambule, donc `reset` ne se déclenche presque jamais — mais l'affichage reste
+      // juste dans tous les cas.
+      let streamed = false;
+      const res = await callClaudeStream(messages, (chunk) => {
+        streamed = true;
+        emit({ type: "delta", text: chunk });
+      }, { system, tools, maxTokens: 1400, temperature: 0.2, model: opts.model });
+      if (!res.ok || !res.content) {
+        return { configured: res.configured, ok: false, reply: "", trace, error: res.error ?? "Réponse IA indisponible." };
+      }
+
+      const blocks = res.content;
+      const toolUses = blocks.filter((b) => b.type === "tool_use") as Extract<ClaudeContentBlock, { type: "tool_use" }>[];
+
+      // Pas d'outil → c'est la réponse finale : on la diffuse d'un trait mesuré.
+      if (res.stopReason !== "tool_use" || toolUses.length === 0) {
+        const reply = textOf(blocks) || "D'accord.";
+        // Rien n'a été diffusé (réponse vide côté modèle) → on envoie le repli d'un trait.
+        if (!streamed) emit({ type: "delta", text: reply });
+        return { configured: true, ok: true, reply, trace };
+      }
+
+      // Action d'écriture → interceptée et proposée (rien n'est exécuté).
+      const write = toolUses.find((t) => WRITE_TOOL_NAMES.has(t.name));
+      if (write) {
+        const proposal = await buildProposal(write.name, write.input, user);
+        if ("error" in proposal) {
+          if (streamed) emit({ type: "reset" });
+          messages.push({ role: "assistant", content: blocks });
+          messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: write.id, content: proposal.error, is_error: true }] });
+          continue;
+        }
+        const reply = textOf(blocks) || `Je propose de ${proposal.title.toLowerCase()}. Confirmez-vous ?`;
+        if (!streamed) emit({ type: "delta", text: reply });
+        return { configured: true, ok: true, reply, trace, proposal };
+      }
+
+      // Outils de lecture : le préambule éventuel est effacé, puis on annonce chaque étape.
+      if (streamed) emit({ type: "reset" });
+      const results: ClaudeContentBlock[] = [];
+      for (const tu of toolUses) {
+        const out = await executeReadTool(tu.name, tu.input, user).catch((e) => {
+          console.error("[assistant] read tool failed", tu.name, e);
+          return "Erreur lors de la lecture des données.";
+        });
+        const label = READ_LABEL[tu.name];
+        if (label && !trace.includes(label)) { trace.push(label); emit({ type: "trace", label }); }
+        results.push({ type: "tool_result", tool_use_id: tu.id, content: out });
+      }
+      messages.push({ role: "assistant", content: blocks });
+      messages.push({ role: "user", content: results });
+    }
+
+    return { configured: true, ok: true, reply: "Je n'ai pas pu finaliser la demande en peu d'étapes. Reformulez en précisant l'objectif.", trace };
+  } catch (err) {
+    console.error("[assistant] runAssistantStream failed", err);
     return { configured: true, ok: false, reply: "", trace, error: "Une erreur est survenue côté assistant. Reformulez votre demande ou réessayez dans un instant." };
   }
 }

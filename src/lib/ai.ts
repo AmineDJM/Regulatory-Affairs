@@ -257,6 +257,119 @@ export async function callClaude(messages: ClaudeMessage[], opts: CallOptions = 
   return { ok: false, configured: true, error: lastError };
 }
 
+/**
+ * Variante STREAMING de `callClaude` : identique en entrée et en sortie, mais le texte est
+ * remonté **au fil de l'eau** via `onText` au lieu d'attendre la fin de la génération.
+ *
+ * C'est ce qui fait la différence entre « rien pendant huit secondes puis un pavé » et une
+ * réponse qui s'écrit sous les yeux. Le résultat final reste le même objet que `callClaude`
+ * (blocs reconstitués + `stop_reason`), pour que la boucle agent n'ait rien à changer :
+ * les `tool_use` sont réassemblés à partir des fragments JSON reçus.
+ *
+ * Pas de réessai automatique ici : une fois que du texte a commencé à s'afficher, on ne peut
+ * pas le rejouer proprement. En cas d'échec AVANT le premier caractère, l'appelant peut
+ * retomber sur `callClaude`.
+ */
+export async function callClaudeStream(
+  messages: ClaudeMessage[],
+  onText: (chunk: string) => void,
+  opts: CallOptions = {},
+): Promise<ClaudeRawResult> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return { ok: false, configured: false, error: "Clé ANTHROPIC_API_KEY non configurée." };
+
+  const base = process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
+  const system = opts.system
+    ? [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }]
+    : undefined;
+  const payload = JSON.stringify({
+    model: opts.model ?? aiModel(),
+    max_tokens: opts.maxTokens ?? 1400,
+    temperature: opts.temperature ?? 0.2,
+    stream: true,
+    ...(system ? { system } : {}),
+    ...(opts.tools?.length ? { tools: opts.tools } : {}),
+    messages,
+  });
+
+  try {
+    const res = await fetch(`${base.replace(/\/$/, "")}/v1/messages`, {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: payload,
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!res.ok || !res.body) {
+      const body = await res.text().catch(() => "");
+      console.error("[ai] anthropic stream error", res.status, body.slice(0, 300));
+      return { ok: false, configured: true, error: `Erreur IA (HTTP ${res.status}).` };
+    }
+
+    // Reconstitution des blocs : le texte arrive par fragments, l'entrée d'un outil aussi
+    // (JSON partiel, à concaténer avant d'être analysé).
+    const blocks: ClaudeContentBlock[] = [];
+    const partialJson = new Map<number, string>();
+    let stopReason: string | undefined;
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // Les événements SSE sont séparés par une ligne vide.
+      let sep: number;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const raw = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const line = raw.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        let evt: Record<string, unknown>;
+        try { evt = JSON.parse(line.slice(5).trim()) as Record<string, unknown>; } catch { continue; }
+
+        const type = evt.type;
+        const index = typeof evt.index === "number" ? evt.index : 0;
+
+        if (type === "content_block_start") {
+          const block = evt.content_block as ClaudeContentBlock | undefined;
+          if (block) {
+            blocks[index] = block.type === "text" ? { type: "text", text: "" } : block;
+            if (block.type === "tool_use") partialJson.set(index, "");
+          }
+        } else if (type === "content_block_delta") {
+          const delta = evt.delta as { type?: string; text?: string; partial_json?: string } | undefined;
+          if (delta?.type === "text_delta" && typeof delta.text === "string") {
+            const b = blocks[index];
+            if (b && b.type === "text") b.text += delta.text;
+            onText(delta.text);
+          } else if (delta?.type === "input_json_delta" && typeof delta.partial_json === "string") {
+            partialJson.set(index, (partialJson.get(index) ?? "") + delta.partial_json);
+          }
+        } else if (type === "content_block_stop") {
+          const b = blocks[index];
+          const json = partialJson.get(index);
+          if (b && b.type === "tool_use" && json !== undefined) {
+            try { b.input = json ? (JSON.parse(json) as Record<string, unknown>) : {}; } catch { b.input = {}; }
+          }
+        } else if (type === "message_delta") {
+          const d = evt.delta as { stop_reason?: string } | undefined;
+          if (d?.stop_reason) stopReason = d.stop_reason;
+        } else if (type === "error") {
+          const e = evt.error as { message?: string } | undefined;
+          return { ok: false, configured: true, error: e?.message ?? "Erreur IA pendant la génération." };
+        }
+      }
+    }
+
+    return { ok: true, configured: true, stopReason, content: blocks.filter(Boolean) };
+  } catch (err) {
+    console.error("[ai] stream call failed", err);
+    return { ok: false, configured: true, error: "Appel à l'IA impossible (réseau ou délai dépassé)." };
+  }
+}
+
 // ─────────────────────────── Speech-to-text (Whisper / OpenAI) ───────────────────────────
 
 export function sttConfigured(): boolean {

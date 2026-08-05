@@ -12,7 +12,7 @@ import {
   assistantChat, executeAssistantAction, listAssistantFiles,
   myAssistantThreads, myAssistantThread, deleteMyAssistantThread, forgetMyAssistantMemory,
 } from "@/lib/actions/assistant-actions";
-import type { ProposedAction, AssistantActionPayload, ChatTurn } from "@/lib/assistant";
+import type { ProposedAction, AssistantActionPayload, ChatTurn, AssistantResult, AssistantStreamEvent } from "@/lib/assistant";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import type { ThreadSummary } from "@/lib/assistant-memory";
 
@@ -56,6 +56,8 @@ const SUGGESTIONS = [
   "Quels sont mes médecins à fort potentiel ?",
 ];
 
+type StreamEvent = AssistantStreamEvent;
+
 let counter = 1;
 const nextId = () => counter++;
 
@@ -79,6 +81,9 @@ export function AssistantChat({
   const [attachments, setAttachments] = React.useState<PendingAttach[]>([]);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
+  /** Réponse EN COURS d'écriture (texte partiel + étapes de lecture déjà annoncées). */
+  const [streaming, setStreaming] = React.useState<{ text: string; trace: string[] } | null>(null);
+  const abortRef = React.useRef<AbortController | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const taRef = React.useRef<HTMLTextAreaElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -99,7 +104,7 @@ export function AssistantChat({
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, sending]);
+  }, [messages, sending, streaming?.text]);
 
   const newConversation = () => {
     setThreadId(null); setMessages([]); setInput(""); setAttachments([]); setHistOpen(false);
@@ -201,37 +206,116 @@ export function AssistantChat({
     setInput("");
     setAttachments([]);
     setSending(true);
+
     const history: ChatTurn[] = next
       .filter((m) => m.content.trim().length > 0)
       .map((m) => ({ role: m.role, content: m.content }));
+
     try {
-      // Conversion des fichiers locaux en base64 ; les fichiers du Drive partent par référence.
-      const payload: AssistantAttachment[] = await Promise.all(
-        pending.map(async (a) =>
-          a.kind === "upload"
-            ? ({ kind: "upload", name: a.name, dataB64: await fileToBase64(a.file) } as AssistantAttachment)
-            : ({ kind: "drive", nodeId: a.nodeId, name: a.name } as AssistantAttachment),
-        ),
-      );
-      const res = await assistantChat(history, payload.length ? payload : undefined, threadId);
-      if (!res.configured) {
-        setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "IA non configurée." }]);
-      } else if (res.ok) {
-        setMessages((m) => [...m, {
-          id: nextId(), role: "assistant", content: res.reply, trace: res.trace,
-          proposal: res.proposal, actionState: res.proposal ? "pending" : undefined,
-        }]);
-        // Le serveur a mémorisé l'échange : on retient le fil et on rafraîchit la liste.
-        if (res.threadId) { setThreadId(res.threadId); void refreshThreads(); }
-      } else {
-        setMessages((m) => [...m, { id: nextId(), role: "assistant", content: res.error ?? "Une erreur est survenue." }]);
+      // Les pièces jointes passent par l'action serveur (elles doivent être résolues et
+      // extraites avant l'appel au modèle) ; une conversation SANS pièce jointe passe par le
+      // FLUX, pour que la réponse s'écrive au lieu de tomber d'un bloc.
+      if (pending.length > 0) {
+        const payload: AssistantAttachment[] = await Promise.all(
+          pending.map(async (a) =>
+            a.kind === "upload"
+              ? ({ kind: "upload", name: a.name, dataB64: await fileToBase64(a.file) } as AssistantAttachment)
+              : ({ kind: "drive", nodeId: a.nodeId, name: a.name } as AssistantAttachment),
+          ),
+        );
+        const res = await assistantChat(history, payload, threadId);
+        appendResult(res);
+        return;
       }
+      await streamAnswer(history);
     } catch {
       setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "Appel à l'assistant impossible." }]);
     } finally {
       setSending(false);
+      setStreaming(null);
       taRef.current?.focus();
     }
+  };
+
+  /** Ajoute le résultat d'un tour non diffusé (pièces jointes) à la conversation. */
+  const appendResult = (res: AssistantResult) => {
+    if (!res.configured) {
+      setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "IA non configurée." }]);
+    } else if (res.ok) {
+      setMessages((m) => [...m, {
+        id: nextId(), role: "assistant", content: res.reply, trace: res.trace,
+        proposal: res.proposal, actionState: res.proposal ? "pending" : undefined,
+      }]);
+      if (res.threadId) { setThreadId(res.threadId); void refreshThreads(); }
+    } else {
+      setMessages((m) => [...m, { id: nextId(), role: "assistant", content: res.error ?? "Une erreur est survenue." }]);
+    }
+  };
+
+  /**
+   * Tour de conversation EN FLUX (Server-Sent Events). On affiche, dans l'ordre où ils
+   * arrivent : les étapes de lecture, puis le texte mot à mot. La réponse n'apparaît plus
+   * d'un bloc après un long silence.
+   */
+  const streamAnswer = async (history: ChatTurn[]) => {
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setStreaming({ text: "", trace: [] });
+
+    const res = await fetch("/api/assistant/stream", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ history, threadId }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok || !res.body) {
+      setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "L'assistant est momentanément indisponible." }]);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finished = false;
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let sep: number;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const raw = buffer.slice(0, sep).trim();
+        buffer = buffer.slice(sep + 2);
+        if (!raw.startsWith("data:")) continue;
+        let evt: StreamEvent;
+        try { evt = JSON.parse(raw.slice(5).trim()) as StreamEvent; } catch { continue; }
+
+        if (evt.type === "delta") {
+          setStreaming((s) => ({ text: (s?.text ?? "") + evt.text, trace: s?.trace ?? [] }));
+        } else if (evt.type === "trace") {
+          setStreaming((s) => ({ text: s?.text ?? "", trace: s?.trace.includes(evt.label) ? s.trace : [...(s?.trace ?? []), evt.label] }));
+        } else if (evt.type === "reset") {
+          // Le texte affiché n'était qu'un préambule à un appel d'outil.
+          setStreaming((s) => ({ text: "", trace: s?.trace ?? [] }));
+        } else if (evt.type === "done") {
+          finished = true;
+          appendResult(evt.result);
+        }
+      }
+    }
+    if (!finished) {
+      // Flux interrompu : on conserve ce qui a été écrit plutôt que de tout perdre.
+      setStreaming((s) => {
+        if (s?.text) setMessages((m) => [...m, { id: nextId(), role: "assistant", content: s.text, trace: s.trace }]);
+        return null;
+      });
+    }
+  };
+
+  /** Interrompt la génération en cours (le texte déjà écrit est conservé). */
+  const stopStreaming = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
   };
 
   const confirm = async (msgId: number, payload: AssistantActionPayload) => {
@@ -260,8 +344,8 @@ export function AssistantChat({
   ) : null;
 
   return (
-    <div className="flex min-h-0 flex-1 gap-3">
-      {memoryEnabled && <div className="hidden w-60 shrink-0 lg:block">{rail}</div>}
+    <div className="flex min-h-0 flex-1 gap-0 lg:gap-4">
+      {memoryEnabled && <div className="hidden w-64 shrink-0 lg:block">{rail}</div>}
       {memoryEnabled && histOpen && (
         <div className="fixed inset-0 z-40 flex lg:hidden" role="dialog" aria-modal="true">
           <button type="button" aria-label="Fermer l'historique" className="absolute inset-0 bg-black/40" onClick={() => setHistOpen(false)} />
@@ -269,7 +353,7 @@ export function AssistantChat({
         </div>
       )}
 
-    <div className="surface flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card">
       {memoryEnabled && (
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
           <button type="button" onClick={() => setHistOpen(true)} className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground lg:hidden">
@@ -291,7 +375,8 @@ export function AssistantChat({
         </div>
       )}
 
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+        <div className="mx-auto w-full max-w-3xl space-y-6">
         {messages.length === 0 ? (
           <div className="mx-auto max-w-xl py-8 text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-purple-500 text-primary-foreground shadow-lg">
@@ -322,17 +407,39 @@ export function AssistantChat({
             <MessageBubble key={m.id} msg={m} onConfirm={confirm} onCancel={cancel} />
           ))
         )}
+        {/* Réponse EN COURS : on montre ce que l'assistant fait, puis ce qu'il écrit — jamais
+            un long silence suivi d'un pavé. */}
         {sending && (
-          <div className="flex items-center gap-2.5">
+          <div className="flex gap-3">
             <Avatar />
-            <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm bg-secondary px-4 py-2.5 text-sm text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> L'assistant réfléchit…
+            <div className="min-w-0 flex-1 space-y-1.5">
+              {streaming && streaming.trace.length > 0 && (
+                <ul className="space-y-0.5">
+                  {streaming.trace.map((t) => (
+                    <li key={t} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <CheckCircle2 className="h-3 w-3 text-success" /> {t}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {streaming?.text ? (
+                <p className="whitespace-pre-wrap text-[15px] leading-relaxed">
+                  {cleanReply(streaming.text)}
+                  <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-foreground align-middle" aria-hidden />
+                </p>
+              ) : (
+                <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> L&apos;assistant réfléchit…
+                </p>
+              )}
             </div>
           </div>
         )}
+        </div>
       </div>
 
-      <div className="relative border-t border-border bg-card/60 p-3">
+      <div className="relative border-t border-border bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
+        <div className="mx-auto w-full max-w-3xl">
         {pickerOpen && <DriveFilePicker onPick={addDriveFile} onClose={() => setPickerOpen(false)} />}
 
         {/* Pièces jointes en attente */}
@@ -396,10 +503,20 @@ export function AssistantChat({
             rows={1}
             className="max-h-40 min-h-[2.75rem] flex-1 resize-none rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none transition placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
           />
-          <Button type="submit" size="lg" disabled={!configured || sending || (!input.trim() && attachments.length === 0)} className="h-[2.75rem] px-4">
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
+          {sending ? (
+            <Button type="button" size="lg" variant="outline" onClick={stopStreaming} className="h-[2.75rem] px-4" title="Arrêter la génération">
+              <Square className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button type="submit" size="lg" disabled={!configured || (!input.trim() && attachments.length === 0)} className="h-[2.75rem] px-4">
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
         </form>
+        <p className="mt-2 text-center text-[11px] text-muted-foreground">
+          L&apos;assistant peut se tromper. Chaque action qu&apos;il propose vous est soumise avant d&apos;être exécutée.
+        </p>
+        </div>
       </div>
     </div>
     </div>
@@ -409,6 +526,30 @@ export function AssistantChat({
 /**
  * Historique de MES conversations. Le serveur ne renvoie jamais les fils d'autrui : cette
  * liste est, par construction, strictement personnelle (cf. `src/lib/assistant-memory.ts`).
+ */
+/** Regroupe les conversations par ancienneté — c'est ainsi qu'on les retrouve. */
+function groupThreads(threads: ThreadSummary[]): { label: string; items: ThreadSummary[] }[] {
+  const now = Date.now();
+  const day = 86_400_000;
+  const buckets: { label: string; max: number; items: ThreadSummary[] }[] = [
+    { label: "Aujourd'hui", max: day, items: [] },
+    { label: "7 derniers jours", max: 7 * day, items: [] },
+    { label: "30 derniers jours", max: 30 * day, items: [] },
+    { label: "Plus ancien", max: Infinity, items: [] },
+  ];
+  for (const t of threads) {
+    const age = now - new Date(t.updatedAt).getTime();
+    (buckets.find((b) => age < b.max) ?? buckets[buckets.length - 1]).items.push(t);
+  }
+  return buckets.filter((b) => b.items.length > 0).map(({ label, items }) => ({ label, items }));
+}
+
+/**
+ * Historique de MES conversations. Le serveur ne renvoie jamais les fils d'autrui : cette
+ * liste est, par construction, strictement personnelle (cf. `src/lib/assistant-memory.ts`).
+ *
+ * Regroupées par ancienneté (aujourd'hui, 7 jours, 30 jours, plus ancien) : au bout de
+ * quelques semaines, une liste à plat ne se relit plus.
  */
 function ThreadRail({
   threads, current, onNew, onOpen, onDelete, onForget,
@@ -420,42 +561,50 @@ function ThreadRail({
   onDelete: (id: string) => void;
   onForget: () => void;
 }) {
+  const groups = groupThreads(threads);
   return (
-    <div className="surface flex h-full flex-col overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
-        <History className="h-4 w-4 text-muted-foreground" />
-        <span className="flex-1 text-sm font-medium">Mes conversations</span>
-      </div>
+    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card">
       <div className="p-2">
-        <button type="button" onClick={onNew}
-          className="flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-2.5 py-2 text-sm text-muted-foreground transition hover:border-primary/50 hover:text-foreground">
+        <button
+          type="button" onClick={onNew}
+          className="flex w-full items-center gap-2 rounded-xl border border-border px-3 py-2.5 text-sm font-medium transition hover:bg-secondary"
+        >
           <Plus className="h-4 w-4" /> Nouvelle conversation
         </button>
       </div>
-      <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-2">
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {threads.length === 0 ? (
-          <p className="px-2 py-3 text-xs text-muted-foreground">
-            Vos échanges seront conservés ici pour que l'assistant se souvienne de votre contexte.
+          <p className="px-2 py-3 text-xs leading-relaxed text-muted-foreground">
+            Vos échanges seront conservés ici pour que l&apos;assistant se souvienne de votre contexte.
           </p>
         ) : (
-          threads.map((t) => (
-            <div key={t.id}
-              className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm transition ${t.id === current ? "bg-secondary text-foreground" : "hover:bg-secondary/60"}`}>
-              <button type="button" onClick={() => onOpen(t.id)} className="min-w-0 flex-1 truncate text-left" title={t.title}>
-                {t.title}
-              </button>
-              <button type="button" onClick={() => onDelete(t.id)} title="Supprimer cette conversation"
-                className="shrink-0 text-muted-foreground opacity-0 transition hover:text-destructive focus:opacity-100 group-hover:opacity-100">
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+          groups.map((g) => (
+            <div key={g.label} className="mb-2">
+              <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{g.label}</p>
+              <div className="space-y-0.5">
+                {g.items.map((t) => (
+                  <div key={t.id}
+                    className={`group flex items-center gap-1 rounded-lg px-2 py-2 text-sm transition ${t.id === current ? "bg-secondary font-medium text-foreground" : "hover:bg-secondary/60"}`}>
+                    <button type="button" onClick={() => onOpen(t.id)} className="min-w-0 flex-1 truncate text-left" title={t.title}>
+                      {t.title}
+                    </button>
+                    <button type="button" onClick={() => onDelete(t.id)} title="Supprimer cette conversation"
+                      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition hover:text-destructive focus:opacity-100 group-hover:opacity-100">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           ))
         )}
       </div>
-      <div className="border-t border-border px-3 py-2">
+
+      <div className="border-t border-border px-3 py-2.5">
         <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
           <Lock className="mt-0.5 h-3 w-3 shrink-0" />
-          Mémoire strictement personnelle : personne d'autre — pas même un administrateur — n'y a accès.
+          Mémoire strictement personnelle : personne d&apos;autre — pas même un administrateur — n&apos;y a accès.
         </p>
         {threads.length > 0 && (
           <button type="button" onClick={onForget} className="mt-1.5 text-[11px] text-muted-foreground underline-offset-2 transition hover:text-destructive hover:underline">
