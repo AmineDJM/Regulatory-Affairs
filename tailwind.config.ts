@@ -81,10 +81,16 @@ const config: Config = {
           from: { transform: "translateX(-100%)" },
           to: { transform: "translateX(0)" },
         },
+        // Feuille qui monte du bas (téléphone) : la gestuelle attendue d'une app mobile.
+        "slide-up": {
+          from: { transform: "translateY(100%)" },
+          to: { transform: "translateY(0)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.2s ease-out",
         "slide-in": "slide-in 0.2s ease-out",
+        "slide-up": "slide-up 0.24s cubic-bezier(0.32, 0.72, 0, 1)",
       },
     },
   },

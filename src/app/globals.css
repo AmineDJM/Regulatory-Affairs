@@ -87,6 +87,8 @@
     font-feature-settings: "rlig" 1, "calt" 1;
     /* UX tactile : pas de flash gris au tap, défilement fluide iOS. */
     -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: none;
   }
@@ -127,12 +129,51 @@
     @apply rounded-xl border border-border bg-card;
     box-shadow: 0 1px 2px hsl(216 45% 22% / 0.04), 0 6px 16px hsl(216 45% 22% / 0.06);
   }
+  @media (max-width: 639px) {
+    .surface {
+      box-shadow: 0 1px 2px hsl(216 45% 22% / 0.05);
+    }
+  }
   .focus-ring {
     @apply outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-ring;
   }
 }
 
 @layer components {
+  /* ───────────────────────── Téléphone : la page respire ─────────────────────────
+     Sur un écran de 375 px, chaque carte mange ~32 px en marges + bordures + arrondis :
+     le contenu se retrouve à l'étroit et l'écran paraît « boxé ». On rend donc les cartes
+     de PREMIER NIVEAU **pleine largeur** (bord à bord), comme le fait n'importe quelle
+     application native : plus de bordure latérale, plus d'arrondi sur les côtés, une simple
+     ligne de séparation en haut et en bas. Les cartes IMBRIQUÉES gardent leur cadre — c'est
+     lui qui montre l'imbrication. */
+  @media (max-width: 639px) {
+    .page-shell > .surface,
+    .page-shell > section > .surface {
+      margin-left: -0.75rem;
+      margin-right: -0.75rem;
+      width: calc(100% + 1.5rem);
+      border-left: 0;
+      border-right: 0;
+      border-radius: 0;
+      box-shadow: none;
+    }
+    /* Un tableau qui déborde défile bord à bord plutôt que dans une boîte étroite. */
+    .page-shell .overflow-x-auto {
+      margin-left: -0.75rem;
+      margin-right: -0.75rem;
+      padding-left: 0.75rem;
+      padding-right: 0.75rem;
+    }
+  }
+
+  /* Barre de défilement masquée sur les surfaces tactiles : elle ne sert à rien au doigt
+     et ronge de la largeur utile. */
+  @media (pointer: coarse) {
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { scrollbar-width: none; }
+  }
+
   /* ───────────────────────── Tableaux « cartes » sur mobile ─────────────────────────
      <Table mobileCards> : sous 640 px, chaque ligne devient une carte empilée et chaque
      cellule affiche son intitulé (data-label) à gauche de sa valeur. Aucun défilement

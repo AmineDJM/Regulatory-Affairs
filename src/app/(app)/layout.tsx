@@ -97,8 +97,11 @@ export default async function AppLayout({
         {user.impersonatedBy && <ImpersonationBanner adminName={user.impersonatedBy.name} viewedName={user.name} />}
         {testMode && <TestModeBanner />}
         <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} companies={companies} companyScope={companyScope} />
-        <main className="flex-1 overflow-y-auto px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-4 sm:pt-6 lg:px-8 lg:pb-8">
-          <div className="mx-auto max-w-[1400px] space-y-6">{children}</div>
+        {/* `page-shell` porte les règles « pleine largeur sur téléphone » (globals.css) :
+            les cartes de premier niveau y perdent leurs bordures latérales pour occuper
+            tout l'écran, comme dans une application native. */}
+        <main className="flex-1 overflow-y-auto px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-3 sm:px-4 sm:pt-6 lg:px-8 lg:pb-8">
+          <div className="page-shell mx-auto max-w-[1400px] space-y-4 sm:space-y-6">{children}</div>
         </main>
       </div>
       {/* Navigation MOBILE : barre d'onglets basse + grille complète des modules. */}
