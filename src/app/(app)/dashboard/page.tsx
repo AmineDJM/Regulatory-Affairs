@@ -5,6 +5,7 @@ import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ModuleTabs } from "@/components/shared/module-tabs";
+import { visibleTabs } from "@/lib/nav-tabs";
 import { TrendChart, DonutChart, MiniBarChart } from "@/components/dashboard/charts";
 import { ROLE_LABELS, REGULATORY_STATUS, BUDGET_CATEGORY, WORKSPACE_TABS } from "@/lib/labels";
 import { formatCurrency, formatCompact, percent } from "@/lib/utils";
@@ -27,7 +28,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-7">
-      <ModuleTabs tabs={WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
+      <ModuleTabs tabs={await visibleTabs(user, WORKSPACE_TABS)} />
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
           Bonjour {user.name.split(" ")[0]} 👋

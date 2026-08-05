@@ -16,6 +16,7 @@ import {
   distillationDue, countMessages, recentMessages, getMemory, saveMemory,
   type ThreadSummary, type StoredMessage,
 } from "@/lib/assistant-memory";
+import { getDailyBrief } from "@/lib/daily-brief";
 import { extractAttachmentText, buildAttachmentContext, type AttachmentText } from "@/lib/assistant-files";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import {
@@ -309,6 +310,24 @@ export async function deleteMyAssistantThread(threadId: string): Promise<Execute
     return ok ? { ok: true, message: "Conversation supprimée." } : { ok: false, error: "Conversation introuvable." };
   } catch {
     return { ok: false, error: "Suppression impossible." };
+  }
+}
+
+/**
+ * Régénère MON point du matin (bouton « Actualiser »). Le brief est écrit à partir de mes
+ * seules données ; personne d'autre ne peut le demander ni le lire.
+ */
+export async function refreshMyBrief(): Promise<{ text: string | null }> {
+  try {
+    const user = await requireUser();
+    if (user.impersonatedBy) return { text: null };
+    if (!(await featureEnabled(FEATURES.ASSISTANT_PROACTIVE.key, user.id))) return { text: null };
+    if (!(await aiFeatureEnabled("assistant"))) return { text: null };
+    const res = await getDailyBrief(user, true);
+    return { text: res.text };
+  } catch (err) {
+    console.error("[assistant] refreshMyBrief failed", err);
+    return { text: null };
   }
 }
 

@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ModuleTabs } from "@/components/shared/module-tabs";
+import { visibleTabs } from "@/lib/nav-tabs";
 import { PRIORITY, ROLE_LABELS, WORKSPACE_TABS } from "@/lib/labels";
 import { formatDate, formatDateTime, daysUntil } from "@/lib/utils";
 
@@ -33,7 +34,7 @@ export default async function MonTravailPage() {
         title={`Mon travail`}
         description={`Bonjour ${user.name.split(" ")[0]} — voici ce qui vous attend aujourd'hui. ${ROLE_LABELS[user.role] ?? ""}`}
       />
-      <ModuleTabs tabs={WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
+      <ModuleTabs tabs={await visibleTabs(user, WORKSPACE_TABS)} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-5">
         <KpiCard label="À faire" value={stats.todo} icon="ListChecks" />

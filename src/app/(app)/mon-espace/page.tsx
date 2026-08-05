@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { ModuleTabs } from "@/components/shared/module-tabs";
+import { visibleTabs } from "@/lib/nav-tabs";
 import { createTask, requestTask } from "@/lib/actions/task-actions";
 import { requestLeave, requestAdvance } from "@/lib/actions/hr-actions";
 import { ROLE_LABELS, PRIORITY, LEAVE_TYPE, WORKSPACE_TABS, MODULE_LABELS } from "@/lib/labels";
@@ -111,7 +112,7 @@ export default async function MonEspacePage() {
           </>
         )}
       </PageHeader>
-      <ModuleTabs tabs={WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
+      <ModuleTabs tabs={await visibleTabs(user, WORKSPACE_TABS)} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Tâches ouvertes" value={data.stats.openTasks} icon="ListTodo" />

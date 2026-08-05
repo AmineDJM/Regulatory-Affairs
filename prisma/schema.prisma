@@ -647,6 +647,70 @@ model AssistantMemory {
   @@index([userId])
 }
 
+/// Point du matin de l'assistant : un texte par personne et par jour (fuseau d'Alger).
+/// Cache indispensable — sans lui, chaque ouverture de la page relancerait un appel IA.
+/// Strictement personnel, comme le reste de la mémoire de l'assistant.
+model DailyBrief {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation("DailyBriefs", fields: [userId], references: [id], onDelete: Cascade)
+  day       DateTime @db.Date
+  text      String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, day])
+  @@index([day])
+}
+
+/// État d'un envoi de courrier « smart » (API HTTPS, pas de SMTP).
+enum OutboundEmailStatus {
+  QUEUED /// accepté, pas encore transmis au fournisseur
+  SENT /// accepté par le fournisseur (identifiant retourné)
+  FAILED /// refusé — le motif exact est conservé
+}
+
+/// COURRIER SORTANT — journal de tous les e-mails envoyés par la plateforme.
+/// L'envoi passe par l'API HTTPS d'un fournisseur (port 443, jamais 25/465/587) : c'est ce
+/// qui met fin aux blocages SMTP. Chaque envoi laisse une trace consultable, avec le motif
+/// exact en cas de refus — on ne se demande plus « est-ce parti ? ».
+model OutboundEmail {
+  id         String              @id @default(cuid())
+  userId     String? /// demandeur (null = envoi système)
+  user       User?               @relation("OutboundEmails", fields: [userId], references: [id], onDelete: SetNull)
+  toAddress  String /// destinataires, séparés par « , »
+  ccAddress  String?
+  subject    String
+  body       String
+  isHtml     Boolean             @default(false)
+  status     OutboundEmailStatus @default(QUEUED)
+  provider   String? /// resend | postmark | brevo
+  providerId String? /// identifiant du message chez le fournisseur
+  error      String?
+  attempts   Int                 @default(0)
+  createdAt  DateTime            @default(now())
+  sentAt     DateTime?
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+/// COURRIER ENTRANT — messages reçus par webhook (le fournisseur pousse, on ne relève pas
+/// de boîte IMAP). La signature du fournisseur est vérifiée AVANT toute écriture.
+model InboundEmail {
+  id          String   @id @default(cuid())
+  provider    String
+  messageId   String?  @unique /// identifiant du fournisseur — garantit l'idempotence des relivraisons
+  fromAddress String
+  fromName    String?
+  toAddress   String
+  subject     String
+  text        String
+  receivedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([toAddress, receivedAt])
+}
+
 /// Stade de diffusion d'une nouveauté.
 enum FeatureStage {
   TEST /// visible UNIQUEMENT des comptes en mode test
@@ -755,6 +819,8 @@ model User {
   promotedFeatures FeatureFlag[]   @relation("FeaturePromoter")
   assistantThreads AssistantThread[] @relation("AssistantThreads")
   assistantMemory  AssistantMemory?  @relation("AssistantMemory")
+  dailyBriefs      DailyBrief[]      @relation("DailyBriefs")
+  outboundEmails   OutboundEmail[]   @relation("OutboundEmails")
   tasksAssigned    Task[]          @relation("TaskAssignee")
   tasksCreated     Task[]          @relation("TaskCreator")
   leaveDecisions   LeaveRequest[]  @relation("LeaveDecider")

@@ -19,7 +19,7 @@ import { getTotalUnread } from "@/lib/queries/messaging";
 import { getAdoptionBadge } from "@/lib/adoption";
 import { aiConfigured, sttConfigured } from "@/lib/ai";
 import { getCompanies, getCompanyScope } from "@/lib/company";
-import { isTestUser } from "@/lib/features";
+import { isTestUser, featureEnabled } from "@/lib/features";
 import { prisma } from "@/lib/prisma";
 
 export default async function AppLayout({
@@ -43,12 +43,22 @@ export default async function AppLayout({
   // onglet ; le lien pointe vers le premier onglet autorisé, et `match` couvre les
   // chemins de tous les onglets pour le surlignage. Les entrées simples sont
   // filtrées par leur module, comme avant.
+  // Un onglet porteur d'un `feature` n'existe que pour les comptes qui voient cette
+  // nouveauté (stade TEST → testeurs, PROD → tout le monde) : on résout les drapeaux
+  // une fois ici, puis on filtre comme n'importe quel droit.
+  const tabFeatures = Array.from(new Set(NAVIGATION.flatMap((n) => (n.tabs ?? []).map((t) => t.feature).filter((f): f is string => !!f))));
+  const featureOn = new Map<string, boolean>(
+    await Promise.all(tabFeatures.map(async (f) => [f, await featureEnabled(f, user.id).catch(() => false)] as const)),
+  );
+  const tabVisible = (t: { module: string; feature?: string }) =>
+    modules.includes(t.module as (typeof modules)[number]) && (!t.feature || featureOn.get(t.feature) === true);
+
   const navItems = NAVIGATION.reduce<NavItem[]>((acc, n) => {
     if (!n.tabs) {
       if (modules.includes(n.module)) acc.push(n);
       return acc;
     }
-    const accessible = n.tabs.filter((t) => modules.includes(t.module));
+    const accessible = n.tabs.filter(tabVisible);
     if (accessible.length > 0) {
       acc.push({ ...n, href: accessible[0].href, match: n.tabs.map((t) => t.href) });
     }

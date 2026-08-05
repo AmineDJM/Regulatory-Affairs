@@ -1018,6 +1018,12 @@ export interface NavTab {
   module: Module;
   label: string;
   href: string;
+  /**
+   * Nouveauté livrée derrière un drapeau de version (`src/lib/features.ts`) : l'onglet
+   * n'apparaît qu'aux comptes qui la voient (stade TEST → testeurs, stade PROD → tout le
+   * monde). Absent = onglet visible dès que le module est autorisé.
+   */
+  feature?: string;
 }
 
 /** Navigation metadata: maps a sidebar entry to a module + route + icon name. */
@@ -1048,6 +1054,8 @@ export const CONGRESS_TABS: NavTab[] = [
 // « Calendrier » et « Mon dossier RH » en sont ressortis → entrées/modules autonomes ;
 // « Dashboard » y est entré.)
 export const WORKSPACE_TABS: NavTab[] = [
+  // « Aujourd'hui » : l'accueil qui répond à une seule question — que dois-je faire maintenant ?
+  { module: "WORKSPACE", label: "Aujourd'hui", href: "/aujourdhui", feature: "home_today" },
   { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard" },

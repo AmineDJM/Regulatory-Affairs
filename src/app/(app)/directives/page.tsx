@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { ModuleTabs } from "@/components/shared/module-tabs";
+import { visibleTabs } from "@/lib/nav-tabs";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { createDirective } from "@/lib/actions/directive-actions";
 import { DIRECTIVE_STATUS, PRIORITY, ROLE_LABELS, WORKSPACE_TABS } from "@/lib/labels";
@@ -56,7 +57,7 @@ export default async function DirectivesPage() {
           />
         )}
       </PageHeader>
-      <ModuleTabs tabs={WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
+      <ModuleTabs tabs={await visibleTabs(user, WORKSPACE_TABS)} />
 
       {directives.length === 0 ? (
         <EmptyState icon="Megaphone" title="Aucune directive" description={canManage ? "Émettez une directive pour vos équipes." : "Les directives de la Direction qui vous concernent apparaîtront ici."} />
