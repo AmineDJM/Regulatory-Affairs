@@ -21,6 +21,7 @@ const overview: BudgetOverview = {
     cat({ id: "b", name: "Table ronde", parentId: "a", allocated: 400, consumed: 400, remaining: 0, pct: 100 }),
   ],
   totals: { total: 1000, allocated: 1000, unallocated: 0, consumed: 800, committed: 0, remaining: 200, pct: 80 },
+  monthly: [],
   unattributed: { total: 0, count: 0, transactions: [] },
   attributed: { count: 0, transactions: [] },
 };

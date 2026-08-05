@@ -1,5 +1,13 @@
 "use client";
 
+/**
+ * BUDGETS — briques de FORMULAIRE partagées par les écrans « Dépenses » et « Réglages ».
+ *
+ * Ce fichier ne dessine aucun écran : il ne contient que les tiroirs (enveloppe, catégorie,
+ * budget total, dépense) et les champs d'accès. Les écrans, eux, vivent dans
+ * `budget-expenses.tsx` et `budget-settings.tsx` — un fichier par intention.
+ */
+
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Pencil, Trash2, Loader2, SlidersHorizontal, Wallet, CornerDownRight, Download } from "lucide-react";
@@ -128,92 +136,14 @@ function managersField(users: UserOpt[], defaultRoles: string[] = [], defaultIds
   );
 }
 
-/**
- * Vue consolidée « total des enveloppes » : visible du Super Admin et des personnes/
- * rôles qu'il a autorisés (la requête n'agrège que les enveloppes accessibles).
- */
-/**
- * Graphique à barres comparatives (inline, sans dépendance, thème-aware) : pour chaque ligne,
- * une barre « budget » (claire) sur laquelle se superpose la barre « consommé » (pleine),
- * toutes deux à l'échelle du plus grand budget → comparaison visuelle immédiate.
- */
-function CompareBars({ rows }: { rows: { label: string; budget: number; consumed: number }[] }) {
-  const max = Math.max(1, ...rows.map((r) => Math.max(r.budget, r.consumed)));
-  return (
-    <div className="space-y-2.5">
-      {rows.map((r, i) => {
-        const budgetPct = Math.min(100, (r.budget / max) * 100);
-        const consumedPct = Math.min(100, (r.consumed / max) * 100);
-        const over = r.budget > 0 && r.consumed > r.budget;
-        const cpct = r.budget > 0 ? Math.round((r.consumed / r.budget) * 100) : 0;
-        return (
-          <div key={i} className="space-y-1">
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="truncate font-medium">{r.label}</span>
-              <span className="shrink-0 tabular-nums text-muted-foreground">{formatCurrency(r.consumed)} / {formatCurrency(r.budget)} · <span className={over ? "text-destructive" : cpct > 80 ? "text-warning" : "text-success"}>{cpct}%</span></span>
-            </div>
-            <div className="relative h-3 w-full overflow-hidden rounded-full bg-secondary/60">
-              <div className="absolute inset-y-0 left-0 rounded-full bg-primary/20" style={{ width: `${budgetPct}%` }} />
-              <div className={cn("absolute inset-y-0 left-0 rounded-full", over ? "bg-destructive" : cpct > 80 ? "bg-warning" : "bg-success")} style={{ width: `${consumedPct}%` }} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-export function EnvelopesGrandTotalPanel({ data }: { data: EnvelopesGrandTotal }) {
-  const pct = data.total > 0 ? Math.round((data.consumed / data.total) * 100) : 0;
-  const chartRows = data.items.filter((e) => e.total > 0 || e.consumed > 0).map((e) => ({ label: e.name, budget: e.total, consumed: e.consumed }));
-  return (
-    <section className="surface space-y-3 p-4">
-      <div className="flex items-center gap-2">
-        <Wallet className="h-4 w-4 text-primary" />
-        <h2 className="text-sm font-semibold">Total des enveloppes</h2>
-        <Badge tone="neutral" dot={false}>{data.count} enveloppe{data.count > 1 ? "s" : ""}</Badge>
-      </div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi label="Budget cumulé" value={formatCurrency(data.total)} />
-        <Kpi label="Alloué (catégories)" value={formatCurrency(data.allocated)} hint={data.total - data.allocated !== 0 ? `${formatCurrency(data.total - data.allocated)} non alloué` : "100 % réparti"} />
-        <Kpi label="Consommé" value={formatCurrency(data.consumed)} hint={`${pct}% du cumulé`} tone="warning" />
-        <Kpi label="Reste" value={formatCurrency(data.remaining)} tone={data.remaining < 0 ? "danger" : "success"} />
-      </div>
-      <div className="overflow-hidden rounded-lg border border-border">
-        <table className="mobile-cards w-full text-sm">
-          <thead className="bg-secondary/50 text-xs text-muted-foreground">
-            <tr><th className="px-3 py-1.5 text-left font-medium">Enveloppe</th><th className="px-3 py-1.5 text-right font-medium">Budget</th><th className="px-3 py-1.5 text-right font-medium">Consommé</th><th className="px-3 py-1.5 text-right font-medium">Reste</th></tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {data.items.map((e) => (
-              <tr key={e.id}>
-                <td data-label="Enveloppe" className="px-3 py-1.5">{e.name}{!e.isActive && <span className="ml-1 text-xs text-muted-foreground">(archivée)</span>}</td>
-                <td data-label="Budget" className="px-3 py-1.5 text-right tabular-nums">{formatCurrency(e.total)}</td>
-                <td data-label="Consommé" className="px-3 py-1.5 text-right tabular-nums text-warning">{formatCurrency(e.consumed)}</td>
-                <td data-label="Reste" className={cn("px-3 py-1.5 text-right tabular-nums", e.remaining < 0 ? "text-destructive" : "text-success")}>{formatCurrency(e.remaining)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {chartRows.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Consommation par enveloppe</p>
-          <CompareBars rows={chartRows} />
-        </div>
-      )}
-    </section>
-  );
-}
-
-const HEALTH: Record<BudgetHealth, { label: string; tone: "success" | "warning" | "danger" | "neutral"; bar: string }> = {
+export const HEALTH: Record<BudgetHealth, { label: string; tone: "success" | "warning" | "danger" | "neutral"; bar: string }> = {
   ON_TRACK: { label: "Maîtrisé", tone: "success", bar: "bg-success" },
   AT_RISK: { label: "À surveiller", tone: "warning", bar: "bg-warning" },
   OVER_BUDGET: { label: "Dépassé", tone: "danger", bar: "bg-destructive" },
   NONE: { label: "—", tone: "neutral", bar: "bg-muted-foreground/40" },
 };
 
-function useRun() {
+export function useRun() {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -261,211 +191,7 @@ export function CreateEnvelopeButton({ users = [] }: { users?: UserOpt[] }) {
   );
 }
 
-export function BudgetBoard({ overview, envelopes, canManage, canManageAccess = canManage, canAttribute = canManage, budgetTotal, users = [] }: { overview: BudgetOverview; envelopes: BudgetEnvelopeOption[]; canManage: boolean; canManageAccess?: boolean; canAttribute?: boolean; budgetTotal: BudgetTotalInfo; users?: UserOpt[] }) {
-  const router = useRouter();
-  const t = overview.totals;
-  // Modules couverts par l'enveloppe (rétrocompat : ancien champ `module` unique).
-  const envModules = overview.envelope.modules.length ? overview.envelope.modules : overview.envelope.module ? [overview.envelope.module] : [];
-  const [editEnv, setEditEnv] = React.useState(false);
-  const [totalSheet, setTotalSheet] = React.useState(false);
-  const [catSheet, setCatSheet] = React.useState<{ cat?: BudgetCategoryView; parentId?: string } | null>(null);
-  const [editExpense, setEditExpense] = React.useState<AttributedTx | null>(null);
-  const { run } = useRun();
-
-  // Catégories de 1er niveau + leurs sous-catégories (regroupées par parent).
-  const topCats = overview.categories.filter((c) => c.parentId === null);
-  const subsByParent = new Map<string, BudgetCategoryView[]>();
-  for (const c of overview.categories) {
-    if (c.parentId) subsByParent.set(c.parentId, [...(subsByParent.get(c.parentId) ?? []), c]);
-  }
-  const topCatOptions = topCats.map((c) => ({ id: c.id, name: c.name }));
-  // Données du graphique de consommation par catégorie (catégories de tête ayant un budget/consommation).
-  const chartCats = topCats.filter((c) => c.allocated > 0 || c.consumed > 0).map((c) => ({ label: c.name, budget: c.allocated, consumed: c.consumed }));
-  const editCat = (cat: BudgetCategoryView) => setCatSheet({ cat });
-  const deleteCat = (cat: BudgetCategoryView) => {
-    if (window.confirm(`Supprimer « ${cat.name} » ?${cat.parentId === null ? " Ses sous-catégories seront aussi supprimées." : ""} Les dépenses repasseront en « non attribué ».`)) {
-      const fd = new FormData(); fd.set("id", cat.id); run(() => deleteBudgetCategory(fd));
-    }
-  };
-
-  const navigate = (params: Record<string, string>) => {
-    const sp = new URLSearchParams({ env: overview.envelope.id, ...params });
-    router.push(`/budgets?${sp.toString()}`);
-  };
-
-  return (
-    <div className="space-y-5">
-      {/* Contrôles : enveloppe + période */}
-      <div className="surface flex flex-wrap items-end gap-3 p-3">
-        <div className="space-y-1.5">
-          <Label className="flex flex-wrap items-center gap-1">
-            Enveloppe
-            {envModules.map((m) => <Badge key={m} tone="info" dot={false}>{moduleLabel(m) ?? m}</Badge>)}
-          </Label>
-          <Select value={overview.envelope.id} onChange={(e) => router.push(`/budgets?env=${e.target.value}`)} className="w-56">
-            {envelopes.map((en) => <option key={en.id} value={en.id}>{en.name}{en.isActive ? "" : " (archivée)"}</option>)}
-          </Select>
-        </div>
-        {/* Budget total au-dessus des enveloppes : figé ou somme des enveloppes.
-            Réglé ici par le Super Admin (ou un délégué) via « Régler ». */}
-        <div className="space-y-1.5">
-          <Label className="flex items-center gap-1.5">
-            Budget total (toutes enveloppes)
-            <Badge tone={budgetTotal.mode === "FIXED" ? "purple" : "neutral"} dot={false}>{budgetTotal.mode === "FIXED" ? "Fixe" : "Flexible"}</Badge>
-          </Label>
-          <div className="flex items-center gap-2">
-            <p className="text-lg font-semibold tabular-nums">{formatCurrency(budgetTotal.value)}</p>
-            {canManageAccess && <Button type="button" variant="outline" size="sm" onClick={() => setTotalSheet(true)}><SlidersHorizontal className="h-3.5 w-3.5" /> Régler</Button>}
-          </div>
-        </div>
-        <PeriodPicker from={d10(overview.period.from)} to={d10(overview.period.to)} onApply={(from, to) => navigate({ from, to })} />
-        <div className="ml-auto flex items-center gap-2">
-          <span className="hidden text-xs text-muted-foreground sm:inline">Période : {formatDate(overview.period.from)} → {formatDate(overview.period.to)}</span>
-          <a
-            href={`/api/budgets/export?env=${overview.envelope.id}&from=${d10(overview.period.from)}&to=${d10(overview.period.to)}`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm font-medium transition-colors hover:bg-secondary"
-            title="Exporter le budget en Excel (avec taux de consommation)"
-          >
-            <Download className="h-4 w-4" /> Excel
-          </a>
-          {canManageAccess && <Button variant="outline" size="sm" onClick={() => setEditEnv(true)}><Pencil className="h-4 w-4" /> Enveloppe</Button>}
-        </div>
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi label="Budget total" value={formatCurrency(t.total)} />
-        <Kpi label="Alloué" value={formatCurrency(t.allocated)} hint={t.unallocated !== 0 ? `${formatCurrency(t.unallocated)} non alloué` : "100 % réparti"} tone={t.unallocated < 0 ? "danger" : "default"} />
-        <Kpi label="Consommé" value={formatCurrency(t.consumed)} hint={`${t.pct}% du total${t.committed ? ` · ${formatCurrency(t.committed)} engagé` : ""}`} tone="warning" />
-        <Kpi label="Reste" value={formatCurrency(t.remaining)} tone={t.remaining < 0 ? "danger" : "success"} />
-      </div>
-
-      {/* Graphique de consommation par catégorie de cette enveloppe */}
-      {chartCats.length > 0 && (
-        <section className="surface space-y-3 p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Consommation par catégorie</h2>
-          <CompareBars rows={chartCats} />
-        </section>
-      )}
-
-      {/* Catégories */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Catégories ({overview.categories.length})</h2>
-          {canManage && <Button size="sm" onClick={() => setCatSheet({})}><Plus className="h-4 w-4" /> Nouvelle catégorie</Button>}
-        </div>
-        {/* Ajout RAPIDE d'une ligne de dépense (référence + montant) qui consomme un budget. */}
-        {canAttribute && overview.categories.length > 0 && <AddExpenseRow categories={overview.categories} />}
-        {topCats.length === 0 ? (
-          <p className="surface p-4 text-sm text-muted-foreground">Aucune catégorie. {canManage && "Répartissez le budget total en créant des catégories (ex. Promotion, Congrès, Logistique…), avec si besoin des sous-catégories (ex. Table ronde)."}</p>
-        ) : (
-          <div className="space-y-2">
-            {topCats.map((c) => (
-              <CategoryCard
-                key={c.id}
-                c={c}
-                subs={subsByParent.get(c.id) ?? []}
-                canManage={canManage}
-                onEdit={editCat}
-                onDelete={deleteCat}
-                onAddSub={() => setCatSheet({ parentId: c.id })}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Dépenses non attribuées */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Dépenses non attribuées {overview.unattributed.total > 0 && <Badge tone="warning" dot={false}>{formatCurrency(overview.unattributed.total)}</Badge>}
-        </h2>
-        {overview.unattributed.transactions.length === 0 ? (
-          <p className="surface p-4 text-sm text-muted-foreground">Toutes les dépenses de la période sont attribuées à une catégorie. 👍</p>
-        ) : (
-          <div className="surface divide-y divide-border">
-            {overview.unattributed.transactions.map((tx) => (
-              <div key={tx.id} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{tx.label}</p>
-                  <p className="text-xs text-muted-foreground">{tx.reference} · {formatDate(tx.date)}{tx.counterparty ? ` · ${tx.counterparty}` : ""}</p>
-                </div>
-                <span className="font-semibold text-destructive">{formatCurrency(tx.amount)}</span>
-                {canAttribute ? (
-                  <Select
-                    defaultValue=""
-                    onChange={(e) => { const fd = new FormData(); fd.set("transactionId", tx.id); if (e.target.value) fd.set("budgetCategoryId", e.target.value); run(() => attributeTransaction(fd)); }}
-                    className="h-8 w-44 text-xs"
-                  >
-                    <option value="">Attribuer à…</option>
-                    {overview.categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
-                  </Select>
-                ) : <Badge tone="neutral" dot={false}>Non attribué</Badge>}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Dépenses imputées à l'enveloppe. Deux origines :
-          • FINANCE = vraie dépense de trésorerie (ré-attribuable ; se supprime dans les Finances) ;
-          • BUDGET = ligne purement budgétaire saisie ici (sans impact trésorerie ; supprimable). */}
-      {canAttribute && overview.attributed.transactions.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Dépenses imputées ({overview.attributed.count}) <span className="font-normal normal-case text-[11px] text-muted-foreground">— trésorerie ré-attribuable · ligne budgétaire modifiable / supprimable</span>
-          </h2>
-          <div className="surface divide-y divide-border">
-            {overview.attributed.transactions.map((tx) => (
-              <div key={`${tx.kind}-${tx.id}`} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{tx.label}</p>
-                  <p className="text-xs text-muted-foreground">{tx.reference} · {formatDate(tx.date)}{tx.counterparty ? ` · ${tx.counterparty}` : ""}</p>
-                </div>
-                {tx.kind === "BUDGET" && <Badge tone="neutral" dot={false}>Budgétaire</Badge>}
-                <span className="font-semibold text-destructive">{formatCurrency(tx.amount)}</span>
-                {tx.kind === "FINANCE" ? (
-                  <Select
-                    defaultValue={tx.categoryId}
-                    onChange={(e) => { const fd = new FormData(); fd.set("transactionId", tx.id); if (e.target.value) fd.set("budgetCategoryId", e.target.value); run(() => attributeTransaction(fd)); }}
-                    className="h-8 w-48 text-xs"
-                  >
-                    <option value="">— Retirer l'attribution —</option>
-                    {overview.categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
-                  </Select>
-                ) : (
-                  <div className="flex items-center gap-1">
-                    <button
-                      title="Modifier cette ligne de dépense budgétaire"
-                      onClick={() => setEditExpense(tx)}
-                      className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button
-                      title="Supprimer cette ligne de dépense budgétaire"
-                      onClick={() => { if (window.confirm(`Supprimer la dépense « ${tx.label} » ? La consommation de la catégorie sera réajustée.`)) { const fd = new FormData(); fd.set("id", tx.id); run(() => deleteBudgetExpense(fd)); } }}
-                      className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {editEnv && <EnvelopeSheet envelope={overview.envelope} users={users} onClose={() => setEditEnv(false)} onDeleted={() => router.push("/budgets")} canDelete={canManageAccess} />}
-      {catSheet && <CategorySheet envelopeId={overview.envelope.id} cat={catSheet.cat} defaultParentId={catSheet.parentId} parentOptions={topCatOptions} onClose={() => setCatSheet(null)} />}
-      {totalSheet && <BudgetTotalSheet info={budgetTotal} onClose={() => setTotalSheet(false)} />}
-      {editExpense && <ExpenseEditSheet tx={editExpense} categories={overview.categories} onClose={() => setEditExpense(null)} />}
-    </div>
-  );
-}
-
-function BudgetTotalSheet({ info, onClose }: { info: BudgetTotalInfo; onClose: () => void }) {
+export function BudgetTotalSheet({ info, onClose }: { info: BudgetTotalInfo; onClose: () => void }) {
   const { busy, err, run } = useRun();
   const [mode, setMode] = React.useState<BudgetTotalInfo["mode"]>(info.mode);
   return (
@@ -491,24 +217,11 @@ function BudgetTotalSheet({ info, onClose }: { info: BudgetTotalInfo; onClose: (
   );
 }
 
-function PeriodPicker({ from, to, onApply }: { from: string; to: string; onApply: (from: string, to: string) => void }) {
-  const [f, setF] = React.useState(from);
-  const [t, setT] = React.useState(to);
-  React.useEffect(() => { setF(from); setT(to); }, [from, to]);
-  return (
-    <div className="flex items-end gap-2">
-      <div className="space-y-1.5"><Label>Du</Label><Input type="date" value={f} onChange={(e) => setF(e.target.value)} className="w-40" /></div>
-      <div className="space-y-1.5"><Label>Au</Label><Input type="date" value={t} onChange={(e) => setT(e.target.value)} className="w-40" /></div>
-      <Button variant="outline" size="sm" onClick={() => onApply(f, t)}><SlidersHorizontal className="h-4 w-4" /> Appliquer</Button>
-    </div>
-  );
-}
-
 /**
  * Ajout RAPIDE d'une ligne de dépense qui CONSOMME un budget : (sous-)catégorie + référence
  * + montant → « + ». Crée une dépense réelle réglée imputée à la catégorie (consommation immédiate).
  */
-function AddExpenseRow({ categories }: { categories: BudgetCategoryView[] }) {
+export function AddExpenseRow({ categories }: { categories: BudgetCategoryView[] }) {
   const { busy, err, run } = useRun();
   const formRef = React.useRef<HTMLFormElement>(null);
   return (
@@ -545,7 +258,7 @@ function AddExpenseRow({ categories }: { categories: BudgetCategoryView[] }) {
  * date et RÉ-IMPUTATION vers une autre (sous-)catégorie. La consommation se réajuste aussitôt.
  * (Les dépenses de trésorerie, elles, se modifient dans les Finances.)
  */
-function ExpenseEditSheet({ tx, categories, onClose }: { tx: AttributedTx; categories: BudgetCategoryView[]; onClose: () => void }) {
+export function ExpenseEditSheet({ tx, categories, onClose }: { tx: AttributedTx; categories: BudgetCategoryView[]; onClose: () => void }) {
   const { busy, err, run } = useRun();
   return (
     <Sheet open onClose={onClose} title="Modifier la dépense" description="Ligne purement budgétaire — la consommation de la catégorie est réajustée aussitôt." width="md">
@@ -567,7 +280,7 @@ function ExpenseEditSheet({ tx, categories, onClose }: { tx: AttributedTx; categ
   );
 }
 
-function CategoryCard({ c, subs, canManage, onEdit, onDelete, onAddSub }: { c: BudgetCategoryView; subs: BudgetCategoryView[]; canManage: boolean; onEdit: (cat: BudgetCategoryView) => void; onDelete: (cat: BudgetCategoryView) => void; onAddSub: () => void }) {
+export function CategoryCard({ c, subs, canManage, onEdit, onDelete, onAddSub }: { c: BudgetCategoryView; subs: BudgetCategoryView[]; canManage: boolean; onEdit: (cat: BudgetCategoryView) => void; onDelete: (cat: BudgetCategoryView) => void; onAddSub: () => void }) {
   const h = HEALTH[c.health];
   const pct = Math.min(c.pct, 100);
   const subAllocated = subs.reduce((a, s) => a + s.allocated, 0);
@@ -620,7 +333,7 @@ function CategoryCard({ c, subs, canManage, onEdit, onDelete, onAddSub }: { c: B
   );
 }
 
-function EnvelopeSheet({ envelope, users, onClose, onDeleted, canDelete }: { envelope: BudgetOverview["envelope"]; users: UserOpt[]; onClose: () => void; onDeleted: () => void; canDelete: boolean }) {
+export function EnvelopeSheet({ envelope, users, onClose, onDeleted, canDelete }: { envelope: BudgetOverview["envelope"]; users: UserOpt[]; onClose: () => void; onDeleted: () => void; canDelete: boolean }) {
   const { busy, err, run } = useRun();
   return (
     <Sheet open onClose={onClose} title="Modifier l'enveloppe" width="md">
@@ -645,7 +358,7 @@ function EnvelopeSheet({ envelope, users, onClose, onDeleted, canDelete }: { env
   );
 }
 
-function CategorySheet({ envelopeId, cat, defaultParentId, parentOptions, onClose }: { envelopeId: string; cat?: BudgetCategoryView; defaultParentId?: string; parentOptions: { id: string; name: string }[]; onClose: () => void }) {
+export function CategorySheet({ envelopeId, cat, defaultParentId, parentOptions, onClose }: { envelopeId: string; cat?: BudgetCategoryView; defaultParentId?: string; parentOptions: { id: string; name: string }[]; onClose: () => void }) {
   const { busy, err, run } = useRun();
   const [parent, setParent] = React.useState(cat?.parentId ?? defaultParentId ?? "");
   // On ne propose pas la catégorie elle-même comme parente (édition) → pas de cycle.
@@ -688,16 +401,5 @@ function CategorySheet({ envelopeId, cat, defaultParentId, parentOptions, onClos
         <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
       </form>
     </Sheet>
-  );
-}
-
-function Kpi({ label, value, hint, tone = "default" }: { label: string; value: string; hint?: string; tone?: "default" | "warning" | "success" | "danger" }) {
-  const toneCls = { default: "", warning: "text-warning", success: "text-success", danger: "text-destructive" }[tone];
-  return (
-    <div className="surface p-4">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn("mt-1 text-xl font-semibold", toneCls)}>{value}</p>
-      {hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>}
-    </div>
   );
 }

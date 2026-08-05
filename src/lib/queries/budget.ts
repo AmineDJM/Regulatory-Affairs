@@ -98,13 +98,66 @@ export interface EnvelopesGrandTotal {
   items: EnvelopeSummaryItem[];
 }
 
+/**
+ * Un mois de la période : ce qui a été consommé, le cumul depuis le début, et le **rythme
+ * théorique** au même instant (budget dépensé régulièrement). Au-dessus du rythme = on
+ * dépense trop vite — c'est toute la lecture de la courbe.
+ */
+export interface BudgetMonthPoint {
+  month: string; // « 2026-03 »
+  label: string; // « mars »
+  consumed: number;
+  cumulative: number;
+  expected: number;
+}
+
 export interface BudgetOverview {
   envelope: { id: string; name: string; module: string | null; modules: string[]; accessRoles: string[]; accessUserIds: string[]; managerRoles: string[]; managerUserIds: string[]; periodStart: string; periodEnd: string; total: number; notes: string | null; isActive: boolean };
   period: { from: string; to: string };
   categories: BudgetCategoryView[];
   totals: { total: number; allocated: number; unallocated: number; consumed: number; committed: number; remaining: number; pct: number };
+  /** Consommation mois par mois (courbe de la vue d'ensemble). */
+  monthly: BudgetMonthPoint[];
   unattributed: { total: number; count: number; transactions: UnattributedTx[] };
   attributed: { count: number; transactions: AttributedTx[] };
+}
+
+const MONTH_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+
+/**
+ * Répartit la consommation par mois et calcule le rythme théorique.
+ * Fonction PURE (les dates arrivent déjà lues) : c'est elle qui est testée, pas la requête.
+ */
+export function buildMonthlySeries(
+  from: Date, to: Date, total: number, entries: { date: Date; amount: number }[],
+): BudgetMonthPoint[] {
+  const key = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  const months: { month: string; label: string }[] = [];
+  const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
+  const end = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), 1));
+  // Garde-fou : une période aberrante ne doit pas produire des milliers de points.
+  while (cur <= end && months.length < 60) {
+    months.push({ month: key(cur), label: MONTH_FR[cur.getUTCMonth()] });
+    cur.setUTCMonth(cur.getUTCMonth() + 1);
+  }
+  if (months.length === 0) return [];
+
+  const byMonth = new Map<string, number>();
+  for (const e of entries) byMonth.set(key(e.date), (byMonth.get(key(e.date)) ?? 0) + e.amount);
+
+  let running = 0;
+  return months.map((m, i) => {
+    const consumed = byMonth.get(m.month) ?? 0;
+    running += consumed;
+    return {
+      month: m.month,
+      label: m.label,
+      consumed,
+      cumulative: running,
+      // Rythme théorique : le budget réparti également sur les mois de la période.
+      expected: Math.round((total * (i + 1)) / months.length),
+    };
+  });
 }
 
 function health(allocated: number, consumed: number): BudgetHealth {
@@ -321,6 +374,25 @@ export async function getBudgetOverview(
         }),
       ])
     : [[], []];
+  // Série mensuelle (courbe) : on relit les seules dates + montants CONSOMMÉS de l'enveloppe,
+  // sans plafond de lignes — la courbe doit couvrir toute la période, pas les 60 dernières.
+  const [monthlyFinance, monthlyLines] = catNameById.size
+    ? await Promise.all([
+        prisma.financeTransaction.findMany({
+          where: { direction: "OUT", status: "SETTLED", budgetCategoryId: { in: [...catNameById.keys()] }, date: { gte: from, lte: to } },
+          select: { date: true, amount: true },
+        }),
+        prisma.budgetExpenseLine.findMany({
+          where: { categoryId: { in: [...catNameById.keys()] }, date: { gte: from, lte: to } },
+          select: { date: true, amount: true },
+        }),
+      ])
+    : [[], []];
+  const monthly = buildMonthlySeries(from, to, toNumber(envelope.totalAmount), [
+    ...monthlyFinance.map((t) => ({ date: t.date, amount: toNumber(t.amount) })),
+    ...monthlyLines.map((l) => ({ date: l.date, amount: toNumber(l.amount) })),
+  ]);
+
   const attributedTx: AttributedTx[] = [
     ...financeAttr.map((t) => ({
       id: t.id, kind: "FINANCE" as const, reference: t.reference, date: t.date.toISOString(), label: t.label,
@@ -344,6 +416,7 @@ export async function getBudgetOverview(
       remaining: total - consumedTotal,
       pct: total > 0 ? Math.round((consumedTotal / total) * 100) : 0,
     },
+    monthly,
     unattributed: {
       total: unattributedTotal,
       count: unattributedTx.length,

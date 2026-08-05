@@ -1061,6 +1061,13 @@ export const WORKSPACE_TABS: NavTab[] = [
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard" },
   { module: "DIRECTIVES", label: "Directives", href: "/directives" },
 ];
+// BUDGETS — trois écrans au lieu d'un seul écran fourre-tout : on REGARDE (vue d'ensemble
+// graphique), on TRAVAILLE (dépenses à imputer), on RÈGLE (enveloppe, catégories, total).
+export const BUDGET_TABS: NavTab[] = [
+  { module: "BUDGETS", label: "Vue d'ensemble", href: "/budgets" },
+  { module: "BUDGETS", label: "Dépenses", href: "/budgets/depenses" },
+  { module: "BUDGETS", label: "Réglages", href: "/budgets/reglages" },
+];
 // Mon dossier RH + Mes ordres de mission, sous une seule entrée de menu « Mon dossier RH ».
 export const MON_DOSSIER_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
@@ -1158,7 +1165,7 @@ export const NAVIGATION: NavItem[] = [
   // Pôles
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS, match: ["/promo-material"] },
-  { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles" },
+  { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/reglages"] },
   { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles" },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
