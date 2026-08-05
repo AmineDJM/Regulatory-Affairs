@@ -180,7 +180,7 @@ jamais identique.
 | **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le chef de produit**), **analyse confidentielle du chef de produit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. → [workflows](#-workflows-critiques) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). |
-| **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
+| **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
 | **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
 | **Logistique PCH** | `/logistics` | Module autonome : import / expéditions fournisseurs, dates estimées vs réelles, dédouanement. |
 | **PCH — Marchés** | `/pch` | **Marchés publics gagnés** : appels d'offres → **bons de commande** + **caution** (alertes d'expiration). → [détails](#pch--marchés-publics) |
@@ -705,6 +705,45 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
   `anyRoleFilter(roles)` (`{ OR: [{ role: { in } }, { secondaryRole: { in } }] }`) — jamais `role: { in }` seul.
   `hasRole`/`hasGlobalView` acceptent les deux rôles. Fichier : `src/lib/rbac.ts` (testé `rbac-access.test.ts`).
 
+### Départements, sous-départements & hiérarchie réelle (N+1)
+
+L'entreprise se pense **par département**, pas seulement par personne. Deux axes volontairement séparés :
+
+| Axe | Répond à | Porté par |
+|---|---|---|
+| **Rôle** (17 rôles) | « qu'ai-je le droit de faire ? » | `User.role` / `secondaryRole` → `MODULE_PERMISSIONS` |
+| **Département** | « sur quel périmètre ? **qui me valide ?** » | `Employee.departmentId` → `Department` |
+
+- **Structure sur N niveaux** : `Department.parentId` (auto-relation). Un département a un **responsable**
+  (`headId`) et un éventuel **adjoint** (`deputyId`), tous deux des `Employee` — cohérent avec l'organigramme.
+  Le re-rattachement est protégé contre les **cycles** ; la suppression fait **remonter** les sous-départements
+  d'un cran (jamais d'orphelin) et repasse les membres « non affectés ».
+- **Rattachement** : `Employee.departmentId` est la **source de vérité** ; le champ texte historique
+  `Employee.department` est conservé comme **cache de libellé** tenu à jour (les vues et statistiques
+  existantes continuent de fonctionner). Le compte applicatif lié **hérite** du département
+  (`User.departmentId`) — c'est lui que lisent permissions, périmètres et notifications.
+- **Résolution du N+1 réel** (`src/lib/departments.ts`, testé `departments.test.ts`) — cascade du plus
+  précis au plus général :
+  1. le **manager explicite** (`Employee.managerId`, posé dans l'organigramme) ;
+  2. sinon le **responsable du département** ;
+  3. sinon, en remontant, le responsable du **département parent** (N niveaux).
+  > **Règle d'or** : on ne se valide jamais soi-même. Le responsable d'un département est validé **par le
+  > dessus** (son N+1 est le responsable du parent) — l'**adjoint est un subordonné** : il supplée une
+  > **absence** (responsable non renseigné ou inactif), il ne valide pas son propre chef.
+- **Circuits de validation** — deux portées d'étape (`ActorScope`) configurables dans le builder no-code :
+  - `DEPARTMENT_MANAGER` : le **N+1 réel** du demandeur ; toute la chaîne **au-dessus** peut aussi trancher
+    (escalade normale — évite qu'une demande reste bloquée). La Direction garde sa vue globale.
+  - `DEPARTMENT_HEAD` : strictement le responsable (ou l'adjoint) du département du demandeur.
+  Le N+1 concerné est **notifié** à l'arrivée sur l'étape. `canActOnStep` est **asynchrone** (résolution en base).
+- **Où ça se gère** : module **Ressources humaines** (`/rh/departements`) — c'est le DRH qui possède
+  l'organisation, pas l'administration technique. Arbre, responsables, effectifs (directs et **cumulés**),
+  rattachement express des personnes non affectées. La fiche employé affiche le **N+1 effectif et sa provenance**.
+- **Migration des données** : la reprise transforme automatiquement chaque libellé texte distinct en vrai
+  département et rattache les employés (`20260805090000_departments_deep`).
+
+Fichiers : `src/lib/departments.ts` (arbre, membres, N+1), `src/lib/actions/department-actions.ts`,
+`src/app/(app)/rh/departements/`, `src/lib/workflow/{types,engine}.ts` (portées + gating).
+
 ### Pièces jointes (pattern standard)
 
 Téléversement **en lot** (plusieurs fichiers **ou un dossier entier**, tous types sauf exécutables,
@@ -741,7 +780,8 @@ Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage 
 |---|---|
 | **Sécurité / session** | `lib/rbac.ts` (PERMISSIONS, `userCan`, `anyRoleFilter`, `getAccess` cumul secondaire), `lib/session.ts` (`requireUser`/`requireModule`, maj `UserSession.lastSeenAt`), `lib/entity-access.ts` (accès par ligne + `ENTITY_MODULE`). |
 | **Workflow Ad & Pro** | `lib/workflow/engine.ts` · `defaults.ts` · `engine.test.ts`, `lib/queries/workflow.ts`, `components/workflow/workflow-panel.tsx`, `app/(app)/admin/workflows/`. |
-| **RH** | `lib/actions/hr-actions.ts` (fiche employé, salaires, essai), `hr-document-actions.ts` (demandes, notes de frais, entrevues, archives), `payroll-hr-actions.ts` (paie), `lib/queries/hr-documents.ts` (DTO + confidentialité salaires), pages `app/(app)/rh/` (+ `paie/`), `app/(app)/mon-dossier/`. |
+| **RH** | `lib/actions/hr-actions.ts` (fiche employé, salaires, essai, congés éditables par le DRH), `hr-document-actions.ts` (demandes, notes de frais, entrevues, archives), `payroll-hr-actions.ts` (paie), `lib/queries/hr-documents.ts` (DTO + confidentialité salaires), pages `app/(app)/rh/` (+ `paie/`, `departements/`), `app/(app)/mon-dossier/`. |
+| **Structure & hiérarchie** | `lib/departments.ts` (arbre N niveaux, membres, **résolution du N+1**), `lib/actions/department-actions.ts` (CRUD + rattachements, anti-cycle), `app/(app)/rh/departements/`, `app/(app)/admin/organigramme/`. Portées d'étape `DEPARTMENT_MANAGER`/`DEPARTMENT_HEAD` dans `lib/workflow/`. |
 | **Secrétariat / courses** | `lib/actions/admin-request-actions.ts` (demandes, missions, courses, archive DONE), `lib/queries/admin-requests.ts`, pages `app/(app)/demandes/` (+ `courses/`, `driver/`, `expense-ack.tsx`). |
 | **Stocks** | `lib/actions/stock-snapshot-actions.ts`, `lib/queries/stock.ts`, `app/(app)/stocks/`. |
 | **Regulatory** | `lib/actions/regulatory-actions.ts` (validation fabricant/variation), `app/(app)/regulatory/` (`edit-product.tsx`, `new-product.tsx`, `[id]/page.tsx`). |
@@ -951,7 +991,7 @@ comme sur **toutes les pièces jointes des modules**.
 | **Transverse** | `AdministrativeRequest` (+ cellules/approbations, `archivedNodeId`), `DriverMission` + `DriverMissionStop` (courses multi-points), `OfficeSupplyArticle`, `ValidationRequest` (+ steps + rules), `Dossier` (+ `DossierMessage`), `Directive`, `SupportRequest`, `Document` + `FileBlob` (chiffré), `Comment`, `AuditLog`, `Notification`, `DeletedRecord` (corbeille des suppressions définitives), `WorkflowDefinition/Step/Instance/StepEvent` (moteur Ad & Pro). |
 | **Messagerie & Courrier** | `Conversation`, `ConversationMember`, `Message` (+ réactions/attachments), `MailAccount` (chiffré). |
 | **IA & Brain** | `AiUsageLog`, `RiskSetting`, `AdoptionSetting`, `FieldReport`. |
-| **RH** | `Employee` (contrat, périodes d'essai `trial*`, salaires `baseSalary`/`retSS9`/`retSS35`/`tfp`/`retIrg`/`expenseRefund`/`netToPay`/`grossSalary`), `EmployeeDocument` (blob Drive + `period`), `HrDocumentRequest` (types + `expenseMonth`/`approvedMonth`/`originalsAck*`, `meeting*`, `archivedNodeId`), `LeaveRequest`, `PayrollEntry`. |
+| **RH & structure** | `Employee` (contrat, périodes d'essai `trial*`, salaires `baseSalary`/`retSS9`/`retSS35`/`tfp`/`retIrg`/`expenseRefund`/`netToPay`/`grossSalary`, **`departmentId`** = rattachement structuré, `managerId` = N+1 explicite), **`Department`** (auto-relation `parentId` = sous-départements sur **N niveaux**, `headId` = responsable, `deputyId` = adjoint), `EmployeeDocument` (blob Drive + `period`), `HrDocumentRequest` (types + `expenseMonth`/`approvedMonth`/`originalsAck*`, `meeting*`, `archivedNodeId`), `LeaveRequest`, `PayrollEntry`. |
 | **Externe** | `Supplier`, `SupplierUser` (auth séparée). |
 
 > Les entités « source d'une dépense » sont **polymorphes** : `ENTITY_MODULE` (dans `entity-access.ts`) mappe chaque
@@ -1156,6 +1196,29 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Structure par DÉPARTEMENTS — hiérarchie N niveaux, responsables et validation par le N+1 réel.** L'entreprise
+  se pense désormais par département (le **rôle** dit ce qu'on peut faire, le **département** sur quel périmètre et
+  **qui valide**). `Department` gagne une hiérarchie sur **N niveaux**, un **responsable** et un **adjoint** ;
+  `Employee.departmentId` devient le rattachement de référence (l'ancien champ texte reste en **cache de libellé**,
+  donc rien de l'existant ne casse). La migration **reprend les données réelles** : chaque libellé distinct devient
+  un vrai département et les employés y sont rattachés. Le **N+1 réel** se résout en cascade (manager de
+  l'organigramme → responsable du département → responsable du parent), avec une règle stricte : *on ne se valide
+  jamais soi-même*, et le chef d'un département est validé **par le dessus** (l'adjoint supplée une absence, il ne
+  valide pas son chef). Deux nouvelles portées d'étape (`DEPARTMENT_MANAGER`, `DEPARTMENT_HEAD`) rendent les
+  **circuits génériques** — plus besoin de recâbler un rôle à chaque réorganisation — avec **escalade** par la
+  hiérarchie supérieure et **notification** du N+1 concerné. Gestion dans **RH** (`/rh/departements`) ; la fiche
+  employé affiche le **N+1 effectif et sa provenance**. → [référence](#départements-sous-départements--hiérarchie-réelle-n1)
+- **Congés : le DRH peut tout corriger, y compris l'historique** (`updateLeaveRequest`) — type, dates, jours, motif,
+  décision et note d'une demande **déjà décidée**, avec **réajustement automatique du solde annuel**.
+- **Budgets : graphiques de consommation** — barres comparatives (budget vs consommé, colorées par santé) en vue
+  générale (**par enveloppe**) et dans une enveloppe (**par catégorie**).
+- **Assistant : dictée vocale, lecture de pièces jointes et annonces pop-up.** Micro (Whisper → texte **éditable**)
+  sur la page et dans la **bulle flottante** ; lecture d'**Excel complet / PowerPoint / Word / PDF / CSV**, y compris
+  des fichiers **déjà dans le Drive** (référencés, sans re-téléversement) ; diffusion de notifications en **pop-up
+  plein écran**.
+- **Intelligence marché : explorateur produits ville + hôpital.** Recherche **temps réel** et filtres sur les
+  produits IQVIA (ville) **et** les réceptions PCH (hôpital), sélection multiple et comparaison volume / valeur /
+  prix moyen / croissance.
 - **Drive « Accueil » façon vrai drive + téléversements fiables + thème plus vif.** Le **Drive** est renommé
   **« Accueil »** (onglet, navigation, fil d'Ariane, titre) et l'onglet **« Documents »** est retiré des onglets du
   Drive (tout est consolidé dans l'Accueil + les catégories partagées). **Glisser-déposer à la souris** (`drive-table`) :
