@@ -768,6 +768,106 @@ L'OS est utilisé au quotidien depuis un téléphone (« Ajouter à l'écran d'a
 - La barre latérale et la palette de commandes restent le confort **desktop** ; la barre
   d'onglets est le mode **mobile**. Aucune fonctionnalité n'est retirée sur téléphone.
 
+### Versions TEST → PRODUCTION (drapeaux de nouveautés)
+
+Toute nouveauté arrive **au stade TEST** : invisible de l'entreprise, visible du seul compte en
+**mode test**. Le Super Admin la parcourt, puis la **valide en production** d'un clic — ou la
+retire. Le retour arrière est immédiat.
+
+- Catalogue : `src/lib/features.ts` — `FEATURES` déclare chaque nouveauté (`key`, `label`,
+  `description`). Une clé inconnue de la base est **auto-créée au stade TEST** : rien ne peut
+  être livré par accident. En cas d'indisponibilité de la base, le repli est TEST (prudent).
+- Modèle : `FeatureFlag { key, stage: TEST | PROD | OFF }` + `User.testMode`.
+- Portes : `featureEnabled(key, userId)` (côté serveur, mémoïsé par requête), `isTestUser(userId)`.
+- Écran : `/admin/versions` (Super Admin) — trois groupes (**En test** / **En production** /
+  **Désactivées**), interrupteur de mode test, bandeau permanent
+  (`components/layout/test-mode-banner.tsx`) tant que le mode test est actif.
+- **Navigation** : un onglet peut porter `feature` (`NavTab.feature`, `src/lib/labels.ts`) — il
+  n'apparaît qu'aux comptes qui voient la nouveauté. Résolu dans `app/(app)/layout.tsx` (menu,
+  palette, barre mobile) et par `visibleTabs(user, TABS)` (`src/lib/nav-tabs.ts`) dans les pages.
+- Tests : `src/lib/features.test.ts` — TEST invisible du grand public, PROD visible de tous, OFF
+  invisible même en mode test, retour arrière.
+
+Nouveautés actuellement au catalogue : `assistant_memory`, `home_today`, `assistant_proactive`,
+`mail_smart`.
+
+### Assistant — mémoire personnelle, cloisonnée par construction
+
+L'assistant se souvient de **sa** personne, et d'elle seule. Il connaît son identité, son entité,
+son département (fil d'Ariane complet), son **N+1 réel** et une note de mémoire distillée de ses
+échanges précédents.
+
+**Le cloisonnement n'est pas une convention, c'est une structure** — `src/lib/assistant-memory.ts`
+est la **seule porte d'entrée** vers `AssistantThread`, `AssistantMessage` et `AssistantMemory` ;
+aucun autre module n'interroge ces tables :
+
+1. toute fonction exige le `userId` du **demandeur** en premier paramètre ;
+2. tout `where` porte ce `userId` — un identifiant de fil deviné ou volé ne donne rien ;
+3. `AssistantMessage` porte **lui aussi** le `userId` (redondant avec son fil) : même une erreur
+   de jointure ne peut pas exposer le message d'autrui ;
+4. le `userId` vient **toujours** de la session serveur, jamais du client ;
+5. en **« Vue exacte »** (impersonation), l'assistant est **désactivé** : la mémoire d'une personne
+   ne s'ouvre à personne, pas même à un administrateur.
+
+- Distillation : tous les ~12 messages, `maybeDistillMemory` (`lib/actions/assistant-actions.ts`)
+  relit les échanges récents de la personne et réécrit sa note durable (appel économique,
+  épisodique, silencieux en cas d'échec — la mémoire est un confort, jamais un point de rupture).
+- Injection : `personalContext(userId)` est ajouté au prompt système par `runAssistant`
+  (`opts.personalContext`), avec un rappel explicite de confidentialité.
+- UI : `app/(app)/assistant/assistant-chat.tsx` — rail « Mes conversations » (ouvrir, supprimer,
+  **tout effacer** = droit à l'oubli), tiroir sur mobile.
+- Actions scopées : `myAssistantThreads`, `myAssistantThread`, `deleteMyAssistantThread`,
+  `forgetMyAssistantMemory`, `refreshMyBrief`.
+- Tests : `src/lib/assistant-memory.test.ts` — 8 tests qui **tentent explicitement la fuite**
+  (lire / écrire / supprimer le fil d'un autre en connaissant son identifiant exact) et vérifient
+  qu'elle échoue. Drapeau : `assistant_memory`.
+
+### Écran « Aujourd'hui » & point du matin
+
+**Aujourd'hui** (`/aujourdhui`, drapeau `home_today`) répond à une seule question : *que dois-je
+faire maintenant ?* Aucune nouvelle source de données — on relit `getActionCenter` (déjà filtré par
+les droits) et l'agenda du jour, puis on **ordonne** :
+
+- `rankToday(items, now)` (`src/lib/queries/today.ts`, **fonction pure, testée**) — le retard passe
+  devant tout et remonte avec sa durée ; à échéance égale une **validation** (qui bloque un
+  collègue) passe avant une tâche personnelle ; la priorité départage le reste.
+- Chaque ligne porte sa **raison** (`En retard`, `Pour aujourd'hui`, `Quelqu'un attend votre
+  validation`…) : jamais un classement muet.
+- L'écran montre **une** action en tête, quatre suivantes, le reste replié derrière « Tout voir ».
+- La racine `/` mène à `/aujourdhui` quand la nouveauté est active, sinon `/mon-espace`.
+- Tests : `src/lib/queries/today.test.ts` (7 tests sur le classement).
+
+**Point du matin** (drapeau `assistant_proactive`) — l'assistant parle en premier : 3 à 5 phrases
+sur ce qui presse et par quoi commencer, affichées en tête de `/aujourdhui` et du module Assistant.
+`src/lib/daily-brief.ts` ; **un seul appel IA par personne et par jour** (cache `DailyBrief`, clé
+`userId + jour d'Alger`), bouton « Actualiser » pour forcer. Journée vide → aucun appel IA (on ne
+fabrique pas du bruit pour meubler).
+
+### Courrier « smart » — envoi par API HTTPS, sans SMTP
+
+Les ports SMTP (25/465/587) sont filtrés par la plupart des hébergeurs et des réseaux d'entreprise :
+c'est la cause des blocages à répétition. L'envoi passe désormais par une **API HTTPS sur le port
+443**, celui du web — s'il passe, le courrier passe.
+
+- `src/lib/mail-smart.ts` — **agnostique du fournisseur** : Resend, Postmark et Brevo parlent tous
+  HTTPS + JSON. `buildProviderCall()` (pure, testée) traduit un envoi dans le dialecte de chacun ;
+  changer de fournisseur = changer deux variables, jamais une ligne de code métier.
+- Journal : `OutboundEmail` — chaque tentative laisse une trace avec le **motif exact** du refus
+  (c'est précisément ce qui manquait avec SMTP). `InboundEmail` pour la réception.
+- Réception : `POST /api/mail/inbound` — route **publique** (le fournisseur n'a pas de session) mais
+  jamais ouverte : signature **HMAC-SHA256 du corps brut** vérifiée avant toute lecture, comparaison
+  en temps constant, refus total sans `MAIL_WEBHOOK_SECRET`, idempotence sur `messageId`.
+- Écran : `/admin/courrier` (Super Admin) — état de la configuration, **ce qui reste à faire hors
+  application**, envoi de test, journal des envois.
+- Variables : `MAIL_PROVIDER`, `MAIL_API_KEY`, `MAIL_FROM`, `MAIL_WEBHOOK_SECRET`.
+- ⚠️ **Dépendance externe** : il faut un **compte fournisseur** et le **domaine vérifié** chez lui
+  (SPF + DKIM + DMARC en DNS). Sans ces enregistrements, les messages partent mais arrivent en
+  indésirables. Tant que ce n'est pas fait, `smartMailConfigured()` est faux et l'app **le dit**
+  plutôt que d'échouer silencieusement.
+- Tests : `src/lib/mail-smart.test.ts` (11 tests) — jamais de port SMTP, en-têtes et corps corrects
+  pour les trois fournisseurs, signature juste acceptée / fausse / absente / **corps falsifié après
+  signature** refusés, normalisation des trois dialectes entrants.
+
 ### Pièces jointes (pattern standard)
 
 Téléversement **en lot** (plusieurs fichiers **ou un dossier entier**, tous types sauf exécutables,
@@ -816,6 +916,10 @@ Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage 
 | **Catégories Drive (espaces partagés)** | Modèle `DriveSpace` + `DriveNode.spaceId` ; RBAC `canCreateDriveSpace`/`canViewDriveSpace`/`canManageDriveSpace` (`lib/rbac.ts`, accès implicite module Drive dans `getAccess`) ; `lib/queries/drive.ts` (`getDriveSpacesForUser`, `getDriveTabs`, `getDriveListing(…, spaceId)`) ; `lib/actions/drive-space-actions.ts` (créer/modifier/archiver/supprimer) ; page `app/(app)/drive/espace/[id]/` + `drive-space-manager.tsx` ; réglage `AppSetting.driveSpaceCreatorRoles` (`DriveSpaceCreatorForm` en Administration). Onglets à côté de Drive · Documents. |
 | **Admin** | `app/(app)/admin/` (`page.tsx` comptes + stockage + activité, `corbeille/`, `drive-storage-settings.tsx`, `access/`, `settings/`…), `lib/actions/admin-actions.ts`, `settings-actions.ts`. |
 | **IA / Brain** | `lib/ai.ts`, `lib/assistant.ts`, `lib/adventum/risks.ts` (+ `risk-detectors.test.ts`), `app/(app)/adventum-brain/`. |
+| **Assistant — mémoire personnelle** | `lib/assistant-memory.ts` (**seule** porte d'entrée, tout scopé par `userId`) + `assistant-memory.test.ts` (tests de fuite), `lib/actions/assistant-actions.ts` (garde impersonation, persistance, distillation), `app/(app)/assistant/assistant-chat.tsx` (rail des conversations). Modèles `AssistantThread`/`AssistantMessage`/`AssistantMemory`. |
+| **Versions test → prod** | `lib/features.ts` (+ `features.test.ts`), `lib/nav-tabs.ts` (`visibleTabs`), `app/(app)/admin/versions/`, `components/layout/test-mode-banner.tsx`. Modèles `FeatureFlag` + `User.testMode`. |
+| **Aujourd'hui & point du matin** | `lib/queries/today.ts` (`rankToday`, pure + testée) + `today.test.ts`, `app/(app)/aujourdhui/`, `lib/daily-brief.ts` (cache `DailyBrief`, 1 appel IA/jour/personne), `components/shared/morning-brief.tsx`. |
+| **Courrier smart (sans SMTP)** | `lib/mail-smart.ts` (agnostique fournisseur, `buildProviderCall`/`verifyInboundSignature`/`normalizeInbound`) + `mail-smart.test.ts`, `lib/actions/smart-mail-actions.ts` (journal), `app/api/mail/inbound/route.ts` (webhook signé), `app/(app)/admin/courrier/`. Modèles `OutboundEmail`/`InboundEmail`. |
 
 ---
 
@@ -1075,6 +1179,8 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `MAIL_MAX_POOL` · `MAIL_IMAP_IDLE_MS` | ⬜ | Plafond de connexions IMAP chaudes (défaut 8) · durée de maintien au chaud en ms (défaut 90000). |
 | `MAIL_BREAKER_THRESHOLD` · `MAIL_BREAKER_COOLDOWN_MS` | ⬜ | Disjoncteur mail : nb d'échecs avant ouverture (défaut 3) · temps de repos sans solliciter Infomaniak (défaut 30000 ms). |
 | `MAIL_CACHE_FRESH_MS` · `MAIL_CACHE_STALE_MS` | ⬜ | Cache boîte mail : fenêtre « frais » servie sans IMAP (défaut 10000) · repli max sur cache si saturé (défaut 900000). |
+| `MAIL_PROVIDER` · `MAIL_API_KEY` · `MAIL_FROM` | ⬜ | **Courrier « smart »** — envoi par API HTTPS (port 443) au lieu de SMTP : `resend`\|`postmark`\|`brevo` · clé d'API du fournisseur · adresse d'expédition d'un **domaine vérifié chez lui** (SPF + DKIM + DMARC en DNS, sinon les messages arrivent en indésirables). Les trois ensemble → envoi actif ; sinon `/admin/courrier` dit précisément ce qui manque. |
+| `MAIL_WEBHOOK_SECRET` | ⬜ | Secret du webhook de **réception** (`POST /api/mail/inbound`) : signature HMAC-SHA256 du corps brut. Absent → la route refuse tout (jamais de mode ouvert par défaut). |
 | `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` | ⬜ | Notifications **push** (PWA Web Push). |
 | `MISTRAL_API_KEY` | ⬜ | Active **Mistral OCR** (moteur OCR primaire, cloud, rapide) pour l'analyse CTD. Absent → repli automatique sur l'OCR local tesseract.js (aucune perte). Service tiers **payant à la page**, réseau sortant requis. |
 | `REG_OCR_ENGINE` · `REG_OCR_CONCURRENCY` · `REG_OCR_BATCH` | ⬜ | Moteur OCR (`auto`\|`mistral`\|`tesseract`, défaut `auto`) · documents OCR en parallèle (défaut 3, 1-20 ; modéré car un document massif charge un gros blob) · documents par passage (défaut 24). |
@@ -1221,6 +1327,33 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Version de TEST → version de PRODUCTION, validée d'un clic.** Toute nouveauté arrive au stade **TEST** :
+  invisible de l'entreprise, visible du seul compte en **mode test**. Le Super Admin la parcourt puis la **valide en
+  production** — ou la retire, le retour arrière est immédiat. Une clé inconnue est **auto-créée en TEST** : rien ne
+  peut être livré par accident. L'écran `/admin/versions` classe les nouveautés en trois groupes, et un bandeau
+  permanent rappelle le mode test. Les onglets de menu peuvent porter un drapeau : ils n'existent que pour ceux qui
+  voient la nouveauté. → [référence](#versions-test--production-drapeaux-de-nouveautés)
+- **Assistant : mémoire personnelle, cloisonnée par construction.** L'assistant se souvient de **sa** personne — son
+  identité, son entité, son département, son **N+1 réel**, et une note distillée de ses échanges (réécrite tous les
+  ~12 messages). Les conversations sont conservées : on les rouvre, on les supprime, ou on **efface tout** (droit à
+  l'oubli). Le cloisonnement n'est pas une convention mais une **structure** : un module unique est la seule porte
+  d'entrée, tout `where` porte le `userId` du demandeur, `AssistantMessage` porte lui aussi son propriétaire, et en
+  **« Vue exacte »** l'assistant est **désactivé** — la mémoire d'une personne ne s'ouvre à personne, pas même à un
+  administrateur. **8 tests tentent explicitement la fuite** (lire / écrire / supprimer le fil d'un autre en
+  connaissant son identifiant exact) et vérifient qu'elle échoue. → [référence](#assistant--mémoire-personnelle-cloisonnée-par-construction)
+- **Écran « Aujourd'hui » + point du matin.** Un accueil qui répond à une seule question : *que dois-je faire
+  maintenant ?* Une action mise en avant, quatre suivantes, le reste replié. Aucune nouvelle source de données — le
+  classement (`rankToday`, pure et testée) fait le travail : le retard passe devant et remonte avec sa durée, une
+  **validation** (qui bloque un collègue) passe avant une tâche personnelle, et **chaque ligne dit pourquoi elle est
+  là**. En tête, l'assistant écrit le **point du matin** en 3-5 phrases — un seul appel IA par personne et par jour.
+  → [référence](#écran--aujourdhui--point-du-matin)
+- **Courrier « smart » : envoi par API HTTPS, fin des blocages SMTP.** Les ports SMTP sont filtrés à peu près
+  partout ; l'envoi passe désormais par une **API HTTPS sur le port 443**. Le code est **agnostique du fournisseur**
+  (Resend / Postmark / Brevo) : changer de fournisseur = changer deux variables. Chaque envoi est **journalisé avec
+  le motif exact du refus** — c'est précisément ce qui manquait. Réception par **webhook signé** (HMAC-SHA256 du
+  corps brut, comparaison en temps constant, idempotent). ⚠️ Reste à faire **hors application** : ouvrir un compte
+  fournisseur et **vérifier le domaine** (SPF + DKIM + DMARC en DNS) ; `/admin/courrier` dit précisément ce qui
+  manque et permet un envoi de test. → [référence](#courrier--smart---envoi-par-api-https-sans-smtp)
 - **Structure par DÉPARTEMENTS — hiérarchie N niveaux, responsables et validation par le N+1 réel.** L'entreprise
   se pense désormais par département (le **rôle** dit ce qu'on peut faire, le **département** sur quel périmètre et
   **qui valide**). `Department` gagne une hiérarchie sur **N niveaux**, un **responsable** et un **adjoint** ;
