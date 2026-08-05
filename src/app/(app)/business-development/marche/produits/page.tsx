@@ -11,7 +11,7 @@ export default async function MarketProductsPage() {
   await requireModule("BUSINESS_DEVELOPMENT");
   // Listes de filtres (UNION ville + hôpital) + jeu initial (60 plus fortes valeurs) chargés
   // côté serveur ; les recherches suivantes passent par l'action `searchMarketProducts`.
-  const { classes, labs } = productFilterOptions();
+  const { classes } = productFilterOptions();
   const initial = searchProducts({ limit: 60 });
 
   return (
@@ -21,9 +21,9 @@ export default async function MarketProductsPage() {
       </Link>
       <PageHeader
         title="Explorateur produits"
-        description="Recherchez et filtrez les produits sur les deux marchés — ville (IQVIA) et hôpital (PCH, réceptions) — sélectionnez-en un ou plusieurs et comparez volume, valeur (DZD/USD), prix unitaire moyen et croissance N-1 (ville)."
+        description="Cherchez par MOLÉCULE, par nom de produit ou par laboratoire — selon la case que vous remplissez. Une recherche par molécule ouvre en plus l'analyse concurrentielle : poids du marché, partage ville / hôpital, part de marché de chaque acteur et production locale ou importée."
       />
-      <ProductExplorer classes={classes} labs={labs} initial={initial.products} initialTotal={initial.total} />
+      <ProductExplorer classes={classes} initial={initial.products} initialTotal={initial.total} />
     </div>
   );
 }

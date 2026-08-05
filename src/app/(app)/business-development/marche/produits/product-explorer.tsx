@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { Search, Plus, Check, X, Loader2, Scale } from "lucide-react";
-import { searchMarketProducts } from "@/lib/actions/market-actions";
+import { searchMarketProducts, marketSuggestions } from "@/lib/actions/market-actions";
+import { GALENIC_FORMS, FORM_LABEL } from "@/lib/market/molecule";
+import { MoleculePanel } from "./molecule-panel";
 import type { MarketProduct } from "@/lib/market/products";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
@@ -22,10 +24,15 @@ const pctTone = (g: number | null) => (g == null ? "text-muted-foreground" : g >
  * produits IQVIA ; sélection d'un ou plusieurs produits (persistante entre recherches) et
  * comparaison sur volume, valeur (DZD/USD), prix moyen et croissance.
  */
-export function ProductExplorer({ classes, labs, initial, initialTotal }: { classes: string[]; labs: string[]; initial: MarketProduct[]; initialTotal: number }) {
-  const [q, setQ] = React.useState("");
+export function ProductExplorer({ classes, initial, initialTotal }: { classes: string[]; initial: MarketProduct[]; initialTotal: number }) {
+  // On cherche PAR LA CASE QUE L'ON REMPLIT : molécule, produit, ou laboratoire.
+  // Les cases remplies se cumulent ; la molécule débloque en plus l'analyse concurrentielle.
+  const [molecule, setMolecule] = React.useState("");
+  const [brand, setBrand] = React.useState("");
+  const [labName, setLabName] = React.useState("");
+  const [dosage, setDosage] = React.useState("");
+  const [form, setForm] = React.useState("");
   const [cls, setCls] = React.useState("");
-  const [lab, setLab] = React.useState("");
   const [segment, setSegment] = React.useState(""); // "" = ville + hôpital
   const [results, setResults] = React.useState<MarketProduct[]>(initial);
   const [total, setTotal] = React.useState(initialTotal);
@@ -36,10 +43,19 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
   // Chaque recherche porte un numéro de séquence : une réponse arrivée APRÈS une frappe plus
   // récente est ignorée (pas de résultats périmés qui « clignotent » en temps réel).
   const seq = React.useRef(0);
-  const runSearch = React.useCallback((query: string, klass: string, laboratory: string, seg: string) => {
+  const criteria = React.useMemo(
+    () => ({ molecule: molecule.trim(), brand: brand.trim(), labName: labName.trim(), dosage: dosage.trim(), form, cls, segment }),
+    [molecule, brand, labName, dosage, form, cls, segment],
+  );
+
+  const runSearch = React.useCallback((c: typeof criteria) => {
     const mySeq = ++seq.current;
     start(async () => {
-      const r = await searchMarketProducts({ q: query, cls: klass, lab: laboratory, segment: seg || undefined });
+      const r = await searchMarketProducts({
+        molecule: c.molecule || undefined, brand: c.brand || undefined, labName: c.labName || undefined,
+        dosage: c.dosage || undefined, form: c.form || undefined,
+        cls: c.cls, segment: c.segment || undefined,
+      });
       if (mySeq !== seq.current) return; // réponse périmée → ignorée
       if (!r.ok) { setErr(r.error ?? "Recherche impossible."); return; }
       setErr(null);
@@ -53,12 +69,13 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
   const didMount = React.useRef(false);
   React.useEffect(() => {
     if (!didMount.current) { didMount.current = true; return; }
-    const t = setTimeout(() => runSearch(q.trim(), cls, lab, segment), 200);
+    const t = setTimeout(() => runSearch(criteria), 200);
     return () => clearTimeout(t);
-  }, [q, cls, lab, segment, runSearch]);
+  }, [criteria, runSearch]);
 
-  const onSubmit = (e: React.FormEvent) => { e.preventDefault(); runSearch(q.trim(), cls, lab, segment); };
-  const reset = () => { setQ(""); setCls(""); setLab(""); setSegment(""); }; // les filtres vidés relancent la recherche via l'effet
+  const onSubmit = (e: React.FormEvent) => { e.preventDefault(); runSearch(criteria); };
+  const reset = () => { setMolecule(""); setBrand(""); setLabName(""); setDosage(""); setForm(""); setCls(""); setSegment(""); };
+  const anyCriteria = Boolean(molecule || brand || labName || dosage || form || cls || segment);
 
   const toggle = (p: MarketProduct) => {
     setSelected((prev) => {
@@ -77,42 +94,68 @@ export function ProductExplorer({ classes, labs, initial, initialTotal }: { clas
 
   return (
     <div className="space-y-5">
-      {/* Barre de recherche + filtres */}
-      <form onSubmit={onSubmit} className="surface flex flex-wrap items-end gap-2 p-3">
-        <div className="min-w-[220px] flex-1 space-y-1">
-          <Label className="text-xs">Recherche (marque, molécule, laboratoire…)</Label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ex. amoxicilline, ALOCLAIR, Sinclair…" className="h-9 pl-8 pr-8" />
-            {pending && <Loader2 className="absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
+      {/* Recherche CIBLÉE : on cherche par la case que l'on remplit. */}
+      <form onSubmit={onSubmit} className="surface space-y-3 p-3">
+        <div className="grid gap-2 sm:grid-cols-3">
+          <SuggestField
+            label="Molécule" kind="molecule" value={molecule} onChange={setMolecule}
+            placeholder="Ex. amoxicilline, paracétamol…"
+            hint="Débloque l'analyse concurrentielle"
+          />
+          <div className="space-y-1">
+            <Label className="text-xs">Nom du produit</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Ex. AUGMENTIN, DOLIPRANE…" className="h-9 pl-8" />
+            </div>
           </div>
+          <SuggestField
+            label="Laboratoire" kind="lab" value={labName} onChange={setLabName}
+            placeholder="Ex. Saidal, Hikma…"
+            hint="Réconcilié entre IQVIA, PCH et nomenclature"
+          />
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Classe (ATC4)</Label>
-          <Select value={cls} onChange={(e) => setCls(e.target.value)} className="h-9 w-56">
-            <option value="">Toutes les classes</option>
-            {classes.map((c) => <option key={c} value={c}>{c}</option>)}
-          </Select>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs">Dosage</Label>
+            <Input value={dosage} onChange={(e) => setDosage(e.target.value)} placeholder="Ex. 500 mg" className="h-9 w-32" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Forme</Label>
+            <Select value={form} onChange={(e) => setForm(e.target.value)} className="h-9 w-48">
+              <option value="">Toutes les formes</option>
+              {GALENIC_FORMS.filter((f) => f !== "AUTRE").map((f) => <option key={f} value={f}>{FORM_LABEL[f]}</option>)}
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Classe (ATC4)</Label>
+            <Select value={cls} onChange={(e) => setCls(e.target.value)} className="h-9 w-56">
+              <option value="">Toutes les classes</option>
+              {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Marché</Label>
+            <Select value={segment} onChange={(e) => setSegment(e.target.value)} className="h-9 w-40">
+              <option value="">Ville + hôpital</option>
+              <option value="VILLE">Ville (IQVIA)</option>
+              <option value="HOPITAL">Hôpital (PCH)</option>
+            </Select>
+          </div>
+          <Button type="submit" size="sm" disabled={pending}>
+            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Rechercher
+          </Button>
+          {anyCriteria && <Button type="button" size="sm" variant="outline" onClick={reset} disabled={pending}>Réinitialiser</Button>}
+          {err && <p className="w-full text-xs text-destructive">{err}</p>}
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Laboratoire</Label>
-          <Select value={lab} onChange={(e) => setLab(e.target.value)} className="h-9 w-52">
-            <option value="">Tous les laboratoires</option>
-            {labs.map((l) => <option key={l} value={l}>{l}</option>)}
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Marché</Label>
-          <Select value={segment} onChange={(e) => setSegment(e.target.value)} className="h-9 w-40">
-            <option value="">Ville + hôpital</option>
-            <option value="VILLE">Ville (IQVIA)</option>
-            <option value="HOPITAL">Hôpital (PCH)</option>
-          </Select>
-        </div>
-        <Button type="submit" size="sm" disabled={pending}>{pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Rechercher</Button>
-        {(q || cls || lab || segment) && <Button type="button" size="sm" variant="outline" onClick={reset} disabled={pending}>Réinitialiser</Button>}
-        {err && <p className="w-full text-xs text-destructive">{err}</p>}
       </form>
+
+      {/* ANALYSE CONCURRENTIELLE — n'apparaît que si l'on cherche par MOLÉCULE : c'est la
+          seule maille qui a un sens pour comparer des acteurs entre eux. */}
+      {molecule.trim().length >= 3 && (
+        <MoleculePanel molecule={molecule.trim()} dosage={dosage.trim()} form={form} />
+      )}
 
       {/* Comparaison de la sélection */}
       {selectedArr.length > 0 && (
@@ -235,5 +278,70 @@ function SegmentBadge({ segment }: { segment: MarketProduct["segment"] }) {
     <Badge tone={segment === "HOPITAL" ? "purple" : "info"} dot={false} className="text-[10px]">
       {segment === "HOPITAL" ? "Hôpital" : "Ville"}
     </Badge>
+  );
+}
+
+/**
+ * Champ de saisie ASSISTÉE : on tape, la plateforme propose ce qui existe RÉELLEMENT dans les
+ * données (molécules pondérées par le poids de marché, laboratoires). On évite ainsi la
+ * recherche à l'aveugle sur une orthographe qui n'existe nulle part.
+ */
+function SuggestField({
+  label, kind, value, onChange, placeholder, hint,
+}: {
+  label: string;
+  kind: "molecule" | "lab";
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  hint?: string;
+}) {
+  const [options, setOptions] = React.useState<string[]>([]);
+  const [open, setOpen] = React.useState(false);
+  const seq = React.useRef(0);
+
+  React.useEffect(() => {
+    const q = value.trim();
+    if (q.length < 2) { setOptions([]); return; }
+    const mine = ++seq.current;
+    const t = setTimeout(async () => {
+      const res = await marketSuggestions(kind, q);
+      if (mine === seq.current) setOptions(res);
+    }, 220);
+    return () => clearTimeout(t);
+  }, [value, kind]);
+
+  return (
+    <div className="relative space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={value}
+          onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder={placeholder}
+          className="h-9 pl-8"
+        />
+      </div>
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      {open && options.length > 0 && (
+        <ul className="absolute left-0 right-0 top-[3.9rem] z-20 max-h-52 overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-lg">
+          {options.map((o) => (
+            <li key={o}>
+              <button
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); onChange(o); setOpen(false); }}
+                className="block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-secondary"
+                title={o}
+              >
+                {o}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

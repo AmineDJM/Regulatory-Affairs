@@ -8,6 +8,7 @@
  */
 import { getMarketData, DZD_PER_USD, type IqviaRow } from "./data";
 import { normText } from "./engine";
+import { moleculeMatches, canonicalForm, extractDosage, dosageMatches, labKey, type GalenicForm } from "./molecule";
 
 export type MarketSegment = "VILLE" | "HOPITAL";
 
@@ -29,7 +30,22 @@ export interface MarketProduct {
 }
 
 export interface ProductSearchInput {
+  /** Recherche libre (tous champs confondus) — conservée pour la compatibilité. */
   q?: string | null;
+  /**
+   * Recherche CIBLÉE : on cherche par le champ que l'on remplit.
+   *  • `molecule` → principe actif, comparé par RADICAL (« AMOXICILLIN » ≡ « AMOXICILLINE ») ;
+   *  • `brand`    → nom commercial du produit ;
+   *  • `labName`  → laboratoire, réconcilié entre les trois sources (« SAIDAL » ≡ « GROUPE SAIDAL »).
+   * Les champs remplis se cumulent (ET logique).
+   */
+  molecule?: string | null;
+  brand?: string | null;
+  labName?: string | null;
+  /** Forme galénique canonique (comprimé, injectable…). */
+  form?: GalenicForm | null;
+  /** Dosage (« 500 mg », « 1g/125mg »). */
+  dosage?: string | null;
   cls?: string | null;
   lab?: string | null;
   /** Segment de marché ; absent = les deux (ville + hôpital). */
@@ -47,7 +63,7 @@ const clean = (s: string | null | undefined) => (s ?? "").trim();
 
 // ───────────────────────── Marché hospitalier (PCH), agrégé par produit ─────────────────────────
 
-interface PchProduct { key: string; name: string; mol: string; lab: string; cls: string; valueDzd: number; volume: number }
+interface PchProduct { key: string; name: string; mol: string; lab: string; cls: string; forme: string; valueDzd: number; volume: number }
 let pchCache: PchProduct[] | null = null;
 
 /** Réceptions PCH agrégées par (produit + laboratoire) : valeur et volume cumulés. */
@@ -65,7 +81,7 @@ function getPchProducts(): PchProduct[] {
       cur.valueDzd += r.valDzd ?? 0;
       cur.volume += r.vol ?? r.qte ?? 0;
     } else {
-      byKey.set(k, { key: `PCH|${k}`, name, mol: clean(r.text), lab: lab || "—", cls: clean(r.cls), valueDzd: r.valDzd ?? 0, volume: r.vol ?? r.qte ?? 0 });
+      byKey.set(k, { key: `PCH|${k}`, name, mol: clean(r.text), lab: lab || "—", cls: clean(r.cls), forme: clean(r.forme), valueDzd: r.valDzd ?? 0, volume: r.vol ?? r.qte ?? 0 });
     }
   }
   pchCache = [...byKey.values()];
@@ -120,12 +136,27 @@ export function searchProducts(input: ProductSearchInput): ProductSearchResult {
   const lab = clean(input.lab);
   const segment = input.segment ?? null;
 
+  // Critères CIBLÉS : on cherche par la case que l'on remplit.
+  const molecule = clean(input.molecule);
+  const brandTokens = input.brand ? normText(input.brand).split(" ").filter((t) => t.length >= 2) : [];
+  const labNeedle = input.labName ? labKey(input.labName) : "";
+  const form = input.form ?? null;
+  const dosage = clean(input.dosage);
+
   const matches: MarketProduct[] = [];
 
   if (segment !== "HOPITAL") {
     for (const r of getMarketData().iqviaProducts) {
       if (cls && clean(r.cls) !== cls) continue;
       if (lab && clean(r.lab) !== lab) continue;
+      if (molecule && !moleculeMatches(r.mol, molecule)) continue;
+      if (brandTokens.length) {
+        const b = normText(r.brand);
+        if (!brandTokens.every((t) => b.includes(t))) continue;
+      }
+      if (labNeedle && labKey(r.lab) !== labNeedle) continue;
+      if (form && canonicalForm(r.pres) !== form) continue;
+      if (dosage && !dosageMatches(extractDosage(r.pres), dosage)) continue;
       if (qTokens.length) {
         const hay = normText(`${r.brand ?? ""} ${r.mol ?? ""} ${r.lab ?? ""} ${r.pres ?? ""} ${r.cls ?? ""}`);
         if (!qTokens.every((t) => hay.includes(t))) continue;
@@ -137,6 +168,14 @@ export function searchProducts(input: ProductSearchInput): ProductSearchResult {
     for (const p of getPchProducts()) {
       if (cls && p.cls !== cls) continue;
       if (lab && p.lab !== lab) continue;
+      if (molecule && !moleculeMatches(p.mol || p.name, molecule)) continue;
+      if (brandTokens.length) {
+        const b = normText(p.name);
+        if (!brandTokens.every((t) => b.includes(t))) continue;
+      }
+      if (labNeedle && labKey(p.lab) !== labNeedle) continue;
+      if (form && canonicalForm(p.forme || p.name) !== form) continue;
+      if (dosage && !dosageMatches(extractDosage(p.name), dosage)) continue;
       if (qTokens.length) {
         const hay = normText(`${p.name} ${p.mol} ${p.lab} ${p.cls}`);
         if (!qTokens.every((t) => hay.includes(t))) continue;
