@@ -19,6 +19,8 @@ import { aiConfigured } from "@/lib/ai";
 import { EmployeeForm, type EmployeeFormValues } from "./employee-form";
 import { HrDossier } from "./hr-dossier";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { seesWholeGroup } from "@/lib/company-access";
+import { CompanyAccessCard, type CompanyAccessRow } from "./company-access-card";
 
 const d10 = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : "");
 
@@ -93,6 +95,25 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
     isActive: employee.isActive,
   };
 
+  // Accès aux entités : l'ensemble des sociétés, croisé avec ce qui est réellement accordé.
+  const [allCompanies, targetUser] = employee.userId
+    ? await Promise.all([
+        getCompanies(),
+        prisma.user.findUnique({
+          where: { id: employee.userId },
+          select: { role: true, secondaryRole: true, companyAccess: { select: { companyId: true, canEdit: true } } },
+        }),
+      ])
+    : [[], null];
+  const targetSeesGroup = targetUser ? seesWholeGroup({ role: String(targetUser.role), secondaryRole: targetUser.secondaryRole ? String(targetUser.secondaryRole) : null }) : false;
+  const grantByCompany = new Map((targetUser?.companyAccess ?? []).map((g) => [g.companyId, g.canEdit]));
+  const accessRows: CompanyAccessRow[] = allCompanies.map((c) => ({
+    companyId: c.id,
+    name: c.name,
+    mode: grantByCompany.has(c.id) ? (grantByCompany.get(c.id) ? "edit" : "view") : "none",
+    isHome: employee.companyId === c.id,
+  }));
+
   return (
     <div className="space-y-5">
       <Link href="/rh" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
@@ -118,6 +139,12 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
           />
         </div>
       </div>
+
+      {/* Accès aux entités du groupe : l'appartenance (sa fiche) et le droit d'accès (ce
+          qu'elle voit) sont deux choses distinctes. */}
+      {canUpdate && employee.userId && (
+        <CompanyAccessCard userId={employee.userId} rows={accessRows} seesWholeGroup={targetSeesGroup} />
+      )}
 
       {/* Rattachement dans la structure + responsable hiérarchique EFFECTIF (N+1 résolu). */}
       <Card>

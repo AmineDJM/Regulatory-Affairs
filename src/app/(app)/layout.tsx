@@ -19,7 +19,7 @@ import { BackgroundUploadProvider } from "@/components/layout/background-upload"
 import { getTotalUnread } from "@/lib/queries/messaging";
 import { getAdoptionBadge } from "@/lib/adoption";
 import { aiConfigured, sttConfigured } from "@/lib/ai";
-import { getCompanies, getCompanyScope } from "@/lib/company";
+import { getMyCompanies, myCompanyScope } from "@/lib/company";
 import { isTestUser, featureEnabled } from "@/lib/features";
 import { prisma } from "@/lib/prisma";
 import { APP_SCROLL_ID } from "@/lib/use-scroll-lock";
@@ -72,12 +72,15 @@ export default async function AppLayout({
     canMessage ? getTotalUnread(user.id) : Promise.resolve(0),
     // Pastille « score d'adoption » de l'utilisateur courant (snapshot mis en cache).
     getAdoptionBadge(user.id, user.role).catch(() => null),
-    // Entités (sélecteur multi-sociétés de la barre supérieure).
-    getCompanies().catch(() => []),
+    // Entités du sélecteur : SEULEMENT celles auxquelles cette personne a droit. Proposer
+    // toutes les sociétés du groupe reviendrait à laisser basculer vers les dossiers d'une
+    // entité qui ne la regarde pas.
+    getMyCompanies(user.id).catch(() => []),
     // Notifications non lues (leur lien) → badge par module dans le menu.
     prisma.notification.findMany({ where: { userId: user.id, isRead: false, link: { not: null } }, select: { link: true }, take: 500 }),
   ]);
-  const companyScope = getCompanyScope();
+  // Portée VALIDÉE contre les droits : le cookie est une demande, pas une autorisation.
+  const companyScope = await myCompanyScope(user.id);
   // Mode test : la personne voit des nouveautés non encore validées en production.
   const testMode = await isTestUser(user.id).catch(() => false);
   // Compte les notifications non lues par MODULE (routées via leur lien) → badges de menu.

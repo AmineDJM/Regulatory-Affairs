@@ -370,12 +370,29 @@ export async function cancelLeave(formData: FormData): Promise<ActionResult> {
   const isOwner = leave.employee.userId === user.id;
   const isRh = userCan(user, "RH", "UPDATE");
   if (!isOwner && !isRh) return { ok: false, error: "Non autorisé." };
-  if (leave.status !== "PENDING") return { ok: false, error: "Seule une demande en attente peut être annulée." };
+  if (leave.status === "CANCELLED") return { ok: false, error: "Cette demande est déjà annulée." };
+  // Le salarié ne retire que ce qui n'a pas encore été tranché. Les RH, eux, annulent AUSSI un
+  // congé déjà décidé : un départ qui ne se fait finalement pas doit pouvoir être défait, sinon
+  // le solde reste faux et l'historique ment.
+  if (!isRh && leave.status !== "PENDING") {
+    return { ok: false, error: "Cette demande a déjà été tranchée : demandez aux ressources humaines de l'annuler." };
+  }
 
-  await prisma.leaveRequest.update({ where: { id }, data: { status: "CANCELLED" } });
+  // Annuler un congé annuel APPROUVÉ recrédite les jours : sans cela le salarié paierait un
+  // congé qu'il n'a pas pris.
+  const refund = leave.status === "APPROVED" && leave.type === "ANNUAL" ? Number(leave.days) : 0;
+
+  await prisma.leaveRequest.update({
+    where: { id },
+    data: { status: "CANCELLED", decidedById: user.id, decidedAt: new Date() },
+  });
+  if (refund > 0) {
+    await prisma.employee.update({ where: { id: leave.employeeId }, data: { leaveBalanceDays: { increment: refund } } });
+  }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "LEAVE_REQUEST",
-    entityId: id, field: "status", newValue: "CANCELLED", summary: "Demande de congé annulée",
+    entityId: id, field: "status", newValue: "CANCELLED",
+    summary: `Demande de congé annulée${refund > 0 ? ` — ${refund} j recrédité(s) à ${leave.employee.fullName}` : ""}`,
   });
   revalidatePath("/rh");
   revalidatePath("/mon-espace");

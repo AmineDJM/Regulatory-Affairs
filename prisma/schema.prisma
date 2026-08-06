@@ -895,6 +895,9 @@ model User {
   meetingMessages       MeetingMessage[]      @relation("MeetingMsgAuthor")
 
   reminders Reminder[] @relation("UserReminders")
+  /// Entités auxquelles cette personne a accès (voir / modifier). Distinct de son entité
+  /// d'appartenance, portée par sa fiche Employee.
+  companyAccess UserCompanyAccess[]
 
   @@index([role])
   @@index([departmentId])
@@ -958,6 +961,35 @@ model MailAccount {
 /// supérieure) filtre toutes les vues ; « Toutes les entités » englobe l'ensemble
 /// (y compris les non rattachés). Entièrement DYNAMIQUE : on peut créer une 3ᵉ (ou Nᵉ)
 /// entité, la renommer, changer sa couleur, la désactiver — sans toucher au code.
+/// QUI A LE DROIT DE VOIR QUELLE ENTITÉ.
+///
+/// Le sélecteur d'entité de la barre supérieure n'était qu'une **préférence d'affichage** : il
+/// proposait toutes les entités à tout le monde, et rien n'empêchait quelqu'un d'Adventum de
+/// basculer sur Pharmagène. Pour un groupe multi-entités c'est un défaut d'étanchéité, pas un
+/// confort d'affichage.
+///
+/// Une personne peut être salariée d'une entité et travailler pour plusieurs : l'appartenance
+/// (`Employee.companyId`) et le DROIT D'ACCÈS sont deux choses distinctes.
+///
+/// `canEdit` sépare voir et modifier : on donne souvent la lecture sur une entité voisine sans
+/// le droit d'y écrire.
+model UserCompanyAccess {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  canEdit   Boolean @default(false)
+
+  grantedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, companyId])
+  @@index([userId])
+  @@index([companyId])
+}
+
 model Company {
   id          String   @id @default(cuid())
   name        String   @unique // raison sociale (« Adventum Pharma »)
@@ -981,6 +1013,7 @@ model Company {
   sales                   Sale[]
   businessUnits           BusinessUnit[]
   departments             Department[]
+  userAccess              UserCompanyAccess[]
 
   @@index([isActive])
 }
