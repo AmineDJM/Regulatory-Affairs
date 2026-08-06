@@ -15,6 +15,7 @@ import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
 import { splitTextIntoChunks } from "../agents/chunk-text";
 import { sectionByCode } from "../ctd/taxonomy";
 import { aiConfigured } from "@/lib/ai";
+import { enrichVersionFindings, type EnrichmentContext } from "../findings/enrich";
 import { regAudit } from "../audit";
 
 /**
@@ -367,7 +368,7 @@ async function handleRules(job: RegulatoryJob): Promise<void> {
 
   const version = await prisma.regulatoryDossierVersion.findUnique({
     where: { id: versionId },
-    select: { dossier: { select: { id: true, procedureType: true } } },
+    select: { dossier: { select: { id: true, procedureType: true, productId: true } } },
   });
   if (!version) {
     await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", finishedAt: new Date() } });
@@ -437,6 +438,9 @@ async function handleRules(job: RegulatoryJob): Promise<void> {
     detail: `Contrôles déterministes : complétude ${summary.completeness}%, ${summary.conforme ? "aucun bloqueur" : `${summary.blockers} bloqueur(s)`} — ${summary.criticals} critique(s), ${summary.majors} majeur(s).`,
     meta: { ...summary },
   });
+
+  // Précédents ANPP attachés aux constats — après persistance, jamais bloquant.
+  await attachPrecedents(job, versionId, await enrichmentContextOf(version.dossier.productId));
 
   // Revue IA (PROJET, non bloquante) uniquement si l'IA est configurée — sinon on n'empile
   // pas de jobs annulés.
@@ -534,6 +538,10 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
         dossierVersionId: versionId, code: "AI_REVIEW", severity: f.severity, category: f.category.slice(0, 40),
         title: f.title.slice(0, 200), detail: f.detail.slice(0, 2000), evidence: f.evidence ? f.evidence.slice(0, 1200) : null,
         sectionCode: f.sectionCode, documentId: f.documentId, source: "AI" as const, blocker: false, draft: true,
+        // Ce qui rend le constat défendable : la pièce, le degré de certitude, et quoi faire.
+        excerpt: f.evidence ? f.evidence.slice(0, 1200) : null,
+        page: f.page, confidence: f.confidence, recommendation: f.recommendation,
+        conflictingValues: f.conflictingValues,
       })),
     }),
     prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } }),
@@ -544,6 +552,49 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
     action: "AI_REVIEW_DONE",
     detail: `Revue IA (PROJET — revue humaine requise) : ${kept.length} constat(s) sur ${usedChunks} part(s) de ${analyzedDocs} document(s)${maxChunks > 0 && usedChunks >= maxChunks ? ` (plafond ${maxChunks} parts atteint)` : ""}.`,
   });
+
+  const productId = job.dossierId
+    ? (await prisma.regulatoryDossier.findUnique({ where: { id: job.dossierId }, select: { productId: true } }))?.productId ?? null
+    : null;
+  await attachPrecedents(job, versionId, await enrichmentContextOf(productId));
+}
+
+/**
+ * DCI et fournisseur du dossier : ils affinent la recherche de précédents ANPP (« cette réserve,
+ * l'avons-nous déjà eue SUR CETTE MOLÉCULE, chez CE fournisseur ? »). Un dossier sans produit
+ * rattaché cherche sans filtre — moins précis, mais jamais bloquant.
+ */
+async function enrichmentContextOf(productId: string | null): Promise<EnrichmentContext> {
+  if (!productId) return {};
+  const p = await prisma.regulatoryProduct
+    .findUnique({ where: { id: productId }, select: { dci: true, partnerLab: true } })
+    .catch(() => null);
+  return { dci: p?.dci ?? null, supplier: p?.partnerLab ?? null };
+}
+
+/**
+ * Attache à chaque constat les réserves ANPP comparables et la probabilité qu'elle revienne.
+ *
+ * Volontairement APRÈS la persistance et hors transaction : c'est un enrichissement, pas une
+ * condition. Un échec ici laisse l'analyse complète et exploitable — on perd seulement la
+ * mémoire des précédents, qu'un « Relancer l'analyse » rattrapera.
+ *
+ * ⚠️ Ces précédents n'aggravent jamais la sévérité d'un constat : « l'ANPP nous l'a déjà
+ * reproché » informe la préparation, ce n'est pas une règle de droit.
+ */
+async function attachPrecedents(job: RegulatoryJob, versionId: string, ctx: EnrichmentContext): Promise<void> {
+  try {
+    const n = await enrichVersionFindings(versionId, ctx);
+    if (n > 0) {
+      await regAudit({
+        companyId: job.companyId, actorId: "system", dossierId: job.dossierId, dossierVersionId: versionId,
+        action: "FINDINGS_ENRICHED",
+        detail: `${n} constat(s) rapproché(s) de réserves ANPP déjà reçues. Précédents à titre indicatif — aucune sévérité n'a été modifiée.`,
+      });
+    }
+  } catch (err) {
+    console.error("[reg-ai] rapprochement des précédents impossible", versionId, err);
+  }
 }
 
 interface ExtractDoc { id: string; ext: string; blobId: string | null; originalPath: string; originalFilename: string; sizeBytes: number }

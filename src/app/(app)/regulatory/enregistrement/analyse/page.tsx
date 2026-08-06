@@ -26,10 +26,16 @@ export default async function AnalyseWorkspacePage() {
   const companyId = await resolveRegCompanyId(getCompanyScope());
   const canCreate = regCan(user, "regulatory.dossier.create");
 
+  // Les deux écrans qui portent la MÉMOIRE du module ne s'affichent que pour qui peut les
+  // utiliser : la bibliothèque des réserves (ce que l'ANPP nous a déjà reproché) et le corpus
+  // (les textes sur lesquels l'analyse s'appuie).
   const tabs = [
     { label: "Dossiers", href: "/regulatory" },
     { label: "Référentiel ANPP", href: "/regulatory/enregistrement" },
     { label: "Analyse CTD", href: "/regulatory/enregistrement/analyse" },
+    ...(regCan(user, "regulatory.reserve.manage") ? [{ label: "Réserves ANPP", href: "/regulatory/enregistrement/reserves" }] : []),
+    ...(regCan(user, "regulatory.corpus.view") || regCan(user, "regulatory.corpus.manage")
+      ? [{ label: "Corpus", href: "/regulatory/enregistrement/corpus" }] : []),
   ];
 
   return (

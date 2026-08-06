@@ -911,6 +911,93 @@ réalité réglementaire.
   pas reculer une industrialisation actée ; sans date de décision, on retombe sur la création.
 - Tests : `manufacturing-stage.test.ts` (11 tests), dont le cas « la fiche a divergé ».
 
+### Analyseur CTD — réserves ANPP, corpus et coût
+
+Trois manques structurels de l'analyseur : il ne se souvenait pas de ce que l'agence nous avait
+déjà reproché, il ne savait pas sur quels textes il s'appuyait, et personne ne voyait ce qu'il
+coûtait. Voici comment chacun est traité — et surtout **où sont les limites**.
+
+#### 1. Bibliothèque des réserves ANPP — la mémoire du service
+
+Écran `/regulatory/enregistrement/reserves` (permission `regulatory.reserve.manage`).
+
+| Étape | Fichier | Règle exacte |
+|---|---|---|
+| Import d'une lettre | `reserves/library-ingest.ts` → `ingestReserveDocument` | Texte natif → OCR → **vision** (pages rastérisées). Dédoublonnage sur `sha256` : réimporter la même lettre ne coûte rien. |
+| Extraction des points | `reserves/library-extract.ts` | Schéma JSON **strict**. Une réserve **sans verbatim est jetée** — sans la citation exacte, on ne pourrait rien opposer. En vision, la consigne dit explicitement que **l'image fait foi**, pas l'OCR. |
+| Recherche de précédents | `reserves/library.ts` → `findSimilarReserves` | `GREATEST(ts_rank français, similarité trigrammes)`, seuil 0,02. Filtres DCI / fournisseur / section CTD. |
+| Réponse qui a marché | `bestHistoricalResponse` | Renvoie l'acceptée **et** les réitérées : savoir ce qui a échoué vaut autant que savoir ce qui a réussi. |
+| Score de risque | `reserveRisk` | Explicable : `reasons[]` dit *pourquoi*. Ce n'est **pas** une prédiction de la décision de l'ANPP, et l'écran l'écrit. |
+
+**La frontière entre apprendre et décider.** `proposeRules` repère un reproche revenu ≥ 3 fois et
+propose une règle au statut `PROPOSED`. Elle est **inerte** : seule `validateDerivedRule` (humain
+autorisé, audité) la fait passer à `VALIDATED`, et `activeDerivedRules` ne renvoie que celles-là.
+`ruleConfidence` **sature à 0,9** — une observation, si répétée soit-elle, ne devient jamais une
+règle de droit.
+
+#### 2. Constats défendables
+
+Champs ajoutés à `RegulatoryFinding` : `ruleRef`, `confidence`, `page`, `excerpt`,
+`conflictingValues[]`, `recommendation`, `similarReserveIds[]`, `reserveRisk`.
+
+- `findings/enrich.ts` → `enrichVersionFindings` est appelé **après** la persistance des constats
+  (jobs `RULES` et `AI_REVIEW`), **hors transaction** et sans jamais lever : un échec
+  d'enrichissement laisse l'analyse complète, il ne la perd pas.
+- `findingQuality` (pure, testée) note un constat sur 6 éléments et dit `defensible` uniquement si
+  on peut **montrer la pièce** (règle + document + page + extrait). L'écran affiche ce qui manque :
+  découvrir qu'un constat n'était pas étayé doit se faire ici, pas en séance.
+- ⚠️ Un précédent ANPP est attaché **comme précédent**. Il n'aggrave jamais automatiquement la
+  sévérité et ne crée aucun blocage.
+
+#### 3. Corpus réglementaire et veille ANPP
+
+Écran `/regulatory/enregistrement/corpus` (`regulatory.corpus.view` / `.manage`).
+
+- `corpus/catalog.ts` — 43 sources, chacune marquée `ingestible` (faux = sous licence) et `binding`
+  (faux = projet non opposable). `FIRST_WAVE` = les 10 qui suffisent à analyser un dossier algérien.
+- `corpus/fetch-source.ts` — PDF direct, DOCX, ou page HTML dont on **suit le lien « Télécharger »**
+  (sinon on indexerait un menu de site au lieu d'une ligne directrice). Rejette un contenu < 500
+  caractères. Fonctions pures testées : `findPdfLink`, `extOf`, `htmlToText`.
+- `corpus/ingest-catalog.ts` — l'**empreinte décide** : contenu identique ⇒ rien n'est créé. Sinon
+  une nouvelle version **au statut `DRAFT`**, pointant vers celle qu'elle remplace. Rien ne devient
+  opposable sans activation humaine.
+- `corpus/watch-schedule.ts` → `runAnppWatchIfDue` — relevé **quotidien** des pages de publication
+  ANPP, branché sur `runScheduledJobs`. Idempotent sans nouvelle table (le dernier passage se lit
+  dans le journal d'audit `CORPUS_WATCHED`). En cas de changement, **notification** aux détenteurs
+  de `regulatory.corpus.manage`. La veille **signale**, elle n'ingère rien : décider qu'un texte
+  fait foi reste un acte humain. Désactivable par `REG_ANPP_WATCH=0`.
+- ⚠️ **Licences** : la Ph. Eur. de l'EDQM et les ouvrages sous droits sont *référencés*, jamais
+  téléchargés ni stockés. La vérification est faite **deux fois** (catalogue + ingestion) : c'est
+  une limite juridique, pas une préférence.
+
+#### 4. Coût — voir, réutiliser, plafonner
+
+`cost/ledger.ts`, restitué dans la carte « Coût de l'analyse IA » de l'écran dossier.
+
+1. **Voir** : chaque appel est tracé au **dossier**, à l'**étape** et au **fichier**. Un total
+   global ne se corrige pas ; une étape ou un fichier, si.
+2. **Ne pas repayer** : `cacheKeyOf` = SHA-256 de (étape + modèle + consigne + contenu + schéma +
+   empreinte des images). Un fichier inchangé entre la V1 et la V2 d'un dossier est **relu, pas
+   racheté**.
+3. **S'arrêter** : `budgetState` refuse l'appel **avant** de dépenser quand le plafond du dossier
+   (ou `CTD_BUDGET_USD_DEFAULT`) est atteint — et l'écran le dit, plutôt que de laisser filer la
+   facture en silence.
+
+**Analyse différée (moitié prix)** — `cost/batch-runner.ts`. Le fournisseur facture deux fois moins
+cher ce qu'on accepte d'attendre (≤ 24 h). Sans intérêt pour une analyse qu'on regarde tout de
+suite ; décisif pour une **réanalyse complète**. Le choix reste explicite à l'écran, avec le prix
+et le délai. Trois garde-fous : le budget est vérifié **avant** dépôt (estimation, refus motivé) ;
+`processedAt` garantit qu'un lot n'est traité **qu'une fois** ; les constats restent des **PROJETS**
+non bloquants — différer une analyse ne lui donne pas plus d'autorité. Le prompt, la consigne et la
+validation sont **les mêmes fonctions** que la voie immédiate (`buildPrompt`, `SYSTEM_PROMPT`,
+`parseReviewOutput`) : sans cela, « moitié prix » finirait par vouloir dire « moins bien ».
+
+#### 5. Modèle et environnement
+
+`lib/openai-luna.ts` — `gpt-5.6-luna` (multimodal texte + image, sorties JSON strictes, Batch ×0,5).
+Variables : `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `CTD_MODEL_CHEAP`, `CTD_BUDGET_USD_DEFAULT`,
+`REG_ANPP_WATCH`.
+
 ### RH — quatre écrans, et les questions du quotidien
 
 Le module était **une page à sept sections** : on y trouvait tout, sauf vite. Désormais :
@@ -1096,6 +1183,10 @@ Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage 
 | **Assistant — flux (streaming)** | `lib/ai.ts` → `callClaudeStream`, `lib/assistant.ts` → `runAssistantStream`, `app/api/assistant/stream/route.ts` (SSE), `app/(app)/assistant/assistant-chat.tsx`. |
 | **Regulatory — niveau de process** | `lib/regulatory/manufacturing-stage.ts` (`effectiveStage`, pure) + tests ; colonne et cellule dans `app/(app)/regulatory/regulatory-table.tsx` ; fiche `app/(app)/regulatory/[id]/page.tsx`. |
 | **RH — 4 écrans** | `lib/queries/hr-pulse.ts` (`getHrPulse` : absents, départs, échéances, soldes) ; `app/(app)/rh/` — `page.tsx` (à traiter), `equipe/`, `conges/`, `departements/`, `team-directory.tsx`. |
+| **CTD — réserves ANPP** | `lib/regulatory/intelligence/reserves/` — `library-ingest.ts` (texte → OCR → vision), `library-extract.ts` (schéma strict, verbatim obligatoire), `library.ts` (`findSimilarReserves`, `bestHistoricalResponse`, `reserveRisk`, `proposeRules`, `ruleConfidence`), `library-actions.ts` (`validateDerivedRule` = seul chemin vers VALIDATED) ; écran `app/(app)/regulatory/enregistrement/reserves/`. |
+| **CTD — constats défendables** | `lib/regulatory/intelligence/findings/enrich.ts` (`enrichVersionFindings`, `findingQuality` pure + tests) ; branché dans `jobs/runner.ts` (`attachPrecedents`) ; rendu par `FindingEvidence` dans `app/(app)/regulatory/enregistrement/analyse/[dossierId]/page.tsx`. |
+| **CTD — corpus & veille** | `lib/regulatory/intelligence/corpus/` — `catalog.ts` (43 sources, `ingestible`/`binding`), `fetch-source.ts` (`findPdfLink`, `htmlToText`, `extOf` + tests), `ingest-catalog.ts` (versions DRAFT, empreinte), `watch-schedule.ts` (`runAnppWatchIfDue`, branché sur `lib/scheduled.ts`), `corpus-actions.ts` ; écran `app/(app)/regulatory/enregistrement/corpus/`. |
+| **CTD — coût & Batch** | `lib/openai-luna.ts` (Luna, Batch ×0,5) ; `lib/regulatory/intelligence/cost/` — `ledger.ts` (`trackedLuna`, `cacheKeyOf`, `budgetState`, `dossierCost`), `batch-runner.ts` (`submitVersionReviewBatch`, `pollAiBatches`, `processCompletedBatch`), `cost-actions.ts` ; carte « Coût de l'analyse IA » + `cost-panel.tsx` sur l'écran dossier. Modèles `RegulatoryAiCall`, `RegulatoryAiCache`, `RegulatoryAiBatch`. |
 | **Courrier smart (sans SMTP)** | `lib/mail-smart.ts` (agnostique fournisseur, `buildProviderCall`/`verifyInboundSignature`/`normalizeInbound`) + `mail-smart.test.ts`, `lib/actions/smart-mail-actions.ts` (journal), `app/api/mail/inbound/route.ts` (webhook signé), `app/(app)/admin/courrier/`. Modèles `OutboundEmail`/`InboundEmail`. |
 
 ---
@@ -1380,6 +1471,10 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `REG_AI_CHUNK_PAGES` · `REG_AI_CONCURRENCY` | ⬜ | Revue IA par parts : pages par part envoyée à l'IA (défaut 10) · parts analysées en parallèle (défaut 4). |
 | `REG_AI_MAX_CHUNKS` · `REG_AI_MAX_FINDINGS` | ⬜ | Garde-coût revue IA : parts max analysées par version (défaut 120, **0 = illimité**) · constats IA max persistés (défaut 300). Chaque part = 1 appel Claude (palier **éco**) facturé — c'est le principal poste de coût CTD, borné ici. |
 | `REG_MAX_PG_FILE_MB` · `REG_BLOB_CHUNK_MB` | ⬜ | Taille max d'un fichier unique conservé en base (défaut **950 Mo** ≈ 1 Go, stocké en tranches) · taille d'une tranche de blob chiffré (défaut 16 Mo). Fichiers proches d'1 Go : prévoir ≥ 4 Go de RAM ou activer R2. |
+| `OPENAI_API_KEY` · `OPENAI_BASE_URL` | ⬜ | Modèle économique **Luna** (`gpt-5.6-luna`) : lecture des lettres de réserves, des graphiques/images, et analyse différée (Batch). Sans clé, ces fonctions se désactivent **proprement** (message explicite) — le reste du module continue de fonctionner. |
+| `CTD_MODEL_CHEAP` | ⬜ | Surcharge du modèle économique (défaut `gpt-5.6-luna`). |
+| `CTD_BUDGET_USD_DEFAULT` | ⬜ | Plafond IA **global** par dossier, en dollars (défaut : aucun). Un dossier peut avoir son propre plafond, réglé à l'écran. Atteint ⇒ les appels sont **refusés avant dépense**, et l'écran le dit. |
+| `REG_ANPP_WATCH` | ⬜ | `0` désactive la veille quotidienne des pages de publication ANPP (défaut activée). La veille **signale** un changement, elle n'ingère et n'active rien. |
 
 > \* Requis **ensemble** uniquement pour activer l'édition Office. Côté **service OnlyOffice**, poser
 > `JWT_ENABLED=true` et `JWT_SECRET=<même valeur que ONLYOFFICE_JWT_SECRET>`.
@@ -1518,6 +1613,26 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Analyseur CTD : la mémoire des réserves ANPP, un corpus qui se tient à jour, et un coût qu'on
+  voit.** Refonte de fond en six lots. **(1) Bibliothèque des réserves ANPP** — une lettre reçue
+  (PDF, scan, courriel) est lue *page par page en image* quand l'OCR ne suffit pas, décomposée en
+  points avec leur **verbatim**, et rangée avec sa preuve (fichier, page, extrait). On peut alors
+  demander « cette réserve, l'avons-nous déjà eue ? » et récupérer **la réponse qui avait été
+  acceptée**. **(2) Apprentissage borné** : quand un même reproche revient trois fois, le système
+  *propose* une règle — elle reste **sans effet** jusqu'à validation humaine, et sa confiance
+  plafonne à 0,9 (une observation ne devient jamais une loi). **(3) Constats défendables** : chaque
+  constat porte la règle appliquée, la **page**, l'**extrait exact**, les valeurs qui se
+  contredisent, la recommandation, et les précédents ANPP comparables — l'écran dit aussi ce qui
+  **manque** pour qu'il soit opposable. **(4) Corpus** : 43 sources cataloguées (ANPP, ICH, OMS,
+  EMA), téléchargement et **veille quotidienne des pages ANPP** qui alerte quand un texte bouge ;
+  les sources sous licence sont *citées, jamais copiées*, et une version ingérée reste **DRAFT**
+  tant qu'un humain ne l'active pas. **(5) Multimodal** : les graphiques, chromatogrammes et
+  tableaux d'image sont lus comme images, pas devinés depuis un OCR approximatif. **(6) Coût
+  maîtrisé** : chaque appel est tracé au fichier près, un résultat déjà calculé n'est jamais
+  repayé, un **plafond par dossier** arrête la dépense *et le dit*, et une **analyse différée à
+  moitié prix** (résultats sous 24 h) est proposée pour les réanalyses complètes — même consigne,
+  même exigence, seule la facturation change.
+  → [référence](#analyseur-ctd--réserves-anpp-corpus-et-coût)
 - **Assistant : plein écran, conversations, et une réponse qui s'écrit.** Fini le long silence
   suivi d'un pavé : vrai **streaming** (le texte remonte au fil de sa génération), étapes de
   lecture annoncées en direct, rail des conversations regroupées par ancienneté, bouton

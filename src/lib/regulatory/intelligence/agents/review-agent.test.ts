@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reviewDocumentText, type AiFn } from "./review-agent";
+import { reviewDocumentText, parseReviewOutput, type AiFn } from "./review-agent";
 
 const LONG_TEXT = "Résumé global de la qualité du produit fini. ".repeat(4);
 const baseInput = { filename: "2.3-qos.docx", ctdSection: "2.3", ctdTitle: "Résumé global de la qualité (QOS)", text: LONG_TEXT };
@@ -60,5 +60,46 @@ describe("reviewDocumentText — agent IA encadré (DRAFT, anti-injection, Zod)"
     const r = await reviewDocumentText(baseInput, ai);
     expect(r.ok).toBe(false);
     expect(r.error).toBe("réseau");
+  });
+});
+
+/**
+ * LES CHAMPS QUI RENDENT UN CONSTAT DÉFENDABLE.
+ *
+ * Un constat sans page ni extrait ne se défend pas devant l'ANPP. Mais un constat avec une page
+ * INVENTÉE se défend encore moins : on ouvre le document devant l'examinateur et il n'y a rien.
+ * D'où la règle testée ici — ces champs sont facultatifs, jamais devinés, et une valeur
+ * aberrante est neutralisée plutôt que de faire échouer toute la lecture.
+ */
+describe("parseReviewOutput — la preuve, ou rien", () => {
+  const base = { severity: "MAJOR", category: "content", title: "T", detail: "D", evidence: "extrait" };
+
+  it("retient page, recommandation, confiance et valeurs contradictoires", () => {
+    const r = parseReviewOutput(JSON.stringify({
+      findings: [{ ...base, page: 12, recommendation: "Joindre le CoA signé.", confidence: 0.8, conflictingValues: ["36 mois", "24 mois"] }],
+    }));
+    expect(r.ok).toBe(true);
+    expect(r.findings[0]).toMatchObject({
+      page: 12, recommendation: "Joindre le CoA signé.", confidence: 0.8, conflictingValues: ["36 mois", "24 mois"],
+    });
+  });
+
+  it("un constat sans ces champs reste valide — on ne force pas le modèle à deviner", () => {
+    const r = parseReviewOutput(JSON.stringify({ findings: [base] }));
+    expect(r.ok).toBe(true);
+    expect(r.findings[0]).toMatchObject({ page: null, recommendation: null, confidence: null, conflictingValues: [] });
+  });
+
+  it("une valeur aberrante est neutralisée, elle ne fait pas perdre tout le constat", () => {
+    const r = parseReviewOutput(JSON.stringify({ findings: [{ ...base, page: "douze", confidence: 42 }] }));
+    expect(r.ok).toBe(true);
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].page).toBeNull();
+    expect(r.findings[0].confidence).toBeNull();
+    expect(r.findings[0].title).toBe("T"); // le constat lui-même survit
+  });
+
+  it("JSON invalide → aucune sortie", () => {
+    expect(parseReviewOutput("pas du json").ok).toBe(false);
   });
 });

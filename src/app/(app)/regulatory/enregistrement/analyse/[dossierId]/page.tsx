@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft, Download, FileText, ShieldCheck, ShieldAlert, ShieldX, Layers, History, Eye,
-  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge, Bot, GitCompare, MailWarning, FlaskConical, Factory, MessagesSquare,
+  CheckCircle2, XCircle, AlertTriangle, Info, ListChecks, Gauge, Bot, GitCompare, MailWarning, FlaskConical, Factory, MessagesSquare, Library, Coins,
 } from "lucide-react";
 import type { RegFindingSeverity } from "@prisma/client";
 import { requireModule } from "@/lib/session";
@@ -12,7 +12,8 @@ import { ReminderButton } from "@/components/reminders/reminder-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
-import { getDossier, listVersions, listVersionDocuments, listDossierAudit, getAssessment, listFindings, listFacts, listConflicts } from "@/lib/regulatory/intelligence/queries";
+import { getDossier, listVersions, listVersionDocuments, listDossierAudit, getAssessment, listFindings, listFacts, listConflicts, reservesByIds, documentNamesByIds } from "@/lib/regulatory/intelligence/queries";
+import { findingQuality } from "@/lib/regulatory/intelligence/findings/enrich";
 import { buildCoverage, buildRegistrationDocs } from "@/lib/regulatory/intelligence/twin/build-twin";
 import { buildVersionDiff } from "@/lib/regulatory/intelligence/diff/compare-versions";
 import { aiConfigured } from "@/lib/ai";
@@ -22,6 +23,9 @@ import { listReserveCycles } from "@/lib/regulatory/intelligence/reserves/querie
 import { listSupplierRequests } from "@/lib/regulatory/intelligence/supplier/queries";
 import { listLifecycle } from "@/lib/regulatory/intelligence/lifecycle/queries";
 import { prisma } from "@/lib/prisma";
+import { toNumber } from "@/lib/utils";
+import { dossierCost } from "@/lib/regulatory/intelligence/cost/ledger";
+import { BudgetForm, DeferredReviewButton } from "./cost-panel";
 import { TwinPanel } from "./twin-panel";
 import { AgentsPanel } from "./agents-panel";
 import { DossierChatPanel } from "./chat-panel";
@@ -78,6 +82,12 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
   const documents = latest ? await listVersionDocuments(latest.id) : [];
   const assessment = latest ? await getAssessment(latest.id) : null;
   const findings = latest ? await listFindings(latest.id) : [];
+  // Réserves ANPP rapprochées et noms des documents visés : chargés EN UNE FOIS chacun
+  // (sinon une requête par constat).
+  const [reservesById, findingDocNames] = await Promise.all([
+    reservesByIds(findings.flatMap((f) => f.similarReserveIds)),
+    documentNamesByIds(findings.map((f) => f.documentId)),
+  ]);
   const facts = latest ? await listFacts(latest.id) : [];
   const conflicts = latest ? await listConflicts(latest.id) : [];
   const coverage = latest ? buildCoverage(dossier.procedureType, documents) : [];
@@ -108,6 +118,19 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
     ? { perspectives: lastSimRow.perspectives as unknown as SimPerspective[], overall: lastSimRow.overall, createdAt: lastSimRow.createdAt.toISOString() }
     : null;
   const audit = await listDossierAudit(dossier.id);
+  const cost = await dossierCost(dossier.id);
+  // Plafond PROPRE au dossier (distinct du plafond global) : le formulaire doit refléter ce
+  // qui est réellement stocké, pas la valeur globale héritée.
+  const dossierBudget = (await prisma.regulatoryDossier.findUnique({ where: { id: dossier.id }, select: { aiBudgetUsd: true } }))?.aiBudgetUsd;
+  // Un lot différé en cours : l'écran doit le DIRE, sinon on relance et on paie deux fois.
+  const pendingBatchRow = latest
+    ? await prisma.regulatoryAiBatch.findFirst({
+        where: { dossierVersionId: latest.id, status: { in: ["submitted", "validating", "in_progress", "finalizing"] } },
+        orderBy: { submittedAt: "desc" },
+        select: { requestCount: true, submittedAt: true },
+      })
+    : null;
+  const pendingBatch = pendingBatchRow ? { requestCount: pendingBatchRow.requestCount, submittedAt: pendingBatchRow.submittedAt.toISOString() } : null;
 
   const canUpload = regCan(user, "regulatory.dossier.upload");
   const canDelete =
@@ -426,6 +449,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                       </div>
                       <p className="mt-0.5 text-xs text-muted-foreground">{f.detail}</p>
                       {f.evidence && <p className="mt-0.5 text-[11px] italic text-muted-foreground/80">Preuve : {f.evidence}</p>}
+                      <FindingEvidence finding={f} reserves={reservesById} docNames={findingDocNames} />
                       <FindingControls findingId={f.id} status={f.status} blocker={f.blocker} canEdit={canEditFinding} canApprove={canApproveFinding} />
                     </div>
                   </div>
@@ -576,6 +600,53 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
         </Card>
       )}
 
+      {/* Coût de l'analyse — ce que le dossier a réellement coûté, et à cause de quoi. */}
+      {(cost.calls > 0 || canAnalyse) && (
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Coins className="h-4 w-4 text-primary" /> Coût de l&apos;analyse IA</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <CostStat label="Dépensé" value={usd(cost.totalUsd)} />
+              <CostStat
+                label="Plafond"
+                value={cost.budget.limitUsd != null ? usd(cost.budget.limitUsd) : "aucun"}
+                hint={cost.budget.exhausted ? "atteint — analyses arrêtées" : cost.budget.remainingUsd != null ? `${usd(cost.budget.remainingUsd)} restants` : undefined}
+                tone={cost.budget.exhausted ? "danger" : undefined}
+              />
+              <CostStat label="Appels" value={String(cost.calls)} hint={cost.cachedCalls > 0 ? `dont ${cost.cachedCalls} sans recalcul` : undefined} />
+              <CostStat label="Économisé par réemploi" value={usd(cost.savedUsd)} hint="fichiers déjà analysés" tone={cost.savedUsd > 0 ? "success" : undefined} />
+            </div>
+
+            {cost.budget.exhausted && (
+              <p className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Plafond atteint : les analyses économiques sont arrêtées sur ce dossier. Relevez le plafond pour les poursuivre.</span>
+              </p>
+            )}
+
+            {cost.calls > 0 && (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <CostTable title="Par étape" rows={cost.byStep} labelize={stepLabel} />
+                <CostTable title="Par fichier" rows={cost.byDocument.slice(0, 8)} />
+              </div>
+            )}
+
+            {canAnalyse && (
+              <>
+                <BudgetForm dossierId={dossier.id} current={dossierBudget != null ? toNumber(dossierBudget) : null} />
+                {latest && <DeferredReviewButton dossierId={dossier.id} pending={pendingBatch} />}
+              </>
+            )}
+
+            {cost.calls === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Aucun appel facturé sur ce dossier pour le moment.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Journal d'audit */}
       {audit.length > 0 && (
         <Card>
@@ -589,6 +660,163 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
             ))}
           </CardContent>
         </Card>
+      )}
+    </div>
+  );
+}
+
+/** Deux décimales suffisent à décider ; le dixième de cent est du bruit. */
+function usd(n: number): string {
+  return `${n.toFixed(n > 0 && n < 0.01 ? 4 : 2)} $`;
+}
+
+/** Les étapes techniques dites en français : « classify » ne veut rien dire pour un pharmacien. */
+const STEP_LABELS: Record<string, string> = {
+  classify: "Classement CTD",
+  review: "Revue de contenu",
+  facts: "Extraction des données",
+  figures: "Lecture des graphiques et images",
+  "reserve-extract": "Lecture des lettres de réserves",
+  "reserve-vision": "Lecture des lettres scannées (image)",
+  ocr: "Reconnaissance de texte (OCR)",
+  docgen: "Génération documentaire",
+};
+const stepLabel = (key: string): string => STEP_LABELS[key] ?? key;
+
+function CostStat({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: "danger" | "success" }) {
+  const cls = tone === "danger" ? "text-destructive" : tone === "success" ? "text-success" : "";
+  return (
+    <div className="rounded-lg border border-border px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`mt-0.5 text-base font-semibold tabular-nums ${cls}`}>{value}</p>
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+/** Où part le budget. Un total global ne se corrige pas ; une étape ou un fichier, si. */
+function CostTable({ title, rows, labelize }: { title: string; rows: { key: string; label: string; calls: number; costUsd: number; cachedCalls: number }[]; labelize?: (k: string) => string }) {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <p className="text-xs font-medium text-muted-foreground">{title}</p>
+      <ul className="mt-1 divide-y divide-border">
+        {rows.map((r) => (
+          <li key={r.key} className="flex items-center gap-2 py-1.5 text-sm">
+            <span className="min-w-0 flex-1 truncate">{labelize ? labelize(r.key) : r.label}</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">
+              {r.calls} appel{r.calls > 1 ? "s" : ""}{r.cachedCalls > 0 ? ` · ${r.cachedCalls} réemployé(s)` : ""}
+            </span>
+            <span className="shrink-0 tabular-nums">{usd(r.costUsd)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+type FindingRow = Awaited<ReturnType<typeof listFindings>>[number];
+type ReserveMap = Awaited<ReturnType<typeof reservesByIds>>;
+
+/**
+ * CE QUI REND UN CONSTAT DÉFENDABLE — la partie qu'on présentera à l'agence.
+ *
+ * Un constat sans pièce n'est qu'une opinion. On affiche donc, quand ils existent : la règle
+ * appliquée, la PAGE et l'EXTRAIT exact (on peut ouvrir le document et pointer la ligne), les
+ * valeurs qui se contredisent entre documents, la recommandation — et les réserves ANPP
+ * déjà reçues sur le même sujet.
+ *
+ * Quand un élément manque, on le DIT. Découvrir qu'un constat n'était pas étayé se fait ici,
+ * pas en séance.
+ */
+function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingRow; reserves: ReserveMap; docNames: Map<string, string> }) {
+  const quality = findingQuality(f);
+  const linked = f.similarReserveIds.map((id) => reserves.get(id)).filter((r): r is NonNullable<typeof r> => Boolean(r));
+  const docName = f.documentId ? docNames.get(f.documentId) ?? null : null;
+  const hasAny = f.ruleRef || f.page != null || f.excerpt || f.recommendation || f.conflictingValues.length > 0 || linked.length > 0 || f.reserveRisk != null;
+  if (!hasAny && quality.missing.length === 0) return null;
+
+  const riskPct = f.reserveRisk != null ? Math.round(f.reserveRisk * 100) : null;
+
+  return (
+    <div className="mt-1.5 space-y-1.5 border-l-2 border-border/60 pl-2.5">
+      {/* La règle et le degré de certitude. */}
+      {(f.ruleRef || f.confidence != null) && (
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+          {f.ruleRef && <span className="rounded bg-secondary px-1.5 py-0.5 font-medium text-foreground">{f.ruleRef}</span>}
+          {f.confidence != null && <span>confiance {Math.round(f.confidence * 100)} %</span>}
+        </p>
+      )}
+
+      {/* LA PIÈCE : où regarder, et ce qui y est écrit. */}
+      {(docName || f.page != null || f.excerpt) && (
+        <div className="text-[11px]">
+          <p className="text-muted-foreground">
+            {docName ?? "Document"}{f.page != null ? ` — page ${f.page}` : ""}
+          </p>
+          {f.excerpt && (
+            <p className="mt-0.5 rounded bg-secondary/60 px-2 py-1 font-mono text-[10.5px] leading-relaxed text-foreground">
+              « {f.excerpt.length > 400 ? `${f.excerpt.slice(0, 400)}…` : f.excerpt} »
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Ce qui se contredit — la raison d'être du constat quand il porte sur une incohérence. */}
+      {f.conflictingValues.length > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          <span className="font-medium text-foreground">Valeurs contradictoires :</span>{" "}
+          {f.conflictingValues.slice(0, 6).join("  ≠  ")}
+        </p>
+      )}
+
+      {/* Quoi faire. */}
+      {f.recommendation && (
+        <p className="rounded-lg bg-primary/5 px-2 py-1 text-[11px] text-foreground">
+          <span className="font-medium">À faire :</span> {f.recommendation}
+        </p>
+      )}
+
+      {/* Les précédents ANPP — information, jamais règle de droit. */}
+      {(linked.length > 0 || riskPct != null) && (
+        <div className="rounded-lg border border-border/70 px-2 py-1.5">
+          <p className="flex flex-wrap items-center gap-2 text-[11px]">
+            <Library className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="font-medium text-foreground">Déjà vu à l&apos;ANPP</span>
+            {riskPct != null && (
+              <span className={riskPct >= 60 ? "text-destructive" : riskPct >= 30 ? "text-warning" : "text-muted-foreground"}>
+                probabilité que la réserve revienne : {riskPct} %
+              </span>
+            )}
+          </p>
+          {linked.slice(0, 3).map((r) => (
+            <div key={r.id} className="mt-1 text-[11px]">
+              <span className={`mr-1.5 rounded px-1 py-0.5 text-[10px] font-semibold ${r.status === "ACCEPTED" ? "bg-success/15 text-success" : r.status === "REITERATED" ? "bg-destructive/15 text-destructive" : "bg-secondary text-muted-foreground"}`}>
+                {r.status === "ACCEPTED" ? "réponse acceptée" : r.status === "REITERATED" ? "réitérée" : r.status.toLowerCase()}
+              </span>
+              <span className="text-muted-foreground">{r.verbatim.slice(0, 180)}{r.verbatim.length > 180 ? "…" : ""}</span>
+              {r.status === "ACCEPTED" && r.response && (
+                <p className="mt-0.5 rounded bg-success/10 px-2 py-1 text-[10.5px]">
+                  <span className="font-medium">Réponse qui avait fonctionné :</span> {r.response.slice(0, 260)}
+                </p>
+              )}
+            </div>
+          ))}
+          <p className="mt-1 text-[10px] text-muted-foreground/80">
+            Précédent, pas règle de droit — la sévérité du constat n&apos;en a pas été modifiée.
+          </p>
+        </div>
+      )}
+
+      {/* L'honnêteté du constat : ce sur quoi il ne repose pas. */}
+      {quality.missing.length > 0 && (
+        <p className="flex items-start gap-1.5 text-[10.5px] text-muted-foreground/80">
+          <AlertTriangle className="mt-px h-3 w-3 shrink-0 text-warning" />
+          <span>
+            {quality.defensible ? "Constat étayé. " : "Constat à étayer avant de l'opposer : "}
+            manque {quality.missing.join(", ")}.
+          </span>
+        </p>
       )}
     </div>
   );

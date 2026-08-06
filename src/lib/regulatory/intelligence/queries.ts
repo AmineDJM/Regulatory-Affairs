@@ -102,8 +102,40 @@ export async function listFindings(dossierVersionId: string) {
     select: {
       id: true, code: true, severity: true, category: true, title: true, detail: true,
       evidence: true, sectionCode: true, source: true, status: true, blocker: true, draft: true, createdAt: true,
+      // De quoi DÉFENDRE le constat : la règle appliquée, la pièce (document, page, extrait),
+      // ce qui se contredit, quoi faire, et si l'ANPP nous l'a déjà reproché.
+      ruleRef: true, confidence: true, documentId: true, page: true, excerpt: true,
+      conflictingValues: true, recommendation: true, similarReserveIds: true, reserveRisk: true,
     },
   });
+}
+
+/**
+ * Noms de fichiers des documents visés par des constats, chargés EN UNE FOIS.
+ * `RegulatoryFinding.documentId` est un scalaire (pas de relation Prisma) : on résout ici.
+ */
+export async function documentNamesByIds(ids: (string | null)[]) {
+  const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))].slice(0, 500);
+  if (unique.length === 0) return new Map<string, string>();
+  const rows = await prisma.regulatoryDocument.findMany({
+    where: { id: { in: unique } },
+    select: { id: true, originalFilename: true },
+  });
+  return new Map(rows.map((d) => [d.id, d.originalFilename]));
+}
+
+/**
+ * Les réserves ANPP rattachées à des constats, pour les afficher sans une requête par constat.
+ * Rendu sous forme de dictionnaire indexé par identifiant.
+ */
+export async function reservesByIds(ids: string[]) {
+  const unique = [...new Set(ids)].slice(0, 200);
+  if (unique.length === 0) return new Map<string, { id: string; verbatim: string; status: string; response: string | null; ctdSection: string | null }>();
+  const rows = await prisma.anppReserve.findMany({
+    where: { id: { in: unique } },
+    select: { id: true, verbatim: true, status: true, response: true, ctdSection: true },
+  });
+  return new Map(rows.map((r) => [r.id, { ...r, status: String(r.status) }]));
 }
 
 export async function listFacts(dossierVersionId: string) {
