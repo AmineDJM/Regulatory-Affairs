@@ -12,6 +12,7 @@ import { createExpenseOrder } from "@/lib/expense-orders";
 import { involveThirdParty } from "@/lib/third-party";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+import { attachFiles } from "@/lib/attach-files";
 
 // Le **même** circuit de prise en charge sert les prises en charge internationales/nationaux
 // ET les événements (module Events) : on paramètre tout par `type`.
@@ -104,7 +105,14 @@ export async function createCongressRequest(
           },
         });
 
-  await recordAudit({ actorId: user.id, action: "CREATE", module: ML(t), entityType: entityFor(t), entityId: created.id, summary: `Demande de congrès « ${name} »` });
+  // Les demandes du médecin, jointes DÈS la création — la pièce que tout le circuit va lire.
+  const attached = await attachFiles({
+    files: formData.getAll("files").filter((f): f is File => f instanceof File),
+    entityType: entityFor(t), entityId: created.id, uploadedById: user.id, category: "REQUEST_LETTER",
+  });
+  if (attached.error) return { ok: false, error: attached.error };
+
+  await recordAudit({ actorId: user.id, action: "CREATE", module: ML(t), entityType: entityFor(t), entityId: created.id, summary: `Prise en charge « ${name} »${attached.saved > 0 ? ` (${attached.saved} pièce(s) jointe(s))` : ""}` });
   // Notifie l'acteur de l'étape de DÉPART selon le routage à la création :
   //  · délégué → National Sales (approbation préliminaire + choix chef de produit) ;
   //  · National Sales ayant désigné → le chef de produit (analyse) ;

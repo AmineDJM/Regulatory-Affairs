@@ -74,6 +74,11 @@ export function CongressRequestButton({ national, doctors, users, canDesignatePM
           {/* Infos générales */}
           <div className="grid grid-cols-2 gap-3">
             <Field full label="Nom de l'événement" required><Input name="name" required placeholder="Ex. ECCMID 2026" /></Field>
+            <Field full label="Demande(s) du médecin">
+              <input name="files" type="file" multiple
+                className="block w-full text-sm file:mr-3 file:rounded-lg file:border file:border-border file:bg-secondary file:px-3 file:py-1.5 file:text-sm" />
+              <p className="mt-1 text-[11px] text-muted-foreground">Courrier, invitation, programme… Plusieurs fichiers possibles.</p>
+            </Field>
             <Field label="Type d'événement">
               <Select name="eventType" defaultValue="CONGRESS">
                 {Object.entries(NATIONAL_EVENT_TYPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}

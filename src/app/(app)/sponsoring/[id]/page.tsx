@@ -22,6 +22,7 @@ import { ThirdPartyButton } from "./third-party-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel, type ItemRow } from "@/components/ad-pro/items-panel";
+import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
 
 const SPONSORING_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -122,6 +123,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
         <div className="flex flex-col items-end gap-2">
           <StatusBadge map={SPONSORING_STATUS} value={req.status} />
           {(canPreliminary || canDirection || isProductManager || isRequester) && <ThirdPartyButton id={req.id} people={missionUsers} />}
+          {hasGlobalView(user) && <AdProTransferButton from="SPONSORING" sourceId={req.id} title={req.institution} />}
           <SuperAdminDeleteButton kind="SPONSORING" id={req.id} name={`${req.reference} — ${req.institution}`} enabled={user.role === "SUPER_ADMIN"} />
         </div>
       </div>

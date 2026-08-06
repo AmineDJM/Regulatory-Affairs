@@ -7,6 +7,7 @@ import { userCan, hasGlobalView, hasRole, anyRoleFilter, type SessionUser } from
 import { prisma } from "@/lib/prisma";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
+import { attachFiles } from "@/lib/attach-files";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { involveThirdParty } from "@/lib/third-party";
@@ -79,7 +80,15 @@ export async function createSponsoring(
     },
   });
 
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${reference} — ${institution}` });
+  // Les demandes du médecin, jointes DÈS la création : c'est la pièce que tout le circuit va
+  // lire, et la faire ajouter « à l'écran suivant » revient à la voir manquer une fois sur deux.
+  const attached = await attachFiles({
+    files: formData.getAll("files").filter((f): f is File => f instanceof File),
+    entityType: "SPONSORING", entityId: created.id, uploadedById: user.id, category: "REQUEST_LETTER",
+  });
+  if (attached.error) return { ok: false, error: attached.error };
+
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${reference} — ${institution}${attached.saved > 0 ? ` (${attached.saved} pièce(s) jointe(s))` : ""}` });
   await notifyAdProCreation(init, created.id, `${reference} — ${institution}`);
 
   revalidatePath(PATH);

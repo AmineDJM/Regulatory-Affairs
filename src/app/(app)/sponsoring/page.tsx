@@ -52,12 +52,13 @@ export default async function SponsoringPage() {
           <CreateRecordButton
             label="Nouvelle demande"
             title="Nouvelle demande de sponsoring"
-            description="Renseignez le budget demandé et votre budget suggéré. Vous pourrez joindre un justificatif (optionnel) sur l'écran suivant. Au-delà de 100 000 DZD, la demande est routée vers la Direction."
+            description="Joignez dès maintenant la ou les demandes du médecin — c'est la pièce que tout le circuit va lire. Au-delà de 100 000 DZD, la demande est routée vers la Direction."
             action={createSponsoring}
             redirectBase="/sponsoring"
             fields={[
               ...pmField,
               { type: "text", name: "institution", label: "Institution / Association", required: true },
+              { type: "file", name: "files", label: "Demande(s) du médecin", multiple: true, full: true, hint: "Courrier, invitation, programme… Plusieurs fichiers possibles." },
               { type: "text", name: "doctor", label: "Médecin concerné" },
               { type: "text", name: "specialty", label: "Spécialité" },
               { type: "text", name: "city", label: "Ville" },
