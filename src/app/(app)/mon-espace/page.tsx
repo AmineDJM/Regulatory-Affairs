@@ -18,6 +18,8 @@ import { ReminderButton } from "@/components/reminders/reminder-button";
 import { TaskList, type TaskItem } from "./task-list";
 import { MyLeaves, type LeaveItem } from "./my-leaves";
 import { MyAdvances, type AdvanceItem } from "./my-advances";
+import { MyPortfolioCard } from "@/components/planning/my-portfolio-card";
+import { getMyPortfolio } from "@/lib/queries/portfolio";
 
 export default async function MonEspacePage() {
   const user = await requireModule("WORKSPACE");
@@ -113,6 +115,10 @@ export default async function MonEspacePage() {
         )}
       </PageHeader>
       <ModuleTabs tabs={await visibleTabs(user, WORKSPACE_TABS)} />
+
+      {/* Ce que je porte ce cycle. L'affectation existait dans « Prévisions & Force de vente »
+          mais personne ne la voyait depuis son espace. */}
+      <MyPortfolioCard portfolio={await getMyPortfolio(user.id)} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Tâches ouvertes" value={data.stats.openTasks} icon="ListTodo" />

@@ -911,6 +911,28 @@ réalité réglementaire.
   pas reculer une industrialisation actée ; sans date de décision, on retombe sur la création.
 - Tests : `manufacturing-stage.test.ts` (11 tests), dont le cas « la fiche a divergé ».
 
+### Force de vente — gamme et produits attribués
+
+`PromoProduct.channel` (RETAIL · HOSPITAL · BOTH) et `PromotionAssignment` (KAM × produit ×
+cycle, priorité P1/P2/P3) existaient déjà. Ce lot en fait un **périmètre** au lieu d'une simple
+matrice de planification.
+
+| Règle | Où | Pourquoi |
+|---|---|---|
+| Le personnel prime sur l'équipe | `mergePortfolio()` (pure, testée) | Un superviseur porte quelques produits en direct tout en pilotant les autres. À priorité différente, **la meilleure gagne** — on ne rétrograde jamais un produit en fusionnant. |
+| Un produit `BOTH` couvre **les deux** gammes | `portfolioGammes()` (pure, testée) | Quelqu'un qui ne porte que des produits mixtes fait bien de la ville ET de l'hôpital ; ne pas déplier reviendrait à dire qu'il ne fait ni l'un ni l'autre. |
+| Report du dernier cycle saisi, **signalé** | `getMyPortfolio()` → `fromPreviousCycle` | Sans report, un délégué est à vide le 1er du mois. Sans le signaler, il croit son portefeuille reconduit alors que la Direction ne l'a pas arrêté. |
+| Direction et Super Admin voient tout | `selectableProducts(userId, seesAll)` | Ils arbitrent pour l'ensemble : restreindre leur choix n'aurait aucun sens. |
+| Un produit retiré du catalogue disparaît | `toProducts()` | Un produit inactif ne se promeut plus — le laisser dans un portefeuille inviterait à travailler dessus. |
+
+**Le paramétrage reste hors Ressources humaines**, à dessein : porter tel ou tel produit relève
+du business et change au fil des cycles ; ce n'est pas une donnée de contrat.
+
+Fichiers : `lib/sales-portfolio.ts` (pur + `sales-portfolio.test.ts`, 15 tests),
+`lib/queries/portfolio.ts`, `components/planning/my-portfolio-card.tsx` (serveur, dans
+`/mon-espace`). Paramétrage : `/planning` → onglets **Catalogue** (gamme par produit) et
+**Affectations** (matrice par cycle).
+
 ### Prise en charge — personnes, besoins et devis
 
 Les participants étaient un **tableau JSON** (`beneficiaries`) : impossible d'y porter un avis,
@@ -1281,6 +1303,7 @@ Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage 
 | **Assistant — flux (streaming)** | `lib/ai.ts` → `callClaudeStream`, `lib/assistant.ts` → `runAssistantStream`, `app/api/assistant/stream/route.ts` (SSE), `app/(app)/assistant/assistant-chat.tsx`. |
 | **Regulatory — niveau de process** | `lib/regulatory/manufacturing-stage.ts` (`effectiveStage`, pure) + tests ; colonne et cellule dans `app/(app)/regulatory/regulatory-table.tsx` ; fiche `app/(app)/regulatory/[id]/page.tsx`. |
 | **RH — 4 écrans** | `lib/queries/hr-pulse.ts` (`getHrPulse` : absents, départs, échéances, soldes) ; `app/(app)/rh/` — `page.tsx` (à traiter), `equipe/`, `conges/`, `departements/`, `team-directory.tsx`. |
+| **Force de vente — portefeuille** | `lib/sales-portfolio.ts` (`mergePortfolio`, `portfolioGammes`, purs + tests) ; `lib/queries/portfolio.ts` (`getMyPortfolio`, `selectableProducts`) ; `components/planning/my-portfolio-card.tsx`. S'appuie sur `PromoProduct.channel` + `PromotionAssignment` + `SalesTeam`. |
 | **Prise en charge** | `lib/care.ts` (pur + tests) ; `lib/actions/care-actions.ts` (personnes, cases, devis, Finances) ; `lib/queries/care.ts` ; `components/care/care-panel.tsx`. Modèles `CareBeneficiary` · `CareCell` · `CareQuote` · `CareQuoteCell`. |
 | **Ad & Pro — postes** | `lib/ad-pro-items.ts` (`breakdown`, `canEmitOrder`, `plannedGaps`, purs + tests) ; `lib/actions/ad-pro-item-actions.ts` (table `PARENTS` = le seul endroit à compléter pour un module de plus) ; `components/ad-pro/items-panel.tsx`. Modèle `AdProItem` (2 FK nullables + contrainte `one_parent`) + enum `AdProItemKind`. |
 | **Mobile — coque & couches** | `lib/use-scroll-lock.ts` (verrou compté sur `#app-scroll`) ; `components/layout/chrome-metrics.tsx` (hauteurs mesurées → `--app-chrome-top` / `--app-chrome-bottom`) ; `.app-viewport` / `.app-viewport-flush` et l'échelle de z-index dans `app/globals.css`. |
@@ -1713,6 +1736,17 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Force de vente : l'affectation devient un périmètre.** La matrice KAM × produit × cycle
+  existait déjà dans « Prévisions & Force de vente » — mais **elle ne pilotait rien** : personne
+  ne voyait « sa » gamme, et les formulaires proposaient tout le catalogue à tout le monde. Le
+  portefeuille devient lisible depuis l'espace personnel (**gamme ville / hôpital**, produits et
+  priorité P1/P2/P3), et sert de base au filtrage des formulaires. Un **superviseur** voit les
+  siens **et** ceux de son équipe, sans confondre les deux. Quand le cycle en cours n'est pas
+  encore arrêté, on **reporte le dernier connu en le disant** : sans report un délégué serait à
+  vide le 1er du mois, sans le dire il croirait son portefeuille reconduit. Le paramétrage reste
+  hors RH, à dessein — porter tel produit relève du business et change au fil des cycles.
+  → [référence](#force-de-vente--gamme-et-produits-attribués)
 
 - **Prise en charge : une ligne par personne.** Le module ne traite pas d'un congrès — il traite
   de **personnes** qu'on emmène quelque part. « Congrès nationaux/internationaux » devient donc
