@@ -65,7 +65,9 @@ export async function createCongressRequest(
     const okPm = await prisma.user.count({ where: { id: pmId, isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) } });
     if (!okPm) return { ok: false, error: "Le chef de produit sélectionné est introuvable." };
   }
-  const init = adProInit(user, pmId);
+  // La Direction peut demander l'avis d'un chef de produit avant de trancher — ou trancher tout
+  // de suite. `adProInit` ignore ce drapeau pour les autres rangs.
+  const init = adProInit(user, pmId, { viaProductManager: fdStr(formData, "viaProductManager") === "1" });
   const now = new Date();
 
   const common = {

@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
-import { canDesignateProductManagerAtCreation, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { canChooseAnalysisAtCreation, canDesignateProductManagerAtCreation, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { PRIORITY, SPONSORING_TYPES, EVENTS_TABS } from "@/lib/labels";
 import { SponsoringTable, type SponsoringRow } from "./sponsoring-table";
@@ -21,8 +21,29 @@ export default async function SponsoringPage() {
   const pmCandidates = canDesignatePM
     ? await prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [];
+  // La Direction CHOISIT : trancher tout de suite, ou demander d'abord l'avis d'un chef de
+  // produit. Le National Sales, lui, n'a pas ce choix — l'analyse est son étape suivante.
+  const canChooseAnalysis = canChooseAnalysisAtCreation(user);
   const pmField: FieldDef[] = canDesignatePM && pmCandidates.length > 0
-    ? [{ type: "select", name: "productManagerId", label: "Chef de produit (analyse)", required: true, placeholder: "— Sélectionner le chef de produit —", full: true, options: pmCandidates.map((u) => ({ value: u.id, label: u.name })) }]
+    ? [
+        ...(canChooseAnalysis
+          ? [{
+              type: "select" as const, name: "viaProductManager", label: "Circuit", full: true,
+              defaultValue: "0",
+              options: [
+                { value: "0", label: "Décider maintenant (aucune analyse préalable)" },
+                { value: "1", label: "Demander d'abord l'avis d'un chef de produit" },
+              ],
+            }]
+          : []),
+        {
+          type: "select", name: "productManagerId",
+          label: canChooseAnalysis ? "Chef de produit (si analyse demandée)" : "Chef de produit (analyse)",
+          required: !canChooseAnalysis,
+          placeholder: "— Sélectionner le chef de produit —", full: true,
+          options: pmCandidates.map((u) => ({ value: u.id, label: u.name })),
+        },
+      ]
     : [];
 
   const requests = await prisma.sponsoringRequest.findMany({

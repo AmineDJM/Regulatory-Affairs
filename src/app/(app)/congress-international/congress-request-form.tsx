@@ -14,7 +14,7 @@ export interface UserOpt { id: string; name: string; role: string }
 
 const PM_ROLES = ["PRODUCT_MANAGER", "MEDICAL_PROMOTION_MANAGER"];
 
-export function CongressRequestButton({ national, doctors, users, canDesignatePM }: { national?: boolean; doctors: DoctorOpt[]; users: UserOpt[]; canDesignatePM?: boolean }) {
+export function CongressRequestButton({ national, doctors, users, canDesignatePM, canChooseAnalysis }: { national?: boolean; doctors: DoctorOpt[]; users: UserOpt[]; canDesignatePM?: boolean; canChooseAnalysis?: boolean }) {
   const router = useRouter();
   const formRef = React.useRef<HTMLFormElement>(null);
   const [open, setOpen] = React.useState(false);
@@ -26,6 +26,8 @@ export function CongressRequestButton({ national, doctors, users, canDesignatePM
   const [pickedUsers, setPickedUsers] = React.useState<Set<string>>(new Set());
   const [userQuery, setUserQuery] = React.useState("");
   const [productManagerId, setProductManagerId] = React.useState("");
+  // La Direction choisit son circuit : trancher tout de suite, ou demander un avis produit.
+  const [viaProductManager, setViaProductManager] = React.useState(false);
 
   // National Sales créant lui-même : il désigne le chef de produit (l'analyse lui est
   // confiée) et n'a pas à approuver préliminairement sa propre demande.
@@ -57,8 +59,12 @@ export function CongressRequestButton({ national, doctors, users, canDesignatePM
     pickedDoctors.forEach((id) => fd.append("invitedDoctorIds", id));
     pickedUsers.forEach((id) => fd.append("participantIds", id));
     if (showPmPicker) fd.set("productManagerId", productManagerId);
+    if (canChooseAnalysis) fd.set("viaProductManager", viaProductManager ? "1" : "0");
     if (!String(fd.get("name") ?? "").trim()) { setErr("Le nom de l'événement est obligatoire."); return; }
-    if (showPmPicker && !productManagerId) { setErr("Désignez le chef de produit qui analysera la demande."); return; }
+    // La désignation n'est obligatoire que si l'analyse est réellement demandée : la Direction
+    // qui tranche directement n'a personne à désigner.
+    const analysisWanted = canChooseAnalysis ? viaProductManager : showPmPicker;
+    if (analysisWanted && !productManagerId) { setErr("Désignez le chef de produit qui analysera la demande."); return; }
     setSaving(true); setErr(null);
     const r = await createCongressRequest(undefined, fd);
     setSaving(false);
@@ -103,15 +109,29 @@ export function CongressRequestButton({ national, doctors, users, canDesignatePM
             <Field label="Budget estimé (DZD)"><Input name="estimatedBudget" type="number" step="any" placeholder="Estimation du demandeur" /></Field>
           </div>
 
-          {/* National Sales : désignation directe du chef de produit (pas d'auto-approbation préliminaire) */}
+          {/* National Sales : désignation directe du chef de produit (pas d'auto-approbation
+              préliminaire). Direction : le passage par l'analyse est un CHOIX. */}
           {showPmPicker && (
             <div className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 p-3">
+              {canChooseAnalysis && (
+                <div className="space-y-1.5 pb-1.5">
+                  <Label>Circuit</Label>
+                  <Select value={viaProductManager ? "1" : "0"} onChange={(e) => setViaProductManager(e.target.value === "1")}>
+                    <option value="0">Décider maintenant (aucune analyse préalable)</option>
+                    <option value="1">Demander d&apos;abord l&apos;avis d&apos;un chef de produit</option>
+                  </Select>
+                </div>
+              )}
+              {canChooseAnalysis && !viaProductManager ? null : (
+              <>
               <Label>Chef de produit (analyse) <span className="text-destructive">*</span></Label>
-              <p className="text-xs text-muted-foreground">Vous créez la demande : désignez le chef de produit qui l'analysera — l'étape préliminaire est franchie automatiquement.</p>
+              <p className="text-xs text-muted-foreground">Désignez le chef de produit qui analysera la demande — l&apos;étape préliminaire est franchie automatiquement.</p>
               <Select value={productManagerId} onChange={(e) => setProductManagerId(e.target.value)}>
                 <option value="">— Sélectionner le chef de produit —</option>
                 {pmCandidates.map((u) => <option key={u.id} value={u.id}>{u.name} · {ROLE_LABELS[u.role] ?? u.role}</option>)}
               </Select>
+              </>
+              )}
             </div>
           )}
 
