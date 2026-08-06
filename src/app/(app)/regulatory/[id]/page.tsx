@@ -33,6 +33,7 @@ import { ParticipantsPanel } from "./participants-panel";
 import { SupervisionControls } from "./supervision-controls";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { SupplierViewCard } from "./supplier-view-card";
+import { getCompanies } from "@/lib/company";
 
 const REG_DOC_CATEGORIES = [
   "CTD_FULL", "MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5",
@@ -72,7 +73,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
   // Supervision (Super Admin + rôles configurés) : dates cibles + demande de MàJ de statut.
   const canSupervise = isRegulatorySupervisor(user, (await getAppSettings()).regulatorySupervisorRoles);
 
-  const [documents, comments, fieldDefs, suppliers, bvOrders, users] = await Promise.all([
+  const [documents, comments, fieldDefs, suppliers, bvOrders, users, companies] = await Promise.all([
     prisma.document.findMany({
       where: { entityType: "REGULATORY_PRODUCT", entityId: product.id },
       include: { uploadedBy: { select: { name: true } } },
@@ -93,6 +94,8 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
     canUpdate
       ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } })
       : Promise.resolve([] as { id: string; name: string; role: string }[]),
+    // L'entité du dossier est modifiable : elle détermine qui le voit.
+    getCompanies(),
   ]);
 
   const supplierViewValues = {
@@ -175,8 +178,10 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
           {canUpdate ? (
             <div className="flex items-center gap-2">
               <EditProductButton
+                companies={companies}
                 product={{
                   id: product.id,
+                  companyId: product.companyId,
                   molecules: molecules.length ? molecules : [product.dci],
                   brandName: product.brandName,
                   dosage: product.dosage,

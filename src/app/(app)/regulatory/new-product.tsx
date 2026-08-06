@@ -71,7 +71,7 @@ export function NewProductButton({ users, suppliers, companies }: { users: UserO
           <div className="grid grid-cols-2 gap-3">
             <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue="MEDICINE" />
             <SelectField label="Canal (Ville / Hôpital)" name="channel" options={optionsFromMap(PRODUCT_CHANNEL)} defaultValue="BOTH" />
-            <SelectField label="Entité" name="companyId" options={companies.map((c) => ({ value: c.id, label: c.shortName || c.name }))} placeholder="— Entité —" />
+            <SelectField label="Entité" name="companyId" required options={companies.map((c) => ({ value: c.id, label: c.shortName || c.name }))} placeholder="— Choisir l'entité —" defaultValue={companies.length === 1 ? companies[0].id : ""} />
             <DciAssociationField />
             <TextField label="Nom commercial envisagé" name="brandName" placeholder="Ex. Adventor" className="col-span-2" />
             <TextField label="Dosage" name="dosage" placeholder="20" />

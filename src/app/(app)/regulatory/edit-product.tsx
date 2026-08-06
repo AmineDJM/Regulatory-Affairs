@@ -18,6 +18,7 @@ interface UserOption {
 }
 
 export interface EditProductValues {
+  companyId?: string | null;
   id: string;
   molecules: string[];
   brandName: string | null;
@@ -43,7 +44,7 @@ export interface EditProductValues {
   variationDate: string | null;
 }
 
-export function EditProductButton({ product, users, suppliers }: { product: EditProductValues; users: UserOption[]; suppliers: { id: string; name: string }[] }) {
+export function EditProductButton({ product, users, suppliers, companies }: { product: EditProductValues; users: UserOption[]; suppliers: { id: string; name: string }[]; companies: { id: string; name: string; shortName: string | null }[] }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [state, formAction] = useFormState<ActionResult | undefined, FormData>(
@@ -90,6 +91,9 @@ export function EditProductButton({ product, users, suppliers }: { product: Edit
         >
           <input type="hidden" name="id" value={product.id} />
           <div className="grid grid-cols-2 gap-3">
+            {/* L'entité était fixée à la création et n'apparaissait plus : un produit créé sans
+                entité ne pouvait donc JAMAIS en recevoir une. */}
+            <SelectField label="Entité" name="companyId" required options={companies.map((c) => ({ value: c.id, label: c.shortName || c.name }))} placeholder="— Choisir l'entité —" defaultValue={product.companyId ?? (companies.length === 1 ? companies[0].id : "")} />
             <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue={product.category} />
             <SelectField label="Canal (Ville / Hôpital)" name="channel" options={optionsFromMap(PRODUCT_CHANNEL)} defaultValue={product.channel} />
             <DciAssociationField defaultMolecules={product.molecules} />

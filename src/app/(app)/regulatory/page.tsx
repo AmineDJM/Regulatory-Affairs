@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageSquareText } from "lucide-react";
+import { MessageSquareText, AlertTriangle } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, scopeRegulatory, isRegulatorySupervisor } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -110,6 +110,10 @@ export default async function RegulatoryPage() {
       })
     : [];
 
+  // Compté sur les produits DÉJÀ chargés — même portée, mêmes droits : on ne signale jamais un
+  // dossier que la personne n'aurait pas le droit de voir, et cela évite une requête de plus.
+  const unassignedCount = products.filter((p) => !p.companyId).length;
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -135,6 +139,21 @@ export default async function RegulatoryPage() {
           { label: "Enregistrement (CTD)", href: "/regulatory/enregistrement", show: settings.regEnrollmentEnabled },
         ]}
       />
+
+      {/* Un dossier sans entité est visible de TOUT LE MONDE en vue « toutes les entités ».
+          On ne le devine pas à sa place — on le signale, pour qu'un humain le rattache. */}
+      {unassignedCount > 0 && (
+        <p className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm text-muted-foreground">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <span>
+            <strong>{unassignedCount} dossier{unassignedCount > 1 ? "s" : ""} sans entité.</strong>{" "}
+            L&apos;entité détermine qui a le droit de voir un dossier : tant qu&apos;elle n&apos;est pas
+            renseignée, {unassignedCount > 1 ? "ces dossiers apparaissent" : "ce dossier apparaît"} à
+            toute personne en vue « toutes les entités ». Ouvrez {unassignedCount > 1 ? "-les" : "-le"} et
+            renseignez l&apos;entité.
+          </span>
+        </p>
+      )}
 
       <RegulatoryTable rows={rows} canEditPriority={canSupervise} />
     </div>

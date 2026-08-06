@@ -97,6 +97,14 @@ export async function createRegulatoryProduct(
   if (!rawDci) return { ok: false, error: "La DCI est obligatoire." };
   const dci = normalizeDci(rawDci);
 
+  // L'ENTITÉ est obligatoire : c'est elle qui détermine qui a le droit de voir ce dossier. Un
+  // produit sans entité apparaît dans la vue « toutes les entités » de TOUT LE MONDE — la
+  // laisser facultative revenait à publier le dossier au groupe entier par défaut.
+  const companyId = str(formData, "companyId");
+  if (!companyId) return { ok: false, error: "L'entité est obligatoire : elle détermine qui verra ce dossier." };
+  const okCompany = await prisma.company.count({ where: { id: companyId, isActive: true } });
+  if (!okCompany) return { ok: false, error: "Entité inconnue ou désactivée." };
+
   const year = new Date().getFullYear();
   const refs = await prisma.regulatoryProduct.findMany({
     where: { reference: { startsWith: `REG-${year}-` } },
@@ -139,7 +147,7 @@ export async function createRegulatoryProduct(
       manufacturingStatus: (str(formData, "manufacturingStatus") as ManufacturingStatus) ?? "IMPORTATION",
       status: (str(formData, "status") as RegulatoryStatus) ?? "PRE_SUBMISSION",
       priority: (str(formData, "priority") as Priority) ?? "MEDIUM",
-      companyId: str(formData, "companyId") || null,
+      companyId,
       targetSubmissionDate: targetSubmissionDateRaw ? new Date(targetSubmissionDateRaw) : null,
       targetDate: targetDateRaw ? new Date(targetDateRaw) : null,
       comments: str(formData, "comments"),
@@ -232,6 +240,20 @@ export async function updateRegulatoryProduct(
   // Fabricant courant (les variations de fabrication ont leur propre cycle de vie).
   const manufacturer = str(formData, "manufacturer");
 
+  // L'ENTITÉ est obligatoire : c'est elle qui détermine qui a le droit de voir ce dossier.
+  // Un produit sans entité apparaît dans la vue « toutes les entités » de TOUT LE MONDE — la
+  // rendre facultative revenait à publier le dossier au groupe entier par défaut.
+  // On tolère un dossier ancien qui n'en a pas encore, tant qu'on ne cherche pas à la retirer.
+  const rawCompanyId = str(formData, "companyId");
+  if (formData.has("companyId") && !rawCompanyId && before.companyId) {
+    return { ok: false, error: "L'entité est obligatoire : un dossier ne peut pas être détaché de son entité." };
+  }
+  const updatedCompanyId = rawCompanyId || before.companyId;
+  if (rawCompanyId) {
+    const okCompany = await prisma.company.count({ where: { id: rawCompanyId, isActive: true } });
+    if (!okCompany) return { ok: false, error: "Entité inconnue ou désactivée." };
+  }
+
   await prisma.regulatoryProduct.update({
     where: { id },
     data: {
@@ -245,6 +267,7 @@ export async function updateRegulatoryProduct(
       partnerLab: str(formData, "partnerLab"),
       supplierId: str(formData, "supplierId"),
       countryOfOrigin: str(formData, "countryOfOrigin"),
+      companyId: updatedCompanyId,
       category: (str(formData, "category") as RegulatoryCategory) ?? before.category,
       channel: parseProductChannel(str(formData, "channel")) ?? before.channel,
       productType: (str(formData, "productType") as ProductType) ?? before.productType,
