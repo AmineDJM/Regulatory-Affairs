@@ -28,7 +28,7 @@ export default async function RhLeavePage() {
   const user = await requireModule("RH");
   const canManage = userCan(user, "RH", "UPDATE");
 
-  const [data, pulse, tabs] = await Promise.all([getRhData(), getHrPulse(), visibleTabs(user, HR_TABS)]);
+  const [data, pulse, tabs] = await Promise.all([getRhData(user.id), getHrPulse(), visibleTabs(user, HR_TABS)]);
   const absentPct = pulse.activeCount > 0 ? Math.round((pulse.absentToday.length / pulse.activeCount) * 100) : 0;
 
   return (

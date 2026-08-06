@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { scopeSupport, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
+import { platformScope } from "@/lib/company";
 
 export async function getSupportRequests(user: SessionUser) {
   return prisma.supportRequest.findMany({
-    where: scopeSupport(user),
+    where: { AND: [scopeSupport(user), await platformScope(user.id)] },
     include: {
       requester: { select: { name: true } },
       targetUser: { select: { name: true } },

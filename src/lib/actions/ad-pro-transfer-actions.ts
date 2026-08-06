@@ -62,6 +62,8 @@ interface Common {
   requesterId: string | null;
   productManagerId: string | null;
   comments: string | null;
+  /** Entité de la demande d'origine — un transfert de module ne change pas de société. */
+  companyId: string | null;
   /** L'argent est-il déjà engagé ? Si oui, on ne transfère pas. */
   engaged: boolean;
 }
@@ -74,7 +76,7 @@ async function readSource(kind: AdProKind, id: string): Promise<Common | null> {
       title: r.institution, institution: r.institution, specialty: r.specialty,
       estimatedBudget: r.amountRequested != null ? toNumber(r.amountRequested) : null,
       requesterId: r.requesterId, productManagerId: r.productManagerId, comments: r.comments,
-      engaged: Boolean(r.expenseOrderId),
+      companyId: r.companyId, engaged: Boolean(r.expenseOrderId),
     };
   }
   if (kind === "CONGRESS_NATIONAL") {
@@ -84,7 +86,7 @@ async function readSource(kind: AdProKind, id: string): Promise<Common | null> {
       title: r.name, institution: r.hostInstitution, specialty: r.specialty,
       estimatedBudget: r.estimatedBudget != null ? toNumber(r.estimatedBudget) : null,
       requesterId: r.requesterId, productManagerId: r.productManagerId, comments: r.finalNote,
-      engaged: Boolean(r.expenseOrderId),
+      companyId: r.companyId, engaged: Boolean(r.expenseOrderId),
     };
   }
   const r = await prisma.congressInternational.findUnique({ where: { id } });
@@ -93,7 +95,7 @@ async function readSource(kind: AdProKind, id: string): Promise<Common | null> {
     title: r.name, institution: null, specialty: r.specialty,
     estimatedBudget: r.estimatedBudget != null ? toNumber(r.estimatedBudget) : null,
     requesterId: r.requesterId, productManagerId: r.productManagerId, comments: r.finalNote,
-    engaged: Boolean(r.expenseOrderId),
+    companyId: r.companyId, engaged: Boolean(r.expenseOrderId),
   };
 }
 
@@ -120,6 +122,8 @@ async function createTarget(kind: AdProKind, src: Common, actorId: string, fromL
         productManagerId: src.productManagerId,
         comments: origin,
         createdById: actorId,
+        // Changer de module ne change pas de société : l'entité suit la demande.
+        companyId: src.companyId,
       },
       select: { id: true },
     });
@@ -132,7 +136,7 @@ async function createTarget(kind: AdProKind, src: Common, actorId: string, fromL
         name: src.title, hostInstitution: src.institution, specialty: src.specialty,
         estimatedBudget: src.estimatedBudget ?? undefined,
         requesterId: src.requesterId, productManagerId: src.productManagerId,
-        finalNote: origin, createdById: actorId,
+        finalNote: origin, createdById: actorId, companyId: src.companyId,
       },
       select: { id: true },
     });
@@ -144,7 +148,7 @@ async function createTarget(kind: AdProKind, src: Common, actorId: string, fromL
       name: src.title, specialty: src.specialty,
       estimatedBudget: src.estimatedBudget ?? undefined,
       requesterId: src.requesterId, productManagerId: src.productManagerId,
-      finalNote: origin, createdById: actorId,
+      finalNote: origin, createdById: actorId, companyId: src.companyId,
     },
     select: { id: true },
   });

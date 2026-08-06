@@ -20,6 +20,7 @@
 
 import type { AdminRequestType, CongressRequestStatus, Priority, CalendarEventKind, HrRequestType, RegulatoryCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { companyIdForNew } from "@/lib/company";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles, broadcastNotification, type BroadcastAudience } from "@/lib/notify";
@@ -1813,6 +1814,9 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
           deadline: dateValue(payload.deadline) ?? dateValue(payload.startDate),
           fields: Object.keys(extraFields).length ? extraFields : undefined,
           assignedToId, concernedUserId, requesterId: user.id, createdById: user.id,
+          // Entité : même règle que par formulaire — la portée en cours, sinon la société
+          // d'appartenance. Une demande créée par l'assistant n'échappe pas au cloisonnement.
+          companyId: await companyIdForNew(user.id),
         },
         select: { id: true, reference: true },
       });
@@ -1906,6 +1910,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
       estimatedBudget: payload.estimatedBudget ?? null,
       invitedDoctorIds, participantIds: [] as string[],
       requesterId: user.id, requestStatus: "AWAITING_PRELIMINARY" as CongressRequestStatus, createdById: user.id,
+      companyId: await companyIdForNew(user.id),
     };
     const created = scope === "INTL"
       ? await prisma.congressInternational.create({

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhere } from "@/lib/company";
+import { currentCompanyWhere, platformScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 
 /** Personalised workspace data for the signed-in user ("Mon espace"). */
@@ -60,14 +60,15 @@ export async function getMyWorkspace(userId: string) {
 }
 
 /** Back-office HR data for the /rh page. */
-export async function getRhData() {
+export async function getRhData(userId: string) {
   const now = new Date();
   const in60 = new Date();
   in60.setDate(now.getDate() + 60);
 
   const [employees, pendingLeaves, recentLeaves, advances] = await Promise.all([
     prisma.employee.findMany({
-      where: { ...currentCompanyWhere() },
+      // Portée VALIDÉE contre les droits (le cookie est une demande, pas une autorisation).
+      where: await platformScope(userId),
       orderBy: [{ isActive: "desc" }, { fullName: "asc" }],
       include: { user: { select: { id: true, email: true } }, company: { select: { id: true, name: true, shortName: true, color: true } }, _count: { select: { leaveRequests: true } } },
     }),

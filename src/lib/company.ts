@@ -2,7 +2,8 @@ import { cookies } from "next/headers";
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import {
-  allowedCompanyIds, canEditCompany, companyAccessWhere, resolveScope, type AccessBearer,
+  allowedCompanyIds, canEditCompany, companyAccessWhere, platformScopeWhere, resolveScope,
+  type AccessBearer, type ScopeWhere,
 } from "@/lib/company-access";
 
 // Mémoïsation par requête si React `cache` est disponible ; sinon (tests, hors requête) no-op.
@@ -137,6 +138,36 @@ export async function myCompanyWhere(userId: string): Promise<{ companyId?: stri
   const [all, bearer] = await Promise.all([getCompanies(), accessBearerOf(userId)]);
   if (!bearer) return { companyId: { in: [] } };
   return companyAccessWhere(bearer, getCompanyScope(), all.map((c) => c.id));
+}
+
+/**
+ * LE FILTRE À POSER DANS LES MODULES TRANSVERSES (budget, Ad & Pro, finances, demandes).
+ *
+ * Voir `platformScopeWhere` pour la règle exacte : portée validée contre les droits, et les
+ * enregistrements pas encore rattachés restent visibles pour ne pas disparaître de partout.
+ *
+ * S'utilise en composition, jamais en remplacement d'un filtre métier :
+ *   `where: { AND: [ scopeSponsoring(user), await platformScope(user.id) ] }`
+ */
+export async function platformScope(userId: string): Promise<ScopeWhere> {
+  const [all, bearer] = await Promise.all([getCompanies(), accessBearerOf(userId)]);
+  if (!bearer) return {};
+  return platformScopeWhere(bearer, getCompanyScope(), all.map((c) => c.id));
+}
+
+/**
+ * L'entité à inscrire sur un objet QUI SE CRÉE.
+ *
+ * Ordre : la portée réellement sélectionnée (« je travaille sur Pharmagène en ce moment »),
+ * à défaut l'entité d'appartenance du créateur. `null` si rien n'est déterminable — on ne
+ * devine pas : un objet non rattaché se voit et se corrige, un objet mal rattaché se découvre
+ * trop tard.
+ */
+export async function companyIdForNew(userId: string): Promise<string | null> {
+  const scope = await myCompanyScope(userId);
+  if (scope) return scope;
+  const bearer = await accessBearerOf(userId);
+  return bearer?.homeCompanyId ?? null;
 }
 
 /** Peut-on écrire sur cette entité ? Voir ne suffit pas. */

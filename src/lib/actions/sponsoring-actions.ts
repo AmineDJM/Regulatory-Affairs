@@ -5,6 +5,7 @@ import type { Priority, SponsoringStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { companyIdForNew } from "@/lib/company";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { attachFiles } from "@/lib/attach-files";
@@ -78,6 +79,8 @@ export async function createSponsoring(
       status: init.status as SponsoringStatus,
       requesterId: user.id,
       createdById: user.id,
+      // Entité : la portée en cours, à défaut la société d'appartenance du créateur.
+      companyId: await companyIdForNew(user.id),
       ...(init.productManagerId ? { productManagerId: init.productManagerId } : {}),
       ...(init.preliminaryBySelf ? { preliminaryById: user.id, preliminaryAt: now } : {}),
     },

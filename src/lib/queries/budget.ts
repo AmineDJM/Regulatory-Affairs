@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { platformScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { canViewEnvelope, type SessionUser } from "@/lib/rbac";
 
@@ -169,7 +170,7 @@ function health(allocated: number, consumed: number): BudgetHealth {
 }
 
 export async function getEnvelopes(viewer: SessionUser): Promise<BudgetEnvelopeOption[]> {
-  const list = await prisma.budgetEnvelope.findMany({ orderBy: [{ isActive: "desc" }, { periodStart: "desc" }] });
+  const list = await prisma.budgetEnvelope.findMany({ where: await platformScope(viewer.id), orderBy: [{ isActive: "desc" }, { periodStart: "desc" }] });
   return list
     .filter((e) => envelopeVisible(viewer, e))
     .map((e) => ({ id: e.id, name: e.name, module: e.module, modules: e.modules, accessRoles: e.accessRoles, accessUserIds: e.accessUserIds, managerRoles: e.managerRoles, managerUserIds: e.managerUserIds, periodStart: e.periodStart.toISOString(), periodEnd: e.periodEnd.toISOString(), total: toNumber(e.totalAmount), isActive: e.isActive }));
@@ -184,6 +185,7 @@ export async function getEnvelopes(viewer: SessionUser): Promise<BudgetEnvelopeO
  */
 export async function getEnvelopesGrandTotal(viewer: SessionUser): Promise<EnvelopesGrandTotal> {
   const envelopes = await prisma.budgetEnvelope.findMany({
+    where: await platformScope(viewer.id),
     orderBy: [{ isActive: "desc" }, { periodStart: "desc" }],
     include: { categories: { select: { id: true, allocated: true, parentId: true } } },
   });

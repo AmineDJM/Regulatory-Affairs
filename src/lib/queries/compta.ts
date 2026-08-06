@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { platformScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 
 /**
@@ -39,14 +40,16 @@ export interface ComptaCategoryRow {
   amount: number;
 }
 
-export async function getComptaData() {
+export async function getComptaData(userId: string) {
+  // Cloisonnement par entité — cf. platformScope.
+  const scope = await platformScope(userId);
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const [txs, orders] = await Promise.all([
-    prisma.financeTransaction.findMany({ orderBy: { date: "desc" }, take: 2000 }),
+    prisma.financeTransaction.findMany({ where: scope, orderBy: { date: "desc" }, take: 2000 }),
     prisma.expenseOrder.findMany({
-      where: { status: "PENDING" },
+      where: { AND: [{ status: "PENDING" }, scope] },
       include: { requestedBy: { select: { name: true } } },
       orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
     }),

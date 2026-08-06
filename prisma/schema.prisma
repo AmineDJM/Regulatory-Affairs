@@ -1014,6 +1014,19 @@ model Company {
   businessUnits           BusinessUnit[]
   departments             Department[]
   userAccess              UserCompanyAccess[]
+  // Cloisonnement transverse : chaque demande, enveloppe et ordre de dépense appartient à
+  // une société du groupe. Nullable côté enfant — un objet non rattaché reste visible en
+  // vue « Toutes les entités » plutôt que de disparaître.
+  sponsoringRequests      SponsoringRequest[]
+  congressNational        CongressNational[]
+  congressInternational   CongressInternational[]
+  events                  Event[]
+  budgetEnvelopes         BudgetEnvelope[]
+  expenseOrders           ExpenseOrder[]
+  administrativeRequests  AdministrativeRequest[]
+  supportRequests         SupportRequest[]
+  dossiers                Dossier[]
+  fieldReports            FieldReport[]
 
   @@index([isActive])
 }
@@ -1140,6 +1153,8 @@ model RegulatoryStep {
 model SponsoringRequest {
   custom              Json? // admin-defined dynamic fields
   id                  String           @id @default(cuid())
+  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
+  company          Company? @relation(fields: [companyId], references: [id])
   reference           String           @unique
   requestDate         DateTime         @default(now())
   requesterId         String?
@@ -1190,6 +1205,9 @@ model SponsoringRequest {
   @@index([strategicImportance])
   @@index([requesterId])
   @@index([productManagerId])
+
+  @@index([companyId])
+
 }
 
 /// Nature d'un poste Ad & Pro. `PROMO_MATERIAL` est à part : ce poste ne se traite pas ici,
@@ -1292,6 +1310,8 @@ model BudgetLine {
 // des dépenses réelles (FinanceTransaction OUT) attribuées à chaque catégorie.
 model BudgetEnvelope {
   id            String               @id @default(cuid())
+  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
+  company          Company? @relation(fields: [companyId], references: [id])
   name          String
   module        String? // (déprécié) module principal — conservé pour compatibilité
   // Une enveloppe peut couvrir UN ou PLUSIEURS modules.
@@ -1321,6 +1341,9 @@ model BudgetEnvelope {
 
   @@index([isActive])
   @@index([periodStart])
+
+  @@index([companyId])
+
 }
 
 // Catégorie créée par la Direction au sein d'une enveloppe, avec son allocation.
@@ -1372,6 +1395,8 @@ model BudgetExpenseLine {
 model CongressInternational {
   custom           Json? // admin-defined dynamic fields
   id               String            @id @default(cuid())
+  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
+  company          Company? @relation(fields: [companyId], references: [id])
   name             String
   eventType        NationalEventType @default(CONGRESS) // type d'événement (congrès, séminaire, formation…)
   country          String?
@@ -1425,11 +1450,16 @@ model CongressInternational {
   @@index([startDate])
   @@index([requestStatus])
   @@index([requesterId])
+
+  @@index([companyId])
+
 }
 
 model CongressNational {
   custom           Json? // admin-defined dynamic fields
   id               String         @id @default(cuid())
+  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
+  company          Company? @relation(fields: [companyId], references: [id])
   name             String
   country          String? // optionnel — un événement « national » peut se tenir hors d'Algérie
   city             String?
@@ -1480,6 +1510,9 @@ model CongressNational {
   @@index([date])
   @@index([requestStatus])
   @@index([requesterId])
+
+  @@index([companyId])
+
 }
 
 // ─────────────────────── Prise en charge : personnes, cases, devis ───────────────────────
@@ -1817,6 +1850,8 @@ enum SupportStatus {
 
 model SupportRequest {
   id           String           @id @default(cuid())
+  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
+  company          Company? @relation(fields: [companyId], references: [id])
   reference    String           @unique // SUP-AAAA-NNN
   subject      String
   body         String
@@ -1839,6 +1874,9 @@ model SupportRequest {
   @@index([requesterId])
   @@index([targetRole])
   @@index([assignedToId])
+
+  @@index([companyId])
+
 }
 
 model SupportMessage {
@@ -1925,6 +1963,8 @@ enum DossierStatus {
 /// ou proposé par l'IA depuis un chat / e-mail.
 model Dossier {
   id             String           @id @default(cuid())
+  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
+  company          Company? @relation(fields: [companyId], references: [id])
   reference      String           @unique // DOS-AAAA-NNN
   title          String
   description    String?
@@ -1944,6 +1984,9 @@ model Dossier {
   @@index([status])
   @@index([createdById])
   @@index([assignedToId])
+
+  @@index([companyId])
+
 }
 
 model DossierMessage {
@@ -2925,6 +2968,8 @@ model SalaryAdvance {
 model ExpenseOrder {
   custom           Json?
   id               String             @id @default(cuid())
+  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
+  company          Company? @relation(fields: [companyId], references: [id])
   reference        String             @unique // OD-2026-001
   label            String
   beneficiary      String?
@@ -2952,6 +2997,9 @@ model ExpenseOrder {
 
   @@index([status])
   @@index([sourceType, sourceId])
+
+  @@index([companyId])
+
 }
 
 // ───────────────────────────── Drive (stockage interne) ─────────────────────────────
@@ -3095,6 +3143,8 @@ model DriveComment {
 model AdministrativeRequest {
   custom              Json?
   id                  String             @id @default(cuid())
+  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
+  company          Company? @relation(fields: [companyId], references: [id])
   reference           String             @unique // REQ-2026-001
   title               String
   type                AdminRequestType
@@ -3145,6 +3195,9 @@ model AdministrativeRequest {
   @@index([deadline])
   @@index([batchId])
   @@index([deletedAt])
+
+  @@index([companyId])
+
 }
 
 /// Catalogue d'articles de fourniture de bureau (Achats). Maintenu par
@@ -3862,6 +3915,8 @@ enum FieldReportStatus {
 
 model FieldReport {
   id         String            @id @default(cuid())
+  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
+  company          Company? @relation(fields: [companyId], references: [id])
   delegateId String?
   delegate   User?             @relation("FieldReportDelegate", fields: [delegateId], references: [id], onDelete: SetNull)
   status     FieldReportStatus @default(DRAFT)
@@ -3903,6 +3958,9 @@ model FieldReport {
   @@index([status])
   @@index([doctorId])
   @@index([visitDate])
+
+  @@index([companyId])
+
 }
 
 model FieldReportAttachment {
@@ -3977,6 +4035,8 @@ enum RegistrationStatus {
 
 model Event {
   id              String      @id @default(cuid())
+  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
+  company          Company? @relation(fields: [companyId], references: [id])
   name            String
   type            EventType   @default(CONGRESS)
   scope           EventScope  @default(NATIONAL)
@@ -4025,6 +4085,9 @@ model Event {
   @@index([status])
   @@index([startDate])
   @@index([type])
+
+  @@index([companyId])
+
 }
 
 model EventRegistration {

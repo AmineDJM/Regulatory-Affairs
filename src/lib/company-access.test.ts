@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   seesWholeGroup, allowedCompanyIds, canViewCompany, canEditCompany,
-  resolveScope, companyAccessWhere, type AccessBearer,
+  resolveScope, companyAccessWhere, platformScopeWhere, type AccessBearer,
 } from "./company-access";
 
 const ALL = ["adv", "pha", "xyz"];
@@ -132,5 +132,45 @@ describe("companyAccessWhere — « toutes » veut dire « toutes celles auxquel
 
   it("aucun droit : un filtre qui ne remonte RIEN, jamais un filtre vide", () => {
     expect(companyAccessWhere(bearer(), null, ALL)).toEqual({ companyId: { in: [] } });
+  });
+});
+
+describe("platformScopeWhere", () => {
+  it("ne cloisonne pas un groupe qui n'a qu'une entité", () => {
+    // Cloisonner un groupe mono-société ne protège rien et ne peut que masquer des données.
+    expect(platformScopeWhere(bearer({ homeCompanyId: "adv" }), "adv", ["adv"])).toEqual({});
+    expect(platformScopeWhere(bearer(), null, [])).toEqual({});
+  });
+
+  it("vue groupe sans portée : aucun filtre", () => {
+    expect(platformScopeWhere(bearer({ role: "DIRECTION" }), null, ALL)).toEqual({});
+  });
+
+  it("portée choisie : cette entité — et ce qui n'est rattaché à personne", () => {
+    // « Je mets Adventum, je vois Adventum ». Le non-rattaché reste visible : filtré, il
+    // deviendrait invisible depuis TOUTES les vues d'un salarié mono-entité.
+    expect(platformScopeWhere(bearer({ role: "DIRECTION" }), "pha", ALL)).toEqual({
+      OR: [{ companyId: "pha" }, { companyId: null }],
+    });
+  });
+
+  it("sans portée : les entités auxquelles j'ai droit, plus le non-rattaché", () => {
+    const u = bearer({ homeCompanyId: "adv", grants: [{ companyId: "pha", canEdit: false }] });
+    expect(platformScopeWhere(u, null, ALL)).toEqual({
+      OR: [{ companyId: { in: ["adv", "pha"] } }, { companyId: null }],
+    });
+  });
+
+  it("une portée interdite retombe sur un droit réel, jamais sur l'entité demandée", () => {
+    const u = bearer({ homeCompanyId: "adv" });
+    expect(platformScopeWhere(u, "xyz", ALL)).toEqual({
+      OR: [{ companyId: { in: ["adv"] } }, { companyId: null }],
+    });
+  });
+
+  it("aucun droit : rien ne remonte, sauf ce qui n'appartient à personne", () => {
+    expect(platformScopeWhere(bearer(), null, ALL)).toEqual({
+      OR: [{ companyId: { in: [] } }, { companyId: null }],
+    });
   });
 });

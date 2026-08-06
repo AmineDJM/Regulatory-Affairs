@@ -22,7 +22,7 @@ export default async function RhTeamPage() {
   const user = await requireModule("RH");
   const canSeeSalary = userCan(user, "RH", "VALIDATE");
 
-  const [data, pulse, tabs] = await Promise.all([getRhData(), getHrPulse(), visibleTabs(user, HR_TABS)]);
+  const [data, pulse, tabs] = await Promise.all([getRhData(user.id), getHrPulse(), visibleTabs(user, HR_TABS)]);
 
   const rows: DirectoryRow[] = data.employees.map((e) => ({
     id: e.id,

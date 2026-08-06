@@ -28,7 +28,7 @@ export default async function RhPage() {
   const canCreate = userCan(user, "RH", "CREATE");
   const canValidate = userCan(user, "RH", "VALIDATE");
   const canManage = userCan(user, "RH", "UPDATE"); // RH/DRH : modifier toute demande de congé (dont l'historique)
-  const data = await getRhData();
+  const data = await getRhData(user.id);
   const companies = await getCompanies();
   const departmentOptions = await getDepartmentOptions();
   const tabs = await visibleTabs(user, HR_TABS);

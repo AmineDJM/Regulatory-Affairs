@@ -8,6 +8,7 @@ import type { CongressRequestStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, anyRoleFilter } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { companyIdForNew } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
@@ -26,6 +27,8 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
   const created = await prisma.event.create({
     data: {
       name,
+      // Entité : la portée en cours, à défaut la société d'appartenance du créateur.
+      companyId: await companyIdForNew(user.id),
       type: inEnum(EventType, fdStr(formData, "type"), "CONGRESS"),
       scope: inEnum(EventScope, fdStr(formData, "scope"), "NATIONAL"),
       format: inEnum(EventFormat, fdStr(formData, "format"), "PRESENTIAL"),

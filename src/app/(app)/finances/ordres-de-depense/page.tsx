@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { platformScope } from "@/lib/company";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -15,6 +16,7 @@ export default async function OrdresDepensePage() {
   const canDirection = hasGlobalView(user.role) || userCan(user, "FINANCES", "VALIDATE") || userCan(user, "BUDGETS", "VALIDATE");
 
   const orders = await prisma.expenseOrder.findMany({
+    where: await platformScope(user.id),
     orderBy: { createdAt: "desc" },
     include: { requestedBy: { select: { name: true } } },
     take: 300,

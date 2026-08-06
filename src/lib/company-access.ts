@@ -119,3 +119,40 @@ export function companyAccessWhere(
   if (scope && allowed.includes(scope)) return { companyId: scope };
   return { companyId: { in: allowed } };
 }
+
+/** Filtre Prisma acceptant aussi les enregistrements NON rattachés. */
+export type ScopeWhere = { companyId?: string | { in: string[] } } | { OR: { companyId: string | { in: string[] } | null }[] } | Record<string, never>;
+
+/**
+ * LE FILTRE TRANSVERSE — celui qu'appliquent le budget, l'Ad & Pro, les finances et les
+ * demandes, c'est-à-dire les modules dont le rattachement à une entité est RÉCENT.
+ *
+ * Il se distingue de `companyAccessWhere` sur un point, et ce point est délibéré :
+ * **un enregistrement non rattaché (`companyId = null`) reste visible dans toutes les vues.**
+ *
+ * Pourquoi. Ces tables ont vécu sans entité ; le rattachement rétroactif ne devine rien quand
+ * il ne sait pas, et il reste donc des demandes sans entité. Les filtrer strictement les
+ * rendrait invisibles depuis toutes les vues d'un salarié mono-entité — qui n'a pas de vue
+ * « Toutes » puisque `resolveScope` le borne d'office à sa société. Ce ne serait pas du
+ * cloisonnement, ce serait de la perte de travail.
+ *
+ * La conséquence est bornée dans le temps : toute création postérieure porte son entité, donc
+ * l'ensemble des non-rattachés ne fait que décroître. Et dès qu'un objet EST rattaché, il
+ * filtre strictement — « je mets Adventum, je vois Adventum ».
+ *
+ * Second garde-fou : **s'il n'existe pas au moins deux entités, aucun filtre n'est appliqué.**
+ * Cloisonner un groupe mono-société ne protège rien et ne peut que masquer des données.
+ *
+ * Fonction PURE — testée.
+ */
+export function platformScopeWhere(
+  user: AccessBearer,
+  scope: string | null,
+  allCompanyIds: string[],
+): ScopeWhere {
+  if (allCompanyIds.length < 2) return {};
+
+  const base = companyAccessWhere(user, scope, allCompanyIds);
+  if (base.companyId === undefined) return {}; // vue groupe sans portée : rien à restreindre
+  return { OR: [{ companyId: base.companyId }, { companyId: null }] };
+}

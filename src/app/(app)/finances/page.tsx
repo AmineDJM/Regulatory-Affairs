@@ -29,7 +29,7 @@ export default async function FinancesPage() {
   const canCreate = userCan(user, "FINANCES", "CREATE");
   const canUpdate = userCan(user, "FINANCES", "UPDATE");
   const canDelete = userCan(user, "FINANCES", "DELETE");
-  const [data, compta] = await Promise.all([getFinanceData(), getComptaData()]);
+  const [data, compta] = await Promise.all([getFinanceData(user.id), getComptaData(user.id)]);
   const pendingOrders = await prisma.expenseOrder.count({ where: { status: "PENDING" } });
   const companies = await getCompanies();
 

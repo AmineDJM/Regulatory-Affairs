@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { canManageEnvelopes, canManageEnvelope, canViewEnvelope, hasGlobalView, userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { companyIdForNew } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
@@ -73,6 +74,8 @@ export async function createEnvelope(formData: FormData): Promise<ActionResult> 
       totalAmount: fdNum(formData, "totalAmount") ?? 0,
       notes: fdStr(formData, "notes"),
       createdById: user.id,
+      // Une enveloppe appartient à une société : le budget d'Adventum n'est pas celui de Pharmagène.
+      companyId: await companyIdForNew(user.id),
     },
     select: { id: true },
   });

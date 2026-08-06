@@ -6,6 +6,7 @@ import type { AdminRequestType, AdminRequestStatus, Priority, AdminApprovalStatu
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { companyIdForNew } from "@/lib/company";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { algiersInputToUtc, formatAlgiers } from "@/lib/calendar-tz";
@@ -136,6 +137,7 @@ export async function createRequest(
       fields: collectFields(formData),
       requesterId: user.id,
       createdById: user.id,
+      companyId: await companyIdForNew(user.id),
     },
     select: { id: true, reference: true, assignedToId: true },
   });

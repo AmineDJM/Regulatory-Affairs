@@ -1,5 +1,6 @@
 import type { RegistrationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { platformScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 
 export interface EventListItem {
@@ -89,8 +90,9 @@ export interface EventDetail {
 
 const ACTIVE: RegistrationStatus[] = ["REGISTERED", "CONFIRMED", "PRESENT", "PENDING"];
 
-export async function getEvents(): Promise<EventListItem[]> {
+export async function getEvents(userId: string): Promise<EventListItem[]> {
   const events = await prisma.event.findMany({
+    where: await platformScope(userId),
     orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
     include: { registrations: { select: { status: true } } },
   });

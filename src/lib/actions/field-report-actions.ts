@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { companyIdForNew } from "@/lib/company";
 import { releaseBlob } from "@/lib/drive-storage";
 import { recordAudit } from "@/lib/audit";
 import { analyzeFieldReport, aiModelCheap } from "@/lib/ai";
@@ -30,7 +31,7 @@ export async function createFieldReport(): Promise<ActionResult> {
   // Sans quoi la Direction (des opérations) — qui a la VUE globale mais pas l'action CREATE
   // par défaut — se voyait refuser (« Non autorisé ») en cliquant sur « Parler ».
   if (!userCan(user, "FIELD_REPORTS", "VIEW")) return { ok: false, error: "Non autorisé." };
-  const created = await prisma.fieldReport.create({ data: { delegateId: user.id, status: "DRAFT" }, select: { id: true } });
+  const created = await prisma.fieldReport.create({ data: { delegateId: user.id, status: "DRAFT", companyId: await companyIdForNew(user.id) }, select: { id: true } });
   revalidatePath("/field-reports");
   return { ok: true, id: created.id };
 }

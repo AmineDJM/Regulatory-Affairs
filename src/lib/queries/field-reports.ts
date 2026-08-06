@@ -1,5 +1,6 @@
 import { hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { platformScope } from "@/lib/company";
 
 /** Lecture des rapports terrain (vocaux). Un délégué voit les siens ; un manager
  *  / la Direction / un chef de produit **gèrent** tout (édition + validation + synthèse).
@@ -68,7 +69,7 @@ export interface FieldReportDetail {
 
 export async function getMyFieldReports(user: SessionUser): Promise<FieldReportListItem[]> {
   const reports = await prisma.fieldReport.findMany({
-    where: viewsAllReports(user) ? {} : { delegateId: user.id },
+    where: { AND: [viewsAllReports(user) ? {} : { delegateId: user.id }, await platformScope(user.id)] },
     orderBy: { createdAt: "desc" },
     take: 100,
     include: { delegate: { select: { name: true } }, doctor: { select: { name: true } }, _count: { select: { attachments: true } } },

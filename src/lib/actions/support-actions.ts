@@ -5,6 +5,7 @@ import type { SupportCategory, SupportStatus, Priority, UserRole } from "@prisma
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { companyIdForNew } from "@/lib/company";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
@@ -66,6 +67,7 @@ export async function createSupportRequest(_prev: ActionResult | undefined, form
       targetUserId: targetUserId ?? null,
       targetRole: targetUserId ? null : targetRole,
       requesterId: user.id,
+      companyId: await companyIdForNew(user.id),
     },
   });
   await notifyResponders(created, reference, subject, created.id);

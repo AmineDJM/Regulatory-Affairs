@@ -7,6 +7,7 @@
  */
 import type { Priority } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { companyIdForNew } from "@/lib/company";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
@@ -48,6 +49,7 @@ export async function createDossierRecord(input: DossierInput, actorId: string):
   const created = await prisma.dossier.create({
     data: {
       reference,
+      companyId: await companyIdForNew(actorId),
       title: input.title.trim(),
       description: input.description?.trim() || null,
       category: input.category?.trim() || null,

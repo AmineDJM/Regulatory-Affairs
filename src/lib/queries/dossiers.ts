@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { scopeDossiers, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
+import { platformScope } from "@/lib/company";
 
 export async function getDossiers(user: SessionUser) {
   return prisma.dossier.findMany({
-    where: scopeDossiers(user),
+    where: { AND: [scopeDossiers(user), await platformScope(user.id)] },
     include: {
       createdBy: { select: { name: true } },
       assignedTo: { select: { name: true } },

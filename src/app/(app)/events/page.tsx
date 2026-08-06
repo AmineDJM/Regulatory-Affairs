@@ -19,7 +19,7 @@ export default async function EventsPage() {
   const user = await requireModule("EVENTS");
   const canCreate = userCan(user, "EVENTS", "CREATE");
   const [events, responsibles] = await Promise.all([
-    getEvents(),
+    getEvents(user.id),
     canCreate ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([]),
   ]);
 
