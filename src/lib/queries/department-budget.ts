@@ -1,10 +1,17 @@
 import { prisma } from "@/lib/prisma";
 import { myCompanyScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
-import type { DeptBudgetRow } from "@/lib/department-budget";
+import {
+  mergeGrants, canViewDepartmentBudget, editableKindsOn, EMPTY_GRANT,
+  type DeptBudgetViewRow, type DeptBudgetGrant, type BudgetSetter, type GrantSubject,
+} from "@/lib/department-budget";
 
 /**
- * Tableau « budget par département » pour une année.
+ * Tableau « budget par département » pour une année, VU PAR UNE PERSONNE PRÉCISE.
+ *
+ * Chaque ligne porte ce que cette personne a le droit d'y faire — c'est calculé ici, une fois,
+ * plutôt qu'à l'affichage : une case verrouillée dans l'interface ne protège rien si le serveur
+ * ne sait pas pourquoi elle l'est.
  *
  * La masse salariale CONSOMMÉE n'est pas une saisie : elle est calculée depuis la paie réelle
  * des membres du département sur l'exercice. C'est le seul chiffre qui permette de dire si le
@@ -14,10 +21,15 @@ import type { DeptBudgetRow } from "@/lib/department-budget";
  * département. On affiche donc l'alloué sans inventer une consommation — mieux vaut une colonne
  * vide qu'un chiffre qui ressemble à une mesure sans en être une.
  */
-export async function getDepartmentBudgets(userId: string, year: number): Promise<DeptBudgetRow[]> {
+export async function getDepartmentBudgets(
+  viewer: { id: string; role: string; secondaryRole?: string | null },
+  rights: BudgetSetter,
+  canViewBudgetsModule: boolean,
+  year: number,
+): Promise<DeptBudgetViewRow[]> {
   // Le tableau reste dans la portée d'entité en cours : le budget d'Adventum n'est pas celui
   // de Pharmagène. Les départements transverses (sans entité) restent visibles.
-  const scope = await myCompanyScope(userId);
+  const scope = await myCompanyScope(viewer.id);
 
   const departments = await prisma.department.findMany({
     where: scope ? { OR: [{ companyId: scope }, { companyId: null }] } : {},
@@ -31,7 +43,7 @@ export async function getDepartmentBudgets(userId: string, year: number): Promis
   if (departments.length === 0) return [];
 
   const ids = departments.map((d) => d.id);
-  const [budgets, payroll] = await Promise.all([
+  const [budgets, payroll, accessRows] = await Promise.all([
     prisma.departmentBudget.findMany({ where: { departmentId: { in: ids }, year }, select: { departmentId: true, kind: true, amount: true } }),
     // Masse salariale réelle : le BRUT de l'exercice, regroupé par employé puis reventilé sur
     // son département (la paie ne connaît que l'employé).
@@ -39,6 +51,10 @@ export async function getDepartmentBudgets(userId: string, year: number): Promis
       by: ["employeeId"],
       where: { year, employee: { departmentId: { in: ids } } },
       _sum: { gross: true },
+    }),
+    // Autorisations : celles des départements affichés + la règle GÉNÉRALE (departmentId null).
+    prisma.departmentBudgetAccess.findMany({
+      where: { OR: [{ departmentId: { in: ids } }, { departmentId: null }] },
     }),
   ]);
 
@@ -51,6 +67,15 @@ export async function getDepartmentBudgets(userId: string, year: number): Promis
     if (!dept) continue;
     consumedByDept.set(dept, (consumedByDept.get(dept) ?? 0) + toNumber(p._sum.gross ?? 0));
   }
+
+  const asGrant = (r: (typeof accessRows)[number]): DeptBudgetGrant => ({
+    accessRoles: r.accessRoles, accessUserIds: r.accessUserIds,
+    operatingRoles: r.operatingRoles, operatingUserIds: r.operatingUserIds,
+    hrRoles: r.hrRoles, hrUserIds: r.hrUserIds,
+  });
+  const general = accessRows.find((r) => r.departmentId === null);
+  const ownById = new Map(accessRows.filter((r) => r.departmentId).map((r) => [r.departmentId!, r]));
+  const generalGrant = general ? asGrant(general) : null;
 
   const amountOf = (deptId: string, kind: "OPERATING" | "HR") =>
     toNumber(budgets.find((b) => b.departmentId === deptId && b.kind === kind)?.amount ?? 0);
@@ -70,16 +95,61 @@ export async function getDepartmentBudgets(userId: string, year: number): Promis
     return parts.join(" › ");
   };
 
+  const subject: GrantSubject = { id: viewer.id, role: viewer.role, secondaryRole: viewer.secondaryRole ?? null };
+
   return departments
-    .map((d) => ({
-      departmentId: d.id,
-      departmentName: d.name,
-      path: pathOf(d.id),
-      companyName: d.company?.shortName ?? d.company?.name ?? null,
-      members: d.members.length,
-      operating: amountOf(d.id, "OPERATING"),
-      hr: amountOf(d.id, "HR"),
-      hrConsumed: consumedByDept.get(d.id) ?? 0,
-    }))
-    .sort((a, b) => a.path.localeCompare(b.path, "fr"));
+    .map((d) => {
+      const own = ownById.get(d.id);
+      const grant = mergeGrants(generalGrant, own ? asGrant(own) : null);
+      return {
+        departmentId: d.id,
+        departmentName: d.name,
+        path: pathOf(d.id),
+        companyName: d.company?.shortName ?? d.company?.name ?? null,
+        members: d.members.length,
+        operating: amountOf(d.id, "OPERATING"),
+        hr: amountOf(d.id, "HR"),
+        hrConsumed: consumedByDept.get(d.id) ?? 0,
+        editable: editableKindsOn(subject, rights, grant),
+        grant: own ? asGrant(own) : EMPTY_GRANT,
+        hasOwnRule: Boolean(own),
+        _visible: canViewDepartmentBudget(subject, rights, grant, canViewBudgetsModule),
+      };
+    })
+    // On ne montre pas une ligne qu'on n'a pas le droit de voir : filtrer ICI plutôt qu'à
+    // l'affichage, pour que le montant ne transite même pas jusqu'au navigateur.
+    .filter((r) => r._visible)
+    .sort((a, b) => a.path.localeCompare(b.path, "fr"))
+    .map(({ _visible, ...row }) => row);
+}
+
+/** La règle GÉNÉRALE (tous départements), pour l'écran de réglage. */
+export async function getGeneralBudgetAccess(): Promise<DeptBudgetGrant> {
+  const r = await prisma.departmentBudgetAccess.findFirst({ where: { departmentId: null } });
+  if (!r) return EMPTY_GRANT;
+  return {
+    accessRoles: r.accessRoles, accessUserIds: r.accessUserIds,
+    operatingRoles: r.operatingRoles, operatingUserIds: r.operatingUserIds,
+    hrRoles: r.hrRoles, hrUserIds: r.hrUserIds,
+  };
+}
+
+/**
+ * Quelqu'un a-t-il une autorisation quelconque sur les budgets départementaux ?
+ *
+ * Sert à ouvrir la PORTE de l'écran : sans cela, une personne à qui le Super Admin a ouvert un
+ * département mais qui n'a pas le module Budgets serait refoulée à l'entrée, et l'autorisation
+ * ne servirait à rien.
+ */
+export async function hasAnyDepartmentBudgetGrant(user: GrantSubject): Promise<boolean> {
+  const roles = [user.role, user.secondaryRole].filter((r): r is string => Boolean(r));
+  const count = await prisma.departmentBudgetAccess.count({
+    where: {
+      OR: [
+        { accessUserIds: { has: user.id } }, { operatingUserIds: { has: user.id } }, { hrUserIds: { has: user.id } },
+        { accessRoles: { hasSome: roles } }, { operatingRoles: { hasSome: roles } }, { hrRoles: { hasSome: roles } },
+      ],
+    },
+  });
+  return count > 0;
 }

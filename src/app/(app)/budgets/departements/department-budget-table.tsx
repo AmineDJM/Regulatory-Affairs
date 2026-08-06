@@ -2,15 +2,17 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Check, Loader2, Lock, AlertCircle } from "lucide-react";
+import { Check, Loader2, Lock, AlertCircle, ShieldCheck } from "lucide-react";
 import { setDepartmentBudget } from "@/lib/actions/department-budget-actions";
 import {
-  DEPT_BUDGET_LABEL, DEPT_BUDGET_HINT, budgetHealth, consumedPercent,
-  type DeptBudgetKind, type DeptBudgetRow,
+  DEPT_BUDGET_LABEL, DEPT_BUDGET_HINT, budgetHealth, consumedPercent, EMPTY_GRANT,
+  type DeptBudgetKind, type DeptBudgetViewRow, type DeptBudgetGrant,
 } from "@/lib/department-budget";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
+import { DepartmentAccessSheet } from "./access-sheet";
 
 /**
  * Le tableau des budgets départementaux.
@@ -24,16 +26,23 @@ import { formatCurrency } from "@/lib/utils";
  * budgets se remplit en tabulant d'une case à l'autre.
  */
 export function DepartmentBudgetTable({
-  rows, year, editable, totals,
+  rows, year, totals, canManageAccess, generalGrant, users,
 }: {
-  rows: DeptBudgetRow[];
+  rows: DeptBudgetViewRow[];
   year: number;
-  editable: DeptBudgetKind[];
   totals: { operating: number; hr: number; hrConsumed: number; members: number };
+  canManageAccess: boolean;
+  generalGrant: DeptBudgetGrant | null;
+  users: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [err, setErr] = React.useState<string | null>(null);
-  const canEdit = (k: DeptBudgetKind) => editable.includes(k);
+  /** Ligne dont on règle les accès — `"__GENERAL__"` pour la règle générale. */
+  const [accessFor, setAccessFor] = React.useState<string | null>(null);
+
+  // Les bandeaux d'explication décrivent le SOCLE par rôle : ce que la personne peut régler
+  // partout, indépendamment des autorisations posées département par département.
+  const canEditAnywhere = (k: DeptBudgetKind) => rows.some((r) => r.editable.includes(k));
 
   const years = [year - 1, year, year + 1];
 
@@ -57,10 +66,10 @@ export function DepartmentBudgetTable({
       <div className="grid gap-2 sm:grid-cols-2">
         {(["OPERATING", "HR"] as DeptBudgetKind[]).map((k) => (
           <p key={k} className="flex items-start gap-2 rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
-            {!canEdit(k) && <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+            {!canEditAnywhere(k) && <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
             <span>
               <strong className="text-foreground">{DEPT_BUDGET_LABEL[k]}</strong> — {DEPT_BUDGET_HINT[k]}
-              {!canEdit(k) && " Vous le consultez sans pouvoir le modifier."}
+              {!canEditAnywhere(k) && " Vous le consultez sans pouvoir le modifier."}
             </span>
           </p>
         ))}
@@ -81,6 +90,7 @@ export function DepartmentBudgetTable({
               <th className="px-3 py-2 text-right font-medium">{DEPT_BUDGET_LABEL.OPERATING}</th>
               <th className="px-3 py-2 text-right font-medium">{DEPT_BUDGET_LABEL.HR}</th>
               <th className="px-3 py-2 text-right font-medium">Masse salariale réelle</th>
+              {canManageAccess && <th className="px-3 py-2 text-right font-medium">Accès</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -94,18 +104,31 @@ export function DepartmentBudgetTable({
                 <td className="px-3 py-2 text-right">
                   <AmountCell
                     departmentId={r.departmentId} year={year} kind="OPERATING"
-                    value={r.operating} readOnly={!canEdit("OPERATING")} onError={setErr}
+                    value={r.operating} readOnly={!r.editable.includes("OPERATING")} onError={setErr}
                   />
                 </td>
                 <td className="px-3 py-2 text-right">
                   <AmountCell
                     departmentId={r.departmentId} year={year} kind="HR"
-                    value={r.hr} readOnly={!canEdit("HR")} onError={setErr}
+                    value={r.hr} readOnly={!r.editable.includes("HR")} onError={setErr}
                   />
                 </td>
                 <td className="px-3 py-2 text-right">
                   <HrConsumption allocated={r.hr} consumed={r.hrConsumed} />
                 </td>
+                {canManageAccess && (
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setAccessFor(r.departmentId)}
+                      title={`Régler les accès — ${r.path}`}
+                      className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition hover:bg-secondary ${r.hasOwnRule ? "text-primary" : "text-muted-foreground"}`}
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      {r.hasOwnRule ? "Réglés" : "Régler"}
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -116,10 +139,37 @@ export function DepartmentBudgetTable({
               <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(totals.operating)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(totals.hr)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(totals.hrConsumed)}</td>
+              {canManageAccess && <td />}
             </tr>
           </tfoot>
         </table>
       </div>
+
+      {canManageAccess && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setAccessFor("__GENERAL__")}>
+            <ShieldCheck className="h-4 w-4" /> Règle générale — tous les départements
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Ouvre l&apos;accès partout d&apos;un coup ; chaque département peut ensuite ouvrir davantage.
+          </span>
+        </div>
+      )}
+
+      {canManageAccess && accessFor !== null && (
+        <DepartmentAccessSheet
+          open
+          onClose={() => setAccessFor(null)}
+          departmentId={accessFor === "__GENERAL__" ? null : accessFor}
+          departmentLabel={rows.find((r) => r.departmentId === accessFor)?.path ?? "tous les départements"}
+          grant={
+            accessFor === "__GENERAL__"
+              ? generalGrant ?? EMPTY_GRANT
+              : rows.find((r) => r.departmentId === accessFor)?.grant ?? EMPTY_GRANT
+          }
+          users={users}
+        />
+      )}
 
       <p className="text-xs text-muted-foreground">
         La <strong>masse salariale réelle</strong> est calculée depuis la paie de l&apos;exercice — elle n&apos;est pas

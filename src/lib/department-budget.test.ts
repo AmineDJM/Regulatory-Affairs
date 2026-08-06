@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   canSetDepartmentBudget, settableKinds, normalizeAmount, normalizeYear,
-  budgetHealth, consumedPercent, totals, type BudgetSetter, type DeptBudgetRow,
+  budgetHealth, consumedPercent, totals, mergeGrants, canEditDepartmentBudget,
+  canViewDepartmentBudget, editableKindsOn, canManageDepartmentBudgetAccess, EMPTY_GRANT,
+  type BudgetSetter, type DeptBudgetRow, type DeptBudgetGrant, type GrantSubject,
 } from "./department-budget";
 
 const setter = (over: Partial<BudgetSetter> = {}): BudgetSetter => ({
@@ -21,7 +23,7 @@ describe("canSetDepartmentBudget", () => {
   });
 
   it("les RH règlent les employés, pas le fonctionnement", () => {
-    const rh = setter({ role: "HR_MANAGER", canManageHr: true });
+    const rh = setter({ role: "DIRECTION_ASSISTANT", canManageHr: true });
     expect(canSetDepartmentBudget(rh, "HR")).toBe(true);
     expect(canSetDepartmentBudget(rh, "OPERATING")).toBe(false);
   });
@@ -104,5 +106,99 @@ describe("totals", () => {
 
   it("rend des zéros sur un tableau vide plutôt que NaN", () => {
     expect(totals([])).toEqual({ operating: 0, hr: 0, hrConsumed: 0, members: 0 });
+  });
+});
+
+// ───────────────── Autorisations réglées par le Super Admin ─────────────────
+
+const grant = (over: Partial<DeptBudgetGrant> = {}): DeptBudgetGrant => ({ ...EMPTY_GRANT, ...over });
+const subj = (over: Partial<GrantSubject> = {}): GrantSubject => ({ id: "u1", role: "MEDICAL_DELEGATE", ...over });
+
+describe("mergeGrants", () => {
+  it("cumule la règle générale et celle du département (union, jamais intersection)", () => {
+    // Intersecter ferait d'une règle de département une RESTRICTION de la règle générale,
+    // en contradiction avec « les autorisations s'ajoutent ».
+    const merged = mergeGrants(
+      grant({ accessRoles: ["DIRECTION"], hrUserIds: ["a"] }),
+      grant({ accessRoles: ["PRODUCT_MANAGER"], operatingUserIds: ["b"] }),
+    );
+    expect(merged.accessRoles.sort()).toEqual(["DIRECTION", "PRODUCT_MANAGER"]);
+    expect(merged.hrUserIds).toEqual(["a"]);
+    expect(merged.operatingUserIds).toEqual(["b"]);
+  });
+
+  it("ne double pas une entrée présente des deux côtés", () => {
+    const merged = mergeGrants(grant({ accessUserIds: ["a"] }), grant({ accessUserIds: ["a"] }));
+    expect(merged.accessUserIds).toEqual(["a"]);
+  });
+
+  it("tolère l'absence de l'une ou l'autre règle", () => {
+    expect(mergeGrants(null, null)).toEqual(EMPTY_GRANT);
+    expect(mergeGrants(grant({ hrRoles: ["DIRECTION_ASSISTANT"] }), null).hrRoles).toEqual(["DIRECTION_ASSISTANT"]);
+  });
+});
+
+describe("canEditDepartmentBudget", () => {
+  const nobody = setter();
+
+  it("une autorisation nominative ouvre l'édition d'UNE nature", () => {
+    const g = grant({ operatingUserIds: ["u1"] });
+    expect(canEditDepartmentBudget(subj(), nobody, "OPERATING", g)).toBe(true);
+    // …et d'elle seule : ouvrir le fonctionnement n'ouvre pas la masse salariale.
+    expect(canEditDepartmentBudget(subj(), nobody, "HR", g)).toBe(false);
+  });
+
+  it("une autorisation par rôle vaut pour le rôle principal ET le rôle secondaire", () => {
+    const g = grant({ hrRoles: ["DIRECTION_ASSISTANT"] });
+    expect(canEditDepartmentBudget(subj({ role: "DIRECTION_ASSISTANT" }), nobody, "HR", g)).toBe(true);
+    expect(canEditDepartmentBudget(subj({ secondaryRole: "DIRECTION_ASSISTANT" }), nobody, "HR", g)).toBe(true);
+    expect(canEditDepartmentBudget(subj(), nobody, "HR", g)).toBe(false);
+  });
+
+  it("N'ENLÈVE JAMAIS le socle par rôle", () => {
+    // C'est la garantie de l'option retenue : poser une autorisation ne doit pas retirer aux
+    // RH le budget des employés par effet de bord.
+    const rh = setter({ canManageHr: true });
+    const g = grant({ operatingUserIds: ["quelquun-dautre"] });
+    expect(canEditDepartmentBudget(subj({ id: "rh" }), rh, "HR", g)).toBe(true);
+  });
+
+  it("sans socle ni autorisation, rien n'est éditable", () => {
+    expect(editableKindsOn(subj(), nobody, EMPTY_GRANT)).toEqual([]);
+  });
+
+  it("editableKindsOn cumule socle et autorisations", () => {
+    const admin = setter({ canManageBudgets: true });
+    expect(editableKindsOn(subj(), admin, grant({ hrUserIds: ["u1"] }))).toEqual(["OPERATING", "HR"]);
+  });
+});
+
+describe("canViewDepartmentBudget", () => {
+  const nobody = setter();
+
+  it("qui peut éditer peut lire — l'inverse serait absurde", () => {
+    expect(canViewDepartmentBudget(subj(), nobody, grant({ hrUserIds: ["u1"] }), false)).toBe(true);
+  });
+
+  it("une autorisation de consultation ne donne PAS l'édition", () => {
+    const g = grant({ accessUserIds: ["u1"] });
+    expect(canViewDepartmentBudget(subj(), nobody, g, false)).toBe(true);
+    expect(editableKindsOn(subj(), nobody, g)).toEqual([]);
+  });
+
+  it("le droit de consulter le module Budgets suffit à lire", () => {
+    expect(canViewDepartmentBudget(subj(), nobody, EMPTY_GRANT, true)).toBe(true);
+  });
+
+  it("sans droit de module ni autorisation, on ne voit rien", () => {
+    expect(canViewDepartmentBudget(subj(), nobody, EMPTY_GRANT, false)).toBe(false);
+  });
+});
+
+describe("canManageDepartmentBudgetAccess", () => {
+  it("régler les autorisations est réservé au Super Admin", () => {
+    expect(canManageDepartmentBudgetAccess(setter({ role: "SUPER_ADMIN" }))).toBe(true);
+    // Même quelqu'un qui règle les DEUX budgets ne règle pas QUI y a accès.
+    expect(canManageDepartmentBudgetAccess(setter({ canManageBudgets: true, canManageHr: true }))).toBe(false);
   });
 });

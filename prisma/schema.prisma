@@ -596,6 +596,7 @@ model Department {
   users         User[]
   adminRequests AdministrativeRequest[]
   budgets       DepartmentBudget[]
+  budgetAccess  DepartmentBudgetAccess?
 
   @@unique([companyId, name])
   @@index([parentId])
@@ -819,6 +820,7 @@ model User {
   employee         Employee?       @relation("UserEmployee")
   promotedFeatures FeatureFlag[]   @relation("FeaturePromoter")
   departmentBudgets DepartmentBudget[] @relation("DepartmentBudgetSetter")
+  departmentBudgetAccess DepartmentBudgetAccess[] @relation("DepartmentBudgetAccessSetter")
   assistantThreads AssistantThread[] @relation("AssistantThreads")
   assistantMemory  AssistantMemory?  @relation("AssistantMemory")
   dailyBriefs      DailyBrief[]      @relation("DailyBriefs")
@@ -1386,6 +1388,37 @@ model BudgetCategoryLine {
 /// Une ligne par département, année et nature : le RH ne peut pas toucher au fonctionnement,
 /// l'administrateur ne peut pas toucher à la masse salariale, et l'un n'écrase jamais l'autre
 /// puisqu'ils n'écrivent pas la même ligne.
+/// AUTORISATIONS SUR LE BUDGET D'UN DÉPARTEMENT — réglées par le Super Admin.
+///
+/// Une ligne par département, plus UNE ligne générale (`departmentId = null`) qui s'applique à
+/// tous. Les deux se CUMULENT : la règle générale ouvre largement, la règle du département
+/// ajoute quelqu'un pour ce département seulement. Rien ne se soustrait — voir
+/// `department-budget.ts` pour la règle exacte et pourquoi elle est additive.
+///
+/// Trois portées distinctes, parce que ce ne sont pas les mêmes personnes :
+///   • `access*`    — VOIR le budget du département ;
+///   • `operating*` — ÉDITER le fonctionnement (hors employés) ;
+///   • `hr*`        — ÉDITER les employés et le recrutement.
+model DepartmentBudgetAccess {
+  id               String      @id @default(cuid())
+  /// `null` = règle GÉNÉRALE, valable pour tous les départements. Unicité garantie par un
+  /// index partiel (`WHERE "departmentId" IS NULL`) : en SQL, deux NULL ne s'égalent pas, un
+  /// `@unique` ordinaire laisserait donc créer autant de règles générales qu'on veut.
+  departmentId     String?     @unique
+  department       Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  accessRoles      String[]    @default([])
+  accessUserIds    String[]    @default([])
+  operatingRoles   String[]    @default([])
+  operatingUserIds String[]    @default([])
+  hrRoles          String[]    @default([])
+  hrUserIds        String[]    @default([])
+  /// Qui a réglé ces accès en dernier — une autorisation sans auteur ne se discute pas.
+  setById          String?
+  setBy            User?       @relation("DepartmentBudgetAccessSetter", fields: [setById], references: [id], onDelete: SetNull)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+}
+
 model DepartmentBudget {
   id           String              @id @default(cuid())
   departmentId String

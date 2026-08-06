@@ -64,6 +64,114 @@ export function settableKinds(user: BudgetSetter): DeptBudgetKind[] {
   return DEPT_BUDGET_KINDS.filter((k) => canSetDepartmentBudget(user, k));
 }
 
+// ───────────────── Autorisations réglées par le Super Admin ─────────────────
+
+/**
+ * AU-DELÀ DU SOCLE PAR RÔLE — le Super Admin ouvre nommément.
+ *
+ * Le socle ci-dessus dit « le gestionnaire de budget règle le fonctionnement, les RH règlent
+ * les employés ». C'est vrai partout, pour tous les départements. Il manquait de quoi dire
+ * « le responsable du Commercial règle le fonctionnement DE SON département » — ni plus, ni
+ * ailleurs. C'est ce que ces règles apportent.
+ *
+ * Trois portées distinctes, parce que ce ne sont pas les mêmes personnes : VOIR le budget,
+ * ÉDITER le fonctionnement, ÉDITER les employés. Quelqu'un peut consulter sans rien régler.
+ *
+ * **Les règles s'AJOUTENT, elles ne retranchent jamais.** Deux raisons :
+ *   • poser la première autorisation ne doit pas, par effet de bord, retirer l'accès aux RH
+ *     sur le budget des employés — un réglage d'ouverture ne se transforme pas en fermeture ;
+ *   • un droit qui disparaît sans qu'on l'ait demandé se diagnostique très mal.
+ * Pour restreindre, on retire le droit de module — c'est là que ça se décide.
+ *
+ * La règle GÉNÉRALE (`departmentId = null`) et celle du département se CUMULENT de la même
+ * façon : la première ouvre largement, la seconde ajoute quelqu'un pour ce département seul.
+ */
+export interface DeptBudgetGrant {
+  accessRoles: string[];
+  accessUserIds: string[];
+  operatingRoles: string[];
+  operatingUserIds: string[];
+  hrRoles: string[];
+  hrUserIds: string[];
+}
+
+export const EMPTY_GRANT: DeptBudgetGrant = {
+  accessRoles: [], accessUserIds: [], operatingRoles: [], operatingUserIds: [], hrRoles: [], hrUserIds: [],
+};
+
+/** Ce qu'on sait de la personne dont on évalue les autorisations. */
+export interface GrantSubject {
+  id: string;
+  role: string;
+  secondaryRole?: string | null;
+}
+
+function named(subject: GrantSubject, roles: string[], userIds: string[]): boolean {
+  if (userIds.includes(subject.id)) return true;
+  return roles.includes(subject.role) || (subject.secondaryRole ? roles.includes(subject.secondaryRole) : false);
+}
+
+/**
+ * Fusionne la règle générale et celle d'un département. L'union, jamais l'intersection :
+ * une règle de département RESTREINDRAIT la règle générale si on intersectait, ce qui
+ * contredirait la promesse « les autorisations s'ajoutent ».
+ */
+export function mergeGrants(general: DeptBudgetGrant | null, own: DeptBudgetGrant | null): DeptBudgetGrant {
+  const u = (a: string[] = [], b: string[] = []) => Array.from(new Set([...a, ...b]));
+  return {
+    accessRoles: u(general?.accessRoles, own?.accessRoles),
+    accessUserIds: u(general?.accessUserIds, own?.accessUserIds),
+    operatingRoles: u(general?.operatingRoles, own?.operatingRoles),
+    operatingUserIds: u(general?.operatingUserIds, own?.operatingUserIds),
+    hrRoles: u(general?.hrRoles, own?.hrRoles),
+    hrUserIds: u(general?.hrUserIds, own?.hrUserIds),
+  };
+}
+
+/**
+ * Peut-on VOIR le budget de ce département ?
+ *
+ * Qui peut l'éditer peut évidemment le lire — l'inverse serait absurde. S'y ajoutent le socle
+ * de lecture (le droit de consulter le module Budgets) et les personnes nommées.
+ */
+export function canViewDepartmentBudget(
+  subject: GrantSubject,
+  user: BudgetSetter,
+  grant: DeptBudgetGrant,
+  canViewBudgetsModule: boolean,
+): boolean {
+  if (canEditAnyKind(subject, user, grant)) return true;
+  if (canViewBudgetsModule) return true;
+  return named(subject, grant.accessRoles, grant.accessUserIds);
+}
+
+/** Peut-on ÉDITER cette nature sur ce département : le socle par rôle OU une autorisation. */
+export function canEditDepartmentBudget(
+  subject: GrantSubject,
+  user: BudgetSetter,
+  kind: DeptBudgetKind,
+  grant: DeptBudgetGrant,
+): boolean {
+  if (canSetDepartmentBudget(user, kind)) return true;
+  return kind === "HR"
+    ? named(subject, grant.hrRoles, grant.hrUserIds)
+    : named(subject, grant.operatingRoles, grant.operatingUserIds);
+}
+
+function canEditAnyKind(subject: GrantSubject, user: BudgetSetter, grant: DeptBudgetGrant): boolean {
+  return DEPT_BUDGET_KINDS.some((k) => canEditDepartmentBudget(subject, user, k, grant));
+}
+
+/** Les natures éditables sur CE département (socle + autorisations). */
+export function editableKindsOn(subject: GrantSubject, user: BudgetSetter, grant: DeptBudgetGrant): DeptBudgetKind[] {
+  return DEPT_BUDGET_KINDS.filter((k) => canEditDepartmentBudget(subject, user, k, grant));
+}
+
+/** Régler les autorisations est une prérogative du Super Admin, et de lui seul. */
+export function canManageDepartmentBudgetAccess(user: BudgetSetter): boolean {
+  return isSuperAdmin(user);
+}
+
 /** Un montant saisi est-il recevable ? (négatif = erreur de saisie, pas une reprise) */
 export function normalizeAmount(raw: string | number | null | undefined): number | { error: string } {
   if (raw === null || raw === undefined || raw === "") return 0;
@@ -116,6 +224,20 @@ export interface DeptBudgetRow {
   hr: number;
   /** Masse salariale RÉELLE de l'année, calculée depuis la paie. */
   hrConsumed: number;
+}
+
+/**
+ * Une ligne TELLE QUE LA VOIT UNE PERSONNE : les montants, plus ce qu'elle a le droit d'y
+ * faire. Les droits sont résolus côté serveur et transportés avec la ligne — une case
+ * verrouillée à l'écran ne protège rien si le serveur ne sait pas pourquoi elle l'est.
+ */
+export interface DeptBudgetViewRow extends DeptBudgetRow {
+  /** Natures éditables sur CE département (socle par rôle + autorisations). */
+  editable: DeptBudgetKind[];
+  /** Autorisation propre à ce département (hors règle générale) — pour l'écran de réglage. */
+  grant: DeptBudgetGrant;
+  /** Une règle propre existe-t-elle ? (distingue « aucune règle » de « règle vide ») */
+  hasOwnRule: boolean;
 }
 
 /** Totaux d'un tableau de départements — ce qui se lit en bas de colonne. */

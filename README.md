@@ -1309,8 +1309,30 @@ vérifie le droit **par nature** (`canSetDepartmentBudget`).
   n'est pas une bonne nouvelle. Seuils : ≥ 80 % `AT_RISK`, ≥ 100 % `OVER_BUDGET`.
 - Le tableau nomme les départements par leur **chemin complet** (« Commercial › Ville »), sans quoi deux
   sous-départements homonymes de deux pôles se confondraient. Il reste dans la **portée d'entité** en cours.
-- **Fichiers** : `src/lib/department-budget.ts` (+ `.test.ts`, 15 tests), `src/lib/queries/department-budget.ts`,
-  `src/lib/actions/department-budget-actions.ts`, `src/app/(app)/budgets/departements/`. Modèle `DepartmentBudget`.
+**QUI Y A ACCÈS — réglé par le Super Admin, et par lui seul.** Le socle par rôle vaut *partout* ; il manquait de
+quoi dire « le responsable du Commercial règle le fonctionnement DE SON département », ni plus ni ailleurs.
+
+- **Trois portées distinctes**, parce que ce ne sont pas les mêmes personnes : **consultation**, **édition du
+  fonctionnement**, **édition des employés**. On peut consulter sans rien régler.
+- **Une règle par département + une règle GÉNÉRALE** (`departmentId = null`) valable pour tous. Les deux se
+  **cumulent** (union, jamais intersection : intersecter ferait d'une règle de département une *restriction* de la
+  règle générale). Unicité de la règle générale garantie par un **index partiel** — en SQL deux `NULL` ne s'égalent
+  pas, un `@unique` ordinaire laisserait créer dix règles générales contradictoires.
+- **Les autorisations s'AJOUTENT, elles ne retranchent jamais.** Poser la première ne doit pas retirer aux RH le
+  budget des employés par effet de bord, et un droit qui disparaît sans qu'on l'ait demandé se diagnostique très
+  mal. Pour restreindre, c'est le **droit de module** qu'on revoit. L'écran le dit, plutôt que de le laisser
+  découvrir.
+- **La porte de l'écran** n'est plus `requireModule("BUDGETS")` mais « droit de module **OU** une autorisation
+  quelconque » : sinon une personne autorisée sur un département mais sans le module serait refoulée à l'entrée, et
+  son autorisation ne servirait à rien. Les lignes qu'on n'a pas le droit de voir sont **filtrées côté serveur** —
+  le montant ne transite même pas jusqu'au navigateur.
+- Le droit est **revérifié à l'écriture**, sur CE département : les règles affichées à l'ouverture ont pu changer.
+- La liste des rôles proposés est **dérivée de `ROLE_LABELS`**, jamais recopiée — une liste écrite à la main finit
+  par proposer un rôle qui n'existe plus, et une case cochée sur un rôle fantôme n'autorise personne sans que rien
+  ne le signale.
+- **Fichiers** : `src/lib/department-budget.ts` (+ `.test.ts`, 28 tests), `src/lib/queries/department-budget.ts`,
+  `src/lib/actions/department-budget-actions.ts`, `src/app/(app)/budgets/departements/` (`page.tsx`,
+  `department-budget-table.tsx`, `access-sheet.tsx`). Modèles `DepartmentBudget`, `DepartmentBudgetAccess`.
 
 ### Ad & Pro — corriger une demande, joindre un fichier à un avis
 
@@ -1846,6 +1868,12 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   visible partout** : le filtrer strictement le rendrait invisible depuis toutes les vues d'un salarié mono-entité,
   ce qui serait de la perte de travail, pas du cloisonnement. Et **moins de deux entités ⇒ aucun filtre**.
   → [référence](#dimension-multi-entités-sociétés-du-groupe)
+
+- **Les accès aux budgets départementaux se règlent.** Le socle par rôle valait partout à la fois ; le Super Admin
+  peut désormais ouvrir **département par département** (plus une règle générale), en distinguant **qui voit**, **qui
+  édite le fonctionnement** et **qui édite les employés** — trois populations différentes. Les autorisations
+  **s'ajoutent** et ne retirent jamais rien : poser la première ne doit pas priver les RH du budget des employés par
+  effet de bord. → [référence](#budget-par-département--deux-natures-deux-responsables)
 
 - **Chaque département a son budget — réglé par deux personnes différentes.** Le fonctionnement (**hors employés**)
   par l'**administrateur** ; les **employés et le recrutement** par les **ressources humaines**. Comme les deux
