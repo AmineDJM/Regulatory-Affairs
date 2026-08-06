@@ -911,6 +911,56 @@ réalité réglementaire.
   pas reculer une industrialisation actée ; sans date de décision, on retombe sur la création.
 - Tests : `manufacturing-stage.test.ts` (11 tests), dont le cas « la fiche a divergé ».
 
+### Sponsoring — postes et ventilation de l'enveloppe
+
+`SponsoringRequest` ne portait qu'un montant (`amountRequested` → `amountProposed` →
+`amountGranted`) et **un seul** ordre de dépense. Un sponsoring réel couvre pourtant plusieurs
+choses, payées à plusieurs personnes. `SponsoringItem` décrit ces **postes**.
+
+**Le principe qui structure tout : un poste n'est pas une demande.** Il ne déclenche aucun circuit
+de validation propre. Le sponsoring garde le sien (National Sales → chef de produit → Direction) et
+les postes en sont la **ventilation**. Recopier le circuit sur chaque poste triplerait la
+bureaucratie que le moteur anti-bureaucratie cherche justement à réduire.
+
+| Règle | Où | Pourquoi |
+|---|---|---|
+| Enveloppe **globale**, ventilée ensuite | `breakdown()` (pure, testée) | La Direction décide d'un total — c'est ce qui l'intéresse. L'écran de décision ne change pas. |
+| **Un ordre de dépense par poste** | `emitItemExpenseOrder` | Le stand se paie à l'organisateur, le matériel à l'agence, l'appui à l'association : trois bénéficiaires, trois pièces. Un ordre global obligerait les Finances à répartir à la main. |
+| Ajout après décision **autorisé et tracé** | `addedAfterDecision` | Cas réel : on découvre qu'il faut un stand. On ne bloque pas — mais la ventilation dépasse alors l'enveloppe, et l'écran l'**affiche**. Un dépassement caché est un dépassement qu'on découvre à la facture. |
+| Le matériel promo **n'est pas recopié** | `promoMaterialId` | Il a un circuit non négociable (visa publicitaire, conformité information médicale, agence, BAT). Le poste y renvoie et en montre l'avancement en lecture. Deux vérités sur le même objet finiraient par diverger. |
+
+**Garde-fous financiers** (`canEmitOrder`, pure et testée) : on ne paie pas ce qui n'est pas
+**accordé**, pas un poste **sans montant**, et jamais **deux fois**. Un montant déjà couvert par un
+ordre de dépense ne peut plus changer, et un poste payé ne peut plus être retiré — sinon la
+justification d'une dépense engagée disparaîtrait. Affecter les montants et émettre les ordres sont
+réservés à la **Direction** ; décrire les postes reste ouvert au demandeur.
+
+Fichiers : `lib/sponsoring-items.ts` (`breakdown`, `canEmitOrder` + `sponsoring-items.test.ts`,
+14 tests), `lib/actions/sponsoring-item-actions.ts`,
+`app/(app)/sponsoring/[id]/items-panel.tsx`. Migration `20260806120000_sponsoring_items`.
+
+### Mobile — superposition, défilement et hauteurs
+
+Trois défauts indépendants, un même symptôme (« les modules se superposent »).
+
+1. **Échelle de superposition** — la barre d'onglets était à `z-60`, au-dessus des feuilles et
+   tiroirs (`z-50`). L'échelle est désormais écrite dans `globals.css` : en-tête 30, barre
+   d'onglets **40**, modales **50**, tiroir « Tout » 60, courrier 90, palette 100, pop-up 200.
+   Toute nouvelle couche modale se place à 50 et ne descend jamais en dessous.
+2. **Verrou de défilement** — `lib/use-scroll-lock.ts`. Le code figeait `document.body` ; or la
+   coque est `h-screen overflow-hidden` et le conteneur défilant est le `<main>` (`id="app-scroll"`).
+   Le verrou était donc **sans effet**. Il est maintenant **compté** (une feuille ouverte depuis un
+   tiroir ne rend pas le défilement au tiroir en se refermant) et branché sur les six couches
+   modales. Pas de `position: fixed` sur le body : cette astuce fait sauter la page en haut à la
+   fermeture.
+3. **Hauteurs mesurées** — `components/layout/chrome-metrics.tsx` publie `--app-chrome-top`
+   (bandeaux + en-tête) et `--app-chrome-bottom` (barre d'onglets) par `ResizeObserver`. Les
+   utilitaires `.app-viewport` / `.app-viewport-flush` s'en servent. Mesurées et non écrites, pour
+   deux raisons qu'une constante ne couvre pas : les bandeaux **passent à la ligne** sur un écran
+   étroit, et la barre d'onglets est `display: none` sur ordinateur — mesurée, elle vaut alors 0,
+   sans règle média supplémentaire à maintenir. Écrans concernés : assistant, messagerie, éditeur
+   Office.
+
 ### Analyseur CTD — réserves ANPP, corpus et coût
 
 Trois manques structurels de l'analyseur : il ne se souvenait pas de ce que l'agence nous avait
@@ -1183,6 +1233,8 @@ Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage 
 | **Assistant — flux (streaming)** | `lib/ai.ts` → `callClaudeStream`, `lib/assistant.ts` → `runAssistantStream`, `app/api/assistant/stream/route.ts` (SSE), `app/(app)/assistant/assistant-chat.tsx`. |
 | **Regulatory — niveau de process** | `lib/regulatory/manufacturing-stage.ts` (`effectiveStage`, pure) + tests ; colonne et cellule dans `app/(app)/regulatory/regulatory-table.tsx` ; fiche `app/(app)/regulatory/[id]/page.tsx`. |
 | **RH — 4 écrans** | `lib/queries/hr-pulse.ts` (`getHrPulse` : absents, départs, échéances, soldes) ; `app/(app)/rh/` — `page.tsx` (à traiter), `equipe/`, `conges/`, `departements/`, `team-directory.tsx`. |
+| **Sponsoring — postes** | `lib/sponsoring-items.ts` (`breakdown`, `canEmitOrder`, purs + tests) ; `lib/actions/sponsoring-item-actions.ts` (ajout/affectation/ordre de dépense/rattachement matériel) ; `app/(app)/sponsoring/[id]/items-panel.tsx`. Modèle `SponsoringItem` + enum `SponsoringItemKind`. |
+| **Mobile — coque & couches** | `lib/use-scroll-lock.ts` (verrou compté sur `#app-scroll`) ; `components/layout/chrome-metrics.tsx` (hauteurs mesurées → `--app-chrome-top` / `--app-chrome-bottom`) ; `.app-viewport` / `.app-viewport-flush` et l'échelle de z-index dans `app/globals.css`. |
 | **CTD — réserves ANPP** | `lib/regulatory/intelligence/reserves/` — `library-ingest.ts` (texte → OCR → vision), `library-extract.ts` (schéma strict, verbatim obligatoire), `library.ts` (`findSimilarReserves`, `bestHistoricalResponse`, `reserveRisk`, `proposeRules`, `ruleConfidence`), `library-actions.ts` (`validateDerivedRule` = seul chemin vers VALIDATED) ; écran `app/(app)/regulatory/enregistrement/reserves/`. |
 | **CTD — constats défendables** | `lib/regulatory/intelligence/findings/enrich.ts` (`enrichVersionFindings`, `findingQuality` pure + tests) ; branché dans `jobs/runner.ts` (`attachPrecedents`) ; rendu par `FindingEvidence` dans `app/(app)/regulatory/enregistrement/analyse/[dossierId]/page.tsx`. |
 | **CTD — corpus & veille** | `lib/regulatory/intelligence/corpus/` — `catalog.ts` (43 sources, `ingestible`/`binding`), `fetch-source.ts` (`findPdfLink`, `htmlToText`, `extOf` + tests), `ingest-catalog.ts` (versions DRAFT, empreinte), `watch-schedule.ts` (`runAnppWatchIfDue`, branché sur `lib/scheduled.ts`), `corpus-actions.ts` ; écran `app/(app)/regulatory/enregistrement/corpus/`. |
@@ -1612,6 +1664,29 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Sponsoring : de quoi est fait le montant.** Un sponsoring est rarement un simple chèque — il y
+  a l'appui à l'association, mais aussi le stand, les brochures produites pour l'occasion, une
+  prestation. Le module ne portait qu'un **montant global** : on ne savait ni de quoi il était
+  fait, ni à qui allait l'argent. On lui attache désormais des **postes** (stand · matériel
+  promotionnel · prestation · déplacement · autre), chacun avec son bénéficiaire et **son ordre de
+  dépense** — parce que le stand se paie à l'organisateur, le matériel à l'agence et l'appui à
+  l'association. La Direction accorde toujours **une enveloppe globale** ; les postes s'en
+  répartissent, et l'écran affiche en permanence ce qui reste à affecter — ou **ce qui dépasse**.
+  Un poste ajouté après la décision est **autorisé et tracé** : il fait apparaître le dépassement
+  au lieu de le laisser découvrir à la facture. Le matériel promotionnel n'est jamais recopié ici :
+  le poste **renvoie** à un `PromoMaterial` qui suit son propre circuit (visa publicitaire,
+  conformité, agence, BAT). → [référence](#sponsoring--postes-et-ventilation-de-lenveloppe)
+- **Mobile : fin des superpositions.** Trois défauts donnaient la même impression de modules qui se
+  marchent dessus. La **barre d'onglets était au-dessus des modales** (`z-60` contre `z-50`) : un
+  bouton de validation en bas d'une feuille était visible mais intouchable. Le **verrou de
+  défilement ne verrouillait rien** — il figeait le `body`, alors que le conteneur qui défile est
+  le `<main>` ; on ouvrait le menu, on faisait glisser le doigt, et c'était la page derrière qui
+  bougeait. Et trois écrans pleine hauteur recopiaient des **hauteurs écrites au jugé**
+  (`100dvh-3.5rem`, `100dvh-7.5rem`) qui ne correspondaient à aucune barre réelle — d'où le champ
+  de saisie de l'assistant caché derrière la barre d'onglets. Échelle de superposition unifiée,
+  verrou compté sur le vrai conteneur, hauteurs **mesurées** et non devinées.
+  → [référence](#mobile--superposition-défilement-et-hauteurs)
 
 - **Analyseur CTD : la mémoire des réserves ANPP, un corpus qui se tient à jour, et un coût qu'on
   voit.** Refonte de fond en six lots. **(1) Bibliothèque des réserves ANPP** — une lettre reçue

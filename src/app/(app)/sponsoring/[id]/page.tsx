@@ -20,6 +20,8 @@ import { WorkflowPanel } from "@/components/workflow/workflow-panel";
 import { AppealPanel } from "./decision-panel";
 import { ThirdPartyButton } from "./third-party-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { promoMaterialOptions } from "@/lib/actions/sponsoring-item-actions";
+import { SponsoringItemsPanel, type ItemRow } from "./items-panel";
 
 const SPONSORING_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -53,6 +55,42 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   // Le demandeur (délégué) peut toujours joindre des pièces à SA demande.
   const canUpload = userCan(user, "SPONSORING", "UPLOAD") || isRequester;
   const canDelete = userCan(user, "SPONSORING", "DELETE");
+
+  // Postes du sponsoring : de quoi est fait le montant, et à qui va l'argent. Le matériel
+  // promotionnel et l'ordre de dépense sont des scalaires (pas de relation Prisma) : on résout
+  // leurs libellés en une requête chacun plutôt qu'une par poste.
+  const rawItems = await prisma.sponsoringItem.findMany({
+    where: { sponsoringId: req.id },
+    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+  });
+  const [promoRows, orderRows, promoOptions] = await Promise.all([
+    rawItems.some((i) => i.promoMaterialId)
+      ? prisma.promoMaterial.findMany({
+          where: { id: { in: rawItems.map((i) => i.promoMaterialId).filter((x): x is string => Boolean(x)) } },
+          select: { id: true, reference: true, title: true, status: true },
+        })
+      : Promise.resolve([]),
+    rawItems.some((i) => i.expenseOrderId)
+      ? prisma.expenseOrder.findMany({
+          where: { id: { in: rawItems.map((i) => i.expenseOrderId).filter((x): x is string => Boolean(x)) } },
+          select: { id: true, reference: true, status: true },
+        })
+      : Promise.resolve([]),
+    promoMaterialOptions(),
+  ]);
+  const promoById = new Map(promoRows.map((p) => [p.id, { reference: p.reference, title: p.title, status: String(p.status) }]));
+  const orderById = new Map(orderRows.map((o) => [o.id, { reference: o.reference, status: String(o.status) }]));
+  const items: ItemRow[] = rawItems.map((i) => ({
+    id: i.id, kind: i.kind, label: i.label, notes: i.notes, supplier: i.supplier,
+    amountEstimated: i.amountEstimated != null ? toNumber(i.amountEstimated) : null,
+    amountGranted: i.amountGranted != null ? toNumber(i.amountGranted) : null,
+    addedAfterDecision: i.addedAfterDecision,
+    promoMaterialId: i.promoMaterialId,
+    promoMaterial: i.promoMaterialId ? promoById.get(i.promoMaterialId) ?? null : null,
+    expenseOrderId: i.expenseOrderId,
+    expenseOrder: i.expenseOrderId ? orderById.get(i.expenseOrderId) ?? null : null,
+  }));
+  const decided = ["APPROVED", "ACCEPTED", "PAID", "CLOSED"].includes(req.status);
 
   const [missions, canManageMissions, missionUsers, workflow] = await Promise.all([
     getEntityMissions("SPONSORING", req.id),
@@ -112,6 +150,25 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                   <p className="font-medium">{req.comments}</p>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Ce que couvre RÉELLEMENT le sponsoring : appui, stand, matériel, prestation.
+              Les postes ne déclenchent AUCUN circuit propre — ils ventilent l'enveloppe. */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Ce que couvre ce sponsoring</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SponsoringItemsPanel
+                sponsoringId={req.id}
+                items={items}
+                amountGranted={req.amountGranted != null ? toNumber(req.amountGranted) : null}
+                decided={decided}
+                canEdit={userCan(user, "SPONSORING", "CREATE") || userCan(user, "SPONSORING", "UPDATE") || canDirection}
+                canAllocate={canDirection}
+                promoOptions={promoOptions}
+              />
             </CardContent>
           </Card>
 
