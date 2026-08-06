@@ -22,6 +22,7 @@ import { getCareDossier } from "@/lib/queries/care";
 import { careDirectoryOptions, carePromoOptions } from "@/lib/actions/care-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function CongressNatDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("CONGRESS_NATIONAL");
@@ -97,9 +98,9 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
 
   return (
     <div className="space-y-5">
-      <Link href="/congress-national" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/congress-national">
         <ArrowLeft className="h-4 w-4" /> Prises en charge Nationales
-      </Link>
+      </BackLink>
       <PageHeader title={detail.name} description="Demande de prise en charge — événement national.">
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />
         {hasGlobalView(user) && <AdProTransferButton from="CONGRESS_NATIONAL" sourceId={detail.id} title={detail.name} />}

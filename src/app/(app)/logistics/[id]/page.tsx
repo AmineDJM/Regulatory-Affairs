@@ -13,6 +13,7 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { LOGISTICS_STATUS } from "@/lib/labels";
 import { StatusUpdate } from "./status-update";
+import { BackLink } from "@/components/shared/back-link";
 
 const LOGISTICS_DOC_CATEGORIES = ["PROFORMA", "INVOICE", "PACKING_LIST", "BL_AWB", "ANALYSIS_CERTIFICATE", "ORIGIN_CERTIFICATE", "CUSTOMS_DOCS", "DELIVERY_NOTE", "RECEPTION_REPORT", "OTHER"];
 
@@ -49,9 +50,9 @@ export default async function LogisticsDetailPage({ params }: { params: { id: st
 
   return (
     <div className="space-y-5">
-      <Link href="/logistics" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/logistics">
         <ArrowLeft className="h-4 w-4" /> Retour aux commandes
-      </Link>
+      </BackLink>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>

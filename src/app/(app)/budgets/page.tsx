@@ -14,6 +14,7 @@ import { Bars, Meter } from "@/components/charts/bars";
 import { foldTail } from "@/components/charts/palette";
 import { formatCurrency } from "@/lib/utils";
 import { BudgetContextBar } from "./budget-context-bar";
+import { resolveBudgetEnvelope } from "@/lib/budget-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
   ]);
   const from = searchParams.from ? new Date(searchParams.from) : null;
   const to = searchParams.to ? new Date(searchParams.to) : null;
-  const overview = await getBudgetOverview(user, searchParams.env ?? null, from, to);
+  const overview = await getBudgetOverview(user, resolveBudgetEnvelope(searchParams.env), from, to);
 
   if (!overview) {
     return (

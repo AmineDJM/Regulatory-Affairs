@@ -5,6 +5,7 @@ import { requireModule } from "@/lib/session";
 import { getWorkflowDefinitions } from "@/lib/queries/workflow";
 import { PageHeader } from "@/components/shared/page-header";
 import { WorkflowBuilder } from "./workflow-builder";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +23,9 @@ export default async function AdminWorkflowsPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Administration
-      </Link>
+      </BackLink>
       <PageHeader
         title="Circuits de validation (Ad & Pro)"
         description="Configurez chaque circuit comme une app no-code : étapes, rôles impliqués, pouvoirs, détails. Les demandes en cours suivent les étapes portant les mêmes identifiants."

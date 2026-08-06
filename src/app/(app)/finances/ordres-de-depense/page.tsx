@@ -7,6 +7,7 @@ import { toNumber, formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { OrdersTable, type OrderRow } from "./orders-table";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function OrdresDepensePage() {
   const user = await requireModule("FINANCES");
@@ -50,9 +51,9 @@ export default async function OrdresDepensePage() {
 
   return (
     <div className="space-y-6">
-      <Link href="/finances" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/finances">
         <ArrowLeft className="h-4 w-4" /> Retour aux finances
-      </Link>
+      </BackLink>
       <PageHeader title="Ordres de dépense" description="Dépenses validées par la Direction, à exécuter par la comptabilité. Le règlement génère l'écriture de trésorerie." />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">

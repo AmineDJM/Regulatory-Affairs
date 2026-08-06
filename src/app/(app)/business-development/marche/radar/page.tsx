@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCompact, formatDate } from "@/lib/utils";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +32,9 @@ export default async function MarketRadarPage({ searchParams }: { searchParams: 
 
   return (
     <div className="space-y-5">
-      <Link href="/business-development/marche" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/business-development/marche">
         <ArrowLeft className="h-4 w-4" /> Intelligence marché
-      </Link>
+      </BackLink>
       <PageHeader title="Radar du marché" description="Fenêtres d'opportunité : marchés sans fabricant local, nouvelles autorisations récentes et expirations d'enregistrements à venir." />
 
       <div className="flex flex-wrap items-center gap-2">

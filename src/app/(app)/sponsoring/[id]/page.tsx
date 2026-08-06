@@ -23,6 +23,7 @@ import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel, type ItemRow } from "@/components/ad-pro/items-panel";
 import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
+import { BackLink } from "@/components/shared/back-link";
 
 const SPONSORING_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -106,9 +107,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
 
   return (
     <div className="space-y-5">
-      <Link href="/sponsoring" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/sponsoring">
         <ArrowLeft className="h-4 w-4" /> Retour au sponsoring
-      </Link>
+      </BackLink>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>

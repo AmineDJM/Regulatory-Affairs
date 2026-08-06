@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { OrgNode } from "./org-chart-editor";
 import { OrgWorkspace } from "./org-workspace";
+import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Organigramme — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -39,9 +40,9 @@ export default async function OrganigrammePage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Retour à l&apos;administration
-      </Link>
+      </BackLink>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>

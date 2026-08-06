@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ADMIN_REQUEST_TYPE } from "@/lib/labels";
 import { formatCurrency, formatDate, toNumber } from "@/lib/utils";
 import { ApprovalButtons } from "../approval-buttons";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function ApprovalsPage() {
   const user = await requireModule("ADMIN_REQUESTS");
@@ -15,9 +16,9 @@ export default async function ApprovalsPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/demandes" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/demandes">
         <ArrowLeft className="h-4 w-4" /> Demandes
-      </Link>
+      </BackLink>
       <PageHeader title="Validations en attente" description="Demandes du bureau du secrétariat à valider, refuser ou renvoyer pour modification." />
 
       {approvals.length === 0 ? (

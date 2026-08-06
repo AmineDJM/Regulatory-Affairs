@@ -19,6 +19,7 @@ import { getCareDossier } from "@/lib/queries/care";
 import { careDirectoryOptions, carePromoOptions } from "@/lib/actions/care-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function CongressIntlDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("CONGRESS_INTERNATIONAL");
@@ -60,9 +61,9 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
 
   return (
     <div className="space-y-5">
-      <Link href="/congress-international" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/congress-international">
         <ArrowLeft className="h-4 w-4" /> Prises en charge Internationales
-      </Link>
+      </BackLink>
       <PageHeader title={detail.name} description="Demande de prise en charge — congrès international.">
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />
         {hasGlobalView(user) && <AdProTransferButton from="CONGRESS_INTERNATIONAL" sourceId={detail.id} title={detail.name} />}

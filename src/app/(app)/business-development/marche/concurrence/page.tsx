@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCompact } from "@/lib/utils";
 import { SelectNav } from "../select-nav";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -33,9 +34,9 @@ export default async function MarketCompetitionPage({ searchParams }: { searchPa
 
   return (
     <div className="space-y-5">
-      <Link href="/business-development/marche" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/business-development/marche">
         <ArrowLeft className="h-4 w-4" /> Intelligence marché
-      </Link>
+      </BackLink>
       <PageHeader title="Analyse produit & concurrence" description="Paysage concurrentiel : à l'intérieur d'une classe thérapeutique (acteurs, parts, croissance, concentration) ou pour un laboratoire (portefeuille par classe et par produit)." />
 
       <div className="flex flex-wrap items-center gap-2">

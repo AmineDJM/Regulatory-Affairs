@@ -22,6 +22,7 @@ import { EditMeetingButton } from "../edit-meeting-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { CALENDAR_INVITE_STATUS } from "@/lib/labels";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -87,9 +88,9 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
   return (
     <div className="space-y-5">
-      <Link href="/meetings" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/meetings">
         <ArrowLeft className="h-4 w-4" /> Réunions
-      </Link>
+      </BackLink>
 
       <PageHeader title={meeting.title} description={meeting.description ?? undefined}>
         <Badge tone={STATUS[meeting.status]?.tone ?? "neutral"} dot={false}>{STATUS[meeting.status]?.label ?? meeting.status}</Badge>

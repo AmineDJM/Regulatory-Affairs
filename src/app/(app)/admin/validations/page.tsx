@@ -15,6 +15,7 @@ import { ROLE_LABELS, PRIORITY, VALIDATION_STATUS, VALIDATION_MODE } from "@/lib
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import { RuleEditor, RuleControls, type RuleDTO } from "./rules-admin";
+import { BackLink } from "@/components/shared/back-link";
 
 const dec = (v: unknown): string => (v === null || v === undefined ? "" : String(v));
 
@@ -64,9 +65,9 @@ export default async function AdminValidationsPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Administration
-      </Link>
+      </BackLink>
       <PageHeader title="Paramétrage des validations" description="Définissez qui valide quoi : module, type, montant, département, rôle, priorité… en séquentiel ou parallèle.">
         <RuleEditor users={userOptions} moduleOptions={moduleOptions} roleOptions={roleOptions} priorityOptions={priorityOptions} />
       </PageHeader>

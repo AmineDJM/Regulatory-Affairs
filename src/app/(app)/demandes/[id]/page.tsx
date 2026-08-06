@@ -22,6 +22,7 @@ import { ApprovalButtons } from "../approval-buttons";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { ReminderButton } from "@/components/reminders/reminder-button";
 import { PromoActionPanel } from "../../promo-material/[id]/promo-panels";
+import { BackLink } from "@/components/shared/back-link";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 const PROMO_DOC_CATEGORIES = ["QUOTE", "PURCHASE_ORDER", "PAYMENT_SLIP", "PAYMENT_RECEIPT", "PROMO_MATERIAL_FILE", "AD_VISA", "INVOICE", "DELIVERY_NOTE", "SUPPORTING_DOC", "OTHER"];
@@ -75,9 +76,9 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
 
   return (
     <div className="space-y-5">
-      <Link href="/demandes" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/demandes">
         <ArrowLeft className="h-4 w-4" /> Retour aux demandes
-      </Link>
+      </BackLink>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>

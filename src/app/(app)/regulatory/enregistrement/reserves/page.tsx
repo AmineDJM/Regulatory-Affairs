@@ -13,6 +13,7 @@ import { Donut } from "@/components/charts/donut";
 import { foldTail } from "@/components/charts/palette";
 import { formatDate } from "@/lib/utils";
 import { ReserveLibraryPanel } from "./reserve-library-panel";
+import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Réserves ANPP — bibliothèque" };
 export const dynamic = "force-dynamic";
@@ -51,9 +52,9 @@ export default async function ReserveLibraryPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/regulatory/enregistrement/analyse" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/regulatory/enregistrement/analyse">
         <ArrowLeft className="h-4 w-4" /> Analyse CTD
-      </Link>
+      </BackLink>
       <PageHeader
         title="Réserves ANPP — bibliothèque"
         description="Tout ce que l'agence nous a déjà reproché, avec sa preuve. Sert à anticiper les réserves d'un nouveau dossier et à réutiliser les réponses qui ont fonctionné."

@@ -5,6 +5,7 @@ import { requireModule } from "@/lib/session";
 import { listFeatures, isTestUser } from "@/lib/features";
 import { PageHeader } from "@/components/shared/page-header";
 import { VersionsManager } from "./versions-manager";
+import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Versions — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -21,9 +22,9 @@ export default async function VersionsPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Administration
-      </Link>
+      </BackLink>
       <PageHeader
         title="Versions — test & production"
         description="Chaque nouveauté arrive d'abord en VERSION DE TEST : vous seul la voyez, tant que votre mode test est actif. Quand elle vous convient, vous la validez et elle passe en PRODUCTION pour toute l'entreprise. Le retour arrière est immédiat."

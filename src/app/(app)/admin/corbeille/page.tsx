@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { TrashList, type TrashItem } from "./trash-list";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -36,9 +37,9 @@ export default async function CorbeillePage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Administration
-      </Link>
+      </BackLink>
       <PageHeader
         title="Corbeille des suppressions définitives"
         description="Chaque suppression « définitive » est réversible ici (ligne principale + pièces + commentaires), jusqu'à destruction réelle. Les éléments liés supprimés en cascade ne sont pas restaurés."

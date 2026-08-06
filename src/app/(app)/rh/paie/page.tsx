@@ -8,6 +8,7 @@ import { getBudgetCategoryOptions } from "@/lib/queries/budget";
 import { PageHeader } from "@/components/shared/page-header";
 import { toNumber } from "@/lib/utils";
 import { PayrollMatrix, type PayrollRow } from "./payroll-matrix";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -52,9 +53,9 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
 
   return (
     <div className="space-y-5">
-      <Link href="/rh" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/rh">
         <ArrowLeft className="h-4 w-4" /> Ressources humaines
-      </Link>
+      </BackLink>
       <PageHeader
         title={`Paie ${year}`}
         description="Un clic sur un mois pour marquer « Payé » (montant total + fiche de paie). L'employé est notifié 24 h plus tard (marge d'erreur). Puis « Transférer dans le budget » impute le mois à la catégorie choisie, avec résumé avant confirmation."

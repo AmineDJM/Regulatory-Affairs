@@ -6,6 +6,7 @@ import { CUSTOM_ENTITY_TYPES } from "@/lib/custom-fields";
 import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { PageHeader } from "@/components/shared/page-header";
 import { FieldsManager, type FieldDefDTO } from "./fields-manager";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function CustomFieldsPage() {
   await requireModule("ADMIN", "UPDATE");
@@ -19,9 +20,9 @@ export default async function CustomFieldsPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Retour à l’administration
-      </Link>
+      </BackLink>
       <PageHeader
         title="Champs personnalisés"
         description="Ajoutez des colonnes/champs à n’importe quel module. Ils deviennent éditables sur chaque fiche."

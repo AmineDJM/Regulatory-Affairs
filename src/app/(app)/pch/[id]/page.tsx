@@ -17,6 +17,7 @@ import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { EditTenderButton, OrdersManager } from "./pch-detail-client";
 import { TenderLines } from "./tender-lines";
 import { TenderLogistics } from "./tender-logistics";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function PchTenderPage({ params }: { params: { id: string } }) {
   const user = await requireModule("PCH");
@@ -41,9 +42,9 @@ export default async function PchTenderPage({ params }: { params: { id: string }
 
   return (
     <div className="space-y-5">
-      <Link href="/pch" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/pch">
         <ArrowLeft className="h-4 w-4" /> Marchés PCH
-      </Link>
+      </BackLink>
       <PageHeader title={`${t.reference}${t.title ? ` — ${t.title}` : ""}`} description="Appel d'offres gagné — bons de commande et caution.">
         <StatusBadge map={PCH_TENDER_STATUS} value={t.status} />
         {canEdit && <EditTenderButton tender={t} canDelete={canDelete} />}

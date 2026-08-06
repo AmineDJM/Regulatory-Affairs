@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCompact } from "@/lib/utils";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -42,9 +43,9 @@ export default async function MarketOpportunitiesPage({ searchParams }: { search
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3 text-sm">
-        <Link href="/business-development/marche" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
+        <BackLink href="/business-development/marche">
           <ArrowLeft className="h-4 w-4" /> Intelligence marché
-        </Link>
+        </BackLink>
       </div>
       <PageHeader
         title="Opportunités stratégiques"

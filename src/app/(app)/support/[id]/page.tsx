@@ -14,6 +14,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SUPPORT_CATEGORY, SUPPORT_STATUS, PRIORITY, ROLE_LABELS } from "@/lib/labels";
 import { SupportActions, SupportMessageForm } from "./panel";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -44,9 +45,9 @@ export default async function SupportDetailPage({ params }: { params: { id: stri
 
   return (
     <div className="space-y-5">
-      <Link href="/support" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/support">
         <ArrowLeft className="h-4 w-4" /> Retour aux demandes de support
-      </Link>
+      </BackLink>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">

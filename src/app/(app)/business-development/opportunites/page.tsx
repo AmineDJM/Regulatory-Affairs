@@ -13,6 +13,7 @@ import { createBD } from "@/lib/actions/bd-actions";
 import { BD_TYPE, BD_STATUS, PRIORITY } from "@/lib/labels";
 import { BDTable, type BDRow } from "../bd-table";
 import { BDPipeline } from "../bd-pipeline";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function BusinessDevelopmentOpportunitiesPage() {
   const user = await requireModule("BUSINESS_DEVELOPMENT");
@@ -38,9 +39,9 @@ export default async function BusinessDevelopmentOpportunitiesPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/business-development" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/business-development">
         <ArrowLeft className="h-4 w-4" /> Projets stratégiques
-      </Link>
+      </BackLink>
       <PageHeader title="Opportunités (pipeline)" description="Pipeline historique des opportunités produits, scoring et suivi fournisseurs.">
         {canCreate && (
           <CreateRecordButton

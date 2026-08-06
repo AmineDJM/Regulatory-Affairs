@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { ReportEditor } from "./report-editor";
 import { SimpleReportEditor } from "./simple-report-editor";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -33,9 +34,9 @@ export default async function FieldReportPage({ params }: { params: { id: string
 
   return (
     <div className="space-y-5">
-      <Link href="/field-reports" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/field-reports">
         <ArrowLeft className="h-4 w-4" /> Rapports terrain
-      </Link>
+      </BackLink>
       <PageHeader
         title={isManager ? "Rapport de visite" : "Mon compte rendu de visite"}
         description={

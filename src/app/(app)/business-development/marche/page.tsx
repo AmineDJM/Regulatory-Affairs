@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCompact, formatNumber } from "@/lib/utils";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -23,9 +24,9 @@ export default async function MarketOverviewPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/business-development" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/business-development">
         <ArrowLeft className="h-4 w-4" /> Business Development
-      </Link>
+      </BackLink>
       <PageHeader
         title="Intelligence marché — Vue d'ensemble"
         description={`Marché pharmaceutique algérien (IQVIA ville). Source : ${o.meta.iqviaFile} · période ${o.meta.period} · ${formatNumber(o.meta.nProducts)} produits. Données officielles réconciliées.`}

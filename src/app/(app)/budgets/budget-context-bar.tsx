@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Select } from "@/components/ui/input";
 import type { BudgetEnvelopeOption } from "@/lib/queries/budget";
 import { formatDate } from "@/lib/utils";
+import { rememberBudgetEnvelope } from "@/lib/actions/budget-scope-actions";
 
 /**
  * Barre de contexte des Budgets : **quelle enveloppe** et **quelle période**. Rien d'autre.
@@ -38,7 +39,13 @@ export function BudgetContextBar({
       {envelopes.length > 1 ? (
         <Select
           value={currentId}
-          onChange={(e) => router.push(`${pathname}?env=${e.target.value}`)}
+          onChange={(e) => {
+            const id = e.target.value;
+            // Mémorisé AVANT de naviguer : ainsi le choix survit au changement d'onglet, au
+            // clic sur « Budgets » dans le menu et à la réouverture de l'application.
+            void rememberBudgetEnvelope(id);
+            router.push(`${pathname}?env=${id}`);
+          }}
           className="h-9 w-auto min-w-[14rem] font-medium"
           aria-label="Enveloppe budgétaire"
         >

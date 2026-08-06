@@ -14,6 +14,7 @@ import { optionsFromMap } from "@/components/shared/form-fields";
 import { createEmployee, createPayroll } from "@/lib/actions/finance-actions";
 import { PAYROLL_STATUS } from "@/lib/labels";
 import { PayrollTable, type PayrollRow } from "./payroll-table";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function PaiePage() {
   const user = await requireModule("FINANCES");
@@ -52,9 +53,9 @@ export default async function PaiePage() {
 
   return (
     <div className="space-y-6">
-      <Link href="/finances" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/finances">
         <ArrowLeft className="h-4 w-4" /> Retour aux finances
-      </Link>
+      </BackLink>
       <PageHeader title="Paie" description="Employés, salaires et bulletins de paie. Le règlement impacte la trésorerie." />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

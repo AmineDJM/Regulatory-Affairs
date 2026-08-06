@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { formatBytes as fmtBytes } from "@/lib/utils";
 import { PurgeOrphansButton, PermanentDeleteButton } from "./database-admin";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -68,9 +69,9 @@ export default async function DatabasesPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Administration
-      </Link>
+      </BackLink>
       <PageHeader
         title="Bases de données"
         description="Toutes les bases porteuses de stockage. Le Super Admin peut supprimer DÉFINITIVEMENT fichiers, documents et dossiers, et purger le stockage orphelin pour libérer réellement l'espace disque."

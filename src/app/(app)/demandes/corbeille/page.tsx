@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ADMIN_REQUEST_TYPE, PRIORITY } from "@/lib/labels";
 import { formatDateTime } from "@/lib/utils";
 import { RestoreButton } from "./restore-button";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function CorbeillePage() {
   const user = await requireModule("ADMIN_REQUESTS");
@@ -21,9 +22,9 @@ export default async function CorbeillePage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/demandes" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/demandes">
         <ArrowLeft className="h-4 w-4" /> Retour aux demandes
-      </Link>
+      </BackLink>
       <PageHeader title="Corbeille des demandes" description="Demandes supprimées — suppression tracée (qui, quand, pourquoi). Vous pouvez restaurer une demande." />
 
       {deleted.length === 0 ? (

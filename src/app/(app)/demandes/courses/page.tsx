@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getDriverMissions, getMissionAttachments } from "@/lib/queries/admin-requests";
 import { PageHeader } from "@/components/shared/page-header";
 import { CoursesBoard, type CourseDTO } from "./courses-board";
+import { BackLink } from "@/components/shared/back-link";
 
 /**
  * Espace « Courses » du bureau du secrétariat (+ super admin, Direction, et tout
@@ -51,9 +52,9 @@ export default async function CoursesPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/demandes" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/demandes">
         <ArrowLeft className="h-4 w-4" /> Bureau du secrétariat
-      </Link>
+      </BackLink>
       <PageHeader
         title="Courses"
         description="Demandez une course au chauffeur ou au coordinateur : points de passage (A, B, C…), quoi faire à chaque point, date et heure max, pièces jointes."

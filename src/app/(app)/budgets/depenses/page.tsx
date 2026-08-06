@@ -8,6 +8,7 @@ import { visibleTabs } from "@/lib/nav-tabs";
 import { BUDGET_TABS } from "@/lib/labels";
 import { BudgetContextBar } from "../budget-context-bar";
 import { BudgetExpenses } from "../budget-expenses";
+import { resolveBudgetEnvelope } from "@/lib/budget-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export default async function BudgetExpensesPage({ searchParams }: { searchParam
   const [envelopes, tabs] = await Promise.all([getEnvelopes(user), visibleTabs(user, BUDGET_TABS)]);
   const from = searchParams.from ? new Date(searchParams.from) : null;
   const to = searchParams.to ? new Date(searchParams.to) : null;
-  const overview = await getBudgetOverview(user, searchParams.env ?? null, from, to);
+  const overview = await getBudgetOverview(user, resolveBudgetEnvelope(searchParams.env), from, to);
 
   const canManageContent = overview ? canManageEnvelope(user, overview.envelope) : canManageEnvelopes(user);
   const canAttribute = hasGlobalView(user.role) || canManageContent;

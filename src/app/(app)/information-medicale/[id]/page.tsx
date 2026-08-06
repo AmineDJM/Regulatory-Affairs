@@ -17,6 +17,7 @@ import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { MEDICAL_INFO_STATUS, DOC_REQUEST_STATUS, ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { RequestDocForm, CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton, DirectionValidateButton } from "./panels";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -91,9 +92,9 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
 
   return (
     <div className="space-y-5">
-      <Link href="/information-medicale" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/information-medicale">
         <ArrowLeft className="h-4 w-4" /> Retour à l'information médicale
-      </Link>
+      </BackLink>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">

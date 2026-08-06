@@ -4,6 +4,7 @@ import { requireModule } from "@/lib/session";
 import { searchProducts, productFilterOptions } from "@/lib/market/products";
 import { PageHeader } from "@/components/shared/page-header";
 import { ProductExplorer } from "./product-explorer";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +17,9 @@ export default async function MarketProductsPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/business-development/marche" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/business-development/marche">
         <ArrowLeft className="h-4 w-4" /> Intelligence marché
-      </Link>
+      </BackLink>
       <PageHeader
         title="Explorateur produits"
         description="Cherchez par MOLÉCULE, par nom de produit ou par laboratoire — selon la case que vous remplissez. Une recherche par molécule ouvre en plus l'analyse concurrentielle : poids du marché, partage ville / hôpital, part de marché de chaque acteur et production locale ou importée."

@@ -7,6 +7,7 @@ import { MODULE_LABELS, ROLE_LABELS } from "@/lib/labels";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ModuleAccessGrid, type AccessUser, type UserModuleState } from "./module-access-grid";
+import { BackLink } from "@/components/shared/back-link";
 
 const ROW_SCOPED: Module[] = ["REGULATORY", "SALES", "MEDICAL", "BUSINESS_DEVELOPMENT"];
 const ACTION_FR: Record<string, string> = {
@@ -54,9 +55,9 @@ export default async function AccessByModulePage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Administration
-      </Link>
+      </BackLink>
       <PageHeader
         title="Accès par module"
         description="Vue façon Google Drive : choisissez un module, voyez qui peut voir / modifier / supprimer, et ajustez. Complète la fiche d'accès par employé."

@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { DepartmentsManager } from "./departments-manager";
+import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Départements — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -42,9 +43,9 @@ export default async function DepartmentsPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/rh" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/rh">
         <ArrowLeft className="h-4 w-4" /> Ressources humaines
-      </Link>
+      </BackLink>
       <PageHeader
         title="Départements"
         description={

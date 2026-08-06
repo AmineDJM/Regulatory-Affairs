@@ -19,6 +19,7 @@ import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PROMO_MATERIAL_STATUS, PROMO_MATERIAL_FLOW } from "@/lib/labels";
 import { PromoActionPanel } from "./promo-panels";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +73,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
 
   return (
     <div className="space-y-5">
-      <Link href="/promo-material" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Matériel promotionnel</Link>
+      <BackLink href="/promo-material"><ArrowLeft className="h-4 w-4" /> Matériel promotionnel</BackLink>
       <PageHeader title={pm.title} description={`Réf. ${pm.reference}`}>
         <StatusBadge map={PROMO_MATERIAL_STATUS} value={pm.status} />
         <SuperAdminDeleteButton kind="PROMO_MATERIAL" id={pm.id} name={pm.title} enabled={user.role === "SUPER_ADMIN"} />

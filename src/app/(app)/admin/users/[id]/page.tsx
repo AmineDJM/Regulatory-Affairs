@@ -14,6 +14,7 @@ import { AccessMatrix, type ModuleAccessRow } from "./access-matrix";
 import { SessionsList, type SessionItem } from "./sessions-list";
 import { RowGrants } from "./row-grants";
 import { ProfileForm, ResetPasswordForm, ActiveToggle, RevokeAllButton, RequestOnboardingButton } from "./user-admin-forms";
+import { BackLink } from "@/components/shared/back-link";
 
 const MODULE_LABEL: Record<string, string> = MODULE_LABELS;
 const ROW_SCOPED: Module[] = ["REGULATORY", "SALES", "MEDICAL", "BUSINESS_DEVELOPMENT"];
@@ -78,9 +79,9 @@ export default async function AdminUserPage({ params }: { params: { id: string }
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Retour à l’administration
-      </Link>
+      </BackLink>
 
       <div className="flex flex-wrap items-center gap-3">
         <Avatar name={target.name} color={target.avatarColor} size="lg" />

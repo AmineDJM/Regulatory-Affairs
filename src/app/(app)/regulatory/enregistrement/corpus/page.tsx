@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { CorpusPanel } from "./corpus-panel";
+import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Corpus réglementaire" };
 export const dynamic = "force-dynamic";
@@ -59,9 +60,9 @@ export default async function CorpusPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/regulatory/enregistrement/analyse" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/regulatory/enregistrement/analyse">
         <ArrowLeft className="h-4 w-4" /> Analyse CTD
-      </Link>
+      </BackLink>
       <PageHeader
         title="Corpus réglementaire"
         description="Les textes sur lesquels l'analyse s'appuie. Un constat ne vaut que par la règle qu'il cite : ici on voit laquelle fait foi, laquelle attend d'être activée, et laquelle manque encore."

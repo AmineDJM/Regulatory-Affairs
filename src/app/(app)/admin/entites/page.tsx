@@ -6,6 +6,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { EntitiesManager, type EntityRow } from "./entities-manager";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -38,9 +39,9 @@ export default async function EntitesPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Administration
-      </Link>
+      </BackLink>
       <PageHeader
         title="Entités (sociétés)"
         description="Les sociétés du groupe (Adventum Pharma, Pharmagène, …). Chaque produit, appel d'offres, employé, dépense, vente… peut être rattaché à une entité, et le sélecteur de la barre supérieure filtre toutes les vues. Tout est dynamique : créez une 3ᵉ entité, renommez, changez la couleur ou désactivez sans toucher au code."

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/utils";
 import { MailTester } from "./mail-tester";
+import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Courrier — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -26,9 +27,9 @@ export default async function CourrierAdminPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Administration
-      </Link>
+      </BackLink>
       <PageHeader
         title="Courrier — envoi sans SMTP"
         description="Les ports SMTP sont filtrés par la plupart des hébergeurs et des réseaux d'entreprise : c'est la cause des blocages. La plateforme envoie désormais par API HTTPS (port 443, celui du web) — s'il passe, le courrier passe."

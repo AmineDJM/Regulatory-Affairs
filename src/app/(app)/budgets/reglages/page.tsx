@@ -11,6 +11,7 @@ import { BUDGET_TABS } from "@/lib/labels";
 import { BudgetContextBar } from "../budget-context-bar";
 import { BudgetSettings } from "../budget-settings";
 import { CreateEnvelopeButton } from "../budget-forms";
+import { resolveBudgetEnvelope } from "@/lib/budget-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ export default async function BudgetSettingsPage({ searchParams }: { searchParam
   ]);
   const from = searchParams.from ? new Date(searchParams.from) : null;
   const to = searchParams.to ? new Date(searchParams.to) : null;
-  const overview = await getBudgetOverview(user, searchParams.env ?? null, from, to);
+  const overview = await getBudgetOverview(user, resolveBudgetEnvelope(searchParams.env), from, to);
 
   // GESTION du CONTENU de l'enveloppe affichée : gouverneur global OU délégué sur CETTE enveloppe.
   const canManageContent = overview ? canManageEnvelope(user, overview.envelope) : canManageAccess;

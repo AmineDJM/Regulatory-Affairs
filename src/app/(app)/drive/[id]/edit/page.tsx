@@ -8,15 +8,16 @@ import {
   onlyofficeConfigured, onlyofficeServerUrl, appBaseUrl, onlyofficeDocType, fileExt, makeEditToken, signJwt,
 } from "@/lib/onlyoffice";
 import { OfficeEditor } from "./office-editor";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
 function Notice({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto max-w-lg space-y-3 py-10">
-      <Link href="/drive" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/drive">
         <ArrowLeft className="h-4 w-4" /> Retour au Drive
-      </Link>
+      </BackLink>
       <div className="flex items-start gap-2 rounded-lg border border-border bg-secondary/40 px-4 py-3 text-sm">
         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /> <div>{children}</div>
       </div>

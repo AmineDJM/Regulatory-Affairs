@@ -15,6 +15,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { DOSSIER_STATUS, PRIORITY } from "@/lib/labels";
 import { DossierStatusControls, DossierAssign, DossierMessageForm, DossierMessageItem } from "./panel";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -60,9 +61,9 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
 
   return (
     <div className="space-y-5">
-      <Link href="/dossiers" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/dossiers">
         <ArrowLeft className="h-4 w-4" /> Retour aux projets
-      </Link>
+      </BackLink>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">

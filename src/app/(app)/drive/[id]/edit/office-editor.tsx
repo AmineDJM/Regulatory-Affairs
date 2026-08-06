@@ -5,6 +5,7 @@ import Script from "next/script";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Maximize2, Minimize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BackLink } from "@/components/shared/back-link";
 
 // L'API du Document Server est injectée globalement par api.js.
 declare global {
@@ -69,9 +70,9 @@ export function OfficeEditor({ apiJs, config, name, backHref = "/drive", backLab
         </>
       )}
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
-        <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <BackLink href={backHref}>
           <ArrowLeft className="h-4 w-4" /> {backLabel}
-        </Link>
+        </BackLink>
         <span className="truncate text-sm font-medium">{name}</span>
         <button
           onClick={toggleFullscreen}

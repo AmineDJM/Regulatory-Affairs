@@ -10,6 +10,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/utils";
 import { FeedbackStatusSelect } from "./feedback-status";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function AdminFeedbackPage() {
   const user = await requireModule("ADMIN");
@@ -29,9 +30,9 @@ export default async function AdminFeedbackPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Administration
-      </Link>
+      </BackLink>
       <PageHeader title="Feedbacks" description="Les retours envoyés par les utilisateurs depuis leur compte." />
 
       <div className="grid grid-cols-3 gap-3">

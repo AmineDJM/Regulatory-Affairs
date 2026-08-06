@@ -9,6 +9,7 @@ import { listRulePacks } from "@/lib/regulatory/intelligence/rules/admin-queries
 import { activeRuleCount } from "@/lib/regulatory/intelligence/rules/rule-engine";
 import { CorpusAdmin } from "./corpus-admin";
 import { RulePacksAdmin } from "./rule-packs-admin";
+import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Corpus réglementaire — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -45,9 +46,9 @@ export default async function RegulatoryCorpusPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Retour à l'administration
-      </Link>
+      </BackLink>
 
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Corpus réglementaire versionné</h1>

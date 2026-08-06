@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber, formatDate } from "@/lib/utils";
 import { SelectNav } from "../select-nav";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -33,9 +34,9 @@ export default async function MarketPricingPage({ searchParams }: { searchParams
 
   return (
     <div className="space-y-5">
-      <Link href="/business-development/marche" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/business-development/marche">
         <ArrowLeft className="h-4 w-4" /> Intelligence marché
-      </Link>
+      </BackLink>
       <PageHeader title="Intelligence prix" description="Prix par DCI : prix moyen et fourchette par boîte (IQVIA ville) et par unité (réceptions PCH hospitalières). Données réelles réconciliées." />
 
       <SelectNav param="dci" value={picked} options={list.map((d) => ({ value: d.key, label: d.dci }))} placeholder="Choisir une DCI…" />

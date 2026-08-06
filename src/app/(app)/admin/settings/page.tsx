@@ -7,6 +7,7 @@ import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegRequestCreatorForm, DriveSpaceCreatorForm, FieldReportsOverviewForm } from "./admin-settings-forms";
+import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Réglages & diffusion — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -29,9 +30,9 @@ export default async function AdminSettingsPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Retour à l'administration
-      </Link>
+      </BackLink>
 
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Réglages & diffusion</h1>

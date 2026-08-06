@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, PRIORITY } from "@/lib/labels";
 import { formatDate, daysUntil } from "@/lib/utils";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function AssistantPage() {
   const user = await requireModule("ADMIN_REQUESTS");
@@ -17,9 +18,9 @@ export default async function AssistantPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/demandes" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/demandes">
         <ArrowLeft className="h-4 w-4" /> Toutes les demandes
-      </Link>
+      </BackLink>
       <PageHeader title="Bureau de Donna" description="Toutes les demandes à traiter, priorisées, sur un seul écran." />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">

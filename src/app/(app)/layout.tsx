@@ -23,6 +23,7 @@ import { getMyCompanies, myCompanyScope } from "@/lib/company";
 import { isTestUser, featureEnabled } from "@/lib/features";
 import { prisma } from "@/lib/prisma";
 import { APP_SCROLL_ID } from "@/lib/use-scroll-lock";
+import { NavDepthTracker } from "@/components/shared/back-link";
 
 export default async function AppLayout({
   children,
@@ -95,6 +96,9 @@ export default async function AppLayout({
     <BackgroundUploadProvider>
     <div className="flex h-screen overflow-hidden bg-background">
       <ActivityTracker />
+      {/* Compte les navigations internes : c'est ce qui permet aux liens « Retour » de remonter
+          la page précédente au lieu de renvoyer à la racine du module. */}
+      <NavDepthTracker />
       <ScreenGuard />
       <CommandPalette navItems={navItems} />
       <Sidebar items={navItems} messagingUnread={messagingUnread} moduleBadges={moduleBadges} />

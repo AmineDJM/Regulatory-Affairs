@@ -22,6 +22,7 @@ import { getWorkflowForEntity } from "@/lib/queries/workflow";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
+import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
 
   return (
     <div className="space-y-5">
-      <Link href="/events" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Events</Link>
+      <BackLink href="/events"><ArrowLeft className="h-4 w-4" /> Events</BackLink>
       <PageHeader title={e.name} description={`${EVENT_TYPE[e.type]} · ${EVENT_SCOPE[e.scope]} · ${EVENT_FORMAT[e.format]}`}>
         <StatusBadge map={EVENT_STATUS} value={e.status} />
         {canManage && <EditEventButton event={e} responsibles={responsibles} canDelete={canDelete} />}

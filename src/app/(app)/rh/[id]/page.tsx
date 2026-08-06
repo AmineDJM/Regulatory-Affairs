@@ -21,6 +21,7 @@ import { HrDossier } from "./hr-dossier";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { seesWholeGroup } from "@/lib/company-access";
 import { CompanyAccessCard, type CompanyAccessRow } from "./company-access-card";
+import { BackLink } from "@/components/shared/back-link";
 
 const d10 = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : "");
 
@@ -116,9 +117,9 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
 
   return (
     <div className="space-y-5">
-      <Link href="/rh" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/rh">
         <ArrowLeft className="h-4 w-4" /> Retour aux RH
-      </Link>
+      </BackLink>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">

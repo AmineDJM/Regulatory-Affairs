@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { formatDateTime } from "@/lib/utils";
 import { ActiveToggle } from "./active-toggle";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function AdminSuppliersPage() {
   const user = await requireModule("ADMIN");
@@ -29,9 +30,9 @@ export default async function AdminSuppliersPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Administration
-      </Link>
+      </BackLink>
       <PageHeader title="Fournisseurs & portail externe" description="Comptes externes isolés. Un fournisseur ne voit que ses propres produits, et uniquement la vue externe partagée par l'équipe Regulatory.">
         <a href="/portail/login" target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-secondary">
           <ExternalLink className="h-4 w-4" /> Ouvrir le portail

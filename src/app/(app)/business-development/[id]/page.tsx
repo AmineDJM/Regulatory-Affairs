@@ -20,6 +20,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { formatCompact } from "@/lib/utils";
 import { BdStrategicTable } from "../bd-strategic-table";
 import { ProjectEditor, ProjectStatusBadge } from "../project-editor";
+import { BackLink } from "@/components/shared/back-link";
 
 const BD_DOC_CATEGORIES = [
   "SUPPLIER_OFFER", "QUOTE", "PROFORMA", "ANALYSIS_CERTIFICATE", "PRESENTATION", "SUPPORTING_DOC", "OTHER",
@@ -63,9 +64,9 @@ export default async function BdProjectDetailPage({ params }: { params: { id: st
 
   return (
     <div className="space-y-5">
-      <Link href="/business-development" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/business-development">
         <ArrowLeft className="h-4 w-4" /> Projets stratégiques
-      </Link>
+      </BackLink>
 
       <PageHeader title={project.name} description={project.description || "Projet stratégique — gammes et produits."}>
         <ProjectStatusBadge status={project.status} />

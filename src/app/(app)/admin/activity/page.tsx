@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ActivityTable, type ActivityRow } from "./activity-table";
+import { BackLink } from "@/components/shared/back-link";
 
 function fmtDuration(ms: number | null): { label: string; value: number } {
   if (!ms) return { label: "—", value: 0 };
@@ -47,9 +48,9 @@ export default async function ActivityPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/admin" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/admin">
         <ArrowLeft className="h-4 w-4" /> Retour à l’administration
-      </Link>
+      </BackLink>
       <PageHeader title="Activité & traçabilité" description="Connexions, pages visitées, temps passé, appareils et localisation." />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

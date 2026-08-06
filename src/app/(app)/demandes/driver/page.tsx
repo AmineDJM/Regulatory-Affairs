@@ -10,6 +10,7 @@ import { formatAlgiers } from "@/lib/calendar-tz";
 import { formatBytes } from "../../messages/format";
 import { MissionActions } from "./mission-actions";
 import { MissionStops } from "./mission-stops";
+import { BackLink } from "@/components/shared/back-link";
 
 export default async function DriverPage() {
   const user = await requireModule("ADMIN_REQUESTS");
@@ -21,9 +22,9 @@ export default async function DriverPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/demandes" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <BackLink href="/demandes">
         <ArrowLeft className="h-4 w-4" /> Demandes
-      </Link>
+      </BackLink>
       <PageHeader title="Mes courses" description="Vos courses du jour, point par point : cochez chaque point une fois fait." />
 
       {active.length === 0 ? (
