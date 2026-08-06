@@ -5,6 +5,7 @@ import type { EntityType } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { attachFiles, validateAttachments } from "@/lib/attach-files";
 import { ROLE_LABELS } from "@/lib/labels";
 import { advanceWorkflowInstance } from "@/lib/workflow/engine";
 import {
@@ -26,6 +27,26 @@ export async function advanceWorkflow(formData: FormData): Promise<ActionResult>
   if (!entityType || !WORKFLOW_ENTITIES.includes(entityType) || !entityId) return { ok: false, error: "Paramètres manquants." };
   if (action !== "APPROVE" && action !== "REJECT" && action !== "COMMENT" && action !== "SKIP") return { ok: false, error: "Action invalide." };
 
+  // PIÈCES JOINTES À L'AVIS : le chef de produit, le National Sales ou la Direction peuvent
+  // appuyer leur décision sur un document (devis comparatif, note, courrier).
+  //
+  // Deux précautions dans l'ordre des opérations :
+  //   • on CONTRÔLE les fichiers AVANT de faire avancer le circuit — enregistrer l'avis puis
+  //     refuser la pièce laisserait la décision prise et sa justification perdue ;
+  //   • on lit l'étape COURANTE avant l'avancement, sinon la pièce serait rattachée à l'étape
+  //     suivante, c'est-à-dire à quelqu'un d'autre.
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length > 0) {
+    const invalid = await validateAttachments(files);
+    if (invalid) return { ok: false, error: invalid };
+  }
+  const stepKey = files.length > 0
+    ? (await prisma.workflowInstance.findUnique({
+        where: { entityType_entityId: { entityType, entityId } },
+        select: { currentSlug: true },
+      }))?.currentSlug ?? null
+    : null;
+
   const res = await advanceWorkflowInstance({
     viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
     entityType,
@@ -37,6 +58,21 @@ export async function advanceWorkflow(formData: FormData): Promise<ActionResult>
     assigneeId: fdStr(formData, "assigneeId"),
   });
   if (!res.ok) return { ok: false, error: res.error };
+
+  // L'action a été autorisée par le moteur : on peut joindre les pièces. Elles rejoignent les
+  // documents de la demande (mêmes droits de consultation), marquées de l'étape d'origine.
+  if (files.length > 0) {
+    const attached = await attachFiles({
+      files, entityType, entityId, uploadedById: user.id,
+      category: "SUPPORTING_DOC", stepKey,
+    });
+    if (attached.saved > 0) {
+      await recordAudit({
+        actorId: user.id, action: "UPLOAD", module: "Ad & Pro", entityType, entityId,
+        summary: `${attached.saved} pièce(s) jointe(s) à l'avis${stepKey ? ` (étape ${stepKey})` : ""}`,
+      });
+    }
+  }
 
   const base =
     entityType === "SPONSORING" ? "/sponsoring"

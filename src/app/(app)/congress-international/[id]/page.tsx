@@ -19,6 +19,9 @@ import { getCareDossier } from "@/lib/queries/care";
 import { careDirectoryOptions, carePromoOptions } from "@/lib/actions/care-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
+import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
+import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
+import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
 
 export default async function CongressIntlDetailPage({ params }: { params: { id: string } }) {
@@ -59,6 +62,14 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
     prisma.congressInternational.findUnique({ where: { id: detail.id }, select: { requestStatus: true } }),
   ]);
 
+  // Corriger la demande : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
+  const requestDecided = isAdProDecided("CONGRESS_INTERNATIONAL", detail.requestStatus);
+  const canEditRequest = canEditAdProRequest(
+    { id: user.id, hasGlobalView: hasGlobalView(user), canUpdate: userCan(user, "CONGRESS_INTERNATIONAL", "UPDATE") },
+    { requesterId: detail.requesterId, decided: requestDecided },
+  );
+  const editValues = canEditRequest ? await adProEditValues("CONGRESS_INTERNATIONAL", detail.id) : null;
+
   return (
     <div className="space-y-5">
       <BackLink href="/congress-international">
@@ -66,6 +77,9 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
       </BackLink>
       <PageHeader title={detail.name} description="Demande de prise en charge — congrès international.">
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />
+        {canEditRequest && editValues && (
+          <AdProEditButton kind="CONGRESS_INTERNATIONAL" id={detail.id} decided={requestDecided} values={editValues} />
+        )}
         {hasGlobalView(user) && <AdProTransferButton from="CONGRESS_INTERNATIONAL" sourceId={detail.id} title={detail.name} />}
         <SuperAdminDeleteButton kind="CONGRESS_INTERNATIONAL" id={detail.id} name={detail.name} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>

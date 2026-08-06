@@ -23,6 +23,9 @@ import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel, type ItemRow } from "@/components/ad-pro/items-panel";
 import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
+import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
+import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
+import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
 
 const SPONSORING_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
@@ -105,6 +108,14 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   const canAppeal = isRequester && ["APPROVED", "REFUSED"].includes(req.status);
   const fmt = (v: unknown) => (v ? formatCurrency(toNumber(v as never)) : null);
 
+  // Corriger la demande : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
+  const sponsoringDecided = isAdProDecided("SPONSORING", req.status);
+  const canEditRequest = canEditAdProRequest(
+    { id: user.id, hasGlobalView: hasGlobalView(user), canUpdate: userCan(user, "SPONSORING", "UPDATE") },
+    { requesterId: req.requesterId, decided: sponsoringDecided },
+  );
+  const editValues = canEditRequest ? await adProEditValues("SPONSORING", req.id) : null;
+
   return (
     <div className="space-y-5">
       <BackLink href="/sponsoring">
@@ -123,6 +134,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
         </div>
         <div className="flex flex-col items-end gap-2">
           <StatusBadge map={SPONSORING_STATUS} value={req.status} />
+          {canEditRequest && editValues && (
+            <AdProEditButton kind="SPONSORING" id={req.id} decided={sponsoringDecided} values={editValues} />
+          )}
           {(canPreliminary || canDirection || isProductManager || isRequester) && <ThirdPartyButton id={req.id} people={missionUsers} />}
           {hasGlobalView(user) && <AdProTransferButton from="SPONSORING" sourceId={req.id} title={req.institution} />}
           <SuperAdminDeleteButton kind="SPONSORING" id={req.id} name={`${req.reference} — ${req.institution}`} enabled={user.role === "SUPER_ADMIN"} />

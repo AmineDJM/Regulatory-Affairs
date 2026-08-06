@@ -43,6 +43,15 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
   const [amount, setAmount] = React.useState(a?.suggestedAmount != null ? String(a.suggestedAmount) : "");
   const [category, setCategory] = React.useState("");
   const [note, setNote] = React.useState("");
+  /** Pièces jointes à l'avis (devis comparatif, note, courrier) — toutes les issues, y compris
+   *  un simple commentaire : c'est souvent là qu'on veut déposer un document. */
+  const [files, setFiles] = React.useState<File[]>([]);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+
+  const resetForm = () => {
+    setMode(null); setNote(""); setAssignee(""); setCategory(""); setFiles([]);
+    if (fileRef.current) fileRef.current.value = "";
+  };
 
   const submit = (action: "APPROVE" | "REJECT" | "COMMENT" | "SKIP") => {
     const fd = new FormData();
@@ -50,6 +59,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
     fd.set("entityId", entityId);
     fd.set("action", action);
     if (note) fd.set("note", note);
+    for (const f of files) fd.append("files", f);
     if (action === "APPROVE") {
       if (assignee) fd.set("assigneeId", assignee);
       if (amount) fd.set("amount", amount);
@@ -66,7 +76,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
       setErr(null);
       const r = await advanceWorkflow(fd);
       if (!r.ok) { setErr(r.error ?? "Action impossible."); return; }
-      setMode(null); setNote(""); setAssignee(""); setCategory("");
+      resetForm();
       router.refresh();
     });
   };
@@ -193,6 +203,25 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                           placeholder={mode === "reject" ? (actionIsLast ? "Motif du refus (obligatoire)…" : "Motif de l'avis défavorable (obligatoire)…") : mode === "skip" ? "Raison du saut d'étape (obligatoire)…" : mode === "comment" ? "Votre commentaire…" : a.requireNote ? "Commentaire (obligatoire)…" : "Note (optionnel)…"}
                           className="min-h-[56px]"
                         />
+                        {/* Pièce(s) jointe(s) à l'avis — disponibles à toutes les issues :
+                            l'analyse s'appuie souvent sur un devis ou un courrier, et le faire
+                            déposer « plus tard, dans les documents » revient à ne pas le lier
+                            à la décision qu'il justifie. */}
+                        <div className="space-y-1">
+                          <Label className="font-normal text-muted-foreground">Pièce(s) jointe(s) à votre avis — optionnel</Label>
+                          <input
+                            ref={fileRef}
+                            type="file"
+                            multiple
+                            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+                            className="block w-full cursor-pointer rounded-lg border border-border bg-background text-xs file:mr-3 file:cursor-pointer file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-xs file:font-medium"
+                          />
+                          {files.length > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              {files.length} fichier(s) : {files.map((f) => f.name).join(", ")}
+                            </p>
+                          )}
+                        </div>
                         {err && <p className="text-xs text-destructive">{err}</p>}
                         <div className="flex gap-2">
                           {mode === "approve" && (
@@ -215,7 +244,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                               {pending && <Loader2 className="h-4 w-4 animate-spin" />} Publier
                             </Button>
                           )}
-                          <Button size="sm" variant="ghost" onClick={() => { setMode(null); setNote(""); setErr(null); }}>Annuler</Button>
+                          <Button size="sm" variant="ghost" onClick={() => { resetForm(); setErr(null); }}>Annuler</Button>
                         </div>
                       </div>
                     )}

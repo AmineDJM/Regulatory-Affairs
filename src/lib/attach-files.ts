@@ -23,6 +23,24 @@ export interface AttachResult {
   error?: string;
 }
 
+/**
+ * Contrôle les fichiers SANS rien écrire — pour les appelants qui doivent refuser une saisie
+ * AVANT d'agir (une décision de workflow, par exemple : enregistrer l'avis puis refuser la
+ * pièce jointe laisserait la décision prise et sa justification perdue).
+ *
+ * Renvoie le message d'erreur du premier fichier refusé, ou `null` si tout passe.
+ */
+export async function validateAttachments(files: File[]): Promise<string | null> {
+  const list = files.filter((f) => f instanceof File && f.size > 0);
+  if (list.length === 0) return null;
+  const maxMb = (await getAppSettings()).maxUploadMb;
+  for (const file of list) {
+    const invalid = validateUpload(file.name, file.size, maxMb);
+    if (invalid) return invalid;
+  }
+  return null;
+}
+
 export async function attachFiles(input: {
   files: File[];
   entityType: EntityType;

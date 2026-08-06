@@ -22,6 +22,9 @@ import { getCareDossier } from "@/lib/queries/care";
 import { careDirectoryOptions, carePromoOptions } from "@/lib/actions/care-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
+import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
+import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
+import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
 
 export default async function CongressNatDetailPage({ params }: { params: { id: string } }) {
@@ -96,6 +99,14 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
   const [care, directory, carePromos] = await Promise.all([getCareDossier("NATIONAL", detail.id), careDirectoryOptions(), carePromoOptions()]);
   const canEditCare = userCan(user, "CONGRESS_NATIONAL", "CREATE") || userCan(user, "CONGRESS_NATIONAL", "UPDATE") || canAllocate;
 
+  // Corriger la demande : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
+  const requestDecided = isAdProDecided("CONGRESS_NATIONAL", detail.requestStatus);
+  const canEditRequest = canEditAdProRequest(
+    { id: user.id, hasGlobalView: hasGlobalView(user), canUpdate: userCan(user, "CONGRESS_NATIONAL", "UPDATE") },
+    { requesterId: detail.requesterId, decided: requestDecided },
+  );
+  const editValues = canEditRequest ? await adProEditValues("CONGRESS_NATIONAL", detail.id) : null;
+
   return (
     <div className="space-y-5">
       <BackLink href="/congress-national">
@@ -103,6 +114,9 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
       </BackLink>
       <PageHeader title={detail.name} description="Demande de prise en charge — événement national.">
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />
+        {canEditRequest && editValues && (
+          <AdProEditButton kind="CONGRESS_NATIONAL" id={detail.id} decided={requestDecided} values={editValues} />
+        )}
         {hasGlobalView(user) && <AdProTransferButton from="CONGRESS_NATIONAL" sourceId={detail.id} title={detail.name} />}
         <SuperAdminDeleteButton kind="CONGRESS_NATIONAL" id={detail.id} name={detail.name} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
