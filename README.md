@@ -32,6 +32,10 @@ RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Cale
 - [Rôles](#-rôles)
 - [Workflows critiques](#-workflows-critiques)
 - [**Référence détaillée des circuits & mécanismes transverses**](#-référence-détaillée-des-circuits--mécanismes-transverses)
+  - [Dimension multi-entités (cloisonnement)](#dimension-multi-entités-sociétés-du-groupe)
+  - [Budget par département (deux responsables)](#budget-par-département--deux-natures-deux-responsables)
+  - [Ad & Pro — corriger une demande, joindre un fichier](#ad--pro--corriger-une-demande-joindre-un-fichier-à-un-avis)
+  - [Assistant — recherche Regulatory & écriture](#assistant--recherche-regulatory-complète-et-écriture-sur-les-produits)
 - [Carte du code — fichiers clés par domaine](#-carte-du-code--fichiers-clés-par-domaine)
 - [Budgets, enveloppes & sous-catégories](#-budgets-enveloppes--sous-catégories)
 - [Intelligence artificielle](#-intelligence-artificielle-claude--whisper)
@@ -486,15 +490,32 @@ ensuite). C'est une **dimension transverse** appliquée à tout le logiciel :
 - **Modèle** : `Company` (`name` unique, `shortName`, `color`, `isActive`, `sortOrder`) — entièrement **dynamique**
   (création / renommage / couleur / désactivation dans **Administration → Entités**, `src/app/(app)/admin/entites/`).
   Chaque enregistrement clé porte un `companyId?` **nullable** (non rattaché = visible en vue « Toutes »).
-- **Domaines rattachés** (`companyId` + relation `company`) : `RegulatoryProduct`, `PchTender` (appels d'offres),
-  `Employee`, `PromoMaterial` (Ad & Pro), `MedicalDoctor` (promotion médicale), `FinanceTransaction`,
-  `MedicalInfoDeclaration`, `StockSnapshot`, `LogisticsOrder`, `Sale`. Les **stocks héritent** de l'entité de leur
-  produit Regulatory (aucun champ à saisir).
-- **Sélecteur de portée** (barre supérieure, `CompanySwitcher`) : « Toutes les entités » (aucun filtre) ou une entité
-  précise. Mémorisé dans le cookie `amd-company` ; helper serveur `getCompanyScope()` + `currentCompanyWhere()`
-  (`src/lib/company.ts`, défensif hors requête → aucun filtre en test). Chaque **liste** de domaine applique
-  `...currentCompanyWhere()` sur son `where`; chaque **formulaire de création** propose un menu « Entité »
-  (`companyOptions(getCompanies())`). Pastille `CompanyBadge`.
+- **Domaines rattachés** (`companyId` + relation `company`) — **toute la plateforme** : `RegulatoryProduct`,
+  `PchTender`, `Employee`, `PromoMaterial`, `MedicalDoctor`, `FinanceTransaction`, `MedicalInfoDeclaration`,
+  `StockSnapshot`, `LogisticsOrder`, `Sale`, `Department`, **`SponsoringRequest`, `CongressNational`,
+  `CongressInternational`, `Event`, `BudgetEnvelope`, `ExpenseOrder`, `AdministrativeRequest`, `SupportRequest`,
+  `Dossier`, `FieldReport`**. Les **stocks héritent** de l'entité de leur produit Regulatory (aucun champ à saisir).
+  Les **RH n'ont pas de colonne** : congés, paie et avances pendent d'un `Employee` qui porte déjà son entité —
+  dupliquer créerait deux vérités à désynchroniser.
+- **Sélecteur de portée** (barre supérieure, `CompanySwitcher`) : « Toutes les entités » ou une entité précise.
+  Mémorisé dans le cookie `amd-company`. ⚠️ **Le cookie est une demande, jamais une autorisation** : il est validé
+  contre les droits réels (`resolveScope`) avant tout usage.
+- **Deux filtres, deux usages** (`src/lib/company.ts` → `src/lib/company-access.ts`, fonctions **pures testées**) :
+  - `myCompanyWhere(userId)` / `companyAccessWhere` — domaines **historiquement** rattachés (Regulatory, ventes…).
+    « Toutes les entités » signifie « toutes celles auxquelles j'ai droit », **jamais** toutes celles qui existent ;
+    aucun droit ⇒ `{ companyId: { in: [] } }`, jamais `{}`.
+  - `platformScope(userId)` / `platformScopeWhere` — domaines **récemment** rattachés (budget, Ad & Pro, finances,
+    demandes). Identique, à une exception **délibérée** près : un enregistrement **non rattaché reste visible dans
+    toutes les vues**. Ces tables ont vécu sans entité ; les filtrer strictement les rendrait invisibles depuis
+    toutes les vues d'un salarié mono-entité (que `resolveScope` borne d'office à sa société) — ce serait de la
+    perte de travail, pas du cloisonnement. Second garde-fou : **moins de deux entités ⇒ aucun filtre**.
+- **À la création** : `companyIdForNew(userId)` = la portée en cours, à défaut la société d'appartenance du créateur,
+  à défaut `null` (on ne devine pas). Un **ordre de dépense** hérite de l'entité de **sa demande source**, pas de son
+  demandeur, qui peut avoir changé d'entité. Un **transfert entre modules Ad & Pro conserve l'entité**.
+  Chaque formulaire de création propose au besoin un menu « Entité » (`companyOptions(getCompanies())`).
+  Pastille `CompanyBadge`.
+- **Droit d'ÉCRITURE ≠ droit de lecture** : l'appartenance donne la lecture, l'écriture se donne explicitement
+  (`UserCompanyAccess.canEdit`, réglé depuis **RH → fiche employé**). `canEditCompanyId(userId, companyId)`.
 - **Actions** : `setCompanyScope`, `createCompany`, `updateCompany`, `toggleCompany` (`company-actions.ts`, réservées
   à `ADMIN:CREATE`). **Fichiers clés** : `src/lib/company.ts`, `src/lib/actions/company-actions.ts`,
   `src/components/layout/company-switcher.tsx`, `src/components/shared/company-badge.tsx`.
@@ -1262,6 +1283,83 @@ const files = formData.getAll("files").filter((f): f is File => f instanceof Fil
 Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage distinct (`putBlob`/`getBlob`/`releaseBlob`
 — blobs chiffrés dédupliqués + `FileVersion`). La fiche de paie utilise `EmployeeDocument` (blob Drive + `period`).
 
+### Budget par département — deux natures, deux responsables
+
+Écran `/budgets/departements`. Le modèle porte **une ligne par (département, année, NATURE)** :
+
+| Nature | Ce que ça couvre | Qui la règle |
+|---|---|---|
+| `OPERATING` | Fonctionnement **hors employés** — déplacements, matériel, prestations | **L'administrateur** (`BUDGETS:UPDATE` / `VALIDATE`) |
+| `HR` | **Employés et recrutement** — masse salariale, charges | **Les ressources humaines** (`RH:UPDATE`) |
+
+Le Super Admin règle les deux. **La séparation n'est pas cosmétique** : un directeur administratif n'a pas à
+connaître la masse salariale pour accorder un budget de déplacement, et les RH n'ont pas à arbitrer les achats.
+Comme les deux responsables **n'écrivent jamais la même ligne**, l'un ne peut pas écraser l'autre — la contrainte
+`@@unique([departmentId, year, kind])` le rend structurellement impossible, avant même le contrôle applicatif, qui
+vérifie le droit **par nature** (`canSetDepartmentBudget`).
+
+- **Les deux colonnes sont CÔTE À CÔTE**, et une case non modifiable est **affichée en lecture** (cadenas) plutôt
+  que masquée : c'est la seule façon de voir ce que coûte réellement un département. Ce qui est réservé, c'est
+  l'écriture, pas la lecture. Qui règle quoi est **écrit à l'écran**, pas seulement appliqué en silence.
+- **La masse salariale RÉELLE est calculée depuis la paie** de l'exercice (`PayrollEntry.gross` des membres),
+  jamais saisie — un montant ressaisi dirait ce qu'on espère, pas ce qui se passe.
+- **Le fonctionnement n'a volontairement PAS de colonne de consommation** : aucune dépense n'est aujourd'hui
+  imputée à un département, et un chiffre inventé ressemblerait à une mesure sans en être une. La page le dit.
+- `budgetHealth` distingue **« pas de budget réglé »** (`UNSET`) de **« rien consommé »** — une absence de décision
+  n'est pas une bonne nouvelle. Seuils : ≥ 80 % `AT_RISK`, ≥ 100 % `OVER_BUDGET`.
+- Le tableau nomme les départements par leur **chemin complet** (« Commercial › Ville »), sans quoi deux
+  sous-départements homonymes de deux pôles se confondraient. Il reste dans la **portée d'entité** en cours.
+- **Fichiers** : `src/lib/department-budget.ts` (+ `.test.ts`, 15 tests), `src/lib/queries/department-budget.ts`,
+  `src/lib/actions/department-budget-actions.ts`, `src/app/(app)/budgets/departements/`. Modèle `DepartmentBudget`.
+
+### Ad & Pro — corriger une demande, joindre un fichier à un avis
+
+**Corriger une demande** (bouton « Modifier » sur les trois détails Ad & Pro). Deux règles portent tout le reste :
+
+1. **Ce qui a fondé une décision ne se réécrit pas.** Une fois la Direction ayant tranché, le demandeur ne modifie
+   plus : réécrire « 200 000 demandés » en « 400 000 » après un accord transformerait la décision en autre chose
+   que ce qui a été décidé. Seule la **vue globale** garde la main — et l'audit note explicitement
+   « **APRÈS DÉCISION** ». Avant décision : le demandeur, ou le droit `UPDATE` du module.
+2. **Les champs de décision ne sont jamais modifiables ici** (montant accordé, statut, chef de produit, avis,
+   motifs) : ils appartiennent au circuit. D'où une **LISTE BLANCHE** (`EDITABLE_FIELDS`) plutôt qu'une liste
+   d'interdits — elle ne se trompe pas quand un champ nouveau apparaît dans le modèle. Le `select` de la requête
+   **ET** le formulaire en sont dérivés : le formulaire ne peut pas afficher un champ que le serveur refuserait.
+
+Le point d'entrée est **unique pour les trois modules** ; ce qui varie (table, module RBAC, chemin, colonne de
+statut) tient dans la table `TARGETS`. L'audit consigne **ce qui CHANGE** (avant → après), pas l'état final :
+relire « ville : Alger » n'apprend rien, « ville : Oran → Alger » dit ce qui s'est passé. Les comparaisons ignorent
+les espaces de bordure et l'heure d'une date, sans quoi le journal se remplirait de non-modifications.
+
+**Pièce jointe à un avis.** Le chef de produit, le National Sales et la Direction peuvent joindre un document à leur
+décision (devis comparatif, note, courrier), **à toutes les issues** — y compris un simple commentaire. **L'ordre
+des opérations porte la garantie** : les fichiers sont **contrôlés avant** que le circuit n'avance (enregistrer
+l'avis puis refuser la pièce laisserait la décision prise et sa justification perdue), l'**étape courante est lue
+avant** l'avancement (sinon la pièce serait rattachée à l'étape suivante, c'est-à-dire à quelqu'un d'autre), et
+l'écriture n'a lieu qu'une fois le moteur ayant **autorisé** l'action. Catégorie `SUPPORTING_DOC`, `stepKey` = slug
+de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` (`src/lib/attach-files.ts`).
+
+- **Fichiers** : `src/lib/ad-pro-edit.ts` (+ `.test.ts`, 14 tests), `src/lib/queries/ad-pro-edit.ts`,
+  `src/lib/actions/ad-pro-edit-actions.ts`, `src/components/ad-pro/edit-request-button.tsx` ;
+  `src/lib/actions/workflow-actions.ts` (`advanceWorkflow`), `src/components/workflow/workflow-panel.tsx`.
+
+### Assistant — recherche Regulatory complète et écriture sur les produits
+
+- **`search_products` cherche là où les mots sont écrits** : DCI, nom commercial, référence, **classe
+  thérapeutique** (« oncologie », « biosimilaire », « anticorps monoclonal »…), forme galénique, laboratoire
+  partenaire, pays d'origine et entité. Sans la classe thérapeutique, ces recherches ne remontaient rien. La
+  limite n'est plus figée (40 par défaut, **300** au plus) et la réponse dit le **total du portefeuille** et si
+  elle est **tronquée** — omettre en silence serait pire que tronquer.
+- **`set_products_company`** — seul outil d'écriture Regulatory : rattacher **un ou plusieurs** produits à une
+  entité. Le lot est décrit par un **FILTRE**, jamais par une liste devinée, et ce filtre (`productBulkWhere`) est
+  **partagé entre l'aperçu et l'exécution** — deux filtres écrits séparément finiraient par diverger, et on
+  modifierait autre chose que ce qui a été montré. À l'exécution il est **intersecté avec les références
+  affichées**, pour qu'un produit créé entre l'aperçu et le clic ne soit pas emporté. La confirmation **liste** les
+  produits (25 puis « … et N autres ») plutôt qu'un compte. Droit vérifié : `REGULATORY:UPDATE` — écrire n'est pas
+  lire — **revérifié à l'exécution**, jamais déduit de la proposition.
+- **`MAX_TURNS = 16`** (contre 6) : lister tout le portefeuille consomme déjà plusieurs tours, et l'utilisateur
+  recevait « je n'ai pas pu finaliser la demande » alors que l'assistant travaillait. Un tour ne coûte que s'il est
+  utilisé — la boucle s'arrête dès que le modèle répond sans outil.
+
 ### Accusés, verrous & confidentialité — règles éparses à ne pas casser
 
 - Événements (`Event`) n'a **pas** de champ `updatedById` → le moteur de workflow le retire avant `update`.
@@ -1324,6 +1422,7 @@ intention** — on ne consulte plus son budget en traversant tout ce qui le modi
 |---|---|---|
 | **Vue d'ensemble** | `/budgets` | **Que de la lecture.** Le reste à dépenser en grand, une jauge, un **camembert** de la répartition, une **courbe** de la consommation cumulée face au **rythme théorique**, des **barres** par catégorie. Aucun bouton d'action. |
 | **Dépenses** | `/budgets/depenses` | **Le travail.** Ce qui est **à imputer** vient en premier (tant que ces lignes traînent, la vue d'ensemble est fausse), puis la saisie d'une dépense, puis l'historique. |
+| **Départements** | `/budgets/departements` | **Le budget de chaque département**, par exercice — deux colonnes, deux responsables (voir [référence](#budget-par-département--deux-natures-deux-responsables)). |
 | **Réglages** | `/budgets/reglages` | **Le paramétrage.** L'enveloppe, ses catégories et sous-catégories, le budget total au-dessus des enveloppes. |
 
 La **barre de contexte** (`budget-context-bar.tsx`) ne porte que ce qui change ce qu'on **regarde** : l'enveloppe et
@@ -1736,6 +1835,46 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Le cloisonnement par entité devient réel.** « Si je mets la vue Adventum, je veux voir que Adventum » n'était
+  vrai que de Regulatory, des ventes, de la logistique, de la promotion médicale et des RH. Le **budget**,
+  l'**Ad & Pro**, les **finances** et les **demandes** n'avaient aucune entité : basculer le sélecteur laissait voir
+  les demandes d'une autre société. Le sélecteur n'était pas un cloisonnement, c'était une décoration. **Dix tables**
+  reçoivent une entité ; les **RH n'en reçoivent pas**, délibérément — congés, paie et avances pendent d'un employé
+  qui porte déjà la sienne. Le rattachement rétroactif **ne devine rien** (il se déduit du demandeur, et d'ailleurs
+  de la **demande source** pour un ordre de dépense, qui est plus fiable). Un enregistrement **non rattaché reste
+  visible partout** : le filtrer strictement le rendrait invisible depuis toutes les vues d'un salarié mono-entité,
+  ce qui serait de la perte de travail, pas du cloisonnement. Et **moins de deux entités ⇒ aucun filtre**.
+  → [référence](#dimension-multi-entités-sociétés-du-groupe)
+
+- **Chaque département a son budget — réglé par deux personnes différentes.** Le fonctionnement (**hors employés**)
+  par l'**administrateur** ; les **employés et le recrutement** par les **ressources humaines**. Comme les deux
+  responsables n'écrivent jamais la même ligne, l'un ne peut pas écraser l'autre. Les deux colonnes sont **côte à
+  côte** — une case non modifiable est affichée **en lecture**, pas masquée : c'est la seule façon de voir ce que
+  coûte réellement un département. La **masse salariale réelle** est calculée depuis la paie, jamais saisie.
+  → [référence](#budget-par-département--deux-natures-deux-responsables)
+
+- **On peut enfin corriger une demande Ad & Pro.** Il fallait supprimer et recommencer, en perdant la référence,
+  les pièces jointes, les postes et l'avancement du circuit. Deux règles : **ce qui a fondé une décision ne se
+  réécrit pas** (après décision, seule la Direction — et l'audit le note « APRÈS DÉCISION »), et **les champs de
+  décision ne sont jamais modifiables ici** — d'où une liste blanche dont le formulaire ET la requête sont dérivés.
+  Au passage, le chef de produit, le National Sales et la Direction peuvent **joindre un fichier à leur avis** ;
+  les pièces sont contrôlées **avant** que le circuit n'avance, pour ne pas laisser une décision prise et sa
+  justification perdue. → [référence](#ad--pro--corriger-une-demande-joindre-un-fichier-à-un-avis)
+
+- **L'assistant cherche là où les mots sont écrits, et sait modifier une fiche produit.** Trois échecs remontés
+  d'une conversation réelle, trois causes distinctes : la recherche Regulatory ignorait la **classe thérapeutique**
+  (d'où zéro résultat sur « oncologie » ou « biosimilaire ») et plafonnait à 12 lignes ; aucun outil d'écriture
+  n'existait (« je ne dispose pas d'un outil pour modifier une fiche produit » — c'était vrai) ; et six
+  allers-retours ne suffisaient pas à lister un portefeuille. Le nouvel outil décrit un lot par **filtre**, pas par
+  liste devinée, et **rejoue ce filtre à l'exécution** pour que ce qui change soit exactement ce qui a été montré.
+  → [référence](#assistant--recherche-regulatory-complète-et-écriture-sur-les-produits)
+
+- **Les conversations de l'assistant passent en production.** Fils persistants, historique par date, nouvelle
+  conversation, suppression, droit à l'oubli : tout existait mais restait au stade **TEST**, donc invisible hors
+  comptes de test. Les échanges, eux, étaient **déjà enregistrés** — la promotion rend visible un historique qui
+  existait. Retour arrière immédiat depuis `/admin/versions`.
+  → [référence](#assistant--mémoire-personnelle-cloisonnée-par-construction)
 
 - **Force de vente : l'affectation devient un périmètre.** La matrice KAM × produit × cycle
   existait déjà dans « Prévisions & Force de vente » — mais **elle ne pilotait rien** : personne
