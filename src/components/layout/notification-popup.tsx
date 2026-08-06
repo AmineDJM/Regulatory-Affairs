@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Megaphone, ArrowRight, Loader2 } from "lucide-react";
 import { markNotificationRead } from "@/lib/actions/notification-actions";
+import { useScrollLock } from "@/lib/use-scroll-lock";
 
 interface Popup {
   id: string;
@@ -48,13 +49,8 @@ export function NotificationPopup() {
 
   const current = queue[0] ?? null;
 
-  // Verrouille le défilement de la page tant qu'une pop-up est affichée.
-  React.useEffect(() => {
-    if (!current) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [current]);
+  // Verrouille le défilement tant qu'une pop-up est affichée — sur le VRAI conteneur défilant.
+  useScrollLock(Boolean(current));
 
   if (!current) return null;
 

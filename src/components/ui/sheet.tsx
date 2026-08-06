@@ -3,6 +3,7 @@
 import * as React from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useScrollLock } from "@/lib/use-scroll-lock";
 
 interface SheetProps {
   open: boolean;
@@ -23,18 +24,15 @@ interface SheetProps {
  * pour qu'on voie ce qu'il y a derrière et qu'on comprenne qu'un simple appui à côté referme.
  */
 export function Sheet({ open, onClose, title, description, children, footer, width = "md" }: SheetProps) {
+  // Le défilement de l'arrière-plan est figé pendant l'ouverture. Le verrou est COMPTÉ : une
+  // feuille ouverte depuis un tiroir ne rend pas le défilement au tiroir en se refermant.
+  useScrollLock(open);
+
   React.useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    if (open) {
-      document.addEventListener("keydown", onKey);
-      document.body.style.overflow = "hidden";
-    }
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
-    };
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
   if (!open) return null;

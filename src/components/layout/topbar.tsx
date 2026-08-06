@@ -9,6 +9,7 @@ import { UserMenu } from "@/components/layout/user-menu";
 import { MessagesIndicator } from "@/components/layout/messages-indicator";
 import { CompanySwitcher } from "@/components/layout/company-switcher";
 import { cn } from "@/lib/utils";
+import { useScrollLock } from "@/lib/use-scroll-lock";
 import type { NavItem } from "@/lib/labels";
 
 interface TopbarProps {
@@ -36,6 +37,10 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
   const [drawerOpen, setDrawerOpen] = React.useState(false);
 
   React.useEffect(() => setDrawerOpen(false), [pathname]);
+
+  // Sans ce verrou, faire glisser le doigt dans le menu faisait défiler la PAGE derrière lui,
+  // menu immobile — le tiroir n'avait aucun verrou du tout.
+  useScrollLock(drawerOpen);
 
   return (
     <>

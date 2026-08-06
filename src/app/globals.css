@@ -124,6 +124,62 @@
 }
 
 @layer components {
+  /* ───────────────────── Hauteur d'écran : UNE seule source de vérité ─────────────────────
+
+     Trois écrans occupent tout l'espace disponible au lieu de défiler (assistant, messagerie,
+     éditeur Office). Chacun recopiait sa propre soustraction — `100dvh - 3.5rem`,
+     `100dvh - 7.5rem`, `100vh - 3.5rem` — des nombres qui ne correspondaient à AUCUNE hauteur
+     réelle et qui, sur téléphone, ignoraient la barre d'onglets basse. Résultat : le champ de
+     saisie de l'assistant passait DERRIÈRE la barre, et le bouton d'envoi devenait inatteignable.
+
+     Ces variables décrivent le chrome réel de l'application. Le jour où la barre change de
+     hauteur, on corrige ICI et les trois écrans suivent.
+
+     `--app-banner-h` est posée par le layout quand un bandeau est affiché (usurpation
+     d'identité, mode test) : ces bandeaux poussent le contenu vers le bas, il faut les déduire. */
+  :root {
+    /* MESURÉES par `chrome-metrics.tsx` — jamais écrites à la main.
+       Haut = bandeaux + en-tête. Bas = barre d'onglets (0 sur ordinateur, où elle n'existe pas).
+       Les valeurs ci-dessous ne servent qu'au tout premier rendu, avant la mesure. */
+    --app-chrome-top: 4rem;
+    --app-chrome-bottom: 0px;
+    --app-main-pt: 0.75rem; /* padding haut de <main> */
+  }
+  @media (min-width: 640px) {
+    :root { --app-main-pt: 1.5rem; }
+  }
+
+  /* Du haut de la zone de contenu jusqu'au ras de la barre d'onglets. */
+  .app-viewport {
+    height: calc(100dvh - var(--app-chrome-top) - var(--app-main-pt) - var(--app-chrome-bottom));
+    min-height: 22rem; /* en paysage sur téléphone, mieux vaut défiler que tout écraser */
+  }
+
+  /* Idem pour un écran qui neutralise le padding haut de <main> par une marge négative
+     (l'assistant colle son rail au bord) : il commence plus haut, il est donc plus grand. */
+  .app-viewport-flush {
+    height: calc(100dvh - var(--app-chrome-top) - var(--app-chrome-bottom));
+    min-height: 22rem;
+  }
+
+  /* ───────────────────────── Échelle de superposition (z-index) ─────────────────────────
+
+     Elle était incohérente et c'est ce qui « superposait » les modules : la barre d'onglets
+     mobile était à z-60, donc AU-DESSUS de toutes les feuilles et tiroirs (z-50). Un bouton de
+     validation en bas d'une feuille se retrouvait caché derrière la barre — visible, mais
+     intouchable.
+
+       30  en-tête (Topbar)
+       40  barre d'onglets mobile
+       50  feuilles, tiroirs, aperçus — TOUT ce qui est modal passe au-dessus de la barre
+       60  tiroir « Tout » (la barre d'onglets prend l'écran entier), lecteur de courrier
+       90  courrier plein écran
+      100  palette de commandes
+      200  notification pop-up (diffusion administrateur)
+
+     Toute nouvelle couche modale se place à 50. Si elle doit couvrir une autre modale, elle
+     monte d'un cran — elle ne descend jamais sous 50, sinon la barre d'onglets la recouvre. */
+
   /* Élévation douce et légèrement teintée (rendu « carte » Apple / Salesforce) */
   .surface {
     @apply rounded-xl border border-border bg-card;

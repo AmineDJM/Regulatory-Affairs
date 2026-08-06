@@ -253,7 +253,9 @@ export function Messenger({
   };
 
   return (
-    <div className="relative flex h-[calc(100dvh-7.5rem)] overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+    // Hauteur mesurée (cf. chrome-metrics.tsx) : le `7.5rem` écrit en dur ne correspondait à
+    // aucune barre réelle et faisait passer le composeur sous la barre d'onglets sur téléphone.
+    <div className="app-viewport relative flex overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
       {/* Liste */}
       <div className={mobileThread && activeId ? "hidden md:flex" : "flex w-full md:w-auto"}>
         <ConversationList

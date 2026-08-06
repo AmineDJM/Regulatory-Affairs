@@ -15,6 +15,7 @@ import {
 import type { ProposedAction, AssistantActionPayload, ChatTurn, AssistantResult, AssistantStreamEvent } from "@/lib/assistant";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import type { ThreadSummary } from "@/lib/assistant-memory";
+import { useScrollLock } from "@/lib/use-scroll-lock";
 
 /** Pièce jointe en attente d'envoi : fichier local (upload) ou fichier du Drive (référence). */
 type PendingAttach =
@@ -94,6 +95,7 @@ export function AssistantChat({
   const [threads, setThreads] = React.useState<ThreadSummary[]>([]);
   const [histOpen, setHistOpen] = React.useState(false);
   const [loadingThread, setLoadingThread] = React.useState(false);
+  useScrollLock(histOpen); // sinon la conversation défile derrière le tiroir d'historique
 
   const refreshThreads = React.useCallback(async () => {
     if (!memoryEnabled) return;
@@ -347,7 +349,7 @@ export function AssistantChat({
     <div className="flex min-h-0 flex-1 gap-0 lg:gap-4">
       {memoryEnabled && <div className="hidden w-64 shrink-0 lg:block">{rail}</div>}
       {memoryEnabled && histOpen && (
-        <div className="fixed inset-0 z-40 flex lg:hidden" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-50 flex lg:hidden" role="dialog" aria-modal="true">
           <button type="button" aria-label="Fermer l'historique" className="absolute inset-0 bg-black/40" onClick={() => setHistOpen(false)} />
           <div className="relative z-10 h-full w-72 max-w-[85vw] p-2">{rail}</div>
         </div>

@@ -20,7 +20,11 @@ export default async function AssistantPage() {
     // PLEIN ÉCRAN : l'assistant prend toute la hauteur disponible, comme une application de
     // discussion. Les marges du conteneur principal sont neutralisées pour que le rail des
     // conversations touche le bord — c'est ce qui fait la différence avec « une page ».
-    <div className="-mx-3 -mt-3 flex h-[calc(100dvh-3.5rem)] flex-col gap-3 px-2 pt-2 sm:-mx-4 sm:-mt-6 sm:px-3 sm:pt-4 lg:-mx-8 lg:h-[calc(100dvh-4rem)] lg:px-6">
+    //
+    // `app-viewport-flush` s'arrête au RAS de la barre d'onglets (hauteurs mesurées, cf.
+    // chrome-metrics.tsx). La hauteur était auparavant écrite en dur — le champ de saisie
+    // se retrouvait derrière la barre sur téléphone.
+    <div className="app-viewport-flush -mx-3 -mt-3 flex flex-col gap-3 px-2 pt-2 sm:-mx-4 sm:-mt-6 sm:px-3 sm:pt-4 lg:-mx-8 lg:px-6">
       {brief?.text && <MorningBrief initial={brief.text} />}
       <AssistantChat
         userName={user.name}

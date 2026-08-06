@@ -58,7 +58,9 @@ export function OfficeEditor({ apiJs, config, name, backHref = "/drive", backLab
   }, []);
 
   return (
-    <div ref={wrapRef} className={cn("flex flex-col bg-background", fullscreen ? "h-screen" : "h-[calc(100vh-3.5rem)]")}>
+    // Hors plein écran, l'éditeur occupe la zone de contenu mesurée : sur téléphone, sa barre
+    // d'outils basse passait sinon derrière la barre d'onglets.
+    <div ref={wrapRef} className={cn("flex flex-col bg-background", fullscreen ? "h-screen" : "app-viewport")}>
       {/* Préconnexion au Document Server : réduit la latence de chargement des assets. */}
       {origin && (
         <>

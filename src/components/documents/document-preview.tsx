@@ -6,6 +6,7 @@ import { X, Download, Printer, Pencil, Trash2, Check, Loader2, ExternalLink } fr
 import { DocxView, XlsxView, PptxView } from "./office-viewers";
 import { printDocument } from "@/lib/print-document";
 import { deleteDocument, renameDocument } from "@/lib/actions/document-actions";
+import { useScrollLock } from "@/lib/use-scroll-lock";
 
 const IMAGE = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 const TEXTLIKE = ["txt", "md", "log", "json", "xml"];
@@ -48,6 +49,7 @@ export function DocumentPreview({
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
+  useScrollLock(open); // l'aperçu est modal : la page ne doit pas défiler derrière
   const [renaming, setRenaming] = React.useState(false);
   const [draft, setDraft] = React.useState(name);
   const [busy, setBusy] = React.useState(false);

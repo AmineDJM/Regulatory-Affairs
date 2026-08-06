@@ -7,6 +7,8 @@ import { Sparkles, LayoutGrid, MessageSquare, Grid3x3, X, Search } from "lucide-
 import { Icon } from "@/components/ui/icon";
 import type { NavItem } from "@/lib/labels";
 import { cn } from "@/lib/utils";
+import { useScrollLock } from "@/lib/use-scroll-lock";
+import { useTabBarHeight } from "@/components/layout/chrome-metrics";
 
 /**
  * BARRE D'ONGLETS MOBILE — navigation principale sur téléphone (l'app installée depuis
@@ -38,17 +40,17 @@ export function MobileTabBar({
   const pathname = usePathname();
   const [drawer, setDrawer] = React.useState(false);
   const [q, setQ] = React.useState("");
+  // La hauteur RÉELLE de la barre est publiée pour les écrans pleine hauteur. Sur ordinateur
+  // elle est `display: none` et vaut donc 0 — sans règle média supplémentaire à maintenir.
+  const navRef = React.useRef<HTMLElement>(null);
+  useTabBarHeight(navRef);
 
   // Le tiroir se referme à chaque navigation (comportement attendu d'une app mobile).
   React.useEffect(() => { setDrawer(false); setQ(""); }, [pathname]);
 
-  // Verrouille le défilement de la page derrière le tiroir plein écran.
-  React.useEffect(() => {
-    if (!drawer) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [drawer]);
+  // Verrouille le VRAI conteneur défilant. Verrouiller le `body` ne servait à rien : ce n'est
+  // pas lui qui défile ici, et la page continuait donc de bouger derrière le tiroir.
+  useScrollLock(drawer);
 
   const visible = items.filter((i) => PRIMARY.every((p) => p.href !== i.href));
   const filtered = q.trim()
@@ -64,7 +66,7 @@ export function MobileTabBar({
     <>
       {/* Tiroir « Tout » — grille complète des modules autorisés, avec recherche. */}
       {drawer && (
-        <div className="fixed inset-0 z-[70] flex flex-col bg-background lg:hidden">
+        <div className="fixed inset-0 z-[60] flex flex-col bg-background lg:hidden">
           <div className="flex items-center gap-2 border-b border-border px-4 py-3">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -113,8 +115,11 @@ export function MobileTabBar({
         </div>
       )}
 
-      {/* Barre d'onglets basse — toujours visible sur mobile. */}
-      <nav className="fixed inset-x-0 bottom-0 z-[60] border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+      {/* Barre d'onglets basse — toujours visible sur mobile.
+          z-40 : SOUS les couches modales (z-50). Elle était à z-60 et recouvrait donc les
+          feuilles et les tiroirs : le bouton de validation en bas d'un formulaire était
+          visible mais intouchable, caché derrière la barre. */}
+      <nav ref={navRef} className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
         <div className="flex items-stretch">
           {PRIMARY.map((tab) => {
             const active = !drawer && isActive(pathname, tab.match);

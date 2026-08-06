@@ -10,6 +10,7 @@ import { ScreenGuard } from "@/components/layout/screen-guard";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
 import { TestModeBanner } from "@/components/layout/test-mode-banner";
+import { ChromeMetrics } from "@/components/layout/chrome-metrics";
 import { PushRegister } from "@/components/layout/push-register";
 import { NotificationChime } from "@/components/layout/notification-chime";
 import { NotificationPopup } from "@/components/layout/notification-popup";
@@ -21,6 +22,7 @@ import { aiConfigured, sttConfigured } from "@/lib/ai";
 import { getCompanies, getCompanyScope } from "@/lib/company";
 import { isTestUser, featureEnabled } from "@/lib/features";
 import { prisma } from "@/lib/prisma";
+import { APP_SCROLL_ID } from "@/lib/use-scroll-lock";
 
 export default async function AppLayout({
   children,
@@ -94,13 +96,24 @@ export default async function AppLayout({
       <CommandPalette navItems={navItems} />
       <Sidebar items={navItems} messagingUnread={messagingUnread} moduleBadges={moduleBadges} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {user.impersonatedBy && <ImpersonationBanner adminName={user.impersonatedBy.name} viewedName={user.name} />}
-        {testMode && <TestModeBanner />}
-        <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} companies={companies} companyScope={companyScope} />
+        {/* Tout ce qui surmonte la zone de contenu est MESURÉ ensemble : les bandeaux passent à
+            la ligne sur un écran étroit, et les écrans pleine hauteur doivent déduire la
+            hauteur réelle, pas une estimation. */}
+        <ChromeMetrics>
+          {user.impersonatedBy && <ImpersonationBanner adminName={user.impersonatedBy.name} viewedName={user.name} />}
+          {testMode && <TestModeBanner />}
+          <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} companies={companies} companyScope={companyScope} />
+        </ChromeMetrics>
         {/* `page-shell` porte les règles « pleine largeur sur téléphone » (globals.css) :
             les cartes de premier niveau y perdent leurs bordures latérales pour occuper
-            tout l'écran, comme dans une application native. */}
-        <main className="flex-1 overflow-y-auto px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-3 sm:px-4 sm:pt-6 lg:px-8 lg:pb-8">
+            tout l'écran, comme dans une application native.
+
+            `id` : c'est CE conteneur qui défile (la coque est `overflow-hidden`). Les couches
+            modales le verrouillent par cet identifiant — verrouiller le `body` ne ferait rien. */}
+        <main
+          id={APP_SCROLL_ID}
+          className="flex-1 overflow-y-auto px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-3 sm:px-4 sm:pt-6 lg:px-8 lg:pb-8"
+        >
           <div className="page-shell mx-auto max-w-[1400px] space-y-4 sm:space-y-6">{children}</div>
         </main>
       </div>
