@@ -107,7 +107,7 @@ function Group({
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{r.label}</span>
                   <Badge tone={s.tone} dot={false}>{s.label}</Badge>
-                  <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{r.key}</span>
+                  <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[0.625rem] text-muted-foreground">{r.key}</span>
                 </div>
                 {r.description && <p className="text-sm text-muted-foreground">{r.description}</p>}
                 {r.stage === "PROD" && r.promotedAt && (

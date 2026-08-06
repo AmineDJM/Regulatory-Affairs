@@ -49,7 +49,7 @@ export default async function PeopleWorkloadPage() {
                   <div className="ml-9 mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
                     <div className="h-full rounded-full bg-primary" style={{ width: `${(r.total / maxTotal) * 100}%` }} />
                   </div>
-                  <p className="ml-9 text-[11px] text-muted-foreground">
+                  <p className="ml-9 text-[0.6875rem] text-muted-foreground">
                     {r.openTasks} tâches · {r.openAdmin} demandes · {r.regulatory} regulatory · {r.pendingValidations} validations{r.overdueTasks > 0 ? ` · ${r.overdueTasks} en retard` : ""}
                   </p>
                 </div>

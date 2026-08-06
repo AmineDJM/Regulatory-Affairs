@@ -127,7 +127,7 @@ export function ConversationList({ conversations, activeId, onSelect, onNew, onO
                   <span className={cn("truncate text-sm", c.unread > 0 && !c.isMuted ? "font-bold" : "font-semibold")}>{c.title}</span>
                   {c.isPinned && <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />}
                   {c.isMuted && <BellOff className="h-3 w-3 shrink-0 text-muted-foreground" />}
-                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{relativeTime(c.lastMessageAt)}</span>
+                  <span className="ml-auto shrink-0 text-[0.625rem] text-muted-foreground">{relativeTime(c.lastMessageAt)}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className={cn("truncate text-xs", c.unread > 0 && !c.isMuted ? "text-foreground" : "text-muted-foreground")}>
@@ -136,7 +136,7 @@ export function ConversationList({ conversations, activeId, onSelect, onNew, onO
                     {c.lastMessagePreview || "Nouvelle conversation"}
                   </span>
                   {c.unread > 0 && !c.isMuted && (
-                    <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">
+                    <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[0.6875rem] font-semibold text-primary-foreground">
                       {c.unread > 99 ? "99+" : c.unread}
                     </span>
                   )}
@@ -147,7 +147,7 @@ export function ConversationList({ conversations, activeId, onSelect, onNew, onO
         )}
       </div>
 
-      <div className="flex items-center gap-1.5 border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-1.5 border-t border-border px-4 py-2 text-[0.6875rem] text-muted-foreground">
         <Volume2 className="h-3.5 w-3.5" />
         Messagerie interne sécurisée — chiffrée & privée
       </div>

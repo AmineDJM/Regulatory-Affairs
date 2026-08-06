@@ -71,7 +71,7 @@ export function CommentThread({
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-medium">{c.author}</span>
                 <span className="text-xs text-muted-foreground">{formatDateTime(c.createdAt)}</span>
-                {c.editedAt && <span className="text-[11px] italic text-muted-foreground">(modifié)</span>}
+                {c.editedAt && <span className="text-[0.6875rem] italic text-muted-foreground">(modifié)</span>}
                 {canManage(c) && editing !== c.id && (
                   <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
                     {updateAction && (

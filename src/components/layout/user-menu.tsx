@@ -33,7 +33,7 @@ export function UserMenu({ name, email, role }: UserMenuProps) {
         <Avatar name={name} size="sm" />
         <div className="hidden text-left sm:block">
           <p className="text-sm font-medium leading-tight">{name}</p>
-          <p className="text-[11px] leading-tight text-muted-foreground">
+          <p className="text-[0.6875rem] leading-tight text-muted-foreground">
             {ROLE_LABELS[role] ?? role}
           </p>
         </div>

@@ -179,14 +179,14 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
                               <td className={`${cell} tabular-nums`}>{r.capacity}</td>
                               <td className={cell}>
                                 <span className="font-medium tabular-nums">{r.panelSize}</span>
-                                <span className="ml-1 text-[10px] text-muted-foreground">{TIERS.map((t) => r.panelRec[t] ? `${TIER_LABELS[t][0]}${r.panelRec[t]}` : "").filter(Boolean).join(" ")}</span>
+                                <span className="ml-1 text-[0.625rem] text-muted-foreground">{TIERS.map((t) => r.panelRec[t] ? `${TIER_LABELS[t][0]}${r.panelRec[t]}` : "").filter(Boolean).join(" ")}</span>
                               </td>
                               <td className={`${cell} tabular-nums text-muted-foreground`}>{r.required}</td>
                               <td className={`${cell} tabular-nums`}>{r.plannedVisits}</td>
                               <td className={`${cell} tabular-nums`}>{r.plannedFte.toFixed(2)}</td>
                               <td className={`${cell} tabular-nums`}>{r.real}</td>
                               <td className={`${cell} tabular-nums font-medium ${toneOf(realPct)}`}>{realPct}%</td>
-                              <td className={`${cell} tabular-nums ${toneOf(covPct)}`}>{covPct}% <span className="text-[10px] text-muted-foreground">({r.covered}/{r.panelSize})</span></td>
+                              <td className={`${cell} tabular-nums ${toneOf(covPct)}`}>{covPct}% <span className="text-[0.625rem] text-muted-foreground">({r.covered}/{r.panelSize})</span></td>
                             </tr>
                           );
                         })}

@@ -33,7 +33,7 @@ export function DriveComments({ nodeId, comments }: { nodeId: string; comments: 
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium">{c.author}</span>
                 <span className="flex items-center gap-2">
-                  <span className="text-[11px] text-muted-foreground">{c.createdLabel}</span>
+                  <span className="text-[0.6875rem] text-muted-foreground">{c.createdLabel}</span>
                   {c.canDelete && (
                     <form
                       action={async (fd) => { await deleteDriveComment(fd); router.refresh(); }}

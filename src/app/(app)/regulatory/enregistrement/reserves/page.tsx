@@ -187,7 +187,7 @@ function Stat({ label, value, hint, tone }: { label: string; value: string; hint
     <div className="surface p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`mt-0.5 text-xl font-semibold ${cls}`}>{value}</p>
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
     </div>
   );
 }

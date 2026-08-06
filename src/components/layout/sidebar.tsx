@@ -25,7 +25,7 @@ function badgeFor(item: NavItem, badges: Record<string, number>): number {
 /** Pastille de compteur statique (badge de menu). */
 function NavBadge({ count }: { count: number }) {
   return (
-    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-sidebar-accent px-1.5 text-[11px] font-semibold text-sidebar">
+    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-sidebar-accent px-1.5 text-[0.6875rem] font-semibold text-sidebar">
       {count > 99 ? "99+" : count}
     </span>
   );
@@ -44,7 +44,7 @@ function MessagesNavBadge({ initial }: { initial: number }) {
   }, []);
   if (count <= 0) return null;
   return (
-    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-sidebar-accent px-1.5 text-[11px] font-semibold text-sidebar">
+    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-sidebar-accent px-1.5 text-[0.6875rem] font-semibold text-sidebar">
       {count > 99 ? "99+" : count}
     </span>
   );
@@ -66,14 +66,14 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
         </div>
         <div className="leading-tight">
           <p className="text-sm font-semibold">AMD Internal OS</p>
-          <p className="text-[11px] text-sidebar-muted">Adventum Pharma</p>
+          <p className="text-[0.6875rem] text-sidebar-muted">Adventum Pharma</p>
         </div>
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-3">
         {groups.map(({ group, items: groupItems }) => (
           <div key={group}>
-            <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-sidebar-muted">
+            <p className="px-3 pb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-sidebar-muted">
               {group}
             </p>
             <ul className="space-y-0.5">
@@ -106,7 +106,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
       </nav>
 
       <div className="border-t border-white/10 px-5 py-3">
-        <p className="text-[11px] text-sidebar-muted">
+        <p className="text-[0.6875rem] text-sidebar-muted">
           © {new Date().getFullYear()} Adventum — v0.1
         </p>
       </div>

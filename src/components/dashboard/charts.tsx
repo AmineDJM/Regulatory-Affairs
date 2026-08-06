@@ -114,7 +114,7 @@ export function DonutChart({ data, total }: { data: DonutSlice[]; total?: number
         </ResponsiveContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-xl font-semibold">{sum}</span>
-          <span className="text-[10px] text-muted-foreground">total</span>
+          <span className="text-[0.625rem] text-muted-foreground">total</span>
         </div>
       </div>
       <ul className="flex-1 space-y-1.5">

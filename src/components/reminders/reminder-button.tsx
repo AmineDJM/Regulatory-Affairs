@@ -95,7 +95,7 @@ export function ReminderButton({
                   type="button"
                   disabled={busy}
                   onClick={() => submit(p.at)}
-                  className="rounded-full border border-border px-2.5 py-1 text-[11px] transition-colors hover:bg-accent disabled:opacity-50"
+                  className="rounded-full border border-border px-2.5 py-1 text-[0.6875rem] transition-colors hover:bg-accent disabled:opacity-50"
                 >
                   {p.label}
                 </button>
@@ -117,7 +117,7 @@ export function ReminderButton({
                 {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : "OK"}
               </button>
             </div>
-            {error && <p className="mt-1.5 text-[11px] text-destructive">{error}</p>}
+            {error && <p className="mt-1.5 text-[0.6875rem] text-destructive">{error}</p>}
           </div>
         </>
       )}

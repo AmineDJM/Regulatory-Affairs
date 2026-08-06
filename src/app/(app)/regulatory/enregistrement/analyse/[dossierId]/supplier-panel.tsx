@@ -90,7 +90,7 @@ export function SupplierPanel({ dossierId, requests, canManage }: { dossierId: s
               <button type="button" disabled={busy !== null} onClick={() => run(`del-${r.id}`, () => { const fd = new FormData(); fd.set("requestId", r.id); return deleteSupplierRequest(fd); })} className="ml-auto inline-flex items-center gap-1 text-destructive hover:underline"><Trash2 className="h-3 w-3" /> Supprimer</button>
             </div>
           )}
-          {r.remindedAt && <p className="mt-1 text-[11px] text-muted-foreground">Relancé le {new Date(r.remindedAt).toLocaleDateString("fr-FR")}.</p>}
+          {r.remindedAt && <p className="mt-1 text-[0.6875rem] text-muted-foreground">Relancé le {new Date(r.remindedAt).toLocaleDateString("fr-FR")}.</p>}
         </div>
       ))}
       {requests.length === 0 && !creating && <p className="text-sm text-muted-foreground">Aucune demande fournisseur. Créez-en une pour générer un brouillon d'e-mail de compléments.</p>}

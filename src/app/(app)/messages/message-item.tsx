@@ -103,7 +103,7 @@ export function MessageItem({
         {showHeader && !isOwn && (
           <div className="mb-0.5 flex items-baseline gap-2 px-1">
             <span className="text-xs font-semibold text-foreground">{m.senderName}</span>
-            <span className="text-[10px] text-muted-foreground">{timeOf(m.createdAt)}</span>
+            <span className="text-[0.625rem] text-muted-foreground">{timeOf(m.createdAt)}</span>
           </div>
         )}
 
@@ -111,7 +111,7 @@ export function MessageItem({
           <button
             onClick={() => onJumpToParent(m.parent!.id)}
             className={cn(
-              "mb-1 flex max-w-full items-center gap-1.5 rounded-lg border-l-2 border-primary/50 bg-secondary/60 px-2 py-1 text-left text-[11px] text-muted-foreground hover:bg-secondary",
+              "mb-1 flex max-w-full items-center gap-1.5 rounded-lg border-l-2 border-primary/50 bg-secondary/60 px-2 py-1 text-left text-[0.6875rem] text-muted-foreground hover:bg-secondary",
             )}
           >
             <CornerDownRight className="h-3 w-3 shrink-0" />
@@ -180,7 +180,7 @@ export function MessageItem({
                       >
                         {a.name}
                       </a>
-                      <span className="text-[11px] text-muted-foreground">{formatBytes(a.size)}</span>
+                      <span className="text-[0.6875rem] text-muted-foreground">{formatBytes(a.size)}</span>
                       {/* Téléchargement explicite. */}
                       <a
                         href={`/api/messaging/attachment/${a.id}?dl=1`}
@@ -196,7 +196,7 @@ export function MessageItem({
               </div>
             )}
 
-            <span className={cn("mt-0.5 flex items-center justify-end gap-1 text-[10px]", isOwn ? "text-primary-foreground/60" : "text-muted-foreground")}>
+            <span className={cn("mt-0.5 flex items-center justify-end gap-1 text-[0.625rem]", isOwn ? "text-primary-foreground/60" : "text-muted-foreground")}>
               {m.editedAt && <span>modifié ·</span>}
               <span>{timeOf(m.createdAt)}</span>
               {isOwn && m.receipt && (

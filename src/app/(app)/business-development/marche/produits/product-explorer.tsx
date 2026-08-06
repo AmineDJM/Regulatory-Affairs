@@ -275,7 +275,7 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
 /** Marché d'origine du produit : ville (IQVIA) ou hôpital (PCH). */
 function SegmentBadge({ segment }: { segment: MarketProduct["segment"] }) {
   return (
-    <Badge tone={segment === "HOPITAL" ? "purple" : "info"} dot={false} className="text-[10px]">
+    <Badge tone={segment === "HOPITAL" ? "purple" : "info"} dot={false} className="text-[0.625rem]">
       {segment === "HOPITAL" ? "Hôpital" : "Ville"}
     </Badge>
   );
@@ -325,7 +325,7 @@ function SuggestField({
           className="h-9 pl-8"
         />
       </div>
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
       {open && options.length > 0 && (
         <ul className="absolute left-0 right-0 top-[3.9rem] z-20 max-h-52 overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-lg">
           {options.map((o) => (

@@ -82,6 +82,33 @@
     overflow-x: hidden;
     -webkit-text-size-adjust: 100%;
   }
+
+  /* ─────────────────── ÉCHELLE MOBILE — pourquoi l'écran paraissait « dézoomé » ───────────────────
+
+     Le viewport est correct (`width=device-width, initial-scale=1`) : le navigateur ne dézoome
+     rien. C'est la DENSITÉ qui est en cause — l'interface est dessinée pour un ERP de bureau,
+     où `text-sm` (14px) et `text-xs` (12px) sont la norme parce qu'on lit à 60 cm sur un grand
+     écran. Sur un téléphone tenu à 30 cm, les mêmes 12px paraissent minuscules.
+
+     On agit donc sur la RACINE plutôt que sur les centaines de classes de texte : tout ce qui
+     est exprimé en `rem` — texte, marges, hauteurs de boutons, tailles d'icônes, rayons —
+     grandit ENSEMBLE. Agrandir le texte seul serrerait les boutons et casserait les alignements.
+
+     ⚠️ Les points de rupture Tailwind (`sm:`, `lg:`…) sont en PIXELS et dépendent du viewport,
+     pas de cette taille : aucune mise en page ne bascule à cause de ce réglage. C'est
+     exactement ce qu'on veut — on grossit, on ne réorganise pas.
+
+     Corollaire respecté ailleurs : les tailles écrites en dur (`text-[10px]`…) ont été passées
+     en `rem` à valeur identique. Sans ça elles seraient restées figées et auraient paru encore
+     plus petites au milieu du reste.
+
+     La valeur a été CHOISIE EN REGARDANT L'ÉCRAN, pas au jugé : à 18px (112,5 %) le tableau de
+     bord se disloque — le titre passe à la ligne, « Pré-soumission » se coupe en deux, et la
+     barre supérieure devient si serrée que l'avatar sort de l'écran. 17px donne le gain de
+     lisibilité sans rien faire déborder. */
+  @media (max-width: 1023px) {
+    html { font-size: 106.25%; } /* 17px — téléphones et tablettes */
+  }
   body {
     @apply bg-background font-sans text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
@@ -100,14 +127,18 @@
   }
   /* iPhone/iOS : Safari ZOOME automatiquement quand on met le focus dans un champ dont
      la police fait moins de 16px — très désagréable sur mobile (la page saute). On force
-     donc 16px sur les champs natifs des PETITS écrans (téléphones) : plus de zoom parasite
-     et meilleure lisibilité de la saisie. N'affecte ni les cases/boutons radio, ni le
-     rendu tablette/ordinateur. */
-  @media (max-width: 767px) {
+     donc au moins 16px sur les champs natifs des PETITS écrans (téléphones) : plus de zoom
+     parasite et meilleure lisibilité de la saisie. N'affecte ni les cases/boutons radio, ni
+     le rendu ordinateur.
+
+     `1rem` et non `16px` : avec l'échelle mobile ci-dessus, 1rem vaut 17-18px — la garantie
+     iOS (≥ 16px) tient toujours, et le champ grandit comme le reste au lieu de devenir le
+     seul élément resté petit. */
+  @media (max-width: 1023px) {
     input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
     select,
     textarea {
-      font-size: 16px;
+      font-size: 1rem;
     }
   }
   /* Refined scrollbars for the data-dense ERP feel */

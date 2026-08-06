@@ -90,7 +90,7 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured }: { tender
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground"><span className="h-px flex-1 bg-border" /> ou coller le texte <span className="h-px flex-1 bg-border" /></div>
+          <div className="flex items-center gap-2 text-[0.6875rem] uppercase tracking-wide text-muted-foreground"><span className="h-px flex-1 bg-border" /> ou coller le texte <span className="h-px flex-1 bg-border" /></div>
           {/* 2) Texte déjà extrait (OCR externe) */}
           <div className="space-y-2">
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder="Texte de l'appel d'offres (issu d'un OCR)…"
@@ -147,9 +147,9 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
         </div>
         <p className="mt-1 text-xs text-muted-foreground">{[line.dci, line.dosage, line.form].filter(Boolean).join(" · ") || "—"} · {fmt(line.quantityUnits)} {line.unitLabel ? `${line.unitLabel}(s)` : "unités"}{line.boxesNeeded ? ` = ${fmt(line.boxesNeeded)} boîtes` : ""}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {line.ourProduct && <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-[11px] text-primary"><BadgeCheck className="h-3 w-3" /> {line.ourProduct}</span>}
-          {line.refPriceDzd != null && <span className="rounded bg-secondary px-2 py-0.5 text-[11px]" title={line.refPriceSource ?? undefined}>Prix réf. PCH : {fmt(line.refPriceDzd)} DZD</span>}
-          {line.fulfillmentPct != null && <span className="rounded bg-success/15 px-2 py-0.5 text-[11px] text-success">Vendu : {fmt(line.soldUnits)}/{fmt(line.quantityUnits)} ({line.fulfillmentPct}%)</span>}
+          {line.ourProduct && <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-[0.6875rem] text-primary"><BadgeCheck className="h-3 w-3" /> {line.ourProduct}</span>}
+          {line.refPriceDzd != null && <span className="rounded bg-secondary px-2 py-0.5 text-[0.6875rem]" title={line.refPriceSource ?? undefined}>Prix réf. PCH : {fmt(line.refPriceDzd)} DZD</span>}
+          {line.fulfillmentPct != null && <span className="rounded bg-success/15 px-2 py-0.5 text-[0.6875rem] text-success">Vendu : {fmt(line.soldUnits)}/{fmt(line.quantityUnits)} ({line.fulfillmentPct}%)</span>}
         </div>
       </div>
     );
@@ -262,7 +262,7 @@ function SalesBlock({ tenderId, line, canEdit, busy, run }: { tenderId: string; 
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
         <div className="h-full rounded-full bg-success transition-all" style={{ width: `${Math.min(100, pct)}%` }} />
       </div>
-      <p className="text-right text-[11px] font-medium text-success">{pct}% réalisé</p>
+      <p className="text-right text-[0.6875rem] font-medium text-success">{pct}% réalisé</p>
       {canEdit && (
         <div className="flex flex-wrap items-center gap-1.5">
           <input className={`${inp} w-32`} inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Quantité vendue" />
@@ -270,7 +270,7 @@ function SalesBlock({ tenderId, line, canEdit, busy, run }: { tenderId: string; 
           <button type="button" disabled={busy} onClick={addOrder} className="inline-flex items-center gap-1 rounded-lg bg-success px-2.5 py-1.5 text-xs font-medium text-white hover:bg-success/90 disabled:opacity-60"><ShoppingCart className="h-3.5 w-3.5" /> Enregistrer la vente</button>
         </div>
       )}
-      <p className="text-[11px] text-muted-foreground">Chaque bon de commande devient une <strong>vente réelle</strong> (fraction de la quantité attribuée) et apparaît dans « Bons de commande » ci-dessous, avec son suivi logistique.</p>
+      <p className="text-[0.6875rem] text-muted-foreground">Chaque bon de commande devient une <strong>vente réelle</strong> (fraction de la quantité attribuée) et apparaît dans « Bons de commande » ci-dessous, avec son suivi logistique.</p>
     </div>
   );
 }

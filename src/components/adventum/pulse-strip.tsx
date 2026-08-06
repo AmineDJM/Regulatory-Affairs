@@ -35,7 +35,7 @@ function Metric({ label, value, delta, tone }: { label: string; value: number; d
         <span className={cn("text-lg font-semibold tabular-nums", tone)}>{value}</span>
         <span className="text-xs"><Delta v={delta} /></span>
       </p>
-      <p className="truncate text-[11px] text-muted-foreground">{label}</p>
+      <p className="truncate text-[0.6875rem] text-muted-foreground">{label}</p>
     </div>
   );
 }
@@ -68,7 +68,7 @@ export function PulseStrip({ pulse }: { pulse: PulseView }) {
           </span>
           <div>
             <p className="flex items-center gap-1.5 text-sm font-semibold"><Activity className="h-4 w-4 text-primary" /> Analyse continue</p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.6875rem] text-muted-foreground">
               {pulse.hasData ? `Dernière passe ${ago(pulse.ageMinutes)}` : "Première analyse en cours…"}
               {pulse.points > 1 ? ` · ${pulse.points} relevés` : ""}
             </p>

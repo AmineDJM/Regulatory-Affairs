@@ -70,8 +70,8 @@ export function Donut({
             </path>
           ) : null,
         )}
-        <text x={c} y={c - 4} textAnchor="middle" className="fill-foreground text-[15px] font-semibold">{centerValue}</text>
-        <text x={c} y={c + 14} textAnchor="middle" fill={INK.muted} className="text-[10px]">{centerLabel}</text>
+        <text x={c} y={c - 4} textAnchor="middle" className="fill-foreground text-[0.9375rem] font-semibold">{centerValue}</text>
+        <text x={c} y={c + 14} textAnchor="middle" fill={INK.muted} className="text-[0.625rem]">{centerLabel}</text>
       </svg>
 
       {/* Légende CHIFFRÉE — l'information ne repose jamais sur la couleur seule. */}

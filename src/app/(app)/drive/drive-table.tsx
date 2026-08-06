@@ -182,9 +182,9 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
                         <span className="truncate">{n.name}</span>
                       </Link>
                       {n.isFile && n.category && (
-                        <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{n.category}</span>
+                        <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[0.625rem] font-medium text-muted-foreground">{n.category}</span>
                       )}
-                      {!n.isFile && isFolderTarget && <span className="shrink-0 text-[10px] font-medium text-primary">déposer ici</span>}
+                      {!n.isFile && isFolderTarget && <span className="shrink-0 text-[0.625rem] font-medium text-primary">déposer ici</span>}
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{n.owner}</TableCell>

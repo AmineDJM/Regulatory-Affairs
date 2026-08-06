@@ -83,7 +83,7 @@ export default async function ProcessIntelligencePage() {
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
                     <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.min(s.avgAge * 3, 100)}%` }} />
                   </div>
-                  <p className="text-[11px] text-muted-foreground">{s.count} dossier{s.count > 1 ? "s" : ""}</p>
+                  <p className="text-[0.6875rem] text-muted-foreground">{s.count} dossier{s.count > 1 ? "s" : ""}</p>
                 </div>
               ))
             )}

@@ -102,7 +102,7 @@ export function CommandPalette({ navItems }: { navItems: NavItem[] }) {
             className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
           {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-          <kbd className="hidden rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground sm:block">Esc</kbd>
+          <kbd className="hidden rounded border border-border px-1.5 py-0.5 text-[0.625rem] text-muted-foreground sm:block">Esc</kbd>
         </div>
 
         <div className="max-h-[55vh] overflow-y-auto p-2">
@@ -113,7 +113,7 @@ export function CommandPalette({ navItems }: { navItems: NavItem[] }) {
           ) : (
             [...groups.entries()].map(([group, gItems]) => (
               <div key={group} className="mb-1">
-                <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{group}</p>
+                <p className="px-2 py-1 text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground">{group}</p>
                 {gItems.map((item) => {
                   idx++;
                   const i = idx;

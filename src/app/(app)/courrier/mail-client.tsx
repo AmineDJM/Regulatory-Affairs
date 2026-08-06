@@ -163,13 +163,13 @@ export function MailClient({ email, signature: initialSignature }: { email: stri
             return (
               <button key={f.path} onClick={() => selectFolder(f.path)} className={cn("flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors", active ? "bg-card font-semibold text-primary shadow-sm ring-1 ring-primary/10" : "text-foreground hover:bg-card/60")}>
                 <Icon className={cn("h-4 w-4 shrink-0", active ? "text-primary" : "text-muted-foreground")} /><span className="flex-1 truncate text-left">{folderLabel(f)}</span>
-                {f.unseen > 0 && <span className="rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{f.unseen}</span>}
+                {f.unseen > 0 && <span className="rounded-full bg-primary px-1.5 text-[0.6875rem] font-semibold text-primary-foreground">{f.unseen}</span>}
               </button>
             );
           })}
         </nav>
         <div className="mt-2 flex items-center gap-2 px-2.5 py-1.5">
-          <span className="text-[11px] text-muted-foreground">Couleur</span>
+          <span className="text-[0.6875rem] text-muted-foreground">Couleur</span>
           <button type="button" onClick={() => chooseAccent("pink")} aria-label="Accent rose Infomaniak" title="Rose Infomaniak" className={cn("h-5 w-5 rounded-full ring-offset-2 ring-offset-secondary transition", accent === "pink" && "ring-2 ring-foreground")} style={{ backgroundColor: "#BC0055" }} />
           <button type="button" onClick={() => chooseAccent("blue")} aria-label="Accent bleu Infomaniak" title="Bleu Infomaniak" className={cn("h-5 w-5 rounded-full ring-offset-2 ring-offset-secondary transition", accent === "blue" && "ring-2 ring-foreground")} style={{ backgroundColor: "#0098FF" }} />
         </div>
@@ -212,7 +212,7 @@ export function MailClient({ email, signature: initialSignature }: { email: stri
           <div className="flex items-center gap-1.5">
             <button onClick={() => setUnreadOnly(false)} className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium", !unreadOnly ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary")}>Tous</button>
             <button onClick={() => setUnreadOnly(true)} className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium", unreadOnly ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary")}>Non lus</button>
-            {activeSearch && <span className="ml-auto truncate text-[11px] text-muted-foreground">Recherche : « {activeSearch} »</span>}
+            {activeSearch && <span className="ml-auto truncate text-[0.6875rem] text-muted-foreground">Recherche : « {activeSearch} »</span>}
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -233,7 +233,7 @@ export function MailClient({ email, signature: initialSignature }: { email: stri
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className={cn("truncate text-sm", !m.seen ? "font-semibold text-foreground" : "text-foreground/90")}>{m.from || m.fromAddr || "—"}</span>
-                  <span className="shrink-0 text-[11px] text-muted-foreground">{fmtDate(m.date)}</span>
+                  <span className="shrink-0 text-[0.6875rem] text-muted-foreground">{fmtDate(m.date)}</span>
                 </div>
                 <span className={cn("block truncate text-sm", !m.seen ? "font-medium text-foreground" : "text-muted-foreground")}>{m.subject || "(sans objet)"}</span>
               </div>
@@ -341,7 +341,7 @@ function AttachmentPreview({ mailbox, uid, att, onClose }: { mailbox: string; ui
             </div>
           )}
         </div>
-        {canPreview && <p className="border-t border-border px-4 py-1.5 text-center text-[11px] text-muted-foreground">Aperçu — utilisez « Télécharger » pour enregistrer le fichier.</p>}
+        {canPreview && <p className="border-t border-border px-4 py-1.5 text-center text-[0.6875rem] text-muted-foreground">Aperçu — utilisez « Télécharger » pour enregistrer le fichier.</p>}
       </div>
     </div>
   );
@@ -447,7 +447,7 @@ function SignatureSheet({ open, onClose, initial, onSaved }: { open: boolean; on
           placeholder={"Cordialement,\nPrénom NOM\nAdventum Pharma\n+213 …"} />
         {text.trim() && (
           <div className="rounded-lg border border-border bg-secondary/30 p-3">
-            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Aperçu</p>
+            <p className="mb-1 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Aperçu</p>
             <pre className="whitespace-pre-wrap text-sm">{text.trimEnd()}</pre>
           </div>
         )}

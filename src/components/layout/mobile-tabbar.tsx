@@ -98,9 +98,9 @@ export function MobileTabBar({
                         )}
                       >
                         <Icon name={item.icon} className="h-6 w-6" />
-                        <span className="text-[11px] font-medium leading-tight">{item.label}</span>
+                        <span className="text-[0.6875rem] font-medium leading-tight">{item.label}</span>
                         {badge > 0 && (
-                          <span className="absolute right-1.5 top-1.5 min-w-[18px] rounded-full bg-destructive px-1 text-[10px] font-bold leading-[18px] text-destructive-foreground">
+                          <span className="absolute right-1.5 top-1.5 min-w-[1.125rem] rounded-full bg-destructive px-1 text-[0.625rem] font-bold leading-[1.125rem] text-destructive-foreground">
                             {badge > 99 ? "99+" : badge}
                           </span>
                         )}
@@ -133,10 +133,10 @@ export function MobileTabBar({
                   active ? "text-primary" : "text-muted-foreground",
                 )}
               >
-                <TabIcon className="h-[22px] w-[22px]" />
-                <span className="text-[10px] font-medium">{tab.label}</span>
+                <TabIcon className="h-[1.375rem] w-[1.375rem]" />
+                <span className="text-[0.625rem] font-medium">{tab.label}</span>
                 {badge > 0 && (
-                  <span className="absolute right-[22%] top-1 min-w-[16px] rounded-full bg-destructive px-1 text-[9px] font-bold leading-4 text-destructive-foreground">
+                  <span className="absolute right-[22%] top-1 min-w-[1rem] rounded-full bg-destructive px-1 text-[0.5625rem] font-bold leading-4 text-destructive-foreground">
                     {badge > 99 ? "99+" : badge}
                   </span>
                 )}
@@ -152,8 +152,8 @@ export function MobileTabBar({
               drawer ? "text-primary" : "text-muted-foreground",
             )}
           >
-            <Grid3x3 className="h-[22px] w-[22px]" />
-            <span className="text-[10px] font-medium">Tout</span>
+            <Grid3x3 className="h-[1.375rem] w-[1.375rem]" />
+            <span className="text-[0.625rem] font-medium">Tout</span>
             {drawer && <span className="absolute inset-x-5 top-0 h-0.5 rounded-full bg-primary" />}
           </button>
         </div>

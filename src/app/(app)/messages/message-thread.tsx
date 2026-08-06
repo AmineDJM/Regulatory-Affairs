@@ -148,7 +148,7 @@ export function MessageThread({
               {daySep && m.kind !== "SYSTEM" && (
                 <div className="my-3 flex items-center gap-3 px-4">
                   <span className="h-px flex-1 bg-border" />
-                  <span className="rounded-full bg-secondary px-3 py-0.5 text-[11px] font-medium text-muted-foreground">{dayLabel(m.createdAt)}</span>
+                  <span className="rounded-full bg-secondary px-3 py-0.5 text-[0.6875rem] font-medium text-muted-foreground">{dayLabel(m.createdAt)}</span>
                   <span className="h-px flex-1 bg-border" />
                 </div>
               )}

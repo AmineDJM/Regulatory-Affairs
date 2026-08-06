@@ -52,7 +52,7 @@ export function BudgetForm({ dossierId, current }: { dossierId: string; current:
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Enregistrer
         </Button>
       </div>
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[0.6875rem] text-muted-foreground">
         Champ vide = plafond global. Au-delà du plafond, les analyses s&apos;arrêtent et le signalent.
       </p>
       {msg && (
@@ -105,7 +105,7 @@ export function DeferredReviewButton({ dossierId, pending }: { dossierId: string
           <span className="font-medium">Analyse différée en cours</span>
           <span className="text-xs text-muted-foreground">{pending.requestCount} part(s), déposée le {new Date(pending.submittedAt).toLocaleString("fr-FR")}</span>
         </p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">
           Les constats remplaceront la revue IA actuelle dès réception (sous 24 h). Vous serez prévenu.
         </p>
       </div>
@@ -117,7 +117,7 @@ export function DeferredReviewButton({ dossierId, pending }: { dossierId: string
       <Button size="sm" variant="outline" onClick={launch} disabled={busy}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Hourglass className="h-4 w-4" />} Réanalyser à moitié prix (sous 24 h)
       </Button>
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[0.6875rem] text-muted-foreground">
         Même lecture, même exigence, même consigne — seule la facturation change. À réserver aux réanalyses
         complètes : pour un dossier qu&apos;on examine maintenant, gardez l&apos;analyse immédiate.
       </p>

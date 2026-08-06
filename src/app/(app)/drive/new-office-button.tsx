@@ -58,7 +58,7 @@ export function NewOfficeButton({ parentId, officeEnabled, spaceId }: { parentId
                   >
                     <t.icon className={`h-6 w-6 ${active ? "text-primary" : "text-muted-foreground"}`} />
                     <span className="text-sm font-medium">{t.label}</span>
-                    <span className="text-[11px] text-muted-foreground">{t.hint}</span>
+                    <span className="text-[0.6875rem] text-muted-foreground">{t.hint}</span>
                   </button>
                 );
               })}

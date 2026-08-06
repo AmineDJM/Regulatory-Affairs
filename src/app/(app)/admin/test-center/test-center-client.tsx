@@ -83,8 +83,8 @@ export function LaunchPanel({ environment }: { environment: string }) {
         <Button onClick={launch} disabled={!canLaunch} size="sm">
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} {pending ? "Exécution…" : "Lancer le run"}
         </Button>
-        {needsConfirm && !canLaunch && !pending && <p className="text-[11px] text-amber-700">Cochez la confirmation et saisissez la phrase exacte pour activer le lancement.</p>}
-        <p className="text-[11px] text-muted-foreground">Chaque run rend un verdict (Certifié / avec réserves / Bloqué / Non concluant) et scelle un paquet de preuves haché. Modes avancés (Staging complet, Chaos, Sécurité, Performance) : phases suivantes.</p>
+        {needsConfirm && !canLaunch && !pending && <p className="text-[0.6875rem] text-amber-700">Cochez la confirmation et saisissez la phrase exacte pour activer le lancement.</p>}
+        <p className="text-[0.6875rem] text-muted-foreground">Chaque run rend un verdict (Certifié / avec réserves / Bloqué / Non concluant) et scelle un paquet de preuves haché. Modes avancés (Staging complet, Chaos, Sécurité, Performance) : phases suivantes.</p>
       </CardContent>
     </Card>
   );

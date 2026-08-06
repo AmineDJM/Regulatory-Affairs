@@ -94,7 +94,7 @@ export function InfoPanel({ detail, directory, selfId, onChanged, onLeft, onClos
 
         {/* Préférences */}
         <div className="space-y-1 px-3 py-2">
-          <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Préférences</p>
+          <p className="px-1 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">Préférences</p>
           <Row icon={Pin} label="Épingler dans ma liste" active={detail.isPinned} onClick={() => act(() => togglePinConversation(cid(detail.id)))} disabled={busy} toggle />
           <Row icon={detail.isMuted ? BellOff : Bell} label={detail.isMuted ? "Réactiver le son" : "Mettre en sourdine"} active={detail.isMuted} onClick={() => act(() => toggleMute(cid(detail.id)))} disabled={busy} toggle />
           <div className="flex items-center gap-2 rounded-lg px-2.5 py-2">
@@ -114,7 +114,7 @@ export function InfoPanel({ detail, directory, selfId, onChanged, onLeft, onClos
         {!isDirect && (
           <div className="px-3 py-2">
             <div className="flex items-center justify-between px-1 pb-1">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Membres · {detail.members.length}</p>
+              <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">Membres · {detail.members.length}</p>
               {canManage && (
                 <button onClick={() => setAdding((v) => !v)} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                   <UserPlus className="h-3.5 w-3.5" /> Ajouter

@@ -59,7 +59,7 @@ function MeetingMessageItem({ m }: { m: ChatMessage }) {
     <div className={`group max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${m.mine ? "ml-auto bg-primary text-primary-foreground" : "bg-secondary"}`}>
       {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
       <MessageAttachments attachments={m.attachments} onDark={m.mine} />
-      <p className={`mt-1 flex items-center gap-1.5 text-[11px] ${m.mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+      <p className={`mt-1 flex items-center gap-1.5 text-[0.6875rem] ${m.mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
         <span>{m.author} · {m.createdAt}</span>
         {m.canDelete && (
           <button type="button" onClick={remove} disabled={busy} title="Supprimer"

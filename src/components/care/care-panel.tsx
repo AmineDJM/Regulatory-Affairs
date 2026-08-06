@@ -165,7 +165,7 @@ export function CarePanel({
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{b.name}</p>
                   {b.subtitle && <p className="text-xs text-muted-foreground">{b.subtitle}</p>}
-                  {!b.fromDirectory && <p className="text-[11px] text-muted-foreground/80">Profil saisi — pas à l&apos;annuaire</p>}
+                  {!b.fromDirectory && <p className="text-[0.6875rem] text-muted-foreground/80">Profil saisi — pas à l&apos;annuaire</p>}
                 </div>
                 <StatusChip status={b.status} />
               </div>
@@ -227,7 +227,7 @@ export function CarePanel({
                 <div className="rounded-xl border border-border p-2.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-medium">Ce qu&apos;il faut pour {b.name.split(" ")[0]}</span>
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-[0.6875rem] text-muted-foreground">
                       {progress.settled}/{progress.total} réglé{progress.total > 1 ? "s" : ""}
                       {progress.costDzd > 0 ? ` · ${formatCurrency(progress.costDzd)}` : ""}
                     </span>
@@ -264,7 +264,7 @@ export function CarePanel({
                                   void run(`pm:${c.id}`, () => linkCareCellPromoMaterial(undefined, fd), "Matériel rattaché.");
                                 }}
                                 aria-label={`Rattacher un matériel à « ${c.label} »`}
-                                className="rounded-lg border border-border bg-background px-1.5 py-1 text-[11px] outline-none focus:border-primary/60"
+                                className="rounded-lg border border-border bg-background px-1.5 py-1 text-[0.6875rem] outline-none focus:border-primary/60"
                               >
                                 <option value="">Rattacher un matériel…</option>
                                 {promoOptions.map((p) => <option key={p.id} value={p.id}>{p.reference} — {p.title}</option>)}
@@ -282,7 +282,7 @@ export function CarePanel({
                                   void run(`cs:${c.id}`, () => setCareCellStatus(undefined, fd), "État mis à jour.");
                                 }}
                                 aria-label={`État de « ${c.label} »`}
-                                className="rounded-lg border border-border bg-background px-1.5 py-1 text-[11px] outline-none focus:border-primary/60"
+                                className="rounded-lg border border-border bg-background px-1.5 py-1 text-[0.6875rem] outline-none focus:border-primary/60"
                               >
                                 {(["REQUESTED", "PROVIDED", "SETTLED", "WAIVED"] as CareCellStatus[]).map((s) => (
                                   <option key={s} value={s}>{CELL_STATUS_LABELS[s]}</option>
@@ -375,7 +375,7 @@ export function CarePanel({
                 <li key={q.id} className="space-y-1 py-2.5 text-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{q.supplier}</span>
-                    {q.reference && <span className="font-mono text-[11px] text-muted-foreground">{q.reference}</span>}
+                    {q.reference && <span className="font-mono text-[0.6875rem] text-muted-foreground">{q.reference}</span>}
                     <span className="tabular-nums">{formatCurrency(q.amountDzd)}</span>
                     <Badge tone={q.status === "ACCEPTED" ? "success" : q.status === "REJECTED" ? "danger" : "warning"} dot={false}>
                       {QUOTE_STATUS_LABELS[q.status]}
@@ -572,7 +572,7 @@ function QuoteForm({ scope, requestId, cells, busy, onCancel, onSubmit }: {
 
       <fieldset className="rounded-lg border border-border p-2">
         <legend className="px-1 text-xs font-medium">Ce que ce devis couvre</legend>
-        <p className="mb-1 text-[11px] text-muted-foreground">
+        <p className="mb-1 text-[0.6875rem] text-muted-foreground">
           Une agence chiffre souvent le groupe entier : cochez tout ce que ce devis inclut, même pour plusieurs personnes.
         </p>
         <div className="max-h-40 space-y-1 overflow-y-auto">
@@ -606,7 +606,7 @@ function Figure({ label, value, hint, tone }: { label: string; value: string; hi
     <div className="rounded-lg border border-border px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`mt-0.5 text-base font-semibold tabular-nums ${cls}`}>{value}</p>
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
     </div>
   );
 }

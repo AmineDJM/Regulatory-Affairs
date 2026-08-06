@@ -21,7 +21,7 @@ export function ApproveNameButton({ documentId }: { documentId: string }) {
 
   return (
     <button type="button" disabled={busy} onClick={approve}
-      className="inline-flex items-center gap-1 rounded border border-success/40 px-1.5 py-0.5 text-[10px] text-success hover:bg-success/10 disabled:opacity-50"
+      className="inline-flex items-center gap-1 rounded border border-success/40 px-1.5 py-0.5 text-[0.625rem] text-success hover:bg-success/10 disabled:opacity-50"
       title="Approuver ce nom">
       {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} approuver
     </button>

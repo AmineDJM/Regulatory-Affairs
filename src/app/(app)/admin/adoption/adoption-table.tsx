@@ -78,11 +78,11 @@ export function AdoptionTable({ scores }: { scores: AdoptionScore[] }) {
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
                         <div className={cn("h-full", c.score >= 67 ? "bg-success" : c.score >= 34 ? "bg-warning" : "bg-destructive")} style={{ width: `${c.score}%` }} />
                       </div>
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">{c.detail}</p>
+                      <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">{c.detail}</p>
                     </div>
                   ))}
                 </div>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[0.6875rem] text-muted-foreground">
                   Dernière présence : {s.lastSeen ? formatDateTime(s.lastSeen) : "jamais"} · {s.activeDays} jour·s actif·s sur 30.
                 </p>
               </div>

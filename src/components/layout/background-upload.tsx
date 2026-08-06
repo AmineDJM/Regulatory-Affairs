@@ -232,7 +232,7 @@ function BgUploadWidget({ jobs, onDismiss, onRetry }: { jobs: BgJob[]; onDismiss
                       <p className="text-xs text-destructive">{done} réussi·s, {failed} en échec.</p>
                       <button type="button" onClick={() => onRetry(j.id)} className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted">Réessayer</button>
                     </div>
-                    {firstErr && <p className="rounded bg-destructive/10 px-2 py-1 text-[11px] leading-snug text-destructive" title={firstErr}>{firstErr}</p>}
+                    {firstErr && <p className="rounded bg-destructive/10 px-2 py-1 text-[0.6875rem] leading-snug text-destructive" title={firstErr}>{firstErr}</p>}
                   </div>
                 )}
               </li>

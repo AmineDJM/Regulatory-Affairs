@@ -91,8 +91,8 @@ export function BeneficiariesCard({
                 <span className="min-w-0">
                   <span className="font-medium">{b.name}</span>
                   {b.role && <span className="text-xs text-muted-foreground"> · {b.role}</span>}
-                  {b.doctorId && <Badge tone="info" dot={false} className="ml-1.5 text-[10px]">annuaire</Badge>}
-                  {b.institution && <span className="block truncate text-[11px] text-muted-foreground"><Hospital className="mr-1 inline h-3 w-3" />{b.institution}</span>}
+                  {b.doctorId && <Badge tone="info" dot={false} className="ml-1.5 text-[0.625rem]">annuaire</Badge>}
+                  {b.institution && <span className="block truncate text-[0.6875rem] text-muted-foreground"><Hospital className="mr-1 inline h-3 w-3" />{b.institution}</span>}
                 </span>
                 {canManage && <button onClick={() => remove(b.id)} title="Retirer" className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
               </li>

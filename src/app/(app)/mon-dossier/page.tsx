@@ -126,7 +126,7 @@ export default async function MonDossierPage() {
                           )}
                         </div>
                       )}
-                      <p className="text-[11px] text-muted-foreground">Demandée le {formatDateTime(r.createdAt)}</p>
+                      <p className="text-[0.6875rem] text-muted-foreground">Demandée le {formatDateTime(r.createdAt)}</p>
                     </div>
                     {r.fulfilmentDocId && (
                       <a href={`/api/rh/document/${r.fulfilmentDocId}?dl=1`} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">

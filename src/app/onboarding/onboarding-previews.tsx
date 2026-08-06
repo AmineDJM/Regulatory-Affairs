@@ -15,7 +15,7 @@ function Frame({ children, title }: { children: React.ReactNode; title: string }
         <span className="h-2.5 w-2.5 rounded-full bg-destructive/60" />
         <span className="h-2.5 w-2.5 rounded-full bg-warning/70" />
         <span className="h-2.5 w-2.5 rounded-full bg-success/60" />
-        <span className="ml-2 text-[10px] font-medium text-muted-foreground">{title}</span>
+        <span className="ml-2 text-[0.625rem] font-medium text-muted-foreground">{title}</span>
       </div>
       <div className="p-3">{children}</div>
     </div>
@@ -26,7 +26,7 @@ function Frame({ children, title }: { children: React.ReactNode; title: string }
 export function AssistantPreview() {
   return (
     <Frame title="Assistant — partout, en bas à droite">
-      <div className="space-y-2 text-[11px]">
+      <div className="space-y-2 text-[0.6875rem]">
         <div className="ml-auto w-fit max-w-[80%] rounded-2xl rounded-br-sm bg-primary px-3 py-1.5 text-primary-foreground">
           Crée un projet « Prix billets congrès Alger » pour Radia
         </div>
@@ -38,8 +38,8 @@ export function AssistantPreview() {
               <p className="flex items-center gap-1.5 font-medium"><FolderKanban className="h-3 w-3 text-primary" /> Nouveau projet</p>
               <p className="mt-0.5 text-muted-foreground">Responsable : Radia · Priorité : Normale</p>
               <div className="mt-1.5 flex gap-1.5">
-                <span className="rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground">Confirmer</span>
-                <span className="rounded border border-border px-2 py-0.5 text-[10px]">Annuler</span>
+                <span className="rounded bg-primary px-2 py-0.5 text-[0.625rem] font-medium text-primary-foreground">Confirmer</span>
+                <span className="rounded border border-border px-2 py-0.5 text-[0.625rem]">Annuler</span>
               </div>
             </div>
           </div>
@@ -53,11 +53,11 @@ export function AssistantPreview() {
 export function SearchPreview() {
   return (
     <Frame title="Recherche universelle">
-      <div className="space-y-2 text-[11px]">
+      <div className="space-y-2 text-[0.6875rem]">
         <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-2.5 py-1.5">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-muted-foreground">Aller à…</span>
-          <kbd className="ml-auto rounded border border-border px-1 py-0.5 text-[9px]">⌘K</kbd>
+          <kbd className="ml-auto rounded border border-border px-1 py-0.5 text-[0.5625rem]">⌘K</kbd>
         </div>
         {[
           { i: <FolderKanban className="h-3 w-3" />, t: "Projets", s: "Module" },
@@ -67,7 +67,7 @@ export function SearchPreview() {
           <div key={r.t} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-secondary/60">
             <span className="flex h-5 w-5 items-center justify-center rounded bg-secondary text-muted-foreground">{r.i}</span>
             <span className="font-medium">{r.t}</span>
-            <span className="ml-auto text-[10px] text-muted-foreground">{r.s}</span>
+            <span className="ml-auto text-[0.625rem] text-muted-foreground">{r.s}</span>
           </div>
         ))}
       </div>
@@ -79,14 +79,14 @@ export function SearchPreview() {
 export function CourrierPreview() {
   return (
     <Frame title="Courrier — votre boîte pro">
-      <div className="grid grid-cols-[1fr_2fr] gap-2 text-[11px]">
+      <div className="grid grid-cols-[1fr_2fr] gap-2 text-[0.6875rem]">
         <div className="space-y-1">
           {["Réception", "Envoyés", "Brouillons"].map((f, i) => (
             <div key={f} className={`flex items-center justify-between rounded-md px-2 py-1 ${i === 0 ? "bg-card font-medium shadow-sm ring-1 ring-primary/10" : "text-muted-foreground"}`}>
-              <span>{f}</span>{i === 0 && <span className="rounded-full bg-primary px-1.5 text-[9px] text-primary-foreground">3</span>}
+              <span>{f}</span>{i === 0 && <span className="rounded-full bg-primary px-1.5 text-[0.5625rem] text-primary-foreground">3</span>}
             </div>
           ))}
-          <div className="mt-1 flex items-center justify-center gap-1 rounded-md bg-gradient-to-r from-primary to-primary/80 px-2 py-1 text-[10px] font-medium text-primary-foreground"><Send className="h-3 w-3" /> Nouveau</div>
+          <div className="mt-1 flex items-center justify-center gap-1 rounded-md bg-gradient-to-r from-primary to-primary/80 px-2 py-1 text-[0.625rem] font-medium text-primary-foreground"><Send className="h-3 w-3" /> Nouveau</div>
         </div>
         <div className="space-y-1">
           {[
@@ -95,10 +95,10 @@ export function CourrierPreview() {
             { n: "ANPP", s: "Accusé de réception", u: false },
           ].map((m) => (
             <div key={m.s} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-secondary/50">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[9px] font-semibold text-accent-foreground">{m.n[0]}</span>
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[0.5625rem] font-semibold text-accent-foreground">{m.n[0]}</span>
               <div className="min-w-0">
                 <p className={m.u ? "font-semibold" : ""}>{m.n}</p>
-                <p className="truncate text-[10px] text-muted-foreground">{m.s}</p>
+                <p className="truncate text-[0.625rem] text-muted-foreground">{m.s}</p>
               </div>
               {m.u && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />}
             </div>
@@ -113,10 +113,10 @@ export function CourrierPreview() {
 export function DossierPreview() {
   return (
     <Frame title="Projet">
-      <div className="space-y-2 text-[11px]">
+      <div className="space-y-2 text-[0.6875rem]">
         <div className="flex items-center justify-between">
           <p className="flex items-center gap-1.5 font-semibold"><FolderKanban className="h-3.5 w-3.5 text-primary" /> Analyse IQVIA — Cardio</p>
-          <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[9px] font-medium text-warning">En cours</span>
+          <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[0.5625rem] font-medium text-warning">En cours</span>
         </div>
         <div className="flex gap-1.5">
           {["Discussion", "Fichiers", "E-mails"].map((t, i) => (

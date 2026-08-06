@@ -213,7 +213,7 @@ export function AdProItemsPanel({
                     ) : (
                       <span className="text-muted-foreground">Aucun matériel rattaché.</span>
                     )}
-                    <p className="mt-1 text-[11px] text-muted-foreground">
+                    <p className="mt-1 text-[0.6875rem] text-muted-foreground">
                       Le matériel suit <strong>son propre circuit</strong> (visa publicitaire, conformité, agence, BAT).
                       Ce sponsoring en montre l&apos;avancement, il ne le pilote pas.
                     </p>
@@ -241,7 +241,7 @@ export function AdProItemsPanel({
                     </Button>
                   ) : null}
                   {!it.expenseOrder && canAllocate && !emit.ok && (
-                    <span className="text-[11px] text-muted-foreground">{emit.reason}</span>
+                    <span className="text-[0.6875rem] text-muted-foreground">{emit.reason}</span>
                   )}
                   {canEdit && !it.expenseOrderId && (
                     <button
@@ -352,7 +352,7 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
       </label>
 
       {decided && (
-        <p className="flex items-start gap-1.5 text-[11px] text-warning">
+        <p className="flex items-start gap-1.5 text-[0.6875rem] text-warning">
           <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
           Le sponsoring est déjà tranché : ce poste sera marqué « ajouté après décision » et fera
           apparaître un dépassement d&apos;enveloppe s&apos;il n&apos;est pas compensé.
@@ -375,7 +375,7 @@ function Figure({ label, value, hint, tone }: { label: string; value: string; hi
     <div className="rounded-lg border border-border px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`mt-0.5 text-base font-semibold tabular-nums ${cls}`}>{value}</p>
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
     </div>
   );
 }

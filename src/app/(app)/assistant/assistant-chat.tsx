@@ -425,7 +425,7 @@ export function AssistantChat({
                 </ul>
               )}
               {streaming?.text ? (
-                <p className="whitespace-pre-wrap text-[15px] leading-relaxed">
+                <p className="whitespace-pre-wrap text-[0.9375rem] leading-relaxed">
                   {cleanReply(streaming.text)}
                   <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-foreground align-middle" aria-hidden />
                 </p>
@@ -451,7 +451,7 @@ export function AssistantChat({
               <span key={a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/60 px-2 py-1 text-xs">
                 <FileText className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="max-w-[180px] truncate">{a.name}</span>
-                {a.kind === "drive" && <span className="text-[10px] text-muted-foreground">Drive</span>}
+                {a.kind === "drive" && <span className="text-[0.625rem] text-muted-foreground">Drive</span>}
                 <button type="button" onClick={() => removeAttachment(a.id)} className="text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>
               </span>
             ))}
@@ -515,7 +515,7 @@ export function AssistantChat({
             </Button>
           )}
         </form>
-        <p className="mt-2 text-center text-[11px] text-muted-foreground">
+        <p className="mt-2 text-center text-[0.6875rem] text-muted-foreground">
           L&apos;assistant peut se tromper. Chaque action qu&apos;il propose vous est soumise avant d&apos;être exécutée.
         </p>
         </div>
@@ -583,7 +583,7 @@ function ThreadRail({
         ) : (
           groups.map((g) => (
             <div key={g.label} className="mb-2">
-              <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{g.label}</p>
+              <p className="px-2 py-1 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">{g.label}</p>
               <div className="space-y-0.5">
                 {g.items.map((t) => (
                   <div key={t.id}
@@ -604,12 +604,12 @@ function ThreadRail({
       </div>
 
       <div className="border-t border-border px-3 py-2.5">
-        <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+        <p className="flex items-start gap-1.5 text-[0.6875rem] leading-snug text-muted-foreground">
           <Lock className="mt-0.5 h-3 w-3 shrink-0" />
           Mémoire strictement personnelle : personne d&apos;autre — pas même un administrateur — n&apos;y a accès.
         </p>
         {threads.length > 0 && (
-          <button type="button" onClick={onForget} className="mt-1.5 text-[11px] text-muted-foreground underline-offset-2 transition hover:text-destructive hover:underline">
+          <button type="button" onClick={onForget} className="mt-1.5 text-[0.6875rem] text-muted-foreground underline-offset-2 transition hover:text-destructive hover:underline">
             Tout effacer
           </button>
         )}
@@ -708,7 +708,7 @@ function MessageBubble({
         {msg.trace && msg.trace.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {msg.trace.map((t) => (
-              <span key={t} className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
+              <span key={t} className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[0.6875rem] text-muted-foreground">
                 <Search className="h-3 w-3" /> {t}
               </span>
             ))}
@@ -749,7 +749,7 @@ export function ActionCard({
       <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5">
         <Sparkles className="h-4 w-4 text-primary" />
         <span className="text-sm font-semibold">{proposal.title}</span>
-        <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">À confirmer</span>
+        <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[0.6875rem] font-medium text-primary">À confirmer</span>
       </div>
 
       <dl className="divide-y divide-border/50">

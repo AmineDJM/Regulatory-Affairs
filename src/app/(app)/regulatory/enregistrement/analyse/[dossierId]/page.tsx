@@ -207,7 +207,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
               );
             })()}
             {latest.originalSha256 && (
-              <p className="mb-2 truncate font-mono text-[11px] text-muted-foreground" title={latest.originalSha256}>
+              <p className="mb-2 truncate font-mono text-[0.6875rem] text-muted-foreground" title={latest.originalSha256}>
                 SHA-256 archive : {latest.originalSha256}
               </p>
             )}
@@ -233,10 +233,10 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                         <td className="py-1.5 pr-3">
                           <span className="block max-w-[22rem] truncate font-medium" title={doc.originalPath}>{doc.originalFilename}</span>
                           {doc.approvedFilename ? (
-                            <span className="block max-w-[22rem] truncate text-[11px] text-success" title={doc.approvedFilename}>✓ {doc.approvedFilename}</span>
+                            <span className="block max-w-[22rem] truncate text-[0.6875rem] text-success" title={doc.approvedFilename}>✓ {doc.approvedFilename}</span>
                           ) : doc.suggestedFilename && !blocked ? (
                             <span className="flex items-center gap-1.5">
-                              <span className="min-w-0 max-w-[18rem] truncate text-[11px] text-primary" title={doc.suggestedFilename}>→ {doc.suggestedFilename}</span>
+                              <span className="min-w-0 max-w-[18rem] truncate text-[0.6875rem] text-primary" title={doc.suggestedFilename}>→ {doc.suggestedFilename}</span>
                               {canApproveDoc && <ApproveNameButton documentId={doc.id} />}
                             </span>
                           ) : null}
@@ -247,7 +247,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                           ) : doc.ctdSection ? (
                             <span className="inline-flex flex-col">
                               <span className="text-xs font-medium">{doc.ctdSection}</span>
-                              <span className="max-w-[12rem] truncate text-[11px] text-muted-foreground" title={`${doc.ctdModule ?? ""} — confiance ${Math.round((doc.ctdConfidence ?? 0) * 100)}%`}>
+                              <span className="max-w-[12rem] truncate text-[0.6875rem] text-muted-foreground" title={`${doc.ctdModule ?? ""} — confiance ${Math.round((doc.ctdConfidence ?? 0) * 100)}%`}>
                                 {doc.ctdModule} · {Math.round((doc.ctdConfidence ?? 0) * 100)}%
                               </span>
                             </span>
@@ -257,7 +257,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                             <span className="text-xs text-amber-600">non classé</span>
                           )}
                           {!blocked && doc.containedSections.filter((s) => s !== doc.ctdSection).length > 0 && (
-                            <span className="mt-0.5 block max-w-[13rem] truncate text-[11px] text-primary"
+                            <span className="mt-0.5 block max-w-[13rem] truncate text-[0.6875rem] text-primary"
                               title={`Sections CTD aussi présentes dans ce PDF consolidé : ${doc.containedSections.join(", ")}`}>
                               contient : {doc.containedSections.filter((s) => s !== doc.ctdSection).slice(0, 6).join(", ")}
                             </span>
@@ -342,7 +342,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                   {row.present ? <CheckCircle2 className="h-4 w-4 shrink-0 text-success" /> : <XCircle className={`h-4 w-4 shrink-0 ${row.kind === "required" ? "text-destructive" : "text-amber-600"}`} />}
                   <span className="font-medium">{row.code}</span>
                   <span className="min-w-0 flex-1 truncate text-muted-foreground" title={row.title}>{row.title}</span>
-                  {row.kind === "required" && <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/70">obligatoire</span>}
+                  {row.kind === "required" && <span className="shrink-0 text-[0.625rem] uppercase tracking-wide text-muted-foreground/70">obligatoire</span>}
                 </div>
               ))}
             </div>
@@ -370,7 +370,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                     : <Info className="h-4 w-4 shrink-0 text-muted-foreground/70" />}
                   <span className="font-medium">{row.code}</span>
                   <span className="min-w-0 flex-1 truncate text-muted-foreground" title={row.label}>{row.label}</span>
-                  <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                  <span className="shrink-0 text-[0.625rem] uppercase tracking-wide text-muted-foreground/70">
                     {row.present ? "joint" : "à fournir"}
                   </span>
                 </div>
@@ -443,12 +443,12 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-medium text-foreground">{f.title}</span>
-                        {f.blocker && <span className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-semibold text-white">BLOQUEUR</span>}
-                        {f.source === "AI" && f.draft && <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">PROJET IA — REVUE REQUISE</span>}
-                        {f.source === "HUMAN" && <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-white">HUMAIN</span>}
+                        {f.blocker && <span className="rounded bg-destructive px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">BLOQUEUR</span>}
+                        {f.source === "AI" && f.draft && <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">PROJET IA — REVUE REQUISE</span>}
+                        {f.source === "HUMAN" && <span className="rounded bg-primary px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">HUMAIN</span>}
                       </div>
                       <p className="mt-0.5 text-xs text-muted-foreground">{f.detail}</p>
-                      {f.evidence && <p className="mt-0.5 text-[11px] italic text-muted-foreground/80">Preuve : {f.evidence}</p>}
+                      {f.evidence && <p className="mt-0.5 text-[0.6875rem] italic text-muted-foreground/80">Preuve : {f.evidence}</p>}
                       <FindingEvidence finding={f} reserves={reservesById} docNames={findingDocNames} />
                       <FindingControls findingId={f.id} status={f.status} blocker={f.blocker} canEdit={canEditFinding} canApprove={canApproveFinding} />
                     </div>
@@ -689,7 +689,7 @@ function CostStat({ label, value, hint, tone }: { label: string; value: string; 
     <div className="rounded-lg border border-border px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`mt-0.5 text-base font-semibold tabular-nums ${cls}`}>{value}</p>
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -704,7 +704,7 @@ function CostTable({ title, rows, labelize }: { title: string; rows: { key: stri
         {rows.map((r) => (
           <li key={r.key} className="flex items-center gap-2 py-1.5 text-sm">
             <span className="min-w-0 flex-1 truncate">{labelize ? labelize(r.key) : r.label}</span>
-            <span className="shrink-0 text-[11px] text-muted-foreground">
+            <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
               {r.calls} appel{r.calls > 1 ? "s" : ""}{r.cachedCalls > 0 ? ` · ${r.cachedCalls} réemployé(s)` : ""}
             </span>
             <span className="shrink-0 tabular-nums">{usd(r.costUsd)}</span>
@@ -742,7 +742,7 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
     <div className="mt-1.5 space-y-1.5 border-l-2 border-border/60 pl-2.5">
       {/* La règle et le degré de certitude. */}
       {(f.ruleRef || f.confidence != null) && (
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.6875rem] text-muted-foreground">
           {f.ruleRef && <span className="rounded bg-secondary px-1.5 py-0.5 font-medium text-foreground">{f.ruleRef}</span>}
           {f.confidence != null && <span>confiance {Math.round(f.confidence * 100)} %</span>}
         </p>
@@ -750,7 +750,7 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
 
       {/* LA PIÈCE : où regarder, et ce qui y est écrit. */}
       {(docName || f.page != null || f.excerpt) && (
-        <div className="text-[11px]">
+        <div className="text-[0.6875rem]">
           <p className="text-muted-foreground">
             {docName ?? "Document"}{f.page != null ? ` — page ${f.page}` : ""}
           </p>
@@ -764,7 +764,7 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
 
       {/* Ce qui se contredit — la raison d'être du constat quand il porte sur une incohérence. */}
       {f.conflictingValues.length > 0 && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.6875rem] text-muted-foreground">
           <span className="font-medium text-foreground">Valeurs contradictoires :</span>{" "}
           {f.conflictingValues.slice(0, 6).join("  ≠  ")}
         </p>
@@ -772,7 +772,7 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
 
       {/* Quoi faire. */}
       {f.recommendation && (
-        <p className="rounded-lg bg-primary/5 px-2 py-1 text-[11px] text-foreground">
+        <p className="rounded-lg bg-primary/5 px-2 py-1 text-[0.6875rem] text-foreground">
           <span className="font-medium">À faire :</span> {f.recommendation}
         </p>
       )}
@@ -780,7 +780,7 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
       {/* Les précédents ANPP — information, jamais règle de droit. */}
       {(linked.length > 0 || riskPct != null) && (
         <div className="rounded-lg border border-border/70 px-2 py-1.5">
-          <p className="flex flex-wrap items-center gap-2 text-[11px]">
+          <p className="flex flex-wrap items-center gap-2 text-[0.6875rem]">
             <Library className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="font-medium text-foreground">Déjà vu à l&apos;ANPP</span>
             {riskPct != null && (
@@ -790,8 +790,8 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
             )}
           </p>
           {linked.slice(0, 3).map((r) => (
-            <div key={r.id} className="mt-1 text-[11px]">
-              <span className={`mr-1.5 rounded px-1 py-0.5 text-[10px] font-semibold ${r.status === "ACCEPTED" ? "bg-success/15 text-success" : r.status === "REITERATED" ? "bg-destructive/15 text-destructive" : "bg-secondary text-muted-foreground"}`}>
+            <div key={r.id} className="mt-1 text-[0.6875rem]">
+              <span className={`mr-1.5 rounded px-1 py-0.5 text-[0.625rem] font-semibold ${r.status === "ACCEPTED" ? "bg-success/15 text-success" : r.status === "REITERATED" ? "bg-destructive/15 text-destructive" : "bg-secondary text-muted-foreground"}`}>
                 {r.status === "ACCEPTED" ? "réponse acceptée" : r.status === "REITERATED" ? "réitérée" : r.status.toLowerCase()}
               </span>
               <span className="text-muted-foreground">{r.verbatim.slice(0, 180)}{r.verbatim.length > 180 ? "…" : ""}</span>
@@ -802,7 +802,7 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
               )}
             </div>
           ))}
-          <p className="mt-1 text-[10px] text-muted-foreground/80">
+          <p className="mt-1 text-[0.625rem] text-muted-foreground/80">
             Précédent, pas règle de droit — la sévérité du constat n&apos;en a pas été modifiée.
           </p>
         </div>

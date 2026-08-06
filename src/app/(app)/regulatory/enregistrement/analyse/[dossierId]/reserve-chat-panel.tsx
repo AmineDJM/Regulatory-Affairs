@@ -69,7 +69,7 @@ export function ReserveChatPanel({ dossierId, configured }: { dossierId: string;
             <div className="flex flex-wrap gap-1.5">
               {SUGGESTIONS.map((s) => (
                 <button key={s} type="button" onClick={() => setInput(s)}
-                  className="rounded-full border border-border px-2.5 py-1 text-[11px] transition-colors hover:bg-accent">
+                  className="rounded-full border border-border px-2.5 py-1 text-[0.6875rem] transition-colors hover:bg-accent">
                   {s}
                 </button>
               ))}
@@ -87,7 +87,7 @@ export function ReserveChatPanel({ dossierId, configured }: { dossierId: string;
               {m.citations && m.citations.length > 0 && (
                 <ul className="mt-2 space-y-1 border-t border-border/40 pt-2">
                   {m.citations.map((c) => (
-                    <li key={c.n} className="text-[11px] text-muted-foreground">
+                    <li key={c.n} className="text-[0.6875rem] text-muted-foreground">
                       <span className="font-medium text-foreground">[{c.n}] {c.filename}</span>
                       {c.ctdSection ? ` · ${c.ctdSection}` : ""}
                       {c.page ? ` · p.${c.page}` : ""}

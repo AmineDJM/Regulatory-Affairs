@@ -122,8 +122,8 @@ export function RegulatoryProcess({
                       <button type="button" onClick={() => setOpenKey(expanded ? null : s.key)} className="min-w-0 flex-1 text-left">
                         <p className={`text-sm font-medium ${done ? "text-muted-foreground line-through" : ""}`}>{s.label}</p>
                         <p className="text-xs text-muted-foreground">{s.responsible} · {s.expected}</p>
-                        {state[s.key]?.date && done && <p className="text-[11px] text-success">Fait le {state[s.key]!.date}</p>}
-                        <span className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                        {state[s.key]?.date && done && <p className="text-[0.6875rem] text-success">Fait le {state[s.key]!.date}</p>}
+                        <span className="mt-1 flex items-center gap-2 text-[0.6875rem] text-muted-foreground">
                           {docs.length > 0 && <span className="inline-flex items-center gap-0.5"><Paperclip className="h-3 w-3" />{docs.length}</span>}
                           {note && <span className="inline-flex items-center gap-0.5"><MessageSquare className="h-3 w-3" /> note</span>}
                           <span className="inline-flex items-center gap-0.5 text-primary"><ChevronDown className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`} /> {expanded ? "Réduire" : "Pièces & note"}</span>
@@ -280,7 +280,7 @@ export function RegulatoryChecklist({ productId, checklist, canUpdate }: { produ
                     />
                     <span className="text-sm">
                       <span className={checked ? "text-muted-foreground line-through" : ""}>{item.label}</span>
-                      {item.hint && <span className="block text-[11px] text-muted-foreground">{item.hint}</span>}
+                      {item.hint && <span className="block text-[0.6875rem] text-muted-foreground">{item.hint}</span>}
                     </span>
                   </label>
                 );

@@ -65,7 +65,7 @@ export function DocumentList({
             </div>
             <div className="min-w-0 flex-1">
               <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} canEdit={canEdit} canDelete={canDelete} canRename={canRename} path={path} />
-              <p className="truncate text-[11px] text-muted-foreground" title={meta}>{meta}</p>
+              <p className="truncate text-[0.6875rem] text-muted-foreground" title={meta}>{meta}</p>
             </div>
           </li>
         );

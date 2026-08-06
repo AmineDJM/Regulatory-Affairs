@@ -16,7 +16,7 @@ export default async function InscriptionPage({ params }: { params: { id: string
       <div className="mx-auto max-w-2xl px-4 py-10">
         <div className="mb-6 flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">A</div>
-          <div className="leading-tight"><p className="text-sm font-semibold">Adventum Pharma</p><p className="text-[11px] text-muted-foreground">Inscription à l'événement</p></div>
+          <div className="leading-tight"><p className="text-sm font-semibold">Adventum Pharma</p><p className="text-[0.6875rem] text-muted-foreground">Inscription à l'événement</p></div>
         </div>
 
         <div className="surface overflow-hidden">
@@ -41,7 +41,7 @@ export default async function InscriptionPage({ params }: { params: { id: string
             )}
           </div>
         </div>
-        <p className="mt-4 text-center text-[11px] text-muted-foreground">© {new Date().getFullYear()} Adventum Pharma</p>
+        <p className="mt-4 text-center text-[0.6875rem] text-muted-foreground">© {new Date().getFullYear()} Adventum Pharma</p>
       </div>
     </div>
   );

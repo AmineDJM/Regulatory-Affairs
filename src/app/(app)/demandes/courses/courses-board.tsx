@@ -97,7 +97,7 @@ export function CoursesBoard({ courses, drivers, others }: { courses: CourseDTO[
                 <ol className="space-y-1.5">
                   {c.stops.map((s, i) => (
                     <li key={s.id} className={`flex items-start gap-2 text-sm ${s.done ? "text-muted-foreground line-through" : ""}`}>
-                      <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${s.done ? "bg-success/15 text-success" : "bg-secondary text-foreground"}`}>{letter(i)}</span>
+                      <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.6875rem] font-semibold ${s.done ? "bg-success/15 text-success" : "bg-secondary text-foreground"}`}>{letter(i)}</span>
                       <span><span className="font-medium">{s.location}</span>{s.task ? <span className="text-muted-foreground"> — {s.task}</span> : null}</span>
                     </li>
                   ))}

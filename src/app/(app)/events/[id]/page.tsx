@@ -181,5 +181,5 @@ function eventValidationSteps(status: string): VStep[] {
 }
 function Mini({ label, value, tone }: { label: string; value: string | number; tone?: "success" | "info" }) {
   const c = tone === "success" ? "text-success" : tone === "info" ? "text-primary" : "";
-  return <div className="rounded-lg border border-border p-2.5"><p className="text-[11px] text-muted-foreground">{label}</p><p className={`text-lg font-semibold ${c}`}>{value}</p></div>;
+  return <div className="rounded-lg border border-border p-2.5"><p className="text-[0.6875rem] text-muted-foreground">{label}</p><p className={`text-lg font-semibold ${c}`}>{value}</p></div>;
 }

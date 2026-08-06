@@ -136,7 +136,7 @@ export default async function ValidationsPage() {
                   {/* Accès à la demande ORIGINALE : lien vers l'objet + aperçu de ses pièces sur place. */}
                   {(r.link || r.documents.length > 0) && (
                     <div className="space-y-2 rounded-lg border border-border/60 bg-secondary/20 p-2">
-                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Demande originale</p>
+                      <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Demande originale</p>
                       {r.link && (
                         <Link href={r.link} className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
                           <ExternalLink className="h-3.5 w-3.5" /> Ouvrir la demande originale
@@ -215,7 +215,7 @@ export default async function ValidationsPage() {
                   {/* Retour DÉTAILLÉ par élément (message + pièces) : le demandeur voit exactement ce qui va / ne va pas. */}
                   {r.steps.some((s) => s.items && s.items.length > 0) && (
                     <div className="space-y-1.5 rounded-lg border border-border/60 bg-secondary/20 p-2">
-                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Retour détaillé par élément</p>
+                      <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Retour détaillé par élément</p>
                       {r.steps.filter((s) => s.items && s.items.length > 0).map((s) => (
                         <div key={s.order} className="space-y-0.5">
                           <p className="text-xs font-medium">{s.validator}</p>
@@ -269,7 +269,7 @@ function PendingValidationCard({ v, actionable }: { v: PendingValidationItem; ac
           {/* Verdict par ÉLÉMENT (message) : approuver / réviser / refuser + commentaire optionnel. */}
           {actionable && (
             <div className="rounded-lg border border-border/60 bg-secondary/20 p-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Votre avis sur le message</p>
+              <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Votre avis sur le message</p>
               <ItemReview stepId={v.stepId} itemKey="MESSAGE" current={msgDecision?.decision} currentComment={msgDecision?.comment} />
             </div>
           )}
@@ -284,7 +284,7 @@ function PendingValidationCard({ v, actionable }: { v: PendingValidationItem; ac
           )}
           {v.documents.length > 0 && (
             <div className="mt-1 rounded-lg border border-border/60 bg-secondary/30 p-2">
-              <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="mb-1 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
                 Pièces à valider ({v.documents.length})
               </p>
               {/* Actionnable : aperçu sur place + verdict PAR pièce. Sinon : lecture seule. */}

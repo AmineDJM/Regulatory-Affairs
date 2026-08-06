@@ -90,7 +90,7 @@ export default async function DossiersPage() {
                       </Link>
                       <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
                         <span className="font-mono">{d.reference}</span>
-                        {d.category && <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium">{d.category}</span>}
+                        {d.category && <span className="rounded-full bg-secondary px-2 py-0.5 text-[0.625rem] font-medium">{d.category}</span>}
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{d.assignedTo?.name ?? "—"}</TableCell>

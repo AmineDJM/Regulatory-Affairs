@@ -82,14 +82,14 @@ export function CalendarView({
                       <button
                         key={e.id}
                         onClick={() => setSheet({ mode: "view", event: e })}
-                        className="flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] hover:opacity-80"
+                        className="flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[0.6875rem] hover:opacity-80"
                         style={{ backgroundColor: `${colorOf(e)}1a`, color: colorOf(e) }}
                       >
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorOf(e) }} />
                         <span className="truncate font-medium">{e.timeLabel && `${e.timeLabel} `}{e.title}</span>
                       </button>
                     ))}
-                    {dayEvents.length > 3 && <p className="px-1 text-[10px] text-muted-foreground">+{dayEvents.length - 3} autre·s</p>}
+                    {dayEvents.length > 3 && <p className="px-1 text-[0.625rem] text-muted-foreground">+{dayEvents.length - 3} autre·s</p>}
                   </div>
                 </div>
               );
@@ -204,7 +204,7 @@ function EventDetail({ event: e, currentUserId, onEdit, onDone }: { event: Calen
           <ul className="space-y-1">
             {e.invitees.map((i) => (
               <li key={i.userId} className="flex items-center justify-between gap-2 text-sm">
-                <span className="flex items-center gap-1.5"><Avatar name={i.name} size="sm" className="h-5 w-5 text-[9px]" /> {i.name}</span>
+                <span className="flex items-center gap-1.5"><Avatar name={i.name} size="sm" className="h-5 w-5 text-[0.5625rem]" /> {i.name}</span>
                 <StatusBadge map={CALENDAR_INVITE_STATUS} value={i.status} dot={false} />
               </li>
             ))}

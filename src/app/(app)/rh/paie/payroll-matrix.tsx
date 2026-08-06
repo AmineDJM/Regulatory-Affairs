@@ -105,7 +105,7 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
                         {cell.state === "PAID" && cell.entryId && (
                           <button
                             onClick={() => undo(cell.entryId!, r.name, i + 1)}
-                            className="mt-0.5 hidden items-center gap-0.5 text-[10px] text-muted-foreground hover:text-destructive group-hover:inline-flex"
+                            className="mt-0.5 hidden items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-destructive group-hover:inline-flex"
                           >
                             <Undo2 className="h-3 w-3" /> annuler
                           </button>

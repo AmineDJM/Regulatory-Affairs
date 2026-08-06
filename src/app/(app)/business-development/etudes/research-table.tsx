@@ -155,7 +155,7 @@ function RowEditor({
                       <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: sh.status ? STATUS_COLOR[sh.status] : "#94a3b8" }} />
                     </div>
                     <span className="w-12 shrink-0 text-right tabular-nums text-muted-foreground">{pct}%</span>
-                    {sh.status && <span className="w-20 shrink-0 text-[10px] text-muted-foreground">{STATUS_LABEL[sh.status]}</span>}
+                    {sh.status && <span className="w-20 shrink-0 text-[0.625rem] text-muted-foreground">{STATUS_LABEL[sh.status]}</span>}
                   </div>
                 );
               })}
@@ -182,7 +182,7 @@ function PlayerEditor({
     run(updateResearchPlayer, fd, false);
   }
   if (!canEdit) {
-    return <div className="flex flex-wrap items-center gap-1.5 text-xs"><span className="font-medium">{p.name}</span>{p.marketShareValue && <span className="text-muted-foreground">· {p.marketShareValue}</span>}{p.status && <span className="rounded bg-secondary px-1 text-[10px]">{STATUS_LABEL[p.status]}</span>}</div>;
+    return <div className="flex flex-wrap items-center gap-1.5 text-xs"><span className="font-medium">{p.name}</span>{p.marketShareValue && <span className="text-muted-foreground">· {p.marketShareValue}</span>}{p.status && <span className="rounded bg-secondary px-1 text-[0.625rem]">{STATUS_LABEL[p.status]}</span>}</div>;
   }
   const mini = "h-7 rounded-md border border-input bg-background px-1.5 text-xs focus:border-primary focus:outline-none";
   return (

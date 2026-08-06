@@ -114,7 +114,7 @@ export function ReserveLibraryPanel() {
           <Button size="sm" variant="outline" onClick={() => void run(refreshDerivedRules)} disabled={busy}>
             <Sparkles className="h-4 w-4" /> Chercher de nouvelles règles
           </Button>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-[0.6875rem] text-muted-foreground">
             Analyse les réserves récurrentes et propose des règles. Elles restent <strong>sans effet</strong> jusqu&apos;à votre validation.
           </p>
         </div>
@@ -172,7 +172,7 @@ function PrecedentSearch() {
           <ul className="mt-1.5 space-y-0.5">
             {risk.reasons.map((r, i) => <li key={i} className="text-xs text-muted-foreground">• {r}</li>)}
           </ul>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
+          <p className="mt-1.5 text-[0.6875rem] text-muted-foreground">
             Indication fondée sur nos précédents — ce n&apos;est pas une prédiction de la décision de l&apos;ANPP.
           </p>
         </div>
@@ -198,7 +198,7 @@ function PrecedentSearch() {
                     <strong>{r.status === "ACCEPTED" ? "Réponse qui a fonctionné" : "Réponse apportée"} :</strong> {r.response.slice(0, 300)}
                   </p>
                 )}
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[0.6875rem] text-muted-foreground">
                   {[r.productName, r.dci, r.supplier].filter(Boolean).join(" · ") || "—"}
                   {r.evidenceFile ? ` · ${r.evidenceFile}${r.evidencePage ? `, p. ${r.evidencePage}` : ""}` : ""}
                 </p>

@@ -65,17 +65,17 @@ function FactRow({ fact, canEdit }: { fact: Fact; canEdit: boolean }) {
         ) : (
           <span className={`min-w-0 flex-1 font-medium ${tone}`}>{fact.value ?? "—"}</span>
         )}
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/70">{STATUS_LABEL[fact.status] ?? fact.status}</span>
+        <span className="shrink-0 text-[0.625rem] uppercase tracking-wide text-muted-foreground/70">{STATUS_LABEL[fact.status] ?? fact.status}</span>
         {fact.occurrences.length > 0 && (
-          <button type="button" onClick={() => setOpen((v) => !v)} className="shrink-0 text-[11px] text-primary hover:underline">{fact.occurrences.length} source·s</button>
+          <button type="button" onClick={() => setOpen((v) => !v)} className="shrink-0 text-[0.6875rem] text-primary hover:underline">{fact.occurrences.length} source·s</button>
         )}
         {canEdit && (
           <span className="flex shrink-0 items-center gap-1">
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             {editing ? (
               <>
-                <button type="button" disabled={busy} onClick={() => act("CORRECT", val)} className="rounded border border-success/40 px-1.5 py-0.5 text-[11px] text-success">Enregistrer</button>
-                <button type="button" onClick={() => setEditing(false)} className="rounded border border-border px-1.5 py-0.5 text-[11px]">Annuler</button>
+                <button type="button" disabled={busy} onClick={() => act("CORRECT", val)} className="rounded border border-success/40 px-1.5 py-0.5 text-[0.6875rem] text-success">Enregistrer</button>
+                <button type="button" onClick={() => setEditing(false)} className="rounded border border-border px-1.5 py-0.5 text-[0.6875rem]">Annuler</button>
               </>
             ) : (
               <>
@@ -90,7 +90,7 @@ function FactRow({ fact, canEdit }: { fact: Fact; canEdit: boolean }) {
       {open && (
         <ul className="mt-1.5 space-y-1 border-t border-border/50 pt-1.5">
           {fact.occurrences.slice(0, 5).map((o) => (
-            <li key={o.id} className="text-[11px] text-muted-foreground">
+            <li key={o.id} className="text-[0.6875rem] text-muted-foreground">
               <span className="inline-flex items-center gap-1"><FileText className="h-3 w-3" /> {o.sectionCode ?? "—"} · {Math.round(o.confidence * 100)}% · {methodLabel(o.method)}</span>
               <span className="ml-1 italic">« {o.extract} »</span>
             </li>
@@ -123,7 +123,7 @@ function ConflictRow({ conflict, canApprove }: { conflict: Conflict; canApprove:
 
   return (
     <div className={`rounded-lg border px-3 py-2 text-sm ${conflict.severity === "CRITICAL" ? "border-destructive/50 bg-destructive/5" : "border-amber-500/40 bg-amber-500/5"}`}>
-      <p className="font-medium">{conflict.label} — valeurs divergentes {conflict.severity === "CRITICAL" && <span className="ml-1 rounded bg-destructive px-1.5 py-0.5 text-[10px] font-semibold text-white">CRITIQUE</span>}</p>
+      <p className="font-medium">{conflict.label} — valeurs divergentes {conflict.severity === "CRITICAL" && <span className="ml-1 rounded bg-destructive px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">CRITIQUE</span>}</p>
       <ul className="mt-1 space-y-0.5">
         {conflict.values.map((v, i) => (
           <li key={i} className="flex items-start gap-2 text-xs">
@@ -132,7 +132,7 @@ function ConflictRow({ conflict, canApprove }: { conflict: Conflict; canApprove:
           </li>
         ))}
       </ul>
-      {conflict.proposedAction && <p className="mt-1 text-[11px] text-muted-foreground">Action proposée : {conflict.proposedAction}</p>}
+      {conflict.proposedAction && <p className="mt-1 text-[0.6875rem] text-muted-foreground">Action proposée : {conflict.proposedAction}</p>}
       {canApprove && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <input value={finalValue} onChange={(e) => setFinalValue(e.target.value)} placeholder="Valeur finale retenue" className="min-w-[10rem] flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs" />
@@ -142,7 +142,7 @@ function ConflictRow({ conflict, canApprove }: { conflict: Conflict; canApprove:
           </button>
         </div>
       )}
-      {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
+      {error && <p className="mt-1 text-[0.6875rem] text-destructive">{error}</p>}
     </div>
   );
 }

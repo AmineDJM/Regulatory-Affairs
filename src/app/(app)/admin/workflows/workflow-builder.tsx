@@ -162,7 +162,7 @@ function StepEditor({ index, total, step, onChange, onMove, onRemove }: {
           <Select value={step.actorScope} onChange={(e) => onChange({ actorScope: e.target.value as ActorScope })}>
             {ACTOR_SCOPES.map((sc) => <option key={sc} value={sc}>{SCOPE_LABELS[sc]}</option>)}
           </Select>
-          <p className="text-[11px] text-muted-foreground">{SCOPE_HINTS[step.actorScope]}</p>
+          <p className="text-[0.6875rem] text-muted-foreground">{SCOPE_HINTS[step.actorScope]}</p>
         </div>
         {hasAssign && (
           <div className="space-y-1">
@@ -206,12 +206,12 @@ function StepEditor({ index, total, step, onChange, onMove, onRemove }: {
           onChange={(e) => onChange({ autoSkipMaxAmount: e.target.value === "" ? null : Math.max(0, Number(e.target.value)) })}
           placeholder="ex. 50000 — en deçà, l'étape est franchie sans validation humaine"
         />
-        <p className="text-[11px] text-muted-foreground">Sous ce seuil, l'étape est franchie automatiquement (tracé : « étape franchie automatiquement »). Sans effet sur une désignation, une émission financière ou la décision finale.</p>
+        <p className="text-[0.6875rem] text-muted-foreground">Sous ce seuil, l'étape est franchie automatiquement (tracé : « étape franchie automatiquement »). Sans effet sur une désignation, une émission financière ou la décision finale.</p>
         <label className="mt-2 flex cursor-pointer items-start gap-2 border-t border-primary/20 pt-2 text-sm">
           <input type="checkbox" checked={step.autoApproveIfRequester} onChange={(e) => onChange({ autoApproveIfRequester: e.target.checked })} className="mt-0.5 h-4 w-4 rounded border-border accent-primary" />
           <span>
             <span className={step.autoApproveIfRequester ? "font-medium" : "text-muted-foreground"}>Auto-accord si le demandeur détient l'autorité</span>
-            <span className="block text-[11px] text-muted-foreground">Si l'auteur de la demande a déjà le rôle (ou la portée) de cette étape, elle est approuvée automatiquement en son nom (tracé) — on ne fait pas valider quelqu'un sa propre demande.</span>
+            <span className="block text-[0.6875rem] text-muted-foreground">Si l'auteur de la demande a déjà le rôle (ou la portée) de cette étape, elle est approuvée automatiquement en son nom (tracé) — on ne fait pas valider quelqu'un sa propre demande.</span>
           </span>
         </label>
       </div>

@@ -226,7 +226,7 @@ function StageCell({ row }: { row: RegulatoryRow }) {
       <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${STAGE_CLASS[row.manufacturingStatus] ?? STAGE_CLASS.IMPORTATION}`}>
         {label}
       </span>
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[0.6875rem] text-muted-foreground">
         {fromVariation ? "variation obtenue" : "déclaré"}
         {row.manufacturingPending && (
           <>

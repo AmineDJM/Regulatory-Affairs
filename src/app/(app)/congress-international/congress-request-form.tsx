@@ -83,7 +83,7 @@ export function CongressRequestButton({ national, doctors, users, canDesignatePM
             <Field full label="Demande(s) du médecin">
               <input name="files" type="file" multiple
                 className="block w-full text-sm file:mr-3 file:rounded-lg file:border file:border-border file:bg-secondary file:px-3 file:py-1.5 file:text-sm" />
-              <p className="mt-1 text-[11px] text-muted-foreground">Courrier, invitation, programme… Plusieurs fichiers possibles.</p>
+              <p className="mt-1 text-[0.6875rem] text-muted-foreground">Courrier, invitation, programme… Plusieurs fichiers possibles.</p>
             </Field>
             <Field label="Type d'événement">
               <Select name="eventType" defaultValue="CONGRESS">

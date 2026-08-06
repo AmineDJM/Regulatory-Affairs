@@ -138,8 +138,8 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                 {view.isSuperAdmin && s.description && <p className="mt-0.5 text-xs text-muted-foreground">{s.description}</p>}
                 {view.isSuperAdmin && (
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {s.powers.map((p) => <span key={p} className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{POWER_LABELS[p]}</span>)}
-                    {s.emitExpenseOrder && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">→ dépense</span>}
+                    {s.powers.map((p) => <span key={p} className="rounded bg-secondary px-1.5 py-0.5 text-[0.625rem] font-medium text-muted-foreground">{POWER_LABELS[p]}</span>)}
+                    {s.emitExpenseOrder && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">→ dépense</span>}
                   </div>
                 )}
 

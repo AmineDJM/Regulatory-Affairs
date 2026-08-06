@@ -52,7 +52,7 @@ export default async function FeedbackPage() {
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           <Inbox className="h-4 w-4" /> Boîte de réception
-          {replies.length > 0 && <span className="rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{replies.length}</span>}
+          {replies.length > 0 && <span className="rounded-full bg-primary px-1.5 text-[0.6875rem] font-semibold text-primary-foreground">{replies.length}</span>}
         </h2>
         {replies.length === 0 ? (
           <EmptyState icon="Inbox" title="Aucune réponse pour le moment" description="Les réponses de l'administration à vos retours s'afficheront ici." />

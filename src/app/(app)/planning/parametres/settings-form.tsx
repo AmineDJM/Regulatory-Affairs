@@ -80,7 +80,7 @@ export function SettingsForm({ config, canEdit }: { config: Config; canEdit: boo
     <label className="block space-y-1">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       {node}
-      {hint && <span className="block text-[11px] text-muted-foreground/80">{hint}</span>}
+      {hint && <span className="block text-[0.6875rem] text-muted-foreground/80">{hint}</span>}
     </label>
   );
 
@@ -100,7 +100,7 @@ export function SettingsForm({ config, canEdit }: { config: Config; canEdit: boo
             </div>
             <div className="rounded-lg bg-primary/5 px-3 py-2.5 text-sm">
               Capacité nette : <span className="font-bold">{capacityPreview}</span> visites / délégué / mois
-              <span className="block text-[11px] text-muted-foreground">= {cap.daysPerMonth} j × {cap.visitsPerDay} visites × {cap.fieldPct}%</span>
+              <span className="block text-[0.6875rem] text-muted-foreground">= {cap.daysPerMonth} j × {cap.visitsPerDay} visites × {cap.fieldPct}%</span>
             </div>
           </CardContent>
         </Card>

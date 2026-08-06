@@ -13,7 +13,7 @@ export function CompanyBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium",
         className,
       )}
       style={{ borderColor: `${color}55`, color, backgroundColor: `${color}12` }}

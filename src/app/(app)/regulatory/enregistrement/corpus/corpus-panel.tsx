@@ -90,7 +90,7 @@ export function CorpusPanel({ firstWave, missing, watchPages }: { firstWave: Src
             Tout le catalogue ingérable
           </Button>
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[0.6875rem] text-muted-foreground">
           La première vague suffit à analyser un dossier algérien : lignes directrices ANPP, ICH qualité, OMS.
         </p>
 
@@ -127,7 +127,7 @@ export function CorpusPanel({ firstWave, missing, watchPages }: { firstWave: Src
                   {r.ok ? (r.unchanged ? "inchangée" : "importée") : "échec"}
                 </Badge>
                 <span className="min-w-0 flex-1 truncate text-xs">{r.code}</span>
-                <span className="shrink-0 text-[11px] text-muted-foreground">
+                <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
                   {r.ok ? (r.unchanged ? "—" : `${r.sections ?? 0} section(s)`) : r.error}
                 </span>
               </li>
@@ -165,15 +165,15 @@ export function CorpusPanel({ firstWave, missing, watchPages }: { firstWave: Src
                     </Badge>
                   )}
                 </div>
-                {f?.error && <p className="text-[11px] text-destructive">{f.error}</p>}
+                {f?.error && <p className="text-[0.6875rem] text-destructive">{f.error}</p>}
                 {f?.changed && (
-                  <p className="flex items-start gap-1.5 text-[11px] text-warning">
+                  <p className="flex items-start gap-1.5 text-[0.6875rem] text-warning">
                     <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
                     Page modifiée depuis le dernier relevé — vérifier ce qui a été publié avant la prochaine soumission.
                   </p>
                 )}
                 {f?.documentLinks && f.documentLinks.length > 0 && (
-                  <details className="text-[11px] text-muted-foreground">
+                  <details className="text-[0.6875rem] text-muted-foreground">
                     <summary className="cursor-pointer">{f.documentLinks.length} intitulé(s) repéré(s) sur la page</summary>
                     <ul className="mt-1 space-y-0.5 pl-3">
                       {f.documentLinks.slice(0, 25).map((d, i) => <li key={i}>• {d}</li>)}

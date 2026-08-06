@@ -53,7 +53,7 @@ export function AgentsPanel({ dossierId, agents, configured }: { dossierId: stri
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium" title={a.name}>{a.name}</p>
                 {r && (
-                  <p className={`flex items-center gap-1 text-[11px] ${r.status === "abstained" ? "text-amber-600" : r.status === "error" ? "text-destructive" : "text-success"}`}>
+                  <p className={`flex items-center gap-1 text-[0.6875rem] ${r.status === "abstained" ? "text-amber-600" : r.status === "error" ? "text-destructive" : "text-success"}`}>
                     {r.status === "abstained" ? <ShieldQuestion className="h-3 w-3" /> : r.status === "done" ? <CheckCircle2 className="h-3 w-3" /> : null}
                     {r.message}
                   </p>

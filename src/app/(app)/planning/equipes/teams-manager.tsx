@@ -138,7 +138,7 @@ function KamRow({ kam, teamOpts, onSave }: { kam: Kam; teamOpts: Opt[]; onSave: 
     <tr className="border-b border-border/60 hover:bg-secondary/30">
       <td className="px-2 py-1.5">
         <span className="font-medium">{s.name}</span>
-        {s.role === "NATIONAL_SALES" && <span className="ml-1 rounded bg-primary/10 px-1 text-[10px] text-primary">NS</span>}
+        {s.role === "NATIONAL_SALES" && <span className="ml-1 rounded bg-primary/10 px-1 text-[0.625rem] text-primary">NS</span>}
       </td>
       <td className="px-2 py-1.5">
         <select className={`${inputCls} h-8 w-full`} value={s.teamId ?? ""} onChange={(e) => save({ ...s, teamId: e.target.value || null })}><option value="">— Aucune —</option>{teamOpts.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>

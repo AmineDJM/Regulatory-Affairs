@@ -66,7 +66,7 @@ export function ParticipantsPanel({
           </Select>
         </div>
       )}
-      <p className="flex items-center gap-1 text-[11px] text-muted-foreground"><Users className="h-3 w-3" /> Les participants voient et travaillent ce dossier (accès partagé).</p>
+      <p className="flex items-center gap-1 text-[0.6875rem] text-muted-foreground"><Users className="h-3 w-3" /> Les participants voient et travaillent ce dossier (accès partagé).</p>
     </div>
   );
 }

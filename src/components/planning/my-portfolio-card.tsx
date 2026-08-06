@@ -84,7 +84,7 @@ function ProductList({ products, muted }: { products: Portfolio["products"]; mut
             {positionLabel(p.position)}
           </Badge>
           <span className={`min-w-0 flex-1 ${muted ? "text-muted-foreground" : ""}`}>{p.name}</span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">
+          <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
             {p.channel === "RETAIL" ? "Ville" : p.channel === "HOSPITAL" ? "Hôpital" : "Ville · Hôpital"}
             {p.plannedVisits > 0 ? ` · ${p.plannedVisits} visite${p.plannedVisits > 1 ? "s" : ""}` : ""}
           </span>

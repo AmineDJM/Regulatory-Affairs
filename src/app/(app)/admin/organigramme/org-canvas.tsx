@@ -119,7 +119,7 @@ export function OrgCanvas({ nodes }: { nodes: OrgNode[] }) {
                   <span className="truncate text-sm font-medium" title={n.fullName}>{n.fullName}</span>
                 </div>
                 <p className="truncate text-xs text-muted-foreground" title={n.position ?? ""}>{n.position || "Poste non défini"}</p>
-                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                <div className="mt-0.5 flex items-center gap-2 text-[0.6875rem] text-muted-foreground">
                   {n.entity && <span className="truncate">{n.entity}</span>}
                   {kids > 0 && <span className="inline-flex shrink-0 items-center gap-0.5"><Users className="h-3 w-3" />{kids}</span>}
                 </div>

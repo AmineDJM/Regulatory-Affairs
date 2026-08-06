@@ -133,9 +133,9 @@ export function MedicalDirectory({ groups, specialties, institutions, delegates,
                                   </p>
                                 </div>
                                 <div className="hidden flex-wrap items-center gap-1.5 sm:flex">
-                                  <span className="inline-flex items-center gap-1" title="Influence"><span className="text-[10px] font-medium uppercase text-muted-foreground">Infl</span><StatusBadge map={SEGMENT_LEVEL} value={d.influence} dot={false} /></span>
-                                  <span className="inline-flex items-center gap-1" title="Potentiel"><span className="text-[10px] font-medium uppercase text-muted-foreground">Pot</span><StatusBadge map={SEGMENT_LEVEL} value={d.potential} dot={false} /></span>
-                                  <span className="inline-flex items-center gap-1" title="Affinité avec nous"><span className="text-[10px] font-medium uppercase text-muted-foreground">Affi</span><StatusBadge map={SEGMENT_LEVEL} value={d.affinity} dot={false} /></span>
+                                  <span className="inline-flex items-center gap-1" title="Influence"><span className="text-[0.625rem] font-medium uppercase text-muted-foreground">Infl</span><StatusBadge map={SEGMENT_LEVEL} value={d.influence} dot={false} /></span>
+                                  <span className="inline-flex items-center gap-1" title="Potentiel"><span className="text-[0.625rem] font-medium uppercase text-muted-foreground">Pot</span><StatusBadge map={SEGMENT_LEVEL} value={d.potential} dot={false} /></span>
+                                  <span className="inline-flex items-center gap-1" title="Affinité avec nous"><span className="text-[0.625rem] font-medium uppercase text-muted-foreground">Affi</span><StatusBadge map={SEGMENT_LEVEL} value={d.affinity} dot={false} /></span>
                                 </div>
                                 {canEdit && (
                                   <button onClick={() => setDoctorSheet({ mode: "edit", doctor: d })} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Modifier">

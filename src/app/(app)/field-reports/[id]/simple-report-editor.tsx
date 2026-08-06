@@ -158,7 +158,7 @@ function Attachments({ detail, readOnly, onDeleted }: { detail: FieldReportDetai
             // eslint-disable-next-line @next/next/no-img-element
             <a href={`/api/field-reports/attachment/${a.id}`} target="_blank" rel="noopener noreferrer"><img src={`/api/field-reports/attachment/${a.id}`} alt={a.name} className="h-10 w-10 rounded object-cover" /></a>
           ) : <FileText className="h-8 w-8 shrink-0 text-primary" />}
-          <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{a.name}</p><p className="text-[11px] text-muted-foreground">{formatBytes(a.size)}</p></div>
+          <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{a.name}</p><p className="text-[0.6875rem] text-muted-foreground">{formatBytes(a.size)}</p></div>
           <a href={`/api/field-reports/attachment/${a.id}?dl=1`} className="rounded p-1 text-muted-foreground hover:bg-secondary"><Download className="h-4 w-4" /></a>
           {!readOnly && (
             <button onClick={() => { if (window.confirm("Supprimer ?")) { const f = new FormData(); f.set("id", a.id); deleteFieldReportAttachment(f).then(() => onDeleted?.()); } }} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>

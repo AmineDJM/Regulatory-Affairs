@@ -83,7 +83,7 @@ export function DocumentPreview({
         type="button"
         onClick={() => setOpen(true)}
         title={name}
-        className="block w-full truncate text-left text-[13px] font-medium text-foreground transition-colors hover:text-primary hover:underline"
+        className="block w-full truncate text-left text-[0.8125rem] font-medium text-foreground transition-colors hover:text-primary hover:underline"
       >
         {name}
       </button>

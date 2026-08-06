@@ -115,7 +115,7 @@ function OrgBranch({
             <Link href={`/rh/${node.id}`} className="font-medium hover:underline">{node.fullName}</Link>
             <Link href={`/rh/${node.id}`} className="text-muted-foreground hover:text-foreground"><ExternalLink className="h-3.5 w-3.5" /></Link>
             {node.entity && (
-              <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={node.color ? { backgroundColor: `${node.color}22`, color: node.color } : undefined}>{node.entity}</span>
+              <span className="rounded-full px-2 py-0.5 text-[0.6875rem] font-medium" style={node.color ? { backgroundColor: `${node.color}22`, color: node.color } : undefined}>{node.entity}</span>
             )}
             {kids.length > 0 && <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground"><Users className="h-3 w-3" /> {kids.length}</span>}
           </div>

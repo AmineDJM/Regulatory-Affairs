@@ -123,7 +123,7 @@ export default async function TestCenterPage() {
                   <Kv k="Nettoyage" v={CLEANUP[last.cleanupStatus]} />
                 </div>
                 {last.evidenceHash && (
-                  <p className="text-[11px] text-muted-foreground">Preuve scellée (sha256) : <span className="font-mono">{last.evidenceHash.slice(0, 24)}…</span></p>
+                  <p className="text-[0.6875rem] text-muted-foreground">Preuve scellée (sha256) : <span className="font-mono">{last.evidenceHash.slice(0, 24)}…</span></p>
                 )}
               </div>
                 );
@@ -145,8 +145,8 @@ export default async function TestCenterPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium">{f.title}</span>
-                    <Badge tone="neutral" dot={false} className="text-[10px]">{f.category}</Badge>
-                    {f.module && <Badge tone="neutral" dot={false} className="text-[10px]">{f.module}</Badge>}
+                    <Badge tone="neutral" dot={false} className="text-[0.625rem]">{f.category}</Badge>
+                    {f.module && <Badge tone="neutral" dot={false} className="text-[0.625rem]">{f.module}</Badge>}
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">{f.detail}</p>
                   {f.suggestion && <p className="mt-1 text-xs text-foreground/80"><span className="font-medium">Piste :</span> {f.suggestion}</p>}

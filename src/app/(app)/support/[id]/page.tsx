@@ -97,7 +97,7 @@ export default async function SupportDetailPage({ params }: { params: { id: stri
                       <li key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                         <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
                           <p className="whitespace-pre-wrap">{m.body}</p>
-                          <p className={`mt-1 text-[11px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{m.author?.name ?? "—"} · {formatDateTime(m.createdAt.toISOString())}</p>
+                          <p className={`mt-1 text-[0.6875rem] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{m.author?.name ?? "—"} · {formatDateTime(m.createdAt.toISOString())}</p>
                         </div>
                       </li>
                     );

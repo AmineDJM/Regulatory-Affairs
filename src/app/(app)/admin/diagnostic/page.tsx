@@ -66,7 +66,7 @@ export default async function DiagnosticPage() {
                 <Icon name={p.ok ? "CircleCheck" : "CircleX"} className={cn("h-4 w-4 shrink-0", p.ok ? "text-emerald-600" : "text-destructive")} />
                 <div className="min-w-0">
                   <p className="truncate text-xs font-medium">{p.label}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">{p.value}</p>
+                  <p className="truncate text-[0.6875rem] text-muted-foreground">{p.value}</p>
                 </div>
               </div>
             ))}
@@ -93,7 +93,7 @@ export default async function DiagnosticPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold">{f.title}</span>
-                    <Badge tone="neutral" dot={false} className="text-[10px]">{f.area}</Badge>
+                    <Badge tone="neutral" dot={false} className="text-[0.625rem]">{f.area}</Badge>
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">{f.detail}</p>
                   {f.suggestion && <p className="mt-1 text-xs text-foreground/80"><span className="font-medium">Piste :</span> {f.suggestion}</p>}
@@ -118,8 +118,8 @@ export default async function DiagnosticPage() {
                 <span className="text-xs text-muted-foreground">{u.strategy === "allowlist" ? "liste blanche" : "tout sauf exécutables"} · max {u.maxMb} Mo</span>
               </div>
               <div className="flex flex-wrap gap-1">
-                {u.accepted.map((x) => <span key={x} className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] text-emerald-700">.{x}</span>)}
-                {u.rejected.map((x) => <span key={x} className="rounded bg-destructive/10 px-1.5 py-0.5 text-[11px] text-destructive line-through">.{x}</span>)}
+                {u.accepted.map((x) => <span key={x} className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[0.6875rem] text-emerald-700">.{x}</span>)}
+                {u.rejected.map((x) => <span key={x} className="rounded bg-destructive/10 px-1.5 py-0.5 text-[0.6875rem] text-destructive line-through">.{x}</span>)}
               </div>
             </div>
           ))}
@@ -170,7 +170,7 @@ export default async function DiagnosticPage() {
           ].map((x) => (
             <div key={x.k} className="rounded-lg border border-border p-2.5">
               <p className="text-lg font-semibold tabular-nums">{x.v}</p>
-              <p className="text-[11px] text-muted-foreground">{x.k}</p>
+              <p className="text-[0.6875rem] text-muted-foreground">{x.k}</p>
             </div>
           ))}
         </CardContent>

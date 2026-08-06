@@ -133,7 +133,7 @@ export function AssignmentMatrix({
                     <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
                       <div className={`h-full ${tone}`} style={{ width: `${Math.min(100, loadPct)}%` }} />
                     </div>
-                    <p className="text-[11px] text-muted-foreground">{visitsSum} / {k.capacity} visites planifiées ({loadPct}%)</p>
+                    <p className="text-[0.6875rem] text-muted-foreground">{visitsSum} / {k.capacity} visites planifiées ({loadPct}%)</p>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     {shown.length === 0 && <p className="text-xs text-muted-foreground">Aucun produit affecté.</p>}

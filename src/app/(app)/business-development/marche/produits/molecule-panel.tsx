@@ -208,7 +208,7 @@ function Stat({ label, value, hint, tone }: { label: string; value: string; hint
     <div className="surface p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`mt-0.5 text-base font-semibold ${toneCls}`}>{value}</p>
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -225,7 +225,7 @@ function OriginBadge({ origin, registrations }: { origin: "LOCAL" | "IMPORT" | "
     <span className="inline-flex items-center gap-1.5">
       <cfg.Icon className="h-3.5 w-3.5 text-muted-foreground" />
       <Badge tone={cfg.tone} dot={false}>{cfg.label}</Badge>
-      <span className="text-[11px] text-muted-foreground">{registrations} enr.</span>
+      <span className="text-[0.6875rem] text-muted-foreground">{registrations} enr.</span>
     </span>
   );
 }

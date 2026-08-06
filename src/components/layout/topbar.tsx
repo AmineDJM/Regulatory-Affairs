@@ -53,17 +53,25 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
           <Menu className="h-5 w-5" />
         </button>
 
+        {/* RECHERCHE — bouton carré sur téléphone, vraie barre à partir de `sm`.
+            Sur un écran de 390 px, la barre pleine largeur ne tenait pas : son libellé passait
+            sur deux lignes (débordant d'un bouton de hauteur fixe) et elle repoussait l'avatar
+            hors de l'écran. Une icône seule est le geste attendu sur mobile — et elle a l'air
+            voulue, contrairement à une barre écrasée sur trois caractères. */}
         <button
           type="button"
           onClick={() => window.dispatchEvent(new CustomEvent("amd:open-palette"))}
-          className="flex h-9 w-full max-w-md items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm text-muted-foreground shadow-sm hover:bg-secondary/40"
+          aria-label="Rechercher partout"
+          className="flex h-9 w-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-input bg-background text-sm text-muted-foreground shadow-sm hover:bg-secondary/40 sm:w-full sm:min-w-0 sm:max-w-md sm:justify-start sm:px-3"
         >
           <Search className="h-4 w-4 shrink-0" />
-          <span className="flex-1 text-left">Rechercher partout…</span>
-          <kbd className="hidden rounded border border-border px-1.5 py-0.5 text-[10px] sm:block">⌘K</kbd>
+          <span className="hidden min-w-0 flex-1 truncate text-left sm:block">Rechercher partout…</span>
+          <kbd className="hidden rounded border border-border px-1.5 py-0.5 text-[0.625rem] sm:block">⌘K</kbd>
         </button>
 
-        <div className="ml-auto flex items-center gap-1.5">
+        {/* `shrink-0` : les actions (entité, messages, notifications, avatar) ne se laissent pas
+            comprimer par la recherche — c'est la recherche qui tronque son libellé. */}
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <CompanySwitcher companies={companies} scope={companyScope} />
           {adoption && (
             <div
@@ -85,7 +93,7 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
           >
             <Bell className="h-5 w-5" />
             {unreadCount > 0 && (
-              <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
+              <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[0.625rem] font-semibold text-destructive-foreground">
                 {unreadCount > 9 ? "9+" : unreadCount}
               </span>
             )}
@@ -111,7 +119,7 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
                 if (groupItems.length === 0) return null;
                 return (
                   <div key={group}>
-                    <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-sidebar-muted">{group}</p>
+                    <p className="px-3 pb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-sidebar-muted">{group}</p>
                     <ul className="space-y-0.5">
                       {groupItems.map((item) => {
                         const paths = [item.href, ...(item.match ?? [])];

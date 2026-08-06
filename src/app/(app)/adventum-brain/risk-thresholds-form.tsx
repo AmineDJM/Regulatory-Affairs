@@ -37,7 +37,7 @@ export function RiskThresholdsForm({ initial }: { initial: RiskThresholds }) {
                 />
                 <span className="text-xs text-muted-foreground">{f.suffix}</span>
               </span>
-              <span className="block text-[11px] leading-snug text-muted-foreground">{f.help}</span>
+              <span className="block text-[0.6875rem] leading-snug text-muted-foreground">{f.help}</span>
             </label>
           ))}
         </div>

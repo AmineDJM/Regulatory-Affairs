@@ -81,7 +81,7 @@ export function DossierMessageItem({
       ) : (
         <>
           {mentionNames.length > 0 && (
-            <p className={`mb-1 flex flex-wrap items-center gap-1 text-[11px] font-medium ${mine ? "text-primary-foreground/90" : "text-primary"}`}>
+            <p className={`mb-1 flex flex-wrap items-center gap-1 text-[0.6875rem] font-medium ${mine ? "text-primary-foreground/90" : "text-primary"}`}>
               {mentionNames.map((n) => <span key={n} className="inline-flex items-center gap-0.5"><AtSign className="h-3 w-3" />{n}</span>)}
             </p>
           )}
@@ -89,7 +89,7 @@ export function DossierMessageItem({
           <MessageAttachments attachments={attachments} onDark={mine} />
         </>
       )}
-      <p className={`mt-1 flex items-center gap-1.5 text-[11px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+      <p className={`mt-1 flex items-center gap-1.5 text-[0.6875rem] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
         <span>{author} · {createdAt}</span>
         {canManage && !editing && (
           <span className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">

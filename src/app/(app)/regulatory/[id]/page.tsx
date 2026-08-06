@@ -433,7 +433,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   {product.assignedUsers.length === 0 && <span className="text-muted-foreground">—</span>}
                   {product.assignedUsers.map((u) => (
                     <span key={u.id} className="flex items-center gap-1.5 rounded-full bg-secondary px-2 py-0.5 text-xs">
-                      <Avatar name={u.name} size="sm" className="h-4 w-4 text-[8px]" />
+                      <Avatar name={u.name} size="sm" className="h-4 w-4 text-[0.5rem]" />
                       {u.name}
                     </span>
                   ))}

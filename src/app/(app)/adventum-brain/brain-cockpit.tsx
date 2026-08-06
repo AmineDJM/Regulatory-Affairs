@@ -89,7 +89,7 @@ export function BrainCockpit({ risks, kpis, feed, suggestions, pulse }: { risks:
           />
           <Button onClick={ask} disabled={asking} className="bg-white text-primary hover:bg-white/90">{asking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Demander</Button>
         </div>
-        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] opacity-80">
+        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[0.6875rem] opacity-80">
           {["Quels risques critiques aujourd'hui ?", "Montre-moi les fournisseurs qui ralentissent Regulatory", "Quels médecins KOL ne sont plus suivis ?"].map((s) => (
             <button key={s} onClick={() => setQ(s)} className="rounded-full bg-white/10 px-2 py-0.5 hover:bg-white/20">{s}</button>
           ))}
@@ -167,7 +167,7 @@ function RiskCard({ risk, onOpen, onAction }: { risk: Risk; onOpen: () => void; 
         <button onClick={onOpen} className="block w-full text-left">
           <div className="flex items-start justify-between gap-2">
             <p className="font-semibold leading-tight">{levelEmoji(risk.level)} {risk.title}</p>
-            <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium", lv.chip)}>{lv.label}</span>
+            <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium", lv.chip)}>{lv.label}</span>
           </div>
           <p className="mt-0.5 text-sm text-muted-foreground">{risk.module} · {risk.object}</p>
           <p className="mt-1.5 text-sm"><span className="text-muted-foreground">Impact :</span> {risk.impact}</p>
@@ -356,8 +356,8 @@ function RelationGraph({ query, blocks }: { query: string; blocks: ProductRelati
           {/* Noeud central */}
           <g>
             <circle cx={cx} cy={cy} r={46} fill="hsl(var(--primary))" />
-            <text x={cx} y={cy - 2} textAnchor="middle" className="fill-primary-foreground text-[12px] font-semibold">{query.length > 14 ? query.slice(0, 13) + "…" : query}</text>
-            <text x={cx} y={cy + 14} textAnchor="middle" className="fill-primary-foreground/80 text-[9px]">objet central</text>
+            <text x={cx} y={cy - 2} textAnchor="middle" className="fill-primary-foreground text-[0.75rem] font-semibold">{query.length > 14 ? query.slice(0, 13) + "…" : query}</text>
+            <text x={cx} y={cy + 14} textAnchor="middle" className="fill-primary-foreground/80 text-[0.5625rem]">objet central</text>
           </g>
           {/* Noeuds périphériques (cliquables) */}
           {nodes.map((nd, i) => {
@@ -366,8 +366,8 @@ function RelationGraph({ query, blocks }: { query: string; blocks: ProductRelati
               <a key={`n-${i}`} href={nd.href}>
                 <g className="cursor-pointer">
                   <circle cx={nd.x} cy={nd.y} r={9} fill="hsl(var(--accent))" stroke="hsl(var(--primary))" strokeWidth={1.5} />
-                  <text x={nd.x + (left ? -14 : 14)} y={nd.y - 1} textAnchor={left ? "end" : "start"} className="fill-foreground text-[11px] font-medium">{nd.module}</text>
-                  <text x={nd.x + (left ? -14 : 14)} y={nd.y + 12} textAnchor={left ? "end" : "start"} className="fill-muted-foreground text-[9px]">{(nd.lines[0] ?? "").slice(0, 26)}</text>
+                  <text x={nd.x + (left ? -14 : 14)} y={nd.y - 1} textAnchor={left ? "end" : "start"} className="fill-foreground text-[0.6875rem] font-medium">{nd.module}</text>
+                  <text x={nd.x + (left ? -14 : 14)} y={nd.y + 12} textAnchor={left ? "end" : "start"} className="fill-muted-foreground text-[0.5625rem]">{(nd.lines[0] ?? "").slice(0, 26)}</text>
                 </g>
               </a>
             );

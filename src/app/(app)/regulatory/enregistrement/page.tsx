@@ -113,7 +113,7 @@ export default async function EnregistrementPage() {
                   {p.legalDelays.map((d) => <li key={d}>{d}</li>)}
                 </ul>
               )}
-              <p className="mt-1.5 text-[11px] uppercase tracking-wide text-muted-foreground/70">{p.legalBasis}</p>
+              <p className="mt-1.5 text-[0.6875rem] uppercase tracking-wide text-muted-foreground/70">{p.legalBasis}</p>
             </div>
           ))}
         </CardContent>

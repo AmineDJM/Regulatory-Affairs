@@ -293,7 +293,7 @@ export function MailDiagnosticPanel({ mailboxes }: { mailboxes: Mailbox[] }) {
           {res.raw && (
             <div>
               <p className="text-xs font-medium opacity-80">Message brut du serveur :</p>
-              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background/60 p-2 text-[11px] text-foreground">{res.raw}</pre>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background/60 p-2 text-[0.6875rem] text-foreground">{res.raw}</pre>
             </div>
           )}
         </div>

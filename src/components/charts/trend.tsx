@@ -74,7 +74,7 @@ export function Trend({
 
         {points.map((p, i) =>
           i % step === 0 || i === points.length - 1 ? (
-            <text key={`t-${p.label}`} x={x(i)} y={H - 8} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} fill={INK.muted} className="text-[10px]">
+            <text key={`t-${p.label}`} x={x(i)} y={H - 8} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} fill={INK.muted} className="text-[0.625rem]">
               {p.label}
             </text>
           ) : null,
