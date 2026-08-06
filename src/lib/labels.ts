@@ -1066,6 +1066,7 @@ export const WORKSPACE_TABS: NavTab[] = [
 export const BUDGET_TABS: NavTab[] = [
   { module: "BUDGETS", label: "Vue d'ensemble", href: "/budgets" },
   { module: "BUDGETS", label: "Dépenses", href: "/budgets/depenses" },
+  { module: "BUDGETS", label: "Départements", href: "/budgets/departements" },
   { module: "BUDGETS", label: "Réglages", href: "/budgets/reglages" },
 ];
 // RH — quatre écrans au lieu d'une page à sept sections : ce qu'il faut TRAITER, l'ANNUAIRE
@@ -1173,7 +1174,7 @@ export const NAVIGATION: NavItem[] = [
   // Pôles
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS, match: ["/promo-material"] },
-  { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/reglages"] },
+  { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages"] },
   { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie"] },
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },

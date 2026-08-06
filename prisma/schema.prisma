@@ -595,6 +595,7 @@ model Department {
   members       Employee[] @relation("DepartmentMembers")
   users         User[]
   adminRequests AdministrativeRequest[]
+  budgets       DepartmentBudget[]
 
   @@unique([companyId, name])
   @@index([parentId])
@@ -817,6 +818,7 @@ model User {
   // RH & espace de travail
   employee         Employee?       @relation("UserEmployee")
   promotedFeatures FeatureFlag[]   @relation("FeaturePromoter")
+  departmentBudgets DepartmentBudget[] @relation("DepartmentBudgetSetter")
   assistantThreads AssistantThread[] @relation("AssistantThreads")
   assistantMemory  AssistantMemory?  @relation("AssistantMemory")
   dailyBriefs      DailyBrief[]      @relation("DailyBriefs")
@@ -1375,6 +1377,38 @@ model BudgetCategoryLine {
 // Finances : c'est un simple suivi de consommation. Le financier reste libre d'enregistrer
 // (ou non) le mouvement réel côté Finances. Distincte des FinanceTransaction attribuées, qui
 // sont, elles, de vrais mouvements de trésorerie que la Direction impute à une catégorie.
+/// BUDGET D'UN DÉPARTEMENT, pour une année.
+///
+/// Deux natures de budget, DEUX responsables — c'est tout l'intérêt du modèle :
+///   • `OPERATING` — le fonctionnement (hors employés), réglé par l'ADMINISTRATEUR ;
+///   • `HR` — la masse salariale et le recrutement, réglés par les RESSOURCES HUMAINES.
+///
+/// Une ligne par département, année et nature : le RH ne peut pas toucher au fonctionnement,
+/// l'administrateur ne peut pas toucher à la masse salariale, et l'un n'écrase jamais l'autre
+/// puisqu'ils n'écrivent pas la même ligne.
+model DepartmentBudget {
+  id           String              @id @default(cuid())
+  departmentId String
+  department   Department          @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  year         Int
+  kind         DepartmentBudgetKind
+  amount       Decimal             @default(0) @db.Decimal(14, 2)
+  notes        String?
+  /// Qui a réglé ce montant en dernier — la responsabilité doit être lisible.
+  setById      String?
+  setBy        User?               @relation("DepartmentBudgetSetter", fields: [setById], references: [id], onDelete: SetNull)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([departmentId, year, kind])
+  @@index([year, kind])
+}
+
+enum DepartmentBudgetKind {
+  OPERATING /// fonctionnement — hors employés (administrateur)
+  HR /// employés et recrutement (ressources humaines)
+}
+
 model BudgetExpenseLine {
   id          String             @id @default(cuid())
   categoryId  String
