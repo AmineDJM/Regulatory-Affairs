@@ -18,7 +18,7 @@
  * affiche « IA non configurée ».
  */
 
-import type { AdminRequestType, CongressRequestStatus, Priority, CalendarEventKind, HrRequestType } from "@prisma/client";
+import type { AdminRequestType, CongressRequestStatus, Priority, CalendarEventKind, HrRequestType, RegulatoryCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
@@ -54,6 +54,22 @@ export interface ChatTurn {
 }
 
 export type AssistantActionPayload =
+  | {
+      /**
+       * Rattacher des produits Regulatory à une entité — éventuellement PLUSIEURS d'un coup.
+       * L'assistant décrit le lot par un FILTRE, jamais par une liste devinée : on relit le
+       * filtre au moment d'exécuter, donc ce qui est modifié est exactement ce qui a été montré.
+       */
+      kind: "set_products_company";
+      companyId: string;
+      companyName: string;
+      /** Filtre du lot, tel qu'il a servi à compter et à lister l'aperçu. */
+      query?: string | null;
+      category?: string | null;
+      onlyWithoutCompany?: boolean;
+      /** Références concernées, pour que la confirmation montre ce qui va changer. */
+      references: string[];
+    }
   | {
       kind: "create_task";
       title: string;
@@ -280,10 +296,18 @@ const READ_TOOLS: ClaudeToolDef[] = [
   {
     name: "search_products",
     description:
-      "Recherche des produits Regulatory (DCI, nom commercial, référence) que l'utilisateur a le droit de voir. Ne jamais inventer un produit.",
+      "Liste ou recherche les produits Regulatory que l'utilisateur a le droit de voir. " +
+      "La recherche porte sur la DCI, le nom commercial, la référence, la CLASSE THÉRAPEUTIQUE (« oncologie », « biosimilaire »…), la forme galénique, le laboratoire partenaire et l'entité. " +
+      "Sans `query`, renvoie TOUT le portefeuille (utiliser pour « donne-moi tous les produits »). " +
+      "Augmenter `limit` pour un inventaire complet. Ne jamais inventer un produit.",
     input_schema: {
       type: "object",
-      properties: { query: { type: "string", description: "DCI, nom commercial ou référence." } },
+      properties: {
+        query: { type: "string", description: "Terme libre : DCI, nom commercial, référence, classe thérapeutique, forme, laboratoire ou entité. Omettre pour tout lister." },
+        limit: { type: "number", description: "Nombre maximum de produits (défaut 40, maximum 300)." },
+        category: { type: "string", enum: ["MEDICINE", "MEDICAL_DEVICE"], description: "Restreindre aux médicaments ou aux dispositifs médicaux." },
+        withoutCompany: { type: "boolean", description: "Vrai pour ne remonter que les produits SANS entité rattachée." },
+      },
     },
   },
   {
@@ -351,6 +375,24 @@ const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
 ];
 
 const WRITE_TOOLS: ClaudeToolDef[] = [
+  {
+    name: "set_products_company",
+    description:
+      "PROPOSE de rattacher des produits Regulatory à une ENTITÉ (société du groupe), en une fois. " +
+      "N'exécute rien : l'utilisateur confirme après avoir vu la liste exacte. " +
+      "Utiliser search_products AVANT, pour vérifier que le filtre remonte bien les produits voulus. " +
+      "Le filtre (`query`, `category`, `onlyWithoutCompany`) est relu à l'exécution : il doit désigner EXACTEMENT le lot voulu.",
+    input_schema: {
+      type: "object",
+      properties: {
+        companyName: { type: "string", description: "Nom ou nom court de l'entité de destination (ex. « Adventum », « Pharmagène »)." },
+        query: { type: "string", description: "Même terme que search_products : DCI, classe thérapeutique (« oncologie », « biosimilaire »), laboratoire…" },
+        category: { type: "string", enum: ["MEDICINE", "MEDICAL_DEVICE"], description: "Restreindre aux médicaments ou dispositifs." },
+        onlyWithoutCompany: { type: "boolean", description: "Vrai pour ne rattacher que les produits qui n'ont PAS encore d'entité." },
+      },
+      required: ["companyName"],
+    },
+  },
   {
     name: "create_task",
     description:
@@ -601,6 +643,9 @@ CE QUE TU PEUX FAIRE :
   charge de congrès (national ou international). Tu PROPOSES l'action ; le système l'exécute seulement après
   que l'utilisateur a cliqué « Confirmer ». Ne prétends jamais qu'une action est déjà faite : dis « je
   prépare… », pas « c'est fait ».
+- MODIFIER DES FICHES PRODUIT REGULATORY : rattacher un ou PLUSIEURS produits à une entité du groupe
+  (set_products_company). Tu ne dis JAMAIS « je ne dispose pas d'outil pour modifier une fiche produit » —
+  cet outil existe. Vérifie d'abord le lot avec search_products, puis propose le rattachement.
 
 RÈGLES IMPÉRATIVES :
 - Fonde TOUJOURS tes réponses sur les outils de lecture ; n'invente JAMAIS un médecin, un produit, un
@@ -608,6 +653,11 @@ RÈGLES IMPÉRATIVES :
   dis-le clairement et préfixe l'élément incertain par « à confirmer ».
 - Respecte les droits : si un outil renvoie « accès non autorisé », explique que ce domaine n'est pas dans
   les permissions de l'utilisateur, sans contourner.
+- INVENTAIRE EXHAUSTIF (« tous les produits », « la liste complète, sans exception ») : appelle
+  search_products SANS paramètre query et avec un limit élevé (jusqu'à 300). Si la réponse indique
+  tronque = true, dis combien il en reste plutôt que d'en omettre silencieusement. Une recherche qui ne
+  remonte rien sur un mot-clé (« oncologie », « biosimilaire ») ne veut pas dire que le portefeuille est
+  vide : relance sans query pour voir ce qu'il contient réellement, et dis ce que tu as trouvé.
 - Avant d'assigner une tâche/demande à quelqu'un ou d'envoyer un message, utilise search_people pour
   retrouver le bon collègue (la recherche fonctionne aussi par FONCTION : « assistante de direction »,
   « chef de produit »…, pas seulement par prénom). Pour un congrès lié à un médecin, utilise search_doctors.
@@ -744,20 +794,56 @@ export async function executeReadTool(name: string, input: Record<string, unknow
     case "search_products": {
       if (!userCan(user, "REGULATORY", "VIEW")) return "Accès non autorisé au module Regulatory.";
       const q = asStr(input, "query");
+      // Un inventaire complet doit être possible : « donne-moi tous les produits » échouait
+      // parce que la recherche s'arrêtait à 12 lignes et ne regardait que DCI / nom / référence.
+      const rawLimit = Number(input.limit);
+      const take = Math.min(Math.max(Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 40, 1), 300);
+      const category = asStr(input, "category");
+      const withoutCompany = input.withoutCompany === true;
+
+      const like = (field: string) => ({ [field]: { contains: q, mode: "insensitive" as const } });
       const products = await prisma.regulatoryProduct.findMany({
         where: {
           AND: [
             scopeRegulatory(user),
-            q ? { OR: [{ dci: { contains: q, mode: "insensitive" } }, { brandName: { contains: q, mode: "insensitive" } }, { reference: { contains: q, mode: "insensitive" } }] } : {},
+            // La classe thérapeutique porte « oncologie », « biosimilaire », « anticorps
+            // monoclonal » : sans elle, ces recherches ne remontaient rien.
+            q
+              ? {
+                  OR: [
+                    like("dci"), like("brandName"), like("reference"), like("therapeuticClass"),
+                    like("pharmaceuticalForm"), like("partnerLab"), like("countryOfOrigin"),
+                    { company: { is: { name: { contains: q, mode: "insensitive" } } } },
+                    { company: { is: { shortName: { contains: q, mode: "insensitive" } } } },
+                  ],
+                }
+              : {},
+            category === "MEDICINE" || category === "MEDICAL_DEVICE" ? { category } : {},
+            withoutCompany ? { companyId: null } : {},
           ],
         },
-        select: { reference: true, dci: true, brandName: true, status: true },
-        take: 12, orderBy: { createdAt: "desc" },
+        select: {
+          reference: true, dci: true, brandName: true, status: true, therapeuticClass: true,
+          category: true, companyId: true, company: { select: { name: true, shortName: true } },
+        },
+        take, orderBy: { createdAt: "desc" },
       });
-      if (products.length === 0) return "Aucun produit trouvé (ne pas inventer).";
-      return JSON.stringify(products.map((p) => ({
-        reference: p.reference, dci: p.dci, nomCommercial: p.brandName ?? null, statut: REGULATORY_STATUS[p.status]?.label ?? p.status,
-      })));
+      const total = await prisma.regulatoryProduct.count({ where: { AND: [scopeRegulatory(user)] } }).catch(() => products.length);
+      if (products.length === 0) {
+        return `Aucun produit ne correspond${q ? ` à « ${q} »` : ""}. Le portefeuille compte ${total} produit(s) au total (ne pas inventer).`;
+      }
+      return JSON.stringify({
+        total_portefeuille: total,
+        renvoyes: products.length,
+        tronque: products.length >= take,
+        produits: products.map((p) => ({
+          reference: p.reference, dci: p.dci, nomCommercial: p.brandName ?? null,
+          classeTherapeutique: p.therapeuticClass ?? null,
+          categorie: p.category,
+          entite: p.company?.shortName ?? p.company?.name ?? null,
+          statut: REGULATORY_STATUS[p.status]?.label ?? p.status,
+        })),
+      });
     }
     case "search_events": {
       if (!userCan(user, "EVENTS", "VIEW")) return "Accès non autorisé au module Events.";
@@ -843,6 +929,44 @@ const READ_LABEL: Record<string, string> = {
   list_accounts: "Tous les comptes consultés",
 };
 
+/**
+ * Le filtre d'un rattachement en masse — **partagé** entre l'aperçu et l'exécution.
+ *
+ * C'est le cœur de la garantie : la confirmation montre le résultat de CE filtre, et
+ * l'exécution le rejoue. Deux filtres écrits séparément finiraient par diverger, et on
+ * modifierait autre chose que ce qui a été montré.
+ *
+ * `excludeCompanyId` retire ceux qui sont déjà dans l'entité visée : les compter reviendrait à
+ * annoncer un travail déjà fait.
+ */
+function productBulkWhere(
+  user: CurrentUser,
+  f: { query?: string | null; category?: string | null; onlyWithoutCompany?: boolean; excludeCompanyId?: string },
+) {
+  const q = (f.query ?? "").trim();
+  const like = (field: string) => ({ [field]: { contains: q, mode: "insensitive" as const } });
+  // `category` arrive du modèle en `string` : on ne le transmet à Prisma qu'après l'avoir
+  // reconnu comme une valeur d'énumération réelle — sinon on filtre sur une valeur inventée.
+  const cat: RegulatoryCategory | null =
+    f.category === "MEDICINE" || f.category === "MEDICAL_DEVICE" ? f.category : null;
+  return {
+    AND: [
+      scopeRegulatory(user),
+      q
+        ? {
+            OR: [
+              like("dci"), like("brandName"), like("reference"), like("therapeuticClass"),
+              like("pharmaceuticalForm"), like("partnerLab"),
+            ],
+          }
+        : {},
+      cat ? { category: cat } : {},
+      f.onlyWithoutCompany ? { companyId: null } : {},
+      f.excludeCompanyId ? { NOT: { companyId: f.excludeCompanyId } } : {},
+    ],
+  };
+}
+
 // ───────────────────────────── Construction d'une action proposée ─────────────────────────────
 
 function normPriority(p: string): Priority | null {
@@ -892,6 +1016,74 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
       return { id: null, name };
     }
     return { id: r.id, name: r.name };
+  }
+
+  if (toolName === "set_products_company") {
+    // Écrire sur les dossiers réglementaires exige le droit de les MODIFIER, pas de les lire.
+    if (!userCan(user, "REGULATORY", "UPDATE")) {
+      return { error: "Vous n'avez pas le droit de modifier les dossiers Regulatory." };
+    }
+    const companyName = asStr(input, "companyName");
+    if (!companyName) return { error: "Précisez l'entité de destination." };
+
+    const companies = await prisma.company.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, shortName: true },
+    });
+    const needle = companyName.trim().toLowerCase();
+    const matches = companies.filter(
+      (c) => c.name.toLowerCase().includes(needle) || (c.shortName ?? "").toLowerCase().includes(needle),
+    );
+    if (matches.length === 0) {
+      return { error: `Entité « ${companyName} » introuvable. Entités actives : ${companies.map((c) => c.shortName || c.name).join(", ") || "aucune"}.` };
+    }
+    if (matches.length > 1) {
+      return { error: `Plusieurs entités correspondent à « ${companyName} » : ${matches.map((c) => c.name).join(", ")}. Précisez laquelle.` };
+    }
+    const company = matches[0];
+
+    const query = asStr(input, "query");
+    const category = asStr(input, "category");
+    const onlyWithoutCompany = input.onlyWithoutCompany === true;
+    const where = productBulkWhere(user, { query, category, onlyWithoutCompany, excludeCompanyId: company.id });
+
+    const affected = await prisma.regulatoryProduct.findMany({
+      where, select: { reference: true, dci: true, brandName: true }, orderBy: { reference: "asc" }, take: 400,
+    });
+    if (affected.length === 0) {
+      return { error: `Aucun produit à rattacher : soit le filtre ne remonte rien, soit tous sont déjà rattachés à ${company.name}.` };
+    }
+    // La confirmation montre CE QUI change, pas un nombre : rattacher trente dossiers
+    // réglementaires à la mauvaise entité se répare mal.
+    const preview = affected.slice(0, 25).map((p) => `${p.reference} — ${p.brandName || p.dci}`);
+    if (affected.length > preview.length) preview.push(`… et ${affected.length - preview.length} autre(s)`);
+    if (affected.length >= 400) {
+      warnings.push("Plus de 400 produits concernés : seuls les 400 premiers seront traités. Affinez le filtre.");
+    }
+
+    const fields = [
+      { label: "Entité de destination", value: company.name },
+      { label: "Produits concernés", value: String(affected.length) },
+      { label: "Filtre", value: [query ? `« ${query} »` : "tout le portefeuille", category || null, onlyWithoutCompany ? "sans entité seulement" : null].filter(Boolean).join(" · ") },
+      { label: "Détail", value: preview.join(" · ") },
+    ];
+
+    return {
+      kind: "set_products_company",
+      module: "REGULATORY",
+      title: `Rattacher ${affected.length} produit(s) à l'entité ${company.shortName || company.name}`,
+      fields,
+      warnings,
+      payload: {
+        kind: "set_products_company",
+        companyId: company.id,
+        companyName: company.shortName || company.name,
+        query: query || null,
+        category: category || null,
+        onlyWithoutCompany,
+        references: affected.map((p) => p.reference),
+      },
+    };
   }
 
   if (toolName === "create_task") {
@@ -1255,7 +1447,16 @@ function normalizeRole(raw: string): string | null {
 
 // ───────────────────────────── Boucle agent ─────────────────────────────
 
-const MAX_TURNS = 6;
+/**
+ * Nombre d'allers-retours modèle ↔ outils avant d'abandonner.
+ *
+ * Six ne suffisait pas : une question du type « donne-moi tous les produits Regulatory »
+ * consomme déjà plusieurs tours (chercher, élargir, recouper l'entité) et l'utilisateur
+ * recevait « je n'ai pas pu finaliser la demande » alors que l'assistant travaillait
+ * correctement. Chaque tour supplémentaire ne coûte que s'il est utilisé — la boucle
+ * s'arrête dès que le modèle répond sans appeler d'outil.
+ */
+const MAX_TURNS = 16;
 const HISTORY_LIMIT = 24;
 
 function toMessages(history: ChatTurn[]): ClaudeMessage[] {
@@ -1503,6 +1704,48 @@ function dateValue(s: string | null | undefined): Date | null {
  * applique la revalidation. C'est le seul point d'écriture du chatbot.
  */
 export async function performAction(user: CurrentUser, payload: AssistantActionPayload): Promise<ExecuteResult> {
+  if (payload?.kind === "set_products_company") {
+    if (!userCan(user, "REGULATORY", "UPDATE")) return { ok: false, error: "Vous n'avez pas le droit de modifier les dossiers Regulatory." };
+    const company = await prisma.company.findFirst({
+      where: { id: payload.companyId, isActive: true },
+      select: { id: true, name: true, shortName: true },
+    });
+    if (!company) return { ok: false, error: "Entité introuvable ou désactivée." };
+
+    // On REJOUE le filtre montré à la confirmation, puis on l'INTERSECTE avec les références
+    // affichées : le filtre garantit qu'on reste dans le périmètre de la personne, la liste
+    // garantit qu'on ne touche pas un produit créé entre l'aperçu et le clic.
+    const where = productBulkWhere(user, {
+      query: payload.query, category: payload.category,
+      onlyWithoutCompany: payload.onlyWithoutCompany, excludeCompanyId: company.id,
+    });
+    const refs = Array.isArray(payload.references) ? payload.references.filter((r) => typeof r === "string") : [];
+    if (refs.length === 0) return { ok: false, error: "Aucun produit à rattacher." };
+
+    const targets = await prisma.regulatoryProduct.findMany({
+      where: { AND: [where, { reference: { in: refs } }] },
+      select: { id: true, reference: true },
+    });
+    if (targets.length === 0) return { ok: false, error: "Ces produits ne sont plus concernés (déjà rattachés, ou hors de votre périmètre)." };
+
+    await prisma.regulatoryProduct.updateMany({
+      where: { id: { in: targets.map((t) => t.id) } },
+      data: { companyId: company.id },
+    });
+    const label = company.shortName || company.name;
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Assistant IA", entityType: "REGULATORY_PRODUCT",
+      entityId: targets[0].id,
+      summary: `${targets.length} produit(s) rattaché(s) à l'entité ${label} via l'assistant : ${targets.map((t) => t.reference).join(", ")}`,
+    });
+    return {
+      ok: true,
+      message: `${targets.length} produit(s) rattaché(s) à ${label}.`,
+      link: "/regulatory",
+      revalidate: ["/regulatory", "/regulatory/produits"],
+    };
+  }
+
   if (payload?.kind === "create_task") {
     if (!userCan(user, "WORKSPACE", "CREATE")) return { ok: false, error: "Vous n'avez pas le droit de créer une tâche." };
     const title = (payload.title ?? "").trim();
