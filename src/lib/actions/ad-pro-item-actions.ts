@@ -12,7 +12,7 @@ import { canEmitOrder, ITEM_KIND_LABELS, type AdProParent } from "@/lib/ad-pro-i
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 /**
- * POSTES D'UNE OPÉRATION AD & PRO — actions serveur (sponsoring ET congrès nationaux).
+ * POSTES D'UNE OPÉRATION AD & PRO — actions serveur (sponsoring ET prises en charge nationales).
  *
  * Le principe qui structure ce fichier : **un poste n'est pas une demande**. Il ne déclenche
  * aucun circuit de validation propre. L'opération garde son circuit unique (National Sales →

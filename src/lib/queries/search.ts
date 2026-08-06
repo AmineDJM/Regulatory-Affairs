@@ -117,8 +117,8 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
   for (const r of documents) out.push({ id: r.id, group: "Documents", title: r.name, subtitle: "Télécharger", href: `/api/documents/${r.id}`, icon: "FolderOpen" });
   for (const r of tasks) out.push({ id: r.id, group: "Mes tâches", title: r.title, subtitle: r.status, href: `/mon-espace`, icon: "ListTodo" });
   for (const r of adminReqs) out.push({ id: r.id, group: "Bureau du secrétariat", title: r.title, subtitle: r.reference, href: `/demandes/${r.id}`, icon: "ClipboardList" });
-  for (const r of congressIntl) out.push({ id: r.id, group: "Congrès international", title: r.name, subtitle: r.city ?? "", href: `/congress-international/${r.id}`, icon: "Globe" });
-  for (const r of congressNat) out.push({ id: r.id, group: "Congrès national", title: r.name, subtitle: r.city ?? "", href: `/congress-national/${r.id}`, icon: "MapPin" });
+  for (const r of congressIntl) out.push({ id: r.id, group: "Prise en charge Internationale", title: r.name, subtitle: r.city ?? "", href: `/congress-international/${r.id}`, icon: "Globe" });
+  for (const r of congressNat) out.push({ id: r.id, group: "Prise en charge Nationale", title: r.name, subtitle: r.city ?? "", href: `/congress-national/${r.id}`, icon: "MapPin" });
   for (const r of events) out.push({ id: r.id, group: "Événements", title: r.name, subtitle: r.city ?? "", href: `/events/${r.id}`, icon: "CalendarDays" });
   for (const r of directives) out.push({ id: r.id, group: "Directives", title: r.title, subtitle: r.reference, href: `/directives`, icon: "Megaphone" });
   for (const r of conversations) out.push({ id: r.id, group: "Discussions", title: r.title ?? "Conversation", subtitle: "Canal / groupe", href: `/messages?c=${r.id}`, icon: "MessagesSquare" });

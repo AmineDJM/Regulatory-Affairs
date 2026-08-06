@@ -211,8 +211,8 @@ export interface AssistantResult {
 const MODULE_FR: Partial<Record<Module, string>> = {
   DASHBOARD: "Tableau de bord", WORKSPACE: "Mon espace / tâches", MESSAGING: "Messagerie",
   REGULATORY: "Regulatory (AMM/ANPP)", SPONSORING: "Sponsoring", BUDGETS: "Budgets",
-  FINANCES: "Finances", RH: "Ressources humaines", CONGRESS_INTERNATIONAL: "Congrès internationaux",
-  CONGRESS_NATIONAL: "Congrès nationaux", EVENTS: "Events (billetterie)", SALES: "Ventes",
+  FINANCES: "Finances", RH: "Ressources humaines", CONGRESS_INTERNATIONAL: "Prises en charge Internationales",
+  CONGRESS_NATIONAL: "Prises en charge Nationales", EVENTS: "Events (billetterie)", SALES: "Ventes",
   LOGISTICS: "Logistique PCH", PCH: "Marchés PCH", STOCKS: "Stocks PCH",
   MEDICAL: "Promotion médicale", BUSINESS_DEVELOPMENT: "Business Development", PROMO_MATERIAL: "Matériel promotionnel",
   VALIDATIONS: "Demandes de validations", DRIVE: "Drive", ADMIN_REQUESTS: "Bureau du secrétariat",
@@ -1033,7 +1033,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
       else warnings.push(`Médecin « ${doctorQuery} » introuvable dans votre périmètre — la demande sera créée sans médecin lié.`);
     }
     const fields = [
-      { label: "Type", value: scope === "INTL" ? "Congrès international" : "Congrès / événement national" },
+      { label: "Type", value: scope === "INTL" ? "Prise en charge Internationale" : "Congrès / événement national" },
       { label: "Événement", value: name },
     ];
     if (asStr(input, "specialty")) fields.push({ label: "Spécialité", value: asStr(input, "specialty") });

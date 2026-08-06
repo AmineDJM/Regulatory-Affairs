@@ -13,7 +13,7 @@ import { involveThirdParty } from "@/lib/third-party";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
-// Le **même** circuit de prise en charge sert les congrès internationaux/nationaux
+// Le **même** circuit de prise en charge sert les prises en charge internationales/nationaux
 // ET les événements (module Events) : on paramètre tout par `type`.
 type CongressType = "INTL" | "NATIONAL" | "EVENT";
 const EVENT_TYPES: NationalEventType[] = ["CONGRESS", "SEMINAR", "ROUND_TABLE", "WEBINAR", "WORKSHOP", "SYMPOSIUM", "STAFF", "OTHER"];

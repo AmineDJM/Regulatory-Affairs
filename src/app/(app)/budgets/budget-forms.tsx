@@ -35,8 +35,8 @@ const d10 = (iso: string) => iso.slice(0, 10);
 // Modules rattachables à une enveloppe (les catégories Ad & Pro en tête).
 const MODULE_OPTIONS: { value: string; label: string }[] = [
   { value: "SPONSORING", label: "Ad & Pro — Sponsoring" },
-  { value: "CONGRESS_INTERNATIONAL", label: "Ad & Pro — Congrès internationaux" },
-  { value: "CONGRESS_NATIONAL", label: "Ad & Pro — Congrès nationaux" },
+  { value: "CONGRESS_INTERNATIONAL", label: "Ad & Pro — Prises en charge Internationales" },
+  { value: "CONGRESS_NATIONAL", label: "Ad & Pro — Prises en charge Nationales" },
   { value: "EVENTS", label: "Ad & Pro — Événements" },
   { value: "PROMO_MATERIAL", label: "Ad & Pro — Matériel promotionnel" },
   { value: "MEDICAL", label: "Promotion médicale" },

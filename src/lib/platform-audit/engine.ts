@@ -205,7 +205,7 @@ async function moduleStats(): Promise<ModuleStat[]> {
     { key: "dossiers", label: "Projets (dossiers)", run: () => prisma.dossier.count() },
     { key: "regDossiers", label: "Dossiers Regulatory", run: () => prisma.regulatoryDossier.count() },
     { key: "sponsoring", label: "Demandes de sponsoring", run: () => prisma.sponsoringRequest.count() },
-    { key: "congressIntl", label: "Congrès internationaux", run: () => prisma.congressInternational.count() },
+    { key: "congressIntl", label: "Prises en charge Internationales", run: () => prisma.congressInternational.count() },
     { key: "events", label: "Événements", run: () => prisma.event.count() },
     { key: "fieldReports", label: "Rapports terrain", run: () => prisma.fieldReport.count() },
     { key: "employees", label: "Employés (RH)", run: () => prisma.employee.count() },

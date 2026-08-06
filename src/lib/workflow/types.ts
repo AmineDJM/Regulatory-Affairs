@@ -47,8 +47,8 @@ export type WorkflowCategory = (typeof WORKFLOW_CATEGORIES)[number];
 
 export const CATEGORY_LABELS: Record<WorkflowCategory, string> = {
   SPONSORING: "Sponsoring",
-  CONGRESS_INTERNATIONAL: "Congrès international",
-  CONGRESS_NATIONAL: "Congrès national",
+  CONGRESS_INTERNATIONAL: "Prise en charge Internationale",
+  CONGRESS_NATIONAL: "Prise en charge Nationale",
   EVENTS: "Événements",
 };
 

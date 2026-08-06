@@ -654,7 +654,7 @@ export function scopeBusinessDevelopment(user: SessionUser): Prisma.BusinessDeve
   return { OR: ors };
 }
 
-/** Congrès internationaux : scope ALL voit tout ; sinon le demandeur + le chef
+/** Prises en charge Internationales : scope ALL voit tout ; sinon le demandeur + le chef
  *  de produit assigné (un délégué ne voit que ses propres demandes). */
 export function scopeCongressIntl(user: SessionUser): Prisma.CongressInternationalWhereInput {
   const m = user.access.modules.get("CONGRESS_INTERNATIONAL");

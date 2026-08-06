@@ -240,7 +240,7 @@ export async function getCrossModuleValidations(user: SessionUser): Promise<Cros
     const names = new Map((await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
     for (const c of congress) out.push({
       id: `${c.kind}-${c.id}`, reference: c.name, title: c.name,
-      module: c.kind === "ci" ? "Congrès international" : "Congrès national",
+      module: c.kind === "ci" ? "Prise en charge Internationale" : "Prise en charge Nationale",
       stage: CONG_STAGE[c.requestStatus] ?? c.requestStatus,
       amount: c.estimatedBudget ? toNumber(c.estimatedBudget as never) : null,
       requester: c.requesterId ? names.get(c.requesterId) ?? "" : "",

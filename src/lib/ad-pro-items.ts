@@ -3,7 +3,7 @@ import type { AdProItemKind } from "@prisma/client";
 /**
  * POSTES D'UNE OPÉRATION AD & PRO — la ventilation de l'enveloppe.
  *
- * Sert le **sponsoring** et les **congrès nationaux** : la question posée est la même (de quoi
+ * Sert le **sponsoring** et les **prises en charge nationales** : la question posée est la même (de quoi
  * est fait le montant, et à qui va l'argent), la réponse doit donc l'être aussi. Deux
  * implémentations parallèles finiraient par diverger sur un détail qui compte — un garde-fou
  * financier corrigé d'un côté et pas de l'autre.

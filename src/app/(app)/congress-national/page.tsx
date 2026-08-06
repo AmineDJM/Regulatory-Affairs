@@ -20,7 +20,7 @@ export default async function CongressNationalPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Événements nationaux" description="Congrès, séminaires, tables rondes, webinaires… Demandes de prise en charge avec validation Direction et analyse chef de produit.">
+      <PageHeader title="Prises en charge Nationales" description="Prise en charge de participants à un événement en Algérie — congrès, séminaire, table ronde, webinaire. Validation préliminaire, analyse chef de produit, décision de la Direction.">
         {canCreate && <CongressRequestButton national doctors={form.doctors} users={form.users} canDesignatePM={canDesignateProductManagerAtCreation(user)} />}
       </PageHeader>
 

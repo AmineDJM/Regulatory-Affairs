@@ -342,7 +342,7 @@ const REGISTRY: Record<DeletableKind, KindSpec> = {
   },
   CONGRESS_INTERNATIONAL: {
     label: "demande de congrès international",
-    module: "Congrès internationaux",
+    module: "Prises en charge Internationales",
     redirect: "/congress-international",
     model: "congressInternational",
     entityType: "CONGRESS_INTERNATIONAL",
@@ -356,7 +356,7 @@ const REGISTRY: Record<DeletableKind, KindSpec> = {
   },
   CONGRESS_NATIONAL: {
     label: "demande d'événement national",
-    module: "Événements nationaux",
+    module: "Prises en charge Nationales",
     redirect: "/congress-national",
     model: "congressNational",
     entityType: "CONGRESS_NATIONAL",

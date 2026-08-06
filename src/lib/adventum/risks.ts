@@ -111,7 +111,7 @@ async function congressLikeRisks(th: RiskThresholds): Promise<Risk[]> {
     const level: RiskLevel = age >= 10 ? "critical" : age >= 6 ? "high" : "medium";
     const path = c.kind === "ci" ? "/congress-international" : "/congress-national";
     out.push({
-      id: `congress-${c.kind}-${c.id}`, level, category: "CONGRESS", module: c.kind === "ci" ? "Congrès international" : "Congrès national",
+      id: `congress-${c.kind}-${c.id}`, level, category: "CONGRESS", module: c.kind === "ci" ? "Prise en charge Internationale" : "Prise en charge Nationale",
       title: "Congrès bloqué", object: c.name,
       impact: "Validation définitive impossible ; logistique non lancée ; risque de hausse des prix billets/hôtels.",
       owner: awaitingPm ? "Chef de produit" : "Direction", deadline: null, ageDays: age,

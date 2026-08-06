@@ -46,7 +46,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
   return (
     <div className="space-y-5">
       <Link href="/congress-international" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Congrès internationaux
+        <ArrowLeft className="h-4 w-4" /> Prises en charge Internationales
       </Link>
       <PageHeader title={detail.name} description="Demande de prise en charge — congrès international.">
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />

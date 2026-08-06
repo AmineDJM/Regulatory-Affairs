@@ -89,7 +89,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
   return (
     <div className="space-y-5">
       <Link href="/congress-national" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Événements nationaux
+        <ArrowLeft className="h-4 w-4" /> Prises en charge Nationales
       </Link>
       <PageHeader title={detail.name} description="Demande de prise en charge — événement national.">
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />

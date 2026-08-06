@@ -131,8 +131,8 @@ export async function getActionCenter(user: SessionUser) {
     statusTone: CONGRESS_REQUEST_STATUS[s]?.tone ?? "warning",
   });
   for (const cfg of [
-    { module: "CONGRESS_INTERNATIONAL" as const, label: "Congrès internationaux", href: "/congress-international" },
-    { module: "CONGRESS_NATIONAL" as const, label: "Événements nationaux", href: "/congress-national" },
+    { module: "CONGRESS_INTERNATIONAL" as const, label: "Prises en charge Internationales", href: "/congress-international" },
+    { module: "CONGRESS_NATIONAL" as const, label: "Prises en charge Nationales", href: "/congress-national" },
   ]) {
     if (!userCan(user, cfg.module, "VIEW")) continue;
     const canValidate = userCan(user, cfg.module, "VALIDATE") || hasGlobalView(user.role);

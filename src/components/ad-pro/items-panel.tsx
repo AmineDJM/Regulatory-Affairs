@@ -47,7 +47,7 @@ interface Props {
 /**
  * DE QUOI EST FAIT LE MONTANT — les postes d'une opération Ad & Pro.
  *
- * Sert le **sponsoring** et les **congrès nationaux** : la question est la même dans les deux
+ * Sert le **sponsoring** et les **prises en charge nationales** : la question est la même dans les deux
  * cas. Un sponsoring est rarement un simple chèque, un congrès rarement une simple inscription —
  * il y a le stand, le symposium, les brochures produites pour l'occasion, une prestation. Les
  * modules ne portaient qu'un montant global : on ne savait ni de quoi il était fait, ni à qui

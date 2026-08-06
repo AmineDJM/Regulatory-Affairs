@@ -65,7 +65,7 @@ export const STATE_MACHINES: StateMachine[] = [
   // d'approbation (préliminaire → chef de produit → définitive) est suivi à part (WorkflowInstance).
   ...(["congressInternational", "congressNational"] as const).map((model) => ({
     id: model,
-    label: model === "congressInternational" ? "Congrès international" : "Congrès national",
+    label: model === "congressInternational" ? "Prise en charge Internationale" : "Prise en charge Nationale",
     module: "SPONSORING",
     model,
     statusField: "status",

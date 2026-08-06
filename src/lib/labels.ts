@@ -235,8 +235,8 @@ export const SPONSORING_TYPES: string[] = [
 export const BUDGET_CATEGORY: Record<string, string> = {
   REGULATORY: "Regulatory",
   SPONSORING: "Sponsoring",
-  CONGRESS_INTERNATIONAL: "Congrès internationaux",
-  CONGRESS_NATIONAL: "Congrès nationaux",
+  CONGRESS_INTERNATIONAL: "Prises en charge Internationales",
+  CONGRESS_NATIONAL: "Prises en charge Nationales",
   MEDICAL_PROMOTION: "Promotion médicale",
   LOGISTICS: "Logistique",
   BUSINESS_DEVELOPMENT: "Business Development",
@@ -785,8 +785,8 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   REGULATORY_STEP: "Étape Regulatory",
   SPONSORING: "Sponsoring",
   BUDGET: "Budget",
-  CONGRESS_INTERNATIONAL: "Congrès international",
-  CONGRESS_NATIONAL: "Congrès national",
+  CONGRESS_INTERNATIONAL: "Prise en charge Internationale",
+  CONGRESS_NATIONAL: "Prise en charge Nationale",
   SALE: "Vente",
   LOGISTICS: "Logistique PCH",
   DOCTOR: "Médecin",
@@ -1086,8 +1086,8 @@ export const MON_DOSSIER_TABS: NavTab[] = [
 // déplacé ici depuis « Promotion médicale » (sa fonctionnalité est inchangée).
 export const EVENTS_TABS: NavTab[] = [
   { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring" },
-  { module: "CONGRESS_INTERNATIONAL", label: "Congrès internationaux", href: "/congress-international" },
-  { module: "CONGRESS_NATIONAL", label: "Congrès nationaux", href: "/congress-national" },
+  { module: "CONGRESS_INTERNATIONAL", label: "Prises en charge Internationales", href: "/congress-international" },
+  { module: "CONGRESS_NATIONAL", label: "Prises en charge Nationales", href: "/congress-national" },
   { module: "EVENTS", label: "Événements", href: "/events" },
   { module: "PROMO_MATERIAL", label: "Matériel promotionnel", href: "/promo-material" },
 ];
@@ -1128,8 +1128,8 @@ export const MODULE_LABELS: Record<Module, string> = {
   BUDGETS: "Budgets",
   FINANCES: "Finances",
   RH: "Ressources humaines",
-  CONGRESS_INTERNATIONAL: "Congrès internationaux",
-  CONGRESS_NATIONAL: "Congrès nationaux",
+  CONGRESS_INTERNATIONAL: "Prises en charge Internationales",
+  CONGRESS_NATIONAL: "Prises en charge Nationales",
   EVENTS: "Événements",
   SALES: "Ventes",
   LOGISTICS: "Logistique",
