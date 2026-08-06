@@ -1151,7 +1151,7 @@ model SponsoringRequest {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  items SponsoringItem[]
+  items AdProItem[]
 
   @@index([status])
   @@index([strategicImportance])
@@ -1159,38 +1159,49 @@ model SponsoringRequest {
   @@index([productManagerId])
 }
 
-/// Nature d'un poste de sponsoring. `PROMO_MATERIAL` est à part : ce poste ne se traite pas
-/// dans le sponsoring, il POINTE vers un `PromoMaterial` qui suit son propre circuit
-/// (visa publicitaire, conformité information médicale, agence, BAT).
-enum SponsoringItemKind {
+/// Nature d'un poste Ad & Pro. `PROMO_MATERIAL` est à part : ce poste ne se traite pas ici,
+/// il POINTE vers un `PromoMaterial` qui suit son propre circuit (visa publicitaire,
+/// conformité information médicale, agence, BAT).
+enum AdProItemKind {
   STAND
+  SYMPOSIUM
   PROMO_MATERIAL
   SERVICE
   TRAVEL
   OTHER
 }
 
-/// UN POSTE D'UN SPONSORING — de quoi est fait le montant.
+/// UN POSTE D'UNE OPÉRATION AD & PRO — de quoi est fait le montant.
 ///
-/// Un sponsoring n'est presque jamais un simple chèque : il y a l'appui à l'association, mais
-/// aussi le stand, les brochures produites pour l'occasion, parfois une prestation. Le module
-/// ne portait qu'un montant global : on ne savait ni de quoi il était fait, ni à qui allait
-/// l'argent, et le matériel promotionnel produit pour l'événement vivait sans aucun lien.
+/// Un sponsoring ou un congrès n'est presque jamais un simple chèque : il y a l'appui à
+/// l'association ou les frais d'inscription, mais aussi le stand, le symposium, les brochures
+/// produites pour l'occasion. Les modules ne portaient qu'un montant global : on ne savait ni de
+/// quoi il était fait, ni à qui allait l'argent, et le matériel promotionnel produit pour
+/// l'événement vivait sans aucun lien.
 ///
 /// ⚠️ Un poste n'est PAS une demande : il ne déclenche aucun circuit de validation propre.
-/// Le sponsoring garde son circuit unique (National Sales → chef de produit → Direction) et
-/// les postes en sont la ventilation. Multiplier les circuits triplerait la bureaucratie que
-/// le moteur cherche justement à réduire.
-model SponsoringItem {
-  id           String             @id @default(cuid())
-  sponsoringId String
-  sponsoring   SponsoringRequest  @relation(fields: [sponsoringId], references: [id], onDelete: Cascade)
-  kind         SponsoringItemKind @default(OTHER)
-  label        String
-  notes        String?
+/// L'opération garde son circuit unique (National Sales → chef de produit → Direction) et les
+/// postes en sont la ventilation. Multiplier les circuits triplerait la bureaucratie que le
+/// moteur cherche justement à réduire.
+///
+/// **Deux clés étrangères plutôt qu'un couple (type, id)** : une colonne polymorphe ne peut
+/// pas porter de contrainte, donc supprimer un congrès laisserait ses postes orphelins. Ici la
+/// suppression en cascade est garantie par la base. Ajouter les congrès internationaux ou les
+/// événements se fera par une colonne de plus, pas par une refonte.
+/// Exactement UN parent est renseigné (contrainte `AdProItem_one_parent`).
+model AdProItem {
+  id                 String             @id @default(cuid())
+  sponsoringId       String?
+  sponsoring         SponsoringRequest? @relation(fields: [sponsoringId], references: [id], onDelete: Cascade)
+  congressNationalId String?
+  congressNational   CongressNational?  @relation(fields: [congressNationalId], references: [id], onDelete: Cascade)
+
+  kind  AdProItemKind @default(OTHER)
+  label String
+  notes String?
   /// À QUI on paie ce poste : l'organisateur pour un stand, l'agence pour du matériel,
   /// l'association pour l'appui. C'est ce qui justifie un ordre de dépense par poste.
-  supplier     String?
+  supplier String?
 
   amountEstimated Decimal? @db.Decimal(14, 2) // estimation du demandeur
   amountGranted   Decimal? @db.Decimal(14, 2) // part de l'enveloppe affectée à ce poste
@@ -1211,6 +1222,7 @@ model SponsoringItem {
   updatedAt   DateTime @updatedAt
 
   @@index([sponsoringId])
+  @@index([congressNationalId])
   @@index([promoMaterialId])
 }
 
@@ -1422,6 +1434,8 @@ model CongressNational {
   updatedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  items AdProItem[]
 
   @@index([status])
   @@index([date])

@@ -20,8 +20,8 @@ import { WorkflowPanel } from "@/components/workflow/workflow-panel";
 import { AppealPanel } from "./decision-panel";
 import { ThirdPartyButton } from "./third-party-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
-import { promoMaterialOptions } from "@/lib/actions/sponsoring-item-actions";
-import { SponsoringItemsPanel, type ItemRow } from "./items-panel";
+import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
+import { AdProItemsPanel, type ItemRow } from "@/components/ad-pro/items-panel";
 
 const SPONSORING_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -59,7 +59,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   // Postes du sponsoring : de quoi est fait le montant, et à qui va l'argent. Le matériel
   // promotionnel et l'ordre de dépense sont des scalaires (pas de relation Prisma) : on résout
   // leurs libellés en une requête chacun plutôt qu'une par poste.
-  const rawItems = await prisma.sponsoringItem.findMany({
+  const rawItems = await prisma.adProItem.findMany({
     where: { sponsoringId: req.id },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
   });
@@ -160,8 +160,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               <CardTitle>Ce que couvre ce sponsoring</CardTitle>
             </CardHeader>
             <CardContent>
-              <SponsoringItemsPanel
-                sponsoringId={req.id}
+              <AdProItemsPanel
+                parent="SPONSORING"
+                parentId={req.id}
                 items={items}
                 amountGranted={req.amountGranted != null ? toNumber(req.amountGranted) : null}
                 decided={decided}

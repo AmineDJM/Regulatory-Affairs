@@ -1,3 +1,4 @@
+import type * as React from "react";
 import type { EntityType } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +19,7 @@ const CONGRESS_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE"
 
 export function CongressDetailView({
   detail, workflow, canInvolveThirdParty, entityType, entityId, documents, canUpload, canDelete, path,
-  missions, missionUsers, canManageMissions, currentUserId,
+  missions, missionUsers, canManageMissions, currentUserId, itemsPanel,
 }: {
   detail: CongressDetail;
   workflow: WorkflowView | null;
@@ -33,6 +34,10 @@ export function CongressDetailView({
   missionUsers: { id: string; name: string }[];
   canManageMissions: boolean;
   currentUserId: string;
+  /** Ventilation de l'enveloppe en postes — fournie par les écrans qui la portent (national).
+      Un emplacement plutôt qu'un branchement en dur : la vue n'a pas à connaître les postes,
+      et l'international ne change pas d'un pixel. */
+  itemsPanel?: React.ReactNode;
 }) {
   const d = detail;
 
@@ -59,6 +64,13 @@ export function CongressDetailView({
             <Budget label="Proposé par le chef de produit" value={d.productManagerBudget} tone="primary" />
           </CardContent>
         </Card>
+
+        {itemsPanel && (
+          <Card>
+            <CardHeader><CardTitle>Ce que couvre cet événement</CardTitle></CardHeader>
+            <CardContent>{itemsPanel}</CardContent>
+          </Card>
+        )}
 
         {/* Workflow configurable (piloté par le moteur — éditable dans Administration) */}
         <Card>

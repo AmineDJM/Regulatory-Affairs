@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { breakdown, canEmitOrder } from "./sponsoring-items";
+import { breakdown, canEmitOrder, plannedGaps } from "./ad-pro-items";
 
 /**
  * La ventilation décide de ce que la Direction voit et de ce que les Finances paient. Une
@@ -102,5 +102,37 @@ describe("canEmitOrder — trois garde-fous financiers", () => {
 
   it("le double paiement prime sur toute autre objection — c'est le risque le plus coûteux", () => {
     expect(canEmitOrder({ amountGranted: null, expenseOrderId: "od_1" }, false).reason).toContain("déjà été émis");
+  });
+});
+
+/**
+ * Un congrès annonce un stand ou un symposium via `hasBooth` / `hasSymposium`. Ces intentions
+ * n'ont jamais porté d'argent : on annonçait un stand et le budget n'en disait pas un mot.
+ * Ce rapprochement est le seul endroit où l'écart se voit avant la facture.
+ */
+describe("plannedGaps — annoncé mais pas chiffré", () => {
+  it("un stand annoncé sans poste STAND est signalé", () => {
+    const g = plannedGaps([{ kind: "SERVICE" }], { hasBooth: true });
+    expect(g.boothUnbudgeted).toBe(true);
+    expect(g.any).toBe(true);
+  });
+
+  it("un stand annoncé ET chiffré ne déclenche rien", () => {
+    expect(plannedGaps([{ kind: "STAND" }], { hasBooth: true }).boothUnbudgeted).toBe(false);
+  });
+
+  it("le symposium a sa propre nature — un poste « prestation » ne le couvre pas", () => {
+    expect(plannedGaps([{ kind: "SERVICE" }], { hasSymposium: true }).symposiumUnbudgeted).toBe(true);
+    expect(plannedGaps([{ kind: "SYMPOSIUM" }], { hasSymposium: true }).symposiumUnbudgeted).toBe(false);
+  });
+
+  it("rien d'annoncé, rien à signaler — y compris quand le drapeau est absent", () => {
+    expect(plannedGaps([], {}).any).toBe(false);
+    expect(plannedGaps([], { hasBooth: false, hasSymposium: null }).any).toBe(false);
+  });
+
+  it("les deux manques se cumulent", () => {
+    const g = plannedGaps([], { hasBooth: true, hasSymposium: true });
+    expect(g.boothUnbudgeted && g.symposiumUnbudgeted).toBe(true);
   });
 });

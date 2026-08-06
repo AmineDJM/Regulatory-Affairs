@@ -4,19 +4,19 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Loader2, CheckCircle2, XCircle, Receipt, Link2, AlertTriangle, ExternalLink } from "lucide-react";
-import type { SponsoringItemKind } from "@prisma/client";
+import type { AdProItemKind } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
-import { breakdown, canEmitOrder, ITEM_KINDS, ITEM_KIND_LABELS } from "@/lib/sponsoring-items";
+import { breakdown, canEmitOrder, plannedGaps, ITEM_KINDS, ITEM_KIND_LABELS, type AdProParent } from "@/lib/ad-pro-items";
 import {
-  addSponsoringItem, updateSponsoringItem, deleteSponsoringItem,
+  addAdProItem, updateAdProItem, deleteAdProItem,
   emitItemExpenseOrder, linkPromoMaterial,
-} from "@/lib/actions/sponsoring-item-actions";
+} from "@/lib/actions/ad-pro-item-actions";
 
 export interface ItemRow {
   id: string;
-  kind: SponsoringItemKind;
+  kind: AdProItemKind;
   label: string;
   notes: string | null;
   supplier: string | null;
@@ -30,7 +30,8 @@ export interface ItemRow {
 }
 
 interface Props {
-  sponsoringId: string;
+  parent: AdProParent;
+  parentId: string;
   items: ItemRow[];
   /** Enveloppe accordée par la Direction (DZD), ou null si elle n'a pas encore tranché. */
   amountGranted: number | null;
@@ -39,16 +40,20 @@ interface Props {
   /** Affecter les montants et engager la dépense : Direction uniquement. */
   canAllocate: boolean;
   promoOptions: { id: string; reference: string; title: string; status: string }[];
+  /** Congrès : ce qui est ANNONCÉ (stand, symposium) et qu'il faudrait chiffrer. */
+  plan?: { hasBooth?: boolean | null; hasSymposium?: boolean | null };
 }
 
 /**
- * DE QUOI EST FAIT LE MONTANT — les postes d'un sponsoring.
+ * DE QUOI EST FAIT LE MONTANT — les postes d'une opération Ad & Pro.
  *
- * Un sponsoring est rarement un simple chèque : il y a l'appui à l'association, mais souvent
- * aussi un stand, des brochures produites pour l'occasion, une prestation. Le module ne portait
- * qu'un montant global — on ne savait ni de quoi il était fait, ni à qui allait l'argent.
+ * Sert le **sponsoring** et les **congrès nationaux** : la question est la même dans les deux
+ * cas. Un sponsoring est rarement un simple chèque, un congrès rarement une simple inscription —
+ * il y a le stand, le symposium, les brochures produites pour l'occasion, une prestation. Les
+ * modules ne portaient qu'un montant global : on ne savait ni de quoi il était fait, ni à qui
+ * allait l'argent.
  *
- * Trois principes tenus à l'écran :
+ * Quatre principes tenus à l'écran :
  *   1. **Un poste n'est pas une demande** : aucun circuit de validation supplémentaire. Le
  *      sponsoring garde le sien, les postes en sont la ventilation.
  *   2. **Le dépassement se voit.** Un poste peut être ajouté après la décision — c'est autorisé.
@@ -56,9 +61,12 @@ interface Props {
  *      découvrir à la facture.
  *   3. **Le matériel promotionnel n'est pas recopié ici.** Il a son circuit (visa publicitaire,
  *      conformité, agence, BAT) ; le poste y renvoie et en montre l'avancement en lecture.
+ *   4. **Ce qui est annoncé doit être chiffré.** Un congrès qui déclare un stand ou un symposium
+ *      sans poste correspondant a un budget incomplet — on le dit, sans bloquer : un stand peut
+ *      être offert par l'organisateur.
  */
-export function SponsoringItemsPanel({
-  sponsoringId, items, amountGranted, decided, canEdit, canAllocate, promoOptions,
+export function AdProItemsPanel({
+  parent, parentId, items, amountGranted, decided, canEdit, canAllocate, promoOptions, plan,
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -67,6 +75,7 @@ export function SponsoringItemsPanel({
   const lock = React.useRef(false);
 
   const b = breakdown(items, amountGranted);
+  const gaps = plannedGaps(items, plan ?? {});
 
   const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) => {
     if (lock.current) return;
@@ -114,6 +123,18 @@ export function SponsoringItemsPanel({
         </p>
       )}
 
+      {/* Annoncé mais pas chiffré : le budget est incomplet, et personne ne le voyait. */}
+      {gaps.any && (
+        <p className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm text-muted-foreground">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <span>
+            {gaps.boothUnbudgeted && <>Un <strong>stand</strong> est annoncé sur cet événement mais aucun poste ne le chiffre. </>}
+            {gaps.symposiumUnbudgeted && <>Un <strong>symposium</strong> est annoncé mais aucun poste ne le chiffre. </>}
+            S&apos;il est offert par l&apos;organisateur, ignorez ce rappel — sinon le budget est incomplet.
+          </span>
+        </p>
+      )}
+
       {/* ── Les postes ── */}
       {items.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
@@ -150,7 +171,7 @@ export function SponsoringItemsPanel({
                       const fd = new FormData();
                       fd.set("id", it.id);
                       fd.set("amountGranted", v);
-                      void run(`alloc:${it.id}`, () => updateSponsoringItem(undefined, fd), "Montant affecté.");
+                      void run(`alloc:${it.id}`, () => updateAdProItem(undefined, fd), "Montant affecté.");
                     }} />
                   ) : (
                     <span className="text-muted-foreground">
@@ -227,7 +248,7 @@ export function SponsoringItemsPanel({
                       onClick={() => {
                         const fd = new FormData();
                         fd.set("id", it.id);
-                        void run(`del:${it.id}`, () => deleteSponsoringItem(undefined, fd), "Poste retiré.");
+                        void run(`del:${it.id}`, () => deleteAdProItem(undefined, fd), "Poste retiré.");
                       }}
                       disabled={busy === `del:${it.id}`}
                       className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
@@ -253,12 +274,13 @@ export function SponsoringItemsPanel({
       {canEdit && (
         adding ? (
           <AddItemForm
-            sponsoringId={sponsoringId}
+            parent={parent}
+            parentId={parentId}
             decided={decided}
             busy={busy === "add"}
             onCancel={() => setAdding(false)}
             onSubmit={(fd) => void run("add", async () => {
-              const r = await addSponsoringItem(undefined, fd);
+              const r = await addAdProItem(undefined, fd);
               if (r.ok) setAdding(false);
               return r;
             }, "Poste ajouté.")}
@@ -294,15 +316,16 @@ function AllocateField({ itemId, current, busy, onSave }: { itemId: string; curr
   );
 }
 
-function AddItemForm({ sponsoringId, decided, busy, onCancel, onSubmit }: {
-  sponsoringId: string; decided: boolean; busy: boolean; onCancel: () => void; onSubmit: (fd: FormData) => void;
+function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
+  parent: AdProParent; parentId: string; decided: boolean; busy: boolean; onCancel: () => void; onSubmit: (fd: FormData) => void;
 }) {
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); onSubmit(new FormData(e.currentTarget)); }}
       className="space-y-2 rounded-xl border border-border p-3"
     >
-      <input type="hidden" name="sponsoringId" value={sponsoringId} />
+      <input type="hidden" name="parent" value={parent} />
+      <input type="hidden" name="parentId" value={parentId} />
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="text-xs">
           Nature

@@ -911,11 +911,20 @@ réalité réglementaire.
   pas reculer une industrialisation actée ; sans date de décision, on retombe sur la création.
 - Tests : `manufacturing-stage.test.ts` (11 tests), dont le cas « la fiche a divergé ».
 
-### Sponsoring — postes et ventilation de l'enveloppe
+### Ad & Pro — postes et ventilation de l'enveloppe
 
 `SponsoringRequest` ne portait qu'un montant (`amountRequested` → `amountProposed` →
-`amountGranted`) et **un seul** ordre de dépense. Un sponsoring réel couvre pourtant plusieurs
-choses, payées à plusieurs personnes. `SponsoringItem` décrit ces **postes**.
+`amountGranted`) et **un seul** ordre de dépense ; `CongressNational`, un `finalAmount` et deux
+booléens (`hasBooth`, `hasSymposium`) qui annonçaient un stand ou un symposium sans jamais les
+chiffrer. Ces opérations couvrent pourtant plusieurs choses, payées à plusieurs personnes.
+`AdProItem` décrit ces **postes**, pour le **sponsoring** et les **congrès nationaux**.
+
+**Une table pour les deux modules**, avec **deux clés étrangères nullables** plutôt qu'un couple
+(type, id) : une colonne polymorphe ne peut pas porter de contrainte, donc supprimer un congrès
+laisserait ses postes orphelins. Ici la cascade est garantie par la base, et une contrainte
+`AdProItem_one_parent` impose qu'exactement un parent soit renseigné — sans quoi un poste sans
+parent serait invisible partout tout en ne pesant dans aucune ventilation. Ajouter les congrès
+internationaux ou les événements se fera par une colonne de plus, pas par une refonte.
 
 **Le principe qui structure tout : un poste n'est pas une demande.** Il ne déclenche aucun circuit
 de validation propre. Le sponsoring garde le sien (National Sales → chef de produit → Direction) et
@@ -928,6 +937,7 @@ bureaucratie que le moteur anti-bureaucratie cherche justement à réduire.
 | **Un ordre de dépense par poste** | `emitItemExpenseOrder` | Le stand se paie à l'organisateur, le matériel à l'agence, l'appui à l'association : trois bénéficiaires, trois pièces. Un ordre global obligerait les Finances à répartir à la main. |
 | Ajout après décision **autorisé et tracé** | `addedAfterDecision` | Cas réel : on découvre qu'il faut un stand. On ne bloque pas — mais la ventilation dépasse alors l'enveloppe, et l'écran l'**affiche**. Un dépassement caché est un dépassement qu'on découvre à la facture. |
 | Le matériel promo **n'est pas recopié** | `promoMaterialId` | Il a un circuit non négociable (visa publicitaire, conformité information médicale, agence, BAT). Le poste y renvoie et en montre l'avancement en lecture. Deux vérités sur le même objet finiraient par diverger. |
+| Ce qui est **annoncé** doit être **chiffré** | `plannedGaps()` (pure, testée) | Un congrès déclare `hasBooth` / `hasSymposium` : on signale un stand ou un symposium annoncé sans poste correspondant. Sans blocage — un stand peut être offert par l'organisateur — mais l'écart se voit avant la facture, pas après. |
 
 **Garde-fous financiers** (`canEmitOrder`, pure et testée) : on ne paie pas ce qui n'est pas
 **accordé**, pas un poste **sans montant**, et jamais **deux fois**. Un montant déjà couvert par un
@@ -935,9 +945,15 @@ ordre de dépense ne peut plus changer, et un poste payé ne peut plus être ret
 justification d'une dépense engagée disparaîtrait. Affecter les montants et émettre les ordres sont
 réservés à la **Direction** ; décrire les postes reste ouvert au demandeur.
 
-Fichiers : `lib/sponsoring-items.ts` (`breakdown`, `canEmitOrder` + `sponsoring-items.test.ts`,
-14 tests), `lib/actions/sponsoring-item-actions.ts`,
-`app/(app)/sponsoring/[id]/items-panel.tsx`. Migration `20260806120000_sponsoring_items`.
+Les différences réelles entre modules — où lit-on l'enveloppe (`amountGranted` vs `finalAmount`),
+quel statut vaut « accordé », quelle permission, quel chemin revalider — sont rassemblées dans la
+table `PARENTS` des actions : **un seul endroit** à compléter pour un module de plus.
+
+Fichiers : `lib/ad-pro-items.ts` (`breakdown`, `canEmitOrder`, `plannedGaps` +
+`ad-pro-items.test.ts`, 19 tests), `lib/actions/ad-pro-item-actions.ts`,
+`components/ad-pro/items-panel.tsx` (branché sur `/sponsoring/[id]` et, par un emplacement
+optionnel de `CongressDetailView`, sur `/congress-national/[id]` — l'international ne change pas).
+Migrations `20260806120000_sponsoring_items` puis `20260806140000_ad_pro_items`.
 
 ### Mobile — superposition, défilement et hauteurs
 
@@ -1233,7 +1249,7 @@ Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage 
 | **Assistant — flux (streaming)** | `lib/ai.ts` → `callClaudeStream`, `lib/assistant.ts` → `runAssistantStream`, `app/api/assistant/stream/route.ts` (SSE), `app/(app)/assistant/assistant-chat.tsx`. |
 | **Regulatory — niveau de process** | `lib/regulatory/manufacturing-stage.ts` (`effectiveStage`, pure) + tests ; colonne et cellule dans `app/(app)/regulatory/regulatory-table.tsx` ; fiche `app/(app)/regulatory/[id]/page.tsx`. |
 | **RH — 4 écrans** | `lib/queries/hr-pulse.ts` (`getHrPulse` : absents, départs, échéances, soldes) ; `app/(app)/rh/` — `page.tsx` (à traiter), `equipe/`, `conges/`, `departements/`, `team-directory.tsx`. |
-| **Sponsoring — postes** | `lib/sponsoring-items.ts` (`breakdown`, `canEmitOrder`, purs + tests) ; `lib/actions/sponsoring-item-actions.ts` (ajout/affectation/ordre de dépense/rattachement matériel) ; `app/(app)/sponsoring/[id]/items-panel.tsx`. Modèle `SponsoringItem` + enum `SponsoringItemKind`. |
+| **Ad & Pro — postes** | `lib/ad-pro-items.ts` (`breakdown`, `canEmitOrder`, `plannedGaps`, purs + tests) ; `lib/actions/ad-pro-item-actions.ts` (table `PARENTS` = le seul endroit à compléter pour un module de plus) ; `components/ad-pro/items-panel.tsx`. Modèle `AdProItem` (2 FK nullables + contrainte `one_parent`) + enum `AdProItemKind`. |
 | **Mobile — coque & couches** | `lib/use-scroll-lock.ts` (verrou compté sur `#app-scroll`) ; `components/layout/chrome-metrics.tsx` (hauteurs mesurées → `--app-chrome-top` / `--app-chrome-bottom`) ; `.app-viewport` / `.app-viewport-flush` et l'échelle de z-index dans `app/globals.css`. |
 | **CTD — réserves ANPP** | `lib/regulatory/intelligence/reserves/` — `library-ingest.ts` (texte → OCR → vision), `library-extract.ts` (schéma strict, verbatim obligatoire), `library.ts` (`findSimilarReserves`, `bestHistoricalResponse`, `reserveRisk`, `proposeRules`, `ruleConfidence`), `library-actions.ts` (`validateDerivedRule` = seul chemin vers VALIDATED) ; écran `app/(app)/regulatory/enregistrement/reserves/`. |
 | **CTD — constats défendables** | `lib/regulatory/intelligence/findings/enrich.ts` (`enrichVersionFindings`, `findingQuality` pure + tests) ; branché dans `jobs/runner.ts` (`attachPrecedents`) ; rendu par `FindingEvidence` dans `app/(app)/regulatory/enregistrement/analyse/[dossierId]/page.tsx`. |
@@ -1665,18 +1681,21 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
-- **Sponsoring : de quoi est fait le montant.** Un sponsoring est rarement un simple chèque — il y
-  a l'appui à l'association, mais aussi le stand, les brochures produites pour l'occasion, une
-  prestation. Le module ne portait qu'un **montant global** : on ne savait ni de quoi il était
-  fait, ni à qui allait l'argent. On lui attache désormais des **postes** (stand · matériel
-  promotionnel · prestation · déplacement · autre), chacun avec son bénéficiaire et **son ordre de
+- **Ad & Pro : de quoi est fait le montant.** Un sponsoring est rarement un simple chèque, un
+  congrès rarement une simple inscription — il y a l'appui à l'association, mais aussi le stand, le
+  symposium, les brochures produites pour l'occasion. Les modules ne portaient qu'un **montant
+  global** : on ne savait ni de quoi il était fait, ni à qui allait l'argent. **Sponsoring et
+  congrès nationaux** portent désormais des **postes** (stand · symposium · matériel promotionnel ·
+  prestation · déplacement · autre), chacun avec son bénéficiaire et **son ordre de
   dépense** — parce que le stand se paie à l'organisateur, le matériel à l'agence et l'appui à
   l'association. La Direction accorde toujours **une enveloppe globale** ; les postes s'en
   répartissent, et l'écran affiche en permanence ce qui reste à affecter — ou **ce qui dépasse**.
   Un poste ajouté après la décision est **autorisé et tracé** : il fait apparaître le dépassement
   au lieu de le laisser découvrir à la facture. Le matériel promotionnel n'est jamais recopié ici :
   le poste **renvoie** à un `PromoMaterial` qui suit son propre circuit (visa publicitaire,
-  conformité, agence, BAT). → [référence](#sponsoring--postes-et-ventilation-de-lenveloppe)
+  conformité, agence, BAT). Sur un congrès, `hasBooth` / `hasSymposium` n'étaient que des
+  **intentions jamais chiffrées** : l'écran signale désormais un stand ou un symposium annoncé que
+  personne n'a budgété. → [référence](#ad--pro--postes-et-ventilation-de-lenveloppe)
 - **Mobile : fin des superpositions.** Trois défauts donnaient la même impression de modules qui se
   marchent dessus. La **barre d'onglets était au-dessus des modales** (`z-60` contre `z-50`) : un
   bouton de validation en bas d'une feuille était visible mais intouchable. Le **verrou de

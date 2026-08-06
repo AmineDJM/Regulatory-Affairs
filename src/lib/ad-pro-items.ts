@@ -1,16 +1,25 @@
-import type { SponsoringItemKind } from "@prisma/client";
+import type { AdProItemKind } from "@prisma/client";
 
 /**
- * POSTES D'UN SPONSORING — la ventilation de l'enveloppe.
+ * POSTES D'UNE OPÉRATION AD & PRO — la ventilation de l'enveloppe.
+ *
+ * Sert le **sponsoring** et les **congrès nationaux** : la question posée est la même (de quoi
+ * est fait le montant, et à qui va l'argent), la réponse doit donc l'être aussi. Deux
+ * implémentations parallèles finiraient par diverger sur un détail qui compte — un garde-fou
+ * financier corrigé d'un côté et pas de l'autre.
  *
  * Ce fichier ne contient QUE des fonctions pures : il est importé par des composants client
  * (l'écran de ventilation) autant que par le serveur. Rien qui lise un fichier ou la base —
  * sans quoi la compilation de production échouerait sur un `fs` introuvable.
  */
 
+/** Les opérations Ad & Pro qui portent des postes. */
+export type AdProParent = "SPONSORING" | "CONGRESS_NATIONAL";
+
 /** Libellés métier. `PROMO_MATERIAL` est distingué : il renvoie vers un autre circuit. */
-export const ITEM_KIND_LABELS: Record<SponsoringItemKind, string> = {
+export const ITEM_KIND_LABELS: Record<AdProItemKind, string> = {
   STAND: "Stand",
+  SYMPOSIUM: "Symposium",
   PROMO_MATERIAL: "Matériel promotionnel",
   SERVICE: "Prestation",
   TRAVEL: "Déplacement / hébergement",
@@ -18,7 +27,7 @@ export const ITEM_KIND_LABELS: Record<SponsoringItemKind, string> = {
 };
 
 /** Ordre d'affichage : ce qui coûte le plus cher et se décide en premier, en tête. */
-export const ITEM_KINDS: SponsoringItemKind[] = ["STAND", "PROMO_MATERIAL", "SERVICE", "TRAVEL", "OTHER"];
+export const ITEM_KINDS: AdProItemKind[] = ["STAND", "SYMPOSIUM", "PROMO_MATERIAL", "SERVICE", "TRAVEL", "OTHER"];
 
 export interface ItemAmounts {
   amountEstimated?: number | null;
@@ -81,6 +90,33 @@ export function breakdown(items: ItemAmounts[], amountGranted: number | null | u
     hasLateAdditions: items.some((i) => i.addedAfterDecision === true),
     itemCount: items.length,
   };
+}
+
+/**
+ * CE QUI EST ANNONCÉ MAIS QUE PERSONNE N'A CHIFFRÉ.
+ *
+ * Un congrès déclare `hasBooth` / `hasSymposium` : on sait donc qu'il y aura un stand ou un
+ * symposium. Ces intentions n'ont jamais porté d'argent — on annonçait un stand et le budget
+ * n'en disait pas un mot. Le rapprochement est le seul endroit où l'écart devient visible avant
+ * la facture.
+ *
+ * Ce n'est pas un blocage : un stand peut être offert par l'organisateur. C'est une question
+ * posée à la bonne personne au bon moment. Fonction PURE — testée.
+ */
+export interface PlannedGaps {
+  boothUnbudgeted: boolean;
+  symposiumUnbudgeted: boolean;
+  any: boolean;
+}
+
+export function plannedGaps(
+  items: { kind: AdProItemKind }[],
+  plan: { hasBooth?: boolean | null; hasSymposium?: boolean | null },
+): PlannedGaps {
+  const has = (k: AdProItemKind) => items.some((i) => i.kind === k);
+  const boothUnbudgeted = plan.hasBooth === true && !has("STAND");
+  const symposiumUnbudgeted = plan.hasSymposium === true && !has("SYMPOSIUM");
+  return { boothUnbudgeted, symposiumUnbudgeted, any: boothUnbudgeted || symposiumUnbudgeted };
 }
 
 /**
