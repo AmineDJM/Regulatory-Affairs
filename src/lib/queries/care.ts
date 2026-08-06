@@ -25,7 +25,7 @@ export async function getCareDossier(scope: "NATIONAL" | "INTERNATIONAL", reques
         requesterOpinion: true, requesterNote: true, status: true, decisionNote: true,
         cells: {
           orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-          select: { id: true, kind: true, serviceKind: true, label: true, notes: true, status: true, amountDzd: true, expenseOrderId: true },
+          select: { id: true, kind: true, serviceKind: true, label: true, notes: true, status: true, amountDzd: true, expenseOrderId: true, promoMaterialId: true },
         },
       },
     }),
@@ -38,6 +38,13 @@ export async function getCareDossier(scope: "NATIONAL" | "INTERNATIONAL", reques
       },
     }),
   ]);
+
+  // Le matériel promotionnel rattaché à des cases, en UNE requête.
+  const promoIds = rows.flatMap((r) => r.cells.map((c) => c.promoMaterialId)).filter((x): x is string => Boolean(x));
+  const promos = promoIds.length
+    ? await prisma.promoMaterial.findMany({ where: { id: { in: [...new Set(promoIds)] } }, select: { id: true, reference: true, title: true, status: true } })
+    : [];
+  const promoById = new Map(promos.map((p) => [p.id, { reference: p.reference, title: p.title, status: String(p.status) }]));
 
   // Les noms de l'annuaire, en UNE requête.
   const doctorIds = rows.map((r) => r.doctorId).filter((x): x is string => Boolean(x));
@@ -63,6 +70,8 @@ export async function getCareDossier(scope: "NATIONAL" | "INTERNATIONAL", reques
           status: c.status,
           amountDzd: c.amountDzd != null ? toNumber(c.amountDzd) : null,
           expenseOrderId: c.expenseOrderId,
+          promoMaterialId: c.promoMaterialId,
+          promoMaterial: c.promoMaterialId ? promoById.get(c.promoMaterialId) ?? null : null,
         })),
       };
     }),

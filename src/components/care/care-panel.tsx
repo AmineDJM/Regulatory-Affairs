@@ -19,6 +19,7 @@ import {
   addCareBeneficiary, setCareOpinion, decideCareBeneficiary, removeCareBeneficiary,
   addCareCell, setCareCellStatus, removeCareCell,
   createCareQuote, decideCareQuote, requestCareQuotes, sendCareToFinance,
+  linkCareCellPromoMaterial,
 } from "@/lib/actions/care-actions";
 
 export interface CellRow {
@@ -30,6 +31,9 @@ export interface CellRow {
   status: CareCellStatus;
   amountDzd: number | null;
   expenseOrderId: string | null;
+  promoMaterialId: string | null;
+  /** Résolu côté serveur — le matériel garde son circuit, on n'en montre que l'avancement. */
+  promoMaterial: { reference: string; title: string; status: string } | null;
 }
 
 export interface BeneficiaryRow {
@@ -66,6 +70,8 @@ interface Props {
   canEdit: boolean;
   /** Trancher : accorder une personne, accepter un devis, envoyer aux Finances. */
   canDecide: boolean;
+  /** Matériels promotionnels rattachables à une case — ils gardent leur propre circuit. */
+  promoOptions: { id: string; reference: string; title: string }[];
 }
 
 /**
@@ -85,7 +91,7 @@ interface Props {
  *     il devient une dépense.
  */
 export function CarePanel({
-  scope, requestId, beneficiaries, quotes, directory, eventApproved, canEdit, canDecide,
+  scope, requestId, beneficiaries, quotes, directory, eventApproved, canEdit, canDecide, promoOptions,
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -242,6 +248,29 @@ export function CarePanel({
                           <Badge tone={c.status === "SETTLED" ? "success" : c.status === "WAIVED" ? "neutral" : c.status === "PROVIDED" ? "info" : "warning"} dot={false}>
                             {CELL_STATUS_LABELS[c.status]}
                           </Badge>
+                          {c.serviceKind === "PROMO_MATERIAL" && (
+                            c.promoMaterial ? (
+                              <a href={`/promo-material/${c.promoMaterialId}`} className="text-xs font-medium text-primary hover:underline">
+                                {c.promoMaterial.reference} · {c.promoMaterial.status}
+                              </a>
+                            ) : canEdit ? (
+                              <select
+                                defaultValue=""
+                                onChange={(e) => {
+                                  if (!e.target.value) return;
+                                  const fd = new FormData();
+                                  fd.set("id", c.id);
+                                  fd.set("promoMaterialId", e.target.value);
+                                  void run(`pm:${c.id}`, () => linkCareCellPromoMaterial(undefined, fd), "Matériel rattaché.");
+                                }}
+                                aria-label={`Rattacher un matériel à « ${c.label} »`}
+                                className="rounded-lg border border-border bg-background px-1.5 py-1 text-[11px] outline-none focus:border-primary/60"
+                              >
+                                <option value="">Rattacher un matériel…</option>
+                                {promoOptions.map((p) => <option key={p.id} value={p.id}>{p.reference} — {p.title}</option>)}
+                              </select>
+                            ) : null
+                          )}
                           {canEdit && !c.expenseOrderId && (
                             <>
                               <select

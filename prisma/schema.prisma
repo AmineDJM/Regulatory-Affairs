@@ -1482,6 +1482,9 @@ enum CareServiceKind {
   CATERING
   REGISTRATION
   VISA_FEE
+  /// Support produit pour CETTE personne (brochure, kit, présentoir). Ne se traite pas ici :
+  /// la case POINTE vers un `PromoMaterial` qui suit son propre circuit.
+  PROMO_MATERIAL
   OTHER
 }
 
@@ -1562,6 +1565,10 @@ model CareCell {
 
   /// DOCUMENT : la pièce déposée (Document.id).
   documentId String?
+  /// Rattachement au circuit du matériel promotionnel — jamais recopié ici : le matériel a son
+  /// propre parcours (visa publicitaire, conformité, agence, BAT) et cette case en montre
+  /// seulement l'avancement.
+  promoMaterialId String?
   /// SERVICE : le devis retenu et ce qu'il coûte.
   quoteId        String?
   amountDzd      Decimal? @db.Decimal(14, 2)
@@ -1577,6 +1584,7 @@ model CareCell {
 
   @@index([beneficiaryId])
   @@index([quoteId])
+  @@index([promoMaterialId])
 }
 
 enum CareQuoteStatus {

@@ -16,7 +16,7 @@ import { CONGRESS_REQUEST_STATUS } from "@/lib/labels";
 import { CongressDetailView } from "../congress-detail-view";
 import { CarePanel } from "@/components/care/care-panel";
 import { getCareDossier } from "@/lib/queries/care";
-import { careDirectoryOptions } from "@/lib/actions/care-actions";
+import { careDirectoryOptions, carePromoOptions } from "@/lib/actions/care-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default async function CongressIntlDetailPage({ params }: { params: { id: string } }) {
@@ -50,9 +50,10 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
   // Le dossier de prise en charge : les personnes, ce qu'il faut pour chacune, et les devis.
   const canDecideCare = hasGlobalView(user) || userCan(user, "CONGRESS_INTERNATIONAL", "VALIDATE");
   const canEditCare = userCan(user, "CONGRESS_INTERNATIONAL", "CREATE") || userCan(user, "CONGRESS_INTERNATIONAL", "UPDATE") || canDecideCare;
-  const [care, directory, intl] = await Promise.all([
+  const [care, directory, carePromos, intl] = await Promise.all([
     getCareDossier("INTERNATIONAL", detail.id),
     careDirectoryOptions(),
+    carePromoOptions(),
     prisma.congressInternational.findUnique({ where: { id: detail.id }, select: { requestStatus: true } }),
   ]);
 
@@ -79,6 +80,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
             eventApproved={["APPROVED", "COMPLETED"].includes(intl?.requestStatus ?? "")}
             canEdit={canEditCare}
             canDecide={canDecideCare}
+            promoOptions={carePromos}
           />
         </CardContent>
       </Card>

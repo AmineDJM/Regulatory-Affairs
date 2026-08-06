@@ -594,3 +594,53 @@ export async function careDirectoryOptions(): Promise<{ id: string; name: string
   });
   return rows;
 }
+
+/**
+ * Rattache un matériel promotionnel à la case d'UNE personne.
+ *
+ * Une prise en charge s'accompagne souvent d'un support produit — brochure, kit, présentoir —
+ * destiné à cette personne-là. On ne recopie jamais le circuit du matériel ici : il a le sien
+ * (visa publicitaire, conformité information médicale, agence, BAT), et la case en montre
+ * seulement l'avancement. Deux vérités sur le même objet finiraient par diverger.
+ */
+export async function linkCareCellPromoMaterial(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Élément non précisé." };
+
+  const cell = await prisma.careCell.findUnique({ where: { id }, select: { id: true, label: true, beneficiaryId: true } });
+  if (!cell) return { ok: false, error: "Élément introuvable." };
+  const found = await scopeOfBeneficiary(cell.beneficiaryId);
+  if (!found) return { ok: false, error: "Personne introuvable." };
+  if (!canEdit(user, found.scope)) return { ok: false, error: "Non autorisé." };
+
+  const promoMaterialId = fdStr(formData, "promoMaterialId");
+  if (promoMaterialId) {
+    const pm = await prisma.promoMaterial.findUnique({ where: { id: promoMaterialId }, select: { reference: true } });
+    if (!pm) return { ok: false, error: "Matériel promotionnel introuvable." };
+    await prisma.careCell.update({
+      where: { id },
+      data: { promoMaterialId, kind: "SERVICE", serviceKind: "PROMO_MATERIAL" },
+    });
+    await audit(user, found.scope, found.requestId, "UPDATE",
+      `${await nameOf(found.beneficiary)} — « ${cell.label} » rattaché au matériel ${pm.reference}.`);
+  } else {
+    await prisma.careCell.update({ where: { id }, data: { promoMaterialId: null } });
+    await audit(user, found.scope, found.requestId, "UPDATE",
+      `${await nameOf(found.beneficiary)} — « ${cell.label} » détaché de son matériel promotionnel.`);
+  }
+
+  revalidate(found.scope, found.requestId);
+  return { ok: true, id };
+}
+
+/** Les matériels promotionnels rattachables — pour le sélecteur. */
+export async function carePromoOptions(): Promise<{ id: string; reference: string; title: string }[]> {
+  await requireUser();
+  const rows = await prisma.promoMaterial.findMany({
+    where: { status: { not: "CANCELLED" } },
+    orderBy: { createdAt: "desc" }, take: 60,
+    select: { id: true, reference: true, title: true },
+  });
+  return rows;
+}

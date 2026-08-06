@@ -19,7 +19,7 @@ import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel, type ItemRow } from "@/components/ad-pro/items-panel";
 import { CarePanel } from "@/components/care/care-panel";
 import { getCareDossier } from "@/lib/queries/care";
-import { careDirectoryOptions } from "@/lib/actions/care-actions";
+import { careDirectoryOptions, carePromoOptions } from "@/lib/actions/care-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default async function CongressNatDetailPage({ params }: { params: { id: string } }) {
@@ -91,7 +91,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
   const canAllocate = hasGlobalView(user) || userCan(user, "CONGRESS_NATIONAL", "VALIDATE");
 
   // Le dossier de prise en charge : les personnes, ce qu'il faut pour chacune, et les devis.
-  const [care, directory] = await Promise.all([getCareDossier("NATIONAL", detail.id), careDirectoryOptions()]);
+  const [care, directory, carePromos] = await Promise.all([getCareDossier("NATIONAL", detail.id), careDirectoryOptions(), carePromoOptions()]);
   const canEditCare = userCan(user, "CONGRESS_NATIONAL", "CREATE") || userCan(user, "CONGRESS_NATIONAL", "UPDATE") || canAllocate;
 
   return (
@@ -117,6 +117,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
             eventApproved={["APPROVED", "COMPLETED"].includes(congress?.requestStatus ?? "")}
             canEdit={canEditCare}
             canDecide={canAllocate}
+            promoOptions={carePromos}
           />
         </CardContent>
       </Card>

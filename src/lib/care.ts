@@ -41,12 +41,13 @@ export const SERVICE_KIND_LABELS: Record<CareServiceKind, string> = {
   CATERING: "Restauration",
   REGISTRATION: "Inscription",
   VISA_FEE: "Frais de visa",
+  PROMO_MATERIAL: "Matériel promotionnel",
   OTHER: "Autre",
 };
 
 /** Ordre d'affichage : l'ordre dans lequel on s'en occupe réellement. */
 export const SERVICE_KINDS: CareServiceKind[] = [
-  "TICKET", "HOTEL", "TRANSPORT", "REGISTRATION", "CATERING", "VISA_FEE", "OTHER",
+  "TICKET", "HOTEL", "TRANSPORT", "REGISTRATION", "CATERING", "VISA_FEE", "PROMO_MATERIAL", "OTHER",
 ];
 
 export const CELL_STATUS_LABELS: Record<CareCellStatus, string> = {
