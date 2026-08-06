@@ -1385,6 +1385,9 @@ model CongressInternational {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  careBeneficiaries CareBeneficiary[]
+  careQuotes        CareQuote[]
+
   @@index([status])
   @@index([startDate])
   @@index([requestStatus])
@@ -1395,6 +1398,7 @@ model CongressNational {
   custom           Json? // admin-defined dynamic fields
   id               String         @id @default(cuid())
   name             String
+  country          String? // optionnel — un événement « national » peut se tenir hors d'Algérie
   city             String?
   hostInstitution  String? // hôpital / association
   date             DateTime?
@@ -1435,12 +1439,198 @@ model CongressNational {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  items AdProItem[]
+  items          AdProItem[]
+  careBeneficiaries CareBeneficiary[]
+  careQuotes        CareQuote[]
 
   @@index([status])
   @@index([date])
   @@index([requestStatus])
   @@index([requesterId])
+}
+
+// ─────────────────────── Prise en charge : personnes, cases, devis ───────────────────────
+
+/// Avis porté sur UNE personne. « Pas d'avis » est une réponse à part entière : forcer un
+/// avis tranché sur quelqu'un qu'on ne connaît pas produit un faux signal.
+enum CareOpinion {
+  FAVORABLE
+  UNFAVORABLE
+  NONE
+}
+
+/// Où en est UNE personne. La décision est prise **par personne** : sur une même demande,
+/// l'une est accordée et l'autre écartée sans qu'on ait à refuser l'ensemble.
+enum CareBeneficiaryStatus {
+  PROPOSED // proposée, en attente de la décision de la Direction
+  APPROVED // accordée
+  REJECTED // écartée
+  WITHDRAWN // retirée par le demandeur avant décision
+}
+
+/// Nature d'une case sur la ligne d'une personne. Deux natures réellement différentes, même
+/// si elles s'affichent côte à côte : l'une se COLLECTE, l'autre s'ACHÈTE.
+enum CareCellKind {
+  DOCUMENT // une pièce à fournir (passeport, visa, CV…)
+  SERVICE // un élément à acheter (hôtel, transport, billet, restauration…)
+}
+
+enum CareServiceKind {
+  HOTEL
+  TRANSPORT
+  TICKET
+  CATERING
+  REGISTRATION
+  VISA_FEE
+  OTHER
+}
+
+enum CareCellStatus {
+  REQUESTED // demandée, rien reçu
+  PROVIDED // document déposé, ou devis reçu
+  SETTLED // pièce acceptée / devis accepté
+  WAIVED // finalement inutile pour cette personne
+}
+
+/// UNE PERSONNE À PRENDRE EN CHARGE.
+///
+/// Remplace le tableau JSON `beneficiaries` : une personne porte désormais un avis, une
+/// décision, et sa propre liste de cases. C'est la ligne du tableau.
+///
+/// Son identité vient soit de l'annuaire médecins, soit d'un profil libre saisi sur place —
+/// on ne va pas créer une fiche médecin permanente pour un intervenant vu une seule fois.
+///
+/// Deux clés étrangères nullables (même raison que `AdProItem`) : une colonne polymorphe ne
+/// pourrait pas porter de contrainte, et supprimer une demande laisserait ses personnes
+/// orphelines. Contrainte `CareBeneficiary_one_parent` : exactement un parent.
+model CareBeneficiary {
+  id                      String                @id @default(cuid())
+  congressNationalId      String?
+  congressNational        CongressNational?     @relation(fields: [congressNationalId], references: [id], onDelete: Cascade)
+  congressInternationalId String?
+  congressInternational   CongressInternational? @relation(fields: [congressInternationalId], references: [id], onDelete: Cascade)
+
+  /// Depuis l'annuaire (Promotion médicale). Exclusif avec le profil libre ci-dessous.
+  doctorId    String?
+  /// Profil libre : la personne n'est pas (ou pas encore) à l'annuaire.
+  firstName   String?
+  lastName    String?
+  /// Poste / titre — « Professeur », « Chef de service »…
+  jobTitle    String?
+  institution String?
+
+  /// L'avis du DEMANDEUR sur cette personne, avec sa justification.
+  requesterOpinion CareOpinion @default(NONE)
+  requesterNote    String?
+
+  /// La décision de la Direction, personne par personne.
+  status       CareBeneficiaryStatus @default(PROPOSED)
+  decidedById  String?
+  decidedAt    DateTime?
+  decisionNote String?
+
+  position    Int      @default(0)
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cells CareCell[]
+
+  @@index([congressNationalId])
+  @@index([congressInternationalId])
+  @@index([doctorId])
+}
+
+/// UNE CASE sur la ligne d'une personne — ce qu'il faut fournir ou acheter POUR ELLE.
+///
+/// Chaque personne a ses propres cases : l'une a besoin d'un visa et pas l'autre, l'une loge
+/// à l'hôtel et l'autre chez elle. D'où des cases attachées à la personne, et non des colonnes
+/// communes à tout le tableau.
+model CareCell {
+  id            String       @id @default(cuid())
+  beneficiaryId String
+  beneficiary   CareBeneficiary @relation(fields: [beneficiaryId], references: [id], onDelete: Cascade)
+
+  kind        CareCellKind
+  /// Renseigné pour une case SERVICE — sert au regroupement et aux libellés.
+  serviceKind CareServiceKind?
+  label       String
+  notes       String?
+
+  status CareCellStatus @default(REQUESTED)
+
+  /// DOCUMENT : la pièce déposée (Document.id).
+  documentId String?
+  /// SERVICE : le devis retenu et ce qu'il coûte.
+  quoteId        String?
+  amountDzd      Decimal? @db.Decimal(14, 2)
+  expenseOrderId String?
+
+  /// Qui a demandé cette case — le chef de produit peut en ajouter après coup.
+  requestedById String?
+  position      Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  quoteLinks CareQuoteCell[]
+
+  @@index([beneficiaryId])
+  @@index([quoteId])
+}
+
+enum CareQuoteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+/// UN DEVIS reçu par le secrétariat.
+///
+/// Un devis couvre **ce qu'il couvre réellement** : une agence de voyage chiffre le groupe
+/// entier, pas une ligne par personne. Il est donc rattaché aux CASES qu'il couvre (relation
+/// n-n), et accepté ou refusé **d'un bloc** — accepter la moitié d'un devis n'a pas de sens
+/// commercial.
+model CareQuote {
+  id                      String                 @id @default(cuid())
+  congressNationalId      String?
+  congressNational        CongressNational?      @relation(fields: [congressNationalId], references: [id], onDelete: Cascade)
+  congressInternationalId String?
+  congressInternational   CongressInternational? @relation(fields: [congressInternationalId], references: [id], onDelete: Cascade)
+
+  supplier  String
+  reference String?
+  amountDzd Decimal         @db.Decimal(14, 2)
+  status    CareQuoteStatus @default(PENDING)
+  /// Le PDF du devis (Document.id).
+  documentId String?
+  note       String?
+
+  decidedById String?
+  decidedAt   DateTime?
+  /// Ordre de dépense émis à l'acceptation.
+  expenseOrderId String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cells CareQuoteCell[]
+
+  @@index([congressNationalId])
+  @@index([congressInternationalId])
+  @@index([status])
+}
+
+/// Ce qu'un devis couvre : les cases concernées.
+model CareQuoteCell {
+  quoteId String
+  quote   CareQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  cellId  String
+  cell    CareCell  @relation(fields: [cellId], references: [id], onDelete: Cascade)
+
+  @@id([quoteId, cellId])
+  @@index([cellId])
 }
 
 // ─────────────────────── Information médicale (déclaration réglementaire) ───────────────────────

@@ -69,7 +69,7 @@ export function CongressRequestButton({ national, doctors, users, canDesignatePM
   return (
     <>
       <Button onClick={() => { reset(); setOpen(true); }}><Plus className="h-4 w-4" /> Nouvelle demande</Button>
-      <Sheet open={open} onClose={() => setOpen(false)} title={national ? "Nouvelle demande — événement national" : "Nouvelle demande — congrès international"} description="Demande de prise en charge, soumise à validation préliminaire de la Direction." width="lg">
+      <Sheet open={open} onClose={() => setOpen(false)} title={national ? "Nouvelle prise en charge — nationale" : "Nouvelle prise en charge — internationale"} description="Renseignez l\u2019événement, puis ajoutez les personnes à prendre en charge sur la fiche." width="lg">
         <form ref={formRef} action={submit} className="space-y-5">
           {/* Infos générales */}
           <div className="grid grid-cols-2 gap-3">
@@ -82,6 +82,7 @@ export function CongressRequestButton({ national, doctors, users, canDesignatePM
             <Field label="Spécialité (thème)"><Input name="specialty" placeholder="Ex. Infectiologie" /></Field>
             {national ? (
               <>
+                <Field label="Pays"><Input name="country" placeholder="Algérie" /></Field>
                 <Field label="Ville"><Input name="city" /></Field>
                 <Field label="Institution hôte"><Input name="hostInstitution" placeholder="Hôpital / association" /></Field>
                 <Field label="Date"><Input name="date" type="date" /></Field>

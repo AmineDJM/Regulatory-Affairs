@@ -95,6 +95,9 @@ export async function createCongressRequest(
       : await prisma.congressNational.create({
           data: {
             ...common,
+            // Une prise en charge « nationale » peut se tenir hors d'Algérie : le pays reste
+            // demandé des deux côtés, simplement facultatif.
+            country: fdStr(formData, "country"),
             city: fdStr(formData, "city"),
             hostInstitution: fdStr(formData, "hostInstitution"),
             date: fdDate(formData, "date"),

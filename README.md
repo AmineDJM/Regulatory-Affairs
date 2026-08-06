@@ -911,6 +911,38 @@ réalité réglementaire.
   pas reculer une industrialisation actée ; sans date de décision, on retombe sur la création.
 - Tests : `manufacturing-stage.test.ts` (11 tests), dont le cas « la fiche a divergé ».
 
+### Prise en charge — personnes, besoins et devis
+
+Les participants étaient un **tableau JSON** (`beneficiaries`) : impossible d'y porter un avis,
+une décision individuelle, ou la liste de ce qu'il faut fournir et acheter pour chacun. Trois
+tables les remplacent — `CareBeneficiary`, `CareCell`, `CareQuote` — pour le **national** et
+l'**international**.
+
+**Le routage que décrit le métier existait déjà** : `adProOriginRank` saute toute étape située au
+niveau ou en dessous du rang du demandeur (délégué → National Sales → chef de produit →
+Direction). Ce lot ajoute ce qui manquait vraiment : **l'examen personne par personne**.
+
+| Règle | Où | Pourquoi |
+|---|---|---|
+| Identité : annuaire **ou** profil libre | `beneficiaryName()` (pure, testée) | On ne crée pas une fiche médecin permanente pour un intervenant vu une seule fois. Ne rend jamais de nom vide — une ligne sans nom serait introuvable. |
+| **Décision par personne** | `decideCareBeneficiary` | « Chaque personne sera traitée différemment » : on en accorde une et on en écarte une autre sans refuser toute la demande. |
+| Une **pièce d'identité créée d'office** à l'accord | `defaultCells()` | Le point de départ du dossier. Volontairement seule : pré-remplir dix cases qu'il faudra effacer coûte plus cher que d'ajouter les deux qui servent. Passeport à l'international, pièce d'identité au national — un passeport pour Alger n'a pas de sens. |
+| Les besoins appartiennent à la **ligne**, pas à une colonne | `CareCell.beneficiaryId` | L'une a besoin d'un visa et pas l'autre. Le « + » ajoute un besoin **à cette personne-là**. |
+| « Sans objet » ≠ suppression | `CareCellStatus.WAIVED` | Garde la trace qu'on a bien regardé le visa et qu'il n'en fallait pas. Une case supprimée laisserait croire qu'on n'y a jamais pensé. |
+| Un devis couvre **ce qu'il couvre** | `CareQuoteCell` (n-n) | Une agence chiffre le groupe entier ; on ne lui demande pas de découper en dix lignes. Accepté ou refusé **d'un bloc** — accepter la moitié d'un devis n'a pas de sens commercial. |
+| **Jamais deux devis sur la même case** | `quoteConflicts()` (pure, testée) | C'est le garde-fou central : payer deux fois le même hôtel ne se verrait qu'à la facture. Refuser d'abord l'autre devis. |
+| Finances refusées tant qu'il manque quelque chose | `financeReadiness()` (pure, testée) | Trois blocages nommés : aucune personne accordée, un devis encore en attente, une personne accordée au dossier incomplet. Chacun dit **qui** et **quoi**. |
+
+**Gardes en base**, parce qu'un code correct ne suffit pas : `CareBeneficiary_one_parent` et
+`CareQuote_one_parent` (exactement un parent — une personne sans parent serait invisible partout
+tout en existant), `CareCell_service_kind` (une case SERVICE porte une nature, une case DOCUMENT
+n'en porte pas). Les quatre sont vérifiées à l'application de la migration.
+
+Fichiers : `lib/care.ts` (`beneficiaryName`, `careProgress`, `quoteConflicts`, `financeReadiness`
++ `care.test.ts`, 24 tests), `lib/actions/care-actions.ts`, `lib/queries/care.ts`,
+`components/care/care-panel.tsx`. Migration `20260806160000_care_beneficiaries` — reprend le JSON
+existant en lignes **sans l'effacer** : en cas de doute sur la reprise, la source reste lisible.
+
 ### Ad & Pro — postes et ventilation de l'enveloppe
 
 `SponsoringRequest` ne portait qu'un montant (`amountRequested` → `amountProposed` →
@@ -1249,6 +1281,7 @@ Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage 
 | **Assistant — flux (streaming)** | `lib/ai.ts` → `callClaudeStream`, `lib/assistant.ts` → `runAssistantStream`, `app/api/assistant/stream/route.ts` (SSE), `app/(app)/assistant/assistant-chat.tsx`. |
 | **Regulatory — niveau de process** | `lib/regulatory/manufacturing-stage.ts` (`effectiveStage`, pure) + tests ; colonne et cellule dans `app/(app)/regulatory/regulatory-table.tsx` ; fiche `app/(app)/regulatory/[id]/page.tsx`. |
 | **RH — 4 écrans** | `lib/queries/hr-pulse.ts` (`getHrPulse` : absents, départs, échéances, soldes) ; `app/(app)/rh/` — `page.tsx` (à traiter), `equipe/`, `conges/`, `departements/`, `team-directory.tsx`. |
+| **Prise en charge** | `lib/care.ts` (pur + tests) ; `lib/actions/care-actions.ts` (personnes, cases, devis, Finances) ; `lib/queries/care.ts` ; `components/care/care-panel.tsx`. Modèles `CareBeneficiary` · `CareCell` · `CareQuote` · `CareQuoteCell`. |
 | **Ad & Pro — postes** | `lib/ad-pro-items.ts` (`breakdown`, `canEmitOrder`, `plannedGaps`, purs + tests) ; `lib/actions/ad-pro-item-actions.ts` (table `PARENTS` = le seul endroit à compléter pour un module de plus) ; `components/ad-pro/items-panel.tsx`. Modèle `AdProItem` (2 FK nullables + contrainte `one_parent`) + enum `AdProItemKind`. |
 | **Mobile — coque & couches** | `lib/use-scroll-lock.ts` (verrou compté sur `#app-scroll`) ; `components/layout/chrome-metrics.tsx` (hauteurs mesurées → `--app-chrome-top` / `--app-chrome-bottom`) ; `.app-viewport` / `.app-viewport-flush` et l'échelle de z-index dans `app/globals.css`. |
 | **CTD — réserves ANPP** | `lib/regulatory/intelligence/reserves/` — `library-ingest.ts` (texte → OCR → vision), `library-extract.ts` (schéma strict, verbatim obligatoire), `library.ts` (`findSimilarReserves`, `bestHistoricalResponse`, `reserveRisk`, `proposeRules`, `ruleConfidence`), `library-actions.ts` (`validateDerivedRule` = seul chemin vers VALIDATED) ; écran `app/(app)/regulatory/enregistrement/reserves/`. |
@@ -1680,6 +1713,20 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Prise en charge : une ligne par personne.** Le module ne traite pas d'un congrès — il traite
+  de **personnes** qu'on emmène quelque part. « Congrès nationaux/internationaux » devient donc
+  **« Prises en charge Nationales/Internationales »**, et les participants cessent d'être un
+  tableau JSON. Chacun porte désormais **l'avis du demandeur** (favorable · défavorable · pas
+  d'avis), **la décision de la Direction prise personne par personne** — on en accorde une et on
+  en écarte une autre sans refuser l'ensemble — et **sa propre liste de besoins** : l'une a
+  besoin d'un visa et pas l'autre, l'une loge à l'hôtel et l'autre chez elle. Deux natures de
+  besoins, qui ne se traitent pas pareil : une **pièce à fournir** qu'on collecte, et un
+  **élément à acheter** (hôtellerie, transport, billet, restauration, inscription) qui passe par
+  un devis. Le secrétariat enregistre les devis **tels qu'ils arrivent** — une agence chiffre le
+  groupe entier —, chacun accepté ou refusé d'un bloc, et l'acceptation émet l'ordre de dépense.
+  Le passage aux Finances est **refusé tant que quelque chose manque, en disant quoi**.
+  → [référence](#prise-en-charge--personnes-besoins-et-devis)
 
 - **Ad & Pro : de quoi est fait le montant.** Un sponsoring est rarement un simple chèque, un
   congrès rarement une simple inscription — il y a l'appui à l'association, mais aussi le stand, le

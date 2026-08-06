@@ -14,6 +14,10 @@ import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { type DocItem } from "@/components/documents/document-list";
 import { CONGRESS_REQUEST_STATUS } from "@/lib/labels";
 import { CongressDetailView } from "../congress-detail-view";
+import { CarePanel } from "@/components/care/care-panel";
+import { getCareDossier } from "@/lib/queries/care";
+import { careDirectoryOptions } from "@/lib/actions/care-actions";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default async function CongressIntlDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("CONGRESS_INTERNATIONAL");
@@ -43,6 +47,15 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
     getWorkflowForEntity(user, "CONGRESS_INTERNATIONAL", detail.id, detail.requesterId),
   ]);
 
+  // Le dossier de prise en charge : les personnes, ce qu'il faut pour chacune, et les devis.
+  const canDecideCare = hasGlobalView(user) || userCan(user, "CONGRESS_INTERNATIONAL", "VALIDATE");
+  const canEditCare = userCan(user, "CONGRESS_INTERNATIONAL", "CREATE") || userCan(user, "CONGRESS_INTERNATIONAL", "UPDATE") || canDecideCare;
+  const [care, directory, intl] = await Promise.all([
+    getCareDossier("INTERNATIONAL", detail.id),
+    careDirectoryOptions(),
+    prisma.congressInternational.findUnique({ where: { id: detail.id }, select: { requestStatus: true } }),
+  ]);
+
   return (
     <div className="space-y-5">
       <Link href="/congress-international" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
@@ -52,6 +65,24 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
         <StatusBadge map={CONGRESS_REQUEST_STATUS} value={detail.requestStatus} />
         <SuperAdminDeleteButton kind="CONGRESS_INTERNATIONAL" id={detail.id} name={detail.name} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
+      {/* Les personnes prises en charge — le cœur de la demande. Avant le reste : c'est la
+          question qu'on se pose en ouvrant l'écran. */}
+      <Card>
+        <CardHeader><CardTitle>Personnes prises en charge</CardTitle></CardHeader>
+        <CardContent>
+          <CarePanel
+            scope="INTERNATIONAL"
+            requestId={detail.id}
+            beneficiaries={care.beneficiaries}
+            quotes={care.quotes}
+            directory={directory}
+            eventApproved={["APPROVED", "COMPLETED"].includes(intl?.requestStatus ?? "")}
+            canEdit={canEditCare}
+            canDecide={canDecideCare}
+          />
+        </CardContent>
+      </Card>
+
       <CongressDetailView detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-international/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} />
     </div>
   );
