@@ -4,7 +4,7 @@ import {
   submitBatch, getBatchStatus, fetchBatchOutput, parseBatchOutput, lunaModel, lunaCostUsd,
   type BatchRequest,
 } from "@/lib/openai-luna";
-import { splitTextIntoChunks } from "../agents/chunk-text";
+import { splitTextIntoChunks, chunkPageSpan } from "../agents/chunk-text";
 import { buildPrompt, SYSTEM_PROMPT, parseReviewOutput, type AiFinding } from "../agents/review-agent";
 import { sectionByCode } from "../ctd/taxonomy";
 import { corpusForSection } from "../corpus/for-section";
@@ -93,10 +93,16 @@ export async function submitVersionReviewBatch(
     // Mêmes textes opposables que la voie immédiate : « moitié prix » ne doit jamais vouloir dire
     // « moins bien », et une analyse différée sans citations le serait.
     const corpus = await corpusForSection(d.ctdSection);
+    // Même contexte de repérage que la voie immédiate : pages absolues estimées + page de garde.
+    const docLead = parts.length > 1 ? parts[0].slice(0, 1200) : null;
     for (let i = 0; i < parts.length; i++) {
       const customId = `${d.id}:${i}`;
+      const span = chunkPageSpan(i);
       const filename = parts.length > 1 ? `${d.originalFilename} — partie ${i + 1}/${parts.length}` : d.originalFilename;
-      const user = buildPrompt({ filename, ctdSection: d.ctdSection, ctdTitle, text: parts[i], corpus });
+      const user = buildPrompt({
+        filename, ctdSection: d.ctdSection, ctdTitle, text: parts[i], corpus,
+        pageStart: span.start, pageEnd: span.end, docLead: i > 0 ? docLead : null,
+      });
       estimatedInputTokens += Math.ceil((user.length + SYSTEM_PROMPT.length) / CHARS_PER_TOKEN);
       requests.push({ customId, input: { system: SYSTEM_PROMPT, user, maxOutputTokens: 2600, temperature: 0.2 } });
       mapping[customId] = { documentId: d.id, filename: d.originalFilename, ctdSection: d.ctdSection, part: i + 1, total: parts.length };
@@ -177,27 +183,38 @@ export async function submitVersionReviewBatch(
  * Appelée par le planificateur — ne lève jamais, un lot en panne n'arrête pas les autres.
  */
 export async function pollAiBatches(max = 60): Promise<void> {
-  let pending: { id: string; externalId: string }[] = [];
+  let pending: { id: string; externalId: string; dossierVersionId: string | null }[] = [];
   try {
     pending = await prisma.regulatoryAiBatch.findMany({
       where: { status: { in: ["submitted", "validating", "in_progress", "finalizing"] } },
       orderBy: { submittedAt: "asc" },
       take: max,
-      select: { id: true, externalId: true },
+      select: { id: true, externalId: true, dossierVersionId: true },
     });
   } catch (e) {
     console.error("[ctd-batch] lecture des lots impossible", e);
     return;
   }
 
-  // EN PARALLÈLE : interroger l'état d'un lot est une attente RÉSEAU, pas un calcul. Les faire à
-  // la file faisait attendre le dernier lot autant que la somme de tous les autres — sur une
-  // quarantaine de dossiers déposés le même soir, cela retardait les résultats de plusieurs
-  // minutes pour rien. Les lots sont indépendants : un lot en panne n'affecte pas les autres.
-  //
-  // Le dépouillement d'un lot terminé (`processedAt`) reste protégé par son propre verrou : deux
-  // passages simultanés ne peuvent pas créer les mêmes constats en double.
-  await Promise.all(pending.map(async (b) => {
+  // EN PARALLÈLE ENTRE VERSIONS, À LA FILE DANS UNE VERSION. Interroger l'état d'un lot est une
+  // attente réseau : à la file, le dernier lot attendait autant que la somme de tous les autres.
+  // Mais DEUX LOTS DE LA MÊME VERSION ne se traitent jamais ensemble : le dépouillement lit les
+  // constats déjà insérés par les lots frères pour dédoublonner — deux dépouillements simultanés
+  // se liraient l'un l'autre à moitié insérés et laisseraient passer des doublons.
+  const byVersion = new Map<string, typeof pending>();
+  for (const b of pending) {
+    const key = b.dossierVersionId ?? `solo:${b.id}`;
+    const group = byVersion.get(key) ?? [];
+    group.push(b);
+    byVersion.set(key, group);
+  }
+  await Promise.all(Array.from(byVersion.values()).map(async (group) => {
+    for (const b of group) await pollOne(b);
+  }));
+}
+
+async function pollOne(b: { id: string; externalId: string }): Promise<void> {
+  await (async () => {
     try {
       const st = await getBatchStatus(b.externalId);
       if (!st.ok) {
@@ -218,7 +235,7 @@ export async function pollAiBatches(max = 60): Promise<void> {
     } catch (e) {
       console.error("[ctd-batch] suivi du lot impossible", b.externalId, e);
     }
-  }));
+  })();
 }
 
 /**
@@ -264,11 +281,17 @@ export async function processCompletedBatch(batchId: string): Promise<number> {
       for (const f of parsed.findings) collected.push({ ...f, documentId: ref.documentId });
     }
 
-    // Même dédoublonnage que la voie immédiate : les deux voies doivent donner le même dossier.
-    const seen = new Set<string>();
+    // Dédoublonnage : dans CE lot, puis contre les lots FRÈRES déjà dépouillés. Une version
+    // part désormais en PLUSIEURS lots ; les constats insérés par les frères — reconnaissables
+    // à leur date, postérieure au dépôt — sont l'équivalent du « déjà vu » de la voie immédiate.
+    const siblings = await prisma.regulatoryFinding.findMany({
+      where: { dossierVersionId: batch.dossierVersionId, source: "AI", createdAt: { gte: batch.submittedAt } },
+      select: { documentId: true, title: true },
+    });
+    const seen = new Set<string>(siblings.map((f) => `${f.documentId}|${f.title.trim().toLowerCase()}`));
     const kept = collected
       .filter((f) => {
-        const key = `${f.documentId}|${f.title.trim().toLowerCase()}`;
+        const key = `${f.documentId}|${f.title.trim().toLowerCase().slice(0, 200)}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -277,8 +300,14 @@ export async function processCompletedBatch(batchId: string): Promise<number> {
       .slice(0, MAX_FINDINGS);
 
     await prisma.$transaction([
-      // Recalcul idempotent : on remplace les constats IA (les constats HUMAIN et RULE restent).
-      prisma.regulatoryFinding.deleteMany({ where: { dossierVersionId: batch.dossierVersionId, source: "AI" } }),
+      // Recalcul idempotent, BORNÉ À L'ANALYSE PRÉCÉDENTE : on n'efface que les constats IA
+      // antérieurs au dépôt de ce groupe de lots. Effacer TOUS les constats IA — l'ancien
+      // comportement — détruisait le travail des lots frères : sur un dossier découpé en quatre
+      // lots, seuls les constats du dernier dépouillé survivaient. Les constats des frères sont
+      // postérieurs au dépôt, donc hors de la fenêtre.
+      prisma.regulatoryFinding.deleteMany({
+        where: { dossierVersionId: batch.dossierVersionId, source: "AI", createdAt: { lt: batch.submittedAt } },
+      }),
       prisma.regulatoryFinding.createMany({
         data: kept.map((f) => ({
           dossierVersionId: batch.dossierVersionId!, code: "AI_REVIEW", severity: f.severity,
@@ -302,19 +331,53 @@ export async function processCompletedBatch(batchId: string): Promise<number> {
       }),
     ]);
 
-    await enrichVersionFindings(batch.dossierVersionId).catch(() => 0);
+    // Les précédents ANPP s'attachent avec le CONTEXTE PRODUIT (DCI, fournisseur), comme sur la
+    // voie immédiate : « cette réserve, l'avons-nous déjà eue SUR CETTE MOLÉCULE ? » est une
+    // bien meilleure question que « l'avons-nous déjà eue quelque part ? ». La voie différée
+    // enrichissait sans contexte — plus faible sans raison.
+    // `productId` est un scalaire sans relation Prisma : résolution en deux temps, comme partout.
+    const productId = batch.dossierId
+      ? (await prisma.regulatoryDossier.findUnique({ where: { id: batch.dossierId }, select: { productId: true } }).catch(() => null))?.productId ?? null
+      : null;
+    const product = productId
+      ? await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { dci: true, partnerLab: true } }).catch(() => null)
+      : null;
+    await enrichVersionFindings(batch.dossierVersionId, {
+      dci: product?.dci ?? null, supplier: product?.partnerLab ?? null,
+    }).catch(() => 0);
 
+    // Le point d'arrivée n'est pas « un lot est traité » mais « LA VERSION est traitée » : sur
+    // quatre lots, trois notifications de fin seraient trois fausses bonnes nouvelles.
+    const remaining = await prisma.regulatoryAiBatch.count({
+      where: {
+        dossierVersionId: batch.dossierVersionId, processedAt: null, id: { not: batch.id },
+        status: { notIn: ["failed", "cancelled", "expired"] },
+      },
+    });
+
+    if (remaining > 0) {
+      await regAudit({
+        companyId: batch.companyId, actorId: "system", dossierId: batch.dossierId, dossierVersionId: batch.dossierVersionId,
+        action: "AI_BATCH_LOT_DONE",
+        detail: `Lot dépouillé : ${kept.length} constat(s) sur ${outcomes.length} part(s), ${costUsd.toFixed(4)} $. Encore ${remaining} lot(s) en cours pour cette version.`,
+      });
+      return kept.length;
+    }
+
+    const totalFindings = await prisma.regulatoryFinding.count({
+      where: { dossierVersionId: batch.dossierVersionId, source: "AI" },
+    });
     await regAudit({
       companyId: batch.companyId, actorId: "system", dossierId: batch.dossierId, dossierVersionId: batch.dossierVersionId,
       action: "AI_BATCH_DONE",
-      detail: `Analyse différée terminée : ${kept.length} constat(s) (PROJET — revue humaine requise) sur ${outcomes.length} part(s), ${costUsd.toFixed(4)} $ facturés.`,
+      detail: `Analyse différée terminée (dernier lot dépouillé) : ${totalFindings} constat(s) au total (PROJET — revue humaine requise).`,
     });
 
     if (batch.createdById) {
       await notifyUser({
         userId: batch.createdById, type: "GENERIC",
         title: "Analyse différée terminée",
-        body: `${kept.length} constat(s) à relire — ${costUsd.toFixed(2)} $ (moitié prix).`,
+        body: `${totalFindings} constat(s) à relire.`,
         link: batch.dossierId ? `/regulatory/enregistrement/analyse/${batch.dossierId}` : "/regulatory/enregistrement/analyse",
       }).catch(() => undefined);
     }

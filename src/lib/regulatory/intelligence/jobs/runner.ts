@@ -17,7 +17,7 @@ import { corpusForSection } from "../corpus/for-section";
 import { readFigures, FORM_DEFECT_LABEL, FORM_DEFECT_SEVERITY } from "../vision/read-figures";
 import { lunaConfigured } from "@/lib/openai-luna";
 import { submitVersionReviewBatch } from "../cost/batch-runner";
-import { splitTextIntoChunks } from "../agents/chunk-text";
+import { splitTextIntoChunks, chunkPageSpan } from "../agents/chunk-text";
 import { sectionByCode } from "../ctd/taxonomy";
 import { aiConfigured } from "@/lib/ai";
 import { enrichVersionFindings, type EnrichmentContext } from "../findings/enrich";
@@ -731,14 +731,21 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
     // même contexte, donc même empreinte de cache — un document inchangé n'est pas repayé.
     const corpus = await corpusForSection(d.ctdSection);
     const total = parts.length;
+    // L'en-tête du document (page de garde : produit, dosage, forme) accompagne chaque part —
+    // sans lui, la part 8/12 juge un tableau sans savoir de quoi il parle. Pas pour la part 1,
+    // qui le contient déjà.
+    const docLead = total > 1 ? parts[0].slice(0, 1200) : null;
     // Parts de CE document envoyées à l'IA en parallèle ; une part en échec n'arrête pas les autres.
     await runPool(parts, concurrency, async (part, i) => {
       if (budgetStopped) return;
       try {
+        const span = chunkPageSpan(i);
         const r = await reviewDocumentText(
           {
             filename: total > 1 ? `${d.originalFilename} — partie ${i + 1}/${total}` : d.originalFilename,
             ctdSection: d.ctdSection, ctdTitle, text: part, corpus,
+            pageStart: span.start, pageEnd: span.end,
+            docLead: i > 0 ? docLead : null,
           },
           // TRACÉ : chaque part est imputée au dossier, à la version et au fichier, et le plafond
           // budgétaire refuse l'appel AVANT la dépense (cf. review-ai.ts).

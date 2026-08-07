@@ -47,3 +47,26 @@ describe("buildPrompt — textes opposables du corpus", () => {
     expect(p).toContain("<<<FIN_DOCUMENT_NON_FIABLE>>>");
   });
 });
+
+describe("buildPrompt — repérage dans le document", () => {
+  it("donne l'intervalle de pages et exige un numéro ABSOLU", () => {
+    // Sans intervalle, le modèle numérote depuis le début de SA part : « page 2 » pour un texte
+    // page 52 — un constat introuvable dans la pièce, donc indéfendable.
+    const p = buildPrompt({ ...base, pageStart: 51, pageEnd: 60 });
+    expect(p).toContain("pages 51 à 60");
+    expect(p).toContain("ABSOLU");
+  });
+
+  it("joint le début du document aux parts du milieu, en disant de ne pas le commenter", () => {
+    const p = buildPrompt({ ...base, docLead: "COMPRIMÉ X 500 mg — dossier de stabilité, site de Sidi Abdellah." });
+    expect(p).toContain("DÉBUT DU DOCUMENT");
+    expect(p).toContain("COMPRIMÉ X 500 mg");
+    expect(p).toContain("ne les commente pas ici");
+  });
+
+  it("n'ajoute ni position ni en-tête quand on ne les fournit pas", () => {
+    const p = buildPrompt(base);
+    expect(p).not.toContain("POSITION :");
+    expect(p).not.toContain("DÉBUT DU DOCUMENT");
+  });
+});

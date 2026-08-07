@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { splitTextIntoChunks, aiChunkChars } from "./chunk-text";
+import { splitTextIntoChunks, aiChunkChars, chunkPageSpan } from "./chunk-text";
 
 /**
  * Découpage du texte en parts d'analyse (~10 pages). Vérifie : texte court = 1 part, texte long
@@ -38,5 +38,22 @@ describe("splitTextIntoChunks", () => {
     process.env.REG_AI_CHUNK_PAGES = "5";
     process.env.REG_AI_CHARS_PER_PAGE = "2000";
     expect(aiChunkChars()).toBe(10_000);
+  });
+});
+
+describe("chunkPageSpan", () => {
+  it("rend des intervalles contigus qui couvrent tout le document", () => {
+    // Part 0 → pages 1-10, part 1 → 11-20… : la fin d'une part touche le début de la suivante.
+    const a = chunkPageSpan(0);
+    const b = chunkPageSpan(1);
+    expect(a.start).toBe(1);
+    expect(b.start).toBe(a.end + 1);
+    expect(a.end - a.start + 1).toBe(b.end - b.start + 1);
+  });
+
+  it("reste cohérent loin dans le document (part 149 d'un dossier de 15 000 pages)", () => {
+    const s = chunkPageSpan(149);
+    expect(s.start).toBe(1491);
+    expect(s.end).toBe(1500);
   });
 });

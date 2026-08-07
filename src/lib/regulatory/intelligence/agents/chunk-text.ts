@@ -12,11 +12,30 @@ function clampInt(raw: string | undefined, def: number, min: number, max: number
   return Math.max(min, Math.min(max, Math.round(n)));
 }
 
+/** Pages (approximatives) couvertes par une part. */
+export function aiChunkPages(): number {
+  return clampInt(process.env.REG_AI_CHUNK_PAGES, 10, 1, 100);
+}
+
 /** Taille d'une part d'analyse en caractères ≈ pages × caractères/page (défaut 10 × 2400 = 24 000). */
 export function aiChunkChars(): number {
-  const pages = clampInt(process.env.REG_AI_CHUNK_PAGES, 10, 1, 100);
   const perPage = clampInt(process.env.REG_AI_CHARS_PER_PAGE, 2400, 500, 8000);
-  return pages * perPage;
+  return aiChunkPages() * perPage;
+}
+
+/**
+ * Intervalle de pages APPROXIMATIF couvert par la part `index` (base 0).
+ *
+ * Le découpage est fait en CARACTÈRES : on ne connaît pas les vraies frontières de pages, mais
+ * on sait qu'une part ≈ `aiChunkPages()` pages. Sans cet intervalle, le modèle ne peut pas
+ * situer un constat : il reçoit un extrait isolé et répondrait « page 2 » en comptant depuis le
+ * début de SA part — un numéro faux d'autant de dizaines de pages que la part est loin dans le
+ * document. Un constat qu'on ne peut pas retrouver dans la pièce est un constat qu'on ne peut
+ * pas défendre.
+ */
+export function chunkPageSpan(index: number): { start: number; end: number } {
+  const pages = aiChunkPages();
+  return { start: index * pages + 1, end: (index + 1) * pages };
 }
 
 /**
