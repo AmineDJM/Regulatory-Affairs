@@ -37,7 +37,14 @@ export interface OcrResult {
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"]);
 const LOW_CONFIDENCE = Number(process.env.REG_OCR_MIN_CONFIDENCE ?? 62); // seuil de revue humaine
-const MAX_PAGES = Number(process.env.REG_OCR_MAX_PAGES ?? 25);
+/**
+ * Pages océrisées par document. **0 = ILLIMITÉ, et c'est le défaut.**
+ *
+ * Le plafond valait 25 pages : un dossier scanné de 800 pages ressortait « océrisé » avec 3 % de
+ * son contenu lu. Il n'existait que pour tenir la mémoire — problème désormais réglé à la source
+ * par la rastérisation EN FLUX (une page vit à la fois), qui rend le plafond inutile.
+ */
+const MAX_PAGES = Number(process.env.REG_OCR_MAX_PAGES ?? 0);
 const RASTER_SCALE = Number(process.env.REG_OCR_SCALE ?? 2.0); // ~200 DPI
 const MAX_DIM = 2600; // borne mémoire par page
 
@@ -52,26 +59,62 @@ export function canOcr(ext: string): boolean {
  * rastérise toutes les autres. Jamais une seule mauvaise page ne fait perdre tout le document.
  */
 export async function rasterizePdf(buffer: Buffer, maxPages: number): Promise<{ pages: Buffer[]; total: number; failedPages: number }> {
+  const pages: Buffer[] = [];
+  let failedPages = 0;
+  const total = await rasterizePdfStream(buffer, maxPages, async (png) => { pages.push(png); }, () => { failedPages++; });
+  return { pages, total, failedPages };
+}
+
+/**
+ * RASTÉRISATION EN FLUX — la clé des dossiers volumineux.
+ *
+ * La version qui accumulait `Buffer[]` gardait TOUTES les pages en mémoire : à ~1,5 Mo la page
+ * rendue, un dossier de 15 000 pages demandait des dizaines de gigaoctets. C'est ce qui imposait
+ * un plafond de 25 pages — un plafond qui faisait passer un dossier lu à 3 % pour un dossier lu.
+ *
+ * Ici, chaque page est rendue, remise à l'appelant, puis **relâchée immédiatement**. La mémoire
+ * ne dépend plus du nombre de pages, seulement de la plus grande d'entre elles — et le nombre de
+ * pages devient illimité.
+ *
+ * `onPage` est attendu (`await`) avant de rendre la suivante : c'est ce qui garantit qu'on ne
+ * fabrique pas les pages plus vite qu'on ne les consomme, sinon la file d'attente reconstituerait
+ * exactement le tas qu'on vient de supprimer.
+ *
+ * ROBUSTE PAR PAGE : une page corrompue est signalée et sautée, jamais fatale au document.
+ * Renvoie le nombre TOTAL de pages du document (pas le nombre de pages traitées).
+ */
+export async function rasterizePdfStream(
+  buffer: Buffer,
+  maxPages: number,
+  onPage: (png: Buffer, index: number) => Promise<void>,
+  onFailure?: (index: number) => void,
+): Promise<number> {
   const mupdf = await import("mupdf");
   const doc = mupdf.Document.openDocument(new Uint8Array(buffer), "application/pdf");
   const total = doc.countPages();
-  const pages: Buffer[] = [];
-  let failedPages = 0;
-  const limit = Math.min(total, maxPages);
-  for (let i = 0; i < limit; i++) {
-    try {
-      const page = doc.loadPage(i);
-      const pix = page.toPixmap(mupdf.Matrix.scale(RASTER_SCALE, RASTER_SCALE), mupdf.ColorSpace.DeviceRGB, false);
-      pages.push(Buffer.from(pix.asPNG()));
-      pix.destroy?.();
-      page.destroy?.();
-    } catch (err) {
-      failedPages++;
-      console.error("[reg-ocr] page non rastérisée", i + 1, err instanceof Error ? err.message : err);
+  // `maxPages <= 0` ⇒ tout le document.
+  const limit = maxPages > 0 ? Math.min(total, maxPages) : total;
+  try {
+    for (let i = 0; i < limit; i++) {
+      let png: Buffer | null = null;
+      try {
+        const page = doc.loadPage(i);
+        const pix = page.toPixmap(mupdf.Matrix.scale(RASTER_SCALE, RASTER_SCALE), mupdf.ColorSpace.DeviceRGB, false);
+        png = Buffer.from(pix.asPNG());
+        pix.destroy?.();
+        page.destroy?.();
+      } catch (err) {
+        onFailure?.(i);
+        console.error("[reg-ocr] page non rastérisée", i + 1, err instanceof Error ? err.message : err);
+        continue;
+      }
+      await onPage(png, i);
+      png = null; // relâche explicite : la page suivante ne doit pas cohabiter avec celle-ci
     }
+  } finally {
+    doc.destroy?.();
   }
-  doc.destroy?.();
-  return { pages, total, failedPages };
+  return total;
 }
 
 /** Pré-traitement image (auto-rotation, niveaux de gris, normalisation, borne de taille). */
@@ -130,45 +173,49 @@ async function ocrWithTesseract(input: { ext: string; buffer: Buffer; langs?: st
   const langs = input.langs && input.langs.length > 0 ? input.langs : defaultOcrLangs();
   const maxPages = input.maxPages ?? MAX_PAGES;
 
-  // 1) Obtenir les images de page (rastérisation PDF robuste par page).
-  let pageImages: Buffer[] = [];
-  let total = 1;
-  let truncated = false;
-  if (ext === "pdf") {
-    const r = await rasterizePdf(input.buffer, maxPages);
-    pageImages = r.pages;
-    total = r.total;
-    truncated = total > pageImages.length; // pages non rastérisées (plafond OU page corrompue)
-  } else {
-    pageImages = [input.buffer];
-  }
-
-  // 2) OCR page par page (un seul worker). ROBUSTE PAR PAGE : une page qui échoue au
-  // pré-traitement OU à la reconnaissance est enregistrée VIDE (revue humaine) et on continue —
-  // les pages lisibles sont océrisées. Jamais une page ne fait échouer tout le document.
+  // RASTÉRISER PUIS RECONNAÎTRE **PAGE PAR PAGE**, jamais document par document : c'est ce qui
+  // permet d'océriser 15 000 pages sans que la mémoire ne dépende du nombre de pages. Une seule
+  // image de page vit à la fois ; le worker Tesseract, lui, est créé une seule fois.
+  //
+  // ROBUSTE PAR PAGE : une page qui échoue au pré-traitement OU à la reconnaissance est
+  // enregistrée VIDE (revue humaine) et on continue — les pages lisibles sont océrisées.
   const { worker, version } = await createOcrWorker(langs);
   const pages: OcrPage[] = [];
+  let total = 1;
+  let failedPages = 0;
+
+  const recognizeOne = async (raw: Buffer, index: number): Promise<void> => {
+    let img = raw;
+    try {
+      img = await preprocess(img);
+    } catch {
+      /* pré-traitement best-effort : on OCR l'image brute si sharp échoue */
+    }
+    try {
+      const { data } = await worker.recognize(img);
+      const text = (data.text ?? "").trim();
+      const confidence = Math.round(data.confidence ?? 0);
+      pages.push({ page: index + 1, text, confidence, chars: text.length, lowConfidence: confidence < LOW_CONFIDENCE });
+    } catch (err) {
+      console.error("[reg-ocr] reconnaissance page échouée", index + 1, err instanceof Error ? err.message : err);
+      pages.push({ page: index + 1, text: "", confidence: 0, chars: 0, lowConfidence: true }); // illisible → revue humaine
+    }
+  };
+
   try {
-    for (let i = 0; i < pageImages.length; i++) {
-      let img = pageImages[i];
-      try {
-        img = await preprocess(img);
-      } catch {
-        /* pré-traitement best-effort : on OCR l'image brute si sharp échoue */
-      }
-      try {
-        const { data } = await worker.recognize(img);
-        const text = (data.text ?? "").trim();
-        const confidence = Math.round(data.confidence ?? 0);
-        pages.push({ page: i + 1, text, confidence, chars: text.length, lowConfidence: confidence < LOW_CONFIDENCE });
-      } catch (err) {
-        console.error("[reg-ocr] reconnaissance page échouée", i + 1, err instanceof Error ? err.message : err);
-        pages.push({ page: i + 1, text: "", confidence: 0, chars: 0, lowConfidence: true }); // page illisible → revue humaine
-      }
+    if (ext === "pdf") {
+      total = await rasterizePdfStream(input.buffer, maxPages, recognizeOne, () => { failedPages++; });
+    } else {
+      await recognizeOne(input.buffer, 0);
     }
   } finally {
     await worker.terminate().catch(() => undefined);
   }
+
+  // « Tronqué » ne veut dire qu'une chose : des pages n'ont pas été lues. Qu'elles aient été
+  // écartées par un plafond ou par une corruption, l'utilisateur doit le savoir.
+  const truncated = pages.length < total;
+  if (failedPages > 0) console.warn(`[reg-ocr] ${failedPages} page(s) corrompue(s) sautée(s) sur ${total}.`);
 
   const text = pages.map((p) => p.text).join("\n\n").trim();
   const withText = pages.filter((p) => p.chars > 0);

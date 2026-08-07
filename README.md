@@ -1133,11 +1133,92 @@ non bloquants — différer une analyse ne lui donne pas plus d'autorité. Le pr
 validation sont **les mêmes fonctions** que la voie immédiate (`buildPrompt`, `SYSTEM_PROMPT`,
 `parseReviewOutput`) : sans cela, « moitié prix » finirait par vouloir dire « moins bien ».
 
-#### 5. Modèle et environnement
+#### 5. Couverture INTÉGRALE, documents géants, examen visuel
+
+Quatre plafonds silencieux ont été supprimés — silencieux au sens propre : ils écartaient du
+contenu **sans que rien ne distingue « analysé » de « analysé à 8 % »**. Un dossier réglementaire
+à moitié lu qui a l'air complet est pire qu'un dossier non analysé : on s'y fie.
+
+| Ancien plafond | Aujourd'hui | Ce qui le rendait nécessaire |
+|---|---|---|
+| `REG_AI_MAX_CHUNKS` = 120 parts (~1 200 pages) | **0 = intégral** | Rien : c'était un garde-fou de coût aveugle. Le coût est désormais tenu par le **plafond budgétaire du dossier**, qui refuse l'appel avant la dépense et le dit. |
+| `REG_OCR_MAX_PAGES` = 25 pages | **0 = illimité** | La rastérisation gardait **toutes** les pages en mémoire. Elle est maintenant **en flux** (`rasterizePdfStream`) : une page vit à la fois. |
+| Vision = 60 pages | **0 = tout le document** | Même cause, même correction. |
+| `REG_MAX_PROCESS_MB` = 1 Go (bridé à 4) | **8 Go par défaut, réglable à 200** | Idem — ne reste que la taille du fichier lui-même, que mupdf ouvre d'un bloc. |
+
+- **`rasterizePdfStream`** est la pièce maîtresse : chaque page est rendue, remise à l'appelant,
+  puis **relâchée**. La mémoire ne dépend plus du nombre de pages mais de la plus grande d'entre
+  elles. `onPage` est attendu avant de rendre la suivante — sans ce `await`, la file d'attente
+  reconstituerait exactement le tas qu'on vient de supprimer.
+- **Toute troncature restante se DIT** : plafond budgétaire atteint, lot refusé, page corrompue —
+  chacun apparaît en clair dans le journal (« ⚠ ANALYSE INCOMPLÈTE … le reste n'a PAS été lu »).
+- ⚠️ **Limite réelle restante** : un fichier UNIQUE doit tenir en mémoire pour être ouvert. Un
+  *dossier* de plusieurs dizaines de Go passe sans difficulté (les fichiers sont traités un par
+  un) ; un *fichier* de 10 Go dépend de la RAM de l'instance. C'est la machine qui décide, plus un
+  réglage — et quand elle ne suffit pas, le message dit la taille, le seuil et quoi faire.
+
+**Job `VISION` — ce que le texte ne dira jamais.** Le module de lecture des figures existait mais
+n'était **appelé par personne** (référencé uniquement par son propre test). Il est branché, et
+porte désormais **deux** questions posées à la même image dans le même appel — rastériser et
+transmettre les pages est le vrai coût, y ajouter une seconde question est quasi gratuit :
+
+1. **les figures** — courbes de stabilité, chromatogrammes, profils de dissolution, schémas de
+   procédé. Les `concerns` deviennent des constats sourcés (page + valeurs lues) ;
+2. **la FORME de la pièce** — `CAPTURE_ECRAN`, `PHOTO_ECRAN`, `PHOTO_DOCUMENT`, `SCAN_ILLISIBLE`,
+   `PAGE_TRONQUEE`, `PAGE_DE_TRAVERS`, `FILIGRANE_BROUILLON`, `SIGNATURE_ABSENTE`, `TAMPON_ABSENT`,
+   `MENTION_ILLISIBLE`. **Aucun de ces défauts n'existe dans le texte** : l'OCR d'une capture
+   d'écran rend un texte parfaitement propre. Capture d'écran, photo d'écran et filigrane
+   « brouillon » sont `CRITICAL` — ils ne se corrigent pas par une explication, il faut la pièce
+   authentique. Un défaut **sans constat visuel est écarté** (« c'est une capture d'écran » sans
+   dire à quoi on le voit ferait recaler une pièce valable sur une intuition).
+
+#### 6. Coût réel — l'écart qui a été corrigé
+
+⚠️ La revue de fond/forme passait par `askClaudeCheap`, qui **n'écrit rien** dans
+`RegulatoryAiCall`. Deux conséquences invisibles depuis l'écran : la carte « Coût de l'analyse IA »
+montrait tout **sauf** l'analyse, et le plafond par dossier — qui s'appuie sur cette même table —
+**ne plafonnait rien**. On pouvait croire un budget tenu alors qu'il était dépassé d'un ordre de
+grandeur.
+
+`agents/review-ai.ts` → `lunaReviewFn` route désormais chaque part par `trackedLuna` : **cache**
+(une part inchangée d'une version à l'autre est relue, pas rachetée), **plafond** (refus AVANT la
+dépense, et l'analyse s'arrête au lieu de creuser un trou silencieux) et **traçabilité** au fichier
+près. Repli sur Claude si la clé OpenAI manque — un filet, pas un choix de qualité.
+
+**Analyse différée par défaut** (`REG_AI_BATCH`, `0` pour forcer l'immédiat) : la voie Batch est à
+moitié prix et couvre la version **entière**. Le fournisseur borne un lot à 400 requêtes — c'est
+une contrainte de transport, pas une raison de ne pas lire un dossier en entier : on dépose donc
+**autant de lots que nécessaire**, chacun suivi séparément, chacun avec **sa propre** table de
+correspondance (deux lots partageant la même créeraient les constats en double).
+
+Ordres de grandeur, part ≈ 10 pages ≈ 7 000 jetons d'entrée :
+
+| Dossier | Parts | Immédiat | **Batch (défaut)** |
+|---|---|---|---|
+| 1 200 pages | 120 | ~0,35 $ | **~0,17 $** |
+| 15 000 pages | 1 500 | ~4,30 $ | **~2,15 $** |
+
+#### 7. Référentiels cités
+
+La consigne d'analyse confronte le document à trois corpus, et demande de **citer** celui qui
+fonde chaque constat (`ruleRef`) : **Algérie** (exigences ANPP, module 1 algérien, langue,
+légalisation, CPP, GMP, notice FR/AR — **prioritaire en cas de divergence**), **ICH** (M4/M4Q/M4S/M4E,
+Q1A(R2), Q2(R2), Q3A/B/C/D, Q6A, Q8/Q9/Q10, Q11, M9, E6) et **UE** (2001/83/CE annexe I, lignes
+directrices EMA, Ph. Eur. — citée, jamais recopiée). La **zone climatique II** est explicitement
+demandée : des données de stabilité produites en zone I ne suffisent pas à justifier la durée de
+conservation revendiquée.
+
+#### 8. Modèle et environnement
 
 `lib/openai-luna.ts` — `gpt-5.6-luna` (multimodal texte + image, sorties JSON strictes, Batch ×0,5).
 Variables : `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `CTD_MODEL_CHEAP`, `CTD_BUDGET_USD_DEFAULT`,
-`REG_ANPP_WATCH`.
+`REG_ANPP_WATCH`, `REG_AI_BATCH`, `REG_AI_MAX_CHUNKS`, `REG_OCR_MAX_PAGES`, `REG_MAX_PROCESS_MB`,
+`REG_VISION`.
+
+⚠️ **Le corpus réglementaire ne peut pas être téléchargé depuis un environnement de développement**
+(le proxy refuse `anpp.dz`, `database.ich.org`, `who.int`, `ema.europa.eu`). L'ingestion doit être
+lancée **depuis l'application déployée**, bouton « Ingérer la 1ʳᵉ vague » de
+`/regulatory/enregistrement/corpus`.
 
 ### RH — quatre écrans, et les questions du quotidien
 
@@ -1857,6 +1938,19 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Analyseur CTD : couverture intégrale, examen visuel, coût enfin réel.** Quatre plafonds
+  silencieux écartaient du contenu sans que rien ne distingue « analysé » de « analysé à 8 % » :
+  120 parts d'analyse, 25 pages d'OCR, 60 pages de vision, 1 Go par fichier. Tous levés — la
+  rastérisation passe **en flux** (une page vit à la fois), donc le nombre de pages ne compte
+  plus. Le module de lecture des figures, qui n'était **appelé par personne**, est branché et
+  porte en plus un **contrôle de forme** : capture d'écran, photo d'écran, scan illisible,
+  filigrane « brouillon », signature absente — des défauts qu'aucune analyse de texte ne peut
+  voir, puisque l'OCR d'une capture d'écran rend un texte impeccable. Et surtout : la revue
+  passait par un modèle **non tracé**, si bien que la carte de coût montrait tout sauf l'analyse
+  et que le plafond budgétaire ne plafonnait rien. Corrigé — et l'analyse part désormais en
+  **différé à moitié prix** par défaut, en autant de lots que nécessaire pour lire la version
+  entière. → [référence](#analyseur-ctd--réserves-anpp-corpus-et-coût)
 
 - **Le cloisonnement par entité devient réel.** « Si je mets la vue Adventum, je veux voir que Adventum » n'était
   vrai que de Regulatory, des ventes, de la logistique, de la promotion médicale et des RH. Le **budget**,

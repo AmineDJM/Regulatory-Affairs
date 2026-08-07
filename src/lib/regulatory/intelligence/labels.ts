@@ -99,6 +99,7 @@ export const JOB_TYPE_LABELS: Record<RegJobType, string> = {
   CLASSIFY: "Classification CTD",
   FACTS: "Extraction des faits",
   RULES: "Contrôles réglementaires",
+  VISION: "Examen visuel (figures & forme)",
   AI_REVIEW: "Revue IA (fond/forme)",
   CHALLENGER: "Contre-analyse",
 };

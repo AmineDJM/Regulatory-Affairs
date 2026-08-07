@@ -1,0 +1,13 @@
+-- ANALYSEUR CTD : mise en PRODUCTION.
+--
+-- L'onglet Regulatory « Enregistrement » était masqué par `regEnrollmentEnabled = false` depuis
+-- sa construction. Le module est désormais complet et cohérent : analyse intégrale (plus de
+-- plafond de parts), OCR sans limite de pages, examen visuel des figures et contrôle de forme
+-- des pièces, coût réellement tracé et plafonné, analyse différée à moitié prix par défaut.
+--
+-- Le retour arrière est immédiat : repasser ce drapeau à false en Administration referme
+-- l'onglet sans rien perdre des dossiers déjà analysés.
+--
+-- Idempotent : ne touche que la ligne de réglages existante, et seulement si elle est encore à
+-- false. Une base neuve prendra la valeur par défaut du schéma, puis cette même mise à jour.
+UPDATE "AppSetting" SET "regEnrollmentEnabled" = true WHERE "regEnrollmentEnabled" = false;

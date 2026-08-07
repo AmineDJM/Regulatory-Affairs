@@ -4864,6 +4864,10 @@ enum RegJobType {
   FACTS
   RULES
   AI_REVIEW
+  /// Examen VISUEL des pages : figures (courbes, chromatogrammes, schémas) et contrôle de FORME
+  /// (capture d'écran, photo d'écran, scan illisible, filigrane brouillon, signature absente) —
+  /// des défauts structurellement invisibles dans le texte extrait.
+  VISION
   CHALLENGER
 }
 

@@ -83,14 +83,13 @@ export async function submitVersionReviewBatch(
   let estimatedInputTokens = 0;
 
   for (const d of docs) {
-    if (requests.length >= MAX_REQUESTS_PER_BATCH) break;
     // Un document à la fois : le pic mémoire reste borné même sur un dossier de 10 000 pages.
     const ext = await prisma.regulatoryExtraction.findUnique({ where: { documentId: d.id }, select: { content: true } });
     const parts = splitTextIntoChunks(ext?.content ?? "");
     if (parts.length === 0) continue;
 
     const ctdTitle = d.ctdSection ? sectionByCode(d.ctdSection)?.title ?? null : null;
-    for (let i = 0; i < parts.length && requests.length < MAX_REQUESTS_PER_BATCH; i++) {
+    for (let i = 0; i < parts.length; i++) {
       const customId = `${d.id}:${i}`;
       const filename = parts.length > 1 ? `${d.originalFilename} — partie ${i + 1}/${parts.length}` : d.originalFilename;
       const user = buildPrompt({ filename, ctdSection: d.ctdSection, ctdTitle, text: parts[i] });
@@ -115,33 +114,57 @@ export async function submitVersionReviewBatch(
     }
   }
 
-  const sent = await submitBatch(requests);
-  if (!sent.ok || !sent.batchId) return { ok: false, error: sent.error ?? "Dépôt du lot impossible." };
+  // PLUSIEURS LOTS plutôt qu'une troncature. Le fournisseur borne la taille d'un lot ; c'est une
+  // contrainte de transport, pas une raison de ne pas lire un dossier en entier. On découpe donc
+  // en groupes, et chaque groupe devient un lot suivi séparément — un lot en panne n'emporte pas
+  // les autres.
+  const groups: BatchRequest[][] = [];
+  for (let i = 0; i < requests.length; i += MAX_REQUESTS_PER_BATCH) {
+    groups.push(requests.slice(i, i + MAX_REQUESTS_PER_BATCH));
+  }
 
-  await prisma.regulatoryAiBatch.create({
-    data: {
-      companyId: opts.companyId ?? null,
-      dossierId: opts.dossierId ?? null,
-      dossierVersionId: versionId,
-      step: "review",
-      model: lunaModel(),
-      externalId: sent.batchId,
-      status: "submitted",
-      requestCount: requests.length,
-      mapping: mapping as unknown as object,
-      createdById: opts.userId ?? null,
-    },
-  });
+  const batchIds: string[] = [];
+  const failures: string[] = [];
+  for (const group of groups) {
+    const sent = await submitBatch(group);
+    if (!sent.ok || !sent.batchId) { failures.push(sent.error ?? "dépôt refusé"); continue; }
+    batchIds.push(sent.batchId);
+    // La correspondance est restreinte AU groupe : au dépouillement, chaque lot ne doit
+    // reconstituer que SES parts, sinon deux lots créeraient les mêmes constats en double.
+    const groupMapping: Record<string, ChunkRef> = {};
+    for (const r of group) groupMapping[r.customId] = mapping[r.customId];
+    await prisma.regulatoryAiBatch.create({
+      data: {
+        companyId: opts.companyId ?? null,
+        dossierId: opts.dossierId ?? null,
+        dossierVersionId: versionId,
+        step: "review",
+        model: lunaModel(),
+        externalId: sent.batchId,
+        status: "submitted",
+        requestCount: group.length,
+        mapping: groupMapping as unknown as object,
+        createdById: opts.userId ?? null,
+      },
+    });
+  }
+
+  if (batchIds.length === 0) {
+    return { ok: false, error: `Dépôt du lot impossible : ${failures[0] ?? "raison inconnue"}.` };
+  }
+  const sent = { batchId: batchIds[0] };
 
   await regAudit({
     companyId: opts.companyId, actorId: opts.userId ?? "system", dossierId: opts.dossierId, dossierVersionId: versionId,
     action: "AI_BATCH_SUBMITTED",
-    detail: `Analyse différée déposée : ${requests.length} part(s) de ${docs.length} document(s), coût estimé ${estimatedUsd.toFixed(2)} $ (moitié prix). Résultats sous 24 h.`,
+    detail: `Analyse différée déposée : ${requests.length} part(s) de ${docs.length} document(s) en ${batchIds.length} lot(s), coût estimé ${estimatedUsd.toFixed(2)} $ (moitié prix). Résultats sous 24 h.`
+      + (failures.length > 0 ? ` ⚠ ${failures.length} lot(s) refusé(s) — analyse INCOMPLÈTE : ${failures[0]}` : ""),
   });
 
   return {
     ok: true, batchId: sent.batchId, requests: requests.length, estimatedUsd,
-    message: `Lot déposé : ${requests.length} part(s), environ ${estimatedUsd.toFixed(2)} $ au lieu de ${(estimatedUsd * 2).toFixed(2)} $. Les constats arriveront sous 24 h.`,
+    message: `Analyse complète déposée : ${requests.length} part(s) en ${batchIds.length} lot(s), environ ${estimatedUsd.toFixed(2)} $ au lieu de ${(estimatedUsd * 2).toFixed(2)} $. Les constats arriveront sous 24 h.`
+      + (failures.length > 0 ? ` ⚠ ${failures.length} lot(s) n'ont pas pu être déposés : l'analyse sera INCOMPLÈTE.` : ""),
   };
 }
 

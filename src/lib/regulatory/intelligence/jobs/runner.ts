@@ -12,6 +12,10 @@ import { mistralOcrConfigured } from "../ocr/mistral-ocr";
 import { buildTwinFacts } from "../twin/build-facts";
 import { detectConflicts } from "../twin/detect-conflicts";
 import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
+import { lunaReviewFn } from "../agents/review-ai";
+import { readFigures, FORM_DEFECT_LABEL, FORM_DEFECT_SEVERITY } from "../vision/read-figures";
+import { lunaConfigured } from "@/lib/openai-luna";
+import { submitVersionReviewBatch } from "../cost/batch-runner";
 import { splitTextIntoChunks } from "../agents/chunk-text";
 import { sectionByCode } from "../ctd/taxonomy";
 import { aiConfigured } from "@/lib/ai";
@@ -66,7 +70,19 @@ const ocrStoredPages = () => clampInt(process.env.REG_OCR_STORED_PAGES, 5000, 10
 // provoquer un OOM. Défaut 1000 Mo → au-dessus du plafond de stockage (950 Mo) : aucun fichier n'est
 // bloqué en fonctionnement normal (pas de régression). À ABAISSER (ex. 200) sur une petite instance :
 // un fichier au-delà est alors marqué REVUE MANUELLE (sans être chargé) pour ne pas bloquer le lot.
-const maxProcessBytes = () => clampInt(process.env.REG_MAX_PROCESS_MB, 1000, 20, 4000) * 1024 * 1024;
+/**
+ * Taille au-delà de laquelle un fichier part en revue manuelle.
+ *
+ * Le plafond valait 1 Go (bridé à 4 Go), pour une raison qui n'existe plus : la rastérisation
+ * gardait toutes les pages en mémoire. Elle est désormais EN FLUX — une page vit à la fois — donc
+ * le nombre de pages n'entre plus en ligne de compte. Ne reste que la taille du fichier lui-même,
+ * que mupdf doit ouvrir d'un bloc.
+ *
+ * Défaut porté à 8 Go, plafond de réglage à 200 Go : ce n'est plus un choix de produit, c'est la
+ * mémoire de la machine qui décide. Et quand elle ne suffit pas, on le DIT (avec la taille, le
+ * seuil et quoi faire) plutôt que de laisser un document silencieusement de côté.
+ */
+const maxProcessBytes = () => clampInt(process.env.REG_MAX_PROCESS_MB, 8000, 20, 200_000) * 1024 * 1024;
 
 /**
  * REND LA MAIN À LA BOUCLE D'ÉVÉNEMENTS (macro-tâche). Node est mono-thread : entre deux unités
@@ -168,6 +184,8 @@ async function dispatch(job: RegulatoryJob): Promise<void> {
       return handleFacts(job);
     case "AI_REVIEW":
       return handleAiReview(job);
+    case "VISION":
+      return handleVision(job);
     default:
       // Type non encore pris en charge à ce stade → terminal propre (pas de boucle).
       await prisma.regulatoryJob.update({
@@ -449,6 +467,130 @@ async function handleRules(job: RegulatoryJob): Promise<void> {
       data: { companyId: job.companyId, dossierId: version.dossier.id, dossierVersionId: versionId, type: "AI_REVIEW", status: "QUEUED", payload: {} },
     });
   }
+  // EXAMEN VISUEL : figures (courbes, chromatogrammes, schémas) ET contrôle de FORME de chaque
+  // page. Séparé de la revue de texte parce qu'il répond à une autre question — « qu'est-ce que
+  // je VOIS ? » — sur laquelle l'OCR est structurellement aveugle : le texte d'une capture
+  // d'écran est parfaitement propre.
+  if (visionEnabled()) {
+    await prisma.regulatoryJob.create({
+      data: { companyId: job.companyId, dossierId: version.dossier.id, dossierVersionId: versionId, type: "VISION", status: "QUEUED", payload: {} },
+    });
+  }
+}
+
+
+// ───────────────────────────── VISION : figures + forme des pièces ─────────────────────────────
+
+/** L'examen visuel demande un modèle multimodal ; sans clé, on n'empile pas de job annulé. */
+const visionEnabled = () => lunaConfigured() && (process.env.REG_VISION ?? "1").trim() !== "0";
+/** Documents dont on regarde les PAGES (les formats bureautiques n'ont pas de page à voir). */
+const VISION_EXTS = new Set(["pdf", "png", "jpg", "jpeg", "webp", "tif", "tiff"]);
+
+/**
+ * VISION : ce que le texte ne dira jamais.
+ *
+ * Deux questions posées à la même image, dans le même appel — rastériser et transmettre les pages
+ * est le vrai coût, y ajouter une seconde question est quasi gratuit :
+ *
+ *   1. **les figures** — courbes de stabilité, chromatogrammes, profils de dissolution, schémas de
+ *      procédé. L'OCR les réduit à des axes et des légendes ; la tendance, le point hors
+ *      spécification, l'étape manquante disparaissent ;
+ *   2. **la forme de la pièce** — capture d'écran collée à la place d'un certificat, photo d'un
+ *      écran, scan illisible, filigrane « brouillon », signature absente. **Aucun de ces défauts
+ *      n'existe dans le texte** : l'OCR d'une capture d'écran rend un texte impeccable.
+ *
+ * Les défauts de forme deviennent des constats `category: "form"`, en PROJET non bloquant comme
+ * tout ce que produit l'IA : c'est l'humain qui déclare une pièce irrecevable.
+ */
+async function handleVision(job: RegulatoryJob): Promise<void> {
+  const versionId = job.dossierVersionId;
+  if (!versionId || !visionEnabled()) {
+    await prisma.regulatoryJob.update({
+      where: { id: job.id },
+      data: { status: "CANCELLED", finishedAt: new Date(), error: visionEnabled() ? "Version absente." : "Examen visuel indisponible (clé OpenAI absente)." },
+    });
+    return;
+  }
+
+  const docs = await prisma.regulatoryDocument.findMany({
+    where: { dossierVersionId: versionId, securityStatus: { in: ["SAFE", "SUSPICIOUS"] } },
+    orderBy: { sizeBytes: "asc" }, // les petits d'abord : un document géant ne retarde pas le lot
+    select: { id: true, originalFilename: true, ext: true, blobId: true, ctdSection: true, sizeBytes: true },
+  });
+
+  const findings: {
+    documentId: string; severity: string; title: string; detail: string; evidence: string; page: number; confidence: number;
+  }[] = [];
+  let figuresSeen = 0;
+  let pagesSeen = 0;
+  let budgetStopped = false;
+
+  for (const d of docs) {
+    if (budgetStopped) break;
+    if (!VISION_EXTS.has(d.ext.toLowerCase()) || !d.blobId) continue;
+    if (d.sizeBytes > maxProcessBytes()) continue; // même garde que l'extraction
+    await yieldToEventLoop();
+
+    const buffer = await getBlob(d.blobId).catch(() => null);
+    if (!buffer) continue;
+
+    const report = await readFigures({
+      buffer, filename: d.originalFilename, ext: d.ext.toLowerCase(), ctdSection: d.ctdSection,
+      dossierId: job.dossierId, dossierVersionId: versionId, documentId: d.id,
+    });
+    figuresSeen += report.observations.length;
+    pagesSeen += report.pagesRead;
+    if (!report.ok && (report.error ?? "").includes("Budget")) budgetStopped = true;
+
+    for (const df of report.defects) {
+      findings.push({
+        documentId: d.id,
+        severity: FORM_DEFECT_SEVERITY[df.kind],
+        title: FORM_DEFECT_LABEL[df.kind],
+        detail: `Page ${df.page} de « ${d.originalFilename} » — ${FORM_DEFECT_LABEL[df.kind].toLowerCase()}. `
+          + `Une pièce dans cet état est refusée sur la forme, indépendamment de son contenu : il faut fournir le document authentique.`,
+        evidence: df.evidence,
+        page: df.page,
+        confidence: df.confidence,
+      });
+    }
+    // Les observations de figures qui inquiètent l'IA deviennent des constats de FOND sourcés.
+    for (const ob of report.observations) {
+      for (const c of ob.concerns) {
+        findings.push({
+          documentId: d.id, severity: "MINOR",
+          title: `Figure à vérifier — ${ob.caption ?? ob.kind.toLowerCase().replace(/_/g, " ")}`,
+          detail: `${ob.description} — point d'attention : ${c}`,
+          evidence: ob.readings.join(" · ").slice(0, 1200) || ob.description.slice(0, 1200),
+          page: ob.page, confidence: ob.confidence,
+        });
+      }
+    }
+  }
+
+  await prisma.$transaction([
+    prisma.regulatoryFinding.deleteMany({ where: { dossierVersionId: versionId, code: "VISION" } }),
+    prisma.regulatoryFinding.createMany({
+      data: findings.slice(0, aiMaxFindings()).map((f) => ({
+        dossierVersionId: versionId, code: "VISION",
+        severity: f.severity as "CRITICAL" | "MAJOR" | "MINOR" | "INFO",
+        category: "form", title: f.title.slice(0, 200), detail: f.detail.slice(0, 2000),
+        evidence: f.evidence.slice(0, 1200), excerpt: f.evidence.slice(0, 1200),
+        documentId: f.documentId, source: "AI" as const,
+        // Non bloquant : déclarer une pièce irrecevable reste une décision humaine.
+        blocker: false, draft: true, page: f.page, confidence: f.confidence,
+      })),
+    }),
+    prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } }),
+  ]);
+
+  await regAudit({
+    companyId: job.companyId, actorId: "system", dossierId: job.dossierId, dossierVersionId: versionId,
+    action: "VISION_DONE",
+    detail: `Examen visuel : ${pagesSeen} page(s), ${figuresSeen} figure(s) lue(s), ${findings.length} constat(s) de forme/figure (PROJET)`
+      + (budgetStopped ? " — ⚠ INTERROMPU : plafond budgétaire atteint, le reste des pages n'a PAS été examiné." : "")
+      + ".",
+  });
 }
 
 // Sections prioritaires (analysées EN PREMIER quand le budget de parts est limité).
@@ -460,8 +602,21 @@ const SEVERITY_ORDER: Record<string, number> = { CRITICAL: 0, MAJOR: 1, MINOR: 2
 // Parts d'analyse océrisées EN PARALLÈLE (borne le débit vers l'IA) ; plafond de parts par version
 // (coût — 0 = illimité) ; plafond de constats persistés (évite d'inonder l'UI/la base).
 const aiConcurrency = () => clampInt(process.env.REG_AI_CONCURRENCY, 4, 1, 12);
-const aiMaxChunks = () => clampInt(process.env.REG_AI_MAX_CHUNKS, 120, 0, 1_000_000);
-const aiMaxFindings = () => clampInt(process.env.REG_AI_MAX_FINDINGS, 300, 10, 5000);
+/**
+ * Parts analysées par version. **0 = INTÉGRAL, et c'est le défaut.**
+ *
+ * Le plafond valait 120, soit environ 1 200 pages. Sur un dossier de 15 000 pages, 92 % du
+ * contenu n'était jamais lu — et la boucle sortait par un simple `break`, sans que rien à
+ * l'écran ne distingue « analysé » de « analysé à 8 % ». Un dossier réglementaire à moitié lu
+ * qui a l'air complet est pire qu'un dossier non analysé : on s'y fie.
+ *
+ * Le coût est désormais tenu par le bon outil — le plafond BUDGÉTAIRE du dossier, qui refuse
+ * l'appel avant la dépense et le dit — plutôt que par un compteur de parts aveugle.
+ */
+const aiMaxChunks = () => clampInt(process.env.REG_AI_MAX_CHUNKS, 0, 0, 1_000_000);
+const aiMaxFindings = () => clampInt(process.env.REG_AI_MAX_FINDINGS, 3000, 10, 100_000);
+/** Analyse DIFFÉRÉE (Batch, moitié prix) par défaut. `REG_AI_BATCH=0` force la voie immédiate. */
+const aiBatchDefault = () => (process.env.REG_AI_BATCH ?? "1").trim() !== "0";
 
 /**
  * AI_REVIEW : revue de fond/forme (PROJET, non bloquante). Chaque document lisible est découpé
@@ -488,11 +643,38 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
   // Sections prioritaires en tête (tri stable), puis le reste → couverture complète, budget permettant.
   const ordered = [...docs].sort((a, b) => Number(!!b.ctdSection && AI_PRIORITY_SECTIONS.has(b.ctdSection)) - Number(!!a.ctdSection && AI_PRIORITY_SECTIONS.has(a.ctdSection)));
 
+  // ── VOIE PAR DÉFAUT : analyse DIFFÉRÉE (Batch, moitié prix), qui couvre la version ENTIÈRE.
+  // Une réanalyse complète de dossier volumineux se lance le soir et se lit le lendemain ; payer
+  // le double pour un résultat qu'on ne regardera pas dans l'heure n'a pas de sens. Si le dépôt
+  // échoue (clé absente, fournisseur indisponible), on ne perd pas l'analyse : on bascule sur la
+  // voie immédiate ci-dessous.
+  if (aiBatchDefault()) {
+    const submitted = await submitVersionReviewBatch(versionId, {
+      companyId: job.companyId, dossierId: job.dossierId, userId: null,
+    }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+
+    if (submitted.ok) {
+      await prisma.regulatoryJob.update({
+        where: { id: job.id },
+        data: { status: "DONE", progress: 100, finishedAt: new Date() },
+      });
+      await regAudit({
+        companyId: job.companyId, actorId: "system", dossierId: job.dossierId, dossierVersionId: versionId,
+        action: "AI_REVIEW_DEFERRED",
+        detail: submitted.message ?? "Analyse différée déposée (moitié prix). Les constats arriveront sous 24 h.",
+      });
+      return;
+    }
+    console.warn("[reg-ai] dépôt différé impossible, repli sur la voie immédiate :", submitted.error);
+  }
+
   const maxChunks = aiMaxChunks();
   const concurrency = aiConcurrency();
   const collected: (AiFinding & { documentId: string })[] = [];
   let usedChunks = 0;
   let analyzedDocs = 0;
+  /** Une part refusée faute de budget arrête l'analyse : continuer produirait un trou silencieux. */
+  let budgetStopped = false;
 
   for (const d of ordered) {
     if (maxChunks > 0 && usedChunks >= maxChunks) break;
@@ -508,16 +690,24 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
     const total = parts.length;
     // Parts de CE document envoyées à l'IA en parallèle ; une part en échec n'arrête pas les autres.
     await runPool(parts, concurrency, async (part, i) => {
+      if (budgetStopped) return;
       try {
-        const r = await reviewDocumentText({
-          filename: total > 1 ? `${d.originalFilename} — partie ${i + 1}/${total}` : d.originalFilename,
-          ctdSection: d.ctdSection, ctdTitle, text: part,
-        });
+        const r = await reviewDocumentText(
+          {
+            filename: total > 1 ? `${d.originalFilename} — partie ${i + 1}/${total}` : d.originalFilename,
+            ctdSection: d.ctdSection, ctdTitle, text: part,
+          },
+          // TRACÉ : chaque part est imputée au dossier, à la version et au fichier, et le plafond
+          // budgétaire refuse l'appel AVANT la dépense (cf. review-ai.ts).
+          lunaReviewFn({ dossierId: job.dossierId, dossierVersionId: versionId, documentId: d.id, step: "review" }),
+        );
         if (r.ok) for (const f of r.findings) collected.push({ ...f, documentId: d.id });
+        else if ((r.error ?? "").includes("Budget IA")) budgetStopped = true;
       } catch (err) {
         console.error("[reg-ai] analyse d'une part échouée", d.id, i, err instanceof Error ? err.message : err);
       }
     });
+    if (budgetStopped) break;
   }
 
   // Dédoublonne (même document + même titre) puis garde les constats les PLUS SÉVÈRES (plafond).
@@ -550,7 +740,12 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
   await regAudit({
     companyId: job.companyId, actorId: "system", dossierId: job.dossierId, dossierVersionId: versionId,
     action: "AI_REVIEW_DONE",
-    detail: `Revue IA (PROJET — revue humaine requise) : ${kept.length} constat(s) sur ${usedChunks} part(s) de ${analyzedDocs} document(s)${maxChunks > 0 && usedChunks >= maxChunks ? ` (plafond ${maxChunks} parts atteint)` : ""}.`,
+    // « Incomplète » se dit, toujours. Un dossier lu à moitié qui a l'air complet est pire qu'un
+    // dossier non analysé, parce qu'on s'y fie.
+    detail: `Revue IA (PROJET — revue humaine requise) : ${kept.length} constat(s) sur ${usedChunks} part(s) de ${analyzedDocs} document(s)`
+      + (budgetStopped ? " — ⚠ ANALYSE INCOMPLÈTE : plafond budgétaire du dossier atteint, le reste n'a PAS été lu. Relevez le plafond et relancez." : "")
+      + (!budgetStopped && maxChunks > 0 && usedChunks >= maxChunks ? ` — ⚠ ANALYSE INCOMPLÈTE : plafond de ${maxChunks} parts atteint (REG_AI_MAX_CHUNKS), le reste n'a PAS été lu.` : "")
+      + ".",
   });
 
   const productId = job.dossierId
