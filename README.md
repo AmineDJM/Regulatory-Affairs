@@ -1220,6 +1220,51 @@ Variables : `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `CTD_MODEL_CHEAP`, `CTD_BUDGET_
 lancée **depuis l'application déployée**, bouton « Ingérer la 1ʳᵉ vague » de
 `/regulatory/enregistrement/corpus`.
 
+#### 9. Pages exactes, escalade, sémantique, livrables (« god mode »)
+
+**Pages exactes + clic-vers-la-preuve.** Le texte extrait n'est plus un ruban anonyme : une
+**carte des pages** (`RegulatoryExtraction.pageMap` = position du début de chaque page) est
+construite au moment de l'extraction (native mupdf par page **et** OCR) et jamais retaillée —
+retailler décalerait toutes les positions. Chaque part d'analyse porte ses offsets réels →
+intervalle de pages **exact** ; et pour chaque constat, la citation (`evidence`) est **recherchée
+dans le texte** (`anchorEvidence`, insensible aux espaces/casse) : la page retrouvée **PRIME**
+l'estimation du modèle, et une preuve introuvable rend `null` — jamais une page inventée. À
+l'écran, la page est un **lien** qui ouvre le PDF au bon endroit (`?inline=1#page=N`). Constats
+redessinés : groupés par gravité avec compteurs, liseré de couleur, badge DÉFENDABLE, citation en
+exergue.
+
+**Escalade éco → qualité** (`agents/escalate.ts`). Une section sortie en CRITIQUE du balayage
+économique déclenche **automatiquement** les agents spécialistes dont le périmètre la couvre —
+c'est le geste d'un vrai évaluateur : insister là où ça fait mal. Garde-fous : CRITIQUE seulement,
+un agent ne repasse jamais, **4 agents max** par version (au-delà c'est une réanalyse déguisée —
+décision humaine), `REG_AGENT_AUTO=0` pour couper. Ne lève jamais. Et quand une analyse différée
+se termine **sans demandeur identifiable**, les rôles superviseurs (réglage
+`regulatorySupervisorRoles` + SUPER_ADMIN) sont notifiés — un résultat que personne ne lit n'existe
+pas. L'écran offre aussi le choix inverse du différé : « Résultats maintenant (plein tarif) »
+(job `payload {mode:"immediate"}` qui court-circuite `REG_AI_BATCH`).
+
+**Recherche sémantique hybride** (`corpus/semantic.ts`). Le corpus est largement en anglais, les
+requêtes en français : « durée de conservation » ne matchera jamais « shelf life » en plein-texte.
+Embeddings 512 dim (`lunaEmbed`, `text-embedding-3-small`) sur sections ACTIVES du corpus +
+réserves ANPP, stockés en JSONB (pas de pgvector : cosinus en mémoire sur quelques milliers de
+vecteurs = millisecondes), cache de processus estampillé par (nombre, dernière activation),
+rattrapage borné (96/passage) par le planificateur. `searchCorpus` fusionne lexical ∪ sémantique
+(`mergeHybrid` : normalisation par voie + bonus de convergence 0,15). **Jamais bloquant** : sans
+clé ni vecteurs, le lexical continue seul.
+
+**Livrables** : rapport de constats **.docx** (gravité, preuves, pages, recommandations — bouton
+sur la carte Constats) et **lettre de réponse aux réserves** .docx par cycle (verbatim ANPP mot à
+mot + réponse approuvée/brouillon/`[À COMPLÉTER]` — jamais d'invention), tous deux stockés
+chiffrés + audités comme la génération G10 (`docgen/reports.ts`). **Verdict GO / NO-GO** en tête
+de dossier : bloqueur ou critique ouvert → NO-GO ; majeur ouvert ou complétude < 100 % → GO sous
+conditions ; sinon GO — avec les **réserves les plus probables** (précédents `reserveRisk` quand
+ils existent, sinon la gravité, marquée `*` — jamais un pourcentage inventé présenté comme
+mesuré). **Notice en arabe** (`rules/notice-arabic.ts`) : obligation algérienne (décret n° 92-286)
+— un document 1.3.x (hors RCP 1.3.1) au texte natif presque sans caractères arabes → constat
+MAJEUR ; l'OCR n'est **jamais** jugé (le latin massacre l'arabe, on n'accuse pas sur une lecture
+ratée). **Constat → tâche** : un clic crée une tâche personnelle (« Mon espace ») portant détail,
+preuve, page et lien — anti-doublon inclus.
+
 ### RH — quatre écrans, et les questions du quotidien
 
 Le module était **une page à sept sections** : on y trouvait tout, sauf vite. Désormais :
@@ -1512,6 +1557,9 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
 | **CTD — constats défendables** | `lib/regulatory/intelligence/findings/enrich.ts` (`enrichVersionFindings`, `findingQuality` pure + tests) ; branché dans `jobs/runner.ts` (`attachPrecedents`) ; rendu par `FindingEvidence` dans `app/(app)/regulatory/enregistrement/analyse/[dossierId]/page.tsx`. |
 | **CTD — corpus & veille** | `lib/regulatory/intelligence/corpus/` — `catalog.ts` (43 sources, `ingestible`/`binding`), `fetch-source.ts` (`findPdfLink`, `htmlToText`, `extOf` + tests), `ingest-catalog.ts` (versions DRAFT, empreinte), `watch-schedule.ts` (`runAnppWatchIfDue`, branché sur `lib/scheduled.ts`), `corpus-actions.ts` ; écran `app/(app)/regulatory/enregistrement/corpus/`. |
 | **CTD — coût & Batch** | `lib/openai-luna.ts` (Luna, Batch ×0,5) ; `lib/regulatory/intelligence/cost/` — `ledger.ts` (`trackedLuna`, `cacheKeyOf`, `budgetState`, `dossierCost`), `batch-runner.ts` (`submitVersionReviewBatch`, `pollAiBatches`, `processCompletedBatch`), `cost-actions.ts` ; carte « Coût de l'analyse IA » + `cost-panel.tsx` sur l'écran dossier. Modèles `RegulatoryAiCall`, `RegulatoryAiCache`, `RegulatoryAiBatch`. |
+| **CTD — pages exactes & preuve** | `lib/regulatory/intelligence/extract/pages.ts` (`buildPagedContent`, `pageAtOffset`, `pageSpanOfSlice`, `anchorEvidence` — pures + tests) ; `extract-text.ts` (`extractPdfPages` mupdf par page), `ocr/ocr-engine.ts` (contenu paginé), colonne `RegulatoryExtraction.pageMap` ; `agents/chunk-text.ts` (`splitTextIntoChunksWithOffsets`) ; consommé par `jobs/runner.ts` + `cost/batch-runner.ts` (l'ancrage PRIME l'estimation) ; page cliquable `#page=N` dans l'écran dossier. |
+| **CTD — escalade & sémantique** | `lib/regulatory/intelligence/agents/escalate.ts` (`escalateCriticalSections`, max 4, `REG_AGENT_AUTO=0` pour couper) ; `corpus/semantic.ts` (`cosine`, `mergeHybrid`, `semanticSearchSections`, `embedBacklog` — cache estampillé, jamais bloquant) + `lunaEmbed` dans `lib/openai-luna.ts` ; hybride branché dans `corpus/rag.ts` (`searchCorpus`), rattrapage dans `lib/scheduled.ts`. Colonnes `embedding` (JSONB) sur `RegulatorySourceSection` + `AnppReserve`. |
+| **CTD — livrables & verdict** | `lib/regulatory/intelligence/docgen/reports.ts` (`buildFindingsReport`, `buildReserveResponseLetter`) sur `buildSimpleDocx` (`build-docx.ts`) ; `rules/notice-arabic.ts` (`arabicStats`, `missesArabic`, `isArabicRequiredSection` — pures + tests, branchées dans `handleRules`) ; `createTaskFromFinding` dans `intelligence/actions.ts` ; verdict GO/NO-GO + réserves probables calculés dans `analyse/[dossierId]/page.tsx` ; boutons `report-buttons.tsx`. |
 | **Courrier smart (sans SMTP)** | `lib/mail-smart.ts` (agnostique fournisseur, `buildProviderCall`/`verifyInboundSignature`/`normalizeInbound`) + `mail-smart.test.ts`, `lib/actions/smart-mail-actions.ts` (journal), `app/api/mail/inbound/route.ts` (webhook signé), `app/(app)/admin/courrier/`. Modèles `OutboundEmail`/`InboundEmail`. |
 
 ---
@@ -1938,6 +1986,21 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Analyseur CTD « god mode » : la page devient une preuve, l'outil insiste tout seul, et les
+  livrables sortent en un clic.** Chaque constat connaît désormais sa page **exacte** : carte des
+  pages construite à l'extraction (native et OCR), offsets réels par part d'analyse, et surtout
+  **ancrage de la citation** — l'extrait cité est recherché dans le texte, la page retrouvée prime
+  l'estimation du modèle, une preuve introuvable rend `null` plutôt qu'une page inventée. À
+  l'écran, la page est un **lien qui ouvre le PDF au bon endroit**, et les constats sont redessinés
+  pour le pharmacien (gravité d'abord, compteurs, citation en exergue, badge DÉFENDABLE). Une
+  section critique déclenche **automatiquement** les agents spécialistes concernés (max 4, jamais
+  deux fois, débrayable). Le corpus devient **bilingue de fait** : recherche hybride plein-texte ∪
+  embeddings — « durée de conservation » trouve enfin « shelf life ». Et quatre livrables : rapport
+  de constats .docx, lettre de réponse aux réserves .docx (verbatim + réponses, jamais
+  d'invention), **verdict GO/NO-GO** en tête de dossier avec réserves les plus probables, contrôle
+  **notice en arabe** (décret n° 92-286, texte natif seulement), constat → **tâche** en un clic.
+  → [référence](#9-pages-exactes-escalade-sémantique-livrables--god-mode-)
 
 - **Analyseur CTD : couverture intégrale, examen visuel, coût enfin réel.** Quatre plafonds
   silencieux écartaient du contenu sans que rien ne distingue « analysé » de « analysé à 8 % » :
