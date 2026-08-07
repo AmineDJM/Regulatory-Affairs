@@ -44,6 +44,7 @@ import type { RegDocSecurityStatus } from "@prisma/client";
 import { CtdUpload } from "./ctd-upload";
 import { DeleteDossierButton } from "./dossier-actions";
 import { FindingControls } from "./finding-actions";
+import { FindingsReportButton } from "./report-buttons";
 import { SubmissionGate } from "./submission-gate";
 import { ApproveNameButton } from "./approve-name";
 
@@ -145,6 +146,30 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
   const canAnalyse = regCan(user, "regulatory.dossier.analyse");
   const openBlockers = findings.filter((f) => f.blocker && (f.status === "OPEN" || f.status === "ACKNOWLEDGED")).length;
 
+  // ── VERDICT GO / NO-GO : la réponse à LA question du pharmacien — « puis-je déposer ? ».
+  // Bloqueur ou critique OUVERT → NO-GO ; majeur ouvert ou complétude imparfaite → GO sous
+  // conditions ; sinon GO. Les constats résolus/levés ne comptent plus : le verdict reflète
+  // l'état PRÉSENT du dossier, pas son historique.
+  const isOpen = (f: { status: string }) => f.status === "OPEN" || f.status === "ACKNOWLEDGED";
+  const openCriticals = findings.filter((f) => f.severity === "CRITICAL" && isOpen(f)).length;
+  const openMajors = findings.filter((f) => f.severity === "MAJOR" && isOpen(f)).length;
+  const verdict: "GO" | "WARN" | "NOGO" | null =
+    !latest || (!assessment && findings.length === 0)
+      ? null
+      : openBlockers > 0 || openCriticals > 0
+        ? "NOGO"
+        : openMajors > 0 || (assessment != null && (!assessment.conforme || assessment.completeness < 100))
+          ? "WARN"
+          : "GO";
+  // Réserves ANPP les plus PROBABLES : précédents réels (reserveRisk) quand on en a, sinon la
+  // gravité comme approximation honnête — jamais un pourcentage inventé présenté comme mesuré.
+  const RISK_BASE: Record<RegFindingSeverity, number> = { CRITICAL: 0.85, MAJOR: 0.55, MINOR: 0.25, INFO: 0.05 };
+  const probableReserves = findings
+    .filter((f) => f.severity !== "INFO" && isOpen(f))
+    .map((f) => ({ f, risk: Math.max(f.reserveRisk ?? 0, RISK_BASE[f.severity]), measured: f.reserveRisk != null }))
+    .sort((a, b) => b.risk - a.risk)
+    .slice(0, 5);
+
   return (
     <div className="space-y-5">
       <Link href="/regulatory/enregistrement/analyse" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -159,6 +184,73 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
           {canDelete && <DeleteDossierButton dossierId={dossier.id} />}
         </div>
       </div>
+
+      {/* VERDICT GO / NO-GO — la synthèse qu'on lit en trois secondes avant tout le reste.
+          Un seul mot, sa raison, l'état chiffré, et les réserves les plus probables. */}
+      {verdict && (
+        <Card className={`overflow-hidden ${verdict === "NOGO" ? "border-destructive/50" : verdict === "WARN" ? "border-amber-500/50" : "border-success/50"}`}>
+          <CardContent className="p-0">
+            <div className={`flex flex-wrap items-center gap-x-5 gap-y-3 px-4 py-4 sm:px-5 ${verdict === "NOGO" ? "bg-destructive/5" : verdict === "WARN" ? "bg-amber-500/5" : "bg-success/5"}`}>
+              <div className="flex min-w-0 items-center gap-3">
+                <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${verdict === "NOGO" ? "bg-destructive/15 text-destructive" : verdict === "WARN" ? "bg-amber-500/15 text-amber-600" : "bg-success/15 text-success"}`}>
+                  {verdict === "NOGO" ? <ShieldX className="h-6 w-6" /> : verdict === "WARN" ? <ShieldAlert className="h-6 w-6" /> : <ShieldCheck className="h-6 w-6" />}
+                </span>
+                <div className="min-w-0">
+                  <p className={`text-lg font-bold leading-tight ${verdict === "NOGO" ? "text-destructive" : verdict === "WARN" ? "text-amber-600" : "text-success"}`}>
+                    {verdict === "NOGO" ? "NO-GO — ne pas soumettre en l'état" : verdict === "WARN" ? "GO SOUS CONDITIONS — corriger avant dépôt" : "GO — prêt à soumettre"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {verdict === "NOGO"
+                      ? [openBlockers > 0 ? `${openBlockers} bloqueur·s ouvert·s` : null, openCriticals > 0 ? `${openCriticals} constat·s critique·s ouvert·s` : null].filter(Boolean).join(" · ")
+                      : verdict === "WARN"
+                        ? [openMajors > 0 ? `${openMajors} constat·s majeur·s ouvert·s` : null, assessment && assessment.completeness < 100 ? `complétude ${assessment.completeness} %` : null, assessment && !assessment.conforme ? "non conforme en l'état" : null].filter(Boolean).join(" · ")
+                        : "Aucun bloqueur ni constat critique ou majeur ouvert."}
+                  </p>
+                </div>
+              </div>
+              <div className="ml-auto flex flex-wrap items-center gap-3">
+                {assessment && (
+                  <div className="text-right">
+                    <p className="text-2xl font-semibold tabular-nums leading-none">{assessment.completeness}%</p>
+                    <p className="text-[0.6875rem] text-muted-foreground">complétude CTD</p>
+                  </div>
+                )}
+                <div className="flex flex-col gap-1 text-[0.6875rem]">
+                  {openBlockers > 0 && <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-destructive">{openBlockers} bloqueur·s</span>}
+                  {openCriticals > 0 && <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-destructive">{openCriticals} critique·s</span>}
+                  {openMajors > 0 && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-600">{openMajors} majeur·s</span>}
+                  {openBlockers === 0 && openCriticals === 0 && openMajors === 0 && <span className="rounded-full bg-success/10 px-2 py-0.5 text-success">rien d&apos;ouvert</span>}
+                </div>
+              </div>
+            </div>
+
+            {probableReserves.length > 0 && (
+              <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                <p className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">Réserves ANPP les plus probables</p>
+                <ul className="mt-1.5 space-y-1">
+                  {probableReserves.map(({ f, risk, measured }) => (
+                    <li key={f.id} className="flex items-center gap-2 text-xs">
+                      <span
+                        title={measured ? "Probabilité mesurée sur nos précédents ANPP" : "Estimation d'après la gravité (pas encore de précédent ANPP comparable)"}
+                        className={`w-12 shrink-0 rounded px-1.5 py-0.5 text-center font-semibold tabular-nums ${risk >= 0.6 ? "bg-destructive/10 text-destructive" : risk >= 0.3 ? "bg-amber-500/10 text-amber-600" : "bg-secondary text-muted-foreground"}`}
+                      >
+                        {Math.round(risk * 100)} %{measured ? "" : "*"}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate" title={f.title}>{f.title}</span>
+                      {f.sectionCode && <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[0.625rem] font-medium">CTD {f.sectionCode}</span>}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-[0.625rem] text-muted-foreground/80">* estimation d&apos;après la gravité, faute de précédent ANPP comparable.</p>
+              </div>
+            )}
+
+            <p className="border-t border-border/60 px-4 py-2 text-[0.6875rem] text-muted-foreground sm:px-5">
+              Aide à la décision — la décision de soumettre appartient au <strong>pharmacien directeur technique</strong>.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Téléversement du dossier CTD (ZIP) */}
       {canUpload && (
@@ -429,30 +521,81 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
         </Card>
       )}
 
-      {/* Constats */}
+      {/* Constats — l'écran que le pharmacien lit vraiment. Trois principes :
+          1. la GRAVITÉ structure la page (le critique d'abord, avec compteurs) ;
+          2. chaque constat mène à SA PIÈCE — la page est un LIEN qui ouvre le PDF au bon endroit ;
+          3. la hiérarchie visuelle suit la lecture : titre → preuve → quoi faire → précédents. */}
       {findings.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4 text-primary" /> Constats ({findings.length})</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {findings.map((f) => {
-              const meta = SEVERITY_META[f.severity];
+          <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
+            <CardTitle className="flex flex-wrap items-center gap-x-3 gap-y-1 text-base">
+              <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-primary" /> Constats</span>
+              <span className="flex flex-wrap items-center gap-1.5 text-xs font-normal">
+                {(["CRITICAL", "MAJOR", "MINOR", "INFO"] as const).map((sev) => {
+                  const n = findings.filter((x) => x.severity === sev).length;
+                  if (n === 0) return null;
+                  const m = SEVERITY_META[sev];
+                  return <span key={sev} className={`rounded-full border px-2 py-0.5 ${m.cls}`}>{n} {m.label.toLowerCase()}{n > 1 && sev !== "INFO" ? "s" : ""}</span>;
+                })}
+              </span>
+            </CardTitle>
+            {canAnalyse && <FindingsReportButton dossierId={dossier.id} />}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {(["CRITICAL", "MAJOR", "MINOR", "INFO"] as const).map((sev) => {
+              const group = findings.filter((x) => x.severity === sev);
+              if (group.length === 0) return null;
+              const meta = SEVERITY_META[sev];
               return (
-                <div key={f.id} className={`rounded-lg border px-3 py-2 ${meta.cls}`}>
-                  <div className="flex items-start gap-2">
-                    <meta.Icon className="mt-0.5 h-4 w-4 shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-medium text-foreground">{f.title}</span>
-                        {f.blocker && <span className="rounded bg-destructive px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">BLOQUEUR</span>}
-                        {f.source === "AI" && f.draft && <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">PROJET IA — REVUE REQUISE</span>}
-                        {f.source === "HUMAN" && <span className="rounded bg-primary px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">HUMAIN</span>}
+                <div key={sev} className="space-y-2">
+                  <p className="flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <meta.Icon className="h-3.5 w-3.5" /> {meta.label} ({group.length})
+                  </p>
+                  {group.map((f) => {
+                    const docName = f.documentId ? findingDocNames.get(f.documentId) ?? null : null;
+                    const quality = findingQuality(f);
+                    return (
+                      <div key={f.id} className={`overflow-hidden rounded-xl border ${meta.cls.split(" ")[0]} bg-card`}>
+                        {/* Liseré de gravité : la couleur se voit avant que le texte se lise. */}
+                        <div className={`flex items-stretch`}>
+                          <div className={`w-1 shrink-0 ${sev === "CRITICAL" ? "bg-destructive" : sev === "MAJOR" ? "bg-amber-500" : sev === "MINOR" ? "bg-blue-500" : "bg-border"}`} />
+                          <div className="min-w-0 flex-1 px-3 py-2.5">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="text-sm font-semibold text-foreground">{f.title}</span>
+                              {f.blocker && <span className="rounded bg-destructive px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">BLOQUEUR</span>}
+                              {f.source === "AI" && f.draft && <span className="rounded bg-amber-500/90 px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">PROJET IA — À RELIRE</span>}
+                              {f.source === "HUMAN" && <span className="rounded bg-primary px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">HUMAIN</span>}
+                              {quality.defensible && <span className="rounded bg-success/15 px-1.5 py-0.5 text-[0.625rem] font-semibold text-success">DÉFENDABLE</span>}
+                            </div>
+
+                            {/* OÙ : document, section, page — et la page est un LIEN vers la pièce. */}
+                            {(docName || f.sectionCode || f.page != null) && (
+                              <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
+                                {docName && <span className="inline-flex items-center gap-1"><FileText className="h-3 w-3" /> {docName}</span>}
+                                {f.sectionCode && <span className="rounded bg-secondary px-1.5 py-0.5 font-medium text-foreground">CTD {f.sectionCode}</span>}
+                                {f.page != null && f.documentId ? (
+                                  <a
+                                    href={`/api/regulatory/intelligence/document/${f.documentId}?inline=1#page=${f.page}`}
+                                    target="_blank" rel="noreferrer noopener"
+                                    title="Ouvrir la pièce à cette page"
+                                    className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 font-semibold text-primary hover:bg-primary/20"
+                                  >
+                                    <Eye className="h-3 w-3" /> p. {f.page}
+                                  </a>
+                                ) : f.page != null ? (
+                                  <span className="rounded bg-secondary px-1.5 py-0.5">p. {f.page}</span>
+                                ) : null}
+                              </p>
+                            )}
+
+                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{f.detail}</p>
+                            <FindingEvidence finding={f} reserves={reservesById} docNames={findingDocNames} />
+                            <FindingControls findingId={f.id} status={f.status} blocker={f.blocker} canEdit={canEditFinding} canApprove={canApproveFinding} />
+                          </div>
+                        </div>
                       </div>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{f.detail}</p>
-                      {f.evidence && <p className="mt-0.5 text-[0.6875rem] italic text-muted-foreground/80">Preuve : {f.evidence}</p>}
-                      <FindingEvidence finding={f} reserves={reservesById} docNames={findingDocNames} />
-                      <FindingControls findingId={f.id} status={f.status} blocker={f.blocker} canEdit={canEditFinding} canApprove={canApproveFinding} />
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -748,18 +891,12 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
         </p>
       )}
 
-      {/* LA PIÈCE : où regarder, et ce qui y est écrit. */}
-      {(docName || f.page != null || f.excerpt) && (
-        <div className="text-[0.6875rem]">
-          <p className="text-muted-foreground">
-            {docName ?? "Document"}{f.page != null ? ` — page ${f.page}` : ""}
-          </p>
-          {f.excerpt && (
-            <p className="mt-0.5 rounded bg-secondary/60 px-2 py-1 font-mono text-[10.5px] leading-relaxed text-foreground">
-              « {f.excerpt.length > 400 ? `${f.excerpt.slice(0, 400)}…` : f.excerpt} »
-            </p>
-          )}
-        </div>
+      {/* LA CITATION : ce qui est écrit dans la pièce, tel quel. Le « où » (document, page
+          cliquable) vit désormais dans l'en-tête de la carte — ici, seulement la preuve. */}
+      {f.excerpt && (
+        <blockquote className="rounded-md border-l-2 border-primary/40 bg-secondary/50 px-2.5 py-1.5 text-[0.6875rem] leading-relaxed text-foreground">
+          « {f.excerpt.length > 400 ? `${f.excerpt.slice(0, 400)}…` : f.excerpt} »
+        </blockquote>
       )}
 
       {/* Ce qui se contredit — la raison d'être du constat quand il porte sur une incohérence. */}

@@ -7,17 +7,20 @@ import { classifyDocument } from "../ctd/classify";
 import { detectContainedSections } from "../ctd/detect-sections";
 import { assessVersion, type TwinDoc } from "../rules/engine";
 import { loadActiveRules, loadPresentFactKeys } from "../rules/rule-engine";
+import { missesArabic, arabicStats, isArabicRequiredSection } from "../rules/notice-arabic";
 import { ocrDocument, canOcr } from "../ocr/ocr-engine";
 import { mistralOcrConfigured } from "../ocr/mistral-ocr";
 import { buildTwinFacts } from "../twin/build-facts";
 import { detectConflicts } from "../twin/detect-conflicts";
 import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
 import { lunaReviewFn } from "../agents/review-ai";
+import { escalateCriticalSections } from "../agents/escalate";
 import { corpusForSection } from "../corpus/for-section";
 import { readFigures, FORM_DEFECT_LABEL, FORM_DEFECT_SEVERITY } from "../vision/read-figures";
 import { lunaConfigured } from "@/lib/openai-luna";
 import { submitVersionReviewBatch } from "../cost/batch-runner";
-import { splitTextIntoChunks, chunkPageSpan } from "../agents/chunk-text";
+import { splitTextIntoChunks, splitTextIntoChunksWithOffsets, chunkPageSpan } from "../agents/chunk-text";
+import { pageSpanOfSlice, anchorEvidence } from "../extract/pages";
 import { sectionByCode } from "../ctd/taxonomy";
 import { aiConfigured } from "@/lib/ai";
 import { enrichVersionFindings, type EnrichmentContext } from "../findings/enrich";
@@ -383,6 +386,8 @@ async function ocrOne(doc: { id: string; ext: string; blobId: string | null; ori
       method: ocrMethod, lang: r.langs, charCount: content.length, truncated,
       content, ocrConfidence: r.meanConfidence, pageCount: r.pageCount,
       ocrPages: ocrPages as unknown as object, needsReview: r.needsReview,
+      // La carte des pages rend chaque constat OUVRABLE à la bonne page du scan.
+      pageMap: (r.pageOffsets ?? undefined) as unknown as object,
     };
     await prisma.$transaction([
       prisma.regulatoryExtraction.upsert({ where: { documentId: doc.id }, create: { documentId: doc.id, ...data }, update: data }),
@@ -462,6 +467,35 @@ async function handleRules(job: RegulatoryJob): Promise<void> {
     loadPresentFactKeys(versionId),
   ]);
   const { findings, summary } = assessVersion({ procedureType: version.dossier.procedureType, documents: twinDocs, rules, factKeys });
+
+  // NOTICE EN ARABE (spécificité algérienne, décret n° 92-286) : notice/étiquetage (1.3.x hors
+  // RCP) sans version arabe → constat MAJEUR. Seuls les textes NATIFS sont jugés — l'OCR latin
+  // massacre l'arabe et on refuse d'accuser une notice arabe scannée sur une lecture ratée.
+  for (const d of docs) {
+    const eligible =
+      String(d.securityStatus) === "SAFE" &&
+      String(d.extractionStatus) === "TEXT_EXTRACTED" &&
+      (isArabicRequiredSection(d.ctdSection) || d.containedSections.some((s) => isArabicRequiredSection(s)));
+    if (!eligible) continue;
+    await yieldToEventLoop(); // comptage regex sur un gros texte → céder la main entre documents
+    const ext = await prisma.regulatoryExtraction.findUnique({ where: { documentId: d.id }, select: { content: true } });
+    if (!ext?.content || !missesArabic(ext.content)) continue;
+    const { ratio, letters } = arabicStats(ext.content);
+    findings.push({
+      code: `NOTICE-AR:${d.id}`,
+      severity: "MAJOR",
+      category: "content",
+      title: "Notice / étiquetage sans version arabe",
+      detail:
+        "La réglementation algérienne (décret exécutif n° 92-286, art. 4) impose une notice et un étiquetage rédigés en arabe. " +
+        `Le texte lu de « ${d.originalFilename} » est presque exclusivement en caractères latins. ` +
+        "Vérifier si la version arabe existe dans un document séparé du module 1.3 ; sinon, la produire avant dépôt.",
+      evidence: `Texte natif analysé : ${letters.toLocaleString("fr-FR")} lettres, dont ${(ratio * 100).toFixed(1)} % en caractères arabes (seuil : 5 %).`,
+      sectionCode: d.ctdSection ?? undefined,
+      documentId: d.id,
+      blocker: false,
+    });
+  }
 
   await prisma.$transaction([
     // Recalcul idempotent : on remplace les constats du MOTEUR (on préserve IA/HUMAIN).
@@ -688,7 +722,10 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
   // le double pour un résultat qu'on ne regardera pas dans l'heure n'a pas de sens. Si le dépôt
   // échoue (clé absente, fournisseur indisponible), on ne perd pas l'analyse : on bascule sur la
   // voie immédiate ci-dessous.
-  if (aiBatchDefault()) {
+  // Le mode peut être FORCÉ par la charge utile du job (choix de l'utilisateur à l'écran) :
+  // « résultats maintenant, plein tarif » l'emporte alors sur le différé par défaut.
+  const forcedImmediate = (job.payload as { mode?: string } | null)?.mode === "immediate";
+  if (!forcedImmediate && aiBatchDefault()) {
     const submitted = await submitVersionReviewBatch(versionId, {
       companyId: job.companyId, dossierId: job.dossierId, userId: null,
     }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
@@ -720,8 +757,9 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
     if (maxChunks > 0 && usedChunks >= maxChunks) break;
     await yieldToEventLoop(); // céder la main entre documents (découpage + appels IA)
     // Contenu chargé UN document à la fois (pic mémoire borné même pour un document de 10 000 pages).
-    const ext = await prisma.regulatoryExtraction.findUnique({ where: { documentId: d.id }, select: { content: true } });
-    let parts = splitTextIntoChunks(ext?.content ?? "");
+    const ext = await prisma.regulatoryExtraction.findUnique({ where: { documentId: d.id }, select: { content: true, pageMap: true } });
+    const pageMap = Array.isArray(ext?.pageMap) ? (ext!.pageMap as number[]) : null;
+    let parts = splitTextIntoChunksWithOffsets(ext?.content ?? "");
     if (parts.length === 0) continue;
     if (maxChunks > 0) parts = parts.slice(0, maxChunks - usedChunks);
     usedChunks += parts.length;
@@ -734,16 +772,18 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
     // L'en-tête du document (page de garde : produit, dosage, forme) accompagne chaque part —
     // sans lui, la part 8/12 juge un tableau sans savoir de quoi il parle. Pas pour la part 1,
     // qui le contient déjà.
-    const docLead = total > 1 ? parts[0].slice(0, 1200) : null;
+    const docLead = total > 1 ? parts[0].text.slice(0, 1200) : null;
+    const content = ext?.content ?? "";
     // Parts de CE document envoyées à l'IA en parallèle ; une part en échec n'arrête pas les autres.
     await runPool(parts, concurrency, async (part, i) => {
       if (budgetStopped) return;
       try {
-        const span = chunkPageSpan(i);
+        // Pages EXACTES quand la carte existe (extraction paginée) ; estimation sinon.
+        const span = pageMap ? pageSpanOfSlice(pageMap, part.start, part.end) : chunkPageSpan(i);
         const r = await reviewDocumentText(
           {
             filename: total > 1 ? `${d.originalFilename} — partie ${i + 1}/${total}` : d.originalFilename,
-            ctdSection: d.ctdSection, ctdTitle, text: part, corpus,
+            ctdSection: d.ctdSection, ctdTitle, text: part.text, corpus,
             pageStart: span.start, pageEnd: span.end,
             docLead: i > 0 ? docLead : null,
           },
@@ -751,7 +791,14 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
           // budgétaire refuse l'appel AVANT la dépense (cf. review-ai.ts).
           lunaReviewFn({ dossierId: job.dossierId, dossierVersionId: versionId, documentId: d.id, step: "review" }),
         );
-        if (r.ok) for (const f of r.findings) collected.push({ ...f, documentId: d.id });
+        if (r.ok) {
+          for (const f of r.findings) {
+            // L'ANCRAGE PRIME SUR L'ESTIMATION : si la preuve citée se retrouve dans le texte,
+            // sa page devient LA page — celle qu'on ouvre au clic, celle qu'on montre en séance.
+            const anchored = pageMap ? anchorEvidence(content, pageMap, f.evidence) : null;
+            collected.push({ ...f, page: anchored ?? f.page, documentId: d.id });
+          }
+        }
         else if ((r.error ?? "").includes("Budget IA")) budgetStopped = true;
       } catch (err) {
         console.error("[reg-ai] analyse d'une part échouée", d.id, i, err instanceof Error ? err.message : err);
@@ -802,6 +849,9 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
     ? (await prisma.regulatoryDossier.findUnique({ where: { id: job.dossierId }, select: { productId: true } }))?.productId ?? null
     : null;
   await attachPrecedents(job, versionId, await enrichmentContextOf(productId));
+
+  // Là où le balayage a trouvé du CRITIQUE, l'agent spécialiste repasse — automatiquement.
+  await escalateCriticalSections(versionId, { companyId: job.companyId, dossierId: job.dossierId });
 }
 
 /**
@@ -889,8 +939,8 @@ async function extractOne(doc: ExtractDoc): Promise<void> {
         ? [
             prisma.regulatoryExtraction.upsert({
               where: { documentId },
-              create: { documentId, method: result.method, lang: result.lang ?? null, charCount: result.chars, truncated: result.truncated, content: result.text },
-              update: { method: result.method, lang: result.lang ?? null, charCount: result.chars, truncated: result.truncated, content: result.text },
+              create: { documentId, method: result.method, lang: result.lang ?? null, charCount: result.chars, truncated: result.truncated, content: result.text, pageMap: (result.pageOffsets ?? undefined) as object | undefined },
+              update: { method: result.method, lang: result.lang ?? null, charCount: result.chars, truncated: result.truncated, content: result.text, pageMap: (result.pageOffsets ?? undefined) as object | undefined },
             }),
           ]
         : []),

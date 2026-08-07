@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma, type RegProcedureType, type RegFindingSeverity, type RegFindingStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { recordAudit } from "@/lib/audit";
 import { releaseBlob } from "@/lib/drive-storage";
 import { getCompanyScope } from "@/lib/company";
 import { regCan, resolveRegCompanyId } from "./access";
@@ -188,6 +189,75 @@ export async function updateFindingStatus(formData: FormData): Promise<ActionRes
   });
   revalidateDossier(finding.dossierVersion.dossierId);
   return { ok: true };
+}
+
+/**
+ * CONSTAT → TÂCHE : transforme un constat en tâche de « Mon espace », assignée à soi.
+ *
+ * Le constat dit CE QUI ne va pas ; la tâche dit QUI s'en occupe et QUAND. Sans ce pont, les
+ * constats restent sur l'écran d'analyse et le travail réel se pilote ailleurs. La tâche
+ * embarque tout ce qu'il faut pour agir sans revenir chercher : détail, preuve, page, lien.
+ */
+export async function createTaskFromFinding(formData: FormData): Promise<ActionResult & { taskId?: string }> {
+  const user = await requireUser();
+  if (!regCan(user, "regulatory.finding.edit")) return { ok: false, error: "Non autorisé." };
+  const findingId = str(formData, "findingId");
+  if (!findingId) return { ok: false, error: "Constat manquant." };
+
+  const companyId = await targetCompanyId();
+  if (!companyId) return { ok: false, error: "Module non activé." };
+
+  const finding = await prisma.regulatoryFinding.findFirst({
+    where: { id: findingId, dossierVersion: { dossier: { companyId } } },
+    select: {
+      id: true, title: true, detail: true, severity: true, sectionCode: true, page: true,
+      excerpt: true, recommendation: true,
+      dossierVersion: { select: { dossierId: true, dossier: { select: { reference: true, title: true } } } },
+    },
+  });
+  if (!finding) return { ok: false, error: "Constat introuvable." };
+
+  const dossierId = finding.dossierVersion.dossierId;
+  const reference = finding.dossierVersion.dossier.reference;
+  const link = `/regulatory/enregistrement/analyse/${dossierId}`;
+  const title = `[${reference}] ${finding.title}`.slice(0, 200);
+
+  // Anti-doublon : si une tâche OUVERTE porte déjà exactement ce constat, on la rend plutôt
+  // que d'en empiler une deuxième — cliquer deux fois ne doit pas créer deux fois le travail.
+  const existing = await prisma.task.findFirst({
+    where: { title, assignedToId: user.id, status: { notIn: ["DONE", "CANCELLED", "DECLINED"] } },
+    select: { id: true },
+  });
+  if (existing) return { ok: true, taskId: existing.id, error: undefined };
+
+  const description = [
+    finding.detail,
+    finding.recommendation ? `À faire : ${finding.recommendation}` : null,
+    finding.excerpt ? `Preuve : « ${finding.excerpt.slice(0, 300)}${finding.excerpt.length > 300 ? "…" : ""} »` : null,
+    [finding.sectionCode ? `Section CTD : ${finding.sectionCode}` : null, finding.page != null ? `page ${finding.page}` : null].filter(Boolean).join(" · ") || null,
+    `Dossier : ${reference} — ${finding.dossierVersion.dossier.title}\n${link}`,
+  ].filter(Boolean).join("\n\n");
+
+  const task = await prisma.task.create({
+    data: {
+      title, description,
+      assignedToId: user.id, createdById: user.id,
+      priority: finding.severity === "CRITICAL" ? "CRITICAL" : finding.severity === "MAJOR" ? "HIGH" : "MEDIUM",
+      module: "REGULATORY",
+    },
+    select: { id: true },
+  });
+
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Regulatory", entityType: "TASK", entityId: task.id,
+    summary: `Tâche créée depuis le constat « ${finding.title} » (${reference})`,
+  });
+  await regAudit({
+    companyId, actorId: user.id, dossierId,
+    action: "FINDING_TASK_CREATED", detail: `Constat « ${finding.title} » transformé en tâche personnelle.`,
+  });
+  revalidateDossier(dossierId);
+  return { ok: true, taskId: task.id };
 }
 
 /** Ajout d'un constat manuel (humain) sur la dernière version. Jamais bloquant. */

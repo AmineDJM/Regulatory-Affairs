@@ -100,3 +100,44 @@ export async function submitDeferredReview(formData: FormData): Promise<Result &
     ? { ok: true, message: r.message, estimatedUsd: r.estimatedUsd, requests: r.requests }
     : { ok: false, error: r.error };
 }
+
+/**
+ * ANALYSE IMMÉDIATE — plein tarif, résultats dans l'heure.
+ *
+ * Le différé (moitié prix, ≤ 24 h) est le défaut ; ce choix-ci appartient à l'UTILISATEUR, pas à
+ * une variable d'environnement : c'est lui qui sait si la Direction attend le dossier demain
+ * matin. Le job porte `mode: "immediate"` — la voie Batch est alors court-circuitée.
+ */
+export async function submitImmediateReview(formData: FormData): Promise<Result> {
+  const user = await requireUser();
+  if (!regCan(user, "regulatory.dossier.analyse") && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
+  const companyId = await resolveRegCompanyId(getCompanyScope());
+  if (!companyId) return { ok: false, error: "Module non activé pour cette entité." };
+
+  const dossierId = String(formData.get("dossierId") ?? "").trim();
+  const dossier = await prisma.regulatoryDossier.findFirst({
+    where: { id: dossierId, companyId },
+    select: { id: true, versions: { orderBy: { versionNo: "desc" }, take: 1, select: { id: true } } },
+  });
+  if (!dossier) return { ok: false, error: "Dossier introuvable." };
+  const versionId = dossier.versions[0]?.id;
+  if (!versionId) return { ok: false, error: "Aucune version reçue sur ce dossier." };
+
+  // Une analyse immédiate déjà en file : on ne la double pas — ce serait payer deux fois.
+  const queued = await prisma.regulatoryJob.findFirst({
+    where: { dossierVersionId: versionId, type: "AI_REVIEW", status: { in: ["QUEUED", "RUNNING"] } },
+    select: { id: true },
+  });
+  if (queued) return { ok: false, error: "Une analyse est déjà en file pour cette version." };
+
+  await prisma.regulatoryJob.create({
+    data: { companyId, dossierId, dossierVersionId: versionId, type: "AI_REVIEW", status: "QUEUED", payload: { mode: "immediate" } },
+  });
+  await regAudit({
+    companyId, actorId: user.id, dossierId, dossierVersionId: versionId,
+    action: "AI_REVIEW_REQUESTED",
+    detail: "Analyse IMMÉDIATE demandée (plein tarif) — la voie différée est court-circuitée pour cette exécution.",
+  });
+  revalidatePath(`/regulatory/enregistrement/analyse/${dossierId}`);
+  return { ok: true };
+}

@@ -65,3 +65,40 @@ export function splitTextIntoChunks(text: string, maxChars: number = aiChunkChar
   }
   return chunks;
 }
+
+export interface OffsetChunk {
+  text: string;
+  /** Position du début de la part dans le texte D'ORIGINE (non retaillé). */
+  start: number;
+  end: number;
+}
+
+/**
+ * Même découpage que `splitTextIntoChunks`, mais chaque part connaît sa POSITION dans le texte
+ * d'origine. C'est ce qui permet, croisé avec la carte des pages, de dire au modèle « cette
+ * partie couvre les pages 47 à 58 » EXACTEMENT — et non plus à l'estime.
+ *
+ * Le texte n'est PAS retaillé en tête : un `trim` décalerait toutes les positions et fausserait
+ * la carte d'autant. Seules les parts vides sont écartées.
+ */
+export function splitTextIntoChunksWithOffsets(text: string, maxChars: number = aiChunkChars()): OffsetChunk[] {
+  const src = text ?? "";
+  if (!src.trim()) return [];
+  if (src.length <= maxChars) return [{ text: src, start: 0, end: src.length }];
+
+  const chunks: OffsetChunk[] = [];
+  let i = 0;
+  while (i < src.length) {
+    let end = Math.min(i + maxChars, src.length);
+    if (end < src.length) {
+      const window = src.slice(i, end);
+      const nl = window.lastIndexOf("\n");
+      const sp = window.lastIndexOf(" ");
+      const cut = nl > maxChars * 0.6 ? nl : sp > maxChars * 0.6 ? sp : -1;
+      if (cut > 0) end = i + cut;
+    }
+    if (src.slice(i, end).trim()) chunks.push({ text: src.slice(i, end), start: i, end });
+    i = end;
+  }
+  return chunks;
+}

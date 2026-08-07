@@ -6,6 +6,7 @@ import { Loader2, UploadCloud, CheckCircle2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { updateReservePoint, approveReservePoint, deleteReserveCycle } from "@/lib/regulatory/intelligence/reserves/actions";
+import { ReserveLetterButton } from "./report-buttons";
 
 interface Point { id: string; ordinal: number; category: string; verbatim: string; proposedResponse: string | null; finalResponse: string | null; status: string }
 interface Cycle { id: string; cycle: number; letterFilename: string; ocrConfidence: number | null; ocrNeedsReview: boolean; status: string; points: Point[] }
@@ -61,6 +62,11 @@ export function ReservesPanel({ dossierId, cycles, canManage }: { dossierId: str
             <span className="text-xs text-muted-foreground">{c.points.length} point·s · {c.points.filter((p) => p.status === "APPROVED").length} approuvé·s</span>
             {canManage && <button type="button" disabled={busy !== null} onClick={() => run(`del-${c.id}`, () => { const fd = new FormData(); fd.set("cycleId", c.id); return deleteReserveCycle(fd); })} className="ml-auto inline-flex items-center gap-1 text-xs text-destructive hover:underline"><Trash2 className="h-3 w-3" /> Supprimer</button>}
           </div>
+          {canManage && c.points.length > 0 && (
+            <div className="mt-2">
+              <ReserveLetterButton cycleId={c.id} />
+            </div>
+          )}
           <div className="mt-2 space-y-2">
             {c.points.map((p) => (
               <div key={p.id} className="rounded-lg border border-border/60 p-2.5">

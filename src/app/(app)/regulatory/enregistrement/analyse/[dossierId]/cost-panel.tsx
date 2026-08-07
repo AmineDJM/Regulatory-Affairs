@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, CheckCircle2, XCircle, Hourglass } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { setDossierBudget, submitDeferredReview } from "@/lib/regulatory/intelligence/cost/cost-actions";
+import { setDossierBudget, submitDeferredReview, submitImmediateReview } from "@/lib/regulatory/intelligence/cost/cost-actions";
 
 /**
  * Réglage du plafond de dépense IA du dossier.
@@ -112,11 +112,38 @@ export function DeferredReviewButton({ dossierId, pending }: { dossierId: string
     );
   }
 
+  // LE CHOIX APPARTIENT À L'UTILISATEUR : lui seul sait si la Direction attend le dossier demain
+  // matin. Les deux voies produisent EXACTEMENT les mêmes constats — seuls le prix et le délai
+  // changent, et l'écran le dit.
+  const launchNow = () => {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setMsg(null);
+    const fd = new FormData();
+    fd.set("dossierId", dossierId);
+    void (async () => {
+      try {
+        const r = await submitImmediateReview(fd);
+        setMsg({ ok: r.ok, text: r.ok ? "Analyse immédiate lancée — résultats dans l'heure." : (r.error ?? "Échec.") });
+        if (r.ok) router.refresh();
+      } finally {
+        setBusy(false);
+        lock.current = false;
+      }
+    })();
+  };
+
   return (
     <div className="space-y-1.5 border-t border-border pt-3">
-      <Button size="sm" variant="outline" onClick={launch} disabled={busy}>
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Hourglass className="h-4 w-4" />} Réanalyser à moitié prix (sous 24 h)
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" onClick={launch} disabled={busy}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Hourglass className="h-4 w-4" />} Réanalyser à moitié prix (sous 24 h)
+        </Button>
+        <Button size="sm" variant="ghost" onClick={launchNow} disabled={busy} title="Même analyse, résultats dans l'heure, plein tarif">
+          Résultats maintenant (plein tarif)
+        </Button>
+      </div>
       <p className="text-[0.6875rem] text-muted-foreground">
         Même lecture, même exigence, même consigne — seule la facturation change. À réserver aux réanalyses
         complètes : pour un dossier qu&apos;on examine maintenant, gardez l&apos;analyse immédiate.

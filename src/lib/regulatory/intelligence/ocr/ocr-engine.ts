@@ -1,3 +1,4 @@
+import { buildPagedContent } from "../extract/pages";
 import { ensureLangData, ocrCacheDir, defaultOcrLangs } from "./lang-data";
 import { mistralOcrConfigured, mistralOcrDocument, mistralOcrEligible } from "./mistral-ocr";
 
@@ -33,6 +34,8 @@ export interface OcrResult {
   lowConfidencePages: number;
   needsReview: boolean;
   truncated: boolean; // pages au-delà du plafond non océrisées
+  /** Carte des pages : position du début de chaque page dans `text`. */
+  pageOffsets?: number[] | null;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif"]);
@@ -217,7 +220,9 @@ async function ocrWithTesseract(input: { ext: string; buffer: Buffer; langs?: st
   const truncated = pages.length < total;
   if (failedPages > 0) console.warn(`[reg-ocr] ${failedPages} page(s) corrompue(s) sautée(s) sur ${total}.`);
 
-  const text = pages.map((p) => p.text).join("\n\n").trim();
+  // Contenu PAGINÉ (jamais retaillé : la carte des pages pointe dans CE texte).
+  const paged = buildPagedContent(pages.map((p) => p.text));
+  const text = paged.content;
   const withText = pages.filter((p) => p.chars > 0);
   const meanConfidence = withText.length > 0 ? Math.round(withText.reduce((s, p) => s + p.confidence, 0) / withText.length) : 0;
   const lowConfidencePages = pages.filter((p) => p.lowConfidence).length;
@@ -225,7 +230,8 @@ async function ocrWithTesseract(input: { ext: string; buffer: Buffer; langs?: st
   return {
     engine: version, langs: langs.join("+"), method: "ocr", pages, text,
     meanConfidence, pageCount: total, lowConfidencePages,
-    needsReview: meanConfidence < LOW_CONFIDENCE || lowConfidencePages > 0 || text.length === 0,
+    needsReview: meanConfidence < LOW_CONFIDENCE || lowConfidencePages > 0 || text.trim().length === 0,
     truncated,
+    pageOffsets: paged.pageMap,
   };
 }

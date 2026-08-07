@@ -351,3 +351,39 @@ export async function fetchBatchOutput(outputFileId: string): Promise<string | n
     return null;
   }
 }
+
+// ───────────────────────────── Embeddings (recherche sémantique) ─────────────────────────────
+
+/** Modèle d'embedding (surchargable). 512 dimensions suffisent et divisent le stockage par trois. */
+export function lunaEmbedModel(): string {
+  return (process.env.CTD_EMBED_MODEL ?? "").trim() || "text-embedding-3-small";
+}
+export const EMBED_DIMS = 512;
+
+/**
+ * Vectorise des textes pour la recherche SÉMANTIQUE — celle qui comprend qu'une « durée de
+ * conservation » et une « shelf life » parlent de la même chose. C'est le chaînon qui manquait
+ * au RAG : le corpus est largement en ANGLAIS (ICH, EMA) et les dossiers en FRANÇAIS — une
+ * recherche lexicale ne les fera jamais se rencontrer.
+ *
+ * Ne lève jamais : sans clé ou en cas d'échec, `null` — l'appelant reste en lexical pur.
+ */
+export async function lunaEmbed(texts: string[], dims: number = EMBED_DIMS): Promise<number[][] | null> {
+  if (!lunaConfigured() || texts.length === 0) return null;
+  const base = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
+  try {
+    const res = await fetch(`${base}/v1/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: lunaEmbedModel(), input: texts.map((t) => t.slice(0, 6000)), dimensions: dims }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data?: { index: number; embedding: number[] }[] };
+    if (!Array.isArray(json.data) || json.data.length !== texts.length) return null;
+    const out: number[][] = new Array(texts.length);
+    for (const d of json.data) out[d.index] = d.embedding;
+    return out;
+  } catch {
+    return null;
+  }
+}

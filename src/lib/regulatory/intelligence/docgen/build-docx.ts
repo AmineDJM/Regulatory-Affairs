@@ -13,8 +13,8 @@ export const MISSING_MARKER = "[À COMPLÉTER]";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function paragraph(text: string, opts: { bold?: boolean; size?: number } = {}): string {
-  const rpr = [opts.bold ? "<w:b/>" : "", opts.size ? `<w:sz w:val="${opts.size}"/>` : ""].join("");
+function paragraph(text: string, opts: { bold?: boolean; italic?: boolean; size?: number } = {}): string {
+  const rpr = [opts.bold ? "<w:b/>" : "", opts.italic ? "<w:i/>" : "", opts.size ? `<w:sz w:val="${opts.size}"/>` : ""].join("");
   // Le texte contient des placeholders {KEY} (A-Z_) — sûrs ; on échappe seulement &<>.
   return `<w:p><w:pPr><w:spacing w:after="120"/></w:pPr><w:r><w:rPr>${rpr}</w:rPr><w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`;
 }
@@ -36,6 +36,32 @@ export interface RenderResult {
   buffer: Buffer;
   used: string[];
   missing: string[];
+}
+
+/** Paragraphe « libre » pour les documents composés en code (rapports, lettres de réponse). */
+export interface SimplePara {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  /** Demi-points Word (32 = 16 pt). Défaut : 22 (11 pt). */
+  size?: number;
+}
+
+/**
+ * Construit un .docx à partir de paragraphes DÉJÀ composés — sans template ni placeholders
+ * (donc sans Docxtemplater : le contenu peut contenir des accolades sans risque). Sert aux
+ * documents dont la structure dépend des données (rapport de constats, lettre de réponse
+ * aux réserves), là où un template à blocs fixes ne convient pas.
+ */
+export function buildSimpleDocx(paras: SimplePara[]): Buffer {
+  const body = paras.map((p) => paragraph(p.text, { bold: p.bold, italic: p.italic, size: p.size ?? 22 })).join("");
+  const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr/></w:body></w:document>`;
+  const zip = new PizZip();
+  zip.file("[Content_Types].xml", CONTENT_TYPES);
+  zip.folder("_rels")!.file(".rels", RELS);
+  zip.folder("word")!.file("document.xml", xml);
+  return zip.generate({ type: "nodebuffer" }) as Buffer;
 }
 
 /**

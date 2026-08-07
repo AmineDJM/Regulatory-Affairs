@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Check, Eye, ShieldOff } from "lucide-react";
-import { updateFindingStatus } from "@/lib/regulatory/intelligence/actions";
+import Link from "next/link";
+import { Loader2, Check, Eye, ShieldOff, ListPlus, CheckCircle2 } from "lucide-react";
+import { updateFindingStatus, createTaskFromFinding } from "@/lib/regulatory/intelligence/actions";
 
 interface Props {
   findingId: string;
@@ -20,6 +21,7 @@ export function FindingControls({ findingId, status, blocker, canEdit, canApprov
   const [waiving, setWaiving] = React.useState(false);
   const [note, setNote] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
+  const [taskCreated, setTaskCreated] = React.useState(false);
 
   async function apply(next: string, justification?: string) {
     setBusy(true); setError(null);
@@ -30,6 +32,17 @@ export function FindingControls({ findingId, status, blocker, canEdit, canApprov
     const r = await updateFindingStatus(fd);
     setBusy(false);
     if (r.ok) { setWaiving(false); setNote(""); router.refresh(); }
+    else setError(r.error ?? "Échec.");
+  }
+
+  // CONSTAT → TÂCHE : le pont entre « ce qui ne va pas » et « qui s'en occupe ».
+  async function toTask() {
+    setBusy(true); setError(null);
+    const fd = new FormData();
+    fd.set("findingId", findingId);
+    const r = await createTaskFromFinding(fd);
+    setBusy(false);
+    if (r.ok) setTaskCreated(true);
     else setError(r.error ?? "Échec.");
   }
 
@@ -48,6 +61,15 @@ export function FindingControls({ findingId, status, blocker, canEdit, canApprov
         )}
         {canApprove && status !== "WAIVED" && (
           <button type="button" disabled={busy} onClick={() => (blocker ? setWaiving((v) => !v) : apply("WAIVED"))} className="inline-flex items-center gap-1 rounded border border-amber-500/40 px-1.5 py-0.5 text-[0.6875rem] text-amber-600 hover:bg-amber-500/10 disabled:opacity-50"><ShieldOff className="h-3 w-3" /> Lever</button>
+        )}
+        {canEdit && !done && (
+          taskCreated ? (
+            <Link href="/mon-espace" className="inline-flex items-center gap-1 rounded border border-success/40 bg-success/10 px-1.5 py-0.5 text-[0.6875rem] text-success">
+              <CheckCircle2 className="h-3 w-3" /> Tâche créée — Mon espace
+            </Link>
+          ) : (
+            <button type="button" disabled={busy} onClick={toTask} title="Créer une tâche personnelle avec le détail, la preuve et le lien vers ce dossier" className="inline-flex items-center gap-1 rounded border border-primary/40 px-1.5 py-0.5 text-[0.6875rem] text-primary hover:bg-primary/10 disabled:opacity-50"><ListPlus className="h-3 w-3" /> Créer une tâche</button>
+          )
         )}
         {busy && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
       </div>

@@ -4996,6 +4996,10 @@ model RegulatoryExtraction {
   ocrConfidence Float? // confiance moyenne OCR 0..100 (null si extraction native)
   pageCount     Int? // nombre de pages (source)
   ocrPages      Json? // [{ page, confidence, chars, lowConfidence }]
+  /// pageMap[i] = position (caractères) du début de la page i+1 dans `content` — la carte qui
+  /// rend un constat localisable AU CLIC (PDF ouvert à la page exacte). Null = extraction
+  /// antérieure à la carte : on retombe sur l'estimation par tranches.
+  pageMap       Json?
   needsReview   Boolean  @default(false) // pages de faible confiance → revue humaine
   createdAt     DateTime @default(now())
 
@@ -5132,6 +5136,8 @@ model RegulatorySourceSection {
   createdAt       DateTime @default(now())
 
   sourceVersion RegulatorySourceVersion @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
+  /// Vecteur sémantique (512d) — recherche trans-langue FR↔EN. Null = pas encore vectorisé.
+  embedding Json?
 
   @@index([sourceVersionId])
 }
@@ -5694,6 +5700,8 @@ model AnppReserve {
   updatedAt DateTime @updatedAt
 
   batch AnppReserveBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  /// Vecteur sémantique (512d) — rapprochement des précédents au sens, pas au mot.
+  embedding Json?
 
   @@index([batchId])
   @@index([ctdModule, ctdSection])

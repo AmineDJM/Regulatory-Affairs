@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { semanticSearchSections, mergeHybrid } from "./semantic";
 
 /**
  * RAG RÉGLEMENTAIRE (G4) — recherche dans le corpus **actif** via Postgres FTS `french`
@@ -36,7 +37,36 @@ export interface CorpusFilters {
   limit?: number;
 }
 
+/**
+ * FAÇADE HYBRIDE : lexical (FTS français + trigrammes) ∪ sémantique (vecteurs, trans-langue).
+ *
+ * Le lexical reste la colonne vertébrale — exact, explicable, sans dépendance. Le sémantique
+ * comble son angle mort structurel : un corpus en ANGLAIS interrogé en FRANÇAIS. La fusion
+ * normalise les scores des deux mondes et favorise la convergence (trouvé par les deux voies).
+ * Sans clé d'embedding, la façade EST le lexical — jamais moins bien qu'avant.
+ */
 export async function searchCorpus(query: string, filters: CorpusFilters = {}): Promise<Citation[]> {
+  const limit = Math.min(Math.max(filters.limit ?? 8, 1), 30);
+  const lexical = await searchCorpusLexical(query, filters);
+
+  const semantic = await semanticSearchSections(query, limit).catch(() => []);
+  if (semantic.length === 0) return lexical;
+
+  // Les sections sémantiques absentes du lexical doivent devenir des citations complètes.
+  const known = new Set(lexical.map((c) => c.sectionId));
+  const missingIds = semantic.filter((h) => !known.has(h.sectionId)).map((h) => h.sectionId);
+  const extra = missingIds.length > 0 ? await citationsByIds(missingIds, filters) : [];
+
+  const scoreOf = new Map(semantic.map((h) => [h.sectionId, h.score]));
+  const merged = mergeHybrid(
+    lexical.map((c) => ({ id: c.sectionId, score: c.rank, cite: c })),
+    extra.concat(lexical.filter((c) => scoreOf.has(c.sectionId))).map((c) => ({ id: c.sectionId, score: scoreOf.get(c.sectionId) ?? 0, cite: c })),
+    limit,
+  );
+  return merged.map((m) => m.cite);
+}
+
+async function searchCorpusLexical(query: string, filters: CorpusFilters = {}): Promise<Citation[]> {
   const q = (query ?? "").trim();
   if (q.length < 2) return [];
   const limit = Math.min(Math.max(filters.limit ?? 8, 1), 30);
@@ -98,5 +128,44 @@ export async function activeCorpusSize(): Promise<number> {
     return await prisma.regulatorySourceSection.count({ where: { sourceVersion: { status: "ACTIVE" } } });
   } catch {
     return 0;
+  }
+}
+
+
+/** Citations complètes pour des sections précises (touches sémantiques hors résultat lexical). */
+async function citationsByIds(sectionIds: string[], filters: CorpusFilters): Promise<Citation[]> {
+  try {
+    const rows = await prisma.regulatorySourceSection.findMany({
+      where: {
+        id: { in: sectionIds },
+        sourceVersion: {
+          status: "ACTIVE",
+          source: {
+            ...(filters.jurisdiction ? { jurisdiction: filters.jurisdiction } : {}),
+            ...(filters.authority ? { authority: filters.authority } : {}),
+          },
+        },
+      },
+      select: {
+        id: true, path: true, heading: true, text: true,
+        sourceVersion: { select: { id: true, version: true, source: { select: { id: true, authority: true, jurisdiction: true, code: true, title: true } } } },
+      },
+    });
+    return rows.map((r) => ({
+      sectionId: r.id,
+      sourceId: r.sourceVersion.source.id,
+      sourceVersionId: r.sourceVersion.id,
+      authority: r.sourceVersion.source.authority,
+      jurisdiction: r.sourceVersion.source.jurisdiction,
+      code: r.sourceVersion.source.code,
+      title: r.sourceVersion.source.title,
+      version: r.sourceVersion.version,
+      path: r.path,
+      heading: r.heading,
+      snippet: r.text.replace(/\s+/g, " ").trim().slice(0, 300),
+      rank: 0,
+    }));
+  } catch {
+    return [];
   }
 }

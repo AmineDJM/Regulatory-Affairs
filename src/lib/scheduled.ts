@@ -5,6 +5,7 @@ import { runDueRegulatoryJobs } from "@/lib/regulatory/intelligence/jobs/runner"
 import { pruneStaleUploadSessions } from "@/lib/regulatory/intelligence/upload/session";
 import { runAnppWatchIfDue } from "@/lib/regulatory/intelligence/corpus/watch-schedule";
 import { pollAiBatches } from "@/lib/regulatory/intelligence/cost/batch-runner";
+import { embedBacklog } from "@/lib/regulatory/intelligence/corpus/semantic";
 import { runIntelligencePulse } from "@/lib/adventum/pulse";
 
 /**
@@ -35,6 +36,7 @@ export async function runScheduledJobs(): Promise<void> {
     await pruneStaleUploadSessions().catch(() => 0); // nettoyage des sessions d'upload incomplètes
     await runAnppWatchIfDue(); // veille ANPP 1×/jour : une ligne directrice ne doit pas changer sans qu'on le sache
     await pollAiBatches(); // analyses différées (moitié prix) : récupère les lots terminés
+    await embedBacklog().catch(() => 0); // vecteurs sémantiques : un paquet par passage, jamais plus
     await runIntelligencePulse(); // Adventum Pulse : instantané horaire (Brain + Process Intelligence) + alerte proactive
 
   } catch (err) {

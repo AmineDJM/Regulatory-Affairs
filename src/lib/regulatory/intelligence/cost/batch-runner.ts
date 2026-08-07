@@ -1,10 +1,13 @@
 import { prisma } from "@/lib/prisma";
-import { notifyUser } from "@/lib/notify";
+import { notifyUser, notifyRoles } from "@/lib/notify";
+import { getAppSettings } from "@/lib/settings";
+import { escalateCriticalSections } from "../agents/escalate";
 import {
   submitBatch, getBatchStatus, fetchBatchOutput, parseBatchOutput, lunaModel, lunaCostUsd,
   type BatchRequest,
 } from "@/lib/openai-luna";
-import { splitTextIntoChunks, chunkPageSpan } from "../agents/chunk-text";
+import { splitTextIntoChunksWithOffsets, chunkPageSpan } from "../agents/chunk-text";
+import { pageSpanOfSlice, anchorEvidence } from "../extract/pages";
 import { buildPrompt, SYSTEM_PROMPT, parseReviewOutput, type AiFinding } from "../agents/review-agent";
 import { sectionByCode } from "../ctd/taxonomy";
 import { corpusForSection } from "../corpus/for-section";
@@ -85,22 +88,24 @@ export async function submitVersionReviewBatch(
 
   for (const d of docs) {
     // Un document à la fois : le pic mémoire reste borné même sur un dossier de 10 000 pages.
-    const ext = await prisma.regulatoryExtraction.findUnique({ where: { documentId: d.id }, select: { content: true } });
-    const parts = splitTextIntoChunks(ext?.content ?? "");
+    const ext = await prisma.regulatoryExtraction.findUnique({ where: { documentId: d.id }, select: { content: true, pageMap: true } });
+    const pageMap = Array.isArray(ext?.pageMap) ? (ext!.pageMap as number[]) : null;
+    const parts = splitTextIntoChunksWithOffsets(ext?.content ?? "");
     if (parts.length === 0) continue;
 
     const ctdTitle = d.ctdSection ? sectionByCode(d.ctdSection)?.title ?? null : null;
     // Mêmes textes opposables que la voie immédiate : « moitié prix » ne doit jamais vouloir dire
     // « moins bien », et une analyse différée sans citations le serait.
     const corpus = await corpusForSection(d.ctdSection);
-    // Même contexte de repérage que la voie immédiate : pages absolues estimées + page de garde.
-    const docLead = parts.length > 1 ? parts[0].slice(0, 1200) : null;
+    // Même contexte de repérage que la voie immédiate : pages EXACTES quand la carte existe,
+    // estimation sinon — et la page de garde pour les parts du milieu.
+    const docLead = parts.length > 1 ? parts[0].text.slice(0, 1200) : null;
     for (let i = 0; i < parts.length; i++) {
       const customId = `${d.id}:${i}`;
-      const span = chunkPageSpan(i);
+      const span = pageMap ? pageSpanOfSlice(pageMap, parts[i].start, parts[i].end) : chunkPageSpan(i);
       const filename = parts.length > 1 ? `${d.originalFilename} — partie ${i + 1}/${parts.length}` : d.originalFilename;
       const user = buildPrompt({
-        filename, ctdSection: d.ctdSection, ctdTitle, text: parts[i], corpus,
+        filename, ctdSection: d.ctdSection, ctdTitle, text: parts[i].text, corpus,
         pageStart: span.start, pageEnd: span.end, docLead: i > 0 ? docLead : null,
       });
       estimatedInputTokens += Math.ceil((user.length + SYSTEM_PROMPT.length) / CHARS_PER_TOKEN);
@@ -263,6 +268,7 @@ export async function processCompletedBatch(batchId: string): Promise<number> {
     }
 
     const outcomes = parseBatchOutput(jsonl);
+    const anchorCache = new Map<string, { content: string; pageMap: number[] } | null>();
     const mapping = (batch.mapping ?? {}) as unknown as Record<string, ChunkRef>;
     const collected: (AiFinding & { documentId: string })[] = [];
     let inputTokens = 0;
@@ -278,7 +284,20 @@ export async function processCompletedBatch(batchId: string): Promise<number> {
       if (!ref) continue; // résultat orphelin : on ne devine pas à quel document il se rapporte
       const parsed = parseReviewOutput(o.text);
       if (!parsed.ok) continue;
-      for (const f of parsed.findings) collected.push({ ...f, documentId: ref.documentId });
+      // L'ANCRAGE PRIME SUR L'ESTIMATION : la preuve citée, retrouvée dans le texte, donne LA
+      // page — celle qu'on ouvre au clic. La carte se relit une fois par document (cache).
+      let anchor = anchorCache.get(ref.documentId);
+      if (anchor === undefined) {
+        const ext = await prisma.regulatoryExtraction
+          .findUnique({ where: { documentId: ref.documentId }, select: { content: true, pageMap: true } })
+          .catch(() => null);
+        anchor = ext && Array.isArray(ext.pageMap) ? { content: ext.content, pageMap: ext.pageMap as number[] } : null;
+        anchorCache.set(ref.documentId, anchor);
+      }
+      for (const f of parsed.findings) {
+        const page = anchor ? anchorEvidence(anchor.content, anchor.pageMap, f.evidence) ?? f.page : f.page;
+        collected.push({ ...f, page, documentId: ref.documentId });
+      }
     }
 
     // Dédoublonnage : dans CE lot, puis contre les lots FRÈRES déjà dépouillés. Une version
@@ -373,12 +392,26 @@ export async function processCompletedBatch(batchId: string): Promise<number> {
       detail: `Analyse différée terminée (dernier lot dépouillé) : ${totalFindings} constat(s) au total (PROJET — revue humaine requise).`,
     });
 
+    // Là où le balayage a trouvé du CRITIQUE, l'agent spécialiste repasse — même en différé.
+    await escalateCriticalSections(batch.dossierVersionId, { companyId: batch.companyId, dossierId: batch.dossierId }).catch(() => 0);
+
+    const link = batch.dossierId ? `/regulatory/enregistrement/analyse/${batch.dossierId}` : "/regulatory/enregistrement/analyse";
     if (batch.createdById) {
       await notifyUser({
         userId: batch.createdById, type: "GENERIC",
         title: "Analyse différée terminée",
         body: `${totalFindings} constat(s) à relire.`,
-        link: batch.dossierId ? `/regulatory/enregistrement/analyse/${batch.dossierId}` : "/regulatory/enregistrement/analyse",
+        link,
+      }).catch(() => undefined);
+    } else {
+      // Analyse lancée PAR LE PIPELINE (personne au clavier) : les superviseurs Regulatory sont
+      // prévenus — sinon une analyse terminée la nuit n'était vue que par hasard.
+      const roles = (await getAppSettings().catch(() => null))?.regulatorySupervisorRoles ?? [];
+      await notifyRoles([...new Set([...roles, "SUPER_ADMIN"])] as never, {
+        type: "GENERIC",
+        title: "Analyse CTD terminée",
+        body: `${totalFindings} constat(s) à relire (analyse différée).`,
+        link,
       }).catch(() => undefined);
     }
 
