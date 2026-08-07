@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -66,15 +67,25 @@ export async function createDepartment(formData: FormData): Promise<ActionResult
   }
 
   const code = await uniqueCode(codeFromName(fdStr(formData, "code") || name));
-  const created = await prisma.department.create({
-    data: {
-      name, code, parentId, companyId,
-      description: fdStr(formData, "description"),
-      headId: fdStr(formData, "headId") || null,
-      deputyId: fdStr(formData, "deputyId") || null,
-    },
-    select: { id: true },
-  });
+  let created: { id: string };
+  try {
+    created = await prisma.department.create({
+      data: {
+        name, code, parentId, companyId,
+        description: fdStr(formData, "description"),
+        headId: fdStr(formData, "headId") || null,
+        deputyId: fdStr(formData, "deputyId") || null,
+      },
+      select: { id: true },
+    });
+  } catch (e) {
+    // Course entre le pré-contrôle et l'insertion (ou index hérité) : message propre, jamais
+    // une page d'erreur pour un doublon de nom.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return { ok: false, error: "Cette entité a déjà un département portant ce nom." };
+    }
+    throw e;
+  }
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Ressources humaines",
     summary: `${parentId ? "Sous-département" : "Département"} « ${name} » créé`,

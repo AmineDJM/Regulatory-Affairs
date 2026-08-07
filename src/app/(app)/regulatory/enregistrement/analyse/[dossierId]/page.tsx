@@ -876,7 +876,10 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
   const quality = findingQuality(f);
   const linked = f.similarReserveIds.map((id) => reserves.get(id)).filter((r): r is NonNullable<typeof r> => Boolean(r));
   const docName = f.documentId ? docNames.get(f.documentId) ?? null : null;
-  const hasAny = f.ruleRef || f.page != null || f.excerpt || f.recommendation || f.conflictingValues.length > 0 || linked.length > 0 || f.reserveRisk != null;
+  // La preuve : l'extrait EXACT quand il existe (IA ancrée), sinon la preuve du moteur de
+  // règles (`evidence` — ex. le comptage de caractères arabes). Même repli que le rapport .docx.
+  const quote = f.excerpt ?? f.evidence;
+  const hasAny = f.ruleRef || f.page != null || quote || f.recommendation || f.conflictingValues.length > 0 || linked.length > 0 || f.reserveRisk != null;
   if (!hasAny && quality.missing.length === 0) return null;
 
   const riskPct = f.reserveRisk != null ? Math.round(f.reserveRisk * 100) : null;
@@ -893,9 +896,9 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
 
       {/* LA CITATION : ce qui est écrit dans la pièce, tel quel. Le « où » (document, page
           cliquable) vit désormais dans l'en-tête de la carte — ici, seulement la preuve. */}
-      {f.excerpt && (
+      {quote && (
         <blockquote className="rounded-md border-l-2 border-primary/40 bg-secondary/50 px-2.5 py-1.5 text-[0.6875rem] leading-relaxed text-foreground">
-          « {f.excerpt.length > 400 ? `${f.excerpt.slice(0, 400)}…` : f.excerpt} »
+          « {quote.length > 400 ? `${quote.slice(0, 400)}…` : quote} »
         </blockquote>
       )}
 
