@@ -7,6 +7,7 @@ import {
 import { splitTextIntoChunks } from "../agents/chunk-text";
 import { buildPrompt, SYSTEM_PROMPT, parseReviewOutput, type AiFinding } from "../agents/review-agent";
 import { sectionByCode } from "../ctd/taxonomy";
+import { corpusForSection } from "../corpus/for-section";
 import { budgetState } from "./ledger";
 import { regAudit } from "../audit";
 import { enrichVersionFindings } from "../findings/enrich";
@@ -89,10 +90,13 @@ export async function submitVersionReviewBatch(
     if (parts.length === 0) continue;
 
     const ctdTitle = d.ctdSection ? sectionByCode(d.ctdSection)?.title ?? null : null;
+    // Mêmes textes opposables que la voie immédiate : « moitié prix » ne doit jamais vouloir dire
+    // « moins bien », et une analyse différée sans citations le serait.
+    const corpus = await corpusForSection(d.ctdSection);
     for (let i = 0; i < parts.length; i++) {
       const customId = `${d.id}:${i}`;
       const filename = parts.length > 1 ? `${d.originalFilename} — partie ${i + 1}/${parts.length}` : d.originalFilename;
-      const user = buildPrompt({ filename, ctdSection: d.ctdSection, ctdTitle, text: parts[i] });
+      const user = buildPrompt({ filename, ctdSection: d.ctdSection, ctdTitle, text: parts[i], corpus });
       estimatedInputTokens += Math.ceil((user.length + SYSTEM_PROMPT.length) / CHARS_PER_TOKEN);
       requests.push({ customId, input: { system: SYSTEM_PROMPT, user, maxOutputTokens: 2600, temperature: 0.2 } });
       mapping[customId] = { documentId: d.id, filename: d.originalFilename, ctdSection: d.ctdSection, part: i + 1, total: parts.length };
@@ -172,7 +176,7 @@ export async function submitVersionReviewBatch(
  * Fait avancer les lots en cours : interroge leur état, et traite ceux qui sont terminés.
  * Appelée par le planificateur — ne lève jamais, un lot en panne n'arrête pas les autres.
  */
-export async function pollAiBatches(max = 10): Promise<void> {
+export async function pollAiBatches(max = 60): Promise<void> {
   let pending: { id: string; externalId: string }[] = [];
   try {
     pending = await prisma.regulatoryAiBatch.findMany({
@@ -186,12 +190,19 @@ export async function pollAiBatches(max = 10): Promise<void> {
     return;
   }
 
-  for (const b of pending) {
+  // EN PARALLÈLE : interroger l'état d'un lot est une attente RÉSEAU, pas un calcul. Les faire à
+  // la file faisait attendre le dernier lot autant que la somme de tous les autres — sur une
+  // quarantaine de dossiers déposés le même soir, cela retardait les résultats de plusieurs
+  // minutes pour rien. Les lots sont indépendants : un lot en panne n'affecte pas les autres.
+  //
+  // Le dépouillement d'un lot terminé (`processedAt`) reste protégé par son propre verrou : deux
+  // passages simultanés ne peuvent pas créer les mêmes constats en double.
+  await Promise.all(pending.map(async (b) => {
     try {
       const st = await getBatchStatus(b.externalId);
       if (!st.ok) {
         await prisma.regulatoryAiBatch.update({ where: { id: b.id }, data: { error: st.error ?? "État indisponible." } }).catch(() => {});
-        continue;
+        return;
       }
       await prisma.regulatoryAiBatch.update({
         where: { id: b.id },
@@ -207,7 +218,7 @@ export async function pollAiBatches(max = 10): Promise<void> {
     } catch (e) {
       console.error("[ctd-batch] suivi du lot impossible", b.externalId, e);
     }
-  }
+  }));
 }
 
 /**

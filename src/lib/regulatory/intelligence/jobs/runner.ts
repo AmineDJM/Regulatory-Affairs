@@ -1,4 +1,4 @@
-import type { RegulatoryJob } from "@prisma/client";
+import type { RegulatoryJob, RegJobType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
 import { extractText } from "../extract/extract-text";
@@ -13,6 +13,7 @@ import { buildTwinFacts } from "../twin/build-facts";
 import { detectConflicts } from "../twin/detect-conflicts";
 import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
 import { lunaReviewFn } from "../agents/review-ai";
+import { corpusForSection } from "../corpus/for-section";
 import { readFigures, FORM_DEFECT_LABEL, FORM_DEFECT_SEVERITY } from "../vision/read-figures";
 import { lunaConfigured } from "@/lib/openai-luna";
 import { submitVersionReviewBatch } from "../cost/batch-runner";
@@ -33,7 +34,12 @@ import { regAudit } from "../audit";
  */
 
 const STALE_LOCK_MS = 5 * 60_000; // un job « RUNNING » figé > 5 min est repris
-const MAX_JOBS_PER_TICK = 5;
+/**
+ * Jobs pris par passage. Relevé de 5 à 20 : avec la séparation calcul / attente réseau, la
+ * plupart des jobs d'un lot sont désormais des attentes qui se recouvrent. À 5, une quarantaine
+ * de dossiers déposés ensemble s'écoulaient au compte-gouttes.
+ */
+const MAX_JOBS_PER_TICK = 20;
 const EXTRACT_BATCH = 20; // documents traités par passage (le reste est re-mis en file)
 const OCR_BATCH_LOCAL = 3; // Tesseract = WASM/CPU lourd → petit lot séquentiel, reste re-mis en file
 
@@ -118,14 +124,48 @@ export async function runDueRegulatoryJobs(max = MAX_JOBS_PER_TICK): Promise<voi
     })
     .catch(() => undefined);
 
+  // PLUSIEURS DOSSIERS EN MÊME TEMPS — mais pas n'importe lesquels.
+  //
+  // Node est mono-thread. Paralléliser du CALCUL (extraction, OCR WASM, jumeau numérique) ne le
+  // rend pas plus rapide : cela se contente de découper le même temps processeur en tranches, et
+  // au passage cela fige l'application pour tout le monde. Paralléliser de l'ATTENTE RÉSEAU
+  // (appels au modèle, dépôt et suivi des lots), en revanche, divise vraiment le temps total.
+  //
+  // On sépare donc les deux familles : les jobs d'analyse partent ensemble, les jobs lourds
+  // restent à la file. C'est la distinction qui compte, pas le nombre.
+  const inFlight: Promise<void>[] = [];
   for (let i = 0; i < max; i++) {
     const job = await claimNext();
     if (!job) break;
+    if (IO_BOUND_JOBS.has(job.type)) {
+      // Attente réseau : on lance et on passe au suivant. `runOne` n'échoue jamais vers l'appelant.
+      inFlight.push(runOne(job));
+      continue;
+    }
     try {
       await dispatch(job);
     } catch (err) {
       await failJob(job, err);
     }
+  }
+  // On attend les jobs lancés en parallèle : sans cela, le tick rendrait la main pendant que des
+  // analyses tournent encore, et le planificateur en relancerait par-dessus.
+  await Promise.all(inFlight);
+}
+
+/**
+ * Jobs dont le temps est passé À ATTENDRE LE RÉSEAU (appels au modèle) et non à calculer : eux
+ * seuls gagnent à tourner ensemble. Les mettre en parallèle divise le temps total d'un lot de
+ * dossiers ; y mettre l'extraction ou l'OCR ne ferait que geler l'application.
+ */
+const IO_BOUND_JOBS = new Set<RegJobType>(["AI_REVIEW", "VISION", "RULES", "FACTS"]);
+
+/** Exécute un job en avalant ses erreurs — un job en panne n'emporte pas les autres du tick. */
+async function runOne(job: RegulatoryJob): Promise<void> {
+  try {
+    await dispatch(job);
+  } catch (err) {
+    await failJob(job, err).catch(() => undefined);
   }
 }
 
@@ -687,6 +727,9 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
     usedChunks += parts.length;
     analyzedDocs++;
     const ctdTitle = d.ctdSection ? sectionByCode(d.ctdSection)?.title ?? null : null;
+    // Les textes opposables de CETTE section, cherchés UNE fois et partagés par toutes ses parts :
+    // même contexte, donc même empreinte de cache — un document inchangé n'est pas repayé.
+    const corpus = await corpusForSection(d.ctdSection);
     const total = parts.length;
     // Parts de CE document envoyées à l'IA en parallèle ; une part en échec n'arrête pas les autres.
     await runPool(parts, concurrency, async (part, i) => {
@@ -695,7 +738,7 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
         const r = await reviewDocumentText(
           {
             filename: total > 1 ? `${d.originalFilename} — partie ${i + 1}/${total}` : d.originalFilename,
-            ctdSection: d.ctdSection, ctdTitle, text: part,
+            ctdSection: d.ctdSection, ctdTitle, text: part, corpus,
           },
           // TRACÉ : chaque part est imputée au dossier, à la version et au fichier, et le plafond
           // budgétaire refuse l'appel AVANT la dépense (cf. review-ai.ts).
