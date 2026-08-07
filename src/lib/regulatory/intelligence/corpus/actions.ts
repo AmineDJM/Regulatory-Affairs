@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { regCan } from "../access";
 import { regAudit } from "../audit";
 import { splitIntoSections } from "./import";
+import { ingestCorpusFile, type FileIngestResult } from "./ingest-file";
 import { searchCorpus, type Citation } from "./rag";
 import { regulatoryKnowledgeDigest } from "@/lib/regulatory/anpp-knowledge";
 
@@ -54,6 +55,46 @@ export async function createCorpusSourceVersion(formData: FormData): Promise<Res
   await regAudit({ actorId: user.id, action: "CORPUS_IMPORTED", detail: `Source « ${code} » v${version} importée (${sections.length} sections).` });
   revalidatePath("/admin/regulatory-corpus");
   return { ok: true, id: sv.id };
+}
+
+/**
+ * IMPORT D'UN FICHIER dans le corpus — **un fichier par appel**, et c'est délibéré.
+ *
+ * Envoyer cinquante PDF dans une seule requête, c'est cinquante documents en mémoire au même
+ * instant, une requête de plusieurs centaines de mégaoctets, et un « échec » global si l'un
+ * d'eux se passe mal — sans savoir lequel. Un fichier par appel donne exactement l'inverse : la
+ * mémoire ne dépend jamais du nombre de fichiers, un fichier fautif n'emporte pas les autres, et
+ * l'écran peut dire, pour CHACUN, ce qui lui est arrivé.
+ *
+ * Le client enchaîne les appels avec une petite concurrence (voir `corpus-import.tsx`).
+ */
+export async function importCorpusFileAction(formData: FormData): Promise<FileIngestResult> {
+  const user = await requireUser();
+  if (!canManage(user)) return { filename: "", status: "FAILED", error: "Réservé à l'administration du corpus." };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { filename: String(formData.get("filename") ?? ""), status: "FAILED", error: "Fichier vide ou absent." };
+  }
+
+  const res = await ingestCorpusFile({
+    filename: file.name,
+    buffer: Buffer.from(await file.arrayBuffer()),
+    authority: str(formData, "authority"),
+    jurisdiction: str(formData, "jurisdiction"),
+    userId: user.id,
+  });
+
+  // On ne trace QUE ce qui change l'état du corpus : un doublon n'est pas un événement, et un
+  // journal saturé de « rien n'a changé » cesse d'être lu.
+  if (res.status === "INGESTED") {
+    await regAudit({
+      actorId: user.id, action: "CORPUS_IMPORTED",
+      detail: `Texte importé : « ${res.filename} » — ${res.sections ?? 0} section(s), ${res.chars ?? 0} caractères. Statut DRAFT : non opposable tant qu'il n'est pas activé.`,
+    }).catch(() => undefined);
+    revalidatePath("/regulatory/enregistrement/corpus");
+  }
+  return res;
 }
 
 export async function setCorpusVersionStatus(formData: FormData): Promise<Result> {

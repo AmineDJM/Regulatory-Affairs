@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { CorpusPanel } from "./corpus-panel";
+import { CorpusImport } from "./corpus-import";
 import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Corpus réglementaire" };
@@ -84,6 +85,10 @@ export default async function CorpusPage() {
           en révision) peuvent éclairer une analyse mais ne fondent aucun constat bloquant.
         </span>
       </p>
+
+      {/* IMPORT DE FICHIERS — beaucoup de textes ne sont pas en ligne (arrêtés remis en main
+          propre, notes de l'agence, monographies achetées). Ils n'avaient aucune porte d'entrée. */}
+      {canManage && <CorpusImport />}
 
       {canManage ? (
         <CorpusPanel
