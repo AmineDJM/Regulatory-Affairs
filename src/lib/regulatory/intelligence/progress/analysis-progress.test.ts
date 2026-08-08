@@ -13,6 +13,7 @@ const base: AnalysisProgressInput = {
   factsDone: false, rulesDone: false,
   aiInPipeline: true, aiReviewDone: false, aiBatchPending: false,
   aiJobActive: false, aiFailed: false, aiDocsReviewed: 0, aiDocsTotal: 0, aiStartedAtMs: null,
+  simInPipeline: false, simDone: false, simActive: false, simFailed: false,
   startedAtMs: 0, nowMs: 60_000,
 };
 
@@ -174,6 +175,43 @@ describe("revue de fond en ÉCHEC — la barre ne recule pas et l'écran ne ment
   it("une revue RÉUSSIE reste marquée faite (l'échec ne contamine pas le cas normal)", () => {
     const p = computeAnalysisProgress({ ...afterRules, aiReviewDone: true });
     expect(p.phases.find((x) => x.key === "AI_REVIEW")!.state).toBe("done");
+    expect(p.percent).toBe(100);
+  });
+});
+
+describe("simulation d'examen — dernière étape avant « en revue »", () => {
+  /** Le déterministe et la revue de fond sont faits ; seule la simulation reste. */
+  const beforeSim: AnalysisProgressInput = {
+    ...afterRules, aiReviewDone: true, simInPipeline: true, simActive: true,
+  };
+
+  it("l'analyse n'est PAS terminée tant que la simulation tourne", () => {
+    const p = computeAnalysisProgress(beforeSim);
+    expect(p.complete).toBe(false);
+    expect(p.phaseKey).toBe("SIMULATION");
+    expect(p.percent).toBeLessThan(100);
+  });
+
+  it("elle apparaît dans les étapes, et l'analyse se termine avec elle", () => {
+    const running = computeAnalysisProgress(beforeSim);
+    expect(running.phases.map((x) => x.key)).toContain("SIMULATION");
+    const done = computeAnalysisProgress({ ...beforeSim, simActive: false, simDone: true });
+    expect(done.complete).toBe(true);
+    expect(done.percent).toBe(100);
+  });
+
+  it("une simulation en ÉCHEC solde l'étape sans bloquer le dossier ni faire reculer la barre", () => {
+    const running = computeAnalysisProgress(beforeSim);
+    const failed = computeAnalysisProgress({ ...beforeSim, simActive: false, simFailed: true });
+    expect(failed.percent).toBeGreaterThanOrEqual(running.percent);
+    expect(failed.complete).toBe(true);
+    expect(failed.phases.find((x) => x.key === "SIMULATION")!.state).toBe("failed");
+  });
+
+  it("les dossiers analysés AVANT ce lot n'affichent pas d'étape fantôme", () => {
+    const p = computeAnalysisProgress({ ...afterRules, aiReviewDone: true });
+    expect(p.phases.map((x) => x.key)).not.toContain("SIMULATION");
+    expect(p.complete).toBe(true);
     expect(p.percent).toBe(100);
   });
 });

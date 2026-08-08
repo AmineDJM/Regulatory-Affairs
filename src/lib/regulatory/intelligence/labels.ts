@@ -102,6 +102,7 @@ export const JOB_TYPE_LABELS: Record<RegJobType, string> = {
   VISION: "Examen visuel (figures & forme)",
   AI_REVIEW: "Revue IA (fond/forme)",
   CHALLENGER: "Contre-analyse",
+  SIMULATE: "Simulation d'examen",
 };
 
 /** Un statut de sécurité empêche-t-il la conservation du fichier ? */

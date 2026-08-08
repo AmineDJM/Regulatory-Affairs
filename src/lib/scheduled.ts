@@ -21,6 +21,44 @@ const DEBOUNCE_MS = 60_000;
 let lastRun = 0;
 let running = false;
 
+/**
+ * BATTEMENT AUTONOME — l'analyse ne s'arrête plus quand l'utilisateur quitte l'application.
+ *
+ * Ces tâches n'étaient déclenchées que par les requêtes des clients connectés (polling de la
+ * messagerie, écran de progression). C'était un choix « zéro configuration côté hébergeur », mais
+ * il avait une conséquence que personne n'accepterait en la connaissant : **fermer l'onglet
+ * arrêtait l'analyse en cours**. Un dossier déposé le soir attendait qu'un navigateur veuille bien
+ * rouvrir la page le lendemain.
+ *
+ * Le processus Node bat donc tout seul, armé au PREMIER chargement de ce module — c'est-à-dire à
+ * la première requête servie après un démarrage. Ensuite, plus personne n'a besoin d'être là.
+ * (L'armement au démarrage via `instrumentation.ts` serait plus direct, mais ce fichier est aussi
+ * compilé pour le runtime Edge, où la chaîne serveur — IMAP, agents HTTP — ne se résout pas.)
+ *
+ * Le verrou de débounce ci-dessus reste seul juge : un battement qui tombe pendant qu'un passage
+ * déclenché par un clic travaille encore ne fait rien. `unref()` garantit que le minuteur
+ * n'empêche jamais un arrêt propre du processus lors d'un déploiement.
+ *
+ * ⚠️ Un hébergeur qui met l'instance en veille faute de trafic suspend aussi ce battement : le
+ * travail reprend au réveil (rien n'est perdu — les jobs vivent en base), mais il ne progresse pas
+ * pendant la veille. C'est le seul cas où l'analyse marque une pause sans personne connecté.
+ */
+const TICK_MS = Math.max(15_000, Number(process.env.SCHEDULER_TICK_MS ?? 60_000));
+
+function armHeartbeat(): void {
+  if (process.env.SCHEDULER_DISABLED === "1") return; // soupape, sans redéploiement de code
+  // Jamais pendant les TESTS (chaque fichier importerait ce module et lancerait le planificateur
+  // complet sur la base de test), ni pendant la COMPILATION (le build importe les modules serveur
+  // pour pré-rendre les pages : il n'a aucune tâche de fond à exécuter).
+  if (process.env.VITEST || process.env.NODE_ENV === "test") return;
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
+  const timer = setInterval(() => {
+    void runScheduledJobs().catch((e) => console.error("[scheduler] battement échoué", e));
+  }, TICK_MS);
+  timer.unref?.();
+}
+armHeartbeat();
+
 /** Lance les tâches dues, au plus une fois par minute (process-wide). Ne lève jamais. */
 export async function runScheduledJobs(): Promise<void> {
   const now = Date.now();

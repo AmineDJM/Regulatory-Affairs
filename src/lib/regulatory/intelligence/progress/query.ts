@@ -33,7 +33,7 @@ export async function getAnalysisProgress(versionId: string, dossierStatus: stri
   // compter comme « en vol » ferait mentir l'écran indéfiniment.
   const batchFreshSince = new Date(Date.now() - BATCH_FRESH_MS);
 
-  const [docsTotal, docsPending, ocrTotal, ocrDone, factsJob, rulesJob, aiReviewJob, batchPending, firstJob] = await Promise.all([
+  const [docsTotal, docsPending, ocrTotal, ocrDone, factsJob, rulesJob, aiReviewJob, simJob, batchPending, firstJob] = await Promise.all([
     prisma.regulatoryDocument.count({ where: scope }),
     prisma.regulatoryDocument.count({ where: { ...scope, extractionStatus: "PENDING", blobId: { not: null } } }),
     prisma.regulatoryDocument.count({ where: { dossierVersionId: versionId, extractionStatus: { in: ["OCR_REQUIRED", "OCR_COMPLETED"] } } }),
@@ -41,13 +41,14 @@ export async function getAnalysisProgress(versionId: string, dossierStatus: stri
     prisma.regulatoryJob.findFirst({ where: { dossierVersionId: versionId, type: "FACTS" }, select: { status: true } }),
     prisma.regulatoryJob.findFirst({ where: { dossierVersionId: versionId, type: "RULES" }, select: { status: true } }),
     prisma.regulatoryJob.findFirst({ where: { dossierVersionId: versionId, type: "AI_REVIEW" }, orderBy: { createdAt: "desc" }, select: { status: true, createdAt: true, startedAt: true, error: true, finishedAt: true } }),
+    prisma.regulatoryJob.findFirst({ where: { dossierVersionId: versionId, type: "SIMULATE" }, orderBy: { createdAt: "desc" }, select: { status: true } }),
     prisma.regulatoryAiBatch.count({ where: { dossierVersionId: versionId, status: { in: [...BATCH_IN_FLIGHT] }, submittedAt: { gte: batchFreshSince } } }),
     prisma.regulatoryJob.findFirst({ where: { dossierVersionId: versionId }, orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
   ]);
 
   // Un job en attente/en cours = pipeline vivant ; l'assessment (RULES) marque la fin déterministe.
   const activeJobs = await prisma.regulatoryJob.count({
-    where: { dossierVersionId: versionId, status: { in: ["QUEUED", "RUNNING"] }, type: { in: ["INGEST", "EXTRACT", "OCR", "FACTS", "RULES", "AI_REVIEW", "VISION"] } },
+    where: { dossierVersionId: versionId, status: { in: ["QUEUED", "RUNNING"] }, type: { in: ["INGEST", "EXTRACT", "OCR", "FACTS", "RULES", "AI_REVIEW", "VISION", "SIMULATE"] } },
   });
 
   // Un document « résolu » pour la phase de LECTURE = tout ce qui n'est plus en attente
@@ -90,6 +91,12 @@ export async function getAnalysisProgress(versionId: string, dossierStatus: stri
     aiBatchPending: batchPending > 0 && !aiJobActive,
     aiJobActive,
     aiFailed: aiReviewJob?.status === "FAILED",
+    // La simulation ne fait partie du parcours que si l'IA est là ET qu'un job existe : sur les
+    // dossiers analysés AVANT ce lot, il n'y en a pas, et inventer une étape ferait reculer la barre.
+    simInPipeline: aiInPipeline && simJob != null,
+    simDone: simJob?.status === "DONE" || simJob?.status === "CANCELLED",
+    simActive: simJob?.status === "QUEUED" || simJob?.status === "RUNNING",
+    simFailed: simJob?.status === "FAILED",
     aiDocsReviewed: reviewedRows.length,
     aiDocsTotal,
     aiStartedAtMs: aiStartedAt?.getTime() ?? null,

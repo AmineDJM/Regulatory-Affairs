@@ -13,6 +13,7 @@ import { mistralOcrConfigured } from "../ocr/mistral-ocr";
 import { buildTwinFacts } from "../twin/build-facts";
 import { detectConflicts } from "../twin/detect-conflicts";
 import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
+import { runReviewerSimulation } from "../simulator/run";
 import { lunaReviewFn } from "../agents/review-ai";
 import { escalateCriticalSections } from "../agents/escalate";
 import { corpusForSection } from "../corpus/for-section";
@@ -287,6 +288,8 @@ async function dispatch(job: RegulatoryJob): Promise<void> {
       return handleRules(job);
     case "FACTS":
       return handleFacts(job);
+    case "SIMULATE":
+      return handleSimulate(job);
     case "AI_REVIEW":
       return handleAiReview(job);
     case "VISION":
@@ -582,7 +585,8 @@ async function handleRules(job: RegulatoryJob): Promise<void> {
         requiredPresent: summary.requiredPresent, requiredTotal: summary.requiredTotal, computedAt: new Date(),
       },
     }),
-    prisma.regulatoryDossier.update({ where: { id: version.dossier.id }, data: { status: "IN_REVIEW" } }),
+    // Le dossier ne passe PLUS « en revue » ici : les contrôles déterministes ne sont que la
+    // moitié du travail. C'est la simulation d'examen — dernière étape — qui clôt l'analyse.
     prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "DONE", progress: 100, finishedAt: new Date() } }),
   ]);
 
@@ -602,6 +606,10 @@ async function handleRules(job: RegulatoryJob): Promise<void> {
     await prisma.regulatoryJob.create({
       data: { companyId: job.companyId, dossierId: version.dossier.id, dossierVersionId: versionId, type: "AI_REVIEW", status: "QUEUED", payload: {} },
     });
+  } else {
+    // Sans IA il n'y a ni revue de fond ni simulation : l'analyse s'arrête ici, et le dossier
+    // doit quand même arriver « en revue » — sinon il resterait « en analyse » indéfiniment.
+    await closeAnalysis(version.dossier.id);
   }
   // EXAMEN VISUEL : figures (courbes, chromatogrammes, schémas) ET contrôle de FORME de chaque
   // page. Séparé de la revue de texte parce qu'il répond à une autre question — « qu'est-ce que
@@ -778,6 +786,80 @@ const aiBatchDefault = () => (process.env.REG_AI_BATCH ?? "0").trim() === "1";
  * part qui échoue est ignorée (les autres passent). Bornée en coût (REG_AI_MAX_CHUNKS) et en
  * nombre de constats persistés (les plus sévères d'abord). Mémoire bornée : un contenu à la fois.
  */
+/**
+ * CLÔTURE DE L'ANALYSE — le seul endroit qui fait passer un dossier « en revue ».
+ *
+ * C'était auparavant l'affaire des contrôles déterministes, qui se terminent bien avant la revue
+ * de fond : l'écran annonçait « en revue » alors que la partie la plus exigeante n'avait pas
+ * commencé. Le dossier n'est désormais déclaré prêt à relire que lorsque la machine n'a plus rien
+ * à en dire — contrôles, revue de fond, et simulation d'examen comprises.
+ */
+async function closeAnalysis(dossierId: string | null): Promise<void> {
+  if (!dossierId) return;
+  await prisma.regulatoryDossier
+    .update({ where: { id: dossierId }, data: { status: "IN_REVIEW" } })
+    .catch(() => undefined); // dossier supprimé entre-temps : rien à clore
+}
+
+/**
+ * Enchaîne la SIMULATION D'EXAMEN après la revue de fond. Appelée sur le chemin de succès COMME
+ * sur celui d'échec : une revue qui a échoué ne doit pas laisser le dossier bloqué « en analyse »
+ * pour toujours. Si l'IA n'est pas configurée, il n'y a rien à simuler et on clôt directement.
+ */
+async function queueSimulation(job: RegulatoryJob, versionId: string): Promise<void> {
+  if (!aiConfigured()) {
+    await closeAnalysis(job.dossierId);
+    return;
+  }
+  const already = await prisma.regulatoryJob.count({
+    where: { dossierVersionId: versionId, type: "SIMULATE", status: { in: ["QUEUED", "RUNNING"] } },
+  });
+  if (already > 0) return; // une simulation est déjà en file : ne pas en empiler une seconde
+  await prisma.regulatoryJob.create({
+    data: { companyId: job.companyId, dossierId: job.dossierId, dossierVersionId: versionId, type: "SIMULATE", status: "QUEUED", payload: {} },
+  });
+}
+
+/**
+ * SIMULATE : dix examinateurs simulés passent le dossier en revue (recevabilité, Module 1, qualité,
+ * analytique, stabilité, bioéquivalence, clinique, pharmacovigilance, médico-économique,
+ * commission) et rendent les questions qu'ils poseraient. C'est la dernière étape de l'analyse :
+ * l'analyse dit ce qui ne va pas dans les pièces, la simulation dit ce qu'on va nous demander.
+ *
+ * Non bloquante : une simulation impossible (IA indisponible) NE doit pas retenir le dossier —
+ * elle est tracée, et le dossier passe quand même en revue. L'inverse laisserait un dossier
+ * parfaitement analysé coincé pour une carte d'anticipation.
+ */
+async function handleSimulate(job: RegulatoryJob): Promise<void> {
+  const versionId = job.dossierVersionId;
+  if (!versionId) {
+    await prisma.regulatoryJob.update({ where: { id: job.id }, data: { status: "CANCELLED", finishedAt: new Date(), error: "Version absente." } });
+    await closeAnalysis(job.dossierId);
+    return;
+  }
+
+  const res = await runReviewerSimulation(versionId, "system").catch((e) => ({
+    ok: false as const, configured: true, perspectives: [], error: e instanceof Error ? e.message : String(e),
+  }));
+
+  await prisma.regulatoryJob.update({
+    where: { id: job.id },
+    data: res.ok
+      ? { status: "DONE", progress: 100, finishedAt: new Date() }
+      : { status: "FAILED", finishedAt: new Date(), error: (res.error ?? "Simulation impossible.").slice(0, 500) },
+  });
+
+  await regAudit({
+    companyId: job.companyId, actorId: "system", dossierId: job.dossierId, dossierVersionId: versionId,
+    action: res.ok ? "SIMULATION_DONE" : "SIMULATION_FAILED",
+    detail: res.ok
+      ? `Simulation d'examen : ${res.perspectives.length} perspective(s) rendues.`
+      : `Simulation d'examen impossible : ${res.error ?? "raison inconnue"}. Le dossier passe quand même en revue.`,
+  });
+
+  await closeAnalysis(job.dossierId);
+}
+
 async function handleAiReview(job: RegulatoryJob): Promise<void> {
   const versionId = job.dossierVersionId;
   if (!versionId || !aiConfigured()) {
@@ -785,6 +867,7 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
       where: { id: job.id },
       data: { status: "CANCELLED", finishedAt: new Date(), error: aiConfigured() ? "Version absente." : "IA non configurée (ANTHROPIC_API_KEY absente) — aucune revue simulée." },
     });
+    await closeAnalysis(job.dossierId); // ne jamais laisser un dossier bloqué « en analyse »
     return;
   }
 
@@ -818,6 +901,7 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
         action: "AI_REVIEW_DEFERRED",
         detail: submitted.message ?? "Analyse différée déposée (moitié prix). Les constats arriveront sous 24 h.",
       });
+      await queueSimulation(job, versionId);
       return;
     }
     console.warn("[reg-ai] dépôt différé impossible, repli sur la voie immédiate :", submitted.error);
@@ -922,6 +1006,9 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
       title: "Revue de fond impossible",
       body: `La lecture de fond du dossier a échoué (${reason.slice(0, 120)}). Le dossier n'a PAS été examiné sur le fond.`,
     });
+    // Même en échec, la suite doit avoir lieu : sans cela le dossier resterait « en analyse »
+    // pour toujours, et l'utilisateur attendrait un écran qui ne changera plus jamais.
+    await queueSimulation(job, versionId);
     return;
   }
 
@@ -980,6 +1067,9 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
 
   // Là où le balayage a trouvé du CRITIQUE, l'agent spécialiste repasse — automatiquement.
   await escalateCriticalSections(versionId, { companyId: job.companyId, dossierId: job.dossierId });
+
+  // DERNIÈRE ÉTAPE de l'analyse : ce que les examinateurs vont probablement demander.
+  await queueSimulation(job, versionId);
 }
 
 /**

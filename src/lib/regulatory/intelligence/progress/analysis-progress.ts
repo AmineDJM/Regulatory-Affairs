@@ -17,7 +17,7 @@
  * des poids des phases terminées + la fraction de la phase en cours.
  */
 
-export type PhaseKey = "RECEPTION" | "EXTRACTION" | "OCR" | "DATA" | "RULES" | "AI_REVIEW";
+export type PhaseKey = "RECEPTION" | "EXTRACTION" | "OCR" | "DATA" | "RULES" | "AI_REVIEW" | "SIMULATION";
 export type PhaseState = "done" | "active" | "pending" | "skipped" | "failed";
 
 export interface PhaseView {
@@ -62,6 +62,15 @@ export interface AnalysisProgressInput {
    * la vérité est « c'est fini, et la lecture de fond n'a pas eu lieu ».
    */
   aiFailed: boolean;
+  /**
+   * Simulation d'examen — DERNIÈRE étape : le dossier n'est « en revue » qu'une fois qu'on sait
+   * aussi ce que les examinateurs vont probablement demander. Comme la revue de fond, un échec y
+   * est TERMINAL (la phase est soldée) et non un retour en arrière.
+   */
+  simInPipeline: boolean;
+  simDone: boolean;
+  simActive: boolean;
+  simFailed: boolean;
   /** Fichiers déjà relus en profondeur par la revue en cours, et total à relire. */
   aiDocsReviewed: number;
   aiDocsTotal: number;
@@ -95,6 +104,7 @@ const PHASE_LABELS: Record<PhaseKey, string> = {
   DATA: "Extraction des données",
   RULES: "Contrôles de conformité",
   AI_REVIEW: "Revue de fond par l'IA",
+  SIMULATION: "Simulation d'examen",
 };
 
 /** Poids relatifs des phases (somme = 100). La lecture domine : c'est elle qu'on attend. */
@@ -104,7 +114,8 @@ const WEIGHTS: Record<PhaseKey, number> = {
   OCR: 15,
   DATA: 10,
   RULES: 10,
-  AI_REVIEW: 15,
+  AI_REVIEW: 12,
+  SIMULATION: 3,
 };
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -130,6 +141,7 @@ export function computeAnalysisProgress(input: AnalysisProgressInput): AnalysisP
   if (hasOcr) active.push("OCR");
   active.push("DATA", "RULES");
   if (hasAi) active.push("AI_REVIEW");
+  if (input.simInPipeline) active.push("SIMULATION");
   const totalWeight = active.reduce((s, k) => s + WEIGHTS[k], 0);
 
   // Fraction d'avancement de chaque phase présente (0..1).
@@ -142,6 +154,7 @@ export function computeAnalysisProgress(input: AnalysisProgressInput): AnalysisP
   // Une revue ÉCHOUÉE est terminée au sens de la machine : plus rien ne tourne, plus rien
   // n'avancera. La compter comme « pas terminée » figeait l'écran sur « en revue » à vie.
   const aiDone = !hasAi || input.aiReviewDone || input.aiFailed;
+  const simDone = !input.simInPipeline || input.simDone || input.simFailed;
 
   const fractions: Record<PhaseKey, number> = {
     RECEPTION: receptionDone ? 1 : clamp01(extractionFrac > 0 ? 1 : 0.4),
@@ -156,6 +169,10 @@ export function computeAnalysisProgress(input: AnalysisProgressInput): AnalysisP
       : input.aiBatchPending ? 0.15
       : input.aiJobActive && input.aiDocsTotal > 0 ? clamp01(input.aiDocsReviewed / input.aiDocsTotal)
       : input.aiJobActive ? 0.05
+      : 0,
+    SIMULATION: !input.simInPipeline ? 1
+      : simDone ? 1 // couvre l'échec : la phase est soldée, jamais rembobinée
+      : input.simActive ? 0.4
       : 0,
   };
 
@@ -172,6 +189,7 @@ export function computeAnalysisProgress(input: AnalysisProgressInput): AnalysisP
     DATA: factsDone,
     RULES: rulesDone,
     AI_REVIEW: aiDone,
+    SIMULATION: simDone,
   };
   let current: PhaseKey | "DONE" = "DONE";
   for (const k of order) {
@@ -179,7 +197,7 @@ export function computeAnalysisProgress(input: AnalysisProgressInput): AnalysisP
   }
 
   const awaitingDeferred = current === "AI_REVIEW" && input.aiBatchPending;
-  const complete = current === "DONE" || (rulesDone && aiDone);
+  const complete = current === "DONE" || (rulesDone && aiDone && simDone);
   if (complete) percent = 100;
   // Tant que ce n'est pas fini, on ne montre jamais 100 % (ni un 0 % décourageant en pleine lecture).
   else percent = Math.max(1, Math.min(99, percent));
@@ -188,7 +206,7 @@ export function computeAnalysisProgress(input: AnalysisProgressInput): AnalysisP
     key: k,
     label: PHASE_LABELS[k],
     detail: phaseDetail(k, input, fractions[k]),
-    state: k === "AI_REVIEW" && input.aiFailed && !input.aiReviewDone ? "failed"
+    state: (k === "AI_REVIEW" && input.aiFailed && !input.aiReviewDone) || (k === "SIMULATION" && input.simFailed && !input.simDone) ? "failed"
       : doneMap[k] ? "done"
       : k === current ? "active"
       : "pending",
@@ -249,6 +267,10 @@ function phaseDetail(k: PhaseKey, input: AnalysisProgressInput, frac: number): s
       if (frac >= 1) return "Constats de fond produits";
       if (input.aiJobActive && input.aiDocsTotal > 0) return `${Math.min(input.aiDocsReviewed, input.aiDocsTotal)} / ${input.aiDocsTotal} fichiers relus en profondeur`;
       return "Lecture de fond, section par section";
+    case "SIMULATION":
+      if (input.simFailed && !input.simDone) return "Simulation impossible — le dossier passe quand même en revue";
+      if (frac >= 1) return "Questions probables des examinateurs";
+      return "Dix examinateurs simulés (recevabilité, qualité, stabilité…)";
   }
 }
 

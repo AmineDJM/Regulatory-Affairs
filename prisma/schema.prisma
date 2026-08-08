@@ -4869,6 +4869,9 @@ enum RegJobType {
   /// des défauts structurellement invisibles dans le texte extrait.
   VISION
   CHALLENGER
+  /// Simulation d'examen multi-perspectives — DERNIÈRE étape de l'analyse : le dossier ne passe
+  /// « en revue » qu'une fois qu'on sait aussi ce que les examinateurs vont probablement demander.
+  SIMULATE
 }
 
 enum RegJobStatus {
