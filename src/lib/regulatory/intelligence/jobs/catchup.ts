@@ -38,6 +38,8 @@ const BATCH_IN_FLIGHT = ["submitted", "validating", "in_progress", "finalizing"]
 /** Versions rattrapées par passage — lent volontairement (coût étalé, effet observable). */
 const AI_CATCHUP_PER_TICK = 2;
 const STALL_CATCHUP_PER_TICK = 3;
+/** Reprises maximales d'un pipeline arrêté : au-delà, la panne est durable — on cesse d'insister. */
+const MAX_PIPELINE_RESUMES = 3;
 
 export const catchupEnabled = () => (process.env.REG_AI_CATCHUP ?? "1").trim() !== "0";
 
@@ -175,12 +177,23 @@ export async function catchUpMissingAiReviews(limit = AI_CATCHUP_PER_TICK): Prom
 export async function catchUpStalledPipelines(limit = STALL_CATCHUP_PER_TICK): Promise<number> {
   if (!catchupEnabled()) return 0;
   try {
+    // ARRÊT AU BOUT DE TROIS REPRISES. Un pipeline qui échoue de façon reproductible (document
+    // corrompu, panne durable) ne produira jamais de bilan : sans cette borne, on le relancerait
+    // à chaque passage, pour toujours. Le compteur se lit dans le journal d'audit.
+    const resumed = await prisma.regulatoryAuditLog.groupBy({
+      by: ["dossierVersionId"],
+      where: { action: "PIPELINE_RESUMED", dossierVersionId: { not: null } },
+      _count: { _all: true },
+    }).catch(() => [] as { dossierVersionId: string | null; _count: { _all: number } }[]);
+    const exhausted = resumed.filter((r) => r._count._all >= MAX_PIPELINE_RESUMES).map((r) => r.dossierVersionId!).filter(Boolean);
+
     const versions = await prisma.regulatoryDossierVersion.findMany({
       where: {
         assessment: { is: null },
         dossier: { status: { in: ["ANALYSING", "INGESTED"] } },
         jobs: { none: { status: { in: ["QUEUED", "RUNNING"] } } },
         documents: { some: {} }, // un dossier sans document n'a rien à analyser
+        id: { notIn: exhausted.slice(0, 5000) },
       },
       orderBy: { createdAt: "desc" },
       take: limit,

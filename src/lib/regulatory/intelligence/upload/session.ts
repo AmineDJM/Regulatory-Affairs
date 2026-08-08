@@ -26,16 +26,32 @@ export { objectStorageConfigured } from "./object-storage";
  */
 
 const MB = 1024 * 1024;
-// Parties de 4 Mo : chaque requête reste COURTE → termine bien avant tout délai de garde d'un
-// proxy/hébergeur (une partie de 8 Mo sur un lien lent partagé entre 3 envois peut être réinitialisée
-// → « réseau »), retentes plus rapides, mémoire réduite. Réglable (REG_UPLOAD_PART_MB), borné à 32 Mo.
-export const DEFAULT_PART_SIZE = Number(process.env.REG_UPLOAD_PART_MB ?? 4) * MB;
+/**
+ * TAILLE DES PARTIES — 16 Mo (était 4).
+ *
+ * Chaque partie coûte un aller-retour complet : requête HTTP, authentification, résolution de
+ * l'organisation, écriture en base. Sur un ZIP de 800 Mo, 4 Mo imposaient **200 allers-retours**
+ * là où 16 Mo en demandent 50 — le temps gagné est celui des poignées de main, pas celui des
+ * octets.
+ *
+ * Le plafond réel est la MÉMOIRE : une partie est tenue en mémoire côté serveur le temps de son
+ * écriture, et les envois sont parallèles. À 16 Mo × 8 envois le pic reste ~128 Mo, négligeable
+ * sur l'instance actuelle (8 Go). Rester sous les 32 Mo autorisés garde aussi les retentes
+ * bon marché sur un lien instable. Réglable : REG_UPLOAD_PART_MB.
+ */
+export const DEFAULT_PART_SIZE = Number(process.env.REG_UPLOAD_PART_MB ?? 16) * MB;
 export const SMALL_FILE_THRESHOLD = Number(process.env.REG_UPLOAD_SMALL_MB ?? 12) * MB; // en-deçà : route directe
 export const MAX_TOTAL_BYTES = DEFAULT_ZIP_LIMITS.maxArchiveBytes; // aligné sur la limite d'archive
 export const MAX_ACTIVE_SESSIONS_PER_ORG = Number(process.env.REG_UPLOAD_MAX_ACTIVE ?? 3);
-// Nombre de parties envoyées EN PARALLÈLE par le client. À aligner sur le pool de connexions DB
-// (DB_CONNECTION_LIMIT) : au-delà, les écritures de parties saturent le pool → 500. Défaut prudent 3.
-export const UPLOAD_CONCURRENCY = Math.min(Math.max(Number(process.env.REG_UPLOAD_CONCURRENCY ?? 3), 1), 16);
+/**
+ * Parties envoyées EN PARALLÈLE par le client — 8 (était 3).
+ *
+ * C'est le facteur qui remplit réellement le tuyau : un seul envoi n'utilise jamais toute la bande
+ * passante montante. Le plafond n'est pas le réseau mais le POOL DE CONNEXIONS de la base (chaque
+ * partie écrit) et la mémoire de l'instance ; 8 reste sous les deux avec la base actuelle
+ * (2 vCPU) et 8 Go côté application. Réglable : REG_UPLOAD_CONCURRENCY.
+ */
+export const UPLOAD_CONCURRENCY = Math.min(Math.max(Number(process.env.REG_UPLOAD_CONCURRENCY ?? 8), 1), 16);
 export const ORG_QUOTA_BYTES = Number(process.env.REG_ORG_QUOTA_GB ?? 50) * 1024 * MB;
 const STALE_SESSION_MS = Number(process.env.REG_UPLOAD_STALE_HOURS ?? 12) * 3600_000;
 // Bail de finalisation : une session FINALIZING inactive depuis plus longtemps que ce délai est

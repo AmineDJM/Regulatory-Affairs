@@ -2017,6 +2017,18 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **L'analyse cesse d'attendre entre deux lots.** Le planificateur ne se déclenche qu'une fois par
+  minute, or plusieurs jobs se re-mettent en file pour reprendre où ils en étaient : un dossier de
+  262 fichiers avançait par paliers d'un lot **toutes les minutes** — un quart d'heure d'attente
+  pure, sans que rien ne calcule. Un passage travaille désormais **tant qu'il reste du travail**,
+  dans une enveloppe de temps bornée (`REG_JOBS_BUDGET_MS`, 2 min), en cédant la main entre chaque
+  unité. Au passage : lot d'extraction 20 → **40** documents, parts d'analyse envoyées en parallèle
+  au modèle 4 → **8** (c'est de l'attente réseau : doubler divise le temps sans coûter un jeton),
+  et téléversement en parties de 4 → **16 Mo**, 3 → **8** en parallèle (4× moins d'allers-retours).
+  ⚠️ Le gain suivant, bien plus grand, n'est pas dans le code : **activer le stockage objet**
+  (`REG_S3_*`) fait envoyer l'archive DIRECTEMENT au bucket au lieu de la faire transiter par
+  l'application puis par Postgres — diagnostic intégré : `/api/regulatory/intelligence/upload/diagnose`.
+
 - **L'écran d'analyse se recentre sur sa raison d'être.** La **génération documentaire à partir
   de modèles à trous** (note de pré-soumission, formulaire d'enregistrement, demandes de
   modification/renouvellement/transfert) est retirée : elle produisait des coquilles à remplir à

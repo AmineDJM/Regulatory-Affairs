@@ -46,7 +46,12 @@ const STALE_LOCK_MS = 5 * 60_000; // un job « RUNNING » figé > 5 min est repr
  * de dossiers déposés ensemble s'écoulaient au compte-gouttes.
  */
 const MAX_JOBS_PER_TICK = 20;
-const EXTRACT_BATCH = 20; // documents traités par passage (le reste est re-mis en file)
+/**
+ * Documents extraits par tour (le reste est re-mis en file, repris dans le MÊME passage depuis
+ * l'introduction du budget de temps). Relevé de 20 à 40 : la mémoire ne dépend pas de ce nombre
+ * — un seul document est chargé à la fois — seul le nombre d'allers-retours en base en dépend.
+ */
+const EXTRACT_BATCH = clampInt(process.env.REG_EXTRACT_BATCH, 40, 1, 200);
 const OCR_BATCH_LOCAL = 3; // Tesseract = WASM/CPU lourd → petit lot séquentiel, reste re-mis en file
 
 const ocrEnabled = () => (process.env.REG_OCR_ENABLED ?? "1") !== "0";
@@ -121,7 +126,22 @@ async function runPool<T>(items: T[], concurrency: number, fn: (item: T, index: 
   await Promise.all(workers);
 }
 
-export async function runDueRegulatoryJobs(max = MAX_JOBS_PER_TICK): Promise<void> {
+/**
+ * BUDGET DE TRAVAIL D'UN PASSAGE — ce qui a transformé l'attente en analyse.
+ *
+ * Le planificateur ne se déclenche qu'une fois par minute. Or plusieurs jobs se RE-METTENT EN
+ * FILE pour reprendre là où ils s'étaient arrêtés (l'extraction traite un lot de documents, puis
+ * repasse la main). Résultat : un dossier de 262 fichiers avançait par paliers d'un lot… toutes
+ * les minutes — un quart d'heure d'attente pure, sans que rien ne calcule.
+ *
+ * Le passage continue donc de travailler TANT QU'IL RESTE DU TRAVAIL, dans une enveloppe de temps
+ * bornée. On cède la boucle d'événements entre chaque unité (l'application reste fluide), et le
+ * verrou de débounce empêche deux passages de se chevaucher.
+ */
+const JOBS_BUDGET_MS = clampInt(process.env.REG_JOBS_BUDGET_MS, 120_000, 5_000, 600_000);
+
+export async function runDueRegulatoryJobs(max = MAX_JOBS_PER_TICK, budgetMs = JOBS_BUDGET_MS): Promise<void> {
+  const deadline = Date.now() + budgetMs;
   // Reprise des jobs bloqués (process interrompu) : verrou expiré → re-QUEUED.
   await prisma.regulatoryJob
     .updateMany({
@@ -130,6 +150,17 @@ export async function runDueRegulatoryJobs(max = MAX_JOBS_PER_TICK): Promise<voi
     })
     .catch(() => undefined);
 
+  // On enchaîne les tours tant qu'il reste des jobs dus ET du temps : un tour qui n'a rien trouvé
+  // met fin au passage (rien à faire), un tour plein enchaîne immédiatement sur le suivant.
+  while (Date.now() < deadline) {
+    const done = await runOneRound(max);
+    if (done === 0) break;
+    await yieldToEventLoop();
+  }
+}
+
+/** Un tour : jusqu'à `max` jobs pris et exécutés. Rend le nombre de jobs réellement pris. */
+async function runOneRound(max: number): Promise<number> {
   // PLUSIEURS DOSSIERS EN MÊME TEMPS — mais pas n'importe lesquels.
   //
   // Node est mono-thread. Paralléliser du CALCUL (extraction, OCR WASM, jumeau numérique) ne le
@@ -140,9 +171,11 @@ export async function runDueRegulatoryJobs(max = MAX_JOBS_PER_TICK): Promise<voi
   // On sépare donc les deux familles : les jobs d'analyse partent ensemble, les jobs lourds
   // restent à la file. C'est la distinction qui compte, pas le nombre.
   const inFlight: Promise<void>[] = [];
+  let claimed = 0;
   for (let i = 0; i < max; i++) {
     const job = await claimNext();
     if (!job) break;
+    claimed++;
     if (IO_BOUND_JOBS.has(job.type)) {
       // Attente réseau : on lance et on passe au suivant. `runOne` n'échoue jamais vers l'appelant.
       inFlight.push(runOne(job));
@@ -157,6 +190,7 @@ export async function runDueRegulatoryJobs(max = MAX_JOBS_PER_TICK): Promise<voi
   // On attend les jobs lancés en parallèle : sans cela, le tick rendrait la main pendant que des
   // analyses tournent encore, et le planificateur en relancerait par-dessus.
   await Promise.all(inFlight);
+  return claimed;
 }
 
 /**
@@ -678,7 +712,12 @@ const SEVERITY_ORDER: Record<string, number> = { CRITICAL: 0, MAJOR: 1, MINOR: 2
 
 // Parts d'analyse océrisées EN PARALLÈLE (borne le débit vers l'IA) ; plafond de parts par version
 // (coût — 0 = illimité) ; plafond de constats persistés (évite d'inonder l'UI/la base).
-const aiConcurrency = () => clampInt(process.env.REG_AI_CONCURRENCY, 4, 1, 12);
+/**
+ * Parts envoyées EN PARALLÈLE au modèle — 8 (était 4). C'est de l'ATTENTE RÉSEAU pure : doubler
+ * le parallélisme divise à peu près par deux le temps de la revue de fond, sans coûter un jeton
+ * de plus. Le plafond reste la tolérance du fournisseur (au-delà, des refus pour débit excessif).
+ */
+const aiConcurrency = () => clampInt(process.env.REG_AI_CONCURRENCY, 8, 1, 24);
 /**
  * Parts analysées par version. **0 = INTÉGRAL, et c'est le défaut.**
  *

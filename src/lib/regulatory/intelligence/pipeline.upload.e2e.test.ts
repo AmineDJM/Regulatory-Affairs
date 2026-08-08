@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
-import { startUploadSession, putUploadPart, finalizeUploadSession } from "./upload/session";
+import { startUploadSession, putUploadPart, finalizeUploadSession, DEFAULT_PART_SIZE } from "./upload/session";
 import { runRegulatoryJob } from "./jobs/runner";
 
 /**
@@ -188,9 +188,9 @@ describe("E2E — VRAI chemin d'upload sur dossier volumineux & sale (0 souci de
     expect(jobs.some((j) => j.status === "FAILED")).toBe(false);
   }, 240_000);
 
-  it("PROFIL VOLUMÉTRIQUE réel : ~60 fichiers × ~1 Mo INCOMPRESSIBLE, parties de 4 Mo (prod) — passe de bout en bout", async () => {
+  it("PROFIL VOLUMÉTRIQUE réel : ~60 fichiers × ~1 Mo INCOMPRESSIBLE, parties de PRODUCTION — passe de bout en bout", async () => {
     // Même forme que le dossier cible (dizaines de fichiers de plusieurs Mo, archive multi-parties
-    // en tranches de 4 Mo comme en production). Charge aléatoire → aucun gain de compression : chaque
+    // découpée avec la TAILLE DE PARTIE RÉELLE de production). Charge aléatoire → aucun gain de compression : chaque
     // étage (parties bytea, spool disque, inspection flux, blobs chiffrés, insertion par lots)
     // traite les VRAIS octets. Le chemin est LINÉAIRE en octets → même code à 459 Mo, en plus long.
     const volDossierId = (
@@ -207,9 +207,11 @@ describe("E2E — VRAI chemin d'upload sur dossier volumineux & sale (0 souci de
 
     const start = await startUploadSession({ companyId, dossierId: volDossierId, createdById: "test-user", filename: "gros-dossier.zip", totalBytes: zip.length });
     expect(start.ok).toBe(true);
-    expect(start.partSize).toBe(4 * 1024 * 1024); // taille de partie de PRODUCTION
+    // On lit la taille de partie de PRODUCTION plutôt que d'en figer une : ce réglage est un
+    // levier de performance qui bouge, et le test doit valider le CHEMIN, pas la valeur du jour.
+    expect(start.partSize).toBe(DEFAULT_PART_SIZE);
     const parts = start.expectedParts!;
-    expect(parts).toBeGreaterThanOrEqual(14); // vraie session multi-parties
+    expect(parts).toBeGreaterThanOrEqual(2); // vraie session multi-parties
     for (let i = 0; i < parts; i++) {
       const data = Buffer.from(zip.subarray(i * start.partSize!, Math.min((i + 1) * start.partSize!, zip.length)));
       const r = await putUploadPart({ sessionId: start.sessionId!, companyId, index: i, data });
