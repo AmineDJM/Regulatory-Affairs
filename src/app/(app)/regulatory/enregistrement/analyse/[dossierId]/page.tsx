@@ -45,6 +45,8 @@ import { CtdUpload } from "./ctd-upload";
 import { DeleteDossierButton } from "./dossier-actions";
 import { FindingControls } from "./finding-actions";
 import { FindingsReportButton } from "./report-buttons";
+import { AnalysisProgressCard } from "./analysis-progress-card";
+import { getAnalysisProgress } from "@/lib/regulatory/intelligence/progress/query";
 import { SubmissionGate } from "./submission-gate";
 import { ApproveNameButton } from "./approve-name";
 
@@ -81,6 +83,9 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
   const versions = await listVersions(dossier.id);
   const latest = versions[0];
   const documents = latest ? await listVersionDocuments(latest.id) : [];
+  // Progression VIVANTE de l'analyse : rendue côté serveur (pas de clignotement), puis la carte
+  // cliente s'actualise seule tant que ça tourne.
+  const progress = latest ? await getAnalysisProgress(latest.id, dossier.status) : null;
   const assessment = latest ? await getAssessment(latest.id) : null;
   const findings = latest ? await listFindings(latest.id) : [];
   // Réserves ANPP rapprochées et noms des documents visés : chargés EN UNE FOIS chacun
@@ -184,6 +189,10 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
           {canDelete && <DeleteDossierButton dossierId={dossier.id} />}
         </div>
       </div>
+
+      {/* PROGRESSION VIVANTE — quand l'analyse tourne, elle passe AVANT tout le reste : c'est
+          la réponse à « où en est-on ? ». S'actualise seule et disparaît une fois terminée. */}
+      {progress && progress.running && <AnalysisProgressCard versionId={latest!.id} initial={progress} />}
 
       {/* VERDICT GO / NO-GO — la synthèse qu'on lit en trois secondes avant tout le reste.
           Un seul mot, sa raison, l'état chiffré, et les réserves les plus probables. */}

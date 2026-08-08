@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { askClaude, aiConfigured } from "@/lib/ai";
 import { extractLooseJson } from "../ai/json";
@@ -24,15 +23,56 @@ export const PERSPECTIVES: { key: string; label: string; focus: string }[] = [
   { key: "COMMISSION", label: "Commission d'enregistrement", focus: "synthèse et points de blocage probables" },
 ];
 
-const PerspectiveSchema = z.object({
-  perspective: z.string().min(1).max(60),
-  verdict: z.enum(["FAVORABLE", "RESERVES", "DEFAVORABLE"]).catch("RESERVES"),
-  questions: z.array(z.string().max(400)).max(6).default([]),
-  risks: z.array(z.string().max(400)).max(6).default([]),
-});
-const OutputSchema = z.object({ overall: z.string().max(1500).optional().default(""), perspectives: z.array(PerspectiveSchema).max(12) });
-
 export interface SimPerspective { perspective: string; verdict: string; questions: string[]; risks: string[] }
+
+/**
+ * NORMALISATION TOLÉRANTE de la sortie du modèle — PURE, testée.
+ *
+ * Un schéma Zod RIGIDE faisait échouer TOUTE la simulation dès qu'un seul détail débordait :
+ * verdict en minuscules, question de plus de 400 caractères, onzième perspective, `risks` absent…
+ * Le message « Sortie non conforme au schéma » masquait une analyse par ailleurs parfaitement
+ * exploitable. On récupère donc ce que le modèle a produit et on le met en forme nous-mêmes ;
+ * l'échec n'est possible que si la réponse ne contient AUCUNE perspective.
+ */
+const VERDICTS = ["FAVORABLE", "RESERVES", "DEFAVORABLE"] as const;
+
+function normVerdict(raw: unknown): string {
+  const s = String(raw ?? "").toUpperCase();
+  if (s.includes("DEFAV") || s.includes("DÉFAV") || s.includes("REJE") || s.includes("UNFAV")) return "DEFAVORABLE";
+  if (s.includes("FAV")) return "FAVORABLE";
+  return "RESERVES";
+}
+
+/** Toute valeur (liste, chaîne, objet) → liste de chaînes propres, bornée. */
+function toLines(raw: unknown, max = 6): string[] {
+  const arr = Array.isArray(raw) ? raw : raw == null || raw === "" ? [] : [raw];
+  return arr
+    .map((x) => (typeof x === "string" ? x : x == null ? "" : typeof x === "object" ? String((x as Record<string, unknown>).text ?? (x as Record<string, unknown>).label ?? JSON.stringify(x)) : String(x)))
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, max)
+    .map((s) => s.slice(0, 400));
+}
+
+export function normalizeSimulation(parsed: unknown): { perspectives: SimPerspective[]; overall: string } {
+  const root = (parsed && typeof parsed === "object") ? parsed as Record<string, unknown> : {};
+  const rawList = Array.isArray(root.perspectives) ? root.perspectives
+    : Array.isArray(root.result) ? root.result
+    : Array.isArray(parsed) ? (parsed as unknown[])
+    : [];
+  const perspectives = rawList.slice(0, 12).map((p) => {
+    const o = (p && typeof p === "object") ? p as Record<string, unknown> : {};
+    return {
+      perspective: String(o.perspective ?? o.label ?? o.name ?? o.axe ?? "Perspective").trim().slice(0, 80) || "Perspective",
+      verdict: normVerdict(o.verdict ?? o.avis ?? o.decision),
+      questions: toLines(o.questions ?? o.questions_probables),
+      risks: toLines(o.risks ?? o.risques),
+    };
+  }).filter((p) => p.questions.length > 0 || p.risks.length > 0 || p.verdict !== "RESERVES" || p.perspective !== "Perspective");
+  const overall = typeof root.overall === "string" ? root.overall.slice(0, 4000)
+    : typeof root.synthese === "string" ? (root.synthese as string).slice(0, 4000) : "";
+  return { perspectives, overall };
+}
 export interface SimulationResult { ok: boolean; configured: boolean; simulationId?: string; perspectives: SimPerspective[]; overall?: string; error?: string }
 
 export type AiFn = (prompt: string, opts: { system?: string; maxTokens?: number; temperature?: number }) => Promise<{ ok: boolean; configured: boolean; text?: string; error?: string }>;
@@ -83,15 +123,16 @@ export async function runReviewerSimulation(dossierVersionId: string, actorId: s
   const res = await aiFn(prompt, { system: SYSTEM, maxTokens: 6000, temperature: 0.3 });
   if (!res.ok) return { ok: false, configured: res.configured, perspectives: [], error: res.error };
   const parsed = extractLooseJson(res.text ?? "");
-  if (parsed === null) return { ok: false, configured: res.configured, perspectives: [], error: "Réponse IA non exploitable." };
-  const validated = OutputSchema.safeParse(parsed);
-  if (!validated.success) return { ok: false, configured: res.configured, perspectives: [], error: "Sortie non conforme au schéma." };
+  if (parsed === null) return { ok: false, configured: res.configured, perspectives: [], error: "Réponse IA non exploitable — réessayez." };
 
-  const perspectives: SimPerspective[] = validated.data.perspectives.map((p) => ({ perspective: p.perspective, verdict: p.verdict, questions: p.questions, risks: p.risks }));
+  // Mise en forme TOLÉRANTE : on ne rejette plus une simulation exploitable pour un détail de format.
+  const { perspectives, overall } = normalizeSimulation(parsed);
+  if (perspectives.length === 0) return { ok: false, configured: res.configured, perspectives: [], error: "La simulation n'a produit aucune perspective — réessayez." };
+
   const sim = await prisma.regulatorySimulation.create({
-    data: { dossierVersionId, perspectives: perspectives as unknown as object, overall: validated.data.overall || null, configured: true, createdById: actorId },
+    data: { dossierVersionId, perspectives: perspectives as unknown as object, overall: overall || null, configured: true, createdById: actorId },
     select: { id: true },
   });
   await regAudit({ companyId: version.dossier.companyId, actorId, dossierId: version.dossier.id, dossierVersionId, action: "SIMULATION_RUN", detail: `Simulation multi-perspectives (NON prédictive) : ${perspectives.length} perspective(s).` });
-  return { ok: true, configured: true, simulationId: sim.id, perspectives, overall: validated.data.overall };
+  return { ok: true, configured: true, simulationId: sim.id, perspectives, overall };
 }

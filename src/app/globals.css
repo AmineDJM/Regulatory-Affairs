@@ -300,3 +300,16 @@
     }
   }
 }
+
+/* ── Barre de progression « vivante » de l'analyse CTD : une bande lumineuse qui balaie la
+   portion remplie tant que l'analyse tourne. Rassure sans distraire (durée douce, opacité basse). */
+@keyframes reg-progress-sheen {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+.reg-progress-sheen {
+  animation: reg-progress-sheen 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reg-progress-sheen { animation: none; }
+}

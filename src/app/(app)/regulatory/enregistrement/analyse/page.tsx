@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
 import { RegScopeCard } from "../scope-gate";
+import { LiveAnalysisBadge } from "./live-badge";
 import { listDossiers } from "@/lib/regulatory/intelligence/queries";
 import {
   PROCEDURE_TYPE_LABELS, DOSSIER_STATUS_LABELS, DOSSIER_STATUS_TONE, humanBytes,
@@ -105,7 +106,7 @@ async function DossierList({ companyId }: { companyId: string }) {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="truncate font-medium">{d.title}</p>
-                <Badge tone={DOSSIER_STATUS_TONE[d.status]} dot>{DOSSIER_STATUS_LABELS[d.status]}</Badge>
+                <LiveAnalysisBadge versionId={v?.id ?? null} status={d.status} label={DOSSIER_STATUS_LABELS[d.status]} tone={DOSSIER_STATUS_TONE[d.status]} />
               </div>
               <p className="mt-0.5 truncate text-xs text-muted-foreground">
                 {d.reference} · {PROCEDURE_TYPE_LABELS[d.procedureType]} · maj {fmtDate(d.updatedAt)}

@@ -1581,6 +1581,7 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
 | **CTD — pages exactes & preuve** | `lib/regulatory/intelligence/extract/pages.ts` (`buildPagedContent`, `pageAtOffset`, `pageSpanOfSlice`, `anchorEvidence` — pures + tests) ; `extract-text.ts` (`extractPdfPages` mupdf par page), `ocr/ocr-engine.ts` (contenu paginé), colonne `RegulatoryExtraction.pageMap` ; `agents/chunk-text.ts` (`splitTextIntoChunksWithOffsets`) ; consommé par `jobs/runner.ts` + `cost/batch-runner.ts` (l'ancrage PRIME l'estimation) ; page cliquable `#page=N` dans l'écran dossier. |
 | **CTD — escalade & sémantique** | `lib/regulatory/intelligence/agents/escalate.ts` (`escalateCriticalSections`, max 4, `REG_AGENT_AUTO=0` pour couper) ; `corpus/semantic.ts` (`cosine`, `mergeHybrid`, `semanticSearchSections`, `embedBacklog` — cache estampillé, jamais bloquant) + `lunaEmbed` dans `lib/openai-luna.ts` ; hybride branché dans `corpus/rag.ts` (`searchCorpus`), rattrapage dans `lib/scheduled.ts`. Colonnes `embedding` (JSONB) sur `RegulatorySourceSection` + `AnppReserve`. |
 | **CTD — livrables & verdict** | `lib/regulatory/intelligence/docgen/reports.ts` (`buildFindingsReport`, `buildReserveResponseLetter`) sur `buildSimpleDocx` (`build-docx.ts`) ; `rules/notice-arabic.ts` (`arabicStats`, `missesArabic`, `isArabicRequiredSection` — pures + tests, branchées dans `handleRules`) ; `createTaskFromFinding` dans `intelligence/actions.ts` ; verdict GO/NO-GO + réserves probables calculés dans `analyse/[dossierId]/page.tsx` ; boutons `report-buttons.tsx`. |
+| **CTD — progression vivante** | `lib/regulatory/intelligence/progress/analysis-progress.ts` (`computeAnalysisProgress`, `formatEta` — pures + tests : phases réception→lecture→OCR→données→conformité→revue IA, % renormalisé, ETA au débit réel), `query.ts` (`getAnalysisProgress` — comptes légers) ; route de polling `app/api/regulatory/intelligence/progress/[versionId]` (réveille aussi le planificateur) ; carte cliente `analyse/[dossierId]/analysis-progress-card.tsx` (barre + bande lumineuse + étapes + temps restant) ; badge vivant `analyse/live-badge.tsx` sur la liste. |
 | **CTD — Entraînement IA (admin)** | `lib/regulatory/intelligence/training/` — `ingest-case.ts` (extraction + repérage CTD déterministe, dédup sha256 par étude), `for-section.ts` (`experienceForSection`, `rankCaseDocs` pure + tests, dédup par empreinte), `labels.ts` (pur, importable client), `actions.ts` (SUPER_ADMIN only) ; bloc « EXPÉRIENCE INTERNE » dans `agents/review-agent.ts` (`buildPrompt.experience` + tests), câblé dans `jobs/runner.ts` ET `cost/batch-runner.ts` ; embeddings via `corpus/semantic.ts` (`embedBacklog`) ; écran `app/(app)/regulatory/enregistrement/entrainement/`. Modèles `RegulatoryCaseStudy`/`RegulatoryCaseDoc`. |
 | **Courrier smart (sans SMTP)** | `lib/mail-smart.ts` (agnostique fournisseur, `buildProviderCall`/`verifyInboundSignature`/`normalizeInbound`) + `mail-smart.test.ts`, `lib/actions/smart-mail-actions.ts` (journal), `app/api/mail/inbound/route.ts` (webhook signé), `app/(app)/admin/courrier/`. Modèles `OutboundEmail`/`InboundEmail`. |
 
@@ -2008,6 +2009,16 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **« Analyse en cours » n'est plus une boîte noire.** Une carte vivante montre l'analyse du
+  début à la fin : étape courante (réception → lecture des fichiers → OCR → données → conformité
+  → revue de fond IA), pourcentage honnête, **temps restant estimé** au débit réel de lecture, et
+  une barre qui balaie tant que ça avance. Elle s'actualise seule et — détail voulu — la regarder
+  suffit à faire avancer l'analyse (chaque rafraîchissement réveille le planificateur). Sur la
+  liste, le badge « Analyse en cours » affiche désormais le %. Au passage : le **Simulateur
+  d'examen** ne renvoie plus « Sortie non conforme au schéma » — son schéma Zod rigide rejetait
+  toute la simulation pour un détail (verdict en minuscules, question trop longue, 11ᵉ
+  perspective) ; la sortie est désormais mise en forme avec tolérance.
 
 - **Entraînement de l'IA : l'analyseur apprend de NOS produits passés.** Nouveau module (Super
   Admin, onglet « Entraînement IA ») : une étude de cas = un produit déjà déposé + son issue
