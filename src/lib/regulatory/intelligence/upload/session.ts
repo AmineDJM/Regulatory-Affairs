@@ -103,6 +103,38 @@ async function orgUsageBytes(companyId: string): Promise<number> {
 }
 
 /**
+ * Suppression des parties d'envois abandonnés, EN FOND et par petits paquets. Une session dont
+ * les octets survivent quelques secondes de plus ne gêne personne ; une ouverture de session qui
+ * attend ce ménage, si. Les paquets évitent aussi une transaction unique gigantesque sur des
+ * lignes de plusieurs Mo. Ne lève jamais : le planificateur repassera (`pruneStaleUploadSessions`).
+ */
+const PART_PURGE_BATCH = 25;
+let partPurgeQueue: Promise<void> = Promise.resolve();
+
+function purgePartsInBackground(sessionIds: string[]): void {
+  partPurgeQueue = partPurgeQueue.then(async () => {
+    for (const sessionId of sessionIds) {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const batch = await prisma.regulatoryUploadPart
+          .findMany({ where: { sessionId }, select: { index: true }, take: PART_PURGE_BATCH })
+          .catch(() => []);
+        if (batch.length === 0) break;
+        const done = await prisma.regulatoryUploadPart
+          .deleteMany({ where: { sessionId, index: { in: batch.map((p) => p.index) } } })
+          .catch(() => ({ count: 0 }));
+        if (done.count === 0) break; // suppression impossible → on laisse le planificateur reprendre
+      }
+    }
+  });
+}
+
+/** Attend le ménage des parties encore en cours (tests, arrêt propre). */
+export async function flushPartPurges(): Promise<void> {
+  await partPurgeQueue;
+}
+
+/**
  * REPRISE + nettoyage des sessions fantômes, à l'ouverture d'un envoi.
  *  - Cherche une session RÉSUMABLE : même dossier + même fichier (nom + taille) + même découpage,
  *    encore « UPLOADING » → on la réutilise pour ne renvoyer QUE les parties manquantes (survit à
@@ -129,8 +161,15 @@ async function reapAndFindResumable(
     .filter((s) => s.id !== resumable?.id && (s.dossierId === dossierId || (s.parts[0]?.createdAt ?? s.createdAt) < cutoff))
     .map((s) => s.id);
   if (toAbort.length > 0) {
-    await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: { in: toAbort } } });
+    // L'ABANDON est ce qui compte pour l'utilisateur : c'est lui qui libère la limite d'envois
+    // simultanés, et il tient en une mise à jour de statut. La suppression des PARTIES, elle, ne
+    // libère que de l'espace — mais elle porte sur des lignes de plusieurs Mo chacune (parfois des
+    // centaines pour un envoi interrompu en cours de route). La faire attendre à l'ouverture de
+    // session, c'était payer le ménage de la tentative précédente avant de pouvoir en lancer une
+    // nouvelle — et plus l'utilisateur réessayait, plus il y avait à nettoyer. On marque, on rend
+    // la main, et les octets partent derrière.
     await prisma.regulatoryUploadSession.updateMany({ where: { id: { in: toAbort } }, data: { status: "ABORTED", error: "Envoi remplacé ou abandonné (nettoyage automatique)." } });
+    void purgePartsInBackground(toAbort);
   }
   return resumable ? { id: resumable.id, partSize: resumable.partSize } : null;
 }
@@ -515,4 +554,17 @@ export async function pruneStaleUploadSessions(): Promise<number> {
   await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId: { in: ids } } });
   await prisma.regulatoryUploadSession.updateMany({ where: { id: { in: ids } }, data: { status: "ABORTED", error: "Expirée (inactive)." } });
   return ids.length;
+}
+
+/**
+ * FILET du ménage de fond : les parties d'envois DÉJÀ clos n'appartiennent plus à personne. Le
+ * ménage lancé à l'ouverture d'une session s'exécute en arrière-plan et peut être interrompu par
+ * un redéploiement ; sans ce filet, ces octets resteraient en base indéfiniment. Appelé par le
+ * planificateur, jamais sur le chemin d'une requête. Ne lève pas.
+ */
+export async function purgeClosedSessionParts(): Promise<number> {
+  const done = await prisma.regulatoryUploadPart
+    .deleteMany({ where: { session: { status: { in: ["ABORTED", "COMPLETED"] } } } })
+    .catch(() => ({ count: 0 }));
+  return done.count;
 }

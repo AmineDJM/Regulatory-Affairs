@@ -140,7 +140,32 @@ async function runPool<T>(items: T[], concurrency: number, fn: (item: T, index: 
  */
 const JOBS_BUDGET_MS = clampInt(process.env.REG_JOBS_BUDGET_MS, 120_000, 5_000, 600_000);
 
+/**
+ * UN SEUL PASSAGE À LA FOIS DANS LE PROCESSUS — l'oubli qui rendait l'application injoignable.
+ *
+ * Le planificateur avait bien son verrou de débounce, mais la route « analyser maintenant »
+ * (`/api/regulatory/intelligence/process`) appelle ce runner DIRECTEMENT, sans passer par lui.
+ * Chaque onglet ouvert, chaque fin de téléversement, chaque rafraîchissement déclenchait donc son
+ * propre passage de deux minutes — et chacun prend jusqu'à vingt jobs de front. Trois passages
+ * superposés suffisaient à tenir toutes les connexions à la base : les requêtes ordinaires
+ * n'obtenaient plus rien, et l'ouverture d'une session de téléversement expirait au bout de 30 s.
+ *
+ * Un passage déjà en cours fait donc un retour IMMÉDIAT : il n'y a rien à ajouter, le travail est
+ * déjà pris en charge, et le budget de temps est le même.
+ */
+let passInFlight = false;
+
 export async function runDueRegulatoryJobs(max = MAX_JOBS_PER_TICK, budgetMs = JOBS_BUDGET_MS): Promise<void> {
+  if (passInFlight) return;
+  passInFlight = true;
+  try {
+    await runPass(max, budgetMs);
+  } finally {
+    passInFlight = false;
+  }
+}
+
+async function runPass(max: number, budgetMs: number): Promise<void> {
   const deadline = Date.now() + budgetMs;
   // Reprise des jobs bloqués (process interrompu) : verrou expiré → re-QUEUED.
   await prisma.regulatoryJob

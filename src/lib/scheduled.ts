@@ -3,7 +3,7 @@ import { notifyUser } from "@/lib/notify";
 import { performAiHealthCheck } from "@/lib/ai-health";
 import { runDueRegulatoryJobs } from "@/lib/regulatory/intelligence/jobs/runner";
 import { catchUpMissingAiReviews, catchUpStalledPipelines, expireStaleBatches } from "@/lib/regulatory/intelligence/jobs/catchup";
-import { pruneStaleUploadSessions } from "@/lib/regulatory/intelligence/upload/session";
+import { pruneStaleUploadSessions, purgeClosedSessionParts } from "@/lib/regulatory/intelligence/upload/session";
 import { runAnppWatchIfDue } from "@/lib/regulatory/intelligence/corpus/watch-schedule";
 import { pollAiBatches } from "@/lib/regulatory/intelligence/cost/batch-runner";
 import { embedBacklog } from "@/lib/regulatory/intelligence/corpus/semantic";
@@ -35,6 +35,7 @@ export async function runScheduledJobs(): Promise<void> {
     await performAiHealthCheck().catch((e) => console.error("[scheduled] ai health check failed", e)); // test IA 1×/jour + alerte Super Admin
     await runDueRegulatoryJobs();
     await pruneStaleUploadSessions().catch(() => 0); // nettoyage des sessions d'upload incomplètes
+    await purgeClosedSessionParts().catch(() => 0); // filet : octets d'envois clos qu'un redémarrage aurait laissés
     await runAnppWatchIfDue(); // veille ANPP 1×/jour : une ligne directrice ne doit pas changer sans qu'on le sache
     await pollAiBatches(); // analyses différées (moitié prix) : récupère les lots terminés
     // Rattrapage de l'EXISTANT : les dossiers déjà en base profitent des mêmes règles que les

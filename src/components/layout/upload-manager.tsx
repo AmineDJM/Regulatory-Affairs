@@ -99,17 +99,35 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     setJobs((j) => ({ ...j, [dossierId]: { dossierId, fileName: file.name, phase: "uploading", progress: 0, error: null, summary: null } }));
     const setProgress = (p: number) => patch(dossierId, { progress: p });
     try {
-      const ctrl = new AbortController();
-      const openTimer = setTimeout(() => ctrl.abort(), 30_000);
-      let open: Response;
-      try {
-        open = await fetch("/api/regulatory/intelligence/upload/session", {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ dossierId, filename: file.name, totalBytes: file.size, contentType: file.type }),
-          signal: ctrl.signal,
-        });
-      } catch { throw new Error("Ouverture de session : serveur injoignable ou trop lent (30 s)."); }
-      finally { clearTimeout(openTimer); }
+      // OUVERTURE DE SESSION — la seule étape de l'envoi qui n'avait AUCUNE reprise.
+      //
+      // Une seule tentative, 30 s, et le moindre à-coup du serveur (une analyse qui monopolise la
+      // base, un redéploiement, un réseau qui hoquette) devenait un échec sec : « serveur
+      // injoignable ou trop lent ». Toutes les autres étapes réessaient depuis toujours ; celle-ci
+      // le fait maintenant aussi, avec une attente croissante entre les tentatives. Le fichier
+      // n'est pas encore parti : rejouer l'ouverture ne coûte rien et ne perd rien.
+      const OPEN_ATTEMPTS = 4;
+      let open: Response | null = null;
+      let openErr = "";
+      for (let attempt = 0; attempt < OPEN_ATTEMPTS && !open; attempt++) {
+        const ctrl = new AbortController();
+        const openTimer = setTimeout(() => ctrl.abort(), 45_000);
+        try {
+          const res = await fetch("/api/regulatory/intelligence/upload/session", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ dossierId, filename: file.name, totalBytes: file.size, contentType: file.type }),
+            signal: ctrl.signal,
+          });
+          // 5xx = serveur occupé/redémarré → on retente. 4xx = refus motivé → on s'arrête pour
+          // afficher la vraie raison (quota, droits, fichier non-ZIP) plutôt que « trop lent ».
+          if (res.ok || !isRetryableHttpStatus(res.status)) open = res;
+          else openErr = `serveur occupé (code ${res.status})`;
+        } catch {
+          openErr = "serveur injoignable ou trop lent";
+        } finally { clearTimeout(openTimer); }
+        if (!open && attempt < OPEN_ATTEMPTS - 1) await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+      }
+      if (!open) throw new Error(`Ouverture de session impossible : ${openErr} (${OPEN_ATTEMPTS} tentatives). Relancez le même fichier pour reprendre.`);
       const meta = await readJsonSafe<{ ok?: boolean; error?: string; mode?: string; uploadUrl?: string; sessionId?: string; partSize?: number; expectedParts?: number; receivedIndices?: number[]; concurrency?: number }>(open);
       if (!open.ok || meta.error) throw new Error(meta.error ?? "Ouverture de session refusée.");
 

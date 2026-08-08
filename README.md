@@ -1874,6 +1874,7 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `REG_EXTRACTION_MAX_CHARS` | ⬜ | Plafond du texte extrait/OCR persisté par document (défaut 20 M — ≈ 10 000 pages ; fin de la troncature 1 M). ↑ demande plus de disque base. |
 | `REG_AI_CHUNK_PAGES` · `REG_AI_CONCURRENCY` | ⬜ | Revue IA par parts : pages par part envoyée à l'IA (défaut 10) · parts analysées en parallèle (défaut 4). |
 | `REG_AI_MAX_CHUNKS` · `REG_AI_MAX_FINDINGS` | ⬜ | Garde-coût revue IA : parts max analysées par version (défaut 120, **0 = illimité**) · constats IA max persistés (défaut 300). Chaque part = 1 appel Claude (palier **éco**) facturé — c'est le principal poste de coût CTD, borné ici. |
+| `DB_CONNECTION_LIMIT` · `DB_POOL_TIMEOUT` | ⬜ | Taille du pool de connexions Prisma (**défaut 12 en production**, contre `CPUs × 2 + 1` — soit 3 — chez Prisma) · délai d'attente d'une connexion libre. ⚠️ Un pool se compte **par processus** : multiplier par le nombre d'instances et rester sous le `max_connections` de Postgres. |
 | `REG_UPLOAD_PART_MB` · `REG_UPLOAD_CONCURRENCY` | ⬜ | Taille d'une partie envoyée (défaut **4 Mo**, borné à 32) · parties en parallèle (défaut **8**). ⚠️ **Ne pas grossir les parties pour aller plus vite : c'est l'inverse** — mesuré, 16 Mo est ~2× plus lent que 4 Mo (Postgres écrit moins vite une grosse valeur `bytea`, et il faut la relire pour réassembler). Le levier utile est le parallélisme. |
 | `REG_INGEST_STORE_CONCURRENCY` | ⬜ | Fichiers du dossier écrits en parallèle pendant l'ingestion (défaut **4**). Au-delà, les écritures se disputent le pool de connexions et le total **remonte** (mesuré : 4,7 s en série, 1,5 s à quatre, 2,0 s à huit) — ne relever qu'avec `DB_CONNECTION_LIMIT`. |
 | `REG_MAX_PG_FILE_MB` · `REG_BLOB_CHUNK_MB` | ⬜ | Taille max d'un fichier unique conservé en base (défaut **950 Mo** ≈ 1 Go, stocké en tranches) · taille d'une tranche de blob chiffré (défaut 16 Mo). Fichiers proches d'1 Go : prévoir ≥ 4 Go de RAM ou activer R2. |
@@ -2018,6 +2019,30 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **« Serveur injoignable ou trop lent (30 s) » à l'ouverture d'un téléversement — trois causes,
+  toutes corrigées.** Le message ne mentait pas : la requête d'ouverture n'obtenait vraiment rien
+  du serveur en 30 s. Ce qui l'affamait :
+  - **Trois connexions à la base pour toute l'application.** Prisma dimensionne son pool à
+    `CPUs × 2 + 1`. Dès qu'une analyse CTD tournait, ces trois connexions étaient prises et toute
+    autre requête attendait son tour. Le pool passe à **12 par défaut** — sans variable à poser
+    côté hébergeur, et sans risque : Postgres en accepte une centaine. (Défaut appliqué en
+    production seulement : un pool se compte par processus, et les tests tournent en parallèle.)
+  - **Autant de passages d'analyse que d'onglets ouverts.** Le planificateur avait bien son verrou,
+    mais la route « analyser maintenant » appelait le runner directement, sans passer par lui.
+    Chaque fin de téléversement, chaque rafraîchissement lançait donc son propre passage de deux
+    minutes, prenant jusqu'à vingt jobs de front. Désormais **un seul passage à la fois** dans le
+    processus, et la route **répond tout de suite** au lieu de tenir une requête HTTP ouverte
+    pendant deux minutes pour une réponse que personne ne lit.
+  - **Le ménage de la tentative précédente, payé d'avance.** L'ouverture de session supprimait les
+    parties des envois abandonnés — des lignes de plusieurs Mo, parfois des centaines — avant de
+    démarrer. Plus l'utilisateur réessayait, plus il y avait à nettoyer. L'abandon (ce qui libère
+    la limite d'envois simultanés) reste immédiat ; les octets partent en fond, par paquets, avec
+    un filet côté planificateur si un redéploiement interrompt le ménage.
+  Et parce qu'un serveur occupé restera toujours possible, **l'ouverture de session réessaie** —
+  c'était la seule étape de l'envoi qui n'avait aucune reprise, là où toutes les autres en ont
+  depuis toujours. Quatre tentatives, attente croissante ; un refus motivé (quota, droits, fichier
+  non-ZIP) s'affiche toujours immédiatement au lieu d'être confondu avec une lenteur.
 
 - **Téléversement CTD deux fois plus rapide — en mesurant au lieu de supposer.** Trois corrections,
   toutes appuyées sur des mesures reproductibles (`scripts/bench/`) :

@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "crypto";
 import JSZip from "jszip";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
-import { startUploadSession, putUploadPart, uploadSessionStatus, finalizeUploadSession } from "./session";
+import { startUploadSession, putUploadPart, uploadSessionStatus, finalizeUploadSession, flushPartPurges, purgeClosedSessionParts } from "./session";
 import { flushOriginalArchives } from "../ingest/ingest-dossier";
 
 /**
@@ -20,7 +20,8 @@ describe("upload résumable — flux complet", () => {
   });
 
   afterAll(async () => {
-    await flushOriginalArchives(); // l'archive originale est écrite EN FOND : ne rien laisser en vol
+    await flushOriginalArchives();
+    await flushPartPurges(); // l'archive originale est écrite EN FOND : ne rien laisser en vol
     const vers = await prisma.regulatoryDossierVersion.findMany({ where: { dossierId }, select: { originalZipBlobId: true } });
     const docs = await prisma.regulatoryDocument.findMany({ where: { dossierVersion: { dossierId } }, select: { blobId: true } });
     await prisma.regulatoryDossier.deleteMany({ where: { companyId } }).catch(() => undefined);
@@ -136,6 +137,33 @@ describe("upload résumable — flux complet", () => {
     // Les orphelines sont abandonnées ; seule la nouvelle session reste active.
     expect(await prisma.regulatoryUploadSession.count({ where: { dossierId, status: "UPLOADING" } })).toBe(1);
     expect(await prisma.regulatoryUploadSession.count({ where: { dossierId, status: "ABORTED" } })).toBeGreaterThanOrEqual(3);
+  });
+
+  it("l'ouverture de session n'attend PAS le ménage des envois abandonnés", async () => {
+    // Le cas qui rendait « serveur injoignable ou trop lent (30 s) » : une tentative précédente
+    // laisse derrière elle des parties de plusieurs Mo, et l'ouverture suivante payait leur
+    // suppression avant de pouvoir démarrer — d'autant plus longue qu'on avait déjà réessayé.
+    const ghost = await prisma.regulatoryUploadSession.create({
+      data: { companyId, dossierId, createdById: "u", filename: "lourd.zip", totalBytes: BigInt(8192), partSize: 1024, status: "UPLOADING" },
+      select: { id: true },
+    });
+    for (let i = 0; i < 8; i++) {
+      await prisma.regulatoryUploadPart.create({
+        data: { sessionId: ghost.id, index: i, size: 1024, sha256: `${i}`.padStart(64, "0"), data: randomBytes(1024) },
+      });
+    }
+
+    const start = await startUploadSession({ companyId, dossierId, createdById: "u", filename: "apres.zip", totalBytes: 2048, partSize: 1024 });
+    expect(start.ok).toBe(true);
+
+    // AU RETOUR : l'abandon est déjà acté — c'est lui qui libère la limite d'envois simultanés.
+    const after = await prisma.regulatoryUploadSession.findUniqueOrThrow({ where: { id: ghost.id }, select: { status: true } });
+    expect(after.status).toBe("ABORTED");
+
+    // Les octets, eux, partent derrière — puis le filet du planificateur rattrape le reste.
+    await flushPartPurges();
+    await purgeClosedSessionParts();
+    expect(await prisma.regulatoryUploadPart.count({ where: { sessionId: ghost.id } })).toBe(0);
   });
 
   it("REPREND un envoi interrompu : parties déjà reçues conservées, seules les manquantes renvoyées", async () => {
