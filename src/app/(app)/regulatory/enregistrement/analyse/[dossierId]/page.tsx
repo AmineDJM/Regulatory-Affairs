@@ -18,7 +18,6 @@ import { buildCoverage, buildRegistrationDocs } from "@/lib/regulatory/intellige
 import { buildVersionDiff } from "@/lib/regulatory/intelligence/diff/compare-versions";
 import { aiConfigured } from "@/lib/ai";
 import { applicableAgents } from "@/lib/regulatory/intelligence/agents/orchestrator";
-import { templateSummaries } from "@/lib/regulatory/intelligence/docgen/templates";
 import { listReserveCycles } from "@/lib/regulatory/intelligence/reserves/queries";
 import { listSupplierRequests } from "@/lib/regulatory/intelligence/supplier/queries";
 import { listLifecycle } from "@/lib/regulatory/intelligence/lifecycle/queries";
@@ -30,7 +29,6 @@ import { TwinPanel } from "./twin-panel";
 import { AgentsPanel } from "./agents-panel";
 import { DossierChatPanel } from "./chat-panel";
 import { ReserveChatPanel } from "./reserve-chat-panel";
-import { DocgenPanel } from "./docgen-panel";
 import { ReservesPanel } from "./reserves-panel";
 import { SimulatorPanel } from "./simulator-panel";
 import { SupplierPanel } from "./supplier-panel";
@@ -106,7 +104,6 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
         select: { id: true, filename: true, templateVersion: true, factsUsed: true, factsMissing: true, createdAt: true },
       })).map((d) => ({ ...d, createdAt: d.createdAt.toISOString() }))
     : [];
-  const docTemplates = templateSummaries();
   const reserveCycles = (await listReserveCycles(dossier.id)).map((c) => ({ ...c, receivedAt: c.receivedAt.toISOString() }));
   const canReserve = regCan(user, "regulatory.reserve.manage");
   const supplierRequests = (await listSupplierRequests(dossier.id)).map((r) => ({
@@ -614,14 +611,24 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
         </Card>
       )}
 
-      {/* Génération documentaire — depuis le jumeau numérique approuvé */}
-      {latest && canAnalyse && (
+      {/* Documents produits — rapport de constats et lettres de réponse. Liste de
+          TÉLÉCHARGEMENT seulement : la génération à partir de modèles à trous a été retirée
+          (elle rendait des coquilles à remplir à la main, pas du travail fait). */}
+      {generatedDocs.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4 text-primary" /> Génération documentaire</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4 text-primary" /> Documents produits</CardTitle>
           </CardHeader>
-          <CardContent>
-            <DocgenPanel dossierId={dossier.id} templates={docTemplates} docs={generatedDocs} />
+          <CardContent className="space-y-1">
+            {generatedDocs.map((d) => (
+              <div key={d.id} className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-xs">
+                <span className="min-w-0 flex-1 truncate font-medium" title={d.filename}>{d.filename}</span>
+                <span className="shrink-0 text-muted-foreground">{fmtDateTime(new Date(d.createdAt))}</span>
+                <a href={`/api/regulatory/intelligence/generated/${d.id}`} className="inline-flex shrink-0 items-center gap-1 text-primary hover:underline">
+                  <Download className="h-3.5 w-3.5" /> Télécharger
+                </a>
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}

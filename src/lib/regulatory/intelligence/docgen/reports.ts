@@ -3,7 +3,18 @@ import { putBlob } from "@/lib/drive-storage";
 import { regAudit } from "../audit";
 import { PROCEDURE_TYPE_LABELS } from "../labels";
 import { buildSimpleDocx, MISSING_MARKER, type SimplePara } from "./build-docx";
-import type { GenerateResult } from "./generate";
+
+/** Résultat d'une production de document (rapport de constats, lettre de réponse). */
+export interface GenerateResult {
+  ok: boolean;
+  error?: string;
+  generatedDocId?: string;
+  filename?: string;
+  /** Éléments réellement repris du dossier. */
+  used?: number;
+  /** Éléments laissés « [À COMPLÉTER] » — jamais inventés. */
+  missing?: number;
+}
 
 /**
  * DOCUMENTS COMPOSÉS DEPUIS L'ANALYSE — deux livrables que le pharmacien produisait à la main :

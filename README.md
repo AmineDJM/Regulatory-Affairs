@@ -1261,7 +1261,7 @@ clé ni vecteurs, le lexical continue seul.
 **Livrables** : rapport de constats **.docx** (gravité, preuves, pages, recommandations — bouton
 sur la carte Constats) et **lettre de réponse aux réserves** .docx par cycle (verbatim ANPP mot à
 mot + réponse approuvée/brouillon/`[À COMPLÉTER]` — jamais d'invention), tous deux stockés
-chiffrés + audités comme la génération G10 (`docgen/reports.ts`). **Verdict GO / NO-GO** en tête
+chiffrés + audités (`docgen/reports.ts`). **Verdict GO / NO-GO** en tête
 de dossier : bloqueur ou critique ouvert → NO-GO ; majeur ouvert ou complétude < 100 % → GO sous
 conditions ; sinon GO — avec les **réserves les plus probables** (précédents `reserveRisk` quand
 ils existent, sinon la gravité, marquée `*` — jamais un pourcentage inventé présenté comme
@@ -1586,7 +1586,7 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
 | **CTD — coût & Batch** | `lib/openai-luna.ts` (Luna, Batch ×0,5) ; `lib/regulatory/intelligence/cost/` — `ledger.ts` (`trackedLuna`, `cacheKeyOf`, `budgetState`, `dossierCost`), `batch-runner.ts` (`submitVersionReviewBatch`, `pollAiBatches`, `processCompletedBatch`), `cost-actions.ts` ; carte « Coût de l'analyse IA » + `cost-panel.tsx` sur l'écran dossier. Modèles `RegulatoryAiCall`, `RegulatoryAiCache`, `RegulatoryAiBatch`. |
 | **CTD — pages exactes & preuve** | `lib/regulatory/intelligence/extract/pages.ts` (`buildPagedContent`, `pageAtOffset`, `pageSpanOfSlice`, `anchorEvidence` — pures + tests) ; `extract-text.ts` (`extractPdfPages` mupdf par page), `ocr/ocr-engine.ts` (contenu paginé), colonne `RegulatoryExtraction.pageMap` ; `agents/chunk-text.ts` (`splitTextIntoChunksWithOffsets`) ; consommé par `jobs/runner.ts` + `cost/batch-runner.ts` (l'ancrage PRIME l'estimation) ; page cliquable `#page=N` dans l'écran dossier. |
 | **CTD — escalade & sémantique** | `lib/regulatory/intelligence/agents/escalate.ts` (`escalateCriticalSections`, max 4, `REG_AGENT_AUTO=0` pour couper) ; `corpus/semantic.ts` (`cosine`, `mergeHybrid`, `semanticSearchSections`, `embedBacklog` — cache estampillé, jamais bloquant) + `lunaEmbed` dans `lib/openai-luna.ts` ; hybride branché dans `corpus/rag.ts` (`searchCorpus`), rattrapage dans `lib/scheduled.ts`. Colonnes `embedding` (JSONB) sur `RegulatorySourceSection` + `AnppReserve`. |
-| **CTD — livrables & verdict** | `lib/regulatory/intelligence/docgen/reports.ts` (`buildFindingsReport`, `buildReserveResponseLetter`) sur `buildSimpleDocx` (`build-docx.ts`) ; `rules/notice-arabic.ts` (`arabicStats`, `missesArabic`, `isArabicRequiredSection` — pures + tests, branchées dans `handleRules`) ; `createTaskFromFinding` dans `intelligence/actions.ts` ; verdict GO/NO-GO + réserves probables calculés dans `analyse/[dossierId]/page.tsx` ; boutons `report-buttons.tsx`. |
+| **CTD — livrables & verdict** | `lib/regulatory/intelligence/docgen/reports.ts` (`buildFindingsReport`, `buildReserveResponseLetter`) sur `buildSimpleDocx` (`build-docx.ts` — les modèles à trous ont été retirés) ; `rules/notice-arabic.ts` (`arabicStats`, `missesArabic`, `isArabicRequiredSection` — pures + tests, branchées dans `handleRules`) ; `createTaskFromFinding` dans `intelligence/actions.ts` ; verdict GO/NO-GO + réserves probables calculés dans `analyse/[dossierId]/page.tsx` ; boutons `report-buttons.tsx`. |
 | **CTD — rattrapage de l'existant** | `lib/regulatory/intelligence/jobs/catchup.ts` — `shouldCatchUpAi` / `batchStillFresh` (pures + tests), `catchUpMissingAiReviews` (revue de fond jamais livrée → job `AI_REVIEW` en mode `immediate`, marqueur d'audit `AI_CATCHUP` = une fois par version), `catchUpStalledPipelines` (pipeline arrêté → `FACTS`, audit `PIPELINE_RESUMED`) ; branchés dans `lib/scheduled.ts`. Coupure : `REG_AI_CATCHUP=0`. |
 | **CTD — progression vivante** | `lib/regulatory/intelligence/progress/analysis-progress.ts` (`computeAnalysisProgress`, `formatEta` — pures + tests : phases réception→lecture→OCR→données→conformité→revue IA, % renormalisé, ETA au débit réel), `query.ts` (`getAnalysisProgress` — comptes légers) ; route de polling `app/api/regulatory/intelligence/progress/[versionId]` (réveille aussi le planificateur) ; carte cliente `analyse/[dossierId]/analysis-progress-card.tsx` (barre + bande lumineuse + étapes + temps restant) ; badge vivant `analyse/live-badge.tsx` sur la liste. |
 | **CTD — Entraînement IA (admin)** | `lib/regulatory/intelligence/training/` — `ingest-case.ts` (extraction + repérage CTD déterministe, dédup sha256 par étude), `for-section.ts` (`experienceForSection`, `rankCaseDocs` pure + tests, dédup par empreinte), `labels.ts` (pur, importable client), `actions.ts` (SUPER_ADMIN only) ; bloc « EXPÉRIENCE INTERNE » dans `agents/review-agent.ts` (`buildPrompt.experience` + tests), câblé dans `jobs/runner.ts` ET `cost/batch-runner.ts` ; embeddings via `corpus/semantic.ts` (`embedBacklog`) ; écran `app/(app)/regulatory/enregistrement/entrainement/`. Modèles `RegulatoryCaseStudy`/`RegulatoryCaseDoc`. |
@@ -2016,6 +2016,16 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **L'écran d'analyse se recentre sur sa raison d'être.** La **génération documentaire à partir
+  de modèles à trous** (note de pré-soumission, formulaire d'enregistrement, demandes de
+  modification/renouvellement/transfert) est retirée : elle produisait des coquilles à remplir à
+  la main — pas du travail fait — et occupait une place que le pharmacien lit à chaque passage. Le
+  parcours tient désormais en une ligne : **déposer le dossier → l'analyse le passe au crible
+  (fond ET forme) → constats et réserves probables → tout lever → déposer à l'ANPP → charger les
+  réserves reçues → répondre**. Les deux seuls documents qui restent produits sont ceux que le
+  service ne peut pas obtenir autrement : le **rapport de constats** et la **lettre de réponse aux
+  réserves** ; ils apparaissent dans une simple liste de téléchargement.
 
 - **Les dossiers DÉJÀ en base sont rattrapés automatiquement.** Changer un défaut ne vaut que pour
   les nouvelles analyses : les dossiers déjà « En revue » seraient restés avec une revue de fond
@@ -2958,8 +2968,9 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
     statut, relance, historique.
   - **Réserves ANPP (G9)** : lettre → **OCR réel** → décomposition en points (verbatim) → catégorisation → réponse
     proposée → **approbation** → multi-cycles.
-  - **Génération documentaire (G10)** : 10 templates `.docx` versionnés (pizzip + docxtemplater), données du
-    **jumeau APPROUVÉ uniquement** (non approuvé → « [À COMPLÉTER] »).
+  - **Documents produits** : rapport de constats et lettre de réponse aux réserves (`.docx`, pizzip).
+    ⚠️ La génération à partir de **modèles à trous** (note de pré-soumission, formulaire
+    d'enregistrement…) a été **retirée** — elle rendait des coquilles à remplir à la main.
   - **Reviewer Simulator (G11)** : stress test 10 perspectives — **simulation interne NON prédictive**.
   - **OCR RÉEL (G13)** — **deux moteurs, contrat commun** (`REG_OCR_ENGINE` = `auto`|`mistral`|`tesseract`) :
     1. **PRIMAIRE — Mistral OCR** (`mistral-ocr-latest`, cloud) quand `MISTRAL_API_KEY` est présent : **un appel
