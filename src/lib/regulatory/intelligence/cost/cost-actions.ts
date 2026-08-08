@@ -104,9 +104,10 @@ export async function submitDeferredReview(formData: FormData): Promise<Result &
 /**
  * ANALYSE IMMÉDIATE — plein tarif, résultats dans l'heure.
  *
- * Le différé (moitié prix, ≤ 24 h) est le défaut ; ce choix-ci appartient à l'UTILISATEUR, pas à
- * une variable d'environnement : c'est lui qui sait si la Direction attend le dossier demain
- * matin. Le job porte `mode: "immediate"` — la voie Batch est alors court-circuitée.
+ * L'immédiat est désormais le DÉFAUT ; ce bouton reste utile pour reprendre la main quand un lot
+ * différé a été déposé auparavant et qu'on ne veut plus l'attendre : le job porte
+ * `mode: "immediate"`, la voie Batch est court-circuitée, et le lot en vol cesse d'être ce que
+ * l'écran annonce.
  */
 export async function submitImmediateReview(formData: FormData): Promise<Result> {
   const user = await requireUser();

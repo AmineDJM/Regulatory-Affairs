@@ -47,8 +47,19 @@ export interface AnalysisProgressInput {
   /** L'IA fait-elle partie du pipeline (clé configurée) ? Sinon la revue IA est « sautée ». */
   aiInPipeline: boolean;
   aiReviewDone: boolean;
-  /** Un lot différé (Batch, moitié prix) est en vol → résultats sous 24 h. */
+  /**
+   * Un lot différé (Batch, moitié prix) est réellement en vol → résultats sous 24 h.
+   * ⚠️ Faux dès qu'une revue IMMÉDIATE tourne : c'est elle le travail courant, et afficher
+   * « différé » pendant qu'une analyse immédiate travaille est un mensonge qui fige la barre.
+   */
   aiBatchPending: boolean;
+  /** Une revue de fond est en file ou en cours (voie immédiate). */
+  aiJobActive: boolean;
+  /** Fichiers déjà relus en profondeur par la revue en cours, et total à relire. */
+  aiDocsReviewed: number;
+  aiDocsTotal: number;
+  /** Départ de la revue de fond en cours (ms) — donne l'ETA de cette phase. */
+  aiStartedAtMs: number | null;
   /** Horodatage de départ de l'analyse (ms) — le plus ancien job de la version. */
   startedAtMs: number | null;
   nowMs: number;
@@ -129,7 +140,14 @@ export function computeAnalysisProgress(input: AnalysisProgressInput): AnalysisP
     OCR: hasOcr ? (ocrDone ? 1 : pctFrac(input.ocrDone, input.ocrTotal)) : 1,
     DATA: factsDone ? 1 : 0,
     RULES: rulesDone ? 1 : 0,
-    AI_REVIEW: hasAi ? (aiDone ? 1 : input.aiBatchPending ? 0.15 : 0.5) : 1,
+    // La revue de fond avance FICHIER PAR FICHIER quand elle tourne en immédiat : on montre cette
+    // progression réelle plutôt qu'un forfait figé (c'est ce qui bloquait la barre à 87 %).
+    AI_REVIEW: !hasAi ? 1
+      : aiDone ? 1
+      : input.aiBatchPending ? 0.15
+      : input.aiJobActive && input.aiDocsTotal > 0 ? clamp01(input.aiDocsReviewed / input.aiDocsTotal)
+      : input.aiJobActive ? 0.05
+      : 0,
   };
 
   // Pourcentage global renormalisé.
@@ -182,8 +200,11 @@ export function computeAnalysisProgress(input: AnalysisProgressInput): AnalysisP
     stalled = remainingDocs > 0 && input.docsPending === input.docsTotal - input.docsResolved && elapsed > STALL_MS && perDocMs * remainingDocs > 6 * 3600_000;
   } else if (current === "DATA" || current === "RULES") {
     etaSeconds = 60; // déterministe et rapide — de l'ordre de la minute
-  } else if (current === "AI_REVIEW") {
-    etaSeconds = null; // immédiate : dépend du fournisseur ; différée : « sous 24 h » (texte)
+  } else if (current === "AI_REVIEW" && input.aiStartedAtMs != null && input.aiDocsReviewed > 0 && input.aiDocsTotal > 0) {
+    // Revue immédiate : le débit de relecture donne un temps restant HONNÊTE (elle est longue
+    // sur un gros dossier — c'est justement là que le pharmacien a besoin de savoir).
+    const perDocMs = Math.max(1, input.nowMs - input.aiStartedAtMs) / input.aiDocsReviewed;
+    etaSeconds = Math.round((perDocMs * Math.max(0, input.aiDocsTotal - input.aiDocsReviewed)) / 1000);
   }
 
   return {
@@ -211,7 +232,10 @@ function phaseDetail(k: PhaseKey, input: AnalysisProgressInput, frac: number): s
     case "RULES":
       return frac >= 1 ? "Conformité évaluée" : "Complétude, bloqueurs, cohérence";
     case "AI_REVIEW":
-      return input.aiBatchPending ? "Revue différée (moitié prix) — résultats sous 24 h" : frac >= 1 ? "Constats de fond produits" : "Lecture de fond, section par section";
+      if (input.aiBatchPending) return "Revue différée (moitié prix) — résultats sous 24 h";
+      if (frac >= 1) return "Constats de fond produits";
+      if (input.aiJobActive && input.aiDocsTotal > 0) return `${Math.min(input.aiDocsReviewed, input.aiDocsTotal)} / ${input.aiDocsTotal} fichiers relus en profondeur`;
+      return "Lecture de fond, section par section";
   }
 }
 

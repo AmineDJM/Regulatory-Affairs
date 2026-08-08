@@ -12,7 +12,13 @@ const base: AnalysisProgressInput = {
   ocrTotal: 0, ocrDone: 0,
   factsDone: false, rulesDone: false,
   aiInPipeline: true, aiReviewDone: false, aiBatchPending: false,
+  aiJobActive: false, aiDocsReviewed: 0, aiDocsTotal: 0, aiStartedAtMs: null,
   startedAtMs: 0, nowMs: 60_000,
+};
+
+/** Tout le déterministe est fini ; seule la revue de fond reste. */
+const afterRules: AnalysisProgressInput = {
+  ...base, docsResolved: 100, docsPending: 0, factsDone: true, rulesDone: true, dossierStatus: "IN_REVIEW",
 };
 
 describe("computeAnalysisProgress — pourcentage honnête", () => {
@@ -72,14 +78,44 @@ describe("computeAnalysisProgress — phases sautées", () => {
 
 describe("computeAnalysisProgress — revue différée", () => {
   it("signale l'attente du lot différé sans bloquer à un faux 100 %", () => {
-    const p = computeAnalysisProgress({
-      ...base, docsResolved: 100, docsPending: 0, factsDone: true, rulesDone: true,
-      aiBatchPending: true, dossierStatus: "IN_REVIEW",
-    });
+    const p = computeAnalysisProgress({ ...afterRules, aiBatchPending: true });
     expect(p.awaitingDeferred).toBe(true);
     expect(p.complete).toBe(false);
     expect(p.percent).toBeLessThan(100);
     expect(p.etaSeconds).toBeNull(); // « sous 24 h » se dit en texte, pas en compte à rebours
+  });
+});
+
+/**
+ * BUG VÉCU : la barre restait figée à 87 % en affichant « différé, sous 24 h » alors qu'une revue
+ * IMMÉDIATE tournait — un vieux lot fantôme suffisait à faire mentir l'écran, sans temps restant.
+ */
+describe("revue de fond en cours (voie immédiate)", () => {
+  const running: AnalysisProgressInput = {
+    ...afterRules, aiJobActive: true, aiBatchPending: false,
+    aiDocsTotal: 100, aiDocsReviewed: 40, aiStartedAtMs: 0, nowMs: 200_000,
+  };
+
+  it("ne dit JAMAIS « différé » quand une revue immédiate travaille", () => {
+    expect(running.aiBatchPending).toBe(false);
+    const p = computeAnalysisProgress(running);
+    expect(p.awaitingDeferred).toBe(false);
+    expect(p.phases.find((x) => x.key === "AI_REVIEW")?.detail).toBe("40 / 100 fichiers relus en profondeur");
+  });
+
+  it("la barre AVANCE avec les fichiers relus au lieu de rester figée", () => {
+    const early = computeAnalysisProgress({ ...running, aiDocsReviewed: 5 });
+    const late = computeAnalysisProgress({ ...running, aiDocsReviewed: 80 });
+    expect(late.percent).toBeGreaterThan(early.percent);
+    expect(late.percent).toBeLessThan(100); // toujours pas fini tant que le job n'est pas DONE
+  });
+
+  it("donne un temps restant pendant la revue de fond (c'est la phase la plus longue)", () => {
+    // 40 fichiers en 200 s → 5 s/fichier ; 60 restants → ~300 s.
+    const p = computeAnalysisProgress(running);
+    expect(p.etaSeconds).not.toBeNull();
+    expect(p.etaSeconds!).toBeGreaterThan(250);
+    expect(p.etaSeconds!).toBeLessThan(350);
   });
 });
 

@@ -72,6 +72,35 @@ export function batchStillFresh(submittedAt: Date, now: number): boolean {
   return now - submittedAt.getTime() < BATCH_FRESH_MS;
 }
 
+/** Au-delà, un lot est déclaré perdu : marge confortable après les 26 h de fraîcheur. */
+export const BATCH_EXPIRE_MS = 36 * 60 * 60_000;
+
+/**
+ * Ferme les lots différés FANTÔMES — déposés il y a plus de 36 h et jamais revenus (clé changée,
+ * lot perdu côté fournisseur). Tant qu'ils restent « en vol », ils font écrire « résultats sous
+ * 24 h » à l'écran indéfiniment et empêchent le rattrapage de faire son travail.
+ * Ne lève jamais.
+ */
+export async function expireStaleBatches(): Promise<number> {
+  try {
+    const cutoff = new Date(Date.now() - BATCH_EXPIRE_MS);
+    const r = await prisma.regulatoryAiBatch.updateMany({
+      where: { status: { in: [...BATCH_IN_FLIGHT] }, submittedAt: { lt: cutoff } },
+      data: { status: "expired", error: "Lot jamais revenu du fournisseur (au-delà de 36 h) — clos automatiquement." },
+    });
+    if (r.count > 0) {
+      await regAudit({
+        actorId: "system", action: "AI_BATCH_EXPIRED",
+        detail: `${r.count} lot(s) d'analyse différée clos automatiquement : jamais revenus du fournisseur. Les versions concernées seront rattrapées en analyse immédiate.`,
+      }).catch(() => undefined);
+    }
+    return r.count;
+  } catch (e) {
+    console.error("[reg-catchup] clôture des lots fantômes impossible", e);
+    return 0;
+  }
+}
+
 /**
  * Rattrape les versions dont la revue de fond n'a jamais rien livré. Rend le nombre de versions
  * remises en file. Ne lève jamais.
