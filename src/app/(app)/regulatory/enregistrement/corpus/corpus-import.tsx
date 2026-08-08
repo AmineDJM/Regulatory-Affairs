@@ -26,8 +26,9 @@ import { CORPUS_IMPORT_EXTS, type FileIngestStatus } from "@/lib/regulatory/inte
  *    lesquels ont échoué est inexploitable : on ne sait pas quoi recommencer. Ici chaque ligne
  *    porte son issue et, en cas d'échec, son MOTIF — c'est ce qui dit quoi corriger.
  *
- * 3. **Rien ne devient opposable.** Les textes arrivent en brouillon et n'entrent dans aucune
- *    analyse tant qu'un humain ne les a pas activés. L'écran le dit avant l'import, pas après.
+ * 3. **Déposer SUFFIT.** L'import démarre tout seul dès la sélection (pas de second bouton à
+ *    trouver), et chaque texte importé est ACTIF immédiatement : l'écran est réservé au Super
+ *    Admin, son geste vaut décision. Le seul bouton restant sert à réessayer les échecs.
  */
 
 type Row = {
@@ -56,27 +57,12 @@ export function CorpusImport() {
   // figée à la création de la boucle (piège classique des fermetures sur un état React).
   const cancelled = React.useRef(false);
 
-  const addFiles = (files: FileList | File[]) => {
-    const list = Array.from(files).filter((f) => f.size > 0);
-    if (list.length === 0) return;
-    setRows((prev) => {
-      // Un même fichier glissé deux fois ne crée pas deux lignes : le nom ET la taille.
-      const seen = new Set(prev.map((r) => `${r.file.name}|${r.file.size}`));
-      const next = list
-        .filter((f) => !seen.has(`${f.name}|${f.size}`))
-        .map((f) => ({ id: `${f.name}-${f.size}-${Math.random().toString(36).slice(2, 8)}`, file: f, state: "pending" as const }));
-      return [...prev, ...next];
-    });
-  };
-
-  const start = async () => {
-    if (running) return;
+  // Traite UNE liste de lignes (file à curseur partagé, concurrence bornée). Reçoit les lignes
+  // en paramètre plutôt que de relire l'état : appelable immédiatement après la sélection.
+  const runQueue = async (queue: Row[]) => {
+    if (running || queue.length === 0) return;
     setRunning(true);
     cancelled.current = false;
-
-    // File à curseur partagé : chaque ouvrier prend le prochain en attente. Le nombre de
-    // fichiers n'a aucune influence sur la mémoire — seuls `CONCURRENCY` fichiers sont lus.
-    const queue = rows.filter((r) => r.state === "pending" || r.state === "FAILED");
     let cursor = 0;
 
     const worker = async () => {
@@ -103,7 +89,27 @@ export function CorpusImport() {
 
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
     setRunning(false);
-    router.refresh(); // les compteurs de l'écran (brouillons, actifs) reflètent l'import
+    router.refresh(); // la liste « Textes utilisés » reflète l'import
+  };
+
+  // DÉPOSER SUFFIT : l'import démarre dès la sélection — pas de second bouton à trouver.
+  const addFiles = (files: FileList | File[]) => {
+    const list = Array.from(files).filter((f) => f.size > 0);
+    if (list.length === 0) return;
+    // Un même fichier glissé deux fois ne crée pas deux lignes : le nom ET la taille.
+    const seen = new Set(rows.map((r) => `${r.file.name}|${r.file.size}`));
+    const next = list
+      .filter((f) => !seen.has(`${f.name}|${f.size}`))
+      .map((f) => ({ id: `${f.name}-${f.size}-${Math.random().toString(36).slice(2, 8)}`, file: f, state: "pending" as const }));
+    if (next.length === 0) return;
+    setRows((prev) => [...prev, ...next]);
+    if (!running) void runQueue(next);
+  };
+
+  // Le bouton ne sert plus qu'aux reprises : échecs à réessayer, ou fichiers ajoutés pendant
+  // qu'un import tournait déjà.
+  const start = () => {
+    void runQueue(rows.filter((r) => r.state === "pending" || r.state === "FAILED"));
   };
 
   const counts = React.useMemo(() => ({
@@ -121,7 +127,8 @@ export function CorpusImport() {
         <div>
           <h2 className="text-sm font-semibold">Importer des textes</h2>
           <p className="text-xs text-muted-foreground">
-            PDF, Word, texte, HTML, tableur. Déposez-en autant que vous voulez — ils sont traités un par un.
+            PDF, Word, texte, HTML, tableur. Déposez-en autant que vous voulez — ils sont traités un par un
+            et <strong>utilisés immédiatement par toutes les analyses</strong>.
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={running}>
@@ -163,22 +170,29 @@ export function CorpusImport() {
       {rows.length > 0 && (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={start} disabled={running || counts.pending + counts.ko === 0}>
-              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              {running ? `Import en cours — ${done}/${rows.length}` : `Importer ${counts.pending + counts.ko} document(s)`}
-            </Button>
-            {running && (
-              <Button size="sm" variant="outline" onClick={() => { cancelled.current = true; }}>
-                Arrêter après le fichier en cours
-              </Button>
-            )}
-            {!running && (
-              <Button size="sm" variant="ghost" onClick={() => setRows([])}>
-                <Trash2 className="h-4 w-4" /> Vider la liste
-              </Button>
+            {running ? (
+              <>
+                <span className="inline-flex items-center gap-1.5 text-sm font-medium">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" /> Import en cours — {done}/{rows.length}
+                </span>
+                <Button size="sm" variant="outline" onClick={() => { cancelled.current = true; }}>
+                  Arrêter après le fichier en cours
+                </Button>
+              </>
+            ) : (
+              <>
+                {counts.pending + counts.ko > 0 && (
+                  <Button size="sm" onClick={start}>
+                    <Upload className="h-4 w-4" /> Réessayer {counts.pending + counts.ko} document(s)
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setRows([])}>
+                  <Trash2 className="h-4 w-4" /> Vider la liste
+                </Button>
+              </>
             )}
             <span className="text-xs text-muted-foreground">
-              {counts.ok} importé(s) · {counts.dup} déjà présent(s) · {counts.ko} en échec
+              {counts.ok} actif(s) · {counts.dup} déjà présent(s) · {counts.ko} en échec
             </span>
           </div>
 
@@ -192,7 +206,7 @@ export function CorpusImport() {
                   <p className="truncate font-medium">{r.file.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {Math.max(1, Math.round(r.file.size / 1024))} Ko
-                    {r.state === "INGESTED" && ` · ${r.sections ?? 0} section(s) · brouillon`}
+                    {r.state === "INGESTED" && ` · ${r.sections ?? 0} section(s) · ACTIF — utilisé par les analyses`}
                     {r.state === "UNCHANGED" && " · contenu identique à la version connue — rien créé"}
                     {r.message && ` · ${r.message}`}
                   </p>
@@ -204,10 +218,9 @@ export function CorpusImport() {
       )}
 
       <p className="rounded-xl border border-border bg-secondary/40 p-3 text-xs text-muted-foreground">
-        Les textes importés arrivent en <strong>brouillon</strong> : ils n&apos;entrent dans <strong>aucune analyse</strong>{" "}
-        tant que vous ne les avez pas <strong>activés</strong>. C&apos;est volontaire — décider qu&apos;un texte fait foi
-        est un acte humain. Un document dont le contenu est identique à une version déjà connue n&apos;est
-        <strong> pas recréé</strong>.
+        Déposer suffit : chaque texte est <strong>actif dès l&apos;import</strong> et cité par toutes les analyses.
+        Réimporter un document au contenu identique ne crée <strong>jamais de doublon</strong> ; une nouvelle
+        version du même texte remplace l&apos;ancienne.
       </p>
     </section>
   );

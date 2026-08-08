@@ -35,8 +35,9 @@ export default async function AnalyseWorkspacePage() {
     { label: "Référentiel ANPP", href: "/regulatory/enregistrement" },
     { label: "Analyse CTD", href: "/regulatory/enregistrement/analyse" },
     ...(regCan(user, "regulatory.reserve.manage") ? [{ label: "Réserves ANPP", href: "/regulatory/enregistrement/reserves" }] : []),
-    ...(regCan(user, "regulatory.corpus.view") || regCan(user, "regulatory.corpus.manage")
-      ? [{ label: "Corpus", href: "/regulatory/enregistrement/corpus" }] : []),
+    // Le corpus est un acte d'ADMINISTRATION (ce qui fait foi pour toutes les analyses) :
+    // l'onglet n'existe que pour le Super Admin.
+    ...(user.role === "SUPER_ADMIN" ? [{ label: "Corpus", href: "/regulatory/enregistrement/corpus" }] : []),
   ];
 
   return (

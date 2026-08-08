@@ -20,8 +20,10 @@ interface Result { ok: boolean; error?: string; id?: string }
 
 const str = (fd: FormData, k: string) => { const v = fd.get(k); return v ? String(v).trim() : null; };
 
+// Le corpus est RÉSERVÉ AU SUPER ADMIN : il fait foi pour les analyses de toutes les entités —
+// c'est un acte d'administration, pas une permission de module.
 function canManage(user: { role: string }): boolean {
-  return user.role === "SUPER_ADMIN" || regCan(user as never, "regulatory.corpus.manage");
+  return user.role === "SUPER_ADMIN";
 }
 
 export async function createCorpusSourceVersion(formData: FormData): Promise<Result> {
@@ -90,7 +92,7 @@ export async function importCorpusFileAction(formData: FormData): Promise<FileIn
   if (res.status === "INGESTED") {
     await regAudit({
       actorId: user.id, action: "CORPUS_IMPORTED",
-      detail: `Texte importé : « ${res.filename} » — ${res.sections ?? 0} section(s), ${res.chars ?? 0} caractères. Statut DRAFT : non opposable tant qu'il n'est pas activé.`,
+      detail: `Texte importé : « ${res.filename} » — ${res.sections ?? 0} section(s), ${res.chars ?? 0} caractères. ACTIF : utilisé par toutes les analyses dès maintenant.`,
     }).catch(() => undefined);
     revalidatePath("/regulatory/enregistrement/corpus");
   }
@@ -127,7 +129,7 @@ export async function setCorpusVersionStatus(formData: FormData): Promise<Result
 /** Recherche RAG de test (admin) — renvoie des citations du corpus actif. */
 export async function searchCorpusAction(formData: FormData): Promise<{ ok: boolean; citations: Citation[] }> {
   const user = await requireUser();
-  if (!regCan(user, "regulatory.corpus.view") && user.role !== "SUPER_ADMIN") return { ok: false, citations: [] };
+  if (user.role !== "SUPER_ADMIN") return { ok: false, citations: [] };
   const q = str(formData, "q") ?? "";
   return { ok: true, citations: await searchCorpus(q, { limit: 8 }) };
 }

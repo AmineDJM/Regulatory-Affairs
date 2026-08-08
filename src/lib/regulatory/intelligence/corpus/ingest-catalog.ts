@@ -7,9 +7,10 @@ import { fetchSource } from "./fetch-source";
  *
  * Deux principes non négociables :
  *
- * 1. **Rien ne s'active tout seul.** Une version ingérée arrive au statut `DRAFT`. Elle ne
- *    devient `ACTIVE` — c'est-à-dire opposable dans les analyses — que par le circuit
- *    d'approbation humaine déjà en place. Une ligne directrice qui fait foi ne s'auto-proclame pas.
+ * 1. **L'ingestion par l'administrateur vaut activation.** Le corpus est réservé au Super Admin :
+ *    son geste d'ingérer EST la décision humaine, la version arrive `ACTIVE` (opposable dans les
+ *    analyses) et la précédente du même texte est retirée. Seules les pages de VEILLE restent en
+ *    relevé `DRAFT` sans effet — ce sont des sommaires de site, pas des textes réglementaires.
  *
  * 2. **L'empreinte décide.** Si le contenu téléchargé a la même empreinte que la version déjà
  *    connue, on ne crée RIEN : pas de doublon, pas de re-découpage, pas de bruit dans le RAG.
@@ -78,18 +79,25 @@ export async function ingestCatalogSource(code: string, userId?: string | null):
       return { code, ok: true, unchanged: true, sourceVersionId: latest.id, bytes: fetched.bytes };
     }
 
-    // Nouvelle version — au statut DRAFT : elle n'est PAS opposable tant qu'un humain n'a pas activé.
+    // Nouvelle version — ACTIVE d'emblée : l'ingestion est déclenchée par l'administrateur, son
+    // geste vaut décision. La version précédente du même texte est retirée juste après.
     const version = await prisma.regulatorySourceVersion.create({
       data: {
         sourceId: source.id,
         version: versionLabel(),
-        status: "DRAFT",
+        status: "ACTIVE",
         hash: fetched.sha256,
         originalText: fetched.text.slice(0, 5_000_000),
         supersedesId: latest?.id ?? null,
         publishedAt: new Date(),
+        approvedById: userId ?? null,
+        approvedAt: new Date(),
       },
       select: { id: true },
+    });
+    await prisma.regulatorySourceVersion.updateMany({
+      where: { sourceId: source.id, status: "ACTIVE", id: { not: version.id } },
+      data: { status: "RETIRED" },
     });
 
     const sections = fetched.sections ?? [];

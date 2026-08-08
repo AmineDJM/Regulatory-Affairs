@@ -77,7 +77,7 @@ export function CorpusPanel({ firstWave, missing, watchPages }: { firstWave: Src
         <p className="text-xs text-muted-foreground">
           Les sources sont téléchargées <strong>une par une, espacées</strong> — ce sont des services publics.
           Compter plusieurs minutes pour tout le catalogue. Une version déjà connue à l&apos;identique n&apos;est
-          pas recréée, et <strong>rien ne devient opposable</strong> sans activation.
+          pas recréée ; chaque texte téléchargé est <strong>actif dès l&apos;import</strong>.
         </p>
 
         <div className="flex flex-wrap gap-2">

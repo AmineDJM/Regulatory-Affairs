@@ -19,11 +19,14 @@ export type { FileIngestResult, FileIngestStatus } from "./import-formats";
  * ne sont pas en ligne : arrêtés remis en main propre, notes de l'agence, monographies achetées,
  * documents reçus par courrier. Ils n'avaient aucune porte d'entrée.
  *
- * Les deux principes de l'ingestion catalogue s'appliquent à l'identique — les changer ici aurait
- * créé deux corpus aux règles différentes :
+ * Les deux principes valent pour TOUTES les voies d'ingestion — les faire diverger créerait deux
+ * corpus aux règles différentes :
  *
- *   1. **Rien ne s'active tout seul.** Une version importée arrive en `DRAFT`. Elle ne devient
- *      opposable qu'après activation humaine. Un texte qui fait foi ne s'auto-proclame pas.
+ *   1. **L'import PAR L'ADMINISTRATEUR vaut activation.** Le corpus est réservé au Super Admin :
+ *      son geste d'import EST la décision humaine. La version arrive `ACTIVE` et la précédente du
+ *      même texte est retirée — déposer un texte suffit pour qu'il serve à toutes les analyses.
+ *      (L'ancien circuit exigeait une activation séparée : des dizaines de textes déposés restaient
+ *      « sans effet » sans que rien ne le rende actionnable.)
  *   2. **L'empreinte décide.** Même contenu ⇒ rien n'est créé. Réimporter cinquante fichiers dont
  *      quarante sont déjà connus ne coûte rien et ne pollue pas le RAG.
  *
@@ -111,13 +114,20 @@ export async function ingestCorpusFile(input: ImportFileInput): Promise<FileInge
       data: {
         sourceId: source.id,
         version: new Date().toISOString().slice(0, 10),
-        status: "DRAFT", // jamais opposable sans activation humaine
+        status: "ACTIVE", // l'import par l'administrateur VAUT activation
         hash,
         originalText: text.slice(0, 5_000_000),
         supersedesId: latest?.id ?? null,
         publishedAt: new Date(),
+        approvedById: input.userId ?? null,
+        approvedAt: new Date(),
       },
       select: { id: true },
+    });
+    // Une seule version fait foi par texte : la précédente est retirée.
+    await prisma.regulatorySourceVersion.updateMany({
+      where: { sourceId: source.id, status: "ACTIVE", id: { not: version.id } },
+      data: { status: "RETIRED" },
     });
 
     const sections = splitIntoSections(text);
