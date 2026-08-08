@@ -52,9 +52,19 @@ export interface AiCatchupState {
   aiJobActive: boolean;
   /** Un lot différé déposé il y a moins de 26 h est encore en vol : il va livrer. */
   freshBatchInFlight: boolean;
-  /** Cette version a DÉJÀ été rattrapée une fois. */
-  alreadyCaughtUp: boolean;
+  /** Nombre de rattrapages DÉJÀ déclenchés sur cette version. */
+  catchupCount: number;
+  /**
+   * La dernière revue de fond s'est soldée par un ÉCHEC TECHNIQUE (job FAILED) — panne du
+   * fournisseur, paramètre refusé, contenu illisible. Ce n'est pas la même chose qu'un dossier
+   * légitimement sans constat : l'analyse n'a jamais eu lieu, et une fois la panne corrigée le
+   * dossier doit se soigner tout seul plutôt que d'attendre un clic.
+   */
+  lastReviewFailed: boolean;
 }
+
+/** Rattrapages maximaux quand la revue échoue techniquement : une seconde chance, pas une boucle. */
+export const MAX_AI_CATCHUPS_AFTER_FAILURE = 2;
 
 /**
  * Faut-il rattraper la revue de fond de cette version ? Fonction PURE — testée.
@@ -63,10 +73,15 @@ export interface AiCatchupState {
  */
 export function shouldCatchUpAi(s: AiCatchupState): boolean {
   if (!s.deterministicDone) return false;
-  if (s.alreadyCaughtUp) return false;
   if (s.aiJobActive) return false;
   if (s.freshBatchInFlight) return false;
-  return s.aiFindings === 0;
+  if (s.aiFindings > 0) return false;
+  // Jamais deux analyses payantes sur un dossier légitimement sans constat…
+  if (s.catchupCount === 0) return true;
+  // …mais une SECONDE chance quand la précédente a échoué techniquement : sans elle, corriger la
+  // panne ne réparerait aucun des dossiers qu'elle a laissés non analysés. Bornée, donc jamais
+  // une boucle sur une panne durable.
+  return s.lastReviewFailed && s.catchupCount < MAX_AI_CATCHUPS_AFTER_FAILURE;
 }
 
 /** Un lot déposé à `submittedAt` peut-il encore livrer ? PURE — testée. */
@@ -119,15 +134,32 @@ export async function catchUpMissingAiReviews(limit = AI_CATCHUP_PER_TICK): Prom
         select: { dossierVersionId: true, submittedAt: true },
         take: 500,
       }),
-      prisma.regulatoryAuditLog.findMany({
+      prisma.regulatoryAuditLog.groupBy({
+        by: ["dossierVersionId"],
         where: { action: "AI_CATCHUP", dossierVersionId: { not: null } },
-        select: { dossierVersionId: true },
-        take: 2000,
+        _count: { _all: true },
       }),
     ]);
     const excluded = new Set<string>();
     for (const b of batches) if (b.dossierVersionId && batchStillFresh(b.submittedAt, now)) excluded.add(b.dossierVersionId);
-    for (const a of caughtUp) if (a.dossierVersionId) excluded.add(a.dossierVersionId);
+
+    // Versions déjà rattrapées : exclues SAUF si la dernière revue a échoué techniquement et
+    // qu'il reste une chance — c'est ce qui fait se réparer tout seuls les dossiers laissés
+    // non analysés par une panne, une fois celle-ci corrigée.
+    const counts = new Map<string, number>();
+    for (const a of caughtUp) if (a.dossierVersionId) counts.set(a.dossierVersionId, a._count._all);
+    if (counts.size > 0) {
+      const failedAgain = await prisma.regulatoryJob.findMany({
+        where: { dossierVersionId: { in: [...counts.keys()] }, type: "AI_REVIEW", status: "FAILED" },
+        select: { dossierVersionId: true },
+        distinct: ["dossierVersionId"],
+      }).catch(() => [] as { dossierVersionId: string | null }[]);
+      const failed = new Set(failedAgain.map((j) => j.dossierVersionId).filter((x): x is string => !!x));
+      for (const [versionId, count] of counts) {
+        const deserves = failed.has(versionId) && count < MAX_AI_CATCHUPS_AFTER_FAILURE;
+        if (!deserves) excluded.add(versionId);
+      }
+    }
 
     // Candidates : bilan déterministe présent, AUCUN constat IA, aucun job de revue en file.
     const versions = await prisma.regulatoryDossierVersion.findMany({

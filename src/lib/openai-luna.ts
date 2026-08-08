@@ -16,6 +16,8 @@
  * Serveur uniquement. Ne lève jamais : tout échec revient en résultat structuré.
  */
 
+import { sanitizeForModel } from "./ai-text";
+
 // Tarifs officiels (30 juillet 2026), en dollars par MILLION de jetons.
 const PRICE_INPUT_PER_M = 0.2;
 const PRICE_OUTPUT_PER_M = 1.2;
@@ -95,16 +97,21 @@ interface ChatMessageContent {
 
 /** Construit le corps d'un appel Chat Completions (texte + images + schéma JSON). */
 export function buildLunaBody(input: LunaCallInput, batch = false): Record<string, unknown> {
-  const content: ChatMessageContent[] = [{ type: "text", text: input.user }];
+  // ASSAINISSEMENT au point de passage UNIQUE de l'appel synchrone ET du Batch : aucune voie ne
+  // peut l'oublier. Un caractère invalide hérité de l'OCR faisait refuser la requête (400) et,
+  // avec elle, la revue de fond du dossier entier.
+  const user = sanitizeForModel(input.user);
+  const system = input.system ? sanitizeForModel(input.system) : undefined;
+  const content: ChatMessageContent[] = [{ type: "text", text: user }];
   for (const img of input.images ?? []) {
     const mime = img.mime ?? "image/png";
     content.push({ type: "image_url", image_url: { url: `data:${mime};base64,${img.buffer.toString("base64")}` } });
   }
 
   const messages: { role: string; content: string | ChatMessageContent[] }[] = [];
-  if (input.system) messages.push({ role: "system", content: input.system });
+  if (system) messages.push({ role: "system", content: system });
   // Une seule partie texte et pas d'image → forme simple (payload plus léger).
-  messages.push({ role: "user", content: content.length === 1 ? input.user : content });
+  messages.push({ role: "user", content: content.length === 1 ? user : content });
 
   return {
     model: input.model ?? lunaModel(),
@@ -141,6 +148,36 @@ export function readUsage(raw: ChatResponse["usage"], fallbackIn: number, fallba
 }
 
 /**
+ * Le refus porte-t-il sur `temperature` ? (message d'erreur du fournisseur, formulations variées)
+ * Isolée et PURE pour être testable sans réseau : c'est la porte de sortie d'une panne totale.
+ */
+export function mentionsUnsupportedTemperature(body: string): boolean {
+  const b = body.toLowerCase();
+  if (!b.includes("temperature")) return false;
+  return b.includes("unsupported") || b.includes("not supported") || b.includes("unrecognized")
+    || b.includes("does not support") || b.includes("invalid_request_error") || b.includes("unknown parameter");
+}
+
+/**
+ * RAISON EXACTE d'un refus de l'API, au lieu d'un code nu.
+ *
+ * « Erreur IA (HTTP 400) » n'apprend rien : un 400 peut être un texte trop long, un schéma refusé,
+ * un contenu illisible. Le corps de la réponse porte toujours la raison — on la remonte jusqu'à la
+ * notification, pour qu'une panne se NOMME au lieu de se deviner.
+ */
+export function lunaErrorMessage(status: number, body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string; code?: string } };
+    const msg = parsed.error?.message?.trim();
+    if (msg) return `Erreur IA (HTTP ${status}) : ${msg.slice(0, 300)}`;
+  } catch {
+    /* corps non JSON — extrait brut ci-dessous */
+  }
+  const raw = body.replace(/\s+/g, " ").trim().slice(0, 200);
+  return raw ? `Erreur IA (HTTP ${status}) : ${raw}` : `Erreur IA (HTTP ${status}).`;
+}
+
+/**
  * Appel synchrone. À réserver aux cas INTERACTIFS (l'utilisateur attend) ; pour l'analyse d'un
  * dossier entier, passer par le Batch — même travail, moitié prix.
  */
@@ -154,6 +191,7 @@ export async function callLuna<T = unknown>(input: LunaCallInput): Promise<LunaR
 
   // Jusqu'à 3 tentatives sur surcharge / limite de débit / réseau.
   let lastError = "Appel à l'IA impossible (réseau).";
+  let droppedTemperature = false;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const res = await fetch(`${base}/v1/chat/completions`, {
@@ -176,7 +214,23 @@ export async function callLuna<T = unknown>(input: LunaCallInput): Promise<LunaR
 
       const raw = await res.text().catch(() => "");
       console.error("[luna] erreur API", res.status, raw.slice(0, 300));
-      lastError = `Erreur IA (HTTP ${res.status}).`;
+      lastError = lunaErrorMessage(res.status, raw);
+
+      // PARAMÈTRE REFUSÉ PAR LE MODÈLE → on le retire et on rejoue, une fois.
+      //
+      // Les modèles de raisonnement récents n'acceptent plus `temperature` : ils répondent 400
+      // « Unsupported value », de façon DÉTERMINISTE. Envoyé à chaque part, ce paramètre faisait
+      // donc échouer la revue de fond du dossier ENTIER — pas une part de temps en temps, TOUT,
+      // à chaque tentative. Or la température n'est pas essentielle ici : les garde-fous en aval
+      // (schéma de sortie, ancrage des preuves) ne dépendent pas d'elle. On la retire et on
+      // continue, plutôt que de rendre un dossier non analysé.
+      if (res.status === 400 && !droppedTemperature && mentionsUnsupportedTemperature(raw)) {
+        droppedTemperature = true;
+        delete (body as { temperature?: number }).temperature;
+        console.warn("[luna] `temperature` refusée par le modèle — retirée, nouvelle tentative");
+        continue;
+      }
+
       const retryable = res.status === 429 || res.status >= 500;
       if (!retryable || attempt === 3) return { ok: false, configured: true, text: "", usage: EMPTY_USAGE, error: lastError };
     } catch (err) {

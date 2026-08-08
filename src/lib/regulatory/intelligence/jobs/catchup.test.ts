@@ -11,7 +11,8 @@ const base: AiCatchupState = {
   aiFindings: 0,
   aiJobActive: false,
   freshBatchInFlight: false,
-  alreadyCaughtUp: false,
+  catchupCount: 0,
+  lastReviewFailed: false,
 };
 
 describe("shouldCatchUpAi", () => {
@@ -19,8 +20,21 @@ describe("shouldCatchUpAi", () => {
     expect(shouldCatchUpAi(base)).toBe(true);
   });
 
-  it("ne rattrape JAMAIS deux fois — pas de boucle payante", () => {
-    expect(shouldCatchUpAi({ ...base, alreadyCaughtUp: true })).toBe(false);
+  it("ne rattrape pas deux fois un dossier légitimement sans constat — pas de boucle payante", () => {
+    expect(shouldCatchUpAi({ ...base, catchupCount: 1 })).toBe(false);
+  });
+
+  /**
+   * La distinction qui compte : « aucun constat » et « l'analyse n'a jamais eu lieu » produisent
+   * le même écran vide, mais pas la même conduite. Quand une panne a fait échouer la revue, la
+   * corriger doit suffire à réparer les dossiers qu'elle a laissés — sans un clic par dossier.
+   */
+  it("accorde une SECONDE chance quand la revue a échoué techniquement", () => {
+    expect(shouldCatchUpAi({ ...base, catchupCount: 1, lastReviewFailed: true })).toBe(true);
+  });
+
+  it("mais s'arrête là : une panne durable ne doit pas boucler", () => {
+    expect(shouldCatchUpAi({ ...base, catchupCount: 2, lastReviewFailed: true })).toBe(false);
   });
 
   it("ne double pas un travail en cours (job de revue en file)", () => {
