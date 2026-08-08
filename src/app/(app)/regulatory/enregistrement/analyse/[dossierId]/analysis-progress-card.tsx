@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Loader2, Clock, Sparkles, Hourglass, PauseCircle } from "lucide-react";
+import { CheckCircle2, Loader2, Clock, Sparkles, Hourglass, PauseCircle, AlertTriangle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatEta } from "@/lib/regulatory/intelligence/progress/analysis-progress";
 import type { AnalysisProgressResult } from "@/lib/regulatory/intelligence/progress/query";
@@ -38,6 +38,47 @@ export function AnalysisProgressCard({ versionId, initial }: { versionId: string
     const id = setInterval(tick, 4000);
     return () => { alive = false; clearInterval(id); };
   }, [versionId, p.running, router]);
+
+  // UNE ANALYSE QUI N'A PAS EU LIEU DOIT SE VOIR. Sans ce bloc, une panne totale donnait
+  // exactement le même écran qu'un dossier irréprochable : rien.
+  if (!p.running && p.aiFailure) {
+    return (
+      <Card className="border-destructive/50">
+        <CardContent className="space-y-2 p-4 sm:p-5">
+          <p className="flex items-center gap-2 text-sm font-semibold text-destructive">
+            <AlertTriangle className="h-4 w-4 shrink-0" /> La revue de fond n&apos;a pas pu s&apos;exécuter
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Ce dossier <strong>n&apos;a pas été examiné sur le fond</strong> : les contrôles de complétude ci-dessous
+            restent valables, mais aucun constat d&apos;analyse n&apos;a pu être produit. Les constats précédents ont été conservés.
+          </p>
+          <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 font-mono text-[0.6875rem] text-destructive">
+            {p.aiFailure}
+          </p>
+          <p className="text-[0.6875rem] text-muted-foreground">
+            Relancez avec « Relancer l&apos;analyse » (porte de soumission) une fois la cause levée.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Analyse aboutie mais SANS le moindre constat : à dire aussi — c'est une information, pas un vide.
+  if (!p.running && p.aiFoundNothing) {
+    return (
+      <Card className="border-success/40">
+        <CardContent className="p-4 sm:p-5">
+          <p className="flex items-center gap-2 text-sm font-semibold text-success">
+            <CheckCircle2 className="h-4 w-4 shrink-0" /> Revue de fond terminée — aucun écart relevé
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            L&apos;IA a lu le dossier sans relever d&apos;écart de fond. Ce n&apos;est pas une garantie de conformité :
+            la relecture humaine reste requise, et les contrôles de complétude ci-dessous font foi.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   // Rien à montrer si l'analyse est finie ET la page déjà à jour.
   if (!p.running && p.complete) return null;

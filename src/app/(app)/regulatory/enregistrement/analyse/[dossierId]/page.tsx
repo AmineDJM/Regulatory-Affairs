@@ -192,7 +192,9 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
 
       {/* PROGRESSION VIVANTE — quand l'analyse tourne, elle passe AVANT tout le reste : c'est
           la réponse à « où en est-on ? ». S'actualise seule et disparaît une fois terminée. */}
-      {progress && progress.running && <AnalysisProgressCard versionId={latest!.id} initial={progress} />}
+      {progress && (progress.running || progress.aiFailure || progress.aiFoundNothing) && (
+        <AnalysisProgressCard versionId={latest!.id} initial={progress} />
+      )}
 
       {/* VERDICT GO / NO-GO — la synthèse qu'on lit en trois secondes avant tout le reste.
           Un seul mot, sa raison, l'état chiffré, et les réserves les plus probables. */}

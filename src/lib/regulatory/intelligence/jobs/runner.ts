@@ -24,6 +24,8 @@ import { splitTextIntoChunks, splitTextIntoChunksWithOffsets, chunkPageSpan } fr
 import { pageSpanOfSlice, anchorEvidence } from "../extract/pages";
 import { sectionByCode } from "../ctd/taxonomy";
 import { aiConfigured } from "@/lib/ai";
+import { notifyRoles } from "@/lib/notify";
+import { getAppSettings } from "@/lib/settings";
 import { enrichVersionFindings, type EnrichmentContext } from "../findings/enrich";
 import { regAudit } from "../audit";
 
@@ -764,6 +766,16 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
   let analyzedDocs = 0;
   /** Une part refusée faute de budget arrête l'analyse : continuer produirait un trou silencieux. */
   let budgetStopped = false;
+  /**
+   * Parts réellement LUES vs parts en ÉCHEC, et la première raison d'échec.
+   *
+   * Sans ce comptage, une panne totale (clé invalide, quota épuisé, fournisseur indisponible)
+   * se terminait en « job DONE, 0 constat » : le dossier avait l'air impeccable alors que
+   * l'analyse n'avait jamais eu lieu. C'est le pire des résultats possibles — on s'y fie.
+   */
+  let okParts = 0;
+  let failedParts = 0;
+  let firstError: string | null = null;
 
   for (const d of ordered) {
     if (maxChunks > 0 && usedChunks >= maxChunks) break;
@@ -807,19 +819,46 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
           lunaReviewFn({ dossierId: job.dossierId, dossierVersionId: versionId, documentId: d.id, step: "review" }),
         );
         if (r.ok) {
+          okParts++;
           for (const f of r.findings) {
             // L'ANCRAGE PRIME SUR L'ESTIMATION : si la preuve citée se retrouve dans le texte,
             // sa page devient LA page — celle qu'on ouvre au clic, celle qu'on montre en séance.
             const anchored = pageMap ? anchorEvidence(content, pageMap, f.evidence) : null;
             collected.push({ ...f, page: anchored ?? f.page, documentId: d.id });
           }
+        } else {
+          failedParts++;
+          firstError ??= r.error ?? "raison inconnue";
+          if ((r.error ?? "").includes("Budget IA")) budgetStopped = true;
         }
-        else if ((r.error ?? "").includes("Budget IA")) budgetStopped = true;
       } catch (err) {
+        failedParts++;
+        firstError ??= err instanceof Error ? err.message : String(err);
         console.error("[reg-ai] analyse d'une part échouée", d.id, i, err instanceof Error ? err.message : err);
       }
     });
     if (budgetStopped) break;
+  }
+
+  // ── PANNE TOTALE : aucune part n'a pu être lue. Ce n'est PAS un dossier sans reproche.
+  // On ne détruit pas les constats existants, on marque le job en échec avec sa raison, et on
+  // prévient — un « terminé, 0 constat » silencieux ferait croire à un dossier impeccable.
+  if (okParts === 0 && failedParts > 0) {
+    const reason = firstError ?? "raison inconnue";
+    await prisma.regulatoryJob.update({
+      where: { id: job.id },
+      data: { status: "FAILED", finishedAt: new Date(), error: `Revue de fond impossible (${failedParts} lecture(s) en échec) : ${reason}`.slice(0, 500) },
+    });
+    await regAudit({
+      companyId: job.companyId, actorId: "system", dossierId: job.dossierId, dossierVersionId: versionId,
+      action: "AI_REVIEW_FAILED",
+      detail: `⚠ La revue de fond n'a RIEN pu lire : ${failedParts} lecture(s) en échec — ${reason}. Aucun constat n'a été produit et les constats précédents sont CONSERVÉS. Ce dossier n'a pas été examiné sur le fond.`,
+    }).catch(() => undefined);
+    await notifyAiReviewOutcome(job, versionId, {
+      title: "Revue de fond impossible",
+      body: `La lecture de fond du dossier a échoué (${reason.slice(0, 120)}). Le dossier n'a PAS été examiné sur le fond.`,
+    });
+    return;
   }
 
   // Dédoublonne (même document + même titre) puis garde les constats les PLUS SÉVÈRES (plafond).
@@ -855,9 +894,19 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
     // « Incomplète » se dit, toujours. Un dossier lu à moitié qui a l'air complet est pire qu'un
     // dossier non analysé, parce qu'on s'y fie.
     detail: `Revue IA (PROJET — revue humaine requise) : ${kept.length} constat(s) sur ${usedChunks} part(s) de ${analyzedDocs} document(s)`
+      + (failedParts > 0 ? ` — ⚠ ${failedParts} part(s) n'ont PAS pu être lues (${firstError ?? "raison inconnue"})` : "")
       + (budgetStopped ? " — ⚠ ANALYSE INCOMPLÈTE : plafond budgétaire du dossier atteint, le reste n'a PAS été lu. Relevez le plafond et relancez." : "")
       + (!budgetStopped && maxChunks > 0 && usedChunks >= maxChunks ? ` — ⚠ ANALYSE INCOMPLÈTE : plafond de ${maxChunks} parts atteint (REG_AI_MAX_CHUNKS), le reste n'a PAS été lu.` : "")
       + ".",
+  });
+
+  // LA FIN DE L'ANALYSE SE DIT. Sans cela, une revue lancée puis oubliée reste invisible : le
+  // pharmacien n'a aucune raison de revenir sur l'écran au bon moment.
+  await notifyAiReviewOutcome(job, versionId, {
+    title: kept.length > 0 ? "Analyse de fond terminée" : "Analyse de fond terminée — aucun constat",
+    body: kept.length > 0
+      ? `${kept.length} constat(s) de fond à relire (PROJET — revue humaine requise) sur ${analyzedDocs} document(s).`
+      : `Aucun écart relevé sur ${analyzedDocs} document(s) lus. À confirmer par une relecture humaine.`,
   });
 
   const productId = job.dossierId
@@ -867,6 +916,37 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
 
   // Là où le balayage a trouvé du CRITIQUE, l'agent spécialiste repasse — automatiquement.
   await escalateCriticalSections(versionId, { companyId: job.companyId, dossierId: job.dossierId });
+}
+
+/**
+ * PRÉVIENT à la fin d'une revue de fond — succès, silence ou panne.
+ *
+ * La revue tourne en arrière-plan, parfois de longues minutes : sans notification, son résultat
+ * n'existe que pour qui pense à rouvrir l'écran au bon moment. On prévient donc les rôles
+ * superviseurs du module (réglage `regulatorySupervisorRoles`) et le Super Admin.
+ * Ne lève jamais : une notification ratée n'annule pas une analyse réussie.
+ */
+async function notifyAiReviewOutcome(
+  job: RegulatoryJob,
+  versionId: string,
+  msg: { title: string; body: string },
+): Promise<void> {
+  try {
+    if (!job.dossierId) return;
+    const dossier = await prisma.regulatoryDossier.findUnique({
+      where: { id: job.dossierId },
+      select: { reference: true, title: true },
+    });
+    const roles = (await getAppSettings().catch(() => null))?.regulatorySupervisorRoles ?? [];
+    await notifyRoles([...new Set([...roles, "SUPER_ADMIN"])] as never, {
+      type: "GENERIC",
+      title: msg.title,
+      body: `${dossier ? `${dossier.reference} — ${dossier.title} : ` : ""}${msg.body}`,
+      link: `/regulatory/enregistrement/analyse/${job.dossierId}`,
+    });
+  } catch (e) {
+    console.error("[reg-ai] notification de fin de revue impossible", versionId, e);
+  }
 }
 
 /**

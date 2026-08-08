@@ -17,6 +17,13 @@ const BATCH_IN_FLIGHT = ["submitted", "validating", "in_progress", "finalizing"]
 export interface AnalysisProgressResult extends AnalysisProgress {
   /** Vrai tant que la machine a quelque chose à faire (pour décider d'afficher la carte + polling). */
   running: boolean;
+  /**
+   * Raison de l'échec de la DERNIÈRE revue de fond, quand elle a échoué. Affichée telle quelle :
+   * une analyse qui n'a pas eu lieu doit se voir à l'écran, pas seulement dans le journal.
+   */
+  aiFailure: string | null;
+  /** La dernière revue de fond a abouti sans relever le moindre écart. */
+  aiFoundNothing: boolean;
 }
 
 export async function getAnalysisProgress(versionId: string, dossierStatus: string): Promise<AnalysisProgressResult> {
@@ -33,7 +40,7 @@ export async function getAnalysisProgress(versionId: string, dossierStatus: stri
     prisma.regulatoryDocument.count({ where: { dossierVersionId: versionId, extractionStatus: "OCR_COMPLETED" } }),
     prisma.regulatoryJob.findFirst({ where: { dossierVersionId: versionId, type: "FACTS" }, select: { status: true } }),
     prisma.regulatoryJob.findFirst({ where: { dossierVersionId: versionId, type: "RULES" }, select: { status: true } }),
-    prisma.regulatoryJob.findFirst({ where: { dossierVersionId: versionId, type: "AI_REVIEW" }, orderBy: { createdAt: "desc" }, select: { status: true, createdAt: true, startedAt: true } }),
+    prisma.regulatoryJob.findFirst({ where: { dossierVersionId: versionId, type: "AI_REVIEW" }, orderBy: { createdAt: "desc" }, select: { status: true, createdAt: true, startedAt: true, error: true, finishedAt: true } }),
     prisma.regulatoryAiBatch.count({ where: { dossierVersionId: versionId, status: { in: [...BATCH_IN_FLIGHT] }, submittedAt: { gte: batchFreshSince } } }),
     prisma.regulatoryJob.findFirst({ where: { dossierVersionId: versionId }, orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
   ]);
@@ -93,5 +100,13 @@ export async function getAnalysisProgress(versionId: string, dossierStatus: stri
   // en phase d'ingestion/analyse sans assessment. Sert à afficher la carte et à décider du polling.
   const running = !progress.complete && (activeJobs > 0 || batchPending > 0 || dossierStatus === "INGESTING" || dossierStatus === "INGESTED" || dossierStatus === "ANALYSING");
 
-  return { ...progress, running };
+  // Une revue de fond qui a ÉCHOUÉ, ou qui s'est terminée SANS aucun constat, doit se voir :
+  // les deux cas donnent un écran vide, mais ils ne veulent pas dire la même chose du tout.
+  const aiFailure = aiReviewJob?.status === "FAILED" ? (aiReviewJob.error ?? "Raison non enregistrée.") : null;
+  const aiFindings = aiInPipeline
+    ? await prisma.regulatoryFinding.count({ where: { dossierVersionId: versionId, source: "AI" } })
+    : 0;
+  const aiFoundNothing = aiReviewJob?.status === "DONE" && aiFindings === 0;
+
+  return { ...progress, running, aiFailure, aiFoundNothing };
 }
