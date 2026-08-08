@@ -14,6 +14,7 @@ import { foldTail } from "@/components/charts/palette";
 import { formatDate } from "@/lib/utils";
 import { ReserveLibraryPanel } from "./reserve-library-panel";
 import { BackLink } from "@/components/shared/back-link";
+import { RegScopeCard } from "../scope-gate";
 
 export const metadata = { title: "Réserves ANPP — bibliothèque" };
 export const dynamic = "force-dynamic";
@@ -34,7 +35,22 @@ export default async function ReserveLibraryPage() {
   if (!settings.regEnrollmentEnabled) notFound();
   if (!regCan(user, "regulatory.reserve.manage") && user.role !== "SUPER_ADMIN") notFound();
   const companyId = await resolveRegCompanyId(getCompanyScope());
-  if (!companyId) notFound();
+  // Portée non résolue : dire quoi faire (choisir l'entité / activer le module) — pas de 404
+  // muette sur une page qui existe.
+  if (!companyId) {
+    return (
+      <div className="space-y-5">
+        <BackLink href="/regulatory/enregistrement/analyse">
+          <ArrowLeft className="h-4 w-4" /> Analyse CTD
+        </BackLink>
+        <PageHeader
+          title="Réserves ANPP — bibliothèque"
+          description="Tout ce que l'agence nous a déjà reproché, avec sa preuve."
+        />
+        <RegScopeCard />
+      </div>
+    );
+  }
 
   const [stats, batches, rules] = await Promise.all([
     reserveStats(),

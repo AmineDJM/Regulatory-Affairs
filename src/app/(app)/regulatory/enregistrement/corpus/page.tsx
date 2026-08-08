@@ -13,6 +13,7 @@ import { formatDate } from "@/lib/utils";
 import { CorpusPanel } from "./corpus-panel";
 import { CorpusImport } from "./corpus-import";
 import { BackLink } from "@/components/shared/back-link";
+import { RegScopeCard } from "../scope-gate";
 
 export const metadata = { title: "Corpus réglementaire" };
 export const dynamic = "force-dynamic";
@@ -38,7 +39,22 @@ export default async function CorpusPage() {
   const canManage = regCan(user, "regulatory.corpus.manage") || user.role === "SUPER_ADMIN";
   if (!regCan(user, "regulatory.corpus.view") && !canManage) notFound();
   const companyId = await resolveRegCompanyId(getCompanyScope());
-  if (!companyId) notFound();
+  // Portée non résolue (« Toutes les entités » avec plusieurs organisations activées, ou entité
+  // sans le module) : on EXPLIQUE quoi faire — jamais une 404 muette sur une page qui existe.
+  if (!companyId) {
+    return (
+      <div className="space-y-5">
+        <BackLink href="/regulatory/enregistrement/analyse">
+          <ArrowLeft className="h-4 w-4" /> Analyse CTD
+        </BackLink>
+        <PageHeader
+          title="Corpus réglementaire"
+          description="Les textes sur lesquels l'analyse s'appuie. Un constat ne vaut que par la règle qu'il cite."
+        />
+        <RegScopeCard />
+      </div>
+    );
+  }
 
   const sources = await prisma.regulatorySource.findMany({
     orderBy: { code: "asc" },

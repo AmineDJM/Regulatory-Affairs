@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { FileArchive, Lock, ShieldCheck, FolderOpen, Info } from "lucide-react";
+import { FileArchive, ShieldCheck, FolderOpen, Info } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { getCompanyScope } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { RegScopeCard } from "../scope-gate";
 import { listDossiers } from "@/lib/regulatory/intelligence/queries";
 import {
   PROCEDURE_TYPE_LABELS, DOSSIER_STATUS_LABELS, DOSSIER_STATUS_TONE, humanBytes,
@@ -55,15 +56,7 @@ export default async function AnalyseWorkspacePage() {
       </div>
 
       {!companyId ? (
-        <Card className="border-amber-500/40 bg-amber-500/5">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base"><Lock className="h-4 w-4 text-amber-600" /> Module non activé pour cette entité</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>Le Regulatory Intelligence OS se débloque <strong>par organisation</strong>, par le Super Admin (Administration → Réglages).</p>
-            <p>Sélectionnez dans la barre supérieure l'<strong>entité</strong> pour laquelle le module a été activé, puis revenez sur cette page.</p>
-          </CardContent>
-        </Card>
+        <RegScopeCard />
       ) : (
         <>
           <div className="flex items-center justify-between gap-3">
