@@ -102,6 +102,13 @@ export interface PromptInput {
    */
   corpus?: { label: string; snippet: string }[];
   /**
+   * EXPÉRIENCE INTERNE (module Entraînement IA) : extraits de dossiers de produits PASSÉS avec
+   * leur issue réelle à l'ANPP et la leçon retenue. Des PRÉCÉDENTS — jamais des règles : ils
+   * calibrent la sévérité et anticipent les réserves probables, mais ne peuvent pas fonder un
+   * `ruleRef`. C'est la « jurisprudence maison » qui manque à un modèle générique.
+   */
+  experience?: { label: string; snippet: string }[];
+  /**
    * Intervalle de pages APPROXIMATIF couvert par cette part. Sans lui, le modèle numérote depuis
    * le début de SA part : « page 2 » pour un texte qui se trouve page 52 — un constat introuvable
    * dans la pièce, donc indéfendable.
@@ -121,6 +128,7 @@ export function buildPrompt(input: PromptInput): string {
   const digest = regulatoryKnowledgeDigest().slice(0, 4000);
   const doc = input.text.slice(0, aiChunkChars()); // une part ≈ 10 pages (jamais le document entier)
   const corpus = (input.corpus ?? []).slice(0, 6);
+  const experience = (input.experience ?? []).slice(0, 3);
   return [
     "CONTEXTE RÉGLEMENTAIRE (référentiel ANPP, fiable) :",
     digest,
@@ -131,6 +139,16 @@ export function buildPrompt(input: PromptInput): string {
           "Ce sont des EXTRAITS EXACTS. Quand l'un d'eux fonde ton constat, reprends sa référence dans `ruleRef`.",
           "N'invente jamais une référence : si aucun extrait ne fonde le constat, laisse `ruleRef` à null.",
           ...corpus.map((c, i) => `[${i + 1}] ${c.label}\n${c.snippet}`),
+          "",
+        ]
+      : []),
+    ...(experience.length > 0
+      ? [
+          "EXPÉRIENCE INTERNE — PRODUITS PASSÉS DU GROUPE (précédents réels, PAS des règles).",
+          "Ces extraits viennent de dossiers déjà déposés, avec l'issue RÉELLE prononcée par l'ANPP et la leçon retenue.",
+          "Sers-t'en pour CALIBRER la sévérité et ANTICIPER les réserves probables — ce que l'agence a déjà reproché, elle le reprochera encore.",
+          "Ne les cite JAMAIS dans `ruleRef` (seul un texte opposable fonde une règle) et ne confonds jamais leur contenu avec le document analysé.",
+          ...experience.map((e, i) => `[E${i + 1}] ${e.label}\n${e.snippet}`),
           "",
         ]
       : []),

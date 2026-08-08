@@ -35,9 +35,14 @@ export default async function AnalyseWorkspacePage() {
     { label: "Référentiel ANPP", href: "/regulatory/enregistrement" },
     { label: "Analyse CTD", href: "/regulatory/enregistrement/analyse" },
     ...(regCan(user, "regulatory.reserve.manage") ? [{ label: "Réserves ANPP", href: "/regulatory/enregistrement/reserves" }] : []),
-    // Le corpus est un acte d'ADMINISTRATION (ce qui fait foi pour toutes les analyses) :
-    // l'onglet n'existe que pour le Super Admin.
-    ...(user.role === "SUPER_ADMIN" ? [{ label: "Corpus", href: "/regulatory/enregistrement/corpus" }] : []),
+    // Corpus et Entraînement sont des actes d'ADMINISTRATION (ce qui fait foi et ce que l'IA
+    // apprend valent pour toutes les analyses) : onglets Super Admin uniquement.
+    ...(user.role === "SUPER_ADMIN"
+      ? [
+          { label: "Corpus", href: "/regulatory/enregistrement/corpus" },
+          { label: "Entraînement IA", href: "/regulatory/enregistrement/entrainement" },
+        ]
+      : []),
   ];
 
   return (

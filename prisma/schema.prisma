@@ -6269,3 +6269,48 @@ model TestFinding {
 
   @@index([testRunId, severity])
 }
+
+/// ÉTUDE DE CAS — un produit PASSÉ, son dossier et son ISSUE RÉELLE à l'ANPP. C'est la matière
+/// d'ENTRAÎNEMENT de l'analyseur : ses extraits sont injectés dans l'analyse comme PRÉCÉDENTS
+/// (« voilà ce que l'agence a réellement accepté/reproché sur NOS produits »), jamais comme
+/// règles opposables. Alimenté et géré par le SUPER ADMIN uniquement (module Entraînement IA).
+model RegulatoryCaseStudy {
+  id          String              @id @default(cuid())
+  title       String // « Amoxicilline 500 mg gélules — enregistrement 2023 »
+  productName String?
+  outcome     RegCaseOutcome      @default(UNKNOWN)
+  /// La leçon retenue, dite par un humain — la phrase qui vaut de l'or pour la suivante.
+  lesson      String?
+  createdById String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  documents   RegulatoryCaseDoc[]
+}
+
+model RegulatoryCaseDoc {
+  id         String   @id @default(cuid())
+  caseId     String
+  filename   String
+  /// Section CTD principale déduite du nom de fichier (repérage), null si indéterminée.
+  ctdSection String?
+  /// Sections CTD détectées dans le texte (gros PDF consolidés).
+  sections   String[] @default([])
+  /// Texte extrait, borné — la matière première des précédents injectés.
+  text       String
+  sha256     String
+  /// Vecteur sémantique (rattrapage par le planificateur) — recherche FR/EN.
+  embedding  Json?
+  createdAt  DateTime @default(now())
+
+  case RegulatoryCaseStudy @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@index([ctdSection])
+}
+
+enum RegCaseOutcome {
+  ACCEPTED
+  ACCEPTED_WITH_RESERVES
+  REJECTED
+  UNKNOWN
+}

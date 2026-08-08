@@ -16,6 +16,7 @@ import { reviewDocumentText, type AiFinding } from "../agents/review-agent";
 import { lunaReviewFn } from "../agents/review-ai";
 import { escalateCriticalSections } from "../agents/escalate";
 import { corpusForSection } from "../corpus/for-section";
+import { experienceForSection } from "../training/for-section";
 import { readFigures, FORM_DEFECT_LABEL, FORM_DEFECT_SEVERITY } from "../vision/read-figures";
 import { lunaConfigured } from "@/lib/openai-luna";
 import { submitVersionReviewBatch } from "../cost/batch-runner";
@@ -768,6 +769,9 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
     // Les textes opposables de CETTE section, cherchés UNE fois et partagés par toutes ses parts :
     // même contexte, donc même empreinte de cache — un document inchangé n'est pas repayé.
     const corpus = await corpusForSection(d.ctdSection);
+    // L'expérience interne (module Entraînement IA) : ce que l'ANPP a réellement dit sur NOS
+    // produits passés pour cette section — précédents, jamais règles.
+    const experience = await experienceForSection(d.ctdSection);
     const total = parts.length;
     // L'en-tête du document (page de garde : produit, dosage, forme) accompagne chaque part —
     // sans lui, la part 8/12 juge un tableau sans savoir de quoi il parle. Pas pour la part 1,
@@ -783,7 +787,7 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
         const r = await reviewDocumentText(
           {
             filename: total > 1 ? `${d.originalFilename} — partie ${i + 1}/${total}` : d.originalFilename,
-            ctdSection: d.ctdSection, ctdTitle, text: part.text, corpus,
+            ctdSection: d.ctdSection, ctdTitle, text: part.text, corpus, experience,
             pageStart: span.start, pageEnd: span.end,
             docLead: i > 0 ? docLead : null,
           },

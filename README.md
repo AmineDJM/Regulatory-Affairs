@@ -1265,6 +1265,27 @@ MAJEUR ; l'OCR n'est **jamais** jugé (le latin massacre l'arabe, on n'accuse pa
 ratée). **Constat → tâche** : un clic crée une tâche personnelle (« Mon espace ») portant détail,
 preuve, page et lien — anti-doublon inclus.
 
+#### 10. Entraînement de l'IA — l'école de l'analyseur (Super Admin)
+
+Écran `/regulatory/enregistrement/entrainement`, onglet « Entraînement IA » (SUPER ADMIN
+uniquement, transverse aux entités). L'analyseur apprend par **quatre canaux**, tous visibles sur
+le tableau d'expertise : le **corpus** (les règles), les **réserves ANPP** historiques (les
+reproches), les **règles dérivées** validées, et les **études de cas** — le canal qu'apporte ce
+module : un produit PASSÉ, son dossier, son **issue réelle** (accepté / accepté avec réserves /
+rejeté) et la **leçon retenue** en une phrase.
+
+- **Déposer suffit** (mêmes gestes que le corpus) : chaque pièce est extraite, repérée par
+  section CTD (déterministe, zéro coût IA), dédupliquée par empreinte **par étude de cas**.
+- **Injection dans TOUTES les analyses** (immédiate ET différée) : `experienceForSection`
+  sélectionne ≤ 3 précédents par section — correspondance de section d'abord, puis les issues
+  **instructives** (réserves/rejet) devant, dédupliqués par empreinte — injectés dans le prompt
+  comme bloc « EXPÉRIENCE INTERNE » avec l'issue et la leçon.
+- ⚠️ **La frontière qui rend l'apprentissage sûr** : un précédent CALIBRE la sévérité et
+  ANTICIPE les réserves probables ; il ne fonde **jamais** un `ruleRef` (consigne explicite,
+  testée) — seuls les textes du corpus font règle. Pas de « fine-tuning » du modèle : la
+  connaissance vit en base, citée mot à mot, retirable à tout instant — fiable et auditable.
+- Vecteurs sémantiques rattrapés par le planificateur (`embedBacklog`), couverture affichée.
+
 ### RH — quatre écrans, et les questions du quotidien
 
 Le module était **une page à sept sections** : on y trouvait tout, sauf vite. Désormais :
@@ -1560,6 +1581,7 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
 | **CTD — pages exactes & preuve** | `lib/regulatory/intelligence/extract/pages.ts` (`buildPagedContent`, `pageAtOffset`, `pageSpanOfSlice`, `anchorEvidence` — pures + tests) ; `extract-text.ts` (`extractPdfPages` mupdf par page), `ocr/ocr-engine.ts` (contenu paginé), colonne `RegulatoryExtraction.pageMap` ; `agents/chunk-text.ts` (`splitTextIntoChunksWithOffsets`) ; consommé par `jobs/runner.ts` + `cost/batch-runner.ts` (l'ancrage PRIME l'estimation) ; page cliquable `#page=N` dans l'écran dossier. |
 | **CTD — escalade & sémantique** | `lib/regulatory/intelligence/agents/escalate.ts` (`escalateCriticalSections`, max 4, `REG_AGENT_AUTO=0` pour couper) ; `corpus/semantic.ts` (`cosine`, `mergeHybrid`, `semanticSearchSections`, `embedBacklog` — cache estampillé, jamais bloquant) + `lunaEmbed` dans `lib/openai-luna.ts` ; hybride branché dans `corpus/rag.ts` (`searchCorpus`), rattrapage dans `lib/scheduled.ts`. Colonnes `embedding` (JSONB) sur `RegulatorySourceSection` + `AnppReserve`. |
 | **CTD — livrables & verdict** | `lib/regulatory/intelligence/docgen/reports.ts` (`buildFindingsReport`, `buildReserveResponseLetter`) sur `buildSimpleDocx` (`build-docx.ts`) ; `rules/notice-arabic.ts` (`arabicStats`, `missesArabic`, `isArabicRequiredSection` — pures + tests, branchées dans `handleRules`) ; `createTaskFromFinding` dans `intelligence/actions.ts` ; verdict GO/NO-GO + réserves probables calculés dans `analyse/[dossierId]/page.tsx` ; boutons `report-buttons.tsx`. |
+| **CTD — Entraînement IA (admin)** | `lib/regulatory/intelligence/training/` — `ingest-case.ts` (extraction + repérage CTD déterministe, dédup sha256 par étude), `for-section.ts` (`experienceForSection`, `rankCaseDocs` pure + tests, dédup par empreinte), `labels.ts` (pur, importable client), `actions.ts` (SUPER_ADMIN only) ; bloc « EXPÉRIENCE INTERNE » dans `agents/review-agent.ts` (`buildPrompt.experience` + tests), câblé dans `jobs/runner.ts` ET `cost/batch-runner.ts` ; embeddings via `corpus/semantic.ts` (`embedBacklog`) ; écran `app/(app)/regulatory/enregistrement/entrainement/`. Modèles `RegulatoryCaseStudy`/`RegulatoryCaseDoc`. |
 | **Courrier smart (sans SMTP)** | `lib/mail-smart.ts` (agnostique fournisseur, `buildProviderCall`/`verifyInboundSignature`/`normalizeInbound`) + `mail-smart.test.ts`, `lib/actions/smart-mail-actions.ts` (journal), `app/api/mail/inbound/route.ts` (webhook signé), `app/(app)/admin/courrier/`. Modèles `OutboundEmail`/`InboundEmail`. |
 
 ---
@@ -1986,6 +2008,15 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Entraînement de l'IA : l'analyseur apprend de NOS produits passés.** Nouveau module (Super
+  Admin, onglet « Entraînement IA ») : une étude de cas = un produit déjà déposé + son issue
+  réelle à l'ANPP + la leçon retenue, et les pièces de son dossier déposées comme au corpus
+  (l'envoi démarre tout seul). À chaque analyse, les 3 meilleurs précédents de la section sont
+  injectés dans le prompt — issues instructives d'abord — pour calibrer la sévérité et anticiper
+  les réserves ; un précédent ne fonde jamais une règle (frontière testée). Le corpus, lui, est
+  devenu « déposer = utilisé » (fin du purgatoire d'activation, migration de rattrapage incluse)
+  et réservé à l'administrateur. → [référence](#10-entraînement-de-lia--lécole-de-lanalyseur-super-admin)
 
 - **Analyseur CTD « god mode » : la page devient une preuve, l'outil insiste tout seul, et les
   livrables sortent en un clic.** Chaque constat connaît désormais sa page **exacte** : carte des

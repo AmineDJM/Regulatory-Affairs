@@ -11,6 +11,7 @@ import { pageSpanOfSlice, anchorEvidence } from "../extract/pages";
 import { buildPrompt, SYSTEM_PROMPT, parseReviewOutput, type AiFinding } from "../agents/review-agent";
 import { sectionByCode } from "../ctd/taxonomy";
 import { corpusForSection } from "../corpus/for-section";
+import { experienceForSection } from "../training/for-section";
 import { budgetState } from "./ledger";
 import { regAudit } from "../audit";
 import { enrichVersionFindings } from "../findings/enrich";
@@ -97,6 +98,8 @@ export async function submitVersionReviewBatch(
     // Mêmes textes opposables que la voie immédiate : « moitié prix » ne doit jamais vouloir dire
     // « moins bien », et une analyse différée sans citations le serait.
     const corpus = await corpusForSection(d.ctdSection);
+    // Même expérience interne que la voie immédiate (précédents des produits passés).
+    const experience = await experienceForSection(d.ctdSection);
     // Même contexte de repérage que la voie immédiate : pages EXACTES quand la carte existe,
     // estimation sinon — et la page de garde pour les parts du milieu.
     const docLead = parts.length > 1 ? parts[0].text.slice(0, 1200) : null;
@@ -105,7 +108,7 @@ export async function submitVersionReviewBatch(
       const span = pageMap ? pageSpanOfSlice(pageMap, parts[i].start, parts[i].end) : chunkPageSpan(i);
       const filename = parts.length > 1 ? `${d.originalFilename} — partie ${i + 1}/${parts.length}` : d.originalFilename;
       const user = buildPrompt({
-        filename, ctdSection: d.ctdSection, ctdTitle, text: parts[i].text, corpus,
+        filename, ctdSection: d.ctdSection, ctdTitle, text: parts[i].text, corpus, experience,
         pageStart: span.start, pageEnd: span.end, docLead: i > 0 ? docLead : null,
       });
       estimatedInputTokens += Math.ceil((user.length + SYSTEM_PROMPT.length) / CHARS_PER_TOKEN);

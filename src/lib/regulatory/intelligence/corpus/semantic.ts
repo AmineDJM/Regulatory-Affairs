@@ -147,6 +147,22 @@ export async function embedBacklog(batch = 96): Promise<number> {
         done += reserves.length;
       }
     }
+
+    // Documents d'ÉTUDES DE CAS (module Entraînement IA) : mêmes vecteurs, même rattrapage.
+    const caseDocs = await prisma.regulatoryCaseDoc.findMany({
+      where: { embedding: { equals: undefined } },
+      select: { id: true, filename: true, ctdSection: true, text: true },
+      take: batch,
+    });
+    if (caseDocs.length > 0) {
+      const vecs = await lunaEmbed(caseDocs.map((c) => `${c.ctdSection ?? ""} ${c.filename}\n${c.text}`.trim()));
+      if (vecs) {
+        for (let i = 0; i < caseDocs.length; i++) {
+          await prisma.regulatoryCaseDoc.update({ where: { id: caseDocs[i].id }, data: { embedding: vecs[i] } }).catch(() => undefined);
+        }
+        done += caseDocs.length;
+      }
+    }
     return done;
   } catch (e) {
     console.error("[semantic] rattrapage impossible", e);
