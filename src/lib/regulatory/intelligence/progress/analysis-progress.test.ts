@@ -12,7 +12,7 @@ const base: AnalysisProgressInput = {
   ocrTotal: 0, ocrDone: 0,
   factsDone: false, rulesDone: false,
   aiInPipeline: true, aiReviewDone: false, aiBatchPending: false,
-  aiJobActive: false, aiDocsReviewed: 0, aiDocsTotal: 0, aiStartedAtMs: null,
+  aiJobActive: false, aiFailed: false, aiDocsReviewed: 0, aiDocsTotal: 0, aiStartedAtMs: null,
   startedAtMs: 0, nowMs: 60_000,
 };
 
@@ -142,5 +142,38 @@ describe("formatEta — lisible sans conversion mentale", () => {
     expect(formatEta(240)).toBe("~4 min");
     expect(formatEta(4200)).toBe("~1 h 10 min");
     expect(formatEta(7200)).toBe("~2 h");
+  });
+});
+
+describe("revue de fond en ÉCHEC — la barre ne recule pas et l'écran ne ment pas", () => {
+  /**
+   * Cas réel : la revue avait relu 87 % des fichiers (98 % global), puis a échoué. La phase
+   * retombait alors à zéro — 98 % → 85 % — et le dossier restait « en revue » indéfiniment.
+   * Un échec est un ABOUTISSEMENT : il solde la phase, il ne la rembobine pas.
+   */
+  const nearlyDone: AnalysisProgressInput = {
+    ...afterRules, aiJobActive: true, aiDocsTotal: 100, aiDocsReviewed: 87,
+  };
+
+  it("le pourcentage ne redescend jamais quand la revue échoue", () => {
+    const before = computeAnalysisProgress(nearlyDone);
+    const after = computeAnalysisProgress({ ...nearlyDone, aiJobActive: false, aiDocsReviewed: 0, aiDocsTotal: 0, aiFailed: true });
+    expect(before.percent).toBeGreaterThanOrEqual(95); // la revue était presque au bout
+    expect(after.percent).toBeGreaterThanOrEqual(before.percent); // …et surtout : plus jamais en arrière
+    expect(after.percent).toBe(100); // plus rien à attendre de la machine
+  });
+
+  it("l'étape est marquée en ÉCHEC, pas « faite », et le dit en clair", () => {
+    const p = computeAnalysisProgress({ ...afterRules, aiFailed: true });
+    const ai = p.phases.find((x) => x.key === "AI_REVIEW")!;
+    expect(ai.state).toBe("failed");
+    expect(ai.detail).toContain("IMPOSSIBLE");
+    expect(p.complete).toBe(true); // l'analyse est terminée — incomplète, mais terminée
+  });
+
+  it("une revue RÉUSSIE reste marquée faite (l'échec ne contamine pas le cas normal)", () => {
+    const p = computeAnalysisProgress({ ...afterRules, aiReviewDone: true });
+    expect(p.phases.find((x) => x.key === "AI_REVIEW")!.state).toBe("done");
+    expect(p.percent).toBe(100);
   });
 });

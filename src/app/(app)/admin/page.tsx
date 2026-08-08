@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Settings2, Activity, Columns3, MessageSquare, ShieldCheck, Factory, Bot, Gauge, Workflow, Trash2, HardDrive, Building2, Library, Database, Network, Rocket, Mail } from "lucide-react";
+import { Activity, Bot, Building2, Coins, Columns3, Database, Factory, Gauge, HardDrive, Library, Mail, MessageSquare, Network, Rocket, Settings2, ShieldCheck, Trash2, Workflow } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -89,6 +89,9 @@ export default async function AdminPage() {
             </Link>
             <Link href="/admin/ai">
               <Button variant="outline"><Bot className="h-4 w-4" /> Contrôle IA</Button>
+            </Link>
+            <Link href="/admin/regulatory-ia">
+              <Button variant="outline"><Coins className="h-4 w-4" /> Coût IA & audit Regulatory</Button>
             </Link>
             <Link href="/admin/validations">
               <Button variant="outline"><ShieldCheck className="h-4 w-4" /> Validations</Button>

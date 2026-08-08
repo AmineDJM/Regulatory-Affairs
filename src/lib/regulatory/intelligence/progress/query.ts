@@ -89,6 +89,7 @@ export async function getAnalysisProgress(versionId: string, dossierStatus: stri
     // « Différé » UNIQUEMENT si un lot récent est en vol ET qu'aucune revue immédiate ne tourne.
     aiBatchPending: batchPending > 0 && !aiJobActive,
     aiJobActive,
+    aiFailed: aiReviewJob?.status === "FAILED",
     aiDocsReviewed: reviewedRows.length,
     aiDocsTotal,
     aiStartedAtMs: aiStartedAt?.getTime() ?? null,

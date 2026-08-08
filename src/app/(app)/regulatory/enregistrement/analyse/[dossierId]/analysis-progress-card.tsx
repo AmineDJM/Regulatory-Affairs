@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, Clock, Sparkles, Hourglass, PauseCircle, AlertTriangle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { formatEta } from "@/lib/regulatory/intelligence/progress/analysis-progress";
+import { formatEta, type PhaseState } from "@/lib/regulatory/intelligence/progress/analysis-progress";
 import type { AnalysisProgressResult } from "@/lib/regulatory/intelligence/progress/query";
 
 /**
@@ -132,7 +132,7 @@ export function AnalysisProgressCard({ versionId, initial }: { versionId: string
           {p.phases.map((ph) => (
             <li key={ph.key} className="flex items-center gap-2.5 text-sm">
               <StepIcon state={ph.state} />
-              <span className={ph.state === "active" ? "font-semibold text-foreground" : ph.state === "done" ? "text-foreground" : "text-muted-foreground"}>
+              <span className={ph.state === "failed" ? "font-semibold text-destructive" : ph.state === "active" ? "font-semibold text-foreground" : ph.state === "done" ? "text-foreground" : "text-muted-foreground"}>
                 {ph.label}
               </span>
               {ph.detail && (
@@ -153,8 +153,10 @@ export function AnalysisProgressCard({ versionId, initial }: { versionId: string
   );
 }
 
-function StepIcon({ state }: { state: "done" | "active" | "pending" | "skipped" }) {
+function StepIcon({ state }: { state: PhaseState }) {
   if (state === "done") return <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />;
+  // Une étape ÉCHOUÉE doit se distinguer d'une étape faite : l'une a produit un résultat, l'autre non.
+  if (state === "failed") return <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />;
   if (state === "active") return <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />;
   if (state === "skipped") return <span className="h-4 w-4 shrink-0 text-center text-muted-foreground/50">—</span>;
   return <span className="flex h-4 w-4 shrink-0 items-center justify-center"><span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" /></span>;

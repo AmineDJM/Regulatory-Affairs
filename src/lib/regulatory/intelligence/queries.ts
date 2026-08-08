@@ -169,3 +169,21 @@ export async function listDossierAudit(dossierId: string, take = 50) {
     select: { id: true, action: true, detail: true, actorId: true, createdAt: true },
   });
 }
+
+/**
+ * Journal d'audit Regulatory TRANSVERSE (tous dossiers). Sur la fiche d'un dossier, le journal
+ * répondait à « qu'est-il arrivé à celui-ci » ; la question de gouvernance est « qui a fait quoi
+ * sur le module », et elle ne se répond qu'en regardant l'ensemble. D'où cette vue, en
+ * administration. `companyId` cloisonne par entité ; absent, on regarde tout.
+ */
+export async function listRegulatoryAudit(opts: { companyId?: string | null; take?: number } = {}) {
+  return prisma.regulatoryAuditLog.findMany({
+    where: opts.companyId ? { companyId: opts.companyId } : {},
+    orderBy: { createdAt: "desc" },
+    take: Math.min(Math.max(opts.take ?? 200, 1), 500),
+    select: {
+      id: true, action: true, detail: true, actorId: true, createdAt: true,
+      dossier: { select: { id: true, reference: true, title: true } },
+    },
+  });
+}

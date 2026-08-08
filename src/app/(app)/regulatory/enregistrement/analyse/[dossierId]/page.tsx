@@ -12,27 +12,20 @@ import { ReminderButton } from "@/components/reminders/reminder-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
-import { getDossier, listVersions, listVersionDocuments, listDossierAudit, getAssessment, listFindings, listFacts, listConflicts, reservesByIds, documentNamesByIds } from "@/lib/regulatory/intelligence/queries";
+import { getDossier, listVersions, listVersionDocuments, getAssessment, listFindings, listFacts, listConflicts, reservesByIds, documentNamesByIds } from "@/lib/regulatory/intelligence/queries";
 import { findingQuality } from "@/lib/regulatory/intelligence/findings/enrich";
 import { buildCoverage, buildRegistrationDocs } from "@/lib/regulatory/intelligence/twin/build-twin";
 import { buildVersionDiff } from "@/lib/regulatory/intelligence/diff/compare-versions";
 import { aiConfigured } from "@/lib/ai";
 import { applicableAgents } from "@/lib/regulatory/intelligence/agents/orchestrator";
 import { listReserveCycles } from "@/lib/regulatory/intelligence/reserves/queries";
-import { listSupplierRequests } from "@/lib/regulatory/intelligence/supplier/queries";
-import { listLifecycle } from "@/lib/regulatory/intelligence/lifecycle/queries";
 import { prisma } from "@/lib/prisma";
-import { toNumber } from "@/lib/utils";
-import { dossierCost } from "@/lib/regulatory/intelligence/cost/ledger";
-import { BudgetForm, DeferredReviewButton } from "./cost-panel";
 import { TwinPanel } from "./twin-panel";
 import { AgentsPanel } from "./agents-panel";
 import { DossierChatPanel } from "./chat-panel";
 import { ReserveChatPanel } from "./reserve-chat-panel";
 import { ReservesPanel } from "./reserves-panel";
 import { SimulatorPanel } from "./simulator-panel";
-import { SupplierPanel } from "./supplier-panel";
-import { LifecyclePanel } from "./lifecycle-panel";
 import type { SimPerspective } from "@/lib/regulatory/intelligence/simulator/run";
 import {
   PROCEDURE_TYPE_LABELS, DOSSIER_STATUS_LABELS, DOSSIER_STATUS_TONE,
@@ -106,34 +99,12 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
     : [];
   const reserveCycles = (await listReserveCycles(dossier.id)).map((c) => ({ ...c, receivedAt: c.receivedAt.toISOString() }));
   const canReserve = regCan(user, "regulatory.reserve.manage");
-  const supplierRequests = (await listSupplierRequests(dossier.id)).map((r) => ({
-    ...r, deadline: r.deadline?.toISOString() ?? null, sentAt: r.sentAt?.toISOString() ?? null,
-    remindedAt: r.remindedAt?.toISOString() ?? null, respondedAt: r.respondedAt?.toISOString() ?? null,
-  }));
-  const canSupplier = regCan(user, "regulatory.workspace.manage") || regCan(user, "regulatory.dossier.upload");
-  const lifecycle = await listLifecycle(dossier.id);
-  const lifecycleEvents = lifecycle.events.map((e) => ({ ...e, effectiveDate: e.effectiveDate?.toISOString() ?? null, createdAt: e.createdAt.toISOString() }));
-  const obligations = lifecycle.obligations.map((o) => ({ ...o, dueDate: o.dueDate?.toISOString() ?? null }));
   const lastSimRow = latest
     ? await prisma.regulatorySimulation.findFirst({ where: { dossierVersionId: latest.id, configured: true }, orderBy: { createdAt: "desc" }, select: { perspectives: true, overall: true, createdAt: true } })
     : null;
   const lastSim = lastSimRow
     ? { perspectives: lastSimRow.perspectives as unknown as SimPerspective[], overall: lastSimRow.overall, createdAt: lastSimRow.createdAt.toISOString() }
     : null;
-  const audit = await listDossierAudit(dossier.id);
-  const cost = await dossierCost(dossier.id);
-  // Plafond PROPRE au dossier (distinct du plafond global) : le formulaire doit refléter ce
-  // qui est réellement stocké, pas la valeur globale héritée.
-  const dossierBudget = (await prisma.regulatoryDossier.findUnique({ where: { id: dossier.id }, select: { aiBudgetUsd: true } }))?.aiBudgetUsd;
-  // Un lot différé en cours : l'écran doit le DIRE, sinon on relance et on paie deux fois.
-  const pendingBatchRow = latest
-    ? await prisma.regulatoryAiBatch.findFirst({
-        where: { dossierVersionId: latest.id, status: { in: ["submitted", "validating", "in_progress", "finalizing"] } },
-        orderBy: { submittedAt: "desc" },
-        select: { requestCount: true, submittedAt: true },
-      })
-    : null;
-  const pendingBatch = pendingBatchRow ? { requestCount: pendingBatchRow.requestCount, submittedAt: pendingBatchRow.submittedAt.toISOString() } : null;
 
   const canUpload = regCan(user, "regulatory.dossier.upload");
   const canDelete =
@@ -645,30 +616,6 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
         </Card>
       )}
 
-      {/* Lifecycle — chronologie réglementaire + obligations post-enregistrement */}
-      {(canAnalyse || lifecycleEvents.length > 0 || obligations.length > 0) && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base"><History className="h-4 w-4 text-primary" /> Cycle de vie réglementaire</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <LifecyclePanel dossierId={dossier.id} events={lifecycleEvents} obligations={obligations} canManage={canAnalyse} />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Boucle fournisseur — demande de compléments, brouillon d'e-mail (jamais envoyé auto) */}
-      {(canSupplier || supplierRequests.length > 0) && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base"><Factory className="h-4 w-4 text-primary" /> Boucle fournisseur</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SupplierPanel dossierId={dossier.id} requests={supplierRequests} canManage={canSupplier} />
-          </CardContent>
-        </Card>
-      )}
-
       {/* Réserves ANPP — lettre océrisée, points décomposés, réponses */}
       {(canReserve || reserveCycles.length > 0) && (
         <Card>
@@ -761,117 +708,6 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
         </Card>
       )}
 
-      {/* Coût de l'analyse — ce que le dossier a réellement coûté, et à cause de quoi. */}
-      {(cost.calls > 0 || canAnalyse) && (
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Coins className="h-4 w-4 text-primary" /> Coût de l&apos;analyse IA</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <CostStat label="Dépensé" value={usd(cost.totalUsd)} />
-              <CostStat
-                label="Plafond"
-                value={cost.budget.limitUsd != null ? usd(cost.budget.limitUsd) : "aucun"}
-                hint={cost.budget.exhausted ? "atteint — analyses arrêtées" : cost.budget.remainingUsd != null ? `${usd(cost.budget.remainingUsd)} restants` : undefined}
-                tone={cost.budget.exhausted ? "danger" : undefined}
-              />
-              <CostStat label="Appels" value={String(cost.calls)} hint={cost.cachedCalls > 0 ? `dont ${cost.cachedCalls} sans recalcul` : undefined} />
-              <CostStat label="Économisé par réemploi" value={usd(cost.savedUsd)} hint="fichiers déjà analysés" tone={cost.savedUsd > 0 ? "success" : undefined} />
-            </div>
-
-            {cost.budget.exhausted && (
-              <p className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>Plafond atteint : les analyses économiques sont arrêtées sur ce dossier. Relevez le plafond pour les poursuivre.</span>
-              </p>
-            )}
-
-            {cost.calls > 0 && (
-              <div className="grid gap-4 lg:grid-cols-2">
-                <CostTable title="Par étape" rows={cost.byStep} labelize={stepLabel} />
-                <CostTable title="Par fichier" rows={cost.byDocument.slice(0, 8)} />
-              </div>
-            )}
-
-            {canAnalyse && (
-              <>
-                <BudgetForm dossierId={dossier.id} current={dossierBudget != null ? toNumber(dossierBudget) : null} />
-                {latest && <DeferredReviewButton dossierId={dossier.id} pending={pendingBatch} />}
-              </>
-            )}
-
-            {cost.calls === 0 && (
-              <p className="text-sm text-muted-foreground">
-                Aucun appel facturé sur ce dossier pour le moment.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Journal d'audit */}
-      {audit.length > 0 && (
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><History className="h-4 w-4 text-primary" /> Journal d'audit</CardTitle></CardHeader>
-          <CardContent className="space-y-1">
-            {audit.map((a) => (
-              <div key={a.id} className="flex items-start justify-between gap-3 border-b border-border/50 py-1.5 text-xs last:border-0">
-                <span className="text-muted-foreground">{a.detail}</span>
-                <span className="shrink-0 whitespace-nowrap text-muted-foreground/70">{fmtDateTime(a.createdAt)}</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-
-/** Deux décimales suffisent à décider ; le dixième de cent est du bruit. */
-function usd(n: number): string {
-  return `${n.toFixed(n > 0 && n < 0.01 ? 4 : 2)} $`;
-}
-
-/** Les étapes techniques dites en français : « classify » ne veut rien dire pour un pharmacien. */
-const STEP_LABELS: Record<string, string> = {
-  classify: "Classement CTD",
-  review: "Revue de contenu",
-  facts: "Extraction des données",
-  figures: "Lecture des graphiques et images",
-  "reserve-extract": "Lecture des lettres de réserves",
-  "reserve-vision": "Lecture des lettres scannées (image)",
-  ocr: "Reconnaissance de texte (OCR)",
-  docgen: "Génération documentaire",
-};
-const stepLabel = (key: string): string => STEP_LABELS[key] ?? key;
-
-function CostStat({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: "danger" | "success" }) {
-  const cls = tone === "danger" ? "text-destructive" : tone === "success" ? "text-success" : "";
-  return (
-    <div className="rounded-lg border border-border px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`mt-0.5 text-base font-semibold tabular-nums ${cls}`}>{value}</p>
-      {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
-    </div>
-  );
-}
-
-/** Où part le budget. Un total global ne se corrige pas ; une étape ou un fichier, si. */
-function CostTable({ title, rows, labelize }: { title: string; rows: { key: string; label: string; calls: number; costUsd: number; cachedCalls: number }[]; labelize?: (k: string) => string }) {
-  if (rows.length === 0) return null;
-  return (
-    <div>
-      <p className="text-xs font-medium text-muted-foreground">{title}</p>
-      <ul className="mt-1 divide-y divide-border">
-        {rows.map((r) => (
-          <li key={r.key} className="flex items-center gap-2 py-1.5 text-sm">
-            <span className="min-w-0 flex-1 truncate">{labelize ? labelize(r.key) : r.label}</span>
-            <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
-              {r.calls} appel{r.calls > 1 ? "s" : ""}{r.cachedCalls > 0 ? ` · ${r.cachedCalls} réemployé(s)` : ""}
-            </span>
-            <span className="shrink-0 tabular-nums">{usd(r.costUsd)}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

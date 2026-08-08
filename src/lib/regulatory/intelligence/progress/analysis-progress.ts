@@ -18,7 +18,7 @@
  */
 
 export type PhaseKey = "RECEPTION" | "EXTRACTION" | "OCR" | "DATA" | "RULES" | "AI_REVIEW";
-export type PhaseState = "done" | "active" | "pending" | "skipped";
+export type PhaseState = "done" | "active" | "pending" | "skipped" | "failed";
 
 export interface PhaseView {
   key: PhaseKey;
@@ -55,6 +55,13 @@ export interface AnalysisProgressInput {
   aiBatchPending: boolean;
   /** Une revue de fond est en file ou en cours (voie immédiate). */
   aiJobActive: boolean;
+  /**
+   * La dernière revue de fond a ÉCHOUÉ. C'est un état TERMINAL, pas un retour en arrière : la
+   * machine n'a plus rien à tenter. Sans cette distinction, la phase retombait à zéro et la barre
+   * reculait — un dossier passait de 98 % à 85 % en restant « en revue » indéfiniment, alors que
+   * la vérité est « c'est fini, et la lecture de fond n'a pas eu lieu ».
+   */
+  aiFailed: boolean;
   /** Fichiers déjà relus en profondeur par la revue en cours, et total à relire. */
   aiDocsReviewed: number;
   aiDocsTotal: number;
@@ -132,7 +139,9 @@ export function computeAnalysisProgress(input: AnalysisProgressInput): AnalysisP
   const factsDone = input.factsDone || rulesDone;
   const extractionDone = input.docsPending === 0 && input.docsTotal > 0 && (factsDone || input.dossierStatus === "ANALYSING" || rulesDone);
   const ocrDone = !hasOcr || input.ocrDone >= input.ocrTotal;
-  const aiDone = !hasAi || input.aiReviewDone;
+  // Une revue ÉCHOUÉE est terminée au sens de la machine : plus rien ne tourne, plus rien
+  // n'avancera. La compter comme « pas terminée » figeait l'écran sur « en revue » à vie.
+  const aiDone = !hasAi || input.aiReviewDone || input.aiFailed;
 
   const fractions: Record<PhaseKey, number> = {
     RECEPTION: receptionDone ? 1 : clamp01(extractionFrac > 0 ? 1 : 0.4),
@@ -143,7 +152,7 @@ export function computeAnalysisProgress(input: AnalysisProgressInput): AnalysisP
     // La revue de fond avance FICHIER PAR FICHIER quand elle tourne en immédiat : on montre cette
     // progression réelle plutôt qu'un forfait figé (c'est ce qui bloquait la barre à 87 %).
     AI_REVIEW: !hasAi ? 1
-      : aiDone ? 1
+      : aiDone ? 1 // couvre aussi l'échec : la phase est SOLDÉE, son poids est acquis
       : input.aiBatchPending ? 0.15
       : input.aiJobActive && input.aiDocsTotal > 0 ? clamp01(input.aiDocsReviewed / input.aiDocsTotal)
       : input.aiJobActive ? 0.05
@@ -179,7 +188,10 @@ export function computeAnalysisProgress(input: AnalysisProgressInput): AnalysisP
     key: k,
     label: PHASE_LABELS[k],
     detail: phaseDetail(k, input, fractions[k]),
-    state: doneMap[k] ? "done" : k === current ? "active" : "pending",
+    state: k === "AI_REVIEW" && input.aiFailed && !input.aiReviewDone ? "failed"
+      : doneMap[k] ? "done"
+      : k === current ? "active"
+      : "pending",
     fraction: fractions[k],
   }));
 
@@ -232,6 +244,7 @@ function phaseDetail(k: PhaseKey, input: AnalysisProgressInput, frac: number): s
     case "RULES":
       return frac >= 1 ? "Conformité évaluée" : "Complétude, bloqueurs, cohérence";
     case "AI_REVIEW":
+      if (input.aiFailed && !input.aiReviewDone) return "Lecture de fond IMPOSSIBLE — le dossier n'a pas été examiné sur le fond";
       if (input.aiBatchPending) return "Revue différée (moitié prix) — résultats sous 24 h";
       if (frac >= 1) return "Constats de fond produits";
       if (input.aiJobActive && input.aiDocsTotal > 0) return `${Math.min(input.aiDocsReviewed, input.aiDocsTotal)} / ${input.aiDocsTotal} fichiers relus en profondeur`;

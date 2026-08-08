@@ -32,6 +32,42 @@ export function aiConfigured(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
+/**
+ * RAISON EXACTE d'un refus de l'API, au lieu d'un code nu.
+ *
+ * « Erreur IA (HTTP 400) » ne dit pas quoi corriger — ni à l'utilisateur, ni à celui qui
+ * dépanne : un 400 peut être un texte trop long, un paramètre invalide, un contenu illisible.
+ * L'API renvoie toujours la raison dans son corps ; on la remonte telle quelle.
+ */
+function apiErrorMessage(status: number, body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string; type?: string } };
+    const msg = parsed.error?.message?.trim();
+    if (msg) return `Erreur IA (HTTP ${status}) : ${msg.slice(0, 300)}`;
+  } catch {
+    /* corps non JSON — on retombe sur l'extrait brut ci-dessous */
+  }
+  const raw = body.replace(/\s+/g, " ").trim().slice(0, 200);
+  return raw ? `Erreur IA (HTTP ${status}) : ${raw}` : `Erreur IA (HTTP ${status}).`;
+}
+
+/**
+ * ASSAINISSEMENT DU TEXTE ENVOYÉ AU MODÈLE — indispensable sur du texte EXTRAIT.
+ *
+ * Le contenu vient de PDF et d'OCR, pas d'un clavier : il contient régulièrement des demi-paires
+ * de substituts UTF-16 (un `\uD800` sans son complément), des octets nuls et des caractères de
+ * contrôle. `JSON.stringify` les recopie tels quels, le corps de la requête n'est alors pas de
+ * l'UTF-8 valide, et l'API répond **400** — pour tout le dossier, alors que le fautif est un
+ * caractère invisible dans une seule pièce. On les retire : ils ne portent aucun sens à analyser.
+ */
+export function sanitizeForModel(text: string): string {
+  return text
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "") // substitut haut orphelin
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "") // substitut bas orphelin
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " "); // nuls et contrôles (on garde \t \n \r)
+}
+
 /** Modèle du palier QUALITÉ (raisonnement) — revue CTD, simulateur, assistant, Brain. */
 export function aiModel(): string {
   return process.env.AI_MODEL ?? QUALITY_MODEL;
@@ -82,14 +118,14 @@ export async function askClaude(prompt: string, opts: AskOptions = {}): Promise<
         max_tokens: opts.maxTokens ?? 1024,
         temperature: opts.temperature ?? 0.3,
         ...(system ? { system } : {}),
-        messages: [{ role: "user", content: prompt }],
+        messages: [{ role: "user", content: sanitizeForModel(prompt) }],
       }),
     });
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error("[ai] anthropic error", res.status, body.slice(0, 300));
-      return { ok: false, configured: true, error: `Erreur IA (HTTP ${res.status}).` };
+      return { ok: false, configured: true, error: apiErrorMessage(res.status, body) };
     }
     const data = (await res.json()) as { content?: AnthropicBlock[] };
     const text = (data.content ?? [])
@@ -214,13 +250,25 @@ export async function callClaude(messages: ClaudeMessage[], opts: CallOptions = 
   const system = opts.system
     ? [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }]
     : undefined;
+  // Même assainissement que `askClaude` : les résultats d'outils rapportent du texte EXTRAIT de
+  // documents, qui peut contenir des caractères invalides suffisants à faire refuser la requête.
+  const cleanMessages: ClaudeMessage[] = messages.map((m) => ({
+    role: m.role,
+    content:
+      typeof m.content === "string"
+        ? sanitizeForModel(m.content)
+        : m.content.map((b) =>
+            b.type === "text" ? { ...b, text: sanitizeForModel(b.text) }
+            : b.type === "tool_result" ? { ...b, content: sanitizeForModel(b.content) }
+            : b),
+  }));
   const payload = JSON.stringify({
     model,
     max_tokens: opts.maxTokens ?? 1400,
     temperature: opts.temperature ?? 0.2,
     ...(system ? { system } : {}),
     ...(opts.tools?.length ? { tools: opts.tools } : {}),
-    messages,
+    messages: cleanMessages,
   });
 
   // Jusqu'à 3 tentatives : on réessaie sur surcharge / limite de débit (429, 529,
@@ -245,7 +293,7 @@ export async function callClaude(messages: ClaudeMessage[], opts: CallOptions = 
       const body = await res.text().catch(() => "");
       console.error("[ai] anthropic tools error", res.status, body.slice(0, 300));
       const retryable = res.status === 429 || res.status === 529 || res.status >= 500;
-      lastError = `Erreur IA (HTTP ${res.status}).`;
+      lastError = apiErrorMessage(res.status, body);
       if (!retryable || attempt === MAX_ATTEMPTS) return { ok: false, configured: true, error: lastError };
     } catch (err) {
       console.error(`[ai] tools call failed (attempt ${attempt})`, err);
