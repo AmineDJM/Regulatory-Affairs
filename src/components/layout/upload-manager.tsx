@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, CheckCircle2, AlertCircle, X, UploadCloud, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isRetryableHttpStatus, backoffMs } from "@/lib/regulatory/intelligence/upload/retry";
+import { rememberUpload, forgetUpload, listPendingUploads } from "@/lib/regulatory/intelligence/upload/pending-store";
 
 /**
  * GESTIONNAIRE D'ENVOIS GLOBAL — l'upload d'un dossier CTD tourne EN ARRIÈRE-PLAN : monté dans la
@@ -98,6 +99,9 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
   const runUpload = React.useCallback(async (dossierId: string, file: File) => {
     setJobs((j) => ({ ...j, [dossierId]: { dossierId, fileName: file.name, phase: "uploading", progress: 0, error: null, summary: null } }));
     const setProgress = (p: number) => patch(dossierId, { progress: p });
+    // Le fichier est mis en mémoire AVANT le premier octet envoyé : à partir d'ici, quitter
+    // l'application ne coûte plus rien — l'envoi reprendra tout seul à la réouverture.
+    void rememberUpload(dossierId, file);
     try {
       // OUVERTURE DE SESSION — la seule étape de l'envoi qui n'avait AUCUNE reprise.
       //
@@ -144,6 +148,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: UploadSummary }>(`/api/regulatory/intelligence/upload/direct/${meta.sessionId}/finalize`, 45);
         if (!data.ok) throw new Error(data.error ?? "Finalisation refusée.");
         patch(dossierId, { phase: "done", summary: data.summary ?? null });
+        void forgetUpload(dossierId); // terminé : plus rien à reprendre
         fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
         router.refresh();
         return;
@@ -204,6 +209,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: UploadSummary }>(`/api/regulatory/intelligence/upload/session/${sessionId}/finalize`, 45);
       if (!data.ok) throw new Error(data.error ?? "Finalisation refusée.");
       patch(dossierId, { phase: "done", summary: data.summary ?? null });
+      void forgetUpload(dossierId); // terminé : plus rien à reprendre
       fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
       router.refresh();
     } catch (e) {
@@ -218,7 +224,34 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     void runUpload(dossierId, file);
   }, [runUpload]);
 
-  const dismiss = React.useCallback((dossierId: string) => setJobs((j) => { const n = { ...j }; delete n[dossierId]; return n; }), []);
+  const dismiss = React.useCallback((dossierId: string) => {
+    void forgetUpload(dossierId); // écarté à la main : ne pas le reprendre au prochain démarrage
+    setJobs((j) => { const n = { ...j }; delete n[dossierId]; return n; });
+  }, []);
+
+  /**
+   * REPRISE AUTOMATIQUE AU DÉMARRAGE — « dès le premier %, je peux sortir jusqu'à la fin ».
+   *
+   * Un onglet fermé n'envoie plus d'octets : c'est une limite du navigateur, pas un réglage. Ce
+   * qu'on garantit, c'est que RIEN N'EST PERDU et que personne ne recommence. Les parties déjà
+   * reçues vivent côté serveur, le fichier vit dans IndexedDB : à la réouverture, l'envoi repart
+   * seul là où il s'était arrêté, sans ressélectionner quoi que ce soit, et seules les parties
+   * manquantes repassent sur le réseau.
+   *
+   * L'analyse, elle, ne dépend plus de rien : une fois les octets reçus, elle se poursuit côté
+   * serveur même application fermée (battement autonome du planificateur).
+   */
+  const resumed = React.useRef(false);
+  React.useEffect(() => {
+    if (resumed.current) return;
+    resumed.current = true;
+    void (async () => {
+      for (const p of await listPendingUploads()) {
+        if (jobsRef.current[p.dossierId]) continue; // déjà en cours dans cet onglet
+        void runUpload(p.dossierId, p.file);
+      }
+    })();
+  }, [runUpload]);
 
   // Avertit avant de fermer/recharger l'onglet tant qu'un envoi est réellement en cours.
   React.useEffect(() => {
