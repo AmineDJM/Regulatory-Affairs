@@ -1185,18 +1185,23 @@ grandeur.
 dépense, et l'analyse s'arrête au lieu de creuser un trou silencieux) et **traçabilité** au fichier
 près. Repli sur Claude si la clé OpenAI manque — un filet, pas un choix de qualité.
 
-**Analyse différée par défaut** (`REG_AI_BATCH`, `0` pour forcer l'immédiat) : la voie Batch est à
-moitié prix et couvre la version **entière**. Le fournisseur borne un lot à 400 requêtes — c'est
-une contrainte de transport, pas une raison de ne pas lire un dossier en entier : on dépose donc
-**autant de lots que nécessaire**, chacun suivi séparément, chacun avec **sa propre** table de
-correspondance (deux lots partageant la même créeraient les constats en double).
+**Analyse IMMÉDIATE par défaut.** Le différé (Batch) coûte deux fois moins cher mais fait attendre
+les constats jusqu'à 24 h — et pendant ce temps l'écran montre un dossier « en revue » amputé de sa
+partie la plus exigeante. Découvrir après coup qu'on a lu une analyse incomplète coûte bien plus
+cher que l'écart de prix : **on paie plein tarif et on voit tout de suite**. Le différé reste
+disponible **sur demande** (bouton « Réanalyser à moitié prix » de l'écran dossier) et redevient le
+défaut avec `REG_AI_BATCH=1`, pour une réanalyse massive lancée le soir. Quand il est utilisé, la
+voie Batch couvre la version **entière** : le fournisseur borne un lot à 400 requêtes — contrainte
+de transport, pas raison de lire un dossier à moitié — on dépose donc **autant de lots que
+nécessaire**, chacun suivi séparément, chacun avec **sa propre** table de correspondance (deux lots
+partageant la même créeraient les constats en double).
 
 Ordres de grandeur, part ≈ 10 pages ≈ 7 000 jetons d'entrée :
 
-| Dossier | Parts | Immédiat | **Batch (défaut)** |
+| Dossier | Parts | **Immédiat (défaut)** | Batch (sur demande) |
 |---|---|---|---|
-| 1 200 pages | 120 | ~0,35 $ | **~0,17 $** |
-| 15 000 pages | 1 500 | ~4,30 $ | **~2,15 $** |
+| 1 200 pages | 120 | **~0,35 $** | ~0,17 $ |
+| 15 000 pages | 1 500 | **~4,30 $** | ~2,15 $ |
 
 #### 7. Référentiels cités
 
@@ -1240,8 +1245,9 @@ un agent ne repasse jamais, **4 agents max** par version (au-delà c'est une ré
 décision humaine), `REG_AGENT_AUTO=0` pour couper. Ne lève jamais. Et quand une analyse différée
 se termine **sans demandeur identifiable**, les rôles superviseurs (réglage
 `regulatorySupervisorRoles` + SUPER_ADMIN) sont notifiés — un résultat que personne ne lit n'existe
-pas. L'écran offre aussi le choix inverse du différé : « Résultats maintenant (plein tarif) »
-(job `payload {mode:"immediate"}` qui court-circuite `REG_AI_BATCH`).
+pas. L'écran garde les deux voies explicites — « Résultats maintenant (plein tarif) » (job
+`payload {mode:"immediate"}`, qui l'emporte toujours) et « Réanalyser à moitié prix (sous 24 h) » —
+la voie immédiate étant désormais **celle par défaut**.
 
 **Recherche sémantique hybride** (`corpus/semantic.ts`). Le corpus est largement en anglais, les
 requêtes en français : « durée de conservation » ne matchera jamais « shelf life » en plein-texte.
@@ -2009,6 +2015,13 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **La revue de fond passe en IMMÉDIAT par défaut.** Le différé (moitié prix, sous 24 h) était le
+  défaut : un dossier affiché « en revue » pouvait donc l'être **sans ses constats les plus
+  exigeants**, encore en attente chez le fournisseur — exactement l'impression de « dossier presque
+  parfait » qu'on ne veut pas donner. On paie désormais plein tarif et on voit tout de suite ; le
+  différé reste d'un clic (bouton « Réanalyser à moitié prix ») pour les grosses réanalyses lancées
+  le soir. Aucun réglage d'hébergement : le défaut est dans le code.
 
 - **« Analyse en cours » n'est plus une boîte noire.** Une carte vivante montre l'analyse du
   début à la fin : étape courante (réception → lecture des fichiers → OCR → données → conformité

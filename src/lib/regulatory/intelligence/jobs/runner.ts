@@ -690,8 +690,20 @@ const aiConcurrency = () => clampInt(process.env.REG_AI_CONCURRENCY, 4, 1, 12);
  */
 const aiMaxChunks = () => clampInt(process.env.REG_AI_MAX_CHUNKS, 0, 0, 1_000_000);
 const aiMaxFindings = () => clampInt(process.env.REG_AI_MAX_FINDINGS, 3000, 10, 100_000);
-/** Analyse DIFFÉRÉE (Batch, moitié prix) par défaut. `REG_AI_BATCH=0` force la voie immédiate. */
-const aiBatchDefault = () => (process.env.REG_AI_BATCH ?? "1").trim() !== "0";
+/**
+ * Voie de la revue de fond : **IMMÉDIATE par défaut**.
+ *
+ * Le différé (Batch, moitié prix) coûte deux fois moins cher, mais fait attendre les constats
+ * jusqu'à 24 h — et pendant ce temps l'écran montre un dossier « en revue » dont il MANQUE la
+ * partie la plus exigeante (les constats de fond). Découvrir après coup que l'analyse lue était
+ * incomplète est bien plus coûteux que la différence de prix : on paie plein tarif et on voit
+ * tout de suite.
+ *
+ * Le différé reste disponible **à la demande** (bouton « Réanalyser à moitié prix » de l'écran
+ * dossier), et peut redevenir le défaut avec `REG_AI_BATCH=1` — utile pour une réanalyse
+ * massive lancée le soir.
+ */
+const aiBatchDefault = () => (process.env.REG_AI_BATCH ?? "0").trim() === "1";
 
 /**
  * AI_REVIEW : revue de fond/forme (PROJET, non bloquante). Chaque document lisible est découpé
@@ -718,13 +730,12 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
   // Sections prioritaires en tête (tri stable), puis le reste → couverture complète, budget permettant.
   const ordered = [...docs].sort((a, b) => Number(!!b.ctdSection && AI_PRIORITY_SECTIONS.has(b.ctdSection)) - Number(!!a.ctdSection && AI_PRIORITY_SECTIONS.has(a.ctdSection)));
 
-  // ── VOIE PAR DÉFAUT : analyse DIFFÉRÉE (Batch, moitié prix), qui couvre la version ENTIÈRE.
-  // Une réanalyse complète de dossier volumineux se lance le soir et se lit le lendemain ; payer
-  // le double pour un résultat qu'on ne regardera pas dans l'heure n'a pas de sens. Si le dépôt
-  // échoue (clé absente, fournisseur indisponible), on ne perd pas l'analyse : on bascule sur la
-  // voie immédiate ci-dessous.
-  // Le mode peut être FORCÉ par la charge utile du job (choix de l'utilisateur à l'écran) :
-  // « résultats maintenant, plein tarif » l'emporte alors sur le différé par défaut.
+  // ── VOIE DIFFÉRÉE (Batch, moitié prix) — désormais SUR DEMANDE, plus par défaut : elle fait
+  // attendre les constats jusqu'à 24 h, pendant lesquelles l'écran montre un dossier « en revue »
+  // amputé de sa partie la plus exigeante. On passe donc directement à la voie immédiate
+  // ci-dessous, sauf réglage explicite (`REG_AI_BATCH=1`) ou demande de l'utilisateur.
+  // Le mode peut être FORCÉ par la charge utile du job (choix à l'écran) : « résultats
+  // maintenant, plein tarif » l'emporte toujours.
   const forcedImmediate = (job.payload as { mode?: string } | null)?.mode === "immediate";
   if (!forcedImmediate && aiBatchDefault()) {
     const submitted = await submitVersionReviewBatch(versionId, {
