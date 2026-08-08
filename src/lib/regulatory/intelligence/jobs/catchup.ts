@@ -1,0 +1,178 @@
+import { prisma } from "@/lib/prisma";
+import { aiConfigured } from "@/lib/ai";
+import { regAudit } from "../audit";
+
+/**
+ * RATTRAPAGE DES DOSSIERS DÉJÀ EN PLACE — pour que les améliorations profitent aussi à ce qui
+ * existe, sans reprendre chaque dossier à la main.
+ *
+ * Deux situations réelles, héritées du passé :
+ *
+ *   1. **La revue de fond n'a jamais été livrée.** Tant que le différé (Batch, moitié prix) était
+ *      le défaut, un dossier pouvait passer « En revue » avec ses seuls contrôles déterministes,
+ *      la partie exigeante restant chez le fournisseur — et si le lot n'est jamais revenu (clé
+ *      changée, lot expiré, erreur fournisseur), il n'y avait AUCUN mécanisme pour s'en rendre
+ *      compte. Le dossier avait simplement l'air propre.
+ *
+ *   2. **Le pipeline déterministe s'est arrêté en chemin.** Un job en échec définitif laisse un
+ *      dossier bloqué en « Analyse en cours » sans plus rien dans la file — il ne repartira
+ *      jamais tout seul.
+ *
+ * Principes tenus ici, parce qu'un rattrapage automatique touche à l'argent et à la confiance :
+ *   • **une seule fois par version.** Le marqueur vit dans le journal d'audit (`AI_CATCHUP`) —
+ *     pas de nouvelle table, et surtout aucune boucle qui relancerait indéfiniment une analyse
+ *     payante sur un dossier légitimement sans constat ;
+ *   • **on ne double jamais un travail en cours** : un job en file, ou un lot différé déposé il y
+ *     a moins de 26 h (les lots aboutissent sous 24 h), interdit le rattrapage ;
+ *   • **débit volontairement lent** — quelques versions par passage : on rattrape un historique
+ *     sur quelques minutes, on ne déclenche pas une facture d'un coup ;
+ *   • **mode immédiat forcé** : rattraper en différé reproduirait exactement le problème ;
+ *   • le plafond budgétaire du dossier continue de refuser l'appel AVANT la dépense ;
+ *   • désactivable d'un geste (`REG_AI_CATCHUP=0`), et ne lève jamais.
+ */
+
+/** Un lot différé de plus de 26 h ne reviendra plus : les lots aboutissent sous 24 h. */
+export const BATCH_FRESH_MS = 26 * 60 * 60_000;
+const BATCH_IN_FLIGHT = ["submitted", "validating", "in_progress", "finalizing"] as const;
+
+/** Versions rattrapées par passage — lent volontairement (coût étalé, effet observable). */
+const AI_CATCHUP_PER_TICK = 2;
+const STALL_CATCHUP_PER_TICK = 3;
+
+export const catchupEnabled = () => (process.env.REG_AI_CATCHUP ?? "1").trim() !== "0";
+
+export interface AiCatchupState {
+  /** Les contrôles déterministes ont abouti (un bilan existe) — sinon le pipeline travaille encore. */
+  deterministicDone: boolean;
+  /** Constats de fond déjà livrés par l'IA sur cette version. */
+  aiFindings: number;
+  /** Un job AI_REVIEW est en file ou en cours. */
+  aiJobActive: boolean;
+  /** Un lot différé déposé il y a moins de 26 h est encore en vol : il va livrer. */
+  freshBatchInFlight: boolean;
+  /** Cette version a DÉJÀ été rattrapée une fois. */
+  alreadyCaughtUp: boolean;
+}
+
+/**
+ * Faut-il rattraper la revue de fond de cette version ? Fonction PURE — testée.
+ * L'ordre des refus est la règle métier : on ne double jamais un travail en cours, et on ne
+ * rattrape jamais deux fois (une analyse payante qui boucle serait pire que le problème initial).
+ */
+export function shouldCatchUpAi(s: AiCatchupState): boolean {
+  if (!s.deterministicDone) return false;
+  if (s.alreadyCaughtUp) return false;
+  if (s.aiJobActive) return false;
+  if (s.freshBatchInFlight) return false;
+  return s.aiFindings === 0;
+}
+
+/** Un lot déposé à `submittedAt` peut-il encore livrer ? PURE — testée. */
+export function batchStillFresh(submittedAt: Date, now: number): boolean {
+  return now - submittedAt.getTime() < BATCH_FRESH_MS;
+}
+
+/**
+ * Rattrape les versions dont la revue de fond n'a jamais rien livré. Rend le nombre de versions
+ * remises en file. Ne lève jamais.
+ */
+export async function catchUpMissingAiReviews(limit = AI_CATCHUP_PER_TICK): Promise<number> {
+  if (!catchupEnabled() || !aiConfigured()) return 0;
+  try {
+    const now = Date.now();
+
+    // Versions à EXCLURE : lot récent encore en vol (il va livrer), ou déjà rattrapées une fois.
+    const [batches, caughtUp] = await Promise.all([
+      prisma.regulatoryAiBatch.findMany({
+        where: { status: { in: [...BATCH_IN_FLIGHT] }, dossierVersionId: { not: null } },
+        select: { dossierVersionId: true, submittedAt: true },
+        take: 500,
+      }),
+      prisma.regulatoryAuditLog.findMany({
+        where: { action: "AI_CATCHUP", dossierVersionId: { not: null } },
+        select: { dossierVersionId: true },
+        take: 2000,
+      }),
+    ]);
+    const excluded = new Set<string>();
+    for (const b of batches) if (b.dossierVersionId && batchStillFresh(b.submittedAt, now)) excluded.add(b.dossierVersionId);
+    for (const a of caughtUp) if (a.dossierVersionId) excluded.add(a.dossierVersionId);
+
+    // Candidates : bilan déterministe présent, AUCUN constat IA, aucun job de revue en file.
+    const versions = await prisma.regulatoryDossierVersion.findMany({
+      where: {
+        assessment: { isNot: null },
+        findings: { none: { source: "AI" } },
+        jobs: { none: { type: "AI_REVIEW", status: { in: ["QUEUED", "RUNNING"] } } },
+        id: { notIn: [...excluded].slice(0, 5000) },
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: { id: true, dossierId: true, dossier: { select: { companyId: true, reference: true, title: true } } },
+    });
+    if (versions.length === 0) return 0;
+
+    let queued = 0;
+    for (const v of versions) {
+      // Marqueur écrit AVANT la mise en file : deux ticks concurrents ne doivent pas déposer
+      // deux analyses payantes sur la même version.
+      await regAudit({
+        companyId: v.dossier.companyId, actorId: "system", dossierId: v.dossierId, dossierVersionId: v.id,
+        action: "AI_CATCHUP",
+        detail: `Rattrapage automatique : la revue de fond de « ${v.dossier.reference} — ${v.dossier.title} » n'avait jamais été livrée. Relancée en analyse IMMÉDIATE.`,
+      });
+      await prisma.regulatoryJob.create({
+        data: {
+          companyId: v.dossier.companyId, dossierId: v.dossierId, dossierVersionId: v.id,
+          type: "AI_REVIEW", status: "QUEUED",
+          payload: { mode: "immediate" }, // rattraper en différé reproduirait le problème
+        },
+      });
+      queued++;
+    }
+    return queued;
+  } catch (e) {
+    console.error("[reg-catchup] rattrapage de la revue de fond impossible", e);
+    return 0;
+  }
+}
+
+/**
+ * Redémarre les pipelines déterministes ARRÊTÉS : dossier encore en analyse, plus aucun job en
+ * file, et aucun bilan produit. Sans cela, un job en échec définitif fige le dossier pour
+ * toujours. Gratuit (aucun appel IA) — donc sans marqueur d'unicité : dès qu'un bilan existe,
+ * la version cesse d'être candidate.
+ */
+export async function catchUpStalledPipelines(limit = STALL_CATCHUP_PER_TICK): Promise<number> {
+  if (!catchupEnabled()) return 0;
+  try {
+    const versions = await prisma.regulatoryDossierVersion.findMany({
+      where: {
+        assessment: { is: null },
+        dossier: { status: { in: ["ANALYSING", "INGESTED"] } },
+        jobs: { none: { status: { in: ["QUEUED", "RUNNING"] } } },
+        documents: { some: {} }, // un dossier sans document n'a rien à analyser
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: { id: true, dossierId: true, dossier: { select: { companyId: true, reference: true } } },
+    });
+    if (versions.length === 0) return 0;
+
+    for (const v of versions) {
+      // FACTS enchaîne RULES : on repart de l'étape qui produit le jumeau puis le bilan.
+      await prisma.regulatoryJob.create({
+        data: { companyId: v.dossier.companyId, dossierId: v.dossierId, dossierVersionId: v.id, type: "FACTS", status: "QUEUED", payload: {} },
+      });
+      await regAudit({
+        companyId: v.dossier.companyId, actorId: "system", dossierId: v.dossierId, dossierVersionId: v.id,
+        action: "PIPELINE_RESUMED",
+        detail: `Reprise automatique : l'analyse de « ${v.dossier.reference} » était arrêtée sans bilan ni tâche en file.`,
+      });
+    }
+    return versions.length;
+  } catch (e) {
+    console.error("[reg-catchup] reprise des pipelines arrêtés impossible", e);
+    return 0;
+  }
+}

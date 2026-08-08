@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
 import { performAiHealthCheck } from "@/lib/ai-health";
 import { runDueRegulatoryJobs } from "@/lib/regulatory/intelligence/jobs/runner";
+import { catchUpMissingAiReviews, catchUpStalledPipelines } from "@/lib/regulatory/intelligence/jobs/catchup";
 import { pruneStaleUploadSessions } from "@/lib/regulatory/intelligence/upload/session";
 import { runAnppWatchIfDue } from "@/lib/regulatory/intelligence/corpus/watch-schedule";
 import { pollAiBatches } from "@/lib/regulatory/intelligence/cost/batch-runner";
@@ -36,6 +37,10 @@ export async function runScheduledJobs(): Promise<void> {
     await pruneStaleUploadSessions().catch(() => 0); // nettoyage des sessions d'upload incomplètes
     await runAnppWatchIfDue(); // veille ANPP 1×/jour : une ligne directrice ne doit pas changer sans qu'on le sache
     await pollAiBatches(); // analyses différées (moitié prix) : récupère les lots terminés
+    // Rattrapage de l'EXISTANT : les dossiers déjà en base profitent des mêmes règles que les
+    // nouveaux — revue de fond jamais livrée, ou pipeline arrêté en chemin. Bornés par passage.
+    await catchUpStalledPipelines().catch(() => 0);
+    await catchUpMissingAiReviews().catch(() => 0);
     await embedBacklog().catch(() => 0); // vecteurs sémantiques : un paquet par passage, jamais plus
     await runIntelligencePulse(); // Adventum Pulse : instantané horaire (Brain + Process Intelligence) + alerte proactive
 

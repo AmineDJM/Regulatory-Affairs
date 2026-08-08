@@ -1587,6 +1587,7 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
 | **CTD — pages exactes & preuve** | `lib/regulatory/intelligence/extract/pages.ts` (`buildPagedContent`, `pageAtOffset`, `pageSpanOfSlice`, `anchorEvidence` — pures + tests) ; `extract-text.ts` (`extractPdfPages` mupdf par page), `ocr/ocr-engine.ts` (contenu paginé), colonne `RegulatoryExtraction.pageMap` ; `agents/chunk-text.ts` (`splitTextIntoChunksWithOffsets`) ; consommé par `jobs/runner.ts` + `cost/batch-runner.ts` (l'ancrage PRIME l'estimation) ; page cliquable `#page=N` dans l'écran dossier. |
 | **CTD — escalade & sémantique** | `lib/regulatory/intelligence/agents/escalate.ts` (`escalateCriticalSections`, max 4, `REG_AGENT_AUTO=0` pour couper) ; `corpus/semantic.ts` (`cosine`, `mergeHybrid`, `semanticSearchSections`, `embedBacklog` — cache estampillé, jamais bloquant) + `lunaEmbed` dans `lib/openai-luna.ts` ; hybride branché dans `corpus/rag.ts` (`searchCorpus`), rattrapage dans `lib/scheduled.ts`. Colonnes `embedding` (JSONB) sur `RegulatorySourceSection` + `AnppReserve`. |
 | **CTD — livrables & verdict** | `lib/regulatory/intelligence/docgen/reports.ts` (`buildFindingsReport`, `buildReserveResponseLetter`) sur `buildSimpleDocx` (`build-docx.ts`) ; `rules/notice-arabic.ts` (`arabicStats`, `missesArabic`, `isArabicRequiredSection` — pures + tests, branchées dans `handleRules`) ; `createTaskFromFinding` dans `intelligence/actions.ts` ; verdict GO/NO-GO + réserves probables calculés dans `analyse/[dossierId]/page.tsx` ; boutons `report-buttons.tsx`. |
+| **CTD — rattrapage de l'existant** | `lib/regulatory/intelligence/jobs/catchup.ts` — `shouldCatchUpAi` / `batchStillFresh` (pures + tests), `catchUpMissingAiReviews` (revue de fond jamais livrée → job `AI_REVIEW` en mode `immediate`, marqueur d'audit `AI_CATCHUP` = une fois par version), `catchUpStalledPipelines` (pipeline arrêté → `FACTS`, audit `PIPELINE_RESUMED`) ; branchés dans `lib/scheduled.ts`. Coupure : `REG_AI_CATCHUP=0`. |
 | **CTD — progression vivante** | `lib/regulatory/intelligence/progress/analysis-progress.ts` (`computeAnalysisProgress`, `formatEta` — pures + tests : phases réception→lecture→OCR→données→conformité→revue IA, % renormalisé, ETA au débit réel), `query.ts` (`getAnalysisProgress` — comptes légers) ; route de polling `app/api/regulatory/intelligence/progress/[versionId]` (réveille aussi le planificateur) ; carte cliente `analyse/[dossierId]/analysis-progress-card.tsx` (barre + bande lumineuse + étapes + temps restant) ; badge vivant `analyse/live-badge.tsx` sur la liste. |
 | **CTD — Entraînement IA (admin)** | `lib/regulatory/intelligence/training/` — `ingest-case.ts` (extraction + repérage CTD déterministe, dédup sha256 par étude), `for-section.ts` (`experienceForSection`, `rankCaseDocs` pure + tests, dédup par empreinte), `labels.ts` (pur, importable client), `actions.ts` (SUPER_ADMIN only) ; bloc « EXPÉRIENCE INTERNE » dans `agents/review-agent.ts` (`buildPrompt.experience` + tests), câblé dans `jobs/runner.ts` ET `cost/batch-runner.ts` ; embeddings via `corpus/semantic.ts` (`embedBacklog`) ; écran `app/(app)/regulatory/enregistrement/entrainement/`. Modèles `RegulatoryCaseStudy`/`RegulatoryCaseDoc`. |
 | **Courrier smart (sans SMTP)** | `lib/mail-smart.ts` (agnostique fournisseur, `buildProviderCall`/`verifyInboundSignature`/`normalizeInbound`) + `mail-smart.test.ts`, `lib/actions/smart-mail-actions.ts` (journal), `app/api/mail/inbound/route.ts` (webhook signé), `app/(app)/admin/courrier/`. Modèles `OutboundEmail`/`InboundEmail`. |
@@ -2015,6 +2016,16 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Les dossiers DÉJÀ en base sont rattrapés automatiquement.** Changer un défaut ne vaut que pour
+  les nouvelles analyses : les dossiers déjà « En revue » seraient restés avec une revue de fond
+  différée — voire jamais livrée (lot expiré, clé changée). Le planificateur repère désormais deux
+  situations et les répare seul : une version dont la revue de fond **n'a rien livré** est relancée
+  en **analyse immédiate**, et un pipeline **arrêté en chemin** (plus aucune tâche en file, aucun
+  bilan) repart. Garde-fous : **une seule fois par version** (marqueur dans le journal d'audit —
+  jamais de boucle payante), jamais par-dessus un travail en cours ni un lot encore en vol
+  (< 26 h), deux versions par passage au plus, plafond budgétaire toujours actif, coupure par
+  `REG_AI_CATCHUP=0`. → [référence](#4-coût--voir-réutiliser-plafonner)
 
 - **La revue de fond passe en IMMÉDIAT par défaut.** Le différé (moitié prix, sous 24 h) était le
   défaut : un dossier affiché « en revue » pouvait donc l'être **sans ses constats les plus
