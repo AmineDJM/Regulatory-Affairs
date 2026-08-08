@@ -137,7 +137,20 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       const received = new Set<number>((receivedIndices ?? []).filter((i) => i >= 0 && i < expectedParts));
       const loaded = new Array<number>(expectedParts).fill(0);
       for (const i of received) loaded[i] = partBytes(i);
-      const refresh = () => setProgress(Math.min(99, Math.round((loaded.reduce((a, b) => a + b, 0) / file.size) * 100)));
+      // BARRE MONOTONE — elle ne recule JAMAIS.
+      //
+      // Une tranche qui échoue (onglet mis en arrière-plan, réseau qui hoquette) voit son compteur
+      // remis à zéro puis renvoyée : la somme brute redescend, et l'utilisateur voit la barre
+      // reculer de plusieurs pour cent — d'autant plus visible que les tranches sont grosses.
+      // Reculer donne l'impression que le travail est perdu, alors qu'il est simplement rejoué.
+      // On affiche donc le POINT LE PLUS AVANCÉ atteint : la barre marque une pause pendant la
+      // reprise, puis repart — jamais en arrière.
+      let shown = 0;
+      const refresh = () => {
+        const pct = Math.min(99, Math.round((loaded.reduce((a, b) => a + b, 0) / file.size) * 100));
+        if (pct > shown) shown = pct;
+        setProgress(shown);
+      };
       refresh();
 
       let cursor = 0;

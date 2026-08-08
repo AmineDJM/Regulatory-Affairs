@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
-import { ingestDossierZip } from "./ingest/ingest-dossier";
+import { flushOriginalArchives, ingestDossierZip } from "./ingest/ingest-dossier";
 import { runRegulatoryJob } from "./jobs/runner";
 
 /**
@@ -126,6 +126,7 @@ async function drainJobs(id: string, max = 40): Promise<void> {
 }
 
 async function releaseDossierBlobs(id: string) {
+  await flushOriginalArchives(); // l'archive originale est écrite EN FOND : ne rien laisser en vol
   const [docs, vers] = await Promise.all([
     prisma.regulatoryDocument.findMany({ where: { dossierVersion: { dossierId: id } }, select: { blobId: true } }),
     prisma.regulatoryDossierVersion.findMany({ where: { dossierId: id }, select: { originalZipBlobId: true } }),

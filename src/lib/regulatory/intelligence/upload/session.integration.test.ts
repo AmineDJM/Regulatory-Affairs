@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
 import { startUploadSession, putUploadPart, uploadSessionStatus, finalizeUploadSession } from "./session";
+import { flushOriginalArchives } from "../ingest/ingest-dossier";
 
 /**
  * Intégration G14 : upload résumable de bout en bout — session, parties (dont ré-envoi/reprise),
@@ -19,6 +20,7 @@ describe("upload résumable — flux complet", () => {
   });
 
   afterAll(async () => {
+    await flushOriginalArchives(); // l'archive originale est écrite EN FOND : ne rien laisser en vol
     const vers = await prisma.regulatoryDossierVersion.findMany({ where: { dossierId }, select: { originalZipBlobId: true } });
     const docs = await prisma.regulatoryDocument.findMany({ where: { dossierVersion: { dossierId } }, select: { blobId: true } });
     await prisma.regulatoryDossier.deleteMany({ where: { companyId } }).catch(() => undefined);

@@ -3,7 +3,7 @@ import JSZip from "jszip";
 import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
-import { ingestDossierZip } from "../ingest/ingest-dossier";
+import { flushOriginalArchives, ingestDossierZip } from "../ingest/ingest-dossier";
 import { runRegulatoryJob } from "./runner";
 
 /**
@@ -26,6 +26,7 @@ describe("runner EXTRACT — extraction pilotée par job (intégration)", () => 
   });
 
   afterAll(async () => {
+    await flushOriginalArchives(); // l'archive originale est écrite EN FOND : ne rien laisser en vol
     const [docs, vers] = await Promise.all([
       prisma.regulatoryDocument.findMany({ where: { dossierVersion: { dossierId } }, select: { blobId: true } }),
       prisma.regulatoryDossierVersion.findMany({ where: { dossierId }, select: { originalZipBlobId: true } }),

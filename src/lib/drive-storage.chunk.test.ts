@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import crypto from "crypto";
+import { mkdtemp, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { prisma } from "@/lib/prisma";
-import { putBlob, getBlob, releaseBlob } from "./drive-storage";
+import { putBlob, putBlobFromFile, getBlob, releaseBlob, sha256, sha256File } from "./drive-storage";
 
 /**
  * Stockage EN TRANCHES d'un gros blob en base (sans bucket) : un fichier au-delà du seuil est écrit
@@ -54,6 +57,34 @@ describe("drive-storage — gros blob chunké (base), round-trip + purge cascade
       expect(Buffer.compare((await getBlob(put.blobId))!, plain)).toBe(0);
     } finally {
       await releaseBlob(put.blobId).catch(() => undefined);
+    }
+  });
+
+  it("putBlobFromFile — lecture EN FLUX, plusieurs tranches, relu octet pour octet", async () => {
+    // Chemin des grosses archives CTD : le fichier n'est JAMAIS chargé entier en mémoire. La taille
+    // choisie ne tombe pas sur un multiple de la tranche → vérifie aussi la dernière tranche partielle.
+    const dir = await mkdtemp(join(tmpdir(), "blob-file-test-"));
+    const path = join(dir, "archive.zip");
+    const plain = crypto.randomBytes(Math.floor(3.3 * 1024 * 1024)); // 3,3 Mo, tranches de 1 Mo
+    await writeFile(path, plain);
+    try {
+      expect(await sha256File(path)).toBe(sha256(plain)); // empreinte en flux == empreinte en mémoire
+
+      const put = await putBlobFromFile(path, { sha256: sha256(plain) });
+      try {
+        expect(put.size).toBe(plain.length);
+        expect(await prisma.fileBlobChunk.count({ where: { blobId: put.blobId } })).toBeGreaterThan(3);
+        expect(Buffer.compare((await getBlob(put.blobId))!, plain)).toBe(0);
+
+        // Même contenu déjà stocké → déduplication SANS relire le fichier (compteur incrémenté).
+        const again = await putBlobFromFile(path);
+        expect(again.blobId).toBe(put.blobId);
+        await releaseBlob(again.blobId);
+      } finally {
+        await releaseBlob(put.blobId).catch(() => undefined);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => undefined);
     }
   });
 

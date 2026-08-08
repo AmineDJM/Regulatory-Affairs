@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import { createReadStream } from "fs";
+import { readFile, stat } from "fs/promises";
 import { prisma } from "./prisma";
 import { objectStorageConfigured, putObject, getObject, deleteObject } from "./regulatory/intelligence/upload/object-storage";
 
@@ -96,6 +98,58 @@ async function putBlobChunked(plain: Buffer, hash: string, iv: Buffer): Promise<
     return { blobId: blob.id, sha256: hash, size: plain.length };
   } catch (err) {
     await prisma.fileBlob.delete({ where: { id: blob.id } }).catch(() => undefined); // cascade → supprime les tranches partielles
+    throw err;
+  }
+}
+
+/** SHA-256 d'un fichier lu EN FLUX (jamais chargé entier en mémoire). */
+export async function sha256File(path: string): Promise<string> {
+  const hash = crypto.createHash("sha256");
+  for await (const chunk of createReadStream(path, { highWaterMark: 4 * 1024 * 1024 })) hash.update(chunk as Buffer);
+  return hash.digest("hex");
+}
+
+/**
+ * Stocke le contenu d'un FICHIER sur disque sans jamais le charger entièrement en mémoire :
+ * lecture en flux → chiffrement incrémental → écriture par tranches. Pic mémoire ≈ une tranche,
+ * quelle que soit la taille du fichier (une archive CTD peut peser plusieurs centaines de Mo).
+ *
+ * `sha256` peut être fourni quand l'empreinte a déjà été calculée en amont (c'est le cas à
+ * l'assemblage d'un upload) : la déduplication se décide alors SANS relire le fichier du tout.
+ */
+export async function putBlobFromFile(path: string, opts: { sha256?: string } = {}): Promise<{ blobId: string; sha256: string; size: number }> {
+  const hash = opts.sha256 || (await sha256File(path));
+  const existing = await prisma.fileBlob.findUnique({ where: { sha256: hash }, select: { id: true, size: true } });
+  if (existing) {
+    await prisma.fileBlob.update({ where: { id: existing.id }, data: { refCount: { increment: 1 } } });
+    return { blobId: existing.id, sha256: hash, size: existing.size };
+  }
+
+  // Stockage OBJET : l'API du bucket attend le contenu complet → repli sur le chemin en mémoire.
+  // Sans conséquence pratique : quand R2 est configuré, le navigateur envoie DIRECTEMENT au bucket
+  // et ce chemin n'est plus emprunté par les gros dossiers.
+  if (objectStorageConfigured()) return putBlob(await readFile(path));
+
+  const { size } = await stat(path);
+  const iv = crypto.randomBytes(12);
+  const blob = await prisma.fileBlob.create({ data: { sha256: hash, size, iv, data: null, refCount: 1 }, select: { id: true } });
+  try {
+    const cipher = crypto.createCipheriv("aes-256-gcm", masterKey(), iv);
+    let idx = 0;
+    let read = 0;
+    // Les tranches sont recollées à la lecture dans l'ordre `idx` : leurs tailles respectives
+    // n'ont aucune importance, seul l'ordre compte.
+    for await (const chunk of createReadStream(path, { highWaterMark: blobChunkBytes() })) {
+      const plain = chunk as Buffer;
+      read += plain.length;
+      const enc = cipher.update(plain);
+      if (enc.length > 0) await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: enc } });
+    }
+    if (read !== size) throw new Error(`Fichier modifié pendant la lecture (${read} ≠ ${size}).`);
+    await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: Buffer.concat([cipher.final(), cipher.getAuthTag()]) } });
+    return { blobId: blob.id, sha256: hash, size };
+  } catch (err) {
+    await prisma.fileBlob.delete({ where: { id: blob.id } }).catch(() => undefined); // cascade → tranches partielles
     throw err;
   }
 }

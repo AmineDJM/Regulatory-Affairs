@@ -1874,6 +1874,8 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `REG_EXTRACTION_MAX_CHARS` | ⬜ | Plafond du texte extrait/OCR persisté par document (défaut 20 M — ≈ 10 000 pages ; fin de la troncature 1 M). ↑ demande plus de disque base. |
 | `REG_AI_CHUNK_PAGES` · `REG_AI_CONCURRENCY` | ⬜ | Revue IA par parts : pages par part envoyée à l'IA (défaut 10) · parts analysées en parallèle (défaut 4). |
 | `REG_AI_MAX_CHUNKS` · `REG_AI_MAX_FINDINGS` | ⬜ | Garde-coût revue IA : parts max analysées par version (défaut 120, **0 = illimité**) · constats IA max persistés (défaut 300). Chaque part = 1 appel Claude (palier **éco**) facturé — c'est le principal poste de coût CTD, borné ici. |
+| `REG_UPLOAD_PART_MB` · `REG_UPLOAD_CONCURRENCY` | ⬜ | Taille d'une partie envoyée (défaut **4 Mo**, borné à 32) · parties en parallèle (défaut **8**). ⚠️ **Ne pas grossir les parties pour aller plus vite : c'est l'inverse** — mesuré, 16 Mo est ~2× plus lent que 4 Mo (Postgres écrit moins vite une grosse valeur `bytea`, et il faut la relire pour réassembler). Le levier utile est le parallélisme. |
+| `REG_INGEST_STORE_CONCURRENCY` | ⬜ | Fichiers du dossier écrits en parallèle pendant l'ingestion (défaut **4**). Au-delà, les écritures se disputent le pool de connexions et le total **remonte** (mesuré : 4,7 s en série, 1,5 s à quatre, 2,0 s à huit) — ne relever qu'avec `DB_CONNECTION_LIMIT`. |
 | `REG_MAX_PG_FILE_MB` · `REG_BLOB_CHUNK_MB` | ⬜ | Taille max d'un fichier unique conservé en base (défaut **950 Mo** ≈ 1 Go, stocké en tranches) · taille d'une tranche de blob chiffré (défaut 16 Mo). Fichiers proches d'1 Go : prévoir ≥ 4 Go de RAM ou activer R2. |
 | `OPENAI_API_KEY` · `OPENAI_BASE_URL` | ⬜ | Modèle économique **Luna** (`gpt-5.6-luna`) : lecture des lettres de réserves, des graphiques/images, et analyse différée (Batch). Sans clé, ces fonctions se désactivent **proprement** (message explicite) — le reste du module continue de fonctionner. |
 | `CTD_MODEL_CHEAP` | ⬜ | Surcharge du modèle économique (défaut `gpt-5.6-luna`). |
@@ -2017,6 +2019,31 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Téléversement CTD deux fois plus rapide — en mesurant au lieu de supposer.** Trois corrections,
+  toutes appuyées sur des mesures reproductibles (`scripts/bench/`) :
+  - **L'archive originale quitte le chemin critique.** La conserver coûtait ~10 s par 60 Mo, soit
+    **plus de la moitié** de la finalisation (et ~2 min pour 800 Mo). Or personne ne l'attend :
+    elle sert à la traçabilité et au téléchargement, jamais à l'analyse, qui travaille sur les
+    fichiers déjà stockés. L'ingestion rend donc la main dès que la version existe et l'archive
+    rejoint la base **en fond**, écrite en flux depuis le disque (mémoire bornée à une tranche au
+    lieu de l'archive entière) et **une à la fois** pour ne jamais monopoliser le pool de connexions.
+    L'empreinte SHA-256, elle, est enregistrée **tout de suite** : la traçabilité ne dépend jamais
+    du fond. Finalisation d'un dossier de 60 Mo : **16,5 s → 3,7 s**.
+  - **Parties de 16 Mo → retour à 4 Mo : grossir les parties RALENTISSAIT.** Le pari « moins
+    d'allers-retours = plus rapide » supposait que le coût dominant soit la poignée de main. C'est
+    l'écriture des octets : Postgres plafonne à ~11 Mo/s et écrit d'autant moins vite qu'on lui
+    présente une valeur `bytea` volumineuse d'un seul tenant. Mesuré à 8 envois parallèles sur le
+    même ZIP de 60 Mo — 1 Mo : 8,2 s · 4 Mo : 9,0 s · 8 Mo : 10,8 s · **16 Mo : 16,3 s**. Sur un lien
+    mobile, une partie de 16 Mo dépassait en plus le délai de garde de 90 s du navigateur : elle
+    était renvoyée, et c'est ce qui faisait **reculer la barre de progression**. Le parallélisme,
+    lui, paie vraiment (9,6 s à un seul envoi contre 4,3 s à quatre) — il est conservé.
+  - **La barre de progression ne recule plus jamais.** Elle affiche le point le plus avancé atteint :
+    une partie rejouée marque une pause, puis repart. Reculer laissait croire que le travail était
+    perdu alors qu'il était simplement refait.
+  Au passage, la suite de tests elle-même était en panne silencieuse : deux fichiers ne se
+  **chargeaient** pas (résolution de `next/server` par next-auth), leurs tests ne s'exécutaient donc
+  pas sans que le total le signale. Corrigé dans `vitest.config.ts` — 133 fichiers, **950 tests**.
+
 - **L'analyse cesse d'attendre entre deux lots.** Le planificateur ne se déclenche qu'une fois par
   minute, or plusieurs jobs se re-mettent en file pour reprendre où ils en étaient : un dossier de
   262 fichiers avançait par paliers d'un lot **toutes les minutes** — un quart d'heure d'attente
@@ -2024,7 +2051,7 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   dans une enveloppe de temps bornée (`REG_JOBS_BUDGET_MS`, 2 min), en cédant la main entre chaque
   unité. Au passage : lot d'extraction 20 → **40** documents, parts d'analyse envoyées en parallèle
   au modèle 4 → **8** (c'est de l'attente réseau : doubler divise le temps sans coûter un jeton),
-  et téléversement en parties de 4 → **16 Mo**, 3 → **8** en parallèle (4× moins d'allers-retours).
+  et parties envoyées en parallèle 3 → **8**.
   ⚠️ Le gain suivant, bien plus grand, n'est pas dans le code : **activer le stockage objet**
   (`REG_S3_*`) fait envoyer l'archive DIRECTEMENT au bucket au lieu de la faire transiter par
   l'application puis par Postgres — diagnostic intégré : `/api/regulatory/intelligence/upload/diagnose`.

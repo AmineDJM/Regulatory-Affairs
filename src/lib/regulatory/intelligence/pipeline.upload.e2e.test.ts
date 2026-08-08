@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
 import { startUploadSession, putUploadPart, finalizeUploadSession, DEFAULT_PART_SIZE } from "./upload/session";
 import { runRegulatoryJob } from "./jobs/runner";
+import { flushOriginalArchives } from "./ingest/ingest-dossier";
 
 /**
  * TEST END-TO-END du VRAI CHEMIN D'UPLOAD (le parcours exact que vit l'utilisateur) sur un dossier
@@ -106,6 +107,7 @@ async function uploadViaSession(buffer: Buffer): Promise<Awaited<ReturnType<type
 }
 
 async function releaseDossierBlobs(id: string) {
+  await flushOriginalArchives(); // l'archive originale est écrite EN FOND : ne rien laisser en vol
   const [docs, vers] = await Promise.all([
     prisma.regulatoryDocument.findMany({ where: { dossierVersion: { dossierId: id } }, select: { blobId: true } }),
     prisma.regulatoryDossierVersion.findMany({ where: { dossierId: id }, select: { originalZipBlobId: true } }),

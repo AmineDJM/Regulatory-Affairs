@@ -27,29 +27,37 @@ export { objectStorageConfigured } from "./object-storage";
 
 const MB = 1024 * 1024;
 /**
- * TAILLE DES PARTIES — 16 Mo (était 4).
+ * TAILLE DES PARTIES — 4 Mo. **Grossir les parties RALENTIT** : c'est contre-intuitif, et mesuré.
  *
- * Chaque partie coûte un aller-retour complet : requête HTTP, authentification, résolution de
- * l'organisation, écriture en base. Sur un ZIP de 800 Mo, 4 Mo imposaient **200 allers-retours**
- * là où 16 Mo en demandent 50 — le temps gagné est celui des poignées de main, pas celui des
- * octets.
+ * L'idée « moins d'allers-retours = plus rapide » suppose que le coût dominant soit la poignée de
+ * main. Il ne l'est pas : le coût dominant est l'ÉCRITURE des octets en base, et Postgres écrit
+ * d'autant moins vite qu'on lui présente une valeur `bytea` volumineuse d'un seul tenant. Mesuré
+ * sur le même ZIP de 60 Mo, à 8 envois en parallèle (`scripts/bench/upload.ts`) :
  *
- * Le plafond réel est la MÉMOIRE : une partie est tenue en mémoire côté serveur le temps de son
- * écriture, et les envois sont parallèles. À 16 Mo × 8 envois le pic reste ~128 Mo, négligeable
- * sur l'instance actuelle (8 Go). Rester sous les 32 Mo autorisés garde aussi les retentes
- * bon marché sur un lien instable. Réglable : REG_UPLOAD_PART_MB.
+ *     1 Mo → 8,2 s     2 Mo → 8,9 s     4 Mo → 9,0 s     8 Mo → 10,8 s     16 Mo → 16,3 s
+ *
+ * …et la finalisation suit la même pente (3,5 s à 4 Mo contre 13,8 s à 16 Mo), parce qu'il faut
+ * ensuite RELIRE ces mêmes valeurs pour réassembler l'archive. Passer à 16 Mo avait donc rendu le
+ * téléversement deux fois plus lent, pas plus rapide.
+ *
+ * 4 Mo est le bon compromis : à égalité de débit avec 1 Mo, quatre fois moins de requêtes, et une
+ * retente ne coûte que 4 Mo sur un lien instable — ce qui limite aussi le recul visible de la barre
+ * de progression. Réglable : REG_UPLOAD_PART_MB (borné à 32 Mo).
  */
-export const DEFAULT_PART_SIZE = Number(process.env.REG_UPLOAD_PART_MB ?? 16) * MB;
+export const DEFAULT_PART_SIZE = Number(process.env.REG_UPLOAD_PART_MB ?? 4) * MB;
 export const SMALL_FILE_THRESHOLD = Number(process.env.REG_UPLOAD_SMALL_MB ?? 12) * MB; // en-deçà : route directe
 export const MAX_TOTAL_BYTES = DEFAULT_ZIP_LIMITS.maxArchiveBytes; // aligné sur la limite d'archive
 export const MAX_ACTIVE_SESSIONS_PER_ORG = Number(process.env.REG_UPLOAD_MAX_ACTIVE ?? 3);
 /**
- * Parties envoyées EN PARALLÈLE par le client — 8 (était 3).
+ * Parties envoyées EN PARALLÈLE par le client — 8 (était 3). **C'est ici qu'est le vrai gain** :
+ * contrairement à la taille des parties, le parallélisme paie. Mesuré sur 60 Mo en parties de
+ * 4 Mo : 9,6 s à un seul envoi, 5,2 s à deux, 4,3 s à quatre, 4,2 s à huit — soit ×2,3, avec un
+ * palier atteint vers quatre côté serveur.
  *
- * C'est le facteur qui remplit réellement le tuyau : un seul envoi n'utilise jamais toute la bande
- * passante montante. Le plafond n'est pas le réseau mais le POOL DE CONNEXIONS de la base (chaque
- * partie écrit) et la mémoire de l'instance ; 8 reste sous les deux avec la base actuelle
- * (2 vCPU) et 8 Go côté application. Réglable : REG_UPLOAD_CONCURRENCY.
+ * On garde 8 malgré ce palier : la mesure est faite en local, sans latence réseau, et c'est
+ * précisément la latence qu'un envoi supplémentaire en vol permet de masquer chez l'utilisateur.
+ * Le plafond n'est pas le réseau mais le POOL DE CONNEXIONS de la base et la mémoire de
+ * l'instance ; 8 × 4 Mo reste très en dessous. Réglable : REG_UPLOAD_CONCURRENCY.
  */
 export const UPLOAD_CONCURRENCY = Math.min(Math.max(Number(process.env.REG_UPLOAD_CONCURRENCY ?? 8), 1), 16);
 export const ORG_QUOTA_BYTES = Number(process.env.REG_ORG_QUOTA_GB ?? 50) * 1024 * MB;
@@ -352,7 +360,9 @@ export async function finalizeUploadSession(sessionId: string, companyId: string
         return abort(`Empreinte SHA-256 non concordante (fichier corrompu en transit).`);
       }
 
-      const ingest = await ingestDossierZipFromFile({ companyId, dossierId, actorId, filename: session.filename, zipPath });
+      // `sha` est déjà l'empreinte de l'archive assemblée : la transmettre évite à l'ingestion de
+      // relire le fichier entier une seconde fois pour la recalculer.
+      const ingest = await ingestDossierZipFromFile({ companyId, dossierId, actorId, filename: session.filename, zipPath, sha256: sha });
       if (!ingest.ok) {
         await abort(ingest.error ?? "Ingestion refusée.");
         return { ok: false, error: ingest.error, ingest };

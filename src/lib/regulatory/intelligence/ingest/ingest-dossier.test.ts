@@ -3,7 +3,7 @@ import JSZip from "jszip";
 import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob, getBlob } from "@/lib/drive-storage";
-import { ingestDossierZip } from "./ingest-dossier";
+import { flushOriginalArchives, ingestDossierZip } from "./ingest-dossier";
 
 /**
  * Test d'INTÉGRATION du pipeline d'ingestion (base réelle). Vérifie : conservation des
@@ -23,6 +23,7 @@ async function makeZip(files: Record<string, Buffer | string>): Promise<Buffer> 
 }
 
 async function releaseDossierBlobs(id: string) {
+  await flushOriginalArchives(); // l'archive originale est écrite EN FOND : ne rien laisser en vol
   const [docs, vers] = await Promise.all([
     prisma.regulatoryDocument.findMany({ where: { dossierVersion: { dossierId: id } }, select: { blobId: true } }),
     prisma.regulatoryDossierVersion.findMany({ where: { dossierId: id }, select: { originalZipBlobId: true } }),
@@ -77,6 +78,8 @@ describe("ingestDossierZip — pipeline d'ingestion CTD (intégration)", () => {
     expect(restored).not.toBeNull();
     expect(Buffer.compare(restored!, pdf)).toBe(0);
 
+    // L'archive originale est conservée EN FOND (hors du chemin critique) : on attend sa fin.
+    await flushOriginalArchives();
     const version = await prisma.regulatoryDossierVersion.findFirst({ where: { dossierId }, orderBy: { versionNo: "desc" } });
     expect(version?.originalZipBlobId).toBeTruthy();
     expect(version?.originalSha256).toBe(createHash("sha256").update(buf).digest("hex"));
@@ -95,6 +98,35 @@ describe("ingestDossierZip — pipeline d'ingestion CTD (intégration)", () => {
     expect(res.versionNo).toBe(2);
   });
 
+  it("l'archive originale est conservée EN FOND : l'ingestion rend la main sans l'attendre", async () => {
+    // C'est le poste de temps qui dominait la finalisation d'un téléversement (~10 s par 60 Mo, et
+    // proportionnel à la taille). L'ingestion doit donc revenir AVANT que l'archive soit écrite,
+    // en garantissant tout de suite ce dont dépend la traçabilité : l'empreinte SHA-256.
+    const tmp = await prisma.regulatoryDossier.create({
+      data: { companyId, reference: `${TAG}-async`, title: "Archive différée", createdById: "test-user" },
+      select: { id: true },
+    });
+    const buf = await makeZip({ "m1/1.0-lettre.txt": "Demande d'enregistrement", "m3/3.2.s-substance.pdf": Buffer.from("substance active") });
+    try {
+      const res = await ingestDossierZip({ companyId, dossierId: tmp.id, actorId: "test-user", filename: "differe.zip", buffer: buf });
+      expect(res.ok).toBe(true);
+
+      // AU RETOUR : version, manifeste et empreinte sont déjà là — l'archive, elle, est encore en vol.
+      const before = await prisma.regulatoryDossierVersion.findFirstOrThrow({ where: { dossierId: tmp.id } });
+      expect(before.originalSha256).toBe(createHash("sha256").update(buf).digest("hex"));
+      expect(await prisma.regulatoryDocument.count({ where: { dossierVersionId: before.id } })).toBe(2);
+
+      // UNE FOIS LE FOND TERMINÉ : l'archive est raccrochée à sa version, intacte octet pour octet.
+      await flushOriginalArchives();
+      const after = await prisma.regulatoryDossierVersion.findFirstOrThrow({ where: { dossierId: tmp.id } });
+      expect(after.originalZipBlobId).toBeTruthy();
+      expect(Buffer.compare((await getBlob(after.originalZipBlobId!))!, buf)).toBe(0);
+    } finally {
+      await releaseDossierBlobs(tmp.id).catch(() => undefined);
+      await prisma.regulatoryDossier.delete({ where: { id: tmp.id } }).catch(() => undefined);
+    }
+  });
+
   it("archive originale trop volumineuse pour la base → dossier ANALYSÉ quand même (best-effort)", async () => {
     // Simule le cas « Échec du stockage de l'archive » : plafond base à 0 → l'archive originale ne
     // peut PAS être stockée en un blob. L'ingestion ne doit PAS échouer : les fichiers sont conservés,
@@ -110,6 +142,7 @@ describe("ingestDossierZip — pipeline d'ingestion CTD (intégration)", () => {
       const res = await ingestDossierZip({ companyId, dossierId: tmp.id, actorId: "test-user", filename: "big.zip", buffer: buf });
       expect(res.ok).toBe(true); // le dossier est bien analysé
       expect(res.summary?.stored).toBe(2); // les fichiers sains sont conservés (blobs individuels)
+      await flushOriginalArchives();
       const v = await prisma.regulatoryDossierVersion.findFirst({ where: { dossierId: tmp.id } });
       expect(v?.originalZipBlobId).toBeNull(); // archive complète NON retenue (best-effort)
       expect(v?.originalSha256).toBe(createHash("sha256").update(buf).digest("hex")); // empreinte conservée

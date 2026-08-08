@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
 import { startUploadSession, putUploadPart, finalizeUploadSession } from "./session";
+import { flushOriginalArchives } from "../ingest/ingest-dossier";
 
 /**
  * ROBUSTESSE DE LA FINALISATION D'UPLOAD (base réelle, aucune simulation).
@@ -54,6 +55,7 @@ async function uploadAllParts(dossierId: string, zip: Buffer): Promise<{ session
 }
 
 async function releaseDossierBlobs(dossierId: string) {
+  await flushOriginalArchives(); // l'archive originale est écrite EN FOND : ne rien laisser en vol
   const [docs, vers] = await Promise.all([
     prisma.regulatoryDocument.findMany({ where: { dossierVersion: { dossierId } }, select: { blobId: true } }),
     prisma.regulatoryDossierVersion.findMany({ where: { dossierId }, select: { originalZipBlobId: true } }),
