@@ -66,6 +66,34 @@ export function detectContainedSections(text: string, opts: { max?: number } = {
     if (count >= 1) out.push({ code: section.code, count, evidence });
   }
 
+  // CODES PROFONDS — ceux que les lettres ANPP écrivent RÉELLEMENT (« 3.2.S.4.3 », « 3.2.P.8.3 »).
+  //
+  // Le catalogue s'arrête un cran plus haut (3.2.S.4), et la borne stricte du token fait qu'un
+  // code profond ne laissait détecter NI lui-même NI son parent : un document structuré comme une
+  // vraie lettre de réserves ressortait sans AUCUNE section — donc jamais servi comme précédent
+  // pour la section concernée. Un code d'au moins trois niveaux est auto-porteur : « 3.2.S.4.3 »
+  // ne peut être rien d'autre qu'une section CTD, aucune corroboration par intitulé n'est
+  // nécessaire. Les correspondances par PRÉFIXE en aval (rangement des précédents, corpus) font
+  // le lien avec le parent catalogué.
+  // Un code CATALOGUÉ reste soumis à la corroboration par intitulé : « se référer à 3.2.P.8 »
+  // est un renvoi, pas une section présente. Seuls les codes PLUS PROFONDS que le catalogue
+  // sont auto-porteurs. Borne droite : `(?!\w)` et non `(?![\w.])` — l'en-tête réel s'écrit
+  // « 3.2.S.4.3. Validation… », et le point final n'est pas une continuation de code.
+  const catalogued = new Set(CTD_SECTIONS.map((c) => c.code.toUpperCase()));
+  const deepCounts = new Map<string, { count: number; evidence: string }>();
+  const deepRe = /(?<![\w.])([1-5](?:\s*\.\s*(?:\d{1,2}|[APSRE])){2,})(?!\w)/gi;
+  let dm: RegExpExecArray | null;
+  let deepScanned = 0;
+  while ((dm = deepRe.exec(t)) !== null && deepScanned < 600) {
+    deepScanned++;
+    const code = dm[1].replace(/\s+/g, "").toUpperCase();
+    if (catalogued.has(code)) continue;
+    const cur = deepCounts.get(code) ?? { count: 0, evidence: t.slice(dm.index, dm.index + 70).replace(/\s+/g, " ").trim() };
+    cur.count++;
+    deepCounts.set(code, cur);
+  }
+  for (const [code, v] of deepCounts) out.push({ code, count: v.count, evidence: v.evidence });
+
   // Sections plus spécifiques (codes plus profonds) d'abord ; borne de sécurité.
   out.sort((a, b) => (b.code.match(/\./g)?.length ?? 0) - (a.code.match(/\./g)?.length ?? 0) || b.count - a.count);
   return out.slice(0, opts.max ?? 40);

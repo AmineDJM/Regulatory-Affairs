@@ -5,7 +5,7 @@ import type { RegCaseOutcome } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { regAudit } from "../audit";
-import { ingestCaseFile } from "./ingest-case";
+import { ingestCaseArchive, ingestCaseFile } from "./ingest-case";
 import type { FileIngestResult } from "../corpus/import-formats";
 
 /**
@@ -88,7 +88,7 @@ export async function deleteCaseStudy(formData: FormData): Promise<Result> {
 }
 
 /** Un fichier à la fois — mêmes raisons que le corpus (mémoire bornée, verdict par fichier). */
-export async function importCaseFileAction(formData: FormData): Promise<FileIngestResult> {
+export async function importCaseFileAction(formData: FormData): Promise<FileIngestResult & { children?: FileIngestResult[] }> {
   const g = await guard();
   if (!g.ok) return { filename: "", status: "FAILED", error: g.error };
   const caseId = str(formData, "caseId");
@@ -98,7 +98,32 @@ export async function importCaseFileAction(formData: FormData): Promise<FileInge
   const cs = await prisma.regulatoryCaseStudy.findUnique({ where: { id: caseId }, select: { id: true, title: true } });
   if (!cs) return { filename: file.name, status: "FAILED", error: "Étude de cas introuvable." };
 
-  const res = await ingestCaseFile({ caseId: cs.id, filename: file.name, buffer: Buffer.from(await file.arrayBuffer()) });
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  // UNE ARCHIVE ZIP = le dossier du produit passé déposé TEL QUEL. Elle est dézippée côté
+  // serveur (inspection sécurisée) et chaque pièce est ingérée une à une — verdict par pièce.
+  if (/\.zip$/i.test(file.name)) {
+    const children = await ingestCaseArchive({ caseId: cs.id, filename: file.name, buffer });
+    const ingested = children.filter((c) => c.status === "INGESTED").length;
+    const unchanged = children.filter((c) => c.status === "UNCHANGED").length;
+    const failed = children.length - ingested - unchanged;
+    if (ingested > 0) {
+      await regAudit({
+        actorId: g.userId, action: "TRAINING_DOC_INGESTED",
+        detail: `Entraînement IA : archive « ${file.name} » dépliée dans « ${cs.title} » — ${ingested} pièce(s) ingérée(s), ${unchanged} déjà connue(s), ${failed} refusée(s).`,
+      }).catch(() => undefined);
+      revalidatePath(PATH);
+    }
+    return {
+      filename: file.name,
+      status: ingested > 0 ? "INGESTED" : unchanged > 0 ? "UNCHANGED" : "FAILED",
+      sections: children.reduce((n, c) => n + (c.sections ?? 0), 0),
+      error: failed > 0 ? `${failed} pièce(s) refusée(s) — détail ci-dessous.` : undefined,
+      children,
+    };
+  }
+
+  const res = await ingestCaseFile({ caseId: cs.id, filename: file.name, buffer });
   if (res.status === "INGESTED") {
     await regAudit({
       actorId: g.userId, action: "TRAINING_DOC_INGESTED",

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { extractText } from "../extract/extract-text";
+import { canOcr, ocrDocument } from "../ocr/ocr-engine";
+import { inspectZip } from "../ingest/zip-inspector";
 import { classifyDocument } from "../ctd/classify";
 import { detectContainedSections } from "../ctd/detect-sections";
 import { extOf, CORPUS_IMPORT_EXTS, type FileIngestResult } from "../corpus/import-formats";
@@ -39,12 +41,20 @@ export async function ingestCaseFile(input: {
   }
 
   const extracted = await extractText(ext, input.buffer);
-  const text = (extracted.text ?? "").trim();
-  if (extracted.status === "OCR_REQUIRED") {
-    return { filename, status: "FAILED", error: "Document image (scanné) : océrisez-le d'abord — un précédent illisible n'apprend rien." };
+  let text = (extracted.text ?? "").trim();
+  // Un COURRIER ANPP est presque toujours un scan : le refuser reviendrait à exclure la pièce la
+  // plus précieuse de l'entraînement. Même OCR réel que les lettres de réserves — et si l'OCR ne
+  // rend rien d'exploitable, on refuse en le disant : un précédent illisible n'apprend rien.
+  if ((extracted.status === "OCR_REQUIRED" || text.length < 300) && canOcr(ext)) {
+    try {
+      const ocr = await ocrDocument({ ext, buffer: input.buffer });
+      if (ocr.text.trim().length > text.length) text = ocr.text.trim();
+    } catch {
+      /* OCR indisponible → le verdict « texte trop court » ci-dessous dira quoi corriger */
+    }
   }
   if (text.length < 300) {
-    return { filename, status: "FAILED", error: `Texte trop court (${text.length} caractères).` };
+    return { filename, status: "FAILED", error: `Texte illisible ou trop court (${text.length} caractères), même après OCR.` };
   }
 
   const sha256 = createHash("sha256").update(text, "utf8").digest("hex");
@@ -72,4 +82,44 @@ export async function ingestCaseFile(input: {
   });
 
   return { filename, status: "INGESTED", sourceVersionId: doc.id, sections: sections.length, chars: text.length };
+}
+
+/**
+ * INGESTION D'UNE ARCHIVE ZIP d'étude de cas — « je dépose le dossier du produit passé tel quel ».
+ *
+ * Le ZIP est ouvert par l'INSPECTEUR SÉCURISÉ du module (anti-bombe, anti-traversal, exécutables
+ * bloqués, une entrée décompressée à la fois → mémoire bornée), puis chaque pièce passe par la
+ * même ingestion qu'un dépôt individuel : mêmes formats, même OCR de repli, même déduplication
+ * par empreinte. Le verdict est rendu PIÈCE PAR PIÈCE — un fichier illisible n'invalide pas les
+ * autres, et redéposer le même ZIP ne crée rien (tout ressort « déjà connue »).
+ */
+export async function ingestCaseArchive(input: {
+  caseId: string;
+  filename: string;
+  buffer: Buffer;
+}): Promise<FileIngestResult[]> {
+  const results: FileIngestResult[] = [];
+
+  const inspection = await inspectZip(input.buffer, {
+    onStorableEntry: async (entry, data) => {
+      const ext = extOf(entry.filename);
+      if (!(CORPUS_IMPORT_EXTS as readonly string[]).includes(ext)) {
+        results.push({ filename: entry.path, status: "FAILED", error: `Format « ${ext || "inconnu"} » ignoré (PDF, DOCX, TXT, MD, HTML, CSV, XLSX).` });
+        return;
+      }
+      results.push(await ingestCaseFile({ caseId: input.caseId, filename: entry.filename, buffer: data }));
+    },
+  });
+
+  if (!inspection.ok) {
+    return [{ filename: input.filename, status: "FAILED", error: inspection.rejection?.message ?? "Archive refusée." }];
+  }
+  // Les entrées BLOQUÉES par l'inspecteur (exécutables…) sont dites, pas passées sous silence.
+  for (const e of inspection.entries) {
+    if (e.securityStatus.startsWith("BLOCKED") || e.securityStatus === "CORRUPTED") {
+      results.push({ filename: e.path, status: "FAILED", error: "Entrée bloquée par l'inspection de sécurité." });
+    }
+  }
+  if (results.length === 0) return [{ filename: input.filename, status: "FAILED", error: "Archive vide ou sans pièce exploitable." }];
+  return results;
 }

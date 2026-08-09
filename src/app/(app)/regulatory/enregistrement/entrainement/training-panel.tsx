@@ -19,7 +19,9 @@ import type { FileIngestStatus } from "@/lib/regulatory/intelligence/corpus/impo
 interface CaseDocRow { id: string; filename: string; ctdSection: string | null; sections: string[]; createdAt: string }
 interface CaseRow { id: string; title: string; productName: string | null; outcome: RegCaseOutcome; lesson: string | null; createdAt: string; documents: CaseDocRow[] }
 
-type UpRow = { id: string; file: File; state: "pending" | "running" | FileIngestStatus; message?: string; sections?: number };
+type UpRow = { id: string; file: File;
+  /** Nom affiché quand la ligne représente une pièce EXTRAITE d'une archive. */
+  label?: string; state: "pending" | "running" | FileIngestStatus; message?: string; sections?: number };
 
 export function TrainingPanel({ cases }: { cases: CaseRow[] }) {
   const router = useRouter();
@@ -105,7 +107,16 @@ function CaseCard({ c }: { c: CaseRow }) {
           fd.set("caseId", c.id);
           fd.set("file", row.file);
           const res = await importCaseFileAction(fd);
-          setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, state: res.status, message: res.error, sections: res.sections } : r)));
+          if (res.children && res.children.length > 0) {
+            // Archive dépliée : la ligne du ZIP devient une ligne PAR PIÈCE — chaque verdict se lit.
+            const children = res.children.map((c, i) => ({
+              id: `${row.id}-c${i}`, file: row.file, label: c.filename,
+              state: c.status, message: c.error, sections: c.sections,
+            }));
+            setRows((prev) => prev.flatMap((r) => (r.id === row.id ? children : [r])));
+          } else {
+            setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, state: res.status, message: res.error, sections: res.sections } : r)));
+          }
         } catch {
           setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, state: "FAILED" as const, message: "Envoi interrompu — réessayez." } : r)));
         }
@@ -177,10 +188,10 @@ function CaseCard({ c }: { c: CaseRow }) {
         <Button type="button" size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={running}>
           {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Déposer les pièces du dossier
         </Button>
-        <input ref={inputRef} type="file" multiple hidden accept=".pdf,.docx,.txt,.md,.html,.htm,.csv,.xlsx,.xls"
+        <input ref={inputRef} type="file" multiple hidden accept=".pdf,.docx,.txt,.md,.html,.htm,.csv,.xlsx,.xls,.zip"
           onChange={(e) => { addFiles(e.target.files ?? []); e.target.value = ""; }} />
         <p className="mt-1 text-[0.6875rem] text-muted-foreground">
-          L&apos;envoi démarre tout seul. Chaque pièce est repérée par section CTD et devient un précédent injecté dans les analyses.
+          L&apos;envoi démarre tout seul. Un ZIP est déplié côté serveur (une pièce = un verdict) ; les scans sont océrisés. Chaque pièce est repérée par section CTD et devient un précédent injecté dans TOUTES les analyses.
         </p>
       </div>
 
@@ -190,7 +201,7 @@ function CaseCard({ c }: { c: CaseRow }) {
             <li key={r.id} className="flex items-start gap-2 px-3 py-2 text-sm">
               <UpIcon state={r.state} />
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{r.file.name}</p>
+                <p className="truncate font-medium">{r.label ?? r.file.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {r.state === "INGESTED" && `${r.sections ?? 0} section(s) CTD repérée(s) — précédent actif`}
                   {r.state === "UNCHANGED" && "déjà connue de cette étude de cas — rien créé"}
