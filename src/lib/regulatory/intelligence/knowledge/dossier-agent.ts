@@ -52,7 +52,8 @@ const SYSTEM = [
   "4) Réponds en FRANÇAIS professionnel, TEXTE BRUT sans markdown (pas de #, *, `, tableaux) — sauf dans le contenu d'un PDF généré, où « # » ouvre un intertitre et « - » une puce.",
   "5) Quand le pharmacien te SOUMET une pièce (lettre de réserves, certificat, rapport), commence par dire ce que c'est, puis réponds à sa demande dessus. Une lettre de réserves se traite point par point.",
   "6) Quand il demande un LIVRABLE (note, projet de réponse, synthèse), rédige un contenu complet et soigné puis appelle generer_pdf — et dis dans ta réponse ce que contient le document. Mentionne toujours qu'il s'agit d'un PROJET soumis à revue humaine.",
-  "7) Sois EXIGEANT comme un évaluateur ANPP : l'ANPP émet trois types de réserves (technico-réglementaires module 1, contrôle qualité sur place, évaluation scientifique modules 3 & 5 — les plus massives). Anticipe : validation analytique COMPLÈTE (jamais l'exactitude seule), LOD/LOQ, chromatogrammes de spécificité, polymorphisme, nitrosamines, stabilité couvrant toute la durée revendiquée, cohérence entre pièces.",
+  "7) Une recherche ne rend que des EXTRAITS — souvent l'en-tête du document. Si la valeur cherchée n'y est pas, OUVRE le document (lire_document), et poursuis la lecture (paramètre position) jusqu'à la trouver ou avoir parcouru le document. Ne renvoie JAMAIS le pharmacien « ouvrir le fichier » que tu peux lire toi-même, et ne déclare une donnée absente, scannée ou illisible qu'APRÈS lecture effective.",
+  "8) Sois EXIGEANT comme un évaluateur ANPP : l'ANPP émet trois types de réserves (technico-réglementaires module 1, contrôle qualité sur place, évaluation scientifique modules 3 & 5 — les plus massives). Anticipe : validation analytique COMPLÈTE (jamais l'exactitude seule), LOD/LOQ, chromatogrammes de spécificité, polymorphisme, nitrosamines, stabilité couvrant toute la durée revendiquée, cohérence entre pièces.",
 ].join("\n");
 
 const TOOLS: ClaudeToolDef[] = [
@@ -70,6 +71,18 @@ const TOOLS: ClaudeToolDef[] = [
     name: "reserves_similaires",
     description: "Retrouve dans la bibliothèque interne les RÉSERVES ANPP PASSÉES similaires à un texte (et ce qu'on y avait répondu). À utiliser face à une réserve : le précédent guide la réponse.",
     input_schema: { type: "object", properties: { texte: { type: "string", description: "Le texte de la réserve à comparer" } }, required: ["texte"] },
+  },
+  {
+    name: "lire_document",
+    description: "LIT le texte extrait d'un document du dossier, par tranches de ~6000 caractères. À utiliser quand la recherche ne rend que des en-têtes ou pas la valeur cherchée : c'est ici qu'on trouve les conclusions et les chiffres (durée de conservation, spécifications…). Rappelle avec `position` pour lire la suite.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fichier: { type: "string", description: "Nom (ou partie du nom) du fichier à lire" },
+        position: { type: "number", description: "Position de départ en caractères (défaut 0 — le début)" },
+      },
+      required: ["fichier"],
+    },
   },
   {
     name: "etat_dossier",
@@ -98,17 +111,31 @@ interface AgentContext {
   files: AgentFile[];
 }
 
+/**
+ * Une citation par PASSAGE, pas par apparition : l'agent relance volontiers la même recherche à
+ * deux tours d'écart, et chaque passage recevait alors un NOUVEAU numéro — l'écran finissait avec
+ * dix-huit renvois pour six documents, illisible. Même document + même extrait ⇒ même [n].
+ */
+function addCitation(ctx: AgentContext, c: Omit<ChatCitation, "n">): number {
+  const existing = ctx.citations.find((x) => x.documentId === c.documentId && x.snippet === c.snippet);
+  if (existing) return existing.n;
+  const n = ctx.citations.length + 1;
+  ctx.citations.push({ n, ...c });
+  return n;
+}
+
+const READ_SLICE = 6000;
+const READABLE_STATUSES = ["TEXT_EXTRACTED", "OCR_COMPLETED", "LOW_CONFIDENCE"] as const;
+
 /** Exécute UN outil. Ne lève jamais : l'erreur devient un tool_result d'erreur (l'agent enchaîne). */
 async function runTool(ctx: AgentContext, name: string, input: Record<string, unknown>): Promise<string> {
   if (name === "chercher_dossier") {
     const q = String(input.question ?? "").trim();
     const terms = expandQueryTerms(q);
     const hits = await searchDossierPassages(ctx.dossierVersionId, terms.length > 0 ? terms : [q], { take: 6 });
-    if (hits.length === 0) return "Aucun passage trouvé dans les documents lus pour cette recherche.";
-    const start = ctx.citations.length;
-    const out = hits.map((h, i) => {
-      const n = start + i + 1;
-      ctx.citations.push({ n, documentId: h.documentId, filename: h.filename, ctdSection: h.ctdSection, page: pageForOffset(h.ocrPages, h.matchOffset), snippet: h.snippet });
+    if (hits.length === 0) return "Aucun passage trouvé dans les documents lus pour cette recherche. Essaie lire_document sur le fichier probable.";
+    const out = hits.map((h) => {
+      const n = addCitation(ctx, { documentId: h.documentId, filename: h.filename, ctdSection: h.ctdSection, page: pageForOffset(h.ocrPages, h.matchOffset), snippet: h.snippet });
       return `[${n}] « ${h.filename} »${h.ctdSection ? ` — section ${h.ctdSection}` : ""} :\n"${h.snippet}"`;
     });
     return out.join("\n\n");
@@ -129,6 +156,52 @@ async function runTool(ctx: AgentContext, name: string, input: Record<string, un
       `Précédent ${i + 1}${r.category ? ` [${r.category}]` : ""} : "${(r.verbatim ?? "").slice(0, 400)}"` +
       (r.finalResponse ? `\n  Réponse apportée à l'époque : "${r.finalResponse.slice(0, 400)}"` : "\n  (aucune réponse archivée)"),
     ).join("\n\n");
+  }
+
+  if (name === "lire_document") {
+    const wanted = String(input.fichier ?? "").trim();
+    const position = Math.max(0, Math.floor(Number(input.position ?? 0)) || 0);
+    if (!wanted) return "Précise le nom (ou une partie du nom) du fichier à lire.";
+    const doc = await prisma.regulatoryDocument.findFirst({
+      where: {
+        dossierVersionId: ctx.dossierVersionId,
+        extractionStatus: { in: [...READABLE_STATUSES] },
+        OR: [
+          { originalFilename: { contains: wanted, mode: "insensitive" } },
+          { suggestedFilename: { contains: wanted, mode: "insensitive" } },
+          { ctdSection: { equals: wanted.toUpperCase() } },
+        ],
+      },
+      select: { id: true, originalFilename: true, ctdSection: true },
+    });
+    if (!doc) {
+      const available = await prisma.regulatoryDocument.findMany({
+        where: { dossierVersionId: ctx.dossierVersionId, extractionStatus: { in: [...READABLE_STATUSES] } },
+        select: { originalFilename: true },
+        orderBy: { originalFilename: "asc" },
+        take: 40,
+      });
+      return `Aucun document lisible ne correspond à « ${wanted} ». Fichiers lisibles : ${available.map((d) => d.originalFilename).join(" ; ")}`;
+    }
+    const ext = await prisma.regulatoryExtraction.findUnique({
+      where: { documentId: doc.id },
+      select: { content: true, ocrPages: true, charCount: true },
+    });
+    const content = ext?.content ?? "";
+    if (!content.trim()) return `« ${doc.originalFilename} » n'a aucun texte extrait exploitable.`;
+    if (position >= content.length) return `Fin du document atteinte (« ${doc.originalFilename} », ${content.length} caractères au total).`;
+    const slice = content.slice(position, position + READ_SLICE);
+    const ocrPages = Array.isArray(ext?.ocrPages) ? (ext!.ocrPages as Parameters<typeof pageForOffset>[0]) : null;
+    const page = pageForOffset(ocrPages, position);
+    const n = addCitation(ctx, {
+      documentId: doc.id, filename: doc.originalFilename, ctdSection: doc.ctdSection,
+      page, snippet: slice.replace(/\s+/g, " ").trim().slice(0, 240),
+    });
+    const next = position + slice.length;
+    return [
+      `[${n}] « ${doc.originalFilename} »${doc.ctdSection ? ` — section ${doc.ctdSection}` : ""}${page ? `, page ${page}` : ""} — caractères ${position}–${next} sur ${content.length}${next < content.length ? ` (suite : position=${next})` : " (fin du document)"} :`,
+      `"""${slice}"""`,
+    ].join("\n");
   }
 
   if (name === "etat_dossier") {
