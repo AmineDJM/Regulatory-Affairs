@@ -157,6 +157,10 @@ export async function createDirectValidation(input: {
   validatorIds: string[];
   entityType?: EntityType | null;
   entityId?: string | null;
+  /** Pièce jointe précise visée (une validation de pièce ne pilote pas l'objet parent). */
+  documentId?: string | null;
+  /** PARALLEL : tous les validateurs sont saisis (et notifiés) EN MÊME TEMPS. Défaut : séquentiel. */
+  mode?: "SEQUENTIAL" | "PARALLEL";
 }): Promise<CreateValidationResult> {
   const validators = [...new Set(input.validatorIds.filter(Boolean))].filter((v) => v !== input.requesterId);
   if (validators.length === 0) return { ok: false, matched: false, error: "Indiquez au moins un validateur." };
@@ -174,17 +178,23 @@ export async function createDirectValidation(input: {
         entityType: input.entityType ?? null,
         entityId: input.entityId ?? null,
         requesterId: input.requesterId,
-        mode: "SEQUENTIAL",
+        documentId: input.documentId ?? null,
+        mode: input.mode ?? "SEQUENTIAL",
         status: "PENDING",
         currentOrder: 1,
         deadline: input.deadline ?? null,
-        steps: { create: validators.map((vid, i) => ({ order: i + 1, validatorId: vid, status: "PENDING" })) },
+        // En parallèle, l'ordre ne commande rien : tout le monde est à l'étape 1.
+        steps: { create: validators.map((vid, i) => ({ order: input.mode === "PARALLEL" ? 1 : i + 1, validatorId: vid, status: "PENDING" })) },
       },
       include: { steps: true },
     });
   });
 
-  const first = req.steps.find((s) => s.order === 1);
-  if (first) await notifyValidator(first.validatorId, req);
+  if ((input.mode ?? "SEQUENTIAL") === "PARALLEL") {
+    for (const s of req.steps) await notifyValidator(s.validatorId, req);
+  } else {
+    const first = req.steps.find((s) => s.order === 1);
+    if (first) await notifyValidator(first.validatorId, req);
+  }
   return { ok: true, matched: true, requestId: req.id, reference: req.reference };
 }

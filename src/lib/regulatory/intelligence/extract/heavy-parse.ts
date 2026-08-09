@@ -82,8 +82,11 @@ export async function parseHeavyInWorker(kind: HeavyKind, buffer: Buffer): Promi
 /** Implémentations EN LIGNE (thread principal) — repli et petits fichiers. */
 async function parseInline(kind: HeavyKind, buffer: Buffer): Promise<string> {
   if (kind === "pdf") {
-    const mod = (await import("pdf-parse")) as unknown as { default: (b: Buffer) => Promise<{ text?: string }> };
-    const data = await mod.default(buffer);
+    const mod = (await import("pdf-parse")) as unknown as { default: (b: Buffer | Uint8Array) => Promise<{ text?: string }> };
+    // Uint8Array et non Buffer : le pdf.js embarqué par pdf-parse emprunte, face à un Buffer Node,
+    // un chemin de récupération qui refuse des PDF pourtant valides (« bad XRef entry ») — constaté
+    // sur nos propres PDF générés, lus sans peine par le même pdf.js en Uint8Array.
+    const data = await mod.default(new Uint8Array(buffer));
     return (data.text ?? "").toString();
   }
   if (kind === "docx") {

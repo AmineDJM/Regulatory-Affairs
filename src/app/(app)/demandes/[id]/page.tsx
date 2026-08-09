@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { CommentThread, type CommentItem } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { AttachmentValidationBlock } from "./attachment-validation";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, ADMIN_APPROVAL_STATUS, DRIVER_MISSION_STATUS, PRIORITY, AUDIT_ACTION, PROMO_MATERIAL_STATUS, VALIDATION_STATUS } from "@/lib/labels";
 import { formatDate, formatDateTime, formatCurrency, toNumber, cn } from "@/lib/utils";
@@ -29,8 +30,13 @@ const PROMO_DOC_CATEGORIES = ["QUOTE", "PURCHASE_ORDER", "PAYMENT_SLIP", "PAYMEN
 
 export default async function RequestDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("ADMIN_REQUESTS");
+  // VALIDATEUR D'UNE PIÈCE = ACCÈS À TOUTE LA DEMANDE. On ne valide pas une facture hors de son
+  // contexte : le validateur choisi voit la demande entière, même hors de son périmètre habituel.
+  const isPieceValidator = (await prisma.validationRequest.count({
+    where: { entityType: "ADMIN_REQUEST", entityId: params.id, documentId: { not: null }, steps: { some: { validatorId: user.id } } },
+  })) > 0;
   const req = await prisma.administrativeRequest.findFirst({
-    where: { id: params.id, ...scopeAdminRequests(user) },
+    where: { id: params.id, ...(isPieceValidator ? { deletedAt: null } : scopeAdminRequests(user)) },
     include: {
       requester: { select: { name: true } },
       concerned: { select: { name: true } },
@@ -53,7 +59,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
     prisma.document.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
     prisma.comment.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, include: { author: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
     prisma.auditLog.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, orderBy: { createdAt: "desc" }, take: 30, include: { actor: { select: { name: true } } } }),
-    canManage ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([] as { id: string; name: string }[]),
+    canManage || req.requesterId === user.id ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([] as { id: string; name: string }[]),
     canManage ? prisma.user.findMany({ where: { isActive: true, role: "FINANCE_BUDGET_MANAGER" }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([] as { id: string; name: string }[]),
     prisma.validationRequest.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, include: { steps: { include: { validator: { select: { name: true } } }, orderBy: { order: "asc" } } }, orderBy: { createdAt: "desc" } }),
     req.batchId ? prisma.administrativeRequest.findMany({ where: { batchId: req.batchId, deletedAt: null }, select: { id: true, reference: true, title: true, status: true, type: true }, orderBy: { createdAt: "asc" } }) : Promise.resolve([] as { id: string; reference: string; title: string; status: string; type: string }[]),
@@ -160,6 +166,19 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             <CardContent className="space-y-4">
               {canUpload && <DocumentUpload entityType="ADMIN_REQUEST" entityId={req.id} categories={REQ_DOC_CATEGORIES} />}
               <DocumentList documents={docItems} canDelete={canManage} canEdit={onlyofficeConfigured() && canUpload} path={`/demandes/${req.id}`} />
+              <AttachmentValidationBlock
+                requestId={req.id}
+                documents={documents.map((d) => ({ id: d.id, name: d.name }))}
+                validations={linkedValidations
+                  .filter((v) => v.documentId)
+                  .map((v) => ({
+                    id: v.id, reference: v.reference, documentId: v.documentId!, status: v.status,
+                    createdAt: v.createdAt.toISOString(),
+                    steps: v.steps.map((st) => ({ validator: st.validator?.name ?? "?", status: st.status })),
+                  }))}
+                users={users}
+                canSubmit={canManage || req.requesterId === user.id}
+              />
             </CardContent>
           </Card>
 

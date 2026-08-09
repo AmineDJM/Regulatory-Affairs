@@ -697,3 +697,68 @@ export async function finishRequest(formData: FormData): Promise<ActionResult> {
   revalidatePath("/demandes/assistant");
   return { ok: true };
 }
+
+/**
+ * SOUMETTRE UNE PIÈCE JOINTE À VALIDATION — à n'importe quel moment, à une ou plusieurs personnes.
+ *
+ * Chaque pièce se soumet À PART (une facture peut partir en validation pendant que le devis reste
+ * en discussion), au bureau de validation CENTRAL : les validateurs choisis la retrouvent dans
+ * /validations et Mon travail, comme toute validation. En PARALLÈLE — tous saisis et notifiés en
+ * même temps, aucun ordre imposé. Et parce qu'on ne valide pas une pièce hors de son contexte,
+ * être validateur d'une pièce OUVRE L'ACCÈS à toute la demande (géré sur la page de la demande).
+ */
+export async function submitAttachmentValidation(formData: FormData): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const requestId = String(formData.get("requestId") ?? "").trim();
+  const documentId = String(formData.get("documentId") ?? "").trim();
+  const validatorIds = formData.getAll("validatorIds").map((v) => String(v).trim()).filter(Boolean);
+  const note = String(formData.get("note") ?? "").trim();
+  if (!requestId || !documentId) return { ok: false, error: "Pièce ou demande manquante." };
+  if (validatorIds.length === 0) return { ok: false, error: "Choisissez au moins un validateur." };
+
+  const req = await prisma.administrativeRequest.findFirst({
+    where: { id: requestId, deletedAt: null },
+    select: { id: true, reference: true, title: true, requesterId: true, assignedToId: true },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  const isSecretary = user.role === "DIRECTION_ASSISTANT";
+  const allowed = hasGlobalView(user.role) || isSecretary || userCan(user, "ADMIN_REQUESTS", "UPDATE")
+    || req.requesterId === user.id || req.assignedToId === user.id;
+  if (!allowed) return { ok: false, error: "Non autorisé sur cette demande." };
+
+  const doc = await prisma.document.findFirst({
+    where: { id: documentId, entityType: "ADMIN_REQUEST", entityId: requestId },
+    select: { id: true, name: true },
+  });
+  if (!doc) return { ok: false, error: "Cette pièce n'appartient pas à la demande." };
+
+  // Pas deux validations EN COURS sur la même pièce : la seconde sèmerait la confusion sur
+  // laquelle fait foi. Une pièce refusée peut en revanche être resoumise (nouvelle version).
+  const pending = await prisma.validationRequest.count({
+    where: { documentId: doc.id, entityType: "ADMIN_REQUEST", entityId: requestId, status: "PENDING" },
+  });
+  if (pending > 0) return { ok: false, error: "Cette pièce est déjà en cours de validation." };
+
+  const res = await createDirectValidation({
+    requesterId: user.id,
+    title: `Pièce jointe « ${doc.name} » — ${req.reference}`,
+    description: note || `Validation de la pièce « ${doc.name} » de la demande ${req.reference} — ${req.title}.`,
+    link: `/demandes/${req.id}`,
+    module: "Bureau du secrétariat",
+    entityType: "ADMIN_REQUEST",
+    entityId: req.id,
+    documentId: doc.id,
+    mode: "PARALLEL",
+    validatorIds,
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Demandes administratives", entityType: "ADMIN_REQUEST", entityId: req.id,
+    summary: `Pièce « ${doc.name} » soumise à validation (${validatorIds.length} validateur·s) — ${res.reference}`,
+  });
+  revalidatePath(`/demandes/${req.id}`);
+  revalidatePath("/validations");
+  revalidatePath("/mon-travail");
+  return { ok: true };
+}

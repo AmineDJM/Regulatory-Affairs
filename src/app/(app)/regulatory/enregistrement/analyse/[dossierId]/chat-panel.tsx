@@ -1,50 +1,69 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Send } from "lucide-react";
-import { askDossierAction } from "@/lib/regulatory/intelligence/knowledge/actions";
+import { Loader2, Send, Paperclip, FileDown, X } from "lucide-react";
+import { askDossierAgentAction } from "@/lib/regulatory/intelligence/knowledge/actions";
 import type { ChatCitation } from "@/lib/regulatory/intelligence/knowledge/dossier-chat";
 
-interface Msg { role: "user" | "assistant"; text: string; citations?: ChatCitation[]; error?: boolean }
+interface FileLink { name: string; url: string }
+interface Msg { role: "user" | "assistant"; text: string; citations?: ChatCitation[]; files?: FileLink[]; attachedNames?: string[]; error?: boolean }
 
 const SUGGESTIONS = [
   "Quelle est la durée de conservation (stabilité) ?",
-  "Quel est le dosage et la forme pharmaceutique ?",
-  "Qui est le fabricant de la substance active ?",
-  "Où est décrite la méthode de contrôle du produit fini ?",
+  "Fais-moi l'état complet du dossier et ses points faibles",
+  "Voici une réserve ANPP — propose un projet de réponse",
+  "Génère une note de synthèse PDF de ce dossier",
 ];
 
 /**
- * CHATBOT DE DOSSIER — pose des questions sur CE dossier ; chaque réponse s'appuie sur les documents
- * réellement lus et cite ses sources (fichier · section · page). L'assistant s'abstient si l'info n'y est pas.
+ * AGENT DE DOSSIER — « Discuter avec ce dossier », version OUTILLÉE.
+ *
+ * L'agent DÉCIDE de ses recherches : pièces réelles du dossier, corpus réglementaire opposable
+ * (ANPP/ICH/UE), bibliothèque des réserves passées, état de l'analyse — en plusieurs tours si la
+ * question l'exige. On peut lui SOUMETTRE des pièces (lettre de réserves, certificat, rapport —
+ * les scans sont océrisés) et lui demander des LIVRABLES : il génère des PDF propres,
+ * téléchargeables ici même. Chaque fait cité porte sa source ; il n'invente rien.
  */
 export function DossierChatPanel({ dossierId, configured, canView }: { dossierId: string; configured: boolean; canView: boolean }) {
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
+  const [attached, setAttached] = React.useState<File[]>([]);
   const [busy, setBusy] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy]);
 
+  const addFiles = (files: FileList | null) => {
+    if (!files) return;
+    const list = Array.from(files).filter((f) => f.size > 0);
+    // 3 pièces au plus par message : au-delà, mieux vaut plusieurs échanges ciblés qu'un fourre-tout.
+    setAttached((prev) => [...prev, ...list].slice(0, 3));
+  };
+
   async function send(e?: React.FormEvent) {
     e?.preventDefault();
     const q = input.trim();
-    if (!q || busy) return;
+    if ((!q && attached.length === 0) || busy) return;
+    const question = q || "Analyse la ou les pièces jointes et dis-moi ce qu'elles impliquent pour ce dossier.";
     // Historique (avant d'ajouter la nouvelle question) — permet les questions de suivi (« et sa DCI ? »).
     const history = messages.filter((m) => !m.error).slice(-6).map((m) => ({ role: m.role, content: m.text }));
-    setMessages((m) => [...m, { role: "user", text: q }]);
+    const sending = attached;
+    setMessages((m) => [...m, { role: "user", text: question, attachedNames: sending.map((f) => f.name) }]);
     setInput("");
+    setAttached([]);
     setBusy(true);
     try {
       const fd = new FormData();
       fd.set("dossierId", dossierId);
-      fd.set("question", q);
+      fd.set("question", question);
       fd.set("history", JSON.stringify(history));
-      const r = await askDossierAction(fd);
+      for (const f of sending) fd.append("files", f, f.name);
+      const r = await askDossierAgentAction(fd);
       setMessages((m) => [...m, r.ok
-        ? { role: "assistant", text: r.answer || "(réponse vide)", citations: r.citations }
+        ? { role: "assistant", text: r.answer || "(réponse vide)", citations: r.citations, files: r.files }
         : { role: "assistant", text: r.error ?? "Réponse indisponible.", error: true }]);
     } catch {
       setMessages((m) => [...m, { role: "assistant", text: "Le service a rencontré une erreur. Réessayez.", error: true }]);
@@ -61,9 +80,11 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
         {messages.length === 0 && (
           <div className="space-y-2 text-xs text-muted-foreground">
             <p>
-              Posez une question sur ce dossier. Chaque réponse s'appuie sur les <strong>documents réellement lus</strong>{" "}
-              et cite ses <strong>sources (fichier · section · page)</strong>. L'assistant <strong>s'abstient</strong> si
-              l'information n'est pas dans le dossier — il n'invente rien.
+              Discutez avec ce dossier : l'agent cherche lui-même dans les <strong>pièces réellement lues</strong>, le{" "}
+              <strong>corpus réglementaire</strong> (ANPP · ICH · UE) et les <strong>réserves passées</strong>, et cite ses
+              sources. Joignez-lui une <strong>pièce ou une lettre de réserves</strong> (📎 — les scans sont océrisés), ou
+              demandez-lui un <strong>PDF propre</strong> (note, projet de réponse). Il n'invente rien et ne conclut jamais
+              à votre place.
             </p>
             <div className="flex flex-wrap gap-1.5">
               {SUGGESTIONS.map((s) => (
@@ -82,7 +103,26 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
               m.role === "user" ? "bg-primary text-primary-foreground"
                 : m.error ? "border border-destructive/30 bg-destructive/5 text-destructive"
                 : "border border-border/60 bg-background"}`}>
+              {m.attachedNames && m.attachedNames.length > 0 && (
+                <p className="mb-1 flex flex-wrap gap-1">
+                  {m.attachedNames.map((n) => (
+                    <span key={n} className="inline-flex items-center gap-1 rounded bg-primary-foreground/15 px-1.5 py-0.5 text-[0.6875rem]">
+                      <Paperclip className="h-3 w-3" /> {n}
+                    </span>
+                  ))}
+                </p>
+              )}
               <p className="whitespace-pre-wrap break-words">{m.text}</p>
+              {m.files && m.files.length > 0 && (
+                <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
+                  {m.files.map((f) => (
+                    <a key={f.url} href={f.url} className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/5 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10">
+                      <FileDown className="h-3.5 w-3.5" /> {f.name}
+                    </a>
+                  ))}
+                  <p className="text-[0.6875rem] text-muted-foreground">PROJET généré par l'agent — revue humaine requise.</p>
+                </div>
+              )}
               {m.citations && m.citations.length > 0 && (
                 <ul className="mt-2 space-y-1 border-t border-border/40 pt-2">
                   {m.citations.map((c) => (
@@ -101,20 +141,40 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
 
         {busy && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Recherche dans le dossier…
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> L'agent cherche (dossier, corpus, réserves)…
           </div>
         )}
       </div>
 
+      {attached.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 border-t border-border/60 px-2 pt-2">
+          {attached.map((f, i) => (
+            <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs">
+              <Paperclip className="h-3 w-3" /> {f.name}
+              <button type="button" aria-label={`Retirer ${f.name}`} onClick={() => setAttached((prev) => prev.filter((_, j) => j !== i))}>
+                <X className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <form onSubmit={send} className="flex items-center gap-2 border-t border-border/60 p-2">
+        <input ref={fileRef} type="file" multiple hidden accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.xls,.png,.jpg,.jpeg,.tif,.tiff"
+          onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={busy}
+          aria-label="Joindre une pièce (PDF, scan, lettre de réserves…)"
+          className="inline-flex items-center rounded-md border border-border px-2.5 py-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50">
+          <Paperclip className="h-4 w-4" />
+        </button>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={configured ? "Poser une question sur ce dossier…" : "Clé IA requise — les sources restent affichées"}
+          placeholder={configured ? "Discuter avec ce dossier — question, réserve à traiter, PDF à produire…" : "Clé IA requise — les sources restent affichées"}
           aria-label="Question sur le dossier"
           className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
         />
-        <button type="submit" disabled={busy || !input.trim()}
+        <button type="submit" disabled={busy || (!input.trim() && attached.length === 0)}
           className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity disabled:opacity-50">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           <span className="hidden sm:inline">Demander</span>

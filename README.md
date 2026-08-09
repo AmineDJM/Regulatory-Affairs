@@ -2020,6 +2020,24 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Bureau du secrétariat : chaque pièce jointe se soumet à validation — et le chat de dossier
+  devient un AGENT.** (1) Sur une demande du secrétariat, **chaque pièce jointe** peut être
+  soumise **à tout moment** à validation, **à part**, vers **une ou plusieurs personnes** (saisies
+  et notifiées EN PARALLÈLE, décision au bureau central `/validations`). Être validateur d'une
+  pièce **ouvre l'accès à toute la demande** — on ne juge pas une facture hors de son contexte.
+  Garde-fou : la validation d'une pièce ne pilote PAS le cycle de vie de la demande (valider une
+  facture ne ressuscite pas une demande close). Modèle : `ValidationRequest.documentId`.
+  (2) **« Discuter avec ce dossier » devient un agent OUTILLÉ** : il décide de ses recherches —
+  pièces réelles du dossier, **corpus réglementaire opposable** (ANPP/ICH/UE), **bibliothèque des
+  réserves passées**, état de l'analyse — en plusieurs tours si la question l'exige, sur le palier
+  QUALITÉ. On peut lui **soumettre des pièces** (lettre de réserves, certificat — scans océrisés,
+  type de réserve reconnu) et lui demander des **livrables : il génère des PDF propres**
+  (générateur maison sans dépendance — Helvetica, césure aux largeurs réelles, pagination),
+  téléchargeables dans la conversation et tracés comme documents générés. Les gardes ne bougent
+  pas : contenu = donnée non fiable, citations obligatoires, jamais de verdict — l'humain décide.
+  Au passage : pdf-parse recevait un `Buffer` Node et refusait des PDF valides (« bad XRef
+  entry ») — nos extracteurs passent désormais un `Uint8Array`.
+
 - **Les trois types de réserves ANPP entrent dans le système — calibré sur une lettre réelle.**
   L'ANPP émet trois familles de réserves : **technico-réglementaires** (module 1),
   **contrôle qualité** (rares — les lots contrôlés sur place, pas le dossier) et **évaluation

@@ -247,11 +247,15 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
   // Reflet sur la demande administrative liée : une fois la validation finalisée,
   // la demande repasse « en cours » pour que l'assistante poursuive (ou retravaille
   // en cas de refus / modification demandée — le va-et-vient du flux achat).
-  if (finalized && req.entityType === "ADMIN_REQUEST" && req.entityId) {
+  // Une validation de PIÈCE JOINTE (documentId) est un avis sur cette pièce : elle ne fait pas
+  // repartir le flux de la demande — sinon valider une facture ressusciterait une demande close.
+  if (finalized && req.entityType === "ADMIN_REQUEST" && req.entityId && !req.documentId) {
     await prisma.administrativeRequest.updateMany({ where: { id: req.entityId, deletedAt: null }, data: { status: "IN_PROGRESS" } });
-    revalidatePath(`/demandes/${req.entityId}`);
     revalidatePath("/demandes");
     revalidatePath("/demandes/assistant");
+  }
+  if (finalized && req.entityType === "ADMIN_REQUEST" && req.entityId) {
+    revalidatePath(`/demandes/${req.entityId}`);
   }
 
   revalidatePath("/validations");

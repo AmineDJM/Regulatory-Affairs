@@ -17,7 +17,9 @@ async function run() {
   if (kind === "pdf") {
     // Import PROFOND : évite le harnais de debug de l'index de pdf-parse (lecture d'un fichier test).
     const pdf = require("pdf-parse/lib/pdf-parse.js");
-    const data = await pdf(buffer);
+    // Uint8Array et non Buffer : face à un Buffer Node, le pdf.js embarqué refuse des PDF valides
+    // (« bad XRef entry ») — constaté sur nos propres PDF générés. Même correctif que heavy-parse.
+    const data = await pdf(new Uint8Array(buffer));
     return data && typeof data.text === "string" ? data.text : "";
   }
   if (kind === "docx") {

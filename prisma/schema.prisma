@@ -3452,6 +3452,10 @@ model ValidationRequest {
   link         String? // URL vers l'objet source (pour ouvrir directement)
   entityType   EntityType?
   entityId     String?
+  /// Pièce jointe PRÉCISE visée (model Document) quand la validation porte sur une pièce et non
+  /// sur l'objet entier — ex. une facture d'une demande du Bureau du secrétariat. Une validation
+  /// de pièce ne pilote PAS le cycle de vie de l'objet parent.
+  documentId   String?
   requesterId  String
   requester    User             @relation("ValidationRequester", fields: [requesterId], references: [id])
   mode         ValidationMode   @default(SEQUENTIAL)

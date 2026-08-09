@@ -27,9 +27,12 @@ export async function GET(req: NextRequest, { params }: { params: { docId: strin
   if (!bytes) return NextResponse.json({ error: "Contenu indisponible." }, { status: 404 });
 
   const filename = doc.filename.replace(/[^\w.\-]+/g, "_") || "document.docx";
+  const mime = filename.toLowerCase().endsWith(".pdf")
+    ? "application/pdf"
+    : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   return new NextResponse(new Uint8Array(bytes), {
     headers: {
-      "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "Content-Type": mime,
       "Content-Disposition": `attachment; filename="${filename}"`,
       "Content-Length": String(bytes.length),
       "Cache-Control": "private, no-store",
