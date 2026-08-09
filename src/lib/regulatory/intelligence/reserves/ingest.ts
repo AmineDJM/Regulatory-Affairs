@@ -3,7 +3,7 @@ import { putBlob } from "@/lib/drive-storage";
 import { regAudit } from "../audit";
 import { extractText } from "../extract/extract-text";
 import { ocrDocument, canOcr } from "../ocr/ocr-engine";
-import { decomposeReserveText } from "./decompose";
+import { classifyReserveType, decomposeReserveText, RESERVE_TYPE_LABELS } from "./decompose";
 
 /**
  * INGESTION D'UNE LETTRE DE RÉSERVES ANPP (G9) — stocke la lettre chiffrée, en extrait le
@@ -48,13 +48,17 @@ export async function ingestReserveLetter(opts: {
   const stored = await putBlob(opts.buffer);
   const cycleNo = (await prisma.regulatoryReserveCycle.count({ where: { dossierId: opts.dossierId } })) + 1;
   const points = decomposeReserveText(text);
+  // TYPE de la lettre (technico-réglementaire / QC / évaluation scientifique) : classifié au
+  // comptage de signaux sur tout le texte — jamais affirmé sur un mot isolé (null = indéterminé).
+  const reserveType = classifyReserveType(text);
 
   const cycle = await prisma.regulatoryReserveCycle.create({
     data: {
       dossierId: opts.dossierId, cycle: cycleNo, letterFilename: opts.filename.slice(0, 255), letterBlobId: stored.blobId,
+      reserveType,
       ocrText: text.slice(0, 500_000) || null, ocrConfidence, ocrNeedsReview: needsReview,
       createdById: opts.actorId,
-      points: { createMany: { data: points.map((p) => ({ ordinal: p.ordinal, category: p.category, verbatim: p.verbatim })) } },
+      points: { createMany: { data: points.map((p) => ({ ordinal: p.ordinal, category: p.category, verbatim: p.verbatim, sectionCode: p.sectionCode, subject: p.subject })) } },
     },
     select: { id: true },
   });
@@ -62,7 +66,7 @@ export async function ingestReserveLetter(opts: {
   await regAudit({
     companyId: opts.companyId, actorId: opts.actorId, dossierId: opts.dossierId,
     action: "RESERVE_LETTER_INGESTED",
-    detail: `Lettre de réserves (cycle ${cycleNo}) « ${opts.filename} » : ${points.length} point(s) décomposé(s)${ocrConfidence != null ? ` — OCR confiance ${ocrConfidence}%` : ""}${needsReview ? " (revue humaine requise)" : ""}.`,
+    detail: `Lettre de réserves (cycle ${cycleNo}) « ${opts.filename} » : ${points.length} point(s) décomposé(s)${reserveType ? ` — type : ${RESERVE_TYPE_LABELS[reserveType]}` : ""}${ocrConfidence != null ? ` — OCR confiance ${ocrConfidence}%` : ""}${needsReview ? " (revue humaine requise)" : ""}.`,
   });
 
   return { ok: true, cycleId: cycle.id, cycle: cycleNo, points: points.length, ocrConfidence: ocrConfidence ?? undefined, needsReview };

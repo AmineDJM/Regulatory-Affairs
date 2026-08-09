@@ -5457,6 +5457,10 @@ model RegulatoryReserveCycle {
   id             String   @id @default(cuid())
   dossierId      String
   cycle          Int      @default(1)
+  /// Type de réserve ANPP : TECHNICO_REGLEMENTAIRE (module 1) | QC (contrôle qualité sur place,
+  /// rare) | EVALUATION_SCIENTIFIQUE (modules 3 et 5 — les plus nombreuses). Classifié
+  /// automatiquement depuis le texte de la lettre ; null = indéterminé.
+  reserveType    String?
   letterFilename String
   letterBlobId   String? // lettre chiffrée (putBlob)
   ocrText        String? // texte VERBATIM extrait (OCR réel)
@@ -5480,6 +5484,12 @@ model RegulatoryReservePoint {
   cycleId          String
   ordinal          Int                   @default(0)
   category         String                @default("AUTRE")
+  /// Section CTD sous laquelle la lettre range ce point (ex. « 3.2.S.4.3 ») — les lettres ANPP
+  /// d'évaluation scientifique sont structurées ainsi. Reprise de l'EN-TÊTE, jamais inventée.
+  sectionCode      String?
+  /// Sujet porté par l'en-tête englobant, verbatim (ex. « LAMIVUDINE », « Produit fini ») :
+  /// sans lui, « compléter les données de stabilité » ne dit pas de QUELLE substance il s'agit.
+  subject          String?
   verbatim         String // extrait EXACT de la lettre
   proposedResponse String? // brouillon de réponse (humain ou IA)
   finalResponse    String? // réponse approuvée

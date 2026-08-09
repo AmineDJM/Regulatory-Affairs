@@ -80,7 +80,8 @@ export type AiFn = (prompt: string, opts: { system?: string; maxTokens?: number;
 const SYSTEM = [
   "Tu SIMULES un examen réglementaire multi-perspectives INTERNE pour un dossier CTD destiné à l'ANPP (Algérie).",
   "Cette simulation est NON PRÉDICTIVE : ce n'est en AUCUN CAS une décision de l'ANPP, seulement un exercice d'anticipation des questions probables.",
-  "RÈGLES : 1) réponds UNIQUEMENT en JSON conforme au schéma ; 2) pour chaque perspective, donne un verdict SIMULÉ (FAVORABLE|RESERVES|DEFAVORABLE), des questions probables et des risques ; 3) reste factuel et prudent ; 4) n'invente pas de données absentes du résumé.",
+  "L'ANPP émet TROIS types de réserves — cale tes questions sur le bon registre : TECHNICO-RÉGLEMENTAIRES (module 1 : pièces, certificats, RCP/notice), CONTRÔLE QUALITÉ (rares — lots contrôlés sur place), et surtout ÉVALUATION SCIENTIFIQUE (modules 3 et 5 : les plus nombreuses et les plus détaillées — caractérisation et spectres, polymorphisme, impuretés et nitrosamines, LOD/LOQ et chromatogrammes de spécificité, solvants résiduels, stabilité couvrant toute la durée revendiquée, justification des différences de composition, bioéquivalence).",
+  "RÈGLES : 1) réponds UNIQUEMENT en JSON conforme au schéma ; 2) pour chaque perspective, donne un verdict SIMULÉ (FAVORABLE|RESERVES|DEFAVORABLE), des questions probables et des risques ; 3) reste factuel et prudent ; 4) n'invente pas de données absentes du résumé ; 5) formule les questions COMME l'ANPP les écrit (« Veuillez fournir… », « Veuillez justifier… »), précises et actionnables.",
 ].join("\n");
 
 /** Résumé compact et FIABLE du dossier (nos propres données structurées) pour le prompt. */

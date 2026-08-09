@@ -8,8 +8,19 @@ import { Textarea } from "@/components/ui/input";
 import { updateReservePoint, approveReservePoint, deleteReserveCycle } from "@/lib/regulatory/intelligence/reserves/actions";
 import { ReserveLetterButton } from "./report-buttons";
 
-interface Point { id: string; ordinal: number; category: string; verbatim: string; proposedResponse: string | null; finalResponse: string | null; status: string }
-interface Cycle { id: string; cycle: number; letterFilename: string; ocrConfidence: number | null; ocrNeedsReview: boolean; status: string; points: Point[] }
+interface Point { id: string; ordinal: number; category: string; sectionCode: string | null; subject: string | null; verbatim: string; proposedResponse: string | null; finalResponse: string | null; status: string }
+interface Cycle { id: string; cycle: number; reserveType: string | null; letterFilename: string; ocrConfidence: number | null; ocrNeedsReview: boolean; status: string; points: Point[] }
+
+/**
+ * Les TROIS types de réserves ANPP — le badge situe la lettre d'un coup d'œil : une
+ * technico-réglementaire se traite avec l'administratif, une évaluation scientifique mobilise
+ * la qualité et l'analytique, un contrôle qualité concerne les lots physiques.
+ */
+const RESERVE_TYPES: Record<string, { label: string; cls: string }> = {
+  TECHNICO_REGLEMENTAIRE: { label: "Technico-réglementaire · module 1", cls: "bg-sky-500/10 text-sky-600" },
+  QC: { label: "Contrôle qualité · sur place", cls: "bg-violet-500/10 text-violet-600" },
+  EVALUATION_SCIENTIFIQUE: { label: "Évaluation scientifique · modules 3 & 5", cls: "bg-rose-500/10 text-rose-600" },
+};
 
 /**
  * Réserves ANPP (G9) — dépôt de la lettre (OCR réel), points décomposés (verbatim), réponse
@@ -57,6 +68,9 @@ export function ReservesPanel({ dossierId, cycles, canManage }: { dossierId: str
         <div key={c.id} className="rounded-xl border border-border p-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium">Cycle {c.cycle} — {c.letterFilename}</span>
+            {c.reserveType && RESERVE_TYPES[c.reserveType] && (
+              <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${RESERVE_TYPES[c.reserveType].cls}`}>{RESERVE_TYPES[c.reserveType].label}</span>
+            )}
             {c.ocrConfidence != null && <span className="text-xs text-muted-foreground">OCR {c.ocrConfidence}%</span>}
             {c.ocrNeedsReview && <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-600">revue OCR requise</span>}
             <span className="text-xs text-muted-foreground">{c.points.length} point·s · {c.points.filter((p) => p.status === "APPROVED").length} approuvé·s</span>
@@ -72,6 +86,8 @@ export function ReservesPanel({ dossierId, cycles, canManage }: { dossierId: str
               <div key={p.id} className="rounded-lg border border-border/60 p-2.5">
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <span className="rounded bg-secondary px-1.5 py-0.5 font-medium">#{p.ordinal}</span>
+                  {p.subject && <span className="rounded bg-secondary px-1.5 py-0.5 font-medium uppercase tracking-wide">{p.subject}</span>}
+                  {p.sectionCode && <span className="rounded bg-secondary px-1.5 py-0.5 font-mono">{p.sectionCode}</span>}
                   <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">{p.category}</span>
                   {p.status === "APPROVED" ? <span className="rounded bg-success/10 px-1.5 py-0.5 text-success">Approuvé</span> : p.status === "DRAFTED" ? <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-600">Brouillon</span> : <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">Ouvert</span>}
                 </div>

@@ -6,10 +6,10 @@ export async function listReserveCycles(dossierId: string) {
     where: { dossierId },
     orderBy: { cycle: "desc" },
     select: {
-      id: true, cycle: true, letterFilename: true, ocrConfidence: true, ocrNeedsReview: true, status: true, receivedAt: true,
+      id: true, cycle: true, reserveType: true, letterFilename: true, ocrConfidence: true, ocrNeedsReview: true, status: true, receivedAt: true,
       points: {
         orderBy: { ordinal: "asc" },
-        select: { id: true, ordinal: true, category: true, verbatim: true, proposedResponse: true, finalResponse: true, status: true },
+        select: { id: true, ordinal: true, category: true, sectionCode: true, subject: true, verbatim: true, proposedResponse: true, finalResponse: true, status: true },
       },
     },
   });

@@ -2020,6 +2020,24 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Les trois types de réserves ANPP entrent dans le système — calibré sur une lettre réelle.**
+  L'ANPP émet trois familles de réserves : **technico-réglementaires** (module 1),
+  **contrôle qualité** (rares — les lots contrôlés sur place, pas le dossier) et **évaluation
+  scientifique** (les plus nombreuses et massives : modules 3 et 5, fond, forme, détails). Le
+  module Réserves les connaît désormais : chaque lettre déposée est **typée automatiquement**
+  (comptage de signaux sur le texte — jamais un type affirmé sur un mot isolé), badge à l'écran.
+  Et parce que les lettres d'évaluation scientifique sont STRUCTURÉES (sujets « ABACAVIR
+  SULFATE »/« Produit fini », en-têtes de section « 3.2.S.4.3. Validation… »), la décomposition
+  **porte désormais sur chaque point sa section CTD et son sujet** — sans quoi « compléter les
+  données de stabilité » ne dit pas de quelle substance il s'agit, et le point est inexploitable.
+  Codes recollés malgré les espaces d'OCR (« 3.2. S.3 » → « 3.2.S.3 »).
+  Enfin, l'analyse et le simulateur sont **calibrés sur les exigences réellement observées**
+  (lettre de 92 réserves sur une trithérapie) : spectres avec standard de référence,
+  polymorphisme/isomérie, parties DMF citées mais absentes, génotoxicité + nitrosamines,
+  LOD/LOQ et chromatogrammes de spécificité, validation des solvants résiduels COMPLÈTE
+  (l'exactitude seule ne suffit jamais), stabilité couvrant TOUTE la durée revendiquée,
+  cohérence chiffrée des impuretés entre sections, justification des différences de composition.
+
 - **« Serveur injoignable ou trop lent (30 s) » à l'ouverture d'un téléversement — trois causes,
   toutes corrigées.** Le message ne mentait pas : la requête d'ouverture n'obtenait vraiment rien
   du serveur en 30 s. Ce qui l'affamait :

@@ -85,6 +85,19 @@ export const SYSTEM_PROMPT = [
   "b) PIÈCE MANQUANTE OU PÉRIMÉE — GMP expiré, CPP absent ou daté, certificat d'analyse non signé, validation de méthode absente pour une méthode utilisée.",
   "c) DONNÉE NON SOUTENUE — durée de conservation revendiquée sans le nombre de lots ni la durée d'étude exigés, spécification sans méthode validée, résultat sans critère d'acceptation.",
   "d) FORME — langue, pagination, numérotation CTD, signature, date, version, unités et séparateur décimal.",
+  "",
+  "LES TROIS TYPES DE RÉSERVES ANPP — anticipe les trois, chacune selon la section examinée :",
+  "• TECHNICO-RÉGLEMENTAIRES (module 1) : pièces administratives, certificats, légalisation, RCP/notice/étiquetage.",
+  "• CONTRÔLE QUALITÉ (rares) : le contrôle que l'agence effectue sur place, sur les lots — sans objet pour la lecture du dossier, mais signale ce qui l'exposerait (certificat d'analyse incomplet, spécification invérifiable).",
+  "• ÉVALUATION SCIENTIFIQUE (les plus nombreuses et les plus massives) : modules 3 et 5, fond ET forme, jusqu'au détail — c'est là que se joue le dossier.",
+  "",
+  "EXIGENCES RÉELLEMENT OBSERVÉES dans les lettres de réserves ANPP sur NOS dossiers — vérifie chacune quand la section s'y prête, elles reviennent systématiquement :",
+  "• 3.2.S.3 Caractérisation : méthodes ET résultats (IR, UV, RMN, SM), spectres d'identification AVEC standard de référence, étude de POLYMORPHISME, ISOMÉRIE/stéréochimie, sections du DMF réellement jointes (une référence au DMF sans la partie citée = réserve).",
+  "• 3.2.S.3.2 Impuretés : profil COMPLET (structure, origine synthèse/dégradation, critères), caractérisation des impuretés non-pharmacopée, justification du NON-contrôle de tout réactif/solvant du procédé (ex. méthylmorpholine, DMF solvant), rapport de GÉNOTOXICITÉ et recherche des NITROSAMINES (ICH M7), éléments Q3D, cohérence du total d'impuretés avec la somme des individuelles — une incohérence chiffrée entre sections est une réserve certaine.",
+  "• 3.2.S.4.3 / 3.2.P.5.3 Validation analytique : TOUS les paramètres ICH Q2 (exactitude seule ne suffit JAMAIS), LOD et LOQ chiffrées pour les impuretés, CHROMATOGRAMMES du paramètre de spécificité joints, validation de la méthode des solvants résiduels complète.",
+  "• 3.2.S.7.3 / 3.2.P.8.3 Stabilité : données LONG TERME couvrant TOUTE la durée de conservation revendiquée (des données partielles ⇒ « poursuivre les études et les présenter »), zone IVb/II, cohérence des spécifications de stabilité avec celles de libération, impuretés de stabilité cohérentes avec celles caractérisées en 3.2.S.3.1.",
+  "• 3.2.P.1 Composition : toute DIFFÉRENCE de composition entre pièces (formule, quantités, fonction des excipients) doit être justifiée — c'est une demande récurrente mot pour mot.",
+  "• Module 5 Bioéquivalence : produit de référence et sa provenance, protocole et rapport complets, données pharmacocinétiques individuelles, justification des écarts.",
 ].join("\n");
 
 export interface PromptInput {
