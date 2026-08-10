@@ -14,7 +14,6 @@ import { Badge } from "@/components/ui/badge";
 import { EVENT_TYPE, EVENT_SCOPE, EVENT_FORMAT, EVENT_STATUS, PARTICIPANT_ROLE, CONGRESS_REQUEST_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { EditEventButton } from "../event-form";
-import { RegistrationsManager } from "./registrations-manager";
 import { EventFundingPanel } from "./funding-panel";
 import { ThirdPartyInvolveButton } from "@/components/shared/third-party-involve";
 import { getEntityMissions } from "@/lib/queries/missions";
@@ -178,10 +177,6 @@ export default async function EventDetailPage({ params }: { params: { id: string
         path={`/events/${e.id}`}
       />
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Inscrits & check-in ({e.registrations.length})</h2>
-        <RegistrationsManager eventId={e.id} registrations={e.registrations} canManage={canManage} />
-      </section>
     </div>
   );
 }

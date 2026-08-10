@@ -1085,6 +1085,17 @@ export const MON_DOSSIER_TABS: NavTab[] = [
 // « Ad & Pro » : sponsoring + congrès (international/national) + événements +
 // matériel promotionnel, sous un seul module. Le matériel promotionnel a été
 // déplacé ici depuis « Promotion médicale » (sa fonctionnalité est inchangée).
+/**
+ * VENTES · LOGISTIQUE · PCH — une seule entrée à onglets. Les trois modules parlent du même
+ * mouvement (ce qu'on vend, ce qu'on livre, ce qu'on remporte en marché public) et se
+ * consultaient l'un après l'autre ; chacun garde sa route et sa garde de module.
+ */
+export const COMMERCE_TABS: NavTab[] = [
+  { module: "SALES", label: "Ventes", href: "/sales" },
+  { module: "LOGISTICS", label: "Logistique", href: "/logistics" },
+  { module: "PCH", label: "PCH — Marchés", href: "/pch" },
+];
+
 export const EVENTS_TABS: NavTab[] = [
   { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring" },
   { module: "CONGRESS_INTERNATIONAL", label: "Prises en charge Internationales", href: "/congress-international" },
@@ -1142,6 +1153,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   PCH: "PCH — Marchés",
   STOCKS: "Stocks PCH",
   MEDICAL_INFO: "Information médicale",
+  REG_REQUESTS: "Demandes à Regulatory",
   PROMO_MATERIAL: "Matériel promotionnel",
   VALIDATIONS: "Demandes de validations",
   DIRECTIVES: "Directives",
@@ -1178,15 +1190,13 @@ export const NAVIGATION: NavItem[] = [
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages"] },
   { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie"] },
-  { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles" },
-  { module: "LOGISTICS", label: "Logistique", href: "/logistics", icon: "Truck", group: "Pôles" },
+  { module: "SALES", label: "Ventes & Marchés", href: "/sales", icon: "TrendingUp", group: "Pôles", tabs: COMMERCE_TABS, match: ["/logistics", "/pch"] },
   { module: "STOCKS", label: "Stocks", href: "/stocks", icon: "Boxes", group: "Pôles" },
-  { module: "PCH", label: "PCH — Marchés", href: "/pch", icon: "Gavel", group: "Pôles" },
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles" },
   { module: "SALES_PLANNING", label: "Prévisions & Force de vente", href: "/planning", icon: "TrendingUp", group: "Pôles" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles" },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
-  { module: "MEDICAL_INFO", label: "Demandes à Regulatory", href: "/regulatory/requests", icon: "MessageSquareText", group: "Pôles" },
+  { module: "REG_REQUESTS", label: "Demandes à Regulatory", href: "/regulatory/requests", icon: "MessageSquareText", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
   // Accès DIRECT à l'Explorateur produits (Intelligence Marché) — la page reste aussi accessible
   // depuis Business Development → Intelligence Marché ; même garde de module.

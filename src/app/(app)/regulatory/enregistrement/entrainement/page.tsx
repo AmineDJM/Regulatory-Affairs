@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, GraduationCap, BookOpen, MailWarning, Gavel, Sparkles } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
@@ -27,7 +28,7 @@ export const dynamic = "force-dynamic";
 export default async function TrainingPage() {
   const user = await requireModule("REGULATORY");
   const settings = await getAppSettings();
-  if (!settings.regEnrollmentEnabled) notFound();
+  if (!canSeeRegEnrollment(user, settings)) notFound();
   if (user.role !== "SUPER_ADMIN") notFound();
 
   const [corpusActive, reserves, rulesValidated, rulesProposed, cases, caseDocs, embedded] = await Promise.all([

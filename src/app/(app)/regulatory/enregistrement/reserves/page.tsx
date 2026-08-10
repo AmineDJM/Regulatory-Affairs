@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Library, AlertTriangle, TrendingUp, Lock } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
 import { prisma } from "@/lib/prisma";
 import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
@@ -32,7 +33,7 @@ export const dynamic = "force-dynamic";
 export default async function ReserveLibraryPage() {
   const user = await requireModule("REGULATORY");
   const settings = await getAppSettings();
-  if (!settings.regEnrollmentEnabled) notFound();
+  if (!canSeeRegEnrollment(user, settings)) notFound();
   if (!regCan(user, "regulatory.reserve.manage") && user.role !== "SUPER_ADMIN") notFound();
   const companyId = await resolveRegCompanyId(getCompanyScope());
   // Portée non résolue : dire quoi faire (choisir l'entité / activer le module) — pas de 404

@@ -33,6 +33,8 @@ export interface AppSettings {
   fieldReportsOverviewRoles: string[];
   /** Rôles autorisés à CONSULTER l'organigramme (toutes entités ou la sienne). En plus du Super Admin. */
   orgChartViewerRoles: string[];
+  /** Rôles autorisés à voir l'onglet « Enregistrement (CTD) ». VIDE = administrateur seul. */
+  regEnrollmentRoles: string[];
   /** Personnes nommément autorisées à consulter l'organigramme (en plus des rôles ci-dessus). */
   orgChartViewerUserIds: string[];
 }
@@ -54,6 +56,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   fieldReportsOverviewRoles: [],
   orgChartViewerRoles: [],
   orgChartViewerUserIds: [],
+  regEnrollmentRoles: [],
 };
 
 export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
@@ -74,6 +77,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       fieldReportsOverviewRoles: row.fieldReportsOverviewRoles ?? [],
       orgChartViewerRoles: row.orgChartViewerRoles ?? [],
       orgChartViewerUserIds: row.orgChartViewerUserIds ?? [],
+      regEnrollmentRoles: row.regEnrollmentRoles ?? [],
     };
   } catch {
     return DEFAULT_APP_SETTINGS;

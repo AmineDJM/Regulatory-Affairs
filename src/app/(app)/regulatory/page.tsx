@@ -5,6 +5,7 @@ import { userCan, scopeRegulatory, isRegulatorySupervisor } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { regProgress, regTreatmentStarted, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { currentCompanyWhere, getCompanies } from "@/lib/company";
+import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
@@ -136,7 +137,7 @@ export default async function RegulatoryPage() {
       <ModuleTabs
         tabs={[
           { label: "Dossiers", href: "/regulatory" },
-          { label: "Enregistrement (CTD)", href: "/regulatory/enregistrement", show: settings.regEnrollmentEnabled },
+          { label: "Enregistrement (CTD)", href: "/regulatory/enregistrement", show: canSeeRegEnrollment(user, settings) },
         ]}
       />
 

@@ -27,3 +27,17 @@ export function canViewOrgChart(
 export function canEditOrgChart(user: { role: string }): boolean {
   return user.role === "SUPER_ADMIN";
 }
+
+/**
+ * ONGLET « ENREGISTREMENT (CTD) » — réservé à l'ADMINISTRATEUR par défaut. L'analyse de dossier
+ * CTD engage des coûts d'IA et manipule des dossiers sensibles : l'ouverture se décide, elle ne
+ * se subit pas. L'admin élargit à des rôles précis depuis la console.
+ */
+export function canSeeRegEnrollment(
+  user: { role: string; secondaryRole?: string | null },
+  settings: { regEnrollmentEnabled: boolean; regEnrollmentRoles: string[] },
+): boolean {
+  if (!settings.regEnrollmentEnabled) return false; // module non débloqué : personne, pas même l'admin
+  if (user.role === "SUPER_ADMIN") return true;
+  return settings.regEnrollmentRoles.some((r) => r === user.role || (user.secondaryRole ? r === user.secondaryRole : false));
+}

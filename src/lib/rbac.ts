@@ -22,7 +22,7 @@ const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
 export const MODULES = [
   "DASHBOARD", "WORKSPACE", "MESSAGING", "REGULATORY", "SPONSORING", "BUDGETS", "FINANCES", "RH",
   "CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENTS", "SALES", "LOGISTICS", "MEDICAL", "FIELD_REPORTS", "SALES_PLANNING",
-  "BUSINESS_DEVELOPMENT", "PCH", "STOCKS", "MEDICAL_INFO", "PROMO_MATERIAL", "VALIDATIONS", "DIRECTIVES", "SUPPORT", "DOSSIERS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
+  "BUSINESS_DEVELOPMENT", "PCH", "STOCKS", "MEDICAL_INFO", "REG_REQUESTS", "PROMO_MATERIAL", "VALIDATIONS", "DIRECTIVES", "SUPPORT", "DOSSIERS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
   "PROCESS_INTELLIGENCE", "ADVENTUM_BRAIN", "ADMIN",
 ] as const;
 export type Module = (typeof MODULES)[number];
@@ -287,6 +287,9 @@ export function canViewDriveSpace(user: SessionUser, space: DriveSpaceAccessBear
  */
 export function canCreateRegRequest(user: SessionUser, creatorRoles: string[] = []): boolean {
   if (user.role === "SUPER_ADMIN" || user.role === "MEDICAL_INFO_PHARMACIST") return true;
+  // Module DÉDIÉ « Demandes à Regulatory » : l'administrateur ouvre l'accès personne par personne
+  // depuis « Accès par module », sans passer par un rôle entier.
+  if (userCan(user, "REG_REQUESTS", "CREATE")) return true;
   return creatorRoles.includes(user.role) || (user.secondaryRole != null && creatorRoles.includes(user.secondaryRole));
 }
 
@@ -297,7 +300,7 @@ export function canAnswerRegRequests(user: SessionUser): boolean {
 
 /** Peut accéder à l'espace des demandes (émetteur autorisé OU répondant Regulatory). */
 export function canSeeRegRequests(user: SessionUser, creatorRoles: string[] = []): boolean {
-  return canCreateRegRequest(user, creatorRoles) || canAnswerRegRequests(user);
+  return userCan(user, "REG_REQUESTS", "VIEW") || canCreateRegRequest(user, creatorRoles) || canAnswerRegRequests(user);
 }
 
 /** Role-default check (baseline, ignores per-user overrides). */
@@ -341,9 +344,21 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
  * création, ex. « PCH — Marchés »), sinon via l'URL de l'objet lié (préfixe de route
  * le plus spécifique, ex. `/pch/123` → PCH). Renvoie null si rien de fiable.
  */
+/**
+ * Toutes les destinations connues : entrées de menu ET leurs ONGLETS. Depuis que plusieurs
+ * modules se présentent en onglets sous une entrée unique (Ventes & Marchés = Ventes ·
+ * Logistique · PCH, Ad & Pro, Budgets, RH…), l'onglet est le seul endroit où vit le lien entre
+ * une route et son module. Ignorer les onglets ferait perdre l'accès temporaire d'un validateur
+ * sur tout module fusionné.
+ */
+const NAV_TARGETS: { href: string; module: Module; label: string }[] = NAVIGATION.flatMap((n) => [
+  { href: n.href, module: n.module, label: n.label },
+  ...(n.tabs ?? []).map((t) => ({ href: t.href, module: t.module, label: t.label })),
+]);
+
 function moduleFromLink(link: string): Module | null {
   const path = link.split(/[?#]/)[0];
-  const byHref = [...NAVIGATION]
+  const byHref = [...NAV_TARGETS]
     .filter((n) => n.href !== "/")
     .sort((a, b) => b.href.length - a.href.length) // route la plus spécifique d'abord
     .find((n) => path === n.href || path.startsWith(`${n.href}/`));
@@ -353,7 +368,7 @@ function moduleFromLink(link: string): Module | null {
 function moduleFromValidation(moduleLabel: string | null, link: string | null): Module | null {
   let fromLabel: Module | null = null;
   if (moduleLabel) {
-    const byLabel = NAVIGATION.find((n) => n.label === moduleLabel);
+    const byLabel = NAV_TARGETS.find((n) => n.label === moduleLabel);
     if (byLabel) fromLabel = byLabel.module;
     else {
       const up = moduleLabel.trim().toUpperCase();

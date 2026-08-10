@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { ArrowLeft, BookOpen, Lock, ShieldCheck } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
 import { prisma } from "@/lib/prisma";
 import { CATALOG, FIRST_WAVE, ANPP_WATCH_PAGES } from "@/lib/regulatory/intelligence/corpus/catalog";
@@ -30,7 +31,7 @@ export const dynamic = "force-dynamic";
 export default async function CorpusPage() {
   const user = await requireModule("REGULATORY");
   const settings = await getAppSettings();
-  if (!settings.regEnrollmentEnabled) notFound();
+  if (!canSeeRegEnrollment(user, settings)) notFound();
   // RÉSERVÉ À L'ADMINISTRATEUR : décider de ce qui fait foi est un acte d'administration.
   if (user.role !== "SUPER_ADMIN") notFound();
 

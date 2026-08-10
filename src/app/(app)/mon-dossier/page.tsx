@@ -33,7 +33,9 @@ export default async function MonDossierPage() {
   const e = dossier.employee;
   return (
     <div className="space-y-5">
-      <PageHeader title="Mon dossier RH" description="Retrouvez vos documents RH et suivez vos demandes (attestations, titre de congé, ordre de mission, note de frais…)." />
+      <PageHeader title="Mon dossier RH" description="Retrouvez vos documents RH et suivez vos demandes (attestations, titre de congé, ordre de mission, note de frais…).">
+        <NewRequestButton />
+      </PageHeader>
       <ModuleTabs tabs={dossierTabs} />
 
       <div className="grid gap-5 lg:grid-cols-3">
@@ -87,9 +89,8 @@ export default async function MonDossierPage() {
       </div>
 
       <Card>
-        <CardHeader className="flex-row items-center justify-between">
+        <CardHeader>
           <CardTitle>Mes demandes RH</CardTitle>
-          <NewRequestButton />
         </CardHeader>
         <CardContent className="p-0">
           {dossier.requests.length === 0 ? (

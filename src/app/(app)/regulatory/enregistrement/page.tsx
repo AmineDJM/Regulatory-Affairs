@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { Scale, Coins, Timer, Layers, ClipboardList, RefreshCw, ShieldCheck, XCircle, Sparkles } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
@@ -24,9 +25,9 @@ const dzd = (n: number) => `${n.toLocaleString("fr-FR")} DZD`;
  * formulaires) arrive en phase 2 ; le cadre légal ci-dessous en est la source de vérité.
  */
 export default async function EnregistrementPage() {
-  await requireModule("REGULATORY");
+  const user = await requireModule("REGULATORY");
   const settings = await getAppSettings();
-  if (!settings.regEnrollmentEnabled) notFound();
+  if (!canSeeRegEnrollment(user, settings)) notFound();
 
   return (
     <div className="space-y-5">

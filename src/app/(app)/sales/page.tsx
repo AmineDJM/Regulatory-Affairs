@@ -4,10 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { currentCompanyWhere, getCompanies, companyOptions } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
-import { SALE_TYPE } from "@/lib/labels";
+import { SALE_TYPE, COMMERCE_TABS } from "@/lib/labels";
 import { createSale } from "@/lib/actions/sales-actions";
 import { SalesTable, type SaleRow } from "./sales-table";
 import { ImportSalesButton } from "./import-sales";
@@ -78,6 +79,7 @@ export default async function SalesPage() {
           </>
         )}
       </PageHeader>
+      <ModuleTabs tabs={COMMERCE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="CA mensuel" value={formatCurrency(caMonth)} icon="TrendingUp" tone="success" />
