@@ -1188,6 +1188,9 @@ export const NAVIGATION: NavItem[] = [
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
   { module: "MEDICAL_INFO", label: "Demandes à Regulatory", href: "/regulatory/requests", icon: "MessageSquareText", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
+  // Accès DIRECT à l'Explorateur produits (Intelligence Marché) — la page reste aussi accessible
+  // depuis Business Development → Intelligence Marché ; même garde de module.
+  { module: "BUSINESS_DEVELOPMENT", label: "Explorateur produits", href: "/business-development/marche/produits", icon: "PackageSearch", group: "Pôles" },
   // Transverse — « Demandes de validations » est le bureau de validation : chacun
   // y demande une validation professionnelle (selon l'accès accordé par le Super
   // Admin), et les validateurs y traitent ce qui leur revient. Les validations en

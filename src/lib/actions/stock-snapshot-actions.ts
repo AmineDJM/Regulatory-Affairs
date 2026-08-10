@@ -67,8 +67,10 @@ export async function deleteStockAnnex(formData: FormData): Promise<ActionResult
 
 /**
  * Demande d'ÉTAT DE STOCK à un instant T (Direction / Super Admin) : on charge une personne
- * (délégué ou autre) d'aller relever et RENSEIGNER l'état actuel. Créé comme une tâche assignée
- * (visible dans « Mon espace ») + notification ; la personne enregistre ensuite l'état.
+ * (délégué ou autre) d'aller relever et RENSEIGNER l'état actuel — pour UN OU PLUSIEURS
+ * HÔPITAUX précis (ou en général si aucun n'est ciblé). Créé comme une tâche assignée
+ * (visible dans « Mon espace ») + notification nominative ; la personne enregistre ensuite
+ * l'état de chaque hôpital dans l'onglet « Stock hôpitaux » (réponse native du module).
  */
 export async function requestStockState(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -77,21 +79,48 @@ export async function requestStockState(formData: FormData): Promise<ActionResul
   }
   const assigneeId = fdStr(formData, "assigneeId");
   const note = fdStr(formData, "note");
+  const hospitalIds = formData.getAll("hospitalIds").map((v) => String(v).trim()).filter(Boolean);
   if (!assigneeId) return { ok: false, error: "Choisissez la personne à qui demander l'état de stock." };
   const assignee = await prisma.user.findFirst({ where: { id: assigneeId, isActive: true }, select: { id: true } });
   if (!assignee) return { ok: false, error: "Destinataire invalide." };
 
-  const title = "État de stock demandé" + (note ? ` — ${note.slice(0, 120)}` : "");
+  // Hôpitaux ciblés : validés en base (jamais un libellé libre) — la demande cite leurs NOMS.
+  let hospitals: { id: string; name: string }[] = [];
+  if (hospitalIds.length > 0) {
+    hospitals = await prisma.stockAnnex.findMany({
+      where: { id: { in: hospitalIds }, kind: { not: "ANNEX" } },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
+    if (hospitals.length !== hospitalIds.length) return { ok: false, error: "Hôpital inconnu dans la sélection." };
+  }
+  const hospitalNames = hospitals.map((h) => h.name).join(", ");
+
+  const title = hospitals.length > 0
+    ? `État de stock demandé — ${hospitalNames}`.slice(0, 180)
+    : "État de stock demandé" + (note ? ` — ${note.slice(0, 120)}` : "");
   const task = await prisma.task.create({
     data: {
       title,
-      description: `${note ? note + "\n\n" : ""}Merci de relever l'état de stock actuel et de le renseigner dans le module Stocks.`,
+      description: [
+        note ? note + "\n" : "",
+        hospitals.length > 0
+          ? `Hôpitaux concernés : ${hospitalNames}.\nMerci de relever l'état de stock de chacun et de le renseigner dans le module Stocks (onglet « Stock hôpitaux »).`
+          : "Merci de relever l'état de stock actuel et de le renseigner dans le module Stocks.",
+      ].join("\n"),
       assignedToId: assignee.id, createdById: user.id, priority: "HIGH", module: "STOCKS",
     },
     select: { id: true },
   });
-  await notifyUser({ userId: assignee.id, type: "ASSIGNMENT", title: "État de stock demandé", body: note || "Relevez et renseignez l'état de stock actuel.", link: "/stocks" }).catch(() => undefined);
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Stocks", entityType: "TASK", entityId: task.id, summary: `Demande d'état de stock à un collègue${note ? " — " + note.slice(0, 80) : ""}` });
+  await notifyUser({
+    userId: assignee.id, type: "ASSIGNMENT", title: "État de stock demandé",
+    body: hospitals.length > 0 ? `Hôpitaux : ${hospitalNames}${note ? ` — ${note}` : ""}`.slice(0, 240) : note || "Relevez et renseignez l'état de stock actuel.",
+    link: "/stocks",
+  }).catch(() => undefined);
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Stocks", entityType: "TASK", entityId: task.id,
+    summary: `Demande d'état de stock${hospitals.length > 0 ? ` (${hospitals.length} hôpital·aux : ${hospitalNames.slice(0, 120)})` : ""}${note ? " — " + note.slice(0, 80) : ""}`,
+  });
   revalidatePath(PATH);
   return { ok: true, id: task.id };
 }

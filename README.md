@@ -2020,6 +2020,18 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Demandes d'état de stocks par HÔPITAUX ciblés, Explorateur produits au menu, colonnes
+  Regulatory masquables.** (1) La « Demande d'état de stock » (`/stocks`, Direction/Super Admin)
+  cible désormais **un ou plusieurs hôpitaux précis** (pastilles à cocher, validés en base) en
+  plus de la personne choisie : la tâche assignée et la notification citent les NOMS des
+  hôpitaux, et la personne renseigne l'état de chacun dans l'onglet « Stock hôpitaux » (réponse
+  native du module). Sans hôpital coché, la demande générale reste possible. (2) L'**Explorateur
+  produits** (Intelligence Marché) garde sa place dans Business Development ET gagne une **entrée
+  directe dans le menu des modules** (même garde `BUSINESS_DEVELOPMENT`). (3) Le tableau
+  Regulatory permet de **masquer/démasquer chaque colonne** (bouton « Colonnes », préférence
+  mémorisée par navigateur, au moins une colonne toujours visible ; masquer une colonne retire
+  aussi son filtre) — les cellules sont désormais pilotées par la définition des colonnes.
+
 - **Agent de dossier 300 s + pièces entières, arbitrage IA des faits en conflit, et Regulatory
   remis d'aplomb (colonnes + étapes).** (1) L'agent du chat travaille désormais **sans être
   pressé** : 300 s par tentative, pièces du tour jusqu'à **100 000 caractères chacune** (une

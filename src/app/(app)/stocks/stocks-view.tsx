@@ -60,6 +60,10 @@ export function StocksView({
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [showRequest, setShowRequest] = React.useState(false);
+  // Hôpitaux VISÉS par la demande d'état de stock (un ou plusieurs — pastilles à cocher).
+  const [reqHospitals, setReqHospitals] = React.useState<string[]>([]);
+  const toggleReqHospital = (id: string) =>
+    setReqHospitals((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const isLocationTab = tab === "HOSPITAL" || tab === "ANNEX";
   // Liste de lieux nommés de l'onglet courant (hôpitaux ou annexes PCH).
@@ -140,29 +144,51 @@ export function StocksView({
         )}
       </div>
 
-      {/* Demande d'état de stock à un instant T (Direction / Super Admin) */}
+      {/* Demande d'état de stock à un instant T (Direction / Super Admin) — un ou plusieurs
+          HÔPITAUX ciblés + la personne chargée du relevé. */}
       {canRequest && showRequest && (
         <form
           action={async (fd) => {
             setBusy(true); setError(null);
+            for (const id of reqHospitals) fd.append("hospitalIds", id);
             const r = await requestStockState(fd);
             setBusy(false);
-            if (r.ok) { setShowRequest(false); router.refresh(); } else setError(r.error ?? "Échec.");
+            if (r.ok) { setShowRequest(false); setReqHospitals([]); router.refresh(); } else setError(r.error ?? "Échec.");
           }}
-          className="surface flex flex-wrap items-end gap-3 p-4"
+          className="surface space-y-3 p-4"
         >
-          <div className="min-w-56 flex-1 space-y-1.5 sm:max-w-xs">
-            <Label htmlFor="req-assignee">Demander à</Label>
-            <Select id="req-assignee" name="assigneeId" required defaultValue="">
-              <option value="" disabled>Choisir une personne…</option>
-              {users.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
-            </Select>
+          <div className="space-y-1.5">
+            <Label>Hôpitaux concernés — un ou plusieurs (aucun = demande générale)</Label>
+            {hospitals.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Aucun hôpital défini (le Super Admin les crée dans l'onglet « Stock hôpitaux »).</p>
+            ) : (
+              <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
+                {hospitals.map((h) => (
+                  <button key={h.id} type="button" onClick={() => toggleReqHospital(h.id)}
+                    className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${reqHospitals.includes(h.id) ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                    {h.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="min-w-56 flex-[2] space-y-1.5">
-            <Label htmlFor="req-note">Précision (produit / lieu / échéance)</Label>
-            <Input id="req-note" name="note" placeholder="Ex. Stock actuel d'Amoxival 500 au CHU d'Oran" />
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-56 flex-1 space-y-1.5 sm:max-w-xs">
+              <Label htmlFor="req-assignee">Demander à</Label>
+              <Select id="req-assignee" name="assigneeId" required defaultValue="">
+                <option value="" disabled>Choisir une personne…</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+              </Select>
+            </div>
+            <div className="min-w-56 flex-[2] space-y-1.5">
+              <Label htmlFor="req-note">Précision (produit / échéance…)</Label>
+              <Input id="req-note" name="note" placeholder="Ex. Stock actuel d'Amoxival 500 — pour vendredi" />
+            </div>
+            <Button type="submit" size="sm" disabled={busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Envoyer la demande{reqHospitals.length > 0 ? ` (${reqHospitals.length} hôpital·aux)` : ""}
+            </Button>
           </div>
-          <Button type="submit" size="sm" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer la demande</Button>
         </form>
       )}
 
