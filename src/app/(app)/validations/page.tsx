@@ -18,6 +18,8 @@ import { formatCurrency, formatDate, formatDateTime, daysUntil } from "@/lib/uti
 import { ValidationDecision } from "./validation-decision";
 import { ItemReview } from "./validation-item-review";
 import { ValidationAttachments } from "./validation-attachments";
+import { SupervisionBoard } from "./supervision-board";
+import { supervisionCounters } from "@/lib/validation-supervision";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { DocumentList } from "@/components/documents/document-list";
 
@@ -56,6 +58,10 @@ export default async function ValidationsPage() {
   ];
 
   const pendingMine = myRequests.filter((r) => r.status === "PENDING").length;
+  // Les compteurs de supervision sont calculés côté serveur pour l'en-tête ; le tableau les
+  // recalcule pour ses filtres, à partir des MÊMES fonctions pures — les deux ne peuvent pas
+  // diverger.
+  const supervisionStats = supervisionCounters(supervised, new Date());
 
   return (
     <div className="space-y-5">
@@ -72,8 +78,17 @@ export default async function ValidationsPage() {
         />
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <KpiCard label="À valider" value={actionable.length + crossModule.length} icon="ShieldCheck" tone={actionable.length + crossModule.length > 0 ? "warning" : "default"} />
+      {/* Les chiffres du haut répondent à « qu'est-ce qui m'attend ? » puis, pour la Direction,
+          à « qu'est-ce qui est en retard, et où ? » — pas à « combien en ai-je envoyé ». */}
+      <div className={`grid grid-cols-2 gap-3 ${supervised.length > 0 ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
+        <KpiCard label="À valider par vous" value={actionable.length + crossModule.length} icon="ShieldCheck" tone={actionable.length + crossModule.length > 0 ? "warning" : "default"} />
+        {supervised.length > 0 && (
+          <KpiCard
+            label="En retard (société)" value={supervisionStats.overdue} icon="AlarmClock"
+            tone={supervisionStats.overdue > 0 ? "danger" : "default"}
+            hint={supervisionStats.stalled > 0 ? `${supervisionStats.stalled} sans décision depuis 7 j` : undefined}
+          />
+        )}
         <KpiCard label="Mes demandes en cours" value={pendingMine} icon="Hourglass" tone="info" />
         <KpiCard label="Total de mes demandes" value={myRequests.length} icon="ListChecks" />
       </div>
@@ -89,65 +104,28 @@ export default async function ValidationsPage() {
         )}
       </section>
 
+      {supervised.length > 0 && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Supervision — tout ce qui circule ({supervised.length})
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Vue Direction : les demandes de validation de toute la société, <strong>la plus urgente en tête</strong>,
+              avec le validateur chez qui elles attendent. Les compteurs sont des filtres ; la relance part en
+              notification (et en push) à la personne dont on attend la décision.
+            </p>
+          </div>
+          <SupervisionBoard rows={supervised} isSuperAdmin={user.role === "SUPER_ADMIN"} />
+        </section>
+      )}
+
       {upcoming.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Qui vous reviendront — en attente du validateur précédent ({upcoming.length})</h2>
           <p className="text-xs text-muted-foreground">Vous êtes validateur de ces demandes : consultez-les et leurs pièces dès maintenant ; vous pourrez décider quand ce sera votre tour.</p>
           <div className="space-y-3">
             {upcoming.map((v) => <PendingValidationCard key={v.stepId} v={v} actionable={false} />)}
-          </div>
-        </section>
-      )}
-
-      {supervised.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Supervision — toutes les demandes en cours ({supervised.length})</h2>
-          <p className="text-xs text-muted-foreground">Vue d&apos;ensemble (Direction / Super Admin) : les demandes de validation en cours de toute la société, même celles qui ne vous sont pas assignées.</p>
-          <div className="space-y-2">
-            {supervised.map((r) => (
-              <Card key={r.id}>
-                <CardContent className="space-y-2 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs text-muted-foreground">{r.reference}</span>
-                      <span className="font-medium">{r.title}</span>
-                      <Badge tone="neutral" dot={false}>{r.module}</Badge>
-                      <span className="text-xs text-muted-foreground">{VALIDATION_MODE[r.mode]}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {r.amount !== null && <span className="text-sm font-semibold">{formatCurrency(r.amount)}</span>}
-                      <StatusBadge map={VALIDATION_STATUS} value={r.status} />
-                      <span className="text-xs text-muted-foreground">par {r.requester || "—"}</span>
-                      {user.role === "SUPER_ADMIN" && (
-                        <SuperAdminDeleteButton kind="VALIDATION_REQUEST" id={r.id} name={`${r.reference} — ${r.title}`} enabled />
-                      )}
-                    </div>
-                  </div>
-                  {r.description && <p className="text-sm text-muted-foreground">{r.description}</p>}
-                  <div className="flex flex-wrap gap-2">
-                    {r.steps.map((s) => (
-                      <span key={s.order} className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs" title={s.reason || undefined}>
-                        <span className="text-muted-foreground">{s.order}.</span>
-                        <span>{s.validator}</span>
-                        <StatusBadge map={VALIDATION_STEP_STATE} value={s.status} dot={false} />
-                      </span>
-                    ))}
-                  </div>
-                  {/* Accès à la demande ORIGINALE : lien vers l'objet + aperçu de ses pièces sur place. */}
-                  {(r.link || r.documents.length > 0) && (
-                    <div className="space-y-2 rounded-lg border border-border/60 bg-secondary/20 p-2">
-                      <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Demande originale</p>
-                      {r.link && (
-                        <Link href={r.link} className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
-                          <ExternalLink className="h-3.5 w-3.5" /> Ouvrir la demande originale
-                        </Link>
-                      )}
-                      {r.documents.length > 0 && <DocumentList documents={r.documents} />}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
           </div>
         </section>
       )}

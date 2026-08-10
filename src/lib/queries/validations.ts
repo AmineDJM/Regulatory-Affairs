@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
 import type { DocItem } from "@/components/documents/document-list";
+import { sortByUrgency, type SupervisedRow } from "@/lib/validation-supervision";
 
 export interface PendingValidationItem {
   stepId: string;
@@ -271,17 +272,10 @@ export async function getCrossModuleValidations(user: SessionUser): Promise<Cros
   return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-export interface SupervisedValidationItem {
-  id: string;
-  reference: string;
-  title: string;
+export interface SupervisedValidationItem extends SupervisedRow {
   description: string;
-  module: string;
-  amount: number | null;
   status: string;
   mode: string;
-  requester: string;
-  createdAt: string;
   /** Lien vers l'objet original (ex. /courrier/…, /demandes/…) quand le demandeur l'a renseigné. */
   link: string;
   /** Pièces de la demande ORIGINALE (celles jointes à la demande + celles de l'objet lié),
@@ -329,9 +323,14 @@ export async function getSupervisedValidations(user: SessionUser): Promise<Super
     (byKey.get(key) ?? byKey.set(key, []).get(key)!).push(item);
   }
 
-  return reqs.map((r) => {
+  const now = new Date();
+  const rows = reqs.map((r) => {
     const own = byKey.get(`VALIDATION_REQUEST:${r.id}`) ?? [];
     const linked = r.entityType && r.entityId ? byKey.get(`${r.entityType}:${r.entityId}`) ?? [] : [];
+    // QUI BLOQUE : la première étape encore en attente. C'est la seule information que la
+    // Direction cherche vraiment dans cette liste — sans elle, il faut ouvrir chaque demande
+    // pour savoir chez qui elle dort.
+    const blocking = r.steps.find((s) => s.status === "PENDING") ?? null;
     return {
       id: r.id,
       reference: r.reference,
@@ -339,15 +338,23 @@ export async function getSupervisedValidations(user: SessionUser): Promise<Super
       description: r.description ?? "",
       module: r.module,
       amount: r.amount === null ? null : toNumber(r.amount),
+      priority: r.priority,
       status: r.status,
       mode: r.mode,
       requester: r.requester?.name ?? "",
       createdAt: r.createdAt.toISOString(),
+      deadline: r.deadline ? r.deadline.toISOString() : null,
+      blockingValidator: blocking?.validator?.name ?? null,
+      blockingStepId: blocking?.id ?? null,
+      blockingOrder: blocking?.order ?? null,
       link: r.link ?? "",
       documents: [...own, ...linked],
       steps: r.steps.map((s) => ({ order: s.order, validator: s.validator?.name ?? "", status: s.status, reason: s.reason ?? "" })),
     };
   });
+  // Ce qui est en retard, puis ce qui va l'être, puis ce qui dort — et non « le plus récent
+  // d'abord », qui range exactement à l'envers de ce qu'on cherche.
+  return sortByUrgency(rows, now);
 }
 
 export async function getMyValidations(user: SessionUser) {

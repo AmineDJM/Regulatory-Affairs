@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { Priority, UserRole, ValidationMode, ValidationStatus, ValidationStepState } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
@@ -350,6 +350,49 @@ export async function clearValidationItem(formData: FormData): Promise<ActionRes
   if (step.validatorId !== user.id && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
   if (step.status !== "PENDING") return { ok: false, error: "Étape déjà traitée." };
   await prisma.validationItemDecision.deleteMany({ where: { stepId, itemKey } });
+  revalidatePath("/validations");
+  return { ok: true };
+}
+
+/**
+ * RELANCER LE VALIDATEUR QUI BLOQUE — l'action qui manquait à la supervision.
+ *
+ * La Direction voyait la liste des demandes en attente sans rien pouvoir en faire : constater
+ * qu'une validation dort depuis trois semaines et devoir sortir de l'outil pour envoyer un
+ * message, c'est une supervision qui ne supervise rien. Le rappel part à la personne dont on
+ * attend la décision, et il est TRACÉ (audit) : une relance qu'on ne peut pas prouver se
+ * répète indéfiniment.
+ *
+ * Réservé à la vue globale : c'est une pression hiérarchique, pas un bouton de confort.
+ */
+export async function remindValidator(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!hasGlobalView(user)) return { ok: false, error: "Réservé à la Direction." };
+  const stepId = fdStr(formData, "stepId");
+  if (!stepId) return { ok: false, error: "Étape non précisée." };
+
+  const step = await prisma.validationStep.findUnique({
+    where: { id: stepId },
+    include: { request: { select: { id: true, reference: true, title: true, link: true } } },
+  });
+  if (!step) return { ok: false, error: "Étape introuvable." };
+  if (step.status !== "PENDING") return { ok: false, error: "Cette étape est déjà tranchée." };
+  if (!step.validatorId) return { ok: false, error: "Aucun validateur n'est assigné à cette étape." };
+
+  const note = fdStr(formData, "note");
+  await notifyUser({
+    userId: step.validatorId,
+    type: "VALIDATION_REQUIRED",
+    title: "Relance — validation en attente",
+    body: `${step.request.reference} — ${step.request.title}${note ? ` · ${note}` : ""}`,
+    link: "/validations",
+    push: { tag: `validation-${step.request.id}`, requireInteraction: true },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Validations",
+    entityType: "VALIDATION_REQUEST", entityId: step.request.id,
+    summary: `Relance du validateur — ${step.request.reference}`,
+  });
   revalidatePath("/validations");
   return { ok: true };
 }
