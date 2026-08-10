@@ -64,6 +64,8 @@ export interface LunaCallInput {
   images?: LunaImage[];
   /** Schéma JSON attendu — la réponse est alors garantie conforme. */
   jsonSchema?: { name: string; schema: Record<string, unknown> };
+  /** Forcer une réponse JSON VALIDE (response_format json_object) quand on n'a pas de schéma strict. */
+  jsonObject?: boolean;
   maxOutputTokens?: number;
   temperature?: number;
   model?: string;
@@ -125,13 +127,15 @@ export function buildLunaBody(input: LunaCallInput, batch = false): Record<strin
             json_schema: { name: input.jsonSchema.name, schema: input.jsonSchema.schema, strict: true },
           },
         }
-      : {}),
+      : input.jsonObject
+        ? { response_format: { type: "json_object" } } // JSON garanti par l'API, pas par la bonne volonté du modèle
+        : {}),
     ...(batch ? {} : { service_tier: "default" }),
   };
 }
 
 interface ChatResponse {
-  choices?: { message?: { content?: string | null } }[];
+  choices?: { message?: { content?: string | null }; finish_reason?: string }[];
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
@@ -192,6 +196,7 @@ export async function callLuna<T = unknown>(input: LunaCallInput): Promise<LunaR
   // Jusqu'à 3 tentatives sur surcharge / limite de débit / réseau.
   let lastError = "Appel à l'IA impossible (réseau).";
   let droppedTemperature = false;
+  let grewBudget = false;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const res = await fetch(`${base}/v1/chat/completions`, {
@@ -203,7 +208,26 @@ export async function callLuna<T = unknown>(input: LunaCallInput): Promise<LunaR
 
       if (res.ok) {
         const data = (await res.json()) as ChatResponse;
-        const text = data.choices?.[0]?.message?.content ?? "";
+        const choice = data.choices?.[0];
+        const text = choice?.message?.content ?? "";
+
+        // RÉPONSE VIDE — le piège des modèles de RAISONNEMENT : max_completion_tokens couvre AUSSI
+        // la réflexion interne. Un budget calibré pour la seule réponse est englouti par le
+        // raisonnement, et le contenu revient vide avec finish_reason=length. En aval cela
+        // devenait « JSON invalide » pour le dossier ENTIER, sans que rien ne nomme la cause.
+        // On rejoue UNE fois avec un budget triplé ; sinon, l'erreur dit exactement ce qui rentre.
+        if (!text.trim()) {
+          const fr = choice?.finish_reason ?? "inconnu";
+          if (fr === "length" && !grewBudget) {
+            grewBudget = true;
+            const current = Number((body as { max_completion_tokens?: number }).max_completion_tokens ?? 2000);
+            (body as { max_completion_tokens?: number }).max_completion_tokens = current * 3;
+            console.warn(`[luna] réponse vide (finish_reason=length) — budget de sortie ${current} → ${current * 3}, nouvelle tentative`);
+            continue;
+          }
+          lastError = `Réponse IA VIDE (finish_reason=${fr}${fr === "length" ? " — budget de sortie épuisé par le raisonnement interne du modèle" : ""}).`;
+          return { ok: false, configured: true, text: "", usage: readUsage(data.usage, approxIn, 0), error: lastError };
+        }
         const usage = readUsage(data.usage, approxIn, estimateTokens(text));
         let parsed: T | undefined;
         if (input.jsonSchema && text) {

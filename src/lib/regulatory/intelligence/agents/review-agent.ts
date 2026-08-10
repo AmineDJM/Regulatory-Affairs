@@ -229,10 +229,23 @@ export async function reviewDocumentText(
  */
 export function parseReviewOutput(text: string): { ok: boolean; findings: AiFinding[]; error?: string } {
   const parsed = extractJson(text);
-  if (parsed === null) return { ok: false, findings: [], error: "Réponse IA non exploitable (JSON invalide)." };
+  if (parsed === null) {
+    // L'extrait BRUT fait partie du diagnostic : « JSON invalide » ne dit pas si le modèle a
+    // répondu en prose, refusé, ou renvoyé du VIDE — trois pannes aux remèdes différents.
+    const raw = (text ?? "").replace(/\s+/g, " ").trim();
+    return {
+      ok: false, findings: [],
+      error: raw
+        ? `Réponse IA non exploitable (JSON invalide) : « ${raw.slice(0, 160)}${raw.length > 160 ? "…" : ""} »`
+        : "Réponse IA VIDE (aucun texte renvoyé par le modèle).",
+    };
+  }
 
   const validated = AiOutputSchema.safeParse(parsed);
-  if (!validated.success) return { ok: false, findings: [], error: "Sortie IA non conforme au schéma." };
+  if (!validated.success) {
+    const issue = validated.error.issues[0];
+    return { ok: false, findings: [], error: `Sortie IA non conforme au schéma (${issue ? `${issue.path.join(".")} : ${issue.message}` : "détail indisponible"}).` };
+  }
 
   const findings: AiFinding[] = validated.data.findings.map((f) => ({
     severity: f.severity,

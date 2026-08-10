@@ -30,7 +30,12 @@ export function lunaReviewFn(ctx: CallContext): AiFn {
     const res = await trackedLuna(ctx, {
       system: opts.system,
       user: prompt,
-      maxOutputTokens: opts.maxTokens ?? 2600,
+      // Le budget couvre AUSSI le raisonnement interne du modèle : 2600 jetons calibrés pour la
+      // seule réponse revenaient VIDES (puis « JSON invalide » en aval). On ne paie que ce qui
+      // est réellement produit — le plafond large ne coûte rien.
+      maxOutputTokens: Math.max(opts.maxTokens ?? 2600, 8000),
+      // JSON garanti par l'API (response_format), pas par la bonne volonté du modèle.
+      jsonObject: true,
       temperature: opts.temperature ?? 0.2,
     });
     return { ok: res.ok, configured: res.configured, text: res.text, error: res.error };

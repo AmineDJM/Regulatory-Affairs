@@ -69,3 +69,23 @@ describe("lunaErrorMessage — une panne doit se NOMMER", () => {
     expect(lunaErrorMessage(500, "")).toBe("Erreur IA (HTTP 500).");
   });
 });
+
+describe("jsonObject — le JSON est garanti par l'API, pas par la bonne volonté du modèle", () => {
+  it("pose response_format json_object quand le drapeau est levé", () => {
+    const body = buildLunaBody({ user: "Rends un objet JSON.", jsonObject: true }) as { response_format?: { type: string } };
+    expect(body.response_format?.type).toBe("json_object");
+  });
+
+  it("un schéma STRICT garde la priorité sur le drapeau", () => {
+    const body = buildLunaBody({
+      user: "JSON.", jsonObject: true,
+      jsonSchema: { name: "s", schema: { type: "object" } },
+    }) as { response_format?: { type: string } };
+    expect(body.response_format?.type).toBe("json_schema");
+  });
+
+  it("sans drapeau ni schéma : aucun response_format (comportement historique)", () => {
+    const body = buildLunaBody({ user: "Bonjour" }) as { response_format?: unknown };
+    expect(body.response_format).toBeUndefined();
+  });
+});

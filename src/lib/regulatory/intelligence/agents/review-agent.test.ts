@@ -102,4 +102,16 @@ describe("parseReviewOutput — la preuve, ou rien", () => {
   it("JSON invalide → aucune sortie", () => {
     expect(parseReviewOutput("pas du json").ok).toBe(false);
   });
+
+  it("l'erreur CITE ce que le modèle a renvoyé — prose, vide, ou schéma : trois pannes, trois remèdes", () => {
+    const prose = parseReviewOutput("Désolé, je ne peux pas produire de JSON ici.");
+    expect(prose.error).toContain("Désolé, je ne peux pas");
+    const vide = parseReviewOutput("   ");
+    expect(vide.error).toContain("VIDE");
+    // Le schéma des constats est volontairement TOLÉRANT (normalisation .catch) — seule une
+    // structure vraiment étrangère échoue, et l'erreur nomme alors le champ fautif.
+    const schema = parseReviewOutput('{"findings":"aucun"}');
+    expect(schema.ok).toBe(false);
+    expect(schema.error).toContain("findings");
+  });
 });
