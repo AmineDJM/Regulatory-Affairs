@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Users, ReceiptText } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getFinanceData } from "@/lib/queries/finance";
 import { getComptaData } from "@/lib/queries/compta";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { TrendChart, DonutChart } from "@/components/dashboard/charts";
-import { createTransaction } from "@/lib/actions/finance-actions";
+import { createTransaction, createQuickIncome } from "@/lib/actions/finance-actions";
 import { FINANCE_CATEGORY, FINANCE_DIRECTION, FINANCE_METHOD, FINANCE_STATUS } from "@/lib/labels";
 import { getCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency } from "@/lib/utils";
@@ -21,6 +21,7 @@ import { LedgerTable } from "./ledger-table";
 import { RecettesDepensesChart } from "./finance-charts";
 import { ImportTransactionsButton } from "./import-transactions";
 import { OpeningBalancesButton } from "./opening-balances";
+import { TreasuryUpdateRequestButton } from "./treasury-update-request";
 
 const DONUT_COLORS = ["#dc2626", "#d97706", "#7c3aed", "#2563eb", "#0891b2", "#db2777", "#65a30d", "#0d9488", "#9333ea", "#475569"];
 
@@ -44,8 +45,26 @@ export default async function FinancesPage() {
         </Link>
         <Link href="/finances/paie"><Button variant="outline"><Users className="h-4 w-4" /> Paie</Button></Link>
         {canUpdate && <OpeningBalancesButton items={data.openingBalances} openingTotal={data.openingTotal} />}
+        {/* L'administration DEMANDE l'actualisation ; les Finances la font. */}
+        {(user.role === "SUPER_ADMIN" || hasGlobalView(user)) && <TreasuryUpdateRequestButton />}
         {canCreate && (
           <>
+            {/* ENCAISSEMENT SIMPLE — cinq champs. Le formulaire complet reste à côté pour la
+                saisie comptable soignée ; encaisser un règlement client ne doit pas l'exiger. */}
+            <CreateRecordButton
+              label="Encaissement"
+              title="Nouvel encaissement"
+              description="Un règlement reçu : date, référence, libellé, montant, client. Le reste est implicite (recette réglée, virement bancaire)."
+              action={createQuickIncome}
+              fields={[
+                { type: "date", name: "date", label: "Date", required: true },
+                { type: "text", name: "reference", label: "Référence", placeholder: "Reçu / virement — laissez vide pour une référence automatique" },
+                { type: "text", name: "label", label: "Libellé", required: true, full: true },
+                { type: "number", name: "amount", label: "Montant (DZD)", required: true },
+                { type: "text", name: "client", label: "Client" },
+                { type: "select", name: "companyId", label: "Entité", options: companyOptions(companies), placeholder: "— Entité —" },
+              ]}
+            />
             <ImportTransactionsButton />
             <CreateRecordButton
               label="Nouvelle écriture"

@@ -524,6 +524,16 @@ async function emitFinancials(
     return { declarationId: decl.id, orderId: null };
   }
   if (step.emitExpenseOrder) {
+    // ANTI-DOUBLE COMPTAGE : si l'opération est VENTILÉE EN POSTES, chaque poste émet sa propre
+    // pièce (bénéficiaires distincts : l'organisateur, l'agence, le prestataire). Émettre EN PLUS
+    // un ordre global ferait payer la même dépense deux fois — c'est exactement ce qu'on voyait
+    // dans « À régler » : un ordre de sponsoring de 53 350 DZD à côté de l'ordre du poste
+    // « Prestation : Webinar » de 53 000 DZD, pour une seule et même dépense.
+    const itemCount = await countAdProItems(entityType, entityId);
+    if (itemCount > 0) {
+      console.info(`[workflow] ${entityType} ${entityId} : ordre global NON émis — ${itemCount} poste(s) portent déjà la dépense.`);
+      return { declarationId: null, orderId: null };
+    }
     const order = await createExpenseOrder({
       label: summary.label, amount, category: "EVENEMENT", beneficiary: summary.beneficiary,
       sourceType: entityType, sourceId: entityId, requestedById, budgetCategoryId,
@@ -531,6 +541,25 @@ async function emitFinancials(
     return { declarationId: null, orderId: order.id };
   }
   return null;
+}
+
+/**
+ * Combien de postes (AdProItem) portent la dépense de cette opération ? Un poste refusé ne
+ * compte pas : il ne paiera jamais rien, donc il ne doit pas empêcher l'ordre global.
+ */
+async function countAdProItems(entityType: EntityType, entityId: string): Promise<number> {
+  const where =
+    entityType === "SPONSORING" ? { sponsoringId: entityId }
+      : entityType === "CONGRESS_NATIONAL" ? { congressNationalId: entityId }
+        : entityType === "CONGRESS_INTERNATIONAL" ? { congressInternationalId: entityId }
+          : entityType === "EVENT" ? { eventId: entityId }
+            : null;
+  if (!where) return 0;
+  try {
+    return await prisma.adProItem.count({ where: { ...where, status: { not: "REJECTED" } } });
+  } catch {
+    return 0; // une panne de comptage ne doit pas bloquer la validation en cours
+  }
 }
 
 interface ProjectApproveCtx {

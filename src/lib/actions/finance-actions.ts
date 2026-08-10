@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import type { FinanceCategory, FinanceDirection, FinanceMethod, FinanceStatus, PayrollStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { buildRef, nextRefNumber } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
+import { notifyRoles } from "@/lib/notify";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 const IN_CATEGORIES = ["RECETTE", "CCA", "PRET"];
@@ -32,9 +33,15 @@ export async function createTransaction(
   const direction = (fdStr(formData, "direction") as FinanceDirection) ??
     (IN_CATEGORIES.includes(category) ? "IN" : "OUT");
 
+  // Référence SAISIE acceptée (les encaissements portent souvent celle du reçu ou du virement) ;
+  // à défaut, on continue de la générer. Une référence déjà prise repart en auto plutôt que de
+  // faire échouer la saisie sur une contrainte d'unicité.
+  const wanted = fdStr(formData, "reference");
+  const free = wanted ? (await prisma.financeTransaction.count({ where: { reference: wanted } })) === 0 : false;
+
   const created = await prisma.financeTransaction.create({
     data: {
-      reference: await nextRef("FIN"),
+      reference: free && wanted ? wanted : await nextRef("FIN"),
       date: fdDate(formData, "date") ?? new Date(),
       direction,
       category,
@@ -302,6 +309,80 @@ export async function payPayroll(formData: FormData): Promise<ActionResult> {
     where: { id }, data: { status: "PAID", paidDate: new Date(), transactionId: tx.id },
   });
   await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Finances", entityType: "PAYROLL", entityId: id, summary: `Paie réglée — ${entry.employee.fullName}` });
+  revalidatePath("/finances");
+  return { ok: true };
+}
+
+/**
+ * ENCAISSEMENT SIMPLE — cinq champs et c'est réglé : date, référence, libellé, montant, client.
+ *
+ * Le formulaire complet (catégorie, méthode, compte, statut, entité, pièce…) est fait pour la
+ * saisie comptable soignée ; encaisser un règlement client n'a pas besoin de tout cela, et
+ * l'obligation de tout remplir décourageait la saisie au fil de l'eau. Les valeurs implicites
+ * sont celles du cas courant : recette, réglée, virement bancaire.
+ */
+export async function createQuickIncome(
+  _prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "FINANCES", "CREATE")) return { ok: false, error: "Non autorisé." };
+
+  const label = fdStr(formData, "label");
+  const amount = fdNum(formData, "amount");
+  if (!label || amount === null) return { ok: false, error: "Libellé et montant obligatoires." };
+  if (amount <= 0) return { ok: false, error: "Le montant d'un encaissement doit être positif." };
+
+  const wanted = fdStr(formData, "reference");
+  const free = wanted ? (await prisma.financeTransaction.count({ where: { reference: wanted } })) === 0 : false;
+  if (wanted && !free) return { ok: false, error: `La référence « ${wanted} » est déjà utilisée.` };
+
+  const created = await prisma.financeTransaction.create({
+    data: {
+      reference: wanted || (await nextRef("FIN")),
+      date: fdDate(formData, "date") ?? new Date(),
+      direction: "IN",
+      category: "RECETTE",
+      label,
+      amount,
+      method: "BANK_TRANSFER",
+      account: "Banque",
+      counterparty: fdStr(formData, "client"),
+      status: "SETTLED",
+      companyId: fdStr(formData, "companyId") || null,
+      createdById: user.id,
+    },
+    select: { id: true, reference: true },
+  });
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Finances",
+    entityType: "FINANCE_TRANSACTION", entityId: created.id,
+    summary: `Encaissement ${created.reference} — ${label} (${amount.toLocaleString("fr-FR")} DZD)`,
+  });
+  revalidatePath("/finances");
+  return { ok: true, id: created.id };
+}
+
+/**
+ * L'ADMINISTRATEUR DEMANDE une mise à jour du solde de trésorerie. Les Finances le mettent à
+ * jour quand elles le veulent ; l'admin, lui, ne saisit pas à leur place — il le demande, et la
+ * demande arrive là où elle sera traitée (notification + tâche dans leur file).
+ */
+export async function requestTreasuryUpdate(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN" && !hasGlobalView(user)) return { ok: false, error: "Réservé à l'administration." };
+  const note = fdStr(formData, "note");
+
+  await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {
+    type: "GENERIC",
+    title: "Mise à jour du solde de trésorerie demandée",
+    body: note || "L'administration demande l'actualisation des soldes de trésorerie.",
+    link: "/finances",
+  }).catch(() => undefined);
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Finances",
+    summary: `Mise à jour du solde de trésorerie demandée${note ? ` — ${note}` : ""}`,
+  });
   revalidatePath("/finances");
   return { ok: true };
 }

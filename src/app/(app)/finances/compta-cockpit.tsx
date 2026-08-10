@@ -55,11 +55,24 @@ export function ComptaCockpit({ d }: { d: ComptaData }) {
         )}
       </section>
 
-      {/* Dépenses prévues hors ordres */}
-      {d.depensesPrevues.length > 0 && (
+      {/* Dépenses prévues hors ordres — la MASSE SALARIALE est séparée : elle tombe chaque mois
+          et n'a pas à noyer les décaissements qu'on peut encore arbitrer. */}
+      {d.depensesAutres.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Autres dépenses prévues ({d.depensesPrevues.length})</h2>
-          <ItemTable items={d.depensesPrevues} thirdLabel="Fournisseur" href="/finances" />
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Autres dépenses prévues ({d.depensesAutres.length}) · {formatCurrency(d.depensesAutresTotal)}
+          </h2>
+          <ItemTable items={d.depensesAutres} thirdLabel="Fournisseur" href="/finances" />
+        </section>
+      )}
+
+      {d.depensesSalaires.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Masse salariale à venir ({d.depensesSalaires.length}) · {formatCurrency(d.depensesSalairesTotal)}
+          </h2>
+          <p className="text-xs text-muted-foreground">Salaires et avances — récurrents, à provisionner ; ils ne se négocient pas comme une dépense fournisseur.</p>
+          <ItemTable items={d.depensesSalaires} thirdLabel="Bénéficiaire" href="/finances/paie" />
         </section>
       )}
 

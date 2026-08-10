@@ -122,6 +122,15 @@ export async function getComptaData(userId: string) {
     (a, b) => Number(b.overdue) - Number(a.overdue) || (a.date ?? "").localeCompare(b.date ?? ""),
   );
   depensesPrevues.sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+  // LA MASSE SALARIALE À PART : elle tombe chaque mois, elle n'a pas à noyer les décaissements
+  // qu'on peut encore arbitrer (fournisseurs, prestations). On ne la CACHE pas — la trésorerie
+  // doit la prévoir — on la SÉPARE, avec son propre total, pour que la liste « à arbitrer »
+  // reste lisible.
+  const SALARY_CATEGORIES = new Set(["SALAIRE", "AVANCE"]);
+  const depensesSalaires = depensesPrevues.filter((d) => SALARY_CATEGORIES.has(d.category));
+  const depensesAutres = depensesPrevues.filter((d) => !SALARY_CATEGORIES.has(d.category));
+  const depensesSalairesTotal = depensesSalaires.reduce((a, d) => a + d.amount, 0);
+  const depensesAutresTotal = depensesAutres.reduce((a, d) => a + d.amount, 0);
 
   const enRetardCount =
     recettesAttendues.filter((r) => r.overdue).length + ordersPending.filter((o) => o.overdue).length;
@@ -156,6 +165,10 @@ export async function getComptaData(userId: string) {
     ordersPending,
     recettesAttendues,
     depensesPrevues,
+    depensesSalaires,
+    depensesAutres,
+    depensesSalairesTotal,
+    depensesAutresTotal,
     months,
   };
 }
