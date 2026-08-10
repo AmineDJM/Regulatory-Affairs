@@ -31,6 +31,10 @@ export interface AppSettings {
   driveSpaceCreatorRoles: string[];
   /** Rôles autorisés à voir l'onglet « Overview » des Rapports terrain (graphes d'analyse). En plus du Super Admin. */
   fieldReportsOverviewRoles: string[];
+  /** Rôles autorisés à CONSULTER l'organigramme (toutes entités ou la sienne). En plus du Super Admin. */
+  orgChartViewerRoles: string[];
+  /** Personnes nommément autorisées à consulter l'organigramme (en plus des rôles ci-dessus). */
+  orgChartViewerUserIds: string[];
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -48,6 +52,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   regRequestCreatorRoles: [],
   driveSpaceCreatorRoles: [],
   fieldReportsOverviewRoles: [],
+  orgChartViewerRoles: [],
+  orgChartViewerUserIds: [],
 };
 
 export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
@@ -66,6 +72,8 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       regRequestCreatorRoles: row.regRequestCreatorRoles ?? [],
       driveSpaceCreatorRoles: row.driveSpaceCreatorRoles ?? [],
       fieldReportsOverviewRoles: row.fieldReportsOverviewRoles ?? [],
+      orgChartViewerRoles: row.orgChartViewerRoles ?? [],
+      orgChartViewerUserIds: row.orgChartViewerUserIds ?? [],
     };
   } catch {
     return DEFAULT_APP_SETTINGS;

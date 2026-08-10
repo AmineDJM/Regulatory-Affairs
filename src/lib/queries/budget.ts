@@ -299,12 +299,21 @@ export async function getBudgetOverview(
   const to = toArg ?? envelope.periodEnd;
 
   const catIds = envelope.categories.map((c) => c.id);
+  // ⚠️ FILTRE SUR LES CATÉGORIES DE **CETTE** ENVELOPPE — la faute qui gonflait le consommé.
+  // Sans lui, le groupBy ramenait TOUTES les dépenses de la plateforme : celles imputées aux
+  // enveloppes VOISINES et celles ENCORE NON IMPUTÉES (clé `null`). Le total (ligne « consommé »)
+  // additionnant toutes les valeurs de la table, une enveloppe Ad & Pro de quelques millions
+  // affichait la consommation de l'entreprise entière — d'où les « 42 millions consommés »
+  // impossibles. Chaque enveloppe ne compte QUE ses propres catégories ; le non-imputé a sa
+  // propre alerte (« à imputer »), il ne doit jamais peser dans une enveloppe qui ne l'a pas reçu.
   const [sums, expenseSums] = await Promise.all([
-    prisma.financeTransaction.groupBy({
-      by: ["budgetCategoryId", "status"],
-      where: { direction: "OUT", date: { gte: from, lte: to }, status: { in: ["SETTLED", "PENDING"] } },
-      _sum: { amount: true },
-    }),
+    catIds.length
+      ? prisma.financeTransaction.groupBy({
+          by: ["budgetCategoryId", "status"],
+          where: { direction: "OUT", date: { gte: from, lte: to }, status: { in: ["SETTLED", "PENDING"] }, budgetCategoryId: { in: catIds } },
+          _sum: { amount: true },
+        })
+      : Promise.resolve([] as { budgetCategoryId: string | null; status: string; _sum: { amount: unknown } }[]),
     // Lignes purement budgétaires (découplées des Finances) imputées aux catégories de l'enveloppe.
     catIds.length
       ? prisma.budgetExpenseLine.groupBy({
@@ -347,14 +356,24 @@ export async function getBudgetOverview(
   const allocated = categories.filter((c) => c.parentId === null).reduce((a, c) => a + c.allocated, 0);
   const consumedTotal = [...consumedByCat.values()].reduce((a, v) => a + v, 0);
   const committedTotal = [...committedByCat.values()].reduce((a, v) => a + v, 0);
-  const unattributedTotal = consumedByCat.get(null) ?? 0;
 
-  const unattributedTx = await prisma.financeTransaction.findMany({
-    where: { direction: "OUT", budgetCategoryId: null, date: { gte: from, lte: to } },
-    orderBy: { date: "desc" },
-    take: 30,
-    select: { id: true, reference: true, date: true, label: true, amount: true, category: true, counterparty: true, status: true },
-  });
+  // NON IMPUTÉ : compté À PART, jamais dans le consommé de l'enveloppe (c'est une dépense qui
+  // n'a pas encore trouvé sa catégorie — l'imputer plus tard la fera entrer dans UNE enveloppe).
+  // Total et compte EXACTS via un agrégat, indépendants des 30 lignes affichées.
+  const [unattributedAgg, unattributedTx] = await Promise.all([
+    prisma.financeTransaction.aggregate({
+      where: { direction: "OUT", budgetCategoryId: null, date: { gte: from, lte: to } },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+    prisma.financeTransaction.findMany({
+      where: { direction: "OUT", budgetCategoryId: null, date: { gte: from, lte: to } },
+      orderBy: { date: "desc" },
+      take: 30,
+      select: { id: true, reference: true, date: true, label: true, amount: true, category: true, counterparty: true, status: true },
+    }),
+  ]);
+  const unattributedTotal = toNumber(unattributedAgg._sum.amount);
 
   // Dépenses DÉJÀ imputées à une catégorie de CETTE enveloppe. Deux origines fusionnées :
   // les vraies dépenses de trésorerie (FinanceTransaction, ré-attribuables) et les lignes
@@ -421,7 +440,7 @@ export async function getBudgetOverview(
     monthly,
     unattributed: {
       total: unattributedTotal,
-      count: unattributedTx.length,
+      count: unattributedAgg._count._all,
       transactions: unattributedTx.map((t) => ({
         id: t.id, reference: t.reference, date: t.date.toISOString(), label: t.label,
         amount: toNumber(t.amount), category: t.category, counterparty: t.counterparty, status: t.status,

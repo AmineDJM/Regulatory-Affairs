@@ -1,0 +1,74 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { UserPlus } from "lucide-react";
+import { requireUser } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
+import { getAppSettings } from "@/lib/settings";
+import { canViewOrgChart, canEditOrgChart } from "@/lib/org-chart-access";
+import { userCan } from "@/lib/rbac";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import type { OrgNode } from "../admin/organigramme/org-chart-editor";
+import { OrgWorkspace } from "../admin/organigramme/org-workspace";
+import { PageHeader } from "@/components/shared/page-header";
+
+export const metadata = { title: "Organigramme — AMD Internal OS" };
+export const dynamic = "force-dynamic";
+
+/**
+ * ORGANIGRAMME — page OUVERTE (hors console d'administration). Le Super Admin y réorganise ;
+ * les rôles et personnes qu'il a autorisés (Administration → Réglages) la CONSULTENT, par entité
+ * ou sur le groupe entier. Les RH, qui tiennent la structure à jour, n'ont plus à passer par lui.
+ */
+export default async function OrganigrammePage() {
+  const user = await requireUser();
+  const settings = await getAppSettings();
+  if (!canViewOrgChart(user, settings)) redirect("/mon-travail");
+  const canEdit = canEditOrgChart(user);
+
+  const employees = await prisma.employee.findMany({
+    where: { isActive: true },
+    select: {
+      id: true, fullName: true, position: true, department: true, managerId: true, orgX: true, orgY: true,
+      // Département STRUCTURÉ (source de vérité) ; le champ texte n'est qu'un cache de secours.
+      departmentRef: { select: { name: true } },
+      company: { select: { name: true, shortName: true, color: true } },
+    },
+    orderBy: { fullName: "asc" },
+  });
+  const nodes: OrgNode[] = employees.map((e) => ({
+    id: e.id,
+    fullName: e.fullName,
+    position: e.position,
+    department: e.departmentRef?.name ?? e.department,
+    managerId: e.managerId,
+    entity: e.company?.shortName ?? e.company?.name ?? null,
+    color: e.company?.color ?? null,
+    orgX: e.orgX,
+    orgY: e.orgY,
+  }));
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title="Organigramme"
+        description={
+          canEdit
+            ? "Hiérarchie de l'entreprise — branchée sur Ressources humaines. Réarrangez qui rapporte à qui et ajustez les postes ; les personnes se créent dans RH."
+            : "Hiérarchie de l'entreprise, en consultation — filtrable par entité. Les rattachements et les postes se règlent dans l'administration."
+        }
+      >
+        {userCan(user, "RH", "VIEW") && (
+          <Link href="/rh"><Button variant="outline"><UserPlus className="h-4 w-4" /> Employés (RH)</Button></Link>
+        )}
+      </PageHeader>
+
+      <Card>
+        <CardHeader><CardTitle>Structure hiérarchique</CardTitle></CardHeader>
+        <CardContent>
+          <OrgWorkspace nodes={nodes} canEdit={canEdit} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

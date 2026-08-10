@@ -105,7 +105,7 @@ export default async function AdminPage() {
             <Link href="/admin/entites">
               <Button variant="outline"><Building2 className="h-4 w-4" /> Entités</Button>
             </Link>
-            <Link href="/admin/organigramme">
+            <Link href="/organigramme">
               <Button variant="outline"><Network className="h-4 w-4" /> Organigramme</Button>
             </Link>
             <Link href="/rh/departements">

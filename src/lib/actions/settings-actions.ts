@@ -138,6 +138,30 @@ export async function setFieldReportsOverviewRoles(formData: FormData): Promise<
   return { ok: true };
 }
 
+/**
+ * Qui peut CONSULTER l'organigramme : rôles (ex. Ressources humaines) et/ou personnes nommées,
+ * en plus du Super Admin toujours autorisé. La MODIFICATION (rattachements, postes, carte)
+ * reste réservée au Super Admin. **Super Admin uniquement.**
+ */
+export async function setOrgChartViewers(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const roles = [...new Set(formData.getAll("roles").map(String).filter(Boolean))];
+  const userIds = [...new Set(formData.getAll("userIds").map(String).filter(Boolean))];
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", orgChartViewerRoles: roles, orgChartViewerUserIds: userIds, updatedById: admin.id },
+    update: { orgChartViewerRoles: roles, orgChartViewerUserIds: userIds, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Consultation de l'organigramme — ${roles.length} rôle(s), ${userIds.length} personne(s)`,
+  });
+  revalidatePath("/admin");
+  revalidatePath("/organigramme");
+  return { ok: true };
+}
+
 /** Capacité globale du Drive + quota par utilisateur (Go). **Super Admin uniquement.** */
 export async function saveDriveStorageSettings(formData: FormData): Promise<ActionResult> {
   const admin = await requireUser();

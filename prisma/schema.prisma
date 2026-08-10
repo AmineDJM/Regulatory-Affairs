@@ -4413,6 +4413,11 @@ model AppSetting {
   // (graphes d'analyse : visites par médecin / hôpital / délégué / spécialité, tendance…).
   // En plus du Super Admin, toujours inclus. Configurable en Administration.
   fieldReportsOverviewRoles String[] @default([])
+  // ORGANIGRAMME — qui a le droit de le CONSULTER (l'édition reste au Super Admin). Les RH en
+  // ont besoin au quotidien ; d'autres personnes peuvent y être ajoutées nommément. Un
+  // consultant voit toutes les entités ou filtre sur l'une d'elles ; il ne modifie rien.
+  orgChartViewerRoles       String[] @default([])
+  orgChartViewerUserIds     String[] @default([])
   // Clés VAPID (Web Push) auto-générées et persistées si non fournies par l'environnement.
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
   vapidPublicKey       String?

@@ -14,7 +14,7 @@ const BOX_W = 190, BOX_H = 64, COL = 214, ROW = 120, PAD = 40;
  * déplace une boîte, sa position est **persistée** (Employee.orgX/orgY). Un simple clic sur une
  * boîte ouvre la fiche RH. Le tout se lit/écrit directement sur Ressources humaines.
  */
-export function OrgCanvas({ nodes }: { nodes: OrgNode[] }) {
+export function OrgCanvas({ nodes, canEdit = true }: { nodes: OrgNode[]; canEdit?: boolean }) {
   const router = useRouter();
   const ids = React.useMemo(() => new Set(nodes.map((n) => n.id)), [nodes]);
   const childrenOf = React.useMemo(() => {
@@ -54,7 +54,10 @@ export function OrgCanvas({ nodes }: { nodes: OrgNode[] }) {
 
   const drag = React.useRef<{ id: string; dx: number; dy: number; moved: boolean } | null>(null);
 
+  // En CONSULTATION, la carte se lit et se parcourt mais ne se réorganise pas : le
+  // glisser-déposer persiste des positions partagées par tous — c'est une modification.
   const onDown = (e: React.PointerEvent, id: string) => {
+    if (!canEdit) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const p = positions.get(id)!;
     drag.current = { id, dx: e.clientX - p.x, dy: e.clientY - p.y, moved: false };
@@ -70,6 +73,7 @@ export function OrgCanvas({ nodes }: { nodes: OrgNode[] }) {
   const onUp = async (id: string) => {
     const d = drag.current;
     drag.current = null;
+    if (!canEdit) { router.push(`/rh/${id}`); return; } // lecture : le clic ouvre la fiche
     if (!d) return;
     if (!d.moved) { router.push(`/rh/${id}`); return; } // clic simple → fiche RH
     const p = positions.get(id)!;
@@ -88,7 +92,11 @@ export function OrgCanvas({ nodes }: { nodes: OrgNode[] }) {
 
   return (
     <div>
-      <p className="mb-2 text-xs text-muted-foreground">Glissez les boîtes pour réorganiser la carte (positions mémorisées) · cliquez une boîte pour ouvrir la fiche RH · le rattachement (N+1) se règle dans la vue « Arbre ».</p>
+      <p className="mb-2 text-xs text-muted-foreground">
+        {canEdit
+          ? "Glissez les boîtes pour réorganiser la carte (positions mémorisées) · cliquez une boîte pour ouvrir la fiche RH · le rattachement (N+1) se règle dans la vue « Arbre »."
+          : "Cliquez une boîte pour ouvrir la fiche RH. La réorganisation de la carte est réservée au Super Admin."}
+      </p>
       <div className="overflow-auto rounded-lg border border-border bg-secondary/20" style={{ maxHeight: "72vh" }}>
         <div className="relative" style={{ width, height }}>
           <svg className="pointer-events-none absolute inset-0 text-border" width={width} height={height}>
@@ -110,9 +118,9 @@ export function OrgCanvas({ nodes }: { nodes: OrgNode[] }) {
                 onPointerDown={(e) => onDown(e, n.id)}
                 onPointerMove={onMove}
                 onPointerUp={() => onUp(n.id)}
-                className="absolute cursor-grab touch-none select-none rounded-lg border border-border bg-card p-2 shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing"
+                className={`absolute touch-none select-none rounded-lg border border-border bg-card p-2 shadow-sm transition-shadow hover:shadow-md ${canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`}
                 style={{ left: p.x, top: p.y, width: BOX_W }}
-                title="Glisser pour déplacer · cliquer pour ouvrir la fiche"
+                title={canEdit ? "Glisser pour déplacer · cliquer pour ouvrir la fiche" : "Ouvrir la fiche RH"}
               >
                 <div className="flex items-center gap-1.5">
                   {n.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: n.color }} />}

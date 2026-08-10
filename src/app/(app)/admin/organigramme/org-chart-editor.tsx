@@ -20,8 +20,12 @@ export interface OrgNode {
   orgY: number | null;
 }
 
-/** Organigramme éditable (arbre RH). Rattachement (N+1) + poste modifiables par le Super Admin. */
-export function OrgChartEditor({ nodes }: { nodes: OrgNode[] }) {
+/**
+ * Organigramme en arbre (RH). Rattachement (N+1) + poste modifiables par le Super Admin ;
+ * `canEdit=false` rend la même hiérarchie en CONSULTATION (crayon masqué) pour les rôles et
+ * personnes que l'admin a autorisés.
+ */
+export function OrgChartEditor({ nodes, canEdit = true }: { nodes: OrgNode[]; canEdit?: boolean }) {
   const router = useRouter();
   const byId = React.useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const childrenOf = React.useMemo(() => {
@@ -57,7 +61,7 @@ export function OrgChartEditor({ nodes }: { nodes: OrgNode[] }) {
       ) : (
         <div className="space-y-1.5">
           {roots.map((n) => (
-            <OrgBranch key={n.id} node={n} depth={0} childrenOf={childrenOf} nodes={nodes} descendantsOf={descendantsOf} onSaved={() => router.refresh()} />
+            <OrgBranch key={n.id} node={n} depth={0} childrenOf={childrenOf} nodes={nodes} descendantsOf={descendantsOf} canEdit={canEdit} onSaved={() => router.refresh()} />
           ))}
         </div>
       )}
@@ -66,13 +70,14 @@ export function OrgChartEditor({ nodes }: { nodes: OrgNode[] }) {
 }
 
 function OrgBranch({
-  node, depth, childrenOf, nodes, descendantsOf, onSaved,
+  node, depth, childrenOf, nodes, descendantsOf, canEdit, onSaved,
 }: {
   node: OrgNode;
   depth: number;
   childrenOf: Map<string | null, OrgNode[]>;
   nodes: OrgNode[];
   descendantsOf: (id: string) => Set<string>;
+  canEdit: boolean;
   onSaved: () => void;
 }) {
   const kids = childrenOf.get(node.id) ?? [];
@@ -148,7 +153,7 @@ function OrgBranch({
             </div>
           )}
         </div>
-        {!editing && (
+        {canEdit && !editing && (
           <button type="button" onClick={() => setEditing(true)} className="mt-0.5 text-muted-foreground hover:text-foreground" title="Éditer le rattachement / le poste">
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -158,7 +163,7 @@ function OrgBranch({
       {open && kids.length > 0 && (
         <div className="mt-1.5 space-y-1.5">
           {kids.map((k) => (
-            <OrgBranch key={k.id} node={k} depth={depth + 1} childrenOf={childrenOf} nodes={nodes} descendantsOf={descendantsOf} onSaved={onSaved} />
+            <OrgBranch key={k.id} node={k} depth={depth + 1} childrenOf={childrenOf} nodes={nodes} descendantsOf={descendantsOf} canEdit={canEdit} onSaved={onSaved} />
           ))}
         </div>
       )}

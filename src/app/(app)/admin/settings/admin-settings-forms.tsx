@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Loader2, Check, Megaphone, Search } from "lucide-react";
-import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegRequestCreatorRoles, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles } from "@/lib/actions/settings-actions";
+import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegRequestCreatorRoles, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setOrgChartViewers } from "@/lib/actions/settings-actions";
 import { setRegIntelligenceEnabled } from "@/lib/regulatory/intelligence/actions";
 import { sendBroadcast } from "@/lib/actions/notification-actions";
 import { Button } from "@/components/ui/button";
@@ -469,6 +469,95 @@ export function FieldReportsOverviewForm({ roles, selected }: { roles: Opt[]; se
       <Button type="submit" size="sm" disabled={saving}>
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
         {saved ? "Enregistré" : "Enregistrer l'accès Overview"}
+      </Button>
+    </form>
+  );
+}
+
+/**
+ * ORGANIGRAMME — qui peut le CONSULTER : des rôles (les RH au premier chef) et/ou des personnes
+ * nommées. Le Super Admin reste seul à le RÉORGANISER. Deux listes plutôt qu'une : « tous les
+ * RH » est une règle durable, « cette personne-là » un cas particulier — les confondre obligerait
+ * à créer un rôle pour chaque exception.
+ */
+export function OrgChartViewersForm({ roles, users, selectedRoles, selectedUserIds }: {
+  roles: Opt[];
+  users: UserLite[];
+  selectedRoles: string[];
+  selectedUserIds: string[];
+}) {
+  const [picked, setPicked] = React.useState<string[]>(selectedRoles);
+  const [pickedUsers, setPickedUsers] = React.useState<string[]>(selectedUserIds);
+  const [query, setQuery] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const toggle = (v: string) => setPicked((p) => (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]));
+  const toggleUser = (id: string) => setPickedUsers((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+
+  const q = query.trim().toLowerCase();
+  const shown = q ? users.filter((u) => u.name.toLowerCase().includes(q)) : users.filter((u) => pickedUsers.includes(u.id));
+
+  return (
+    <form
+      action={async () => {
+        setSaving(true);
+        const fd = new FormData();
+        picked.forEach((r) => fd.append("roles", r));
+        pickedUsers.forEach((id) => fd.append("userIds", id));
+        const res = await setOrgChartViewers(fd);
+        setSaving(false);
+        if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
+      }}
+      className="space-y-3"
+    >
+      <div className="space-y-1.5">
+        <Label className="text-xs">Rôles autorisés</Label>
+        <div className="flex flex-wrap gap-2">
+          {roles.filter((r) => r.value !== "SUPER_ADMIN").map((r) => {
+            const on = picked.includes(r.value);
+            return (
+              <button
+                key={r.value}
+                type="button"
+                onClick={() => toggle(r.value)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+              >
+                {r.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">Personnes nommément autorisées {pickedUsers.length > 0 ? `(${pickedUsers.length})` : ""}</Label>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher une personne…" className="h-8 pl-8 text-xs" />
+        </div>
+        <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+          {shown.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{q ? "Aucune personne trouvée." : "Aucune personne ajoutée — cherchez un nom pour en ajouter."}</p>
+          ) : shown.map((u) => {
+            const on = pickedUsers.includes(u.id);
+            return (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => toggleUser(u.id)}
+                className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+              >
+                {u.name}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground">Les personnes autorisées consultent l'organigramme sur <strong>/organigramme</strong>, filtrable par entité ou sur le groupe entier. Seul le Super Admin modifie les rattachements, les postes et la carte.</p>
+      <Button type="submit" size="sm" disabled={saving}>
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
+        {saved ? "Enregistré" : "Enregistrer les accès"}
       </Button>
     </form>
   );

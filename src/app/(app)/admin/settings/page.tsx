@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch, ShieldCheck, MessageSquarePlus, FolderPlus, BarChart3 } from "lucide-react";
+import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch, ShieldCheck, MessageSquarePlus, FolderPlus, BarChart3, Network } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegRequestCreatorForm, DriveSpaceCreatorForm, FieldReportsOverviewForm } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegRequestCreatorForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm } from "./admin-settings-forms";
 import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Réglages & diffusion — AMD Internal OS" };
@@ -96,6 +96,16 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <FieldReportsOverviewForm roles={roleOptions} selected={settings.fieldReportsOverviewRoles} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Network className="h-4 w-4" /> Organigramme — Qui peut le consulter</CardTitle>
+          <p className="text-sm text-muted-foreground">Rôles (les Ressources humaines au premier chef) et personnes nommées autorisés à consulter l&apos;organigramme sur <strong>/organigramme</strong> — par entité ou sur le groupe entier. Le Super Admin reste seul à réorganiser les rattachements, les postes et la carte.</p>
+        </CardHeader>
+        <CardContent>
+          <OrgChartViewersForm roles={roleOptions} users={users} selectedRoles={settings.orgChartViewerRoles} selectedUserIds={settings.orgChartViewerUserIds} />
         </CardContent>
       </Card>
 
