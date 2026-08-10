@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegRequestCreatorForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm } from "./admin-settings-forms";
 import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Réglages & diffusion — AMD Internal OS" };
@@ -75,7 +75,6 @@ export default async function AdminSettingsPage() {
           <p className="text-sm text-muted-foreground">Rôles autorisés à créer des « Demandes à Regulatory » (en plus du PRIM et du Super Admin, toujours inclus). L&apos;équipe Regulatory répond aux demandes mais n&apos;en crée pas — sauf si vous ajoutez son rôle ici.</p>
         </CardHeader>
         <CardContent>
-          <RegRequestCreatorForm roles={roleOptions} selected={settings.regRequestCreatorRoles} />
         </CardContent>
       </Card>
 

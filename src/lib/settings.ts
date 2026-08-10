@@ -26,7 +26,6 @@ export interface AppSettings {
   /** Rôles superviseurs Regulatory (en plus du Super Admin) : priorité/dates, notifs, MàJ statut. */
   regulatorySupervisorRoles: string[];
   /** Rôles autorisés à CRÉER des « Demandes à Regulatory » (en plus du PRIM). Regulatory RÉPOND mais ne crée pas. */
-  regRequestCreatorRoles: string[];
   /** Rôles autorisés à CRÉER des catégories de Drive (espaces partagés en onglets). En plus du Super Admin. */
   driveSpaceCreatorRoles: string[];
   /** Rôles autorisés à voir l'onglet « Overview » des Rapports terrain (graphes d'analyse). En plus du Super Admin. */
@@ -51,7 +50,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   driveUserQuotaGb: 10,
   regEnrollmentEnabled: false,
   regulatorySupervisorRoles: [],
-  regRequestCreatorRoles: [],
   driveSpaceCreatorRoles: [],
   fieldReportsOverviewRoles: [],
   orgChartViewerRoles: [],
@@ -72,7 +70,6 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       driveUserQuotaGb: row.driveUserQuotaGb,
       regEnrollmentEnabled: row.regEnrollmentEnabled,
       regulatorySupervisorRoles: row.regulatorySupervisorRoles ?? [],
-      regRequestCreatorRoles: row.regRequestCreatorRoles ?? [],
       driveSpaceCreatorRoles: row.driveSpaceCreatorRoles ?? [],
       fieldReportsOverviewRoles: row.fieldReportsOverviewRoles ?? [],
       orgChartViewerRoles: row.orgChartViewerRoles ?? [],

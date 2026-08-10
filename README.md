@@ -2050,6 +2050,16 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Module « Demandes à Regulatory » RETIRÉ.** Le module `REG_REQUESTS`, son entrée de menu, ses
+  écrans (`/regulatory/requests`), ses actions, ses requêtes, ses helpers d'accès
+  (`canCreateRegRequest` / `canAnswerRegRequests` / `canSeeRegRequests`) et sa carte de réglage
+  en Administration (« Émetteurs autorisés ») sont supprimés. ⚠️ Les **données restent en base** :
+  les modèles `RegulatoryRequest` / `RegulatoryRequestMessage` et la colonne
+  `AppSetting.regRequestCreatorRoles` ne sont **pas** supprimés — effacer des demandes et leurs
+  fils de discussion est irréversible, et se décide explicitement. L'entrée de journal qui décrit
+  la livraison d'origine reste ci-dessous : un journal consigne ce qui s'est passé, il ne se
+  réécrit pas.
+
 - **Formations — demande individuelle à trois validateurs, sessions RH avec participants.**
   Chacun peut demander une formation ; elle monte **N+1 → RH → DG**, exactement comme un congé —
   et pour la même raison : trois questions se posent qu'une seule personne ne sait pas trancher.

@@ -1157,7 +1157,6 @@ export const MODULE_LABELS: Record<Module, string> = {
   PCH: "PCH — Marchés",
   STOCKS: "Stocks PCH",
   MEDICAL_INFO: "Information médicale",
-  REG_REQUESTS: "Demandes à Regulatory",
   PROMO_MATERIAL: "Matériel promotionnel",
   VALIDATIONS: "Demandes de validations",
   DIRECTIVES: "Directives",
@@ -1204,7 +1203,6 @@ export const NAVIGATION: NavItem[] = [
   { module: "SALES_PLANNING", label: "Prévisions & Force de vente", href: "/planning", icon: "TrendingUp", group: "Pôles" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles" },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
-  { module: "REG_REQUESTS", label: "Demandes à Regulatory", href: "/regulatory/requests", icon: "MessageSquareText", group: "Pôles" },
   { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
   // Accès DIRECT à l'Explorateur produits (Intelligence Marché) — la page reste aussi accessible
   // depuis Business Development → Intelligence Marché ; même garde de module.

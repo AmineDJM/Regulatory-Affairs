@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageSquareText, AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, scopeRegulatory, isRegulatorySupervisor } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -122,9 +122,6 @@ export default async function RegulatoryPage() {
         description="Suivi des molécules/DCI et de leur avancement réglementaire jusqu'à l'enregistrement."
       >
         <div className="flex flex-wrap items-center gap-2">
-          <Link href="/regulatory/requests" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm font-medium hover:bg-secondary">
-            <MessageSquareText className="h-4 w-4" /> Demandes info médicale
-          </Link>
           {canCreate && (
             <>
               <SuppliersManager suppliers={supplierList} />

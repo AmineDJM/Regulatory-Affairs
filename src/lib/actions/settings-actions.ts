@@ -72,29 +72,6 @@ export async function setRegulatorySupervisorRoles(formData: FormData): Promise<
 }
 
 /**
- * Rôles autorisés à ÉMETTRE des « Demandes à Regulatory » (en plus du PRIM, toujours
- * autorisé). L'équipe Regulatory **répond** aux demandes mais n'en **crée pas**, sauf si
- * l'admin ajoute explicitement son rôle ici. **Super Admin uniquement.**
- */
-export async function setRegRequestCreatorRoles(formData: FormData): Promise<ActionResult> {
-  const admin = await requireUser();
-  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
-  const roles = [...new Set(formData.getAll("roles").map(String).filter(Boolean))];
-  await prisma.appSetting.upsert({
-    where: { id: "global" },
-    create: { id: "global", regRequestCreatorRoles: roles, updatedById: admin.id },
-    update: { regRequestCreatorRoles: roles, updatedById: admin.id },
-  });
-  await recordAudit({
-    actorId: admin.id, action: "UPDATE", module: "Administration",
-    summary: `Émetteurs de demandes à Regulatory — ${roles.length} rôle(s) configuré(s)`,
-  });
-  revalidatePath("/admin");
-  revalidatePath("/regulatory/requests");
-  return { ok: true };
-}
-
-/**
  * Rôles autorisés à CRÉER des catégories de Drive (espaces partagés en onglets), en plus du
  * Super Admin toujours autorisé. **Super Admin uniquement.**
  */

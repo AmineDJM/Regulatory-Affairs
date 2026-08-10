@@ -22,7 +22,7 @@ const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
 export const MODULES = [
   "DASHBOARD", "WORKSPACE", "MESSAGING", "REGULATORY", "SPONSORING", "BUDGETS", "FINANCES", "RH",
   "CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENTS", "SALES", "LOGISTICS", "MEDICAL", "FIELD_REPORTS", "SALES_PLANNING",
-  "BUSINESS_DEVELOPMENT", "PCH", "STOCKS", "MEDICAL_INFO", "REG_REQUESTS", "PROMO_MATERIAL", "GENERAL_MEANS", "VALIDATIONS", "DIRECTIVES", "SUPPORT", "DOSSIERS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
+  "BUSINESS_DEVELOPMENT", "PCH", "STOCKS", "MEDICAL_INFO", "PROMO_MATERIAL", "GENERAL_MEANS", "VALIDATIONS", "DIRECTIVES", "SUPPORT", "DOSSIERS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
   "PROCESS_INTELLIGENCE", "ADVENTUM_BRAIN", "ADMIN",
 ] as const;
 export type Module = (typeof MODULES)[number];
@@ -285,31 +285,6 @@ export function canViewDriveSpace(user: SessionUser, space: DriveSpaceAccessBear
 }
 
 // ─────────── Demandes à Regulatory (émission → prise en charge) ───────────
-/**
- * Peut ÉMETTRE une demande à Regulatory : **strictement** le PRIM (information médicale,
- * toujours autorisé), le **Super Admin**, ou un rôle **configuré en Administration**
- * (`AppSetting.regRequestCreatorRoles`), porté en principal OU secondaire. L'équipe
- * Regulatory **répond** aux demandes mais n'en **crée pas** (sauf si l'admin l'ajoute
- * explicitement à cette liste). Les rôles sont passés depuis les réglages (pas en dur).
- */
-export function canCreateRegRequest(user: SessionUser, creatorRoles: string[] = []): boolean {
-  if (user.role === "SUPER_ADMIN" || user.role === "MEDICAL_INFO_PHARMACIST") return true;
-  // Module DÉDIÉ « Demandes à Regulatory » : l'administrateur ouvre l'accès personne par personne
-  // depuis « Accès par module », sans passer par un rôle entier.
-  if (userCan(user, "REG_REQUESTS", "CREATE")) return true;
-  return creatorRoles.includes(user.role) || (user.secondaryRole != null && creatorRoles.includes(user.secondaryRole));
-}
-
-/** Peut PRENDRE EN CHARGE / RÉPONDRE : l'équipe Regulatory (droit REGULATORY:UPDATE) ou la vue globale. */
-export function canAnswerRegRequests(user: SessionUser): boolean {
-  return userCan(user, "REGULATORY", "UPDATE") || hasGlobalView(user.role);
-}
-
-/** Peut accéder à l'espace des demandes (émetteur autorisé OU répondant Regulatory). */
-export function canSeeRegRequests(user: SessionUser, creatorRoles: string[] = []): boolean {
-  return userCan(user, "REG_REQUESTS", "VIEW") || canCreateRegRequest(user, creatorRoles) || canAnswerRegRequests(user);
-}
-
 /** Role-default check (baseline, ignores per-user overrides). */
 export function can(role: UserRole, module: Module, action: Action): boolean {
   return PERMISSIONS[role]?.[module]?.includes(action) ?? false;

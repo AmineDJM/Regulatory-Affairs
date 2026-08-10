@@ -4,10 +4,7 @@ import {
   PERMISSIONS,
   accessibleModules,
   can,
-  canAnswerRegRequests,
-  canCreateRegRequest,
   canManageEnvelope,
-  canSeeRegRequests,
   canViewEnvelope,
   defaultScope,
   hasGlobalView,
@@ -225,46 +222,6 @@ describe("envelope access (canViewEnvelope / canManageEnvelope)", () => {
 
   it("another person's grant does not leak", () => {
     expect(canViewEnvelope(del, { ...empty, accessUserIds: ["someone-else"], managerUserIds: ["x"] })).toBe(false);
-  });
-});
-
-describe("demandes à Regulatory : émission réservée, Regulatory répond sans créer", () => {
-  const prim = mkUser("p1", "MEDICAL_INFO_PHARMACIST", fromRole("MEDICAL_INFO_PHARMACIST"));
-  const head = mkUser("h1", "HEAD_OF_REGULATORY", fromRole("HEAD_OF_REGULATORY"));
-  const admin = mkUser("a1", "SUPER_ADMIN", fromRole("SUPER_ADMIN"));
-  const sales = mkUser("s1", "SALES_USER", fromRole("SALES_USER"));
-  // Compte dont le rôle SECONDAIRE est un émetteur configuré (rôle neutre, non-PRIM).
-  const salesSecondaryAssistant: SessionUser = { ...sales, secondaryRole: "DIRECTION_ASSISTANT" };
-
-  it("le PRIM émet une demande mais n'y répond pas", () => {
-    expect(canCreateRegRequest(prim)).toBe(true);
-    expect(canAnswerRegRequests(prim)).toBe(false);
-    expect(canSeeRegRequests(prim)).toBe(true);
-  });
-
-  it("le Super Admin émet toujours (il configure la liste)", () => {
-    expect(canCreateRegRequest(admin)).toBe(true);
-  });
-
-  it("l'équipe Regulatory RÉPOND mais ne CRÉE PAS par défaut", () => {
-    expect(canAnswerRegRequests(head)).toBe(true); // elle répond
-    expect(canCreateRegRequest(head)).toBe(false); // mais ne crée pas de demande
-    expect(canSeeRegRequests(head)).toBe(true); // accès à l'espace pour répondre
-  });
-
-  it("un rôle configuré par le Super Admin peut émettre (principal OU secondaire)", () => {
-    // Non configuré → ne peut pas créer.
-    expect(canCreateRegRequest(sales)).toBe(false);
-    expect(canSeeRegRequests(sales)).toBe(false);
-    // Configuré en Administration (regRequestCreatorRoles) → peut créer.
-    expect(canCreateRegRequest(sales, ["SALES_USER"])).toBe(true);
-    expect(canSeeRegRequests(sales, ["SALES_USER"])).toBe(true);
-    // Rôle secondaire présent dans la liste → suffit.
-    expect(canCreateRegRequest(salesSecondaryAssistant, ["DIRECTION_ASSISTANT"])).toBe(true);
-  });
-
-  it("même configurée, l'équipe Regulatory ne crée pas tant qu'elle n'est pas dans la liste", () => {
-    expect(canCreateRegRequest(head, ["SALES_USER"])).toBe(false);
   });
 });
 
