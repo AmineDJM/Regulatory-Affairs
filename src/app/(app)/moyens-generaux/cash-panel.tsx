@@ -4,15 +4,17 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   Wallet, Loader2, Check, Plus, Receipt, HandCoins, AlertTriangle, Lock, FileText, Download,
+  CalendarClock, ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { PETTY_CASH_STATUS_LABEL, periodLabel } from "@/lib/petty-cash";
+import { PETTY_CASH_STATUS_LABEL, periodLabel, MAX_RECHARGE_DAY } from "@/lib/petty-cash";
 import {
   allotPettyCash, confirmPettyCashReceipt, spendFromPettyCash, requestPettyCashTopUp, closePettyCash,
+  decidePettyCashTopUp, setPettyCashPlan,
 } from "@/lib/actions/petty-cash-actions";
 import type { GeneralMeansView } from "@/lib/queries/general-means";
 
@@ -28,7 +30,8 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
-  const [pane, setPane] = React.useState<"none" | "spend" | "topup" | "allot">("none");
+  const [pane, setPane] = React.useState<"none" | "spend" | "topup" | "allot" | "plan">("none");
+  const [grant, setGrant] = React.useState<Record<string, string>>({});
 
   const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) => {
     setBusy(key); setMsg(null);
@@ -53,6 +56,16 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             </Badge>
             {cash.holder && <span className="text-xs text-muted-foreground">détenue par {cash.holder}</span>}
           </div>
+
+          {view.plan?.isActive && (
+            <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+              <CalendarClock className="h-3.5 w-3.5" />
+              Rechargement mensuel réglé par les RH : <strong className="text-foreground">{formatCurrency(view.plan.monthlyAmount)}</strong>
+              le {view.plan.rechargeDay} de chaque mois
+              {view.plan.nextRechargeAt && <> — prochain le <strong className="text-foreground">{formatDate(view.plan.nextRechargeAt)}</strong></>}.
+              Les ressources humaines en sont prévenues <strong>48 h avant</strong>.
+            </p>
+          )}
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Figure label="Remis" value={formatCurrency(cash.amount)} />
@@ -108,9 +121,14 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
               </>
             )}
             {view.canAllot && (
-              <Button size="sm" variant="outline" onClick={() => setPane(pane === "allot" ? "none" : "allot")}>
-                <Plus className="h-4 w-4" /> Remettre une somme
-              </Button>
+              <>
+                <Button size="sm" variant="outline" onClick={() => setPane(pane === "allot" ? "none" : "allot")}>
+                  <Plus className="h-4 w-4" /> Remettre une somme
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setPane(pane === "plan" ? "none" : "plan")}>
+                  <CalendarClock className="h-4 w-4" /> Réglage mensuel
+                </Button>
+              </>
             )}
             {(view.isHolder || view.canAllot) && cash.status !== "CLOSED" && (
               <Button size="sm" variant="outline" disabled={busy === "close"} onClick={() => {
@@ -241,6 +259,104 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             <Button size="sm" type="button" variant="outline" onClick={() => setPane("none")}>Annuler</Button>
           </div>
         </form>
+      )}
+
+      {/* RÉGLAGE MENSUEL — posé par les RH. Sans lui, la caisse dépend d'un geste dont personne
+          ne se souvient à date fixe, et l'on ne peut prévenir de rien. */}
+      {view.canAllot && pane === "plan" && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.currentTarget);
+            fd.set("departmentId", view.department.id);
+            void run("plan", () => setPettyCashPlan(fd), "Réglage mensuel enregistré.");
+          }}
+          className="space-y-2 rounded-xl border border-border bg-secondary/30 p-3"
+        >
+          <p className="text-sm font-medium">Réglage mensuel de la caisse</p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <label className="text-xs">
+              Somme remise chaque mois (DZD)
+              <Input name="monthlyAmount" inputMode="decimal" required defaultValue={view.plan?.monthlyAmount || ""} className="mt-1 h-9 text-right tabular-nums" />
+            </label>
+            <label className="text-xs">
+              Jour du rechargement
+              <Input name="rechargeDay" type="number" min={1} max={MAX_RECHARGE_DAY} defaultValue={view.plan?.rechargeDay ?? 1} className="mt-1 h-9 text-right tabular-nums" />
+              <span className="text-[0.6875rem] text-muted-foreground">1 à {MAX_RECHARGE_DAY} — le 31 n&apos;existe pas tous les mois.</span>
+            </label>
+            <label className="text-xs">
+              Remis à
+              <select name="holderId" defaultValue={view.plan?.holderId ?? cash?.holderId ?? ""} className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-2 text-sm">
+                <option value="">— Choisir la personne —</option>
+                {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="inline-flex items-center gap-1.5 text-xs">
+            <input type="checkbox" name="isActive" value="1" defaultChecked={view.plan?.isActive ?? true} className="h-4 w-4 rounded border-input" />
+            Rechargement actif (les RH sont prévenues 48 h avant chaque échéance)
+          </label>
+          <div className="flex gap-2">
+            <Button size="sm" type="submit" disabled={busy === "plan"}>
+              {busy === "plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />} Enregistrer
+            </Button>
+            <Button size="sm" type="button" variant="outline" onClick={() => setPane("none")}>Annuler</Button>
+          </div>
+        </form>
+      )}
+
+      {/* LES RALLONGES — accordées AU MONTANT QUE LES RH ÉCRIVENT, refusées, ou en attente. */}
+      {view.topUps.length > 0 && (
+        <div className="space-y-1.5">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Rallonges demandées ({view.topUps.filter((t) => t.status === "PENDING").length} en attente)
+          </h3>
+          <ul className="divide-y divide-border rounded-xl border border-border">
+            {view.topUps.map((t) => (
+              <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="font-medium">+{formatCurrency(t.amountRequested)} demandés</span>
+                  {t.reason && <span className="block text-xs text-muted-foreground">{t.reason}</span>}
+                  <span className="block text-[0.6875rem] text-muted-foreground">
+                    {t.requester || "—"} · {formatDate(t.createdAt)}
+                    {t.decisionNote ? ` · ${t.decisionNote}` : ""}
+                  </span>
+                </span>
+                {t.status === "PENDING" ? (
+                  view.canAllot ? (
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <Input
+                        value={grant[t.id] ?? String(t.amountRequested)}
+                        onChange={(e) => setGrant((p) => ({ ...p, [t.id]: e.target.value }))}
+                        inputMode="decimal" aria-label="Montant accordé"
+                        className="h-8 w-28 text-right tabular-nums"
+                      />
+                      <button type="button" disabled={busy === `top:${t.id}`} onClick={() => {
+                        const fd = new FormData();
+                        fd.set("id", t.id); fd.set("decision", "APPROVED");
+                        fd.set("amountGranted", grant[t.id] ?? String(t.amountRequested));
+                        void run(`top:${t.id}`, () => decidePettyCashTopUp(fd), "Rallonge accordée.");
+                      }} className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50">
+                        {busy === `top:${t.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ThumbsUp className="h-3.5 w-3.5" />} Accorder
+                      </button>
+                      <button type="button" disabled={busy === `top:${t.id}`} onClick={() => {
+                        const fd = new FormData();
+                        fd.set("id", t.id); fd.set("decision", "REJECTED");
+                        void run(`top:${t.id}`, () => decidePettyCashTopUp(fd), "Rallonge refusée.");
+                      }} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                        <ThumbsDown className="h-3.5 w-3.5" /> Refuser
+                      </button>
+                    </span>
+                  ) : <Badge tone="warning" dot={false}>En attente des RH</Badge>
+                ) : (
+                  <Badge tone={t.status === "APPROVED" ? "success" : "danger"} dot={false}>
+                    {t.status === "APPROVED" ? `Accordée — ${formatCurrency(t.amountGranted ?? 0)}` : "Refusée"}
+                  </Badge>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {msg && (

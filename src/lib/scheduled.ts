@@ -8,6 +8,7 @@ import { runAnppWatchIfDue } from "@/lib/regulatory/intelligence/corpus/watch-sc
 import { pollAiBatches } from "@/lib/regulatory/intelligence/cost/batch-runner";
 import { embedBacklog } from "@/lib/regulatory/intelligence/corpus/semantic";
 import { runIntelligencePulse } from "@/lib/adventum/pulse";
+import { runPettyCashRechargeReminders } from "@/lib/actions/petty-cash-actions";
 
 /**
  * Tâches périodiques **sans cron externe** : déclenchées (au plus une fois par minute,
@@ -83,6 +84,9 @@ export async function runScheduledJobs(): Promise<void> {
     await catchUpMissingAiReviews().catch(() => 0);
     await embedBacklog().catch(() => 0); // vecteurs sémantiques : un paquet par passage, jamais plus
     await runIntelligencePulse(); // Adventum Pulse : instantané horaire (Brain + Process Intelligence) + alerte proactive
+    // Caisse d'avance : prévenir les RH 48 h AVANT le rechargement mensuel. Prévenir le jour
+    // même ne sert à rien — sortir la somme demande une préparation. Idempotent par échéance.
+    await runPettyCashRechargeReminders().catch(() => 0);
 
   } catch (err) {
     console.error("[scheduled] run failed", err);

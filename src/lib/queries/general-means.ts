@@ -3,7 +3,7 @@ import { toNumber } from "@/lib/utils";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { mergeGrants, canViewDepartmentBudget, editableKindsOn, EMPTY_GRANT, type DeptBudgetGrant, type BudgetSetter, type DeptBudgetKind } from "@/lib/department-budget";
 import { headedDepartmentIds } from "@/lib/queries/department-budget";
-import { pettyCashBalance, currentPeriod, type PettyCashBalance, type PettyCashStatus } from "@/lib/petty-cash";
+import { pettyCashBalance, currentPeriod, nextRechargeDate, type PettyCashBalance, type PettyCashStatus } from "@/lib/petty-cash";
 
 /**
  * MOYENS GÉNÉRAUX — la lecture consolidée d'un département : son budget, ses dépenses, sa
@@ -41,6 +41,28 @@ export interface GeneralMeansCash {
   lines: GeneralMeansExpense[];
 }
 
+/** Le réglage mensuel de la caisse (posé par les RH) et sa prochaine échéance. */
+export interface GeneralMeansPlan {
+  monthlyAmount: number;
+  rechargeDay: number;
+  holderId: string | null;
+  holder: string;
+  isActive: boolean;
+  nextRechargeAt: string | null;
+}
+
+/** Une demande de rallonge, telle qu'elle se lit et se tranche. */
+export interface GeneralMeansTopUp {
+  id: string;
+  amountRequested: number;
+  amountGranted: number | null;
+  reason: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  requester: string;
+  createdAt: string;
+  decisionNote: string | null;
+}
+
 export interface GeneralMeansView {
   department: { id: string; name: string; path: string };
   year: number;
@@ -54,6 +76,10 @@ export interface GeneralMeansView {
   /** Est-il le DÉTENTEUR de la caisse courante ? (c'est lui qui confirme la réception) */
   isHolder: boolean;
   cash: GeneralMeansCash | null;
+  /** Réglage mensuel — `null` tant que les RH ne l'ont pas posé. */
+  plan: GeneralMeansPlan | null;
+  /** Demandes de rallonge sur la caisse en cours, la plus récente d'abord. */
+  topUps: GeneralMeansTopUp[];
   /** Caisses des mois précédents, la plus récente d'abord. */
   history: { id: string; period: string; amount: number; spent: number; status: PettyCashStatus }[];
   expenses: GeneralMeansExpense[];
@@ -126,7 +152,15 @@ export async function getGeneralMeans(
         orderBy: { date: "desc" },
         include: { createdBy: { select: { name: true } } },
       },
+      topUps: {
+        orderBy: { createdAt: "desc" },
+        include: { requestedBy: { select: { name: true } } },
+      },
     },
+  });
+  const planRow = await prisma.pettyCashPlan.findUnique({
+    where: { departmentId },
+    include: { holder: { select: { name: true } } },
   });
   const isHolder = cashHere?.holderId === user.id;
   // LE DROIT DE MODULE SUFFIT. Celui qui achète au quotidien (l'assistante de direction) a le
@@ -215,6 +249,17 @@ export async function getGeneralMeans(
       }
     : null;
 
+  const plan: GeneralMeansPlan | null = planRow
+    ? {
+        monthlyAmount: toNumber(planRow.monthlyAmount),
+        rechargeDay: planRow.rechargeDay,
+        holderId: planRow.holderId,
+        holder: planRow.holder?.name ?? "",
+        isActive: planRow.isActive,
+        nextRechargeAt: planRow.isActive ? nextRechargeDate(planRow.rechargeDay, new Date()).toISOString() : null,
+      }
+    : null;
+
   return {
     department: {
       id: department.id,
@@ -234,6 +279,17 @@ export async function getGeneralMeans(
     canAllot: hasGlobalView(user) || rights.canManageBudgets || rights.canManageHr,
     isHolder,
     cash,
+    plan,
+    topUps: (cashHere?.topUps ?? []).map((t) => ({
+      id: t.id,
+      amountRequested: toNumber(t.amountRequested),
+      amountGranted: t.amountGranted === null ? null : toNumber(t.amountGranted),
+      reason: t.reason,
+      status: t.status as "PENDING" | "APPROVED" | "REJECTED",
+      requester: t.requestedBy?.name ?? "",
+      createdAt: t.createdAt.toISOString(),
+      decisionNote: t.decisionNote,
+    })),
     history: history.map((h) => ({
       id: h.id,
       period: h.period,

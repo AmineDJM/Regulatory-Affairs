@@ -10,9 +10,12 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { getAppSettings } from "@/lib/settings";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { normalizeAmount, normalizeYear } from "@/lib/department-budget";
-import { pettyCashBalance, canSpendFromPettyCash, currentPeriod, periodLabel, type PettyCashStatus } from "@/lib/petty-cash";
+import {
+  pettyCashBalance, canSpendFromPettyCash, currentPeriod, periodLabel,
+  normalizeRechargeDay, nextRechargeDate, grantedTopUpAmount, type PettyCashStatus,
+} from "@/lib/petty-cash";
 import { toNumber } from "@/lib/utils";
-import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/moyens-generaux";
 
@@ -25,9 +28,15 @@ const PATH = "/moyens-generaux";
  * a réellement changé de mains, et donc de distinguer « décidé » de « détenu ».
  */
 
-/** Remettre (ou rallonger) la caisse : réservé à l'administration — c'est elle qui sort l'argent. */
+/**
+ * Remettre (ou rallonger) la caisse, et régler son montant mensuel : les RESSOURCES HUMAINES,
+ * qui pilotent le module des moyens généraux — plus l'administration et les finances, qui
+ * sortent l'argent. Jamais la détentrice : on ne se recharge pas soi-même.
+ */
 function canAllot(user: Parameters<typeof userCan>[0]): boolean {
-  return hasGlobalView(user) || userCan(user, "BUDGETS", "UPDATE") || userCan(user, "BUDGETS", "VALIDATE");
+  return hasGlobalView(user)
+    || userCan(user, "RH", "UPDATE")
+    || userCan(user, "BUDGETS", "UPDATE") || userCan(user, "BUDGETS", "VALIDATE");
 }
 
 /**
@@ -236,8 +245,9 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
 /**
  * DEMANDER UNE RALLONGE — par la détentrice, quand le fond s'épuise.
  *
- * Ce n'est pas une dotation budgétaire : c'est une demande d'ARGENT LIQUIDE. Elle part à
- * l'administration, qui remettra (ou non) la somme.
+ * Ce n'est pas une dotation budgétaire : c'est une demande d'ARGENT LIQUIDE, et elle doit
+ * pouvoir être ACCORDÉE, REFUSÉE, ou accordée à un AUTRE MONTANT. Une simple notification ne
+ * laissait rien à trancher et ne gardait aucune trace de ce qui avait été décidé.
  */
 export async function requestPettyCashTopUp(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -253,14 +263,20 @@ export async function requestPettyCashTopUp(formData: FormData): Promise<ActionR
   const amount = normalizeAmount(fdStr(formData, "amount"));
   if (typeof amount !== "number") return { ok: false, error: amount.error };
   if (amount <= 0) return { ok: false, error: "Indiquez le montant demandé." };
+
+  const already = await prisma.pettyCashTopUpRequest.count({ where: { allotmentId: cashId, status: "PENDING" } });
+  if (already > 0) return { ok: false, error: "Une demande de rallonge est déjà en attente sur cette caisse." };
+
   const reason = fdStr(formData, "reason");
+  await prisma.pettyCashTopUpRequest.create({
+    data: { allotmentId: cashId, amountRequested: amount, reason, requestedById: user.id },
+  });
 
   const spent = cash.expenses.reduce((a, e) => a + toNumber(e.amount), 0);
   const remaining = toNumber(cash.amount) - spent;
-
   await notifyRoles(["SUPER_ADMIN", "DIRECTION"], {
     type: "VALIDATION_REQUIRED",
-    title: "Rallonge de caisse d'avance demandée",
+    title: "Rallonge de caisse d'avance à trancher",
     body: `${cash.department.name} · ${periodLabel(cash.period)} : +${amount} DZD demandés (il reste ${Math.max(0, remaining)} DZD)${reason ? ` — ${reason}` : ""}`,
     link: PATH,
   });
@@ -270,4 +286,151 @@ export async function requestPettyCashTopUp(formData: FormData): Promise<ActionR
   });
   revalidatePath(PATH);
   return { ok: true };
+}
+
+/**
+ * TRANCHER LA RALLONGE — les ressources humaines, au montant QU'ELLES écrivent.
+ *
+ * Accorder exactement ce qui a été demandé serait le cas particulier, pas la règle : les RH
+ * ajustent. Le montant retenu est donc celui qu'elles saisissent, et il s'AJOUTE au fonds du
+ * mois — ouvrir une seconde caisse rendrait le solde indécidable.
+ */
+export async function decidePettyCashTopUp(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!canAllot(user)) return { ok: false, error: "Trancher une rallonge est réservé aux ressources humaines." };
+  const id = fdStr(formData, "id");
+  const decision = fdStr(formData, "decision");
+  if (!id || (decision !== "APPROVED" && decision !== "REJECTED")) return { ok: false, error: "Décision invalide." };
+
+  const req = await prisma.pettyCashTopUpRequest.findUnique({
+    where: { id },
+    include: { allotment: { include: { department: { select: { name: true } } } } },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.status !== "PENDING") return { ok: false, error: "Cette demande a déjà été tranchée." };
+
+  const written = fdNum(formData, "amountGranted");
+  const granted = decision === "APPROVED"
+    ? grantedTopUpAmount({ amountRequested: toNumber(req.amountRequested) }, written)
+    : 0;
+  if (granted < 0) return { ok: false, error: "Un montant ne peut pas être négatif." };
+  const note = fdStr(formData, "note");
+
+  await prisma.pettyCashTopUpRequest.update({
+    where: { id },
+    data: {
+      status: decision,
+      amountGranted: decision === "APPROVED" ? granted : null,
+      decidedById: user.id, decidedAt: new Date(), decisionNote: note,
+    },
+  });
+
+  if (decision === "APPROVED" && granted > 0) {
+    // La rallonge s'AJOUTE au fonds du mois : deux caisses simultanées rendraient le solde
+    // indécidable — laquelle vide-t-on ?
+    await prisma.pettyCashAllotment.update({
+      where: { id: req.allotmentId },
+      data: { amount: { increment: granted } },
+    });
+  }
+
+  if (req.requestedById) {
+    await notifyUser({
+      userId: req.requestedById, type: "GENERIC",
+      title: decision === "APPROVED" ? "Rallonge accordée" : "Rallonge refusée",
+      body: decision === "APPROVED"
+        ? `${granted} DZD ajoutés à la caisse de ${periodLabel(req.allotment.period)}${note ? ` — ${note}` : ""}`
+        : `Demande refusée${note ? ` — ${note}` : ""}`,
+      link: PATH,
+    });
+  }
+  await recordAudit({
+    actorId: user.id, action: decision === "APPROVED" ? "VALIDATE" : "REFUSE", module: "Budgets",
+    entityType: "BUDGET", entityId: req.allotment.departmentId,
+    summary: `Rallonge de caisse ${decision === "APPROVED" ? `accordée (${granted} DZD)` : "refusée"} — ${req.allotment.department.name} · ${periodLabel(req.allotment.period)}`,
+  });
+  revalidatePath(PATH);
+  return { ok: true };
+}
+
+/**
+ * RÉGLER LE MONTANT MENSUEL — par les ressources humaines.
+ *
+ * Sans ce réglage, la caisse dépendait d'un geste dont personne ne se souvenait à date fixe, et
+ * l'on ne pouvait prévenir de rien faute de savoir quand le rechargement était attendu. Le jour
+ * est borné à 28 : le 31 n'existe pas tous les mois, et une date fantôme ne déclencherait jamais
+ * le rappel.
+ */
+export async function setPettyCashPlan(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!canAllot(user)) return { ok: false, error: "Régler la caisse mensuelle est réservé aux ressources humaines." };
+  const departmentId = fdStr(formData, "departmentId");
+  if (!departmentId) return { ok: false, error: "Département non précisé." };
+  const department = await prisma.department.findUnique({ where: { id: departmentId }, select: { name: true } });
+  if (!department) return { ok: false, error: "Département introuvable." };
+
+  const monthlyAmount = normalizeAmount(fdStr(formData, "monthlyAmount"));
+  if (typeof monthlyAmount !== "number") return { ok: false, error: monthlyAmount.error };
+  const rechargeDay = normalizeRechargeDay(fdStr(formData, "rechargeDay"));
+  const holderId = fdStr(formData, "holderId");
+  const isActive = fdStr(formData, "isActive") !== "0";
+
+  const data = { monthlyAmount, rechargeDay, holderId, isActive, setById: user.id };
+  await prisma.pettyCashPlan.upsert({
+    where: { departmentId },
+    create: { departmentId, ...data },
+    update: data,
+  });
+
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Budgets", entityType: "BUDGET", entityId: departmentId,
+    summary: `Caisse mensuelle réglée — ${department.name} : ${monthlyAmount} DZD le ${rechargeDay} du mois`,
+  });
+  if (holderId) {
+    await notifyUser({
+      userId: holderId, type: "GENERIC", title: "Caisse d'avance — réglage mensuel",
+      body: `${monthlyAmount} DZD vous seront remis le ${rechargeDay} de chaque mois.`, link: PATH,
+    });
+  }
+  revalidatePath(PATH);
+  return { ok: true };
+}
+
+/**
+ * RAPPEL AUX RH, 48 H AVANT LE RECHARGEMENT — appelé par le planificateur.
+ *
+ * Prévenir le jour même ne sert à rien : sortir la somme demande une préparation. Le rappel
+ * n'est envoyé qu'UNE fois par échéance (`lastReminderPeriod`), sans quoi le battement du
+ * planificateur — qui repasse toutes les minutes — enverrait la même alerte des centaines de
+ * fois. La règle elle-même est une fonction pure, testée : voir `shouldRemindRecharge`.
+ */
+export async function runPettyCashRechargeReminders(now = new Date()): Promise<number> {
+  const { shouldRemindRecharge } = await import("@/lib/petty-cash");
+  const plans = await prisma.pettyCashPlan
+    .findMany({ where: { isActive: true }, include: { department: { select: { name: true } } } })
+    .catch(() => []);
+  let sent = 0;
+  for (const plan of plans) {
+    const r = shouldRemindRecharge(
+      { rechargeDay: plan.rechargeDay, isActive: plan.isActive, lastReminderPeriod: plan.lastReminderPeriod },
+      now,
+    );
+    if (!r.due) continue;
+    await notifyRoles(["SUPER_ADMIN", "DIRECTION"], {
+      type: "GENERIC",
+      title: "Caisse d'avance — rechargement dans 48 h",
+      body: `${plan.department.name} : ${toNumber(plan.monthlyAmount)} DZD à remettre le ${r.at.toLocaleDateString("fr-FR")}.`,
+      link: PATH,
+    });
+    await prisma.pettyCashPlan.update({ where: { id: plan.id }, data: { lastReminderPeriod: r.period } });
+    sent += 1;
+  }
+  return sent;
+}
+
+/** La prochaine échéance de rechargement d'un département — pour l'afficher à l'écran. */
+export async function nextRechargeFor(departmentId: string, now = new Date()): Promise<Date | null> {
+  const plan = await prisma.pettyCashPlan.findUnique({ where: { departmentId }, select: { rechargeDay: true, isActive: true } });
+  if (!plan || !plan.isActive) return null;
+  return nextRechargeDate(plan.rechargeDay, now);
 }

@@ -611,6 +611,7 @@ model Department {
   budgetRequests DepartmentBudgetRequest[]
   budgetExpenses DepartmentBudgetExpense[]
   pettyCash      PettyCashAllotment[]
+  pettyCashPlan  PettyCashPlan?
   trainings      Training[]
 
   @@unique([companyId, name])
@@ -842,6 +843,10 @@ model User {
   trainingRequests       Training[]                @relation("TrainingRequester")
   trainingParticipations TrainingParticipant[]     @relation("TrainingParticipant")
   pettyCashHeld          PettyCashAllotment[]      @relation("PettyCashHolder")
+  pettyCashPlansHeld     PettyCashPlan[]           @relation("PettyCashPlanHolder")
+  pettyCashPlansSet      PettyCashPlan[]           @relation("PettyCashPlanSetter")
+  pettyCashTopUps        PettyCashTopUpRequest[]   @relation("PettyCashTopUpRequester")
+  pettyCashTopUpsDecided PettyCashTopUpRequest[]   @relation("PettyCashTopUpDecider")
   pettyCashCreated       PettyCashAllotment[]      @relation("PettyCashCreator")
   assistantThreads       AssistantThread[]         @relation("AssistantThreads")
   assistantMemory        AssistantMemory?          @relation("AssistantMemory")
@@ -1698,6 +1703,64 @@ enum PettyCashStatus {
   CLOSED /// caisse soldée (épuisée ou clôturée)
 }
 
+/// LE RÉGLAGE MENSUEL de la caisse d'avance : combien, à qui, et quel jour du mois.
+///
+/// Sans ce réglage, la caisse dépendait d'un geste dont personne ne se souvenait à date fixe —
+/// et l'on ne pouvait prévenir de rien, faute de savoir quand le rechargement était attendu.
+/// C'est aussi ce qui rend possible le rappel aux ressources humaines **48 h avant**.
+model PettyCashPlan {
+  id                 String     @id @default(cuid())
+  departmentId       String     @unique
+  department         Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  /// Somme remise chaque mois (réglée par les ressources humaines).
+  monthlyAmount      Decimal    @default(0) @db.Decimal(14, 2)
+  /// Jour du mois où la caisse est rechargée (1–28 : au-delà, février ferait exception).
+  rechargeDay        Int        @default(1)
+  /// La personne à qui la somme est remise (l'assistante de direction, en pratique).
+  holderId           String?
+  holder             User?      @relation("PettyCashPlanHolder", fields: [holderId], references: [id], onDelete: SetNull)
+  isActive           Boolean    @default(true)
+  /// Dernière période (« AAAA-MM ») pour laquelle le rappel des 48 h est parti — sans cette
+  /// trace, le battement du planificateur enverrait la même alerte à chaque passage.
+  lastReminderPeriod String?
+  setById            String?
+  setBy              User?      @relation("PettyCashPlanSetter", fields: [setById], references: [id], onDelete: SetNull)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+}
+
+/// DEMANDE DE RALLONGE sur une caisse épuisée — tranchée par les ressources humaines.
+///
+/// La rallonge n'était qu'une notification : rien à accorder, rien à refuser, aucune trace de
+/// ce qui avait été décidé. Les RH accordent désormais **le montant qu'elles écrivent** — qui
+/// est rarement celui demandé — refusent, et la décision reste lisible.
+enum PettyCashTopUpStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model PettyCashTopUpRequest {
+  id              String               @id @default(cuid())
+  allotmentId     String
+  allotment       PettyCashAllotment   @relation(fields: [allotmentId], references: [id], onDelete: Cascade)
+  amountRequested Decimal              @default(0) @db.Decimal(14, 2)
+  reason          String?
+  status          PettyCashTopUpStatus @default(PENDING)
+  /// Montant réellement accordé — écrit par les RH, souvent différent du demandé.
+  amountGranted   Decimal?             @db.Decimal(14, 2)
+  requestedById   String?
+  requestedBy     User?                @relation("PettyCashTopUpRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  decidedById     String?
+  decidedBy       User?                @relation("PettyCashTopUpDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt       DateTime?
+  decisionNote    String?
+  createdAt       DateTime             @default(now())
+
+  @@index([allotmentId])
+  @@index([status])
+}
+
 model PettyCashAllotment {
   id           String          @id @default(cuid())
   departmentId String
@@ -1718,6 +1781,7 @@ model PettyCashAllotment {
   updatedAt    DateTime        @updatedAt
 
   expenses DepartmentBudgetExpense[]
+  topUps   PettyCashTopUpRequest[]
 
   @@index([departmentId, period])
   @@index([holderId, status])
