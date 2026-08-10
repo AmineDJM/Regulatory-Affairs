@@ -610,6 +610,7 @@ model Department {
   budgetAccess   DepartmentBudgetAccess?
   budgetRequests DepartmentBudgetRequest[]
   budgetExpenses DepartmentBudgetExpense[]
+  pettyCash      PettyCashAllotment[]
 
   @@unique([companyId, name])
   @@index([parentId])
@@ -837,6 +838,8 @@ model User {
   deptBudgetRequests     DepartmentBudgetRequest[] @relation("DeptBudgetRequester")
   deptBudgetDecisions    DepartmentBudgetRequest[] @relation("DeptBudgetDecider")
   deptBudgetExpenses     DepartmentBudgetExpense[] @relation("DeptExpenseCreator")
+  pettyCashHeld          PettyCashAllotment[]      @relation("PettyCashHolder")
+  pettyCashCreated       PettyCashAllotment[]      @relation("PettyCashCreator")
   assistantThreads       AssistantThread[]         @relation("AssistantThreads")
   assistantMemory        AssistantMemory?          @relation("AssistantMemory")
   dailyBriefs            DailyBrief[]              @relation("DailyBriefs")
@@ -1568,6 +1571,47 @@ model DepartmentBudgetRequest {
   @@index([status])
 }
 
+/// CAISSE D'AVANCE — la trésorerie temporaire confiée à une personne.
+///
+/// Chaque mois, l'entreprise remet une somme à celle qui achète au quotidien (l'assistante de
+/// direction). Elle marque « reçu » — sans cette confirmation, on ne sait pas si l'argent a
+/// réellement changé de mains — puis chaque dépense en est DÉDUITE, justificatif à l'appui,
+/// jusqu'à épuisement. Quand il ne reste plus rien, elle demande une rallonge.
+///
+/// Ce n'est pas un budget : c'est de l'argent physiquement détenu. Le budget dit ce qu'on a le
+/// droit de dépenser, la caisse dit ce qu'on a en main — confondre les deux, c'est ne plus
+/// savoir combien il reste dans le tiroir.
+enum PettyCashStatus {
+  ALLOTTED /// remise décidée, pas encore confirmée par le détenteur
+  RECEIVED /// argent reçu — la caisse est ouverte, les dépenses s'y imputent
+  CLOSED /// caisse soldée (épuisée ou clôturée)
+}
+
+model PettyCashAllotment {
+  id           String          @id @default(cuid())
+  departmentId String
+  department   Department      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  /// Mois concerné, « AAAA-MM ». Une caisse par mois et par détenteur : mélanger deux mois,
+  /// c'est perdre la capacité de dire « il restait combien fin juillet ».
+  period       String
+  amount       Decimal         @default(0) @db.Decimal(14, 2)
+  status       PettyCashStatus @default(ALLOTTED)
+  /// Qui DÉTIENT la caisse (et confirme la réception).
+  holderId     String?
+  holder       User?           @relation("PettyCashHolder", fields: [holderId], references: [id], onDelete: SetNull)
+  receivedAt   DateTime?
+  note         String?
+  createdById  String?
+  createdBy    User?           @relation("PettyCashCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  expenses DepartmentBudgetExpense[]
+
+  @@index([departmentId, period])
+  @@index([holderId, status])
+}
+
 /// DÉPENSE IMPUTÉE à un budget départemental — avec sa pièce justificative (Document lié par
 /// `entityType = DEPARTMENT_EXPENSE`).
 ///
@@ -1585,6 +1629,10 @@ model DepartmentBudgetExpense {
   amount         Decimal                @default(0) @db.Decimal(14, 2)
   date           DateTime               @default(now())
   notes          String?
+  /// Caisse d'avance sur laquelle cette dépense a été PAYÉE (argent physiquement sorti du
+  /// tiroir). Nulle quand la dépense est réglée par virement ou par les Finances.
+  pettyCashId    String?
+  pettyCash      PettyCashAllotment?    @relation(fields: [pettyCashId], references: [id], onDelete: SetNull)
   /// Demande administrative dont cette dépense est issue (traçabilité de bout en bout).
   adminRequestId String?
   adminRequest   AdministrativeRequest? @relation(fields: [adminRequestId], references: [id], onDelete: SetNull)
@@ -1594,6 +1642,7 @@ model DepartmentBudgetExpense {
 
   @@index([departmentId, year, kind])
   @@index([adminRequestId])
+  @@index([pettyCashId])
   @@index([date])
 }
 
