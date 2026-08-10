@@ -20,7 +20,7 @@
  *      liste blanche ne se trompe pas quand un champ nouveau apparaît dans le modèle.
  */
 
-export type AdProKind = "SPONSORING" | "CONGRESS_NATIONAL" | "CONGRESS_INTERNATIONAL";
+export type AdProKind = "SPONSORING" | "CONGRESS_NATIONAL" | "CONGRESS_INTERNATIONAL" | "PROMO_MATERIAL" | "EVENT";
 
 /** Ce qu'on sait de la personne qui veut modifier. */
 export interface AdProEditor {
@@ -61,6 +61,11 @@ const DECIDED_STATUS: Record<AdProKind, readonly string[]> = {
   SPONSORING: ["APPROVED", "REFUSED", "ACCEPTED", "PAID", "CLOSED"],
   CONGRESS_NATIONAL: ["APPROVED", "REFUSED", "COMPLETED"],
   CONGRESS_INTERNATIONAL: ["APPROVED", "REFUSED", "COMPLETED"],
+  // Matériel promotionnel : « décidé » = l'agence est choisie. Au-delà, le bon de commande, le
+  // visa publicitaire et la conformité s'appuient sur ce qui a été arrêté — corriger le titre ou
+  // le montant après coup ferait diverger la pièce et le dossier.
+  PROMO_MATERIAL: ["AGENCY_CHOSEN", "BC_FINANCE_REVIEW", "BC_VALIDATED", "BC_SENT", "PAYMENT_INITIATED", "PAYMENT_DONE", "MATERIAL_PRODUCED", "CONFORMITY_REVIEW", "COMPLETED", "CANCELLED"],
+  EVENT: ["APPROVED", "REFUSED", "COMPLETED"],
 };
 
 export function isAdProDecided(kind: AdProKind, status: string): boolean {
@@ -113,6 +118,23 @@ export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
     { key: "estimatedBudget", label: "Budget estimé", type: "number" },
     { key: "invitedDoctors", label: "Médecins invités", type: "textarea" },
     { key: "participants", label: "Participants Adventum", type: "textarea" },
+  ],
+  PROMO_MATERIAL: [
+    { key: "title", label: "Intitulé du matériel", type: "text" },
+    { key: "description", label: "Description / besoin", type: "textarea" },
+    { key: "amount", label: "Budget global", type: "number" },
+  ],
+  EVENT: [
+    { key: "name", label: "Nom de l'événement", type: "text" },
+    { key: "location", label: "Lieu", type: "text" },
+    { key: "city", label: "Ville", type: "text" },
+    { key: "country", label: "Pays", type: "text" },
+    { key: "startDate", label: "Date de début", type: "date" },
+    { key: "endDate", label: "Date de fin", type: "date" },
+    { key: "specialty", label: "Spécialité", type: "text" },
+    { key: "products", label: "Produits promus", type: "text" },
+    { key: "estimatedBudget", label: "Budget estimé", type: "number" },
+    { key: "description", label: "Description", type: "textarea" },
   ],
 };
 

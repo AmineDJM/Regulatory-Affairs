@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { currentCompanyWhere, platformScope } from "@/lib/company";
+import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { canDecideLeave, type LeaveStage } from "@/lib/leave-workflow";
 import { toNumber } from "@/lib/utils";
 
 /** Personalised workspace data for the signed-in user ("Mon espace"). */
@@ -91,7 +93,29 @@ export async function getRhData(userId: string) {
   ]);
 
   const active = employees.filter((e) => e.isActive);
-  const masseSalariale = active.reduce((a, e) => a + toNumber(e.baseSalary), 0);
+  // MASSE SALARIALE — la PAIE fait foi dès qu'elle existe. La somme des salaires de BASE ignore
+  // primes, retenues et arrivées/départs du mois : elle affichait un chiffre théorique à côté
+  // d'un module Paie qui, lui, connaissait le vrai. On lit donc le mois de paie le plus récent
+  // effectivement saisi (brut + primes − retenues) ; à défaut seulement, on retombe sur les
+  // salaires de base, en le disant à l'écran.
+  const payrollAgg = await prisma.payrollEntry
+    .groupBy({
+      by: ["year", "month"],
+      _sum: { gross: true, bonuses: true, deductions: true },
+      orderBy: [{ year: "desc" }, { month: "desc" }],
+      take: 1,
+    })
+    .catch(() => [] as { year: number; month: number; _sum: { gross: unknown; bonuses: unknown; deductions: unknown } }[]);
+  const lastPayroll = payrollAgg[0] ?? null;
+  const payrollMass = lastPayroll
+    ? toNumber(lastPayroll._sum.gross ?? 0) + toNumber(lastPayroll._sum.bonuses ?? 0) - toNumber(lastPayroll._sum.deductions ?? 0)
+    : 0;
+  const baseMass = active.reduce((a, e) => a + toNumber(e.baseSalary), 0);
+  const masseSalariale = payrollMass > 0 ? payrollMass : baseMass;
+  /** D'où vient le chiffre affiché : « la paie de MM/AAAA » ou « les salaires de base ». */
+  const masseSalarialeSource = payrollMass > 0 && lastPayroll
+    ? `paie ${String(lastPayroll.month).padStart(2, "0")}/${lastPayroll.year}`
+    : "salaires de base";
   const contractsExpiring = employees.filter(
     (e) => e.contractEnd && e.contractEnd >= now && e.contractEnd <= in60,
   );
@@ -117,6 +141,128 @@ export async function getRhData(userId: string) {
       expiring: contractsExpiring.length,
       advances: advances.filter((a) => a.status === "PENDING").length,
       masseSalariale,
+      masseSalarialeSource,
     },
   };
+}
+
+/** Une de MES demandes de congé, avec l'avancement réel de son circuit. */
+export interface MyLeaveDTO {
+  id: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  status: string;
+  stage: LeaveStage;
+  passed: { label: string; note: string | null }[];
+}
+
+/**
+ * MES CONGÉS — la source unique de « Mon espace » **et** de « Mon dossier RH ».
+ *
+ * Les deux écrans lisaient (ou n'affichaient pas) des choses différentes ; ils lisent
+ * désormais ceci, et affichent donc la même chose — y compris l'étape en cours, qui est la
+ * seule information que le salarié cherche vraiment quand il revient voir sa demande.
+ */
+export async function getMyLeaveRequests(userId: string): Promise<MyLeaveDTO[]> {
+  const rows = await prisma.leaveRequest.findMany({
+    where: { employee: { userId } },
+    orderBy: { startDate: "desc" },
+    take: 20,
+  });
+  return rows.map((l) => ({
+    id: l.id,
+    type: l.type,
+    startDate: l.startDate.toISOString(),
+    endDate: l.endDate.toISOString(),
+    days: Number(l.days),
+    status: l.status,
+    stage: l.stage as LeaveStage,
+    passed: [
+      l.managerDecidedAt ? { label: "Responsable (N+1)", note: l.managerNote } : null,
+      l.hrDecidedAt ? { label: "Ressources humaines", note: l.hrNote } : null,
+      l.dgDecidedAt ? { label: "Direction générale", note: l.dgNote } : null,
+    ].filter((v): v is { label: string; note: string | null } => v !== null),
+  }));
+}
+
+/** Une demande de congé telle que la voit celui qui doit la trancher. */
+export interface LeaveToDecide {
+  id: string;
+  employeeId: string;
+  employee: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  reason: string | null;
+  stage: LeaveStage;
+  /** Note laissée par la marche précédente — le contexte que le suivant n'a pas. */
+  previousNote: string | null;
+  previousStageLabel: string | null;
+}
+
+/**
+ * LES CONGÉS QUE **CETTE PERSONNE** DOIT TRANCHER MAINTENANT.
+ *
+ * Le circuit a trois marches (N+1 → RH → DG) et donc trois publics : un responsable d'équipe
+ * n'a pas le module RH, et les RH n'ont pas à voir ce qui attend encore le responsable. On
+ * résout donc la file par PERSONNE, pas par module — sinon la moitié des validateurs n'aurait
+ * nulle part où signer.
+ *
+ * Une seule requête pour les demandes, une seule pour résoudre les responsables : la liste
+ * s'affiche sur « Mon espace » de tout le monde, elle ne peut pas coûter N requêtes.
+ */
+export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecide[]> {
+  const pending = await prisma.leaveRequest.findMany({
+    where: { status: "PENDING", stage: { not: "DONE" } },
+    include: { employee: { select: { id: true, fullName: true, userId: true } } },
+    orderBy: { startDate: "asc" },
+    take: 200,
+  });
+  if (pending.length === 0) return [];
+
+  // Responsables enregistrés → comptes applicatifs, en UNE requête.
+  const managerIds = [...new Set(pending.map((l) => l.managerId).filter((v): v is string => !!v))];
+  const managers = managerIds.length
+    ? await prisma.employee.findMany({ where: { id: { in: managerIds } }, select: { id: true, userId: true } })
+    : [];
+  const managerUserById = new Map(managers.map((m) => [m.id, m.userId]));
+
+  const isHr = userCan(user, "RH", "VALIDATE");
+  const isDg = hasGlobalView(user);
+
+  const out: LeaveToDecide[] = [];
+  for (const l of pending) {
+    const isManager = l.managerId ? managerUserById.get(l.managerId) === user.id : false;
+    const allowed = canDecideLeave(
+      { status: l.status, stage: l.stage as LeaveStage, requesterUserId: l.employee.userId },
+      { id: user.id, isManager, isHr, isDg },
+    );
+    if (!allowed.ok) continue;
+
+    // Ce que la marche précédente a écrit — le refus d'un N+1 ne remonte pas, mais son
+    // accord, lui, porte souvent une réserve utile aux RH.
+    const previous = l.stage === "HR"
+      ? { note: l.managerNote, label: "Responsable (N+1)" }
+      : l.stage === "DG"
+        ? { note: l.hrNote ?? l.managerNote, label: l.hrNote ? "Ressources humaines" : "Responsable (N+1)" }
+        : { note: null as string | null, label: null as string | null };
+
+    out.push({
+      id: l.id,
+      employeeId: l.employee.id,
+      employee: l.employee.fullName,
+      type: l.type,
+      startDate: l.startDate.toISOString(),
+      endDate: l.endDate.toISOString(),
+      days: Number(l.days),
+      reason: l.reason,
+      stage: l.stage as LeaveStage,
+      previousNote: previous.note,
+      previousStageLabel: previous.note ? previous.label : null,
+    });
+  }
+  return out;
 }

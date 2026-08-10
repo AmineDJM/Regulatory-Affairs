@@ -70,6 +70,8 @@ export interface EventDetail {
   responsibleName: string | null;
   // Circuit de prise en charge (financement) — requestStatus null si non soumis.
   requestStatus: string | null;
+  /** Qui a demandé la prise en charge : c'est LUI qui peut corriger sa demande. */
+  requesterId: string | null;
   requesterName: string | null;
   productManagerId: string | null;
   productManagerName: string | null;
@@ -162,7 +164,7 @@ export async function getEventDetail(id: string): Promise<EventDetail | null> {
     location: e.location, city: e.city, country: e.country, specialty: e.specialty, products: e.products,
     description: e.description, capacity: e.capacity, estimatedBudget: e.estimatedBudget ? toNumber(e.estimatedBudget) : null,
     meetingLink: e.meetingLink, responsibleId: e.responsibleId, responsibleName: e.responsible?.name ?? null,
-    requestStatus: e.requestStatus, requesterName: nameOf(e.requesterId),
+    requestStatus: e.requestStatus, requesterId: e.requesterId, requesterName: nameOf(e.requesterId),
     productManagerId: e.productManagerId, productManagerName: nameOf(e.productManagerId),
     productManagerBudget: e.productManagerBudget ? toNumber(e.productManagerBudget) : null,
     productManagerNotes: e.productManagerNotes,

@@ -18,6 +18,10 @@ import { archiveProcessedRequest } from "@/lib/archive";
 import { getBlob } from "@/lib/drive-storage";
 import { HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
 import { HR_APPROVAL_TYPES, hrNature } from "@/lib/hr-request-flow";
+import {
+  createLeaveRequest, attachLeaveFiles, revalidateLeaveViews, leaveDaysBetween,
+  hrTypeIsLeave, HR_TYPE_TO_LEAVE,
+} from "@/lib/hr/leave-core";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
@@ -110,14 +114,54 @@ async function archiveHrRequestIfDone(id: string, actorId: string): Promise<void
   }
 }
 
+/**
+ * Le formulaire « Nouvelle demande RH » parle en périodes (`periodStart`/`periodEnd`) ; le
+ * circuit de congé parle en dates de début/fin. Cette fonction traduit, valide, crée la
+ * demande unique et y verse les justificatifs.
+ */
+async function createLeaveFromHrForm(
+  actorId: string,
+  employee: { id: string; fullName: string; userId: string | null },
+  type: HrRequestType,
+  formData: FormData,
+): Promise<ActionResult> {
+  const start = fdDate(formData, "periodStart");
+  if (!start) return { ok: false, error: "Indiquez la date de début du congé / de l'absence." };
+  // La sortie exceptionnelle tient sur une journée : sa date de fin, c'est sa date de début.
+  const end = fdDate(formData, "periodEnd") ?? (type === "EXCEPTIONAL_EXIT" ? start : null);
+  if (!end) return { ok: false, error: "Indiquez la date de fin du congé." };
+  if (end < start) return { ok: false, error: "La date de fin précède la date de début." };
+
+  const days = fdNum(formData, "periodDays") ?? leaveDaysBetween(start, end);
+  const created = await createLeaveRequest(actorId, employee, {
+    type: HR_TYPE_TO_LEAVE[type] ?? "OTHER",
+    startDate: start, endDate: end, days,
+    reason: fdStr(formData, "details"),
+  });
+
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length) {
+    const err = await attachLeaveFiles(created.id, files, actorId);
+    if (err) return { ok: false, error: err };
+  }
+  revalidateLeaveViews(employee.id);
+  return { ok: true, id: created.id };
+}
+
 /** Demande d'attestation par l'employé (acte côté « Mon dossier RH »). */
 export async function requestHrDocument(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  const employee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true, fullName: true } });
+  const employee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true, fullName: true, userId: true } });
   if (!employee) return { ok: false, error: "Aucun dossier RH n'est lié à votre compte. Contactez les RH." };
 
   const typeRaw = fdStr(formData, "type");
   const type = (typeRaw && REQUEST_TYPES.includes(typeRaw as HrRequestType) ? typeRaw : "WORK_CERTIFICATE") as HrRequestType;
+
+  // UN CONGÉ N'EST PAS UN DOCUMENT À PRÉPARER : c'est une décision qui monte N+1 → RH → DG.
+  // Quelle que soit la porte d'entrée (ce formulaire, « Mon espace », ou l'assistant IA), il
+  // n'existe qu'UNE demande de congé. Sans ce renvoi, un congé déposé ici échappait à la file
+  // de validation, aux « Absents aujourd'hui » et au solde.
+  if (hrTypeIsLeave(type)) return createLeaveFromHrForm(user.id, employee, type, formData);
 
   // Note de frais : le mois concerné est obligatoire (« YYYY-MM »).
   const expenseMonth = fdStr(formData, "expenseMonth");

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Video } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter } from "@/lib/rbac";
-import { canDesignateProductManagerAtCreation, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { canDesignateProductManagerAtCreation, canChooseAnalysisAtCreation, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { prisma } from "@/lib/prisma";
 import { getEventDetail } from "@/lib/queries/events";
 import { PageHeader } from "@/components/shared/page-header";
@@ -22,6 +22,9 @@ import { MissionAssignmentsCard } from "@/components/missions/mission-assignment
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
 import { BackLink } from "@/components/shared/back-link";
+import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
+import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
+import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
 import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
@@ -42,12 +45,22 @@ export default async function EventDetailPage({ params }: { params: { id: string
   // National Sales soumettant lui-même : il désigne le chef de produit (l'analyse lui
   // est confiée) au lieu d'approuver préliminairement sa propre demande.
   const canDesignatePM = canDesignateProductManagerAtCreation(user);
+  // La Direction choisit son circuit : décision directe, ou avis d'un chef de produit d'abord.
+  const canChooseAnalysis = canChooseAnalysisAtCreation(user);
   const [items, promoOptions, budgetOptions] = await Promise.all([
     loadAdProItems("EVENT", e.id),
     promoMaterialOptions(),
     adProBudgetOptions(user),
   ]);
   const canAllocateItems = hasGlobalView(user) || userCan(user, "EVENTS", "VALIDATE");
+
+  // CORRIGER LA DEMANDE : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
+  const eventDecided = e.requestStatus ? isAdProDecided("EVENT", e.requestStatus) : false;
+  const canEditEventRequest = canEditAdProRequest(
+    { id: user.id, hasGlobalView: hasGlobalView(user), canUpdate: userCan(user, "EVENTS", "UPDATE") },
+    { requesterId: e.requesterId ?? null, decided: eventDecided },
+  );
+  const eventEditValues = canEditEventRequest ? await adProEditValues("EVENT", e.id) : null;
   const [responsibles, missions, workflow, pmCandidates] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
@@ -63,6 +76,11 @@ export default async function EventDetailPage({ params }: { params: { id: string
       <PageHeader title={e.name} description={`${EVENT_TYPE[e.type]} · ${EVENT_SCOPE[e.scope]} · ${EVENT_FORMAT[e.format]}`}>
         <StatusBadge map={EVENT_STATUS} value={e.status} />
         {canManage && <EditEventButton event={e} responsibles={responsibles} canDelete={canDelete} />}
+        {/* Le DEMANDEUR corrige sa demande tant qu'elle n'est pas tranchée (les gestionnaires
+            ont déjà l'édition complète juste au-dessus — inutile de doubler leur bouton). */}
+        {!canManage && canEditEventRequest && eventEditValues && (
+          <AdProEditButton kind="EVENT" id={e.id} decided={eventDecided} values={eventEditValues} />
+        )}
         <SuperAdminDeleteButton kind="EVENT" id={e.id} name={e.name} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
 
@@ -129,6 +147,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
             canSubmit={canSubmit}
             workflow={workflow}
             pmCandidates={canDesignatePM ? pmCandidates : []}
+            canChooseAnalysis={canChooseAnalysis}
           />
           {(canManage || canMarketing || canValidate) && (
             <div className="mt-4 border-t border-border pt-3">

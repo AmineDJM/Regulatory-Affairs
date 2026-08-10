@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { ContractType, LeaveType, LeaveStatus } from "@prisma/client";
+import type { ContractType, LeaveType, LeaveStatus, UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -9,6 +9,13 @@ import { recordAudit, recordFieldChanges } from "@/lib/audit";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { askClaude, aiConfigured } from "@/lib/ai";
 import { ocrDocument, canOcr } from "@/lib/regulatory/intelligence/ocr/ocr-engine";
+import { notifyUser, notifyRoles } from "@/lib/notify";
+import {
+  createLeaveRequest, attachLeaveFiles, leaveDecider, revalidateLeaveViews,
+} from "@/lib/hr/leave-core";
+import {
+  canDecideLeave, applyLeaveDecision, stageNotifyRoles, LEAVE_STAGE_LABELS, type LeaveStage,
+} from "@/lib/leave-workflow";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
 /** Inclusive calendar-day count between two dates (min 1). */
@@ -290,30 +297,30 @@ export async function requestLeave(
 
   const days = fdNum(formData, "days") ?? daysBetween(startDate, endDate);
 
-  const created = await prisma.leaveRequest.create({
-    data: {
-      employeeId: employee.id,
-      type: (fdStr(formData, "type") as LeaveType) ?? "ANNUAL",
-      startDate, endDate, days,
-      reason: fdStr(formData, "reason"),
-      createdById: user.id,
-    },
+  const created = await createLeaveRequest(user.id, employee, {
+    type: (fdStr(formData, "type") as LeaveType) ?? "ANNUAL",
+    startDate, endDate, days,
+    reason: fdStr(formData, "reason"),
   });
 
-  await recordAudit({
-    actorId: user.id, action: "CREATE", module: "Ressources humaines",
-    entityType: "LEAVE_REQUEST", entityId: created.id,
-    summary: `Demande de congé — ${employee.fullName} (${days} j)`,
-  });
-  revalidatePath("/mon-espace");
-  revalidatePath("/rh");
+  // Justificatifs (certificat médical, formulaire signé…) : la demande les porte.
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length) {
+    const err = await attachLeaveFiles(created.id, files, user.id);
+    if (err) return { ok: false, error: err };
+  }
+
+  revalidateLeaveViews(employee.id);
   return { ok: true, id: created.id };
 }
 
-/** Approve or reject a pending leave request. Approving annual leave debits the balance. */
+/**
+ * DÉCISION SUR UN CONGÉ — une marche du circuit N+1 → RH → DG (cf. `leave-workflow.ts`).
+ * Approuver fait monter d'un cran ; seule la dernière marche accorde réellement le congé
+ * (et débite le solde). Refuser arrête tout.
+ */
 export async function decideLeave(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "VALIDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   const decision = fdStr(formData, "decision"); // APPROVED | REJECTED
   if (!id || (decision !== "APPROVED" && decision !== "REJECTED")) {
@@ -321,41 +328,82 @@ export async function decideLeave(formData: FormData): Promise<ActionResult> {
   }
   const leave = await prisma.leaveRequest.findUnique({ where: { id }, include: { employee: true } });
   if (!leave) return { ok: false, error: "Demande introuvable." };
-  if (leave.status !== "PENDING") return { ok: false, error: "Cette demande a déjà été traitée." };
+
+  const decider = await leaveDecider(user, leave);
+  const allowed = canDecideLeave(
+    { status: leave.status, stage: leave.stage, requesterUserId: leave.employee.userId },
+    decider,
+  );
+  if (!allowed.ok) return { ok: false, error: allowed.reason ?? "Non autorisé." };
+
+  const note = fdStr(formData, "note");
+  const next = applyLeaveDecision(leave.stage as LeaveStage, decision);
+  const now = new Date();
+
+  // Trace par marche : qui a signé quoi, quand. Sans cela, un congé accordé ne dit plus
+  // par qui il est passé — et c'est exactement ce qu'on demande six mois plus tard.
+  const stampByStage: Record<string, Record<string, unknown>> = {
+    MANAGER: { managerDecidedById: user.id, managerDecidedAt: now, managerNote: note },
+    HR: { hrDecidedById: user.id, hrDecidedAt: now, hrNote: note },
+    DG: { dgDecidedById: user.id, dgDecidedAt: now, dgNote: note },
+  };
 
   await prisma.leaveRequest.update({
     where: { id },
-    data: { status: decision, decidedById: user.id, decidedAt: new Date(), decisionNote: fdStr(formData, "note") },
+    data: {
+      status: next.status,
+      stage: next.stage,
+      ...(stampByStage[leave.stage] ?? {}),
+      // `decidedBy/At/Note` = la DERNIÈRE main posée sur la demande (compat historique + listes).
+      decidedById: user.id, decidedAt: now, decisionNote: note,
+    },
   });
 
-  // Annual leave reduces the remaining balance when granted.
-  if (decision === "APPROVED" && leave.type === "ANNUAL") {
+  // Le solde ne bouge qu'au bout du circuit — et une seule fois (une seule transition
+  // porte `granted`).
+  if (next.granted && leave.type === "ANNUAL") {
     await prisma.employee.update({
       where: { id: leave.employeeId },
       data: { leaveBalanceDays: { decrement: Number(leave.days) } },
     });
   }
 
-  // Notify the requester, if they have an account.
-  if (leave.employee.userId) {
-    await prisma.notification.create({
-      data: {
-        userId: leave.employee.userId,
-        type: "GENERIC",
-        title: decision === "APPROVED" ? "Congé approuvé" : "Congé refusé",
-        body: `Votre demande du ${leave.startDate.toLocaleDateString("fr-FR")} a été ${decision === "APPROVED" ? "approuvée" : "refusée"}.`,
-        link: "/mon-espace",
-      },
-    }).catch(() => undefined);
+  const period = `${leave.startDate.toLocaleDateString("fr-FR")} → ${leave.endDate.toLocaleDateString("fr-FR")}`;
+  if (next.status === "PENDING") {
+    // Marche franchie : on prévient la suivante, et le demandeur suit l'avancement.
+    const roles = stageNotifyRoles(next.stage) as UserRole[];
+    if (roles.length) {
+      await notifyRoles(roles, {
+        type: "GENERIC", title: "Congé à valider",
+        body: `${leave.employee.fullName} — ${period} (${Number(leave.days)} j). ${LEAVE_STAGE_LABELS[next.stage]}.`,
+        link: "/rh",
+      });
+    }
+    if (leave.employee.userId) {
+      await notifyUser({
+        userId: leave.employee.userId, type: "GENERIC", title: "Congé : une étape de plus",
+        body: `Votre demande ${period} avance — ${LEAVE_STAGE_LABELS[next.stage]}.`, link: "/mon-espace",
+      });
+    }
+  } else if (leave.employee.userId) {
+    await notifyUser({
+      userId: leave.employee.userId, type: "GENERIC",
+      title: next.status === "APPROVED" ? "Congé approuvé" : "Congé refusé",
+      body: `Votre demande ${period} a été ${next.status === "APPROVED" ? "approuvée" : "refusée"}.${note ? ` ${note}` : ""}`,
+      link: "/mon-espace",
+    });
   }
 
   await recordAudit({
     actorId: user.id, action: decision === "APPROVED" ? "VALIDATE" : "REFUSE", module: "Ressources humaines",
     entityType: "LEAVE_REQUEST", entityId: id,
-    summary: `Congé ${decision === "APPROVED" ? "approuvé" : "refusé"} — ${leave.employee.fullName}`,
+    summary: decision === "REJECTED"
+      ? `Congé refusé (${LEAVE_STAGE_LABELS[leave.stage as LeaveStage]}) — ${leave.employee.fullName}`
+      : next.granted
+        ? `Congé accordé — ${leave.employee.fullName}`
+        : `Congé validé (${LEAVE_STAGE_LABELS[leave.stage as LeaveStage]}) → ${LEAVE_STAGE_LABELS[next.stage]} — ${leave.employee.fullName}`,
   });
-  revalidatePath("/rh");
-  revalidatePath("/mon-espace");
+  revalidateLeaveViews(leave.employeeId);
   return { ok: true };
 }
 
@@ -384,7 +432,9 @@ export async function cancelLeave(formData: FormData): Promise<ActionResult> {
 
   await prisma.leaveRequest.update({
     where: { id },
-    data: { status: "CANCELLED", decidedById: user.id, decidedAt: new Date() },
+    // Le circuit s'arrête là : une demande retirée ne doit plus apparaître dans la file
+    // d'aucune des trois marches.
+    data: { status: "CANCELLED", stage: "DONE", decidedById: user.id, decidedAt: new Date() },
   });
   if (refund > 0) {
     await prisma.employee.update({ where: { id: leave.employeeId }, data: { leaveBalanceDays: { increment: refund } } });
@@ -394,8 +444,7 @@ export async function cancelLeave(formData: FormData): Promise<ActionResult> {
     entityId: id, field: "status", newValue: "CANCELLED",
     summary: `Demande de congé annulée${refund > 0 ? ` — ${refund} j recrédité(s) à ${leave.employee.fullName}` : ""}`,
   });
-  revalidatePath("/rh");
-  revalidatePath("/mon-espace");
+  revalidateLeaveViews(leave.employeeId);
   return { ok: true };
 }
 
@@ -437,8 +486,14 @@ export async function updateLeaveRequest(formData: FormData): Promise<ActionResu
     data: {
       type, startDate, endDate, days, reason, status, decisionNote,
       // Décision retracée si elle change : décideur/date (ou remise à zéro si repassée « en attente »).
+      // Le RH qui rouvre une demande la remet à SA marche : ce qu'il vient de trancher, il n'a
+      // pas à le refaire trancher par le N+1.
       ...(statusChanged
-        ? { decidedById: status === "PENDING" ? null : user.id, decidedAt: status === "PENDING" ? null : new Date() }
+        ? {
+            decidedById: status === "PENDING" ? null : user.id,
+            decidedAt: status === "PENDING" ? null : new Date(),
+            stage: status === "PENDING" ? ("HR" as const) : ("DONE" as const),
+          }
         : {}),
     },
   });
@@ -449,8 +504,7 @@ export async function updateLeaveRequest(formData: FormData): Promise<ActionResu
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "LEAVE_REQUEST", entityId: id,
     summary: `Congé modifié par RH — ${leave.employee.fullName} (${days} j, ${status})`,
   });
-  revalidatePath("/rh");
-  revalidatePath("/mon-espace");
+  revalidateLeaveViews(leave.employeeId);
   return { ok: true };
 }
 

@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDate } from "@/lib/utils";
-import { LeaveEditButton } from "../leave-edit";
+import { LeaveEditButton } from "@/components/hr/leave-edit";
 
 export const dynamic = "force-dynamic";
 

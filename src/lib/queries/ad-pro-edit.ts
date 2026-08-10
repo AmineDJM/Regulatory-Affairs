@@ -21,7 +21,11 @@ export async function adProEditValues(
       ? await prisma.sponsoringRequest.findUnique({ where: { id }, select })
       : kind === "CONGRESS_NATIONAL"
         ? await prisma.congressNational.findUnique({ where: { id }, select })
-        : await prisma.congressInternational.findUnique({ where: { id }, select });
+        : kind === "PROMO_MATERIAL"
+          ? await prisma.promoMaterial.findUnique({ where: { id }, select })
+          : kind === "EVENT"
+            ? await prisma.event.findUnique({ where: { id }, select })
+            : await prisma.congressInternational.findUnique({ where: { id }, select });
   if (!row) return {};
 
   const out: Record<string, string | number | null> = {};

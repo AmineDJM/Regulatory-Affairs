@@ -54,10 +54,26 @@ const TARGETS: Record<AdProKind, Target> = {
     load: (id) => prisma.congressInternational.findUnique({ where: { id } }) as Promise<Record<string, unknown> | null>,
     save: (id, data) => prisma.congressInternational.update({ where: { id }, data }),
   },
+  PROMO_MATERIAL: {
+    module: "PROMO_MATERIAL",
+    path: "/promo-material",
+    statusField: "status",
+    load: (id) => prisma.promoMaterial.findUnique({ where: { id } }) as Promise<Record<string, unknown> | null>,
+    save: (id, data) => prisma.promoMaterial.update({ where: { id }, data }),
+  },
+  EVENT: {
+    module: "EVENTS",
+    path: "/events",
+    // Un événement peut vivre SANS demande de financement : son statut de demande est alors
+    // nul, et c'est le demandeur/la Direction qui gouverne la correction.
+    statusField: "requestStatus",
+    load: (id) => prisma.event.findUnique({ where: { id } }) as Promise<Record<string, unknown> | null>,
+    save: (id, data) => prisma.event.update({ where: { id }, data }),
+  },
 };
 
 function isKind(v: string | null): v is AdProKind {
-  return v === "SPONSORING" || v === "CONGRESS_NATIONAL" || v === "CONGRESS_INTERNATIONAL";
+  return v === "SPONSORING" || v === "CONGRESS_NATIONAL" || v === "CONGRESS_INTERNATIONAL" || v === "PROMO_MATERIAL" || v === "EVENT";
 }
 
 export async function updateAdProRequest(formData: FormData): Promise<ActionResult> {

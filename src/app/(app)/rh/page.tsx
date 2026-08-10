@@ -3,7 +3,7 @@ import { Banknote, Building2, Users, CalendarOff } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getRhData } from "@/lib/queries/hr";
+import { getRhData, getLeavesToDecide } from "@/lib/queries/hr";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
@@ -20,7 +20,7 @@ import { getCompanies, companyOptions } from "@/lib/company";
 import { CONTRACT_TYPE, HR_REQUEST_TYPE, HR_REQUEST_STATUS, HR_TABS } from "@/lib/labels";
 import { formatCurrency, formatDate, daysUntil } from "@/lib/utils";
 import { getDepartmentOptions } from "@/lib/departments";
-import { LeaveApprovals, type PendingLeave } from "./leave-approvals";
+import { LeaveApprovals } from "@/components/hr/leave-approvals";
 import { AdvanceApprovals, type AdvanceRow } from "./advance-approvals";
 
 export default async function RhPage() {
@@ -53,11 +53,9 @@ export default async function RhPage() {
     orderBy: { name: "asc" },
   });
 
-  const pendingLeaves: PendingLeave[] = data.pendingLeaves.map((l) => ({
-    id: l.id, employee: l.employee.fullName, type: l.type,
-    startDate: l.startDate.toISOString(), endDate: l.endDate.toISOString(),
-    days: Number(l.days), reason: l.reason,
-  }));
+  // La file est résolue par PERSONNE (marche du circuit), pas par module : les RH voient ce
+  // qui attend les RH, la Direction ce qui l'attend — et pas ce qui dort encore chez un N+1.
+  const leavesToDecide = await getLeavesToDecide(user);
 
   const employeeFields: FieldDef[] = [
     { type: "text", name: "fullName", label: "Nom complet", required: true, full: true },
@@ -110,7 +108,7 @@ export default async function RhPage() {
         <KpiCard label="Congés en attente" value={data.stats.pending} icon="Hourglass" tone={data.stats.pending > 0 ? "warning" : "default"} />
         <KpiCard label="Avances en attente" value={data.stats.advances} icon="Banknote" tone={data.stats.advances > 0 ? "warning" : "default"} />
         <KpiCard label="Contrats à échéance" value={data.stats.expiring} icon="CalendarClock" tone={data.stats.expiring > 0 ? "danger" : "default"} hint="≤ 60 jours" />
-        <KpiCard label="Masse salariale" value={formatCurrency(data.stats.masseSalariale)} icon="Wallet" tone="info" hint="base mensuelle" />
+        <KpiCard label="Masse salariale" value={formatCurrency(data.stats.masseSalariale)} icon="Wallet" tone="info" hint={data.stats.masseSalarialeSource} />
       </div>
 
       {canValidate && (
@@ -156,8 +154,12 @@ export default async function RhPage() {
 
       {canValidate && (
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Demandes de congés à traiter</h2>
-          <LeaveApprovals leaves={pendingLeaves} canManage={canManage} />
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Demandes de congés à trancher</h2>
+          <p className="text-xs text-muted-foreground">
+            Circuit à trois marches : <strong>responsable (N+1) → ressources humaines → direction générale</strong>.
+            Seules les demandes qui attendent VOTRE signature figurent ici ; le solde n&apos;est débité qu&apos;au bout du circuit.
+          </p>
+          <LeaveApprovals leaves={leavesToDecide} canManage={canManage} />
         </section>
       )}
 

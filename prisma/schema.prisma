@@ -481,6 +481,16 @@ enum LeaveStatus {
   CANCELLED
 }
 
+/// LES TROIS MARCHES D'UNE DEMANDE DE CONGÉ. Le N+1 connaît la charge de l'équipe, les RH le
+/// solde et le droit, le DG arbitre. Chacun peut refuser ; le refus arrête tout (inutile de
+/// faire monter au DG ce que le responsable direct a déjà écarté).
+enum LeaveStage {
+  MANAGER /// en attente du responsable hiérarchique (N+1)
+  HR /// en attente des ressources humaines
+  DG /// en attente de la direction générale
+  DONE /// circuit terminé (approuvé ou refusé)
+}
+
 enum TaskStatus {
   REQUESTED // tâche demandée (ex. depuis un message) — en attente d'acceptation
   TODO
@@ -3042,6 +3052,19 @@ model LeaveRequest {
   decidedBy    User?       @relation("LeaveDecider", fields: [decidedById], references: [id])
   decidedAt    DateTime?
   decisionNote String?
+
+  /// ─── Circuit à trois marches : N+1 → RH → DG ───
+  stage           LeaveStage @default(MANAGER)
+  managerId       String? /// responsable résolu à la soumission (organigramme)
+  managerDecidedById String?
+  managerDecidedAt   DateTime?
+  managerNote        String?
+  hrDecidedById      String?
+  hrDecidedAt        DateTime?
+  hrNote             String?
+  dgDecidedById      String?
+  dgDecidedAt        DateTime?
+  dgNote             String?
   createdById  String?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt

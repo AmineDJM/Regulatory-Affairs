@@ -9,6 +9,9 @@ import { addPromoComment } from "@/lib/actions/promo-material-actions";
 import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
+import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
+import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
+import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
@@ -46,6 +49,16 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   if (!canViewPromo(user, pm)) notFound();
   const names = await promoNames(pm);
 
+  // CORRIGER LA DEMANDE : le demandeur tant que l'agence n'est pas choisie, la Direction
+  // toujours. Au-delà du choix d'agence, le bon de commande et le visa s'appuient sur ce qui a
+  // été arrêté — corriger après coup ferait diverger la pièce et le dossier.
+  const promoDecided = isAdProDecided("PROMO_MATERIAL", pm.status);
+  const canEditPromoRequest = canEditAdProRequest(
+    { id: user.id, hasGlobalView: hasGlobalView(user.role), canUpdate: userCan(user, "PROMO_MATERIAL", "UPDATE") },
+    { requesterId: pm.requesterId, decided: promoDecided },
+  );
+  const promoEditValues = canEditPromoRequest ? await adProEditValues("PROMO_MATERIAL", pm.id) : null;
+
   const isDirection = hasGlobalView(user.role);
   const flags = {
     isMarketing: pm.requesterId === user.id || isDirection,
@@ -76,6 +89,9 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
       <BackLink href="/promo-material"><ArrowLeft className="h-4 w-4" /> Matériel promotionnel</BackLink>
       <PageHeader title={pm.title} description={`Réf. ${pm.reference}`}>
         <StatusBadge map={PROMO_MATERIAL_STATUS} value={pm.status} />
+        {canEditPromoRequest && promoEditValues && (
+          <AdProEditButton kind="PROMO_MATERIAL" id={pm.id} decided={promoDecided} values={promoEditValues} />
+        )}
         <SuperAdminDeleteButton kind="PROMO_MATERIAL" id={pm.id} name={pm.title} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
 

@@ -1,7 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { accessibleModules, userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getMyWorkspace } from "@/lib/queries/hr";
+import { getMyWorkspace, getMyLeaveRequests, getLeavesToDecide } from "@/lib/queries/hr";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,13 +10,15 @@ import { optionsFromMap } from "@/components/shared/form-fields";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { createTask, requestTask } from "@/lib/actions/task-actions";
-import { requestLeave, requestAdvance } from "@/lib/actions/hr-actions";
-import { ROLE_LABELS, PRIORITY, LEAVE_TYPE, WORKSPACE_TABS, MODULE_LABELS } from "@/lib/labels";
+import { requestAdvance } from "@/lib/actions/hr-actions";
+import { ROLE_LABELS, PRIORITY, WORKSPACE_TABS, MODULE_LABELS } from "@/lib/labels";
 import { listMyReminders } from "@/lib/queries/reminders";
 import { MyReminders } from "@/components/reminders/my-reminders";
 import { ReminderButton } from "@/components/reminders/reminder-button";
 import { TaskList, type TaskItem } from "./task-list";
-import { MyLeaves, type LeaveItem } from "./my-leaves";
+import { MyLeaves } from "@/components/hr/my-leaves";
+import { LeaveApprovals } from "@/components/hr/leave-approvals";
+import { LeaveRequestButton } from "@/components/hr/leave-request-button";
 import { MyAdvances, type AdvanceItem } from "./my-advances";
 import { MyPortfolioCard } from "@/components/planning/my-portfolio-card";
 import { getMyPortfolio } from "@/lib/queries/portfolio";
@@ -48,10 +50,12 @@ export default async function MonEspacePage() {
   const myTasks: TaskItem[] = data.myTasks.map(toItem);
   const delegated: TaskItem[] = data.delegated.map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
   const requestedTasks: TaskItem[] = requested.map((t) => ({ ...toItem(t), requestedBy: t.createdBy?.name ?? null }));
-  const myLeaves: LeaveItem[] = data.myLeaves.map((l) => ({
-    id: l.id, type: l.type, startDate: l.startDate.toISOString(), endDate: l.endDate.toISOString(),
-    days: Number(l.days), status: l.status,
-  }));
+  // Mes congés ET les congés que je dois trancher : le responsable d'équipe n'a pas le module
+  // RH, sa file de validation ne peut donc vivre qu'ici.
+  const [myLeaves, leavesToDecide] = await Promise.all([
+    getMyLeaveRequests(user.id),
+    getLeavesToDecide(user),
+  ]);
   const myAdvances: AdvanceItem[] = data.myAdvances.map((a) => ({
     id: a.id, amount: Number(a.amount), reason: a.reason, status: a.status, createdAt: a.createdAt.toISOString(),
   }));
@@ -82,14 +86,6 @@ export default async function MonEspacePage() {
     { type: "text", name: "address", label: "Adresse / lieu (si déplacement)", full: true },
   ];
 
-  const leaveFields: FieldDef[] = [
-    { type: "select", name: "type", label: "Type (congé, maladie, arrêt exceptionnel…)", options: optionsFromMap(LEAVE_TYPE), defaultValue: "ANNUAL", full: true },
-    { type: "date", name: "startDate", label: "Du", required: true },
-    { type: "date", name: "endDate", label: "Au", required: true },
-    { type: "number", name: "days", label: "Nombre de jours (optionnel)" },
-    { type: "textarea", name: "reason", label: "Motif" },
-  ];
-
   const advanceFields: FieldDef[] = [
     { type: "number", name: "amount", label: "Montant souhaité (DZD)", required: true, full: true },
     { type: "textarea", name: "reason", label: "Motif" },
@@ -107,8 +103,7 @@ export default async function MonEspacePage() {
           description="Le destinataire l'accepte ou la refuse (comme un message). Elle apparaît dans ses « Tâches demandées »." action={requestTask} fields={requestFields} />
         {data.employee && (
           <>
-            <CreateRecordButton label="Demander un congé" title="Demande de congé / absence" width="md"
-              description="Congé annuel, maladie, arrêt exceptionnel… Soumis aux RH pour validation." action={requestLeave} fields={leaveFields} />
+            <LeaveRequestButton />
             <CreateRecordButton label="Demander une avance" title="Avance sur salaire" width="md"
               description="Soumise aux RH, puis réglée par la comptabilité." action={requestAdvance} fields={advanceFields} />
           </>
@@ -151,6 +146,19 @@ export default async function MonEspacePage() {
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches que j'ai déléguées</h2>
           <TaskList tasks={delegated} showAssignee canCreateDossier={canCreateDossier} />
+        </section>
+      )}
+
+      {leavesToDecide.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Congés qui attendent votre signature
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Circuit <strong>responsable (N+1) → ressources humaines → direction générale</strong>.
+            Approuver fait monter d&apos;une marche ; refuser arrête le circuit.
+          </p>
+          <LeaveApprovals leaves={leavesToDecide} />
         </section>
       )}
 

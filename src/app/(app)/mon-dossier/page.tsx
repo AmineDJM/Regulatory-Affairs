@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/session";
 import { getMyHrDossier } from "@/lib/queries/hr-documents";
+import { getMyLeaveRequests } from "@/lib/queries/hr";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -9,6 +10,8 @@ import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { formatDate, formatDateTime, formatMonth, formatCurrency } from "@/lib/utils";
 import { NewRequestButton, CancelRequestButton } from "./request-controls";
+import { LeaveRequestButton } from "@/components/hr/leave-request-button";
+import { MyLeaves } from "@/components/hr/my-leaves";
 import { MeetingControls } from "@/components/shared/hr-meeting-controls";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
 
@@ -17,6 +20,8 @@ export const dynamic = "force-dynamic";
 export default async function MonDossierPage() {
   const user = await requireUser();
   const dossier = await getMyHrDossier(user.id);
+  // MÊME demande, MÊME liste que « Mon espace » : un congé n'existe qu'une fois.
+  const myLeaves = await getMyLeaveRequests(user.id);
   // Onglets de « Mon dossier RH » (module autonome) : dossier RH + ordres de mission.
   const dossierTabs = MON_DOSSIER_TABS.map((t) => ({ label: t.label, href: t.href }));
 
@@ -33,7 +38,8 @@ export default async function MonDossierPage() {
   const e = dossier.employee;
   return (
     <div className="space-y-5">
-      <PageHeader title="Mon dossier RH" description="Retrouvez vos documents RH et suivez vos demandes (attestations, titre de congé, ordre de mission, note de frais…).">
+      <PageHeader title="Mon dossier RH" description="Retrouvez vos documents RH et suivez vos demandes (attestations, congé, ordre de mission, note de frais…).">
+        <LeaveRequestButton />
         <NewRequestButton />
       </PageHeader>
       <ModuleTabs tabs={dossierTabs} />
@@ -87,6 +93,20 @@ export default async function MonDossierPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Mes congés et absences</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 p-4 pt-0">
+          <p className="text-xs text-muted-foreground">
+            La même demande que dans « Mon espace ». Elle suit le circuit
+            <strong> responsable (N+1) → ressources humaines → direction générale</strong> ;
+            votre solde n&apos;est débité qu&apos;une fois le circuit terminé.
+          </p>
+          <MyLeaves leaves={myLeaves} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
