@@ -682,13 +682,64 @@ export async function finishRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
-  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, type: true, reference: true } });
+  const req = await prisma.administrativeRequest.findUnique({
+    where: { id },
+    select: { assignedToId: true, type: true, reference: true, title: true, linkedEntityType: true },
+  });
   if (!req) return { ok: false, error: "Demande introuvable." };
   if (!isManager(user, req.assignedToId)) return DENIED;
 
   if (req.type === "PURCHASE") {
     const invoice = await prisma.document.count({ where: { entityType: "ADMIN_REQUEST", entityId: id, category: "INVOICE" } });
     if (invoice === 0) return { ok: false, error: "Pour un achat, uploadez d'abord la facture finale (catégorie « Facture »)." };
+  }
+
+  // IMPUTATION AUX MOYENS GÉNÉRAUX — le geste qui manquait entre « la demande est faite » et
+  // « le budget le sait ».
+  //
+  // Terminer un achat sans dire QUI le paie laissait le budget des moyens généraux intact
+  // pendant que l'argent, lui, était sorti. L'assistante choisit donc le département à
+  // débiter : le sien, ou celui qui a demandé — chaque département a SES moyens généraux, et
+  // c'est le demandeur qui les consomme, pas le secrétariat qui exécute.
+  //
+  // EXCEPTION : ce qui vient d'Ad & Pro est déjà porté par le budget de l'opération (poste,
+  // ordre de dépense). L'imputer une seconde fois le compterait deux fois.
+  const fromAdPro = ["SPONSORING", "CONGRESS_NATIONAL", "CONGRESS_INTERNATIONAL", "EVENT", "PROMO_MATERIAL"]
+    .includes(req.linkedEntityType ?? "");
+  const departmentId = fdStr(formData, "budgetDepartmentId");
+  const amount = fdNum(formData, "budgetAmount");
+  const alreadyImputed = await prisma.departmentBudgetExpense.count({ where: { adminRequestId: id } });
+
+  if (req.type === "PURCHASE" && !fromAdPro && alreadyImputed === 0 && (!departmentId || !amount)) {
+    return {
+      ok: false,
+      error: "Choisissez le budget de moyens généraux à débiter (le vôtre ou celui du département concerné) et le montant réellement dépensé.",
+    };
+  }
+
+  if (departmentId && amount != null && alreadyImputed === 0) {
+    if (amount < 0) return { ok: false, error: "Un montant ne peut pas être négatif." };
+    const dept = await prisma.department.findUnique({ where: { id: departmentId }, select: { id: true, name: true } });
+    if (!dept) return { ok: false, error: "Département introuvable." };
+    await prisma.departmentBudgetExpense.create({
+      data: {
+        departmentId: dept.id,
+        year: new Date().getFullYear(),
+        kind: "OPERATING",
+        label: `${req.reference} — ${req.title}`,
+        amount,
+        notes: fdStr(formData, "budgetNote"),
+        adminRequestId: id,
+        createdById: user.id,
+      },
+    });
+    await recordAudit({
+      actorId: user.id, action: "CREATE", module: "Bureau du secrétariat",
+      entityType: "ADMIN_REQUEST", entityId: id,
+      summary: `Imputée aux moyens généraux de ${dept.name} — ${amount} DZD`,
+    });
+    revalidatePath("/moyens-generaux");
+    revalidatePath("/budgets/departements");
   }
 
   await prisma.administrativeRequest.update({ where: { id }, data: { status: "DONE", completedAt: new Date() } });

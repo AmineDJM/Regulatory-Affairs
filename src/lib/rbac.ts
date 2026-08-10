@@ -550,6 +550,18 @@ export const getAccess = perRequest(
       else modules.set("VALIDATIONS", { actions: new Set<Action>(["VIEW"]), scope: "ASSIGNED" });
     }
 
+    // ── LES RH SONT LE MANAGER des Moyens généraux ──
+    // Le module n'est pas dans leur matrice par rôle (« RH » est un droit de module, pas un
+    // rôle nommé) : quiconque tient les ressources humaines pilote donc les moyens généraux de
+    // TOUS les départements — c'est lui qui dote, arbitre les rallonges et contrôle les
+    // dépenses. L'assistante de direction, elle, en est l'utilisatrice quotidienne.
+    if (!modules.has("GENERAL_MEANS") && (modules.get("RH")?.actions.has("UPDATE") ?? false)) {
+      modules.set("GENERAL_MEANS", {
+        actions: new Set<Action>(["VIEW", "CREATE", "UPDATE", "DELETE", "VALIDATE", "EXPORT", "UPLOAD"]),
+        scope: "ALL",
+      });
+    }
+
     // ── Accès IMPLICITE au module Budget quand une enveloppe est PARTAGÉE avec ce compte ──
     // Partager une enveloppe (par personne OU par rôle, en visualisation ou en gestion) doit
     // suffire à ce que le destinataire puisse OUVRIR le module Budget et l'y voir — même si son

@@ -229,7 +229,9 @@ export async function getGeneralMeans(
     // ou le fait de tenir ce budget. Elle est de toute façon déduite du budget, pièce à l'appui.
     canSpend: userCan(user, "GENERAL_MEANS", "CREATE")
       || editableKindsOn(subject, rights, grant, departmentId).some((k) => k !== "HR"),
-    canAllot: hasGlobalView(user) || rights.canManageBudgets,
+    // Doter la caisse et arbitrer : l'administration, les finances — et les RESSOURCES
+    // HUMAINES, qui pilotent le module des moyens généraux de tous les départements.
+    canAllot: hasGlobalView(user) || rights.canManageBudgets || rights.canManageHr,
     isHolder,
     cash,
     history: history.map((h) => ({

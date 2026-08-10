@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { CashPanel } from "./cash-panel";
 import { ExpensePanel } from "./expense-panel";
+import { DepartmentSwitcher } from "./department-switcher";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Moyens généraux — AMD Internal OS" };
@@ -58,6 +59,14 @@ export default async function MoyensGenerauxPage({
   const view = await getGeneralMeans(user, departmentId, year, period);
   if (!view) notFound();
 
+  // CHAQUE DÉPARTEMENT A SES MOYENS GÉNÉRAUX. Celui qui PILOTE le module (les ressources
+  // humaines, l'administration) passe donc de l'un à l'autre ; l'utilisatrice quotidienne, elle,
+  // reste sur le sien — la liste ne lui est pas proposée, et les budgets des autres ne lui sont
+  // pas ouverts.
+  const departments = view.canAllot
+    ? await prisma.department.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })
+    : [];
+
   // Les candidats à qui remettre une caisse : seule l'administration a besoin de cette liste.
   const people = view.canAllot
     ? await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
@@ -72,6 +81,7 @@ export default async function MoyensGenerauxPage({
         title={`Moyens généraux — ${view.department.path}`}
         description="Le budget de l'exercice, la caisse d'avance du mois et le détail des dépenses, avec leurs justificatifs. Tout achat porte sa facture ou son bon de paiement."
       >
+        {departments.length > 1 && <DepartmentSwitcher departments={departments} current={view.department.id} year={year} />}
         {/* Un lien vers un écran qu'on ne peut pas ouvrir est pire qu'une absence de lien. */}
         {userCan(user, "BUDGETS", "VIEW") && (
           <Link href="/budgets/departements" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">

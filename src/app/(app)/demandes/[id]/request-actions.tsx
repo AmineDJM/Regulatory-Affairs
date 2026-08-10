@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Play, Landmark, ShieldCheck, Car, CheckCircle2, Trash2 } from "lucide-react";
+import { Loader2, Play, Landmark, ShieldCheck, Car, CheckCircle2, Trash2, Wallet } from "lucide-react";
 import {
   updateRequestStatus, createMission, startRequestProcessing,
   requestFinanceValidation, requestInternalValidation, finishRequest, deleteRequests,
@@ -16,6 +16,7 @@ type U = { id: string; name: string };
 
 export function RequestActions({
   requestId, status, type, users, financeUsers, canManage,
+  departments = [], defaultDepartmentId = null, fromAdPro = false, alreadyImputed = false,
 }: {
   requestId: string;
   status: string;
@@ -23,6 +24,13 @@ export function RequestActions({
   users: U[];
   financeUsers: U[];
   canManage: boolean;
+  /** Départements dont on peut débiter les moyens généraux (nom seul — pas les montants). */
+  departments?: { id: string; name: string }[];
+  /** Le département du demandeur : c'est lui qui consomme, il est donc proposé d'emblée. */
+  defaultDepartmentId?: string | null;
+  /** Vient d'Ad & Pro : déjà porté par le budget de l'opération, on ne l'impute pas deux fois. */
+  fromAdPro?: boolean;
+  alreadyImputed?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -31,9 +39,12 @@ export function RequestActions({
   const [internal, setInternal] = React.useState(false);
   const [mission, setMission] = React.useState(false);
   const [del, setDel] = React.useState(false);
+  const [finish, setFinish] = React.useState(false);
 
   if (!canManage) return null;
   const isPurchase = type === "PURCHASE";
+  // L'imputation est due pour un achat qui ne vient pas d'Ad & Pro et n'a pas déjà été imputé.
+  const needsImputation = isPurchase && !fromAdPro && !alreadyImputed && departments.length > 0;
 
   async function run(fd: FormData, action: (f: FormData) => Promise<{ ok: boolean; error?: string }>, close?: () => void) {
     setBusy(true); setErr(null);
@@ -61,9 +72,17 @@ export function RequestActions({
           </Button>
         )}
         <Button variant="outline" size="sm" type="button" onClick={() => { setErr(null); setMission(true); }}><Car className="h-4 w-4" /> Mission chauffeur</Button>
-        <form action={(fd) => { fd.set("id", requestId); return run(fd, finishRequest); }}>
-          <Button variant="outline" size="sm" type="submit" disabled={busy}><CheckCircle2 className="h-4 w-4" /> Fin de la demande</Button>
-        </form>
+        {/* Terminer un ACHAT sans dire qui le paie laissait le budget intact pendant que
+            l'argent, lui, était sorti. On passe donc par l'imputation. */}
+        {needsImputation ? (
+          <Button variant="outline" size="sm" type="button" onClick={() => { setErr(null); setFinish(true); }}>
+            <CheckCircle2 className="h-4 w-4" /> Fin de la demande
+          </Button>
+        ) : (
+          <form action={(fd) => { fd.set("id", requestId); return run(fd, finishRequest); }}>
+            <Button variant="outline" size="sm" type="submit" disabled={busy}><CheckCircle2 className="h-4 w-4" /> Fin de la demande</Button>
+          </form>
+        )}
       </div>
 
       {isPurchase && (
@@ -85,6 +104,52 @@ export function RequestActions({
       <button type="button" onClick={() => { setErr(null); setDel(true); }} className="inline-flex items-center gap-1 text-xs text-destructive hover:underline">
         <Trash2 className="h-3.5 w-3.5" /> Supprimer la demande
       </button>
+
+      {/* IMPUTATION AUX MOYENS GÉNÉRAUX — chaque département a les siens, et c'est celui qui a
+          DEMANDÉ qui les consomme, pas le secrétariat qui exécute. */}
+      <Sheet
+        open={finish}
+        onClose={() => setFinish(false)}
+        title="Fin de la demande — imputer au budget"
+        description="Choisissez le budget de moyens généraux à débiter : le vôtre, ou celui du département qui a demandé l'achat."
+        width="md"
+      >
+        <form
+          action={(fd) => {
+            fd.set("id", requestId);
+            return run(fd, finishRequest, () => setFinish(false));
+          }}
+          className="space-y-3"
+        >
+          <div className="space-y-1.5">
+            <Label>Budget de moyens généraux <span className="text-destructive">*</span></Label>
+            <Select name="budgetDepartmentId" defaultValue={defaultDepartmentId ?? ""} required>
+              <option value="">— Choisir le département à débiter —</option>
+              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Le montant sera <strong>déduit des moyens généraux</strong> de ce département, et la demande
+              restera attachée à la dépense (traçabilité de bout en bout).
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Montant réellement dépensé (DZD) <span className="text-destructive">*</span></Label>
+            <Input name="budgetAmount" inputMode="decimal" placeholder="0" required className="text-right tabular-nums" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Précision (facultatif)</Label>
+            <Input name="budgetNote" placeholder="Ex. fournisseur, n° de facture" />
+          </div>
+          <p className="flex items-start gap-2 rounded-lg bg-secondary px-3 py-2 text-xs text-muted-foreground">
+            <Wallet className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>La facture déjà versée à la demande sert de justificatif — inutile de la rescanner.</span>
+          </p>
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          <Button type="submit" size="sm" disabled={busy}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Terminer et imputer
+          </Button>
+        </form>
+      </Sheet>
 
       {err && <p className="text-sm text-destructive">{err}</p>}
 

@@ -38,7 +38,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   const req = await prisma.administrativeRequest.findFirst({
     where: { id: params.id, ...(isPieceValidator ? { deletedAt: null } : scopeAdminRequests(user)) },
     include: {
-      requester: { select: { name: true } },
+      requester: { select: { name: true, employee: { select: { departmentId: true } } } },
       concerned: { select: { name: true } },
       assignedTo: { select: { name: true } },
       validator: { select: { name: true } },
@@ -48,6 +48,16 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
     },
   });
   if (!req) notFound();
+
+  // IMPUTATION AUX MOYENS GÉNÉRAUX : chaque département a les siens. On propose les NOMS des
+  // départements (et rien de leurs montants — l'assistante impute chez eux, elle ne consulte
+  // pas leurs budgets), en pré-sélectionnant celui du demandeur : c'est lui qui consomme.
+  const departments = await prisma.department.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } });
+  // Ce qui vient d'Ad & Pro est déjà porté par le budget de l'opération : l'imputer une
+  // seconde fois le compterait deux fois.
+  const fromAdPro = ["SPONSORING", "CONGRESS_NATIONAL", "CONGRESS_INTERNATIONAL", "EVENT", "PROMO_MATERIAL"]
+    .includes(req.linkedEntityType ?? "");
+  const alreadyImputed = (await prisma.departmentBudgetExpense.count({ where: { adminRequestId: req.id } })) > 0;
 
   // L'Assistante de Direction tient le bureau du secrétariat : elle gère et modère toute demande.
   const isSecretary = user.role === "DIRECTION_ASSISTANT";
@@ -157,7 +167,16 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
           {canManage && (
             <Card>
               <CardHeader><CardTitle>Traitement</CardTitle></CardHeader>
-              <CardContent><RequestActions requestId={req.id} status={req.status} type={req.type} users={users} financeUsers={financeUsers} canManage={canManage} /></CardContent>
+              <CardContent>
+                <RequestActions
+                  requestId={req.id} status={req.status} type={req.type}
+                  users={users} financeUsers={financeUsers} canManage={canManage}
+                  departments={departments}
+                  defaultDepartmentId={req.departmentId ?? req.requester?.employee?.departmentId ?? null}
+                  fromAdPro={fromAdPro}
+                  alreadyImputed={alreadyImputed}
+                />
+              </CardContent>
             </Card>
           )}
 

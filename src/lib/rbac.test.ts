@@ -310,3 +310,26 @@ describe("Moyens généraux — un module À PART, ouvert à celui qui achète",
     expect(mods).not.toContain("BUDGETS");
   });
 });
+
+describe("Moyens généraux — les RH pilotent, l'assistante utilise", () => {
+  it("le socle par rôle ne donne PAS le module aux RH : il leur vient du droit RH:UPDATE", () => {
+    // « RH » est un droit de module, pas un rôle nommé — le pilotage des moyens généraux ne
+    // pouvait donc pas être posé dans la matrice par rôle. Il est accordé par `getAccess`
+    // (accès implicite) à quiconque tient les ressources humaines, sur TOUS les départements.
+    // Ici on verrouille l'intention : aucune ligne de la matrice ne le distribue par erreur à
+    // un rôle qui n'a rien à voir avec les achats.
+    const holders = (Object.keys(PERMISSIONS) as UserRole[]).filter((r) => PERMISSIONS[r].GENERAL_MEANS);
+    expect(new Set(holders)).toEqual(
+      new Set<UserRole>(["SUPER_ADMIN", "DIRECTION", "FINANCE_BUDGET_MANAGER", "DIRECTION_ASSISTANT"]),
+    );
+  });
+
+  it("l'assistante peut saisir un achat, sans pouvoir gérer le module", () => {
+    const a = PERMISSIONS.DIRECTION_ASSISTANT.GENERAL_MEANS ?? [];
+    expect(a).toContain("CREATE");
+    expect(a).toContain("UPLOAD");
+    // Elle n'ARBITRE pas : doter, valider une rallonge, ce n'est pas son rôle.
+    expect(a).not.toContain("VALIDATE");
+    expect(a).not.toContain("DELETE");
+  });
+});
