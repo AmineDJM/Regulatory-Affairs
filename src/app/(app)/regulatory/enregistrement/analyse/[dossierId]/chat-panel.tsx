@@ -81,9 +81,38 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
         ? { role: "assistant", text: r.answer || "(réponse vide)", citations: r.citations, files: r.files }
         : { role: "assistant", text: r.error ?? "Réponse indisponible.", error: true }]);
     } catch {
-      setMessages((m) => [...m, { role: "assistant", text: "Le service a rencontré une erreur. Réessayez.", error: true }]);
+      // La CONNEXION a lâché — pas forcément l'agent : côté serveur il continue, et sa réponse
+      // entre dans le fil persistant. On la RÉCUPÈRE par sondage au lieu d'abandonner.
+      setMessages((m) => [...m, { role: "assistant", text: "La connexion a été interrompue — l'agent continue en arrière-plan, sa réponse apparaîtra ici dès qu'elle est prête…", error: true }]);
+      // `messages` (fermeture) = le fil AVANT cet envoi : la réponse attendue porte le fil
+      // serveur à au moins « avant + question + réponse » — garde contre une vieille réponse.
+      void recoverFromThread(messages.length + 2);
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * REPRISE APRÈS COUPURE : le serveur écrit la réponse dans le fil même si le navigateur a
+   * perdu la connexion (les gros tours peuvent durer plusieurs minutes). On resonde le fil
+   * toutes les 6 s pendant 6 min ; dès que LA réponse de ce tour (non-erreur, fil suffisamment
+   * long) est là, on recharge la discussion — la vérité serveur remplace l'état local.
+   */
+  async function recoverFromThread(minLen: number) {
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 6000));
+      try {
+        const fd = new FormData();
+        fd.set("dossierId", dossierId);
+        const r = await loadDossierChatAction(fd);
+        const last = r.ok ? r.messages[r.messages.length - 1] : undefined;
+        if (last && last.role === "assistant" && !last.error && r.messages.length >= minLen) {
+          setMessages(r.messages);
+          return;
+        }
+      } catch {
+        /* toujours coupé — on retentera au prochain tour */
+      }
     }
   }
 

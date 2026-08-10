@@ -32,7 +32,7 @@ export function StatusEditor({
     >
       <input type="hidden" name="id" value={id} />
       <div className="space-y-1">
-        <label className="text-xs font-medium text-muted-foreground">Statut</label>
+        <label className="text-xs font-medium text-muted-foreground">Niveau de process</label>
         <Select name="status" defaultValue={status} className="h-8 text-xs">
           {Object.entries(REGULATORY_STATUS).map(([v, d]) => (
             <option key={v} value={v}>

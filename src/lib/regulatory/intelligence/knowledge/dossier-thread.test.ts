@@ -34,7 +34,7 @@ describe("dossier-thread — mémoire pure (threadMemory)", () => {
     expect(history.some((t) => t.content.includes("panne réseau"))).toBe(false);
   });
 
-  it("re-présente les pièces déjà soumises : dédupliquées par nom (la plus récente gagne), illisibles exclues, 4 max", () => {
+  it("re-présente les pièces déjà soumises : dédupliquées par nom (la plus récente gagne), illisibles exclues, 6 max", () => {
     const rows = [
       row("user", "voici la lettre", { attachments: [{ filename: "COURRIER ANPP.pdf", text: "version 1 de la lettre" }] }),
       row("assistant", "je lis"),
@@ -50,11 +50,13 @@ describe("dossier-thread — mémoire pure (threadMemory)", () => {
           { filename: "a.pdf", text: "A" },
           { filename: "b.pdf", text: "B" },
           { filename: "c.pdf", text: "C" },
+          { filename: "d.pdf", text: "D" },
+          { filename: "e.pdf", text: "E" },
         ],
       }),
     ];
     const { priorAttachments } = threadMemory(rows);
-    expect(priorAttachments).toHaveLength(4); // plafond
+    expect(priorAttachments).toHaveLength(6); // plafond (7 pièces lisibles uniques soumises)
     const names = priorAttachments.map((a) => a.filename);
     expect(names).toContain("a.pdf");
     expect(names).not.toContain("scan-vide.pdf"); // illisible → rien à re-présenter

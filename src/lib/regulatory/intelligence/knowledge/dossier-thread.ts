@@ -34,9 +34,9 @@ const THREAD_LOAD_LIMIT = 80; // messages renvoyés au panneau (les plus récent
 const THREAD_SCAN_LIMIT = 40; // messages relus pour construire histoire + pièces de l'agent
 const HISTORY_TURNS = 8;
 const HISTORY_TURN_CHARS = 2000;
-const PRIOR_ATTACHMENT_LIMIT = 4; // pièces de la discussion re-présentées à chaque tour
-const PRIOR_ATTACHMENT_CHARS = 12_000; // par pièce re-présentée (la pièce du tour courant garde son plein budget)
-export const STORED_ATTACHMENT_CHARS = 28_000; // texte conservé en base par pièce
+const PRIOR_ATTACHMENT_LIMIT = 6; // pièces de la discussion re-présentées à chaque tour
+const PRIOR_ATTACHMENT_CHARS = 40_000; // par pièce re-présentée (la pièce du tour courant garde son plein budget)
+export const STORED_ATTACHMENT_CHARS = 120_000; // texte conservé en base par pièce (une lettre ANPP entière)
 
 type StoredRow = {
   role: string;

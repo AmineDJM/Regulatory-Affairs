@@ -2020,6 +2020,28 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Agent de dossier 300 s + pièces entières, arbitrage IA des faits en conflit, et Regulatory
+  remis d'aplomb (colonnes + étapes).** (1) L'agent du chat travaille désormais **sans être
+  pressé** : 300 s par tentative, pièces du tour jusqu'à **100 000 caractères chacune** (une
+  lettre ANPP entière), mémoire du fil **6 pièces × 40 000**, réponse 4096 jetons, garde globale
+  ~420 000 caractères (fenêtre du modèle protégée — au-delà, la pièce excédentaire est signalée
+  plutôt que tronquée en silence). Si la **connexion du navigateur lâche** pendant un gros tour,
+  le serveur TERMINE et écrit la réponse dans le fil persistant ; le panneau la **récupère par
+  sondage** (6 s × 6 min) — plus de réponse perdue. (2) **Arbitrage CONTEXTUEL des faits**
+  (`twin/arbitrate-facts.ts`) : quand deux valeurs se disputent un fait (scores serrés — cas
+  réel : « 600 mg and 300 mg » du comparateur Epzicom vs la trithérapie du dossier), les regex ne
+  peuvent plus rien — un appel IA borné (ÉCO) lit les EXTRAITS et choisit la valeur qui décrit
+  LE PRODUIT DU DOSSIER (jamais un comparateur d'étude, un produit de référence cité ou une
+  posologie) ; le choix DOIT être un candidat existant, l'abstention laisse le déterministe
+  décider, les faits déjà tranchés par un humain ne sont jamais soumis. (3) Liste des produits
+  Regulatory : les TITRES de colonnes étaient inversés pour le métier — désormais **« Statut » =
+  importation / packaging / full process** et **« Niveau de process » = pré-soumission / déposé /
+  … ** (liste, fiche produit et éditeur alignés ; les contenus n'ont pas bougé). (4) **Poser un
+  niveau de process COMPTE les étapes** : « Déposé » marque FAIT les étapes ANPP 1 à 12 (dépôt),
+  « Réponse aux réserves » 1 à 15, « Décision obtenue » tout — jamais les étapes d'APRÈS le
+  jalon, jamais de dé-cochage, étapes bloquées intouchées (`completeStepsThrough`, tracé dans
+  l'audit avec le nombre d'étapes comptées).
+
 - **OCR surpuissant : secours VISION quand le moteur d'OCR cale — plus de « scan illisible » sans
   avoir tout tenté.** Trois étages désormais : Mistral OCR (ou Tesseract), puis pour les pages
   restées **vides ou douteuses**, re-rastérisation et **transcription par le modèle multimodal**

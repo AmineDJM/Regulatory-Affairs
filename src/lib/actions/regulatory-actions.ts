@@ -18,6 +18,7 @@ import { REGULATORY_STEP_ORDER, LOCAL_MANUFACTURING_VARIATIONS, VARIATION_TARGET
 import {
   isRegStepKey, isRegStepState, isRegChecklistKey, isRegPresubOutcome,
   REG_STEPS, REG_CHECKLIST, REG_PRESUB_OUTCOME, PRESUB_ANSWER_STEP,
+  REG_STATUS_MILESTONE, completeStepsThrough,
   type RegWorkflowState, type RegChecklistState,
 } from "@/lib/regulatory-workflow";
 
@@ -458,9 +459,24 @@ export async function updateRegulatoryStatus(formData: FormData): Promise<Action
   const status = (str(formData, "status") as RegulatoryStatus) ?? before.status;
   const priority = (str(formData, "priority") as Priority) ?? before.priority;
 
+  // NIVEAU DE PROCESS posé = ÉTAPES COMPTÉES : « Déposé » implique que tout ce qui précède le
+  // dépôt (étapes 1 à 12) est fait — on le marque automatiquement, sans jamais toucher aux
+  // étapes d'APRÈS le jalon ni dé-cocher quoi que ce soit. Fini l'avancement à 0/22 sur un
+  // dossier pourtant déposé.
+  let workflowUpdate: Prisma.InputJsonValue | undefined;
+  let autoSteps = 0;
+  const milestone = status !== before.status ? REG_STATUS_MILESTONE[status] : undefined;
+  if (milestone) {
+    const sync = completeStepsThrough(before.workflow as RegWorkflowState | null, milestone);
+    if (sync.changed > 0) {
+      workflowUpdate = sync.state as unknown as Prisma.InputJsonValue;
+      autoSteps = sync.changed;
+    }
+  }
+
   await prisma.regulatoryProduct.update({
     where: { id },
-    data: { status, priority, updatedById: user.id },
+    data: { status, priority, updatedById: user.id, ...(workflowUpdate !== undefined ? { workflow: workflowUpdate } : {}) },
   });
 
   await recordAudit({
@@ -472,7 +488,7 @@ export async function updateRegulatoryStatus(formData: FormData): Promise<Action
     field: "status",
     oldValue: before.status,
     newValue: status,
-    summary: `Statut du dossier ${before.reference} → ${status}`,
+    summary: `Niveau de process du dossier ${before.reference} → ${status}${autoSteps > 0 ? ` (${autoSteps} étape·s ANPP comptée·s automatiquement)` : ""}`,
   });
 
   // Dépôt effectué : prévenir la supervision de fixer la date cible d'enregistrement.

@@ -176,6 +176,46 @@ export function phaseLabel(key: string): string {
 }
 
 /**
+ * JALON IMPLIQUÉ PAR UN STATUT du dossier — poser « Déposé » veut dire que tout ce qui précède
+ * le dépôt est FAIT : plutôt que de laisser l'avancement à 0/22 (ou d'exiger 12 clics), le
+ * changement de statut COMPTE automatiquement les étapes jusqu'à son jalon (incluses). Seuls les
+ * statuts au jalon non ambigu sont mappés ; les étapes POSTÉRIEURES au jalon ne sont JAMAIS
+ * touchées, et rien n'est jamais dé-coché.
+ */
+export const REG_STATUS_MILESTONE: Record<string, string> = {
+  SUBMITTED: "depot", // Déposé → étapes 1 à 12 (dépôt officiel) faites
+  AWAITING_ANPP: "depot", // en attente ANPP → le dépôt est forcément fait
+  RESPONDING_TO_QUERIES: "reserves_recv", // on répond aux réserves → elles sont reçues (1 à 15)
+  DECISION_OBTAINED: "decision", // décision obtenue → tout le processus est fait
+  CLOSED: "decision",
+};
+
+/**
+ * Marque « Fait » toutes les étapes JUSQU'AU jalon (incluses) qui ne le sont pas déjà — sans
+ * toucher aux étapes bloquées (le blocage est un signal humain) ni à celles d'après le jalon.
+ * Pur : rend le nouvel état + le nombre d'étapes complétées (0 = rien à faire).
+ */
+export function completeStepsThrough(
+  state: RegWorkflowState | null | undefined,
+  milestoneKey: string,
+  date?: string,
+): { state: RegWorkflowState; changed: number } {
+  const milestone = REG_STEPS.find((s) => s.key === milestoneKey);
+  const base: RegWorkflowState = { ...(state ?? {}) };
+  if (!milestone) return { state: base, changed: 0 };
+  const day = date ?? new Date().toISOString().slice(0, 10);
+  let changed = 0;
+  for (const step of REG_STEPS) {
+    if (step.n > milestone.n) break;
+    const cur = base[step.key]?.status ?? "TODO";
+    if (cur === "DONE" || cur === "BLOCKED") continue;
+    base[step.key] = { ...base[step.key], status: "DONE", date: base[step.key]?.date ?? day };
+    changed++;
+  }
+  return { state: base, changed };
+}
+
+/**
  * Étape qui marque le DÉBUT DU TRAITEMENT : étape 3 de la préparation, « Demande du BV 25 % »
  * (c.-à-d. la demande de BV de présoumission). Dès qu'elle — ou toute étape ultérieure — est
  * marquée « Fait », le dossier bascule de « Nouveau / non traité » vers « En cours de traitement ».

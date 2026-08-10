@@ -70,14 +70,17 @@ const COLS: Col[] = [
   { key: "therapeuticClass", header: "Classe thérapeutique", text: (r) => r.therapeuticClass },
   { key: "category", header: "Catégorie", text: (r) => lbl(REGULATORY_CATEGORY as never, r.category), raw: (r) => r.category, options: CATEGORY_OPTS },
   { key: "supplier", header: "Fournisseur", text: (r) => r.supplier },
+  // TITRES voulus par le métier : « Statut » = importation / packaging / full process (la
+  // profondeur industrielle), « Niveau de process » = pré-soumission / déposé / … (l'avancement
+  // de la procédure). Les contenus ne bougent pas — seuls les intitulés étaient inversés.
   {
-    key: "manufacturingStatus", header: "Niveau de process",
+    key: "manufacturingStatus", header: "Statut",
     text: (r) => MANUFACTURING_STATUS[r.manufacturingStatus] ?? r.manufacturingStatus,
     raw: (r) => r.manufacturingStatus, options: STAGE_OPTS,
     cell: (r) => <StageCell row={r} />,
   },
   { key: "priority", header: "Priorité", text: (r) => lbl(PRIORITY as never, r.priority), raw: (r) => r.priority, options: PRIORITY_OPTS },
-  { key: "status", header: "Statut", text: (r) => lbl(REGULATORY_STATUS as never, r.status), raw: (r) => r.status, options: STATUS_OPTS },
+  { key: "status", header: "Niveau de process", text: (r) => lbl(REGULATORY_STATUS as never, r.status), raw: (r) => r.status, options: STATUS_OPTS },
   { key: "responsible", header: "Responsable", text: (r) => r.responsible },
   { key: "targetSubmissionDate", header: "Date cible dépôt", text: (r) => r.targetSubmissionDate ?? "" },
   { key: "targetDate", header: "Date cible enreg.", text: (r) => r.targetDate ?? "" },

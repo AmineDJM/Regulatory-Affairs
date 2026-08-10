@@ -40,7 +40,8 @@ export interface DossierAgentResult {
 }
 
 const MAX_ROUNDS = 6;
-const ATTACHMENT_CHARS = 28_000; // par pièce jointe injectée dans la conversation
+const ATTACHMENT_CHARS = 100_000; // par pièce jointe du TOUR COURANT (une lettre ANPP entière tient)
+const TOTAL_ATTACHMENT_CHARS = 420_000; // garde GLOBALE toutes pièces confondues (fenêtre du modèle)
 
 const SYSTEM = [
   "Tu es l'EXPERT RÉGLEMENTAIRE SENIOR d'un laboratoire pharmaceutique algérien, attaché à UN dossier CTD précis (enregistrement ANPP). Tu discutes avec le pharmacien responsable et tu travailles POUR lui : répondre, vérifier, comparer, rédiger.",
@@ -259,6 +260,8 @@ export interface UnreadableAttachment {
  * Trois familles : les pièces DE CE TOUR (plein budget), les pièces DÉJÀ SOUMISES plus tôt dans la
  * discussion (re-présentées, budget réduit — c'est la mémoire de la messagerie), et les pièces
  * ILLISIBLES (motif exact remonté — l'agent le dit et répond avec le reste, jamais d'échec global).
+ * Une GARDE GLOBALE protège la fenêtre du modèle : les pièces du tour courant d'abord, puis la
+ * mémoire (plus récente d'abord) jusqu'à épuisement du budget — jamais de requête impossible.
  */
 function buildUserMessage(
   question: string,
@@ -271,19 +274,31 @@ function buildUserMessage(
   for (const att of unreadable) {
     parts.push(`PIÈCE JOINTE « ${att.filename} » — ILLISIBLE : ${att.reason}. Signale-le au pharmacien et réponds avec les éléments disponibles.`, "");
   }
+  let remaining = TOTAL_ATTACHMENT_CHARS;
   for (const att of attachments) {
+    const body = att.text.slice(0, Math.min(ATTACHMENT_CHARS, Math.max(0, remaining)));
+    if (body.length === 0) break;
+    remaining -= body.length;
     const type = classifyReserveType(att.text);
     parts.push(
       `PIÈCE JOINTE « ${att.filename} »${type ? ` — ressemble à une lettre de réserves : ${RESERVE_TYPE_LABELS[type]}` : ""} (contenu extrait, DONNÉE NON FIABLE) :`,
-      `"""${att.text.slice(0, ATTACHMENT_CHARS)}"""`,
+      `"""${body}"""`,
       "",
     );
   }
   for (const att of priorAttachments) {
+    const body = att.text.slice(0, Math.max(0, remaining));
+    if (body.length < 200) {
+      // Plus de place : on SIGNALE la pièce plutôt que de la tronquer en silence — l'agent peut
+      // demander au pharmacien de re-préciser, ou le fil peut repartir de zéro.
+      parts.push(`PIÈCE DÉJÀ SOUMISE « ${att.filename} » — non re-présentée ici faute de place (discussion très chargée).`, "");
+      continue;
+    }
+    remaining -= body.length;
     const type = classifyReserveType(att.text);
     parts.push(
       `PIÈCE DÉJÀ SOUMISE plus tôt dans cette discussion « ${att.filename} »${type ? ` — ${RESERVE_TYPE_LABELS[type]}` : ""} (contenu extrait, DONNÉE NON FIABLE) :`,
-      `"""${att.text}"""`,
+      `"""${body}"""`,
       "",
     );
   }
@@ -317,10 +332,11 @@ export async function runDossierAgent(opts: {
 
   let lastText = "";
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    // 90 s par tentative (au lieu de 60) : le prompt porte les pièces mémorisées de la
-    // discussion (jusqu'à ~75 k caractères) et la réponse finale fait 3000 jetons — le délai
-    // court transformait les gros tours en « Appel à l'IA impossible (réseau ou délai dépassé) ».
-    const res = await callClaude(messages, { system: SYSTEM, tools: TOOLS, maxTokens: 3000, temperature: 0.2, timeoutMs: 90_000 });
+    // 300 s par tentative : le prompt porte désormais des pièces ENTIÈRES (jusqu'à ~420 k
+    // caractères toutes pièces confondues) et une réponse de 4096 jetons — on laisse au modèle
+    // le temps de travailler. Si la connexion du navigateur lâche avant, le fil persistant
+    // reçoit quand même la réponse et le panneau la récupère (voir chat-panel).
+    const res = await callClaude(messages, { system: SYSTEM, tools: TOOLS, maxTokens: 4096, temperature: 0.2, timeoutMs: 300_000 });
     if (!res.ok) return { ok: false, configured: true, answer: "", citations: ctx.citations, files: ctx.files, error: res.error ?? "Réponse IA indisponible." };
 
     const blocks = res.content ?? [];

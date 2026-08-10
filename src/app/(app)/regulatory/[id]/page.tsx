@@ -245,10 +245,10 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
               <Info label="Dosage" value={dosageLabel} />
               <Info label="Forme" value={formLabel} />
               <Info label="Classe thérapeutique" value={product.therapeuticClass} />
-              {/* Niveau de process QUI FAIT FOI : une variation obtenue prime sur la déclaration
-                  de la fiche. On dit d'où vient la valeur, pour qu'elle ne soit jamais ambiguë. */}
+              {/* « Statut » (vocabulaire métier) = niveau industriel QUI FAIT FOI : une variation
+                  obtenue prime sur la déclaration de la fiche. On dit d'où vient la valeur. */}
               <Info
-                label="Niveau de process"
+                label="Statut"
                 value={`${MANUFACTURING_STATUS[stage.status] ?? stage.status}${stage.source === "VARIATION" ? " — acté par variation obtenue" : " — déclaré"}${stage.pendingTo ? ` · ${MANUFACTURING_STATUS[stage.pendingTo] ?? stage.pendingTo} en cours` : ""}`}
               />
               <Info label="Fournisseur" value={product.supplier?.name} />

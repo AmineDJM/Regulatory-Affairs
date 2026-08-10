@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { aiConfigured } from "@/lib/ai";
 import { extractFactsFromDocuments, type DocFactHit } from "./extract-facts";
 import { extractFactsWithAI, type AiFactDoc } from "./ai-facts";
+import { selectAmbiguousFacts, arbitrateAmbiguousFacts, type FactCandidate } from "./arbitrate-facts";
 import { factLabel } from "./facts-catalog";
 import { sectionByCode } from "../ctd/taxonomy";
 import { TEXTUAL_EXTRACTION_STATUSES } from "../extract/extract-text";
@@ -143,19 +144,53 @@ export async function buildTwinFacts(dossierVersionId: string): Promise<{ facts:
   const existing = await prisma.regulatoryFact.findMany({ where: { dossierVersionId }, select: { id: true, factKey: true, status: true } });
   const existingByKey = new Map(existing.map((f) => [f.factKey, f]));
 
+  // 1ᵉʳ passage : CANDIDATS par fait (valeur normalisée → score cumulé + extraits-preuves).
+  const candidatesByKey = new Map<string, FactCandidate[]>();
+  for (const [factKey, list] of byKey) {
+    const scoreByValue = new Map<string, FactCandidate>();
+    for (const h of list) {
+      const v = (h.normalizedValue ?? h.rawValue).toLowerCase().trim();
+      const cur = scoreByValue.get(v) ?? { rep: h.rawValue, score: 0, extracts: [] };
+      cur.score += h.confidence;
+      if (cur.extracts.length < 2 && h.extract) cur.extracts.push(h.extract);
+      scoreByValue.set(v, cur);
+    }
+    candidatesByKey.set(factKey, [...scoreByValue.values()].sort((a, b) => b.score - a.score));
+  }
+
+  // ARBITRAGE CONTEXTUEL : quand deux valeurs se disputent un fait (scores proches), les regex ne
+  // peuvent plus rien — seul le CONTEXTE des extraits départage (comparateur d'étude vs produit du
+  // dossier, posologie vs teneur…). Un appel IA borné choisit ; toute panne laisse le déterministe
+  // décider. Les faits déjà tranchés par un humain ne sont jamais soumis.
+  let arbitration = new Map<string, string>();
+  if (aiConfigured()) {
+    const ambiguous = selectAmbiguousFacts(
+      [...candidatesByKey.entries()]
+        .filter(([factKey]) => {
+          const prev = existingByKey.get(factKey);
+          return !prev || prev.status === "PROPOSED";
+        })
+        .map(([factKey, candidates]) => ({ factKey, label: factLabel(factKey), candidates })),
+    );
+    if (ambiguous.length > 0) {
+      const version = await prisma.regulatoryDossierVersion.findUnique({
+        where: { id: dossierVersionId },
+        select: { dossier: { select: { title: true, reference: true } } },
+      });
+      arbitration = await arbitrateAmbiguousFacts(
+        { title: version?.dossier.title ?? "", reference: version?.dossier.reference ?? null },
+        ambiguous,
+      );
+    }
+  }
+
   let factCount = 0;
   let occCount = 0;
 
   for (const [factKey, list] of byKey) {
-    // Valeur canonique = valeur (normalisée) cumulant la plus forte confiance.
-    const scoreByValue = new Map<string, { rep: string; score: number }>();
-    for (const h of list) {
-      const v = (h.normalizedValue ?? h.rawValue).toLowerCase().trim();
-      const cur = scoreByValue.get(v) ?? { rep: h.rawValue, score: 0 };
-      cur.score += h.confidence;
-      scoreByValue.set(v, cur);
-    }
-    const canonical = [...scoreByValue.values()].sort((a, b) => b.score - a.score)[0]?.rep ?? null;
+    // Valeur canonique : le choix ARBITRÉ s'il existe, sinon le meilleur score cumulé.
+    const candidates = candidatesByKey.get(factKey) ?? [];
+    const canonical = arbitration.get(factKey) ?? candidates[0]?.rep ?? null;
 
     const prev = existingByKey.get(factKey);
     const humanDecided = prev && prev.status !== "PROPOSED";
