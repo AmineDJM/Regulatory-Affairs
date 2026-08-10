@@ -39,6 +39,9 @@ import {
   userCan, accessibleModules, type Module,
   scopeMedicalDoctors, scopeRegulatory, scopeAdminRequests,
 } from "@/lib/rbac";
+import {
+  powerToolsFor, executePowerTool, powerToolLabels, powerToolsBriefing,
+} from "@/lib/assistant/power-tools";
 import type { CurrentUser } from "@/lib/session";
 import {
   ROLE_LABELS, TASK_STATUS, PRIORITY, ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS,
@@ -612,6 +615,9 @@ function systemPrompt(user: CurrentUser): string {
   // Le bot devient EXPERT du cadre réglementaire ANPP (Algérie) dès que l'utilisateur a
   // accès au module Regulatory — connaissance intégrée, réponses fondées sur les textes.
   const regExpertise = userCan(user, "REGULATORY", "VIEW") ? `\n\n${regulatoryKnowledgeDigest()}\n` : "";
+  // Sans cette annonce, le modèle IGNORE qu'il dispose des lectures chiffrées et continue de
+  // renvoyer vers les pages — précisément le défaut que ces outils corrigent.
+  const powers = powerToolsBriefing(user);
   return `Tu es « Assistant IA », l'assistant interne d'AMD Internal OS, l'outil de gestion d'Adventum Pharma
 (laboratoire pharmaceutique algérien ; devise DZD ; principal client la PCH — Pharmacie Centrale des Hôpitaux).
 Tu aides l'employé à comprendre l'application, à retrouver ses informations et à passer à l'action.
@@ -626,7 +632,7 @@ importante (popup=true, accusé de réception « J'ai compris »). Sers le pilot
 blocages, désigne les responsables, propose des relances. Les actions restent soumises à confirmation.
 ` : ""}
 CONTEXTE :
-${buildContext(user)}
+${buildContext(user)}${powers}
 
 CE QUE TU PEUX FAIRE :
 - Répondre aux questions sur le travail de l'utilisateur et sur l'application (modules, démarches, statuts).
@@ -728,6 +734,11 @@ async function resolvePerson(query: string): Promise<{ id: string; name: string 
 }
 
 export async function executeReadTool(name: string, input: Record<string, unknown>, user: CurrentUser): Promise<string> {
+  // Outils de POUVOIR (budget, finances, RH, file de décisions) : le droit est revérifié
+  // à l'exécution — la liste envoyée au modèle est une suggestion, pas une autorisation.
+  const power = await executePowerTool(name, input, user);
+  if (power !== null) return power;
+
   switch (name) {
     case "search_people": {
       const people = await findPeople(asStr(input, "query"));
@@ -918,6 +929,7 @@ export async function executeReadTool(name: string, input: Record<string, unknow
 }
 
 const READ_LABEL: Record<string, string> = {
+  ...powerToolLabels(),
   search_people: "Annuaire interne consulté",
   my_overview: "Espace de travail consulté",
   list_my_tasks: "Tâches consultées",
@@ -1496,6 +1508,10 @@ export async function runAssistant(
   // Le Super Admin dispose d'outils exclusifs (vision globale de tous les comptes).
   const tools = [
     ...READ_TOOLS,
+    // Lectures chiffrées (budget, finances, RH, file de décisions) ouvertes par les DROITS de
+    // cette personne — pas par son rôle. L'administrateur les a toutes ; un compte à qui l'on
+    // ouvre les Budgets gagne l'outil budget sans qu'on touche au code.
+    ...powerToolsFor(user),
     ...(user.role === "SUPER_ADMIN" ? [...SUPERADMIN_TOOLS, ...SUPERADMIN_WRITE_TOOLS] : []),
     ...WRITE_TOOLS,
   ];
@@ -1589,6 +1605,10 @@ export async function runAssistantStream(
     : systemPrompt(user);
   const tools = [
     ...READ_TOOLS,
+    // Lectures chiffrées (budget, finances, RH, file de décisions) ouvertes par les DROITS de
+    // cette personne — pas par son rôle. L'administrateur les a toutes ; un compte à qui l'on
+    // ouvre les Budgets gagne l'outil budget sans qu'on touche au code.
+    ...powerToolsFor(user),
     ...(user.role === "SUPER_ADMIN" ? [...SUPERADMIN_TOOLS, ...SUPERADMIN_WRITE_TOOLS] : []),
     ...WRITE_TOOLS,
   ];

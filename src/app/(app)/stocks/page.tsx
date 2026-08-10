@@ -2,7 +2,7 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getProductOptions } from "@/lib/queries/stock";
-import { currentCompanyWhere } from "@/lib/company";
+import { platformScope } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { StocksView, type SnapshotDTO } from "./stocks-view";
 
@@ -17,7 +17,11 @@ export default async function StocksPage() {
   const [products, locations, snapshots, users] = await Promise.all([
     getProductOptions(),
     prisma.stockAnnex.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, kind: true } }),
-    prisma.stockSnapshot.findMany({ where: { ...currentCompanyWhere() }, orderBy: { date: "asc" }, take: 5000 }),
+    // Portée VALIDÉE contre les droits, comme Finances et Ad & Pro : le cookie d'entité est une
+    // demande, pas une autorisation. Et elle laisse passer les relevés NON RATTACHÉS — un état
+    // de stock saisi sans entité doit rester visible (et corrigeable), pas disparaître du
+    // graphique dès qu'on sélectionne une société.
+    prisma.stockSnapshot.findMany({ where: await platformScope(user.id), orderBy: { date: "asc" }, take: 5000 }),
     prisma.user.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
   // Deux listes de lieux nommés (mêmes règles) : hôpitaux et annexes PCH.
