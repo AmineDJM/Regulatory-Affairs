@@ -55,6 +55,8 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   MISSION_ASSIGNMENT: "WORKSPACE",
   OFFICE_SUPPLY_ARTICLE: "ADMIN_REQUESTS",
   PCH_TENDER: "PCH",
+  // Justificatif d'une dépense imputée à un budget départemental.
+  DEPARTMENT_EXPENSE: "BUDGETS",
 };
 
 /**

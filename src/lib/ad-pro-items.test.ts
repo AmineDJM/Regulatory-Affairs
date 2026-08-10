@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, plannedGaps } from "./ad-pro-items";
+import { breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, plannedGaps } from "./ad-pro-items";
 
 /**
  * La ventilation décide de ce que la Direction voit et de ce que les Finances paient. Une
@@ -228,5 +228,38 @@ describe("canEmitOrder — un poste non accordé ne se paie pas", () => {
     expect(canEmitOrder({ amountGranted: 500, status: "PENDING" }, true).ok).toBe(false);
     expect(canEmitOrder({ amountGranted: 500, status: "REJECTED" }, true).ok).toBe(false);
     expect(canEmitOrder({ amountGranted: 500, status: "APPROVED" }, true).ok).toBe(true);
+  });
+});
+
+describe("canRemoveItem — retirer un poste sans effacer une pièce comptable", () => {
+  const direction = { canAllocate: true };
+  const editor = { canAllocate: false };
+
+  it("laisse retirer librement un poste sans ordre de dépense", () => {
+    expect(canRemoveItem({}, editor).ok).toBe(true);
+    expect(canRemoveItem({ expenseOrderId: null }, editor).ok).toBe(true);
+  });
+
+  it("réserve à la Direction le retrait d'un poste dont l'ordre est parti", () => {
+    const withOrder = { expenseOrderId: "eo1", expenseOrderStatus: "PENDING" };
+    expect(canRemoveItem(withOrder, editor).ok).toBe(false);
+    expect(canRemoveItem(withOrder, editor).reason).toMatch(/Direction/);
+    expect(canRemoveItem(withOrder, direction).ok).toBe(true);
+  });
+
+  it("refuse à TOUT LE MONDE de retirer un poste dont l'ordre est réglé", () => {
+    const paid = { expenseOrderId: "eo1", expenseOrderStatus: "PAID" };
+    expect(canRemoveItem(paid, direction).ok).toBe(false);
+    expect(canRemoveItem(paid, direction).reason).toMatch(/réglé/i);
+  });
+});
+
+describe("budgetKindLocked — on ne réécrit pas ce sur quoi la Direction s'est prononcée", () => {
+  it("verrouille la nature de budget une fois la décision rendue, pas avant", () => {
+    expect(budgetKindLocked({ status: "DRAFT" })).toBe(false);
+    expect(budgetKindLocked({ status: "PENDING" })).toBe(false);
+    expect(budgetKindLocked({ status: "REVISION" })).toBe(false);
+    expect(budgetKindLocked({ status: "APPROVED" })).toBe(true);
+    expect(budgetKindLocked({ status: "REJECTED" })).toBe(true);
   });
 });

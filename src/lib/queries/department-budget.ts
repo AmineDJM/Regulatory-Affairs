@@ -3,7 +3,7 @@ import { myCompanyScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import {
   mergeGrants, canViewDepartmentBudget, editableKindsOn, EMPTY_GRANT,
-  type DeptBudgetViewRow, type DeptBudgetGrant, type BudgetSetter, type GrantSubject,
+  type DeptBudgetViewRow, type DeptBudgetGrant, type BudgetSetter, type GrantSubject, type DeptBudgetKind,
 } from "@/lib/department-budget";
 
 /**
@@ -43,7 +43,7 @@ export async function getDepartmentBudgets(
   if (departments.length === 0) return [];
 
   const ids = departments.map((d) => d.id);
-  const [budgets, payroll, accessRows] = await Promise.all([
+  const [budgets, payroll, expenses, accessRows] = await Promise.all([
     prisma.departmentBudget.findMany({ where: { departmentId: { in: ids }, year }, select: { departmentId: true, kind: true, amount: true } }),
     // Masse salariale réelle : le BRUT de l'exercice, regroupé par employé puis reventilé sur
     // son département (la paie ne connaît que l'employé).
@@ -51,6 +51,13 @@ export async function getDepartmentBudgets(
       by: ["employeeId"],
       where: { year, employee: { departmentId: { in: ids } } },
       _sum: { gross: true },
+    }),
+    // Moyens généraux et budget métier : la consommation RÉELLE, imputée dépense par dépense.
+    // La page affichait jusqu'ici une colonne vide faute de source ; il y en a une désormais.
+    prisma.departmentBudgetExpense.groupBy({
+      by: ["departmentId", "kind"],
+      where: { departmentId: { in: ids }, year },
+      _sum: { amount: true },
     }),
     // Autorisations : celles des départements affichés + la règle GÉNÉRALE (departmentId null).
     prisma.departmentBudgetAccess.findMany({
@@ -68,17 +75,24 @@ export async function getDepartmentBudgets(
     consumedByDept.set(dept, (consumedByDept.get(dept) ?? 0) + toNumber(p._sum.gross ?? 0));
   }
 
+  const spentByDeptKind = new Map<string, number>();
+  for (const e of expenses) {
+    spentByDeptKind.set(`${e.departmentId}:${e.kind}`, toNumber(e._sum.amount ?? 0));
+  }
+
   const asGrant = (r: (typeof accessRows)[number]): DeptBudgetGrant => ({
     accessRoles: r.accessRoles, accessUserIds: r.accessUserIds,
     operatingRoles: r.operatingRoles, operatingUserIds: r.operatingUserIds,
     hrRoles: r.hrRoles, hrUserIds: r.hrUserIds,
+    activityRoles: r.activityRoles, activityUserIds: r.activityUserIds,
   });
   const general = accessRows.find((r) => r.departmentId === null);
   const ownById = new Map(accessRows.filter((r) => r.departmentId).map((r) => [r.departmentId!, r]));
   const generalGrant = general ? asGrant(general) : null;
 
-  const amountOf = (deptId: string, kind: "OPERATING" | "HR") =>
+  const amountOf = (deptId: string, kind: DeptBudgetKind) =>
     toNumber(budgets.find((b) => b.departmentId === deptId && b.kind === kind)?.amount ?? 0);
+  const spentOf = (deptId: string, kind: DeptBudgetKind) => spentByDeptKind.get(`${deptId}:${kind}`) ?? 0;
 
   // Chemin complet : deux sous-départements « Ville » de deux pôles différents ne doivent pas
   // se confondre dans un tableau de budgets.
@@ -109,11 +123,14 @@ export async function getDepartmentBudgets(
         members: d.members.length,
         operating: amountOf(d.id, "OPERATING"),
         hr: amountOf(d.id, "HR"),
+        activity: amountOf(d.id, "ACTIVITY"),
         hrConsumed: consumedByDept.get(d.id) ?? 0,
-        editable: editableKindsOn(subject, rights, grant),
+        operatingConsumed: spentOf(d.id, "OPERATING"),
+        activityConsumed: spentOf(d.id, "ACTIVITY"),
+        editable: editableKindsOn(subject, rights, grant, d.id),
         grant: own ? asGrant(own) : EMPTY_GRANT,
         hasOwnRule: Boolean(own),
-        _visible: canViewDepartmentBudget(subject, rights, grant, canViewBudgetsModule),
+        _visible: canViewDepartmentBudget(subject, rights, grant, canViewBudgetsModule, d.id),
       };
     })
     // On ne montre pas une ligne qu'on n'a pas le droit de voir : filtrer ICI plutôt qu'à
@@ -131,6 +148,7 @@ export async function getGeneralBudgetAccess(): Promise<DeptBudgetGrant> {
     accessRoles: r.accessRoles, accessUserIds: r.accessUserIds,
     operatingRoles: r.operatingRoles, operatingUserIds: r.operatingUserIds,
     hrRoles: r.hrRoles, hrUserIds: r.hrUserIds,
+    activityRoles: r.activityRoles, activityUserIds: r.activityUserIds,
   };
 }
 
@@ -147,7 +165,9 @@ export async function hasAnyDepartmentBudgetGrant(user: GrantSubject): Promise<b
     where: {
       OR: [
         { accessUserIds: { has: user.id } }, { operatingUserIds: { has: user.id } }, { hrUserIds: { has: user.id } },
+        { activityUserIds: { has: user.id } },
         { accessRoles: { hasSome: roles } }, { operatingRoles: { hasSome: roles } }, { hrRoles: { hasSome: roles } },
+        { activityRoles: { hasSome: roles } },
       ],
     },
   });

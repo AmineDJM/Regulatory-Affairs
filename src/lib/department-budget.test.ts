@@ -30,11 +30,11 @@ describe("canSetDepartmentBudget", () => {
 
   it("le Super Admin arbitre les deux", () => {
     const sa = setter({ role: "SUPER_ADMIN" });
-    expect(settableKinds(sa)).toEqual(["OPERATING", "HR"]);
+    expect(settableKinds(sa)).toEqual(["OPERATING", "HR", "ACTIVITY"]);
   });
 
   it("quelqu'un qui cumule les deux fonctions règle les deux", () => {
-    expect(settableKinds(setter({ canManageBudgets: true, canManageHr: true }))).toEqual(["OPERATING", "HR"]);
+    expect(settableKinds(setter({ canManageBudgets: true, canManageHr: true }))).toEqual(["OPERATING", "HR", "ACTIVITY"]);
   });
 
   it("sans droit, aucune case n'est modifiable", () => {
@@ -98,14 +98,19 @@ describe("consumedPercent", () => {
 describe("totals", () => {
   it("additionne les colonnes du tableau", () => {
     const rows: DeptBudgetRow[] = [
-      { departmentId: "a", departmentName: "A", path: "A", companyName: null, members: 3, operating: 100, hr: 900, hrConsumed: 500 },
-      { departmentId: "b", departmentName: "B", path: "B", companyName: null, members: 2, operating: 50, hr: 400, hrConsumed: 410 },
+      { departmentId: "a", departmentName: "A", path: "A", companyName: null, members: 3, operating: 100, hr: 900, activity: 200, hrConsumed: 500, operatingConsumed: 60, activityConsumed: 10 },
+      { departmentId: "b", departmentName: "B", path: "B", companyName: null, members: 2, operating: 50, hr: 400, activity: 25, hrConsumed: 410, operatingConsumed: 15, activityConsumed: 5 },
     ];
-    expect(totals(rows)).toEqual({ operating: 150, hr: 1300, hrConsumed: 910, members: 5 });
+    expect(totals(rows)).toEqual({
+      operating: 150, hr: 1300, activity: 225,
+      hrConsumed: 910, operatingConsumed: 75, activityConsumed: 15, members: 5,
+    });
   });
 
   it("rend des zéros sur un tableau vide plutôt que NaN", () => {
-    expect(totals([])).toEqual({ operating: 0, hr: 0, hrConsumed: 0, members: 0 });
+    expect(totals([])).toEqual({
+      operating: 0, hr: 0, activity: 0, hrConsumed: 0, operatingConsumed: 0, activityConsumed: 0, members: 0,
+    });
   });
 });
 
@@ -169,7 +174,7 @@ describe("canEditDepartmentBudget", () => {
 
   it("editableKindsOn cumule socle et autorisations", () => {
     const admin = setter({ canManageBudgets: true });
-    expect(editableKindsOn(subj(), admin, grant({ hrUserIds: ["u1"] }))).toEqual(["OPERATING", "HR"]);
+    expect(editableKindsOn(subj(), admin, grant({ hrUserIds: ["u1"] }))).toEqual(["OPERATING", "HR", "ACTIVITY"]);
   });
 });
 

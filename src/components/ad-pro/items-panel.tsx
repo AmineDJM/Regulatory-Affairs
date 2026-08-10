@@ -3,13 +3,13 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Loader2, CheckCircle2, XCircle, Receipt, Link2, AlertTriangle, ExternalLink, Send, FileText, Wallet, ThumbsUp, ThumbsDown, RotateCcw, History } from "lucide-react";
+import { Plus, Trash2, Loader2, CheckCircle2, XCircle, Receipt, Link2, AlertTriangle, ExternalLink, Send, FileText, Wallet, ThumbsUp, ThumbsDown, RotateCcw, History, Pencil, X } from "lucide-react";
 import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind, AdProItemOrderStage } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
-  breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, plannedGaps,
+  breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, plannedGaps,
   ITEM_KINDS, ITEM_KIND_LABELS, ITEM_STATUS_LABELS, ITEM_BUDGET_KIND_LABELS, ITEM_ORDER_STAGE_LABELS,
   type AdProParent,
 } from "@/lib/ad-pro-items";
@@ -102,6 +102,7 @@ export function AdProItemsPanel({
   const [busy, setBusy] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [adding, setAdding] = React.useState(false);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
   const lock = React.useRef(false);
 
   const b = breakdown(items, amountGranted);
@@ -191,6 +192,11 @@ export function AdProItemsPanel({
         <ul className="divide-y divide-border">
           {items.map((it) => {
             const emit = canEmitOrder(it, decided);
+            const removable = canRemoveItem(
+              { expenseOrderId: it.expenseOrderId, expenseOrderStatus: it.expenseOrder?.status ?? null },
+              { canAllocate },
+            );
+            const editing = editingId === it.id;
             return (
               <li key={it.id} className="space-y-2 py-3">
                 <div className="flex flex-wrap items-start gap-2">
@@ -201,7 +207,32 @@ export function AdProItemsPanel({
                   {it.addedAfterDecision && (
                     <Badge tone="warning" dot={false}>ajouté après décision</Badge>
                   )}
+                  {canEdit && (
+                    <button
+                      onClick={() => setEditingId(editing ? null : it.id)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary"
+                    >
+                      {editing ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />} {editing ? "Fermer" : "Modifier"}
+                    </button>
+                  )}
                 </div>
+
+                {/* ÉDITION DU POSTE — libellé, fournisseur, note, estimation, nature de budget.
+                    Ces champs DÉCRIVENT la dépense, ils ne l'engagent pas : les corriger après
+                    l'émission d'un bon de commande est légitime (« Lotus Media » mal orthographié
+                    doit pouvoir se réparer). Seul le montant AFFECTÉ se verrouille avec l'ordre
+                    de dépense, parce que lui seul a été transmis aux Finances. */}
+                {editing && (
+                  <EditItemForm
+                    item={it}
+                    busy={busy === `edit:${it.id}`}
+                    onCancel={() => setEditingId(null)}
+                    onSave={(fd) => {
+                      fd.set("id", it.id);
+                      void run(`edit:${it.id}`, () => updateAdProItem(undefined, fd), "Poste modifié.").then(() => setEditingId(null));
+                    }}
+                  />
+                )}
 
                 {(it.notes || it.supplier) && (
                   <p className="text-xs text-muted-foreground">
@@ -302,15 +333,21 @@ export function AdProItemsPanel({
                   {!it.expenseOrder && canAllocate && !emit.ok && (
                     <span className="text-[0.6875rem] text-muted-foreground">{emit.reason}</span>
                   )}
-                  {canEdit && !it.expenseOrderId && (
+                  {/* RETIRER — libre tant qu'aucun ordre n'est parti aux Finances ; réservé à la
+                      Direction ensuite, avec annulation de l'ordre (et jamais si déjà réglé). */}
+                  {canEdit && removable.ok && (
                     <button
                       onClick={() => {
+                        if (it.expenseOrderId && !window.confirm(
+                          `Retirer ce poste annulera l'ordre de dépense ${it.expenseOrder?.reference ?? ""} transmis aux Finances. Continuer ?`,
+                        )) return;
                         const fd = new FormData();
                         fd.set("id", it.id);
                         void run(`del:${it.id}`, () => deleteAdProItem(undefined, fd), "Poste retiré.");
                       }}
                       disabled={busy === `del:${it.id}`}
                       className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      title={it.expenseOrderId ? "L'ordre de dépense sera annulé" : undefined}
                     >
                       <Trash2 className="h-3.5 w-3.5" /> Retirer
                     </button>
@@ -435,6 +472,88 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
       <div className="flex gap-2">
         <Button size="sm" type="submit" disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Ajouter
+        </Button>
+        <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * MODIFIER UN POSTE — ce qui le DÉCRIT, pas ce qui l'engage.
+ *
+ * Le panneau ne savait rien corriger : une fois le poste créé, un fournisseur mal orthographié,
+ * une estimation dépassée ou un libellé approximatif restaient là pour toujours. C'était
+ * d'autant plus gênant que ces champs ne portent aucun engagement financier — seul le montant
+ * AFFECTÉ a été transmis aux Finances, et lui seul se verrouille avec l'ordre de dépense.
+ *
+ * La nature de budget (inclus / rallonge) reste modifiable tant que la Direction n'a pas
+ * tranché : après, c'est sur quoi elle s'est prononcée.
+ */
+function EditItemForm({ item, busy, onCancel, onSave }: {
+  item: ItemRow; busy: boolean; onCancel: () => void; onSave: (fd: FormData) => void;
+}) {
+  const budgetLocked = budgetKindLocked(item);
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); onSave(new FormData(e.currentTarget)); }}
+      className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
+    >
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="text-xs">
+          Nature
+          <select name="kind" defaultValue={item.kind} className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60">
+            {ITEM_KINDS.map((k) => <option key={k} value={k}>{ITEM_KIND_LABELS[k]}</option>)}
+          </select>
+        </label>
+        <label className="text-xs">
+          Libellé
+          <input name="label" required defaultValue={item.label} className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
+        </label>
+        <label className="text-xs">
+          Payé à
+          <input name="supplier" defaultValue={item.supplier ?? ""} placeholder="Organisateur, agence, association…" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
+        </label>
+        <label className="text-xs">
+          Montant estimé (DZD)
+          <input name="amountEstimated" type="number" min="0" step="1000" defaultValue={item.amountEstimated ?? ""} className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular-nums outline-none focus:border-primary/60" />
+        </label>
+      </div>
+      <label className="block text-xs">
+        Précisions
+        <input name="notes" defaultValue={item.notes ?? ""} placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
+      </label>
+
+      {budgetLocked ? (
+        <p className="text-[0.6875rem] text-muted-foreground">
+          La Direction a tranché : la nature du budget ({ITEM_BUDGET_KIND_LABELS[item.budgetKind]}) ne change plus —
+          c&apos;est sur elle qu&apos;elle s&apos;est prononcée.
+        </p>
+      ) : (
+        <fieldset className="rounded-lg border border-border p-2.5">
+          <legend className="px-1 text-xs text-muted-foreground">Ce poste est-il couvert par le budget accordé ?</legend>
+          <div className="flex flex-wrap gap-3 text-sm">
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="budgetKind" value="INCLUDED" defaultChecked={item.budgetKind === "INCLUDED"} /> Inclus dans le budget accordé
+            </label>
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="budgetKind" value="ADDITIONAL" defaultChecked={item.budgetKind === "ADDITIONAL"} /> Budget supplémentaire (rallonge)
+            </label>
+          </div>
+        </fieldset>
+      )}
+
+      {item.expenseOrderId && (
+        <p className="flex items-start gap-1.5 text-[0.6875rem] text-muted-foreground">
+          <AlertTriangle className="mt-px h-3 w-3 shrink-0 text-warning" />
+          Un ordre de dépense a été émis : le <strong>montant affecté</strong> ne change plus. Le reste
+          se corrige librement.
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <Button size="sm" type="submit" disabled={busy}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer
         </Button>
         <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
       </div>

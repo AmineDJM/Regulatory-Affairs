@@ -39,6 +39,7 @@ async function grantFor(departmentId: string): Promise<DeptBudgetGrant> {
       accessRoles: r.accessRoles, accessUserIds: r.accessUserIds,
       operatingRoles: r.operatingRoles, operatingUserIds: r.operatingUserIds,
       hrRoles: r.hrRoles, hrUserIds: r.hrUserIds,
+      activityRoles: r.activityRoles, activityUserIds: r.activityUserIds,
     } : null;
   return mergeGrants(pick(rows.find((r) => r.departmentId === null)), pick(rows.find((r) => r.departmentId === departmentId)));
 }

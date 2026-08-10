@@ -1,34 +1,45 @@
 /**
  * BUDGET PAR DÉPARTEMENT — qui règle quoi.
  *
- * Deux natures de budget, et surtout **deux responsables distincts** :
+ * **Trois** natures de budget, et surtout **trois responsables distincts** :
  *
- *   • `OPERATING` — le fonctionnement du département, **hors employés** (déplacements,
- *     matériel, prestations). C'est l'ADMINISTRATEUR qui le règle ;
- *   • `HR` — la masse salariale et le recrutement. C'est le service RESSOURCES HUMAINES.
+ *   • `OPERATING` — les MOYENS GÉNÉRAUX du département (fournitures, prestations,
+ *     déplacements). C'est le DIRECTEUR DU DÉPARTEMENT qui les tient, l'administration qui
+ *     les dote ;
+ *   • `HR` — la MASSE SALARIALE et le recrutement. Les RESSOURCES HUMAINES, exclusivement ;
+ *   • `ACTIVITY` — le budget MÉTIER, celui de l'activité propre du département : Ad & Pro
+ *     pour le marketing, paiement des BV pour le Regulatory, etc.
  *
  * La séparation n'est pas cosmétique. Un directeur administratif n'a pas à connaître la masse
- * salariale d'un département pour lui accorder un budget de déplacement, et les RH n'ont pas à
- * arbitrer ses achats. Le modèle porte donc une ligne par (département, année, nature), si bien
- * que les deux responsables **n'écrivent jamais la même ligne** — l'un ne peut pas écraser
- * l'autre, même par erreur.
+ * salariale d'un département pour lui accorder des fournitures, les RH n'ont pas à arbitrer
+ * ses achats, et le budget métier ne se confond pas avec le fonctionnement — le premier
+ * finance ce que le département PRODUIT, le second ce qu'il consomme pour exister. Le modèle
+ * porte une ligne par (département, année, nature), si bien que les responsables **n'écrivent
+ * jamais la même ligne** — l'un ne peut pas écraser l'autre, même par erreur.
+ *
+ * ⚠️ **Personne ne s'accorde son propre budget.** Celui qui gère une nature peut la RÉGLER
+ * quand l'administration lui en a donné le pouvoir, mais l'augmentation passe par une DEMANDE
+ * (dotation ou rallonge) tranchée par l'administration : c'est ce qui rend vérifiable la règle
+ * « budget fixé par les RH, validé par l'administration », au lieu d'en faire un usage.
  *
  * Ce fichier ne contient que des fonctions PURES : la décision « qui a le droit de régler
  * quoi » doit se lire et se tester sans base de données.
  */
 
-export type DeptBudgetKind = "OPERATING" | "HR";
+export type DeptBudgetKind = "OPERATING" | "HR" | "ACTIVITY";
 
-export const DEPT_BUDGET_KINDS: readonly DeptBudgetKind[] = ["OPERATING", "HR"];
+export const DEPT_BUDGET_KINDS: readonly DeptBudgetKind[] = ["OPERATING", "HR", "ACTIVITY"];
 
 export const DEPT_BUDGET_LABEL: Record<DeptBudgetKind, string> = {
-  OPERATING: "Fonctionnement (hors employés)",
-  HR: "Employés & recrutement",
+  OPERATING: "Moyens généraux",
+  HR: "Masse salariale",
+  ACTIVITY: "Budget métier (activité)",
 };
 
 export const DEPT_BUDGET_HINT: Record<DeptBudgetKind, string> = {
-  OPERATING: "Réglé par l'administrateur : déplacements, matériel, prestations — tout sauf la masse salariale.",
-  HR: "Réglé par les ressources humaines : salaires, charges et recrutement du département.",
+  OPERATING: "Tenu par le directeur du département : fournitures, prestations, déplacements — tout sauf la masse salariale.",
+  HR: "Réservé aux ressources humaines : salaires, charges et recrutement du département.",
+  ACTIVITY: "L'activité propre du département : Ad & Pro pour le marketing, paiement des BV pour le Regulatory…",
 };
 
 /** Ce qu'on sait de la personne qui veut régler un budget. */
@@ -39,6 +50,13 @@ export interface BudgetSetter {
   canManageBudgets: boolean;
   /** Droit RH/UPDATE — le service du personnel. */
   canManageHr: boolean;
+  /**
+   * Départements dont cette personne est le RESPONSABLE (ou l'adjoint) — résolus depuis
+   * l'organigramme. C'est ce qui lui ouvre les moyens généraux et le budget métier DE SON
+   * département, et de lui seul : « le directeur tient ses moyens généraux » ne peut pas se
+   * dire par un rôle, puisque chaque directeur en a un différent.
+   */
+  headOfDepartmentIds?: string[];
 }
 
 /** Le Super Admin arbitre partout : c'est le seul rôle qui n'a pas à se voir refuser une case. */
@@ -93,11 +111,22 @@ export interface DeptBudgetGrant {
   operatingUserIds: string[];
   hrRoles: string[];
   hrUserIds: string[];
+  /** Budget MÉTIER : listes propres — ouvrir les moyens généraux n'ouvre pas l'activité. */
+  activityRoles: string[];
+  activityUserIds: string[];
 }
 
 export const EMPTY_GRANT: DeptBudgetGrant = {
   accessRoles: [], accessUserIds: [], operatingRoles: [], operatingUserIds: [], hrRoles: [], hrUserIds: [],
+  activityRoles: [], activityUserIds: [],
 };
+
+/** Les listes nommées qui ouvrent l'ÉDITION de chaque nature. */
+function namedListsFor(kind: DeptBudgetKind, g: DeptBudgetGrant): { roles: string[]; userIds: string[] } {
+  if (kind === "HR") return { roles: g.hrRoles, userIds: g.hrUserIds };
+  if (kind === "ACTIVITY") return { roles: g.activityRoles, userIds: g.activityUserIds };
+  return { roles: g.operatingRoles, userIds: g.operatingUserIds };
+}
 
 /** Ce qu'on sait de la personne dont on évalue les autorisations. */
 export interface GrantSubject {
@@ -125,6 +154,8 @@ export function mergeGrants(general: DeptBudgetGrant | null, own: DeptBudgetGran
     operatingUserIds: u(general?.operatingUserIds, own?.operatingUserIds),
     hrRoles: u(general?.hrRoles, own?.hrRoles),
     hrUserIds: u(general?.hrUserIds, own?.hrUserIds),
+    activityRoles: u(general?.activityRoles, own?.activityRoles),
+    activityUserIds: u(general?.activityUserIds, own?.activityUserIds),
   };
 }
 
@@ -139,32 +170,90 @@ export function canViewDepartmentBudget(
   user: BudgetSetter,
   grant: DeptBudgetGrant,
   canViewBudgetsModule: boolean,
+  departmentId?: string | null,
 ): boolean {
-  if (canEditAnyKind(subject, user, grant)) return true;
+  if (canEditAnyKind(subject, user, grant, departmentId)) return true;
   if (canViewBudgetsModule) return true;
   return named(subject, grant.accessRoles, grant.accessUserIds);
 }
 
-/** Peut-on ÉDITER cette nature sur ce département : le socle par rôle OU une autorisation. */
+/**
+ * Cette personne DIRIGE-T-ELLE ce département (responsable ou adjoint) ?
+ *
+ * C'est ce qui lui ouvre les moyens généraux et le budget métier de SON département — et de
+ * lui seul. Aucun rôle ne peut porter cette règle : chaque directeur a un département
+ * différent, et « directeur » n'est pas un rôle de la matrice mais une place dans
+ * l'organigramme.
+ */
+export function isDepartmentDirector(user: BudgetSetter, departmentId: string | null | undefined): boolean {
+  if (!departmentId) return false;
+  return (user.headOfDepartmentIds ?? []).includes(departmentId);
+}
+
+/**
+ * Peut-on ÉDITER cette nature sur CE département ?
+ *
+ * Trois portes, dans cet ordre : le socle par rôle (administration, RH), la direction du
+ * département (moyens généraux et budget métier — jamais la masse salariale, qui reste aux
+ * RH), et enfin les personnes nommées par le Super Admin sur ce département.
+ *
+ * `departmentId` est facultatif pour ne pas casser les appels historiques, mais sans lui la
+ * porte « directeur » ne peut évidemment pas s'ouvrir.
+ */
 export function canEditDepartmentBudget(
   subject: GrantSubject,
   user: BudgetSetter,
   kind: DeptBudgetKind,
   grant: DeptBudgetGrant,
+  departmentId?: string | null,
 ): boolean {
   if (canSetDepartmentBudget(user, kind)) return true;
-  return kind === "HR"
-    ? named(subject, grant.hrRoles, grant.hrUserIds)
-    : named(subject, grant.operatingRoles, grant.operatingUserIds);
+  // Le directeur tient SES moyens généraux et SON budget métier. La masse salariale, non :
+  // « gérée exclusivement par les ressources humaines » ne souffre pas d'exception locale.
+  if (kind !== "HR" && isDepartmentDirector(user, departmentId)) return true;
+  const lists = namedListsFor(kind, grant);
+  return named(subject, lists.roles, lists.userIds);
 }
 
-function canEditAnyKind(subject: GrantSubject, user: BudgetSetter, grant: DeptBudgetGrant): boolean {
-  return DEPT_BUDGET_KINDS.some((k) => canEditDepartmentBudget(subject, user, k, grant));
+function canEditAnyKind(
+  subject: GrantSubject, user: BudgetSetter, grant: DeptBudgetGrant, departmentId?: string | null,
+): boolean {
+  return DEPT_BUDGET_KINDS.some((k) => canEditDepartmentBudget(subject, user, k, grant, departmentId));
 }
 
-/** Les natures éditables sur CE département (socle + autorisations). */
-export function editableKindsOn(subject: GrantSubject, user: BudgetSetter, grant: DeptBudgetGrant): DeptBudgetKind[] {
-  return DEPT_BUDGET_KINDS.filter((k) => canEditDepartmentBudget(subject, user, k, grant));
+/** Les natures éditables sur CE département (socle + direction + autorisations). */
+export function editableKindsOn(
+  subject: GrantSubject, user: BudgetSetter, grant: DeptBudgetGrant, departmentId?: string | null,
+): DeptBudgetKind[] {
+  return DEPT_BUDGET_KINDS.filter((k) => canEditDepartmentBudget(subject, user, k, grant, departmentId));
+}
+
+/**
+ * Peut-on DEMANDER une dotation ou une rallonge sur ce département ?
+ *
+ * Plus large que l'édition, et volontairement : demander n'est pas décider. Quiconque voit le
+ * budget peut dire « il en manque » — c'est l'administration qui tranche. Refuser la demande à
+ * ceux qui ne peuvent pas éditer reviendrait à exiger qu'ils passent par un couloir, ce qui ne
+ * laisse aucune trace.
+ */
+export function canRequestDepartmentBudget(
+  subject: GrantSubject,
+  user: BudgetSetter,
+  grant: DeptBudgetGrant,
+  canViewBudgetsModule: boolean,
+  departmentId?: string | null,
+): boolean {
+  return canViewDepartmentBudget(subject, user, grant, canViewBudgetsModule, departmentId);
+}
+
+/**
+ * Peut-on ACCORDER une dotation / rallonge ? L'administration, et elle seule.
+ *
+ * C'est le cœur de « fixé par les RH, validé par l'administration » : si celui qui demande
+ * pouvait aussi accorder, la validation ne serait qu'un mot.
+ */
+export function canDecideDepartmentBudgetRequest(user: BudgetSetter): boolean {
+  return isSuperAdmin(user) || user.canManageBudgets;
 }
 
 /** Régler les autorisations est une prérogative du Super Admin, et de lui seul. */
@@ -222,8 +311,23 @@ export interface DeptBudgetRow {
   members: number;
   operating: number;
   hr: number;
+  activity: number;
   /** Masse salariale RÉELLE de l'année, calculée depuis la paie. */
   hrConsumed: number;
+  /** Moyens généraux RÉELLEMENT consommés — dépenses imputées, avec justificatif. */
+  operatingConsumed: number;
+  /** Budget métier RÉELLEMENT consommé. */
+  activityConsumed: number;
+}
+
+/** Le montant alloué d'une nature, sur une ligne. */
+export function allocatedOf(row: DeptBudgetRow, kind: DeptBudgetKind): number {
+  return kind === "HR" ? row.hr : kind === "ACTIVITY" ? row.activity : row.operating;
+}
+
+/** Le montant consommé d'une nature, sur une ligne. */
+export function consumedOf(row: DeptBudgetRow, kind: DeptBudgetKind): number {
+  return kind === "HR" ? row.hrConsumed : kind === "ACTIVITY" ? row.activityConsumed : row.operatingConsumed;
 }
 
 /**
@@ -240,15 +344,28 @@ export interface DeptBudgetViewRow extends DeptBudgetRow {
   hasOwnRule: boolean;
 }
 
+export interface DeptBudgetTotals {
+  operating: number;
+  hr: number;
+  activity: number;
+  hrConsumed: number;
+  operatingConsumed: number;
+  activityConsumed: number;
+  members: number;
+}
+
 /** Totaux d'un tableau de départements — ce qui se lit en bas de colonne. */
-export function totals(rows: DeptBudgetRow[]): { operating: number; hr: number; hrConsumed: number; members: number } {
-  return rows.reduce(
+export function totals(rows: DeptBudgetRow[]): DeptBudgetTotals {
+  return rows.reduce<DeptBudgetTotals>(
     (a, r) => ({
       operating: a.operating + r.operating,
       hr: a.hr + r.hr,
+      activity: a.activity + r.activity,
       hrConsumed: a.hrConsumed + r.hrConsumed,
+      operatingConsumed: a.operatingConsumed + r.operatingConsumed,
+      activityConsumed: a.activityConsumed + r.activityConsumed,
       members: a.members + r.members,
     }),
-    { operating: 0, hr: 0, hrConsumed: 0, members: 0 },
+    { operating: 0, hr: 0, activity: 0, hrConsumed: 0, operatingConsumed: 0, activityConsumed: 0, members: 0 },
   );
 }

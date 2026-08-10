@@ -376,6 +376,7 @@ enum EntityType {
   MISSION_ASSIGNMENT
   OFFICE_SUPPLY_ARTICLE
   PCH_TENDER
+  DEPARTMENT_EXPENSE
 }
 
 enum DocumentCategory {
@@ -602,11 +603,13 @@ model Department {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  members       Employee[]              @relation("DepartmentMembers")
-  users         User[]
-  adminRequests AdministrativeRequest[]
-  budgets       DepartmentBudget[]
-  budgetAccess  DepartmentBudgetAccess?
+  members        Employee[]                @relation("DepartmentMembers")
+  users          User[]
+  adminRequests  AdministrativeRequest[]
+  budgets        DepartmentBudget[]
+  budgetAccess   DepartmentBudgetAccess?
+  budgetRequests DepartmentBudgetRequest[]
+  budgetExpenses DepartmentBudgetExpense[]
 
   @@unique([companyId, name])
   @@index([parentId])
@@ -827,22 +830,25 @@ model User {
   calendarInvites    CalendarInvite[]    @relation("CalendarInvitee")
 
   // RH & espace de travail
-  employee               Employee?                @relation("UserEmployee")
-  promotedFeatures       FeatureFlag[]            @relation("FeaturePromoter")
-  departmentBudgets      DepartmentBudget[]       @relation("DepartmentBudgetSetter")
-  departmentBudgetAccess DepartmentBudgetAccess[] @relation("DepartmentBudgetAccessSetter")
-  assistantThreads       AssistantThread[]        @relation("AssistantThreads")
-  assistantMemory        AssistantMemory?         @relation("AssistantMemory")
-  dailyBriefs            DailyBrief[]             @relation("DailyBriefs")
-  outboundEmails         OutboundEmail[]          @relation("OutboundEmails")
-  tasksAssigned          Task[]                   @relation("TaskAssignee")
-  tasksCreated           Task[]                   @relation("TaskCreator")
-  leaveDecisions         LeaveRequest[]           @relation("LeaveDecider")
-  advanceDecisions       SalaryAdvance[]          @relation("AdvanceDecider")
-  expenseOrders          ExpenseOrder[]           @relation("ExpenseOrderRequester")
-  driveNodes             DriveNode[]              @relation("DriveOwner")
-  driveShares            DriveShare[]             @relation("DriveShareUser")
-  driveComments          DriveComment[]           @relation("DriveCommentAuthor")
+  employee               Employee?                 @relation("UserEmployee")
+  promotedFeatures       FeatureFlag[]             @relation("FeaturePromoter")
+  departmentBudgets      DepartmentBudget[]        @relation("DepartmentBudgetSetter")
+  departmentBudgetAccess DepartmentBudgetAccess[]  @relation("DepartmentBudgetAccessSetter")
+  deptBudgetRequests     DepartmentBudgetRequest[] @relation("DeptBudgetRequester")
+  deptBudgetDecisions    DepartmentBudgetRequest[] @relation("DeptBudgetDecider")
+  deptBudgetExpenses     DepartmentBudgetExpense[] @relation("DeptExpenseCreator")
+  assistantThreads       AssistantThread[]         @relation("AssistantThreads")
+  assistantMemory        AssistantMemory?          @relation("AssistantMemory")
+  dailyBriefs            DailyBrief[]              @relation("DailyBriefs")
+  outboundEmails         OutboundEmail[]           @relation("OutboundEmails")
+  tasksAssigned          Task[]                    @relation("TaskAssignee")
+  tasksCreated           Task[]                    @relation("TaskCreator")
+  leaveDecisions         LeaveRequest[]            @relation("LeaveDecider")
+  advanceDecisions       SalaryAdvance[]           @relation("AdvanceDecider")
+  expenseOrders          ExpenseOrder[]            @relation("ExpenseOrderRequester")
+  driveNodes             DriveNode[]               @relation("DriveOwner")
+  driveShares            DriveShare[]              @relation("DriveShareUser")
+  driveComments          DriveComment[]            @relation("DriveCommentAuthor")
 
   // Demandes administratives
   adminRequests           AdministrativeRequest[] @relation("ReqRequester")
@@ -1505,6 +1511,10 @@ model DepartmentBudgetAccess {
   operatingUserIds String[]    @default([])
   hrRoles          String[]    @default([])
   hrUserIds        String[]    @default([])
+  /// Budget MÉTIER : listes propres, parce qu'ouvrir les moyens généraux à quelqu'un ne doit
+  /// pas lui ouvrir, par ricochet, le budget d'activité du département.
+  activityRoles    String[]    @default([])
+  activityUserIds  String[]    @default([])
   /// Qui a réglé ces accès en dernier — une autorisation sans auteur ne se discute pas.
   setById          String?
   setBy            User?       @relation("DepartmentBudgetAccessSetter", fields: [setById], references: [id], onDelete: SetNull)
@@ -1530,9 +1540,76 @@ model DepartmentBudget {
   @@index([year, kind])
 }
 
+/// DEMANDE DE DOTATION OU DE RALLONGE sur un budget départemental.
+///
+/// Celui qui gère le budget ne se l'accorde pas à lui-même : il le DEMANDE, l'administration
+/// tranche. C'est ce qui rend vérifiable la phrase « budget fixé par les RH, validé par
+/// l'administration » — sans ce circuit, elle ne serait qu'un usage.
+model DepartmentBudgetRequest {
+  id            String                  @id @default(cuid())
+  departmentId  String
+  department    Department              @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  year          Int
+  kind          DepartmentBudgetKind
+  /// Montant demandé EN PLUS du budget courant. Une dotation initiale est une rallonge
+  /// partant de zéro — même geste, même circuit.
+  amount        Decimal                 @default(0) @db.Decimal(14, 2)
+  reason        String?
+  status        DeptBudgetRequestStatus @default(PENDING)
+  requestedById String?
+  requestedBy   User?                   @relation("DeptBudgetRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime                @default(now())
+  decidedById   String?
+  decidedBy     User?                   @relation("DeptBudgetDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt     DateTime?
+  decisionNote  String?
+
+  @@index([departmentId, year])
+  @@index([status])
+}
+
+/// DÉPENSE IMPUTÉE à un budget départemental — avec sa pièce justificative (Document lié par
+/// `entityType = DEPARTMENT_EXPENSE`).
+///
+/// Sans elle, les moyens généraux affichaient un montant alloué et AUCUNE consommation : un
+/// budget qu'on ne peut pas confronter à ses dépenses n'est pas un budget, c'est un vœu.
+/// L'assistante de direction y classe ce qu'elle achève (fournitures, prestations) ; le
+/// directeur y voit ce que son département consomme réellement.
+model DepartmentBudgetExpense {
+  id             String                 @id @default(cuid())
+  departmentId   String
+  department     Department             @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  year           Int
+  kind           DepartmentBudgetKind   @default(OPERATING)
+  label          String
+  amount         Decimal                @default(0) @db.Decimal(14, 2)
+  date           DateTime               @default(now())
+  notes          String?
+  /// Demande administrative dont cette dépense est issue (traçabilité de bout en bout).
+  adminRequestId String?
+  adminRequest   AdministrativeRequest? @relation(fields: [adminRequestId], references: [id], onDelete: SetNull)
+  createdById    String?
+  createdBy      User?                  @relation("DeptExpenseCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime               @default(now())
+
+  @@index([departmentId, year, kind])
+  @@index([adminRequestId])
+  @@index([date])
+}
+
 enum DepartmentBudgetKind {
-  OPERATING /// fonctionnement — hors employés (administrateur)
-  HR /// employés et recrutement (ressources humaines)
+  OPERATING /// MOYENS GÉNÉRAUX — fournitures, prestations, déplacements (directeur du département)
+  HR /// MASSE SALARIALE — employés, charges et recrutement (ressources humaines, exclusivement)
+  ACTIVITY /// BUDGET MÉTIER — l'activité propre du département (Ad & Pro au marketing, paiement des BV au Regulatory…)
+}
+
+/// Une dotation (montant initial) ou une RALLONGE demandée par celui qui gère un budget
+/// départemental, et accordée — ou non — par l'administration. Les deux gestes sont le même :
+/// une rallonge partant de zéro EST une dotation. Un seul circuit, une seule trace.
+enum DeptBudgetRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 model BudgetExpenseLine {
@@ -3054,8 +3131,8 @@ model LeaveRequest {
   decisionNote String?
 
   /// ─── Circuit à trois marches : N+1 → RH → DG ───
-  stage           LeaveStage @default(MANAGER)
-  managerId       String? /// responsable résolu à la soumission (organigramme)
+  stage              LeaveStage @default(MANAGER)
+  managerId          String? /// responsable résolu à la soumission (organigramme)
   managerDecidedById String?
   managerDecidedAt   DateTime?
   managerNote        String?
@@ -3065,9 +3142,9 @@ model LeaveRequest {
   dgDecidedById      String?
   dgDecidedAt        DateTime?
   dgNote             String?
-  createdById  String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  createdById        String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   @@index([employeeId])
   @@index([status])
@@ -3353,7 +3430,9 @@ model AdministrativeRequest {
   approvals       AdminApproval[]
   missions        DriverMission[]
   /// Postes Ad & Pro dont CETTE demande sert à obtenir le devis.
-  adProItemQuotes AdProItem[]     @relation("AdProItemQuoteRequest")
+  adProItemQuotes AdProItem[]               @relation("AdProItemQuoteRequest")
+  /// Dépense imputée à un budget départemental à l'issue de CETTE demande.
+  budgetExpenses  DepartmentBudgetExpense[]
 
   @@index([status])
   @@index([type])

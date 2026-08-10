@@ -9,7 +9,7 @@ import { toNumber } from "@/lib/utils";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
-import { canEmitOrder, canSubmitItem, canRequestPurchaseOrder, ITEM_KIND_LABELS, type AdProParent } from "@/lib/ad-pro-items";
+import { canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, ITEM_KINDS, ITEM_KIND_LABELS, type AdProParent } from "@/lib/ad-pro-items";
 import { buildRef } from "@/lib/refs";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
@@ -270,11 +270,24 @@ export async function updateAdProItem(_prev: ActionResult | undefined, formData:
   if (amountEstimated != null && amountEstimated < 0) return { ok: false, error: "Un montant ne peut pas être négatif." };
 
   const label = fdStr(formData, "label");
+
+  // NATURE et NATURE DE BUDGET — modifiables aussi, mais pas n'importe quand.
+  // La nature (stand, prestation…) décrit la dépense : elle se corrige à tout moment.
+  // La nature de BUDGET (inclus / rallonge) est ce sur quoi la Direction s'est prononcée :
+  // une fois tranchée, la changer réécrirait sa décision.
+  const kindRaw = fdStr(formData, "kind");
+  const kind = kindRaw && (ITEM_KINDS as readonly string[]).includes(kindRaw) ? (kindRaw as AdProItemKind) : null;
+  const budgetKindRaw = fdStr(formData, "budgetKind");
+  const budgetKind = budgetKindRaw === "INCLUDED" || budgetKindRaw === "ADDITIONAL" ? budgetKindRaw : null;
+  const budgetDecided = budgetKindLocked(item);
+
   try {
     await prisma.adProItem.update({
       where: { id },
       data: {
         ...(label ? { label } : {}),
+        ...(kind ? { kind } : {}),
+        ...(budgetKind && !budgetDecided ? { budgetKind } : {}),
         ...(formData.has("notes") ? { notes: fdStr(formData, "notes") } : {}),
         ...(formData.has("supplier") ? { supplier: fdStr(formData, "supplier") } : {}),
         ...(formData.has("amountEstimated") ? { amountEstimated: amountEstimated ?? null } : {}),
@@ -304,9 +317,26 @@ export async function deleteAdProItem(_prev: ActionResult | undefined, formData:
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
 
-  // Supprimer un poste payé effacerait la justification d'une dépense déjà engagée.
+  // UN POSTE PAYÉ NE S'EFFACE PAS EN SILENCE — mais il doit pouvoir être retiré.
+  //
+  // Le refus pur et simple créait une impasse : un poste émis par erreur (mauvais fournisseur,
+  // doublon) restait à l'écran pour toujours. On garde donc la protection pour les éditeurs
+  // ordinaires, et on l'ouvre à la DIRECTION — celle qui a signé l'ordre est celle qui peut le
+  // défaire. L'ordre de dépense est alors ANNULÉ, pas orphelin : la trace comptable subsiste,
+  // marquée annulée, au lieu de pointer vers un poste disparu.
+  const order = item.expenseOrderId
+    ? await prisma.expenseOrder.findUnique({ where: { id: item.expenseOrderId }, select: { status: true, reference: true } })
+    : null;
+  const removable = canRemoveItem(
+    { expenseOrderId: item.expenseOrderId, expenseOrderStatus: order?.status ?? null },
+    { canAllocate: canAllocate(user, owner.parent) },
+  );
+  if (!removable.ok) return { ok: false, error: removable.reason ?? "Ce poste ne peut pas être retiré." };
+
   if (item.expenseOrderId) {
-    return { ok: false, error: "Un ordre de dépense a été émis sur ce poste : il ne peut plus être retiré." };
+    await prisma.expenseOrder.update({ where: { id: item.expenseOrderId }, data: { status: "CANCELLED" } }).catch(() => undefined);
+    await audit(user, owner.parent, owner.id, "UPDATE",
+      `Ordre de dépense ${order?.reference ?? ""} annulé — le poste « ${item.label} » a été retiré.`);
   }
 
   try {

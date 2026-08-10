@@ -242,3 +242,42 @@ export function canEmitOrder(
   }
   return { ok: true };
 }
+
+/**
+ * RETIRER UN POSTE — trois situations, trois réponses différentes.
+ *
+ * Refuser purement et simplement dès qu'un ordre de dépense existait créait une impasse : un
+ * poste émis par erreur (mauvais fournisseur, doublon) restait à l'écran pour toujours. Mais
+ * l'effacer en silence laisserait une pièce comptable pointant vers rien.
+ *
+ *   • aucun ordre parti → on retire, sans cérémonie ;
+ *   • un ordre émis, non réglé → seule la DIRECTION retire, et l'ordre est ANNULÉ avec ;
+ *   • un ordre RÉGLÉ → jamais : le poste justifie un paiement réellement sorti.
+ *
+ * Fonction PURE — testée, et partagée par le bouton et l'action serveur pour que l'écran ne
+ * propose jamais ce que le serveur refusera.
+ */
+export function canRemoveItem(
+  item: { expenseOrderId?: string | null; expenseOrderStatus?: string | null },
+  viewer: { canAllocate: boolean },
+): { ok: boolean; reason?: string } {
+  if (!item.expenseOrderId) return { ok: true };
+  if (item.expenseOrderStatus === "PAID") {
+    return { ok: false, reason: "L'ordre de dépense est déjà réglé : le poste justifie un paiement, il ne peut plus être retiré." };
+  }
+  if (!viewer.canAllocate) {
+    return { ok: false, reason: "Un ordre de dépense a été émis : seule la Direction peut retirer ce poste (l'ordre sera annulé)." };
+  }
+  return { ok: true };
+}
+
+/**
+ * La NATURE DE BUDGET (inclus / rallonge) est-elle encore modifiable ?
+ *
+ * C'est ce sur quoi la Direction s'est prononcée : la changer après coup réécrirait sa
+ * décision. Tout le reste du poste — libellé, fournisseur, précisions, estimation — se corrige
+ * à tout moment, parce que ces champs DÉCRIVENT la dépense sans l'engager.
+ */
+export function budgetKindLocked(item: { status: AdProItemStatus }): boolean {
+  return item.status === "APPROVED" || item.status === "REJECTED";
+}
