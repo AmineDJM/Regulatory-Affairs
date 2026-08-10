@@ -21,7 +21,8 @@ import { AppealPanel } from "./decision-panel";
 import { ThirdPartyButton } from "./third-party-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
-import { AdProItemsPanel, type ItemRow } from "@/components/ad-pro/items-panel";
+import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
+import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
 import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
 import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
@@ -61,40 +62,13 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   const canUpload = userCan(user, "SPONSORING", "UPLOAD") || isRequester;
   const canDelete = userCan(user, "SPONSORING", "DELETE");
 
-  // Postes du sponsoring : de quoi est fait le montant, et à qui va l'argent. Le matériel
-  // promotionnel et l'ordre de dépense sont des scalaires (pas de relation Prisma) : on résout
-  // leurs libellés en une requête chacun plutôt qu'une par poste.
-  const rawItems = await prisma.adProItem.findMany({
-    where: { sponsoringId: req.id },
-    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-  });
-  const [promoRows, orderRows, promoOptions] = await Promise.all([
-    rawItems.some((i) => i.promoMaterialId)
-      ? prisma.promoMaterial.findMany({
-          where: { id: { in: rawItems.map((i) => i.promoMaterialId).filter((x): x is string => Boolean(x)) } },
-          select: { id: true, reference: true, title: true, status: true },
-        })
-      : Promise.resolve([]),
-    rawItems.some((i) => i.expenseOrderId)
-      ? prisma.expenseOrder.findMany({
-          where: { id: { in: rawItems.map((i) => i.expenseOrderId).filter((x): x is string => Boolean(x)) } },
-          select: { id: true, reference: true, status: true },
-        })
-      : Promise.resolve([]),
+  // Postes du sponsoring : de quoi est fait le montant, à qui va l'argent, et où en est chacun
+  // dans son propre circuit de validation (chargement mutualisé — voir queries/ad-pro-items).
+  const [items, promoOptions, budgetOptions] = await Promise.all([
+    loadAdProItems("SPONSORING", req.id),
     promoMaterialOptions(),
+    adProBudgetOptions(user),
   ]);
-  const promoById = new Map(promoRows.map((p) => [p.id, { reference: p.reference, title: p.title, status: String(p.status) }]));
-  const orderById = new Map(orderRows.map((o) => [o.id, { reference: o.reference, status: String(o.status) }]));
-  const items: ItemRow[] = rawItems.map((i) => ({
-    id: i.id, kind: i.kind, label: i.label, notes: i.notes, supplier: i.supplier,
-    amountEstimated: i.amountEstimated != null ? toNumber(i.amountEstimated) : null,
-    amountGranted: i.amountGranted != null ? toNumber(i.amountGranted) : null,
-    addedAfterDecision: i.addedAfterDecision,
-    promoMaterialId: i.promoMaterialId,
-    promoMaterial: i.promoMaterialId ? promoById.get(i.promoMaterialId) ?? null : null,
-    expenseOrderId: i.expenseOrderId,
-    expenseOrder: i.expenseOrderId ? orderById.get(i.expenseOrderId) ?? null : null,
-  }));
   const decided = ["APPROVED", "ACCEPTED", "PAID", "CLOSED"].includes(req.status);
 
   const [missions, canManageMissions, missionUsers, workflow] = await Promise.all([
@@ -186,6 +160,8 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                 canEdit={userCan(user, "SPONSORING", "CREATE") || userCan(user, "SPONSORING", "UPDATE") || canDirection}
                 canAllocate={canDirection}
                 promoOptions={promoOptions}
+                budgetOptions={budgetOptions}
+                canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
               />
             </CardContent>
           </Card>

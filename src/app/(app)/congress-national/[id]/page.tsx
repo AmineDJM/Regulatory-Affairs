@@ -16,7 +16,8 @@ import { CONGRESS_REQUEST_STATUS } from "@/lib/labels";
 import { CongressDetailView } from "../../congress-international/congress-detail-view";
 import { toNumber } from "@/lib/utils";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
-import { AdProItemsPanel, type ItemRow } from "@/components/ad-pro/items-panel";
+import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
+import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
 import { CarePanel } from "@/components/care/care-panel";
 import { getCareDossier } from "@/lib/queries/care";
 import { careDirectoryOptions, carePromoOptions } from "@/lib/actions/care-actions";
@@ -59,39 +60,11 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
     where: { id: detail.id },
     select: { finalAmount: true, requestStatus: true, hasBooth: true, hasSymposium: true },
   });
-  const rawItems = await prisma.adProItem.findMany({
-    where: { congressNationalId: detail.id },
-    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-  });
-  // `promoMaterialId` et `expenseOrderId` sont des scalaires (pas de relation Prisma) : on
-  // résout les libellés en une requête chacun plutôt qu'une par poste.
-  const [promoRows, orderRows, promoOptions] = await Promise.all([
-    rawItems.some((i) => i.promoMaterialId)
-      ? prisma.promoMaterial.findMany({
-          where: { id: { in: rawItems.map((i) => i.promoMaterialId).filter((x): x is string => Boolean(x)) } },
-          select: { id: true, reference: true, title: true, status: true },
-        })
-      : Promise.resolve([]),
-    rawItems.some((i) => i.expenseOrderId)
-      ? prisma.expenseOrder.findMany({
-          where: { id: { in: rawItems.map((i) => i.expenseOrderId).filter((x): x is string => Boolean(x)) } },
-          select: { id: true, reference: true, status: true },
-        })
-      : Promise.resolve([]),
+  const [items, promoOptions, budgetOptions] = await Promise.all([
+    loadAdProItems("CONGRESS_NATIONAL", detail.id),
     promoMaterialOptions(),
+    adProBudgetOptions(user),
   ]);
-  const promoById = new Map(promoRows.map((p) => [p.id, { reference: p.reference, title: p.title, status: String(p.status) }]));
-  const orderById = new Map(orderRows.map((o) => [o.id, { reference: o.reference, status: String(o.status) }]));
-  const items: ItemRow[] = rawItems.map((i) => ({
-    id: i.id, kind: i.kind, label: i.label, notes: i.notes, supplier: i.supplier,
-    amountEstimated: i.amountEstimated != null ? toNumber(i.amountEstimated) : null,
-    amountGranted: i.amountGranted != null ? toNumber(i.amountGranted) : null,
-    addedAfterDecision: i.addedAfterDecision,
-    promoMaterialId: i.promoMaterialId,
-    promoMaterial: i.promoMaterialId ? promoById.get(i.promoMaterialId) ?? null : null,
-    expenseOrderId: i.expenseOrderId,
-    expenseOrder: i.expenseOrderId ? orderById.get(i.expenseOrderId) ?? null : null,
-  }));
   // L'enveloppe d'un congrès, c'est le montant accordé par la Direction à la décision définitive.
   const canAllocate = hasGlobalView(user) || userCan(user, "CONGRESS_NATIONAL", "VALIDATE");
 

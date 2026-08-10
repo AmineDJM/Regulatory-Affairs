@@ -3,15 +3,21 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Loader2, CheckCircle2, XCircle, Receipt, Link2, AlertTriangle, ExternalLink } from "lucide-react";
-import type { AdProItemKind } from "@prisma/client";
+import { Plus, Trash2, Loader2, CheckCircle2, XCircle, Receipt, Link2, AlertTriangle, ExternalLink, Send, FileText, Wallet, ThumbsUp, ThumbsDown, RotateCcw, History } from "lucide-react";
+import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind, AdProItemOrderStage } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrency } from "@/lib/utils";
-import { breakdown, canEmitOrder, plannedGaps, ITEM_KINDS, ITEM_KIND_LABELS, type AdProParent } from "@/lib/ad-pro-items";
+import { formatCurrency, formatDate } from "@/lib/utils";
+import {
+  breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, plannedGaps,
+  ITEM_KINDS, ITEM_KIND_LABELS, ITEM_STATUS_LABELS, ITEM_BUDGET_KIND_LABELS, ITEM_ORDER_STAGE_LABELS,
+  type AdProParent,
+} from "@/lib/ad-pro-items";
 import {
   addAdProItem, updateAdProItem, deleteAdProItem,
   emitItemExpenseOrder, linkPromoMaterial,
+  submitAdProItem, decideAdProItem, setAdProItemBudget,
+  requestAdProItemQuote, requestAdProItemOrder, approveAdProItemOrder,
 } from "@/lib/actions/ad-pro-item-actions";
 
 export interface ItemRow {
@@ -27,6 +33,21 @@ export interface ItemRow {
   promoMaterial: { reference: string; title: string; status: string } | null;
   expenseOrderId: string | null;
   expenseOrder: { reference: string; status: string } | null;
+  /** Cycle de validation propre au poste. */
+  status: AdProItemStatus;
+  budgetKind: AdProItemBudgetKind;
+  decisionNote: string | null;
+  decidedAt: string | null;
+  /** Budget (catégorie d'enveloppe) qui portera la dépense, choisi après accord. */
+  budgetCategoryId: string | null;
+  budgetCategoryLabel: string | null;
+  /** Demande administrative ouverte pour obtenir le devis. */
+  adminRequestId: string | null;
+  adminRequestRef: string | null;
+  /** Émission du bon de commande : demande → visa Direction → Finances. */
+  orderStage: AdProItemOrderStage;
+  /** Historique des allers-retours avec la Direction (le plus récent en tête). */
+  decisions: { decision: AdProItemStatus; note: string | null; amount: number | null; at: string; by: string | null }[];
 }
 
 interface Props {
@@ -42,6 +63,10 @@ interface Props {
   promoOptions: { id: string; reference: string; title: string; status: string }[];
   /** Congrès : ce qui est ANNONCÉ (stand, symposium) et qu'il faudrait chiffrer. */
   plan?: { hasBooth?: boolean | null; hasSymposium?: boolean | null };
+  /** (Sous-)catégories budgétaires proposées pour imputer un poste accordé. */
+  budgetOptions?: { id: string; label: string }[];
+  /** Les Finances émettent le bon de commande visé par la Direction. */
+  canIssueOrder?: boolean;
 }
 
 /**
@@ -53,9 +78,13 @@ interface Props {
  * modules ne portaient qu'un montant global : on ne savait ni de quoi il était fait, ni à qui
  * allait l'argent.
  *
+ * Sert les QUATRE opérations du pôle (sponsoring, prises en charge nationales et
+ * internationales, événements).
+ *
  * Quatre principes tenus à l'écran :
- *   1. **Un poste n'est pas une demande** : aucun circuit de validation supplémentaire. Le
- *      sponsoring garde le sien, les postes en sont la ventilation.
+ *   1. **Chaque poste se valide À PART.** Consulting, traiteur, salle ne se décident pas
+ *      ensemble : la Direction accorde l'un, refuse l'autre, demande à revoir le troisième —
+ *      autant de fois qu'il le faut, chaque tour restant visible dans l'historique.
  *   2. **Le dépassement se voit.** Un poste peut être ajouté après la décision — c'est autorisé.
  *      La ventilation dépasse alors l'enveloppe : on l'affiche en clair plutôt que de le
  *      découvrir à la facture.
@@ -67,6 +96,7 @@ interface Props {
  */
 export function AdProItemsPanel({
   parent, parentId, items, amountGranted, decided, canEdit, canAllocate, promoOptions, plan,
+  budgetOptions = [], canIssueOrder = false,
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -98,7 +128,11 @@ export function AdProItemsPanel({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Figure label="Enveloppe accordée" value={b.envelopeDzd != null ? formatCurrency(b.envelopeDzd) : "—"} hint={b.envelopeDzd == null ? "Direction non tranchée" : undefined} />
         <Figure label="Estimé par le demandeur" value={formatCurrency(b.estimatedDzd)} hint={`${b.itemCount} poste(s)`} />
-        <Figure label="Affecté aux postes" value={formatCurrency(b.allocatedDzd)} />
+        <Figure
+          label="Affecté aux postes"
+          value={formatCurrency(b.allocatedDzd)}
+          hint={b.additionalDzd > 0 ? `+ ${formatCurrency(b.additionalDzd)} en budget supplémentaire` : undefined}
+        />
         {b.overrunDzd > 0 ? (
           <Figure label="Dépassement" value={formatCurrency(b.overrunDzd)} tone="danger" hint="au-delà de l'enveloppe" />
         ) : (
@@ -110,6 +144,18 @@ export function AdProItemsPanel({
           />
         )}
       </div>
+
+      {/* Une RALLONGE assumée n'est pas un dépassement subi : deux lignes distinctes, deux décisions. */}
+      {(b.additionalDzd > 0 || b.pendingDzd > 0) && (
+        <p className="rounded-xl border border-border bg-secondary/30 p-3 text-sm text-muted-foreground">
+          {b.additionalDzd > 0 && (
+            <>Postes demandés <strong className="text-foreground">en plus</strong> de l&apos;enveloppe : <strong className="tabular-nums text-foreground">{formatCurrency(b.additionalDzd)}</strong>. </>
+          )}
+          {b.pendingDzd > 0 && (
+            <>En attente de décision de la Direction : <strong className="tabular-nums text-foreground">{formatCurrency(b.pendingDzd)}</strong>.</>
+          )}
+        </p>
+      )}
 
       {b.overrunDzd > 0 && (
         <p className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
@@ -150,6 +196,8 @@ export function AdProItemsPanel({
                 <div className="flex flex-wrap items-start gap-2">
                   <Badge tone={it.kind === "PROMO_MATERIAL" ? "purple" : "neutral"} dot={false}>{ITEM_KIND_LABELS[it.kind]}</Badge>
                   <span className="min-w-0 flex-1 font-medium">{it.label}</span>
+                  <Badge tone={ITEM_STATUS_LABELS[it.status].tone} dot={false}>{ITEM_STATUS_LABELS[it.status].label}</Badge>
+                  {it.budgetKind === "ADDITIONAL" && <Badge tone="warning" dot={false}>budget supplémentaire</Badge>}
                   {it.addedAfterDecision && (
                     <Badge tone="warning" dot={false}>ajouté après décision</Badge>
                   )}
@@ -219,6 +267,17 @@ export function AdProItemsPanel({
                     </p>
                   </div>
                 )}
+
+                {/* ── Le cycle du poste : devis → validation → budget → bon de commande ── */}
+                <ItemLifecycle
+                  item={it}
+                  canEdit={canEdit}
+                  canAllocate={canAllocate}
+                  canIssueOrder={canIssueOrder}
+                  budgetOptions={budgetOptions}
+                  busy={busy}
+                  run={run}
+                />
 
                 {/* Paiement du poste. */}
                 <div className="flex flex-wrap items-center gap-2">
@@ -346,6 +405,19 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
           <input name="amountEstimated" type="number" min="0" step="1000" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular-nums outline-none focus:border-primary/60" />
         </label>
       </div>
+
+      {/* LA question à poser au moment de l'ajout : cet argent est-il déjà accordé, ou en plus ? */}
+      <fieldset className="rounded-lg border border-border p-2.5">
+        <legend className="px-1 text-xs text-muted-foreground">Ce poste est-il déjà couvert par le budget accordé ?</legend>
+        <div className="flex flex-wrap gap-3 text-sm">
+          <label className="inline-flex items-center gap-1.5">
+            <input type="radio" name="budgetKind" value="INCLUDED" defaultChecked /> Inclus dans le budget accordé
+          </label>
+          <label className="inline-flex items-center gap-1.5">
+            <input type="radio" name="budgetKind" value="ADDITIONAL" /> Budget supplémentaire (rallonge)
+          </label>
+        </div>
+      </fieldset>
       <label className="block text-xs">
         Précisions
         <input name="notes" placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
@@ -354,8 +426,9 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
       {decided && (
         <p className="flex items-start gap-1.5 text-[0.6875rem] text-warning">
           <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
-          Le sponsoring est déjà tranché : ce poste sera marqué « ajouté après décision » et fera
-          apparaître un dépassement d&apos;enveloppe s&apos;il n&apos;est pas compensé.
+          L&apos;opération est déjà tranchée : ce poste sera marqué « ajouté après décision ». S&apos;il
+          est <strong>inclus</strong> dans le budget accordé, il fera apparaître un dépassement tant
+          qu&apos;il n&apos;est pas compensé ; s&apos;il s&apos;agit d&apos;une <strong>rallonge</strong>, il sera compté à part.
         </p>
       )}
 
@@ -376,6 +449,227 @@ function Figure({ label, value, hint, tone }: { label: string; value: string; hi
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`mt-0.5 text-base font-semibold tabular-nums ${cls}`}>{value}</p>
       {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * LE CYCLE D'UN POSTE, sur une seule ligne de vie : devis → validation par la Direction →
+ * choix du budget → bon de commande (demande, visa, émission).
+ *
+ * Chaque étape n'apparaît QUE lorsqu'elle a un sens : on ne propose pas de choisir un budget
+ * avant l'accord, ni de demander un bon de commande sans budget. Un écran qui affiche des
+ * boutons inertes fait perdre plus de temps qu'il n'en fait gagner.
+ */
+function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOptions, busy, run }: {
+  item: ItemRow;
+  canEdit: boolean;
+  canAllocate: boolean;
+  canIssueOrder: boolean;
+  budgetOptions: { id: string; label: string }[];
+  busy: string | null;
+  run: (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) => Promise<void>;
+}) {
+  const [note, setNote] = React.useState("");
+  const [showHistory, setShowHistory] = React.useState(false);
+  const [deciding, setDeciding] = React.useState(false);
+
+  const submit = canSubmitItem({ status: item.status, amountEstimated: item.amountEstimated, amountGranted: item.amountGranted });
+  const order = canRequestPurchaseOrder({
+    status: item.status, amountGranted: item.amountGranted,
+    budgetCategoryId: item.budgetCategoryId, orderStage: item.orderStage,
+  });
+  const fdOf = (extra: Record<string, string> = {}) => {
+    const fd = new FormData();
+    fd.set("id", item.id);
+    for (const [k, v] of Object.entries(extra)) if (v) fd.set(k, v);
+    return fd;
+  };
+
+  return (
+    <div className="space-y-2 rounded-lg border border-border/70 bg-secondary/20 p-2.5">
+      {/* ── Devis : ouvrir une demande administrative, puis y joindre les devis ── */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+        {item.adminRequestId ? (
+          <>
+            <span className="text-muted-foreground">Devis demandé au secrétariat :</span>
+            <Link href={`/demandes/${item.adminRequestId}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+              {item.adminRequestRef ?? "voir la demande"} <ExternalLink className="h-3 w-3" />
+            </Link>
+            <span className="text-muted-foreground">— joignez-y les devis reçus, ils font partie du dossier du poste.</span>
+          </>
+        ) : canEdit && item.status !== "APPROVED" ? (
+          <button
+            type="button"
+            disabled={busy === `quote:${item.id}`}
+            onClick={() => void run(`quote:${item.id}`, () => requestAdProItemQuote(undefined, fdOf()), "Demande de devis ouverte au secrétariat.")}
+            className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 font-medium hover:bg-secondary"
+          >
+            {busy === `quote:${item.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+            Demander un devis (secrétariat)
+          </button>
+        ) : (
+          <span className="text-muted-foreground">Aucune demande de devis.</span>
+        )}
+      </div>
+
+      {/* ── Validation du poste ── */}
+      {item.decisionNote && (item.status === "REVISION" || item.status === "REJECTED") && (
+        <p className="rounded-lg bg-warning/10 px-2.5 py-1.5 text-xs text-foreground">
+          <strong>Direction :</strong> {item.decisionNote}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {canEdit && (item.status === "DRAFT" || item.status === "REVISION" || item.status === "REJECTED") && (
+          <Button
+            size="sm" variant="outline" disabled={!submit.ok || busy === `submit:${item.id}`} title={submit.reason}
+            onClick={() => void run(`submit:${item.id}`, () => submitAdProItem(undefined, fdOf()), "Poste soumis à la Direction.")}
+          >
+            {busy === `submit:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {item.status === "DRAFT" ? "Soumettre à la Direction" : "Resoumettre"}
+          </Button>
+        )}
+        {canEdit && !submit.ok && item.status !== "PENDING" && item.status !== "APPROVED" && (
+          <span className="text-[0.6875rem] text-muted-foreground">{submit.reason}</span>
+        )}
+
+        {/* La Direction tranche : accorder / revoir / refuser — autant de fois qu'il le faut. */}
+        {canAllocate && item.status === "PENDING" && (
+          deciding ? (
+            <div className="w-full space-y-2 rounded-lg border border-border bg-background p-2.5">
+              <input
+                value={note} onChange={(e) => setNote(e.target.value)}
+                placeholder="Motif / consigne (obligatoire pour un refus ou une révision)"
+                className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm" disabled={busy === `dec:${item.id}`}
+                  onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "APPROVED", note })), "Poste accordé.")}
+                >
+                  <ThumbsUp className="h-4 w-4" /> Accorder
+                </Button>
+                <Button
+                  size="sm" variant="outline" disabled={busy === `dec:${item.id}` || !note.trim()}
+                  title={!note.trim() ? "Indiquez ce qu'il faut revoir" : undefined}
+                  onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REVISION", note })), "Budget à revoir — le demandeur est prévenu.")}
+                >
+                  <RotateCcw className="h-4 w-4" /> Revoir le budget
+                </Button>
+                <Button
+                  size="sm" variant="outline" className="text-destructive" disabled={busy === `dec:${item.id}` || !note.trim()}
+                  title={!note.trim() ? "Indiquez le motif du refus" : undefined}
+                  onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REJECTED", note })), "Poste refusé.")}
+                >
+                  <ThumbsDown className="h-4 w-4" /> Refuser
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setDeciding(false)}>Annuler</Button>
+              </div>
+            </div>
+          ) : (
+            <Button size="sm" onClick={() => setDeciding(true)}>
+              <ThumbsUp className="h-4 w-4" /> Décider de ce poste
+            </Button>
+          )
+        )}
+
+        {item.decisions.length > 0 && (
+          <button
+            type="button" onClick={() => setShowHistory((v) => !v)}
+            className="inline-flex items-center gap-1 text-[0.6875rem] text-muted-foreground hover:text-foreground"
+          >
+            <History className="h-3 w-3" /> {showHistory ? "Masquer" : `Historique (${item.decisions.length})`}
+          </button>
+        )}
+      </div>
+
+      {showHistory && item.decisions.length > 0 && (
+        <ul className="space-y-1 rounded-lg bg-background p-2 text-[0.6875rem]">
+          {item.decisions.map((d, i) => (
+            <li key={i} className="flex flex-wrap gap-x-2 text-muted-foreground">
+              <span className="font-medium text-foreground">{ITEM_STATUS_LABELS[d.decision].label}</span>
+              {d.amount != null && <span className="tabular-nums">{formatCurrency(d.amount)}</span>}
+              <span>{formatDate(d.at)}</span>
+              {d.by && <span>· {d.by}</span>}
+              {d.note && <span className="w-full italic">« {d.note} »</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* ── Budget : « comme d'habitude », une fois le poste accordé ── */}
+      {item.status === "APPROVED" && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
+          {canAllocate && item.orderStage !== "ISSUED" ? (
+            <select
+              value={item.budgetCategoryId ?? ""}
+              onChange={(e) => void run(`budget:${item.id}`, () => setAdProItemBudget(undefined, fdOf({ budgetCategoryId: e.target.value })), "Budget choisi.")}
+              aria-label="Budget imputé à ce poste"
+              className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/60"
+            >
+              <option value="">Choisir le budget (enveloppe › catégorie)…</option>
+              {budgetOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          ) : (
+            <span className="text-muted-foreground">
+              Budget : <strong className="text-foreground">{item.budgetCategoryLabel ?? "non choisi"}</strong>
+            </span>
+          )}
+          {busy === `budget:${item.id}` && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+        </div>
+      )}
+
+      {/* ── Bon de commande : demande → visa Direction → émission par les Finances ── */}
+      {item.status === "APPROVED" && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={ITEM_ORDER_STAGE_LABELS[item.orderStage].tone} dot={false}>
+            {ITEM_ORDER_STAGE_LABELS[item.orderStage].label}
+          </Badge>
+
+          {canEdit && (item.orderStage === "NONE" || item.orderStage === "REFUSED") && (
+            <Button
+              size="sm" variant="outline" disabled={!order.ok || busy === `po:${item.id}`} title={order.reason}
+              onClick={() => void run(`po:${item.id}`, () => requestAdProItemOrder(undefined, fdOf()), "Émission du bon de commande demandée.")}
+            >
+              {busy === `po:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Demander l&apos;émission du BC
+            </Button>
+          )}
+          {canEdit && !order.ok && item.orderStage === "NONE" && (
+            <span className="text-[0.6875rem] text-muted-foreground">{order.reason}</span>
+          )}
+
+          {canAllocate && item.orderStage === "REQUESTED" && (
+            <>
+              <Button
+                size="sm" disabled={busy === `poa:${item.id}`}
+                onClick={() => void run(`poa:${item.id}`, () => approveAdProItemOrder(undefined, fdOf({ decision: "APPROVE" })), "Bon de commande visé — transmis aux Finances.")}
+              >
+                <ThumbsUp className="h-4 w-4" /> Viser le BC
+              </Button>
+              <Button
+                size="sm" variant="outline" className="text-destructive" disabled={busy === `poa:${item.id}`}
+                onClick={() => void run(`poa:${item.id}`, () => approveAdProItemOrder(undefined, fdOf({ decision: "REFUSE" })), "Émission refusée.")}
+              >
+                <ThumbsDown className="h-4 w-4" /> Refuser
+              </Button>
+            </>
+          )}
+
+          {canIssueOrder && item.orderStage === "DIRECTION_OK" && !item.expenseOrderId && (
+            <Button
+              size="sm" disabled={busy === `emit:${item.id}`}
+              onClick={() => void run(`emit:${item.id}`, () => emitItemExpenseOrder(undefined, fdOf()), "Bon de commande émis (ordre de dépense créé).")}
+            >
+              {busy === `emit:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
+              Émettre (Finances)
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { breakdown, canEmitOrder, plannedGaps } from "./ad-pro-items";
+import { breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, plannedGaps } from "./ad-pro-items";
 
 /**
  * La ventilation décide de ce que la Direction voit et de ce que les Finances paient. Une
@@ -134,5 +134,99 @@ describe("plannedGaps — annoncé mais pas chiffré", () => {
   it("les deux manques se cumulent", () => {
     const g = plannedGaps([], { hasBooth: true, hasSymposium: true });
     expect(g.boothUnbudgeted && g.symposiumUnbudgeted).toBe(true);
+  });
+});
+
+describe("breakdown — rallonges, postes refusés et postes en attente", () => {
+  it("un poste REFUSÉ ne pèse plus sur rien : ni estimé, ni affecté, ni compte", () => {
+    const b = breakdown(
+      [
+        { amountEstimated: 100, amountGranted: 100, status: "APPROVED" },
+        { amountEstimated: 400, amountGranted: 400, status: "REJECTED" },
+      ],
+      1000,
+    );
+    expect(b.allocatedDzd).toBe(100);
+    expect(b.estimatedDzd).toBe(100);
+    expect(b.itemCount).toBe(1);
+    expect(b.unallocatedDzd).toBe(900);
+  });
+
+  it("un poste « budget supplémentaire » est une RALLONGE : il ne ventile pas l'enveloppe", () => {
+    const b = breakdown(
+      [
+        { amountGranted: 800, status: "APPROVED", budgetKind: "INCLUDED" },
+        { amountGranted: 300, status: "APPROVED", budgetKind: "ADDITIONAL" },
+      ],
+      1000,
+    );
+    // 800 sur 1000 → il reste 200 ; les 300 de rallonge sont comptés à part, PAS en dépassement.
+    expect(b.allocatedDzd).toBe(800);
+    expect(b.unallocatedDzd).toBe(200);
+    expect(b.overrunDzd).toBe(0);
+    expect(b.additionalDzd).toBe(300);
+    expect(b.totalRequestedDzd).toBe(1100);
+  });
+
+  it("un poste inclus qui dépasse reste un DÉPASSEMENT (la rallonge ne masque rien)", () => {
+    const b = breakdown([{ amountGranted: 1200, status: "APPROVED", budgetKind: "INCLUDED" }], 1000);
+    expect(b.overrunDzd).toBe(200);
+    expect(b.additionalDzd).toBe(0);
+  });
+
+  it("compte l'argent EN ATTENTE de décision (estimation à défaut de montant accordé)", () => {
+    const b = breakdown(
+      [
+        { amountEstimated: 500, status: "PENDING" },
+        { amountEstimated: 200, amountGranted: 150, status: "REVISION" },
+        { amountGranted: 100, status: "APPROVED" },
+      ],
+      1000,
+    );
+    expect(b.pendingDzd).toBe(650); // 500 (estimé) + 150 (montant en jeu de la révision)
+  });
+});
+
+describe("canSubmitItem — ce qui part en validation", () => {
+  it("refuse un poste sans chiffre : la Direction déciderait sur rien", () => {
+    expect(canSubmitItem({ status: "DRAFT" }).ok).toBe(false);
+    expect(canSubmitItem({ status: "DRAFT", amountEstimated: 0 }).ok).toBe(false);
+  });
+
+  it("accepte un brouillon chiffré, et la RESOUMISSION d'un poste à revoir ou refusé", () => {
+    expect(canSubmitItem({ status: "DRAFT", amountEstimated: 1000 }).ok).toBe(true);
+    expect(canSubmitItem({ status: "REVISION", amountEstimated: 900 }).ok).toBe(true);
+    expect(canSubmitItem({ status: "REJECTED", amountEstimated: 900 }).ok).toBe(true);
+  });
+
+  it("refuse de resoumettre ce qui est déjà en attente ou déjà accordé", () => {
+    expect(canSubmitItem({ status: "PENDING", amountEstimated: 1000 }).ok).toBe(false);
+    expect(canSubmitItem({ status: "APPROVED", amountGranted: 1000 }).ok).toBe(false);
+  });
+});
+
+describe("canRequestPurchaseOrder — le bon de commande ne part pas trop tôt", () => {
+  const base = { status: "APPROVED" as const, amountGranted: 1000, budgetCategoryId: "cat1", orderStage: "NONE" as const };
+
+  it("exige un poste accordé, chiffré ET imputé à un budget", () => {
+    expect(canRequestPurchaseOrder(base).ok).toBe(true);
+    expect(canRequestPurchaseOrder({ ...base, status: "PENDING" }).ok).toBe(false);
+    expect(canRequestPurchaseOrder({ ...base, amountGranted: null }).ok).toBe(false);
+    expect(canRequestPurchaseOrder({ ...base, budgetCategoryId: null }).ok).toBe(false);
+  });
+
+  it("ne redemande pas ce qui est en cours ou déjà émis — mais rouvre après un refus", () => {
+    expect(canRequestPurchaseOrder({ ...base, orderStage: "REQUESTED" }).ok).toBe(false);
+    expect(canRequestPurchaseOrder({ ...base, orderStage: "DIRECTION_OK" }).ok).toBe(false);
+    expect(canRequestPurchaseOrder({ ...base, orderStage: "ISSUED" }).ok).toBe(false);
+    expect(canRequestPurchaseOrder({ ...base, orderStage: "REFUSED" }).ok).toBe(true);
+  });
+});
+
+describe("canEmitOrder — un poste non accordé ne se paie pas", () => {
+  it("refuse d'émettre sur un poste en attente ou refusé, même si l'opération est accordée", () => {
+    expect(canEmitOrder({ amountGranted: 500, status: "PENDING" }, true).ok).toBe(false);
+    expect(canEmitOrder({ amountGranted: 500, status: "REJECTED" }, true).ok).toBe(false);
+    expect(canEmitOrder({ amountGranted: 500, status: "APPROVED" }, true).ok).toBe(true);
   });
 });

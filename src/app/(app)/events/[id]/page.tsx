@@ -23,6 +23,10 @@ import { MissionAssignmentsCard } from "@/components/missions/mission-assignment
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
 import { BackLink } from "@/components/shared/back-link";
+import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
+import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
+import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
+import { toNumber } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +43,12 @@ export default async function EventDetailPage({ params }: { params: { id: string
   // National Sales soumettant lui-même : il désigne le chef de produit (l'analyse lui
   // est confiée) au lieu d'approuver préliminairement sa propre demande.
   const canDesignatePM = canDesignateProductManagerAtCreation(user);
+  const [items, promoOptions, budgetOptions] = await Promise.all([
+    loadAdProItems("EVENT", e.id),
+    promoMaterialOptions(),
+    adProBudgetOptions(user),
+  ]);
+  const canAllocateItems = hasGlobalView(user) || userCan(user, "EVENTS", "VALIDATE");
   const [responsibles, missions, workflow, pmCandidates] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
@@ -126,6 +136,26 @@ export default async function EventDetailPage({ params }: { params: { id: string
               <ThirdPartyInvolveButton type="EVENT" id={e.id} people={responsibles} />
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* POSTES de l'événement : consulting, traiteur, location de salle… chacun validé à part par
+          la Direction, avec son budget et son bon de commande — comme sur le sponsoring. */}
+      <Card>
+        <CardHeader><CardTitle>Ce que couvre cet événement</CardTitle></CardHeader>
+        <CardContent>
+          <AdProItemsPanel
+            parent="EVENT"
+            parentId={e.id}
+            items={items}
+            amountGranted={e.finalAmount != null ? toNumber(e.finalAmount) : null}
+            decided={e.requestStatus ? ["APPROVED", "COMPLETED"].includes(e.requestStatus) : e.status !== "DRAFT" && e.status !== "CANCELLED"}
+            canEdit={userCan(user, "EVENTS", "CREATE") || canManage || canAllocateItems}
+            canAllocate={canAllocateItems}
+            promoOptions={promoOptions}
+            budgetOptions={budgetOptions}
+            canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
+          />
         </CardContent>
       </Card>
 

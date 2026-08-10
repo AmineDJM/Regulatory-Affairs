@@ -23,6 +23,10 @@ import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
+import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
+import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
+import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
+import { toNumber } from "@/lib/utils";
 
 export default async function CongressIntlDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("CONGRESS_INTERNATIONAL");
@@ -59,7 +63,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
     getCareDossier("INTERNATIONAL", detail.id),
     careDirectoryOptions(),
     carePromoOptions(),
-    prisma.congressInternational.findUnique({ where: { id: detail.id }, select: { requestStatus: true } }),
+    prisma.congressInternational.findUnique({ where: { id: detail.id }, select: { requestStatus: true, finalAmount: true } }),
   ]);
 
   // Corriger la demande : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
@@ -69,6 +73,16 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
     { requesterId: detail.requesterId, decided: requestDecided },
   );
   const editValues = canEditRequest ? await adProEditValues("CONGRESS_INTERNATIONAL", detail.id) : null;
+
+  // POSTES de la prise en charge : consulting, traiteur, salle… chacun validé à part par la
+  // Direction, avec son budget et son bon de commande. Même panneau que les autres opérations
+  // Ad & Pro — la question « de quoi est fait ce montant » ne change pas d'un module à l'autre.
+  const [items, promoOptions, budgetOptions] = await Promise.all([
+    loadAdProItems("CONGRESS_INTERNATIONAL", detail.id),
+    promoMaterialOptions(),
+    adProBudgetOptions(user),
+  ]);
+  const canAllocateItems = hasGlobalView(user) || userCan(user, "CONGRESS_INTERNATIONAL", "VALIDATE");
 
   return (
     <div className="space-y-5">
@@ -98,6 +112,24 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
             canEdit={canEditCare}
             canDecide={canDecideCare}
             promoOptions={carePromos}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Ce que couvre cette prise en charge</CardTitle></CardHeader>
+        <CardContent>
+          <AdProItemsPanel
+            parent="CONGRESS_INTERNATIONAL"
+            parentId={detail.id}
+            items={items}
+            amountGranted={intl?.finalAmount != null ? toNumber(intl.finalAmount) : null}
+            decided={["APPROVED", "COMPLETED"].includes(intl?.requestStatus ?? "")}
+            canEdit={userCan(user, "CONGRESS_INTERNATIONAL", "CREATE") || userCan(user, "CONGRESS_INTERNATIONAL", "UPDATE") || canAllocateItems}
+            canAllocate={canAllocateItems}
+            promoOptions={promoOptions}
+            budgetOptions={budgetOptions}
+            canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
           />
         </CardContent>
       </Card>

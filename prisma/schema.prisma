@@ -572,27 +572,27 @@ enum FeedbackStatus {
 /// éventuel ADJOINT (deputy) — ce sont eux qui incarnent le « N+1 » quand un employé
 /// n'a pas de manager explicite (voir src/lib/departments.ts).
 model Department {
-  id        String   @id @default(cuid())
+  id          String       @id @default(cuid())
   /// Nom unique PAR ENTITÉ (chaque société peut avoir son propre « Commercial »).
-  name      String
-  code      String   @unique
+  name        String
+  code        String       @unique
   /// Entité de rattachement (Adventum, Pharmagène…). Null = département transverse au groupe.
-  companyId String?
-  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  parentId  String?
-  parent    Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children  Department[] @relation("DepartmentTree")
+  companyId   String?
+  company     Company?     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Department[] @relation("DepartmentTree")
   // Responsable et adjoint : employés (cohérent avec l'organigramme, qui relie des Employee).
   // L'adjoint prend le relais quand le responsable est le demandeur ou est absent.
-  headId    String?
-  head      Employee? @relation("DepartmentHead", fields: [headId], references: [id], onDelete: SetNull)
-  deputyId  String?
-  deputy    Employee? @relation("DepartmentDeputy", fields: [deputyId], references: [id], onDelete: SetNull)
+  headId      String?
+  head        Employee?    @relation("DepartmentHead", fields: [headId], references: [id], onDelete: SetNull)
+  deputyId    String?
+  deputy      Employee?    @relation("DepartmentDeputy", fields: [deputyId], references: [id], onDelete: SetNull)
   description String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
-  members       Employee[] @relation("DepartmentMembers")
+  members       Employee[]              @relation("DepartmentMembers")
   users         User[]
   adminRequests AdministrativeRequest[]
   budgets       DepartmentBudget[]
@@ -817,22 +817,22 @@ model User {
   calendarInvites    CalendarInvite[]    @relation("CalendarInvitee")
 
   // RH & espace de travail
-  employee         Employee?       @relation("UserEmployee")
-  promotedFeatures FeatureFlag[]   @relation("FeaturePromoter")
-  departmentBudgets DepartmentBudget[] @relation("DepartmentBudgetSetter")
+  employee               Employee?                @relation("UserEmployee")
+  promotedFeatures       FeatureFlag[]            @relation("FeaturePromoter")
+  departmentBudgets      DepartmentBudget[]       @relation("DepartmentBudgetSetter")
   departmentBudgetAccess DepartmentBudgetAccess[] @relation("DepartmentBudgetAccessSetter")
-  assistantThreads AssistantThread[] @relation("AssistantThreads")
-  assistantMemory  AssistantMemory?  @relation("AssistantMemory")
-  dailyBriefs      DailyBrief[]      @relation("DailyBriefs")
-  outboundEmails   OutboundEmail[]   @relation("OutboundEmails")
-  tasksAssigned    Task[]          @relation("TaskAssignee")
-  tasksCreated     Task[]          @relation("TaskCreator")
-  leaveDecisions   LeaveRequest[]  @relation("LeaveDecider")
-  advanceDecisions SalaryAdvance[] @relation("AdvanceDecider")
-  expenseOrders    ExpenseOrder[]  @relation("ExpenseOrderRequester")
-  driveNodes       DriveNode[]     @relation("DriveOwner")
-  driveShares      DriveShare[]    @relation("DriveShareUser")
-  driveComments    DriveComment[]  @relation("DriveCommentAuthor")
+  assistantThreads       AssistantThread[]        @relation("AssistantThreads")
+  assistantMemory        AssistantMemory?         @relation("AssistantMemory")
+  dailyBriefs            DailyBrief[]             @relation("DailyBriefs")
+  outboundEmails         OutboundEmail[]          @relation("OutboundEmails")
+  tasksAssigned          Task[]                   @relation("TaskAssignee")
+  tasksCreated           Task[]                   @relation("TaskCreator")
+  leaveDecisions         LeaveRequest[]           @relation("LeaveDecider")
+  advanceDecisions       SalaryAdvance[]          @relation("AdvanceDecider")
+  expenseOrders          ExpenseOrder[]           @relation("ExpenseOrderRequester")
+  driveNodes             DriveNode[]              @relation("DriveOwner")
+  driveShares            DriveShare[]             @relation("DriveShareUser")
+  driveComments          DriveComment[]           @relation("DriveCommentAuthor")
 
   // Demandes administratives
   adminRequests           AdministrativeRequest[] @relation("ReqRequester")
@@ -898,10 +898,11 @@ model User {
   meetingTaskProposals  MeetingTaskProposal[] @relation("MeetingTaskAssignee")
   meetingMessages       MeetingMessage[]      @relation("MeetingMsgAuthor")
 
-  reminders Reminder[] @relation("UserReminders")
+  reminders          Reminder[]          @relation("UserReminders")
   /// Entités auxquelles cette personne a accès (voir / modifier). Distinct de son entité
   /// d'appartenance, portée par sa fiche Employee.
-  companyAccess UserCompanyAccess[]
+  companyAccess      UserCompanyAccess[]
+  adProItemDecisions AdProItemDecision[] @relation("AdProItemDecider")
 
   @@index([role])
   @@index([departmentId])
@@ -911,20 +912,20 @@ model User {
 /// secrétariat, e-mail, tâche, ou libre). À l'échéance (remindAt), un job planifié notifie le
 /// propriétaire. link/entityType/entityId renvoient vers l'objet concerné.
 model Reminder {
-  id         String         @id @default(cuid())
-  userId     String
-  user       User           @relation("UserReminders", fields: [userId], references: [id], onDelete: Cascade)
-  title      String
-  note       String?
-  link       String?
-  entityType EntityType?
-  entityId   String?
-  remindAt   DateTime
-  status     ReminderStatus @default(PENDING)
-  sentAt     DateTime?
+  id          String         @id @default(cuid())
+  userId      String
+  user        User           @relation("UserReminders", fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  note        String?
+  link        String?
+  entityType  EntityType?
+  entityId    String?
+  remindAt    DateTime
+  status      ReminderStatus @default(PENDING)
+  sentAt      DateTime?
   createdById String?
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
   @@index([userId, status])
   @@index([status, remindAt])
@@ -1037,14 +1038,14 @@ model Company {
 
 model RegulatoryProduct {
   companyId              String? // entité (Adventum / Pharmagène / …)
-  company                Company?           @relation(fields: [companyId], references: [id])
+  company                Company?            @relation(fields: [companyId], references: [id])
   custom                 Json? // admin-defined dynamic fields
   // Suivi du processus officiel ANPP (22 étapes) et de la checklist de présoumission.
   // Stockés en JSON (définition des étapes/documents en code) : { [clé]: { status/checked, date, note } }.
   workflow               Json?
   checklist              Json?
-  id                     String             @id @default(cuid())
-  reference              String             @unique // human readable ID, e.g. REG-2026-001
+  id                     String              @id @default(cuid())
+  reference              String              @unique // human readable ID, e.g. REG-2026-001
   dci                    String // DCI canonique : molécule unique OU association (« A + B + C »)
   molecules              Json? // liste structurée des molécules (association double/triple…)
   brandName              String? // nom commercial envisagé
@@ -1054,13 +1055,13 @@ model RegulatoryProduct {
   therapeuticClass       String?
   partnerLab             String? // fournisseur / laboratoire partenaire
   countryOfOrigin        String?
-  category               RegulatoryCategory @default(MEDICINE) // médicament vs dispositif médical
-  channel                ProductChannel     @default(BOTH) // canal : Ville / Hôpital / les deux
-  productType            ProductType        @default(IMPORTED) // (legacy) conservé, non affiché
+  category               RegulatoryCategory  @default(MEDICINE) // médicament vs dispositif médical
+  channel                ProductChannel      @default(BOTH) // canal : Ville / Hôpital / les deux
+  productType            ProductType         @default(IMPORTED) // (legacy) conservé, non affiché
   // Statut de fabrication courant : démarre en Importation, évolue via les variations.
   manufacturingStatus    ManufacturingStatus @default(IMPORTATION)
-  status                 RegulatoryStatus   @default(PRE_SUBMISSION)
-  priority               Priority           @default(MEDIUM)
+  status                 RegulatoryStatus    @default(PRE_SUBMISSION)
+  priority               Priority            @default(MEDIUM)
   targetSubmissionDate   DateTime? // date cible de dépôt du dossier (fixée par la supervision)
   targetDate             DateTime? // date cible d'enregistrement (fixée après le dépôt)
   comments               String?
@@ -1157,8 +1158,8 @@ model RegulatoryStep {
 model SponsoringRequest {
   custom              Json? // admin-defined dynamic fields
   id                  String           @id @default(cuid())
-  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
-  company          Company? @relation(fields: [companyId], references: [id])
+  companyId           String? // entité de rattachement (Adventum / Pharmagène / …)
+  company             Company?         @relation(fields: [companyId], references: [id])
   reference           String           @unique
   requestDate         DateTime         @default(now())
   requesterId         String?
@@ -1209,9 +1210,7 @@ model SponsoringRequest {
   @@index([strategicImportance])
   @@index([requesterId])
   @@index([productManagerId])
-
   @@index([companyId])
-
 }
 
 /// Nature d'un poste Ad & Pro. `PROMO_MATERIAL` est à part : ce poste ne se traite pas ici,
@@ -1223,7 +1222,38 @@ enum AdProItemKind {
   PROMO_MATERIAL
   SERVICE
   TRAVEL
+  CONSULTING
+  CATERING
+  VENUE
   OTHER
+}
+
+/// CYCLE DE VALIDATION D'UN POSTE — chaque poste (consulting, traiteur, location de salle…) se
+/// valide INDÉPENDAMMENT auprès de la Direction, qui accepte, refuse, ou demande à revoir le
+/// budget — autant de fois qu'il le faut. `REVISION` renvoie la main au demandeur sans clore.
+enum AdProItemStatus {
+  DRAFT // en préparation : on décrit, on demande un devis, on joint les pièces
+  PENDING // soumis à la Direction
+  REVISION // budget à revoir — le demandeur corrige et resoumet
+  APPROVED
+  REJECTED
+}
+
+/// Un poste pèse-t-il SUR l'enveloppe déjà accordée, ou demande-t-il une RALLONGE ? La question
+/// est posée à l'ajout : sans elle, un poste supplémentaire passerait pour un dépassement.
+enum AdProItemBudgetKind {
+  INCLUDED // déjà couvert par le budget accordé de l'opération
+  ADDITIONAL // budget SUPPLÉMENTAIRE demandé en plus de l'enveloppe
+}
+
+/// ÉMISSION DU BON DE COMMANDE d'un poste accordé : demandée, visée par la Direction, puis
+/// émise par les Finances (l'ordre de dépense naît à ce moment-là).
+enum AdProItemOrderStage {
+  NONE
+  REQUESTED // demande d'émission déposée
+  DIRECTION_OK // visa Direction obtenu — en attente des Finances
+  ISSUED // Finances : ordre de dépense émis
+  REFUSED
 }
 
 /// UN POSTE D'UNE OPÉRATION AD & PRO — de quoi est fait le montant.
@@ -1245,15 +1275,22 @@ enum AdProItemKind {
 /// événements se fera par une colonne de plus, pas par une refonte.
 /// Exactement UN parent est renseigné (contrainte `AdProItem_one_parent`).
 model AdProItem {
-  id                 String             @id @default(cuid())
-  sponsoringId       String?
-  sponsoring         SponsoringRequest? @relation(fields: [sponsoringId], references: [id], onDelete: Cascade)
-  congressNationalId String?
-  congressNational   CongressNational?  @relation(fields: [congressNationalId], references: [id], onDelete: Cascade)
+  id                      String                 @id @default(cuid())
+  sponsoringId            String?
+  sponsoring              SponsoringRequest?     @relation(fields: [sponsoringId], references: [id], onDelete: Cascade)
+  congressNationalId      String?
+  congressNational        CongressNational?      @relation(fields: [congressNationalId], references: [id], onDelete: Cascade)
+  /// Les DEUX autres opérations Ad & Pro qui portent des postes : prises en charge
+  /// internationales et événements. Une colonne de plus par module (jamais une colonne
+  /// polymorphe) : la cascade reste garantie par la base.
+  congressInternationalId String?
+  congressInternational   CongressInternational? @relation(fields: [congressInternationalId], references: [id], onDelete: Cascade)
+  eventId                 String?
+  event                   Event?                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  kind  AdProItemKind @default(OTHER)
-  label String
-  notes String?
+  kind     AdProItemKind @default(OTHER)
+  label    String
+  notes    String?
   /// À QUI on paie ce poste : l'organisateur pour un stand, l'agence pour du matériel,
   /// l'association pour l'appui. C'est ce qui justifie un ordre de dépense par poste.
   supplier String?
@@ -1270,6 +1307,33 @@ model AdProItem {
   /// l'enveloppe accordée, et l'écran doit le dire au lieu de le masquer.
   addedAfterDecision Boolean @default(false)
 
+  /// ─── Validation propre au poste (Direction) ───
+  status       AdProItemStatus     @default(DRAFT)
+  budgetKind   AdProItemBudgetKind @default(INCLUDED)
+  submittedAt  DateTime?
+  decidedAt    DateTime?
+  decidedById  String?
+  decisionNote String?
+
+  /// Budget choisi APRÈS accord (catégorie d'enveloppe) — « comme d'habitude ».
+  budgetCategoryId String?
+  budgetCategory   BudgetCategoryLine? @relation(fields: [budgetCategoryId], references: [id], onDelete: SetNull)
+
+  /// Demande administrative ouverte pour OBTENIR LE DEVIS (Bureau du secrétariat). Les devis
+  /// déposés y sont joints, puis rattachés au poste pour la demande de validation.
+  adminRequestId String?
+  adminRequest   AdministrativeRequest? @relation("AdProItemQuoteRequest", fields: [adminRequestId], references: [id], onDelete: SetNull)
+
+  /// ─── Émission du bon de commande (Direction puis Finances) ───
+  orderStage         AdProItemOrderStage @default(NONE)
+  orderRequestedAt   DateTime?
+  orderRequestedById String?
+  orderDirectionAt   DateTime?
+  orderDirectionById String?
+  orderNote          String?
+
+  decisions AdProItemDecision[]
+
   position    Int      @default(0)
   createdById String?
   updatedById String?
@@ -1278,7 +1342,27 @@ model AdProItem {
 
   @@index([sponsoringId])
   @@index([congressNationalId])
+  @@index([congressInternationalId])
+  @@index([eventId])
   @@index([promoMaterialId])
+  @@index([status])
+}
+
+/// HISTORIQUE DES DÉCISIONS D'UN POSTE — « autant de fois qu'il le faut » : une demande de
+/// révision n'écrase pas la précédente, elle s'ajoute. Sans cette trace, un poste accordé au
+/// 3ᵉ tour ne dirait plus rien des deux refus qui l'ont précédé.
+model AdProItemDecision {
+  id       String          @id @default(cuid())
+  itemId   String
+  item     AdProItem       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  decision AdProItemStatus // PENDING (soumission) | APPROVED | REJECTED | REVISION
+  note     String?
+  amount   Decimal?        @db.Decimal(14, 2) // montant en jeu au moment de la décision
+  byId     String?
+  by       User?           @relation("AdProItemDecider", fields: [byId], references: [id], onDelete: SetNull)
+  at       DateTime        @default(now())
+
+  @@index([itemId, at])
 }
 
 // ───────────────────────────── Budgets ─────────────────────────────
@@ -1313,41 +1397,39 @@ model BudgetLine {
 // réparti en catégories (BudgetCategoryLine). La consommation est calculée à partir
 // des dépenses réelles (FinanceTransaction OUT) attribuées à chaque catégorie.
 model BudgetEnvelope {
-  id            String               @id @default(cuid())
-  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
-  company          Company? @relation(fields: [companyId], references: [id])
-  name          String
-  module        String? // (déprécié) module principal — conservé pour compatibilité
+  id             String               @id @default(cuid())
+  companyId      String? // entité de rattachement (Adventum / Pharmagène / …)
+  company        Company?             @relation(fields: [companyId], references: [id])
+  name           String
+  module         String? // (déprécié) module principal — conservé pour compatibilité
   // Une enveloppe peut couvrir UN ou PLUSIEURS modules.
-  modules       String[]             @default([]) // SPONSORING, CONGRESS_*, EVENTS, PROMO_MATERIAL, MEDICAL…
+  modules        String[]             @default([]) // SPONSORING, CONGRESS_*, EVENTS, PROMO_MATERIAL, MEDICAL…
   // Rôles (hors gestionnaires) autorisés à CONSULTER cette enveloppe — ex. la
   // Direction des opérations ne voit que les enveloppes que le Super Admin a
   // ouvertes. Vide = visible des seuls gestionnaires (Super Admin / délégués).
-  accessRoles   String[]             @default([])
+  accessRoles    String[]             @default([])
   // Utilisateurs nommément autorisés par le Super Admin à consulter cette enveloppe
   // (en plus des rôles ci-dessus). Permet d'ouvrir l'accès à des personnes précises.
-  accessUserIds String[]             @default([])
+  accessUserIds  String[]             @default([])
   // GESTION (niveau supérieur à la simple visualisation) : rôles / personnes autorisés
   // par l'admin à GÉRER le CONTENU de cette enveloppe précise (catégories, allocations,
   // lignes de dépense budgétaire) — sans être gestionnaire global. La modification de
   // l'enveloppe elle-même (montant, période, listes d'accès) reste réservée à l'admin.
-  managerRoles   String[]            @default([])
-  managerUserIds String[]            @default([])
-  periodStart   DateTime
-  periodEnd     DateTime
-  totalAmount   Decimal              @default(0) @db.Decimal(14, 2)
-  notes         String?
-  isActive      Boolean              @default(true)
-  categories    BudgetCategoryLine[]
-  createdById   String?
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  managerRoles   String[]             @default([])
+  managerUserIds String[]             @default([])
+  periodStart    DateTime
+  periodEnd      DateTime
+  totalAmount    Decimal              @default(0) @db.Decimal(14, 2)
+  notes          String?
+  isActive       Boolean              @default(true)
+  categories     BudgetCategoryLine[]
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   @@index([isActive])
   @@index([periodStart])
-
   @@index([companyId])
-
 }
 
 // Catégorie créée par la Direction au sein d'une enveloppe, avec son allocation.
@@ -1367,6 +1449,7 @@ model BudgetCategoryLine {
   notes        String?
   transactions FinanceTransaction[]
   expenseLines BudgetExpenseLine[]
+  adProItems   AdProItem[]
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
 
@@ -1420,18 +1503,18 @@ model DepartmentBudgetAccess {
 }
 
 model DepartmentBudget {
-  id           String              @id @default(cuid())
+  id           String               @id @default(cuid())
   departmentId String
-  department   Department          @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  department   Department           @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   year         Int
   kind         DepartmentBudgetKind
-  amount       Decimal             @default(0) @db.Decimal(14, 2)
+  amount       Decimal              @default(0) @db.Decimal(14, 2)
   notes        String?
   /// Qui a réglé ce montant en dernier — la responsabilité doit être lisible.
   setById      String?
-  setBy        User?               @relation("DepartmentBudgetSetter", fields: [setById], references: [id], onDelete: SetNull)
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  setBy        User?                @relation("DepartmentBudgetSetter", fields: [setById], references: [id], onDelete: SetNull)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
 
   @@unique([departmentId, year, kind])
   @@index([year, kind])
@@ -1463,7 +1546,7 @@ model CongressInternational {
   custom           Json? // admin-defined dynamic fields
   id               String            @id @default(cuid())
   companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
-  company          Company? @relation(fields: [companyId], references: [id])
+  company          Company?          @relation(fields: [companyId], references: [id])
   name             String
   eventType        NationalEventType @default(CONGRESS) // type d'événement (congrès, séminaire, formation…)
   country          String?
@@ -1513,20 +1596,21 @@ model CongressInternational {
   careBeneficiaries CareBeneficiary[]
   careQuotes        CareQuote[]
 
+  /// Postes (consulting, traiteur, salle…) validés un par un — voir AdProItem.
+  items AdProItem[]
+
   @@index([status])
   @@index([startDate])
   @@index([requestStatus])
   @@index([requesterId])
-
   @@index([companyId])
-
 }
 
 model CongressNational {
   custom           Json? // admin-defined dynamic fields
   id               String         @id @default(cuid())
   companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
-  company          Company? @relation(fields: [companyId], references: [id])
+  company          Company?       @relation(fields: [companyId], references: [id])
   name             String
   country          String? // optionnel — un événement « national » peut se tenir hors d'Algérie
   city             String?
@@ -1569,7 +1653,7 @@ model CongressNational {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  items          AdProItem[]
+  items             AdProItem[]
   careBeneficiaries CareBeneficiary[]
   careQuotes        CareQuote[]
 
@@ -1577,9 +1661,7 @@ model CongressNational {
   @@index([date])
   @@index([requestStatus])
   @@index([requesterId])
-
   @@index([companyId])
-
 }
 
 // ─────────────────────── Prise en charge : personnes, cases, devis ───────────────────────
@@ -1640,9 +1722,9 @@ enum CareCellStatus {
 /// pourrait pas porter de contrainte, et supprimer une demande laisserait ses personnes
 /// orphelines. Contrainte `CareBeneficiary_one_parent` : exactement un parent.
 model CareBeneficiary {
-  id                      String                @id @default(cuid())
+  id                      String                 @id @default(cuid())
   congressNationalId      String?
-  congressNational        CongressNational?     @relation(fields: [congressNationalId], references: [id], onDelete: Cascade)
+  congressNational        CongressNational?      @relation(fields: [congressNationalId], references: [id], onDelete: Cascade)
   congressInternationalId String?
   congressInternational   CongressInternational? @relation(fields: [congressInternationalId], references: [id], onDelete: Cascade)
 
@@ -1684,7 +1766,7 @@ model CareBeneficiary {
 /// à l'hôtel et l'autre chez elle. D'où des cases attachées à la personne, et non des colonnes
 /// communes à tout le tableau.
 model CareCell {
-  id            String       @id @default(cuid())
+  id            String          @id @default(cuid())
   beneficiaryId String
   beneficiary   CareBeneficiary @relation(fields: [beneficiaryId], references: [id], onDelete: Cascade)
 
@@ -1697,15 +1779,15 @@ model CareCell {
   status CareCellStatus @default(REQUESTED)
 
   /// DOCUMENT : la pièce déposée (Document.id).
-  documentId String?
+  documentId      String?
   /// Rattachement au circuit du matériel promotionnel — jamais recopié ici : le matériel a son
   /// propre parcours (visa publicitaire, conformité, agence, BAT) et cette case en montre
   /// seulement l'avancement.
   promoMaterialId String?
   /// SERVICE : le devis retenu et ce qu'il coûte.
-  quoteId        String?
-  amountDzd      Decimal? @db.Decimal(14, 2)
-  expenseOrderId String?
+  quoteId         String?
+  amountDzd       Decimal? @db.Decimal(14, 2)
+  expenseOrderId  String?
 
   /// Qui a demandé cette case — le chef de produit peut en ajouter après coup.
   requestedById String?
@@ -1739,16 +1821,16 @@ model CareQuote {
   congressInternationalId String?
   congressInternational   CongressInternational? @relation(fields: [congressInternationalId], references: [id], onDelete: Cascade)
 
-  supplier  String
-  reference String?
-  amountDzd Decimal         @db.Decimal(14, 2)
-  status    CareQuoteStatus @default(PENDING)
+  supplier   String
+  reference  String?
+  amountDzd  Decimal         @db.Decimal(14, 2)
+  status     CareQuoteStatus @default(PENDING)
   /// Le PDF du devis (Document.id).
   documentId String?
   note       String?
 
-  decidedById String?
-  decidedAt   DateTime?
+  decidedById    String?
+  decidedAt      DateTime?
   /// Ordre de dépense émis à l'acceptation.
   expenseOrderId String?
 
@@ -1917,8 +1999,8 @@ enum SupportStatus {
 
 model SupportRequest {
   id           String           @id @default(cuid())
-  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
-  company          Company? @relation(fields: [companyId], references: [id])
+  companyId    String? // entité de rattachement (Adventum / Pharmagène / …)
+  company      Company?         @relation(fields: [companyId], references: [id])
   reference    String           @unique // SUP-AAAA-NNN
   subject      String
   body         String
@@ -1941,9 +2023,7 @@ model SupportRequest {
   @@index([requesterId])
   @@index([targetRole])
   @@index([assignedToId])
-
   @@index([companyId])
-
 }
 
 model SupportMessage {
@@ -2030,8 +2110,8 @@ enum DossierStatus {
 /// ou proposé par l'IA depuis un chat / e-mail.
 model Dossier {
   id             String           @id @default(cuid())
-  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
-  company          Company? @relation(fields: [companyId], references: [id])
+  companyId      String? // entité de rattachement (Adventum / Pharmagène / …)
+  company        Company?         @relation(fields: [companyId], references: [id])
   reference      String           @unique // DOS-AAAA-NNN
   title          String
   description    String?
@@ -2051,9 +2131,7 @@ model Dossier {
   @@index([status])
   @@index([createdById])
   @@index([assignedToId])
-
   @@index([companyId])
-
 }
 
 model DossierMessage {
@@ -2193,15 +2271,15 @@ model MedicalSpecialty {
 
 model MedicalDoctor {
   custom                Json? // admin-defined dynamic fields
-  id                    String            @id @default(cuid())
+  id                    String              @id @default(cuid())
   companyId             String? // entité (Adventum / Pharmagène / …)
-  company               Company?          @relation(fields: [companyId], references: [id])
+  company               Company?            @relation(fields: [companyId], references: [id])
   name                  String
-  title                 DoctorTitle       @default(AUTRE) // grade : Professeur, etc.
+  title                 DoctorTitle         @default(AUTRE) // grade : Professeur, etc.
   specialty             String? // libellé libre hérité (fallback si non rattaché)
   specialtyId           String?
-  specialtyRef          MedicalSpecialty? @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
-  sector                MedicalSector     @default(LIBERAL)
+  specialtyRef          MedicalSpecialty?   @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  sector                MedicalSector       @default(LIBERAL)
   institution           String? // hôpital / clinique (libellé dénormalisé, hérité)
   institutionId         String?
   institutionRef        MedicalInstitution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
@@ -2209,12 +2287,12 @@ model MedicalDoctor {
   region                String?
   phone                 String?
   email                 String?
-  influenceLevel        InfluenceLevel    @default(MEDIUM) // hérité (remplacé par `influence`)
-  prescriptionPotential Priority          @default(MEDIUM) // hérité (remplacé par `potential`)
+  influenceLevel        InfluenceLevel      @default(MEDIUM) // hérité (remplacé par `influence`)
+  prescriptionPotential Priority            @default(MEDIUM) // hérité (remplacé par `potential`)
   // Segmentation à 5 niveaux (très haut → très bas) sur trois axes.
-  influence             SegmentLevel      @default(MEDIUM) // influence (produit / spécialité)
-  potential             SegmentLevel      @default(MEDIUM) // potentiel de prescription
-  affinity              SegmentLevel      @default(MEDIUM) // affinité avec nous
+  influence             SegmentLevel        @default(MEDIUM) // influence (produit / spécialité)
+  potential             SegmentLevel        @default(MEDIUM) // potentiel de prescription
+  affinity              SegmentLevel        @default(MEDIUM) // affinité avec nous
   // Logique de segmentation produit : par spécialité (specialtyRef) et/ou par
   // produit(s) ciblé(s). `targetProducts` liste les produits suivis pour ce praticien.
   targetProducts        String?
@@ -2799,9 +2877,9 @@ enum HrRequestStatus {
 
 model Employee {
   custom        Json?
-  id            String    @id @default(cuid())
+  id            String      @id @default(cuid())
   companyId     String? // entité de rattachement (Adventum / Pharmagène / …)
-  company       Company?  @relation(fields: [companyId], references: [id])
+  company       Company?    @relation(fields: [companyId], references: [id])
   fullName      String
   position      String?
   /// Libellé du département — CACHE dénormalisé du département structuré ci-dessous
@@ -2814,39 +2892,39 @@ model Employee {
   email         String?
   phone         String?
   iban          String?
-  baseSalary    Decimal   @default(0) @db.Decimal(12, 2)
+  baseSalary    Decimal     @default(0) @db.Decimal(12, 2)
   // Éléments de salaire (bulletin) — visibles par le salarié SAUF salaire brut,
   // retenue SS 35 % et TFP (taxe sur la formation professionnelle).
-  retSS9        Decimal?  @db.Decimal(12, 2) // retenue sécurité sociale 9 %
-  retSS35       Decimal?  @db.Decimal(12, 2) // retenue SS 35 % (confidentiel)
-  tfp           Decimal?  @db.Decimal(12, 2) // taxe formation professionnelle (confidentiel)
-  retIrg        Decimal?  @db.Decimal(12, 2) // retenue IRG
-  expenseRefund Decimal?  @db.Decimal(12, 2) // remboursement de frais
-  netToPay      Decimal?  @db.Decimal(12, 2) // net à payer
-  grossSalary   Decimal?  @db.Decimal(12, 2) // salaire brut (confidentiel)
+  retSS9        Decimal?    @db.Decimal(12, 2) // retenue sécurité sociale 9 %
+  retSS35       Decimal?    @db.Decimal(12, 2) // retenue SS 35 % (confidentiel)
+  tfp           Decimal?    @db.Decimal(12, 2) // taxe formation professionnelle (confidentiel)
+  retIrg        Decimal?    @db.Decimal(12, 2) // retenue IRG
+  expenseRefund Decimal?    @db.Decimal(12, 2) // remboursement de frais
+  netToPay      Decimal?    @db.Decimal(12, 2) // net à payer
+  grossSalary   Decimal?    @db.Decimal(12, 2) // salaire brut (confidentiel)
   hireDate      DateTime?
-  isActive      Boolean   @default(true)
+  isActive      Boolean     @default(true)
   notes         String?
 
   // RH — contrat, état civil, congés
-  contractType      ContractType?
-  contractStart     DateTime?
-  contractEnd       DateTime? // échéance du contrat (CDD, stage…)
+  contractType        ContractType?
+  contractStart       DateTime?
+  contractEnd         DateTime? // échéance du contrat (CDD, stage…)
   // Période d'essai : dates, renouvelable, et si renouvelée → dates de la 2ᵉ période.
-  trialStart        DateTime?
-  trialEnd          DateTime?
-  trialRenewable    Boolean       @default(false)
-  trialRenewed      Boolean       @default(false)
-  trialRenewalStart DateTime?
-  trialRenewalEnd   DateTime?
-  leaveBalanceDays  Decimal       @default(30) @db.Decimal(6, 1) // solde de congés (jours)
+  trialStart          DateTime?
+  trialEnd            DateTime?
+  trialRenewable      Boolean       @default(false)
+  trialRenewed        Boolean       @default(false)
+  trialRenewalStart   DateTime?
+  trialRenewalEnd     DateTime?
+  leaveBalanceDays    Decimal       @default(30) @db.Decimal(6, 1) // solde de congés (jours)
   // Acquisition automatique des congés : 2,5 j / mois. Marqueur « YYYY-MM » du dernier
   // mois crédité (idempotent) — voir accrueMonthlyLeave() dans src/lib/scheduled.ts.
   leaveAccruedThrough String?
-  birthDate         DateTime?
-  nationalId        String? // NIN
-  cnasNumber        String? // n° sécurité sociale (CNAS)
-  address           String?
+  birthDate           DateTime?
+  nationalId          String? // NIN
+  cnasNumber          String? // n° sécurité sociale (CNAS)
+  address             String?
 
   // Compte applicatif lié (un employé peut avoir un accès au logiciel)
   userId String? @unique
@@ -2855,8 +2933,8 @@ model Employee {
   // Hiérarchie (manager / N+1) — manager EXPLICITE ; à défaut, le N+1 est déduit du
   // département (responsable, puis responsable du parent). Voir src/lib/departments.ts.
   managerId String?
-  manager   Employee?  @relation("EmployeeManager", fields: [managerId], references: [id])
-  reports   Employee[] @relation("EmployeeManager")
+  manager   Employee?    @relation("EmployeeManager", fields: [managerId], references: [id])
+  reports   Employee[]   @relation("EmployeeManager")
   // Départements dont cet employé est responsable / adjoint.
   headOf    Department[] @relation("DepartmentHead")
   deputyOf  Department[] @relation("DepartmentDeputy")
@@ -3036,7 +3114,7 @@ model ExpenseOrder {
   custom           Json?
   id               String             @id @default(cuid())
   companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
-  company          Company? @relation(fields: [companyId], references: [id])
+  company          Company?           @relation(fields: [companyId], references: [id])
   reference        String             @unique // OD-2026-001
   label            String
   beneficiary      String?
@@ -3064,9 +3142,7 @@ model ExpenseOrder {
 
   @@index([status])
   @@index([sourceType, sourceId])
-
   @@index([companyId])
-
 }
 
 // ───────────────────────────── Drive (stockage interne) ─────────────────────────────
@@ -3075,29 +3151,29 @@ model ExpenseOrder {
 /// FileBlob (chiffré, adressé par contenu) ; l'historique dans FileVersion.
 model DriveNode {
   custom      Json?
-  id          String        @id @default(cuid())
+  id          String         @id @default(cuid())
   name        String
   type        DriveNodeType
   parentId    String?
-  parent      DriveNode?    @relation("DriveTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children    DriveNode[]   @relation("DriveTree")
+  parent      DriveNode?     @relation("DriveTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    DriveNode[]    @relation("DriveTree")
   ownerId     String?
-  owner       User?         @relation("DriveOwner", fields: [ownerId], references: [id])
+  owner       User?          @relation("DriveOwner", fields: [ownerId], references: [id])
   // Catégorie/espace partagé (ex. « Promotion Médicale ») auquel ce nœud appartient. null =
   // Drive PERSONNEL (comportement historique). Tout le sous-arbre d'un espace porte le même
   // spaceId (l'invariant est maintenu à la création et au déplacement).
   spaceId     String?
-  space       DriveSpace?   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  space       DriveSpace?    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   mimeType    String? // version courante (fichier)
-  size        Int           @default(0) // octets de la version courante ; 0 pour un dossier
+  size        Int            @default(0) // octets de la version courante ; 0 pour un dossier
   category    String? // classement choisi à l'import (Contrat, Facture, Réglementaire…)
-  isTrashed   Boolean       @default(false)
+  isTrashed   Boolean        @default(false)
   versions    FileVersion[]
   shares      DriveShare[]
   comments    DriveComment[]
   createdById String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
   @@index([parentId])
   @@index([ownerId])
@@ -3210,8 +3286,8 @@ model DriveComment {
 model AdministrativeRequest {
   custom              Json?
   id                  String             @id @default(cuid())
-  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
-  company          Company? @relation(fields: [companyId], references: [id])
+  companyId           String? // entité de rattachement (Adventum / Pharmagène / …)
+  company             Company?           @relation(fields: [companyId], references: [id])
   reference           String             @unique // REQ-2026-001
   title               String
   type                AdminRequestType
@@ -3251,8 +3327,10 @@ model AdministrativeRequest {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
-  approvals AdminApproval[]
-  missions  DriverMission[]
+  approvals       AdminApproval[]
+  missions        DriverMission[]
+  /// Postes Ad & Pro dont CETTE demande sert à obtenir le devis.
+  adProItemQuotes AdProItem[]     @relation("AdProItemQuoteRequest")
 
   @@index([status])
   @@index([type])
@@ -3262,9 +3340,7 @@ model AdministrativeRequest {
   @@index([deadline])
   @@index([batchId])
   @@index([deletedAt])
-
   @@index([companyId])
-
 }
 
 /// Catalogue d'articles de fourniture de bureau (Achats). Maintenu par
@@ -3577,8 +3653,8 @@ model PchTender {
   lines       PchTenderLine[]
   createdById String?
   updatedById String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   @@index([status])
 }
@@ -3594,73 +3670,73 @@ enum PchLineStatus {
 }
 
 model PchTenderLine {
-  id          String        @id @default(cuid())
-  tenderId    String
-  tender      PchTender     @relation(fields: [tenderId], references: [id], onDelete: Cascade)
-  sortOrder   Int           @default(0)
-  designation String // produit demandé (libellé du marché)
-  dci         String?
-  dosage      String?
-  form        String? // forme galénique
+  id                     String        @id @default(cuid())
+  tenderId               String
+  tender                 PchTender     @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  sortOrder              Int           @default(0)
+  designation            String // produit demandé (libellé du marché)
+  dci                    String?
+  dosage                 String?
+  form                   String? // forme galénique
   // Conditionnement : le marché demande des UNITÉS ; nos produits sont en BOÎTES de N unités.
-  quantityUnits Int         @default(0) // quantité demandée (unités)
-  unitsPerBox   Int? // « boîte de N » → nombre de boîtes = ceil(unités / N)
+  quantityUnits          Int           @default(0) // quantité demandée (unités)
+  unitsPerBox            Int? // « boîte de N » → nombre de boîtes = ceil(unités / N)
   /// Nature de l'unité demandée : « comprimé », « flacon », « seringue », « ampoule »…
   /// Un appel d'offres ne parle pas toujours de comprimés — le dire évite de comparer
   /// des flacons à des comprimés.
-  unitLabel     String?
+  unitLabel              String?
   // Avons-nous ce produit ? + rattachement au produit Regulatory (id + libellé dénormalisé).
-  haveProduct   Boolean     @default(false)
-  ourProductId  String?
-  ourProduct    String?
-  unitPriceDzd  Decimal?    @db.Decimal(14, 2) // notre prix unitaire (DZD)
-  suppliersInfo String? // nos fournisseurs + prix (texte)
+  haveProduct            Boolean       @default(false)
+  ourProductId           String?
+  ourProduct             String?
+  unitPriceDzd           Decimal?      @db.Decimal(14, 2) // notre prix unitaire (DZD)
+  suppliersInfo          String? // nos fournisseurs + prix (texte)
   // Prix de RÉFÉRENCE verrouillé depuis les réceptions PCH 2025 (vérifié dosage + forme).
-  refPriceDzd   Decimal?    @db.Decimal(14, 2)
-  refPriceSource String? // libellé/source de la ligne Réception 2025 rapprochée
+  refPriceDzd            Decimal?      @db.Decimal(14, 2)
+  refPriceSource         String? // libellé/source de la ligne Réception 2025 rapprochée
   // Enrichissement intelligence marché.
-  competitorCount   Int?
-  registeredNomenclature Boolean @default(false) // présent à la nomenclature (marché) ?
-  registeredOurs         Boolean @default(false) // NOUS avons un produit enregistré correspondant
-  nomLines          Int? // nombre de lignes nomenclature détectées
-  marketEstimateDzd Decimal? @db.Decimal(18, 2) // estimation de la taille de marché
+  competitorCount        Int?
+  registeredNomenclature Boolean       @default(false) // présent à la nomenclature (marché) ?
+  registeredOurs         Boolean       @default(false) // NOUS avons un produit enregistré correspondant
+  nomLines               Int? // nombre de lignes nomenclature détectées
+  marketEstimateDzd      Decimal?      @db.Decimal(18, 2) // estimation de la taille de marché
   /// PAYSAGE CONCURRENTIEL, calculé par l'intelligence marché (`analyzeMolecule`) sur le
   /// triplet molécule + dosage + forme de la ligne. Dénormalisé ici pour rester lisible
   /// dans le tableau et dans l'export Excel, sans recalcul à chaque affichage.
-  marketOrigin      String? // LOCAL | IMPORT | MIXTE — fabriqué en Algérie ou importé
-  marketVillePct    Decimal? @db.Decimal(5, 2) // part du marché de ville (%)
-  marketHopitalPct  Decimal? @db.Decimal(5, 2) // part du marché hospitalier (%)
-  marketHhi         Int? // concentration (Herfindahl) : > 2500 = marché concentré
-  competitorsTop    String? // « GSK 45 % · HIKMA 25 % · BIOCARE 14 % »
+  marketOrigin           String? // LOCAL | IMPORT | MIXTE — fabriqué en Algérie ou importé
+  marketVillePct         Decimal?      @db.Decimal(5, 2) // part du marché de ville (%)
+  marketHopitalPct       Decimal?      @db.Decimal(5, 2) // part du marché hospitalier (%)
+  marketHhi              Int? // concentration (Herfindahl) : > 2500 = marché concentré
+  competitorsTop         String? // « GSK 45 % · HIKMA 25 % · BIOCARE 14 % »
   // Suivi commercial de la ligne.
-  status              PchLineStatus @default(PENDING)
-  awardedUnitPriceDzd Decimal?      @db.Decimal(14, 2) // prix d'attribution si gagné
-  note                String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  status                 PchLineStatus @default(PENDING)
+  awardedUnitPriceDzd    Decimal?      @db.Decimal(14, 2) // prix d'attribution si gagné
+  note                   String?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
   @@index([tenderId])
 }
 
 model PchOrder {
-  id           String         @id @default(cuid())
-  tenderId     String
-  tender       PchTender      @relation(fields: [tenderId], references: [id], onDelete: Cascade)
-  lineId       String? // ligne-produit gagnée dont ce bon de commande est une FRACTION (vente réelle)
-  reference    String? // n° du bon de commande PCH
-  products     String?
-  quantity     Int            @default(0)
-  value        Decimal?       @db.Decimal(16, 2)
-  status       PchOrderStatus @default(PENDING)
-  receivedDate DateTime?
-  paymentDate  DateTime?
+  id              String         @id @default(cuid())
+  tenderId        String
+  tender          PchTender      @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  lineId          String? // ligne-produit gagnée dont ce bon de commande est une FRACTION (vente réelle)
+  reference       String? // n° du bon de commande PCH
+  products        String?
+  quantity        Int            @default(0)
+  value           Decimal?       @db.Decimal(16, 2)
+  status          PchOrderStatus @default(PENDING)
+  receivedDate    DateTime?
+  paymentDate     DateTime?
   // Logistique : suivi de l'acheminement de la marchandise (client = PCH).
   expectedArrival DateTime? // date d'arrivée prévue
   arrivedDate     DateTime? // date d'arrivée réelle (marchandise reçue)
-  notes        String?
-  createdById  String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  notes           String?
+  createdById     String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   @@index([tenderId])
   @@index([lineId])
@@ -3986,8 +4062,8 @@ enum FieldReportStatus {
 
 model FieldReport {
   id         String            @id @default(cuid())
-  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
-  company          Company? @relation(fields: [companyId], references: [id])
+  companyId  String? // entité de rattachement (Adventum / Pharmagène / …)
+  company    Company?          @relation(fields: [companyId], references: [id])
   delegateId String?
   delegate   User?             @relation("FieldReportDelegate", fields: [delegateId], references: [id], onDelete: SetNull)
   status     FieldReportStatus @default(DRAFT)
@@ -4029,9 +4105,7 @@ model FieldReport {
   @@index([status])
   @@index([doctorId])
   @@index([visitDate])
-
   @@index([companyId])
-
 }
 
 model FieldReportAttachment {
@@ -4106,8 +4180,8 @@ enum RegistrationStatus {
 
 model Event {
   id              String      @id @default(cuid())
-  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
-  company          Company? @relation(fields: [companyId], references: [id])
+  companyId       String? // entité de rattachement (Adventum / Pharmagène / …)
+  company         Company?    @relation(fields: [companyId], references: [id])
   name            String
   type            EventType   @default(CONGRESS)
   scope           EventScope  @default(NATIONAL)
@@ -4153,12 +4227,13 @@ model Event {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  /// Postes (consulting, traiteur, salle…) validés un par un — voir AdProItem.
+  items AdProItem[]
+
   @@index([status])
   @@index([startDate])
   @@index([type])
-
   @@index([companyId])
-
 }
 
 model EventRegistration {
@@ -4386,18 +4461,18 @@ model DeletedRecord {
 }
 
 model AppSetting {
-  id                   String   @id @default("global")
-  maxUploadMb          Int      @default(200) // pièces jointes des modules (Documents/messagerie/RH) — ZIP de dossier
-  maxDriveUploadMb     Int      @default(1024) // fichiers du Drive (~1 Go, stockage en tranches)
-  driveCapacityGb      Int      @default(100) // capacité globale du Drive (modifiable Super Admin)
-  driveUserQuotaGb     Int      @default(10) // quota par utilisateur (modifiable Super Admin)
+  id                        String   @id @default("global")
+  maxUploadMb               Int      @default(200) // pièces jointes des modules (Documents/messagerie/RH) — ZIP de dossier
+  maxDriveUploadMb          Int      @default(1024) // fichiers du Drive (~1 Go, stockage en tranches)
+  driveCapacityGb           Int      @default(100) // capacité globale du Drive (modifiable Super Admin)
+  driveUserQuotaGb          Int      @default(10) // quota par utilisateur (modifiable Super Admin)
   // Budget total au-dessus des enveloppes : FIXED (montant figé) ou FLEXIBLE
   // (= somme des enveloppes actives). Réglé par le Super Admin.
-  budgetTotalMode      String   @default("FLEXIBLE")
-  budgetFixedTotal     Decimal  @default(0) @db.Decimal(14, 2)
+  budgetTotalMode           String   @default("FLEXIBLE")
+  budgetFixedTotal          Decimal  @default(0) @db.Decimal(14, 2)
   // Onglet Regulatory « Enregistrement » (analyseur de dossier CTD) — masqué tant que
   // le Super Admin ne l'a pas débloqué.
-  regEnrollmentEnabled Boolean  @default(false)
+  regEnrollmentEnabled      Boolean  @default(false)
   // Rôles « superviseurs Regulatory » (en plus du Super Admin, toujours inclus) : fixent
   // la priorité et les dates cibles, reçoivent les notifications (nouveau dossier / dépôt),
   // et peuvent demander des mises à jour de statut. Configurable en Administration.
@@ -4420,10 +4495,10 @@ model AppSetting {
   orgChartViewerUserIds     String[] @default([])
   // Clés VAPID (Web Push) auto-générées et persistées si non fournies par l'environnement.
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
-  vapidPublicKey       String?
-  vapidPrivateKey      String?
-  updatedAt            DateTime @updatedAt
-  updatedById          String?
+  vapidPublicKey            String?
+  vapidPrivateKey           String?
+  updatedAt                 DateTime @updatedAt
+  updatedById               String?
 }
 
 /// Sonde QUOTIDIENNE de l'API IA (chatbot & fonctions IA). Le planificateur interne
@@ -4548,14 +4623,14 @@ model Meeting {
 }
 
 model MeetingParticipant {
-  id        String   @id @default(cuid())
+  id        String               @id @default(cuid())
   meetingId String
-  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  meeting   Meeting              @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   userId    String
-  user      User     @relation("MeetingParticipant", fields: [userId], references: [id], onDelete: Cascade)
+  user      User                 @relation("MeetingParticipant", fields: [userId], references: [id], onDelete: Cascade)
   // Réponse à l'invitation (façon agenda) : INVITED (défaut) / ACCEPTED / DECLINED / TENTATIVE.
   response  CalendarInviteStatus @default(INVITED)
-  createdAt DateTime @default(now())
+  createdAt DateTime             @default(now())
 
   @@unique([meetingId, userId])
   @@index([userId])
@@ -4697,26 +4772,26 @@ model WorkflowStep {
   actorScope   String             @default("ROLE") // ROLE | ASSIGNEE | GLOBAL_VIEW | REQUESTER
   powers       String[]           @default([]) // APPROVE REJECT ASSIGN SET_AMOUNT SET_CATEGORY COMMENT
 
-  assignRole       String? // rôle désignable si pouvoir ASSIGN
-  requireAmount    Boolean  @default(false)
+  assignRole             String? // rôle désignable si pouvoir ASSIGN
+  requireAmount          Boolean  @default(false)
   // Seuil anti-bureaucratie : si le montant de travail de l'instance est ≤ ce seuil (DZD),
   // l'étape est franchie AUTOMATIQUEMENT (tracée : WorkflowStepEvent « AUTO_SKIP »). Jamais
   // appliqué à une étape de désignation, d'émission financière, ni à la décision finale.
-  autoSkipMaxAmount Decimal? @db.Decimal(14, 2)
+  autoSkipMaxAmount      Decimal? @db.Decimal(14, 2)
   // Auto-accord si autorité : si le DEMANDEUR détient déjà le rôle/portée de cette étape,
   // elle est approuvée automatiquement en son nom (tracée : « AUTO_APPROVE_REQUESTER ») — on ne
   // fait pas valider quelqu'un sa propre demande. Mêmes gardes que le seuil (jamais désignation,
   // émission ni décision finale). Opt-in ; défaut false ⇒ aucun changement de comportement.
-  autoApproveIfRequester Boolean @default(false)
-  requireCategory  Boolean  @default(false)
-  requireNote      Boolean  @default(false)
-  emitDeclaration  Boolean  @default(false) // à l'approbation : créer une déclaration info médicale (si PRIM)
-  emitExpenseOrder Boolean  @default(false) // à l'approbation : émettre un ordre de dépense
-  notifyRoles      String[] @default([])
-  optional         Boolean  @default(false)
-  confidential     Boolean  @default(false) // avis/montant de l'étape masqués au demandeur (ex. analyse chef de produit)
-  legacyStatus     String? // projection vers le statut enum de l'entité source (frises existantes)
-  createdAt        DateTime @default(now())
+  autoApproveIfRequester Boolean  @default(false)
+  requireCategory        Boolean  @default(false)
+  requireNote            Boolean  @default(false)
+  emitDeclaration        Boolean  @default(false) // à l'approbation : créer une déclaration info médicale (si PRIM)
+  emitExpenseOrder       Boolean  @default(false) // à l'approbation : émettre un ordre de dépense
+  notifyRoles            String[] @default([])
+  optional               Boolean  @default(false)
+  confidential           Boolean  @default(false) // avis/montant de l'étape masqués au demandeur (ex. analyse chef de produit)
+  legacyStatus           String? // projection vers le statut enum de l'entité source (frises existantes)
+  createdAt              DateTime @default(now())
 
   @@unique([definitionId, position])
   @@unique([definitionId, slug])
@@ -4982,7 +5057,7 @@ model RegulatoryDocument {
   // Classification CTD déterministe (Phase 3) — proposition, jamais imposée.
   ctdModule            String? // "M1".."M5"
   ctdSection           String? // code CTD PRINCIPAL, ex. "3.2.P.8"
-  containedSections    String[] @default([]) // sections CTD AUSSI présentes (PDF consolidé « Module X.pdf »)
+  containedSections    String[]               @default([]) // sections CTD AUSSI présentes (PDF consolidé « Module X.pdf »)
   ctdConfidence        Float? // 0..1
   classificationMethod String? // "code-path" | "keyword" | "module-only" | "none"
   createdAt            DateTime               @default(now())
@@ -5042,44 +5117,44 @@ enum RegFindingSource {
 /// Constat d'analyse (moteur de règles déterministe OU agent IA OU humain). Preuve exigée.
 /// Les constats CRITICAL marqués `blocker` verrouillent la soumission (pas de fausse conformité).
 model RegulatoryFinding {
-  id               String             @id @default(cuid())
-  dossierVersionId String
-  code             String // ex. "MISSING_REQUIRED_SECTION"
-  severity         RegFindingSeverity
-  category         String // "completeness" | "security" | "extraction" | "classification" | "content"
-  title            String
-  detail           String
-  evidence         String?
-  sectionCode      String?
-  documentId       String?
-  source           RegFindingSource   @default(RULE)
-  status           RegFindingStatus   @default(OPEN)
-  blocker          Boolean            @default(false)
-  draft            Boolean            @default(true) // sortie IA = DRAFT tant qu'un humain n'a pas revu
+  id                String             @id @default(cuid())
+  dossierVersionId  String
+  code              String // ex. "MISSING_REQUIRED_SECTION"
+  severity          RegFindingSeverity
+  category          String // "completeness" | "security" | "extraction" | "classification" | "content"
+  title             String
+  detail            String
+  evidence          String?
+  sectionCode       String?
+  documentId        String?
+  source            RegFindingSource   @default(RULE)
+  status            RegFindingStatus   @default(OPEN)
+  blocker           Boolean            @default(false)
+  draft             Boolean            @default(true) // sortie IA = DRAFT tant qu'un humain n'a pas revu
   // ── EXIGENCES DE QUALITÉ : un constat sans preuve ni règle n'est pas défendable devant
   //    l'ANPP. Ces champs rendent chaque finding vérifiable ligne par ligne.
   /// Règle appliquée (code de règle, article de ligne directrice, ou règle dérivée validée).
-  ruleRef          String?
+  ruleRef           String?
   /// Confiance 0..1 — une confiance basse appelle une relecture, elle ne se cache pas.
-  confidence       Float?
+  confidence        Float?
   /// Page EXACTE dans le document visé.
-  page             Int?
+  page              Int?
   /// Extrait EXACT, copié tel quel : c'est la pièce.
-  excerpt          String?
+  excerpt           String?
   /// Valeurs qui se contredisent entre documents (ex. « 36 mois (3.2.P.8) vs 24 mois (RCP) »).
-  conflictingValues String[] @default([])
+  conflictingValues String[]           @default([])
   /// Ce qu'il faut faire, concrètement, avant soumission.
-  recommendation   String?
+  recommendation    String?
   /// Réserves ANPP historiques comparables — des PRÉCÉDENTS, jamais une règle opposable.
-  similarReserveIds String[] @default([])
+  similarReserveIds String[]           @default([])
   /// Probabilité (0..1) qu'une réserve de ce type soit émise, d'après nos précédents.
-  reserveRisk      Float?
-  resolutionNote   String? // justification humaine (obligatoire pour lever un bloqueur)
-  reviewedById     String?
-  reviewedAt       DateTime?
-  createdById      String?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  reserveRisk       Float?
+  resolutionNote    String? // justification humaine (obligatoire pour lever un bloqueur)
+  reviewedById      String?
+  reviewedAt        DateTime?
+  createdById       String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
 
@@ -5150,7 +5225,7 @@ model RegulatorySourceSection {
 
   sourceVersion RegulatorySourceVersion @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
   /// Vecteur sémantique (512d) — recherche trans-langue FR↔EN. Null = pas encore vectorisé.
-  embedding Json?
+  embedding     Json?
 
   @@index([sourceVersionId])
 }
@@ -5622,15 +5697,15 @@ model RegulatoryAiBatch {
 /// l'analyse d'une V2 quasi gratuite quand seuls quelques fichiers ont changé : tout ce qui
 /// est identique est relu ici, jamais recalculé.
 model RegulatoryAiCache {
-  id         String   @id @default(cuid())
-  cacheKey   String   @unique
-  step       String
-  model      String
+  id        String    @id @default(cuid())
+  cacheKey  String    @unique
+  step      String
+  model     String
   /// Réponse brute (texte ou JSON) telle qu'elle a été produite.
-  payload    String
-  hits       Int      @default(0)
-  lastHitAt  DateTime?
-  createdAt  DateTime @default(now())
+  payload   String
+  hits      Int       @default(0)
+  lastHitAt DateTime?
+  createdAt DateTime  @default(now())
 
   @@index([step])
 }
@@ -5696,9 +5771,9 @@ model AnppReserveBatch {
 
 /// UNE RÉSERVE ANPP, normalisée et rattachée à son contexte produit et CTD.
 model AnppReserve {
-  id        String @id @default(cuid())
-  batchId   String
-  ordinal   Int    @default(0)
+  id      String @id @default(cuid())
+  batchId String
+  ordinal Int    @default(0)
 
   // ── Contexte produit (ce qui permet de dire « déjà vu sur ce type de produit »)
   productName   String?
@@ -5714,20 +5789,20 @@ model AnppReserve {
   ctdSection String? /// "3.2.P.8.3"…
 
   // ── La réserve elle-même
-  verbatim      String /// TEXTE EXACT de la réserve — jamais reformulé
-  category      String              @default("AUTRE")
-  severity      AnppReserveSeverity @default(MAJOR)
-  targetDocument String? /// document ou donnée visé(e) par la réserve
-  legalBasis    String? /// justification réglementaire citée par l'ANPP, le cas échéant
+  verbatim        String /// TEXTE EXACT de la réserve — jamais reformulé
+  category        String              @default("AUTRE")
+  severity        AnppReserveSeverity @default(MAJOR)
+  targetDocument  String? /// document ou donnée visé(e) par la réserve
+  legalBasis      String? /// justification réglementaire citée par l'ANPP, le cas échéant
   requestedAction String? /// ce que l'ANPP demande concrètement
 
   // ── Notre réponse et son issue
-  response        String? /// réponse envoyée par Adventum ou le fournisseur
-  responseAt      DateTime?
-  correctiveDocs  String[] @default([]) /// documents correctifs fournis
-  status          AnppReserveStatus @default(OPEN)
-  outcomeNote     String? /// pourquoi acceptée / pourquoi réitérée — l'enseignement réel
-  closedAt        DateTime?
+  response       String? /// réponse envoyée par Adventum ou le fournisseur
+  responseAt     DateTime?
+  correctiveDocs String[]          @default([]) /// documents correctifs fournis
+  status         AnppReserveStatus @default(OPEN)
+  outcomeNote    String? /// pourquoi acceptée / pourquoi réitérée — l'enseignement réel
+  closedAt       DateTime?
 
   // ── PREUVE : sans elle, rien n'est opposable
   evidenceFile    String? /// nom du fichier d'où vient la réserve
@@ -5737,13 +5812,13 @@ model AnppReserve {
   /// Confiance de l'EXTRACTION automatique (0..1). Une extraction peu sûre doit être relue.
   extractionConfidence Float?
   /// Un humain a-t-il vérifié cette fiche ? Tant que non, elle ne sert que d'indication.
-  verifiedById String?
-  verifiedAt   DateTime?
+  verifiedById         String?
+  verifiedAt           DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  batch AnppReserveBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  batch     AnppReserveBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
   /// Vecteur sémantique (512d) — rapprochement des précédents au sens, pas au mot.
   embedding Json?
 
@@ -5768,25 +5843,25 @@ enum AnppRuleStatus {
 /// humaine. Elle cite toujours les réserves qui la fondent — on peut donc toujours remonter
 /// aux preuves.
 model AnppDerivedRule {
-  id          String @id @default(cuid())
-  title       String
-  statement   String /// la règle, formulée en une phrase vérifiable
-  ctdModule   String?
-  ctdSection  String?
-  category    String @default("AUTRE")
-  severity    AnppReserveSeverity @default(MAJOR)
+  id                 String              @id @default(cuid())
+  title              String
+  statement          String /// la règle, formulée en une phrase vérifiable
+  ctdModule          String?
+  ctdSection         String?
+  category           String              @default("AUTRE")
+  severity           AnppReserveSeverity @default(MAJOR)
   /// Identifiants des réserves qui fondent la règle — la preuve, toujours.
-  evidenceReserveIds String[] @default([])
+  evidenceReserveIds String[]            @default([])
   /// Nombre de réserves observées à l'appui.
-  occurrences Int    @default(0)
+  occurrences        Int                 @default(0)
   /// Confiance (0..1) : croît avec le nombre d'occurrences et les acceptations obtenues.
-  confidence  Float  @default(0)
-  status      AnppRuleStatus @default(PROPOSED)
-  reviewNote  String?
-  reviewedById String?
-  reviewedAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  confidence         Float               @default(0)
+  status             AnppRuleStatus      @default(PROPOSED)
+  reviewNote         String?
+  reviewedById       String?
+  reviewedAt         DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@index([status])
   @@index([ctdModule, ctdSection])
@@ -5968,8 +6043,8 @@ model PromoProduct {
   managerId      String? // chef de produit (id utilisateur)
   isActive       Boolean        @default(true)
   sortOrder      Int            @default(0)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   forecasts   ProductForecast[]
   assignments PromotionAssignment[]
@@ -6103,15 +6178,15 @@ enum PlayerStatus {
 }
 
 model MarketResearch {
-  id          String               @id @default(cuid())
-  title       String
-  status      MarketResearchStatus @default(DRAFT)
-  notes       String?
-  sources     String? // sources de données de l'étude (IQVIA, Nomenclature, Réceptions PCH…), modifiables
-  participantIds String[] @default([]) // collaborateurs de l'étude (utilisateurs)
-  createdById String?
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  id             String               @id @default(cuid())
+  title          String
+  status         MarketResearchStatus @default(DRAFT)
+  notes          String?
+  sources        String? // sources de données de l'étude (IQVIA, Nomenclature, Réceptions PCH…), modifiables
+  participantIds String[]             @default([]) // collaborateurs de l'étude (utilisateurs)
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   rows          MarketResearchRow[]
   presentations MarketResearchPresentation[]
@@ -6254,10 +6329,10 @@ model TestRun {
   step       String? // étape courante (exécution en direct)
 
   score            Int? // 0-100
-  criticalCount    Int  @default(0)
-  findingsCount    Int  @default(0)
-  resourcesCreated Int  @default(0)
-  resourcesDeleted Int  @default(0)
+  criticalCount    Int   @default(0)
+  findingsCount    Int   @default(0)
+  resourcesCreated Int   @default(0)
+  resourcesDeleted Int   @default(0)
   summary          Json?
 
   // Certification (§36) : verdict + paquet de preuves immuable (haché) + différentiel (§32).
@@ -6278,18 +6353,18 @@ model TestRun {
 // Le MANIFESTE : chaque ressource synthétique créée par le run. Le nettoyage s'appuie
 // EXCLUSIVEMENT sur `recordId` (l'ID réel), en ordre inverse de dépendance.
 model TestArtifact {
-  id           String    @id @default(cuid())
-  testRunId    String
-  run          TestRun   @relation(fields: [testRunId], references: [id], onDelete: Cascade)
-  resourceType String // "user" | "document" | "blob" | "notification" | …
-  model        String? // nom du modèle Prisma (pour la suppression typée)
-  recordId     String // ID réel de l'enregistrement créé
-  blobKey      String? // clé S3/R2 / StoredFile éventuelle
-  dependsOn    String[]  @default([]) // IDs (TestArtifact) dont dépend cette ressource
-  deleteMethod String    @default("prisma") // prisma | blob | noop
-  deletedAt    DateTime?
+  id            String    @id @default(cuid())
+  testRunId     String
+  run           TestRun   @relation(fields: [testRunId], references: [id], onDelete: Cascade)
+  resourceType  String // "user" | "document" | "blob" | "notification" | …
+  model         String? // nom du modèle Prisma (pour la suppression typée)
+  recordId      String // ID réel de l'enregistrement créé
+  blobKey       String? // clé S3/R2 / StoredFile éventuelle
+  dependsOn     String[]  @default([]) // IDs (TestArtifact) dont dépend cette ressource
+  deleteMethod  String    @default("prisma") // prisma | blob | noop
+  deletedAt     DateTime?
   cleanupResult String? // "deleted" | "already-absent" | "error: …"
-  createdAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
 
   @@index([testRunId])
   @@index([testRunId, deletedAt])

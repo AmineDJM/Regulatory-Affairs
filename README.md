@@ -986,43 +986,58 @@ Fichiers : `lib/care.ts` (`beneficiaryName`, `careProgress`, `quoteConflicts`, `
 `components/care/care-panel.tsx`. Migration `20260806160000_care_beneficiaries` — reprend le JSON
 existant en lignes **sans l'effacer** : en cas de doute sur la reprise, la source reste lisible.
 
-### Ad & Pro — postes et ventilation de l'enveloppe
+### Ad & Pro — postes, validation par poste et chaîne jusqu'au paiement
 
 `SponsoringRequest` ne portait qu'un montant (`amountRequested` → `amountProposed` →
-`amountGranted`) et **un seul** ordre de dépense ; `CongressNational`, un `finalAmount` et deux
-booléens (`hasBooth`, `hasSymposium`) qui annonçaient un stand ou un symposium sans jamais les
-chiffrer. Ces opérations couvrent pourtant plusieurs choses, payées à plusieurs personnes.
-`AdProItem` décrit ces **postes**, pour le **sponsoring** et les **congrès nationaux**.
+`amountGranted`) ; `CongressNational`, un `finalAmount` et deux booléens (`hasBooth`,
+`hasSymposium`) qui annonçaient un stand ou un symposium sans jamais les chiffrer. Ces opérations
+couvrent pourtant plusieurs choses, payées à plusieurs personnes. `AdProItem` décrit ces
+**postes** — pour les **quatre** opérations du pôle : sponsoring, prises en charge **nationales**
+et **internationales**, **événements**.
 
-**Une table pour les deux modules**, avec **deux clés étrangères nullables** plutôt qu'un couple
-(type, id) : une colonne polymorphe ne peut pas porter de contrainte, donc supprimer un congrès
-laisserait ses postes orphelins. Ici la cascade est garantie par la base, et une contrainte
-`AdProItem_one_parent` impose qu'exactement un parent soit renseigné — sans quoi un poste sans
-parent serait invisible partout tout en ne pesant dans aucune ventilation. Ajouter les congrès
-internationaux ou les événements se fera par une colonne de plus, pas par une refonte.
+**Une table pour les quatre modules**, avec **quatre clés étrangères nullables** plutôt qu'un
+couple (type, id) : une colonne polymorphe ne peut pas porter de contrainte, donc supprimer un
+congrès laisserait ses postes orphelins. Ici la cascade est garantie par la base, et une
+contrainte `AdProItem_one_parent` impose qu'exactement un parent soit renseigné.
 
-**Le principe qui structure tout : un poste n'est pas une demande.** Il ne déclenche aucun circuit
-de validation propre. Le sponsoring garde le sien (National Sales → chef de produit → Direction) et
-les postes en sont la **ventilation**. Recopier le circuit sur chaque poste triplerait la
-bureaucratie que le moteur anti-bureaucratie cherche justement à réduire.
+**Chaque poste se valide INDÉPENDAMMENT** (doctrine révisée — auparavant un poste n'était qu'une
+ventilation sans circuit propre). Consulting, traiteur, location de salle ne se décident pas
+ensemble : la Direction **accorde**, **refuse**, ou **demande à revoir le budget** — autant de
+fois qu'il le faut. Chaque tour est conservé (`AdProItemDecision`) : un poste accordé au 3ᵉ tour
+garde la trace des deux refus qui l'ont précédé.
+
+**La chaîne complète, du besoin au paiement** — c'est ce qui relie les modules entre eux :
+
+```
+Ajout du poste (nature, montant estimé, INCLUS dans le budget accordé ou RALLONGE)
+   → (option) demande de DEVIS ouverte au Bureau du secrétariat (AdministrativeRequest type QUOTE)
+        → les devis déposés sur la demande font partie du dossier du poste
+   → SOUMISSION à la Direction  →  accordé / refusé / budget à revoir (aller-retour illimité)
+   → choix du BUDGET (catégorie d'enveloppe)
+   → demande d'ÉMISSION DU BON DE COMMANDE  →  visa Direction  →  émission par les FINANCES
+        → l'ordre de dépense naît avec sa catégorie budgétaire déjà renseignée
+```
 
 | Règle | Où | Pourquoi |
 |---|---|---|
-| Enveloppe **globale**, ventilée ensuite | `breakdown()` (pure, testée) | La Direction décide d'un total — c'est ce qui l'intéresse. L'écran de décision ne change pas. |
-| **Un ordre de dépense par poste** | `emitItemExpenseOrder` | Le stand se paie à l'organisateur, le matériel à l'agence, l'appui à l'association : trois bénéficiaires, trois pièces. Un ordre global obligerait les Finances à répartir à la main. |
-| Ajout après décision **autorisé et tracé** | `addedAfterDecision` | Cas réel : on découvre qu'il faut un stand. On ne bloque pas — mais la ventilation dépasse alors l'enveloppe, et l'écran l'**affiche**. Un dépassement caché est un dépassement qu'on découvre à la facture. |
-| Le matériel promo **n'est pas recopié** | `promoMaterialId` | Il a un circuit non négociable (visa publicitaire, conformité information médicale, agence, BAT). Le poste y renvoie et en montre l'avancement en lecture. Deux vérités sur le même objet finiraient par diverger. |
-| Ce qui est **annoncé** doit être **chiffré** | `plannedGaps()` (pure, testée) | Un congrès déclare `hasBooth` / `hasSymposium` : on signale un stand ou un symposium annoncé sans poste correspondant. Sans blocage — un stand peut être offert par l'organisateur — mais l'écart se voit avant la facture, pas après. |
+| Un poste **inclus** ventile l'enveloppe ; un poste **supplémentaire** est une rallonge | `breakdown()` (pure, testée) | Une rallonge assumée n'est pas un dépassement subi : les mêler ferait prendre une décision pour l'autre. La question est posée **à l'ajout**. |
+| Un poste **refusé** ne pèse plus sur rien | `breakdown()` | Garder son montant ferait porter à l'opération le poids d'une dépense que la Direction a précisément écartée. |
+| **Un ordre de dépense par poste** | `emitItemExpenseOrder` | Le stand se paie à l'organisateur, le matériel à l'agence : trois bénéficiaires, trois pièces. Un ordre global obligerait les Finances à répartir à la main. |
+| Le BC s'émet **après** le visa Direction | `orderStage` + `canRequestPurchaseOrder` (pure, testée) | Deux responsabilités distinctes : la Direction engage, les Finances paient. |
+| Ajout après décision **autorisé et tracé** | `addedAfterDecision` | Cas réel : on découvre qu'il faut un stand. On ne bloque pas — mais l'écran affiche le dépassement. |
+| Le matériel promo **n'est pas recopié** | `promoMaterialId` | Il a un circuit non négociable (visa publicitaire, conformité, agence, BAT). Le poste y renvoie. |
+| Ce qui est **annoncé** doit être **chiffré** | `plannedGaps()` (pure, testée) | Un congrès déclare `hasBooth`/`hasSymposium` : l'écart se voit avant la facture. |
 
-**Garde-fous financiers** (`canEmitOrder`, pure et testée) : on ne paie pas ce qui n'est pas
-**accordé**, pas un poste **sans montant**, et jamais **deux fois**. Un montant déjà couvert par un
-ordre de dépense ne peut plus changer, et un poste payé ne peut plus être retiré — sinon la
-justification d'une dépense engagée disparaîtrait. Affecter les montants et émettre les ordres sont
-réservés à la **Direction** ; décrire les postes reste ouvert au demandeur.
+**Garde-fous financiers** (purs et testés) : `canSubmitItem` (on ne soumet pas un poste sans
+chiffre), `canRequestPurchaseOrder` (accordé + chiffré + budget choisi, une seule fois — un refus
+rouvre le droit), `canEmitOrder` (jamais un poste non accordé, jamais deux fois). Un montant déjà
+couvert par un ordre ne peut plus changer, un poste payé ne peut plus être retiré.
 
-Les différences réelles entre modules — où lit-on l'enveloppe (`amountGranted` vs `finalAmount`),
-quel statut vaut « accordé », quelle permission, quel chemin revalider — sont rassemblées dans la
-table `PARENTS` des actions : **un seul endroit** à compléter pour un module de plus.
+Les différences réelles entre modules — où lit-on l'enveloppe, quel statut vaut « accordé »,
+quelle permission, quel chemin revalider — sont rassemblées dans la table `PARENTS` des actions :
+**un seul endroit** à compléter pour un module de plus. Le chargement des postes (libellés du
+matériel, de l'ordre, du budget, de la demande de devis — résolus **en lot**) est mutualisé dans
+`queries/ad-pro-items.ts` : les quatre écrans lisent la même vérité.
 
 Fichiers : `lib/ad-pro-items.ts` (`breakdown`, `canEmitOrder`, `plannedGaps` +
 `ad-pro-items.test.ts`, 19 tests), `lib/actions/ad-pro-item-actions.ts`,
