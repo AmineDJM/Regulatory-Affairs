@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Wallet, ExternalLink, FileText, Download } from "lucide-react";
-import { requireUser } from "@/lib/session";
+import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { userCan } from "@/lib/rbac";
 import { getGeneralMeans, resolveGeneralMeansDepartment } from "@/lib/queries/general-means";
 import { normalizeYear, DEPT_BUDGET_LABEL, budgetHealth, consumedPercent } from "@/lib/department-budget";
 import { currentPeriod } from "@/lib/petty-cash";
@@ -13,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { CashPanel } from "./cash-panel";
+import { ExpensePanel } from "./expense-panel";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Moyens généraux — AMD Internal OS" };
@@ -33,7 +35,9 @@ export const metadata = { title: "Moyens généraux — AMD Internal OS" };
 export default async function MoyensGenerauxPage({
   searchParams,
 }: { searchParams: { dept?: string; year?: string; period?: string } }) {
-  const user = await requireUser();
+  // Module À PART : sa porte est « Moyens généraux », pas « Budgets » — l'assistante de
+  // direction n'a pas le second, et c'est elle qui s'en sert tous les jours.
+  const user = await requireModule("GENERAL_MEANS");
   const year = normalizeYear(searchParams.year);
   const period = searchParams.period ?? currentPeriod();
 
@@ -68,9 +72,12 @@ export default async function MoyensGenerauxPage({
         title={`Moyens généraux — ${view.department.path}`}
         description="Le budget de l'exercice, la caisse d'avance du mois et le détail des dépenses, avec leurs justificatifs. Tout achat porte sa facture ou son bon de paiement."
       >
-        <Link href="/budgets/departements" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">
-          <ExternalLink className="h-4 w-4" /> Budgets par département
-        </Link>
+        {/* Un lien vers un écran qu'on ne peut pas ouvrir est pire qu'une absence de lien. */}
+        {userCan(user, "BUDGETS", "VIEW") && (
+          <Link href="/budgets/departements" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">
+            <ExternalLink className="h-4 w-4" /> Budgets par département
+          </Link>
+        )}
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -106,6 +113,16 @@ export default async function MoyensGenerauxPage({
         <CardHeader>
           <CardTitle>Toutes les dépenses {year} ({view.expenses.length})</CardTitle>
         </CardHeader>
+        {view.canSpend && (
+          <CardContent className="pb-0">
+            <p className="mb-2 text-xs text-muted-foreground">
+              Un achat réglé <strong>autrement que par la caisse</strong> (virement, carte, facture payée par les
+              Finances) s&apos;enregistre ici : montant, scan de la facture ou du bon de paiement — et il est
+              <strong> déduit du budget</strong>.
+            </p>
+            <ExpensePanel departmentId={view.department.id} year={year} remaining={view.remaining} />
+          </CardContent>
+        )}
         <CardContent className="p-0">
           {view.expenses.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">

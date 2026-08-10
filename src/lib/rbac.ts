@@ -22,7 +22,7 @@ const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
 export const MODULES = [
   "DASHBOARD", "WORKSPACE", "MESSAGING", "REGULATORY", "SPONSORING", "BUDGETS", "FINANCES", "RH",
   "CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENTS", "SALES", "LOGISTICS", "MEDICAL", "FIELD_REPORTS", "SALES_PLANNING",
-  "BUSINESS_DEVELOPMENT", "PCH", "STOCKS", "MEDICAL_INFO", "REG_REQUESTS", "PROMO_MATERIAL", "VALIDATIONS", "DIRECTIVES", "SUPPORT", "DOSSIERS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
+  "BUSINESS_DEVELOPMENT", "PCH", "STOCKS", "MEDICAL_INFO", "REG_REQUESTS", "PROMO_MATERIAL", "GENERAL_MEANS", "VALIDATIONS", "DIRECTIVES", "SUPPORT", "DOSSIERS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
   "PROCESS_INTELLIGENCE", "ADVENTUM_BRAIN", "ADMIN",
 ] as const;
 export type Module = (typeof MODULES)[number];
@@ -61,6 +61,9 @@ const SUPPORT_USER: Action[] = ["VIEW", "CREATE", "UPDATE", "UPLOAD"];
 // le mettre à jour, échanger dans le fil et y joindre des pièces. Le scope limite la
 // visibilité aux dossiers créés / dont on est responsable / où l'on participe.
 const DOSSIERS_USER: Action[] = ["VIEW", "CREATE", "UPDATE", "UPLOAD"];
+// Moyens généraux : celui qui ACHÈTE au quotidien saisit ses dépenses et leurs pièces, tient
+// sa caisse d'avance et consulte son budget — il ne l'ALLOUE pas (c'est `BUDGETS`, ailleurs).
+const GENERAL_MEANS_USER: Action[] = ["VIEW", "CREATE", "UPDATE", "UPLOAD", "EXPORT"];
 
 type RoleMatrix = Partial<Record<Module, Action[]>>;
 
@@ -78,6 +81,7 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     CONGRESS_INTERNATIONAL: MANAGE, CONGRESS_NATIONAL: MANAGE, EVENTS: MANAGE, SALES: MANAGE,
     LOGISTICS: MANAGE, PCH: MANAGE, STOCKS: MANAGE, MEDICAL: MANAGE, FIELD_REPORTS: MANAGE, SALES_PLANNING: MANAGE, BUSINESS_DEVELOPMENT: MANAGE,
     MEDICAL_INFO: MANAGE, PROMO_MATERIAL: MANAGE, DOCUMENTS: MANAGE, ADMIN_REQUESTS: MANAGE,
+    GENERAL_MEANS: MANAGE,
     VALIDATIONS: [...VALIDATION_USER, "VALIDATE"], DIRECTIVES: MANAGE, SUPPORT: MANAGE, DOSSIERS: MANAGE,
     NOTIFICATIONS: ["VIEW"],
     // NB : Administration et Adventum Brain (+ Process Intelligence) sont réservés au
@@ -121,7 +125,7 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUSINESS_DEVELOPMENT: MANAGE, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
   },
   FINANCE_BUDGET_MANAGER: {
-    DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUDGETS: MANAGE, FINANCES: MANAGE, RH: READ, SPONSORING: READ, SALES: READ, LOGISTICS: READ, PCH: READ, STOCKS: READ,
+    DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUDGETS: MANAGE, FINANCES: MANAGE, GENERAL_MEANS: MANAGE, RH: READ, SPONSORING: READ, SALES: READ, LOGISTICS: READ, PCH: READ, STOCKS: READ,
     DOCUMENTS: READ, MEDICAL_INFO: ["VIEW", "UPLOAD"], PROMO_MATERIAL: ["VIEW", "UPLOAD", "EXPORT"], DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
   },
   // Pharmacien responsable de l'information médicale : déclare aux autorités les
@@ -137,9 +141,12 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   // commande, transmission à l'agence, facture) sont surfacées directement dans
   // la demande administrative liée (cf. entity-access : accès aux pièces du
   // dossier promo lié). Pas d'accès à Administration ni à Adventum Brain.
+  // L'assistante de direction ACHÈTE au quotidien : les Moyens généraux sont SON module —
+  // son budget, ses dépenses, sa caisse d'avance. Elle n'a pas (et n'a pas besoin d')
+  // « Budgets », qui est l'écran de ceux qui ALLOUENT.
   DIRECTION_ASSISTANT: {
     DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER,
-    ADMIN_REQUESTS: MANAGE,
+    ADMIN_REQUESTS: MANAGE, GENERAL_MEANS: GENERAL_MEANS_USER,
     DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
   },
   // Coordination / coursier-acheteur : **espace restreint** — pas de congrès,

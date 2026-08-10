@@ -178,6 +178,20 @@ export async function setDepartmentBudget(formData: FormData): Promise<ActionRes
   return { ok: true, id: departmentId };
 }
 
+/**
+ * Ce département est-il « le sien » ? Celui qu'elle dirige, celui dont elle tient la caisse, ou
+ * celui de sa fiche employé. Sans cette borne, le droit de module ouvrirait la saisie de
+ * dépenses sur TOUS les départements — or l'assistante achète pour le sien.
+ */
+async function isMyDepartment(userId: string, departmentId: string): Promise<boolean> {
+  const headed = await headedDepartmentIds(userId);
+  if (headed.includes(departmentId)) return true;
+  const held = await prisma.pettyCashAllotment.count({ where: { holderId: userId, departmentId } });
+  if (held > 0) return true;
+  const emp = await prisma.employee.findUnique({ where: { userId }, select: { departmentId: true } });
+  return emp?.departmentId === departmentId;
+}
+
 /** Les départements que cette personne DIRIGE (responsable ou adjoint), via sa fiche employé. */
 async function headedDepartmentIds(userId: string): Promise<string[]> {
   const emp = await prisma.employee.findUnique({ where: { userId }, select: { id: true } });
@@ -313,10 +327,18 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
     return { ok: false, error: "La masse salariale se lit sur la paie : elle ne se saisit pas à la main." };
   }
 
+  // DEUX PORTES pour saisir une dépense, et c'est voulu :
+  //   • tenir ce budget (directeur, administration, personne nommée) ;
+  //   • ou avoir le module MOYENS GÉNÉRAUX **sur son propre département** — c'est le cas de
+  //     l'assistante de direction, qui achète tous les jours sans avoir à « gérer » un budget.
+  // Le montant est de toute façon déduit du budget, et la pièce reste obligatoire.
   const grant = await grantFor(departmentId);
   const setter = setterOf(user, await headedDepartmentIds(user.id));
-  if (!canEditDepartmentBudget(subjectOf(user), setter, kind, grant, departmentId)) {
-    return { ok: false, error: "Vous ne tenez pas ce budget." };
+  const holdsBudget = canEditDepartmentBudget(subjectOf(user), setter, kind, grant, departmentId);
+  const buysHere = userCan(user as Parameters<typeof userCan>[0], "GENERAL_MEANS", "CREATE")
+    && (await isMyDepartment(user.id, departmentId));
+  if (!holdsBudget && !buysHere) {
+    return { ok: false, error: "Vous ne tenez pas ce budget, et ce n'est pas votre département." };
   }
 
   const label = fdStr(formData, "label");

@@ -129,10 +129,13 @@ export async function getGeneralMeans(
     },
   });
   const isHolder = cashHere?.holderId === user.id;
+  // LE DROIT DE MODULE SUFFIT. Celui qui achète au quotidien (l'assistante de direction) a le
+  // module « Moyens généraux » et rien d'autre : exiger en plus une autorisation budgétaire la
+  // renvoyait vers un écran vide sur son propre budget. Le module ouvre SON département ; les
+  // autres restent gouvernés par les autorisations budgétaires, comme avant.
+  const hasModule = userCan(user, "GENERAL_MEANS", "VIEW");
 
-  // On ne montre pas un budget qu'on n'a pas le droit de voir — SAUF au détenteur de la
-  // caisse : c'est son argent en main, il doit pouvoir en rendre compte.
-  if (!isHolder && !canViewDepartmentBudget(subject, rights, grant, canViewModule, departmentId)) return null;
+  if (!isHolder && !hasModule && !canViewDepartmentBudget(subject, rights, grant, canViewModule, departmentId)) return null;
 
   const [budget, expenses, history] = await Promise.all([
     prisma.departmentBudget.findUnique({
@@ -222,7 +225,10 @@ export async function getGeneralMeans(
     allocated,
     consumed,
     remaining: allocated - consumed,
-    canSpend: editableKindsOn(subject, rights, grant, departmentId).some((k) => k !== "HR"),
+    // SAISIR UNE DÉPENSE : le droit de module suffit (c'est le geste quotidien de l'acheteur),
+    // ou le fait de tenir ce budget. Elle est de toute façon déduite du budget, pièce à l'appui.
+    canSpend: userCan(user, "GENERAL_MEANS", "CREATE")
+      || editableKindsOn(subject, rights, grant, departmentId).some((k) => k !== "HR"),
     canAllot: hasGlobalView(user) || rights.canManageBudgets,
     isHolder,
     cash,

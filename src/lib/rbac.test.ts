@@ -267,3 +267,46 @@ describe("demandes à Regulatory : émission réservée, Regulatory répond sans
     expect(canCreateRegRequest(head, ["SALES_USER"])).toBe(false);
   });
 });
+
+describe("Moyens généraux — un module À PART, ouvert à celui qui achète", () => {
+  it("l'assistante de direction l'a, sans avoir « Budgets »", () => {
+    // Le point de la séparation : « Budgets » est l'écran de qui ALLOUE, « Moyens généraux »
+    // celui de qui ACHÈTE. Enfermer le second dans le premier le rendait invisible à la seule
+    // personne qui s'en sert tous les jours.
+    const assistante = PERMISSIONS.DIRECTION_ASSISTANT;
+    expect(assistante.GENERAL_MEANS).toBeDefined();
+    expect(assistante.GENERAL_MEANS).toContain("VIEW");
+    expect(assistante.GENERAL_MEANS).toContain("CREATE"); // saisir un achat
+    expect(assistante.GENERAL_MEANS).toContain("UPLOAD"); // et scanner sa facture
+    expect(assistante.BUDGETS).toBeUndefined();
+  });
+
+  it("l'administration et les finances l'ont aussi", () => {
+    expect(PERMISSIONS.SUPER_ADMIN.GENERAL_MEANS).toBeDefined();
+    expect(PERMISSIONS.DIRECTION.GENERAL_MEANS).toBeDefined();
+    expect(PERMISSIONS.FINANCE_BUDGET_MANAGER.GENERAL_MEANS).toBeDefined();
+  });
+
+  it("n'est PAS distribué à tout le monde par défaut", () => {
+    expect(PERMISSIONS.MEDICAL_DELEGATE.GENERAL_MEANS).toBeUndefined();
+    expect(PERMISSIONS.VIEWER.GENERAL_MEANS).toBeUndefined();
+    expect(PERMISSIONS.COORDINATOR.GENERAL_MEANS).toBeUndefined();
+  });
+
+  it("apparaît dans les modules accessibles de l'assistante", () => {
+    const mods = accessibleModules({
+      id: "u1", name: "Radia", email: "r@x.dz", role: "DIRECTION_ASSISTANT",
+      access: {
+        modules: new Map(
+          Object.entries(PERMISSIONS.DIRECTION_ASSISTANT).map(([m, actions]) => [
+            m, { actions: new Set(actions), scope: "ASSIGNED" },
+          ]),
+        ),
+        rowGrants: new Map(),
+      },
+      mustChangePassword: false,
+    } as Parameters<typeof accessibleModules>[0]);
+    expect(mods).toContain("GENERAL_MEANS");
+    expect(mods).not.toContain("BUDGETS");
+  });
+});

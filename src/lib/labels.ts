@@ -1067,9 +1067,6 @@ export const BUDGET_TABS: NavTab[] = [
   { module: "BUDGETS", label: "Vue d'ensemble", href: "/budgets" },
   { module: "BUDGETS", label: "Dépenses", href: "/budgets/depenses" },
   { module: "BUDGETS", label: "Départements", href: "/budgets/departements" },
-  // Le module qui rassemble budget, achats et caisse d'avance d'un département — la vue de
-  // celui qui dépense, là où les autres onglets sont celles de qui alloue.
-  { module: "BUDGETS", label: "Moyens généraux", href: "/moyens-generaux" },
   { module: "BUDGETS", label: "Réglages", href: "/budgets/reglages" },
 ];
 // RH — quatre écrans au lieu d'une page à sept sections : ce qu'il faut TRAITER, l'ANNUAIRE
@@ -1139,6 +1136,7 @@ export const ADMIN_TABS: NavTab[] = [
  * de menu dédiée. Typé `Record<Module, string>` → exhaustivité garantie.
  */
 export const MODULE_LABELS: Record<Module, string> = {
+  GENERAL_MEANS: "Moyens généraux",
   DASHBOARD: "Dashboard",
   WORKSPACE: "Espace de travail",
   MESSAGING: "Messagerie",
@@ -1193,7 +1191,11 @@ export const NAVIGATION: NavItem[] = [
   // Pôles
   { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS, match: ["/promo-material"] },
-  { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages", "/moyens-generaux"] },
+  { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages"] },
+  // MOYENS GÉNÉRAUX — module À PART, et non un onglet de Budgets : c'est l'écran de celui qui
+  // ACHÈTE (l'assistante de direction), pas de celui qui alloue. L'enfermer dans « Budgets »
+  // le rendait invisible à la seule personne qui s'en sert tous les jours.
+  { module: "GENERAL_MEANS", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket", group: "Pôles" },
   { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie", "/formations"] },
   { module: "SALES", label: "Ventes & Marchés", href: "/sales", icon: "TrendingUp", group: "Pôles", tabs: COMMERCE_TABS, match: ["/logistics", "/pch"] },
