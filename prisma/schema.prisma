@@ -4921,6 +4921,7 @@ model RegulatoryDossier {
   supplierRequests RegulatorySupplierRequest[]
   lifecycleEvents  RegulatoryLifecycleEvent[]
   obligations      RegulatoryObligation[]
+  chatMessages     RegulatoryDossierChatMessage[]
 
   @@index([companyId])
   @@index([productId])
@@ -5446,6 +5447,27 @@ model RegulatoryGeneratedDoc {
   dossierVersion RegulatoryDossierVersion @relation(fields: [dossierVersionId], references: [id], onDelete: Cascade)
 
   @@index([dossierVersionId])
+}
+
+/// MESSAGERIE DU DOSSIER — le fil « Discuter avec ce dossier » PERSISTE côté serveur, comme une
+/// messagerie : on quitte l'app, on revient, la discussion est là. UN fil par (dossier, utilisateur).
+/// Les pièces soumises conservent leur TEXTE EXTRAIT dans `attachments` : l'agent continue de les
+/// voir aux tours suivants (une lettre de réserves envoyée hier reste discutable aujourd'hui).
+model RegulatoryDossierChatMessage {
+  id          String   @id @default(cuid())
+  dossierId   String
+  userId      String
+  role        String // "user" | "assistant"
+  content     String
+  citations   Json? // ChatCitation[] (réponses de l'agent)
+  files       Json? // AgentFile[] — PDF générés par l'agent
+  attachments Json? // pièces soumises : { filename, text? (extrait conservé), error? (motif d'illisibilité) }
+  error       Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  dossier RegulatoryDossier @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  @@index([dossierId, userId, createdAt])
 }
 
 enum RegReservePointStatus {

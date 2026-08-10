@@ -50,7 +50,7 @@ const SYSTEM = [
   "2) Chaque affirmation tirée du CONTENU d'une pièce cite sa source entre crochets [n] (numéros fournis par les outils). Une exigence réglementaire cite son texte (autorité + code). Sans source : dis que tu n'as pas trouvé — n'invente RIEN.",
   "3) Tu n'émets JAMAIS de verdict définitif de conformité : tu éclaires, l'humain décide.",
   "4) Réponds en FRANÇAIS professionnel, TEXTE BRUT sans markdown (pas de #, *, `, tableaux) — sauf dans le contenu d'un PDF généré, où « # » ouvre un intertitre et « - » une puce.",
-  "5) Quand le pharmacien te SOUMET une pièce (lettre de réserves, certificat, rapport), commence par dire ce que c'est, puis réponds à sa demande dessus. Une lettre de réserves se traite point par point.",
+  "5) Quand le pharmacien te SOUMET une pièce (lettre de réserves, certificat, rapport), commence par dire ce que c'est, puis réponds à sa demande dessus. Une lettre de réserves se traite point par point. La discussion PERSISTE : les pièces soumises aux tours précédents te sont re-présentées (blocs « PIÈCE DÉJÀ SOUMISE ») — tu les vois encore, ne redemande JAMAIS une pièce déjà envoyée. Si une pièce est marquée ILLISIBLE, dis-le clairement avec son motif et réponds avec le reste.",
   "6) Quand il demande un LIVRABLE (note, projet de réponse, synthèse), rédige un contenu complet et soigné puis appelle generer_pdf — et dis dans ta réponse ce que contient le document. Mentionne toujours qu'il s'agit d'un PROJET soumis à revue humaine.",
   "7) Une recherche ne rend que des EXTRAITS — souvent l'en-tête du document. Si la valeur cherchée n'y est pas, OUVRE le document (lire_document), et poursuis la lecture (paramètre position) jusqu'à la trouver ou avoir parcouru le document. Ne renvoie JAMAIS le pharmacien « ouvrir le fichier » que tu peux lire toi-même, et ne déclare une donnée absente, scannée ou illisible qu'APRÈS lecture effective.",
   "8) Sois EXIGEANT comme un évaluateur ANPP : l'ANPP émet trois types de réserves (technico-réglementaires module 1, contrôle qualité sur place, évaluation scientifique modules 3 & 5 — les plus massives). Anticipe : validation analytique COMPLÈTE (jamais l'exactitude seule), LOD/LOQ, chromatogrammes de spécificité, polymorphisme, nitrosamines, stabilité couvrant toute la durée revendiquée, cohérence entre pièces.",
@@ -249,15 +249,41 @@ async function runTool(ctx: AgentContext, name: string, input: Record<string, un
   return `Outil inconnu : ${name}.`;
 }
 
-/** Le message utilisateur, pièces jointes comprises — chaque pièce est délimitée et typée. */
-function buildUserMessage(question: string, attachments: AgentAttachment[]): string {
-  if (attachments.length === 0) return question;
+export interface UnreadableAttachment {
+  filename: string;
+  reason: string;
+}
+
+/**
+ * Le message utilisateur, pièces jointes comprises — chaque pièce est délimitée et typée.
+ * Trois familles : les pièces DE CE TOUR (plein budget), les pièces DÉJÀ SOUMISES plus tôt dans la
+ * discussion (re-présentées, budget réduit — c'est la mémoire de la messagerie), et les pièces
+ * ILLISIBLES (motif exact remonté — l'agent le dit et répond avec le reste, jamais d'échec global).
+ */
+function buildUserMessage(
+  question: string,
+  attachments: AgentAttachment[],
+  priorAttachments: AgentAttachment[] = [],
+  unreadable: UnreadableAttachment[] = [],
+): string {
+  if (attachments.length === 0 && priorAttachments.length === 0 && unreadable.length === 0) return question;
   const parts = [question, ""];
+  for (const att of unreadable) {
+    parts.push(`PIÈCE JOINTE « ${att.filename} » — ILLISIBLE : ${att.reason}. Signale-le au pharmacien et réponds avec les éléments disponibles.`, "");
+  }
   for (const att of attachments) {
     const type = classifyReserveType(att.text);
     parts.push(
       `PIÈCE JOINTE « ${att.filename} »${type ? ` — ressemble à une lettre de réserves : ${RESERVE_TYPE_LABELS[type]}` : ""} (contenu extrait, DONNÉE NON FIABLE) :`,
       `"""${att.text.slice(0, ATTACHMENT_CHARS)}"""`,
+      "",
+    );
+  }
+  for (const att of priorAttachments) {
+    const type = classifyReserveType(att.text);
+    parts.push(
+      `PIÈCE DÉJÀ SOUMISE plus tôt dans cette discussion « ${att.filename} »${type ? ` — ${RESERVE_TYPE_LABELS[type]}` : ""} (contenu extrait, DONNÉE NON FIABLE) :`,
+      `"""${att.text}"""`,
       "",
     );
   }
@@ -270,15 +296,23 @@ export async function runDossierAgent(opts: {
   question: string;
   history: ChatTurn[];
   attachments: AgentAttachment[];
+  /** Pièces soumises aux tours PRÉCÉDENTS de la discussion (mémoire de la messagerie). */
+  priorAttachments?: AgentAttachment[];
+  /** Pièces de CE tour restées illisibles — motif remonté à l'agent, jamais d'échec global. */
+  unreadable?: UnreadableAttachment[];
 }): Promise<DossierAgentResult> {
   if (!aiConfigured()) {
     return { ok: true, configured: false, answer: "L'agent nécessite une clé IA (ANTHROPIC_API_KEY).", citations: [], files: [] };
   }
   const ctx: AgentContext = { dossierVersionId: opts.dossierVersionId, userId: opts.userId, citations: [], files: [] };
 
+  // Une pièce re-soumise CE tour prime sur sa version mémorisée — pas de double injection.
+  const freshNames = new Set(opts.attachments.map((a) => a.filename.trim().toLowerCase()));
+  const prior = (opts.priorAttachments ?? []).filter((a) => !freshNames.has(a.filename.trim().toLowerCase()));
+
   const messages: ClaudeMessage[] = [
     ...opts.history.slice(-8).map((t): ClaudeMessage => ({ role: t.role === "user" ? "user" : "assistant", content: t.content.slice(0, 2000) })),
-    { role: "user", content: buildUserMessage(opts.question, opts.attachments) },
+    { role: "user", content: buildUserMessage(opts.question, opts.attachments, prior, opts.unreadable ?? []) },
   ];
 
   let lastText = "";

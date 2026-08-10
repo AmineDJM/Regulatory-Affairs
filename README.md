@@ -2020,6 +2020,21 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Le chat de dossier devient une MESSAGERIE : le fil persiste, l'agent n'oublie plus les pièces,
+  une pièce illisible n'échoue plus le message.** (1) Le fil « Discuter avec ce dossier » est
+  désormais **persisté côté serveur** (`RegulatoryDossierChatMessage`, un fil par dossier ×
+  utilisateur) : on quitte l'app, on revient — la discussion reprend où elle s'était arrêtée
+  (rechargée au montage du panneau, bouton « Nouvelle discussion » pour repartir de zéro).
+  (2) **Mémoire des pièces** : chaque pièce soumise garde son **texte extrait en base**, et les
+  tours suivants la **re-présentent à l'agent** (dédupliquées par nom — la plus récente gagne — 4
+  max, budget réduit ; l'historique n'est PLUS transporté par le client). C'est ce qui corrige le
+  « vas-y » après l'envoi d'une lettre : l'agent la voyait au tour 1 puis la perdait, et
+  redemandait la pièce. (3) **Dégradation par pièce** : une pièce qui résiste à l'extraction/OCR
+  est marquée ILLISIBLE **avec son motif exact** (l'erreur n'est plus avalée) et le message
+  CONTINUE — l'agent le signale et répond sur le lisible, au lieu de l'ancien échec global
+  « impossible d'en discuter ». Écritures assainies (`sanitizeForModel` — le JSONB de Postgres refuse le NUL brut produit par l'OCR), panne d'écriture du fil = réponse quand même (la messagerie est un confort, pas un
+  point de défaillance). Code : `knowledge/dossier-thread.ts` (+ tests round-trip).
+
 - **Bureau du secrétariat : chaque pièce jointe se soumet à validation — et le chat de dossier
   devient un AGENT.** (1) Sur une demande du secrétariat, **chaque pièce jointe** peut être
   soumise **à tout moment** à validation, **à part**, vers **une ou plusieurs personnes** (saisies
@@ -3111,7 +3126,11 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
     avec valeur retenue/conflit, complétude, **sections requises encore manquantes**, inventaire des documents avec
     sous-sections contenues et état d'extraction) et l'**historique récent** (questions de suivi) ; il doit **citer
     [n]**, distinguer proposé/confirmé, et **s'abstenir** si l'info n'y est pas (contenu traité en donnée non fiable —
-    anti-injection). Sans clé IA : les sources restent affichées, **aucune réponse simulée**.
+    anti-injection). Sans clé IA : les sources restent affichées, **aucune réponse simulée**. La version AGENT
+    (`knowledge/dossier-agent.ts`) est une **messagerie persistante** (`knowledge/dossier-thread.ts`,
+    `RegulatoryDossierChatMessage`) : fil par dossier × utilisateur rechargé au montage, historique reconstruit **côté
+    serveur**, pièces soumises conservées avec leur texte extrait et **re-présentées à l'agent** aux tours suivants ;
+    pièce illisible = motif exact remonté, réponse sur le reste (jamais d'échec global).
   - **PDF de module CONSOLIDÉ → détection MULTI-SECTIONS** (`ctd/detect-sections.ts`) : un « Module 3.pdf » couvre
     en réalité 3.2.S / 3.2.P / 3.2.P.5 / 3.2.P.8… Un balayage précis (code CTD **corroboré par son titre** à ≤90 car.,
     frontières de mot — un simple renvoi « voir 3.2.P.8 » ne compte pas) renseigne `RegulatoryDocument.containedSections`

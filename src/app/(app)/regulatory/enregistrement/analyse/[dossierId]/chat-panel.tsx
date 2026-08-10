@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Send, Paperclip, FileDown, X } from "lucide-react";
-import { askDossierAgentAction } from "@/lib/regulatory/intelligence/knowledge/actions";
-import type { ChatCitation } from "@/lib/regulatory/intelligence/knowledge/dossier-chat";
+import { Loader2, Send, Paperclip, FileDown, X, MessageSquarePlus } from "lucide-react";
+import { askDossierAgentAction, loadDossierChatAction, resetDossierChatAction } from "@/lib/regulatory/intelligence/knowledge/actions";
+import type { ThreadMessageView } from "@/lib/regulatory/intelligence/knowledge/dossier-thread";
 
-interface FileLink { name: string; url: string }
-interface Msg { role: "user" | "assistant"; text: string; citations?: ChatCitation[]; files?: FileLink[]; attachedNames?: string[]; error?: boolean }
+/** Même forme que les messages persistés côté serveur — le fil recharge à l'identique. */
+type Msg = ThreadMessageView;
 
 const SUGGESTIONS = [
   "Quelle est la durée de conservation (stabilité) ?",
@@ -23,14 +23,31 @@ const SUGGESTIONS = [
  * question l'exige. On peut lui SOUMETTRE des pièces (lettre de réserves, certificat, rapport —
  * les scans sont océrisés) et lui demander des LIVRABLES : il génère des PDF propres,
  * téléchargeables ici même. Chaque fait cité porte sa source ; il n'invente rien.
+ *
+ * MESSAGERIE : le fil persiste côté serveur — on quitte l'app, on revient, la discussion est là,
+ * et l'agent revoit les pièces déjà soumises. L'historique n'est plus transporté par le client.
  */
 export function DossierChatPanel({ dossierId, configured, canView }: { dossierId: string; configured: boolean; canView: boolean }) {
   const [messages, setMessages] = React.useState<Msg[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [input, setInput] = React.useState("");
   const [attached, setAttached] = React.useState<File[]>([]);
   const [busy, setBusy] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+
+  // Rechargement du fil persistant au montage — la discussion reprend où elle s'était arrêtée.
+  React.useEffect(() => {
+    if (!canView) { setLoading(false); return; }
+    let alive = true;
+    const fd = new FormData();
+    fd.set("dossierId", dossierId);
+    loadDossierChatAction(fd)
+      .then((r) => { if (alive && r.ok) setMessages(r.messages); })
+      .catch(() => { /* fil indisponible → on démarre vide, la conversation reste possible */ })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [dossierId, canView]);
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -48,8 +65,7 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
     const q = input.trim();
     if ((!q && attached.length === 0) || busy) return;
     const question = q || "Analyse la ou les pièces jointes et dis-moi ce qu'elles impliquent pour ce dossier.";
-    // Historique (avant d'ajouter la nouvelle question) — permet les questions de suivi (« et sa DCI ? »).
-    const history = messages.filter((m) => !m.error).slice(-6).map((m) => ({ role: m.role, content: m.text }));
+    // L'historique n'est PLUS envoyé : le serveur relit le fil persistant (pièces comprises).
     const sending = attached;
     setMessages((m) => [...m, { role: "user", text: question, attachedNames: sending.map((f) => f.name) }]);
     setInput("");
@@ -59,7 +75,6 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
       const fd = new FormData();
       fd.set("dossierId", dossierId);
       fd.set("question", question);
-      fd.set("history", JSON.stringify(history));
       for (const f of sending) fd.append("files", f, f.name);
       const r = await askDossierAgentAction(fd);
       setMessages((m) => [...m, r.ok
@@ -74,17 +89,41 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
 
   if (!canView) return null;
 
+  async function resetThread() {
+    if (busy || messages.length === 0) return;
+    if (!window.confirm("Commencer une nouvelle discussion ? Le fil actuel sera effacé et l'agent oubliera les pièces soumises.")) return;
+    const fd = new FormData();
+    fd.set("dossierId", dossierId);
+    const r = await resetDossierChatAction(fd);
+    if (r.ok) setMessages([]);
+  }
+
   return (
     <div className="flex flex-col overflow-hidden rounded-lg border border-border/60 bg-card">
+      {messages.length > 0 && !loading && (
+        <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-1.5">
+          <p className="truncate text-[0.6875rem] text-muted-foreground">Discussion enregistrée — quittez, revenez : elle reprend ici.</p>
+          <button type="button" onClick={resetThread} disabled={busy}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50">
+            <MessageSquarePlus className="h-3.5 w-3.5" /> Nouvelle discussion
+          </button>
+        </div>
+      )}
       <div ref={scrollRef} className="max-h-[26rem] min-h-[8rem] space-y-3 overflow-y-auto p-3">
-        {messages.length === 0 && (
+        {loading && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Reprise de la discussion…
+          </div>
+        )}
+        {!loading && messages.length === 0 && (
           <div className="space-y-2 text-xs text-muted-foreground">
             <p>
               Discutez avec ce dossier : l'agent cherche lui-même dans les <strong>pièces réellement lues</strong>, le{" "}
               <strong>corpus réglementaire</strong> (ANPP · ICH · UE) et les <strong>réserves passées</strong>, et cite ses
               sources. Joignez-lui une <strong>pièce ou une lettre de réserves</strong> (📎 — les scans sont océrisés), ou
-              demandez-lui un <strong>PDF propre</strong> (note, projet de réponse). Il n'invente rien et ne conclut jamais
-              à votre place.
+              demandez-lui un <strong>PDF propre</strong> (note, projet de réponse). La discussion <strong>reste
+              enregistrée</strong> — comme une messagerie, l'agent se souvient des pièces déjà soumises. Il n'invente rien
+              et ne conclut jamais à votre place.
             </p>
             <div className="flex flex-wrap gap-1.5">
               {SUGGESTIONS.map((s) => (
