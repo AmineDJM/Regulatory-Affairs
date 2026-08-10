@@ -99,7 +99,7 @@ export function DepartmentAccessSheet({
         />
         <Block
           title={`Édition — ${DEPT_BUDGET_LABEL.OPERATING}`}
-          hint="Régler le budget de fonctionnement (déplacements, matériel, prestations)."
+          hint="Régler les moyens généraux (fournitures, prestations, déplacements). Le DIRECTEUR du département les tient déjà d'office : cette liste sert à ouvrir à quelqu'un d'autre."
           roleName="operatingRoles" userName="operatingUserIds"
           roles={grant.operatingRoles} userIds={grant.operatingUserIds} users={users}
         />
@@ -108,6 +108,12 @@ export function DepartmentAccessSheet({
           hint="Régler la masse salariale et le budget de recrutement."
           roleName="hrRoles" userName="hrUserIds"
           roles={grant.hrRoles} userIds={grant.hrUserIds} users={users}
+        />
+        <Block
+          title={`Édition — ${DEPT_BUDGET_LABEL.ACTIVITY}`}
+          hint="Régler le budget métier du département (Ad & Pro au marketing, paiement des BV au Regulatory…). Listes SÉPARÉES des moyens généraux : ouvrir l'un n'ouvre pas l'autre."
+          roleName="activityRoles" userName="activityUserIds"
+          roles={grant.activityRoles} userIds={grant.activityUserIds} users={users}
         />
 
         {msg && (

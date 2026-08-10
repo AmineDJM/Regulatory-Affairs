@@ -2,12 +2,16 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Check, Loader2, Lock, AlertCircle, ShieldCheck } from "lucide-react";
-import { setDepartmentBudget } from "@/lib/actions/department-budget-actions";
+import { Check, Loader2, Lock, AlertCircle, ShieldCheck, Plus, ThumbsUp, ThumbsDown, Receipt } from "lucide-react";
 import {
-  DEPT_BUDGET_LABEL, DEPT_BUDGET_HINT, budgetHealth, consumedPercent, EMPTY_GRANT,
-  type DeptBudgetKind, type DeptBudgetViewRow, type DeptBudgetGrant,
+  setDepartmentBudget, requestDepartmentBudget, decideDepartmentBudgetRequest, addDepartmentExpense,
+} from "@/lib/actions/department-budget-actions";
+import {
+  DEPT_BUDGET_LABEL, DEPT_BUDGET_HINT, DEPT_BUDGET_KINDS, budgetHealth, consumedPercent,
+  allocatedOf, consumedOf, EMPTY_GRANT,
+  type DeptBudgetKind, type DeptBudgetViewRow, type DeptBudgetGrant, type DeptBudgetTotals,
 } from "@/lib/department-budget";
+import type { DeptBudgetRequestRow } from "@/lib/queries/department-budget";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,17 +30,24 @@ import { DepartmentAccessSheet } from "./access-sheet";
  * budgets se remplit en tabulant d'une case à l'autre.
  */
 export function DepartmentBudgetTable({
-  rows, year, totals, canManageAccess, generalGrant, users,
+  rows, year, totals, requests, canDecide, canManageAccess, generalGrant, users,
 }: {
   rows: DeptBudgetViewRow[];
   year: number;
-  totals: { operating: number; hr: number; hrConsumed: number; members: number };
+  totals: DeptBudgetTotals;
+  requests: DeptBudgetRequestRow[];
+  canDecide: boolean;
   canManageAccess: boolean;
   generalGrant: DeptBudgetGrant | null;
   users: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [err, setErr] = React.useState<string | null>(null);
+  /** Ligne pour laquelle on ouvre le formulaire de demande de dotation / rallonge. */
+  const [askFor, setAskFor] = React.useState<{ id: string; path: string } | null>(null);
+  /** Ligne pour laquelle on saisit une dépense (avec justificatif). */
+  const [spendFor, setSpendFor] = React.useState<{ id: string; path: string } | null>(null);
+  const pending = requests.filter((r) => r.status === "PENDING");
   /** Ligne dont on règle les accès — `"__GENERAL__"` pour la règle générale. */
   const [accessFor, setAccessFor] = React.useState<string | null>(null);
 
@@ -63,8 +74,8 @@ export function DepartmentBudgetTable({
       </div>
 
       {/* Qui règle quoi — dit à l'écran, pas seulement appliqué en silence. */}
-      <div className="grid gap-2 sm:grid-cols-2">
-        {(["OPERATING", "HR"] as DeptBudgetKind[]).map((k) => (
+      <div className="grid gap-2 sm:grid-cols-3">
+        {DEPT_BUDGET_KINDS.map((k) => (
           <p key={k} className="flex items-start gap-2 rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
             {!canEditAnywhere(k) && <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
             <span>
@@ -81,15 +92,32 @@ export function DepartmentBudgetTable({
         </p>
       )}
 
+      {askFor && (
+        <RequestForm
+          departmentId={askFor.id} path={askFor.path} year={year}
+          onDone={() => setAskFor(null)} onError={setErr}
+        />
+      )}
+      {spendFor && (
+        <ExpenseForm
+          departmentId={spendFor.id} path={spendFor.path} year={year}
+          onDone={() => setSpendFor(null)} onError={setErr}
+        />
+      )}
+
       <div className="overflow-x-auto rounded-xl border border-border">
         <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-secondary/50 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="px-3 py-2 text-left font-medium">Département</th>
               <th className="px-3 py-2 text-right font-medium">Effectif</th>
-              <th className="px-3 py-2 text-right font-medium">{DEPT_BUDGET_LABEL.OPERATING}</th>
-              <th className="px-3 py-2 text-right font-medium">{DEPT_BUDGET_LABEL.HR}</th>
-              <th className="px-3 py-2 text-right font-medium">Masse salariale réelle</th>
+              {DEPT_BUDGET_KINDS.map((k) => (
+                <th key={k} className="px-3 py-2 text-right font-medium">
+                  {DEPT_BUDGET_LABEL[k]}
+                  <span className="block text-[0.625rem] normal-case text-muted-foreground">alloué · consommé</span>
+                </th>
+              ))}
+              <th className="px-3 py-2 text-right font-medium">Actions</th>
               {canManageAccess && <th className="px-3 py-2 text-right font-medium">Accès</th>}
             </tr>
           </thead>
@@ -101,20 +129,38 @@ export function DepartmentBudgetTable({
                   {r.companyName && <span className="ml-2 text-xs text-muted-foreground">{r.companyName}</span>}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{r.members}</td>
+                {DEPT_BUDGET_KINDS.map((k) => (
+                  <td key={k} className="px-3 py-2 text-right">
+                    <AmountCell
+                      departmentId={r.departmentId} year={year} kind={k}
+                      value={allocatedOf(r, k)} readOnly={!r.editable.includes(k)} onError={setErr}
+                    />
+                    <div className="mt-0.5">
+                      <Consumption allocated={allocatedOf(r, k)} consumed={consumedOf(r, k)} />
+                    </div>
+                  </td>
+                ))}
                 <td className="px-3 py-2 text-right">
-                  <AmountCell
-                    departmentId={r.departmentId} year={year} kind="OPERATING"
-                    value={r.operating} readOnly={!r.editable.includes("OPERATING")} onError={setErr}
-                  />
-                </td>
-                <td className="px-3 py-2 text-right">
-                  <AmountCell
-                    departmentId={r.departmentId} year={year} kind="HR"
-                    value={r.hr} readOnly={!r.editable.includes("HR")} onError={setErr}
-                  />
-                </td>
-                <td className="px-3 py-2 text-right">
-                  <HrConsumption allocated={r.hr} consumed={r.hrConsumed} />
+                  <div className="flex justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setAskFor({ id: r.departmentId, path: r.path })}
+                      className="inline-flex items-center gap-1 rounded-lg border border-input px-2 py-1 text-xs hover:bg-secondary"
+                      title="Demander une dotation ou une rallonge — l'administration tranche"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Dotation
+                    </button>
+                    {r.editable.some((k) => k !== "HR") && (
+                      <button
+                        type="button"
+                        onClick={() => setSpendFor({ id: r.departmentId, path: r.path })}
+                        className="inline-flex items-center gap-1 rounded-lg border border-input px-2 py-1 text-xs hover:bg-secondary"
+                        title="Imputer une dépense (facture ou bon de paiement obligatoire)"
+                      >
+                        <Receipt className="h-3.5 w-3.5" /> Dépense
+                      </button>
+                    )}
+                  </div>
                 </td>
                 {canManageAccess && (
                   <td className="px-3 py-2 text-right">
@@ -136,14 +182,37 @@ export function DepartmentBudgetTable({
             <tr>
               <td className="px-3 py-2">Total</td>
               <td className="px-3 py-2 text-right tabular-nums">{totals.members}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(totals.operating)}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(totals.hr)}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(totals.hrConsumed)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">
+                {formatCurrency(totals.operating)}
+                <span className="block text-[0.6875rem] font-normal text-muted-foreground">{formatCurrency(totals.operatingConsumed)}</span>
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums">
+                {formatCurrency(totals.hr)}
+                <span className="block text-[0.6875rem] font-normal text-muted-foreground">{formatCurrency(totals.hrConsumed)}</span>
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums">
+                {formatCurrency(totals.activity)}
+                <span className="block text-[0.6875rem] font-normal text-muted-foreground">{formatCurrency(totals.activityConsumed)}</span>
+              </td>
+              <td />
               {canManageAccess && <td />}
             </tr>
           </tfoot>
         </table>
       </div>
+
+      {requests.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">
+            Dotations et rallonges ({pending.length} en attente)
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Personne ne s&apos;accorde son propre budget : celui qui le tient le demande,
+            l&apos;administration tranche. Un montant accordé <strong>s&apos;ajoute</strong> au budget en cours.
+          </p>
+          <RequestList requests={requests} canDecide={canDecide} onError={setErr} />
+        </section>
+      )}
 
       {canManageAccess && (
         <div className="flex flex-wrap items-center gap-2">
@@ -172,9 +241,10 @@ export function DepartmentBudgetTable({
       )}
 
       <p className="text-xs text-muted-foreground">
-        La <strong>masse salariale réelle</strong> est calculée depuis la paie de l&apos;exercice — elle n&apos;est pas
-        saisie. Le fonctionnement n&apos;a pas encore d&apos;équivalent : aucune dépense n&apos;est aujourd&apos;hui imputée
-        à un département, et un chiffre inventé ressemblerait à une mesure sans en être une.
+        La <strong>masse salariale consommée</strong> est calculée depuis la paie de l&apos;exercice — elle n&apos;est jamais
+        saisie : un montant ressaisi dirait ce qu&apos;on espère, pas ce qui se passe. Les moyens généraux et le budget
+        métier se consomment, eux, <strong>dépense par dépense</strong>, chacune accompagnée de sa facture ou de son
+        bon de paiement.
       </p>
     </div>
   );
@@ -244,16 +314,191 @@ function AmountCell({
   );
 }
 
-function HrConsumption({ allocated, consumed }: { allocated: number; consumed: number }) {
+/**
+ * Le CONSOMMÉ sous l'alloué. Sans budget réglé, on affiche la dépense seule plutôt qu'un
+ * pourcentage : « 0 % » sur un budget inexistant ferait passer une absence de décision pour
+ * une bonne nouvelle.
+ */
+function Consumption({ allocated, consumed }: { allocated: number; consumed: number }) {
   const health = budgetHealth(allocated, consumed);
   if (health === "UNSET") {
-    return <span className="tabular-nums text-muted-foreground">{consumed ? formatCurrency(consumed) : "—"}</span>;
+    return <span className="text-[0.6875rem] tabular-nums text-muted-foreground">{consumed ? formatCurrency(consumed) : "—"}</span>;
   }
   const tone = health === "OVER_BUDGET" ? "danger" : health === "AT_RISK" ? "warning" : "success";
   return (
-    <span className="inline-flex items-center gap-2">
-      <span className="tabular-nums">{formatCurrency(consumed)}</span>
+    <span className="inline-flex items-center gap-1.5">
+      <span className="text-[0.6875rem] tabular-nums text-muted-foreground">{formatCurrency(consumed)}</span>
       <Badge tone={tone} dot={false}>{consumedPercent(allocated, consumed)} %</Badge>
     </span>
+  );
+}
+
+/**
+ * DEMANDER UNE DOTATION OU UNE RALLONGE — le geste par lequel un budget augmente.
+ * Une dotation initiale est une rallonge partant de zéro : un seul formulaire, un seul circuit.
+ */
+function RequestForm({ departmentId, path, year, onDone, onError }: {
+  departmentId: string; path: string; year: number; onDone: () => void; onError: (e: string | null) => void;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        fd.set("departmentId", departmentId);
+        fd.set("year", String(year));
+        setBusy(true); onError(null);
+        void requestDepartmentBudget(fd).then((r) => {
+          setBusy(false);
+          if (r.ok) { onDone(); router.refresh(); } else onError(r.error ?? "Échec.");
+        });
+      }}
+      className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
+    >
+      <p className="text-sm font-medium">Demander une dotation — {path}</p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <label className="text-xs">
+          Budget concerné
+          <select name="kind" defaultValue="OPERATING" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm">
+            {DEPT_BUDGET_KINDS.map((k) => <option key={k} value={k}>{DEPT_BUDGET_LABEL[k]}</option>)}
+          </select>
+        </label>
+        <label className="text-xs">
+          Montant demandé (DZD)
+          <Input name="amount" inputMode="decimal" placeholder="0" className="mt-1 h-9 text-right tabular-nums" required />
+        </label>
+        <label className="text-xs sm:col-span-1">
+          Exercice
+          <Input value={year} readOnly className="mt-1 h-9 text-right tabular-nums" />
+        </label>
+      </div>
+      <label className="block text-xs">
+        Motif
+        <Input name="reason" placeholder="Ex. renouvellement du parc de fournitures, prestation imprévue…" className="mt-1 h-9" />
+      </label>
+      <p className="text-[0.6875rem] text-muted-foreground">
+        Le montant s&apos;<strong>ajoute</strong> au budget en cours une fois accordé. L&apos;administration est prévenue.
+      </p>
+      <div className="flex gap-2">
+        <Button size="sm" type="submit" disabled={busy}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Envoyer la demande
+        </Button>
+        <Button size="sm" type="button" variant="outline" onClick={onDone}>Annuler</Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * IMPUTER UNE DÉPENSE — la pièce justificative est OBLIGATOIRE. Une ligne de dépense sans
+ * facture ni bon de paiement n'est qu'une affirmation ; c'est exactement ce qu'un budget doit
+ * cesser d'accepter.
+ */
+function ExpenseForm({ departmentId, path, year, onDone, onError }: {
+  departmentId: string; path: string; year: number; onDone: () => void; onError: (e: string | null) => void;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        fd.set("departmentId", departmentId);
+        fd.set("year", String(year));
+        setBusy(true); onError(null);
+        void addDepartmentExpense(fd).then((r) => {
+          setBusy(false);
+          if (r.ok) { onDone(); router.refresh(); } else onError(r.error ?? "Échec.");
+        });
+      }}
+      className="space-y-2 rounded-xl border border-border bg-secondary/30 p-3"
+    >
+      <p className="text-sm font-medium">Imputer une dépense — {path}</p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <label className="text-xs">
+          Budget imputé
+          <select name="kind" defaultValue="OPERATING" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm">
+            {DEPT_BUDGET_KINDS.filter((k) => k !== "HR").map((k) => <option key={k} value={k}>{DEPT_BUDGET_LABEL[k]}</option>)}
+          </select>
+        </label>
+        <label className="text-xs sm:col-span-2">
+          Objet de la dépense
+          <Input name="label" placeholder="Ex. ramettes A4 et toner — fournisseur Papeterie Centrale" className="mt-1 h-9" required />
+        </label>
+        <label className="text-xs">
+          Montant (DZD)
+          <Input name="amount" inputMode="decimal" placeholder="0" className="mt-1 h-9 text-right tabular-nums" required />
+        </label>
+        <label className="text-xs sm:col-span-2">
+          Précisions
+          <Input name="notes" placeholder="Facultatif" className="mt-1 h-9" />
+        </label>
+      </div>
+      <label className="block text-xs">
+        Facture / bon de paiement <span className="text-destructive">*</span>
+        <input type="file" name="files" multiple required className="mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
+      </label>
+      <div className="flex gap-2">
+        <Button size="sm" type="submit" disabled={busy}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />} Imputer la dépense
+        </Button>
+        <Button size="sm" type="button" variant="outline" onClick={onDone}>Annuler</Button>
+      </div>
+    </form>
+  );
+}
+
+/** La file des dotations à trancher — visible de l'administration, et d'elle seule. */
+function RequestList({ requests, canDecide, onError }: {
+  requests: DeptBudgetRequestRow[]; canDecide: boolean; onError: (e: string | null) => void;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState<string | null>(null);
+
+  const decide = (id: string, decision: "APPROVED" | "REJECTED") => {
+    setBusy(id); onError(null);
+    const fd = new FormData();
+    fd.set("id", id); fd.set("decision", decision);
+    void decideDepartmentBudgetRequest(fd).then((r) => {
+      setBusy(null);
+      if (r.ok) router.refresh(); else onError(r.error ?? "Échec.");
+    });
+  };
+
+  return (
+    <ul className="divide-y divide-border rounded-xl border border-border">
+      {requests.map((q) => (
+        <li key={q.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">{q.departmentName}</span>
+            <span className="ml-2 text-xs text-muted-foreground">{DEPT_BUDGET_LABEL[q.kind]} · {q.year}</span>
+            {q.reason && <span className="block text-xs text-muted-foreground">{q.reason}</span>}
+          </span>
+          <span className="tabular-nums font-semibold">+{formatCurrency(q.amount)}</span>
+          <span className="text-xs text-muted-foreground">{q.requester || "—"}</span>
+          {q.status === "PENDING" ? (
+            canDecide ? (
+              <span className="flex items-center gap-1.5">
+                <button type="button" disabled={busy === q.id} onClick={() => decide(q.id, "APPROVED")}
+                  className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50">
+                  {busy === q.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ThumbsUp className="h-3.5 w-3.5" />} Accorder
+                </button>
+                <button type="button" disabled={busy === q.id} onClick={() => decide(q.id, "REJECTED")}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                  <ThumbsDown className="h-3.5 w-3.5" /> Refuser
+                </button>
+              </span>
+            ) : <Badge tone="warning" dot={false}>En attente de l&apos;administration</Badge>
+          ) : (
+            <Badge tone={q.status === "APPROVED" ? "success" : "danger"} dot={false}>
+              {q.status === "APPROVED" ? "Accordée" : "Refusée"}
+            </Badge>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }

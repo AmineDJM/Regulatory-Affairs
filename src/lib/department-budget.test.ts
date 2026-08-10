@@ -3,6 +3,8 @@ import {
   canSetDepartmentBudget, settableKinds, normalizeAmount, normalizeYear,
   budgetHealth, consumedPercent, totals, mergeGrants, canEditDepartmentBudget,
   canViewDepartmentBudget, editableKindsOn, canManageDepartmentBudgetAccess, EMPTY_GRANT,
+  isDepartmentDirector, canRequestDepartmentBudget, canDecideDepartmentBudgetRequest,
+  allocatedOf, consumedOf,
   type BudgetSetter, type DeptBudgetRow, type DeptBudgetGrant, type GrantSubject,
 } from "./department-budget";
 
@@ -205,5 +207,76 @@ describe("canManageDepartmentBudgetAccess", () => {
     expect(canManageDepartmentBudgetAccess(setter({ role: "SUPER_ADMIN" }))).toBe(true);
     // Même quelqu'un qui règle les DEUX budgets ne règle pas QUI y a accès.
     expect(canManageDepartmentBudgetAccess(setter({ canManageBudgets: true, canManageHr: true }))).toBe(false);
+  });
+});
+
+describe("isDepartmentDirector — le directeur tient SON département, pas celui du voisin", () => {
+  const director = setter({ headOfDepartmentIds: ["d1"] });
+
+  it("reconnaît le département dirigé, et lui seul", () => {
+    expect(isDepartmentDirector(director, "d1")).toBe(true);
+    expect(isDepartmentDirector(director, "d2")).toBe(false);
+    expect(isDepartmentDirector(director, null)).toBe(false);
+    expect(isDepartmentDirector(setter(), "d1")).toBe(false);
+  });
+});
+
+describe("canEditDepartmentBudget — la porte « directeur »", () => {
+  const director = setter({ headOfDepartmentIds: ["d1"] });
+
+  it("ouvre les moyens généraux et le budget métier DE SON département", () => {
+    expect(canEditDepartmentBudget(subj(), director, "OPERATING", EMPTY_GRANT, "d1")).toBe(true);
+    expect(canEditDepartmentBudget(subj(), director, "ACTIVITY", EMPTY_GRANT, "d1")).toBe(true);
+  });
+
+  it("ne lui ouvre JAMAIS la masse salariale — réservée aux ressources humaines", () => {
+    expect(canEditDepartmentBudget(subj(), director, "HR", EMPTY_GRANT, "d1")).toBe(false);
+  });
+
+  it("ne lui ouvre rien sur un AUTRE département", () => {
+    expect(canEditDepartmentBudget(subj(), director, "OPERATING", EMPTY_GRANT, "d2")).toBe(false);
+  });
+
+  it("garde des listes SÉPARÉES pour le budget métier : ouvrir les moyens généraux ne l'ouvre pas", () => {
+    const g = grant({ operatingUserIds: ["u1"] });
+    expect(canEditDepartmentBudget(subj(), setter(), "OPERATING", g, "d1")).toBe(true);
+    expect(canEditDepartmentBudget(subj(), setter(), "ACTIVITY", g, "d1")).toBe(false);
+    const g2 = grant({ activityUserIds: ["u1"] });
+    expect(canEditDepartmentBudget(subj(), setter(), "ACTIVITY", g2, "d1")).toBe(true);
+  });
+});
+
+describe("canRequestDepartmentBudget / canDecideDepartmentBudgetRequest", () => {
+  it("laisse DEMANDER à qui voit le budget — demander n'est pas décider", () => {
+    // Un simple lecteur du module Budgets peut signaler qu'il en manque.
+    expect(canRequestDepartmentBudget(subj(), setter(), EMPTY_GRANT, true, "d1")).toBe(true);
+    // Quelqu'un qui ne voit rien ne demande rien.
+    expect(canRequestDepartmentBudget(subj(), setter(), EMPTY_GRANT, false, "d1")).toBe(false);
+  });
+
+  it("réserve la DÉCISION à l'administration — sinon la validation ne serait qu'un mot", () => {
+    expect(canDecideDepartmentBudgetRequest(setter({ canManageBudgets: true }))).toBe(true);
+    expect(canDecideDepartmentBudgetRequest(setter({ role: "SUPER_ADMIN" }))).toBe(true);
+    // Les RH gèrent la masse salariale mais n'accordent pas les dotations.
+    expect(canDecideDepartmentBudgetRequest(setter({ canManageHr: true }))).toBe(false);
+    // Un directeur de département non plus : il ne s'accorde pas son propre budget.
+    expect(canDecideDepartmentBudgetRequest(setter({ headOfDepartmentIds: ["d1"] }))).toBe(false);
+  });
+});
+
+describe("allocatedOf / consumedOf", () => {
+  const row: DeptBudgetRow = {
+    departmentId: "d1", departmentName: "D", path: "D", companyName: null, members: 1,
+    operating: 100, hr: 200, activity: 300,
+    operatingConsumed: 10, hrConsumed: 20, activityConsumed: 30,
+  };
+
+  it("lisent la bonne colonne pour chaque nature", () => {
+    expect(allocatedOf(row, "OPERATING")).toBe(100);
+    expect(allocatedOf(row, "HR")).toBe(200);
+    expect(allocatedOf(row, "ACTIVITY")).toBe(300);
+    expect(consumedOf(row, "OPERATING")).toBe(10);
+    expect(consumedOf(row, "HR")).toBe(20);
+    expect(consumedOf(row, "ACTIVITY")).toBe(30);
   });
 });

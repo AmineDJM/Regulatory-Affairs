@@ -2,8 +2,11 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getDepartmentBudgets, getGeneralBudgetAccess, hasAnyDepartmentBudgetGrant } from "@/lib/queries/department-budget";
-import { normalizeYear, totals, canManageDepartmentBudgetAccess } from "@/lib/department-budget";
+import {
+  getDepartmentBudgets, getGeneralBudgetAccess, hasAnyDepartmentBudgetGrant,
+  getDepartmentBudgetRequests, headedDepartmentIds,
+} from "@/lib/queries/department-budget";
+import { normalizeYear, totals, canManageDepartmentBudgetAccess, canDecideDepartmentBudgetRequest } from "@/lib/department-budget";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ModuleTabs } from "@/components/shared/module-tabs";
@@ -34,16 +37,23 @@ export default async function DepartmentBudgetsPage({ searchParams }: { searchPa
   const subject = { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null };
   if (!canViewBudgetsModule && !(await hasAnyDepartmentBudgetGrant(subject))) notFound();
 
+  // Le DIRECTEUR d'un département tient ses moyens généraux et son budget métier : cette
+  // qualité ne se lit pas dans un rôle (chaque directeur en a un différent) mais dans
+  // l'organigramme.
+  const headed = await headedDepartmentIds(user.id);
   const rights = {
     role: user.role,
     secondaryRole: user.secondaryRole ?? null,
     canManageBudgets: userCan(user, "BUDGETS", "UPDATE") || userCan(user, "BUDGETS", "VALIDATE"),
     canManageHr: userCan(user, "RH", "UPDATE"),
+    headOfDepartmentIds: headed,
   };
   const canManageAccess = canManageDepartmentBudgetAccess(rights);
+  const canDecide = canDecideDepartmentBudgetRequest(rights);
 
-  const [rows, tabs, generalGrant, users] = await Promise.all([
+  const [rows, requests, tabs, generalGrant, users] = await Promise.all([
     getDepartmentBudgets(subject, rights, canViewBudgetsModule, year),
+    getDepartmentBudgetRequests(subject, rights, canViewBudgetsModule, year),
     visibleTabs(user, BUDGET_TABS),
     canManageAccess ? getGeneralBudgetAccess() : Promise.resolve(null),
     // La liste des comptes ne part au navigateur QUE pour qui règle les accès.
@@ -57,7 +67,7 @@ export default async function DepartmentBudgetsPage({ searchParams }: { searchPa
       <ModuleTabs tabs={tabs} />
       <PageHeader
         title="Budget par département"
-        description="Chaque département a son budget. Le fonctionnement (hors employés) est réglé par l'administrateur ; les employés et le recrutement, par les ressources humaines. Le Super Admin peut ouvrir l'accès à d'autres personnes, département par département."
+        description="Chaque département a trois budgets : les MOYENS GÉNÉRAUX, tenus par son directeur ; la MASSE SALARIALE, réservée aux ressources humaines ; et le BUDGET MÉTIER de son activité (Ad & Pro au marketing, paiement des BV au Regulatory…). Personne ne s'accorde son propre budget : on demande une dotation ou une rallonge, l'administration tranche."
       />
 
       {rows.length === 0 ? (
@@ -70,6 +80,8 @@ export default async function DepartmentBudgetsPage({ searchParams }: { searchPa
           rows={rows}
           year={year}
           totals={totals(rows)}
+          requests={requests}
+          canDecide={canDecide}
           canManageAccess={canManageAccess}
           generalGrant={generalGrant}
           users={users}

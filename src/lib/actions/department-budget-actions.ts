@@ -1,13 +1,18 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { notifyUser, notifyRoles } from "@/lib/notify";
+import { getAppSettings } from "@/lib/settings";
+import { saveFile, validateUpload } from "@/lib/storage";
 import {
   canSetDepartmentBudget, canEditDepartmentBudget, canManageDepartmentBudgetAccess,
-  mergeGrants, normalizeAmount, normalizeYear, DEPT_BUDGET_LABEL, EMPTY_GRANT,
+  canRequestDepartmentBudget, canDecideDepartmentBudgetRequest, canViewDepartmentBudget,
+  mergeGrants, normalizeAmount, normalizeYear, DEPT_BUDGET_LABEL, DEPT_BUDGET_KINDS, EMPTY_GRANT,
   type DeptBudgetKind, type BudgetSetter, type DeptBudgetGrant, type GrantSubject,
 } from "@/lib/department-budget";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
@@ -15,13 +20,14 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
 const PATH = "/budgets/departements";
 
 /** Le porteur de droits, tel que le module pur l'attend. */
-function setterOf(user: { role: string; secondaryRole?: string | null; id: string }): BudgetSetter {
+function setterOf(user: { role: string; secondaryRole?: string | null; id: string }, headOfDepartmentIds: string[] = []): BudgetSetter {
   const u = user as Parameters<typeof userCan>[0];
   return {
     role: user.role,
     secondaryRole: user.secondaryRole ?? null,
     canManageBudgets: userCan(u, "BUDGETS", "UPDATE") || userCan(u, "BUDGETS", "VALIDATE"),
     canManageHr: userCan(u, "RH", "UPDATE"),
+    headOfDepartmentIds,
   };
 }
 
@@ -82,6 +88,8 @@ export async function setDepartmentBudgetAccess(formData: FormData): Promise<Act
     operatingUserIds: list(formData, "operatingUserIds"),
     hrRoles: list(formData, "hrRoles"),
     hrUserIds: list(formData, "hrUserIds"),
+    activityRoles: list(formData, "activityRoles"),
+    activityUserIds: list(formData, "activityUserIds"),
   };
 
   // `upsert` sur `departmentId` ne marche pas pour la règle générale : `null` n'est pas une
@@ -121,8 +129,10 @@ export async function setDepartmentBudget(formData: FormData): Promise<ActionRes
   const user = await requireUser();
   const departmentId = fdStr(formData, "departmentId");
   const rawKind = fdStr(formData, "kind");
-  if (!departmentId || (rawKind !== "OPERATING" && rawKind !== "HR")) return { ok: false, error: "Paramètres manquants." };
-  const kind: DeptBudgetKind = rawKind;
+  if (!departmentId || !(DEPT_BUDGET_KINDS as readonly string[]).includes(rawKind ?? "")) {
+    return { ok: false, error: "Paramètres manquants." };
+  }
+  const kind = rawKind as DeptBudgetKind;
 
   const department = await prisma.department.findUnique({ where: { id: departmentId }, select: { id: true, name: true } });
   if (!department) return { ok: false, error: "Département introuvable." };
@@ -131,12 +141,13 @@ export async function setDepartmentBudget(formData: FormData): Promise<ActionRes
   // Super Admin a éventuellement posée ici ou en règle générale. On relit les règles au moment
   // d'écrire — celles affichées à l'ouverture de l'écran ont pu changer depuis.
   const grant = await grantFor(departmentId);
-  if (!canEditDepartmentBudget(subjectOf(user), setterOf(user), kind, grant)) {
+  const setter = setterOf(user, await headedDepartmentIds(user.id));
+  if (!canEditDepartmentBudget(subjectOf(user), setter, kind, grant, departmentId)) {
     return {
       ok: false,
       error: kind === "HR"
-        ? "Le budget des employés est réglé par les ressources humaines, ou par les personnes que le Super Admin a autorisées."
-        : "Le budget de fonctionnement est réglé par l'administrateur, ou par les personnes que le Super Admin a autorisées.",
+        ? "La masse salariale est réglée par les ressources humaines, ou par les personnes que le Super Admin a autorisées."
+        : "Ce budget est réglé par l'administration ou par le directeur du département — ou par les personnes que le Super Admin a autorisées.",
     };
   }
 
@@ -165,4 +176,195 @@ export async function setDepartmentBudget(formData: FormData): Promise<ActionRes
   revalidatePath(PATH);
   revalidatePath("/budgets");
   return { ok: true, id: departmentId };
+}
+
+/** Les départements que cette personne DIRIGE (responsable ou adjoint), via sa fiche employé. */
+async function headedDepartmentIds(userId: string): Promise<string[]> {
+  const emp = await prisma.employee.findUnique({ where: { userId }, select: { id: true } });
+  if (!emp) return [];
+  const depts = await prisma.department.findMany({
+    where: { OR: [{ headId: emp.id }, { deputyId: emp.id }] },
+    select: { id: true },
+  });
+  return depts.map((d) => d.id);
+}
+
+/**
+ * DEMANDER UNE DOTATION OU UNE RALLONGE.
+ *
+ * Personne ne s'accorde son propre budget : celui qui le gère le DEMANDE, l'administration
+ * tranche. C'est ce qui rend vérifiable « budget fixé par les RH, validé par l'administration »
+ * au lieu d'en faire un usage. Une dotation initiale est une rallonge partant de zéro — même
+ * geste, même circuit, une seule trace à relire.
+ */
+export async function requestDepartmentBudget(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const departmentId = fdStr(formData, "departmentId");
+  const rawKind = fdStr(formData, "kind");
+  if (!departmentId || !(DEPT_BUDGET_KINDS as readonly string[]).includes(rawKind ?? "")) {
+    return { ok: false, error: "Paramètres manquants." };
+  }
+  const kind = rawKind as DeptBudgetKind;
+  const department = await prisma.department.findUnique({ where: { id: departmentId }, select: { name: true } });
+  if (!department) return { ok: false, error: "Département introuvable." };
+
+  const grant = await grantFor(departmentId);
+  const setter = setterOf(user, await headedDepartmentIds(user.id));
+  const canViewModule = userCan(user as Parameters<typeof userCan>[0], "BUDGETS", "VIEW");
+  if (!canRequestDepartmentBudget(subjectOf(user), setter, grant, canViewModule, departmentId)) {
+    return { ok: false, error: "Ce budget ne vous est pas ouvert." };
+  }
+
+  const amount = normalizeAmount(fdStr(formData, "amount"));
+  if (typeof amount !== "number") return { ok: false, error: amount.error };
+  if (amount <= 0) return { ok: false, error: "Indiquez le montant demandé." };
+  const year = normalizeYear(fdStr(formData, "year"));
+  const reason = fdStr(formData, "reason");
+
+  const created = await prisma.departmentBudgetRequest.create({
+    data: { departmentId, year, kind, amount, reason, requestedById: user.id },
+    select: { id: true },
+  });
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Budgets", entityType: "BUDGET", entityId: departmentId,
+    summary: `Demande de ${DEPT_BUDGET_LABEL[kind]} ${year} — ${department.name} : +${amount} DZD`,
+  });
+  await notifyRoles(["SUPER_ADMIN", "DIRECTION"], {
+    type: "VALIDATION_REQUIRED",
+    title: "Budget départemental — dotation à valider",
+    body: `${department.name} · ${DEPT_BUDGET_LABEL[kind]} ${year} : +${amount} DZD${reason ? ` — ${reason}` : ""}`,
+    link: PATH,
+  });
+  revalidatePath(PATH);
+  return { ok: true, id: created.id };
+}
+
+/**
+ * ACCORDER OU REFUSER une dotation / rallonge — l'administration, et elle seule.
+ *
+ * Accorder AJOUTE au budget courant plutôt que de le remplacer : une rallonge s'ajoute par
+ * définition, et remplacer effacerait silencieusement la dotation précédente.
+ */
+export async function decideDepartmentBudgetRequest(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!canDecideDepartmentBudgetRequest(setterOf(user))) {
+    return { ok: false, error: "Accorder un budget est réservé à l'administration." };
+  }
+  const id = fdStr(formData, "id");
+  const decision = fdStr(formData, "decision");
+  if (!id || (decision !== "APPROVED" && decision !== "REJECTED")) return { ok: false, error: "Décision invalide." };
+
+  const req = await prisma.departmentBudgetRequest.findUnique({
+    where: { id },
+    include: { department: { select: { name: true } } },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.status !== "PENDING") return { ok: false, error: "Cette demande a déjà été tranchée." };
+
+  const note = fdStr(formData, "note");
+  await prisma.departmentBudgetRequest.update({
+    where: { id },
+    data: { status: decision, decidedById: user.id, decidedAt: new Date(), decisionNote: note },
+  });
+
+  const amount = Number(req.amount);
+  if (decision === "APPROVED") {
+    await prisma.departmentBudget.upsert({
+      where: { departmentId_year_kind: { departmentId: req.departmentId, year: req.year, kind: req.kind } },
+      create: { departmentId: req.departmentId, year: req.year, kind: req.kind, amount, setById: user.id },
+      update: { amount: { increment: amount }, setById: user.id },
+    });
+  }
+
+  if (req.requestedById) {
+    await notifyUser({
+      userId: req.requestedById, type: "GENERIC",
+      title: decision === "APPROVED" ? "Dotation accordée" : "Dotation refusée",
+      body: `${req.department.name} · ${DEPT_BUDGET_LABEL[req.kind as DeptBudgetKind]} ${req.year} : ${amount} DZD${note ? ` — ${note}` : ""}`,
+      link: PATH,
+    });
+  }
+  await recordAudit({
+    actorId: user.id, action: decision === "APPROVED" ? "VALIDATE" : "REFUSE", module: "Budgets",
+    entityType: "BUDGET", entityId: req.departmentId,
+    summary: `Dotation ${decision === "APPROVED" ? "accordée" : "refusée"} — ${req.department.name} · ${DEPT_BUDGET_LABEL[req.kind as DeptBudgetKind]} ${req.year} : ${amount} DZD`,
+  });
+  revalidatePath(PATH);
+  return { ok: true };
+}
+
+/**
+ * IMPUTER UNE DÉPENSE à un budget départemental — **avec sa pièce**.
+ *
+ * Les moyens généraux affichaient un montant alloué et aucune consommation : un budget qu'on
+ * ne peut pas confronter à ses dépenses n'est pas un budget, c'est un vœu. Chaque dépense
+ * porte donc son justificatif (facture, bon de paiement) : sans pièce, une ligne de dépense
+ * n'est qu'une affirmation.
+ */
+export async function addDepartmentExpense(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const departmentId = fdStr(formData, "departmentId");
+  const rawKind = fdStr(formData, "kind");
+  if (!departmentId || !(DEPT_BUDGET_KINDS as readonly string[]).includes(rawKind ?? "")) {
+    return { ok: false, error: "Paramètres manquants." };
+  }
+  const kind = rawKind as DeptBudgetKind;
+  if (kind === "HR") {
+    return { ok: false, error: "La masse salariale se lit sur la paie : elle ne se saisit pas à la main." };
+  }
+
+  const grant = await grantFor(departmentId);
+  const setter = setterOf(user, await headedDepartmentIds(user.id));
+  if (!canEditDepartmentBudget(subjectOf(user), setter, kind, grant, departmentId)) {
+    return { ok: false, error: "Vous ne tenez pas ce budget." };
+  }
+
+  const label = fdStr(formData, "label");
+  if (!label) return { ok: false, error: "Indiquez ce qui a été acheté." };
+  const amount = normalizeAmount(fdStr(formData, "amount"));
+  if (typeof amount !== "number") return { ok: false, error: amount.error };
+  if (amount <= 0) return { ok: false, error: "Indiquez le montant de la dépense." };
+  const year = normalizeYear(fdStr(formData, "year"));
+
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length === 0) {
+    return { ok: false, error: "Joignez la facture ou le bon de paiement : une dépense sans pièce n'est qu'une affirmation." };
+  }
+
+  const created = await prisma.departmentBudgetExpense.create({
+    data: {
+      departmentId, year, kind, label, amount,
+      notes: fdStr(formData, "notes"),
+      adminRequestId: fdStr(formData, "adminRequestId"),
+      createdById: user.id,
+    },
+    select: { id: true },
+  });
+
+  const maxMb = (await getAppSettings()).maxUploadMb;
+  for (const file of files) {
+    const invalid = validateUpload(file.name, file.size, maxMb);
+    if (invalid) return { ok: false, error: invalid };
+    const key = `DEPARTMENT_EXPENSE/${created.id}/${randomUUID()}__${file.name}`;
+    try {
+      await saveFile(key, Buffer.from(await file.arrayBuffer()));
+    } catch (err) {
+      console.error("[dept-expense] storage write failed, recording metadata only", err);
+    }
+    await prisma.document.create({
+      data: {
+        name: file.name, category: "INVOICE", entityType: "DEPARTMENT_EXPENSE", entityId: created.id,
+        fileKey: key, mimeType: file.type || null, sizeBytes: file.size,
+        confidentiality: "INTERNAL", uploadedById: user.id,
+      },
+    });
+  }
+
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Budgets", entityType: "BUDGET", entityId: departmentId,
+    summary: `Dépense imputée — ${DEPT_BUDGET_LABEL[kind]} ${year} : ${label} (${amount} DZD)`,
+  });
+  revalidatePath(PATH);
+  revalidatePath("/moyens-generaux");
+  return { ok: true, id: created.id };
 }

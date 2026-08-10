@@ -6,6 +6,7 @@ import {
   type DeptBudgetViewRow, type DeptBudgetGrant, type BudgetSetter, type GrantSubject, type DeptBudgetKind,
 } from "@/lib/department-budget";
 
+
 /**
  * Tableau « budget par département » pour une année, VU PAR UNE PERSONNE PRÉCISE.
  *
@@ -172,4 +173,86 @@ export async function hasAnyDepartmentBudgetGrant(user: GrantSubject): Promise<b
     },
   });
   return count > 0;
+}
+
+
+/** Une demande de dotation / rallonge, telle qu'elle se lit à l'écran. */
+export interface DeptBudgetRequestRow {
+  id: string;
+  departmentId: string;
+  departmentName: string;
+  year: number;
+  kind: DeptBudgetKind;
+  amount: number;
+  reason: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  requester: string;
+  createdAt: string;
+  decisionNote: string | null;
+}
+
+/**
+ * Les demandes de dotation / rallonge d'un exercice.
+ *
+ * On ne renvoie QUE les départements que le spectateur a le droit de voir : une demande porte
+ * un montant, et un montant sur un département fermé n'a pas à transiter jusqu'au navigateur.
+ */
+export async function getDepartmentBudgetRequests(
+  viewer: GrantSubject,
+  rights: BudgetSetter,
+  canViewBudgetsModule: boolean,
+  year: number,
+): Promise<DeptBudgetRequestRow[]> {
+  const rows = await prisma.departmentBudgetRequest.findMany({
+    where: { year },
+    include: { department: { select: { id: true, name: true } }, requestedBy: { select: { name: true } } },
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    take: 200,
+  });
+  if (rows.length === 0) return [];
+
+  const deptIds = [...new Set(rows.map((r) => r.departmentId))];
+  const accessRows = await prisma.departmentBudgetAccess.findMany({
+    where: { OR: [{ departmentId: { in: deptIds } }, { departmentId: null }] },
+  });
+  const asGrant = (r: (typeof accessRows)[number]): DeptBudgetGrant => ({
+    accessRoles: r.accessRoles, accessUserIds: r.accessUserIds,
+    operatingRoles: r.operatingRoles, operatingUserIds: r.operatingUserIds,
+    hrRoles: r.hrRoles, hrUserIds: r.hrUserIds,
+    activityRoles: r.activityRoles, activityUserIds: r.activityUserIds,
+  });
+  const general = accessRows.find((r) => r.departmentId === null);
+  const generalGrant = general ? asGrant(general) : null;
+  const ownById = new Map(accessRows.filter((r) => r.departmentId).map((r) => [r.departmentId!, r]));
+
+  return rows
+    .filter((r) => {
+      const own = ownById.get(r.departmentId);
+      const grant = mergeGrants(generalGrant, own ? asGrant(own) : null);
+      return canViewDepartmentBudget(viewer, rights, grant, canViewBudgetsModule, r.departmentId);
+    })
+    .map((r) => ({
+      id: r.id,
+      departmentId: r.departmentId,
+      departmentName: r.department.name,
+      year: r.year,
+      kind: r.kind as DeptBudgetKind,
+      amount: toNumber(r.amount),
+      reason: r.reason,
+      status: r.status as "PENDING" | "APPROVED" | "REJECTED",
+      requester: r.requestedBy?.name ?? "",
+      createdAt: r.createdAt.toISOString(),
+      decisionNote: r.decisionNote,
+    }));
+}
+
+/** Les départements que cette personne DIRIGE (responsable ou adjoint), via sa fiche employé. */
+export async function headedDepartmentIds(userId: string): Promise<string[]> {
+  const emp = await prisma.employee.findUnique({ where: { userId }, select: { id: true } });
+  if (!emp) return [];
+  const depts = await prisma.department.findMany({
+    where: { OR: [{ headId: emp.id }, { deputyId: emp.id }] },
+    select: { id: true },
+  });
+  return depts.map((d) => d.id);
 }
