@@ -54,6 +54,75 @@ function localCtx(lower: string, idx: number, len: number, radius: number): stri
   return lower.slice(start, end);
 }
 
+// ─────────────── Association de teneurs (« 600 mg / 300 mg / 50 mg ») ───────────────
+
+/** Lien EXPLICITE entre deux doses d'une association (« and », « / », « + », « contient »…). */
+const COMBO_LINK = /\band\b|\bet\b|\/|\+|&|contain|contient|associ|\bplus\b/i;
+/** Mots de POSOLOGIE dans le trou → jamais une association (« 50 mg, sans dépasser 300 mg »). */
+const COMBO_STOP = /\b(max\w*|min\w*|sans|d[ée]pass\w*|jusqu\w*|puis|then|exceed\w*|toutes?|every|jours?|daily|day|doses?|prendre|posologie|apr[èe]s|before|after)\b/i;
+/**
+ * VIRGULE-LIEN : dans un TITRE de dossier (« ABACAVIR 600MG, LAMIVUDINE 300MG & DOLUTEGRAVIR
+ * 50MG »), les composants ne sont séparés que par « , Molécule » — un à deux mots de lettres,
+ * rien d'autre. Sans cette règle, l'association COMPLÈTE du produit ne matchait jamais et la
+ * paire narrative d'un comparateur gagnait par défaut.
+ */
+const COMBO_COMMA = /^,\s*(?:de\s+|d['’]\s*)?\p{L}[\p{L}\p{N}'’-]{2,}(?:\s+\p{L}[\p{L}\p{N}'’-]{2,})?\s*$/u;
+
+function comboLinkOk(gap: string): boolean {
+  if (COMBO_STOP.test(gap)) return false;
+  if (COMBO_LINK.test(gap)) return true;
+  return COMBO_COMMA.test(gap.trim());
+}
+
+/**
+ * LA meilleure association de teneurs du texte — et non la première venue. Le PLUS de composants
+ * gagne : sur une trithérapie, la paire « 600 mg and 300 mg » citée par l'étude clinique est le
+ * COMPARATEUR bithérapie (Epzicom/Kivexa), pas le produit ; l'association complète « 600MG,
+ * LAMIVUDINE 300MG & DOLUTEGRAVIR 50MG » doit l'emporter. Un contexte de comparateur
+ * (« respectively », « separate tablet », « versus ») pénalise en plus la confiance.
+ */
+function bestStrengthCombo(text: string, lower: string): FactHit | null {
+  const tokRe = /(\d+(?:[.,]\d+)?)\s?mg\b/giu;
+  const toks: { value: string; index: number; end: number }[] = [];
+  let tm: RegExpExecArray | null;
+  while ((tm = tokRe.exec(text)) !== null && toks.length < 400) {
+    toks.push({ value: tm[1], index: tm.index, end: tm.index + tm[0].length });
+  }
+
+  let best: { start: number; end: number; values: string[]; confidence: number } | null = null;
+  let i = 0;
+  while (i < toks.length) {
+    const values = [toks[i].value];
+    let j = i;
+    while (j + 1 < toks.length && values.length < 4) {
+      const gap = text.slice(toks[j].end, toks[j + 1].index);
+      if (gap.length > 60 || !comboLinkOk(gap)) break;
+      values.push(toks[j + 1].value);
+      j++;
+    }
+    if (values.length >= 2) {
+      const ctx = lower.slice(Math.max(0, toks[i].index - 90), Math.min(lower.length, toks[j].end + 90));
+      const comparator = /respectively|respectivement|separate (?:tablet|capsule)|comprim[ée]s? s[ée]par[ée]|comparat|versus|\bvs\b/.test(ctx);
+      const confidence = Math.max(0.3, (values.length >= 3 ? 0.9 : 0.88) - (comparator ? 0.18 : 0));
+      // Composants d'abord (10 points l'unité), confiance ensuite : 3 composants à 0,72 battent
+      // toujours 2 composants à 0,88 — c'est le produit qu'on cherche, pas la citation.
+      const better = !best || values.length * 10 + confidence > best.values.length * 10 + best.confidence;
+      if (better) best = { start: toks[i].index, end: toks[j].end, values, confidence };
+    }
+    i = j + 1;
+  }
+
+  if (!best) return null;
+  return {
+    factKey: "STRENGTH",
+    rawValue: norm(text.slice(best.start, best.end)).slice(0, 80),
+    normalizedValue: best.values.map((v) => `${v.replace(",", ".")} mg`).join(" / "),
+    extract: snippet(text, best.start),
+    confidence: best.confidence,
+    method: "regex",
+  };
+}
+
 /** Valeur après un libellé (« DCI : … »), jusqu'à fin de ligne / ponctuation forte. */
 function labelValue(text: string, labelRe: RegExp): { value: string; index: number } | null {
   const m = labelRe.exec(text);
@@ -151,25 +220,17 @@ export function extractFactsFromText(text: string, sectionCode: string | null): 
     if (lv) out.push({ factKey: key, rawValue: lv.value, extract: snippet(text, lv.index), confidence: 0.85, method: "label" });
   }
 
-  // Dosage / teneur — COMBINAISON d'abord (« 50 mg / 300 mg », « 50 mg and Lamivudine 300 mg ») :
-  // très fréquent pour les associations (ex. DTF+3TC), plus fiable qu'une teneur isolée. Le trou
-  // entre les deux doses (≤40 car.) DOIT contenir un lien (« and », « / », « + », « contains »…)
-  // pour ne PAS confondre avec une posologie (« 50 mg, max 300 mg »).
+  // Dosage / teneur — COMBINAISON d'abord (« 50 mg / 300 mg », « 600MG, LAMIVUDINE 300MG &
+  // DOLUTEGRAVIR 50MG ») : très fréquent pour les associations, plus fiable qu'une teneur isolée.
+  // On balaie TOUTES les associations du texte et on garde LA MEILLEURE — le PLUS de composants
+  // d'abord : sur une trithérapie, « 600 mg and 300 mg » n'est pas le produit, c'est le
+  // comparateur bithérapie cité par l'étude clinique (Epzicom), et c'est exactement l'erreur
+  // qu'on a vue à l'écran (proposé « 600 mg and 300 mg » contre des sources « 600MG, 300MG &
+  // 50MG »). Un contexte de comparateur (« respectively », « separate tablet », « versus »)
+  // pénalise en plus la confiance.
   let m: RegExpExecArray | null;
-  // Le trou tolère les lettres ACCENTUÉES (« 50 mg de ténofovir et 300 mg de lamivudine ») via
-  // \p{L}\p{N} + drapeau u — sinon le « é » couperait l'appariement des associations réelles.
-  const comboRe = /(\d+(?:[.,]\d+)?)\s?mg\b([\s\p{L}\p{N},()/+&-]{0,60}?)(\d+(?:[.,]\d+)?)\s?mg\b/giu;
-  let comboScan = 0;
-  while ((m = comboRe.exec(text)) !== null && comboScan < 50) {
-    comboScan++;
-    if (!/\band\b|\bet\b|\/|\+|&|contain|contient|associ|\bplus\b/i.test(m[2])) continue;
-    out.push({
-      factKey: "STRENGTH", rawValue: norm(m[0]).slice(0, 80),
-      normalizedValue: `${m[1].replace(",", ".")} mg / ${m[3].replace(",", ".")} mg`,
-      extract: snippet(text, m.index), confidence: 0.88, method: "regex",
-    });
-    break;
-  }
+  const combo = bestStrengthCombo(text, lower);
+  if (combo) out.push(combo);
   // Teneur isolée (regex).
   const strengthRe = /(\d+(?:[.,]\d+)?)\s?(mg\/ml|mg\/g|µg|mcg|mg|g|ml|ui|iu|%)\b/gi;
   let strengthCount = 0;

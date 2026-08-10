@@ -83,4 +83,37 @@ describe("bruit — teneur d'ASSOCIATION vs posologie", () => {
     );
     expect(merged).toBeFalsy();
   });
+
+  it("un TITRE « ABACAVIR 600MG, LAMIVUDINE 300MG & DOLUTEGRAVIR 50MG » est une association COMPLÈTE (virgule-lien)", () => {
+    const combo = of(
+      "MCNEIL AND ARGUS PHARMACEUTICALS LIMITED ABACAVIR 600MG, LAMIVUDINE 300MG & DOLUTEGRAVIR 50MG TABLETS",
+      "STRENGTH",
+    ).find((h) => h.normalizedValue?.includes(" / "));
+    expect(combo).toBeTruthy();
+    expect(combo!.normalizedValue).toBe("600 mg / 300 mg / 50 mg");
+    expect(combo!.confidence).toBeGreaterThan(0.85);
+  });
+
+  it("CAS RÉEL Triumeq : l'association COMPLÈTE du produit bat la paire du COMPARATEUR citée par l'étude", () => {
+    // Le texte clinique cite Epzicom (bithérapie 600/300) avec « respectively » — c'était la
+    // valeur retenue à tort (88 %) à l'écran, contre des sources « 600MG, 300MG & 50MG ».
+    const text = [
+      "dolutegravir at a dose of 50 mg as a separate tablet and abacavir-lamivudine in a fixed-dose",
+      "combination of 600 mg and 300 mg, respectively (Epzicom or Kivexa, ViiV Healthcare), or to the EFV-TDF regimen.",
+      "MCNEIL AND ARGUS PHARMACEUTICALS LIMITED ABACAVIR 600MG, LAMIVUDINE 300MG & DOLUTEGRAVIR 50MG TABLETS",
+    ].join("\n");
+    const combos = of(text, "STRENGTH").filter((h) => h.normalizedValue?.includes(" / "));
+    // UNE seule association retenue — la meilleure — et c'est la trithérapie du produit.
+    expect(combos).toHaveLength(1);
+    expect(combos[0].normalizedValue).toBe("600 mg / 300 mg / 50 mg");
+  });
+
+  it("la paire d'un comparateur (« respectively », « separate tablet ») perd de la confiance même seule", () => {
+    const combo = of(
+      "dolutegravir 50 mg as a separate tablet plus a fixed-dose combination of 600 mg and 300 mg, respectively (Epzicom).",
+      "STRENGTH",
+    ).find((h) => h.normalizedValue?.includes(" / "));
+    expect(combo).toBeTruthy();
+    expect(combo!.confidence).toBeLessThan(0.8); // pénalité comparateur : 0,88 → ~0,70
+  });
 });

@@ -216,6 +216,13 @@ interface CallOptions {
   maxTokens?: number;
   temperature?: number;
   model?: string;
+  /**
+   * Délai maximal PAR TENTATIVE (ms). Le défaut (60 s) convient aux appels courts ; la boucle
+   * agent du dossier — prompt gonflé par les pièces jointes mémorisées + 3000 jetons de sortie —
+   * peut légitimement dépasser et doit demander plus, sinon l'écran finit sur « Appel à l'IA
+   * impossible (réseau ou délai dépassé) » alors que le modèle répondait.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -271,7 +278,7 @@ export async function callClaude(messages: ClaudeMessage[], opts: CallOptions = 
         method: "POST",
         headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
         body: payload,
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
       });
 
       if (res.ok) {
@@ -319,6 +326,18 @@ export async function callClaudeStream(
   const system = opts.system
     ? [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }]
     : undefined;
+  // Même assainissement que `callClaude` : du texte EXTRAIT (OCR) transite aussi par le flux, et
+  // un seul substitut orphelin suffit à faire refuser TOUTE la requête (400).
+  const cleanMessages: ClaudeMessage[] = messages.map((m) => ({
+    role: m.role,
+    content:
+      typeof m.content === "string"
+        ? sanitizeForModel(m.content)
+        : m.content.map((b) =>
+            b.type === "text" ? { ...b, text: sanitizeForModel(b.text) }
+            : b.type === "tool_result" ? { ...b, content: sanitizeForModel(b.content) }
+            : b),
+  }));
   const payload = JSON.stringify({
     model: opts.model ?? aiModel(),
     max_tokens: opts.maxTokens ?? 1400,
@@ -326,7 +345,7 @@ export async function callClaudeStream(
     stream: true,
     ...(system ? { system } : {}),
     ...(opts.tools?.length ? { tools: opts.tools } : {}),
-    messages,
+    messages: cleanMessages,
   });
 
   try {
@@ -334,7 +353,7 @@ export async function callClaudeStream(
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: payload,
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
     });
     if (!res.ok || !res.body) {
       const body = await res.text().catch(() => "");

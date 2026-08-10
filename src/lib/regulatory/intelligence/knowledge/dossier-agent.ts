@@ -317,7 +317,10 @@ export async function runDossierAgent(opts: {
 
   let lastText = "";
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const res = await callClaude(messages, { system: SYSTEM, tools: TOOLS, maxTokens: 3000, temperature: 0.2 });
+    // 90 s par tentative (au lieu de 60) : le prompt porte les pièces mémorisées de la
+    // discussion (jusqu'à ~75 k caractères) et la réponse finale fait 3000 jetons — le délai
+    // court transformait les gros tours en « Appel à l'IA impossible (réseau ou délai dépassé) ».
+    const res = await callClaude(messages, { system: SYSTEM, tools: TOOLS, maxTokens: 3000, temperature: 0.2, timeoutMs: 90_000 });
     if (!res.ok) return { ok: false, configured: true, answer: "", citations: ctx.citations, files: ctx.files, error: res.error ?? "Réponse IA indisponible." };
 
     const blocks = res.content ?? [];
