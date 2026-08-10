@@ -6,15 +6,18 @@ import { OrgChartEditor, type OrgNode } from "./org-chart-editor";
 import { OrgCanvas } from "./org-canvas";
 
 /**
- * Bascule entre la vue « Arbre » (rattachement/poste) et la « Carte » (glisser-déposer), avec un
- * filtre PAR ENTITÉ : on regarde l'organigramme du groupe ENTIER ou celui d'une seule société
- * (Adventum, Pharmagène…). En consultation (`canEdit=false`), rien ne se modifie.
+ * Bascule entre la vue « Arbre » (rattachement/poste) et la « Carte » (glisser-déposer).
+ *
+ * La portée principale vient du SÉLECTEUR D'ENTITÉ en haut de l'écran (le serveur ne charge que
+ * les personnes de la société active). Le filtre local ci-dessous ne sert donc que lorsqu'on
+ * travaille sur le GROUPE ENTIER, pour isoler une société sans changer de contexte — c'est
+ * pourquoi il disparaît dès qu'une seule entité est présente.
  *
  * Le filtre coupe les branches : un responsable d'une autre entité disparaît, donc ses
  * subordonnés de l'entité filtrée remontent en racine — c'est ce qu'on veut voir (« qui est chez
  * nous »), pas un arbre vide parce que le sommet appartient à une autre société.
  */
-export function OrgWorkspace({ nodes, canEdit = true }: { nodes: OrgNode[]; canEdit?: boolean }) {
+export function OrgWorkspace({ nodes, canEdit = true, scopeLabel }: { nodes: OrgNode[]; canEdit?: boolean; scopeLabel?: string }) {
   const [view, setView] = React.useState<"tree" | "canvas">("tree");
   const [entity, setEntity] = React.useState<string>("");
 
@@ -56,7 +59,9 @@ export function OrgWorkspace({ nodes, canEdit = true }: { nodes: OrgNode[]; canE
           </label>
         )}
       </div>
-      {view === "tree" ? <OrgChartEditor nodes={shown} canEdit={canEdit} /> : <OrgCanvas nodes={shown} canEdit={canEdit} />}
+      {view === "tree"
+        ? <OrgChartEditor nodes={shown} canEdit={canEdit} />
+        : <OrgCanvas nodes={shown} canEdit={canEdit} scopeLabel={entity || scopeLabel} />}
     </div>
   );
 }

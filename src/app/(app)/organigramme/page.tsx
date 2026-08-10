@@ -4,6 +4,7 @@ import { UserPlus } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
+import { platformScope, getCompanyScope, getCompanies, companyLabel } from "@/lib/company";
 import { canViewOrgChart, canEditOrgChart } from "@/lib/org-chart-access";
 import { userCan } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,8 +27,19 @@ export default async function OrganigrammePage() {
   if (!canViewOrgChart(user, settings)) redirect("/mon-travail");
   const canEdit = canEditOrgChart(user);
 
+  // L'ORGANIGRAMME SUIT L'ENTITÉ SÉLECTIONNÉE en haut de l'écran. Il montrait jusqu'ici tout le
+  // groupe quelle que soit la société active : on regardait « Pharmagène » et on lisait la
+  // hiérarchie d'Adventum. La portée est VALIDÉE contre les droits (le cookie est une demande,
+  // pas une autorisation) et laisse passer les personnes NON RATTACHÉES — un employé sans
+  // entité doit apparaître quelque part, sinon il n'apparaît nulle part.
+  const scope = await platformScope(user.id);
+  const activeCompanyId = getCompanyScope();
+  const companies = await getCompanies();
+  const activeCompany = activeCompanyId ? companies.find((c) => c.id === activeCompanyId) : null;
+  const scopeLabel = activeCompany ? companyLabel(activeCompany) : "Toutes les entités";
+
   const employees = await prisma.employee.findMany({
-    where: { isActive: true },
+    where: { AND: [{ isActive: true }, scope] },
     select: {
       id: true, fullName: true, position: true, department: true, managerId: true, orgX: true, orgY: true,
       // Département STRUCTURÉ (source de vérité) ; le champ texte n'est qu'un cache de secours.
@@ -55,7 +67,7 @@ export default async function OrganigrammePage() {
         description={
           canEdit
             ? "Hiérarchie de l'entreprise — branchée sur Ressources humaines. Réarrangez qui rapporte à qui et ajustez les postes ; les personnes se créent dans RH."
-            : "Hiérarchie de l'entreprise, en consultation — filtrable par entité. Les rattachements et les postes se règlent dans l'administration."
+            : "Hiérarchie de l'entreprise, en consultation. Les rattachements et les postes se règlent dans l'administration."
         }
       >
         {userCan(user, "RH", "VIEW") && (
@@ -64,9 +76,11 @@ export default async function OrganigrammePage() {
       </PageHeader>
 
       <Card>
-        <CardHeader><CardTitle>Structure hiérarchique</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Structure hiérarchique — {scopeLabel}</CardTitle>
+        </CardHeader>
         <CardContent>
-          <OrgWorkspace nodes={nodes} canEdit={canEdit} />
+          <OrgWorkspace nodes={nodes} canEdit={canEdit} scopeLabel={scopeLabel} />
         </CardContent>
       </Card>
     </div>

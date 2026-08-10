@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Users } from "lucide-react";
+import { Users, Printer } from "lucide-react";
 import { saveOrgPosition } from "@/lib/actions/org-actions";
+import { buildOrgChartSvg, buildPrintDocument } from "@/lib/org-chart-print";
 import type { OrgNode } from "./org-chart-editor";
 
 const BOX_W = 190, BOX_H = 64, COL = 214, ROW = 120, PAD = 40;
@@ -14,7 +15,7 @@ const BOX_W = 190, BOX_H = 64, COL = 214, ROW = 120, PAD = 40;
  * déplace une boîte, sa position est **persistée** (Employee.orgX/orgY). Un simple clic sur une
  * boîte ouvre la fiche RH. Le tout se lit/écrit directement sur Ressources humaines.
  */
-export function OrgCanvas({ nodes, canEdit = true }: { nodes: OrgNode[]; canEdit?: boolean }) {
+export function OrgCanvas({ nodes, canEdit = true, scopeLabel }: { nodes: OrgNode[]; canEdit?: boolean; scopeLabel?: string }) {
   const router = useRouter();
   const ids = React.useMemo(() => new Set(nodes.map((n) => n.id)), [nodes]);
   const childrenOf = React.useMemo(() => {
@@ -86,17 +87,48 @@ export function OrgCanvas({ nodes, canEdit = true }: { nodes: OrgNode[]; canEdit
   const width = Math.max(640, ...pts.map((p) => p.x + BOX_W + PAD));
   const height = Math.max(420, ...pts.map((p) => p.y + BOX_H + PAD));
 
+  /**
+   * EXPORTER LA CARTE — on n'imprime pas la PAGE (menu, barre, cadre coupé) mais un document
+   * autonome, en paysage, mis à l'échelle de la feuille. C'est le format dans lequel un
+   * organigramme se lit vraiment : à plat, sur une table.
+   */
+  const exportPdf = () => {
+    const chart = buildOrgChartSvg(
+      nodes.map((n) => ({ id: n.id, fullName: n.fullName, position: n.position, entity: n.entity, color: n.color, managerId: n.managerId })),
+      positions,
+    );
+    const subtitle = `${scopeLabel ? `${scopeLabel} · ` : ""}${nodes.length} personne(s) · ${new Date().toLocaleDateString("fr-FR")}`;
+    const win = window.open("", "_blank", "width=1200,height=800");
+    if (!win) return; // pop-up bloquée : on ne casse rien, l'écran reste utilisable
+    win.document.write(buildPrintDocument(chart, "Organigramme", subtitle));
+    win.document.close();
+    // Laisser le document se poser avant d'ouvrir la boîte d'impression, sinon certains
+    // navigateurs impriment une page encore vide.
+    win.addEventListener("load", () => win.print());
+    setTimeout(() => { try { win.print(); } catch { /* déjà imprimé */ } }, 400);
+  };
+
   if (nodes.length === 0) {
     return <p className="text-sm text-muted-foreground">Aucun employé actif à afficher.</p>;
   }
 
   return (
     <div>
-      <p className="mb-2 text-xs text-muted-foreground">
-        {canEdit
-          ? "Glissez les boîtes pour réorganiser la carte (positions mémorisées) · cliquez une boîte pour ouvrir la fiche RH · le rattachement (N+1) se règle dans la vue « Arbre »."
-          : "Cliquez une boîte pour ouvrir la fiche RH. La réorganisation de la carte est réservée au Super Admin."}
-      </p>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+          {canEdit
+            ? "Glissez les boîtes pour réorganiser la carte (positions mémorisées) · cliquez une boîte pour ouvrir la fiche RH · le rattachement (N+1) se règle dans la vue « Arbre »."
+            : "Cliquez une boîte pour ouvrir la fiche RH. La réorganisation de la carte est réservée au Super Admin."}
+        </p>
+        <button
+          type="button"
+          onClick={exportPdf}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-xs font-medium hover:bg-secondary"
+          title="Ouvre un document en paysage — « Enregistrer en PDF » dans la boîte d'impression"
+        >
+          <Printer className="h-3.5 w-3.5" /> Exporter en PDF (paysage)
+        </button>
+      </div>
       <div className="overflow-auto rounded-lg border border-border bg-secondary/20" style={{ maxHeight: "72vh" }}>
         <div className="relative" style={{ width, height }}>
           <svg className="pointer-events-none absolute inset-0 text-border" width={width} height={height}>
