@@ -33,7 +33,7 @@ RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Cale
 - [Workflows critiques](#-workflows-critiques)
 - [**Référence détaillée des circuits & mécanismes transverses**](#-référence-détaillée-des-circuits--mécanismes-transverses)
   - [Dimension multi-entités (cloisonnement)](#dimension-multi-entités-sociétés-du-groupe)
-  - [Budget par département (deux responsables)](#budget-par-département--deux-natures-deux-responsables)
+  - [Budgets par département (trois natures)](#budgets-par-département--trois-natures-trois-responsables)
   - [Ad & Pro — corriger une demande, joindre un fichier](#ad--pro--corriger-une-demande-joindre-un-fichier-à-un-avis)
   - [Assistant — recherche Regulatory & écriture](#assistant--recherche-regulatory-complète-et-écriture-sur-les-produits)
 - [Carte du code — fichiers clés par domaine](#-carte-du-code--fichiers-clés-par-domaine)
@@ -185,6 +185,8 @@ jamais identique.
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). |
 | **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
+| **Moyens généraux** | `/moyens-generaux` | Le budget, les achats et la **caisse d'avance** d'un département au même endroit. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) : l'administration remet une somme chaque mois, la personne qui la détient **confirme l'avoir reçue** — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**, jusqu'à épuisement. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
+| **Formations** | `/formations` | Demande individuelle (montant, organisme, dates, devis) validée **N+1 → RH → DG**, et formations **organisées par les RH** (qui partent directement au DG) avec **participants convoqués ou volontaires** (les volontaires acceptent ou déclinent) et **postes** (salle, traiteur, intervenant) validés un par un par la Direction. Budget **FORMATION** parmi les budgets départementaux. |
 | **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
 | **Logistique PCH** | `/logistics` | Module autonome : import / expéditions fournisseurs, dates estimées vs réelles, dédouanement. |
 | **PCH — Marchés** | `/pch` | **Marchés publics gagnés** : appels d'offres → **bons de commande** + **caution** (alertes d'expiration). → [détails](#pch--marchés-publics) |
@@ -1451,14 +1453,27 @@ const files = formData.getAll("files").filter((f): f is File => f instanceof Fil
 Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage distinct (`putBlob`/`getBlob`/`releaseBlob`
 — blobs chiffrés dédupliqués + `FileVersion`). La fiche de paie utilise `EmployeeDocument` (blob Drive + `period`).
 
-### Budget par département — deux natures, deux responsables
+### Budgets par département — trois natures, trois responsables
 
 Écran `/budgets/departements`. Le modèle porte **une ligne par (département, année, NATURE)** :
 
 | Nature | Ce que ça couvre | Qui la règle |
 |---|---|---|
-| `OPERATING` | Fonctionnement **hors employés** — déplacements, matériel, prestations | **L'administrateur** (`BUDGETS:UPDATE` / `VALIDATE`) |
-| `HR` | **Employés et recrutement** — masse salariale, charges | **Les ressources humaines** (`RH:UPDATE`) |
+| `OPERATING` | **Moyens généraux** — fournitures, prestations, déplacements | **Le directeur du département** (responsable ou adjoint dans l'organigramme) + l'administrateur |
+| `HR` | **Masse salariale** — employés, charges, recrutement | **Les ressources humaines** (`RH:UPDATE`), exclusivement |
+| `ACTIVITY` | **Budget métier** — Ad & Pro au marketing, paiement des BV au Regulatory… | **Le directeur du département** + l'administrateur (listes d'accès **séparées** de celles des moyens généraux) |
+| `TRAINING` | **Budget formation** — montée en compétence de l'équipe | Les RH, doté par l'administration |
+
+**Personne ne s'accorde son propre budget.** Une **dotation** (montant initial) ou une **rallonge**
+se DEMANDE (`DepartmentBudgetRequest`) et l'administration tranche — c'est ce qui rend vérifiable
+« budget fixé par les RH, validé par l'administration » au lieu d'en faire un usage. Une dotation
+initiale est une rallonge partant de zéro : même geste, même circuit. Un montant accordé
+**s'ajoute** au budget en cours (le remplacer effacerait silencieusement la dotation précédente).
+
+**La consommation est réelle**, pas déduite : chaque dépense s'impute via
+`DepartmentBudgetExpense`, avec sa **facture ou son bon de paiement** en pièce **obligatoire** —
+sans pièce, une ligne de dépense n'est qu'une affirmation. La masse salariale fait exception : elle
+se lit sur la **paie**, jamais saisie.
 
 Le Super Admin règle les deux. **La séparation n'est pas cosmétique** : un directeur administratif n'a pas à
 connaître la masse salariale pour accorder un budget de déplacement, et les RH n'ont pas à arbitrer les achats.
@@ -2034,6 +2049,67 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Formations — demande individuelle à trois validateurs, sessions RH avec participants.**
+  Chacun peut demander une formation ; elle monte **N+1 → RH → DG**, exactement comme un congé —
+  et pour la même raison : trois questions se posent qu'une seule personne ne sait pas trancher.
+  L'enchaînement est donc écrit **une** fois (`src/lib/approval-chain.ts`), le congé et la
+  formation lui donnant leur vocabulaire. Le **devis n'est pas exigé à la soumission** (l'obtenir
+  prend des semaines ; bloquer dessus empêche d'en parler). Les **RH organisent** aussi des
+  formations : elles partent directement au DG, puisque les RH SONT l'étape RH. Participants
+  **convoqués** (comptés présents d'emblée — leur demander d'accepter viderait le mot de son sens)
+  ou **volontaires** (qui répondent, et c'est leur réponse qui donne le nombre de couverts). Le DG
+  accorde un **montant qui peut différer du demandé**. Les postes (salle, traiteur, intervenant)
+  sont des `AdProItem` — même modèle, mêmes validations une par une. Fichiers :
+  `src/lib/training.ts` (+ `.test.ts`), `approval-chain.ts`, `actions/training-actions.ts`,
+  `src/app/(app)/formations/`. Migration `20260810220000_trainings`.
+- **Moyens généraux — un module, et une caisse d'avance qui dit ce qu'il reste.**
+  Le budget vivait dans un tableau, les achats dans les demandes administratives, l'argent liquide
+  nulle part. Un écran répond aux trois questions : l'enveloppe (ai-je le droit ?), la caisse
+  (ai-je de quoi payer ?), les dépenses avec leurs pièces (où est passé l'argent ?). Trois gestes,
+  trois responsabilités : l'administration **remet**, la détentrice **confirme la réception** (le
+  solde reste à zéro avant — afficher un fonds qu'on n'a pas conduit à engager ce qu'on ne peut
+  payer), puis **dépense** avec justificatif scanné, sans exception. Refus chiffré au-delà du
+  fonds, alerte à 20 %, rallonge qui **s'ajoute** au fonds du mois plutôt que d'ouvrir une
+  seconde caisse. Chaque dépense est déduite de la caisse **et** imputée au budget : même argent,
+  deux points de vue. Fichiers : `src/lib/petty-cash.ts` (+ `.test.ts`),
+  `queries/general-means.ts`, `actions/petty-cash-actions.ts`, `src/app/(app)/moyens-generaux/`.
+  Migration `20260810210000_petty_cash`.
+- **Budgets par département — trois natures, un directeur, des dotations validées.**
+  Au **moyens généraux** et à la **masse salariale** s'ajoute le **budget métier** (Ad & Pro au
+  marketing, paiement des BV au Regulatory). Le **directeur** tient les deux premiers de SON
+  département — jamais la masse salariale, réservée aux RH ; cette qualité se lit dans
+  l'organigramme, aucun rôle ne pouvant la porter. **Personne ne s'accorde son propre budget** :
+  une dotation ou une rallonge se demande, l'administration tranche, et le montant accordé
+  **s'ajoute**. Les dépenses imputées (facture obligatoire) alimentent enfin une colonne de
+  **consommation** là où il n'y avait qu'un alloué. Migration
+  `20260810200000_department_budget_activity`.
+- **Validations — la vue Direction devient un poste de pilotage.** Tri par urgence (en retard →
+  échéance proche → sans décision depuis 7 j → reste ; à urgence égale, la plus vieille devant),
+  colonne **« chez qui ça bloque »** avec le temps d'attente, **relance en un clic** (notification
+  + push, tracée), compteurs cliquables servant de filtres, recherche portant aussi sur le
+  validateur bloquant. Fichiers : `src/lib/validation-supervision.ts` (+ `.test.ts`),
+  `src/app/(app)/validations/supervision-board.tsx`.
+- **Organigramme — suit l'entité sélectionnée, s'exporte en carte PDF paysage.** La portée
+  d'entité est validée contre les droits et laisse passer les personnes non rattachées. L'export
+  construit un **document autonome** (SVG des boîtes et des liens) dont `@page { size: A4
+  landscape }` impose l'orientation, mis à l'échelle de la feuille — sans bibliothèque embarquée.
+  Fichiers : `src/lib/org-chart-print.ts` (+ `.test.ts`).
+- **Ad & Pro — modifier et retirer un poste, même après le bon de commande.** Un bouton
+  « Modifier » ouvre nature, libellé, fournisseur, précisions, estimation (ces champs décrivent la
+  dépense, ils ne l'engagent pas). Restent verrouillés, pour une raison nommée à l'écran, le
+  montant affecté et la nature de budget une fois la Direction prononcée. Le retrait suit trois
+  règles : libre sans ordre, réservé à la Direction ensuite **avec annulation de l'ordre**, jamais
+  quand il est réglé.
+- **Congés — une seule demande, trois validateurs.** « Mon espace » et « Mon dossier RH »
+  écrivaient dans deux tables : selon la porte, la demande échappait à la file de validation, aux
+  « absents aujourd'hui » et au solde. Passage unique (`src/lib/hr/leave-core.ts`), circuit
+  **N+1 → RH → DG**, file résolue **par personne** (un responsable d'équipe n'a pas le module RH :
+  sa file vit dans « Mon espace »), solde débité **une seule fois**, au bout.
+- **Assistant IA — les pouvoirs suivent les droits.** Quatre lectures chiffrées (budget, finances,
+  RH, file de décisions) ouvertes par la **matrice d'accès**, jamais par un rôle en dur : ouvrir
+  les Budgets à un compte lui donne l'outil dans la seconde. Le droit est revérifié à l'exécution.
+  Fichiers : `src/lib/assistant/power-tools.ts` (+ `.test.ts`).
 
 - **Demandes d'état de stocks par HÔPITAUX ciblés, Explorateur produits au menu, colonnes
   Regulatory masquables.** (1) La « Demande d'état de stock » (`/stocks`, Direction/Super Admin)
