@@ -611,6 +611,7 @@ model Department {
   budgetRequests DepartmentBudgetRequest[]
   budgetExpenses DepartmentBudgetExpense[]
   pettyCash      PettyCashAllotment[]
+  trainings      Training[]
 
   @@unique([companyId, name])
   @@index([parentId])
@@ -838,6 +839,8 @@ model User {
   deptBudgetRequests     DepartmentBudgetRequest[] @relation("DeptBudgetRequester")
   deptBudgetDecisions    DepartmentBudgetRequest[] @relation("DeptBudgetDecider")
   deptBudgetExpenses     DepartmentBudgetExpense[] @relation("DeptExpenseCreator")
+  trainingRequests       Training[]                @relation("TrainingRequester")
+  trainingParticipations TrainingParticipant[]     @relation("TrainingParticipant")
   pettyCashHeld          PettyCashAllotment[]      @relation("PettyCashHolder")
   pettyCashCreated       PettyCashAllotment[]      @relation("PettyCashCreator")
   assistantThreads       AssistantThread[]         @relation("AssistantThreads")
@@ -1051,6 +1054,7 @@ model Company {
   supportRequests         SupportRequest[]
   dossiers                Dossier[]
   fieldReports            FieldReport[]
+  Training                Training[]
 
   @@index([isActive])
 }
@@ -1306,6 +1310,11 @@ model AdProItem {
   congressInternational   CongressInternational? @relation(fields: [congressInternationalId], references: [id], onDelete: Cascade)
   eventId                 String?
   event                   Event?                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  /// Cinquième porteur de postes : une FORMATION organisée par les RH (location de salle,
+  /// traiteur, intervenant…), validés un par un par la direction — exactement comme les
+  /// postes d'un sponsoring.
+  trainingId              String?
+  training                Training?              @relation(fields: [trainingId], references: [id], onDelete: Cascade)
 
   kind     AdProItemKind @default(OTHER)
   label    String
@@ -1571,6 +1580,108 @@ model DepartmentBudgetRequest {
   @@index([status])
 }
 
+/// FORMATION — deux origines, un seul objet.
+///
+/// Soit un salarié DEMANDE une formation (il chiffre, joint le devis, et la demande monte
+/// N+1 → RH → DG comme un congé) ; soit les RH en ORGANISENT une et y invitent des personnes.
+/// Les deux produisent la même chose — une formation à financer et à suivre — et les séparer
+/// en deux modèles aurait dédoublé le budget, les pièces et l'historique.
+enum TrainingOrigin {
+  EMPLOYEE /// demandée par le salarié
+  HR /// organisée par les ressources humaines
+}
+
+enum TrainingStatus {
+  DRAFT /// en préparation (RH), pas encore soumise
+  PENDING /// dans le circuit de validation
+  APPROVED /// accordée
+  REJECTED /// refusée
+  CANCELLED /// retirée
+  DONE /// formation réalisée
+}
+
+/// Participation à une formation organisée par les RH.
+enum TrainingAttendance {
+  MANDATORY /// convoqué — la présence n'est pas une option
+  VOLUNTARY /// invité — il accepte ou décline
+}
+
+enum TrainingParticipantState {
+  INVITED
+  ACCEPTED
+  DECLINED
+}
+
+model Training {
+  id            String         @id @default(cuid())
+  companyId     String?
+  company       Company?       @relation(fields: [companyId], references: [id])
+  reference     String         @unique /// FORM-AAAA-NNN
+  title         String
+  origin        TrainingOrigin @default(EMPLOYEE)
+  status        TrainingStatus @default(PENDING)
+  /// Organisme / formateur.
+  provider      String?
+  description   String?
+  startDate     DateTime?
+  endDate       DateTime?
+  location      String?
+  /// Coût annoncé par le demandeur (le devis fait foi, la pièce jointe le porte).
+  amount        Decimal        @default(0) @db.Decimal(14, 2)
+  /// Montant réellement accordé par la direction — souvent différent du demandé.
+  amountGranted Decimal?       @db.Decimal(14, 2)
+
+  requesterId  String?
+  requester    User?       @relation("TrainingRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  /// ─── Circuit à trois marches : N+1 → RH → DG (cf. approval-chain.ts) ───
+  /// Une formation ORGANISÉE par les RH n'a pas de N+1 à consulter : elle entre à l'étape DG.
+  stage              LeaveStage @default(MANAGER)
+  managerId          String?
+  managerDecidedById String?
+  managerDecidedAt   DateTime?
+  managerNote        String?
+  hrDecidedById      String?
+  hrDecidedAt        DateTime?
+  hrNote             String?
+  dgDecidedById      String?
+  dgDecidedAt        DateTime?
+  dgNote             String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  participants TrainingParticipant[]
+  items        AdProItem[]
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([departmentId])
+  @@index([companyId])
+}
+
+/// Une personne conviée à une formation organisée par les RH. Obligatoire ou volontaire —
+/// et dans le second cas, elle répond : accepter une invitation qu'on ne pouvait pas refuser
+/// n'aurait aucun sens, et le savoir change la logistique (nombre de couverts, salle).
+model TrainingParticipant {
+  id          String                   @id @default(cuid())
+  trainingId  String
+  training    Training                 @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User                     @relation("TrainingParticipant", fields: [userId], references: [id], onDelete: Cascade)
+  attendance  TrainingAttendance       @default(VOLUNTARY)
+  state       TrainingParticipantState @default(INVITED)
+  respondedAt DateTime?
+  note        String?
+  createdAt   DateTime                 @default(now())
+
+  @@unique([trainingId, userId])
+  @@index([userId, state])
+}
+
 /// CAISSE D'AVANCE — la trésorerie temporaire confiée à une personne.
 ///
 /// Chaque mois, l'entreprise remet une somme à celle qui achète au quotidien (l'assistante de
@@ -1650,6 +1761,7 @@ enum DepartmentBudgetKind {
   OPERATING /// MOYENS GÉNÉRAUX — fournitures, prestations, déplacements (directeur du département)
   HR /// MASSE SALARIALE — employés, charges et recrutement (ressources humaines, exclusivement)
   ACTIVITY /// BUDGET MÉTIER — l'activité propre du département (Ad & Pro au marketing, paiement des BV au Regulatory…)
+  TRAINING /// BUDGET FORMATION — montée en compétence de l'équipe (RH, validé par l'administration)
 }
 
 /// Une dotation (montant initial) ou une RALLONGE demandée par celui qui gère un budget
