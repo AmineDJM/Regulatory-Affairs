@@ -1,6 +1,7 @@
 import { buildPagedContent } from "../extract/pages";
 import { ensureLangData, ocrCacheDir, defaultOcrLangs } from "./lang-data";
 import { mistralOcrConfigured, mistralOcrDocument, mistralOcrEligible } from "./mistral-ocr";
+import { applyAiRescue, type RescueContext } from "./vision-ocr";
 
 /**
  * MOTEUR OCR (G13) — deux moteurs, contrat commun (`OcrResult`) :
@@ -120,14 +121,25 @@ export async function rasterizePdfStream(
   return total;
 }
 
-/** Pré-traitement image (auto-rotation, niveaux de gris, normalisation, borne de taille). */
+/**
+ * Pré-traitement image (auto-rotation, niveaux de gris, normalisation, netteté, borne de taille).
+ * Les PETITS scans (photo de téléphone, fax, vignette) sont AGRANDIS ×2 avant reconnaissance :
+ * Tesseract lit mal sous ~1400 px de large, et l'agrandissement interpolé lui redonne des lettres
+ * pleines. Un léger `sharpen` compense le flou de numérisation — sans seuillage brutal, qui
+ * détruirait les documents gris.
+ */
 async function preprocess(buffer: Buffer): Promise<Buffer> {
   const sharp = (await import("sharp")).default;
-  return sharp(buffer)
-    .rotate() // applique l'orientation EXIF
-    .resize({ width: MAX_DIM, height: MAX_DIM, fit: "inside", withoutEnlargement: true })
+  const base = sharp(buffer).rotate(); // applique l'orientation EXIF
+  const meta = await base.metadata();
+  const width = meta.width ?? 0;
+  const resized = width > 0 && width < 1400
+    ? base.resize({ width: Math.min(width * 2, MAX_DIM), height: MAX_DIM, fit: "inside" }) // agrandissement AUTORISÉ
+    : base.resize({ width: MAX_DIM, height: MAX_DIM, fit: "inside", withoutEnlargement: true });
+  return resized
     .grayscale()
     .normalize()
+    .sharpen()
     .png()
     .toBuffer();
 }
@@ -149,16 +161,22 @@ async function createOcrWorker(langs: string[]): Promise<{ worker: Worker; versi
  * Océrise un document (image ou PDF scanné). Aiguille vers Mistral OCR (cloud) quand il est
  * configuré et autorisé, sinon vers Tesseract (auto-hébergé). En mode "auto", tout échec Mistral
  * (réseau, quota, indisponibilité) bascule silencieusement sur Tesseract — jamais de perte.
+ *
+ * DERNIER ÉTAGE — SECOURS VISION (`aiRescue`) : quand le contexte est fourni, les pages restées
+ * vides ou douteuses APRÈS le moteur OCR sont re-présentées EN IMAGE au modèle multimodal, qui
+ * les transcrit (tracé au registre des coûts, plafonné par le budget du dossier, mis en cache).
+ * C'est ce qui fait la différence entre « scan illisible → revue humaine » et un texte exploitable.
  */
-export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: string[]; maxPages?: number }): Promise<OcrResult> {
+export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: string[]; maxPages?: number; aiRescue?: RescueContext }): Promise<OcrResult> {
   const ext = input.ext.toLowerCase();
   if (!canOcr(ext)) throw new Error(`OCR non supporté pour « ${ext} ».`);
 
   const engine = (process.env.REG_OCR_ENGINE ?? "auto").trim().toLowerCase();
   const mistralUsable = engine !== "tesseract" && mistralOcrConfigured();
+  let base: OcrResult | null = null;
   if (mistralUsable && mistralOcrEligible(ext, input.buffer)) {
     try {
-      return await mistralOcrDocument(input);
+      base = await mistralOcrDocument(input);
     } catch (err) {
       if (engine === "mistral") throw err; // moteur forcé → pas de repli silencieux
       console.error("[reg-ocr] Mistral OCR indisponible → repli Tesseract :", err instanceof Error ? err.message : err);
@@ -168,7 +186,8 @@ export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: 
     // façon, inutile de dépenser un appel réseau voué à l'échec. Aucune perte (Tesseract prend le relais).
     console.warn(`[reg-ocr] document hors limites Mistral (${(input.buffer.length / 1048576).toFixed(1)} Mo) → OCR local Tesseract.`);
   }
-  return ocrWithTesseract(input, ext);
+  if (!base) base = await ocrWithTesseract(input, ext);
+  return input.aiRescue ? applyAiRescue({ ext, buffer: input.buffer }, base, input.aiRescue) : base;
 }
 
 /** OCR auto-hébergé : rastérisation mupdf + pré-traitement sharp + reconnaissance Tesseract. */

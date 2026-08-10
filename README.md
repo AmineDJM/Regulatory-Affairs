@@ -2020,6 +2020,33 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **OCR surpuissant : secours VISION quand le moteur d'OCR cale — plus de « scan illisible » sans
+  avoir tout tenté.** Trois étages désormais : Mistral OCR (ou Tesseract), puis pour les pages
+  restées **vides ou douteuses**, re-rastérisation et **transcription par le modèle multimodal**
+  (`ocr/vision-ocr.ts` — recopie fidèle, tableaux, manuscrit ; lots de 4 pages ; plafond
+  `REG_OCR_AI_PAGES` ; **tracé au budget du dossier** via `trackedLuna` + cache : une page scannée
+  ne se paie qu'une fois ; fusion **sans régression** — une transcription ne remplace une page que
+  si elle apporte plus de texte). Branché sur le **pipeline CTD**, le **chat de dossier** (le seuil
+  d'illisibilité d'une pièce tombe à ~10 caractères : seul le VIDE est écarté, motif exact remonté)
+  et l'**ingestion des lettres de réserves**. Tesseract lit mieux aussi : **agrandissement ×2 des
+  petits scans** (<1400 px) + netteté au pré-traitement.
+
+- **Bureau du secrétariat : le validateur peut être soi-même (fin du « au moins un validateur »
+  fantôme), retrait d'une validation, message d'accompagnement, et l'approbation DÉCLENCHE les
+  Finances.** (1) Le bug : `createDirectValidation` écartait silencieusement le demandeur de la
+  liste des validateurs — se choisir soi-même vidait la liste et l'écran réclamait « au moins un
+  validateur ». La validation de PIÈCE est un avis, pas un circuit hiérarchique : `allowSelf` la
+  permet désormais (l'auto-validation apparaît normalement dans /validations). (2) Une validation
+  **EN ATTENTE se retire** (`cancelAttachmentValidation` — statut ANNULÉ tracé, validateurs
+  prévenus, la pièce redevient soumissible). (3) À la soumission : **message aux validateurs**
+  (textarea, affiché au bureau central), **montant (DZD)** et **catégorie de finance** facultatifs
+  (portés par `ValidationRequest.amount/category` — pas de migration). (4) **Pièce approuvée +
+  montant ⇒ ordre de dépense AUTOMATIQUE** vers les Finances (`createExpenseOrder` dans
+  `decideValidation` : notifie le responsable Finances, visible `/finances/ordres-de-depense`,
+  catégorie choisie sinon « Autre », rattaché à la demande d'origine — au règlement, la dépense
+  rejoint le budget par le circuit habituel des ordres). Sans montant : l'approbation reste un
+  simple avis.
+
 - **Le chat de dossier devient une MESSAGERIE : le fil persiste, l'agent n'oublie plus les pièces,
   une pièce illisible n'échoue plus le message.** (1) Le fil « Discuter avec ce dossier » est
   désormais **persisté côté serveur** (`RegulatoryDossierChatMessage`, un fil par dossier ×
@@ -3097,12 +3124,22 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
        tranche qui échoue → pages vides signalées (revue), les autres passent ; toutes en échec → repli Tesseract.
        Service **tiers payant à la page**, réseau sortant requis.
     2. **REPLI/AUTO-HÉBERGÉ — tesseract.js** + mupdf (rastérisation PDF) + sharp, langue **locale** fr/en/ar
-       (hors-ligne, séquentiel). En mode `auto`, tout échec Mistral (réseau/quota) bascule dessus — **jamais de perte**.
+       (hors-ligne, séquentiel). Pré-traitement renforcé : **agrandissement ×2 des petits scans** (<1400 px —
+       photo de téléphone, fax) + netteté. En mode `auto`, tout échec Mistral (réseau/quota) bascule dessus —
+       **jamais de perte**.
+    3. **DERNIER ÉTAGE — SECOURS VISION** (`ocr/vision-ocr.ts`) : les pages restées **vides ou douteuses** après
+       le moteur OCR (quel qu'il soit) sont re-rastérisées et **transcrites par le modèle multimodal** (recopie
+       fidèle, tableaux « | », manuscrit/tampons, schéma JSON strict) — par lots de 4 pages, **plafonné**
+       (`REG_OCR_AI_PAGES`≈40/document, `REG_OCR_AI=0` coupe), **tracé au registre des coûts** (`trackedLuna`,
+       step `ocr-vision` : budget du dossier respecté, cache = une page scannée ne se paie qu'une fois). Fusion
+       **sans régression** : une transcription ne remplace une page que si elle apporte PLUS de texte. Branché sur
+       le pipeline CTD (`ocrOne`), le **chat de dossier** (pièces jointes — seuil d'illisibilité abaissé à ~10
+       caractères : seul le VIDE est écarté, avec son motif) et l'**ingestion des lettres de réserves**.
     Texte + confiance par page, natif vs OCR séparés, pages vides/faibles → **revue humaine**. Mistral ne score pas
     la confiance → page non vide présumée fiable (95), page vide → 0/revue. **Garde de taille** : un document >~48 Mo
     (`REG_MISTRAL_OCR_MAX_MB`) part directement en OCR local (Mistral le refuserait — pas d'appel payant inutile).
     **Diagnostic en ligne** (droit d'upload) : `GET /api/regulatory/intelligence/ocr/diagnose` confirme le moteur
-    actif + PING réel de la clé Mistral avant un gros upload. Code : `ocr/{ocr-engine,mistral-ocr}.ts`.
+    actif + PING réel de la clé Mistral avant un gros upload. Code : `ocr/{ocr-engine,mistral-ocr,vision-ocr}.ts`.
   - **Upload résumable (G14)** : session + parties (chemin d'upload borné à **une partie** en RAM), reprise,
     vérif taille + **SHA-256**, finalisation explicite (assemblage en flux), quotas org, concurrence, nettoyage.
     Charge mesurée (RSS) : 50/150/300 Mo — pic UPLOAD ≈ une partie ; pic FINALISATION croît avec la taille.

@@ -11,6 +11,8 @@ import { getAppSettings } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { createValidationFromRules, createDirectValidation, notifyValidator } from "@/lib/validation";
+import { createExpenseOrder } from "@/lib/expense-orders";
+import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
 const ROLES: UserRole[] = [
@@ -243,6 +245,32 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
     actorId: user.id, action: decision === "REJECTED" ? "REFUSE" : "VALIDATE", module: "Validations",
     entityType: "VALIDATION_REQUEST", entityId: req.id, field: "decision", newValue: decision, summary: `${req.reference} → ${decision}`,
   });
+
+  // PIÈCE JOINTE APPROUVÉE + MONTANT SAISI À LA SOUMISSION → la suite est FINANCIÈRE : un ordre
+  // de dépense part automatiquement aux Finances (notifiées), catégorisé (catégorie choisie à la
+  // soumission, sinon « Autre ») et rattaché à la demande d'origine — au règlement, la dépense
+  // rejoint le budget par le circuit habituel des ordres. Sans montant, rien n'est payable :
+  // l'approbation reste un simple avis sur la pièce.
+  if (newStatus === "APPROVED" && req.documentId && req.entityType === "ADMIN_REQUEST" && req.entityId) {
+    const amt = req.amount === null ? 0 : toNumber(req.amount);
+    if (amt > 0) {
+      try {
+        await createExpenseOrder({
+          label: req.title,
+          amount: amt,
+          category: (req.category as Parameters<typeof createExpenseOrder>[0]["category"]) ?? "AUTRE",
+          sourceType: "ADMIN_REQUEST",
+          sourceId: req.entityId,
+          requestedById: req.requesterId,
+          notes: `Pièce validée (${req.reference})${req.description ? ` — ${req.description}` : ""}`,
+        });
+        revalidatePath("/finances/ordres-de-depense");
+      } catch (err) {
+        // L'ordre raté ne doit pas annuler la décision déjà enregistrée — on trace et on continue.
+        console.error("[validations] ordre de dépense post-approbation échoué :", err);
+      }
+    }
+  }
 
   // Reflet sur la demande administrative liée : une fois la validation finalisée,
   // la demande repasse « en cours » pour que l'assistante poursuive (ou retravaille

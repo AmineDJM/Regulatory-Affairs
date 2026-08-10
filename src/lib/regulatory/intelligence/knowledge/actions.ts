@@ -112,20 +112,25 @@ export async function askDossierAgentAction(formData: FormData): Promise<Dossier
       const extracted = await extractText(ext, buffer);
       text = (extracted.text ?? "").trim();
       if ((extracted.status === "OCR_REQUIRED" || text.length < 40) && canOcr(ext)) {
-        const ocr = await ocrDocument({ ext, buffer });
+        // OCR réel + SECOURS VISION : les pages que l'OCR n'arrive pas à lire sont transcrites
+        // par le modèle multimodal (tracé sur le dossier, en cache). « Illisible » ne se dit
+        // qu'après avoir VRAIMENT tout tenté.
+        const ocr = await ocrDocument({ ext, buffer, aiRescue: { dossierId, label: file.name } });
         if (ocr.text.trim().length > text.length) text = ocr.text.trim();
       }
     } catch (err) {
       reason = err instanceof Error ? err.message : String(err);
     }
-    if (text.length >= 40) {
+    // Seuil VOLONTAIREMENT bas : même un texte pauvre se discute (l'agent voit ce qu'il y a et le
+    // dit) — seul le VIDE est écarté, avec son motif exact.
+    if (text.length >= 10) {
       attachments.push({ filename: file.name, text });
       records.push({ filename: file.name, text });
     } else {
       const detail = reason
         ? `échec d'extraction (${reason.slice(0, 200)})`
         : canOcr(ext)
-          ? "aucun texte exploitable, même après OCR (scan vide ou trop dégradé)"
+          ? "aucun texte exploitable, même après OCR et transcription par IA (scan vide ou pur graphique)"
           : `aucun texte extrait (format « ${ext || "?"} » sans OCR possible)`;
       unreadable.push({ filename: file.name, reason: detail });
       records.push({ filename: file.name, error: detail });

@@ -401,7 +401,7 @@ async function handleOcr(job: RegulatoryJob): Promise<void> {
   });
 
   // Mistral (cloud) → pool parallèle (rapide) ; Tesseract (local) → concurrence 1 (séquentiel).
-  await runPool(pending, ocrConcurrency(), ocrOne);
+  await runPool(pending, ocrConcurrency(), (d) => ocrOne(d, { dossierId: job.dossierId, dossierVersionId: versionId }));
 
   const remaining = await prisma.regulatoryDocument.count({
     where: { dossierVersionId: versionId, extractionStatus: "OCR_REQUIRED", blobId: { not: null } },
@@ -424,7 +424,10 @@ async function enqueueFacts(job: RegulatoryJob, versionId: string): Promise<void
 }
 
 /** Océrise UN document scanné et persiste texte + confiance + revue. Ne lève jamais. */
-async function ocrOne(doc: { id: string; ext: string; blobId: string | null; originalFilename: string; sizeBytes: number }): Promise<void> {
+async function ocrOne(
+  doc: { id: string; ext: string; blobId: string | null; originalFilename: string; sizeBytes: number },
+  ctx: { dossierId: string | null; dossierVersionId: string | null },
+): Promise<void> {
   try {
     // Garde ANTI-OOM (défense) : un scan trop volumineux (mupdf le chargerait en entier) → revue manuelle.
     if (doc.sizeBytes > maxProcessBytes()) {
@@ -437,7 +440,13 @@ async function ocrOne(doc: { id: string; ext: string; blobId: string | null; ori
       await prisma.regulatoryDocument.update({ where: { id: doc.id }, data: { extractionStatus: "MANUAL_REVIEW_REQUIRED" } });
       return;
     }
-    const r = await ocrDocument({ ext: doc.ext, buffer });
+    // SECOURS VISION : les pages restées vides/douteuses après l'OCR sont transcrites par le
+    // modèle multimodal (tracé au budget du dossier, en cache) — un scan « illisible » n'est
+    // déclaré tel qu'après avoir VRAIMENT tout tenté.
+    const r = await ocrDocument({
+      ext: doc.ext, buffer,
+      aiRescue: { dossierId: ctx.dossierId, dossierVersionId: ctx.dossierVersionId, documentId: doc.id, label: doc.originalFilename },
+    });
     const status = r.text.length === 0 ? "MANUAL_REVIEW_REQUIRED" : r.needsReview ? "LOW_CONFIDENCE" : "OCR_COMPLETED";
     // Trace le MOTEUR OCR réellement utilisé (Mistral cloud vs Tesseract local) pour que ce soit
     // VISIBLE côté dossier (sources du jumeau) — on ne pouvait pas savoir lequel avait tourné.

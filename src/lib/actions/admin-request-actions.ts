@@ -2,6 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
+import { FinanceCategory } from "@prisma/client";
 import type { AdminRequestType, AdminRequestStatus, Priority, AdminApprovalStatus, DriverMissionStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
@@ -713,8 +714,14 @@ export async function submitAttachmentValidation(formData: FormData): Promise<{ 
   const documentId = String(formData.get("documentId") ?? "").trim();
   const validatorIds = formData.getAll("validatorIds").map((v) => String(v).trim()).filter(Boolean);
   const note = String(formData.get("note") ?? "").trim();
+  // Montant (DZD) et catégorie de finance FACULTATIFS : s'ils sont là, l'approbation de la pièce
+  // émettra automatiquement l'ordre de dépense correspondant vers les Finances.
+  const amount = fdNum(formData, "amount");
+  const rawCategory = String(formData.get("category") ?? "").trim();
+  const category = (Object.values(FinanceCategory) as string[]).includes(rawCategory) ? rawCategory : null;
   if (!requestId || !documentId) return { ok: false, error: "Pièce ou demande manquante." };
   if (validatorIds.length === 0) return { ok: false, error: "Choisissez au moins un validateur." };
+  if (amount !== null && amount < 0) return { ok: false, error: "Montant invalide." };
 
   const req = await prisma.administrativeRequest.findFirst({
     where: { id: requestId, deletedAt: null },
@@ -750,6 +757,12 @@ export async function submitAttachmentValidation(formData: FormData): Promise<{ 
     documentId: doc.id,
     mode: "PARALLEL",
     validatorIds,
+    amount,
+    category,
+    // Se choisir soi-même comme validateur est PERMIS ici : la validation de pièce est un avis,
+    // pas un circuit hiérarchique — sans cela, le choix s'évaporait et l'écran réclamait
+    // « au moins un validateur » alors qu'on venait d'en saisir un.
+    allowSelf: true,
   });
   if (!res.ok) return { ok: false, error: res.error };
 
@@ -758,6 +771,52 @@ export async function submitAttachmentValidation(formData: FormData): Promise<{ 
     summary: `Pièce « ${doc.name} » soumise à validation (${validatorIds.length} validateur·s) — ${res.reference}`,
   });
   revalidatePath(`/demandes/${req.id}`);
+  revalidatePath("/validations");
+  revalidatePath("/mon-travail");
+  return { ok: true };
+}
+
+/**
+ * RETIRER UNE VALIDATION DE PIÈCE EN COURS — soumise par erreur, mauvaise pièce, mauvais
+ * validateurs : tant qu'elle est EN ATTENTE, celui qui l'a soumise (ou l'assistante / un profil
+ * gestionnaire) peut la retirer. Statut ANNULÉ (trace conservée, pas de suppression) ; les
+ * validateurs encore saisis sont prévenus et la pièce redevient soumissible.
+ */
+export async function cancelAttachmentValidation(formData: FormData): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const validationId = String(formData.get("validationId") ?? "").trim();
+  if (!validationId) return { ok: false, error: "Validation manquante." };
+
+  const val = await prisma.validationRequest.findFirst({
+    where: { id: validationId, entityType: "ADMIN_REQUEST", documentId: { not: null } },
+    select: {
+      id: true, reference: true, title: true, status: true, requesterId: true, entityId: true,
+      steps: { select: { validatorId: true, status: true } },
+    },
+  });
+  if (!val) return { ok: false, error: "Validation introuvable." };
+  if (val.status !== "PENDING") return { ok: false, error: "Cette validation est déjà clôturée." };
+
+  const isSecretary = user.role === "DIRECTION_ASSISTANT";
+  const allowed = hasGlobalView(user.role) || isSecretary || userCan(user, "ADMIN_REQUESTS", "UPDATE") || val.requesterId === user.id;
+  if (!allowed) return { ok: false, error: "Non autorisé." };
+
+  await prisma.validationRequest.update({ where: { id: val.id }, data: { status: "CANCELLED", decidedAt: new Date() } });
+
+  // Prévenir ceux qui l'avaient encore dans leur file — sinon ils chercheraient une demande disparue.
+  for (const s of val.steps) {
+    if (s.status === "PENDING" && s.validatorId !== user.id) {
+      await notifyUser({
+        userId: s.validatorId, type: "GENERIC", title: "Validation retirée",
+        body: `${val.reference} — ${val.title}`, link: val.entityId ? `/demandes/${val.entityId}` : "/validations",
+      });
+    }
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Demandes administratives", entityType: "ADMIN_REQUEST", entityId: val.entityId ?? val.id,
+    summary: `Validation de pièce retirée — ${val.reference}`,
+  });
+  if (val.entityId) revalidatePath(`/demandes/${val.entityId}`);
   revalidatePath("/validations");
   revalidatePath("/mon-travail");
   return { ok: true };

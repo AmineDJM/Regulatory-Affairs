@@ -2,16 +2,19 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, ShieldCheck, CheckCircle2, XCircle, Clock, Send } from "lucide-react";
+import { Loader2, ShieldCheck, CheckCircle2, XCircle, Clock, Send, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { submitAttachmentValidation } from "@/lib/actions/admin-request-actions";
+import { submitAttachmentValidation, cancelAttachmentValidation } from "@/lib/actions/admin-request-actions";
+import { FINANCE_CATEGORY } from "@/lib/labels";
 
 /**
  * VALIDATION PAR PIÈCE JOINTE — chaque pièce d'une demande peut partir en validation à n'importe
- * quel moment, vers une ou plusieurs personnes, indépendamment des autres pièces. La décision se
- * prend au bureau central (/validations) où les validateurs retrouvent toutes leurs validations ;
- * ICI on voit l'état de chaque pièce et on soumet. Être validateur d'une pièce ouvre l'accès à
- * toute la demande (le contexte fait partie du jugement).
+ * quel moment, vers une ou plusieurs personnes (soi-même compris), indépendamment des autres
+ * pièces. La décision se prend au bureau central (/validations) ; ICI on voit l'état de chaque
+ * pièce, on soumet — avec un MESSAGE d'accompagnement et, si la pièce est payable, un MONTANT et
+ * une CATÉGORIE : à l'approbation, l'ordre de dépense part automatiquement aux Finances. Une
+ * validation en attente peut être RETIRÉE (mauvaise pièce, mauvais validateurs). Être validateur
+ * d'une pièce ouvre l'accès à toute la demande (le contexte fait partie du jugement).
  */
 
 interface StepView { validator: string; status: string }
@@ -22,7 +25,12 @@ const STATUS_BADGES: Record<string, { label: string; cls: string }> = {
   APPROVED: { label: "Validée", cls: "bg-success/10 text-success" },
   REJECTED: { label: "Refusée", cls: "bg-destructive/10 text-destructive" },
   CHANGES_REQUESTED: { label: "À modifier", cls: "bg-sky-500/10 text-sky-600" },
+  CANCELLED: { label: "Retirée", cls: "bg-muted text-muted-foreground" },
 };
+
+// Catégories PAYABLES d'une pièce (facture, devis, note…) — le reste de l'enum (recettes,
+// emprunts, paie) n'a pas sa place sur une pièce jointe du secrétariat.
+const PAYABLE_CATEGORIES = ["FOURNISSEUR", "BUREAUTIQUE", "EVENEMENT", "VOYAGE", "LOYER", "CHARGES", "IMPOT", "BANQUE", "AUTRE"] as const;
 
 export function AttachmentValidationBlock({ requestId, documents, validations, users, canSubmit }: {
   requestId: string;
@@ -35,6 +43,8 @@ export function AttachmentValidationBlock({ requestId, documents, validations, u
   const [openFor, setOpenFor] = React.useState<string | null>(null);
   const [chosen, setChosen] = React.useState<string[]>([]);
   const [note, setNote] = React.useState("");
+  const [amount, setAmount] = React.useState("");
+  const [category, setCategory] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -44,6 +54,7 @@ export function AttachmentValidationBlock({ requestId, documents, validations, u
   if (!canSubmit && validations.length === 0) return null;
 
   const toggle = (id: string) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+  const resetForm = () => { setChosen([]); setNote(""); setAmount(""); setCategory(""); };
 
   const submit = async (documentId: string) => {
     if (busy || chosen.length === 0) return;
@@ -53,10 +64,24 @@ export function AttachmentValidationBlock({ requestId, documents, validations, u
     fd.set("documentId", documentId);
     for (const id of chosen) fd.append("validatorIds", id);
     if (note.trim()) fd.set("note", note.trim());
+    if (amount.trim()) fd.set("amount", amount.trim());
+    if (category) fd.set("category", category);
     const r = await submitAttachmentValidation(fd);
     setBusy(false);
-    if (r.ok) { setOpenFor(null); setChosen([]); setNote(""); router.refresh(); }
+    if (r.ok) { setOpenFor(null); resetForm(); router.refresh(); }
     else setError(r.error ?? "Échec.");
+  };
+
+  const withdraw = async (v: ValidationView) => {
+    if (busy) return;
+    if (!window.confirm(`Retirer la validation ${v.reference} ? Les validateurs saisis seront prévenus et la pièce redeviendra soumissible.`)) return;
+    setBusy(true); setError(null);
+    const fd = new FormData();
+    fd.set("validationId", v.id);
+    const r = await cancelAttachmentValidation(fd);
+    setBusy(false);
+    if (r.ok) router.refresh();
+    else setError(r.error ?? "Échec du retrait.");
   };
 
   return (
@@ -82,14 +107,19 @@ export function AttachmentValidationBlock({ requestId, documents, validations, u
                 ) : (
                   <span className="text-muted-foreground">jamais soumise</span>
                 )}
+                {canSubmit && current?.status === "PENDING" && (
+                  <Button type="button" size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => withdraw(current)}>
+                    <Undo2 className="h-3.5 w-3.5" /> Retirer
+                  </Button>
+                )}
                 {canSubmit && !vals.some((v) => v.status === "PENDING") && (
-                  <Button type="button" size="sm" variant="outline" onClick={() => { setOpenFor(isOpen ? null : d.id); setChosen([]); setNote(""); }}>
+                  <Button type="button" size="sm" variant="outline" onClick={() => { setOpenFor(isOpen ? null : d.id); resetForm(); }}>
                     <Send className="h-3.5 w-3.5" /> Soumettre à validation
                   </Button>
                 )}
               </div>
 
-              {current && current.steps.length > 0 && (
+              {current && current.steps.length > 0 && current.status !== "CANCELLED" && (
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {current.steps.map((s, i) => (
                     <span key={i} className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground">
@@ -103,7 +133,7 @@ export function AttachmentValidationBlock({ requestId, documents, validations, u
 
               {isOpen && (
                 <div className="mt-2 space-y-2 rounded-lg bg-muted/40 p-2">
-                  <p className="text-[0.6875rem] text-muted-foreground">Validateur·s — tous saisis EN MÊME TEMPS, chacun décide au bureau des validations :</p>
+                  <p className="text-[0.6875rem] text-muted-foreground">Validateur·s — tous saisis EN MÊME TEMPS (vous pouvez vous choisir vous-même), chacun décide au bureau des validations :</p>
                   <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto">
                     {users.map((u) => (
                       <button key={u.id} type="button" onClick={() => toggle(u.id)}
@@ -112,10 +142,29 @@ export function AttachmentValidationBlock({ requestId, documents, validations, u
                       </button>
                     ))}
                   </div>
-                  <input
-                    value={note} onChange={(e) => setNote(e.target.value)} placeholder="Précision pour les validateurs (facultatif)…"
-                    className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+                  <textarea
+                    value={note} onChange={(e) => setNote(e.target.value)} rows={2}
+                    placeholder="Message aux validateurs (contexte, ce qu'il faut vérifier…) — visible au bureau des validations"
+                    className="w-full resize-y rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
                   />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <input
+                      value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal"
+                      placeholder="Montant (DZD) — facultatif"
+                      className="w-40 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+                    />
+                    <select
+                      value={category} onChange={(e) => setCategory(e.target.value)}
+                      aria-label="Catégorie de la dépense"
+                      className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary/60"
+                    >
+                      <option value="">Catégorie (si payable)…</option>
+                      {PAYABLE_CATEGORIES.map((c) => <option key={c} value={c}>{FINANCE_CATEGORY[c] ?? c}</option>)}
+                    </select>
+                  </div>
+                  <p className="text-[0.6875rem] text-muted-foreground">
+                    Avec un montant : dès que la pièce est validée, un <strong>ordre de dépense</strong> part automatiquement aux Finances pour paiement, dans la catégorie choisie (budget).
+                  </p>
                   <Button type="button" size="sm" onClick={() => submit(d.id)} disabled={busy || chosen.length === 0}>
                     {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Envoyer ({chosen.length})
                   </Button>

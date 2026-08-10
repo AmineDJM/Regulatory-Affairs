@@ -161,8 +161,19 @@ export async function createDirectValidation(input: {
   documentId?: string | null;
   /** PARALLEL : tous les validateurs sont saisis (et notifiés) EN MÊME TEMPS. Défaut : séquentiel. */
   mode?: "SEQUENTIAL" | "PARALLEL";
+  /** Montant en jeu (DZD) — affiché aux validateurs ; sert à l'ordre de dépense post-approbation. */
+  amount?: number | null;
+  /** Catégorie de finance pressentie (FinanceCategory) — reprise par l'ordre de dépense. */
+  category?: string | null;
+  /**
+   * Autorise le demandeur à être SON PROPRE validateur. Par défaut on l'écarte (un circuit
+   * d'approbation classique ne s'auto-valide pas), mais la validation de PIÈCE JOINTE est un
+   * avis qu'on peut vouloir se réserver — sans ce drapeau, se choisir soi-même vidait la liste
+   * et l'écran répondait « indiquez au moins un validateur », incompréhensible.
+   */
+  allowSelf?: boolean;
 }): Promise<CreateValidationResult> {
-  const validators = [...new Set(input.validatorIds.filter(Boolean))].filter((v) => v !== input.requesterId);
+  const validators = [...new Set(input.validatorIds.filter(Boolean))].filter((v) => input.allowSelf || v !== input.requesterId);
   if (validators.length === 0) return { ok: false, matched: false, error: "Indiquez au moins un validateur." };
 
   const req = await createWithRetry(async () => {
@@ -179,6 +190,8 @@ export async function createDirectValidation(input: {
         entityId: input.entityId ?? null,
         requesterId: input.requesterId,
         documentId: input.documentId ?? null,
+        amount: input.amount ?? null,
+        category: input.category ?? null,
         mode: input.mode ?? "SEQUENTIAL",
         status: "PENDING",
         currentOrder: 1,

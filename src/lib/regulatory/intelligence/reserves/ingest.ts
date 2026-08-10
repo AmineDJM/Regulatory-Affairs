@@ -36,7 +36,12 @@ export async function ingestReserveLetter(opts: {
     if (native.status === "TEXT_EXTRACTED" && native.text.trim().length > 40) {
       text = native.text;
     } else if (canOcr(opts.ext)) {
-      const ocr = await ocrDocument({ ext: opts.ext, buffer: opts.buffer });
+      // Une lettre de réserves ANPP est trop précieuse pour un OCR approximatif : les pages
+      // douteuses passent au SECOURS VISION (transcription multimodale, tracée sur le dossier).
+      const ocr = await ocrDocument({
+        ext: opts.ext, buffer: opts.buffer,
+        aiRescue: { dossierId: opts.dossierId, label: opts.filename },
+      });
       text = ocr.text;
       ocrConfidence = ocr.meanConfidence;
       needsReview = ocr.needsReview;
