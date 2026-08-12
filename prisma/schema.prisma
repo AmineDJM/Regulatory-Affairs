@@ -1080,6 +1080,9 @@ model RegulatoryProduct {
   dosage                 String? // valeur du dosage (ex. « 500 »)
   dosageUnit             String? // unité du dosage (mg, g, UI, %, mg/ml…)
   pharmaceuticalForm     String? // forme galénique (menu déroulant)
+  // Conditionnement (« B/30 », « Tube 30 G ») : à dosage et forme identiques, c'est LUI qui
+  // distingue deux dossiers — une boîte de 28 et une boîte de 56 sont deux enregistrements.
+  packaging              String?
   therapeuticClass       String?
   partnerLab             String? // fournisseur / laboratoire partenaire
   countryOfOrigin        String?

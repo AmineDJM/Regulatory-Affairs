@@ -25,6 +25,7 @@ export interface EditProductValues {
   dosage: string | null;
   dosageUnit: string | null;
   pharmaceuticalForm: string | null;
+  packaging: string | null;
   therapeuticClass: string | null;
   partnerLab: string | null;
   supplierId: string | null;
@@ -101,6 +102,7 @@ export function EditProductButton({ product, users, suppliers, companies }: { pr
             <TextField label="Dosage" name="dosage" placeholder="20" defaultValue={product.dosage ?? undefined} />
             <SelectField label="Unité" name="dosageUnit" options={optionsFromMap(DOSAGE_UNIT)} placeholder="—" defaultValue={product.dosageUnit ?? ""} />
             <SelectField label="Forme pharmaceutique" name="pharmaceuticalForm" options={optionsFromMap(PHARMA_FORM)} placeholder="—" defaultValue={product.pharmaceuticalForm ?? ""} />
+            <TextField label="Conditionnement" name="packaging" placeholder="B/30" defaultValue={product.packaging ?? undefined} />
             <TextField label="Classe thérapeutique" name="therapeuticClass" placeholder="Hypolipémiant" defaultValue={product.therapeuticClass ?? undefined} />
             <SelectField label="Fournisseur" name="supplierId" options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="— Aucun —" defaultValue={product.supplierId ?? ""} />
             <TextField label="Laboratoire partenaire (optionnel)" name="partnerLab" placeholder="Ex. Pharma Lab" defaultValue={product.partnerLab ?? undefined} />

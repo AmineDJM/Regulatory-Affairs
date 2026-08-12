@@ -187,6 +187,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                   dosage: product.dosage,
                   dosageUnit: product.dosageUnit,
                   pharmaceuticalForm: product.pharmaceuticalForm,
+                  packaging: product.packaging,
                   therapeuticClass: product.therapeuticClass,
                   partnerLab: product.partnerLab,
                   supplierId: product.supplierId,
@@ -244,6 +245,7 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
               )}
               <Info label="Dosage" value={dosageLabel} />
               <Info label="Forme" value={formLabel} />
+              <Info label="Conditionnement" value={product.packaging} />
               <Info label="Classe thérapeutique" value={product.therapeuticClass} />
               {/* « Statut » (vocabulaire métier) = niveau industriel QUI FAIT FOI : une variation
                   obtenue prime sur la déclaration de la fiche. On dit d'où vient la valeur. */}

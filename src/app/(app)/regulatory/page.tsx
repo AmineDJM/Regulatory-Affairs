@@ -28,6 +28,8 @@ function regStage(status: string, treatmentStarted: boolean, hasBv: boolean): "n
 export default async function RegulatoryPage() {
   const user = await requireModule("REGULATORY");
   const canCreate = userCan(user, "REGULATORY", "CREATE");
+  // Confier un dossier à quelqu'un, c'est le MODIFIER : même droit que l'édition de la fiche.
+  const canAssign = userCan(user, "REGULATORY", "UPDATE");
   const [products, suppliers, companies, settings, bvOrders] = await Promise.all([
     prisma.regulatoryProduct.findMany({
       where: { ...scopeRegulatory(user), ...currentCompanyWhere() },
@@ -71,6 +73,7 @@ export default async function RegulatoryPage() {
       brandName: p.brandName ?? "",
       dosage,
       form: p.pharmaceuticalForm ? PHARMA_FORM[p.pharmaceuticalForm] ?? p.pharmaceuticalForm : "",
+      packaging: p.packaging ?? "",
       therapeuticClass: p.therapeuticClass ?? "",
       supplier: p.supplier?.name ?? "",
       category: p.category,
@@ -81,6 +84,7 @@ export default async function RegulatoryPage() {
       status: p.status,
       priority: p.priority,
       responsible: p.responsible?.name ?? "",
+      responsibleId: p.responsibleId ?? "",
       assistant: p.assistant?.name ?? "",
       targetSubmissionDate: p.targetSubmissionDate?.toISOString() ?? null,
       targetDate: p.targetDate?.toISOString() ?? null,
@@ -91,8 +95,9 @@ export default async function RegulatoryPage() {
     };
   });
 
-  // Assignable users for the create form (regulatory team + leadership).
-  const assignableUsers = canCreate
+  // Personnes à qui un dossier peut être confié : l'équipe Regulatory + la Direction. Sert au
+  // formulaire de création ET au menu déroulant « Chargé du dossier » du tableau.
+  const assignableUsers = canCreate || canAssign
     ? await prisma.user.findMany({
         where: {
           isActive: true,
@@ -153,7 +158,12 @@ export default async function RegulatoryPage() {
         </p>
       )}
 
-      <RegulatoryTable rows={rows} canEditPriority={canSupervise} />
+      <RegulatoryTable
+        rows={rows}
+        canEditPriority={canSupervise}
+        canAssign={canAssign}
+        assignableUsers={assignableUsers}
+      />
     </div>
   );
 }

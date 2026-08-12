@@ -138,6 +138,7 @@ export async function createRegulatoryProduct(
       dosage: str(formData, "dosage"),
       dosageUnit: str(formData, "dosageUnit"),
       pharmaceuticalForm: str(formData, "pharmaceuticalForm"),
+      packaging: str(formData, "packaging"),
       therapeuticClass: str(formData, "therapeuticClass"),
       partnerLab: str(formData, "partnerLab"),
       supplierId: str(formData, "supplierId"),
@@ -264,6 +265,7 @@ export async function updateRegulatoryProduct(
       dosage: str(formData, "dosage"),
       dosageUnit: str(formData, "dosageUnit"),
       pharmaceuticalForm: str(formData, "pharmaceuticalForm"),
+      packaging: str(formData, "packaging"),
       therapeuticClass: str(formData, "therapeuticClass"),
       partnerLab: str(formData, "partnerLab"),
       supplierId: str(formData, "supplierId"),
@@ -344,6 +346,70 @@ export async function setRegulatoryPriority(formData: FormData): Promise<ActionR
   revalidatePath("/regulatory");
   revalidatePath(`/regulatory/${id}`);
   return { ok: true };
+}
+
+/**
+ * LA PERSONNE CHARGÉE DU DOSSIER, choisie directement dans le tableau Regulatory.
+ *
+ * Assigner, c'est aussi DONNER L'ACCÈS : `scopeRegulatory` filtre les dossiers sur les
+ * participants, donc le nouveau responsable est rattaché aux participants — sans quoi il
+ * porterait un dossier qu'il ne verrait pas. L'ancien responsable, lui, n'est pas retiré :
+ * il a travaillé dessus, et lui couper la vue en cours de route ferait perdre l'historique
+ * à la seule personne qui le connaît. Le panneau « Participants » reste le lieu du retrait.
+ *
+ * Un choix vide libère le dossier — c'est une décision valable (personne n'est encore désigné).
+ */
+export async function setRegulatoryResponsible(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = str(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", id, "UPDATE"))) {
+    return { ok: false, error: "Modification non autorisée." };
+  }
+  const before = await prisma.regulatoryProduct.findUnique({
+    where: { id },
+    select: { reference: true, dci: true, responsibleId: true },
+  });
+  if (!before) return { ok: false, error: "Dossier introuvable." };
+
+  const responsibleId = str(formData, "responsibleId");
+  if (responsibleId) {
+    const ok = await prisma.user.count({ where: { id: responsibleId, isActive: true } });
+    if (!ok) return { ok: false, error: "Personne inconnue ou compte désactivé." };
+  }
+  if (responsibleId === before.responsibleId) return { ok: true, id };
+
+  await prisma.regulatoryProduct.update({
+    where: { id },
+    data: {
+      responsibleId,
+      updatedById: user.id,
+      ...(responsibleId ? { assignedUsers: { connect: { id: responsibleId } } } : {}),
+    },
+  });
+
+  const named = responsibleId
+    ? (await prisma.user.findUnique({ where: { id: responsibleId }, select: { name: true } }))?.name ?? "—"
+    : null;
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT",
+    entityId: id, field: "responsibleId", newValue: responsibleId ?? "",
+    summary: named ? `Dossier confié à ${named}` : "Dossier sans personne chargée",
+  });
+
+  if (responsibleId && responsibleId !== user.id) {
+    await notifyUser({
+      userId: responsibleId,
+      type: "ASSIGNMENT",
+      title: "Vous êtes chargé(e) de ce dossier",
+      body: `${before.reference} — ${before.dci}`,
+      link: `/regulatory/${id}`,
+    });
+  }
+
+  revalidatePath("/regulatory");
+  revalidatePath(`/regulatory/${id}`);
+  return { ok: true, id };
 }
 
 /** Dates cibles (dépôt + enregistrement) — fixées par la supervision Regulatory. */

@@ -77,6 +77,7 @@ export function NewProductButton({ users, suppliers, companies }: { users: UserO
             <TextField label="Dosage" name="dosage" placeholder="20" />
             <SelectField label="Unité" name="dosageUnit" options={optionsFromMap(DOSAGE_UNIT)} placeholder="—" />
             <SelectField label="Forme pharmaceutique" name="pharmaceuticalForm" options={optionsFromMap(PHARMA_FORM)} placeholder="—" />
+            <TextField label="Conditionnement" name="packaging" placeholder="B/30" />
             <TextField label="Classe thérapeutique" name="therapeuticClass" placeholder="Hypolipémiant" />
             <SelectField label="Fournisseur" name="supplierId" options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="— Aucun —" />
             <TextField label="Laboratoire partenaire (optionnel)" name="partnerLab" placeholder="Ex. Pharma Lab" />

@@ -6,7 +6,7 @@ import { Loader2, Filter, Columns3 } from "lucide-react";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PRIORITY, REGULATORY_STATUS, REGULATORY_CATEGORY, MANUFACTURING_STATUS } from "@/lib/labels";
 import { formatDate, daysUntil } from "@/lib/utils";
-import { setRegulatoryPriority } from "@/lib/actions/regulatory-actions";
+import { setRegulatoryPriority, setRegulatoryResponsible } from "@/lib/actions/regulatory-actions";
 
 export type RegStage = "new" | "in_progress" | "done";
 
@@ -17,6 +17,8 @@ export interface RegulatoryRow {
   brandName: string;
   dosage: string;
   form: string;
+  /** Conditionnement (« B/30 ») : à dosage égal, c'est lui qui distingue deux dossiers. */
+  packaging: string;
   therapeuticClass: string;
   supplier: string;
   category: string;
@@ -29,6 +31,8 @@ export interface RegulatoryRow {
   status: string;
   priority: string;
   responsible: string;
+  /** Identifiant de la personne chargée du dossier — le menu déroulant travaille dessus. */
+  responsibleId: string;
   assistant: string;
   targetSubmissionDate: string | null;
   targetDate: string | null;
@@ -59,6 +63,8 @@ type Col = {
   text: (r: RegulatoryRow) => string; // valeur texte (recherche + filtre + tri)
   raw?: (r: RegulatoryRow) => string; // valeur brute pour un filtre « select »
   options?: { value: string; label: string }[]; // filtre déroulant façon Excel
+  /** Colonne dont les choix ne sont connus qu'à l'exécution (les personnes assignables). */
+  dynamic?: "people";
 };
 
 // TITRES voulus par le métier : « Statut » = importation / packaging / full process (la
@@ -68,6 +74,7 @@ const COLS: Col[] = [
   { key: "reference", header: "Référence", text: (r) => r.reference },
   { key: "dci", header: "DCI / Marque", text: (r) => `${r.dci} ${r.brandName}` },
   { key: "dosage", header: "Dosage / Forme", text: (r) => [r.dosage, r.form].filter(Boolean).join(" · ") },
+  { key: "packaging", header: "Conditionnement", text: (r) => r.packaging },
   { key: "therapeuticClass", header: "Classe thérapeutique", text: (r) => r.therapeuticClass },
   { key: "category", header: "Catégorie", text: (r) => lbl(REGULATORY_CATEGORY as never, r.category), raw: (r) => r.category, options: CATEGORY_OPTS },
   { key: "supplier", header: "Fournisseur", text: (r) => r.supplier },
@@ -78,7 +85,9 @@ const COLS: Col[] = [
   },
   { key: "priority", header: "Priorité", text: (r) => lbl(PRIORITY as never, r.priority), raw: (r) => r.priority, options: PRIORITY_OPTS },
   { key: "status", header: "Niveau de process", text: (r) => lbl(REGULATORY_STATUS as never, r.status), raw: (r) => r.status, options: STATUS_OPTS },
-  { key: "responsible", header: "Responsable", text: (r) => r.responsible },
+  // « Chargé du dossier » : la personne qui le porte. Modifiable ici même — c'est la question
+  // qu'on se pose en balayant la liste, pas une fois entré dans la fiche.
+  { key: "responsible", header: "Chargé du dossier", text: (r) => r.responsible, raw: (r) => r.responsibleId || "—", dynamic: "people" },
   { key: "targetSubmissionDate", header: "Date cible dépôt", text: (r) => r.targetSubmissionDate ?? "" },
   { key: "targetDate", header: "Date cible enreg.", text: (r) => r.targetDate ?? "" },
 ];
@@ -94,11 +103,28 @@ const PRIORITY_CLASS: Record<string, string> = {
   LOW: "border-input bg-background text-muted-foreground",
 };
 
-export function RegulatoryTable({ rows, canEditPriority = false }: { rows: RegulatoryRow[]; canEditPriority?: boolean }) {
+export interface AssignableUser {
+  id: string;
+  name: string;
+  role: string;
+}
+
+export function RegulatoryTable({
+  rows,
+  canEditPriority = false,
+  canAssign = false,
+  assignableUsers = [],
+}: {
+  rows: RegulatoryRow[];
+  canEditPriority?: boolean;
+  canAssign?: boolean;
+  assignableUsers?: AssignableUser[];
+}) {
   const router = useRouter();
   const [stage, setStage] = React.useState<RegStage>("new");
   const [filters, setFilters] = React.useState<Record<string, string>>({});
   const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [assignError, setAssignError] = React.useState<string | null>(null);
   // Colonnes masquées : préférence PAR NAVIGATEUR, chargée après montage (pas de désaccord
   // d'hydratation) — tout est visible par défaut.
   const [hiddenCols, setHiddenCols] = React.useState<string[]>([]);
@@ -138,6 +164,23 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
 
   const visibleCols = COLS.filter((c) => !hiddenCols.includes(c.key));
 
+  /**
+   * Les personnes assignables ne sont connues qu'au chargement de la page. Le filtre de la
+   * colonne « Chargé du dossier » propose donc CES personnes-là — plus « Non attribué », qui
+   * est la question la plus utile devant une liste de dossiers : lesquels n'ont personne ?
+   */
+  const peopleOpts = React.useMemo(
+    () => [
+      { value: "—", label: "Non attribué" },
+      ...assignableUsers.map((u) => ({ value: u.id, label: u.name })),
+    ],
+    [assignableUsers],
+  );
+  const optsFor = React.useCallback(
+    (c: Col) => (c.dynamic === "people" ? peopleOpts : c.options),
+    [peopleOpts],
+  );
+
   const counts = React.useMemo(() => ({
     new: rows.filter((r) => r.stage === "new").length,
     in_progress: rows.filter((r) => r.stage === "in_progress").length,
@@ -149,11 +192,11 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
     for (const c of COLS) {
       const f = filters[c.key]?.trim();
       if (!f) continue;
-      if (c.options) { if ((c.raw?.(r) ?? "") !== f) return false; }
+      if (optsFor(c)) { if ((c.raw?.(r) ?? "") !== f) return false; }
       else if (!c.text(r).toLowerCase().includes(f.toLowerCase())) return false;
     }
     return true;
-  }), [rows, stage, filters]);
+  }), [rows, stage, filters, optsFor]);
 
   const anyFilter = Object.values(filters).some((v) => v && v.trim());
 
@@ -162,6 +205,18 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
     const fd = new FormData(); fd.set("id", id); fd.set("priority", priority);
     await setRegulatoryPriority(fd);
     setBusyId(null);
+    router.refresh();
+  }
+
+  /** Confier le dossier à quelqu'un. Un refus du serveur se DIT — sinon le menu revient
+   *  silencieusement en arrière et personne ne comprend pourquoi. */
+  async function changeResponsible(id: string, responsibleId: string) {
+    setBusyId(id);
+    setAssignError(null);
+    const fd = new FormData(); fd.set("id", id); fd.set("responsibleId", responsibleId);
+    const res = await setRegulatoryResponsible(fd);
+    setBusyId(null);
+    if (!res.ok) setAssignError(res.error ?? "Impossible de confier ce dossier.");
     router.refresh();
   }
 
@@ -174,6 +229,8 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
         return <td key={key} className="px-3 py-2"><p className="font-medium">{r.dci}</p>{r.brandName && <p className="text-xs text-muted-foreground">{r.brandName}</p>}</td>;
       case "dosage":
         return <td key={key} className="px-3 py-2 text-muted-foreground">{[r.dosage, r.form].filter(Boolean).join(" · ") || "—"}</td>;
+      case "packaging":
+        return <td key={key} className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.packaging || "—"}</td>;
       case "therapeuticClass":
         return <td key={key} className="px-3 py-2">{r.therapeuticClass || "—"}</td>;
       case "category":
@@ -199,7 +256,27 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
       case "status":
         return <td key={key} className="px-3 py-2"><StatusBadge map={REGULATORY_STATUS} value={r.status} /></td>;
       case "responsible":
-        return <td key={key} className="px-3 py-2">{r.responsible || "—"}</td>;
+        // Le menu déroulant vit DANS la ligne : il faut donc arrêter le clic, sinon choisir
+        // quelqu'un ouvrirait la fiche du dossier au lieu de le lui confier.
+        return (
+          <td key={key} className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+            {canAssign ? (
+              <span className="inline-flex items-center gap-1">
+                <select
+                  value={r.responsibleId}
+                  onChange={(e) => changeResponsible(r.id, e.target.value)}
+                  disabled={busyId === r.id}
+                  aria-label="Personne chargée du dossier"
+                  className={`h-7 max-w-[11rem] rounded border px-1 text-xs ${r.responsibleId ? "border-input bg-background" : "border-warning/50 bg-warning/5 text-muted-foreground"}`}
+                >
+                  <option value="">— Non attribué —</option>
+                  {assignableUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                {busyId === r.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+              </span>
+            ) : r.responsible || "—"}
+          </td>
+        );
       case "targetSubmissionDate":
         return <td key={key} className="px-3 py-2 text-muted-foreground">{r.targetSubmissionDate ? formatDate(r.targetSubmissionDate) : "—"}</td>;
       case "targetDate": {
@@ -256,6 +333,10 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
         </div>
       </div>
 
+      {assignError && (
+        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{assignError}</p>
+      )}
+
       <div className="surface overflow-x-auto">
         <table className="w-full min-w-[960px] text-sm">
           <thead>
@@ -266,11 +347,11 @@ export function RegulatoryTable({ rows, canEditPriority = false }: { rows: Regul
             <tr className="border-b border-border">
               {visibleCols.map((c) => (
                 <th key={c.key} className="px-2 py-1.5">
-                  {(c.key === "targetDate" || c.key === "targetSubmissionDate") ? null : c.options ? (
+                  {(c.key === "targetDate" || c.key === "targetSubmissionDate") ? null : optsFor(c) ? (
                     <select value={filters[c.key] ?? ""} onChange={(e) => setFilters((f) => ({ ...f, [c.key]: e.target.value }))}
                       className="h-7 w-full rounded border border-input bg-background px-1 text-xs font-normal normal-case">
                       <option value="">Tous</option>
-                      {c.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      {optsFor(c)!.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   ) : (
                     <input value={filters[c.key] ?? ""} onChange={(e) => setFilters((f) => ({ ...f, [c.key]: e.target.value }))} placeholder="Filtrer…"

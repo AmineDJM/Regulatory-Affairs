@@ -180,7 +180,7 @@ jamais identique.
 
 | Module | Route | Description |
 |---|---|---|
-| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique) et **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). |
+| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). |
 | **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le chef de produit**), **analyse confidentielle du chef de produit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. → [workflows](#-workflows-critiques) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). |
@@ -915,6 +915,64 @@ L'assistant ne renvoie plus son texte d'un bloc après un long silence : il **s'
   mutualisée entre les deux chemins (`rememberExchange`), pour que la règle de cloisonnement
   n'existe qu'à un seul endroit.
 
+### Regulatory — la personne chargée du dossier (menu déroulant du tableau)
+
+Un dossier réglementaire sans porteur n'avance pas. La question « qui s'en occupe ? » se pose
+**en balayant la liste**, pas une fois entré dans une fiche : la colonne **« Chargé du dossier »**
+est donc un **menu déroulant modifiable sur place** (`setRegulatoryResponsible`).
+
+- **Droit** : `canAccessEntity(user, "REGULATORY_PRODUCT", id, "UPDATE")` — confier un dossier,
+  c'est le modifier. Le tableau n'affiche le menu que si `userCan(user, "REGULATORY", "UPDATE")` ;
+  sinon la colonne reste un simple texte. Le serveur **revérifie** dans tous les cas.
+- **Assigner donne l'accès** : `scopeRegulatory` filtre sur les participants, donc le nouveau
+  responsable est **rattaché aux participants** — sans quoi il porterait un dossier qu'il ne
+  verrait pas. L'ancien responsable **n'est pas retiré** : il a travaillé dessus, et lui couper la
+  vue en cours de route ferait perdre l'historique à la seule personne qui le connaît. Le retrait
+  se décide dans le panneau « Participants ».
+- **Choix vide = décision** : « — Non attribué — » libère le dossier. Le filtre de la colonne
+  propose la même entrée, parce que « lesquels n'ont personne ? » est la question la plus utile
+  devant une liste. La cellule non attribuée est teintée en avertissement.
+- La personne désignée est **notifiée** (`ASSIGNMENT`) et le changement **audité**
+  (`field: responsibleId`). Un refus du serveur s'affiche : sinon le menu reviendrait
+  silencieusement en arrière.
+
+### Regulatory — import d'un portefeuille produits depuis un classeur
+
+Le portefeuille **« Sélection PF Produits » (69 produits)** est entré dans Regulatory par une
+**migration de données idempotente**, pas par une saisie manuelle ni un script à lancer à la main :
+elle s'applique au déploiement comme les autres.
+
+- **Source versionnée** : `data/selection-pf-produits.xlsx`. Le SQL est **généré** par
+  `scripts/gen-selection-pf-migration.ts` à partir des règles pures de
+  `lib/regulatory/sheet-import.ts` — l'import reste ainsi **vérifiable et rejouable** si la
+  feuille évolue (régénérer, ne pas éditer le SQL à la main).
+- **Le classeur métier n'est pas un formulaire**, et c'est tout le problème : le dosage est tantôt
+  dans « Forme galénique & dosage » (« GELULE 0,5MG »), tantôt dans « Conditionnement »
+  (« 5 MG/B 30 ») ; les formes sont abrégées à la main (« CPR.PELL. LP », « PDRE+SOLV ») ; une
+  association s'écrit « A + B » et une **alternative** « A Ou B ». Chaque règle est explicite et
+  **testée** (`sheet-import.test.ts`, 34 tests) :
+  - `Spé` → classe thérapeutique · `Priorisation` 1..4 → Critique..Basse (**vide = Moyenne** : une
+    case vide n'est pas une priorité basse, c'est un arbitrage qui reste à faire) ;
+  - `Off`/`Hop` → canal Ville / Hôpital / les deux ; `Fabrication` → niveau **déclaré** Full
+    process (le tableau affiche « déclaré » vs « variation obtenue », cf. section précédente),
+    `Importation`/vide → Importation ;
+  - « DCI : Marque » se sépare, « A + B » devient une **association** (`molecules`), « A Ou B »
+    reste **une seule** DCI — la scinder inventerait deux dossiers là où il y en a un ;
+  - les mesures du **contenant** sont écartées du dosage : « B 30 » compte des boîtes, et dans
+    « 1 tube 15 G / 45 G » les grammes pèsent le tube. De même le millilitre seul : « 10MG/10ML »
+    dose **10 mg**. Mieux vaut **aucun** dosage qu'un chiffre faux.
+- **Rien n'est jeté** : quantités marché ville/PCH, prix FOB, taille de marché, concurrents et le
+  **libellé d'origine** vont dans les commentaires du dossier — c'est l'arbitrage qui a conduit à
+  retenir le produit.
+- **Idempotence** : identifiants stables `regpfNNNN`, insertion `WHERE NOT EXISTS`, référence
+  calculée **à la suite** de la série `REG-AAAA-NNN` existante (aucune collision). Les
+  **17 étapes** de workflow sont créées comme pour tout dossier créé depuis l'application.
+- **Entité** : Adventum si elle existe, sinon la première entité active. Sans aucune entité, les
+  dossiers restent non rattachés et le bandeau « dossiers sans entité » du tableau le signale —
+  on ne devine pas à la place d'un humain.
+- Les dossiers arrivent en **Présoumission, sans responsable** : ils se confient depuis la colonne
+  « Chargé du dossier » ci-dessus.
+
 ### Regulatory — niveau de process (la variation obtenue fait foi)
 
 Colonne **Niveau de process** : Importation → Secondary Packaging → Primary Packaging →
@@ -1588,7 +1646,8 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
 | **Structure & hiérarchie** | `lib/departments.ts` (arbre N niveaux, membres, **résolution du N+1**), `lib/actions/department-actions.ts` (CRUD + rattachements, anti-cycle), `app/(app)/rh/departements/`, `app/(app)/admin/organigramme/`. Portées d'étape `DEPARTMENT_MANAGER`/`DEPARTMENT_HEAD` dans `lib/workflow/`. |
 | **Secrétariat / courses** | `lib/actions/admin-request-actions.ts` (demandes, missions, courses, archive DONE), `lib/queries/admin-requests.ts`, pages `app/(app)/demandes/` (+ `courses/`, `driver/`, `expense-ack.tsx`). |
 | **Stocks** | `lib/actions/stock-snapshot-actions.ts`, `lib/queries/stock.ts`, `app/(app)/stocks/`. |
-| **Regulatory** | `lib/actions/regulatory-actions.ts` (validation fabricant/variation), `app/(app)/regulatory/` (`edit-product.tsx`, `new-product.tsx`, `[id]/page.tsx`). |
+| **Regulatory** | `lib/actions/regulatory-actions.ts` (validation fabricant/variation, `setRegulatoryResponsible`), `app/(app)/regulatory/` (`edit-product.tsx`, `new-product.tsx`, `regulatory-table.tsx`, `[id]/page.tsx`). Champ `RegulatoryProduct.packaging` (conditionnement). |
+| **Regulatory — import d'un classeur** | `lib/regulatory/sheet-import.ts` (pur : `mapSheetRow`, `parseDosage`, `formOf`, `splitProduct`, `stripContainerSize`…) + `sheet-import.test.ts` (34 tests) ; générateur `scripts/gen-selection-pf-migration.ts` ; source `data/selection-pf-produits.xlsx` ; migration `prisma/migrations/20260812110000_selection_pf_products/`. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
 | **Transverse** | `lib/archive.ts` (Dossier traité), `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
@@ -1980,6 +2039,7 @@ npx prisma migrate deploy
 | `npm run db:migrate` | Migration de développement |
 | `npm run db:bootstrap` | Crée le Super Admin initial |
 | `npm run db:reset` | Réinitialise la base |
+| `npx tsx scripts/gen-selection-pf-migration.ts` | Régénère la migration d'import du portefeuille « Sélection PF Produits » depuis `data/selection-pf-produits.xlsx` (le SQL est committé ; ne pas l'éditer à la main). |
 | `npm run autotest` | **Auto-testeur** — audit de cohérence pages ↔ gardes ↔ menu ↔ matrice RBAC (déterministe, aucun serveur). Voir `scripts/auto-test/README.md`. |
 | `npm run autotest:live -- --base-url=…` | Crawl **en direct** (Playwright) : passe anonyme (fuites d'accès) + passes par rôle (accès réel vs RBAC, uploads jetables). |
 
@@ -2049,6 +2109,19 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Regulatory : le portefeuille « Sélection PF Produits » importé (69 dossiers) + la personne
+  chargée du dossier au menu déroulant.** L'import passe par une **migration de données idempotente**
+  générée depuis le classeur versionné (`data/selection-pf-produits.xlsx`) par des règles **pures et
+  testées** (`lib/regulatory/sheet-import.ts`, 34 tests) : dosage cherché dans la forme **puis** dans
+  le conditionnement, mesures du contenant écartées (« B 30 », « 1 tube 15 G »), associations « A + B »
+  distinguées des alternatives « A Ou B », chiffres de marché conservés en commentaires. Nouveau champ
+  `RegulatoryProduct.packaging` (**Conditionnement**) : à dosage et forme égaux, c'est lui qui distingue
+  deux dossiers — il apparaît dans le tableau, la fiche et les deux formulaires. La colonne
+  **« Chargé du dossier »** devient un **menu déroulant modifiable depuis le tableau**
+  (`setRegulatoryResponsible`) : assignation = accès (rattachement aux participants, l'ancien
+  responsable n'est jamais retiré), notification de la personne désignée, audit, et filtre
+  « Non attribué » pour repérer d'un coup d'œil les dossiers sans porteur.
 
 - **Module « Demandes à Regulatory » RETIRÉ.** Le module `REG_REQUESTS`, son entrée de menu, ses
   écrans (`/regulatory/requests`), ses actions, ses requêtes, ses helpers d'accès
