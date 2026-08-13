@@ -4,7 +4,7 @@ import { Wallet, ExternalLink, FileText, Download } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
-import { getGeneralMeans, resolveGeneralMeansDepartment } from "@/lib/queries/general-means";
+import { getGeneralMeans, resolveGeneralMeansDepartment, LIST_LIMIT } from "@/lib/queries/general-means";
 import { normalizeYear, DEPT_BUDGET_LABEL, budgetHealth, consumedPercent } from "@/lib/department-budget";
 import { currentPeriod } from "@/lib/petty-cash";
 import { PageHeader } from "@/components/shared/page-header";
@@ -17,6 +17,7 @@ import { CashPanel } from "./cash-panel";
 import { ExpensePanel } from "./expense-panel";
 import { DepartmentSwitcher } from "./department-switcher";
 import { SuppliesManager } from "../demandes/supplies-manager";
+import { ExpenseRowActions } from "./expense-row-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Moyens généraux — AMD Internal OS" };
@@ -118,7 +119,7 @@ export default async function MoyensGenerauxPage({
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label={`${DEPT_BUDGET_LABEL.OPERATING} ${year}`} value={formatCurrency(view.allocated)} icon="Wallet" />
         <KpiCard
-          label="Consommé" value={formatCurrency(view.consumed)} icon="Receipt" tone={tone}
+          label={`Consommé — ${DEPT_BUDGET_LABEL.OPERATING}`} value={formatCurrency(view.consumed)} icon="Receipt" tone={tone}
           hint={view.allocated > 0 ? `${consumedPercent(view.allocated, view.consumed)} % de l'enveloppe` : "aucune enveloppe réglée"}
         />
         <KpiCard label="Restant sur l'enveloppe" value={formatCurrency(view.remaining)} icon="PiggyBank" tone={view.remaining < 0 ? "danger" : "default"} />
@@ -146,7 +147,21 @@ export default async function MoyensGenerauxPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Toutes les dépenses {year} ({view.expenses.length})</CardTitle>
+          <CardTitle>Toutes les dépenses {year} ({view.expenseCount})</CardTitle>
+          {/* La liste MÊLE les natures ; l'enveloppe affichée plus haut, elle, n'en porte
+              qu'une. Sans cette phrase, la somme des lignes ne retomberait pas sur le
+              « Consommé » et on croirait à une erreur de calcul. */}
+          {view.otherConsumed > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Dont <strong>{formatCurrency(view.otherConsumed)}</strong> imputés à d&apos;autres enveloppes
+              (budget métier, formation) — non déduits des {DEPT_BUDGET_LABEL.OPERATING.toLowerCase()}.
+            </p>
+          )}
+          {view.truncated && (
+            <p className="text-xs text-muted-foreground">
+              Les {LIST_LIMIT} plus récentes sont affichées ; les totaux ci-dessus portent sur l&apos;année entière.
+            </p>
+          )}
         </CardHeader>
         {view.canSpend && (
           <CardContent className="pb-0">
@@ -167,7 +182,7 @@ export default async function MoyensGenerauxPage({
           ) : (
             <ul className="divide-y divide-border">
               {view.expenses.map((e) => (
-                <li key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+                <li key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 text-sm">
                   <span className="min-w-0 flex-1">
                     <span className="font-medium">{e.label}</span>
                     {e.notes && <span className="block text-xs text-muted-foreground">{e.notes}</span>}
@@ -199,6 +214,15 @@ export default async function MoyensGenerauxPage({
                       </a>
                     ))}
                   </span>
+                  {/* Corriger ou supprimer se fait ICI, là où l'erreur se voit. Le serveur
+                      revérifie le droit : sur une dépense payée en liquide, seule la personne
+                      qui détient la caisse (ou la direction) y touche. */}
+                  {view.canSpend && (!e.fromPettyCash || view.canAmendCash) && (
+                    <ExpenseRowActions
+                      expense={{ id: e.id, label: e.label, amount: e.amount, kind: e.kind, notes: e.notes, fromPettyCash: e.fromPettyCash, lines: e.lines }}
+                      articles={articleOptions}
+                    />
+                  )}
                 </li>
               ))}
             </ul>

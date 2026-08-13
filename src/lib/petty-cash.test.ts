@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  pettyCashBalance, canSpendFromPettyCash, currentPeriod, periodLabel, LOW_CASH_RATIO,
+  pettyCashBalance, pettyCashBalanceExcluding, canSpendFromPettyCash, currentPeriod, periodLabel, LOW_CASH_RATIO,
   normalizeRechargeDay, nextRechargeDate, shouldRemindRecharge, grantedTopUpAmount,
   type PettyCashState, type PettyCashLine,
 } from "./petty-cash";
@@ -50,6 +50,31 @@ describe("pettyCashBalance", () => {
     const b = pettyCashBalance(cash({ status: "CLOSED" }), [line(90_000)]);
     expect(b.received).toBe(100_000);
     expect(b.remaining).toBe(10_000);
+  });
+});
+
+describe("pettyCashBalanceExcluding — corriger une dépense ne la compte pas deux fois", () => {
+  it("rend la place occupée par la ligne qu'on modifie", () => {
+    const c = cash({ amount: 10_000 });
+    const lines = [line(8_000, "a"), line(1_000, "b")];
+    expect(pettyCashBalance(c, lines).remaining).toBe(1_000);
+    // On corrige « a » : son propre montant ne doit plus peser sur ce qui reste.
+    expect(pettyCashBalanceExcluding(c, lines, "a").remaining).toBe(9_000);
+  });
+
+  it("permet de porter une dépense à un montant que le solde brut refuserait", () => {
+    const c = cash({ amount: 10_000 });
+    const lines = [line(8_000, "a")];
+    const b = pettyCashBalanceExcluding(c, lines, "a");
+    // 9 000 DZD passent alors que le solde affiché n'est que de 2 000.
+    expect(canSpendFromPettyCash(c, b, 9_000).ok).toBe(true);
+    expect(canSpendFromPettyCash(c, b, 10_001).ok).toBe(false);
+  });
+
+  it("ne change rien quand la ligne visée n'est pas dans la caisse", () => {
+    const c = cash({ amount: 10_000 });
+    const lines = [line(8_000, "a")];
+    expect(pettyCashBalanceExcluding(c, lines, "inconnue").remaining).toBe(2_000);
   });
 });
 

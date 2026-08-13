@@ -915,6 +915,48 @@ L'assistant ne renvoie plus son texte d'un bloc après un long silence : il **s'
   mutualisée entre les deux chemins (`rememberExchange`), pour que la règle de cloisonnement
   n'existe qu'à un seul endroit.
 
+### Moyens généraux — corriger, supprimer, et des totaux qui disent la vérité
+
+Une erreur de saisie se répare **là où on la voit** : chaque dépense porte un crayon et une
+corbeille dans la liste. La laisser « pour la trace » ne préserve rien — elle fausse à la fois
+le budget et le solde de caisse, qui se lisent tous deux sur ces mêmes lignes. C'est le
+**journal d'audit** qui garde la trace, avec le montant d'avant et l'auteur de la correction.
+
+- **Droit** (`canAmendExpense`) : les mêmes que pour créer — celui qui **tient** le budget, ou
+  celui qui **achète** sur son propre département. Obliger à remonter à l'administration pour
+  corriger un montant garantit surtout que personne ne corrige, et qu'on vit avec un budget faux.
+  Une dépense payée sur la **caisse** ajoute une condition : c'est de l'argent physique, seule la
+  personne qui le détient (ou la direction) y touche. Le bouton n'apparaît que dans ce cas
+  (`canAmendCash`, calculé avec la **même** règle que le serveur).
+- **Modifier rouvre le TICKET**, pas seulement le montant : une dépense sans détail est réouverte
+  comme un article unique portant son libellé et sa somme — ce qu'elle est réellement.
+- Sur une caisse, le nouveau montant est reconfronté au fond **en mettant de côté la dépense
+  corrigée** (`pettyCashBalanceExcluding`) : sans cela, son propre montant compterait deux fois et
+  une simple correction de libellé serait refusée « faute d'argent ». Testé.
+- **Supprimer** emporte les lignes (cascade) **et les justificatifs** : un scan rattaché à une
+  dépense qui n'existe plus n'est consultable nulle part et occupe le stockage indéfiniment. La
+  confirmation dit ce qui part et l'effet sur les chiffres — « êtes-vous sûr ? » ne renseigne
+  personne.
+
+**Deux totaux étaient faux, et le sont corrigés :**
+
+1. **Le consommé se calculait sur la LISTE AFFICHÉE**, plafonnée à 200 lignes : au 201ᵉ achat de
+   l'année, le budget s'allégeait tout seul. Vérifié sur 250 dépenses — la liste tronquée
+   totalisait 20 000 DZD là où la base en comptait 63 000. Les totaux viennent désormais d'un
+   `groupBy` sur l'année entière ; la liste reste plafonnée (et le dit), le compte affiché est le
+   compte **réel**.
+2. **L'enveloppe des moyens généraux se voyait soustraire des dépenses d'une AUTRE nature**
+   (budget métier, formation), alors qu'elle ne porte que `OPERATING` — ce que la page Budgets,
+   elle, comptait déjà nature par nature. Les deux écrans donnaient donc des chiffres différents
+   pour le même département. Le consommé est maintenant `OPERATING` seul, et ce qui relève d'une
+   autre enveloppe est affiché **à part**, pour que la somme des lignes se réconcilie sans qu'on
+   croie à une erreur de calcul.
+
+**Ce qui était déjà juste** (vérifié sur données réelles) : une dépense payée sur la caisse est
+bien déduite **du fond ET imputée au budget** — c'est le même enregistrement lu de deux endroits,
+donc les deux ne peuvent pas diverger, et une correction comme une suppression se répercutent
+d'elles-mêmes sur les deux.
+
 ### Moyens généraux — le catalogue d'articles et le ticket à plusieurs articles
 
 On n'achète presque jamais une seule chose. Une dépense réduite à « courses — 12 400 DZD » dit ce
@@ -1701,6 +1743,7 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
 | **Stocks** | `lib/actions/stock-snapshot-actions.ts`, `lib/queries/stock.ts`, `app/(app)/stocks/`. |
 | **Regulatory** | `lib/actions/regulatory-actions.ts` (validation fabricant/variation, `setRegulatoryResponsible`), `app/(app)/regulatory/` (`edit-product.tsx`, `new-product.tsx`, `regulatory-table.tsx`, `[id]/page.tsx`). Champ `RegulatoryProduct.packaging` (conditionnement). |
 | **Regulatory — verrou (cadenas)** | `RegulatoryProduct.isLocked` ; `lib/rbac.ts` → `lockGate` (dans `scopeRegulatory`) + `regulatoryLockWhere` pour les lectures hors portée (`queries/stock.ts`, `actions/pch-tender-line-actions.ts`, `admin/users/[id]`, portail fournisseur) ; `setRegulatoryLock` / `unlockAllRegulatory` ; cadenas et bandeau dans `app/(app)/regulatory/regulatory-table.tsx`. Tests dans `rbac.test.ts`. |
+| **Moyens généraux — corriger / supprimer une dépense** | `updateDepartmentExpense` + `deleteDepartmentExpense` (`lib/actions/department-budget-actions.ts`, garde `canAmendExpense`) ; `pettyCashBalanceExcluding` (`lib/petty-cash.ts`, pure + tests) ; `app/(app)/moyens-generaux/expense-row-actions.tsx`. Totaux exacts (`groupBy` par nature, `expenseCount`, `truncated`, `otherConsumed`) dans `lib/queries/general-means.ts`. |
 | **Moyens généraux — catalogue & ticket multi-articles** | `lib/general-means/receipt.ts` (pur : `normalizeLines`, `receiptTotal`, `validateReceipt`, `receiptLabel`, `parseLinesField`) + `receipt.test.ts` (20 tests) ; `lib/general-means/expense-lines.ts` (`readReceipt`, `saveReceiptLines`, partagé par les deux actions) ; modèle `DepartmentExpenseLine` ; `app/(app)/moyens-generaux/receipt-lines.tsx` ; catalogue `OfficeSupplyArticle` + `SuppliesManager` réutilisé depuis `app/(app)/demandes/`. |
 | **Regulatory — import d'un classeur** | `lib/regulatory/sheet-import.ts` (pur : `mapSheetRow`, `parseDosage`, `formOf`, `splitProduct`, `stripContainerSize`…) + `sheet-import.test.ts` (34 tests) ; générateur `scripts/gen-selection-pf-migration.ts` ; source `data/selection-pf-produits.xlsx` ; migration `prisma/migrations/20260812110000_selection_pf_products/`. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
@@ -2164,6 +2207,18 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Moyens généraux : corriger ou supprimer une dépense, et deux totaux qui mentaient.**
+  Chaque dépense porte un crayon et une corbeille — une erreur se répare là où on la voit, et
+  c'est le journal d'audit qui garde la trace, pas la ligne fausse. Modifier rouvre le **ticket**
+  (articles, quantités, montants) et non le seul montant ; sur une caisse, le nouveau montant est
+  reconfronté au fond **en excluant la dépense corrigée**, sans quoi son propre montant compterait
+  deux fois. Supprimer emporte les lignes et les justificatifs. Deux corrections de fond au
+  passage : le **consommé se calculait sur les 200 lignes affichées** (au 201ᵉ achat le budget
+  s'allégeait tout seul — 20 000 DZD comptés au lieu de 63 000 sur un jeu de 250 dépenses), et
+  **l'enveloppe des moyens généraux se voyait soustraire des dépenses d'une autre nature**, ce qui
+  la faisait diverger de la page Budgets pour le même département. Les totaux viennent désormais
+  d'un agrégat sur l'année entière, nature par nature.
 
 - **Un cadenas Super Admin sur Regulatory, et des tickets de caisse à plusieurs articles.**
   Le portefeuille importé arrive **verrouillé** : `RegulatoryProduct.isLocked` est filtré dans

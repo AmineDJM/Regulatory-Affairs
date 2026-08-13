@@ -3,12 +3,12 @@
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { getAppSettings } from "@/lib/settings";
-import { saveFile, validateUpload } from "@/lib/storage";
+import { saveFile, validateUpload, deleteFileByKey } from "@/lib/storage";
 import {
   canSetDepartmentBudget, canEditDepartmentBudget, canManageDepartmentBudgetAccess,
   canRequestDepartmentBudget, canDecideDepartmentBudgetRequest, canViewDepartmentBudget,
@@ -17,6 +17,8 @@ import {
 } from "@/lib/department-budget";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
+import { pettyCashBalanceExcluding, canSpendFromPettyCash, type PettyCashStatus } from "@/lib/petty-cash";
+import { toNumber } from "@/lib/utils";
 
 const PATH = "/budgets/departements";
 
@@ -398,4 +400,159 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
   revalidatePath(PATH);
   revalidatePath("/moyens-generaux");
   return { ok: true, id: created.id };
+}
+
+/**
+ * QUI PEUT CORRIGER UNE DÉPENSE DÉJÀ IMPUTÉE ?
+ *
+ * Les mêmes que ceux qui peuvent en créer une : celui qui TIENT le budget, et celui qui ACHÈTE
+ * sur son propre département. Une erreur de saisie se répare là où elle se commet — obliger à
+ * remonter à l'administration pour corriger un montant garantit surtout que personne ne corrige,
+ * et qu'on vit avec un budget faux.
+ *
+ * Une dépense payée sur la CAISSE ajoute une condition : c'est de l'argent physique, et seule
+ * la personne qui le détient (ou la direction) touche à ce qui en est sorti.
+ */
+async function canAmendExpense(
+  user: Awaited<ReturnType<typeof requireUser>>,
+  expense: { departmentId: string; kind: string; pettyCash: { holderId: string | null } | null },
+): Promise<{ ok: boolean; error?: string }> {
+  if (expense.pettyCash && expense.pettyCash.holderId !== user.id && !hasGlobalView(user)) {
+    return { ok: false, error: "Cette dépense a été payée sur une caisse d'avance : seule la personne qui la détient peut la corriger." };
+  }
+  const grant = await grantFor(expense.departmentId);
+  const setter = setterOf(user, await headedDepartmentIds(user.id));
+  const holdsBudget = canEditDepartmentBudget(subjectOf(user), setter, expense.kind as DeptBudgetKind, grant, expense.departmentId);
+  const buysHere = userCan(user as Parameters<typeof userCan>[0], "GENERAL_MEANS", "UPDATE")
+    && (await isMyDepartment(user.id, expense.departmentId));
+  if (!holdsBudget && !buysHere) {
+    return { ok: false, error: "Vous ne tenez pas ce budget, et ce n'est pas votre département." };
+  }
+  return { ok: true };
+}
+
+/** La dépense telle qu'il faut la relire pour la corriger : sa caisse et ses lignes comprises. */
+const AMEND_INCLUDE = {
+  pettyCash: {
+    select: {
+      id: true, period: true, amount: true, status: true, holderId: true,
+      expenses: { select: { id: true, label: true, amount: true, date: true } },
+    },
+  },
+} as const;
+
+/**
+ * MODIFIER UNE DÉPENSE IMPUTÉE — libellé, précisions, nature, et le détail du ticket.
+ *
+ * Le montant suit les articles quand ils sont fournis : c'est la même règle qu'à la saisie, et
+ * la seule façon que le total continue de correspondre au justificatif.
+ *
+ * Sur une caisse d'avance, le nouveau montant est reconfronté au fond DISPONIBLE — en excluant
+ * la dépense en cours de correction, sans quoi son propre montant compterait deux fois et une
+ * simple correction de libellé serait refusée faute d'argent.
+ */
+export async function updateDepartmentExpense(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Dépense introuvable." };
+
+  const before = await prisma.departmentBudgetExpense.findUnique({ where: { id }, include: AMEND_INCLUDE });
+  if (!before) return { ok: false, error: "Dépense introuvable." };
+  const allowed = await canAmendExpense(user, before);
+  if (!allowed.ok) return { ok: false, error: allowed.error };
+
+  const rawKind = fdStr(formData, "kind");
+  const kind = (DEPT_BUDGET_KINDS as readonly string[]).includes(rawKind ?? "") ? (rawKind as DeptBudgetKind) : (before.kind as DeptBudgetKind);
+  if (kind === "HR") return { ok: false, error: "La masse salariale se lit sur la paie : elle ne se saisit pas à la main." };
+
+  const rawLines = formData.get("lines");
+  const read = await readReceipt(rawLines, fdStr(formData, "label"));
+  if ("error" in read && rawLines) return { ok: false, error: read.error };
+  const ticket = "error" in read ? null : read;
+
+  const label = ticket ? ticket.label : fdStr(formData, "label");
+  if (!label) return { ok: false, error: "Indiquez ce qui a été acheté." };
+  const amount = ticket ? ticket.total : normalizeAmount(fdStr(formData, "amount"));
+  if (typeof amount !== "number") return { ok: false, error: amount.error };
+  if (amount <= 0) return { ok: false, error: "Indiquez le montant de la dépense." };
+
+  // La caisse doit pouvoir porter le NOUVEAU montant, la dépense corrigée mise de côté.
+  const cash = before.pettyCash;
+  if (cash) {
+    const state = { id: cash.id, period: cash.period, amount: toNumber(cash.amount), status: cash.status as PettyCashStatus };
+    const balance = pettyCashBalanceExcluding(
+      state,
+      cash.expenses.map((e) => ({ id: e.id, label: e.label, amount: toNumber(e.amount), date: e.date.toISOString() })),
+      id,
+    );
+    const room = canSpendFromPettyCash(state, balance, amount);
+    if (!room.ok) return { ok: false, error: room.reason ?? "Le fond ne couvre pas ce montant." };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.departmentBudgetExpense.update({
+      where: { id },
+      data: { label, amount, kind, notes: fdStr(formData, "notes") },
+    });
+    // Les lignes se REMPLACENT en bloc : fusionner ligne à ligne demanderait des identifiants
+    // stables côté formulaire pour un gain nul — on réécrit le détail du ticket.
+    if (ticket) {
+      await tx.departmentExpenseLine.deleteMany({ where: { expenseId: id } });
+      await tx.departmentExpenseLine.createMany({
+        data: ticket.lines.map((l) => ({ expenseId: id, articleId: l.articleId, label: l.label, quantity: l.quantity, amount: l.amount })),
+      });
+    }
+  });
+
+  const was = toNumber(before.amount);
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Budgets", entityType: "BUDGET", entityId: before.departmentId,
+    summary: `Dépense corrigée — ${before.label} (${was} DZD) → ${label} (${amount} DZD)${kind !== before.kind ? ` · nature ${DEPT_BUDGET_LABEL[kind]}` : ""}`,
+  });
+  revalidatePath(PATH);
+  revalidatePath("/moyens-generaux");
+  return { ok: true, id };
+}
+
+/**
+ * SUPPRIMER UNE DÉPENSE IMPUTÉE — avec ses lignes et ses pièces.
+ *
+ * Une dépense saisie en double, ou sur le mauvais département, doit pouvoir disparaître :
+ * la laisser « pour la trace » fausse le budget ET le solde de caisse, qui se lisent tous deux
+ * sur ces lignes. La trace, c'est le JOURNAL D'AUDIT qui la tient — il conserve le montant, le
+ * libellé et l'auteur de la suppression.
+ *
+ * Les justificatifs partent avec elle : un scan de facture orphelin, rattaché à une dépense qui
+ * n'existe plus, n'est plus consultable nulle part et occupe le stockage indéfiniment.
+ */
+export async function deleteDepartmentExpense(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Dépense introuvable." };
+
+  const before = await prisma.departmentBudgetExpense.findUnique({ where: { id }, include: AMEND_INCLUDE });
+  if (!before) return { ok: false, error: "Dépense introuvable." };
+  const allowed = await canAmendExpense(user, before);
+  if (!allowed.ok) return { ok: false, error: allowed.error };
+
+  const docs = await prisma.document.findMany({
+    where: { entityType: "DEPARTMENT_EXPENSE", entityId: id },
+    select: { id: true, fileKey: true },
+  });
+  // Le blob d'abord, la ligne ensuite : l'inverse laisserait un document sans fichier si le
+  // stockage refuse, et un document illisible est pire qu'un document absent.
+  for (const d of docs) {
+    if (d.fileKey) await deleteFileByKey(d.fileKey).catch(() => {});
+  }
+  await prisma.document.deleteMany({ where: { entityType: "DEPARTMENT_EXPENSE", entityId: id } });
+  // Les lignes du ticket tombent en cascade avec la dépense (contrainte de clé étrangère).
+  await prisma.departmentBudgetExpense.delete({ where: { id } });
+
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Budgets", entityType: "BUDGET", entityId: before.departmentId,
+    summary: `Dépense supprimée — ${before.label} (${toNumber(before.amount)} DZD, ${DEPT_BUDGET_LABEL[before.kind as DeptBudgetKind]})${before.pettyCash ? " · payée sur la caisse d'avance" : ""}`,
+  });
+  revalidatePath(PATH);
+  revalidatePath("/moyens-generaux");
+  return { ok: true, id };
 }

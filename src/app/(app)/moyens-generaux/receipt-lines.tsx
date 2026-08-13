@@ -23,6 +23,14 @@ interface Row {
 
 const empty = (key: number): Row => ({ key, articleId: "", label: "", quantity: "1", amount: "" });
 
+/** Lignes déjà enregistrées, telles qu'on les rouvre pour corriger un ticket. */
+export interface ExistingLine {
+  articleId?: string | null;
+  label: string;
+  quantity: number;
+  amount: number;
+}
+
 /**
  * LE DÉTAIL D'UN TICKET DE CAISSE — les articles achetés, leur nombre et leur montant.
  *
@@ -38,12 +46,25 @@ const empty = (key: number): Row => ({ key, articleId: "", label: "", quantity: 
 export function ReceiptLines({
   articles,
   onTotalChange,
+  initial,
 }: {
   articles: CatalogArticle[];
   onTotalChange?: (total: number) => void;
+  /** Lignes existantes, à la réouverture d'un ticket pour correction. */
+  initial?: ExistingLine[];
 }) {
-  const [rows, setRows] = React.useState<Row[]>([empty(0)]);
-  const nextKey = React.useRef(1);
+  const [rows, setRows] = React.useState<Row[]>(() =>
+    initial && initial.length > 0
+      ? initial.map((l, i) => ({
+          key: i,
+          articleId: l.articleId ?? "",
+          label: l.articleId ? "" : l.label,
+          quantity: String(l.quantity),
+          amount: String(l.amount),
+        }))
+      : [empty(0)],
+  );
+  const nextKey = React.useRef(initial && initial.length > 0 ? initial.length : 1);
 
   const payload = React.useMemo(
     () => normalizeLines(rows.map((r) => ({

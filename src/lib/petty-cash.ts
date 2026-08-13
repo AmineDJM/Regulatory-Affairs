@@ -72,6 +72,22 @@ export function pettyCashBalance(allotment: PettyCashState | null, lines: PettyC
 }
 
 /**
+ * Le solde de la caisse EN METTANT DE CÔTÉ une dépense — celle qu'on est en train de corriger.
+ *
+ * Sans cette mise à l'écart, corriger une dépense de 8 000 DZD sur un fond de 10 000 comparerait
+ * le nouveau montant à un solde qui compte encore l'ancien : une simple correction de libellé
+ * serait refusée « faute d'argent », alors que la place existe — elle est occupée par la ligne
+ * qu'on modifie.
+ */
+export function pettyCashBalanceExcluding(
+  allotment: PettyCashState | null,
+  lines: PettyCashLine[],
+  excludeId: string,
+): PettyCashBalance {
+  return pettyCashBalance(allotment, lines.filter((l) => l.id !== excludeId));
+}
+
+/**
  * Peut-on imputer une dépense sur cette caisse ?
  *
  * Trois refus, et ils ne disent pas la même chose : pas de caisse ouverte, argent pas encore

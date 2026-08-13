@@ -14,6 +14,9 @@ import { pettyCashBalance, currentPeriod, nextRechargeDate, type PettyCashBalanc
  * a-t-on dépensé ce mois-ci, et me reste-t-il de quoi payer ? » sans additionner à la main.
  */
 
+/** La liste affichée est plafonnée pour rester lisible ; les TOTAUX, eux, ne le sont pas. */
+export const LIST_LIMIT = 200;
+
 export interface GeneralMeansExpense {
   id: string;
   label: string;
@@ -71,12 +74,23 @@ export interface GeneralMeansView {
   allocated: number;
   consumed: number;
   remaining: number;
+  /** Consommé sur les AUTRES natures (budget métier, formation) — montré à part pour que la
+   *  liste se réconcilie avec l'enveloppe sans qu'on croie l'avoir entamée. */
+  otherConsumed: number;
+  /** Nombre RÉEL de dépenses de l'année (la liste, elle, est plafonnée). */
+  expenseCount: number;
+  /** La liste affichée est-elle tronquée ? */
+  truncated: boolean;
   /** L'utilisateur tient-il ce budget (directeur, RH nommé, administration) ? */
   canSpend: boolean;
   /** Peut-il remettre une caisse et trancher les rallonges ? (administration) */
   canAllot: boolean;
   /** Est-il le DÉTENTEUR de la caisse courante ? (c'est lui qui confirme la réception) */
   isHolder: boolean;
+  /** Peut-il corriger ou supprimer une dépense payée SUR LA CAISSE ? C'est de l'argent
+   *  physique : seule la personne qui le détient — ou la direction — y touche. Calculé ici
+   *  avec la MÊME règle que le serveur, pour qu'un bouton visible ne mène pas à un refus. */
+  canAmendCash: boolean;
   cash: GeneralMeansCash | null;
   /** Réglage mensuel — `null` tant que les RH ne l'ont pas posé. */
   plan: GeneralMeansPlan | null;
@@ -176,7 +190,7 @@ export async function getGeneralMeans(
 
   if (!isHolder && !hasModule && !canViewDepartmentBudget(subject, rights, grant, canViewModule, departmentId)) return null;
 
-  const [budget, expenses, history] = await Promise.all([
+  const [budget, expenses, totals, expenseCount, history] = await Promise.all([
     prisma.departmentBudget.findUnique({
       where: { departmentId_year_kind: { departmentId, year, kind: "OPERATING" } },
       select: { amount: true },
@@ -184,12 +198,21 @@ export async function getGeneralMeans(
     prisma.departmentBudgetExpense.findMany({
       where: { departmentId, year, kind: { not: "HR" } },
       orderBy: { date: "desc" },
-      take: 200,
+      take: LIST_LIMIT,
       include: {
         createdBy: { select: { name: true } },
         lines: { orderBy: { createdAt: "asc" }, select: { id: true, label: true, quantity: true, amount: true } },
       },
     }),
+    // LE CONSOMMÉ NE SE CALCULE PAS SUR LA LISTE AFFICHÉE. Elle est plafonnée pour rester
+    // lisible ; additionner ses lignes revenait à ignorer en silence tout ce qui dépasse le
+    // plafond — un budget qui s'allège tout seul au 201ᵉ achat. La base additionne, elle.
+    prisma.departmentBudgetExpense.groupBy({
+      by: ["kind"],
+      where: { departmentId, year, kind: { not: "HR" } },
+      _sum: { amount: true },
+    }),
+    prisma.departmentBudgetExpense.count({ where: { departmentId, year, kind: { not: "HR" } } }),
     prisma.pettyCashAllotment.findMany({
       where: { departmentId, period: { not: period } },
       orderBy: { period: "desc" },
@@ -198,9 +221,12 @@ export async function getGeneralMeans(
     }),
   ]);
 
-  const docRows = expenses.length
+  // Les pièces des dépenses de la CAISSE aussi : son mois peut relever d'une autre année que
+  // celle consultée, et la ligne se serait alors affichée « sans pièce » alors qu'elle en a une.
+  const docIds = Array.from(new Set([...expenses.map((e) => e.id), ...(cashHere?.expenses ?? []).map((e) => e.id)]));
+  const docRows = docIds.length
     ? await prisma.document.findMany({
-        where: { entityType: "DEPARTMENT_EXPENSE", entityId: { in: expenses.map((e) => e.id) } },
+        where: { entityType: "DEPARTMENT_EXPENSE", entityId: { in: docIds } },
         select: { id: true, name: true, entityId: true },
       })
     : [];
@@ -226,7 +252,15 @@ export async function getGeneralMeans(
 
   const allExpenses = expenses.map(toExpense);
   const allocated = budget ? toNumber(budget.amount) : 0;
-  const consumed = allExpenses.reduce((a, e) => a + e.amount, 0);
+  // L'ENVELOPPE AFFICHÉE EST CELLE DES MOYENS GÉNÉRAUX. On ne lui soustrait donc QUE les
+  // dépenses de cette nature : imputer un achat « budget métier » sur l'enveloppe des moyens
+  // généraux faisait fondre celle-ci pour de l'argent qu'elle n'a jamais porté — et faisait
+  // diverger cet écran de la page Budgets, qui compte nature par nature.
+  const sumOf = (k: DeptBudgetKind): number => toNumber(totals.find((t) => t.kind === k)?._sum.amount ?? 0);
+  const consumed = sumOf("OPERATING");
+  const otherConsumed = totals
+    .filter((t) => t.kind !== "OPERATING")
+    .reduce((a, t) => a + toNumber(t._sum.amount ?? 0), 0);
 
   const cashLines: GeneralMeansExpense[] = (cashHere?.expenses ?? []).map((e) => ({
     id: e.id,
@@ -280,6 +314,9 @@ export async function getGeneralMeans(
     allocated,
     consumed,
     remaining: allocated - consumed,
+    otherConsumed,
+    expenseCount,
+    truncated: expenseCount > LIST_LIMIT,
     // SAISIR UNE DÉPENSE : le droit de module suffit (c'est le geste quotidien de l'acheteur),
     // ou le fait de tenir ce budget. Elle est de toute façon déduite du budget, pièce à l'appui.
     canSpend: userCan(user, "GENERAL_MEANS", "CREATE")
@@ -288,6 +325,7 @@ export async function getGeneralMeans(
     // HUMAINES, qui pilotent le module des moyens généraux de tous les départements.
     canAllot: hasGlobalView(user) || rights.canManageBudgets || rights.canManageHr,
     isHolder,
+    canAmendCash: isHolder || hasGlobalView(user),
     cash,
     plan,
     topUps: (cashHere?.topUps ?? []).map((t) => ({
