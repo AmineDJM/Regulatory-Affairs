@@ -15,7 +15,7 @@ export default async function SupplierPortalPage() {
   // produits de CE fournisseur marqués visibles. Aucun statut/note interne,
   // aucun document, aucune autre donnée n'est exposée.
   const products = await prisma.regulatoryProduct.findMany({
-    where: { supplierId: session.supplierId, portalVisible: true },
+    where: { supplierId: session.supplierId, portalVisible: true, isLocked: false },
     select: {
       id: true, dci: true, brandName: true, dosage: true, pharmaceuticalForm: true,
       externalStatus: true, externalComment: true, externalNextStep: true,

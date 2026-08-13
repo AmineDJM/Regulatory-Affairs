@@ -180,12 +180,12 @@ jamais identique.
 
 | Module | Route | Description |
 |---|---|---|
-| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). |
+| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). |
 | **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le chef de produit**), **analyse confidentielle du chef de produit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. → [workflows](#-workflows-critiques) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). |
 | **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
-| **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) : l'administration remet une somme chaque mois, la personne qui la détient **confirme l'avoir reçue** — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**, jusqu'à épuisement. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
+| **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) : l'administration remet une somme chaque mois, la personne qui la détient **confirme l'avoir reçue** — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**, jusqu'à épuisement. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
 | **Formations** | `/formations` | Demande individuelle (montant, organisme, dates, devis) validée **N+1 → RH → DG**, et formations **organisées par les RH** (qui partent directement au DG) avec **participants convoqués ou volontaires** (les volontaires acceptent ou déclinent) et **postes** (salle, traiteur, intervenant) validés un par un par la Direction. Budget **FORMATION** parmi les budgets départementaux. |
 | **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
 | **Logistique PCH** | `/logistics` | Module autonome : import / expéditions fournisseurs, dates estimées vs réelles, dédouanement. |
@@ -914,6 +914,59 @@ L'assistant ne renvoie plus son texte d'un bloc après un long silence : il **s'
   avant l'appel au modèle) ; tout le reste passe par le flux. La persistance du fil est
   mutualisée entre les deux chemins (`rememberExchange`), pour que la règle de cloisonnement
   n'existe qu'à un seul endroit.
+
+### Moyens généraux — le catalogue d'articles et le ticket à plusieurs articles
+
+On n'achète presque jamais une seule chose. Une dépense réduite à « courses — 12 400 DZD » dit ce
+qui est **sorti de la caisse** et rien de ce qui a été **acheté** : ni ce qu'on consomme le plus,
+ni à quel prix, ni si le total correspond au ticket qu'on vient de scanner.
+
+- **Un seul catalogue** (`OfficeSupplyArticle`), tenu depuis les **moyens généraux** comme depuis
+  le **Bureau du secrétariat** — `canManageCatalog` accepte désormais `GENERAL_MEANS.UPDATE`. En
+  tenir deux aurait produit deux vocabulaires, donc des consommations incomparables.
+- **Un justificatif, N articles** (`DepartmentExpenseLine`) : article du catalogue *ou* saisie
+  libre pour un achat unique, quantité, montant. Le modèle porte les deux — un achat hors
+  catalogue reste un achat.
+- Le `label` de la ligne est **figé à l'achat** en plus du lien vers le catalogue : un article
+  renommé ou désactivé plus tard ne doit pas réécrire un ticket déjà classé.
+- **Le total découle des lignes** (`receiptTotal`), il ne se saisit plus à côté : deux nombres
+  censés dire la même chose finissent toujours par diverger, et c'est alors le budget qui devient
+  faux. Le formulaire affiche le même total que celui que le serveur recalcule — **même module**
+  (`lib/general-means/receipt.ts`, pur, 20 tests).
+- Choisir un article **pré-remplit** le montant au prix indicatif du catalogue, sans jamais écraser
+  une saisie : c'est une aide, le ticket fait foi (l'écart est signalé sous la ligne).
+- Vaut pour les **deux portes** — dépense payée sur la **caisse d'avance** et achat imputé
+  **directement au budget** : c'est le même enregistrement, la règle est donc écrite une fois
+  (`lib/general-means/expense-lines.ts`) et appelée des deux côtés.
+- **Compatibilité** : sans lignes envoyées (ancien formulaire, appel programmatique), on retombe
+  sur le couple libellé + montant — aucun circuit existant ne casse.
+- La liste des dépenses affiche le **détail** sous chaque ligne : « 5× Ramette A4 (3 500 DZD) ·
+  Toner (8 900 DZD) ». C'est ce qui manquait pour relire un budget six mois plus tard.
+
+### Regulatory — le cadenas : un dossier invisible pour toute l'équipe
+
+Charger un portefeuille dans l'outil et le publier à l'entreprise sont deux gestes différents.
+Un dossier **verrouillé** (`RegulatoryProduct.isLocked`) n'existe que pour le **Super Admin** :
+ni la Direction, ni son responsable, ni une autorisation nominative ne l'ouvrent.
+
+- **La règle vit dans la PORTÉE, pas dans l'écran** : `scopeRegulatory` (→ `lockGate`) l'applique
+  avant tout le reste. Un dossier caché du tableau mais visible depuis la recherche globale,
+  l'assistant IA, le sélecteur de produits des stocks ou les documents ne serait pas caché du tout.
+- Les lectures qui **ne passent pas** par cette portée reçoivent le même filtre via
+  `regulatoryLockWhere(user)` : sélecteur de produits des **stocks**, rapprochement
+  « notre produit » d'un **appel d'offres PCH** (lu par toute l'équipe), liste des dossiers de la
+  page d'**autorisations nominatives** en Administration. Le **portail fournisseur** l'exclut aussi,
+  en défense en profondeur.
+- **Par URL directe** : `canAccessEntity` compose `scopeRegulatory`, donc la fiche d'un dossier
+  verrouillé rend un **404** — pas une page vide, pas un message qui confirmerait son existence.
+- **Ouvrir le cadenas** : cliquer l'icône sur la ligne (`setRegulatoryLock`), ou **tout
+  déverrouiller** d'un geste (`unlockAllRegulatory`) — un portefeuille se publie en une fois, pas
+  ligne par ligne. Volontairement **à sens unique** : un « tout verrouiller » symétrique ferait
+  disparaître le catalogue entier pour toute l'entreprise d'un clic. Chaque bascule est **auditée**.
+- Un bandeau permanent rappelle au Super Admin **combien** de dossiers il est seul à voir — sans
+  lui, un portefeuille reste verrouillé des mois par oubli.
+- Tests : `rbac.test.ts` couvre les trois cas qui garantissent que la règle ne se contourne pas
+  (portée ALL, responsable nommé, Super Admin).
 
 ### Regulatory — la personne chargée du dossier (menu déroulant du tableau)
 
@@ -1647,6 +1700,8 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
 | **Secrétariat / courses** | `lib/actions/admin-request-actions.ts` (demandes, missions, courses, archive DONE), `lib/queries/admin-requests.ts`, pages `app/(app)/demandes/` (+ `courses/`, `driver/`, `expense-ack.tsx`). |
 | **Stocks** | `lib/actions/stock-snapshot-actions.ts`, `lib/queries/stock.ts`, `app/(app)/stocks/`. |
 | **Regulatory** | `lib/actions/regulatory-actions.ts` (validation fabricant/variation, `setRegulatoryResponsible`), `app/(app)/regulatory/` (`edit-product.tsx`, `new-product.tsx`, `regulatory-table.tsx`, `[id]/page.tsx`). Champ `RegulatoryProduct.packaging` (conditionnement). |
+| **Regulatory — verrou (cadenas)** | `RegulatoryProduct.isLocked` ; `lib/rbac.ts` → `lockGate` (dans `scopeRegulatory`) + `regulatoryLockWhere` pour les lectures hors portée (`queries/stock.ts`, `actions/pch-tender-line-actions.ts`, `admin/users/[id]`, portail fournisseur) ; `setRegulatoryLock` / `unlockAllRegulatory` ; cadenas et bandeau dans `app/(app)/regulatory/regulatory-table.tsx`. Tests dans `rbac.test.ts`. |
+| **Moyens généraux — catalogue & ticket multi-articles** | `lib/general-means/receipt.ts` (pur : `normalizeLines`, `receiptTotal`, `validateReceipt`, `receiptLabel`, `parseLinesField`) + `receipt.test.ts` (20 tests) ; `lib/general-means/expense-lines.ts` (`readReceipt`, `saveReceiptLines`, partagé par les deux actions) ; modèle `DepartmentExpenseLine` ; `app/(app)/moyens-generaux/receipt-lines.tsx` ; catalogue `OfficeSupplyArticle` + `SuppliesManager` réutilisé depuis `app/(app)/demandes/`. |
 | **Regulatory — import d'un classeur** | `lib/regulatory/sheet-import.ts` (pur : `mapSheetRow`, `parseDosage`, `formOf`, `splitProduct`, `stripContainerSize`…) + `sheet-import.test.ts` (34 tests) ; générateur `scripts/gen-selection-pf-migration.ts` ; source `data/selection-pf-produits.xlsx` ; migration `prisma/migrations/20260812110000_selection_pf_products/`. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
@@ -2109,6 +2164,19 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Un cadenas Super Admin sur Regulatory, et des tickets de caisse à plusieurs articles.**
+  Le portefeuille importé arrive **verrouillé** : `RegulatoryProduct.isLocked` est filtré dans
+  `scopeRegulatory` — pas dans l'écran — donc un dossier verrouillé ne ressort ni par la recherche,
+  ni par l'assistant IA, ni par le sélecteur de produits des stocks, ni par une URL directe (404),
+  et les rares lectures hors portée reçoivent le même filtre. Seul le **Super Admin** voit ces
+  dossiers, les ouvre un par un ou **tout d'un geste** ; le sens inverse en masse n'existe pas
+  volontairement. Côté **moyens généraux**, l'assistante de direction tient le **catalogue
+  d'articles** depuis son module (le même que celui du secrétariat — deux catalogues auraient rendu
+  les consommations incomparables) et enregistre un **ticket de caisse portant plusieurs articles** :
+  chaque ligne dit l'article, le nombre et le montant, et le **total de la dépense découle des
+  lignes** au lieu d'être saisi à côté. Le libellé de chaque ligne est figé à l'achat, pour qu'un
+  article renommé ne réécrive pas un ticket déjà classé.
 
 - **Regulatory : le portefeuille « Sélection PF Produits » importé (69 dossiers) + la personne
   chargée du dossier au menu déroulant.** L'import passe par une **migration de données idempotente**

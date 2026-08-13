@@ -2,11 +2,11 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Filter, Columns3 } from "lucide-react";
+import { Loader2, Filter, Columns3, Lock, LockOpen } from "lucide-react";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PRIORITY, REGULATORY_STATUS, REGULATORY_CATEGORY, MANUFACTURING_STATUS } from "@/lib/labels";
 import { formatDate, daysUntil } from "@/lib/utils";
-import { setRegulatoryPriority, setRegulatoryResponsible } from "@/lib/actions/regulatory-actions";
+import { setRegulatoryPriority, setRegulatoryResponsible, setRegulatoryLock, unlockAllRegulatory } from "@/lib/actions/regulatory-actions";
 
 export type RegStage = "new" | "in_progress" | "done";
 
@@ -30,6 +30,8 @@ export interface RegulatoryRow {
   manufacturingPending: string | null;
   status: string;
   priority: string;
+  /** Dossier VERROUILLÉ : invisible pour l'équipe. Seul le Super Admin en voit un. */
+  isLocked: boolean;
   responsible: string;
   /** Identifiant de la personne chargée du dossier — le menu déroulant travaille dessus. */
   responsibleId: string;
@@ -113,11 +115,13 @@ export function RegulatoryTable({
   rows,
   canEditPriority = false,
   canAssign = false,
+  canLock = false,
   assignableUsers = [],
 }: {
   rows: RegulatoryRow[];
   canEditPriority?: boolean;
   canAssign?: boolean;
+  canLock?: boolean;
   assignableUsers?: AssignableUser[];
 }) {
   const router = useRouter();
@@ -163,6 +167,9 @@ export function RegulatoryTable({
   };
 
   const visibleCols = COLS.filter((c) => !hiddenCols.includes(c.key));
+  // Compté sur TOUTES les lignes, pas sur celles qui passent le filtre courant : un dossier
+  // caché par un filtre reste caché à l'équipe, et c'est ce total-là qui compte.
+  const lockedCount = rows.filter((r) => r.isLocked).length;
 
   /**
    * Les personnes assignables ne sont connues qu'au chargement de la page. Le filtre de la
@@ -208,6 +215,27 @@ export function RegulatoryTable({
     router.refresh();
   }
 
+  /** Ouvrir ou fermer le cadenas d'un dossier (Super Admin). */
+  async function toggleLock(id: string, locked: boolean) {
+    setBusyId(id);
+    setAssignError(null);
+    const fd = new FormData(); fd.set("id", id); fd.set("locked", locked ? "1" : "0");
+    const res = await setRegulatoryLock(fd);
+    setBusyId(null);
+    if (!res.ok) setAssignError(res.error ?? "Impossible de modifier le verrou.");
+    router.refresh();
+  }
+
+  /** Ouvrir le cadenas sur tout ce qui est verrouillé — un portefeuille se publie d'un geste. */
+  async function unlockAll() {
+    setBusyId("*");
+    setAssignError(null);
+    const res = await unlockAllRegulatory();
+    setBusyId(null);
+    if (!res.ok) setAssignError(res.error ?? "Impossible de déverrouiller.");
+    router.refresh();
+  }
+
   /** Confier le dossier à quelqu'un. Un refus du serveur se DIT — sinon le menu revient
    *  silencieusement en arrière et personne ne comprend pourquoi. */
   async function changeResponsible(id: string, responsibleId: string) {
@@ -224,7 +252,28 @@ export function RegulatoryTable({
   function cellFor(key: string, r: RegulatoryRow): React.ReactNode {
     switch (key) {
       case "reference":
-        return <td key={key} className="px-3 py-2 font-mono text-xs font-medium">{r.reference}</td>;
+        // Le cadenas vit à côté de la référence : c'est l'identité du dossier qui est
+        // confidentielle, pas une de ses propriétés. Personne d'autre que le Super Admin ne
+        // voit cette ligne — le bouton ne s'affiche donc que pour lui.
+        return (
+          <td key={key} className="whitespace-nowrap px-3 py-2 font-mono text-xs font-medium">
+            <span className="inline-flex items-center gap-1.5">
+              {r.reference}
+              {canLock ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); void toggleLock(r.id, !r.isLocked); }}
+                  disabled={busyId === r.id}
+                  title={r.isLocked ? "Verrouillé — invisible pour l'équipe. Cliquer pour ouvrir." : "Visible par l'équipe. Cliquer pour verrouiller."}
+                  aria-label={r.isLocked ? "Déverrouiller le dossier" : "Verrouiller le dossier"}
+                  className={`rounded p-0.5 ${r.isLocked ? "text-warning hover:bg-warning/10" : "text-muted-foreground/40 hover:bg-secondary hover:text-foreground"}`}
+                >
+                  {r.isLocked ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
+                </button>
+              ) : null}
+            </span>
+          </td>
+        );
       case "dci":
         return <td key={key} className="px-3 py-2"><p className="font-medium">{r.dci}</p>{r.brandName && <p className="text-xs text-muted-foreground">{r.brandName}</p>}</td>;
       case "dosage":
@@ -332,6 +381,31 @@ export function RegulatoryTable({
           </div>
         </div>
       </div>
+
+      {/* Le Super Admin est le SEUL à voir ces dossiers : il doit donc savoir en permanence
+          combien il en cache, sinon un portefeuille reste verrouillé des mois par oubli. */}
+      {canLock && lockedCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm">
+          <p className="flex items-start gap-2 text-muted-foreground">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <span>
+              <strong>{lockedCount} dossier{lockedCount > 1 ? "s" : ""} verrouillé{lockedCount > 1 ? "s" : ""}.</strong>{" "}
+              Vous êtes seul à {lockedCount > 1 ? "les" : "le"} voir — l&apos;équipe, la Direction et
+              l&apos;assistant IA ne {lockedCount > 1 ? "les" : "le"} trouvent nulle part. Ouvrez le
+              cadenas d&apos;une ligne pour {lockedCount > 1 ? "la" : "le"} publier.
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => void unlockAll()}
+            disabled={busyId === "*"}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-secondary"
+          >
+            {busyId === "*" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LockOpen className="h-3.5 w-3.5" />}
+            Tout déverrouiller
+          </button>
+        </div>
+      )}
 
       {assignError && (
         <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{assignError}</p>

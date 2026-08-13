@@ -1104,6 +1104,13 @@ model RegulatoryProduct {
   manufacturer           String? // fabricant (obligatoire si variation locale)
   variationDate          DateTime? // date d'effet de la variation
 
+  /// VERROU — dossier invisible pour toute l'équipe, y compris la Direction. Seul le Super
+  /// Admin le voit et peut le déverrouiller (cadenas du tableau). Sert aux portefeuilles
+  /// encore confidentiels : le filtre est posé dans `scopeRegulatory`, pas dans l'écran, pour
+  /// qu'un dossier verrouillé ne puisse pas ressortir par une autre porte (recherche, stocks,
+  /// assistant, portail fournisseur…).
+  isLocked Boolean @default(false)
+
   responsibleId String?
   responsible   User?   @relation("RegulatoryResponsible", fields: [responsibleId], references: [id])
   assistantId   String?
@@ -1142,6 +1149,7 @@ model RegulatoryProduct {
   @@index([assistantId])
   @@index([dci])
   @@index([supplierId])
+  @@index([isLocked])
 }
 
 // Variation de fabrication : après la DE d'un produit, on peut demander une variation
@@ -1818,10 +1826,40 @@ model DepartmentBudgetExpense {
   createdBy      User?                  @relation("DeptExpenseCreator", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt      DateTime               @default(now())
 
+  /// Le DÉTAIL du ticket : un même justificatif porte presque toujours plusieurs articles.
+  lines DepartmentExpenseLine[]
+
   @@index([departmentId, year, kind])
   @@index([adminRequestId])
   @@index([pettyCashId])
   @@index([date])
+}
+
+/// UN ARTICLE D'UN TICKET DE CAISSE / D'UNE FACTURE.
+///
+/// Une dépense n'était qu'un libellé et un montant : « courses 12 400 DZD ». On savait ce qui
+/// était sorti de la caisse, jamais ce qui avait été acheté — donc ni ce qu'on consomme le
+/// plus, ni à quel prix, ni si le total du ticket correspond à ce qu'on y a mis. Une pièce
+/// justificative porte presque toujours PLUSIEURS articles : le modèle le dit maintenant.
+///
+/// Le `label` est FIGÉ à l'achat, en plus du lien vers le catalogue : un article renommé ou
+/// retiré du catalogue ne doit pas réécrire l'histoire d'un ticket déjà classé — et un achat
+/// hors catalogue (article acheté une fois) reste possible, `articleId` valant alors NULL.
+model DepartmentExpenseLine {
+  id        String                  @id @default(cuid())
+  expenseId String
+  expense   DepartmentBudgetExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  articleId String?
+  article   OfficeSupplyArticle?    @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  /// Désignation au moment de l'achat (recopiée du catalogue, ou saisie libre).
+  label     String
+  quantity  Decimal                 @default(1) @db.Decimal(12, 3)
+  /// Montant de la ligne (quantité × prix unitaire, ou saisi tel quel depuis le ticket).
+  amount    Decimal                 @default(0) @db.Decimal(14, 2)
+  createdAt DateTime                @default(now())
+
+  @@index([expenseId])
+  @@index([articleId])
 }
 
 enum DepartmentBudgetKind {
@@ -3688,6 +3726,9 @@ model OfficeSupplyArticle {
   createdById    String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  /// Achats réels de cet article — ce qui rend le catalogue vivant plutôt que déclaratif.
+  expenseLines DepartmentExpenseLine[]
 
   @@index([active])
   @@index([category])

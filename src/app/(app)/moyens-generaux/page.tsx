@@ -16,6 +16,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { CashPanel } from "./cash-panel";
 import { ExpensePanel } from "./expense-panel";
 import { DepartmentSwitcher } from "./department-switcher";
+import { SuppliesManager } from "../demandes/supplies-manager";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Moyens généraux — AMD Internal OS" };
@@ -72,6 +73,29 @@ export default async function MoyensGenerauxPage({
     ? await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [];
 
+  // LE CATALOGUE D'ARTICLES — le même que celui du Bureau du secrétariat, vu d'ici. Deux
+  // catalogues auraient produit deux vocabulaires, donc des consommations incomparables.
+  // La liste courte alimente les menus déroulants des tickets ; la liste détaillée n'est
+  // chargée que pour qui peut la tenir.
+  const canManageCatalog = userCan(user, "GENERAL_MEANS", "UPDATE");
+  const [articles, catalog] = await Promise.all([
+    prisma.officeSupplyArticle.findMany({
+      where: { active: true },
+      select: { id: true, name: true, unit: true, estimatedPrice: true },
+      orderBy: { name: "asc" },
+    }),
+    canManageCatalog
+      ? prisma.officeSupplyArticle.findMany({
+          select: { id: true, name: true, category: true, unit: true, reference: true, estimatedPrice: true, supplierHint: true, active: true, notes: true },
+          orderBy: [{ active: "desc" }, { name: "asc" }],
+        })
+      : Promise.resolve([]),
+  ]);
+  const articleOptions = articles.map((a) => ({
+    id: a.id, name: a.name, unit: a.unit, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null,
+  }));
+  const catalogRows = catalog.map((a) => ({ ...a, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null }));
+
   const health = budgetHealth(view.allocated, view.consumed);
   const tone = health === "OVER_BUDGET" ? "danger" : health === "AT_RISK" ? "warning" : health === "UNSET" ? "default" : "success";
 
@@ -82,6 +106,7 @@ export default async function MoyensGenerauxPage({
         description="Le budget de l'exercice, la caisse d'avance du mois et le détail des dépenses, avec leurs justificatifs. Tout achat porte sa facture ou son bon de paiement."
       >
         {departments.length > 1 && <DepartmentSwitcher departments={departments} current={view.department.id} year={year} />}
+        {canManageCatalog && <SuppliesManager articles={catalogRows} />}
         {/* Un lien vers un écran qu'on ne peut pas ouvrir est pire qu'une absence de lien. */}
         {userCan(user, "BUDGETS", "VIEW") && (
           <Link href="/budgets/departements" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">
@@ -115,7 +140,7 @@ export default async function MoyensGenerauxPage({
             l&apos;avoir reçue, puis chaque dépense en est déduite, justificatif scanné à l&apos;appui, jusqu&apos;à
             épuisement — moment où elle demande une rallonge.
           </p>
-          <CashPanel view={view} people={people} />
+          <CashPanel view={view} people={people} articles={articleOptions} />
         </CardContent>
       </Card>
 
@@ -130,7 +155,7 @@ export default async function MoyensGenerauxPage({
               Finances) s&apos;enregistre ici : montant, scan de la facture ou du bon de paiement — et il est
               <strong> déduit du budget</strong>.
             </p>
-            <ExpensePanel departmentId={view.department.id} year={year} remaining={view.remaining} />
+            <ExpensePanel departmentId={view.department.id} year={year} remaining={view.remaining} articles={articleOptions} />
           </CardContent>
         )}
         <CardContent className="p-0">
@@ -146,6 +171,13 @@ export default async function MoyensGenerauxPage({
                   <span className="min-w-0 flex-1">
                     <span className="font-medium">{e.label}</span>
                     {e.notes && <span className="block text-xs text-muted-foreground">{e.notes}</span>}
+                    {/* LE DÉTAIL DU TICKET. Sans lui, on relit « courses — 12 400 DZD » six mois
+                        plus tard sans savoir ce qui a été acheté. */}
+                    {e.lines.length > 0 && (
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        {e.lines.map((l) => `${l.quantity > 1 ? `${l.quantity}× ` : ""}${l.label} (${formatCurrency(l.amount)})`).join(" · ")}
+                      </span>
+                    )}
                     <span className="block text-[0.6875rem] text-muted-foreground">
                       {DEPT_BUDGET_LABEL[e.kind]}{e.createdBy ? ` · ${e.createdBy}` : ""}
                     </span>

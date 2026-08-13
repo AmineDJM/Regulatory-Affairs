@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { PETTY_CASH_STATUS_LABEL, periodLabel, MAX_RECHARGE_DAY } from "@/lib/petty-cash";
+import { ReceiptLines, type CatalogArticle } from "./receipt-lines";
 import {
   allotPettyCash, confirmPettyCashReceipt, spendFromPettyCash, requestPettyCashTopUp, closePettyCash,
   decidePettyCashTopUp, setPettyCashPlan,
@@ -26,7 +27,7 @@ import type { GeneralMeansView } from "@/lib/queries/general-means";
  * justificatif obligatoire ; la rallonge se demande depuis le même endroit, sans changer
  * d'écran — c'est au moment où l'on constate qu'il ne reste rien qu'on la demande.
  */
-export function CashPanel({ view, people }: { view: GeneralMeansView; people: { id: string; name: string }[] }) {
+export function CashPanel({ view, people, articles }: { view: GeneralMeansView; people: { id: string; name: string }[]; articles: CatalogArticle[] }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
@@ -199,23 +200,28 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
           }}
           className="space-y-2 rounded-xl border border-border bg-secondary/30 p-3"
         >
-          <p className="text-sm font-medium">Dépense payée sur la caisse</p>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <label className="text-xs sm:col-span-2">
-              Objet
-              <Input name="label" required placeholder="Ex. ramettes A4 et toner — Papeterie Centrale" className="mt-1 h-9" />
-            </label>
-            <label className="text-xs">
-              Montant (DZD)
-              <Input name="amount" inputMode="decimal" required placeholder="0" className="mt-1 h-9 text-right tabular-nums" />
-            </label>
+          <p className="text-sm font-medium">Ticket de caisse</p>
+          <label className="block text-xs">
+            Objet
+            <Input name="label" placeholder="Facultatif — résumé depuis les articles si vide" className="mt-1 h-9" />
+          </label>
+
+          {/* UN TICKET, PLUSIEURS ARTICLES. Le montant de la dépense est la somme des lignes :
+              c'est ce qui permet de savoir ce qu'on achète, et pas seulement ce qu'on paie. */}
+          <div className="rounded-lg border border-border bg-background p-2">
+            <p className="mb-1.5 text-xs font-medium">
+              Articles du ticket <span className="text-destructive">*</span>
+              <span className="ml-1 font-normal text-muted-foreground">— le montant en découle</span>
+            </p>
+            <ReceiptLines articles={articles} />
           </div>
+
           <label className="block text-xs">
             Précisions
             <Input name="notes" placeholder="Facultatif" className="mt-1 h-9" />
           </label>
           <label className="block text-xs">
-            Facture / bon de paiement scanné <span className="text-destructive">*</span>
+            Ticket de caisse / facture scanné <span className="text-destructive">*</span>
             <input type="file" name="files" multiple required className="mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
           </label>
           <p className="text-[0.6875rem] text-muted-foreground">

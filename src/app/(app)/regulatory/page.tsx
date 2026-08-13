@@ -30,6 +30,8 @@ export default async function RegulatoryPage() {
   const canCreate = userCan(user, "REGULATORY", "CREATE");
   // Confier un dossier à quelqu'un, c'est le MODIFIER : même droit que l'édition de la fiche.
   const canAssign = userCan(user, "REGULATORY", "UPDATE");
+  // Le cadenas n'appartient qu'au Super Admin — les autres ne voient même pas les dossiers verrouillés.
+  const canLock = user.role === "SUPER_ADMIN";
   const [products, suppliers, companies, settings, bvOrders] = await Promise.all([
     prisma.regulatoryProduct.findMany({
       where: { ...scopeRegulatory(user), ...currentCompanyWhere() },
@@ -83,6 +85,7 @@ export default async function RegulatoryPage() {
       manufacturingPending: stage.pendingTo,
       status: p.status,
       priority: p.priority,
+      isLocked: p.isLocked,
       responsible: p.responsible?.name ?? "",
       responsibleId: p.responsibleId ?? "",
       assistant: p.assistant?.name ?? "",
@@ -162,6 +165,7 @@ export default async function RegulatoryPage() {
         rows={rows}
         canEditPriority={canSupervise}
         canAssign={canAssign}
+        canLock={canLock}
         assignableUsers={assignableUsers}
       />
     </div>

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
 import { DEPT_BUDGET_LABEL } from "@/lib/department-budget";
 import { addDepartmentExpense } from "@/lib/actions/department-budget-actions";
+import { ReceiptLines, type CatalogArticle } from "./receipt-lines";
 
 /**
  * AJOUTER UN ACHAT — le geste quotidien, à portée de clic.
@@ -22,16 +23,16 @@ import { addDepartmentExpense } from "@/lib/actions/department-budget-actions";
  * ne sert à rien.
  */
 export function ExpensePanel({
-  departmentId, year, remaining,
-}: { departmentId: string; year: number; remaining: number }) {
+  departmentId, year, remaining, articles,
+}: { departmentId: string; year: number; remaining: number; articles: CatalogArticle[] }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
-  const [amount, setAmount] = React.useState("");
+  // Le montant vient du DÉTAIL du ticket : il se calcule, il ne se saisit pas à côté.
+  const [total, setTotal] = React.useState(0);
 
-  const parsed = Number(amount.replace(/\s/g, "").replace(",", "."));
-  const overBudget = Number.isFinite(parsed) && parsed > 0 && parsed > remaining;
+  const overBudget = total > 0 && total > remaining;
 
   return (
     <div className="space-y-2">
@@ -50,7 +51,7 @@ export function ExpensePanel({
             void addDepartmentExpense(fd).then((r) => {
               setBusy(false);
               setMsg({ ok: r.ok, text: r.ok ? "Dépense enregistrée et déduite du budget." : (r.error ?? "Échec.") });
-              if (r.ok) { setOpen(false); setAmount(""); router.refresh(); }
+              if (r.ok) { setOpen(false); setTotal(0); router.refresh(); }
             });
           }}
           className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
@@ -58,16 +59,8 @@ export function ExpensePanel({
           <p className="text-sm font-medium">Achat à imputer sur le budget</p>
           <div className="grid gap-2 sm:grid-cols-3">
             <label className="text-xs sm:col-span-2">
-              Objet de l&apos;achat <span className="text-destructive">*</span>
-              <Input name="label" required placeholder="Ex. ramettes A4 et toner — Papeterie Centrale" className="mt-1 h-9" />
-            </label>
-            <label className="text-xs">
-              Montant (DZD) <span className="text-destructive">*</span>
-              <Input
-                name="amount" required inputMode="decimal" placeholder="0"
-                value={amount} onChange={(e) => setAmount(e.target.value)}
-                className="mt-1 h-9 text-right tabular-nums"
-              />
+              Objet de l&apos;achat
+              <Input name="label" placeholder="Facultatif — résumé depuis les articles si vide" className="mt-1 h-9" />
             </label>
             <label className="text-xs">
               Budget imputé
@@ -76,10 +69,18 @@ export function ExpensePanel({
                 <option value="ACTIVITY">{DEPT_BUDGET_LABEL.ACTIVITY}</option>
               </select>
             </label>
-            <label className="text-xs sm:col-span-2">
+            <label className="text-xs sm:col-span-3">
               Précisions
               <Input name="notes" placeholder="Facultatif — fournisseur, n° de facture…" className="mt-1 h-9" />
             </label>
+          </div>
+
+          <div className="rounded-lg border border-border bg-background p-2">
+            <p className="mb-1.5 text-xs font-medium">
+              Articles de la facture <span className="text-destructive">*</span>
+              <span className="ml-1 font-normal text-muted-foreground">— le total en découle</span>
+            </p>
+            <ReceiptLines articles={articles} onTotalChange={setTotal} />
           </div>
 
           <label className="block text-xs">

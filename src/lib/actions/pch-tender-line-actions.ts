@@ -346,11 +346,13 @@ function parseBoxSize(cond: string | null | undefined): number | null {
   return Number.isFinite(n) && n > 0 && n < 100000 ? n : null;
 }
 
-/** Rapproche le produit de NOTRE catalogue Regulatory (dci + dosage), renvoie {id,label} si trouvé. */
+/** Rapproche le produit de NOTRE catalogue Regulatory (dci + dosage), renvoie {id,label} si trouvé.
+ *  Les dossiers VERROUILLÉS sont exclus : l'analyse d'un appel d'offres est lue par toute
+ *  l'équipe, et y voir « notre produit » révélerait le portefeuille confidentiel. */
 async function matchOurProduct(dci: string, dosage: string | null): Promise<{ id: string; label: string } | null> {
   const qt = queryTokens(normText([dci, dosage].filter(Boolean).join(" ")));
   if (!qt.length) return null;
-  const products = await prisma.regulatoryProduct.findMany({ select: { id: true, dci: true, brandName: true, dosage: true, dosageUnit: true, reference: true }, take: 2000 });
+  const products = await prisma.regulatoryProduct.findMany({ where: { isLocked: false }, select: { id: true, dci: true, brandName: true, dosage: true, dosageUnit: true, reference: true }, take: 2000 });
   const hit = products.find((p) => {
     const hay = normText(`${p.dci} ${p.brandName ?? ""} ${p.dosage ?? ""} ${p.dosageUnit ?? ""}`);
     return allTokensIn(hay, qt);

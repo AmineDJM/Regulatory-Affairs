@@ -25,6 +25,8 @@ export interface GeneralMeansExpense {
   fromPettyCash: boolean;
   /** Pièces justificatives — une dépense sans pièce n'est qu'une affirmation. */
   documents: { id: string; name: string }[];
+  /** Le DÉTAIL du ticket : ce qui a été acheté, en quelle quantité, à quel prix. */
+  lines: { id: string; label: string; quantity: number; amount: number }[];
   createdBy: string;
 }
 
@@ -150,7 +152,10 @@ export async function getGeneralMeans(
       holder: { select: { id: true, name: true } },
       expenses: {
         orderBy: { date: "desc" },
-        include: { createdBy: { select: { name: true } } },
+        include: {
+          createdBy: { select: { name: true } },
+          lines: { orderBy: { createdAt: "asc" }, select: { id: true, label: true, quantity: true, amount: true } },
+        },
       },
       topUps: {
         orderBy: { createdAt: "desc" },
@@ -180,7 +185,10 @@ export async function getGeneralMeans(
       where: { departmentId, year, kind: { not: "HR" } },
       orderBy: { date: "desc" },
       take: 200,
-      include: { createdBy: { select: { name: true } } },
+      include: {
+        createdBy: { select: { name: true } },
+        lines: { orderBy: { createdAt: "asc" }, select: { id: true, label: true, quantity: true, amount: true } },
+      },
     }),
     prisma.pettyCashAllotment.findMany({
       where: { departmentId, period: { not: period } },
@@ -212,6 +220,7 @@ export async function getGeneralMeans(
     notes: e.notes,
     fromPettyCash: Boolean(e.pettyCashId),
     documents: docsByExpense.get(e.id) ?? [],
+    lines: e.lines.map((l) => ({ id: l.id, label: l.label, quantity: toNumber(l.quantity), amount: toNumber(l.amount) })),
     createdBy: e.createdBy?.name ?? "",
   });
 
@@ -228,6 +237,7 @@ export async function getGeneralMeans(
     notes: e.notes,
     fromPettyCash: true,
     documents: docsByExpense.get(e.id) ?? [],
+    lines: e.lines.map((l) => ({ id: l.id, label: l.label, quantity: toNumber(l.quantity), amount: toNumber(l.amount) })),
     createdBy: e.createdBy?.name ?? "",
   }));
 

@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { ImpersonateButton } from "./impersonate-button";
 import { prisma } from "@/lib/prisma";
-import { PERMISSIONS, defaultScope, MODULES, type Action, type Module } from "@/lib/rbac";
+import { PERMISSIONS, defaultScope, MODULES, type Action, type Module, regulatoryLockWhere } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
@@ -39,7 +39,9 @@ export default async function AdminUserPage({ params }: { params: { id: string }
       orderBy: { lastSeenAt: "desc" },
     }),
     prisma.activityLog.findMany({ where: { userId: target.id }, orderBy: { createdAt: "desc" }, take: 15 }),
-    prisma.regulatoryProduct.findMany({ select: { id: true, reference: true, dci: true }, orderBy: { reference: "asc" } }),
+    // Le verrou prime sur toute autorisation nominative : proposer un dossier verrouillé ici
+    // afficherait son nom ET donnerait une permission qui, de toute façon, ne l'ouvrirait pas.
+    prisma.regulatoryProduct.findMany({ where: regulatoryLockWhere(admin), select: { id: true, reference: true, dci: true }, orderBy: { reference: "asc" } }),
     prisma.medicalDoctor.findMany({ select: { id: true, name: true, city: true }, orderBy: { name: "asc" } }),
     prisma.businessDevelopmentOpportunity.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);

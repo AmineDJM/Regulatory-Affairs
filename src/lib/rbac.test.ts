@@ -10,6 +10,7 @@ import {
   hasGlobalView,
   scopeMedicalDoctors,
   scopeRegulatory,
+  regulatoryLockWhere,
   scopeSales,
   userCan,
   type Action,
@@ -147,9 +148,9 @@ describe("effective access (userCan / accessibleModules)", () => {
 });
 
 describe("row-level scoping", () => {
-  it("returns an unrestricted scope for ALL", () => {
+  it("ne restreint QUE le verrou sur une portée ALL", () => {
     const head = mkUser("h1", "HEAD_OF_REGULATORY", fromRole("HEAD_OF_REGULATORY"));
-    expect(scopeRegulatory(head)).toEqual({});
+    expect(scopeRegulatory(head)).toEqual({ isLocked: false });
     expect(hasGlobalView("DIRECTION")).toBe(true);
   });
 
@@ -159,11 +160,38 @@ describe("row-level scoping", () => {
       "REGULATORY_ASSISTANT",
       mkAccess({ REGULATORY: { actions: ["VIEW"], scope: "ASSIGNED" } }, { REGULATORY_PRODUCT: ["row-123"] }),
     );
-    const scope = scopeRegulatory(asst) as { OR: unknown[] };
-    expect(scope).toHaveProperty("OR");
-    const json = JSON.stringify(scope.OR);
+    const scope = scopeRegulatory(asst) as { AND: [{ OR: unknown[] }, unknown] };
+    const json = JSON.stringify(scope.AND[0].OR);
     expect(json).toContain("u-asst"); // owner/assignee conditions
     expect(json).toContain("row-123"); // explicit grant
+  });
+
+  // LE VERROU passe avant tout le reste : c'est ce qui permet de charger un portefeuille
+  // confidentiel dans l'outil sans le publier. Il est posé dans la PORTÉE et non dans l'écran,
+  // pour qu'un dossier verrouillé ne ressorte ni par la recherche, ni par les stocks, ni par
+  // l'assistant. Ces trois cas sont la garantie que la règle ne se contourne pas.
+  it("cache les dossiers VERROUILLÉS, même à qui voit toutes les lignes", () => {
+    const head = mkUser("h1", "HEAD_OF_REGULATORY", fromRole("HEAD_OF_REGULATORY"));
+    expect(scopeRegulatory(head)).toMatchObject({ isLocked: false });
+  });
+
+  it("les cache AUSSI à qui en est nommément responsable", () => {
+    const asst = mkUser(
+      "u-asst",
+      "REGULATORY_ASSISTANT",
+      mkAccess({ REGULATORY: { actions: ["VIEW"], scope: "ASSIGNED" } }, { REGULATORY_PRODUCT: ["row-123"] }),
+    );
+    const scope = scopeRegulatory(asst) as { AND: unknown[] };
+    expect(scope.AND).toContainEqual({ isLocked: false });
+  });
+
+  it("le SUPER ADMIN, lui, les voit — il est le seul à tenir le cadenas", () => {
+    const boss = mkUser("boss", "SUPER_ADMIN", fromRole("SUPER_ADMIN"));
+    expect(scopeRegulatory(boss)).toEqual({});
+    expect(regulatoryLockWhere(boss)).toEqual({});
+    expect(regulatoryLockWhere(mkUser("h1", "DIRECTION", fromRole("DIRECTION")))).toEqual({ isLocked: false });
+    // Sans utilisateur (lecture anonyme, portail), on verrouille : le doute ne publie pas.
+    expect(regulatoryLockWhere(null)).toEqual({ isLocked: false });
   });
 
   it("returns match-nothing when the module is not accessible", () => {

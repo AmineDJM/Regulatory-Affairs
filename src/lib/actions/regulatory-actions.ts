@@ -349,6 +349,67 @@ export async function setRegulatoryPriority(formData: FormData): Promise<ActionR
 }
 
 /**
+ * VERROUILLER / DÉVERROUILLER un dossier — le cadenas, réservé au SUPER ADMIN.
+ *
+ * Un dossier verrouillé n'existe pour personne d'autre : ni la Direction, ni son responsable,
+ * ni une autorisation nominative ne l'ouvrent (`scopeRegulatory` → `lockGate`). C'est ce qui
+ * permet de charger un portefeuille encore confidentiel dans l'outil sans le publier à l'équipe.
+ *
+ * Le droit se vérifie sur le RÔLE et non sur le module : « qui peut modifier un dossier » est
+ * une question plus large que « qui décide de ce qui est confidentiel ».
+ */
+export async function setRegulatoryLock(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") {
+    return { ok: false, error: "Seul le Super Admin ouvre ou ferme le cadenas." };
+  }
+  const id = str(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  const locked = str(formData, "locked") === "1";
+  const before = await prisma.regulatoryProduct.findUnique({ where: { id }, select: { reference: true, dci: true, isLocked: true } });
+  if (!before) return { ok: false, error: "Dossier introuvable." };
+  if (before.isLocked === locked) return { ok: true, id };
+
+  await prisma.regulatoryProduct.update({ where: { id }, data: { isLocked: locked, updatedById: user.id } });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT",
+    entityId: id, field: "isLocked", newValue: locked ? "true" : "false",
+    summary: `${before.reference} — dossier ${locked ? "verrouillé (invisible pour l'équipe)" : "déverrouillé (visible par l'équipe)"}`,
+  });
+  revalidatePath("/regulatory");
+  revalidatePath(`/regulatory/${id}`);
+  return { ok: true, id };
+}
+
+/**
+ * OUVRIR LE CADENAS SUR TOUT ce qui est verrouillé — un portefeuille se publie d'un geste, pas
+ * ligne par ligne sur 69 dossiers. Réservé au Super Admin, audité avec le nombre réel de
+ * dossiers ouverts : rendre visible un portefeuille entier est une décision.
+ *
+ * Volontairement à SENS UNIQUE. Un « tout verrouiller » symétrique ferait disparaître le
+ * catalogue Regulatory entier pour toute l'entreprise d'un seul clic — le verrouillage se
+ * décide donc dossier par dossier, où l'on voit ce que l'on ferme.
+ */
+export async function unlockAllRegulatory(): Promise<ActionResult> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") {
+    return { ok: false, error: "Seul le Super Admin ouvre ou ferme le cadenas." };
+  }
+  const res = await prisma.regulatoryProduct.updateMany({
+    where: { isLocked: true },
+    data: { isLocked: false, updatedById: user.id },
+  });
+  if (res.count === 0) return { ok: true };
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT",
+    entityId: "*", field: "isLocked", newValue: "false",
+    summary: `${res.count} dossier(s) déverrouillés en une fois — désormais visibles par l'équipe`,
+  });
+  revalidatePath("/regulatory");
+  return { ok: true };
+}
+
+/**
  * LA PERSONNE CHARGÉE DU DOSSIER, choisie directement dans le tableau Regulatory.
  *
  * Assigner, c'est aussi DONNER L'ACCÈS : `scopeRegulatory` filtre les dossiers sur les

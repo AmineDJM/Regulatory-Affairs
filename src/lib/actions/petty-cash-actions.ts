@@ -16,6 +16,7 @@ import {
 } from "@/lib/petty-cash";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
 
 const PATH = "/moyens-generaux";
 
@@ -167,9 +168,18 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
     return { ok: false, error: "Seule la personne qui détient la caisse y impute des dépenses." };
   }
 
-  const label = fdStr(formData, "label");
+  // LE TICKET FAIT LA DÉPENSE. Les articles achetés (catalogue ou saisie libre) donnent le
+  // montant : un total saisi à côté du détail finirait par ne plus lui correspondre, et c'est
+  // le budget qui deviendrait faux. À défaut de lignes — ancien formulaire, saisie rapide —
+  // on retombe sur le couple libellé + montant.
+  const rawLines = formData.get("lines");
+  const read = await readReceipt(rawLines, fdStr(formData, "label"));
+  if ("error" in read && rawLines) return { ok: false, error: read.error };
+  const ticket = "error" in read ? null : read;
+
+  const label = ticket ? ticket.label : fdStr(formData, "label");
   if (!label) return { ok: false, error: "Indiquez ce qui a été acheté." };
-  const amount = normalizeAmount(fdStr(formData, "amount"));
+  const amount = ticket ? ticket.total : normalizeAmount(fdStr(formData, "amount"));
   if (typeof amount !== "number") return { ok: false, error: amount.error };
 
   const state = { id: cash.id, period: cash.period, amount: toNumber(cash.amount), status: cash.status as PettyCashStatus };
@@ -199,6 +209,7 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
     },
     select: { id: true },
   });
+  if (ticket) await saveReceiptLines(created.id, ticket.lines);
 
   const maxMb = (await getAppSettings()).maxUploadMb;
   for (const file of files) {

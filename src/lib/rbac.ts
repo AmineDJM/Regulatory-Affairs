@@ -608,10 +608,24 @@ function grantsFor(user: SessionUser, entityType: EntityType): string[] {
   return [...(user.access.rowGrants.get(entityType) ?? [])];
 }
 
+/**
+ * Le VERROU d'un dossier réglementaire passe AVANT tout le reste : ni la portée « toutes les
+ * lignes », ni le fait d'en être responsable, ni une autorisation nominative ne l'ouvrent. Seul
+ * le Super Admin voit un dossier verrouillé — et il est le seul à pouvoir le déverrouiller.
+ *
+ * Cette règle vit ici, dans la portée, et non dans l'écran Regulatory : un dossier caché du
+ * tableau mais visible depuis la recherche, le sélecteur de produits des stocks ou l'assistant
+ * ne serait pas caché du tout.
+ */
+function lockGate(user: SessionUser): Prisma.RegulatoryProductWhereInput | null {
+  return user.role === "SUPER_ADMIN" ? null : { isLocked: false };
+}
+
 export function scopeRegulatory(user: SessionUser): Prisma.RegulatoryProductWhereInput {
   const m = user.access.modules.get("REGULATORY");
   if (!m) return { id: "__none__" };
-  if (m.scope === "ALL") return {};
+  const gate = lockGate(user);
+  if (m.scope === "ALL") return gate ?? {};
   const ors: Prisma.RegulatoryProductWhereInput[] = [
     { createdById: user.id }, // le créateur voit toujours son propre dossier (sinon 404 après création)
     { responsibleId: user.id },
@@ -620,7 +634,17 @@ export function scopeRegulatory(user: SessionUser): Prisma.RegulatoryProductWher
   ];
   const ids = grantsFor(user, "REGULATORY_PRODUCT");
   if (ids.length) ors.push({ id: { in: ids } });
-  return { OR: ors };
+  return gate ? { AND: [{ OR: ors }, gate] } : { OR: ors };
+}
+
+/**
+ * Le même verrou pour les lectures qui ne passent PAS par `scopeRegulatory` : sélecteur de
+ * produits des stocks, rapprochement « notre produit » d'un appel d'offres PCH, compteurs du
+ * tableau de bord. Elles n'ont pas de portée par ligne, mais elles nomment des produits — et
+ * un nom qui apparaît suffit à révéler le portefeuille.
+ */
+export function regulatoryLockWhere(user: SessionUser | null): Prisma.RegulatoryProductWhereInput {
+  return user && user.role === "SUPER_ADMIN" ? {} : { isLocked: false };
 }
 
 export function scopeMedicalDoctors(user: SessionUser): Prisma.MedicalDoctorWhereInput {

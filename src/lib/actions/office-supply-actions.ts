@@ -9,9 +9,16 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
 
-/** Le catalogue est maintenu par les gestionnaires du Bureau du secrétariat. */
+/**
+ * Le catalogue est maintenu par les gestionnaires du Bureau du secrétariat — ET par ceux des
+ * moyens généraux. C'est le MÊME catalogue vu de deux endroits : il alimente les demandes
+ * d'achat d'un côté, le détail des tickets de caisse de l'autre. En tenir deux reviendrait à
+ * comparer des consommations qui ne parlent pas des mêmes articles.
+ */
 function canManageCatalog(user: SessionUser): boolean {
-  return hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE");
+  return hasGlobalView(user.role)
+    || userCan(user, "ADMIN_REQUESTS", "UPDATE")
+    || userCan(user, "GENERAL_MEANS", "UPDATE");
 }
 
 export async function createSupplyArticle(formData: FormData): Promise<ActionResult> {
@@ -36,6 +43,7 @@ export async function createSupplyArticle(formData: FormData): Promise<ActionRes
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Bureau du secrétariat", entityType: "OFFICE_SUPPLY_ARTICLE", entityId: created.id, summary: `Article « ${name} » ajouté au catalogue` });
   revalidatePath("/demandes");
   revalidatePath("/demandes/assistant");
+  revalidatePath("/moyens-generaux");
   return { ok: true, id: created.id };
 }
 
@@ -61,6 +69,7 @@ export async function updateSupplyArticle(formData: FormData): Promise<ActionRes
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "OFFICE_SUPPLY_ARTICLE", entityId: id, summary: `Article « ${name} » modifié` });
   revalidatePath("/demandes");
   revalidatePath("/demandes/assistant");
+  revalidatePath("/moyens-generaux");
   return { ok: true, id };
 }
 
@@ -76,5 +85,6 @@ export async function toggleSupplyArticle(formData: FormData): Promise<ActionRes
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "OFFICE_SUPPLY_ARTICLE", entityId: id, summary: `Article « ${a.name} » ${a.active ? "désactivé" : "réactivé"}` });
   revalidatePath("/demandes");
   revalidatePath("/demandes/assistant");
+  revalidatePath("/moyens-generaux");
   return { ok: true };
 }

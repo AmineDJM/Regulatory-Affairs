@@ -15,7 +15,7 @@ export default async function StocksPage() {
   const canRequest = isSuperAdmin || canDelete;
 
   const [products, locations, snapshots, users] = await Promise.all([
-    getProductOptions(),
+    getProductOptions(user),
     prisma.stockAnnex.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, kind: true } }),
     // Portée VALIDÉE contre les droits, comme Finances et Ad & Pro : le cookie d'entité est une
     // demande, pas une autorisation. Et elle laisse passer les relevés NON RATTACHÉS — un état

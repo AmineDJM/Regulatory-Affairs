@@ -16,6 +16,7 @@ import {
   type DeptBudgetKind, type BudgetSetter, type DeptBudgetGrant, type GrantSubject,
 } from "@/lib/department-budget";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
 
 const PATH = "/budgets/departements";
 
@@ -341,9 +342,16 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
     return { ok: false, error: "Vous ne tenez pas ce budget, et ce n'est pas votre département." };
   }
 
-  const label = fdStr(formData, "label");
+  // Même règle qu'à la caisse : quand le détail du ticket est fourni, ce sont les ARTICLES qui
+  // font le montant. Un total saisi à côté du détail finit par ne plus lui correspondre.
+  const rawLines = formData.get("lines");
+  const read = await readReceipt(rawLines, fdStr(formData, "label"));
+  if ("error" in read && rawLines) return { ok: false, error: read.error };
+  const ticket = "error" in read ? null : read;
+
+  const label = ticket ? ticket.label : fdStr(formData, "label");
   if (!label) return { ok: false, error: "Indiquez ce qui a été acheté." };
-  const amount = normalizeAmount(fdStr(formData, "amount"));
+  const amount = ticket ? ticket.total : normalizeAmount(fdStr(formData, "amount"));
   if (typeof amount !== "number") return { ok: false, error: amount.error };
   if (amount <= 0) return { ok: false, error: "Indiquez le montant de la dépense." };
   const year = normalizeYear(fdStr(formData, "year"));
@@ -362,6 +370,7 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
     },
     select: { id: true },
   });
+  if (ticket) await saveReceiptLines(created.id, ticket.lines);
 
   const maxMb = (await getAppSettings()).maxUploadMb;
   for (const file of files) {
