@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { accessibleModules, userCan } from "@/lib/rbac";
 import { NAVIGATION, moduleForPath, type NavItem } from "@/lib/labels";
+import { canSeeRegEnrollment } from "@/lib/org-chart-access";
+import { getAppSettings } from "@/lib/settings";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { MobileTabBar } from "@/components/layout/mobile-tabbar";
@@ -56,7 +58,15 @@ export default async function AppLayout({
   const tabVisible = (t: { module: string; feature?: string }) =>
     modules.includes(t.module as (typeof modules)[number]) && (!t.feature || featureOn.get(t.feature) === true);
 
+  // Garde SUPPLÉMENTAIRE de l'analyse CTD : elle se débloque par réglage, rôle par rôle, et pas
+  // seulement par le module Regulatory. Résolue ICI, côté serveur : une entrée interdite n'est
+  // jamais envoyée au navigateur, donc jamais « cachée » par du CSS.
+  const gateOpen: Record<string, boolean> = {
+    regEnrollment: canSeeRegEnrollment(user, await getAppSettings()),
+  };
+
   const navItems = NAVIGATION.reduce<NavItem[]>((acc, n) => {
+    if (n.gate && !gateOpen[n.gate]) return acc;
     if (!n.tabs) {
       if (modules.includes(n.module)) acc.push(n);
       return acc;

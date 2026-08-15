@@ -1,7 +1,7 @@
 import { cache } from "react";
 import type { AccessScope, EntityType, Prisma, UserRole } from "@prisma/client";
 import { prisma } from "./prisma";
-import { NAVIGATION } from "./labels"; // labels n'importe de rbac QUE le type `Module` → aucun cycle runtime
+import { NAVIGATION, NAV_LEGACY_LABELS } from "./labels"; // labels n'importe de rbac QUE le type `Module` → aucun cycle runtime
 
 // `cache` is a React Server Components API; fall back to identity outside an
 // RSC render (e.g. unit tests) so the module loads everywhere.
@@ -352,6 +352,9 @@ function moduleFromValidation(moduleLabel: string | null, link: string | null): 
   if (moduleLabel) {
     const byLabel = NAV_TARGETS.find((n) => n.label === moduleLabel);
     if (byLabel) fromLabel = byLabel.module;
+    // Libellé d'AVANT un renommage de menu : une demande créée sous l'ancien nom doit continuer
+    // d'ouvrir le même module à son validateur.
+    else if (NAV_LEGACY_LABELS[moduleLabel]) fromLabel = NAV_LEGACY_LABELS[moduleLabel];
     else {
       const up = moduleLabel.trim().toUpperCase();
       if ((MODULES as readonly string[]).includes(up)) fromLabel = up as Module;

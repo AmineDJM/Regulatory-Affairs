@@ -1034,6 +1034,17 @@ export interface NavItem {
   icon: string; // lucide-react icon name
   group: "Pilotage" | "Pôles" | "Transverse" | "Système";
   /**
+   * Pôle d'entreprise auquel l'entrée appartient (groupe « Pôles » uniquement). C'est ce qui
+   * remplace les treize entrées à plat : l'utilisateur voit son entreprise, pas les modules.
+   */
+  pole?: "REGULATORY" | "ADMINISTRATION" | "SALES_MARKETING" | "BUSINESS_DEV" | "SUPPLY_CHAIN";
+  /**
+   * Garde SUPPLÉMENTAIRE au droit de module, résolue côté serveur dans le layout. Sert aux
+   * écrans dont l'ouverture dépend d'un réglage et pas seulement d'un rôle (l'analyse CTD est
+   * débloquée en Administration, rôle par rôle).
+   */
+  gate?: "regEnrollment";
+  /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
    * lien est résolu (dans le layout) vers le premier onglet autorisé. Aucune
@@ -1187,26 +1198,44 @@ export const NAVIGATION: NavItem[] = [
   { module: "DOSSIERS", label: "Projets", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
   // « Courrier » (boîte mail intégrée) retiré de la plateforme — la messagerie e-mail se gère
   // désormais directement dans l'app Infomaniak. Le code back-end reste dormant (non exposé).
-  // Pôles
-  { module: "REGULATORY", label: "Regulatory", href: "/regulatory", icon: "FileCheck2", group: "Pôles" },
-  { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", tabs: EVENTS_TABS, match: ["/promo-material"] },
-  { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages"] },
-  // MOYENS GÉNÉRAUX — module À PART, et non un onglet de Budgets : c'est l'écran de celui qui
-  // ACHÈTE (l'assistante de direction), pas de celui qui alloue. L'enfermer dans « Budgets »
-  // le rendait invisible à la seule personne qui s'en sert tous les jours.
-  { module: "GENERAL_MEANS", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket", group: "Pôles" },
-  { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles" },
-  { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie", "/formations"] },
-  { module: "SALES", label: "Ventes & Marchés", href: "/sales", icon: "TrendingUp", group: "Pôles", tabs: COMMERCE_TABS, match: ["/logistics", "/pch"] },
-  { module: "STOCKS", label: "Stocks", href: "/stocks", icon: "Boxes", group: "Pôles" },
-  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles" },
-  { module: "SALES_PLANNING", label: "Prévisions & Force de vente", href: "/planning", icon: "TrendingUp", group: "Pôles" },
-  { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles" },
-  { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles" },
-  { module: "BUSINESS_DEVELOPMENT", label: "Business Development", href: "/business-development", icon: "Lightbulb", group: "Pôles" },
-  // Accès DIRECT à l'Explorateur produits (Intelligence Marché) — la page reste aussi accessible
-  // depuis Business Development → Intelligence Marché ; même garde de module.
-  { module: "BUSINESS_DEVELOPMENT", label: "Explorateur produits", href: "/business-development/marche/produits", icon: "PackageSearch", group: "Pôles" },
+  // ─────────────────────────── PÔLES D'ENTREPRISE ───────────────────────────
+  // Les routes ne changent PAS : seul le rangement change. Un lien de notification écrit il y a
+  // six mois reste donc valide, sans redirection.
+
+  // REGULATORY — deux portes, et deux seulement. Une assistante qui suit un dossier n'a pas à
+  // traverser toute l'interface d'analyse CTD pour y arriver.
+  { module: "REGULATORY", label: "Suivi des dossiers", href: "/regulatory", icon: "FileCheck2", group: "Pôles", pole: "REGULATORY" },
+  { module: "REGULATORY", label: "Analyse CTD", href: "/regulatory/enregistrement", icon: "ScanSearch", group: "Pôles", pole: "REGULATORY", gate: "regEnrollment" },
+
+  // ADMINISTRATION — l'administration de L'ENTREPRISE (à ne pas confondre avec la Console
+  // d'Administration, qui est celle du logiciel et vit dans « Système »).
+  { module: "GENERAL_MEANS", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket", group: "Pôles", pole: "ADMINISTRATION" },
+  { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION" },
+  { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", pole: "ADMINISTRATION", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie", "/formations"] },
+  { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages"] },
+
+  // SALES & MARKETING — tout ce qui touche au terrain et au business réalisé. L'annuaire des
+  // praticiens vit DANS Promotion médicale : on ne consulte pas un annuaire pour lui-même, on
+  // le consulte en préparant une visite.
+  { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles", pole: "SALES_MARKETING" },
+  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING" },
+  { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
+  { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
+  { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/promo-material"] },
+  { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles", pole: "SALES_MARKETING" },
+
+  // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
+  // réalisées sont passées dans Sales & Marketing : analyser une opportunité et constater un
+  // chiffre d'affaires ne sont pas le même métier.
+  { module: "BUSINESS_DEVELOPMENT", label: "Market Intelligence", href: "/business-development", icon: "Lightbulb", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche"] },
+  { module: "PCH", label: "Marchés PCH", href: "/pch", icon: "Gavel", group: "Pôles", pole: "BUSINESS_DEV" },
+
+  // SUPPLY CHAIN & LOGISTICS — l'exécution physique. Les modèles existaient déjà
+  // (LogisticsOrder porte la commande de bout en bout) ; ils n'étaient simplement pas présentés
+  // comme un pôle.
+  { module: "LOGISTICS", label: "Commandes & logistique", href: "/logistics", icon: "Truck", group: "Pôles", pole: "SUPPLY_CHAIN" },
+  { module: "STOCKS", label: "Stocks", href: "/stocks", icon: "Boxes", group: "Pôles", pole: "SUPPLY_CHAIN" },
+
   // Transverse — « Demandes de validations » est le bureau de validation : chacun
   // y demande une validation professionnelle (selon l'accès accordé par le Super
   // Admin), et les validateurs y traitent ce qui leur revient. Les validations en
@@ -1218,7 +1247,10 @@ export const NAVIGATION: NavItem[] = [
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   // Système
   { module: "ADVENTUM_BRAIN", label: "Adventum Brain", href: "/adventum-brain", icon: "BrainCircuit", group: "Système", tabs: BRAIN_TABS },
-  { module: "ADMIN", label: "Administration", href: "/admin", icon: "Settings", group: "Système", tabs: ADMIN_TABS },
+  // « Console d'Administration » et non « Administration » : l'administration de
+  // L'ENTREPRISE est un pôle métier (Moyens généraux / Finances / RH / Budgets). Les
+  // confondre, c'est envoyer un directeur financier dans les réglages techniques.
+  { module: "ADMIN", label: "Console d'Administration", href: "/admin", icon: "Settings", group: "Système", tabs: ADMIN_TABS },
 ];
 
 /**
@@ -1233,6 +1265,27 @@ export const NAVIGATION: NavItem[] = [
  * de menu concernée et y poser un badge. Renvoie le module de l'entrée (ou d'un onglet) dont le
  * href/match est le plus long préfixe du chemin ; `null` si aucune ne correspond.
  */
+/**
+ * LIBELLÉS HISTORIQUES → module.
+ *
+ * `ValidationRequest.module` stocke le LIBELLÉ tel qu'il était au moment de la demande. Renommer
+ * une entrée de menu casserait donc l'accès temporaire d'un validateur sur toute demande créée
+ * avant le renommage — il ouvrirait une page vide sans comprendre pourquoi.
+ *
+ * Cette table conserve les anciens noms. On n'en retire JAMAIS une ligne : les demandes
+ * historiques, elles, ne se renomment pas.
+ */
+export const NAV_LEGACY_LABELS: Record<string, Module> = {
+  "Regulatory": "REGULATORY",
+  "Ventes & Marchés": "SALES",
+  "Logistique": "LOGISTICS",
+  "PCH — Marchés": "PCH",
+  "Prévisions & Force de vente": "SALES_PLANNING",
+  "Business Development": "BUSINESS_DEVELOPMENT",
+  "Explorateur produits": "BUSINESS_DEVELOPMENT",
+  "Administration": "ADMIN",
+};
+
 export function moduleForPath(path: string): Module | null {
   let bestLen = -1;
   let bestModule: Module | null = null;
