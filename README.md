@@ -2208,6 +2208,49 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Le stock du matériel promotionnel, tracé mouvement par mouvement** (`/promo-material/stock`).
+  Sans registre, la seule réponse à « en reste-t-il ? » était « je crois ». La quantité **ne se
+  saisit jamais** : on n'écrit que des mouvements (entrée, distribution, perte, correction
+  d'inventaire) et le stock en est la somme — `lib/promo/stock.ts`, module pur, 18 tests. Le sens
+  vient de la NATURE du mouvement, pas de la saisie (« combien ? », jamais « +600 ou −600 ») ;
+  seule la correction accepte un signe. On ne sort pas ce qu'on n'a pas : la garde est recalculée
+  côté serveur avant écriture, et le refus dit ce qui reste. Seuil d'alerte par article.
+
+- **L'Annuaire devient un sous-module en format feuille** (`/medical/annuaire`), exportable et
+  importable. L'import **ne demande pas notre format** : les colonnes sont reconnues sous les noms
+  des vrais fichiers (« NOM ET PRENOM », « Wilaya », « N° Tél. »), et les valeurs avec elles
+  (« Pr » = professeur, « cabinet » = libéral, « très haut » = 5) — `lib/medical/directory-sheet.ts`,
+  module pur, 20 tests. Ce qui n'est pas compris est **dit** (colonnes non lues, lignes écartées).
+  Un praticien déjà présent au même établissement est mis à jour, jamais dupliqué : le classeur
+  exporté se réimporte tel quel, et c'est testé.
+
+- **Validations : une demande = une demande.** Les validations **de pièce** se regroupent sous LEUR
+  demande (`lib/validations/grouping.ts`, 15 tests) : quatre pièces soumises séparément ne font plus
+  quatre demandes à l'écran. Le statut affiché est celui du TOUT — tant qu'une pièce attend, rien
+  n'est tranché — avec le décompte en clair (« 3 pièces — 2 acceptées, 1 en attente »). La
+  notification nomme la pièce (« Pièce acceptée — Facture n° 12 ») et dit ce qui reste à attendre.
+
+- **La feuille d'accès de la Console d'Administration se déduit des droits réels.** Colonnes
+  d'actions et modules « à lignes » ne sont plus écrits à la main : ils sortent de `PERMISSIONS` et
+  de `defaultScope` (`lib/rbac-sheet.ts`, 12 tests). Fini la case « Valider » sur un module où plus
+  personne ne valide — elle s'enregistrait sans rien ouvrir. Le serveur applique la même borne.
+
+- **Budget : vue globale, moyens généraux branchés, BV imputés.** Le total de **toutes** les
+  enveloppes visibles ouvre l'écran (le sélecteur d'enveloppe était un excellent moyen de ne jamais
+  voir le budget de l'entreprise). Chaque **ticket** des moyens généraux, et chaque **article** d'un
+  ticket, peut désigner sa case budgétaire — sans que l'acheteur ait accès au module Budget : il ne
+  voit qu'une liste de destinations, bornée aux enveloppes couvrant les moyens généraux et
+  revérifiée à l'écriture. La règle d'imputation est pure et testée (`lib/budget/imputation.ts`, 13
+  tests) : un article classé compte pour son montant, le reste tombe dans la catégorie du ticket, et
+  la somme des imputations **égale toujours** le montant payé. Rien n'est recopié : la page Budgets
+  relit les dépenses réelles. Enfin, le règlement d'un ordre de dépense se rabat sur la première
+  catégorie d'une **enveloppe qui couvre le module** (`lib/budget/auto-category.ts`, 9 tests) — créer
+  l'enveloppe « Regulatory » et cocher la case suffit pour que les BV payés s'y imputent.
+
+- **Regulatory : le tableau en plein écran.** Le plafond de 1400 px protège la lecture d'un texte,
+  pas celle d'un tableau de quinze colonnes : il devient une variable CSS que cet écran, et lui
+  seul, relève — mémorisée par navigateur, reposée en quittant la page.
+
 - **Moyens généraux : corriger ou supprimer une dépense, et deux totaux qui mentaient.**
   Chaque dépense porte un crayon et une corbeille — une erreur se répare là où on la voit, et
   c'est le journal d'audit qui garde la trace, pas la ligne fausse. Modifier rouvre le **ticket**
