@@ -232,12 +232,26 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
   });
 
   if (finalized && req.requesterId !== user.id) {
+    // UNE DÉCISION SUR UNE PIÈCE N'EST PAS UNE DÉCISION SUR LA DEMANDE. « Validation acceptée »
+    // sur la facture d'une demande qui en compte quatre laissait croire que tout était tranché.
+    // On nomme donc l'objet de la décision, et on dit ce qu'il reste à attendre.
+    const onPiece = Boolean(req.documentId);
+    const pieceName = onPiece
+      ? (await prisma.document.findUnique({ where: { id: req.documentId! }, select: { name: true } }))?.name ?? "Pièce jointe"
+      : null;
+    const stillPending = onPiece && req.entityType && req.entityId
+      ? await prisma.validationRequest.count({
+          where: { entityType: req.entityType, entityId: req.entityId, status: "PENDING", id: { not: req.id } },
+        })
+      : 0;
     const label = newStatus === "APPROVED" ? "acceptée" : newStatus === "REJECTED" ? "refusée" : "à modifier";
     await notifyUser({
       userId: req.requesterId,
       type: "GENERIC",
-      title: `Validation ${label}`,
-      body: `${req.reference} — ${req.title}`,
+      title: onPiece ? `Pièce ${label} — ${pieceName}` : `Validation ${label}`,
+      body: onPiece
+        ? `${req.reference} · cette décision porte sur cette pièce seule.${stillPending > 0 ? ` ${stillPending} autre${stillPending > 1 ? "s" : ""} pièce${stillPending > 1 ? "s" : ""} de la même demande attend${stillPending > 1 ? "ent" : ""} encore.` : " Toutes les pièces de la demande sont désormais tranchées."}`
+        : `${req.reference} — ${req.title}`,
       link: "/validations",
     });
   }

@@ -49,6 +49,16 @@ export interface MyValidationItem {
   status: string;
   mode: string;
   createdAt: string;
+  /**
+   * La validation porte-t-elle sur la demande ENTIÈRE, ou sur UNE de ses pièces ? Sans cette
+   * distinction, quatre pièces soumises séparément s'affichaient comme quatre demandes — et une
+   * pièce acceptée se lisait « demande acceptée ».
+   */
+  scope: "OBJECT" | "DOCUMENT";
+  /** Objet d'origine (`ADMIN_REQUEST:xxx`) : ce qui permet de regrouper sous LA demande. */
+  parentKey: string | null;
+  /** Nom de la pièce visée, quand c'est une validation de pièce. */
+  documentName: string | null;
   steps: MyValidationStep[];
 }
 
@@ -139,8 +149,12 @@ export async function getMyValidationRequests(userId: string): Promise<MyValidat
     orderBy: { createdAt: "desc" },
     take: 100,
   });
-  // Libellés lisibles des pièces référencées par les verdicts granulaires (itemKey = id de Document).
-  const docIds = [...new Set(reqs.flatMap((r) => r.steps.flatMap((s) => s.itemDecisions.map((d) => d.itemKey))).filter((k) => k !== "MESSAGE"))];
+  // Libellés lisibles des pièces : celles référencées par les verdicts granulaires (itemKey =
+  // id de Document) ET celles que vise la demande elle-même (`documentId`).
+  const docIds = [...new Set([
+    ...reqs.flatMap((r) => r.steps.flatMap((s) => s.itemDecisions.map((d) => d.itemKey))),
+    ...reqs.map((r) => r.documentId ?? ""),
+  ].filter((k) => k && k !== "MESSAGE"))];
   const docNames = new Map(
     docIds.length
       ? (await prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, name: true } })).map((d) => [d.id, d.name])
@@ -155,6 +169,9 @@ export async function getMyValidationRequests(userId: string): Promise<MyValidat
     status: r.status,
     mode: r.mode,
     createdAt: r.createdAt.toISOString(),
+    scope: r.documentId ? ("DOCUMENT" as const) : ("OBJECT" as const),
+    parentKey: r.entityType && r.entityId ? `${r.entityType}:${r.entityId}` : null,
+    documentName: r.documentId ? docNames.get(r.documentId) ?? "Pièce jointe" : null,
     steps: r.steps.map((s) => ({
       order: s.order,
       validator: s.validator?.name ?? "",

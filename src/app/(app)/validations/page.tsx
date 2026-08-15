@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Paperclip } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { accessibleModules } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getMyValidations, type PendingValidationItem } from "@/lib/queries/validations";
+import { getMyValidations, type PendingValidationItem, type MyValidationItem } from "@/lib/queries/validations";
+import { groupValidations, type ValidationGroup } from "@/lib/validations/grouping";
 import { createValidationRequest } from "@/lib/actions/validation-actions";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -57,7 +58,11 @@ export default async function ValidationsPage() {
     { type: "select", name: "module", label: "Module concerné (routage auto si aucun validateur)", options: moduleOptions, placeholder: "— Routage automatique par règles —" },
   ];
 
-  const pendingMine = myRequests.filter((r) => r.status === "PENDING").length;
+  // UNE DEMANDE = UNE DEMANDE. Les validations de pièces se regroupent sous la demande dont
+  // elles proviennent : sans cela, quatre pièces soumises séparément s'affichaient comme quatre
+  // demandes, et l'acceptation de l'une se lisait comme celle du tout.
+  const myGroups = groupValidations(myRequests);
+  const pendingMine = myGroups.filter((g) => g.status === "PENDING").length;
   // Les compteurs de supervision sont calculés côté serveur pour l'en-tête ; le tableau les
   // recalcule pour ses filtres, à partir des MÊMES fonctions pures — les deux ne peuvent pas
   // diverger.
@@ -90,7 +95,7 @@ export default async function ValidationsPage() {
           />
         )}
         <KpiCard label="Mes demandes en cours" value={pendingMine} icon="Hourglass" tone="info" />
-        <KpiCard label="Total de mes demandes" value={myRequests.length} icon="ListChecks" />
+        <KpiCard label="Total de mes demandes" value={myGroups.length} icon="ListChecks" />
       </div>
 
       <section className="space-y-3">
@@ -158,64 +163,108 @@ export default async function ValidationsPage() {
       )}
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes demandes de validation ({myRequests.length})</h2>
-        {myRequests.length === 0 ? (
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes demandes de validation ({myGroups.length})</h2>
+        {myGroups.length === 0 ? (
           <EmptyState icon="Send" title="Aucune demande envoyée" description="Vos demandes de validation et leur avancement apparaîtront ici." />
         ) : (
           <div className="space-y-2">
-            {myRequests.map((r) => (
-              <Card key={r.id}>
-                <CardContent className="space-y-2 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs text-muted-foreground">{r.reference}</span>
-                      <span className="font-medium">{r.title}</span>
-                      <Badge tone="neutral" dot={false}>{r.module}</Badge>
-                      <span className="text-xs text-muted-foreground">{VALIDATION_MODE[r.mode]}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {r.amount !== null && <span className="text-sm font-semibold">{formatCurrency(r.amount)}</span>}
-                      <StatusBadge map={VALIDATION_STATUS} value={r.status} />
-                      {user.role === "SUPER_ADMIN" && (
-                        <SuperAdminDeleteButton kind="VALIDATION_REQUEST" id={r.id} name={`${r.reference} — ${r.title}`} enabled />
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {r.steps.map((s) => (
-                      <span key={s.order} className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs" title={s.reason || undefined}>
-                        <span className="text-muted-foreground">{s.order}.</span>
-                        <span>{s.validator}</span>
-                        <StatusBadge map={VALIDATION_STEP_STATE} value={s.status} dot={false} />
-                      </span>
-                    ))}
-                  </div>
-                  {/* Retour DÉTAILLÉ par élément (message + pièces) : le demandeur voit exactement ce qui va / ne va pas. */}
-                  {r.steps.some((s) => s.items && s.items.length > 0) && (
-                    <div className="space-y-1.5 rounded-lg border border-border/60 bg-secondary/20 p-2">
-                      <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Retour détaillé par élément</p>
-                      {r.steps.filter((s) => s.items && s.items.length > 0).map((s) => (
-                        <div key={s.order} className="space-y-0.5">
-                          <p className="text-xs font-medium">{s.validator}</p>
-                          <ul className="space-y-0.5 pl-3">
-                            {s.items!.map((it, i) => (
-                              <li key={i} className="flex flex-wrap items-center gap-1.5 text-xs">
-                                <span className="text-muted-foreground">{it.label}</span>
-                                <StatusBadge map={VALIDATION_STEP_STATE} value={it.decision} dot={false} />
-                                {it.comment && <span className="text-muted-foreground">— {it.comment}</span>}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+            {myGroups.map((g) => <MyRequestCard key={g.key} g={g} isSuperAdmin={user.role === "SUPER_ADMIN"} />)}
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+/**
+ * UNE DEMANDE, UNE CARTE — même quand ses pièces ont été soumises séparément.
+ *
+ * Le statut affiché est celui du TOUT : une facture acceptée pendant que le bon de commande
+ * attend ne fait pas une demande acceptée. Le détail par pièce est là, juste en dessous, avec
+ * son propre verdict — c'est là, et seulement là, qu'« accepté » veut dire « cette pièce ».
+ */
+function MyRequestCard({ g, isSuperAdmin }: { g: ValidationGroup<MyValidationItem>; isSuperAdmin: boolean }) {
+  const head = g.main ?? g.pieces[0];
+  return (
+    <Card>
+      <CardContent className="space-y-2 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs text-muted-foreground">{head.reference}</span>
+            <span className="font-medium">{g.title}</span>
+            <Badge tone="neutral" dot={false}>{head.module}</Badge>
+            {g.main && <span className="text-xs text-muted-foreground">{VALIDATION_MODE[g.main.mode]}</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            {head.amount !== null && <span className="text-sm font-semibold">{formatCurrency(head.amount)}</span>}
+            <StatusBadge map={VALIDATION_STATUS} value={g.status} />
+            {isSuperAdmin && g.main && (
+              <SuperAdminDeleteButton kind="VALIDATION_REQUEST" id={g.main.id} name={`${g.main.reference} — ${g.main.title}`} enabled />
+            )}
+          </div>
+        </div>
+
+        {/* La phrase qui lève l'ambiguïté, avant tout le reste. */}
+        {g.summary && <p className="text-xs text-muted-foreground">{g.summary}</p>}
+
+        {g.main && <StepChips steps={g.main.steps} />}
+
+        {/* PIÈCE PAR PIÈCE — chaque validation garde SON verdict, clairement nommée. */}
+        {g.pieces.length > 0 && (
+          <ul className="space-y-1.5 rounded-lg border border-border/60 bg-secondary/20 p-2">
+            {g.pieces.map((p) => (
+              <li key={p.id} className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="font-medium">{p.documentName ?? p.title}</span>
+                  <span className="font-mono text-muted-foreground">{p.reference}</span>
+                  <StatusBadge map={VALIDATION_STATUS} value={p.status} dot={false} />
+                </div>
+                <div className="pl-5"><StepChips steps={p.steps} /></div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* Retour DÉTAILLÉ par élément (message + pièces) : le demandeur voit exactement ce qui va / ne va pas. */}
+        {[g.main, ...g.pieces].filter((r): r is MyValidationItem => Boolean(r)).flatMap((r) => r.steps).some((s) => s.items && s.items.length > 0) && (
+          <div className="space-y-1.5 rounded-lg border border-border/60 bg-secondary/20 p-2">
+            <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Retour détaillé par élément</p>
+            {[g.main, ...g.pieces].filter((r): r is MyValidationItem => Boolean(r)).map((r) =>
+              r.steps.filter((s) => s.items && s.items.length > 0).map((s) => (
+                <div key={`${r.id}-${s.order}`} className="space-y-0.5">
+                  <p className="text-xs font-medium">{s.validator}</p>
+                  <ul className="space-y-0.5 pl-3">
+                    {s.items!.map((it, i) => (
+                      <li key={i} className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="text-muted-foreground">{it.label}</span>
+                        <StatusBadge map={VALIDATION_STEP_STATE} value={it.decision} dot={false} />
+                        {it.comment && <span className="text-muted-foreground">— {it.comment}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )),
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Les validateurs d'un circuit et leur verdict, en pastilles. */
+function StepChips({ steps }: { steps: MyValidationItem["steps"] }) {
+  if (steps.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {steps.map((s) => (
+        <span key={s.order} className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs" title={s.reason || undefined}>
+          <span className="text-muted-foreground">{s.order}.</span>
+          <span>{s.validator}</span>
+          <StatusBadge map={VALIDATION_STEP_STATE} value={s.status} dot={false} />
+        </span>
+      ))}
     </div>
   );
 }
