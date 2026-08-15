@@ -17,6 +17,8 @@ export interface DriveRow {
   category: string | null;
   owner: string;
   sizeLabel: string;
+  /** Type lisible (« Document PDF », « Dossier compressé ») — pas un type MIME. */
+  typeLabel: string;
   updatedLabel: string;
   canEdit: boolean;
   href: string;
@@ -149,9 +151,12 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
                 <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Tout sélectionner" className="h-4 w-4 rounded border-input" />
               </TableHead>
               <TableHead>Nom</TableHead>
+              {/* « Type » vient d'un explorateur, et il y sert : à dosage égal de noms qui se
+                  ressemblent, c'est lui qui distingue le PDF de l'archive. */}
+              <TableHead>Type</TableHead>
               <TableHead>Propriétaire</TableHead>
               <TableHead className="text-right">Taille</TableHead>
-              <TableHead>Modifié</TableHead>
+              <TableHead>Modifié le</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -187,8 +192,9 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
                       {!n.isFile && isFolderTarget && <span className="shrink-0 text-[0.625rem] font-medium text-primary">déposer ici</span>}
                     </div>
                   </TableCell>
+                  <TableCell className="text-muted-foreground">{n.typeLabel}</TableCell>
                   <TableCell className="text-muted-foreground">{n.owner}</TableCell>
-                  <TableCell className="text-right text-muted-foreground">{n.isFile ? n.sizeLabel : "—"}</TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">{n.sizeLabel || "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{n.updatedLabel}</TableCell>
                   <TableCell className="text-right">
                     <NodeActions id={n.id} name={n.name} isFile={n.isFile} canEdit={n.canEdit} trash={trash} moveTargets={n.canEdit && !trash ? moveTargets : undefined} users={n.canEdit && !trash ? users : undefined} spaceId={spaceId} />

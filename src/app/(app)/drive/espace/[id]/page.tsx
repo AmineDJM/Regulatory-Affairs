@@ -4,7 +4,8 @@ import { Trash2, ChevronRight, FolderOpen } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getDriveListing, getDriveTabs, getDriveSpacesForUser } from "@/lib/queries/drive";
-import { fileKind, canCreateInSpace } from "@/lib/drive";
+import { canCreateInSpace } from "@/lib/drive";
+import { fileTypeLabel, fileIconName, explorerSize } from "@/lib/drive/explorer";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
@@ -19,16 +20,6 @@ import { DriveTable, type DriveRow } from "../../drive-table";
 
 export const dynamic = "force-dynamic";
 
-const KIND_ICON: Record<string, string> = { pdf: "FileText", image: "Image", video: "Video", audio: "Music", office: "FileSpreadsheet", text: "FileText", other: "File" };
-
-function humanSize(n: number): string {
-  if (!n) return "—";
-  const u = ["o", "Ko", "Mo", "Go"];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
-  return `${v.toFixed(i ? 1 : 0)} ${u[i]}`;
-}
 
 export default async function DriveSpacePage({ params, searchParams }: { params: { id: string }; searchParams: { folder?: string; trash?: string } }) {
   const user = await requireModule("DRIVE");
@@ -78,10 +69,11 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
       id: n.id,
       name: n.name,
       isFile,
-      icon: isFile ? KIND_ICON[fileKind(n.mimeType, n.name)] : "Folder",
+      icon: fileIconName(n.name, isFile),
       category: n.category ?? null,
       owner: n.owner?.name ?? "—",
-      sizeLabel: humanSize(n.size),
+      sizeLabel: explorerSize(n.size, isFile),
+      typeLabel: fileTypeLabel(n.name, isFile),
       updatedLabel: formatDateTime(n.updatedAt),
       canEdit: n.canEdit,
       href: isFile ? `/drive/${n.id}` : `${base}?folder=${n.id}`,

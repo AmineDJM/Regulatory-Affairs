@@ -5,7 +5,7 @@ import { requireModule } from "@/lib/session";
 import { userCan, canCreateDriveSpace } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getDriveListing, getDriveTabs, getDriveSpacesForUser } from "@/lib/queries/drive";
-import { fileKind, canCreateInSpace } from "@/lib/drive";
+import { canCreateInSpace } from "@/lib/drive";
 import { getAppSettings } from "@/lib/settings";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
@@ -18,22 +18,53 @@ import { NewFolderButton } from "./new-folder-button";
 import { NewOfficeButton } from "./new-office-button";
 import { CreateSpaceButton } from "./drive-space-manager";
 import { DriveTable, type DriveRow } from "./drive-table";
+import { ExplorerNav } from "./explorer-nav";
+import { QuickAccessList, type QuickRow } from "./quick-access-list";
+import { parseView, VIEW_TITLE, fileTypeLabel, fileIconName, explorerSize } from "@/lib/drive/explorer";
+import { getRecentFiles, getDownloadedFiles } from "@/lib/queries/drive-quick-access";
 
-const KIND_ICON: Record<string, string> = { pdf: "FileText", image: "Image", video: "Video", audio: "Music", office: "FileSpreadsheet", text: "FileText", other: "File" };
 
-function humanSize(n: number): string {
-  if (!n) return "—";
-  const u = ["o", "Ko", "Mo", "Go"];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
-  return `${v.toFixed(i ? 1 : 0)} ${u[i]}`;
-}
-
-export default async function DrivePage({ searchParams }: { searchParams: { folder?: string; trash?: string } }) {
+export default async function DrivePage({ searchParams }: { searchParams: { folder?: string; trash?: string; view?: string } }) {
   const user = await requireModule("DRIVE");
   const folderId = searchParams.folder ?? null;
   const trash = searchParams.trash === "1";
+  const view = parseView(searchParams.view, trash);
+
+  // ACCÈS RAPIDE — deux listes transverses, qui ne parcourent pas l'arborescence. Elles passent
+  // par le même filtre de visibilité : un raccourci ne doit jamais montrer plus que la navigation.
+  if (view === "recent" || view === "downloads") {
+    const [files, navSpaces] = await Promise.all([
+      view === "recent" ? getRecentFiles(user) : getDownloadedFiles(user),
+      getDriveSpacesForUser(user),
+    ]);
+    const quick: QuickRow[] = files.map((f) => ({
+      id: f.id, name: f.name, isFile: true, size: f.size, updatedAt: f.updatedAt,
+      folderName: f.folderName, href: `/drive/${f.id}`,
+    }));
+    return (
+      <div className="space-y-5">
+        <PageHeader title={`Drive — ${VIEW_TITLE[view]}`} description={
+          view === "recent"
+            ? "Les fichiers modifiés le plus récemment, tous emplacements confondus."
+            : "Les fichiers que vous avez téléchargés, du plus récent au plus ancien."
+        } />
+        <ModuleTabs tabs={await getDriveTabs(user)} />
+        <div className="flex flex-col gap-4 lg:flex-row">
+          <ExplorerNav active={view} spaces={navSpaces.map((s) => ({ id: s.id, name: s.name, icon: s.icon }))} />
+          <div className="min-w-0 flex-1">
+            <QuickAccessList
+              rows={quick}
+              emptyTitle={view === "recent" ? "Aucun fichier récent" : "Aucun téléchargement"}
+              emptyHint={view === "recent"
+                ? "Les fichiers que vous ou vos collègues modifiez apparaîtront ici."
+                : "Les fichiers que vous téléchargez depuis le Drive s'ajouteront à cette liste."}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const listing = await getDriveListing(user, folderId, trash);
   if (!listing) notFound();
 
@@ -76,10 +107,11 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
       id: n.id,
       name: n.name,
       isFile,
-      icon: isFile ? KIND_ICON[fileKind(n.mimeType, n.name)] : "Folder",
+      icon: fileIconName(n.name, isFile),
       category: n.category ?? null,
       owner: n.owner?.name ?? "—",
-      sizeLabel: humanSize(n.size),
+      sizeLabel: explorerSize(n.size, isFile),
+      typeLabel: fileTypeLabel(n.name, isFile),
       updatedLabel: formatDateTime(n.updatedAt),
       canEdit: n.canEdit,
       href: isFile ? `/drive/${n.id}` : `/drive?folder=${n.id}`,
@@ -119,11 +151,19 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
       )}
       {trash && <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Corbeille</h2>}
 
-      {listing.nodes.length === 0 ? (
-        <EmptyState icon="FolderOpen" title={trash ? "Corbeille vide" : "Dossier vide"} description={trash ? "Aucun élément supprimé." : "Importez des fichiers ou créez un dossier."} />
-      ) : (
-        <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canCreate ? users : undefined} spaceId={null} categories={dropCategories} />
-      )}
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <ExplorerNav
+          active={trash ? "trash" : "root"}
+          spaces={spaces.map((s) => ({ id: s.id, name: s.name, icon: s.icon }))}
+        />
+        <div className="min-w-0 flex-1">
+          {listing.nodes.length === 0 ? (
+            <EmptyState icon="FolderOpen" title={trash ? "Corbeille vide" : "Dossier vide"} description={trash ? "Aucun élément supprimé." : "Importez des fichiers ou créez un dossier."} />
+          ) : (
+            <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canCreate ? users : undefined} spaceId={null} categories={dropCategories} />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

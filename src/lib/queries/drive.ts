@@ -1,4 +1,4 @@
-import type { DriveNodeType } from "@prisma/client";
+import type { DriveNodeType, Prisma } from "@prisma/client";
 import { canManageDriveSpace, canViewDriveSpace, userCan, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { resolveDriveAccess, driveBreadcrumb, type DriveAccessLevel } from "@/lib/drive";
@@ -59,6 +59,30 @@ export async function getDriveTabs(user: SessionUser): Promise<{ label: string; 
     { label: "Drive", href: "/drive", show: userCan(user, "DRIVE", "VIEW") },
     ...spaces.map((s) => ({ label: s.name, href: `/drive/espace/${s.id}`, show: true })),
   ];
+}
+
+/**
+ * LES NŒUDS QU'UNE PERSONNE PEUT VOIR, en une clause Prisma.
+ *
+ * Sert aux vues TRANSVERSES de l'explorateur — « Récents », « Téléchargements » — qui ne
+ * parcourent pas l'arborescence et ne peuvent donc pas s'appuyer sur l'héritage de droits calculé
+ * dossier par dossier (`resolveDriveAccess`).
+ *
+ * Le filtre est volontairement CONSERVATEUR : il retient ce qu'on possède, ce qui nous est
+ * partagé nommément, et les catégories auxquelles on a accès — mais pas un fichier dont le droit
+ * ne viendrait que d'un dossier parent partagé. Un raccourci qui montre trop est une fuite ; un
+ * raccourci qui montre un peu moins reste un raccourci, et le fichier se retrouve par son dossier.
+ */
+export async function driveVisibilityWhere(user: SessionUser): Promise<Prisma.DriveNodeWhereInput> {
+  const scopeAll = user.role === "SUPER_ADMIN" || user.access.modules.get("DRIVE")?.scope === "ALL";
+  if (scopeAll) return {};
+  const spaces = await getDriveSpacesForUser(user);
+  const ors: Prisma.DriveNodeWhereInput[] = [
+    { ownerId: user.id },
+    { shares: { some: { userId: user.id } } },
+  ];
+  if (spaces.length > 0) ors.push({ spaceId: { in: spaces.map((s) => s.id) } });
+  return { OR: ors };
 }
 
 function nodeInclude(userId: string) {
