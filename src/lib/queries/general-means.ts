@@ -4,6 +4,7 @@ import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { mergeGrants, canViewDepartmentBudget, editableKindsOn, EMPTY_GRANT, type DeptBudgetGrant, type BudgetSetter, type DeptBudgetKind } from "@/lib/department-budget";
 import { headedDepartmentIds } from "@/lib/queries/department-budget";
 import { pettyCashBalance, currentPeriod, nextRechargeDate, type PettyCashBalance, type PettyCashStatus } from "@/lib/petty-cash";
+import { isFullyClassified } from "@/lib/budget/imputation";
 
 /**
  * MOYENS GÉNÉRAUX — la lecture consolidée d'un département : son budget, ses dépenses, sa
@@ -28,8 +29,14 @@ export interface GeneralMeansExpense {
   fromPettyCash: boolean;
   /** Pièces justificatives — une dépense sans pièce n'est qu'une affirmation. */
   documents: { id: string; name: string }[];
-  /** Le DÉTAIL du ticket : ce qui a été acheté, en quelle quantité, à quel prix. */
-  lines: { id: string; label: string; quantity: number; amount: number }[];
+  /** Le DÉTAIL du ticket : ce qui a été acheté, en quelle quantité, à quel prix, et où c'est classé. */
+  lines: { id: string; label: string; quantity: number; amount: number; budgetCategoryId: string | null }[];
+  /** Classement budgétaire du ticket entier — `null` = à classer. */
+  budgetCategoryId: string | null;
+  /** Le chemin lisible de ce classement (« Enveloppe › Catégorie »), pour l'afficher tel quel. */
+  budgetLabel: string | null;
+  /** Reste-t-il une part non classée sur cette dépense ? (elle est alors signalée) */
+  toClassify: boolean;
   createdBy: string;
 }
 
@@ -168,7 +175,7 @@ export async function getGeneralMeans(
         orderBy: { date: "desc" },
         include: {
           createdBy: { select: { name: true } },
-          lines: { orderBy: { createdAt: "asc" }, select: { id: true, label: true, quantity: true, amount: true } },
+          lines: { orderBy: { createdAt: "asc" }, select: { id: true, label: true, quantity: true, amount: true, budgetCategoryId: true } },
         },
       },
       topUps: {
@@ -201,7 +208,7 @@ export async function getGeneralMeans(
       take: LIST_LIMIT,
       include: {
         createdBy: { select: { name: true } },
-        lines: { orderBy: { createdAt: "asc" }, select: { id: true, label: true, quantity: true, amount: true } },
+        lines: { orderBy: { createdAt: "asc" }, select: { id: true, label: true, quantity: true, amount: true, budgetCategoryId: true } },
       },
     }),
     // LE CONSOMMÉ NE SE CALCULE PAS SUR LA LISTE AFFICHÉE. Elle est plafonnée pour rester
@@ -237,20 +244,54 @@ export async function getGeneralMeans(
     docsByExpense.set(d.entityId, arr);
   }
 
-  const toExpense = (e: (typeof expenses)[number]): GeneralMeansExpense => ({
-    id: e.id,
-    label: e.label,
-    amount: toNumber(e.amount),
-    date: e.date.toISOString(),
-    kind: e.kind as DeptBudgetKind,
-    notes: e.notes,
-    fromPettyCash: Boolean(e.pettyCashId),
-    documents: docsByExpense.get(e.id) ?? [],
-    lines: e.lines.map((l) => ({ id: l.id, label: l.label, quantity: toNumber(l.quantity), amount: toNumber(l.amount) })),
-    createdBy: e.createdBy?.name ?? "",
-  });
+  // LE CHEMIN LISIBLE DU CLASSEMENT. On ne montre pas un identifiant à quelqu'un qui n'a pas
+  // le module Budget : on lui montre « Enveloppe › Catégorie », c'est-à-dire ce qu'il a choisi.
+  const usedCategoryIds = Array.from(new Set([
+    ...expenses.map((e) => e.budgetCategoryId),
+    ...expenses.flatMap((e) => e.lines.map((l) => l.budgetCategoryId)),
+    ...(cashHere?.expenses ?? []).map((e) => e.budgetCategoryId),
+    ...(cashHere?.expenses ?? []).flatMap((e) => e.lines.map((l) => l.budgetCategoryId)),
+  ].filter((x): x is string => Boolean(x))));
+  const categoryRows = usedCategoryIds.length
+    ? await prisma.budgetCategoryLine.findMany({
+        where: { id: { in: usedCategoryIds } },
+        select: { id: true, name: true, envelope: { select: { name: true } } },
+      })
+    : [];
+  const categoryPath = new Map(categoryRows.map((c) => [c.id, `${c.envelope.name} › ${c.name}`]));
 
-  const allExpenses = expenses.map(toExpense);
+  type ExpenseRow = {
+    id: string; label: string; amount: unknown; date: Date; kind: string; notes: string | null;
+    pettyCashId?: string | null; budgetCategoryId: string | null;
+    lines: { id: string; label: string; quantity: unknown; amount: unknown; budgetCategoryId: string | null }[];
+    createdBy: { name: string | null } | null;
+  };
+  const toExpense = (e: ExpenseRow, fromPettyCash?: boolean): GeneralMeansExpense => {
+    const lines = e.lines.map((l) => ({
+      id: l.id, label: l.label, quantity: toNumber(l.quantity), amount: toNumber(l.amount),
+      budgetCategoryId: l.budgetCategoryId,
+    }));
+    const amount = toNumber(e.amount);
+    return {
+      id: e.id,
+      label: e.label,
+      amount,
+      date: e.date.toISOString(),
+      kind: e.kind as DeptBudgetKind,
+      notes: e.notes,
+      fromPettyCash: fromPettyCash ?? Boolean(e.pettyCashId),
+      documents: docsByExpense.get(e.id) ?? [],
+      lines,
+      budgetCategoryId: e.budgetCategoryId,
+      budgetLabel: e.budgetCategoryId ? categoryPath.get(e.budgetCategoryId) ?? null : null,
+      // « À classer » se calcule avec la MÊME règle que le budget : ce qui reste après les
+      // articles classés, quand le ticket lui-même n'a pas de case.
+      toClassify: !isFullyClassified({ amount, budgetCategoryId: e.budgetCategoryId, lines }),
+      createdBy: e.createdBy?.name ?? "",
+    };
+  };
+
+  const allExpenses = expenses.map((e) => toExpense(e));
   const allocated = budget ? toNumber(budget.amount) : 0;
   // L'ENVELOPPE AFFICHÉE EST CELLE DES MOYENS GÉNÉRAUX. On ne lui soustrait donc QUE les
   // dépenses de cette nature : imputer un achat « budget métier » sur l'enveloppe des moyens
@@ -262,18 +303,7 @@ export async function getGeneralMeans(
     .filter((t) => t.kind !== "OPERATING")
     .reduce((a, t) => a + toNumber(t._sum.amount ?? 0), 0);
 
-  const cashLines: GeneralMeansExpense[] = (cashHere?.expenses ?? []).map((e) => ({
-    id: e.id,
-    label: e.label,
-    amount: toNumber(e.amount),
-    date: e.date.toISOString(),
-    kind: e.kind as DeptBudgetKind,
-    notes: e.notes,
-    fromPettyCash: true,
-    documents: docsByExpense.get(e.id) ?? [],
-    lines: e.lines.map((l) => ({ id: l.id, label: l.label, quantity: toNumber(l.quantity), amount: toNumber(l.amount) })),
-    createdBy: e.createdBy?.name ?? "",
-  }));
+  const cashLines: GeneralMeansExpense[] = (cashHere?.expenses ?? []).map((e) => toExpense(e, true));
 
   const cash: GeneralMeansCash | null = cashHere
     ? {

@@ -20,6 +20,8 @@ export interface ReceiptLineInput {
   label?: string | null;
   quantity?: unknown;
   amount?: unknown;
+  /** Case budgétaire de CET article (le même ticket mélange souvent plusieurs budgets). */
+  budgetCategoryId?: string | null;
 }
 
 export interface ReceiptLine {
@@ -27,6 +29,7 @@ export interface ReceiptLine {
   label: string;
   quantity: number;
   amount: number;
+  budgetCategoryId: string | null;
 }
 
 /** Un ticket ne se compte pas au centime près sur 20 articles : deux décimales suffisent. */
@@ -63,6 +66,7 @@ export function normalizeLines(raw: ReceiptLineInput[]): ReceiptLine[] {
       label: String(l.label ?? "").trim(),
       quantity: parseQuantity(l.quantity),
       amount: round2(Math.max(0, parseAmount(l.amount) ?? 0)),
+      budgetCategoryId: l.budgetCategoryId ? String(l.budgetCategoryId) : null,
     }))
     .filter((l) => l.label.length > 0 || l.articleId !== null);
 }

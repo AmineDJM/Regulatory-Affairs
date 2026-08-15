@@ -1495,6 +1495,9 @@ model BudgetCategoryLine {
   transactions FinanceTransaction[]
   expenseLines BudgetExpenseLine[]
   adProItems   AdProItem[]
+  /// Dépenses des moyens généraux imputées ici — le ticket entier, puis article par article.
+  deptExpenses     DepartmentBudgetExpense[] @relation("DeptExpenseBudget")
+  deptExpenseLines DepartmentExpenseLine[]   @relation("DeptExpenseLineBudget")
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
 
@@ -1823,6 +1826,10 @@ model DepartmentBudgetExpense {
   /// Demande administrative dont cette dépense est issue (traçabilité de bout en bout).
   adminRequestId String?
   adminRequest   AdministrativeRequest? @relation(fields: [adminRequestId], references: [id], onDelete: SetNull)
+  /// CLASSEMENT BUDGÉTAIRE DU TICKET ENTIER — choisi par celui qui achète, sans qu'il ait
+  /// accès au module Budget. Sert de destination au RESTE non classé article par article.
+  budgetCategoryId String?
+  budgetCategory   BudgetCategoryLine? @relation("DeptExpenseBudget", fields: [budgetCategoryId], references: [id], onDelete: SetNull)
   createdById    String?
   createdBy      User?                  @relation("DeptExpenseCreator", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt      DateTime               @default(now())
@@ -1833,6 +1840,7 @@ model DepartmentBudgetExpense {
   @@index([departmentId, year, kind])
   @@index([adminRequestId])
   @@index([pettyCashId])
+  @@index([budgetCategoryId])
   @@index([date])
 }
 
@@ -1857,10 +1865,15 @@ model DepartmentExpenseLine {
   quantity  Decimal                 @default(1) @db.Decimal(12, 3)
   /// Montant de la ligne (quantité × prix unitaire, ou saisi tel quel depuis le ticket).
   amount    Decimal                 @default(0) @db.Decimal(14, 2)
+  /// CLASSEMENT BUDGÉTAIRE DE CET ARTICLE — un même ticket mélange papeterie, transport et
+  /// entretien : chaque article rejoint sa propre case, indépendamment des autres.
+  budgetCategoryId String?
+  budgetCategory   BudgetCategoryLine? @relation("DeptExpenseLineBudget", fields: [budgetCategoryId], references: [id], onDelete: SetNull)
   createdAt DateTime                @default(now())
 
   @@index([expenseId])
   @@index([articleId])
+  @@index([budgetCategoryId])
 }
 
 enum DepartmentBudgetKind {

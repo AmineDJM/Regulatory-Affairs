@@ -7,6 +7,7 @@
  * L'écrire deux fois, c'est se garantir deux comportements différents au premier correctif.
  */
 import { prisma } from "@/lib/prisma";
+import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/queries/general-means-budget";
 import { parseLinesField, validateReceipt, receiptTotal, receiptLabel, type ReceiptLine } from "./receipt";
 
 export interface ReceiptDraft {
@@ -32,10 +33,16 @@ export async function readReceipt(raw: unknown, givenLabel?: string | null): Pro
     const articles = await prisma.officeSupplyArticle.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
     for (const a of articles) names.set(a.id, a.name);
   }
+  // Les cases budgétaires envoyées par le formulaire sont RE-VÉRIFIÉES ici : une catégorie hors
+  // des enveloppes ouvertes aux moyens généraux est ignorée, l'article reste « à classer ».
+  const allowedCategories = lines.some((l) => l.budgetCategoryId)
+    ? await allowedGeneralMeansCategoryIds()
+    : new Set<string>();
   const resolved: ReceiptLine[] = lines.map((l) => ({
     ...l,
     articleId: l.articleId && names.has(l.articleId) ? l.articleId : null,
     label: l.label || (l.articleId ? names.get(l.articleId) ?? "" : ""),
+    budgetCategoryId: keepAllowedCategory(l.budgetCategoryId, allowedCategories),
   }));
 
   const check = validateReceipt(resolved);
@@ -53,6 +60,7 @@ export async function saveReceiptLines(expenseId: string, lines: ReceiptLine[]):
       label: l.label,
       quantity: l.quantity,
       amount: l.amount,
+      budgetCategoryId: l.budgetCategoryId,
     })),
   });
 }

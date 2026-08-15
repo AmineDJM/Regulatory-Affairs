@@ -31,7 +31,7 @@ describe("parseQuantity", () => {
 describe("normalizeLines", () => {
   it("garde l'article, la quantité et le montant", () => {
     expect(normalizeLines([{ articleId: "a1", label: "Ramette A4", quantity: "5", amount: "3 500" }])).toEqual([
-      { articleId: "a1", label: "Ramette A4", quantity: 5, amount: 3500 },
+      { articleId: "a1", label: "Ramette A4", quantity: 5, amount: 3500, budgetCategoryId: null },
     ]);
   });
 
@@ -86,8 +86,8 @@ describe("validateReceipt", () => {
 
   it("refuse une ligne SANS DÉSIGNATION et dit LAQUELLE", () => {
     const r = validateReceipt([
-      { articleId: null, label: "Café", quantity: 1, amount: 500 },
-      { articleId: null, label: "", quantity: 1, amount: 2300 },
+      { articleId: null, label: "Café", quantity: 1, amount: 500, budgetCategoryId: null },
+      { articleId: null, label: "", quantity: 1, amount: 2300, budgetCategoryId: null },
     ]);
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/Ligne 2/);
@@ -129,7 +129,7 @@ describe("receiptLabel", () => {
 describe("parseLinesField", () => {
   it("décode le champ JSON du formulaire", () => {
     const lines = parseLinesField(JSON.stringify([{ articleId: "a1", label: "Café", quantity: 2, amount: 1200 }]));
-    expect(lines).toEqual([{ articleId: "a1", label: "Café", quantity: 2, amount: 1200 }]);
+    expect(lines).toEqual([{ articleId: "a1", label: "Café", quantity: 2, amount: 1200, budgetCategoryId: null }]);
   });
 
   it("rend un tableau vide sur une saisie illisible — la validation dira mieux qu'un défaut de format", () => {

@@ -17,6 +17,7 @@ import {
 } from "@/lib/department-budget";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
+import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/queries/general-means-budget";
 import { pettyCashBalanceExcluding, canSpendFromPettyCash, type PettyCashStatus } from "@/lib/petty-cash";
 import { toNumber } from "@/lib/utils";
 
@@ -363,9 +364,13 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
     return { ok: false, error: "Joignez la facture ou le bon de paiement : une dépense sans pièce n'est qu'une affirmation." };
   }
 
+  // CLASSEMENT BUDGÉTAIRE — l'acheteur range sa dépense sans jamais ouvrir le module Budget.
+  // La valeur est revérifiée contre les enveloppes réellement ouvertes aux moyens généraux.
+  const budgetCategoryId = keepAllowedCategory(fdStr(formData, "budgetCategoryId"), await allowedGeneralMeansCategoryIds());
+
   const created = await prisma.departmentBudgetExpense.create({
     data: {
-      departmentId, year, kind, label, amount,
+      departmentId, year, kind, label, amount, budgetCategoryId,
       notes: fdStr(formData, "notes"),
       adminRequestId: fdStr(formData, "adminRequestId"),
       createdById: user.id,
@@ -489,17 +494,26 @@ export async function updateDepartmentExpense(formData: FormData): Promise<Actio
     if (!room.ok) return { ok: false, error: room.reason ?? "Le fond ne couvre pas ce montant." };
   }
 
+  // Le classement budgétaire se corrige comme le reste : une dépense mal rangée doit pouvoir
+  // changer de case sans qu'on la supprime et la ressaisisse. Champ absent = classement inchangé.
+  const rawCategory = formData.has("budgetCategoryId")
+    ? keepAllowedCategory(fdStr(formData, "budgetCategoryId"), await allowedGeneralMeansCategoryIds())
+    : before.budgetCategoryId;
+
   await prisma.$transaction(async (tx) => {
     await tx.departmentBudgetExpense.update({
       where: { id },
-      data: { label, amount, kind, notes: fdStr(formData, "notes") },
+      data: { label, amount, kind, budgetCategoryId: rawCategory, notes: fdStr(formData, "notes") },
     });
     // Les lignes se REMPLACENT en bloc : fusionner ligne à ligne demanderait des identifiants
     // stables côté formulaire pour un gain nul — on réécrit le détail du ticket.
     if (ticket) {
       await tx.departmentExpenseLine.deleteMany({ where: { expenseId: id } });
       await tx.departmentExpenseLine.createMany({
-        data: ticket.lines.map((l) => ({ expenseId: id, articleId: l.articleId, label: l.label, quantity: l.quantity, amount: l.amount })),
+        data: ticket.lines.map((l) => ({
+          expenseId: id, articleId: l.articleId, label: l.label,
+          quantity: l.quantity, amount: l.amount, budgetCategoryId: l.budgetCategoryId,
+        })),
       });
     }
   });

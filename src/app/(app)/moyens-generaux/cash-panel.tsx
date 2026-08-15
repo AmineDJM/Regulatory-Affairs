@@ -13,6 +13,8 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { PETTY_CASH_STATUS_LABEL, periodLabel, MAX_RECHARGE_DAY } from "@/lib/petty-cash";
 import { ReceiptLines, type CatalogArticle } from "./receipt-lines";
+import { BudgetTargetField } from "./budget-target-field";
+import type { BudgetTarget } from "@/lib/budget/target";
 import {
   allotPettyCash, confirmPettyCashReceipt, spendFromPettyCash, requestPettyCashTopUp, closePettyCash,
   decidePettyCashTopUp, setPettyCashPlan,
@@ -27,7 +29,7 @@ import type { GeneralMeansView } from "@/lib/queries/general-means";
  * justificatif obligatoire ; la rallonge se demande depuis le même endroit, sans changer
  * d'écran — c'est au moment où l'on constate qu'il ne reste rien qu'on la demande.
  */
-export function CashPanel({ view, people, articles }: { view: GeneralMeansView; people: { id: string; name: string }[]; articles: CatalogArticle[] }) {
+export function CashPanel({ view, people, articles, budgetTargets = [] }: { view: GeneralMeansView; people: { id: string; name: string }[]; articles: CatalogArticle[]; budgetTargets?: BudgetTarget[] }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
@@ -213,7 +215,11 @@ export function CashPanel({ view, people, articles }: { view: GeneralMeansView; 
               Articles du ticket <span className="text-destructive">*</span>
               <span className="ml-1 font-normal text-muted-foreground">— le montant en découle</span>
             </p>
-            <ReceiptLines articles={articles} />
+            <ReceiptLines articles={articles} budgetTargets={budgetTargets} />
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-3">
+            <BudgetTargetField targets={budgetTargets} />
           </div>
 
           <label className="block text-xs">

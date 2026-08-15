@@ -5,6 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
 import { normalizeLines, receiptTotal, parseAmount, parseQuantity } from "@/lib/general-means/receipt";
+import type { BudgetTarget } from "@/lib/budget/target";
 
 export interface CatalogArticle {
   id: string;
@@ -19,9 +20,11 @@ interface Row {
   label: string;
   quantity: string;
   amount: string;
+  /** Case budgétaire de CET article — vide = « comme le ticket ». */
+  budgetCategoryId: string;
 }
 
-const empty = (key: number): Row => ({ key, articleId: "", label: "", quantity: "1", amount: "" });
+const empty = (key: number): Row => ({ key, articleId: "", label: "", quantity: "1", amount: "", budgetCategoryId: "" });
 
 /** Lignes déjà enregistrées, telles qu'on les rouvre pour corriger un ticket. */
 export interface ExistingLine {
@@ -29,6 +32,7 @@ export interface ExistingLine {
   label: string;
   quantity: number;
   amount: number;
+  budgetCategoryId?: string | null;
 }
 
 /**
@@ -47,11 +51,17 @@ export function ReceiptLines({
   articles,
   onTotalChange,
   initial,
+  budgetTargets = [],
 }: {
   articles: CatalogArticle[];
   onTotalChange?: (total: number) => void;
   /** Lignes existantes, à la réouverture d'un ticket pour correction. */
   initial?: ExistingLine[];
+  /**
+   * Cases budgétaires proposées. Vide = la colonne disparaît : tant que l'administration n'a
+   * rattaché aucune enveloppe aux moyens généraux, demander « où classer ? » n'a pas de sens.
+   */
+  budgetTargets?: BudgetTarget[];
 }) {
   const [rows, setRows] = React.useState<Row[]>(() =>
     initial && initial.length > 0
@@ -61,6 +71,7 @@ export function ReceiptLines({
           label: l.articleId ? "" : l.label,
           quantity: String(l.quantity),
           amount: String(l.amount),
+          budgetCategoryId: l.budgetCategoryId ?? "",
         }))
       : [empty(0)],
   );
@@ -72,6 +83,7 @@ export function ReceiptLines({
       label: r.label || (r.articleId ? articles.find((a) => a.id === r.articleId)?.name ?? "" : ""),
       quantity: r.quantity,
       amount: r.amount,
+      budgetCategoryId: r.budgetCategoryId || null,
     }))),
     [rows, articles],
   );
@@ -159,6 +171,23 @@ export function ReceiptLines({
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
+              {budgetTargets.length > 0 && (
+                <div className="col-span-12 sm:col-span-11 sm:col-start-1">
+                  {/* Classement de CET article. « Comme le ticket » est le défaut : la plupart
+                      des lignes suivent le classement général, seules les exceptions se règlent. */}
+                  <select
+                    value={r.budgetCategoryId}
+                    onChange={(e) => patch(r.key, { budgetCategoryId: e.target.value })}
+                    aria-label={`Classement budgétaire de l'article ${i + 1}`}
+                    className="h-8 w-full rounded-lg border border-border bg-background px-2 text-xs text-muted-foreground"
+                  >
+                    <option value="">Budget : comme le ticket</option>
+                    {budgetTargets.map((t) => (
+                      <option key={t.id} value={t.id}>{t.isSub ? `   ↳ ${t.label}` : t.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {article?.estimatedPrice != null && (
                 <p className="col-span-12 -mt-0.5 text-[0.6875rem] text-muted-foreground sm:col-start-7 sm:col-span-6 sm:text-right">
                   Prix indicatif catalogue : {formatCurrency(article.estimatedPrice)}

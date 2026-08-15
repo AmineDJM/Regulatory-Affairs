@@ -40,6 +40,9 @@ const MODULE_OPTIONS: { value: string; label: string }[] = [
   { value: "EVENTS", label: "Ad & Pro — Événements" },
   { value: "PROMO_MATERIAL", label: "Ad & Pro — Matériel promotionnel" },
   { value: "MEDICAL", label: "Promotion médicale" },
+  // Cocher « Moyens généraux » suffit à faire remonter ici les tickets de caisse et les achats
+  // du quotidien : c'est ce rattachement que l'acheteur voit comme liste de destinations.
+  { value: "GENERAL_MEANS", label: "Moyens généraux" },
   { value: "REGULATORY", label: "Regulatory" },
   { value: "BUSINESS_DEVELOPMENT", label: "Business Development" },
   { value: "RH", label: "Ressources humaines" },

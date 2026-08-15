@@ -9,6 +9,8 @@ import { formatCurrency } from "@/lib/utils";
 import { DEPT_BUDGET_LABEL } from "@/lib/department-budget";
 import { updateDepartmentExpense, deleteDepartmentExpense } from "@/lib/actions/department-budget-actions";
 import { ReceiptLines, type CatalogArticle, type ExistingLine } from "./receipt-lines";
+import { BudgetTargetField } from "./budget-target-field";
+import type { BudgetTarget } from "@/lib/budget/target";
 
 export interface EditableExpense {
   id: string;
@@ -17,7 +19,8 @@ export interface EditableExpense {
   kind: string;
   notes: string | null;
   fromPettyCash: boolean;
-  lines: { id: string; label: string; quantity: number; amount: number }[];
+  budgetCategoryId: string | null;
+  lines: { id: string; label: string; quantity: number; amount: number; budgetCategoryId: string | null }[];
 }
 
 /**
@@ -33,8 +36,8 @@ export interface EditableExpense {
  * réellement — plutôt que de perdre l'information au premier passage.
  */
 export function ExpenseRowActions({
-  expense, articles,
-}: { expense: EditableExpense; articles: CatalogArticle[] }) {
+  expense, articles, budgetTargets = [],
+}: { expense: EditableExpense; articles: CatalogArticle[]; budgetTargets?: BudgetTarget[] }) {
   const router = useRouter();
   const [mode, setMode] = React.useState<"idle" | "edit" | "confirm">("idle");
   const [busy, setBusy] = React.useState(false);
@@ -43,7 +46,7 @@ export function ExpenseRowActions({
 
   const initial: ExistingLine[] = expense.lines.length > 0
     ? expense.lines
-    : [{ label: expense.label, quantity: 1, amount: expense.amount }];
+    : [{ label: expense.label, quantity: 1, amount: expense.amount, budgetCategoryId: expense.budgetCategoryId }];
 
   const remove = async () => {
     setBusy(true); setError(null);
@@ -125,6 +128,7 @@ export function ExpenseRowActions({
                 <option value="ACTIVITY">{DEPT_BUDGET_LABEL.ACTIVITY}</option>
               </select>
             </label>
+            <BudgetTargetField targets={budgetTargets} defaultValue={expense.budgetCategoryId} />
             <label className="text-xs sm:col-span-3">
               Précisions
               <Input name="notes" defaultValue={expense.notes ?? ""} placeholder="Facultatif" className="mt-1 h-9" />
@@ -135,7 +139,7 @@ export function ExpenseRowActions({
             <p className="mb-1.5 text-xs font-medium">
               Articles <span className="font-normal text-muted-foreground">— le montant en découle</span>
             </p>
-            <ReceiptLines articles={articles} initial={initial} onTotalChange={setTotal} />
+            <ReceiptLines articles={articles} initial={initial} onTotalChange={setTotal} budgetTargets={budgetTargets} />
           </div>
 
           {total !== expense.amount && (

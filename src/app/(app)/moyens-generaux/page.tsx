@@ -5,6 +5,7 @@ import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
 import { getGeneralMeans, resolveGeneralMeansDepartment, LIST_LIMIT } from "@/lib/queries/general-means";
+import { generalMeansBudgetTargets } from "@/lib/queries/general-means-budget";
 import { normalizeYear, DEPT_BUDGET_LABEL, budgetHealth, consumedPercent } from "@/lib/department-budget";
 import { currentPeriod } from "@/lib/petty-cash";
 import { PageHeader } from "@/components/shared/page-header";
@@ -97,6 +98,10 @@ export default async function MoyensGenerauxPage({
   }));
   const catalogRows = catalog.map((a) => ({ ...a, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null }));
 
+  // LES CASES BUDGÉTAIRES OUVERTES ICI. Liste volontairement pauvre : des destinations, sans
+  // montants ni consommation — classer une dépense ne suppose pas d'accéder au module Budget.
+  const budgetTargets = view.canSpend ? await generalMeansBudgetTargets() : [];
+
   const health = budgetHealth(view.allocated, view.consumed);
   const tone = health === "OVER_BUDGET" ? "danger" : health === "AT_RISK" ? "warning" : health === "UNSET" ? "default" : "success";
 
@@ -141,7 +146,7 @@ export default async function MoyensGenerauxPage({
             l&apos;avoir reçue, puis chaque dépense en est déduite, justificatif scanné à l&apos;appui, jusqu&apos;à
             épuisement — moment où elle demande une rallonge.
           </p>
-          <CashPanel view={view} people={people} articles={articleOptions} />
+          <CashPanel view={view} people={people} articles={articleOptions} budgetTargets={budgetTargets} />
         </CardContent>
       </Card>
 
@@ -170,7 +175,7 @@ export default async function MoyensGenerauxPage({
               Finances) s&apos;enregistre ici : montant, scan de la facture ou du bon de paiement — et il est
               <strong> déduit du budget</strong>.
             </p>
-            <ExpensePanel departmentId={view.department.id} year={year} remaining={view.remaining} articles={articleOptions} />
+            <ExpensePanel departmentId={view.department.id} year={year} remaining={view.remaining} articles={articleOptions} budgetTargets={budgetTargets} />
           </CardContent>
         )}
         <CardContent className="p-0">
@@ -194,10 +199,13 @@ export default async function MoyensGenerauxPage({
                       </span>
                     )}
                     <span className="block text-[0.6875rem] text-muted-foreground">
-                      {DEPT_BUDGET_LABEL[e.kind]}{e.createdBy ? ` · ${e.createdBy}` : ""}
+                      {DEPT_BUDGET_LABEL[e.kind]}{e.budgetLabel ? ` · ${e.budgetLabel}` : ""}{e.createdBy ? ` · ${e.createdBy}` : ""}
                     </span>
                   </span>
                   {e.fromPettyCash && <Badge tone="info" dot={false}>caisse d&apos;avance</Badge>}
+                  {/* « À classer » se dit ICI, là où la dépense se corrige — pas dans le module
+                      Budget, que la personne qui achète n'ouvre jamais. */}
+                  {budgetTargets.length > 0 && e.toClassify && <Badge tone="warning" dot={false}>à classer</Badge>}
                   <span className="text-xs text-muted-foreground">{formatDate(e.date)}</span>
                   <span className="tabular-nums font-semibold">{formatCurrency(e.amount)}</span>
                   <span className="flex items-center gap-1">
@@ -219,8 +227,12 @@ export default async function MoyensGenerauxPage({
                       qui détient la caisse (ou la direction) y touche. */}
                   {view.canSpend && (!e.fromPettyCash || view.canAmendCash) && (
                     <ExpenseRowActions
-                      expense={{ id: e.id, label: e.label, amount: e.amount, kind: e.kind, notes: e.notes, fromPettyCash: e.fromPettyCash, lines: e.lines }}
+                      expense={{
+                        id: e.id, label: e.label, amount: e.amount, kind: e.kind, notes: e.notes,
+                        fromPettyCash: e.fromPettyCash, budgetCategoryId: e.budgetCategoryId, lines: e.lines,
+                      }}
                       articles={articleOptions}
+                      budgetTargets={budgetTargets}
                     />
                   )}
                 </li>

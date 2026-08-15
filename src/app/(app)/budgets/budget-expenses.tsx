@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Pencil, Trash2, Inbox, CheckCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/input";
@@ -86,8 +87,16 @@ export function BudgetExpenses({ overview, canAttribute }: { overview: BudgetOve
                   </p>
                 </div>
                 {tx.kind === "BUDGET" && <Badge tone="neutral" dot={false}>Budgétaire</Badge>}
+                {tx.kind === "GENERAL_MEANS" && <Badge tone="info" dot={false}>Moyens généraux</Badge>}
                 <span className="shrink-0 font-semibold tabular-nums">{formatCurrency(tx.amount)}</span>
-                {!canAttribute ? null : tx.kind === "FINANCE" ? (
+                {tx.kind === "GENERAL_MEANS" ? (
+                  // Un achat des moyens généraux se corrige LÀ-BAS, avec son justificatif. Le
+                  // modifier depuis le budget donnerait deux endroits pour changer un même
+                  // montant — donc, tôt ou tard, deux montants différents.
+                  <Link href="/moyens-generaux" className="shrink-0 text-xs font-medium text-primary hover:underline">
+                    Voir la dépense
+                  </Link>
+                ) : !canAttribute ? null : tx.kind === "FINANCE" ? (
                   // Dépense de trésorerie : ré-imputable ici, mais elle se supprime dans les Finances.
                   <Select defaultValue={tx.categoryId} onChange={(e) => assign(tx.id, e.target.value)} className="h-9 w-48 text-xs" aria-label={`Ré-imputer ${tx.label}`}>
                     <option value="">— Retirer l&apos;imputation —</option>

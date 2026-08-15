@@ -56,6 +56,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
 
   const t = overview.totals;
   const topCats = overview.categories.filter((c) => c.parentId === null);
+  const gPct = grandTotal.total > 0 ? Math.round((grandTotal.consumed / grandTotal.total) * 100) : 0;
 
   // Camembert : comment le budget est RÉPARTI (au plus 6 parts — au-delà, l'œil ne compare plus).
   const allocSlices = foldTail(topCats.map((c) => ({ label: c.name, value: c.allocated })));
@@ -83,6 +84,56 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
         </a>
       </PageHeader>
       <ModuleTabs tabs={tabs} />
+
+      {/*
+        LA VUE GLOBALE, TOUJOURS EN TÊTE — toutes enveloppes confondues.
+
+        Le sélecteur d'enveloppe est un formidable moyen de ne jamais voir le budget de
+        l'entreprise : on lit une enveloppe, on change, on en lit une autre, et personne ne
+        fait la somme. Elle est donc ici, avant tout choix, et elle reste affichée même
+        lorsqu'il n'y a qu'une seule enveloppe — le jour où une deuxième apparaît, le total
+        change tout seul, sans que l'écran change de forme.
+      */}
+      <section className="surface p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+          <div>
+            <p className="text-sm text-muted-foreground">
+              Budget global — {grandTotal.count} enveloppe{grandTotal.count > 1 ? "s" : ""}
+            </p>
+            <p className="mt-1 text-3xl font-semibold tracking-tight">{formatCurrency(grandTotal.total)}</p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Consommé <strong className="text-foreground tabular-nums">{formatCurrency(grandTotal.consumed)}</strong> ({gPct} %) ·
+            reste <strong className={`tabular-nums ${grandTotal.remaining < 0 ? "text-destructive" : "text-success"}`}>{formatCurrency(grandTotal.remaining)}</strong>
+          </p>
+        </div>
+        <div className="mt-4">
+          <Meter value={grandTotal.consumed} limit={grandTotal.total} format={formatCurrency} />
+        </div>
+        {grandTotal.items.length > 0 && (
+          <ul className="mt-4 divide-y divide-border border-t border-border">
+            {grandTotal.items.map((e) => {
+              const pct = e.total > 0 ? Math.round((e.consumed / e.total) * 100) : 0;
+              return (
+                <li key={e.id}>
+                  <Link
+                    href={`/budgets?env=${e.id}`}
+                    className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 py-2.5 text-sm transition-colors hover:bg-secondary/60"
+                  >
+                    <span className={`min-w-0 flex-1 truncate font-medium ${e.id === overview.envelope.id ? "text-primary" : ""}`}>
+                      {e.name}
+                      {!e.isActive && <span className="ml-2 text-xs font-normal text-muted-foreground">(clôturée)</span>}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">{formatCurrency(e.consumed)} / {formatCurrency(e.total)}</span>
+                    <span className={`w-12 shrink-0 text-right tabular-nums ${e.remaining < 0 ? "text-destructive" : "text-muted-foreground"}`}>{pct} %</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
       <BudgetContextBar envelopes={envelopes} currentId={overview.envelope.id} from={overview.period.from} to={overview.period.to} />
 
       {/* LE chiffre : ce qui reste. Puis la jauge, puis les deux montants de contexte. */}
@@ -164,9 +215,10 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
         </section>
       )}
 
+      {/* Le poids relatif des enveloppes — les chiffres sont déjà en tête, ici c'est la forme. */}
       {envSlices.length > 0 && (
         <section className="surface space-y-3 p-4">
-          <h2 className="text-sm font-semibold">Toutes vos enveloppes</h2>
+          <h2 className="text-sm font-semibold">Répartition entre les enveloppes</h2>
           <Donut
             slices={envSlices}
             total={grandTotal.total}
@@ -174,10 +226,6 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
             centerValue={formatCurrency(grandTotal.total)}
             format={formatCurrency}
           />
-          <p className="border-t border-border pt-3 text-sm text-muted-foreground">
-            Consommé au total : <strong className="text-foreground tabular-nums">{formatCurrency(grandTotal.consumed)}</strong> —
-            reste <strong className={`tabular-nums ${grandTotal.remaining < 0 ? "text-destructive" : "text-success"}`}>{formatCurrency(grandTotal.remaining)}</strong>.
-          </p>
         </section>
       )}
     </div>

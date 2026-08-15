@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { platformScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { canViewEnvelope, type SessionUser } from "@/lib/rbac";
+import { generalMeansConsumption } from "@/lib/queries/budget-general-means";
 
 /** Une enveloppe est visible d'un non-gestionnaire seulement si l'admin lui a ouvert la
  *  visualisation (rôle/personne) ou lui a délégué la gestion — sinon invisible (strict). */
@@ -44,15 +45,18 @@ export interface UnattributedTx {
 }
 
 /**
- * Dépense DÉJÀ imputée à une catégorie de l'enveloppe. Deux origines :
+ * Dépense DÉJÀ imputée à une catégorie de l'enveloppe. Trois origines :
  * - `FINANCE` : une vraie dépense de trésorerie (FinanceTransaction OUT) que la Direction a
  *   attribuée à la catégorie → RÉ-ATTRIBUABLE (elle se supprime, elle, dans les Finances) ;
  * - `BUDGET` : une ligne purement budgétaire saisie ici (BudgetExpenseLine), sans impact sur
- *   la trésorerie → SUPPRIMABLE directement depuis le module Budget.
+ *   la trésorerie → SUPPRIMABLE directement depuis le module Budget ;
+ * - `GENERAL_MEANS` : un achat des moyens généraux, classé par celui qui l'a fait. Il se lit
+ *   ici mais ne se corrige QUE là-bas, avec son justificatif — c'est la même dépense, pas une
+ *   copie, et deux endroits pour la modifier feraient deux montants différents.
  */
 export interface AttributedTx {
   id: string;
-  kind: "FINANCE" | "BUDGET";
+  kind: "FINANCE" | "BUDGET" | "GENERAL_MEANS";
   reference: string;
   date: string;
   label: string;
@@ -192,7 +196,10 @@ export async function getEnvelopesGrandTotal(viewer: SessionUser): Promise<Envel
   const visible = envelopes.filter((e) => envelopeVisible(viewer, e));
 
   const catIds = visible.flatMap((e) => e.categories.map((c) => c.id));
-  const [sums, expenseSums] = catIds.length
+  // La vue consolidée ne borne pas la période : elle additionne chaque enveloppe sur SA propre
+  // durée de vie. Les moyens généraux sont donc relus sur un intervalle volontairement large,
+  // que les enveloppes recoupent d'elles-mêmes par leurs catégories.
+  const [sums, expenseSums, generalMeans] = catIds.length
     ? await Promise.all([
         prisma.financeTransaction.groupBy({
           by: ["budgetCategoryId"],
@@ -204,12 +211,17 @@ export async function getEnvelopesGrandTotal(viewer: SessionUser): Promise<Envel
           where: { categoryId: { in: catIds } },
           _sum: { amount: true },
         }),
+        generalMeansConsumption(catIds, new Date(0), new Date(8.64e15)),
       ])
-    : [[], []];
-  // Consommation = dépenses réglées attribuées + lignes purement budgétaires (découplées).
+    : [[], [], { byCategory: new Map<string, number>(), rows: [] }];
+  // Consommation = dépenses réglées attribuées + lignes purement budgétaires (découplées)
+  // + les achats des moyens généraux classés par ceux qui les font.
   const consumedByCat = new Map<string | null, number>(sums.map((s) => [s.budgetCategoryId, toNumber(s._sum.amount)]));
   for (const s of expenseSums) {
     consumedByCat.set(s.categoryId, (consumedByCat.get(s.categoryId) ?? 0) + toNumber(s._sum.amount));
+  }
+  for (const [catId, amount] of generalMeans.byCategory) {
+    consumedByCat.set(catId, (consumedByCat.get(catId) ?? 0) + amount);
   }
 
   const items: EnvelopeSummaryItem[] = visible.map((e) => {
@@ -306,7 +318,7 @@ export async function getBudgetOverview(
   // affichait la consommation de l'entreprise entière — d'où les « 42 millions consommés »
   // impossibles. Chaque enveloppe ne compte QUE ses propres catégories ; le non-imputé a sa
   // propre alerte (« à imputer »), il ne doit jamais peser dans une enveloppe qui ne l'a pas reçu.
-  const [sums, expenseSums] = await Promise.all([
+  const [sums, expenseSums, generalMeans] = await Promise.all([
     catIds.length
       ? prisma.financeTransaction.groupBy({
           by: ["budgetCategoryId", "status"],
@@ -322,6 +334,9 @@ export async function getBudgetOverview(
           _sum: { amount: true },
         })
       : Promise.resolve([] as { categoryId: string; _sum: { amount: unknown } }[]),
+    // Les achats des moyens généraux, classés par ceux qui les font — c'est ce qui remplit
+    // l'enveloppe « Moyens généraux » sans double saisie.
+    generalMeansConsumption(catIds, from, to),
   ]);
 
   const consumedByCat = new Map<string | null, number>();
@@ -335,6 +350,10 @@ export async function getBudgetOverview(
   for (const s of expenseSums) {
     const amt = toNumber(s._sum.amount as Parameters<typeof toNumber>[0]);
     consumedByCat.set(s.categoryId, (consumedByCat.get(s.categoryId) ?? 0) + amt);
+  }
+  // Les moyens généraux aussi : un ticket de caisse justifié est une dépense au même titre.
+  for (const [catId, amount] of generalMeans.byCategory) {
+    consumedByCat.set(catId, (consumedByCat.get(catId) ?? 0) + amount);
   }
 
   const categories: BudgetCategoryView[] = envelope.categories.map((c) => {
@@ -412,6 +431,9 @@ export async function getBudgetOverview(
   const monthly = buildMonthlySeries(from, to, toNumber(envelope.totalAmount), [
     ...monthlyFinance.map((t) => ({ date: t.date, amount: toNumber(t.amount) })),
     ...monthlyLines.map((l) => ({ date: l.date, amount: toNumber(l.amount) })),
+    // La courbe doit raconter la MÊME histoire que le compteur : sans les moyens généraux,
+    // elle resterait plate pendant que le consommé, lui, monte.
+    ...generalMeans.rows.map((r) => ({ date: r.date, amount: r.amount })),
   ]);
 
   const attributedTx: AttributedTx[] = [
@@ -424,6 +446,12 @@ export async function getBudgetOverview(
       id: l.id, kind: "BUDGET" as const, reference: l.reference, date: l.date.toISOString(), label: l.reference,
       amount: toNumber(l.amount), counterparty: null, status: "SETTLED",
       categoryId: l.categoryId, categoryName: catNameById.get(l.categoryId) ?? "—",
+    })),
+    ...generalMeans.rows.slice(0, 60).map((r) => ({
+      id: r.expenseId, kind: "GENERAL_MEANS" as const, reference: "Moyens généraux",
+      date: r.date.toISOString(), label: r.label, amount: r.amount,
+      counterparty: r.department || null, status: "SETTLED",
+      categoryId: r.categoryId, categoryName: catNameById.get(r.categoryId) ?? "—",
     })),
   ].sort((a, b) => b.date.localeCompare(a.date));
 

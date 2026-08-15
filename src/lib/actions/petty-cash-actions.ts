@@ -17,6 +17,7 @@ import {
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
+import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/queries/general-means-budget";
 
 const PATH = "/moyens-generaux";
 
@@ -196,6 +197,9 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
   }
 
   const year = normalizeYear(fdStr(formData, "year"));
+  // Un achat payé en liquide se classe dans le budget comme les autres : c'est la même dépense,
+  // seul le moyen de paiement diffère. La case est revérifiée côté serveur.
+  const budgetCategoryId = keepAllowedCategory(fdStr(formData, "budgetCategoryId"), await allowedGeneralMeansCategoryIds());
   const created = await prisma.departmentBudgetExpense.create({
     data: {
       departmentId: cash.departmentId,
@@ -203,6 +207,7 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
       kind: "OPERATING",
       label,
       amount,
+      budgetCategoryId,
       notes: fdStr(formData, "notes"),
       pettyCashId: cash.id,
       createdById: user.id,

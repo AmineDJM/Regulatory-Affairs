@@ -9,6 +9,8 @@ import { formatCurrency } from "@/lib/utils";
 import { DEPT_BUDGET_LABEL } from "@/lib/department-budget";
 import { addDepartmentExpense } from "@/lib/actions/department-budget-actions";
 import { ReceiptLines, type CatalogArticle } from "./receipt-lines";
+import { BudgetTargetField } from "./budget-target-field";
+import type { BudgetTarget } from "@/lib/budget/target";
 
 /**
  * AJOUTER UN ACHAT — le geste quotidien, à portée de clic.
@@ -23,8 +25,8 @@ import { ReceiptLines, type CatalogArticle } from "./receipt-lines";
  * ne sert à rien.
  */
 export function ExpensePanel({
-  departmentId, year, remaining, articles,
-}: { departmentId: string; year: number; remaining: number; articles: CatalogArticle[] }) {
+  departmentId, year, remaining, articles, budgetTargets = [],
+}: { departmentId: string; year: number; remaining: number; articles: CatalogArticle[]; budgetTargets?: BudgetTarget[] }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -69,6 +71,7 @@ export function ExpensePanel({
                 <option value="ACTIVITY">{DEPT_BUDGET_LABEL.ACTIVITY}</option>
               </select>
             </label>
+            <BudgetTargetField targets={budgetTargets} />
             <label className="text-xs sm:col-span-3">
               Précisions
               <Input name="notes" placeholder="Facultatif — fournisseur, n° de facture…" className="mt-1 h-9" />
@@ -80,7 +83,7 @@ export function ExpensePanel({
               Articles de la facture <span className="text-destructive">*</span>
               <span className="ml-1 font-normal text-muted-foreground">— le total en découle</span>
             </p>
-            <ReceiptLines articles={articles} onTotalChange={setTotal} />
+            <ReceiptLines articles={articles} onTotalChange={setTotal} budgetTargets={budgetTargets} />
           </div>
 
           <label className="block text-xs">

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { ENTITY_MODULE } from "@/lib/entity-access";
+import { pickAutoCategory } from "@/lib/budget/auto-category";
 import { prisma } from "@/lib/prisma";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
@@ -55,12 +56,21 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
   if (!budgetCategoryId && order.sourceType) {
     const sourceModule = ENTITY_MODULE[order.sourceType];
     if (sourceModule) {
-      const cat = await prisma.budgetCategoryLine.findFirst({
-        where: { module: sourceModule, parentId: null, envelope: { isActive: true } },
-        orderBy: { createdAt: "asc" },
-        select: { id: true },
-      });
-      budgetCategoryId = cat?.id ?? null;
+      // Deux chances, dans l'ordre : une catégorie qui déclare le module, puis — c'est la
+      // nouveauté qui branche les bordereaux de versement — la première catégorie d'une
+      // ENVELOPPE qui couvre ce module. Créer l'enveloppe « Regulatory » et cocher le module
+      // suffit désormais : les BV payés s'y imputent sans réglage supplémentaire.
+      const [envelopes, categories] = await Promise.all([
+        prisma.budgetEnvelope.findMany({
+          where: { isActive: true },
+          select: { id: true, isActive: true, modules: true, module: true, periodStart: true },
+        }),
+        prisma.budgetCategoryLine.findMany({
+          where: { parentId: null, envelope: { isActive: true } },
+          select: { id: true, envelopeId: true, module: true, parentId: true, createdAt: true },
+        }),
+      ]);
+      budgetCategoryId = pickAutoCategory(sourceModule, envelopes, categories);
     }
   }
 
