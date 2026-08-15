@@ -125,22 +125,27 @@ export type ScopeWhere = { companyId?: string | { in: string[] } } | { OR: { com
 
 /**
  * LE FILTRE TRANSVERSE — celui qu'appliquent le budget, l'Ad & Pro, les finances et les
- * demandes, c'est-à-dire les modules dont le rattachement à une entité est RÉCENT.
+ * demandes, c'est-à-dire tous les modules rattachés à une entité.
  *
- * Il se distingue de `companyAccessWhere` sur un point, et ce point est délibéré :
- * **un enregistrement non rattaché (`companyId = null`) reste visible dans toutes les vues.**
+ * LA RÈGLE, SANS EXCEPTION : ce que quelqu'un crée appartient à SON entité, et choisir une
+ * entité ne montre QUE celle-là. Une demande d'Adventum ne se lit pas depuis la vue Pharmagène,
+ * un document non plus, un événement non plus.
  *
- * Pourquoi. Ces tables ont vécu sans entité ; le rattachement rétroactif ne devine rien quand
- * il ne sait pas, et il reste donc des demandes sans entité. Les filtrer strictement les
- * rendrait invisibles depuis toutes les vues d'un salarié mono-entité — qui n'a pas de vue
- * « Toutes » puisque `resolveScope` le borne d'office à sa société. Ce ne serait pas du
- * cloisonnement, ce serait de la perte de travail.
+ * Une exception a longtemps existé : les enregistrements NON RATTACHÉS (`companyId = null`)
+ * restaient visibles dans toutes les vues, parce que ces tables avaient vécu sans entité et
+ * qu'un rattachement rétroactif ne devine pas. Elle est levée — l'exception faisait exactement
+ * ce qu'on voulait empêcher : dans la vue Pharmagène, on lisait le travail d'Adventum, sans
+ * qu'aucun écran ne le signale.
  *
- * La conséquence est bornée dans le temps : toute création postérieure porte son entité, donc
- * l'ensemble des non-rattachés ne fait que décroître. Et dès qu'un objet EST rattaché, il
- * filtre strictement — « je mets Adventum, je vois Adventum ».
+ * Deux conditions rendaient cette levée honnête, et elles sont remplies :
+ *   • les créations portent leur entité (celle du créateur) ;
+ *   • l'historique a été rattaché depuis l'entité de son créateur, et ce qui reste sans entité
+ *     est listé en Console d'Administration — visible et réparable, plutôt que perdu.
  *
- * Second garde-fou : **s'il n'existe pas au moins deux entités, aucun filtre n'est appliqué.**
+ * Le non-rattaché reste lisible depuis la vue « toutes les entités », qui n'applique aucun
+ * filtre : rien ne disparaît de la plateforme, seulement des vues cloisonnées.
+ *
+ * Garde-fou conservé : **s'il n'existe pas au moins deux entités, aucun filtre n'est appliqué.**
  * Cloisonner un groupe mono-société ne protège rien et ne peut que masquer des données.
  *
  * Fonction PURE — testée.
@@ -152,7 +157,13 @@ export function platformScopeWhere(
 ): ScopeWhere {
   if (allCompanyIds.length < 2) return {};
 
+  // ON N'ENFERME PERSONNE PAR OMISSION. Quelqu'un qui n'appartient à aucune entité et n'a reçu
+  // aucune autorisation n'est cloisonné par rien : le filtrer à zéro ne protège aucune société,
+  // cela lui vide simplement tous les écrans — un compte sans fiche salarié ne doit pas devenir
+  // un compte aveugle. Le cloisonnement vise ceux qui RELÈVENT d'une entité.
+  if (allowedCompanyIds(user, allCompanyIds).length === 0) return {};
+
   const base = companyAccessWhere(user, scope, allCompanyIds);
   if (base.companyId === undefined) return {}; // vue groupe sans portée : rien à restreindre
-  return { OR: [{ companyId: base.companyId }, { companyId: null }] };
+  return { companyId: base.companyId };
 }

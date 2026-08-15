@@ -7,8 +7,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { PRIORITY, REGULATORY_STATUS, REGULATORY_CATEGORY, MANUFACTURING_STATUS } from "@/lib/labels";
 import { formatDate, daysUntil } from "@/lib/utils";
 import { setRegulatoryPriority, setRegulatoryResponsible, setRegulatoryLock, unlockAllRegulatory } from "@/lib/actions/regulatory-actions";
-
-export type RegStage = "new" | "in_progress" | "done";
+import { visibleStages, defaultStage, type RegStage } from "@/lib/regulatory/stage";
 
 export interface RegulatoryRow {
   id: string;
@@ -43,12 +42,6 @@ export interface RegulatoryRow {
   stepsTotal: number;
   stage: RegStage;
 }
-
-const STAGES: { key: RegStage; label: string; hint: string }[] = [
-  { key: "new", label: "Nouveau / Non traités", hint: "Avant la demande de BV de présoumission" },
-  { key: "in_progress", label: "En cours de traitement", hint: "BV de présoumission demandée → en cours" },
-  { key: "done", label: "Traitement terminé", hint: "Décision d'enregistrement (DE) obtenue" },
-];
 
 const lbl = (m: Record<string, unknown>, v: string): string => {
   const e = m[v];
@@ -128,7 +121,10 @@ export function RegulatoryTable({
   assignableUsers?: AssignableUser[];
 }) {
   const router = useRouter();
-  const [stage, setStage] = React.useState<RegStage>("new");
+  // Les colonnes visibles dépendent du verrou : sans lui, le pipeline serait toujours vide.
+  const stages = React.useMemo(() => visibleStages(canLock), [canLock]);
+  const pipelineCount = React.useMemo(() => rows.filter((r) => r.stage === "pipeline").length, [rows]);
+  const [stage, setStage] = React.useState<RegStage>(() => defaultStage(canLock, pipelineCount));
   const [filters, setFilters] = React.useState<Record<string, string>>({});
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [assignError, setAssignError] = React.useState<string | null>(null);
@@ -212,8 +208,8 @@ export function RegulatoryTable({
   );
 
   const counts = React.useMemo(() => ({
-    new: rows.filter((r) => r.stage === "new").length,
-    in_progress: rows.filter((r) => r.stage === "in_progress").length,
+    pipeline: pipelineCount,
+    todo: rows.filter((r) => r.stage === "todo").length,
     done: rows.filter((r) => r.stage === "done").length,
   }), [rows]);
 
@@ -395,7 +391,7 @@ export function RegulatoryTable({
     <div className="space-y-3">
       {/* Onglets des 3 étapes + réglage des colonnes */}
       <div className="flex flex-wrap items-center gap-2">
-        {STAGES.map((s) => (
+        {stages.map((s) => (
           <button key={s.key} type="button" onClick={() => setStage(s.key)} title={s.hint}
             className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${stage === s.key ? "border-primary bg-primary/10 text-primary" : "border-input hover:bg-secondary"}`}>
             {s.label} <span className="ml-1 rounded-full bg-secondary px-1.5 text-xs">{counts[s.key]}</span>

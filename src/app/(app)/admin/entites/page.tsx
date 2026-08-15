@@ -6,6 +6,8 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { EntitiesManager, type EntityRow } from "./entities-manager";
+import { OrphansPanel } from "./orphans-panel";
+import { getUnattachedInventory } from "@/lib/queries/unattached";
 import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
@@ -15,12 +17,15 @@ export default async function EntitesPage() {
   const admin = await requireModule("ADMIN");
   if (!userCan(admin, "ADMIN", "CREATE")) redirect("/admin");
 
-  const [companies, byProduct, byEmployee, byDepartment] = await Promise.all([
+  const [companies, byProduct, byEmployee, byDepartment, orphans] = await Promise.all([
     prisma.company.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
     prisma.regulatoryProduct.groupBy({ by: ["companyId"], _count: true }),
     prisma.employee.groupBy({ by: ["companyId"], _count: true }),
     // Structure : nombre de départements propres à chaque entité.
     prisma.department.groupBy({ by: ["companyId"], _count: true }),
+    // Contrepartie de la portée stricte : ce qui n'a pas d'entité doit se VOIR, sinon il
+    // disparaît des vues cloisonnées sans que personne ne le remarque.
+    getUnattachedInventory(),
   ]);
   const prodCount = new Map(byProduct.map((r) => [r.companyId, r._count]));
   const empCount = new Map(byEmployee.map((r) => [r.companyId, r._count]));
@@ -44,9 +49,20 @@ export default async function EntitesPage() {
       </BackLink>
       <PageHeader
         title="Entités (sociétés)"
-        description="Les sociétés du groupe (Adventum Pharma, Pharmagène, …). Chaque produit, appel d'offres, employé, dépense, vente… peut être rattaché à une entité, et le sélecteur de la barre supérieure filtre toutes les vues. Tout est dynamique : créez une 3ᵉ entité, renommez, changez la couleur ou désactivez sans toucher au code."
+        description="Les sociétés du groupe (Adventum Pharma, Pharmagène, …). Ce que quelqu'un crée appartient à SON entité, et choisir une entité dans la barre supérieure ne montre QUE celle-là. Tout est dynamique : créez une 3ᵉ entité, renommez, changez la couleur ou désactivez sans toucher au code."
       />
       <EntitiesManager rows={rows} />
+
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Sans entité ({orphans.total})
+        </h2>
+        <OrphansPanel
+          groups={orphans.groups}
+          total={orphans.total}
+          companies={companies.filter((c) => c.isActive).map((c) => ({ id: c.id, name: c.name }))}
+        />
+      </section>
     </div>
   );
 }

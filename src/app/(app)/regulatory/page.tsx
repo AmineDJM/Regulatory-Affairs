@@ -3,7 +3,8 @@ import { AlertTriangle } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, scopeRegulatory, isRegulatorySupervisor } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { regProgress, regTreatmentStarted, type RegWorkflowState } from "@/lib/regulatory-workflow";
+import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
+import { regStage } from "@/lib/regulatory/stage";
 import { currentCompanyWhere, getCompanies } from "@/lib/company";
 import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
@@ -15,16 +16,6 @@ import { RegulatoryTable, type RegulatoryRow } from "./regulatory-table";
 import { NewProductButton } from "./new-product";
 import { SuppliersManager } from "./suppliers-manager";
 
-/** Étape de traitement d'un dossier : Nouveau → En cours → Terminé (DE).
- *  Le traitement DÉMARRE à l'étape 3 de la préparation (« Demande du BV 25 % » de
- *  présoumission) marquée faite — ou, à défaut de suivi d'étapes, à la présence d'un
- *  ordre de BV (hasBv) ou d'un statut avancé. Il se TERMINE à la décision (DE obtenue). */
-function regStage(status: string, treatmentStarted: boolean, hasBv: boolean): "new" | "in_progress" | "done" {
-  if (status === "DECISION_OBTAINED" || status === "CLOSED") return "done";
-  if (treatmentStarted || hasBv || ["SUBMITTED", "AWAITING_BV_PAYMENT", "AWAITING_ANPP", "RESPONDING_TO_QUERIES", "BLOCKED"].includes(status)) return "in_progress";
-  return "new";
-}
-
 export default async function RegulatoryPage() {
   const user = await requireModule("REGULATORY");
   const canCreate = userCan(user, "REGULATORY", "CREATE");
@@ -32,7 +23,7 @@ export default async function RegulatoryPage() {
   const canAssign = userCan(user, "REGULATORY", "UPDATE");
   // Le cadenas n'appartient qu'au Super Admin — les autres ne voient même pas les dossiers verrouillés.
   const canLock = user.role === "SUPER_ADMIN";
-  const [products, suppliers, companies, settings, bvOrders] = await Promise.all([
+  const [products, suppliers, companies, settings] = await Promise.all([
     prisma.regulatoryProduct.findMany({
       where: { ...scopeRegulatory(user), ...currentCompanyWhere() },
       orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
@@ -52,11 +43,7 @@ export default async function RegulatoryPage() {
     }),
     getCompanies(),
     getAppSettings(),
-    // Une demande de BV de présoumission = un ordre de dépense rattaché au dossier :
-    // sa présence fait basculer le dossier en « En cours de traitement ».
-    prisma.expenseOrder.findMany({ where: { sourceType: "REGULATORY_PRODUCT" }, select: { sourceId: true } }),
   ]);
-  const bvSet = new Set(bvOrders.map((o) => o.sourceId).filter((x): x is string => Boolean(x)));
   // Supervision Regulatory : Super Admin + rôles configurés (priorité, dates, MàJ de statut).
   const canSupervise = isRegulatorySupervisor(user, settings.regulatorySupervisorRoles);
 
@@ -94,7 +81,9 @@ export default async function RegulatoryPage() {
       progress: Math.round((done / total) * 100),
       stepsDone: done,
       stepsTotal: total,
-      stage: regStage(p.status, regTreatmentStarted(p.workflow as RegWorkflowState | null), bvSet.has(p.id)),
+      // LE VERROU EST LE PIPELINE : un dossier verrouillé attend d'être ouvert, un dossier
+      // ouvert est à traiter, un dossier abouti reste abouti. Règle pure et testée.
+      stage: regStage({ isLocked: p.isLocked, status: p.status }),
     };
   });
 

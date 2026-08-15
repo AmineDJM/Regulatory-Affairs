@@ -146,31 +146,36 @@ describe("platformScopeWhere", () => {
     expect(platformScopeWhere(bearer({ role: "DIRECTION" }), null, ALL)).toEqual({});
   });
 
-  it("portée choisie : cette entité — et ce qui n'est rattaché à personne", () => {
-    // « Je mets Adventum, je vois Adventum ». Le non-rattaché reste visible : filtré, il
-    // deviendrait invisible depuis TOUTES les vues d'un salarié mono-entité.
-    expect(platformScopeWhere(bearer({ role: "DIRECTION" }), "pha", ALL)).toEqual({
-      OR: [{ companyId: "pha" }, { companyId: null }],
-    });
+  it("PORTÉE CHOISIE : CETTE ENTITÉ, ET RIEN D'AUTRE", () => {
+    // « Je mets Adventum, je vois Adventum. » Le non-rattaché n'entre plus : l'ancienne
+    // exception faisait lire le travail d'une entité depuis la vue d'une autre, sans qu'aucun
+    // écran ne le signale.
+    expect(platformScopeWhere(bearer({ role: "DIRECTION" }), "pha", ALL)).toEqual({ companyId: "pha" });
   });
 
-  it("sans portée : les entités auxquelles j'ai droit, plus le non-rattaché", () => {
+  it("sans portée : les entités auxquelles j'ai droit", () => {
     const u = bearer({ homeCompanyId: "adv", grants: [{ companyId: "pha", canEdit: false }] });
-    expect(platformScopeWhere(u, null, ALL)).toEqual({
-      OR: [{ companyId: { in: ["adv", "pha"] } }, { companyId: null }],
-    });
+    expect(platformScopeWhere(u, null, ALL)).toEqual({ companyId: { in: ["adv", "pha"] } });
   });
 
   it("une portée interdite retombe sur un droit réel, jamais sur l'entité demandée", () => {
     const u = bearer({ homeCompanyId: "adv" });
-    expect(platformScopeWhere(u, "xyz", ALL)).toEqual({
-      OR: [{ companyId: { in: ["adv"] } }, { companyId: null }],
-    });
+    expect(platformScopeWhere(u, "xyz", ALL)).toEqual({ companyId: { in: ["adv"] } });
   });
 
-  it("aucun droit : rien ne remonte, sauf ce qui n'appartient à personne", () => {
-    expect(platformScopeWhere(bearer(), null, ALL)).toEqual({
-      OR: [{ companyId: { in: [] } }, { companyId: null }],
-    });
+  it("qui n'appartient à AUCUNE entité n'est cloisonné par rien", () => {
+    // Le filtrer à zéro ne protège aucune société : cela vide tous ses écrans. Un compte sans
+    // fiche salarié ne doit pas devenir un compte aveugle.
+    expect(platformScopeWhere(bearer(), null, ALL)).toEqual({});
+    expect(platformScopeWhere(bearer(), "adv", ALL)).toEqual({});
+  });
+
+  it("le non-rattaché n'apparaît dans AUCUNE vue cloisonnée", () => {
+    // Il reste lisible en vue « toutes les entités » (aucun filtre) — rien ne disparaît de la
+    // plateforme, seulement des vues d'entité.
+    for (const scope of ["adv", "pha", "xyz"]) {
+      const w = platformScopeWhere(bearer({ role: "DIRECTION" }), scope, ALL);
+      expect(JSON.stringify(w)).not.toContain("null");
+    }
   });
 });
