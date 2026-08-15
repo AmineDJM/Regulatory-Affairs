@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import type { AccessScope, EntityType } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, MODULES, type Module } from "@/lib/rbac";
+import { userCan, MODULES, PERMISSIONS, ACTIONS, type Module } from "@/lib/rbac";
+import { actionsOfModule, type PermissionMatrix } from "@/lib/rbac-sheet";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { clearAttempts } from "@/lib/login-throttle";
@@ -15,6 +16,19 @@ async function requireAdmin() {
   const admin = await requireUser();
   if (!userCan(admin, "ADMIN", "UPDATE")) return null;
   return admin;
+}
+
+
+/**
+ * Les capacités que ce module autorise RÉELLEMENT (déduites de la matrice des rôles).
+ *
+ * Écrire `canValidate: true` sur un module où plus personne ne valide ne donne aucun droit mais
+ * laisse une ligne d'autorisation qui AFFIRME le contraire : au prochain audit, on croit avoir
+ * accordé quelque chose. On borne donc l'écriture à ce qui existe, côté serveur — un formulaire
+ * forgé n'y change rien.
+ */
+function supportedActions(module: Module): Set<string> {
+  return new Set(actionsOfModule(module, PERMISSIONS as unknown as PermissionMatrix, ACTIONS));
 }
 
 /**
@@ -35,7 +49,8 @@ export async function saveAccessMatrix(formData: FormData): Promise<ActionResult
       continue;
     }
     const blocked = mode === "BLOCKED";
-    const get = (a: string) => !blocked && formData.get(`act_${module}_${a}`) === "on";
+    const supported = supportedActions(module);
+    const get = (a: string) => !blocked && supported.has(a) && formData.get(`act_${module}_${a}`) === "on";
     const scope = (fdStr(formData, `scope_${module}`) as AccessScope) ?? "ASSIGNED";
     await prisma.userAccess.upsert({
       where: { userId_module: { userId, module } },
@@ -75,6 +90,7 @@ export async function saveModuleAccess(formData: FormData): Promise<ActionResult
   const module = fdStr(formData, "module") as Module | null;
   if (!module || !MODULES.includes(module)) return { ok: false, error: "Module manquant." };
   const userIds = formData.getAll("userId").map(String).filter(Boolean);
+  const supported = supportedActions(module);
 
   for (const userId of userIds) {
     const mode = fdStr(formData, `mode_${userId}`) ?? "DEFAULT";
@@ -83,7 +99,7 @@ export async function saveModuleAccess(formData: FormData): Promise<ActionResult
       continue;
     }
     const blocked = mode === "BLOCKED";
-    const get = (a: string) => !blocked && formData.get(`act_${userId}_${a}`) === "on";
+    const get = (a: string) => !blocked && supported.has(a) && formData.get(`act_${userId}_${a}`) === "on";
     const scope = (fdStr(formData, `scope_${userId}`) as AccessScope) ?? "ASSIGNED";
     await prisma.userAccess.upsert({
       where: { userId_module: { userId, module } },

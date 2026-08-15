@@ -8,11 +8,14 @@ import { Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+import { ACTION_LABELS } from "@/lib/labels";
+
+/**
+ * Les colonnes sont les MÊMES pour toutes les lignes (c'est un tableau), mais les cases d'une
+ * ligne ne s'affichent que si SON module autorise l'action. Une case cochable sur un module qui
+ * n'a pas cette capacité s'enregistrerait sans rien ouvrir — et ferait croire à un droit donné.
+ */
 const ACTION_COLS = ["CREATE", "UPDATE", "DELETE", "VALIDATE", "EXPORT", "UPLOAD"] as const;
-const ACTION_LABELS: Record<string, string> = {
-  CREATE: "Créer", UPDATE: "Modifier", DELETE: "Supprimer",
-  VALIDATE: "Valider", EXPORT: "Exporter", UPLOAD: "Upload",
-};
 
 export interface ModuleAccessRow {
   module: string;
@@ -20,6 +23,8 @@ export interface ModuleAccessRow {
   mode: "DEFAULT" | "CUSTOM" | "BLOCKED";
   actions: Record<string, boolean>;
   scope: "ALL" | "ASSIGNED";
+  /** Capacités réellement offertes par ce module (déduites des droits des rôles). */
+  available: string[];
   rowScoped: boolean;
   roleSummary: string; // human description of the role default
 }
@@ -80,14 +85,18 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
                   </TableCell>
                   {ACTION_COLS.map((a) => (
                     <TableCell key={a} className="text-center">
-                      <input
-                        type="checkbox"
-                        name={`act_${r.module}_${a}`}
-                        checked={custom ? Boolean(r.actions[a]) : false}
-                        disabled={!custom}
-                        onChange={(e) => update(r.module, { actions: { ...r.actions, [a]: e.target.checked } })}
-                        className="h-4 w-4 rounded border-input disabled:opacity-30"
-                      />
+                      {r.available.includes(a) ? (
+                        <input
+                          type="checkbox"
+                          name={`act_${r.module}_${a}`}
+                          checked={custom ? Boolean(r.actions[a]) : false}
+                          disabled={!custom}
+                          onChange={(e) => update(r.module, { actions: { ...r.actions, [a]: e.target.checked } })}
+                          className="h-4 w-4 rounded border-input disabled:opacity-30"
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground" title="Ce module n'offre pas cette capacité.">—</span>
+                      )}
                     </TableCell>
                   ))}
                   <TableCell>

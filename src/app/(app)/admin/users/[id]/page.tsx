@@ -4,11 +4,12 @@ import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { ImpersonateButton } from "./impersonate-button";
 import { prisma } from "@/lib/prisma";
-import { PERMISSIONS, defaultScope, MODULES, type Action, type Module, regulatoryLockWhere } from "@/lib/rbac";
+import { PERMISSIONS, defaultScope, MODULES, ACTIONS, type Action, type Module, regulatoryLockWhere } from "@/lib/rbac";
+import { buildAccessSheet, type PermissionMatrix } from "@/lib/rbac-sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import { MODULE_LABELS, ROLE_LABELS } from "@/lib/labels";
+import { MODULE_LABELS, ROLE_LABELS, ACTION_LABELS } from "@/lib/labels";
 import { formatDateTime } from "@/lib/utils";
 import { AccessMatrix, type ModuleAccessRow } from "./access-matrix";
 import { SessionsList, type SessionItem } from "./sessions-list";
@@ -17,11 +18,20 @@ import { ProfileForm, ResetPasswordForm, ActiveToggle, RevokeAllButton, RequestO
 import { BackLink } from "@/components/shared/back-link";
 
 const MODULE_LABEL: Record<string, string> = MODULE_LABELS;
-const ROW_SCOPED: Module[] = ["REGULATORY", "SALES", "MEDICAL", "BUSINESS_DEVELOPMENT"];
-const ACTION_FR: Record<string, string> = {
-  VIEW: "Voir", CREATE: "Créer", UPDATE: "Modifier", DELETE: "Supprimer",
-  VALIDATE: "Valider", EXPORT: "Exporter", UPLOAD: "Upload",
-};
+
+/**
+ * Ce que chaque module autorise réellement — DÉDUIT de la matrice des rôles et de la portée par
+ * défaut, jamais recopié. Une liste écrite à la main propose tôt ou tard une case qui n'ouvre
+ * rien, ou oublie un module ajouté depuis.
+ */
+const SHEET = new Map(
+  buildAccessSheet(
+    MODULES, MODULE_LABELS as Record<string, string>,
+    PERMISSIONS as unknown as PermissionMatrix, ACTIONS,
+    Object.keys(PERMISSIONS),
+    (role, module) => defaultScope(role as Parameters<typeof defaultScope>[0], module as Module),
+  ).map((spec) => [spec.value, spec]),
+);
 
 export default async function AdminUserPage({ params }: { params: { id: string } }) {
   const admin = await requireModule("ADMIN", "UPDATE");
@@ -51,7 +61,7 @@ export default async function AdminUserPage({ params }: { params: { id: string }
     const ov = overrideMap.get(module);
     const def = PERMISSIONS[target.role]?.[module] ?? [];
     const roleSummary = def.length
-      ? def.filter((a) => a !== "VIEW").map((a) => ACTION_FR[a]).join(", ") || "Voir seulement"
+      ? def.filter((a) => a !== "VIEW").map((a) => ACTION_LABELS[a]).join(", ") || "Voir seulement"
       : "Aucun accès";
     let mode: ModuleAccessRow["mode"] = "DEFAULT";
     const actions: Record<string, boolean> = {};
@@ -64,9 +74,10 @@ export default async function AdminUserPage({ params }: { params: { id: string }
     } else {
       for (const a of def) if (a !== "VIEW") actions[a as Action] = true;
     }
+    const spec = SHEET.get(module);
     return {
       module, label: MODULE_LABEL[module] ?? module, mode, actions, scope,
-      rowScoped: ROW_SCOPED.includes(module), roleSummary,
+      available: spec?.actions ?? [], rowScoped: spec?.rowScoped ?? false, roleSummary,
     };
   });
 

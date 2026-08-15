@@ -8,16 +8,10 @@ import { Input, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-const ACTION_COLS = ["CREATE", "UPDATE", "DELETE", "VALIDATE", "EXPORT", "UPLOAD"] as const;
-const ACTION_LABELS: Record<string, string> = {
-  CREATE: "Créer", UPDATE: "Modifier", DELETE: "Supprimer", VALIDATE: "Valider", EXPORT: "Exporter", UPLOAD: "Upload",
-};
-
 export interface UserModuleState {
   mode: "DEFAULT" | "CUSTOM" | "BLOCKED";
   actions: Record<string, boolean>;
   scope: "ALL" | "ASSIGNED";
-  rowScoped: boolean;
   roleSummary: string;
 }
 export interface AccessUser {
@@ -27,10 +21,25 @@ export interface AccessUser {
   byModule: Record<string, UserModuleState>;
 }
 
-interface Opt { value: string; label: string }
+/**
+ * LES COLONNES VIENNENT DU SERVEUR, déduites des droits réels du module — elles ne sont plus
+ * écrites ici. Un module qui n'a aucune validation n'affiche donc pas de case « Valider » : une
+ * case qui n'ouvre rien fait croire à un droit accordé, et c'est pire que l'absence de case.
+ */
+export interface ModuleSpec {
+  value: string;
+  label: string;
+  actions: string[];
+  rowScoped: boolean;
+  roleCount: number;
+}
 
-export function ModuleAccessGrid({ modules, users }: { modules: Opt[]; users: AccessUser[] }) {
+export function ModuleAccessGrid({
+  modules, users, actionLabels,
+}: { modules: ModuleSpec[]; users: AccessUser[]; actionLabels: Record<string, string> }) {
   const [module, setModule] = React.useState(modules[0]?.value ?? "");
+  const spec = modules.find((m) => m.value === module) ?? modules[0];
+  const cols = spec?.actions ?? [];
   const [rows, setRows] = React.useState<Record<string, UserModuleState>>({});
   const [search, setSearch] = React.useState("");
   const [saving, setSaving] = React.useState(false);
@@ -62,7 +71,7 @@ export function ModuleAccessGrid({ modules, users }: { modules: Opt[]; users: Ac
           fd.append("userId", u.id);
           fd.set(`mode_${u.id}`, r.mode);
           if (r.mode === "CUSTOM") {
-            for (const a of ACTION_COLS) if (r.actions[a]) fd.set(`act_${u.id}_${a}`, "on");
+            for (const a of cols) if (r.actions[a]) fd.set(`act_${u.id}_${a}`, "on");
             // Drive & Projets : portée toujours cloisonnée (privé), jamais « tout ».
             fd.set(`scope_${u.id}`, module === "DRIVE" || module === "DOSSIERS" ? "ASSIGNED" : r.scope);
           }
@@ -80,6 +89,14 @@ export function ModuleAccessGrid({ modules, users }: { modules: Opt[]; users: Ac
           <Select id="module-pick" value={module} onChange={(e) => setModule(e.target.value)} className="w-64">
             {modules.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </Select>
+          {spec && (
+            <p className="text-xs text-muted-foreground">
+              {spec.roleCount === 0
+                // Le dire ici évite de chercher longtemps pourquoi « personne n'y a accès ».
+                ? "Aucun rôle n'atteint ce module par défaut : l'accès se donne nommément, ci-dessous."
+                : `${spec.roleCount} rôle${spec.roleCount > 1 ? "s" : ""} y ont accès par défaut · ${spec.actions.length || "aucune"} capacité${spec.actions.length > 1 ? "s" : ""} réglable${spec.actions.length > 1 ? "s" : ""}`}
+            </p>
+          )}
         </div>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -93,7 +110,8 @@ export function ModuleAccessGrid({ modules, users }: { modules: Opt[]; users: Ac
             <TableRow>
               <TableHead>Employé</TableHead>
               <TableHead>Accès</TableHead>
-              {ACTION_COLS.map((a) => <TableHead key={a} className="text-center">{ACTION_LABELS[a]}</TableHead>)}
+              {cols.map((a) => <TableHead key={a} className="text-center">{actionLabels[a] ?? a}</TableHead>)}
+              {cols.length === 0 && <TableHead>Capacités</TableHead>}
               <TableHead>Portée</TableHead>
             </TableRow>
           </TableHeader>
@@ -115,7 +133,7 @@ export function ModuleAccessGrid({ modules, users }: { modules: Opt[]; users: Ac
                       <option value="BLOCKED">Bloqué</option>
                     </Select>
                   </TableCell>
-                  {ACTION_COLS.map((a) => (
+                  {cols.map((a) => (
                     <TableCell key={a} className="text-center">
                       <input
                         type="checkbox"
@@ -126,10 +144,13 @@ export function ModuleAccessGrid({ modules, users }: { modules: Opt[]; users: Ac
                       />
                     </TableCell>
                   ))}
+                  {cols.length === 0 && (
+                    <TableCell className="text-xs text-muted-foreground">Consultation seule</TableCell>
+                  )}
                   <TableCell>
                     {module === "DRIVE" || module === "DOSSIERS" ? (
                       <span className="text-xs text-muted-foreground" title="Confidentialité stricte : l'utilisateur ne voit que ses propres fichiers / projets et ceux qu'on lui a partagés ou confiés.">Privé (assignées)</span>
-                    ) : r.rowScoped ? (
+                    ) : spec?.rowScoped ? (
                       <Select value={r.scope} disabled={!custom} onChange={(e) => update(u.id, { scope: e.target.value as "ALL" | "ASSIGNED" })} className="h-8 w-36 text-xs">
                         <option value="ALL">Toutes les lignes</option>
                         <option value="ASSIGNED">Lignes assignées</option>

@@ -1,4 +1,4 @@
-import type { Module } from "./rbac";
+import type { Action, Module } from "./rbac";
 
 /**
  * Centralised French display labels and badge tones for every enum value.
@@ -1180,6 +1180,21 @@ export const MODULE_LABELS: Record<Module, string> = {
   PROCESS_INTELLIGENCE: "Process Intelligence",
   ADVENTUM_BRAIN: "Adventum Brain",
   ADMIN: "Administration",
+};
+
+/**
+ * Les ACTIONS, en français. Un seul endroit : l'écran des accès, la fiche d'un employé et le
+ * journal d'audit doivent nommer « Valider » de la même façon, sinon deux écrans décrivent le
+ * même droit avec deux mots et personne ne sait s'il s'agit du même.
+ */
+export const ACTION_LABELS: Record<Action, string> = {
+  VIEW: "Voir",
+  CREATE: "Créer",
+  UPDATE: "Modifier",
+  DELETE: "Supprimer",
+  VALIDATE: "Valider",
+  EXPORT: "Exporter",
+  UPLOAD: "Téléverser",
 };
 
 // Navigation simplifiée : modules fusionnés en onglets (`tabs`) pour réduire le
