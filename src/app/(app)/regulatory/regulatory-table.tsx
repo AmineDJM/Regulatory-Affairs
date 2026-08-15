@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Filter, Columns3, Lock, LockOpen } from "lucide-react";
+import { Loader2, Filter, Columns3, Lock, LockOpen, FileSpreadsheet } from "lucide-react";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PRIORITY, REGULATORY_STATUS, REGULATORY_CATEGORY, MANUFACTURING_STATUS } from "@/lib/labels";
 import { formatDate, daysUntil } from "@/lib/utils";
@@ -129,6 +129,7 @@ export function RegulatoryTable({
   const [filters, setFilters] = React.useState<Record<string, string>>({});
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [assignError, setAssignError] = React.useState<string | null>(null);
+  const [exporting, setExporting] = React.useState(false);
   // Colonnes masquées : préférence PAR NAVIGATEUR, chargée après montage (pas de désaccord
   // d'hydratation) — tout est visible par défaut.
   const [hiddenCols, setHiddenCols] = React.useState<string[]>([]);
@@ -213,6 +214,37 @@ export function RegulatoryTable({
     await setRegulatoryPriority(fd);
     setBusyId(null);
     router.refresh();
+  }
+
+  /**
+   * EXPORTER CE QUE L'ON VOIT. On envoie les identifiants des lignes affichées — onglet et
+   * filtres compris : un classeur qui ne correspond pas à l'écran d'où il sort circule ensuite
+   * sans que personne ne sache ce qu'il contient. Le serveur recroise malgré tout la portée.
+   */
+  async function exportXlsx() {
+    setExporting(true);
+    setAssignError(null);
+    try {
+      const res = await fetch("/api/regulatory/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: filtered.map((r) => r.id) }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Export impossible.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? "regulatory.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setAssignError(err instanceof Error ? err.message : "Export impossible.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   /** Ouvrir ou fermer le cadenas d'un dossier (Super Admin). */
@@ -353,6 +385,15 @@ export function RegulatoryTable({
               <Filter className="h-3.5 w-3.5" /> Effacer les filtres
             </button>
           )}
+          <button
+            type="button" onClick={() => void exportXlsx()} disabled={exporting}
+            title={`Exporter les ${filtered.length} dossier(s) affiché(s) en Excel`}
+            className="inline-flex items-center gap-1 rounded-lg border border-input px-2.5 py-2 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-60"
+          >
+            {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}
+            Exporter ({filtered.length})
+          </button>
+
           {/* Masquer / démasquer chaque colonne — préférence mémorisée par navigateur. */}
           <div ref={colsRef} className="relative">
             <button type="button" onClick={() => setColsOpen((v) => !v)}
