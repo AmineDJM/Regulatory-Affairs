@@ -16,9 +16,9 @@ const variants = {
 
 const sizes = {
   sm: "h-8 px-3 text-xs gap-1.5",
-  md: "h-9 px-4 text-sm gap-2",
-  lg: "h-10 px-5 text-sm gap-2",
-  icon: "h-9 w-9",
+  md: "h-10 px-4 text-sm gap-2",
+  lg: "h-11 px-5 text-sm gap-2",
+  icon: "h-10 w-10",
 } as const;
 
 export interface ButtonProps
@@ -32,7 +32,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     <button
       ref={ref}
       className={cn(
-        "inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-ring disabled:pointer-events-none disabled:opacity-50 whitespace-nowrap",
+        "inline-flex items-center justify-center rounded-[var(--radius)] font-medium transition-colors duration-150 focus-ring disabled:pointer-events-none disabled:opacity-50 whitespace-nowrap",
         variants[variant],
         sizes[size],
         className,

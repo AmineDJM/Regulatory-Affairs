@@ -4,48 +4,75 @@
 
 @layer base {
   :root {
-    /* Surfaces */
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    /* ─────────────────────────────────────────────────────────────────────────────
+       DIRECTION ARTISTIQUE — bleu nuit + blanc cassé + azur.
+       Beaucoup de neutralité, très peu de décoration, précision clinique.
 
-    /* Brand — azur vif & joyeux (science UX Apple / Salesforce Lightning), accessible sur blanc */
-    --primary: 208 94% 43%;
+       UN SEUL langage visuel pour tout le logiciel : Regulatory ne doit pas ressembler
+       à un autre produit que Finance. Ce sont les DONNÉES et les ICÔNES qui changent,
+       jamais le système. Toute couleur vit ici — aucune valeur en dur dans un écran.
+       ───────────────────────────────────────────────────────────────────────────── */
+
+    /* Surfaces — le fond n'est jamais blanc pur, sinon les zones de travail s'y fondent
+       et l'œil ne distingue plus « le plan » de « la table ». #F6F8FB. */
+    --background: 216 38% 97%;
+    --foreground: 217 33% 12%;
+    /* Les zones de travail, elles, sont en blanc franc : c'est ce contraste ténu qui
+       structure l'écran, sans une seule bordure supplémentaire. */
+    --card: 0 0% 100%;
+    --card-foreground: 217 33% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 217 33% 12%;
+
+    /* UNE SEULE couleur de marque : azur scientifique (#1677FF). Boutons principaux,
+       liens, focus, sélection. Pas une couleur par module — un module ne se reconnaît
+       pas à sa teinte, il se reconnaît à ce qu'il montre. Elle ne doit couvrir que
+       5 à 10 % de l'écran ; tout le reste est blanc, gris et bleu nuit. */
+    --primary: 215 100% 54%;
     --primary-foreground: 0 0% 100%;
 
-    /* Neutrals — légère nuance bleutée pour un rendu plus vivant */
-    --secondary: 210 45% 96%;
-    --secondary-foreground: 216 40% 22%;
-    --muted: 210 45% 96%;
-    --muted-foreground: 214 16% 46%;
-    --accent: 205 100% 94%;
-    --accent-foreground: 208 94% 38%;
+    /* Neutres — gris très légèrement bleutés, pour rester dans la même famille que
+       l'azur et le bleu nuit. Un gris parfaitement neutre paraîtrait sale à côté. */
+    --secondary: 216 33% 96%;
+    --secondary-foreground: 217 24% 27%;
+    --muted: 216 33% 96%;
+    --muted-foreground: 216 14% 47%;
+    --accent: 214 100% 96%;
+    --accent-foreground: 215 90% 45%;
 
-    /* Status — palette vive et lisible (vert succès / orange alerte / rouge blocage) */
-    --success: 150 64% 40%;
+    /* STATUTS — et rien d'autre. La couleur porte ici une information, pas une
+       décoration : vert = validé, ambre = en attente, rouge = blocage, bleu = en cours,
+       gris = neutre. Les employer ailleurs transformerait l'ERP en sapin de Noël et
+       viderait le code couleur de son sens. */
+    --success: 152 56% 36%;
     --success-foreground: 0 0% 100%;
-    --warning: 33 96% 48%;
+    --warning: 35 88% 45%;
     --warning-foreground: 0 0% 100%;
-    --destructive: 358 75% 55%;
+    --destructive: 356 68% 51%;
     --destructive-foreground: 0 0% 100%;
+    --info: 212 84% 48%;
+    --info-foreground: 0 0% 100%;
 
-    /* Lines & inputs */
-    --border: 214 32% 90%;
-    --input: 214 32% 90%;
-    --ring: 208 94% 48%;
+    /* Traits & champs — #E5E9F0. Assez visible pour délimiter, assez discret pour
+       qu'une page dense ne devienne pas un quadrillage. */
+    --border: 218 27% 92%;
+    --input: 218 27% 92%;
+    --ring: 215 100% 54%;
 
-    /* Sidebar — bleu profond vibrant + accent sky lumineux */
-    --sidebar: 217 54% 15%;
-    --sidebar-foreground: 210 40% 97%;
-    --sidebar-muted: 214 28% 70%;
-    --sidebar-accent: 202 100% 63%;
+    /* Barre latérale — bleu nuit (#0F1E32). Texte blanc cassé, secondaires gris bleuté.
+       L'item actif se distingue par un fond à peine plus clair, jamais par un aplat vif :
+       un menu n'a pas à crier plus fort que le contenu. */
+    --sidebar: 214 54% 13%;
+    --sidebar-foreground: 210 24% 94%;
+    --sidebar-muted: 214 16% 62%;
+    --sidebar-active: 214 45% 20%;
+    --sidebar-accent: 215 100% 62%;
 
-    --radius: 0.65rem;
-    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-      Helvetica, Arial, sans-serif;
+    --radius: 0.625rem;
+    /* Inter — dessinée pour les interfaces denses : chiffres tabulaires, hauteur d'x
+       généreuse, aucune ambiguïté entre 1, l et I sur une référence de dossier. */
+    --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+      Roboto, Helvetica, Arial, sans-serif;
   }
 }
 
@@ -212,15 +239,40 @@
      monte d'un cran — elle ne descend jamais sous 50, sinon la barre d'onglets la recouvre. */
 
   /* Élévation douce et légèrement teintée (rendu « carte » Apple / Salesforce) */
+  /* Une carte se tient par sa BORDURE, pas par son ombre. Les grosses cartes flottantes
+     datent des tableaux de bord de 2020 : elles ajoutent du bruit et, empilées, donnent
+     l'impression que tout lévite. Il reste un souffle d'ombre — un seul pixel — pour
+     décoller la surface du fond sans qu'on puisse la nommer. */
   .surface {
-    @apply rounded-xl border border-border bg-card;
-    box-shadow: 0 1px 2px hsl(216 45% 22% / 0.04), 0 6px 16px hsl(216 45% 22% / 0.06);
+    @apply rounded-[var(--radius)] border border-border bg-card;
+    box-shadow: 0 1px 2px hsl(217 33% 17% / 0.04);
   }
   @media (max-width: 639px) {
-    .surface {
-      box-shadow: 0 1px 2px hsl(216 45% 22% / 0.05);
-    }
+    .surface { box-shadow: none; }
   }
+  /* ANIMATIONS — 150 ms, jamais plus. Elles doivent donner de la fluidité, jamais faire
+     « regarde comme l'interface bouge ». Au-delà de 200 ms, on ATTEND une interface au lieu
+     de s'en servir, et cent fois par jour cela devient une lenteur ressentie. */
+  .motion-fast { transition-duration: 150ms; }
+
+  /* TABLEAUX — l'en-tête à peine gris, des séparateurs qu'on devine plutôt qu'on ne voit,
+     un survol léger. Pas de zébrures : sur une table dense elles fatiguent, et elles
+     rendent illisible le vrai signal — le badge de statut. */
+  .table-clean thead th {
+    @apply bg-secondary/60 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground;
+  }
+  .table-clean tbody tr {
+    @apply border-t border-border/70 transition-colors;
+    transition-duration: 150ms;
+  }
+  .table-clean tbody tr:hover { @apply bg-secondary/40; }
+
+  /* BADGES DE STATUT — pastel, jamais saturés : la couleur informe, elle ne domine pas.
+     Un aplat plein sur chaque ligne d'un tableau de 200 lignes ferait un vitrail. */
+  .badge-soft {
+    @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.6875rem] font-medium;
+  }
+
   .focus-ring {
     @apply outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-ring;
   }

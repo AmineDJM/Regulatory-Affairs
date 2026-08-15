@@ -25,6 +25,12 @@ const config: Config = {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
         },
+        // Bleu d'INFORMATION (« en cours ») — distinct de la couleur de marque : un statut
+        // ne doit pas se confondre avec un bouton d'action.
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+        },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",
@@ -62,6 +68,9 @@ const config: Config = {
           foreground: "hsl(var(--sidebar-foreground))",
           muted: "hsl(var(--sidebar-muted))",
           accent: "hsl(var(--sidebar-accent))",
+          // Fond de l'item ACTIF : un bleu nuit à peine plus clair. Un aplat vif ferait
+          // crier le menu plus fort que le contenu qu'il sert à atteindre.
+          active: "hsl(var(--sidebar-active))",
         },
       },
       borderRadius: {

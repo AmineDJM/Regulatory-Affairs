@@ -1,5 +1,17 @@
 import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
+
+/**
+ * INTER — dessinée pour les interfaces denses : hauteur d'x généreuse, chiffres tabulaires,
+ * aucune ambiguïté entre 1, l et I sur une référence de dossier. Servie par `next/font`,
+ * donc auto-hébergée : pas de requête vers un CDN au chargement, et aucun saut de police.
+ */
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: "AMD Internal OS — Adventum Pharma",
@@ -32,7 +44,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="fr" suppressHydrationWarning>
+    <html lang="fr" className={inter.variable} suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );

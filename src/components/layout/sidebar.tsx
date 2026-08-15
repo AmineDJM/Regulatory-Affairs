@@ -103,7 +103,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
           className={cn(
             "flex items-center gap-2.5 rounded-lg py-2 text-sm font-medium transition-colors",
             nested ? "pl-9 pr-3" : "px-3",
-            active ? "bg-white/10 text-white" : "text-sidebar-muted hover:bg-white/5 hover:text-white",
+            active ? "bg-sidebar-active text-white" : "text-sidebar-muted hover:bg-sidebar-active/60 hover:text-white",
           )}
         >
           <Icon name={item.icon} className="h-4 w-4 shrink-0" />
@@ -159,7 +159,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
                       aria-expanded={opened}
                       className={cn(
                         "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
-                        anyActive ? "text-white" : "text-sidebar-muted hover:bg-white/5 hover:text-white",
+                        anyActive ? "text-white" : "text-sidebar-muted hover:bg-sidebar-active/60 hover:text-white",
                       )}
                     >
                       <Icon name={pole.icon} className="h-4 w-4 shrink-0" />
@@ -188,7 +188,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
         {renderFlat("Système", systeme)}
       </nav>
 
-      <div className="border-t border-white/10 px-5 py-3">
+      <div className="border-t border-white/[0.07] px-5 py-3">
         <p className="text-[0.6875rem] text-sidebar-muted">
           © {new Date().getFullYear()} Adventum — v0.1
         </p>
