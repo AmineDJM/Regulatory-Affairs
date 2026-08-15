@@ -116,14 +116,32 @@ describe("alias de recherche — les anciens noms restent trouvables", () => {
 });
 
 describe("aucune route n'a changé — les liens historiques restent valides", () => {
-  it("les routes des pôles sont celles qui existaient avant la refonte", () => {
-    const hrefs = NAVIGATION.filter((n) => n.pole).map((n) => n.href);
+  it("les routes des pôles restent atteignables depuis la navigation", () => {
+    // Une entrée de menu peut pointer ailleurs qu'avant (Ad & Pro ouvre désormais sur la vue
+    // unifiée `/ad-pro`), mais la route historique doit rester JOIGNABLE — sinon un lien envoyé
+    // par courriel il y a six mois tombe dans le vide. On accepte donc qu'elle soit portée par
+    // l'entrée elle-même, par ses ONGLETS, ou par ses routes de correspondance.
+    const reachable = new Set<string>();
+    for (const n of NAVIGATION.filter((x) => x.pole)) {
+      reachable.add(n.href);
+      for (const t of n.tabs ?? []) reachable.add(t.href);
+      for (const m of n.match ?? []) reachable.add(m);
+    }
     for (const expected of [
       "/regulatory", "/regulatory/enregistrement", "/moyens-generaux", "/finances", "/rh",
       "/budgets", "/sales", "/medical", "/planning", "/field-reports", "/sponsoring",
       "/information-medicale", "/business-development", "/pch", "/logistics", "/stocks",
     ]) {
-      expect(hrefs).toContain(expected);
+      expect(reachable, expected).toContain(expected);
+    }
+  });
+
+  it("Ad & Pro ouvre sur la vue unifiée, sans faire disparaître les écrans par nature", () => {
+    const adPro = NAVIGATION.find((n) => n.label === "Ad & Pro");
+    expect(adPro?.href).toBe("/ad-pro");
+    const tabs = (adPro?.tabs ?? []).map((t) => t.href);
+    for (const nature of ["/sponsoring", "/congress-international", "/congress-national", "/events", "/promo-material"]) {
+      expect(tabs, nature).toContain(nature);
     }
   });
 });

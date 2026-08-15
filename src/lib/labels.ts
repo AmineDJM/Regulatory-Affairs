@@ -1118,6 +1118,9 @@ export const COMMERCE_TABS: NavTab[] = [
 ];
 
 export const EVENTS_TABS: NavTab[] = [
+  // UNE SEULE DEMANDE : la vue unifiée ouvre le pôle. Les écrans par nature restent derrière —
+  // ils portent les champs propres (billets, visas, devis d'agence) et leurs circuits.
+  { module: "SPONSORING", label: "Toutes les demandes", href: "/ad-pro" },
   { module: "SPONSORING", label: "Sponsoring", href: "/sponsoring" },
   { module: "CONGRESS_INTERNATIONAL", label: "Prises en charge Internationales", href: "/congress-international" },
   { module: "CONGRESS_NATIONAL", label: "Prises en charge Nationales", href: "/congress-national" },
@@ -1246,7 +1249,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical/annuaire"] },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
-  { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/promo-material", "/promo-material/stock"] },
+  { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/promo-material/stock"] },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles", pole: "SALES_MARKETING" },
 
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
