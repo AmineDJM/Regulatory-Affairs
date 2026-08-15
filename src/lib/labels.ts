@@ -1074,6 +1074,13 @@ export const WORKSPACE_TABS: NavTab[] = [
 ];
 // BUDGETS — trois écrans au lieu d'un seul écran fourre-tout : on REGARDE (vue d'ensemble
 // graphique), on TRAVAILLE (dépenses à imputer), on RÈGLE (enveloppe, catégories, total).
+// PROMOTION MÉDICALE — l'ANNUAIRE est un sous-module à part entière : c'est un référentiel qui
+// se consulte, s'exporte et s'importe pour lui-même, pas une section d'un écran de visites.
+export const MEDICAL_TABS: NavTab[] = [
+  { module: "MEDICAL", label: "Visites & segmentation", href: "/medical" },
+  { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire" },
+];
+
 export const BUDGET_TABS: NavTab[] = [
   { module: "BUDGETS", label: "Vue d'ensemble", href: "/budgets" },
   { module: "BUDGETS", label: "Dépenses", href: "/budgets/depenses" },
@@ -1233,7 +1240,7 @@ export const NAVIGATION: NavItem[] = [
   // praticiens vit DANS Promotion médicale : on ne consulte pas un annuaire pour lui-même, on
   // le consulte en préparant une visite.
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles", pole: "SALES_MARKETING" },
-  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING" },
+  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical/annuaire"] },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/promo-material"] },
