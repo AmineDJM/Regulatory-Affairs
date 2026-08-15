@@ -6934,3 +6934,38 @@ enum WebhookStatus {
   DELIVERED
   FAILED
 }
+
+/// QUI PORTE UNE AUTORITÉ DE VALIDATION — configurable, jamais codé en dur.
+///
+/// Une autorité se rattache à un RÔLE, pas à une personne : « le directeur des opérations »
+/// valide, quel que soit celui qui occupe le poste. Le jour où la personne change, rien à
+/// reprogrammer. Seule exception assumée, la DIRECTION GÉNÉRALE, qui est nominative — c'est
+/// une signature personnelle, et elle se transfère nommément à quelqu'un d'autre.
+model AuthorityHolder {
+  id                String    @id @default(cuid())
+  /// NATIONAL_SUPERVISOR | PRODUCT_MANAGER | HR | OPERATIONS | GENERAL_MANAGEMENT | FINANCE
+  authority         String    @unique
+  /// Rôles porteurs — le cas normal.
+  roles             String[]
+  /// Titulaires NOMMÉS — l'exception (direction générale).
+  userIds           String[]
+  /// Personne à qui l'autorisation a été TRANSFÉRÉE, tant que le transfert est actif.
+  delegatedToUserId String?
+  delegatedById     String?
+  delegatedAt       DateTime?
+  delegationNote    String?
+  updatedById       String?
+  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime  @default(now())
+}
+
+/// Seuil au-delà duquel la direction générale entre dans la chaîne, par entité.
+/// Un seuil en base et non dans le code : changer un chiffre de gestion ne doit pas
+/// demander de livrer une version du logiciel.
+model PaymentThreshold {
+  id          String   @id @default(cuid())
+  companyId   String?  @unique
+  amount      Decimal  @default(500000) @db.Decimal(14, 2)
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
