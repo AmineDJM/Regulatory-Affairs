@@ -131,7 +131,16 @@ export default async function AppLayout({
           id={APP_SCROLL_ID}
           className="flex-1 overflow-y-auto px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-3 sm:px-4 sm:pt-6 lg:px-8 lg:pb-8"
         >
-          <div className="page-shell mx-auto max-w-[1400px] space-y-4 sm:space-y-6">{children}</div>
+          {/* La largeur du contenu est PLAFONNÉE par défaut : au-delà, une ligne de texte devient
+              illisible parce que l'œil perd le début de la suivante. Mais un tableau de treize
+              colonnes, lui, a besoin de toute la place — d'où la variable, qu'un écran dense
+              peut relever pour lui seul. */}
+          <div
+            className="page-shell mx-auto space-y-4 sm:space-y-6"
+            style={{ maxWidth: "var(--shell-max, 1400px)" }}
+          >
+            {children}
+          </div>
         </main>
       </div>
       {/* Navigation MOBILE : barre d'onglets basse + grille complète des modules. */}

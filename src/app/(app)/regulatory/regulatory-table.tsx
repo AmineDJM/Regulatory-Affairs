@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Filter, Columns3, Lock, LockOpen, FileSpreadsheet } from "lucide-react";
+import { Loader2, Filter, Columns3, Lock, LockOpen, FileSpreadsheet, Maximize2, Minimize2 } from "lucide-react";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PRIORITY, REGULATORY_STATUS, REGULATORY_CATEGORY, MANUFACTURING_STATUS } from "@/lib/labels";
 import { formatDate, daysUntil } from "@/lib/utils";
@@ -97,6 +97,9 @@ const COLS: Col[] = [
 /** Préférence LOCALE de colonnes masquées (par navigateur) — clé de stockage. */
 const HIDDEN_COLS_KEY = "amd-reg-hidden-cols";
 
+/** Préférence « pleine largeur » du tableau — treize colonnes tiennent mal en 1400 px. */
+const WIDE_KEY = "amd-reg-wide";
+
 /** Teinte de la priorité (Critique = rouge, Haute = ambre, Moyenne = bleu, Basse = neutre). */
 const PRIORITY_CLASS: Record<string, string> = {
   CRITICAL: "border-red-400 bg-red-50 text-red-700 dark:border-red-500/50 dark:bg-red-500/15 dark:text-red-300",
@@ -130,6 +133,25 @@ export function RegulatoryTable({
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [assignError, setAssignError] = React.useState<string | null>(null);
   const [exporting, setExporting] = React.useState(false);
+  // PLEINE LARGEUR : le plafond de 1400 px protège la LECTURE d'un texte, pas celle d'un
+  // tableau. On le relève pour cet écran, et pour lui seul — la variable est reposée en
+  // quittant la page, sinon un formulaire hériterait d'une largeur faite pour des colonnes.
+  const [wide, setWide] = React.useState(false);
+  React.useEffect(() => {
+    const saved = window.localStorage.getItem(WIDE_KEY) === "1";
+    setWide(saved);
+  }, []);
+  React.useEffect(() => {
+    const root = document.documentElement;
+    if (wide) root.style.setProperty("--shell-max", "100%");
+    else root.style.removeProperty("--shell-max");
+    return () => { root.style.removeProperty("--shell-max"); };
+  }, [wide]);
+  const toggleWide = () => {
+    const next = !wide;
+    setWide(next);
+    try { window.localStorage.setItem(WIDE_KEY, next ? "1" : "0"); } catch { /* refusé : sans mémoire */ }
+  };
   // Colonnes masquées : préférence PAR NAVIGATEUR, chargée après montage (pas de désaccord
   // d'hydratation) — tout est visible par défaut.
   const [hiddenCols, setHiddenCols] = React.useState<string[]>([]);
@@ -385,6 +407,16 @@ export function RegulatoryTable({
               <Filter className="h-3.5 w-3.5" /> Effacer les filtres
             </button>
           )}
+          <button
+            type="button" onClick={toggleWide}
+            title={wide ? "Revenir à la largeur de lecture" : "Étendre le tableau à tout l'écran"}
+            aria-pressed={wide}
+            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-2 text-xs transition-colors ${wide ? "border-primary/50 text-primary" : "border-input text-muted-foreground"} hover:bg-secondary`}
+          >
+            {wide ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            {wide ? "Largeur de lecture" : "Plein écran"}
+          </button>
+
           <button
             type="button" onClick={() => void exportXlsx()} disabled={exporting}
             title={`Exporter les ${filtered.length} dossier(s) affiché(s) en Excel`}
