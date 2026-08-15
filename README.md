@@ -2259,6 +2259,36 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Ad & Pro : une seule demande, une seule liste** (`/ad-pro`). Cinq écrans posaient la même
+  question — « je veux engager une dépense de promotion ». « Nouvelle demande » demande maintenant
+  ce qu'on veut FAIRE (« envoyer un praticien à un congrès à l'étranger »), pas quel module. La
+  liste unifiée relit les cinq modèles et ramène quinze statuts internes à **cinq états lisibles**
+  (`lib/ad-pro/unified.ts`, 11 tests) ; ce qui attend une décision passe devant. Le stockage n'est
+  PAS fusionné : chaque nature garde son modèle, son écran et son circuit, et les droits restent
+  les siens.
+
+- **Drive : un explorateur de fichiers, pas une liste.** Volet de navigation à gauche, accès rapide
+  (**Récents**, **Téléchargements** — ces derniers reconstitués depuis le journal d'audit, qui les
+  trace déjà), colonne **Type** avec des libellés qu'on lit (« Dossier compressé », pas
+  « application/zip »), tri par colonne avec les dossiers toujours en tête et l'ordre **naturel**
+  (« Fichier 2 » avant « Fichier 10 »). `lib/drive/explorer.ts`, 16 tests.
+
+- **Stockage objet S3-compatible → Supabase Storage.** Variables canoniques `S3_*` (anciennes
+  `REG_S3_*` en repli), style chemin par défaut, aucun SDK propriétaire. **Gros fichiers** : le
+  contenu est chiffré au fil de l'eau et envoyé **en plusieurs parties** (16 Mio) — le pic mémoire
+  ne dépend plus de la taille du dossier. **Pas de repli silencieux** : un bucket qui refuse
+  d'écrire fait échouer l'enregistrement plutôt que de gonfler Postgres à l'insu de tout le monde.
+  Test de connexion PUT/GET/vérification/DELETE en Console d'Administration.
+
+- **Entités étanches.** Ce que quelqu'un crée appartient à SON entité, et choisir une entité ne
+  montre QUE celle-là — l'exception « le non-rattaché reste visible partout » est levée, après
+  rattachement de l'historique depuis l'entité de son créateur (25 tables) et ajout d'un inventaire
+  **« Sans entité »** réparable en Console d'Administration. Regulatory inchangé.
+
+- **Regulatory : le verrou EST le pipeline.** « Pipeline » = les dossiers verrouillés (Super Admin
+  seul), « À traiter » = ceux qu'il a ouverts — déverrouiller est l'acte qui met un dossier au
+  travail — « Traitement terminé » inchangé. Un dossier abouti reste abouti.
+
 - **Le stock du matériel promotionnel, tracé mouvement par mouvement** (`/promo-material/stock`).
   Sans registre, la seule réponse à « en reste-t-il ? » était « je crois ». La quantité **ne se
   saisit jamais** : on n'écrit que des mouvements (entrée, distribution, perte, correction
