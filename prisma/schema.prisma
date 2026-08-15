@@ -930,6 +930,7 @@ model User {
   /// d'appartenance, portée par sa fiche Employee.
   companyAccess      UserCompanyAccess[]
   adProItemDecisions AdProItemDecision[] @relation("AdProItemDecider")
+  apiClients         ApiClient[]         @relation("ApiClientActAs")
 
   @@index([role])
   @@index([departmentId])
@@ -6806,4 +6807,130 @@ enum RegCaseOutcome {
   ACCEPTED_WITH_RESERVES
   REJECTED
   UNKNOWN
+}
+
+// ─────────────────────────── API pour agents (ChatGPT & co.) ───────────────────────────
+
+/// CLIENT MACHINE de l'API. Jamais un compte humain partagé : un agent a sa propre identité,
+/// ses propres portées, et se révoque sans couper personne.
+///
+/// DEUX COUCHES d'autorisation, et c'est volontaire : les `scopes` disent ce que
+/// l'INTÉGRATION a le droit de faire (lire, écrire, valider…), l'utilisateur `actAs` dit ce
+/// que cette identité VOIT dans l'ERP (portée par ligne, entité, module). L'agent ne peut donc
+/// jamais dépasser ni l'un ni l'autre — et le mode lecture seule s'obtient en ne donnant que
+/// les portées de lecture, sans toucher aux droits de la personne.
+model ApiClient {
+  id          String    @id @default(cuid())
+  name        String
+  /// Empreinte SHA-256 de la clé. La clé en clair n'existe QU'UNE FOIS, à la création : une
+  /// clé stockée en clair est une clé déjà compromise.
+  keyHash     String    @unique
+  /// Début de la clé (« amd_sk_a1b2c3 »), pour la reconnaître dans une liste sans la révéler.
+  keyPrefix   String
+  scopes      String[]
+  /// Utilisateur au nom duquel l'agent agit. Sa portée RBAC s'applique intégralement.
+  actAsUserId String?
+  actAs       User?     @relation("ApiClientActAs", fields: [actAsUserId], references: [id], onDelete: SetNull)
+  isActive    Boolean   @default(true)
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  note        String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  calls    ApiCall[]
+  webhooks WebhookEndpoint[]
+
+  @@index([isActive])
+}
+
+/// JOURNAL DES APPELS D'API. Distinct du journal d'audit humain (`AuditLog`) et relié à lui :
+/// on doit pouvoir dire « ceci a été fait par l'agent, pas par une personne », et retrouver la
+/// requête exacte par son identifiant de corrélation.
+model ApiCall {
+  id            String     @id @default(cuid())
+  clientId      String?
+  client        ApiClient? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  /// Utilisateur au nom duquel l'appel a été fait (celui dont la portée s'est appliquée).
+  actorUserId   String?
+  correlationId String
+  method        String
+  path          String
+  operationId   String?
+  entityType    String?
+  entityId      String?
+  status        Int
+  ok            Boolean
+  errorCode     String?
+  /// Ce qui a changé : l'état avant et après. Un journal qui ne dit que « UPDATE » n'explique rien.
+  before        Json?
+  after         Json?
+  durationMs    Int        @default(0)
+  createdAt     DateTime   @default(now())
+
+  @@index([clientId, createdAt])
+  @@index([correlationId])
+  @@index([entityType, entityId])
+  @@index([operationId])
+}
+
+/// CLÉ D'IDEMPOTENCE. Un agent rejoue une requête dès qu'il perd la réponse : sans cette table,
+/// un incident réseau crée deux dossiers, envoie deux notifications ou valide deux fois.
+model ApiIdempotencyKey {
+  id          String   @id @default(cuid())
+  clientId    String
+  key         String
+  /// Empreinte du corps de la requête : la même clé avec un contenu DIFFÉRENT n'est pas un
+  /// rejeu mais une erreur d'appelant — on la refuse au lieu de rendre une réponse trompeuse.
+  requestHash String
+  status      Int
+  response    Json
+  createdAt   DateTime @default(now())
+
+  @@unique([clientId, key])
+  @@index([createdAt])
+}
+
+/// ABONNEMENT À DES ÉVÉNEMENTS. L'agent est prévenu au lieu d'interroger en boucle.
+model WebhookEndpoint {
+  id        String     @id @default(cuid())
+  clientId  String?
+  client    ApiClient? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  url       String
+  /// Secret de signature HMAC : le destinataire vérifie que l'appel vient bien de l'ERP.
+  secret    String
+  /// Événements souscrits (« regulatory.dossier.updated »…). Vide = tous.
+  events    String[]
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  deliveries WebhookDelivery[]
+
+  @@index([isActive])
+}
+
+/// UNE LIVRAISON d'événement. Conservée même en échec : un webhook perdu en silence est pire
+/// qu'un webhook en erreur, parce que personne ne sait qu'il manque.
+model WebhookDelivery {
+  id          String          @id @default(cuid())
+  endpointId  String
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  event       String
+  payload     Json
+  status      WebhookStatus   @default(PENDING)
+  attempts    Int             @default(0)
+  lastError   String?
+  deliveredAt DateTime?
+  createdAt   DateTime        @default(now())
+
+  @@index([status, createdAt])
+  @@index([endpointId, createdAt])
+}
+
+enum WebhookStatus {
+  PENDING
+  DELIVERED
+  FAILED
 }
