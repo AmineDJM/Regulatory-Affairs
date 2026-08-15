@@ -20,6 +20,8 @@ import { formatAlgiers } from "@/lib/calendar-tz";
 import { AuditPanel } from "./audit-panel";
 import { RolesTable } from "./roles-table";
 import { DriveStorageSettings } from "./drive-storage-settings";
+import { StoragePanel } from "./storage-panel";
+import { describeConfig } from "@/lib/storage/s3-config";
 
 const GB = 1024 ** 3;
 const fmtBytes = (n: number) => (n >= GB ? `${(n / GB).toFixed(2)} Go` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} Mo` : `${Math.ceil(n / 1024)} Ko`);
@@ -223,6 +225,16 @@ export default async function AdminPage() {
                 <p className="mb-1 text-xs text-muted-foreground">Réglages (Super Admin)</p>
                 <DriveStorageSettings capacityGb={settings.driveCapacityGb} userQuotaGb={settings.driveUserQuotaGb} />
               </div>
+            </div>
+
+            {/* OÙ VIVENT RÉELLEMENT LES OCTETS. Les compteurs ci-dessus disent le volume ; ceci
+                dit le backend, et permet de vérifier qu'il répond — un bucket mal nommé donne
+                exactement la même page verte qu'un bucket qui marche. */}
+            <div className="mt-4 border-t border-border pt-4">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Stockage objet (S3-compatible)
+              </p>
+              <StoragePanel initial={describeConfig(process.env as Record<string, string | undefined>)} />
             </div>
 
             <div className="overflow-x-auto">

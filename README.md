@@ -2064,7 +2064,12 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `DB_CONNECTION_LIMIT` · `DB_POOL_TIMEOUT` | ⬜ | Taille du pool de connexions Prisma (**défaut 12 en production**, contre `CPUs × 2 + 1` — soit 3 — chez Prisma) · délai d'attente d'une connexion libre. ⚠️ Un pool se compte **par processus** : multiplier par le nombre d'instances et rester sous le `max_connections` de Postgres. |
 | `REG_UPLOAD_PART_MB` · `REG_UPLOAD_CONCURRENCY` | ⬜ | Taille d'une partie envoyée (défaut **4 Mo**, borné à 32) · parties en parallèle (défaut **8**). ⚠️ **Ne pas grossir les parties pour aller plus vite : c'est l'inverse** — mesuré, 16 Mo est ~2× plus lent que 4 Mo (Postgres écrit moins vite une grosse valeur `bytea`, et il faut la relire pour réassembler). Le levier utile est le parallélisme. |
 | `REG_INGEST_STORE_CONCURRENCY` | ⬜ | Fichiers du dossier écrits en parallèle pendant l'ingestion (défaut **4**). Au-delà, les écritures se disputent le pool de connexions et le total **remonte** (mesuré : 4,7 s en série, 1,5 s à quatre, 2,0 s à huit) — ne relever qu'avec `DB_CONNECTION_LIMIT`. |
-| `REG_MAX_PG_FILE_MB` · `REG_BLOB_CHUNK_MB` | ⬜ | Taille max d'un fichier unique conservé en base (défaut **950 Mo** ≈ 1 Go, stocké en tranches) · taille d'une tranche de blob chiffré (défaut 16 Mo). Fichiers proches d'1 Go : prévoir ≥ 4 Go de RAM ou activer R2. |
+| `REG_MAX_PG_FILE_MB` · `REG_BLOB_CHUNK_MB` | ⬜ | Taille max d'un fichier unique conservé en base (défaut **950 Mo** ≈ 1 Go, stocké en tranches) · taille d'une tranche de blob chiffré (défaut 16 Mo). Fichiers proches d'1 Go : prévoir ≥ 4 Go de RAM ou activer le stockage objet (`S3_*`). |
+| `S3_ENDPOINT` · `S3_BUCKET` · `S3_ACCESS_KEY_ID` · `S3_SECRET_ACCESS_KEY` | ⬜ | **Stockage objet S3-compatible** (fournisseur actuel : **Supabase Storage** ; R2, MinIO, AWS S3 fonctionnent aussi). Configuré ⇒ le contenu **chiffré** des fichiers part dans le bucket privé et la base ne garde que les métadonnées. Absent ⇒ tout reste en base (fonctionnel, mais le disque Postgres gonfle). **Strictement côté serveur** — jamais de `NEXT_PUBLIC_`. |
+| `S3_REGION` · `S3_FORCE_PATH_STYLE` | ⬜ | Région (défaut `auto`, valeur admise par R2 ; Supabase et AWS veulent une vraie région) · style d'URL **chemin** (défaut activé — exigé par Supabase et MinIO ; `0`/`false` pour du virtual-hosted). |
+| `S3_DISABLED` | ⬜ | Interrupteur d'arrêt : `1` force le repli sur le stockage en base **sans effacer** les variables. Sert à écarter le stockage objet le temps d'un incident. |
+| `REG_S3_*` | ⬜ | **Anciens noms**, encore acceptés en **repli** pour ne pas casser une production en cours. Les `S3_*` priment quand les deux existent. À supprimer une fois la transition faite. |
+| `DRIVE_ENCRYPTION_KEY` | ⬜ | Clé maîtresse AES-256-GCM (32 octets, hex ou base64). À défaut, dérivée de `NEXTAUTH_SECRET`. ⚠️ **La changer rend illisibles tous les fichiers déjà stockés.** |
 | `OPENAI_API_KEY` · `OPENAI_BASE_URL` | ⬜ | Modèle économique **Luna** (`gpt-5.6-luna`) : lecture des lettres de réserves, des graphiques/images, et analyse différée (Batch). Sans clé, ces fonctions se désactivent **proprement** (message explicite) — le reste du module continue de fonctionner. |
 | `CTD_MODEL_CHEAP` | ⬜ | Surcharge du modèle économique (défaut `gpt-5.6-luna`). |
 | `CTD_BUDGET_USD_DEFAULT` | ⬜ | Plafond IA **global** par dossier, en dollars (défaut : aucun). Un dossier peut avoir son propre plafond, réglé à l'écran. Atteint ⇒ les appels sont **refusés avant dépense**, et l'écran le dit. |
@@ -2095,6 +2100,52 @@ applique les migrations et crée le Super Admin (aucune donnée de démo).
 
 > 🆓 Plan gratuit Render : la base Postgres expire après ~30 jours et le service se met en veille — passer en plan
 > payant pour une base durable + service always-on.
+
+---
+
+## 🗄️ Stockage des fichiers — S3-compatible (Supabase Storage)
+
+**Le protocole, pas le fournisseur.** La couche de stockage parle **S3** : Supabase Storage,
+Cloudflare R2, AWS S3, MinIO ou Backblaze répondent tous à la même interface. Il n'y a **aucun SDK
+propriétaire** — les signatures AWS SigV4 sont calculées avec le crypto natif de Node. Changer de
+fournisseur, c'est changer des variables d'environnement, pas du code.
+
+**Ce qui part dans le bucket, et ce qui reste en base.** Les octets sont chiffrés **AES-256-GCM
+avant de quitter le serveur**, puis dédupliqués par l'empreinte SHA-256 du **clair**. Le bucket ne
+reçoit **jamais** que du chiffré : il porte les octets, il ne remplace pas la sécurité applicative.
+La base conserve toujours les métadonnées (empreinte, taille, **IV**, compteur de références) —
+sans elle, le contenu du bucket est inexploitable.
+
+**Les permissions ne passent jamais par le bucket.** Il est **privé**. Aucun téléchargement ne se
+fait par une URL d'objet : tout passe par les routes de l'application, qui appliquent le RBAC, le
+cloisonnement par entité, les partages Drive et les droits Regulatory/CTD, puis journalisent
+l'accès. Les seules URL présignées émises sont des **PUT à durée de vie courte**, pour que le
+navigateur envoie une archive volumineuse directement au bucket — jamais des URL de lecture.
+
+**Gros fichiers.** Trois chemins, selon la situation :
+- **navigateur → bucket** en direct (URL présignée) pour les dossiers CTD : ni le serveur ni
+  Postgres ne voient passer les octets ;
+- **serveur → bucket en plusieurs parties** (16 Mio) dès qu'un fichier dépasse 32 Mo : le pic
+  mémoire vaut une partie, qu'il s'agisse d'un PDF de 2 Mo ou d'une archive d'un gigaoctet ;
+- **base, en tranches ordonnées**, quand le stockage objet n'est pas configuré.
+
+**Repli et pannes.** Les fichiers déjà stockés en base **restent lisibles** quoi qu'il arrive : la
+lecture choisit sa source d'après l'enregistrement (objet, valeur unique, ou tranches). En revanche,
+si le stockage objet est configuré mais refuse d'écrire, l'enregistrement **échoue franchement** —
+pas de repli discret vers la base, qui fabriquerait des blobs gigantesques dans Postgres à l'insu de
+tout le monde jusqu'à saturer son disque. L'utilisateur voit un message clair, rien n'est corrompu.
+
+**Vérifier que ça marche** : Administration → Stockage objet → **Tester la connexion**. Le test
+écrit un objet dans un préfixe dédié (`_selftest/`), le relit, compare son contenu octet pour octet
+et le supprime. « Les variables sont renseignées » ne prouve rien : un bucket mal nommé, une clé
+périmée ou une région fausse donnent la même page verte. Aucun secret n'apparaît dans le rapport ni
+dans les journaux.
+
+**Migration de l'historique** (à faire **séparément**, quand la connexion est validée en
+production) : `npm run blobs:migrate-r2` déplace le contenu des blobs déjà en base vers le bucket,
+un par un, et bascule leur `storageKey`. Rien n'est supprimé de Postgres automatiquement ; le script
+peut être relancé et repris. Tant qu'il n'a pas tourné, anciens et nouveaux fichiers coexistent sans
+incident.
 
 ---
 
@@ -3579,7 +3630,7 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   - **Stockage blobs — jusqu'à ~1 Go/fichier** : contenu chiffré AES-256-GCM ; un gros fichier est écrit **EN
     TRANCHES** ordonnées (`FileBlobChunk`, `REG_BLOB_CHUNK_MB`≈16) plutôt qu'en un bytea unique — pas d'encodage
     hex géant → mémoire bornée en écriture **et** lecture. Plafond par fichier `REG_MAX_PG_FILE_MB` (défaut **950 Mo**).
-    NB honnête : *océriser* un PDF proche d'1 Go reste borné par la RAM (mupdf charge le PDF) — prévoir ≥ 4 Go, ou activer R2.
+    NB honnête : *océriser* un PDF proche d'1 Go reste borné par la RAM (mupdf charge le PDF) — prévoir ≥ 4 Go, ou activer le stockage objet.
   - Réalités infra assumées : stockage = **blobs Postgres chiffrés** (pas S3) ; IA = **opt-in sur clé** (abstention
     honnête sinon, aucune simulation). Code : `src/lib/regulatory/intelligence/{twin,corpus,rules,agents,diff,ocr,
     upload,docgen,reserves,supplier,simulator,lifecycle,knowledge}` ; admin corpus/règles `src/app/(app)/admin/regulatory-corpus/`.

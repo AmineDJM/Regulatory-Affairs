@@ -2,14 +2,18 @@ import crypto from "crypto";
 import { createReadStream } from "fs";
 import { readFile, stat } from "fs/promises";
 import { prisma } from "./prisma";
-import { objectStorageConfigured, putObject, getObject, deleteObject } from "./regulatory/intelligence/upload/object-storage";
+import {
+  objectStorageConfigured, putObject, putObjectStream, getObject, deleteObject, MULTIPART_THRESHOLD_BYTES,
+} from "./regulatory/intelligence/upload/object-storage";
 
 /**
  * Drive blob backend — content-addressed, encrypted at rest.
  *
  * Les octets sont chiffrés (AES-256-GCM) puis dédupliqués par le SHA-256 du *clair*. Le contenu
- * chiffré est stocké soit **dans un bucket S3/R2** (si `REG_S3_*` configuré → la base ne garde que
- * les métadonnées, son disque arrête de gonfler), soit **en base** (repli historique). La base
+ * chiffré est stocké soit **dans un bucket S3-compatible** (Supabase Storage, R2, MinIO… si
+ * `S3_*` est configuré → la base ne garde que les métadonnées, son disque arrête de gonfler),
+ * soit **en base** (repli historique, toujours fonctionnel). Le bucket ne reçoit QUE du chiffré :
+ * il ne remplace pas la sécurité applicative, il porte les octets. La base
  * conserve toujours l'IV (12 o) + taille + SHA + compteur de références. **Rétrocompatible** : un
  * blob existant sans `storageKey` est lu depuis la colonne `data`. Point unique touchant les octets.
  */
@@ -47,6 +51,40 @@ function encryptWhole(plain: Buffer, iv: Buffer): Buffer {
   return Buffer.concat([enc, cipher.getAuthTag()]);
 }
 
+/**
+ * Chiffre un fichier EN FLUX : rend le contenu chiffré morceau par morceau, terminé par le tag
+ * d'authentification GCM. La concaténation de ce que rend ce générateur est exactement ce que
+ * produirait `encryptWhole` — c'est ce qui rend les deux chemins interchangeables à la lecture.
+ *
+ * Le fichier n'est jamais tenu entier en mémoire, ni en clair ni chiffré.
+ */
+async function* encryptFileStream(path: string, iv: Buffer): AsyncGenerator<Buffer> {
+  const cipher = crypto.createCipheriv("aes-256-gcm", masterKey(), iv);
+  for await (const chunk of createReadStream(path, { highWaterMark: 8 * 1024 * 1024 })) {
+    const enc = cipher.update(chunk as Buffer);
+    if (enc.length > 0) yield enc;
+  }
+  yield Buffer.concat([cipher.final(), cipher.getAuthTag()]);
+}
+
+
+/**
+ * PAS DE FAUX SUCCÈS, PAS DE REPLI SILENCIEUX.
+ *
+ * Quand le stockage objet est configuré mais refuse d'écrire (panne, clé révoquée, bucket plein),
+ * on NE bascule PAS discrètement sur la base : un retour au stockage en base fabriquerait des
+ * blobs gigantesques dans Postgres à l'insu de tout le monde, jusqu'à saturer le disque de la
+ * base — une panne bien pire, et découverte bien plus tard. On échoue, et on le dit clairement.
+ */
+function storageFailure(err: unknown): Error {
+  const detail = err instanceof Error ? err.message : String(err);
+  return new Error(
+    `Le fichier n'a pas pu être enregistré dans le stockage : ${detail} `
+    + "Réessayez dans un instant ; si cela persiste, signalez-le à l'administrateur "
+    + "(Administration → Stockage → Tester la connexion).",
+  );
+}
+
 /** Store bytes (encrypted, deduplicated). Increments the ref-count on reuse. */
 export async function putBlob(plain: Buffer): Promise<{ blobId: string; sha256: string; size: number }> {
   const hash = sha256(plain);
@@ -60,7 +98,8 @@ export async function putBlob(plain: Buffer): Promise<{ blobId: string; sha256: 
   // Stockage OBJET (S3/R2) si configuré → la base ne garde que les métadonnées + l'IV.
   if (objectStorageConfigured()) {
     const key = blobKey(hash);
-    await putObject(key, encryptWhole(plain, iv)); // contenu CHIFFRÉ dans le bucket
+    // contenu CHIFFRÉ dans le bucket — il ne voit jamais le clair
+    try { await putObject(key, encryptWhole(plain, iv)); } catch (err) { throw storageFailure(err); }
     const blob = await prisma.fileBlob.create({
       data: { sha256: hash, size: plain.length, iv, data: null, storageKey: key, refCount: 1 },
       select: { id: true },
@@ -125,10 +164,31 @@ export async function putBlobFromFile(path: string, opts: { sha256?: string } = 
     return { blobId: existing.id, sha256: hash, size: existing.size };
   }
 
-  // Stockage OBJET : l'API du bucket attend le contenu complet → repli sur le chemin en mémoire.
-  // Sans conséquence pratique : quand R2 est configuré, le navigateur envoie DIRECTEMENT au bucket
-  // et ce chemin n'est plus emprunté par les gros dossiers.
-  if (objectStorageConfigured()) return putBlob(await readFile(path));
+  // Stockage OBJET — EN FLUX. Le fichier est lu par morceaux, chiffré au fil de l'eau et poussé
+  // vers le bucket en plusieurs parties : le pic mémoire vaut une partie (16 Mio), qu'il s'agisse
+  // d'un PDF de 2 Mo ou d'une archive CTD d'un gigaoctet. Charger le fichier entier ici ferait
+  // tomber le processus sur un hébergeur à mémoire bornée — panne d'autant plus difficile à
+  // diagnostiquer qu'elle ne se déclenche qu'au-delà d'une certaine taille de dossier.
+  if (objectStorageConfigured()) {
+    const { size } = await stat(path);
+    const key = blobKey(hash);
+    const iv = crypto.randomBytes(12);
+    try {
+      if (size <= MULTIPART_THRESHOLD_BYTES) {
+        // Petit fichier : un PUT simple reste plus rapide qu'un téléversement en parties.
+        await putObject(key, encryptWhole(await readFile(path), iv));
+      } else {
+        await putObjectStream(key, encryptFileStream(path, iv));
+      }
+    } catch (err) {
+      throw storageFailure(err);
+    }
+    const blob = await prisma.fileBlob.create({
+      data: { sha256: hash, size, iv, data: null, storageKey: key, refCount: 1 },
+      select: { id: true },
+    });
+    return { blobId: blob.id, sha256: hash, size };
+  }
 
   const { size } = await stat(path);
   const iv = crypto.randomBytes(12);

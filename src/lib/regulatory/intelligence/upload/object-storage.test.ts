@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { objectStorageConfigured, presignPutUrl, _deriveSigningKeyHex, parseBucketNames, euJurisdictionHost } from "./object-storage";
+import { intoParts, objectStorageConfigured, presignPutUrl, _deriveSigningKeyHex, parseBucketNames, euJurisdictionHost } from "./object-storage";
 
 /**
  * Vérifie la signature SigV4 faite main (chantier 1 — upload direct S3/R2) SANS bucket réel :
@@ -71,5 +71,56 @@ describe("object-storage — SigV4 (S3/R2), sans dépendance SDK", () => {
     expect(euJurisdictionHost("28b9db04.eu.r2.cloudflarestorage.com")).toBeNull(); // déjà UE
     expect(euJurisdictionHost("s3.amazonaws.com")).toBeNull(); // non-R2 (S3/MinIO) → pas de variante
     expect(euJurisdictionHost("minio.local:9000")).toBeNull();
+  });
+});
+
+describe("Découpage en parties — la règle des 5 Mio, respectée sans y penser", () => {
+  const feed = async function* (...sizes: number[]): AsyncGenerator<Buffer> {
+    for (const n of sizes) yield Buffer.alloc(n, 7);
+  };
+  const collect = async (gen: AsyncGenerator<Buffer>) => {
+    const out: Buffer[] = [];
+    for await (const p of gen) out.push(p);
+    return out;
+  };
+
+  it("regroupe des morceaux quelconques en parties de taille FIXE", async () => {
+    // Le chiffrement en flux rend des morceaux de tailles arbitraires : les envoyer tels quels
+    // ferait refuser le téléversement dès la deuxième partie (« EntityTooSmall »).
+    const parts = await collect(intoParts(feed(3, 3, 3, 3), 5));
+    expect(parts.map((p) => p.length)).toEqual([5, 5, 2]);
+  });
+
+  it("découpe un morceau plus GRAND qu'une partie", async () => {
+    const parts = await collect(intoParts(feed(23), 10));
+    expect(parts.map((p) => p.length)).toEqual([10, 10, 3]);
+  });
+
+  it("seule la DERNIÈRE partie peut être plus petite", async () => {
+    const parts = await collect(intoParts(feed(7, 7, 7), 4));
+    expect(parts.slice(0, -1).every((p) => p.length === 4)).toBe(true);
+    expect(parts[parts.length - 1].length).toBeLessThanOrEqual(4);
+  });
+
+  it("ne perd ni ne duplique un octet", async () => {
+    const total = [11, 5, 30, 1].reduce((a, b) => a + b, 0);
+    const parts = await collect(intoParts(feed(11, 5, 30, 1), 8));
+    expect(parts.reduce((a, p) => a + p.length, 0)).toBe(total);
+    expect(Buffer.concat(parts).every((b) => b === 7)).toBe(true);
+  });
+
+  it("un flux vide rend UNE partie vide — le protocole en exige au moins une", async () => {
+    const parts = await collect(intoParts(feed(), 8));
+    expect(parts.map((p) => p.length)).toEqual([0]);
+  });
+
+  it("ignore les morceaux vides intercalés sans fabriquer de partie vide", async () => {
+    const parts = await collect(intoParts(feed(0, 4, 0, 4), 8));
+    expect(parts.map((p) => p.length)).toEqual([8]);
+  });
+
+  it("un contenu exactement multiple ne produit PAS de partie vide finale", async () => {
+    const parts = await collect(intoParts(feed(16), 8));
+    expect(parts.map((p) => p.length)).toEqual([8, 8]);
   });
 });
