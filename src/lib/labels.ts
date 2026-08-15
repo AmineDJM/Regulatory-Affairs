@@ -1123,6 +1123,9 @@ export const EVENTS_TABS: NavTab[] = [
   { module: "CONGRESS_NATIONAL", label: "Prises en charge Nationales", href: "/congress-national" },
   { module: "EVENTS", label: "Événements", href: "/events" },
   { module: "PROMO_MATERIAL", label: "Matériel promotionnel", href: "/promo-material" },
+  // Le STOCK est un écran à part : on n'y vient pas pour suivre une campagne mais pour savoir
+  // ce qu'il reste, et le tenir à jour. Deux questions différentes, deux écrans.
+  { module: "PROMO_MATERIAL", label: "Stock promotionnel", href: "/promo-material/stock" },
 ];
 // Module « Drive » (Drive personnel). L'onglet « Documents » a été retiré (tout est consolidé
 // dans le Drive + les catégories partagées ; on y glisse des dossiers à la souris).
@@ -1243,7 +1246,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical/annuaire"] },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
-  { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/promo-material"] },
+  { module: "SPONSORING", label: "Ad & Pro", href: "/sponsoring", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/promo-material", "/promo-material/stock"] },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles", pole: "SALES_MARKETING" },
 
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
