@@ -402,3 +402,100 @@ export async function convertNodeToPdf(formData: FormData): Promise<ActionResult
   revalidatePath("/drive");
   return { ok: true, id: created.id };
 }
+
+/**
+ * AGIR SUR UNE SÉLECTION — corbeille et partage, sur plusieurs éléments à la fois.
+ *
+ * Sélectionner cinq fichiers puis devoir ouvrir cinq menus pour les supprimer, c'est ne pas avoir
+ * de sélection du tout. Les deux actions ci-dessous prennent la liste entière.
+ *
+ * **Un refus ne fait pas tout échouer** : sur dix éléments dont deux ne nous appartiennent pas,
+ * on traite les huit et on dit lesquels ont été refusés. Tout annuler pour deux lignes obligerait
+ * à recommencer en devinant lesquelles retirer.
+ */
+export interface BulkResult { ok: boolean; done: number; denied: number; error?: string }
+
+export async function trashNodes(formData: FormData): Promise<BulkResult> {
+  const user = await requireUser();
+  const ids = Array.from(new Set(formData.getAll("id").map(String).filter(Boolean)));
+  if (ids.length === 0) return { ok: false, done: 0, denied: 0, error: "Aucun élément sélectionné." };
+
+  let done = 0;
+  let denied = 0;
+  for (const id of ids) {
+    if ((await resolveDriveAccess(user, id)) !== "EDIT") { denied += 1; continue; }
+    // Cascade : un dossier mis à la corbeille y emmène tout son contenu.
+    const subtree = await collectSubtree(id);
+    await prisma.driveNode.updateMany({ where: { id: { in: subtree } }, data: { isTrashed: true } });
+    done += 1;
+  }
+  if (done > 0) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Drive", entityType: "DRIVE_NODE", entityId: ids[0],
+      field: "isTrashed", newValue: "true",
+      summary: `Mis à la corbeille (${done} élément·s${denied ? `, ${denied} refusé·s` : ""})`,
+    });
+    revalidatePath("/drive");
+  }
+  return {
+    ok: done > 0,
+    done,
+    denied,
+    error: done === 0 ? "Vous ne pouvez supprimer aucun des éléments sélectionnés." : undefined,
+  };
+}
+
+export async function shareNodesWithMany(formData: FormData): Promise<BulkResult> {
+  const user = await requireUser();
+  const nodeIds = Array.from(new Set(formData.getAll("nodeId").map(String).filter(Boolean)));
+  const access = (fdStr(formData, "access") as DriveAccess) ?? "VIEW";
+  const userIds = Array.from(new Set(formData.getAll("userId").map(String).filter(Boolean)))
+    .filter((id) => id !== user.id);
+  if (nodeIds.length === 0) return { ok: false, done: 0, denied: 0, error: "Aucun élément sélectionné." };
+  if (userIds.length === 0) return { ok: false, done: 0, denied: 0, error: "Choisissez au moins une personne." };
+
+  let done = 0;
+  let denied = 0;
+  const sharedNames: string[] = [];
+  for (const nodeId of nodeIds) {
+    if ((await resolveDriveAccess(user, nodeId)) !== "EDIT") { denied += 1; continue; }
+    const node = await prisma.driveNode.findUnique({ where: { id: nodeId }, select: { name: true } });
+    if (!node) { denied += 1; continue; }
+    for (const userId of userIds) {
+      await prisma.driveShare.upsert({
+        where: { nodeId_userId: { nodeId, userId } },
+        create: { nodeId, userId, access },
+        update: { access },
+      });
+    }
+    sharedNames.push(node.name);
+    done += 1;
+  }
+
+  // UNE notification par personne pour TOUT le lot : partager douze fichiers d'un coup ne doit
+  // pas remplir douze fois la boîte de chacun — c'est le meilleur moyen de faire ignorer les
+  // notifications suivantes.
+  if (done > 0) {
+    const body = sharedNames.length === 1
+      ? sharedNames[0]
+      : `${sharedNames.length} éléments — ${sharedNames.slice(0, 3).join(", ")}${sharedNames.length > 3 ? "…" : ""}`;
+    for (const userId of userIds) {
+      await notifyUser({
+        userId, type: "DOCUMENT_UPLOADED",
+        title: sharedNames.length === 1 ? "Élément partagé avec vous" : "Éléments partagés avec vous",
+        body, link: sharedNames.length === 1 ? `/drive/${nodeIds[0]}` : "/drive",
+      });
+    }
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Drive", entityType: "DRIVE_NODE", entityId: nodeIds[0],
+      summary: `${done} élément·s partagé·s avec ${userIds.length} personne·s — ${access === "EDIT" ? "modification" : "lecture"}${denied ? ` (${denied} refusé·s)` : ""}`,
+    });
+    revalidatePath("/drive");
+  }
+  return {
+    ok: done > 0,
+    done,
+    denied,
+    error: done === 0 ? "Vous ne pouvez partager aucun des éléments sélectionnés." : undefined,
+  };
+}

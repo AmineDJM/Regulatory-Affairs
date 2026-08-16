@@ -1,12 +1,7 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, AlertCircle } from "lucide-react";
 import { requireUser } from "@/lib/session";
-import { resolveDriveAccess } from "@/lib/drive";
-import { prisma } from "@/lib/prisma";
-import {
-  onlyofficeConfigured, onlyofficeServerUrl, appBaseUrl, onlyofficeDocType, fileExt, makeEditToken, signJwt,
-} from "@/lib/onlyoffice";
+import { buildEditorSetup, EDITOR_REASON } from "@/lib/onlyoffice-config";
 import { OfficeEditor } from "./office-editor";
 import { BackLink } from "@/components/shared/back-link";
 
@@ -27,61 +22,10 @@ function Notice({ children }: { children: React.ReactNode }) {
 
 export default async function DriveEditPage({ params }: { params: { id: string } }) {
   const user = await requireUser();
-
-  if (!onlyofficeConfigured()) {
-    return <Notice>L'éditeur Office n'est pas configuré. Définissez <code>ONLYOFFICE_URL</code> (URL publique du Document Server) et <code>ONLYOFFICE_JWT_SECRET</code> côté serveur.</Notice>;
+  const setup = await buildEditorSetup(user, params.id);
+  if (!setup.ok) {
+    if (setup.reason === "not-found") notFound();
+    return <Notice>{EDITOR_REASON[setup.reason]}</Notice>;
   }
-  const base = appBaseUrl();
-  if (!base) {
-    return <Notice>L'URL publique de l'application (<code>APP_URL</code>) n'est pas définie : le Document Server doit pouvoir joindre l'application.</Notice>;
-  }
-
-  const access = await resolveDriveAccess(user, params.id);
-  if (access !== "EDIT") return <Notice>Vous n'avez pas le droit de modifier ce fichier.</Notice>;
-
-  const node = await prisma.driveNode.findUnique({ where: { id: params.id }, select: { name: true, type: true } });
-  if (!node || node.type !== "FILE") notFound();
-
-  const docType = onlyofficeDocType(node.name);
-  if (!docType) return <Notice>Ce type de fichier n'est pas éditable dans l'éditeur Office.</Notice>;
-
-  const last = await prisma.fileVersion.findFirst({ where: { nodeId: params.id }, orderBy: { version: "desc" }, select: { version: true } });
-  const editToken = makeEditToken(params.id, user.id);
-  // `key` change à chaque version → invalide le cache du Document Server après sauvegarde.
-  const key = `${params.id}_${last?.version ?? 1}`;
-
-  const config: Record<string, unknown> = {
-    documentType: docType,
-    document: {
-      fileType: fileExt(node.name),
-      key,
-      title: node.name,
-      url: `${base}/api/onlyoffice/file?token=${editToken}`,
-      permissions: { edit: true, download: true, print: true },
-    },
-    editorConfig: {
-      mode: "edit",
-      lang: "fr",
-      callbackUrl: `${base}/api/onlyoffice/callback?id=${params.id}&token=${editToken}`,
-      user: { id: user.id, name: user.name },
-      // Allègement de l'initialisation : on désactive les sous-systèmes inutiles
-      // ici (chat, plugins, aide, page « à propos ») pour un démarrage plus rapide
-      // et une surface d'édition plus nette. L'autosave reste actif.
-      customization: {
-        autosave: true,
-        forcesave: true,
-        chat: false,
-        plugins: false,
-        help: false,
-        about: false,
-        compactHeader: false,
-        hideRightMenu: false,
-      },
-    },
-    width: "100%",
-    height: "100%",
-  };
-  const signed = { ...config, token: signJwt(config, 24 * 3600) };
-
-  return <OfficeEditor apiJs={`${onlyofficeServerUrl()}/web-apps/apps/api/documents/api.js`} config={signed} name={node.name} />;
+  return <OfficeEditor apiJs={setup.apiJs} config={setup.config} name={setup.name} />;
 }

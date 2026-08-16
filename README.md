@@ -713,6 +713,55 @@ sait, c'est tout. Reproduire ses habitudes coûte moins cher que d'en enseigner 
   Les boutons d'en-tête restent : on ne devine pas un menu contextuel.
 - **Plein écran** (dans le menu « ⋯ ») : relève `--shell-max` à 100 %, mémorisé par navigateur, et
   **reposé en quittant la page** — le plafond de lecture protège un texte, pas six colonnes.
+- **Sélection à la Windows** : clic, **Ctrl+clic** (⌘ sur Mac), **Maj+clic**. Le modèle est pur et
+  testé (`src/lib/drive/selection.ts`) — c'est là que vit la règle subtile : **l'ancre d'une plage
+  ne bouge pas**, ce qui permet de réduire ou d'inverser une plage sans qu'elle « glisse » sous la
+  souris. Maj+clic suit l'ordre **affiché** (tri compris), pas celui de la base. Une sélection dont
+  les éléments disparaissent est nettoyée : sans quoi la barre annoncerait « 3 éléments » et
+  l'action suivante porterait sur des identifiants morts.
+- **Actions groupées** sur la sélection : **Ouvrir** (plan de travail multi-onglets), **Télécharger**
+  (ZIP), **Partager** (lecture/modification, plusieurs personnes) et **Supprimer**. Côté serveur,
+  `trashNodes` / `shareNodesWithMany` : un refus ponctuel **n'annule pas le reste** — sur dix
+  éléments dont deux ne nous appartiennent pas, on traite les huit et on dit lesquels ont été
+  refusés. Une seule notification par personne pour tout le lot (douze fichiers partagés ne
+  remplissent pas douze fois la boîte de chacun). Quand la sélection contient un élément non
+  éditable, les boutons disparaissent **avec une phrase qui le dit** — sans un mot, on croit à une
+  panne.
+- **Le volet est aussi SOURCE de glisser**, plus seulement cible : attraper un dossier de la
+  colonne pour le lâcher sur « Téléchargements » ou sur une catégorie fonctionne. Les lignes du
+  volet sont plus hautes et le survol est franc (anneau plein) : la fluidité d'un glisser-déposer
+  tient d'abord à la **taille de la cible** — viser une ligne de 22 px au pixel près donne
+  l'impression que « ça ne marche pas », alors que c'est le geste qui rate.
+
+### Plan de travail — plusieurs documents ouverts à la fois (`/drive/vue?ids=…`)
+
+Comparer deux versions d'une notice, recopier un tableau d'un classeur dans un autre, relire un
+devis en rédigeant le courrier qui l'accompagne : ces gestes supposent **deux documents sous les
+yeux**. Un écran par fichier oblige à des allers-retours en mémorisant ce qu'on vient de lire.
+
+- **Onglets** (8 au plus), bascule **lecture / modification** par onglet — on n'ouvre pas l'éditeur
+  pour vérifier une date. Fermer un onglet bascule sur le **voisin**, comme un navigateur.
+- Les onglets inactifs restent **montés, simplement cachés** : rebasculer sur un classeur ne
+  relance pas son chargement ni ne perd la page où l'on en était.
+- **Plein écran par défaut** ici : un document lu à travers 1400 px dans une fenêtre de 2500 px,
+  c'est un tiers de l'écran perdu.
+- L'onglet d'édition embarque `/office-embed/[id]` — l'éditeur **nu**, hors du groupe `(app)` :
+  l'embarquer depuis la page normale afficherait le menu et la barre du haut *dans* l'onglet.
+  Cette route n'a pas moins de droits pour autant : `buildEditorSetup` (`src/lib/onlyoffice-config.ts`)
+  vérifie l'accès ÉDITEUR quelle que soit la porte d'entrée, et sert les deux écrans — une
+  correction de jeton ou de permission ne peut donc plus n'être appliquée qu'à l'un des deux.
+
+### Regulatory — les dossiers d'un produit, consultables sur place
+
+Un dossier déposé sur un produit (arborescence, archive décompressée) était répliqué dans le Drive
+et, de là, **invisible depuis le produit** : il fallait quitter Regulatory, retrouver le dossier, et
+se souvenir d'où l'on venait. La carte « Dossiers & fichiers » de `/regulatory/[id]` monte
+désormais **le même explorateur** — même liste, même tri, même clic droit, même glisser-déposer,
+mêmes actions par ligne — avec import et création de dossier **dans** le dossier courant
+(`?dossier=<id>` pour naviguer sans quitter le produit). Ce n'est pas une copie de l'écran : c'est
+le même composant, parce que deux explorateurs qui se ressemblent finissent toujours par diverger
+sur un détail. La page **Bureautique** utilise la même liste, pour la même raison.
+`src/components/documents/product-drive-explorer.tsx`.
 - **Fichiers** : `app/(app)/drive/{page,drive-table,drive-canvas,explorer-nav,drive-toolbar}.tsx`,
   `app/(app)/drive/espace/[id]/page.tsx`, `src/lib/drive/{explorer,nav-tree}.ts` (+ tests).
 

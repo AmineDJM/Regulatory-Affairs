@@ -16,6 +16,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { CommentThread } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { ProductDriveExplorer } from "@/components/documents/product-drive-explorer";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { RegulatoryProcess, RegulatoryChecklist } from "./anpp-process";
 import { regProgress, regChecklistProgress, type RegWorkflowState, type RegChecklistState } from "@/lib/regulatory-workflow";
@@ -44,7 +45,7 @@ const REG_DOC_CATEGORIES = [
 // Documents liés aux réserves de l'ANPP (réserves reçues + réponses du laboratoire).
 const REG_RESERVE_CATEGORIES = ["QUERY_RECEIVED", "QUERY_RESPONSE"];
 
-export default async function RegulatoryDetailPage({ params }: { params: { id: string } }) {
+export default async function RegulatoryDetailPage({ params, searchParams }: { params: { id: string }; searchParams: { dossier?: string } }) {
   const user = await requireModule("REGULATORY");
   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", params.id, "VIEW"))) {
     notFound();
@@ -393,6 +394,25 @@ export default async function RegulatoryDetailPage({ params }: { params: { id: s
                 </>
               )}
               <DocumentList documents={docItems} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload} path={`/regulatory/${product.id}`} />
+            </CardContent>
+          </Card>
+
+          {/* LES DOSSIERS DU PRODUIT, sur place. Un ZIP décompressé ou une arborescence déposée
+              vivaient dans le Drive et n'étaient plus atteignables depuis ici : il fallait quitter
+              Regulatory pour les retrouver. C'est le MÊME explorateur que le Drive — pas une
+              seconde liste qui finirait par diverger. */}
+          <Card>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle>Dossiers &amp; fichiers</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ProductDriveExplorer
+                user={user}
+                productName={`${product.reference} — ${product.dci}`.trim()}
+                folderId={searchParams.dossier ?? null}
+                basePath={`/regulatory/${product.id}`}
+                canEdit={canUpload}
+              />
             </CardContent>
           </Card>
 

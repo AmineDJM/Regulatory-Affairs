@@ -3,10 +3,15 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Download, Loader2, House, FolderInput, GripVertical, ChevronUp, ChevronDown } from "lucide-react";
+import { Download, Loader2, House, FolderInput, GripVertical, ChevronUp, ChevronDown, Trash2, Share2, FolderOpen, Check, Search } from "lucide-react";
 import { Icon } from "@/components/ui/icon";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { moveNode } from "@/lib/actions/drive-actions";
+import { moveNode, trashNodes, shareNodesWithMany } from "@/lib/actions/drive-actions";
+import { Sheet } from "@/components/ui/sheet";
+import { Input } from "@/components/ui/input";
+import {
+  clickSelect, selectAll, pruneSelection, allSelected, EMPTY_SELECTION, type SelectionState,
+} from "@/lib/drive/selection";
 import { sortRows, type SortKey, type SortDir } from "@/lib/drive/explorer";
 import { NodeActions } from "./node-actions";
 
@@ -63,22 +68,52 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
     </TableHead>
   );
 
-  const [sel, setSel] = React.useState<Set<string>>(new Set());
+  // SÉLECTION À LA WINDOWS : clic, Ctrl+clic, Maj+clic. Le modèle est pur et testé — c'est là
+  // que vivent les règles subtiles (l'ancre d'une plage ne bouge pas).
+  const [sel, setSel] = React.useState<SelectionState>(EMPTY_SELECTION);
   const [zipping, setZipping] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [shareOpen, setShareOpen] = React.useState(false);
   const [dragId, setDragId] = React.useState<string | null>(null);
   const [overId, setOverId] = React.useState<string | null>(null); // cible survolée (dossier id, ou "cat:<id>", ou "root")
   const [moveMsg, setMoveMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
-  const allChecked = rows.length > 0 && sel.size === rows.length;
+  const order = React.useMemo(() => sorted.map((r) => r.id), [sorted]);
+  // La liste change (navigation, suppression, tri) → on oublie ce qui n'existe plus, sinon la
+  // barre annoncerait « 3 éléments » et l'action suivante porterait sur des identifiants disparus.
+  React.useEffect(() => { setSel((s) => pruneSelection(s, order)); }, [order]);
+  const allChecked = allSelected(sel, order);
+  const selectedRows = sorted.filter((r) => sel.ids.includes(r.id));
+  const selectedFiles = selectedRows.filter((r) => r.isFile);
+  const canActOnAll = selectedRows.length > 0 && selectedRows.every((r) => r.canEdit);
   const dndEnabled = !trash;
 
-  const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const toggleAll = () => setSel(allChecked ? new Set() : new Set(rows.map((r) => r.id)));
+  const toggle = (id: string, mods: { toggle?: boolean; range?: boolean } = {}) =>
+    setSel((s) => clickSelect(s, id, order, mods));
+  const toggleAll = () => setSel((s) => selectAll(order, !allSelected(s, order)));
+  const clear = () => setSel(EMPTY_SELECTION);
 
   const downloadZip = () => {
-    if (sel.size === 0) return;
+    if (sel.ids.length === 0) return;
     setZipping(true);
-    window.location.href = `/api/drive/zip?ids=${[...sel].join(",")}`;
+    window.location.href = `/api/drive/zip?ids=${sel.ids.join(",")}`;
     window.setTimeout(() => setZipping(false), 4000);
+  };
+
+  /** Corbeille sur toute la sélection — un refus ponctuel n'annule pas le reste. */
+  const bulkTrash = async () => {
+    const n = sel.ids.length;
+    if (n === 0 || busy) return;
+    if (!window.confirm(n === 1 ? "Mettre cet élément à la corbeille ?" : `Mettre ces ${n} éléments à la corbeille ?`)) return;
+    setBusy(true);
+    const fd = new FormData();
+    for (const id of sel.ids) fd.append("id", id);
+    const r = await trashNodes(fd);
+    setBusy(false);
+    setMoveMsg(r.ok
+      ? { ok: true, text: `${r.done} élément·s mis à la corbeille${r.denied ? `, ${r.denied} refusé·s` : ""}.` }
+      : { ok: false, text: r.error ?? "Suppression impossible." });
+    if (r.ok) { clear(); router.refresh(); }
+    window.setTimeout(() => setMoveMsg(null), 4000);
   };
 
   const rowById = React.useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
@@ -124,13 +159,46 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
 
   return (
     <div className="space-y-2">
-      {sel.size > 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-          <span className="font-medium">{sel.size} élément·s sélectionné·s</span>
-          <button type="button" onClick={downloadZip} disabled={zipping} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-            {zipping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Télécharger (ZIP)
+      {sel.ids.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+          <span className="font-medium">{sel.ids.length} sélectionné·s</span>
+
+          {selectedFiles.length > 0 && (
+            <Link
+              href={`/drive/vue?ids=${selectedFiles.map((r) => r.id).join(",")}`}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <FolderOpen className="h-4 w-4" /> Ouvrir{selectedFiles.length > 1 ? ` (${selectedFiles.length})` : ""}
+            </Link>
+          )}
+
+          <button type="button" onClick={downloadZip} disabled={zipping}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-60">
+            {zipping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Télécharger
           </button>
-          <button type="button" onClick={() => setSel(new Set())} className="text-muted-foreground hover:text-foreground">Désélectionner</button>
+
+          {!trash && users && users.length > 0 && canActOnAll && (
+            <button type="button" onClick={() => setShareOpen(true)} disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-60">
+              <Share2 className="h-4 w-4" /> Partager
+            </button>
+          )}
+
+          {!trash && canActOnAll && (
+            <button type="button" onClick={() => void bulkTrash()} disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 px-2.5 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Supprimer
+            </button>
+          )}
+
+          {!trash && !canActOnAll && (
+            // On ne cache pas les boutons en silence : sans un mot, on croit à une panne.
+            <span className="text-xs text-muted-foreground">
+              Certains éléments ne vous appartiennent pas — partage et suppression indisponibles.
+            </span>
+          )}
+
+          <button type="button" onClick={clear} className="ml-auto text-muted-foreground hover:text-foreground">Désélectionner</button>
         </div>
       )}
 
@@ -171,6 +239,15 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
         <p className={`rounded-lg px-3 py-2 text-sm ${moveMsg.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>{moveMsg.text}</p>
       )}
 
+      {shareOpen && users && (
+        <BulkShareSheet
+          nodes={selectedRows.map((r) => ({ id: r.id, name: r.name }))}
+          users={users}
+          onClose={() => setShareOpen(false)}
+          onDone={(msg) => { setShareOpen(false); setMoveMsg({ ok: true, text: msg }); clear(); router.refresh(); window.setTimeout(() => setMoveMsg(null), 4000); }}
+        />
+      )}
+
       <div className="surface overflow-hidden">
         <Table>
           <TableHeader>
@@ -196,16 +273,35 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
                 <TableRow
                   key={n.id}
                   draggable={dndEnabled && n.canEdit}
-                  onDragStart={(e) => { e.dataTransfer.setData("text/drive-node", n.id); e.dataTransfer.setData("text/plain", n.name); e.dataTransfer.effectAllowed = "move"; setDragId(n.id); }}
+                  onDragStart={(e) => {
+                    // Glisser une ligne hors sélection la sélectionne d'abord — sinon on
+                    // déplacerait autre chose que ce qu'on a attrapé.
+                    if (!sel.ids.includes(n.id)) setSel(clickSelect(sel, n.id, order));
+                    e.dataTransfer.setData("text/drive-node", n.id);
+                    e.dataTransfer.setData("text/plain", n.name);
+                    e.dataTransfer.effectAllowed = "move";
+                    setDragId(n.id);
+                  }}
                   onDragEnd={() => { setDragId(null); setOverId(null); }}
                   onDragEnter={isFolderTarget ? (e) => { e.preventDefault(); setOverId(n.id); } : undefined}
                   onDragOver={isFolderTarget ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setOverId(n.id); } : undefined}
                   onDragLeave={isFolderTarget ? () => setOverId((o) => (o === n.id ? null : o)) : undefined}
                   onDrop={isFolderTarget ? onDropFolder(n.id) : undefined}
-                  className={`${sel.has(n.id) ? "bg-accent/40" : ""} ${isOver && isFolderTarget ? "ring-2 ring-inset ring-primary bg-primary/5" : ""} ${dragId === n.id ? "opacity-50" : ""}`}
+                  // Clic sur la LIGNE = sélection, comme dans un explorateur : Ctrl (ou ⌘) ajoute,
+                  // Maj étend depuis l'ancre. Le nom reste un lien : on ouvre en cliquant dessus,
+                  // pas en cliquant à côté.
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("a,button,input")) return;
+                    toggle(n.id, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
+                  }}
+                  className={`cursor-default select-none ${sel.ids.includes(n.id) ? "bg-accent/40" : ""} ${isOver && isFolderTarget ? "ring-2 ring-inset ring-primary bg-primary/5" : ""} ${dragId === n.id ? "opacity-50" : ""}`}
                 >
                   <TableCell>
-                    <input type="checkbox" checked={sel.has(n.id)} onChange={() => toggle(n.id)} aria-label={`Sélectionner ${n.name}`} className="h-4 w-4 rounded border-input" />
+                    <input
+                      type="checkbox" checked={sel.ids.includes(n.id)}
+                      onChange={(e) => toggle(n.id, { toggle: true, range: (e.nativeEvent as MouseEvent).shiftKey })}
+                      aria-label={`Sélectionner ${n.name}`} className="h-4 w-4 rounded border-input"
+                    />
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -234,5 +330,95 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
         </Table>
       </div>
     </div>
+  );
+}
+
+/**
+ * PARTAGER TOUTE UNE SÉLECTION, en une fois.
+ *
+ * Une notification par personne pour TOUT le lot, pas une par fichier : partager douze documents
+ * ne doit pas remplir douze fois la boîte de chacun — c'est le meilleur moyen de faire ignorer
+ * les notifications suivantes.
+ */
+function BulkShareSheet({
+  nodes, users, onClose, onDone,
+}: {
+  nodes: { id: string; name: string }[];
+  users: UserLite[];
+  onClose: () => void;
+  onDone: (message: string) => void;
+}) {
+  const [picked, setPicked] = React.useState<Set<string>>(new Set());
+  const [access, setAccess] = React.useState<"VIEW" | "EDIT">("VIEW");
+  const [q, setQ] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? users.filter((u) => u.name.toLowerCase().includes(needle)) : users;
+
+  const submit = async () => {
+    if (picked.size === 0) { setErr("Choisissez au moins une personne."); return; }
+    setBusy(true); setErr(null);
+    const fd = new FormData();
+    for (const n of nodes) fd.append("nodeId", n.id);
+    for (const id of picked) fd.append("userId", id);
+    fd.set("access", access);
+    const r = await shareNodesWithMany(fd);
+    setBusy(false);
+    if (!r.ok) { setErr(r.error ?? "Partage impossible."); return; }
+    onDone(`${r.done} élément·s partagé·s avec ${picked.size} personne·s${r.denied ? ` (${r.denied} refusé·s)` : ""}.`);
+  };
+
+  return (
+    <Sheet
+      open onClose={() => !busy && onClose()}
+      title={nodes.length === 1 ? `Partager « ${nodes[0].name} »` : `Partager ${nodes.length} éléments`}
+      description="Sur un dossier, l'accès descend sur tout son contenu."
+      width="md"
+    >
+      <div className="space-y-3">
+        <div className="inline-flex overflow-hidden rounded-lg border border-border">
+          {(["VIEW", "EDIT"] as const).map((a) => (
+            <button
+              key={a} type="button" onClick={() => setAccess(a)}
+              className={`px-3 py-1.5 text-sm font-medium transition-colors ${access === a ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`}
+            >
+              {a === "VIEW" ? "Lecture" : "Modification"}
+            </button>
+          ))}
+        </div>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher une personne…" className="pl-8" />
+        </div>
+        <div className="max-h-72 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1">
+          {shown.length === 0 ? (
+            <p className="px-2 py-4 text-center text-sm text-muted-foreground">Aucune personne.</p>
+          ) : shown.map((u) => (
+            <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-secondary/60">
+              <input
+                type="checkbox" className="h-4 w-4 rounded border-input" checked={picked.has(u.id)}
+                onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(u.id)) n.delete(u.id); else n.add(u.id); return n; })}
+              />
+              <span className="truncate">{u.name}</span>
+            </label>
+          ))}
+        </div>
+        {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">{picked.size} personne·s</span>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} disabled={busy} className="rounded-lg border border-input px-3 py-1.5 text-sm">Annuler</button>
+            <button
+              type="button" onClick={() => void submit()} disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Partager
+            </button>
+          </div>
+        </div>
+      </div>
+    </Sheet>
   );
 }

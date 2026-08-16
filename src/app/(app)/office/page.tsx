@@ -5,10 +5,10 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
-import { Icon } from "@/components/ui/icon";
 import { formatDateTime } from "@/lib/utils";
-import { explorerSize } from "@/lib/drive/explorer";
-import { appOfFile, OFFICE_APPS, type OfficeAppKey } from "@/lib/office/apps";
+import { explorerSize, fileTypeLabel, fileIconName } from "@/lib/drive/explorer";
+import { OFFICE_APPS, type OfficeAppKey } from "@/lib/office/apps";
+import { DriveTable, type DriveRow } from "../drive/drive-table";
 import { OfficeLauncher } from "./office-launcher";
 
 export const dynamic = "force-dynamic";
@@ -44,13 +44,36 @@ export default async function OfficePage({ searchParams }: { searchParams: { app
     take: RECENT_TAKE,
   });
 
-  const visible: typeof candidates = [];
+  // On retient l'ACCÈS résolu, pas seulement la visibilité : c'est lui qui décide si la ligne
+  // peut être renommée, partagée ou supprimée depuis ici.
+  const visible: { row: (typeof candidates)[number]; canEdit: boolean }[] = [];
   for (const n of candidates) {
     if (visible.length >= RECENT_SHOWN) break;
-    if (canViewDrive(await resolveDriveAccess(user, n.id))) visible.push(n);
+    const access = await resolveDriveAccess(user, n.id);
+    if (canViewDrive(access)) visible.push({ row: n, canEdit: access === "EDIT" });
   }
 
   const officeEnabled = onlyofficeConfigured();
+  const users = visible.some((v) => v.canEdit)
+    ? await prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+    : [];
+
+  // EXACTEMENT la liste du Drive — sélection Ctrl/Maj, ouverture multiple, partage et corbeille
+  // groupés. Une seconde liste « spéciale bureautique » finirait par diverger sur un détail, et
+  // c'est ce détail qu'on remarque.
+  const rows: DriveRow[] = visible.map(({ row: n, canEdit }) => ({
+    id: n.id, name: n.name, isFile: true,
+    icon: fileIconName(n.name, true),
+    category: null,
+    owner: n.owner?.name ?? "—",
+    size: n.size,
+    sizeLabel: explorerSize(n.size, true),
+    typeLabel: fileTypeLabel(n.name, true),
+    updatedAt: n.updatedAt.toISOString(),
+    updatedLabel: formatDateTime(n.updatedAt),
+    canEdit,
+    href: officeEnabled && canEdit ? `/drive/${n.id}/edit` : `/drive/vue?ids=${n.id}`,
+  }));
 
   return (
     <div className="space-y-5">
@@ -60,31 +83,14 @@ export default async function OfficePage({ searchParams }: { searchParams: { app
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Documents récents</h2>
-        {visible.length === 0 ? (
+        {rows.length === 0 ? (
           <EmptyState
             icon="FileText"
             title="Aucun document bureautique"
             description="Créez un document ci-dessus, ou importez un fichier Word, Excel ou PowerPoint dans le Drive."
           />
         ) : (
-          <div className="surface divide-y divide-border">
-            {visible.map((n) => {
-              const app = appOfFile(n.name);
-              return (
-                <Link
-                  key={n.id}
-                  href={officeEnabled ? `/drive/${n.id}/edit` : `/drive/${n.id}`}
-                  className="flex items-center gap-3 px-3 py-2.5 text-sm transition-colors hover:bg-secondary/50"
-                >
-                  <Icon name={app?.icon ?? "File"} className={`h-4 w-4 shrink-0 ${app?.tone ?? "text-muted-foreground"}`} />
-                  <span className="min-w-0 flex-1 truncate font-medium">{n.name}</span>
-                  <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">{n.owner?.name ?? "—"}</span>
-                  <span className="hidden shrink-0 tabular-nums text-xs text-muted-foreground sm:block">{explorerSize(n.size, true)}</span>
-                  <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(n.updatedAt)}</span>
-                </Link>
-              );
-            })}
-          </div>
+          <DriveTable rows={rows} moveTargets={[]} trash={false} users={users.length ? users : undefined} spaceId={null} />
         )}
       </section>
 

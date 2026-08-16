@@ -42,6 +42,8 @@ export function ExplorerNav({
   const router = useRouter();
   const [open, setOpen] = React.useState<Set<string>>(new Set());
   const [over, setOver] = React.useState<string | null>(null);
+  /** Élément en cours de glissement DEPUIS le volet — sert au retour visuel. */
+  const [dragging, setDragging] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [menu, setMenu] = React.useState<{ x: number; y: number; id: string; name: string; kind: "space" | "folder" } | null>(null);
   const [share, setShare] = React.useState<{ id: string; name: string } | null>(null);
@@ -63,6 +65,7 @@ export function ExplorerNav({
     setOver(null);
     const id = e.dataTransfer.getData("text/drive-node");
     if (!id || id === opts.targetId) return;
+    setDragging(null);
     setMsg({ ok: true, text: `Déplacement vers ${opts.label}…` });
     const fd = new FormData();
     fd.set("id", id);
@@ -81,9 +84,12 @@ export function ExplorerNav({
     onDrop: (e: React.DragEvent) => { void drop(e, opts); },
   });
 
+  // La fluidité d'un glisser-déposer tient d'abord à la TAILLE de la cible et à la netteté du
+  // retour visuel : une ligne haute de 22 px qu'on doit viser au pixel donne l'impression que
+  // « ça ne marche pas », alors que c'est le geste qui rate.
   const rowClass = (key: string, isActive: boolean) =>
-    `group flex items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm transition-colors ${
-      over === key ? "bg-primary/15 ring-1 ring-inset ring-primary"
+    `group flex cursor-grab items-center gap-1.5 rounded-lg py-2 pr-2 text-sm transition-colors ${
+      over === key ? "bg-primary/20 ring-2 ring-inset ring-primary"
         : isActive ? "bg-primary/10 font-medium text-primary" : "text-foreground hover:bg-secondary"
     }`;
 
@@ -104,7 +110,19 @@ export function ExplorerNav({
     return (
       <li>
         <div
-          className={rowClass(node.id, active === node.id)}
+          // SOURCE de glisser autant que CIBLE. Le volet n'acceptait que les dépôts : attraper un
+          // dossier de la colonne pour le lâcher sur « Téléchargements » ne faisait rien, ce qui
+          // ressemble à une panne bien plus qu'à une limite.
+          draggable
+          onDragStart={(e) => {
+            e.stopPropagation();
+            e.dataTransfer.setData("text/drive-node", node.id);
+            e.dataTransfer.setData("text/plain", node.name);
+            e.dataTransfer.effectAllowed = "move";
+            setDragging(node.id);
+          }}
+          onDragEnd={() => { setDragging(null); setOver(null); }}
+          className={`${rowClass(node.id, active === node.id)} ${dragging === node.id ? "opacity-40" : ""}`}
           style={{ paddingLeft: `${0.5 + node.depth * 0.75}rem` }}
           {...dropProps(node.id, { targetId: node.id, label: `« ${node.name} »` })}
           {...ctxProps(node.id, node.name, "folder")}
