@@ -22,6 +22,7 @@ import { prisma } from "../src/lib/prisma";
 import {
   objectStorageConfigured, putObject, putObjectStream, MULTIPART_THRESHOLD_BYTES,
 } from "../src/lib/regulatory/intelligence/upload/object-storage";
+import { describeConfig } from "../src/lib/storage/s3-config";
 
 const blobKey = (sha256: string) => `blobs/${sha256.slice(0, 2)}/${sha256}`;
 const mo = (bytes: number) => `${(bytes / 1048576).toFixed(0)} Mo`;
@@ -75,7 +76,13 @@ async function migrateOne(id: string): Promise<number> {
 
 async function main() {
   if (!objectStorageConfigured()) {
-    console.error("S3_* (ou REG_S3_*) non configuré — impossible de migrer. Configurez le bucket d'abord.");
+    // On NOMME ce qui manque : « non configuré » envoyait relire un panneau de variables où tout
+    // paraissait rempli. Aucun secret n'est affiché, seulement des noms de variables.
+    const d = describeConfig(process.env as Record<string, string | undefined>);
+    console.error("Stockage objet non configuré POUR CE PROCESSUS — impossible de migrer.");
+    if (d.disabled) console.error("  Cause : S3_DISABLED est actif. Retirez-le (ou mettez 0) et redéployez.");
+    else if (d.missing.length) console.error(`  Manquant : ${d.missing.join(", ")}`);
+    console.error("  Détail complet (sans secrets) : npm run storage:check");
     process.exit(1);
   }
 

@@ -2187,7 +2187,14 @@ si le stockage objet est configuré mais refuse d'écrire, l'enregistrement **é
 pas de repli discret vers la base, qui fabriquerait des blobs gigantesques dans Postgres à l'insu de
 tout le monde jusqu'à saturer son disque. L'utilisateur voit un message clair, rien n'est corrompu.
 
-**Vérifier que ça marche** : Administration → Stockage objet → **Tester la connexion**. Le test
+**Vérifier ce que voit le SERVEUR** (shell de l'hébergeur, à la racine du dépôt) :
+`npm run storage:check`. Il dit si la configuration est lisible **par le processus**, sous quels
+noms (`S3_*` ou `REG_S3_*`), et **nomme ce qui manque**. « Les variables sont renseignées dans le
+panneau » ne prouve rien : une variable ajoutée après le dernier déploiement, posée sur un autre
+service, ou un conteneur non redémarré donnent un panneau vert et un `null` côté code. **Aucun
+secret n'est affiché**, jamais — seulement des noms de variables, l'hôte, le bucket et la région.
+
+**Vérifier que l'accès marche vraiment** : Administration → Stockage objet → **Tester la connexion**. Le test
 écrit un objet dans un préfixe dédié (`_selftest/`), le relit, compare son contenu octet pour octet
 et le supprime. « Les variables sont renseignées » ne prouve rien : un bucket mal nommé, une clé
 périmée ou une région fausse donnent la même page verte. Aucun secret n'apparaît dans le rapport ni
