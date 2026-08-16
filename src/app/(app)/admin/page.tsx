@@ -154,6 +154,25 @@ export default async function AdminPage() {
         <KpiCard label="Événements d’activité" value={activityCount} icon="Activity" />
       </div>
 
+      {/* STOCKAGE OBJET — sa propre carte, en tête, et non plus une ligne au bas d'une autre.
+          C'est l'écran qu'on vient chercher quand un envoi échoue ou traîne : l'enterrer sous un
+          tableau de comptes revenait à ne pas l'avoir. */}
+      {admin.role === "SUPER_ADMIN" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><HardDrive className="h-4 w-4" /> Stockage objet (Supabase / S3)</CardTitle>
+            <CardDescription>
+              Où vivent réellement les octets. « Les variables sont renseignées » ne prouve rien : un bucket mal
+              nommé, une clé périmée ou un chemin d&apos;endpoint incomplet donnent exactement la même page verte.
+              Le test écrit un objet, le relit, compare son contenu et le supprime.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <StoragePanel initial={describeConfig(process.env as Record<string, string | undefined>)} />
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader><CardTitle>Comptes & accès</CardTitle></CardHeader>
         <CardContent className="p-0">
@@ -227,15 +246,6 @@ export default async function AdminPage() {
               </div>
             </div>
 
-            {/* OÙ VIVENT RÉELLEMENT LES OCTETS. Les compteurs ci-dessus disent le volume ; ceci
-                dit le backend, et permet de vérifier qu'il répond — un bucket mal nommé donne
-                exactement la même page verte qu'un bucket qui marche. */}
-            <div className="mt-4 border-t border-border pt-4">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Stockage objet (S3-compatible)
-              </p>
-              <StoragePanel initial={describeConfig(process.env as Record<string, string | undefined>)} />
-            </div>
 
             <div className="overflow-x-auto">
               <Table>

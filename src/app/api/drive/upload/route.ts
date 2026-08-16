@@ -9,6 +9,8 @@ import { resolveDriveAccess, effectiveSpaceId, canCreateInSpace } from "@/lib/dr
 import { quotaVerdict } from "@/lib/drive/quota";
 import { userUsageBytes, physicalUsageBytes, addPhysicalUsage } from "@/lib/drive/usage";
 import { recordAudit } from "@/lib/audit";
+import { objectStorageConfigured } from "@/lib/regulatory/intelligence/upload/object-storage";
+import { startTimer, formatTiming } from "@/lib/drive/timing";
 
 /** Upload a new file (under `parentId`) or a new version (of `nodeId`). */
 export async function POST(req: NextRequest) {
@@ -16,7 +18,11 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (user.mustChangePassword) return NextResponse.json({ error: "Mot de passe à changer." }, { status: 403 });
 
+  // CHRONOMÈTRE. « C'est lent » ne se corrige pas : il faut savoir quelle étape coûte, et le
+  // savoir depuis la production. Chaque envoi rapporte son propre découpage.
+  const timer = startTimer();
   const form = await req.formData();
+  timer.mark("réception");
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "Fichier manquant." }, { status: 400 });
   const parentId = (form.get("parentId") as string) || null;
@@ -47,7 +53,9 @@ export async function POST(req: NextRequest) {
   // actifs, relue à chaque fois — c'est elle qui refuse) et capacité globale (mesure partagée,
   // relue au plus toutes les 30 s : sans cela, chaque fichier d'un lot payait un parcours complet
   // de la table des blobs AVANT d'écrire le moindre octet).
+  timer.mark("autorisation");
   const [myUsage, physical] = await Promise.all([userUsageBytes(user.id), physicalUsageBytes()]);
+  timer.mark("quotas");
   const verdict = quotaVerdict({
     userUsageBytes: myUsage, physicalUsageBytes: physical, fileSize: file.size,
     userQuotaGb: settings.driveUserQuotaGb, capacityGb: settings.driveCapacityGb,
@@ -56,6 +64,7 @@ export async function POST(req: NextRequest) {
 
   const buf = Buffer.from(await file.arrayBuffer());
   const { blobId, size, deduplicated } = await putBlob(buf);
+  timer.mark(deduplicated ? "contenu déjà présent" : "chiffrement + stockage");
   // Un contenu dédupliqué n'occupe pas de place NEUVE : le compter gonflerait l'occupation jusqu'à
   // refuser des envois qui tiennent parfaitement.
   if (!deduplicated) addPhysicalUsage(size);
@@ -67,7 +76,10 @@ export async function POST(req: NextRequest) {
     await prisma.fileVersion.create({ data: { nodeId, blobId, version, size, mimeType, createdById: user.id } });
     await prisma.driveNode.update({ where: { id: nodeId }, data: { size, mimeType } });
     await recordAudit({ actorId: user.id, action: "UPLOAD", module: "Drive", entityType: "DRIVE_NODE", entityId: nodeId, summary: `Nouvelle version (v${version})` });
-    return NextResponse.json({ id: nodeId, version });
+    timer.mark("base");
+    const t = timer.done(objectStorageConfigured() ? "objet" : "base", size);
+    console.info("[drive upload]", file.name, formatTiming(t));
+    return NextResponse.json({ id: nodeId, version, timing: t });
   }
 
   // Classement + permissions choisis à l'import (qui voit / qui modifie).
@@ -100,5 +112,10 @@ export async function POST(req: NextRequest) {
   }
 
   await recordAudit({ actorId: user.id, action: "UPLOAD", module: "Drive", entityType: "DRIVE_NODE", entityId: node.id, summary: `Fichier « ${file.name} »${category ? ` · ${category}` : ""}${ids.length ? ` · partagé (${ids.length})` : ""}` });
-  return NextResponse.json({ id: node.id });
+  timer.mark("base");
+  // Le découpage part dans la réponse (l'écran le montre quand un envoi traîne) ET dans le
+  // journal du serveur — on peut ainsi diagnostiquer sans demander à personne de rejouer le cas.
+  const t = timer.done(objectStorageConfigured() ? "objet" : "base", size);
+  console.info("[drive upload]", file.name, formatTiming(t));
+  return NextResponse.json({ id: node.id, timing: t });
 }

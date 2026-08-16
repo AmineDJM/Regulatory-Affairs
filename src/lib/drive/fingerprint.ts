@@ -16,10 +16,11 @@
 export const FINGERPRINT_MIN_BYTES = 512 * 1024;
 
 /**
- * Au-delà, on renonce : `crypto.subtle.digest` exige le fichier ENTIER en mémoire, et un onglet
- * qui s'effondre sur un fichier de 2 Go est un bien pire défaut qu'un envoi non optimisé.
+ * Au-delà, on renonce : `crypto.subtle.digest` exige le fichier ENTIER en mémoire — en plus de la
+ * lecture que fera l'envoi lui-même. Sur un poste bureautique ordinaire, un onglet qui s'effondre
+ * est un bien pire défaut qu'un envoi non optimisé.
  */
-export const FINGERPRINT_MAX_BYTES = 512 * 1024 * 1024;
+export const FINGERPRINT_MAX_BYTES = 128 * 1024 * 1024;
 
 export function shouldFingerprint(size: number): boolean {
   return size >= FINGERPRINT_MIN_BYTES && size <= FINGERPRINT_MAX_BYTES;

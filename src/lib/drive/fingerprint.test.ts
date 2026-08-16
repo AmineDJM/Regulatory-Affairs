@@ -13,7 +13,8 @@ describe("Quand cela vaut la peine de calculer une empreinte", () => {
   });
 
   it("non au-delà du plafond — un onglet qui s'effondre est pire qu'un envoi non optimisé", () => {
-    // `crypto.subtle.digest` exige le fichier ENTIER en mémoire : au-delà, on renonce sciemment.
+    // `crypto.subtle.digest` exige le fichier ENTIER en mémoire, EN PLUS de la lecture que fera
+    // l'envoi : au-delà, on renonce sciemment.
     expect(shouldFingerprint(FINGERPRINT_MAX_BYTES)).toBe(true);
     expect(shouldFingerprint(FINGERPRINT_MAX_BYTES + 1)).toBe(false);
   });

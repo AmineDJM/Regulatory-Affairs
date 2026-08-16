@@ -15,9 +15,13 @@ import { UploadCloud, Loader2, CheckCircle2, AlertCircle, X, ChevronDown } from 
  * (Le dossier CTD garde son propre moteur résumable par parties — voir upload-manager.tsx.)
  */
 
-type FileStatus = "pending" | "uploading" | "done" | "error";
+type FileStatus = "pending" | "checking" | "uploading" | "done" | "error";
 interface BgFile { name: string; size: number; status: FileStatus; progress: number; error?: string }
-interface BgJob { id: string; label: string; files: BgFile[]; phase: "uploading" | "done" | "error"; spec: EnqueueSpec }
+interface BgJob {
+  id: string; label: string; files: BgFile[]; phase: "uploading" | "done" | "error"; spec: EnqueueSpec;
+  /** Diagnostic du serveur sur l'envoi le plus lent du lot — affiché quand ça traîne. */
+  slowest?: { name: string; line: string };
+}
 
 /** Spécification d'un envoi : un libellé, des fichiers, et comment poster CHAQUE fichier. */
 export interface EnqueueSpec {
@@ -48,6 +52,9 @@ export function useBackgroundUpload(): Ctx {
 }
 
 const humanSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.ceil(n / 1024))} Ko`);
+
+/** Au-delà, un envoi mérite une explication plutôt qu'une barre qui avance en silence. */
+const SLOW_MS = 3000;
 
 /** POST d'un FormData avec progression d'upload réelle ; ne rejette jamais. */
 function postFormXhr(url: string, formData: FormData, onProgress: (frac: number) => void, timeoutMs: number): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
@@ -85,18 +92,33 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       const file = spec.files[idx];
       patchFile(jobId, idx, { status: "uploading", progress: 0, error: undefined });
 
-      // Le contenu est-il déjà là ? Si oui, aucun octet ne part sur le réseau.
+      // Le contenu est-il déjà là ? Si oui, aucun octet ne part sur le réseau. L'état
+      // « checking » est visible : lire un gros fichier pour l'empreinte prend une seconde ou
+      // deux, et une barre figée sans explication fait croire à une panne.
       if (spec.preflight) {
+        patchFile(jobId, idx, { status: "checking" });
         try {
           if (await spec.preflight(file)) { patchFile(jobId, idx, { status: "done", progress: 100 }); return; }
         } catch { /* une optimisation ratée n'est pas un envoi raté */ }
+        patchFile(jobId, idx, { status: "uploading" });
       }
 
       const { url, formData } = spec.makeRequest(file);
       const attempts = 5;
       for (let attempt = 0; attempt < attempts; attempt++) {
         const r = await postFormXhr(url, formData, (frac) => patchFile(jobId, idx, { progress: Math.round(frac * 100) }), 20 * 60_000);
-        if (r.ok && (r.body.ok ?? true)) { patchFile(jobId, idx, { status: "done", progress: 100 }); return; }
+        if (r.ok && (r.body.ok ?? true)) {
+          patchFile(jobId, idx, { status: "done", progress: 100 });
+          // Le serveur dit où est passé le temps. On garde le pire du lot : quand quelqu'un
+          // signale « c'est lent », la réponse est déjà à l'écran.
+          const t = r.body.timing as { totalMs?: number; phases?: { name: string; ms: number }[]; backend?: string; throughputMbs?: number } | undefined;
+          if (t?.totalMs && t.totalMs > SLOW_MS) {
+            const worst = (t.phases ?? []).reduce<{ name: string; ms: number } | null>((w, p) => (!w || p.ms > w.ms ? p : w), null);
+            const line = `${(t.totalMs / 1000).toFixed(1)} s · ${t.throughputMbs ?? 0} Mo/s · stockage ${t.backend ?? "?"}${worst ? ` · surtout « ${worst.name} » (${(worst.ms / 1000).toFixed(1)} s)` : ""}`;
+            setJobs((js) => js.map((j) => (j.id === jobId && (!j.slowest || t.totalMs! > 0) ? { ...j, slowest: { name: file.name, line } } : j)));
+          }
+          return;
+        }
         const retryable = r.status === 0 || r.status >= 500 || r.status === 429;
         const errs = r.body.errors as { error?: string }[] | undefined;
         const msg = errs?.[0]?.error ?? (r.body.error as string | undefined) ?? (r.status === 0 ? "Réseau indisponible." : `Échec (code ${r.status}).`);
@@ -220,6 +242,9 @@ function BgUploadWidget({ jobs, onDismiss, onRetry }: { jobs: BgJob[]; onDismiss
         <ul className="max-h-[40vh] divide-y divide-border overflow-y-auto">
           {jobs.map((j) => {
             const done = j.files.filter((f) => f.status === "done").length;
+            // « Vérification » = on calcule l'empreinte pour éviter de renvoyer un contenu déjà
+            // présent. Sans ce mot, la barre paraît figée et l'on croit à une panne.
+            const checking = j.files.filter((f) => f.status === "checking").length;
             const failed = j.files.filter((f) => f.status === "error").length;
             const firstErr = j.files.find((f) => f.status === "error")?.error;
             const pct = Math.round((j.files.reduce((a, f) => a + (f.status === "done" ? 100 : f.progress), 0) / (j.files.length * 100)) * 100);
@@ -238,11 +263,19 @@ function BgUploadWidget({ jobs, onDismiss, onRetry }: { jobs: BgJob[]; onDismiss
                 </div>
                 {j.phase === "uploading" && (
                   <div className="mt-1.5">
-                    <div className="flex justify-between text-xs text-muted-foreground"><span>{done}/{j.files.length} fichier·s</span><span>{pct}%</span></div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>{done}/{j.files.length} fichier·s{checking > 0 ? ` · ${checking} en vérification` : ""}</span>
+                      <span>{pct}%</span>
+                    </div>
                     <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
                   </div>
                 )}
                 {j.phase === "done" && <p className="mt-1 text-xs text-success">{done} fichier·s téléversé·s{failed > 0 ? `, ${failed} en échec` : ""}.</p>}
+                {j.slowest && (
+                  <p className="mt-1 rounded bg-secondary/60 px-2 py-1 text-[0.6875rem] leading-snug text-muted-foreground" title={j.slowest.name}>
+                    Le plus lent : {j.slowest.line}
+                  </p>
+                )}
                 {j.phase === "error" && (
                   <div className="mt-1 space-y-1">
                     <div className="flex items-center justify-between gap-2">

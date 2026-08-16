@@ -811,6 +811,21 @@ quatrième ne l'est que par une variable d'environnement.
    là que se perdent les minutes, et aucune optimisation applicative ne le compense. `npm run
    storage:check` dit en une commande si le bucket est réellement vu par le serveur.
 
+**Et pour ne plus deviner : chaque envoi est CHRONOMÉTRÉ.** « C'est lent » ne se corrige pas — on
+optimise au hasard, on livre, et c'est toujours lent. La route rapporte donc son propre découpage
+(réception · autorisation · quotas · chiffrement + stockage · base), le **backend réellement
+utilisé** (`objet` / `base`) et le débit observé. Le résultat part dans le journal du serveur
+(`[drive upload] …`) **et** dans la réponse : au-delà de 3 secondes, la pastille de téléversement
+affiche « Le plus lent : 12,4 s · 1,6 Mo/s · stockage base · surtout « chiffrement + stockage »
+(11,8 s) ». La cause est à l'écran avant qu'on ait à la demander. `src/lib/drive/timing.ts`, pur et
+testé (les étapes sont triées de la plus coûteuse à la plus légère : la réponse doit tenir dans le
+premier mot).
+
+L'empreinte côté navigateur affiche désormais un état **« en vérification »** : lire un gros
+fichier prend une seconde ou deux, et une barre figée sans explication fait croire à une panne. Le
+plafond descend à **128 Mo** — au-delà, le fichier serait lu deux fois (une pour l'empreinte, une
+pour l'envoi) et un onglet qui s'effondre est un bien pire défaut qu'un envoi non optimisé.
+
 ### Stockage Drive : mesure exacte + quotas appliqués
 
 - **Mesure** : physique = `FileBlob` agrégé (chiffré AES-256-GCM, **dédupliqué** par SHA-256 du clair) ; logique =
