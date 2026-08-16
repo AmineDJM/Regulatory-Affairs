@@ -2219,6 +2219,13 @@ si le stockage objet est configuré mais refuse d'écrire, l'enregistrement **é
 pas de repli discret vers la base, qui fabriquerait des blobs gigantesques dans Postgres à l'insu de
 tout le monde jusqu'à saturer son disque. L'utilisateur voit un message clair, rien n'est corrompu.
 
+⚠️ **`S3_ENDPOINT` doit porter le CHEMIN de l'API S3, pas seulement l'hôte.** Chez R2, AWS ou MinIO
+l'endpoint est un hôte nu ; chez **Supabase**, l'API S3 vit sous `/storage/v1/s3` — la variable
+s'écrit donc `https://<ref>.storage.supabase.co/storage/v1/s3`. Ce préfixe fait partie de
+l'adresse : sans lui, **chaque écriture répond 404** alors que les clés, le bucket et la région
+sont parfaitement bons. `hostAndPath` le conserve (testé sur les deux formes d'endpoint), le
+diagnostic l'affiche, et un 404 dit maintenant sur quel chemin il a été obtenu.
+
 **Vérifier ce que voit le SERVEUR** (shell de l'hébergeur, à la racine du dépôt) :
 `npm run storage:check`. Il dit si la configuration est lisible **par le processus**, sous quels
 noms (`S3_*` ou `REG_S3_*`), et **nomme ce qui manque**. « Les variables sont renseignées dans le

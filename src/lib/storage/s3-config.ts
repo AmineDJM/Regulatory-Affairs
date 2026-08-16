@@ -110,6 +110,15 @@ export interface ConfigDescription {
   disabled: boolean;
   /** Hôte seul, sans schéma ni chemin (ex. `abcd.storage.supabase.co`). */
   endpointHost: string;
+  /**
+   * Chemin de base de l'endpoint (`/storage/v1/s3` chez Supabase, vide chez R2/AWS/MinIO).
+   *
+   * Il est affiché parce qu'il fait partie de l'adresse : l'omettre dans la variable envoie chaque
+   * requête sur une adresse qui n'existe pas — un 404 à l'écriture alors que clés, bucket et
+   * région sont bons, et rien à l'écran ne l'expliquait tant qu'on ne montrait que l'hôte.
+   * Une URL d'endpoint n'est pas un secret.
+   */
+  endpointPath: string;
   bucket: string;
   region: string;
   pathStyle: boolean;
@@ -151,8 +160,13 @@ export function describeConfig(env: Env): ConfigDescription {
   const missing = REQUIRED.filter((n) => !readVar(env, n).value);
   const cfg = resolveS3Config(env);
   let endpointHost = "";
+  let endpointPath = "";
   if (cfg) {
-    try { endpointHost = new URL(cfg.endpoint).host; } catch { endpointHost = ""; }
+    try {
+      const u = new URL(cfg.endpoint);
+      endpointHost = u.host;
+      endpointPath = u.pathname.replace(/\/+$/, "");
+    } catch { endpointHost = ""; }
   }
 
   // Origine de chaque valeur indispensable. Le mélange ne se juge que sur celles qui EXISTENT :
@@ -166,6 +180,7 @@ export function describeConfig(env: Env): ConfigDescription {
     disabled: disabledBy !== null,
     disabledBy,
     endpointHost,
+    endpointPath,
     bucket: cfg?.bucket ?? readVar(env, "BUCKET").value,
     region: cfg?.region ?? readVar(env, "REGION").value,
     pathStyle: cfg?.pathStyle ?? true,

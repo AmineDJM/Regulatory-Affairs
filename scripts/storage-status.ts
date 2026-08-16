@@ -40,6 +40,12 @@ if (d.mixedSources) {
 }
 if (d.configured) {
   console.log(`  Hôte                : ${d.endpointHost}`);
+  console.log(`  Chemin de l'endpoint: ${d.endpointPath || "(aucun)"}`);
+  console.log(`  Une écriture ira sur: ${d.endpointPath}/${d.bucket}/blobs/…`);
+  if (d.endpointHost.includes("supabase") && !d.endpointPath.includes("/s3")) {
+    console.log("      ⚠ Supabase expose son API S3 sous /storage/v1/s3 — sans ce chemin dans");
+    console.log("        S3_ENDPOINT, chaque écriture répond 404 alors que tout le reste est bon.");
+  }
   console.log(`  Bucket              : ${d.bucket}`);
   console.log(`  Région              : ${d.region}`);
   console.log(`  Style d'URL         : ${d.pathStyle ? "chemin (Supabase/MinIO)" : "sous-domaine"}`);

@@ -61,10 +61,27 @@ function signingKey(cfg: S3Config, date: string): Buffer {
 export function _deriveSigningKeyHex(secret: string, date: string, region: string, service: string): string {
   return signingKeyBuf(secret, date, region, service).toString("hex");
 }
-function hostAndPath(cfg: S3Config, key: string): { protocol: string; host: string; resourcePath: string } {
+/**
+ * OÙ TAPER, EXACTEMENT — hôte + chemin de la ressource, tels qu'ils seront AUSSI signés.
+ *
+ * ⚠️ **Le chemin de base de l'endpoint fait partie de l'adresse.** Chez R2, AWS ou MinIO, l'endpoint
+ * est un hôte nu et le chemin commence au bucket ; chez **Supabase**, l'API S3 vit sous
+ * `/storage/v1/s3`, et l'ignorer envoie chaque requête à une adresse qui n'existe pas — un **404**
+ * sur chaque écriture, alors que les clés, le bucket et la région sont parfaitement bons. Le
+ * préfixe est donc conservé tel quel, et il entre dans la requête canonique comme dans l'URL
+ * appelée : les deux doivent coïncider, sinon la signature est rejetée.
+ *
+ * Fonction PURE — testée sur les deux formes d'endpoint.
+ */
+export function hostAndPath(cfg: S3Config, key: string): { protocol: string; host: string; resourcePath: string } {
   const base = new URL(cfg.endpoint);
   const host = cfg.pathStyle ? base.host : `${cfg.bucket}.${base.host}`;
-  const resourcePath = cfg.pathStyle ? `/${cfg.bucket}/${encodePath(key)}` : `/${encodePath(key)}`;
+  // `new URL("https://h").pathname` vaut « / » : on le ramène à la chaîne vide pour ne pas
+  // fabriquer un double séparateur, qui ne serait pas la même ressource pour S3.
+  const basePath = base.pathname.replace(/\/+$/, "");
+  const resourcePath = cfg.pathStyle
+    ? `${basePath}/${cfg.bucket}/${encodePath(key)}`
+    : `${basePath}/${encodePath(key)}`;
   return { protocol: base.protocol, host, resourcePath };
 }
 
@@ -330,24 +347,34 @@ export async function* intoParts(source: AsyncIterable<Buffer>, partSize: number
   }
 }
 
+/**
+ * Message d'erreur qui DIT OÙ l'on a tapé.
+ *
+ * « Écriture de l'objet échouée (404) » n'apprend rien : on cherche une clé révoquée, un bucket
+ * plein, un réseau coupé — alors que l'adresse elle-même était fausse. Le chemin visé lève
+ * l'ambiguïté en un coup d'œil ; il ne contient ni clé ni signature.
+ */
+function s3Failure(action: string, res: Response, key: string, detail: string): Error {
+  const code = s3ErrorCode(detail);
+  let where = "";
+  try { where = ` sur ${hostAndPath(config()!, key).resourcePath}`; } catch { /* config lue ailleurs */ }
+  const hint = res.status === 404
+    ? " Un 404 signale une ADRESSE inexistante, pas un problème de clé : vérifiez que S3_ENDPOINT"
+      + " porte bien le chemin de l'API S3 du fournisseur (Supabase : /storage/v1/s3) et que le bucket existe."
+    : "";
+  return new Error(`${action} échouée (${res.status}${code ? ` ${code}` : ""})${where}.${hint}`);
+}
+
 /** Écrit un objet (le serveur pousse les octets vers le bucket — ex. blobs chiffrés). */
 export async function putObject(key: string, body: Buffer, contentType = "application/octet-stream"): Promise<void> {
   const res = await signedRequest("PUT", key, body, contentType);
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    const code = s3ErrorCode(detail);
-    throw new Error(`Écriture de l'objet échouée (${res.status}${code ? ` ${code}` : ""}).`);
-  }
+  if (!res.ok) throw s3Failure("Écriture de l'objet", res, key, await res.text().catch(() => ""));
 }
 
 /** Lit un objet en mémoire (inspection d'archive après PUT direct, ou lecture d'un blob). */
 export async function getObject(key: string): Promise<Buffer> {
   const res = await signedRequest("GET", key);
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    const code = s3ErrorCode(detail);
-    throw new Error(`Lecture de l'objet échouée (${res.status}${code ? ` ${code}` : ""}).`);
-  }
+  if (!res.ok) throw s3Failure("Lecture de l'objet", res, key, await res.text().catch(() => ""));
   return Buffer.from(await res.arrayBuffer());
 }
 

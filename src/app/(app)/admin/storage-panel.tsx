@@ -45,7 +45,7 @@ export function StoragePanel({ initial }: { initial: SelfTestReport["config"] })
         )}
         {cfg.configured && (
           <span className="text-xs text-muted-foreground">
-            {cfg.endpointHost} · bucket <strong className="text-foreground">{cfg.bucket}</strong> · région {cfg.region}
+            {cfg.endpointHost}{cfg.endpointPath} · bucket <strong className="text-foreground">{cfg.bucket}</strong> · région {cfg.region}
             {cfg.pathStyle ? " · chemin" : " · sous-domaine"}
             {cfg.variableSource === "REG_S3" && " · variables REG_S3_* (anciennes)"}
           </span>

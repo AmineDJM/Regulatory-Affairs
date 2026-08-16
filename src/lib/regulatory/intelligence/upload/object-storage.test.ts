@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { intoParts, uploadPartsBounded, objectStorageConfigured, presignPutUrl, _deriveSigningKeyHex, parseBucketNames, euJurisdictionHost } from "./object-storage";
+import { intoParts, uploadPartsBounded, hostAndPath, objectStorageConfigured, presignPutUrl, _deriveSigningKeyHex, parseBucketNames, euJurisdictionHost } from "./object-storage";
 
 /**
  * Vérifie la signature SigV4 faite main (chantier 1 — upload direct S3/R2) SANS bucket réel :
@@ -71,6 +71,47 @@ describe("object-storage — SigV4 (S3/R2), sans dépendance SDK", () => {
     expect(euJurisdictionHost("28b9db04.eu.r2.cloudflarestorage.com")).toBeNull(); // déjà UE
     expect(euJurisdictionHost("s3.amazonaws.com")).toBeNull(); // non-R2 (S3/MinIO) → pas de variante
     expect(euJurisdictionHost("minio.local:9000")).toBeNull();
+  });
+});
+
+describe("L'adresse exacte de l'objet — le chemin de l'endpoint EN FAIT PARTIE", () => {
+  const cfg = (over: Partial<Parameters<typeof hostAndPath>[0]> = {}) => ({
+    endpoint: "https://ref.storage.supabase.co/storage/v1/s3",
+    region: "eu-west-1", bucket: "amd-internal-os",
+    accessKeyId: "k", secretAccessKey: "s", pathStyle: true, ...over,
+  });
+
+  it("conserve le préfixe de l'endpoint — sans lui, Supabase répond 404 sur CHAQUE écriture", () => {
+    // C'est le bug qui faisait échouer toute la migration : clés, bucket et région bons, et
+    // pourtant « Écriture de l'objet échouée (404) » — on tapait à une adresse qui n'existe pas.
+    const { host, resourcePath } = hostAndPath(cfg(), "blobs/ab/abcdef");
+    expect(host).toBe("ref.storage.supabase.co");
+    expect(resourcePath).toBe("/storage/v1/s3/amd-internal-os/blobs/ab/abcdef");
+  });
+
+  it("un endpoint sans chemin (R2, AWS, MinIO) reste inchangé", () => {
+    const { resourcePath } = hostAndPath(cfg({ endpoint: "https://acct.r2.cloudflarestorage.com" }), "blobs/ab/x");
+    expect(resourcePath).toBe("/amd-internal-os/blobs/ab/x");
+  });
+
+  it("une barre finale ne fabrique pas de double séparateur", () => {
+    // « //amd-internal-os/… » n'est pas la même ressource pour S3 : la signature porterait sur un
+    // chemin, la requête sur un autre.
+    const { resourcePath } = hostAndPath(cfg({ endpoint: "https://ref.storage.supabase.co/storage/v1/s3/" }), "k");
+    expect(resourcePath).toBe("/storage/v1/s3/amd-internal-os/k");
+    expect(resourcePath).not.toContain("//");
+  });
+
+  it("en style sous-domaine, le bucket passe dans l'hôte et le préfixe reste dans le chemin", () => {
+    const r = hostAndPath(cfg({ pathStyle: false, endpoint: "https://ref.storage.supabase.co/storage/v1/s3" }), "blobs/ab/x");
+    expect(r.host).toBe("amd-internal-os.ref.storage.supabase.co");
+    expect(r.resourcePath).toBe("/storage/v1/s3/blobs/ab/x");
+  });
+
+  it("l'URL présignée porte le même chemin — sinon le navigateur taperait ailleurs que la signature", () => {
+    // La requête canonique signée et l'URL appelée DOIVENT coïncider au caractère près.
+    const url = presignPutUrl("blobs/ab/x");
+    if (url) expect(url).toContain("/storage/v1/s3/");
   });
 });
 
