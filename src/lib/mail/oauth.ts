@@ -1,0 +1,135 @@
+import crypto from "crypto";
+import { authorizeUrl, tokenUrl, SCOPE_STRING, type MicrosoftMailConfig } from "./config";
+
+/**
+ * L'AUTHENTIFICATION MICROSOFT — code d'autorisation avec PKCE, permissions DÉLÉGUÉES.
+ *
+ * Déléguées, et pas « application » : une permission d'application donnerait à AMD Internal OS
+ * l'accès à **toutes** les boîtes de l'entreprise, d'un coup, sans que personne n'ait rien
+ * accepté. Avec le mode délégué, chacun connecte SA boîte et peut la déconnecter — c'est ce qui
+ * rend un pilote sur une seule boîte réellement possible.
+ *
+ * Le `state` est **signé et daté**. Sans lui, n'importe qui peut envoyer à un collègue un lien de
+ * retour forgé et faire connecter SA boîte au compte du collègue : le collègue lirait alors les
+ * mails de l'attaquant, et surtout enverrait en son nom. C'est le CSRF de connexion, et il est
+ * silencieux.
+ */
+
+const STATE_TTL_MS = 10 * 60_000;
+
+function hmac(payload: string): string {
+  const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "dev-mail-state";
+  return crypto.createHmac("sha256", secret).update(payload).digest("base64url");
+}
+
+/** Un `state` opaque, lié à l'utilisateur, signé, à durée de vie courte. */
+export function signState(userId: string, now = Date.now()): string {
+  const payload = `${userId}.${now}.${crypto.randomBytes(8).toString("base64url")}`;
+  return `${Buffer.from(payload).toString("base64url")}.${hmac(payload)}`;
+}
+
+/** Rend l'identifiant d'utilisateur si — et seulement si — la signature ET la fraîcheur tiennent. */
+export function verifyState(state: string | null | undefined, now = Date.now()): string | null {
+  if (!state) return null;
+  const dot = state.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const encoded = state.slice(0, dot);
+  const sig = state.slice(dot + 1);
+  let payload: string;
+  try { payload = Buffer.from(encoded, "base64url").toString("utf8"); } catch { return null; }
+
+  const expected = hmac(payload);
+  // Comparaison à temps constant : une comparaison ordinaire fuit la signature, octet par octet.
+  if (sig.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+
+  const [userId, issuedRaw] = payload.split(".");
+  const issued = Number(issuedRaw);
+  if (!userId || !Number.isFinite(issued)) return null;
+  if (now - issued > STATE_TTL_MS || issued - now > 60_000) return null; // périmé, ou daté du futur
+  return userId;
+}
+
+/** Le couple PKCE : un secret gardé côté serveur, et son empreinte envoyée à Microsoft. */
+export function makePkce(): { verifier: string; challenge: string } {
+  const verifier = crypto.randomBytes(48).toString("base64url");
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
+/** L'URL vers laquelle envoyer la personne pour qu'elle accepte (ou refuse). */
+export function buildAuthorizeUrl(cfg: MicrosoftMailConfig, state: string, challenge: string, loginHint?: string): string {
+  const p = new URLSearchParams({
+    client_id: cfg.clientId,
+    response_type: "code",
+    redirect_uri: cfg.redirectUri,
+    response_mode: "query",
+    scope: SCOPE_STRING,
+    state,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    // `select_account` : sur un poste partagé, enchaîner sans choisir connecterait la boîte de la
+    // personne précédente — une erreur invisible et durable.
+    prompt: "select_account",
+  });
+  if (loginHint) p.set("login_hint", loginHint);
+  return `${authorizeUrl(cfg.tenantId)}?${p.toString()}`;
+}
+
+export interface TokenSet {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: Date;
+  scopes: string;
+}
+
+/** Réponse de Microsoft, traduite — et jamais journalisée : elle contient les jetons. */
+function toTokenSet(json: Record<string, unknown>): TokenSet {
+  const expiresIn = Number(json.expires_in ?? 3600);
+  return {
+    accessToken: String(json.access_token ?? ""),
+    refreshToken: json.refresh_token ? String(json.refresh_token) : null,
+    // On retire 60 s : un jeton qui expire pendant le vol d'une requête produit une erreur
+    // incompréhensible côté utilisateur.
+    expiresAt: new Date(Date.now() + Math.max(0, expiresIn - 60) * 1000),
+    scopes: String(json.scope ?? ""),
+  };
+}
+
+async function postToken(cfg: MicrosoftMailConfig, body: URLSearchParams): Promise<TokenSet> {
+  const res = await fetch(tokenUrl(cfg.tenantId), {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok || !json.access_token) {
+    // On rend le CODE d'erreur de Microsoft (`invalid_grant`, `consent_required`…), jamais la
+    // description brute, qui peut contenir des éléments de la requête.
+    const code = String(json.error ?? res.status);
+    throw new Error(`Microsoft a refusé l'authentification (${code}).`);
+  }
+  return toTokenSet(json);
+}
+
+export function exchangeCode(cfg: MicrosoftMailConfig, code: string, verifier: string): Promise<TokenSet> {
+  return postToken(cfg, new URLSearchParams({
+    client_id: cfg.clientId,
+    client_secret: cfg.clientSecret,
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: cfg.redirectUri,
+    code_verifier: verifier,
+    scope: SCOPE_STRING,
+  }));
+}
+
+export function refreshTokens(cfg: MicrosoftMailConfig, refreshToken: string): Promise<TokenSet> {
+  return postToken(cfg, new URLSearchParams({
+    client_id: cfg.clientId,
+    client_secret: cfg.clientSecret,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    scope: SCOPE_STRING,
+  }));
+}

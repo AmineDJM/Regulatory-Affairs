@@ -889,7 +889,8 @@ model User {
   eventsResponsible Event[] @relation("EventResponsible")
 
   // Boîte mail personnelle connectée (Infomaniak IMAP/SMTP)
-  mailAccount MailAccount? @relation("UserMailAccount")
+  mailAccount    MailAccount?    @relation("UserMailAccount")
+  mailConnection MailConnection? @relation("UserMailConnection")
 
   // Information médicale (déclaration réglementaire)
   medicalInfoDeclarations MedicalInfoDeclaration[] @relation("MedicalInfoPharmacist")
@@ -984,6 +985,85 @@ model MailAccount {
   lastSyncAt  DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+/// ───────────────────────── Messagerie Microsoft 365 ─────────────────────────
+/// Microsoft reste la SOURCE DE VÉRITÉ des e-mails. PostgreSQL ne garde que ce qui permet de
+/// fonctionner : la connexion de la personne, ses jetons CHIFFRÉS, les jetons de synchronisation
+/// incrémentale, et les liens vers l'ERP. Aucun corps de message, aucune pièce jointe.
+
+/// La connexion d'UNE personne à SA boîte Exchange Online. Une par utilisateur — l'isolation est
+/// structurelle : toute requête part de `userId`, jamais d'un identifiant reçu de l'extérieur.
+model MailConnection {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation("UserMailConnection", fields: [userId], references: [id], onDelete: Cascade)
+  provider        String    @default("microsoft")
+  /// Adresse de la boîte servie (minuscule) — sert à l'affichage et au contrôle du pilote.
+  address         String
+  displayName     String?
+  /// Identifiant du compte chez Microsoft — permet de détecter un changement de compte.
+  homeAccountId   String?
+  /// Jetons chiffrés AES-256-GCM. Jamais rendus au navigateur, jamais journalisés.
+  accessTokenEnc  String?   @db.Text
+  refreshTokenEnc String?   @db.Text
+  expiresAt       DateTime?
+  /// Droits réellement accordés par Microsoft — un consentement partiel doit se voir.
+  grantedScopes   String?   @db.Text
+  /// Signature HTML ajoutée aux nouveaux messages.
+  signature       String?   @db.Text
+  /// `connected` | `needs-reconnect` — l'écran doit distinguer « en panne » de « à reconnecter ».
+  status          String    @default("connected")
+  lastError       String?
+  lastSyncAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  folders MailFolderState[]
+  links   MailLink[]
+}
+
+/// État de synchronisation d'UN dossier : le jeton de delta et les compteurs. Pas les messages.
+model MailFolderState {
+  id            String         @id @default(cuid())
+  connectionId  String
+  connection    MailConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  folderId      String
+  displayName   String?
+  wellKnown     String?
+  /// Jeton de delta CHIFFRÉ : il vaut un droit de lecture sur le dossier chez Microsoft.
+  deltaTokenEnc String?        @db.Text
+  unread        Int            @default(0)
+  total         Int            @default(0)
+  lastSyncAt    DateTime?
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([connectionId, folderId])
+}
+
+/// Ce qui relie un mail (ou une de ses pièces) à l'ERP : un fichier enregistré dans le Drive, un
+/// message associé à un produit Regulatory… On garde l'identifiant Microsoft, jamais le contenu.
+model MailLink {
+  id            String         @id @default(cuid())
+  connectionId  String
+  connection    MailConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  messageId     String
+  /// Pièce jointe concernée, quand le lien en vise une.
+  attachmentId  String?
+  /// Provenance conservée pour l'audit : qui a écrit, quand, et quel objet.
+  senderAddress String?
+  sentAt        DateTime?
+  subject       String?
+  /// Objet ERP associé (`REGULATORY_PRODUCT`, `DOSSIER`, `SUPPLIER`…) — vide si simple copie Drive.
+  entityType    String?
+  entityId      String?
+  /// Nœud Drive créé par « Enregistrer dans Drive ».
+  driveNodeId   String?
+  createdById   String
+  createdAt     DateTime       @default(now())
+
+  @@index([connectionId, messageId])
+  @@index([entityType, entityId])
 }
 
 // ───────────────────────────── Regulatory ─────────────────────────────
@@ -1480,27 +1560,27 @@ model BudgetEnvelope {
 
 // Catégorie créée par la Direction au sein d'une enveloppe, avec son allocation.
 model BudgetCategoryLine {
-  id           String               @id @default(cuid())
-  envelopeId   String
-  envelope     BudgetEnvelope       @relation(fields: [envelopeId], references: [id], onDelete: Cascade)
-  name         String
-  module       String? // module associé (SPONSORING, CONGRESS_*, REGULATORY…) — attribution auto des dépenses
+  id               String                    @id @default(cuid())
+  envelopeId       String
+  envelope         BudgetEnvelope            @relation(fields: [envelopeId], references: [id], onDelete: Cascade)
+  name             String
+  module           String? // module associé (SPONSORING, CONGRESS_*, REGULATORY…) — attribution auto des dépenses
   // Sous-catégorie : une catégorie peut être rattachée à une catégorie parente
   // (ex. « Table ronde » sous « Événement »). Créées à la main par la Direction.
-  parentId     String?
-  parent       BudgetCategoryLine?  @relation("BudgetSubCategory", fields: [parentId], references: [id], onDelete: Cascade)
-  children     BudgetCategoryLine[] @relation("BudgetSubCategory")
-  allocated    Decimal              @default(0) @db.Decimal(14, 2)
-  color        String?
-  notes        String?
-  transactions FinanceTransaction[]
-  expenseLines BudgetExpenseLine[]
-  adProItems   AdProItem[]
+  parentId         String?
+  parent           BudgetCategoryLine?       @relation("BudgetSubCategory", fields: [parentId], references: [id], onDelete: Cascade)
+  children         BudgetCategoryLine[]      @relation("BudgetSubCategory")
+  allocated        Decimal                   @default(0) @db.Decimal(14, 2)
+  color            String?
+  notes            String?
+  transactions     FinanceTransaction[]
+  expenseLines     BudgetExpenseLine[]
+  adProItems       AdProItem[]
   /// Dépenses des moyens généraux imputées ici — le ticket entier, puis article par article.
   deptExpenses     DepartmentBudgetExpense[] @relation("DeptExpenseBudget")
   deptExpenseLines DepartmentExpenseLine[]   @relation("DeptExpenseLineBudget")
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
 
   @@index([envelopeId])
   @@index([parentId])
@@ -1811,29 +1891,29 @@ model PettyCashAllotment {
 /// L'assistante de direction y classe ce qu'elle achève (fournitures, prestations) ; le
 /// directeur y voit ce que son département consomme réellement.
 model DepartmentBudgetExpense {
-  id             String                 @id @default(cuid())
-  departmentId   String
-  department     Department             @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  year           Int
-  kind           DepartmentBudgetKind   @default(OPERATING)
-  label          String
-  amount         Decimal                @default(0) @db.Decimal(14, 2)
-  date           DateTime               @default(now())
-  notes          String?
+  id               String                 @id @default(cuid())
+  departmentId     String
+  department       Department             @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  year             Int
+  kind             DepartmentBudgetKind   @default(OPERATING)
+  label            String
+  amount           Decimal                @default(0) @db.Decimal(14, 2)
+  date             DateTime               @default(now())
+  notes            String?
   /// Caisse d'avance sur laquelle cette dépense a été PAYÉE (argent physiquement sorti du
   /// tiroir). Nulle quand la dépense est réglée par virement ou par les Finances.
-  pettyCashId    String?
-  pettyCash      PettyCashAllotment?    @relation(fields: [pettyCashId], references: [id], onDelete: SetNull)
+  pettyCashId      String?
+  pettyCash        PettyCashAllotment?    @relation(fields: [pettyCashId], references: [id], onDelete: SetNull)
   /// Demande administrative dont cette dépense est issue (traçabilité de bout en bout).
-  adminRequestId String?
-  adminRequest   AdministrativeRequest? @relation(fields: [adminRequestId], references: [id], onDelete: SetNull)
+  adminRequestId   String?
+  adminRequest     AdministrativeRequest? @relation(fields: [adminRequestId], references: [id], onDelete: SetNull)
   /// CLASSEMENT BUDGÉTAIRE DU TICKET ENTIER — choisi par celui qui achète, sans qu'il ait
   /// accès au module Budget. Sert de destination au RESTE non classé article par article.
   budgetCategoryId String?
-  budgetCategory   BudgetCategoryLine? @relation("DeptExpenseBudget", fields: [budgetCategoryId], references: [id], onDelete: SetNull)
-  createdById    String?
-  createdBy      User?                  @relation("DeptExpenseCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt      DateTime               @default(now())
+  budgetCategory   BudgetCategoryLine?    @relation("DeptExpenseBudget", fields: [budgetCategoryId], references: [id], onDelete: SetNull)
+  createdById      String?
+  createdBy        User?                  @relation("DeptExpenseCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt        DateTime               @default(now())
 
   /// Le DÉTAIL du ticket : un même justificatif porte presque toujours plusieurs articles.
   lines DepartmentExpenseLine[]
@@ -1856,21 +1936,21 @@ model DepartmentBudgetExpense {
 /// retiré du catalogue ne doit pas réécrire l'histoire d'un ticket déjà classé — et un achat
 /// hors catalogue (article acheté une fois) reste possible, `articleId` valant alors NULL.
 model DepartmentExpenseLine {
-  id        String                  @id @default(cuid())
-  expenseId String
-  expense   DepartmentBudgetExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
-  articleId String?
-  article   OfficeSupplyArticle?    @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  id               String                  @id @default(cuid())
+  expenseId        String
+  expense          DepartmentBudgetExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  articleId        String?
+  article          OfficeSupplyArticle?    @relation(fields: [articleId], references: [id], onDelete: SetNull)
   /// Désignation au moment de l'achat (recopiée du catalogue, ou saisie libre).
-  label     String
-  quantity  Decimal                 @default(1) @db.Decimal(12, 3)
+  label            String
+  quantity         Decimal                 @default(1) @db.Decimal(12, 3)
   /// Montant de la ligne (quantité × prix unitaire, ou saisi tel quel depuis le ticket).
-  amount    Decimal                 @default(0) @db.Decimal(14, 2)
+  amount           Decimal                 @default(0) @db.Decimal(14, 2)
   /// CLASSEMENT BUDGÉTAIRE DE CET ARTICLE — un même ticket mélange papeterie, transport et
   /// entretien : chaque article rejoint sa propre case, indépendamment des autres.
   budgetCategoryId String?
-  budgetCategory   BudgetCategoryLine? @relation("DeptExpenseLineBudget", fields: [budgetCategoryId], references: [id], onDelete: SetNull)
-  createdAt DateTime                @default(now())
+  budgetCategory   BudgetCategoryLine?     @relation("DeptExpenseLineBudget", fields: [budgetCategoryId], references: [id], onDelete: SetNull)
+  createdAt        DateTime                @default(now())
 
   @@index([expenseId])
   @@index([articleId])
@@ -4260,29 +4340,29 @@ model PromoMaterial {
 /// La quantité N'EST PAS stockée ici : elle se calcule à partir des mouvements. Un nombre écrit
 /// puis corrigé à la main est faux dès la première sortie non saisie, et rien ne dit quand.
 model PromoStockItem {
-  id           String        @id @default(cuid())
-  companyId    String? // entité (Adventum / Pharmagène / …)
-  company      Company?      @relation(fields: [companyId], references: [id])
-  name         String
+  id              String               @id @default(cuid())
+  companyId       String? // entité (Adventum / Pharmagène / …)
+  company         Company?             @relation(fields: [companyId], references: [id])
+  name            String
   /// Nature du support (présentoir, bloc-notes, poster…) — même vocabulaire que les campagnes.
-  materialType MaterialType?
+  materialType    MaterialType?
   /// Référence interne / fournisseur, quand elle existe.
-  reference    String?
+  reference       String?
   /// Unité de compte : « pièce », « boîte », « lot de 50 »…
-  unit         String?
+  unit            String?
   /// Où c'est rangé : magasin, agence, voiture d'un délégué.
-  location     String?
+  location        String?
   /// Seuil d'alerte propre à l'article — 50 présentoirs, ce n'est pas 50 stylos.
-  alertThreshold Decimal?    @db.Decimal(12, 3)
-  notes        String?
+  alertThreshold  Decimal?             @db.Decimal(12, 3)
+  notes           String?
   /// Campagne dont cet article est issu, quand il vient d'une commande tracée.
   promoMaterialId String?
-  isActive     Boolean       @default(true)
-  movements    PromoStockMovement[]
-  createdById  String?
-  updatedById  String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  isActive        Boolean              @default(true)
+  movements       PromoStockMovement[]
+  createdById     String?
+  updatedById     String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
   @@index([companyId])
   @@index([isActive])
@@ -4291,18 +4371,18 @@ model PromoStockItem {
 
 /// UN MOUVEMENT DE STOCK — la seule chose qu'on écrit vraiment.
 model PromoStockMovement {
-  id        String             @id @default(cuid())
-  itemId    String
-  item      PromoStockItem     @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  kind      PromoMovementKind
+  id          String            @id @default(cuid())
+  itemId      String
+  item        PromoStockItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  kind        PromoMovementKind
   /// Variation SIGNÉE : + entrée, − sortie. Le sens vient de la nature, pas de la saisie.
-  delta     Decimal            @db.Decimal(12, 3)
+  delta       Decimal           @db.Decimal(12, 3)
   /// À qui / pour quoi : un délégué, un événement, un congrès.
-  recipient String?
-  reason    String?
-  occurredAt DateTime          @default(now())
+  recipient   String?
+  reason      String?
+  occurredAt  DateTime          @default(now())
   createdById String?
-  createdAt DateTime           @default(now())
+  createdAt   DateTime          @default(now())
 
   @@index([itemId, occurredAt])
 }

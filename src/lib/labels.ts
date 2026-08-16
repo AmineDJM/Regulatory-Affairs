@@ -1274,6 +1274,9 @@ export const NAVIGATION: NavItem[] = [
   // Bureautique : même module que le Drive (les documents Y vivent), écran séparé parce que le
   // geste est différent — on vient écrire, pas ranger.
   { module: "DRIVE", label: "Bureautique", href: "/office", icon: "FileText", group: "Transverse" },
+  // Messagerie Microsoft 365 — sous le module MESSAGING (droit déjà existant) ; l'ouverture réelle
+  // dépend en plus du drapeau MICROSOFT_MAIL et de la liste pilote, vérifiés dans l'écran.
+  { module: "MESSAGING", label: "Messagerie e-mail", href: "/messagerie", icon: "Mail", group: "Transverse" },
   { module: "ADMIN_REQUESTS", label: "Bureau du secrétariat", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   // Système
