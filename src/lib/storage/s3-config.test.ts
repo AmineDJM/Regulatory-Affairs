@@ -94,6 +94,50 @@ describe("Sans configuration complète, on reste en base — et ce n'est pas une
   it("un environnement vide n'est pas configuré, sans lever", () => {
     expect(resolveS3Config({})).toBeNull();
   });
+
+  it("nomme le drapeau EXACT qui coupe — pas l'autre", () => {
+    // « Retirez S3_DISABLED » quand c'est REG_S3_DISABLED qui traîne envoie chercher une variable
+    // qui n'existe pas dans le panneau. Le diagnostic doit donner le nom qu'on ira supprimer.
+    expect(describeConfig({ ...SUPABASE, REG_S3_DISABLED: "1" }).disabledBy).toBe("REG_S3_DISABLED");
+    expect(describeConfig({ ...SUPABASE, S3_DISABLED: "true" }).disabledBy).toBe("S3_DISABLED");
+    expect(describeConfig(SUPABASE).disabledBy).toBeNull();
+  });
+
+  it("le drapeau moderne DÉSARME l'ancien — sinon on ne pourrait jamais rallumer", () => {
+    // Poser `S3_DISABLED=0` doit rallumer le stockage même si un vieux `REG_S3_DISABLED=1` traîne
+    // encore : autrement il faudrait retrouver et supprimer une variable héritée pour repartir.
+    expect(resolveS3Config({ ...SUPABASE, REG_S3_DISABLED: "1", S3_DISABLED: "0" })).not.toBeNull();
+  });
+});
+
+describe("Deux familles de variables mélangées — le piège silencieux", () => {
+  it("repère une clé de l'ANCIEN fournisseur devant un endpoint tout neuf", () => {
+    // Une clé n'est valable que sur l'hôte qui l'a émise. Un `S3_ENDPOINT` Supabase avec un
+    // `REG_S3_ACCESS_KEY_ID` resté de R2 donne « SignatureDoesNotMatch », qui n'oriente vers rien.
+    const d = describeConfig({
+      S3_ENDPOINT: "https://abcd.storage.supabase.co/storage/v1/s3",
+      S3_BUCKET: "amd-internal-os",
+      S3_SECRET_ACCESS_KEY: "s3cr3t",
+      REG_S3_ACCESS_KEY_ID: "AKIA-ancien-r2",
+    });
+    expect(d.configured).toBe(true); // techniquement complet…
+    expect(d.mixedSources).toBe(true); // … mais très probablement faux
+    expect(d.sources.S3_ACCESS_KEY_ID).toBe("REG_S3");
+    expect(d.sources.S3_ENDPOINT).toBe("S3");
+  });
+
+  it("une famille unique n'est pas un mélange, sous l'un ou l'autre nom", () => {
+    expect(describeConfig(SUPABASE).mixedSources).toBe(false);
+    expect(describeConfig({
+      REG_S3_ENDPOINT: "https://x.r2.cloudflarestorage.com", REG_S3_BUCKET: "b",
+      REG_S3_ACCESS_KEY_ID: "k", REG_S3_SECRET_ACCESS_KEY: "s",
+    }).mixedSources).toBe(false);
+  });
+
+  it("une configuration incomplète ne crie pas au mélange", () => {
+    // Une valeur absente n'a pas de famille : elle ne mélange rien, elle manque.
+    expect(describeConfig({ S3_ENDPOINT: "https://x.supabase.co" }).mixedSources).toBe(false);
+  });
 });
 
 describe("Le diagnostic ne montre JAMAIS un secret", () => {

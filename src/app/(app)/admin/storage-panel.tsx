@@ -35,7 +35,9 @@ export function StoragePanel({ initial }: { initial: SelfTestReport["config"] })
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
         <HardDrive className="h-4 w-4 text-muted-foreground" />
         {cfg.disabled ? (
-          <Badge tone="warning" dot={false}>Désactivé (S3_DISABLED)</Badge>
+          // On nomme le drapeau EXACT : envoyer chercher « S3_DISABLED » quand c'est l'ancien
+          // « REG_S3_DISABLED » qui traîne fait chercher une variable qui n'existe pas.
+          <Badge tone="warning" dot={false}>Désactivé ({cfg.disabledBy ?? "S3_DISABLED"})</Badge>
         ) : cfg.configured ? (
           <Badge tone="success" dot={false}>{cfg.provider}</Badge>
         ) : (
@@ -50,6 +52,15 @@ export function StoragePanel({ initial }: { initial: SelfTestReport["config"] })
         )}
         {!cfg.configured && !cfg.disabled && cfg.missing.length > 0 && (
           <span className="text-xs text-muted-foreground">Manque : {cfg.missing.join(", ")}</span>
+        )}
+        {cfg.mixedSources && (
+          // Techniquement complet, très probablement faux : une clé n'est valable que sur l'hôte
+          // qui l'a émise, et l'erreur qui en résulte (« SignatureDoesNotMatch ») n'oriente vers rien.
+          <span className="text-xs font-medium text-destructive">
+            Variables mélangées :{" "}
+            {Object.entries(cfg.sources).filter(([, s]) => s === "REG_S3").map(([n]) => n.replace(/^S3_/, "REG_S3_")).join(", ")}
+            {" "}vient de l&apos;ancienne famille — complétez les S3_*.
+          </span>
         )}
         <Button size="sm" variant="outline" className="ml-auto" onClick={run} disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />} Tester la connexion

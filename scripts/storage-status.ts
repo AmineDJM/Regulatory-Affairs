@@ -21,10 +21,23 @@ const present = Object.keys(process.env).filter((k) => /^(REG_)?S3_/.test(k)).so
 console.log("");
 console.log("── Stockage objet — ce que voit ce processus ──────────────────");
 console.log(`  Configuré           : ${d.configured ? "OUI" : "NON"}`);
-console.log(`  Interrupteur d'arrêt: ${d.disabled ? "ACTIF (S3_DISABLED) — c'est la cause" : "inactif"}`);
-console.log(`  Variables lues sous : ${d.variableSource === "none" ? "— (aucune trouvée)" : `${d.variableSource}_*`}`);
+console.log(`  Interrupteur d'arrêt: ${d.disabledBy ? `ACTIF via ${d.disabledBy} — c'est la cause` : "inactif"}`);
 console.log(`  Présentes ici       : ${present.length ? present.join(", ") : "AUCUNE variable S3_* ni REG_S3_*"}`);
 if (d.missing.length) console.log(`  MANQUANTES          : ${d.missing.join(", ")}`);
+
+// D'où vient CHAQUE valeur indispensable. C'est ici que se voit le mélange de deux fournisseurs.
+console.log("  Origine des valeurs :");
+for (const [name, src] of Object.entries(d.sources)) {
+  const from = src === "none" ? "absente" : src === "S3" ? name : name.replace(/^S3_/, "REG_S3_");
+  console.log(`      ${name.padEnd(22)} ← ${from}`);
+}
+if (d.mixedSources) {
+  console.log("");
+  console.log("  ⚠ MÉLANGE DE DEUX FAMILLES DE VARIABLES.");
+  console.log("    Une clé n'est valable que sur l'hôte qui l'a émise. Un endpoint tout neuf avec");
+  console.log("    une clé restée de l'ancien fournisseur donne « SignatureDoesNotMatch », une");
+  console.log("    erreur qui n'oriente vers rien. Complétez la famille S3_* et supprimez REG_S3_*.");
+}
 if (d.configured) {
   console.log(`  Hôte                : ${d.endpointHost}`);
   console.log(`  Bucket              : ${d.bucket}`);
@@ -37,11 +50,12 @@ console.log("──────────────────────�
 if (!d.configured) {
   console.log("");
   console.log("Que faire :");
-  if (present.length === 0) {
+  if (d.disabledBy) {
+    console.log(`  • Supprimez ${d.disabledBy} du service (ou mettez S3_DISABLED=0), puis redéployez.`);
+    console.log("    C'est le seul obstacle : le reste de la configuration est lisible.");
+  } else if (present.length === 0) {
     console.log("  • Ce conteneur n'a AUCUNE variable S3. Elles sont sur un autre service, ou ont");
     console.log("    été ajoutées APRÈS le dernier déploiement — un redéploiement les injectera.");
-  } else if (d.disabled) {
-    console.log("  • Retirez (ou mettez à 0) S3_DISABLED, puis redéployez.");
   } else {
     console.log(`  • Ajoutez ${d.missing.join(", ")} au service, puis redéployez.`);
   }

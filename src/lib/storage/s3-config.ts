@@ -61,8 +61,19 @@ export function isTruthy(raw: string | undefined, fallback: boolean): boolean {
  * Utile pour écarter le stockage objet le temps d'un incident, puis le réactiver d'un drapeau.
  */
 export function storageDisabled(env: Env): boolean {
-  const raw = env.S3_DISABLED ?? env.REG_S3_DISABLED;
-  return isTruthy(raw, false);
+  return disablingVar(env) !== null;
+}
+
+/**
+ * LEQUEL des deux drapeaux coupe le stockage — `S3_DISABLED` ou l'ancien `REG_S3_DISABLED`.
+ *
+ * Dire « retirez S3_DISABLED » quand c'est `REG_S3_DISABLED` qui traîne envoie chercher une
+ * variable qui n'existe pas. On rend le nom exact, celui qu'on ira supprimer.
+ */
+export function disablingVar(env: Env): string | null {
+  if (env.S3_DISABLED !== undefined && isTruthy(env.S3_DISABLED, false)) return "S3_DISABLED";
+  if (env.S3_DISABLED === undefined && isTruthy(env.REG_S3_DISABLED, false)) return "REG_S3_DISABLED";
+  return null;
 }
 
 /**
@@ -106,6 +117,19 @@ export interface ConfigDescription {
   provider: string;
   /** Sous quels noms les variables ont été trouvées (aide à finir la transition). */
   variableSource: ConfigSource;
+  /** Le nom EXACT du drapeau qui coupe le stockage, s'il y en a un. */
+  disabledBy: string | null;
+  /** Origine de CHAQUE valeur indispensable — c'est là que se voient les mélanges. */
+  sources: Record<string, ConfigSource>;
+  /**
+   * Les valeurs indispensables ne viennent pas toutes de la même famille de variables.
+   *
+   * C'est le piège silencieux de la transition : un `S3_ENDPOINT` tout neuf (Supabase) avec un
+   * `REG_S3_ACCESS_KEY_ID` resté de l'ancien fournisseur (R2), et la signature échoue sur un
+   * « SignatureDoesNotMatch » qui n'oriente vers rien. Une clé n'est valable que sur l'hôte qui
+   * l'a émise : mélanger deux familles, c'est présenter la clé d'une porte devant une autre.
+   */
+  mixedSources: boolean;
   /** Ce qui manque, nommé, quand la configuration est incomplète. */
   missing: string[];
 }
@@ -123,22 +147,32 @@ export function providerOf(host: string): string {
 }
 
 export function describeConfig(env: Env): ConfigDescription {
-  const disabled = storageDisabled(env);
+  const disabledBy = disablingVar(env);
   const missing = REQUIRED.filter((n) => !readVar(env, n).value);
   const cfg = resolveS3Config(env);
   let endpointHost = "";
   if (cfg) {
     try { endpointHost = new URL(cfg.endpoint).host; } catch { endpointHost = ""; }
   }
+
+  // Origine de chaque valeur indispensable. Le mélange ne se juge que sur celles qui EXISTENT :
+  // une valeur absente n'a pas de famille, elle ne mélange rien.
+  const sources: Record<string, ConfigSource> = {};
+  for (const n of REQUIRED) sources[`S3_${n}`] = readVar(env, n).source;
+  const found = Object.values(sources).filter((s) => s !== "none");
+
   return {
     configured: cfg !== null,
-    disabled,
+    disabled: disabledBy !== null,
+    disabledBy,
     endpointHost,
     bucket: cfg?.bucket ?? readVar(env, "BUCKET").value,
     region: cfg?.region ?? readVar(env, "REGION").value,
     pathStyle: cfg?.pathStyle ?? true,
     provider: providerOf(endpointHost),
     variableSource: readVar(env, "ENDPOINT").source,
+    sources,
+    mixedSources: new Set(found).size > 1,
     missing: missing.map((n) => `S3_${n}`),
   };
 }
