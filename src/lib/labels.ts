@@ -1271,6 +1271,9 @@ export const NAVIGATION: NavItem[] = [
   { module: "VALIDATIONS", label: "Demandes de validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
   { module: "MESSAGING", label: "Réunions & appels", href: "/meetings", icon: "Video", group: "Transverse" },
   { module: "DRIVE", label: "Drive", href: "/drive", icon: "FolderOpen", group: "Transverse", tabs: DOCS_TABS },
+  // Bureautique : même module que le Drive (les documents Y vivent), écran séparé parce que le
+  // geste est différent — on vient écrire, pas ranger.
+  { module: "DRIVE", label: "Bureautique", href: "/office", icon: "FileText", group: "Transverse" },
   { module: "ADMIN_REQUESTS", label: "Bureau du secrétariat", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   // Système

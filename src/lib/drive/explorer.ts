@@ -123,28 +123,31 @@ export interface NavEntry {
 }
 
 /**
- * L'ACCÈS RAPIDE. Ce qu'on cherche neuf fois sur dix n'est pas rangé quelque part : c'est ce
- * qu'on vient de toucher. D'où ces deux entrées en tête, avant l'arborescence.
+ * L'ACCÈS RAPIDE — et la fin de l'emplacement « Drive ».
+ *
+ * Il y avait deux entrées pour un seul endroit : « Drive » (l'espace personnel) et
+ * « Téléchargements » (une reconstitution de l'historique des téléchargements). Personne ne
+ * distingue les deux au premier regard, et l'explorateur Windows ne le fait pas non plus : chez
+ * lui, **Téléchargements est un vrai dossier**, pas un journal. On a donc fondu les deux :
+ * « Téléchargements » EST l'espace personnel, et l'emplacement « Drive » disparaît.
  */
 export const QUICK_ACCESS: NavEntry[] = [
   { key: "recent", label: "Récents", icon: "Clock", href: "/drive?view=recent" },
-  { key: "downloads", label: "Téléchargements", icon: "Download", href: "/drive?view=downloads" },
+  { key: "root", label: "Téléchargements", icon: "Download", href: "/drive" },
 ];
 
-export const DRIVE_ROOT: NavEntry = { key: "root", label: "Drive", icon: "HardDrive", href: "/drive" };
 export const TRASH_ENTRY: NavEntry = { key: "trash", label: "Corbeille", icon: "Trash2", href: "/drive?trash=1" };
 
-export type ExplorerView = "browse" | "recent" | "downloads" | "trash";
+export type ExplorerView = "browse" | "recent" | "trash";
 
 /** La vue demandée, validée : une valeur inconnue retombe sur la navigation normale. */
 export function parseView(raw: string | undefined, trash: boolean): ExplorerView {
   if (trash) return "trash";
-  return raw === "recent" || raw === "downloads" ? raw : "browse";
+  return raw === "recent" ? "recent" : "browse";
 }
 
 export const VIEW_TITLE: Record<ExplorerView, string> = {
-  browse: "Drive",
+  browse: "Téléchargements",
   recent: "Récents",
-  downloads: "Téléchargements",
   trash: "Corbeille",
 };

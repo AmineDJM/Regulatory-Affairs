@@ -185,3 +185,48 @@ export async function getDriveListing(
   // À la racine il n'y a pas d'héritage : chaque nœud est éditable selon sa propre propriété/partage.
   return { folder: null, breadcrumb: [], nodes: merged.map((n) => toRow(user, n, false)), level: "EDIT", trash: false, space: null };
 }
+
+/**
+ * L'ARBORESCENCE DU VOLET DE NAVIGATION — les dossiers, pas seulement les emplacements.
+ *
+ * Un explorateur montre l'arbre à gauche : on y déplie, et surtout on y **dépose**. Sans les
+ * dossiers, la colonne de gauche ne sert qu'à changer d'emplacement, et ranger un fichier oblige à
+ * naviguer jusqu'à sa destination avant de pouvoir le glisser — c'est-à-dire à faire à la main ce
+ * que le glisser-déposer devait éviter.
+ *
+ * Ce que cette requête rend est un CONFORT D'AFFICHAGE : l'autorisation de déplacer reste
+ * tranchée par `moveNode`, côté serveur, à chaque dépôt. Une entrée de trop dans l'arbre ne donne
+ * donc aucun droit — elle donnerait un refus.
+ */
+export interface DriveNavFolder {
+  id: string;
+  name: string;
+  parentId: string | null;
+  /** Catégorie d'appartenance ; `null` = espace personnel. */
+  spaceId: string | null;
+}
+
+/** Au-delà, l'arbre cesse d'être lisible et la page cesse d'être rapide. */
+const NAV_TREE_LIMIT = 400;
+
+export async function getDriveNavFolders(user: SessionUser): Promise<DriveNavFolder[]> {
+  const spaces = await getDriveSpacesForUser(user);
+  const visibleSpaceIds = spaces.map((s) => s.id);
+
+  // Personnel : ce qu'on possède ou ce qui nous est partagé. Catégories : tout ce qu'elles
+  // contiennent, puisque les voir suffit à y naviguer.
+  const mine = user.role === "SUPER_ADMIN"
+    ? { spaceId: null }
+    : { spaceId: null, OR: [{ ownerId: user.id }, { shares: { some: { userId: user.id } } }] };
+
+  const folders = await prisma.driveNode.findMany({
+    where: {
+      type: "FOLDER", isTrashed: false,
+      OR: [mine, ...(visibleSpaceIds.length ? [{ spaceId: { in: visibleSpaceIds } }] : [])],
+    },
+    select: { id: true, name: true, parentId: true, spaceId: true },
+    orderBy: { name: "asc" },
+    take: NAV_TREE_LIMIT,
+  });
+  return folders;
+}

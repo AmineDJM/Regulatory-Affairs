@@ -1,14 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Trash2, ChevronRight, FolderOpen } from "lucide-react";
+import { ChevronRight, FolderOpen } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getDriveListing, getDriveSpacesForUser } from "@/lib/queries/drive";
+import { getDriveListing, getDriveSpacesForUser, getDriveNavFolders } from "@/lib/queries/drive";
 import { canCreateInSpace } from "@/lib/drive";
 import { fileTypeLabel, fileIconName, explorerSize } from "@/lib/drive/explorer";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
-import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatDateTime } from "@/lib/utils";
 import { UploadButton } from "../../upload-button";
@@ -18,7 +17,7 @@ import { SpaceSettingsButton } from "../../drive-space-manager";
 import { DriveTable, type DriveRow } from "../../drive-table";
 import { DriveCanvas } from "../../drive-canvas";
 import { ExplorerNav } from "../../explorer-nav";
-import { DriveWideToggle } from "../../wide-toggle";
+import { DriveToolbar } from "../../drive-toolbar";
 
 export const dynamic = "force-dynamic";
 
@@ -38,8 +37,9 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
   // Personnes (pour partages à l'import) + données d'accès de la catégorie (pour les réglages).
   // `spaces` alimente le volet de navigation : LE MÊME que sur /drive, sans quoi entrer dans une
   // catégorie ferait disparaître l'arborescence — un explorateur ne perd jamais sa colonne gauche.
-  const [spaces, users, spaceRow] = await Promise.all([
+  const [spaces, navFolders, users, spaceRow] = await Promise.all([
     getDriveSpacesForUser(user),
+    getDriveNavFolders(user),
     canEditHere
       ? prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : Promise.resolve([] as { id: string; name: string }[]),
@@ -86,28 +86,26 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
   });
 
   return (
-    <div className="space-y-5">
-      <PageHeader title={space.name} description="Catégorie partagée du Drive — espace commun aux personnes autorisées.">
-        <DriveWideToggle />
-        {!trash && canEditHere && (
-          <>
-            {/* `spaceId` sert de repli quand on crée à la RACINE de la catégorie ; dans un
-                sous-dossier, `parentId` prime (le nouveau nœud hérite de la catégorie du parent). */}
-            <NewFolderButton parentId={folderId} spaceId={spaceId} />
-            <NewOfficeButton parentId={folderId} spaceId={spaceId} officeEnabled={onlyofficeConfigured()} />
-            <UploadButton parentId={folderId} spaceId={spaceId} users={users} />
-          </>
-        )}
-        {spaceRow && <SpaceSettingsButton space={spaceRow} users={users} canDelete={user.role === "SUPER_ADMIN"} />}
-        {space.canManage && (
-          <Link href={trash ? base : `${base}?trash=1`}>
-            <Button variant="outline"><Trash2 className="h-4 w-4" /> {trash ? "Fichiers" : "Corbeille"}</Button>
-          </Link>
-        )}
+    <div className="space-y-4">
+      <PageHeader title={trash ? `Corbeille — ${space.name}` : space.name}>
+        <DriveToolbar
+          trashHref={trash ? base : `${base}?trash=1`}
+          trashLabel={trash ? "Fichiers" : "Corbeille"}
+          settings={spaceRow ? <SpaceSettingsButton space={spaceRow} users={users} canDelete={user.role === "SUPER_ADMIN"} /> : undefined}
+          primary={!trash && canEditHere ? (
+            <>
+              {/* `spaceId` sert de repli quand on crée à la RACINE de la catégorie ; dans un
+                  sous-dossier, `parentId` prime (le nouveau nœud hérite de la catégorie du parent). */}
+              <NewFolderButton parentId={folderId} spaceId={spaceId} />
+              <NewOfficeButton parentId={folderId} spaceId={spaceId} officeEnabled={onlyofficeConfigured()} />
+              <UploadButton parentId={folderId} spaceId={spaceId} users={users} />
+            </>
+          ) : undefined}
+        />
       </PageHeader>
 
-      {/* Breadcrumb : racine de la catégorie → dossiers */}
-      {!trash && (
+      {/* Fil d'Ariane : racine de la catégorie → dossiers. Masqué à la racine — le titre le dit déjà. */}
+      {!trash && listing.breadcrumb.length > 0 && (
         <div className="flex flex-wrap items-center gap-1 text-sm">
           <Link href={base} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
             <FolderOpen className="h-4 w-4" /> {space.name}
@@ -120,10 +118,8 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
           ))}
         </div>
       )}
-      {trash && <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Corbeille — {space.name}</h2>}
-
       <div className="flex flex-col gap-4 lg:flex-row">
-        <ExplorerNav active={spaceId} spaces={spaces.map((s) => ({ id: s.id, name: s.name, icon: s.icon }))} />
+        <ExplorerNav active={folderId ?? spaceId} spaces={spaces} folders={navFolders} users={users} />
         <div className="min-w-0 flex-1">
           <DriveCanvas parentId={folderId} spaceId={spaceId} canCreate={!trash && canEditHere} officeEnabled={onlyofficeConfigured()}>
             {listing.nodes.length === 0 ? (

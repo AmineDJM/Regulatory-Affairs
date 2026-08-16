@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  fileTypeLabel, fileIconName, explorerSize, extensionOf, sortRows, parseView, VIEW_TITLE,
+  fileTypeLabel, fileIconName, explorerSize, extensionOf, sortRows, parseView, VIEW_TITLE, QUICK_ACCESS,
   type ExplorerRow,
 } from "./explorer";
 
@@ -99,7 +99,15 @@ describe("Le tri : les dossiers d'abord, toujours", () => {
 describe("Les vues de l'explorateur", () => {
   it("reconnaît les accès rapides", () => {
     expect(parseView("recent", false)).toBe("recent");
-    expect(parseView("downloads", false)).toBe("downloads");
+  });
+
+  it("« Téléchargements » EST l'espace personnel, plus un journal séparé", () => {
+    // Deux entrées pour un seul endroit (« Drive » et « Téléchargements ») ne se distinguaient
+    // pas au premier regard. Chez Windows, Téléchargements est un vrai dossier : on a fondu
+    // les deux, et l'ancienne vue-journal retombe donc sur la navigation normale.
+    expect(parseView("downloads", false)).toBe("browse");
+    expect(QUICK_ACCESS.map((e) => e.key)).toEqual(["recent", "root"]);
+    expect(QUICK_ACCESS.find((e) => e.key === "root")?.href).toBe("/drive");
   });
 
   it("la corbeille l'emporte sur tout", () => {

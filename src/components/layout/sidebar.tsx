@@ -7,6 +7,7 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import type { NavItem } from "@/lib/labels";
 import { groupIntoPoles, itemsOfGroup, poleOfPath, type NavPoleKey } from "@/lib/navigation";
+import { OfficePins } from "./office-pins";
 
 interface SidebarProps {
   items: NavItem[];
@@ -139,6 +140,8 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-3">
         {renderFlat("Pilotage", pilotage)}
+        {/* Les applications bureautiques que CETTE personne a épinglées — juste sous son espace. */}
+        <OfficePins />
 
         {poles.length > 0 && (
           <div>

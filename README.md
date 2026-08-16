@@ -682,9 +682,28 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
 sait, c'est tout. Reproduire ses habitudes coûte moins cher que d'en enseigner d'autres.
 
 - **Un seul onglet.** Plus de barre d'onglets ni de vues flottantes : un volet de navigation à
-  gauche (`ExplorerNav` — Accès rapide *Récents / Téléchargements*, puis Emplacements *Drive* et
-  les catégories, puis Corbeille), la liste à droite. **Identique** sur `/drive` et sur
+  gauche (`ExplorerNav`), la liste à droite. **Identique** sur `/drive` et sur
   `/drive/espace/[id]` : entrer dans une catégorie ne fait plus disparaître l'arborescence.
+- **Plus d'emplacement « Drive ».** Il y avait deux entrées pour un seul endroit — « Drive »
+  (l'espace personnel) et « Téléchargements » (un journal reconstitué depuis l'audit) — que
+  personne ne distinguait au premier regard. Chez Windows, Téléchargements est un **vrai dossier** :
+  les deux ont fondu, **« Téléchargements » EST l'espace personnel** (`/drive`), et l'ancienne
+  vue-journal a disparu (`getDownloadedFiles` supprimée, l'historique reste dans le journal d'audit).
+- **L'ARBORESCENCE dans le volet**, pas seulement les emplacements : on déplie une catégorie et on
+  voit ses dossiers (`getDriveNavFolders` → `buildNavTree`, pur et testé — un dossier dont le parent
+  est hors de portée remonte à la racine plutôt que de disparaître, et un cycle ne fige pas
+  l'onglet).
+- **Un seul geste pour ranger** : on attrape un fichier dans la liste et on le lâche sur une
+  catégorie ou un dossier **du volet**. Sans cela, ranger obligeait à naviguer d'abord jusqu'à la
+  destination — soit exactement ce que le glisser-déposer devait éviter. L'autorisation reste
+  tranchée par `moveNode` côté serveur : une entrée de trop dans l'arbre ne donne aucun droit.
+- **Partage sur place** : clic droit sur un dossier du volet → plusieurs personnes d'un coup
+  (`shareNodeWithMany`, l'accès descend l'arbre) ; sur une catégorie → ses accès (rôles + personnes)
+  dans ses réglages. C'est là qu'on y pense — pas une fois entré dedans.
+- **En-tête discret** (`DriveToolbar`). Sept commandes de même poids et une phrase d'explication
+  repoussaient les fichiers sous la ligne de flottaison. Restent visibles les deux gestes
+  quotidiens — **créer** et **importer** ; plein écran, accès & réglages et corbeille passent dans
+  un menu « ⋯ ». Le fil d'Ariane ne s'affiche plus à la racine : le titre le dit déjà.
 - **Colonnes triables** : clic sur *Nom / Type / Taille / Modifié le*, re-clic pour inverser. Le tri
   vient de `sortRows` (`src/lib/drive/explorer.ts`, pur, testé) — **les dossiers restent en tête
   dans les deux sens**, et le tri par nom est naturel (« Fichier 2 » avant « Fichier 10 »).
@@ -692,12 +711,31 @@ sait, c'est tout. Reproduire ses habitudes coûte moins cher que d'en enseigner 
   Présentation. Le nom se saisit **dans le menu** (Entrée valide), comme la case de renommage sous
   une icône fraîchement créée. Le clic droit sur un lien ou un bouton laisse le menu du navigateur.
   Les boutons d'en-tête restent : on ne devine pas un menu contextuel.
-- **Plein écran** (`DriveWideToggle`) : relève `--shell-max` à 100 %, mémorisé par navigateur, et
+- **Plein écran** (dans le menu « ⋯ ») : relève `--shell-max` à 100 %, mémorisé par navigateur, et
   **reposé en quittant la page** — le plafond de lecture protège un texte, pas six colonnes.
-- **Partage à plusieurs** : `shareNodeWithMany` (une seule vérification de droit, un `upsert` et une
-  notification par personne, un audit) + liste à cocher avec recherche dans `share-panel.tsx`.
-- **Fichiers** : `app/(app)/drive/{page,drive-table,drive-canvas,explorer-nav,wide-toggle}.tsx`,
-  `app/(app)/drive/espace/[id]/page.tsx`, `src/lib/drive/explorer.ts` (+ `explorer.test.ts`).
+- **Fichiers** : `app/(app)/drive/{page,drive-table,drive-canvas,explorer-nav,drive-toolbar}.tsx`,
+  `app/(app)/drive/espace/[id]/page.tsx`, `src/lib/drive/{explorer,nav-tree}.ts` (+ tests).
+
+### Bureautique — Word, Excel, PowerPoint sur les documents de l'ERP (`/office`)
+
+- **Trois applications, un geste** : chaque vignette crée un document neuf dans le Drive et ouvre
+  l'éditeur. Les documents récents (`.docx` / `.xlsx` / `.pptx`) sont listés dessous, filtrés par la
+  **même** résolution d'accès que le Drive — cet écran est une porte d'entrée, jamais un
+  contournement.
+- **Épingler dans le menu de gauche** : une assistante vit dans Word, un contrôleur de gestion dans
+  Excel ; imposer les trois à tout le monde allongerait le menu sans être juste pour personne.
+  La préférence est **locale au navigateur** (`amd-office-pins`) : elle ne concerne que l'affichage
+  et ne donne aucun droit. Le menu l'écoute en direct (`amd:office-pins`), donc l'entrée apparaît au
+  clic. `OfficePins` n'utilise **pas** `useSearchParams` — cela imposerait une frontière Suspense à
+  toutes les pages portant le menu.
+- ⚠️ **Ce n'est pas Microsoft Office lui-même.** Microsoft ne permet d'embarquer Word/Excel/
+  PowerPoint « pour le web » que sur des fichiers hébergés **chez lui** (OneDrive/SharePoint), via un
+  programme partenaire fermé. Nos fichiers sont chiffrés dans notre stockage, sous nos permissions :
+  s'y conformer signifierait déplacer les dossiers réglementaires et les contrats RH chez un tiers.
+  L'éditeur intégré lit et écrit les **vrais formats**, ouvrables ensuite dans Microsoft Office sur
+  un poste, et l'édition en ligne s'active dès que le serveur d'édition est configuré.
+- **Fichiers** : `src/lib/office/apps.ts` (pur, testé), `app/(app)/office/{page,office-launcher}.tsx`,
+  `components/layout/office-pins.tsx`.
 
 **Tout ce qui entre dans l'ERP entre aussi dans le Drive.** Une pièce importée depuis un sponsoring,
 un appel d'offres ou une demande RH restait accrochée à son objet métier ; six semaines plus tard on
