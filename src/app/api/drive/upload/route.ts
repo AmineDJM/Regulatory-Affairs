@@ -6,6 +6,8 @@ import { putBlob } from "@/lib/drive-storage";
 import { validateDriveUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { resolveDriveAccess, effectiveSpaceId, canCreateInSpace } from "@/lib/drive";
+import { quotaVerdict } from "@/lib/drive/quota";
+import { userUsageBytes, physicalUsageBytes, addPhysicalUsage } from "@/lib/drive/usage";
 import { recordAudit } from "@/lib/audit";
 
 /** Upload a new file (under `parentId`) or a new version (of `nodeId`). */
@@ -41,22 +43,22 @@ export async function POST(req: NextRequest) {
   const err = validateDriveUpload(file.name, file.size, settings.maxDriveUploadMb);
   if (err) return NextResponse.json({ error: err }, { status: 400 });
 
-  // Quotas (réglés dans Administration → Stockage Drive) : par utilisateur (somme de
-  // SES fichiers actifs) et capacité globale (stockage physique dédupliqué).
-  const GB = 1024 ** 3;
-  const [myUsage, physical] = await Promise.all([
-    prisma.driveNode.aggregate({ where: { ownerId: user.id, type: "FILE", isTrashed: false }, _sum: { size: true } }),
-    prisma.fileBlob.aggregate({ _sum: { size: true } }),
-  ]);
-  if ((myUsage._sum.size ?? 0) + file.size > settings.driveUserQuotaGb * GB) {
-    return NextResponse.json({ error: `Quota Drive dépassé (${settings.driveUserQuotaGb} Go par utilisateur). Libérez de l'espace ou demandez une augmentation au Super Admin.` }, { status: 400 });
-  }
-  if ((physical._sum.size ?? 0) + file.size > settings.driveCapacityGb * GB) {
-    return NextResponse.json({ error: "Capacité globale du Drive atteinte. Contactez le Super Admin." }, { status: 400 });
-  }
+  // Quotas (réglés dans Administration → Stockage Drive) : par utilisateur (somme de SES fichiers
+  // actifs, relue à chaque fois — c'est elle qui refuse) et capacité globale (mesure partagée,
+  // relue au plus toutes les 30 s : sans cela, chaque fichier d'un lot payait un parcours complet
+  // de la table des blobs AVANT d'écrire le moindre octet).
+  const [myUsage, physical] = await Promise.all([userUsageBytes(user.id), physicalUsageBytes()]);
+  const verdict = quotaVerdict({
+    userUsageBytes: myUsage, physicalUsageBytes: physical, fileSize: file.size,
+    userQuotaGb: settings.driveUserQuotaGb, capacityGb: settings.driveCapacityGb,
+  });
+  if (!verdict.ok) return NextResponse.json({ error: verdict.error }, { status: 400 });
 
   const buf = Buffer.from(await file.arrayBuffer());
-  const { blobId, size } = await putBlob(buf);
+  const { blobId, size, deduplicated } = await putBlob(buf);
+  // Un contenu dédupliqué n'occupe pas de place NEUVE : le compter gonflerait l'occupation jusqu'à
+  // refuser des envois qui tiennent parfaitement.
+  if (!deduplicated) addPhysicalUsage(size);
   const mimeType = file.type || "application/octet-stream";
 
   if (nodeId) {

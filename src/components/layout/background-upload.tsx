@@ -26,6 +26,15 @@ export interface EnqueueSpec {
   /** Construit la requête (URL + FormData) pour un fichier donné. */
   makeRequest: (file: File) => { url: string; formData: FormData };
   concurrency?: number;
+  /**
+   * ESSAI SANS TRANSFERT, avant d'envoyer les octets.
+   *
+   * Rend `true` quand le fichier est déjà en place côté serveur — le POST est alors purement et
+   * simplement sauté. C'est ce qui rend instantané le redépôt d'une arborescence dont l'essentiel
+   * existe déjà. Toute erreur ici est ignorée : c'est une optimisation, elle ne doit jamais faire
+   * échouer un envoi.
+   */
+  preflight?: (file: File) => Promise<boolean>;
 }
 
 interface Ctx { enqueue: (spec: EnqueueSpec) => void }
@@ -75,6 +84,14 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     const uploadOne = async (idx: number): Promise<void> => {
       const file = spec.files[idx];
       patchFile(jobId, idx, { status: "uploading", progress: 0, error: undefined });
+
+      // Le contenu est-il déjà là ? Si oui, aucun octet ne part sur le réseau.
+      if (spec.preflight) {
+        try {
+          if (await spec.preflight(file)) { patchFile(jobId, idx, { status: "done", progress: 100 }); return; }
+        } catch { /* une optimisation ratée n'est pas un envoi raté */ }
+      }
+
       const { url, formData } = spec.makeRequest(file);
       const attempts = 5;
       for (let attempt = 0; attempt < attempts; attempt++) {

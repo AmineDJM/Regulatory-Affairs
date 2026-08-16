@@ -7,7 +7,32 @@ import { Sheet } from "@/components/ui/sheet";
 import { Input, Label } from "@/components/ui/input";
 import { useBackgroundUpload } from "@/components/layout/background-upload";
 import { ensureDriveFolders } from "@/lib/actions/drive-actions";
+import { fingerprintFile } from "@/lib/drive/fingerprint";
 import { cn } from "@/lib/utils";
+
+/**
+ * ENVOI INSTANTANÉ QUAND LE CONTENU EST DÉJÀ LÀ.
+ *
+ * On calcule l'empreinte du fichier dans le navigateur et on la présente au serveur : s'il connaît
+ * déjà ce contenu (et que la personne peut déjà le voir), le fichier est créé sans qu'un seul octet
+ * ne parte. Redéposer un dossier dont 90 % existe déjà devient immédiat au lieu de retransférer.
+ *
+ * Rend `false` au moindre doute — un fichier trop petit ou trop gros pour être empreint, un serveur
+ * qui ne répond pas : on retombe simplement sur l'envoi normal.
+ */
+function makePreflight(target: { parentId?: string | null; spaceId?: string | null; category?: string; viewers?: string[]; editors?: string[] }) {
+  return async (file: File): Promise<boolean> => {
+    const sha256 = await fingerprintFile(file);
+    if (!sha256) return false;
+    const res = await fetch("/api/drive/upload/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sha256, name: file.name, size: file.size, ...target }),
+    });
+    if (!res.ok) return false;
+    return Boolean(((await res.json()) as { known?: boolean }).known);
+  };
+}
 
 type Perm = "none" | "view" | "edit";
 interface UserLite { id: string; name: string }
@@ -48,6 +73,7 @@ export function UploadButton({
         label: `${files.length} fichier${files.length > 1 ? "s" : ""} (Drive)`,
         files,
         concurrency: 6,
+        preflight: makePreflight({ parentId, spaceId }),
         makeRequest: (file) => { const fd = new FormData(); fd.append("file", file); if (parentId) fd.append("parentId", parentId); if (spaceId) fd.append("spaceId", spaceId); return { url: "/api/drive/upload", formData: fd }; },
       });
     }
@@ -107,6 +133,13 @@ function RichUpload({ parentId, users, label, spaceId }: { parentId: string | nu
       label: `Dossier « ${rootName} » (${picked.length} fichier${picked.length > 1 ? "s" : ""})`,
       files: picked,
       concurrency: 6,
+      // Réimporter un dossier déjà déposé : la quasi-totalité des fichiers est reconnue et
+      // n'est pas retransférée. C'est le cas où le gain se compte en minutes.
+      preflight: async (file) => {
+        const dir = dirOf(rel(file));
+        const pid = dir ? map[dir] : (parentId ?? null);
+        return makePreflight({ parentId: pid, spaceId: pid ? null : spaceId })(file);
+      },
       makeRequest: (file) => {
         const fd = new FormData();
         fd.append("file", file);
@@ -138,6 +171,7 @@ function RichUpload({ parentId, users, label, spaceId }: { parentId: string | nu
       label: `${files.length} fichier${files.length > 1 ? "s" : ""} (Drive)`,
       files,
       concurrency: 6,
+      preflight: makePreflight({ parentId, spaceId, category: cat, viewers, editors }),
       makeRequest: (file) => {
         const fd = new FormData();
         fd.append("file", file);

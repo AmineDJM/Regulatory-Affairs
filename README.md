@@ -741,6 +741,38 @@ pas.
 - **UI** : `src/app/(app)/admin/corbeille/{page,trash-list}.tsx`, composant bouton
   `src/components/shared/super-admin-delete.tsx` (prop `warning`).
 
+### Téléversement — ce qui le rendait lent, et ce qui a été retiré
+
+Trois coûts s'additionnaient **avant** que le premier octet ne soit écrit. Ils sont traités ; le
+quatrième ne l'est que par une variable d'environnement.
+
+1. **Un parcours complet de la table des blobs, par fichier.** Le contrôle de capacité globale
+   faisait `SUM(size)` sans filtre — donc un balayage entier — à **chaque** téléversement. Six
+   fichiers en parallèle, c'étaient six balayages simultanés. La mesure est désormais relue au plus
+   **toutes les 30 s** (`src/lib/drive/usage.ts`), et **corrigée au vol** avec ce qu'on vient
+   d'écrire pour rester juste en rafale. Un contenu dédupliqué n'est PAS compté : il n'occupe
+   aucune place neuve, et le compter aurait fini par refuser des envois qui tenaient (d'où
+   `PutBlobResult.deduplicated`). Le quota **par personne**, lui, n'est jamais mis en cache : c'est
+   celui qui refuse, et refuser sur une valeur périmée serait incompréhensible.
+2. **Le transfert de contenus déjà présents.** Le stockage est adressé par le contenu, mais la
+   déduplication ne se découvrait qu'**après** avoir tout envoyé : redéposer une arborescence de
+   300 Mo dont 90 % existait déjà coûtait 300 Mo de réseau pour n'écrire presque rien. Le
+   navigateur calcule maintenant l'empreinte SHA-256 du fichier et la présente à
+   `POST /api/drive/upload/claim` : si le contenu est connu, le fichier est créé **sans qu'un seul
+   octet ne parte**. Bornes assumées (`src/lib/drive/fingerprint.ts`, testé) — en dessous de 512 Ko
+   l'aller-retour coûterait autant que l'envoi, au-dessus de 512 Mo `crypto.subtle` exigerait le
+   fichier entier en mémoire et ferait tomber l'onglet.
+   ⚠ **Ce n'est pas un oracle** : connaître une empreinte, c'est posséder le contenu. La route
+   exige donc que le demandeur puisse **déjà voir** au moins un fichier portant ce contenu — sinon
+   elle répond « inconnu » et l'envoi normal démarre. Sans cette garde, on pourrait demander « ce
+   document précis est-il quelque part dans l'ERP ? ».
+3. **Les parties d'un envoi multipart, envoyées une par une** — voir la section Stockage : elles
+   partent maintenant 4 en vol.
+4. **La cause dominante restante : le stockage objet éteint.** Sans bucket, chaque octet est écrit
+   **dans Postgres** (en tranches de 16 Mo, via le protocole Prisma, vers un service distant). C'est
+   là que se perdent les minutes, et aucune optimisation applicative ne le compense. `npm run
+   storage:check` dit en une commande si le bucket est réellement vu par le serveur.
+
 ### Stockage Drive : mesure exacte + quotas appliqués
 
 - **Mesure** : physique = `FileBlob` agrégé (chiffré AES-256-GCM, **dédupliqué** par SHA-256 du clair) ; logique =

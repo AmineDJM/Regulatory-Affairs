@@ -85,13 +85,16 @@ function storageFailure(err: unknown): Error {
   );
 }
 
+/** Ce qu'a produit une écriture. `deduplicated` = le contenu existait déjà, aucune place NEUVE prise. */
+export interface PutBlobResult { blobId: string; sha256: string; size: number; deduplicated: boolean }
+
 /** Store bytes (encrypted, deduplicated). Increments the ref-count on reuse. */
-export async function putBlob(plain: Buffer): Promise<{ blobId: string; sha256: string; size: number }> {
+export async function putBlob(plain: Buffer): Promise<PutBlobResult> {
   const hash = sha256(plain);
   const existing = await prisma.fileBlob.findUnique({ where: { sha256: hash }, select: { id: true, size: true } });
   if (existing) {
     await prisma.fileBlob.update({ where: { id: existing.id }, data: { refCount: { increment: 1 } } });
-    return { blobId: existing.id, sha256: hash, size: existing.size };
+    return { blobId: existing.id, sha256: hash, size: existing.size, deduplicated: true };
   }
   const iv = crypto.randomBytes(12);
 
@@ -114,7 +117,7 @@ export async function putBlob(plain: Buffer): Promise<{ blobId: string; sha256: 
       data: { sha256: hash, size: plain.length, iv, data: null, storageKey: key, refCount: 1 },
       select: { id: true },
     });
-    return { blobId: blob.id, sha256: hash, size: plain.length };
+    return { blobId: blob.id, sha256: hash, size: plain.length, deduplicated: false };
   }
 
   // Base, gros fichier → écriture EN TRANCHES (mémoire bornée à une tranche, pas d'hex géant).
@@ -125,11 +128,11 @@ export async function putBlob(plain: Buffer): Promise<{ blobId: string; sha256: 
     data: { sha256: hash, size: plain.length, iv, data: encryptWhole(plain, iv), refCount: 1 },
     select: { id: true },
   });
-  return { blobId: blob.id, sha256: hash, size: plain.length };
+  return { blobId: blob.id, sha256: hash, size: plain.length, deduplicated: false };
 }
 
 /** Écrit le contenu chiffré en tranches ordonnées (streaming du chiffrement → mémoire bornée). */
-async function putBlobChunked(plain: Buffer, hash: string, iv: Buffer): Promise<{ blobId: string; sha256: string; size: number }> {
+async function putBlobChunked(plain: Buffer, hash: string, iv: Buffer): Promise<PutBlobResult> {
   const blob = await prisma.fileBlob.create({
     data: { sha256: hash, size: plain.length, iv, data: null, refCount: 1 },
     select: { id: true },
@@ -144,7 +147,7 @@ async function putBlobChunked(plain: Buffer, hash: string, iv: Buffer): Promise<
     }
     // Dernière tranche : reliquat éventuel + tag d'authentification (16 o). Concat des tranches = ciphertext || tag.
     await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: Buffer.concat([cipher.final(), cipher.getAuthTag()]) } });
-    return { blobId: blob.id, sha256: hash, size: plain.length };
+    return { blobId: blob.id, sha256: hash, size: plain.length, deduplicated: false };
   } catch (err) {
     await prisma.fileBlob.delete({ where: { id: blob.id } }).catch(() => undefined); // cascade → supprime les tranches partielles
     throw err;
@@ -166,12 +169,12 @@ export async function sha256File(path: string): Promise<string> {
  * `sha256` peut être fourni quand l'empreinte a déjà été calculée en amont (c'est le cas à
  * l'assemblage d'un upload) : la déduplication se décide alors SANS relire le fichier du tout.
  */
-export async function putBlobFromFile(path: string, opts: { sha256?: string } = {}): Promise<{ blobId: string; sha256: string; size: number }> {
+export async function putBlobFromFile(path: string, opts: { sha256?: string } = {}): Promise<PutBlobResult> {
   const hash = opts.sha256 || (await sha256File(path));
   const existing = await prisma.fileBlob.findUnique({ where: { sha256: hash }, select: { id: true, size: true } });
   if (existing) {
     await prisma.fileBlob.update({ where: { id: existing.id }, data: { refCount: { increment: 1 } } });
-    return { blobId: existing.id, sha256: hash, size: existing.size };
+    return { blobId: existing.id, sha256: hash, size: existing.size, deduplicated: true };
   }
 
   // Stockage OBJET — EN FLUX. Le fichier est lu par morceaux, chiffré au fil de l'eau et poussé
@@ -197,7 +200,7 @@ export async function putBlobFromFile(path: string, opts: { sha256?: string } = 
       data: { sha256: hash, size, iv, data: null, storageKey: key, refCount: 1 },
       select: { id: true },
     });
-    return { blobId: blob.id, sha256: hash, size };
+    return { blobId: blob.id, sha256: hash, size, deduplicated: false };
   }
 
   const { size } = await stat(path);
@@ -217,7 +220,7 @@ export async function putBlobFromFile(path: string, opts: { sha256?: string } = 
     }
     if (read !== size) throw new Error(`Fichier modifié pendant la lecture (${read} ≠ ${size}).`);
     await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: Buffer.concat([cipher.final(), cipher.getAuthTag()]) } });
-    return { blobId: blob.id, sha256: hash, size };
+    return { blobId: blob.id, sha256: hash, size, deduplicated: false };
   } catch (err) {
     await prisma.fileBlob.delete({ where: { id: blob.id } }).catch(() => undefined); // cascade → tranches partielles
     throw err;
