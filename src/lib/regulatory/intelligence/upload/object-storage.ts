@@ -170,6 +170,55 @@ export const MULTIPART_PART_BYTES = 16 * 1024 * 1024;
 /** Seuil au-delà duquel on passe en plusieurs parties. En deçà, un PUT simple est plus rapide. */
 export const MULTIPART_THRESHOLD_BYTES = 32 * 1024 * 1024;
 
+/**
+ * COMBIEN DE PARTIES EN VOL À LA FOIS.
+ *
+ * Envoyées une par une, les parties additionnent leurs allers-retours : sur une liaison où un
+ * aller-retour coûte 200 ms, un fichier de 500 Mo paie 31 attentes en série pour rien — le débit
+ * disponible n'est jamais utilisé. Quatre parties en vol saturent le lien sans faire exploser la
+ * mémoire (le pic vaut `concurrence × 16 Mio`).
+ */
+export const MULTIPART_CONCURRENCY = (() => {
+  const n = Number(process.env.S3_UPLOAD_CONCURRENCY ?? 4);
+  return Number.isFinite(n) && n >= 1 ? Math.min(Math.floor(n), 16) : 4;
+})();
+
+/**
+ * Envoie les parties avec au plus `limit` requêtes en vol, et rend leurs ETags **dans l'ordre des
+ * numéros de partie** — c'est cet ordre, pas celui des réponses, qui recolle le fichier.
+ *
+ * L'envoi est confié à `send` : la stratégie de parallélisme se teste ainsi sans réseau.
+ *
+ * À la première erreur on cesse de lire la source, mais on attend les parties déjà en vol avant de
+ * relever l'erreur : les abandonner laisserait des requêtes en cours pendant qu'on annule le
+ * téléversement, et le `AbortMultipartUpload` pourrait passer AVANT elles — laissant justement les
+ * parties orphelines qu'il devait supprimer.
+ */
+export async function uploadPartsBounded(
+  parts: AsyncIterable<Buffer>,
+  send: (partNumber: number, body: Buffer) => Promise<string>,
+  limit = MULTIPART_CONCURRENCY,
+): Promise<string[]> {
+  const etags: string[] = [];
+  const active = new Map<number, Promise<number>>();
+  let failure: unknown = null;
+  let n = 0;
+
+  for await (const part of parts) {
+    if (failure) break;
+    const partNumber = ++n;
+    active.set(partNumber, (async () => {
+      try { etags[partNumber - 1] = await send(partNumber, part); }
+      catch (err) { failure ??= err; }
+      return partNumber;
+    })());
+    if (active.size >= Math.max(1, limit)) active.delete(await Promise.race(active.values()));
+  }
+  await Promise.all(active.values());
+  if (failure) throw failure;
+  return etags;
+}
+
 async function createMultipartUpload(key: string, contentType: string): Promise<string> {
   const res = await signedRequestQ("POST", key, { uploads: "" }, undefined, contentType);
   const xml = await res.text();
@@ -229,11 +278,11 @@ export async function putObjectStream(
   contentType = "application/octet-stream",
 ): Promise<void> {
   const uploadId = await createMultipartUpload(key, contentType);
-  const etags: string[] = [];
   try {
-    for await (const part of intoParts(source, MULTIPART_PART_BYTES)) {
-      etags.push(await uploadPart(key, uploadId, etags.length + 1, part));
-    }
+    const etags = await uploadPartsBounded(
+      intoParts(source, MULTIPART_PART_BYTES),
+      (partNumber, body) => uploadPart(key, uploadId, partNumber, body),
+    );
     await completeMultipartUpload(key, uploadId, etags);
   } catch (err) {
     await abortMultipartUpload(key, uploadId);
@@ -263,7 +312,10 @@ export async function* intoParts(source: AsyncIterable<Buffer>, partSize: number
     pending.push(chunk);
     pendingBytes += chunk.length;
     while (pendingBytes >= partSize) {
-      const whole = Buffer.concat(pending, pendingBytes);
+      // Un seul morceau en attente : on le découpe en VUES, sans le recopier. Recopier ici rendait
+      // le découpage quadratique quand la source rend un gros bloc d'un coup (un contenu déjà en
+      // mémoire, par exemple) — 200 Mo se recopiaient une fois par partie.
+      const whole = pending.length === 1 ? pending[0] : Buffer.concat(pending, pendingBytes);
       yield whole.subarray(0, partSize);
       emitted += 1;
       const tail = whole.subarray(partSize);

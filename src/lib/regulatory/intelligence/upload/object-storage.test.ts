@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { intoParts, objectStorageConfigured, presignPutUrl, _deriveSigningKeyHex, parseBucketNames, euJurisdictionHost } from "./object-storage";
+import { intoParts, uploadPartsBounded, objectStorageConfigured, presignPutUrl, _deriveSigningKeyHex, parseBucketNames, euJurisdictionHost } from "./object-storage";
 
 /**
  * Vérifie la signature SigV4 faite main (chantier 1 — upload direct S3/R2) SANS bucket réel :
@@ -122,5 +122,66 @@ describe("Découpage en parties — la règle des 5 Mio, respectée sans y pense
   it("un contenu exactement multiple ne produit PAS de partie vide finale", async () => {
     const parts = await collect(intoParts(feed(16), 8));
     expect(parts.map((p) => p.length)).toEqual([8, 8]);
+  });
+});
+
+describe("Plusieurs parties en vol — le lien est enfin utilisé", () => {
+  const feed = async function* (count: number): AsyncGenerator<Buffer> {
+    for (let i = 0; i < count; i++) yield Buffer.alloc(4, i);
+  };
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("rend les ETags dans l'ordre des NUMÉROS de partie, pas des réponses", async () => {
+    // C'est tout l'enjeu : les réponses reviennent dans le désordre, le fichier se recolle dans
+    // l'ordre des numéros. Ici la partie 1 répond en dernier, exprès.
+    const send = async (n: number) => { await wait(n === 1 ? 30 : 1); return `"etag-${n}"`; };
+    const etags = await uploadPartsBounded(feed(4), send, 4);
+    expect(etags).toEqual(['"etag-1"', '"etag-2"', '"etag-3"', '"etag-4"']);
+  });
+
+  it("ne dépasse jamais la limite de requêtes simultanées", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const send = async (n: number) => {
+      inFlight++; peak = Math.max(peak, inFlight);
+      await wait(5);
+      inFlight--;
+      return `"e${n}"`;
+    };
+    await uploadPartsBounded(feed(9), send, 3);
+    expect(peak).toBe(3);
+  });
+
+  it("une limite de 1 revient à l'envoi séquentiel", async () => {
+    let peak = 0, cur = 0;
+    const send = async (n: number) => { cur++; peak = Math.max(peak, cur); await wait(1); cur--; return `"e${n}"`; };
+    const etags = await uploadPartsBounded(feed(3), send, 1);
+    expect(peak).toBe(1);
+    expect(etags).toHaveLength(3);
+  });
+
+  it("relève l'erreur d'une partie — un téléversement à moitié écrit n'est pas un succès", async () => {
+    const send = async (n: number) => { await wait(1); if (n === 2) throw new Error("Envoi de la partie 2 échoué (500)."); return `"e${n}"`; };
+    await expect(uploadPartsBounded(feed(6), send, 3)).rejects.toThrow("partie 2");
+  });
+
+  it("attend les parties DÉJÀ EN VOL avant de relever l'erreur", async () => {
+    // Sinon l'abandon du téléversement partirait pendant que des parties sont encore en route :
+    // elles arriveraient APRÈS lui, et resteraient orphelines dans le bucket.
+    let running = 0;
+    const send = async (n: number) => {
+      running++;
+      await wait(n === 1 ? 1 : 20);
+      running--;
+      if (n === 1) throw new Error("boum");
+      return `"e${n}"`;
+    };
+    await expect(uploadPartsBounded(feed(3), send, 3)).rejects.toThrow("boum");
+    expect(running).toBe(0);
+  });
+
+  it("un flux d'une seule partie passe sans parallélisme inutile", async () => {
+    const etags = await uploadPartsBounded(feed(1), async (n) => `"e${n}"`, 4);
+    expect(etags).toEqual(['"e1"']);
   });
 });

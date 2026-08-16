@@ -74,6 +74,7 @@ export default async function SponsoringPage() {
       <PageHeader title="Sponsoring" description="Gestion des demandes de sponsoring et de leur validation.">
         {canCreate && (
           <CreateRecordButton
+            autoOpenParam="new"
             label="Nouvelle demande"
             title="Nouvelle demande de sponsoring"
             description="Joignez dès maintenant la ou les demandes du médecin — c'est la pièce que tout le circuit va lire. Au-delà de 100 000 DZD, la demande est routée vers la Direction."

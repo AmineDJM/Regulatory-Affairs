@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useAutoOpen } from "@/components/shared/use-auto-open";
 import { useRouter } from "next/navigation";
 import { Plus, Pencil, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,8 @@ function EventFields({ e, responsibles }: { e?: EventDetail; responsibles: { id:
 export function CreateEventButton({ responsibles }: { responsibles: { id: string; name: string }[] }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
+  // Arrivée depuis « Nouvelle demande » d'Ad & Pro : le formulaire s'ouvre de lui-même.
+  useAutoOpen("new", () => setOpen(true));
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   return (

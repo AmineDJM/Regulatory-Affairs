@@ -99,7 +99,17 @@ export async function putBlob(plain: Buffer): Promise<{ blobId: string; sha256: 
   if (objectStorageConfigured()) {
     const key = blobKey(hash);
     // contenu CHIFFRÉ dans le bucket — il ne voit jamais le clair
-    try { await putObject(key, encryptWhole(plain, iv)); } catch (err) { throw storageFailure(err); }
+    const encrypted = encryptWhole(plain, iv);
+    try {
+      // Gros contenu → envoi EN PARTIES PARALLÈLES. Un PUT unique de 300 Mo attend un seul flux du
+      // début à la fin ; quatre parties en vol saturent la liaison. Le découpage ne recopie rien
+      // (des vues sur le buffer déjà chiffré), le gain est donc net.
+      if (encrypted.length > MULTIPART_THRESHOLD_BYTES) {
+        await putObjectStream(key, (async function* () { yield encrypted; })());
+      } else {
+        await putObject(key, encrypted);
+      }
+    } catch (err) { throw storageFailure(err); }
     const blob = await prisma.fileBlob.create({
       data: { sha256: hash, size: plain.length, iv, data: null, storageKey: key, refCount: 1 },
       select: { id: true },

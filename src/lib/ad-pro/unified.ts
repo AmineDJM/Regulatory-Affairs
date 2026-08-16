@@ -28,29 +28,37 @@ export interface KindSpec {
   icon: string;
   /** Écran d'origine, qui reste maître du circuit et des champs propres. */
   href: string;
+  /**
+   * Lien qui ouvre DIRECTEMENT le formulaire de création de cette nature.
+   *
+   * Sans lui, choisir « envoyer un praticien à un congrès » déposait sur une liste où il fallait
+   * retrouver un bouton — soit exactement ce qu'on venait d'éviter. Le paramètre est retiré de
+   * l'URL à l'ouverture, pour qu'un rafraîchissement ne rouvre pas le formulaire sans fin.
+   */
+  createHref: string;
   /** Module RBAC qui gouverne cette nature. */
   module: string;
 }
 
 export const AD_PRO_KINDS: KindSpec[] = [
   {
-    kind: "SPONSORING", label: "Sponsoring", icon: "HandCoins", href: "/sponsoring", module: "SPONSORING",
+    kind: "SPONSORING", label: "Sponsoring", icon: "HandCoins", href: "/sponsoring", module: "SPONSORING", createHref: "/sponsoring?new=1",
     hint: "Soutenir une manifestation, une association, un praticien qui nous sollicite.",
   },
   {
-    kind: "CONGRESS_INTERNATIONAL", label: "Prise en charge internationale", icon: "Plane", href: "/congress-international", module: "CONGRESS_INTERNATIONAL",
+    kind: "CONGRESS_INTERNATIONAL", label: "Prise en charge internationale", icon: "Plane", href: "/congress-international", module: "CONGRESS_INTERNATIONAL", createHref: "/congress-international?new=1",
     hint: "Envoyer un praticien à un congrès à l'étranger — billets, visa, hébergement.",
   },
   {
-    kind: "CONGRESS_NATIONAL", label: "Prise en charge nationale", icon: "MapPin", href: "/congress-national", module: "CONGRESS_NATIONAL",
+    kind: "CONGRESS_NATIONAL", label: "Prise en charge nationale", icon: "MapPin", href: "/congress-national", module: "CONGRESS_NATIONAL", createHref: "/congress-national?new=1",
     hint: "Prendre en charge la participation à un congrès en Algérie.",
   },
   {
-    kind: "EVENT", label: "Événement", icon: "PartyPopper", href: "/events", module: "EVENTS",
+    kind: "EVENT", label: "Événement", icon: "PartyPopper", href: "/events", module: "EVENTS", createHref: "/events?new=1",
     hint: "Organiser une table ronde, une soirée scientifique, un atelier.",
   },
   {
-    kind: "PROMO_MATERIAL", label: "Matériel promotionnel", icon: "Package", href: "/promo-material", module: "PROMO_MATERIAL",
+    kind: "PROMO_MATERIAL", label: "Matériel promotionnel", icon: "Package", href: "/promo-material", module: "PROMO_MATERIAL", createHref: "/promo-material?new=1",
     hint: "Faire produire une brochure, un présentoir, un objet — par une agence.",
   },
 ];

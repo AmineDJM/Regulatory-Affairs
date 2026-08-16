@@ -3,6 +3,7 @@ import type { DocumentCategory, EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
+import { mirrorDocumentsToDrive, type MirrorFile } from "@/lib/drive/document-mirror";
 
 /**
  * JOINDRE DES FICHIERS À UN OBJET, DÈS SA CRÉATION.
@@ -55,18 +56,22 @@ export async function attachFiles(input: {
 
   const maxMb = (await getAppSettings()).maxUploadMb;
   let saved = 0;
+  const toMirror: MirrorFile[] = [];
 
   for (const file of files) {
     const invalid = validateUpload(file.name, file.size, maxMb);
     if (invalid) return { saved, error: invalid };
 
     const key = `${input.entityType}/${input.entityId}/${randomUUID()}__${file.name}`;
+    let content: Buffer | null = null;
     try {
-      await saveFile(key, Buffer.from(await file.arrayBuffer()));
+      content = Buffer.from(await file.arrayBuffer());
+      await saveFile(key, content);
     } catch (err) {
       // On garde la fiche : la demande vaut mieux qu'un échec total pour un fichier.
       console.error("[attach] écriture du fichier impossible, métadonnées conservées", key, err);
     }
+    if (content) toMirror.push({ name: file.name, data: content, mime: file.type || null });
     await prisma.document.create({
       data: {
         name: file.name,
@@ -82,6 +87,15 @@ export async function attachFiles(input: {
       },
     });
     saved++;
+  }
+
+  // Une pièce jointe à une demande est un fichier comme un autre : elle doit se retrouver dans le
+  // Drive de celui qui l'a déposée, là où il ira la chercher. En arrière-plan — la demande est
+  // déjà enregistrée, et une copie ratée ne doit jamais la faire échouer.
+  if (toMirror.length > 0) {
+    void mirrorDocumentsToDrive({
+      ownerId: input.uploadedById, entityType: input.entityType, entityId: input.entityId, files: toMirror,
+    }).catch((e) => console.error("[attach] miroir Drive échoué (non bloquant)", e));
   }
 
   return { saved };

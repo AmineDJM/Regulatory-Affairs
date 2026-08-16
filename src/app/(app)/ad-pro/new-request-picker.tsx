@@ -39,7 +39,7 @@ export function NewRequestPicker({ kinds }: { kinds: KindSpec[] }) {
             <li key={k.kind}>
               <button
                 type="button"
-                onClick={() => { setOpen(false); router.push(k.href); }}
+                onClick={() => { setOpen(false); router.push(k.createHref); }}
                 className="flex w-full items-start gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:border-primary/50 hover:bg-primary/5"
               >
                 <Icon name={k.icon} className="mt-0.5 h-5 w-5 shrink-0 text-primary" />

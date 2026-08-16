@@ -97,3 +97,15 @@ describe("Ce qui attend une décision passe devant", () => {
     expect(Object.values(c).reduce((a, b) => a + b, 0)).toBe(rows.length);
   });
 });
+
+describe("« Nouvelle demande » ouvre le FORMULAIRE, pas une liste de plus", () => {
+  it("chaque nature porte un lien de création distinct de son écran de liste", () => {
+    // Sans cela, choisir « envoyer un praticien à un congrès » déposait sur une liste où il
+    // fallait retrouver un bouton — soit exactement ce qu'on venait d'éviter.
+    for (const k of AD_PRO_KINDS) {
+      expect(k.createHref, k.kind).not.toBe(k.href);
+      expect(k.createHref.startsWith(k.href), k.kind).toBe(true);
+      expect(k.createHref.endsWith("?new=1"), k.kind).toBe(true);
+    }
+  });
+});

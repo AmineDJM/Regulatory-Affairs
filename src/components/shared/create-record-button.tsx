@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useAutoOpen } from "./use-auto-open";
 import { useFormState } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Plus, Loader2, AlertCircle, Wand2, Sparkles } from "lucide-react";
@@ -63,6 +64,8 @@ interface CreateRecordButtonProps {
   width?: "md" | "lg";
   /** Optional AI prefill: analyse a file, prefill the fields (editable). */
   analyze?: AnalyzePrefill;
+  /** Nom du paramètre d'URL qui ouvre le formulaire à l'arrivée (ex. « new »). */
+  autoOpenParam?: string;
 }
 
 export function CreateRecordButton({
@@ -74,9 +77,13 @@ export function CreateRecordButton({
   redirectBase,
   width = "lg",
   analyze,
+  autoOpenParam,
 }: CreateRecordButtonProps) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
+
+  // Ouverture depuis un lien (« Nouvelle demande » d'Ad & Pro) — voir `useAutoOpen`.
+  useAutoOpen(autoOpenParam, () => setOpen(true));
   const [submitting, setSubmitting] = React.useState(false);
   const [state, formAction] = useFormState<ActionResult | undefined, FormData>(action, undefined);
   // Verrou SYNCHRONE anti double-création : un double-clic (ou double Entrée) déclenche un 2ᵉ

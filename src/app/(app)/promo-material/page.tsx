@@ -43,7 +43,8 @@ export default async function PromoMaterialPage() {
     <div className="space-y-5">
       <PageHeader title="Matériel promotionnel" description="Circuit complet : prospection d'agences → bon de commande → bordereau de paiement → conformité & visa publicitaire → impression → règlement.">
         {canCreate && (
-          <CreateRecordButton label="Nouvelle demande" title="Demande de matériel promotionnel" description="Marketing — demande de prospection d'agences." width="md" action={createPromoMaterial} redirectBase="/promo-material" fields={createFields} />
+          <CreateRecordButton
+            autoOpenParam="new" label="Nouvelle demande" title="Demande de matériel promotionnel" description="Marketing — demande de prospection d'agences." width="md" action={createPromoMaterial} redirectBase="/promo-material" fields={createFields} />
         )}
       </PageHeader>
 

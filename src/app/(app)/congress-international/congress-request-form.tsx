@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useAutoOpen } from "@/components/shared/use-auto-open";
 import { useRouter } from "next/navigation";
 import { Plus, Loader2, AlertCircle, X, Search, Check } from "lucide-react";
 import { createCongressRequest } from "@/lib/actions/congress-request-actions";
@@ -18,6 +19,8 @@ export function CongressRequestButton({ national, doctors, users, canDesignatePM
   const router = useRouter();
   const formRef = React.useRef<HTMLFormElement>(null);
   const [open, setOpen] = React.useState(false);
+  // Arrivée depuis « Nouvelle demande » d'Ad & Pro : le formulaire s'ouvre de lui-même.
+  useAutoOpen("new", () => setOpen(true));
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 

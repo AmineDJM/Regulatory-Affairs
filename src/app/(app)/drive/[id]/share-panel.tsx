@@ -3,9 +3,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, UserPlus } from "lucide-react";
-import { shareNode, unshareNode } from "@/lib/actions/drive-actions";
+import { shareNode, shareNodeWithMany, unshareNode } from "@/lib/actions/drive-actions";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 
 export interface ShareItem { userId: string; name: string; access: string }
 
@@ -66,6 +66,17 @@ export function SharePanel({
 }) {
   const router = useRouter();
   const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const [picked, setPicked] = React.useState<Set<string>>(new Set());
+  const [query, setQuery] = React.useState("");
+
+  // Les personnes déjà destinataires ne sont plus proposées : les recocher ne changerait rien
+  // et ferait douter de ce qui a été fait.
+  const already = new Set(shares.map((s) => s.userId));
+  const needle = query.trim().toLowerCase();
+  const shown = users
+    .filter((u) => !already.has(u.id))
+    .filter((u) => !needle || u.name.toLowerCase().includes(needle));
 
   return (
     <div className="space-y-3">
@@ -77,23 +88,63 @@ export function SharePanel({
         </ul>
       )}
 
+      {/* PARTAGER AVEC PLUSIEURS PERSONNES D'UN COUP. Partager un dossier de campagne avec six
+          délégués un par un, c'est six ouvertures du panneau — et la sixième se fait oublier une
+          fois sur deux. On coche, on choisit le droit, on envoie. */}
       {canEdit && users.length > 0 && (
         <form
-          action={async (fd) => { setSaving(true); await shareNode(fd); setSaving(false); onChanged?.(); router.refresh(); }}
-          className="flex items-end gap-2 border-t border-border pt-3"
+          action={async (fd) => {
+            setSaving(true); setErr(null);
+            const r = await shareNodeWithMany(fd);
+            setSaving(false);
+            if (!r.ok) { setErr(r.error ?? "Partage impossible."); return; }
+            setPicked(new Set());
+            onChanged?.(); router.refresh();
+          }}
+          className="space-y-2 border-t border-border pt-3"
         >
           <input type="hidden" name="nodeId" value={nodeId} />
-          <div className="flex-1">
-            <Select name="userId" required defaultValue="" className="h-9 text-sm">
-              <option value="" disabled>Partager avec…</option>
-              {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          {[...picked].map((id) => <input key={id} type="hidden" name="userId" value={id} />)}
+
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Chercher une personne…"
+            className="h-9"
+          />
+          <ul className="max-h-44 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1.5">
+            {shown.length === 0 ? (
+              <li className="px-1 py-2 text-xs text-muted-foreground">Personne ne correspond.</li>
+            ) : shown.map((u) => (
+              <li key={u.id}>
+                <label className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+                  <input
+                    type="checkbox"
+                    checked={picked.has(u.id)}
+                    onChange={() => setPicked((p) => {
+                      const next = new Set(p);
+                      if (next.has(u.id)) next.delete(u.id); else next.add(u.id);
+                      return next;
+                    })}
+                    className="h-4 w-4 rounded border-input"
+                  />
+                  {u.name}
+                </label>
+              </li>
+            ))}
+          </ul>
+
+          <div className="flex items-end gap-2">
+            <Select name="access" defaultValue="VIEW" className="h-9 w-32 text-sm">
+              <option value="VIEW">Lecture</option>
+              <option value="EDIT">Éditeur</option>
             </Select>
+            <Button type="submit" size="sm" disabled={saving || picked.size === 0}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+              Partager{picked.size > 0 ? ` (${picked.size})` : ""}
+            </Button>
           </div>
-          <Select name="access" defaultValue="VIEW" className="h-9 w-28 text-sm">
-            <option value="VIEW">Lecture</option>
-            <option value="EDIT">Éditeur</option>
-          </Select>
-          <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}</Button>
+          {err && <p className="text-xs text-destructive">{err}</p>}
         </form>
       )}
     </div>

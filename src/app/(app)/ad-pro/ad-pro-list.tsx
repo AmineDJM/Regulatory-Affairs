@@ -67,30 +67,52 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
       {shown.length === 0 ? (
         <p className="surface p-6 text-center text-sm text-muted-foreground">Aucune demande ne correspond à ces filtres.</p>
       ) : (
-        <ul className="surface divide-y divide-border">
-          {shown.map((r) => {
-            const spec = kindSpec(r.kind);
-            const st = AD_PRO_STATE[r.state];
-            return (
-              <li key={`${r.kind}-${r.id}`}>
-                <Link href={r.href} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 text-sm transition-colors hover:bg-secondary/50">
-                  <Icon name={spec?.icon ?? "PartyPopper"} className="h-4 w-4 shrink-0 text-primary/80" />
-                  <span className="min-w-0 flex-1">
-                    <span className="font-medium">{r.title}</span>
-                    <span className="block text-xs text-muted-foreground">
-                      {spec?.label ?? r.kind} · {r.reference}
-                      {r.beneficiary ? ` · ${r.beneficiary}` : ""}
-                      {r.requester ? ` · demandé par ${r.requester}` : ""}
-                    </span>
-                  </span>
-                  {r.amount !== null && <span className="tabular-nums font-semibold">{formatCurrency(r.amount)}</span>}
-                  <span className="text-xs text-muted-foreground">{formatDate(r.createdAt)}</span>
-                  <Badge tone={st.tone} dot={false}>{st.label}</Badge>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        // EN TABLEAU : une demande, c'est une référence, un objet, un bénéficiaire, un montant et
+        // une date — cinq colonnes qui se comparent d'un coup d'œil. Empilées dans une phrase,
+        // ces mêmes informations obligent à relire chaque ligne en entier pour en comparer deux.
+        <div className="surface overflow-x-auto">
+          <table className="table-clean w-full min-w-[56rem] text-sm">
+            <thead className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium">Référence</th>
+                <th className="px-3 py-2 text-left font-medium">Nature</th>
+                <th className="px-3 py-2 text-left font-medium">Objet</th>
+                <th className="px-3 py-2 text-left font-medium">Bénéficiaire</th>
+                <th className="px-3 py-2 text-right font-medium">Montant</th>
+                <th className="px-3 py-2 text-left font-medium">Demandeur</th>
+                <th className="px-3 py-2 text-left font-medium">Date</th>
+                <th className="px-3 py-2 text-left font-medium">État</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {shown.map((r) => {
+                const spec = kindSpec(r.kind);
+                const st = AD_PRO_STATE[r.state];
+                return (
+                  <tr key={`${r.kind}-${r.id}`} className="hover:bg-secondary/50">
+                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{r.reference}</td>
+                    <td className="px-3 py-2">
+                      <span className="inline-flex items-center gap-1.5 text-xs">
+                        <Icon name={spec?.icon ?? "PartyPopper"} className="h-3.5 w-3.5 shrink-0 text-primary/80" />
+                        {spec?.label ?? r.kind}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Link href={r.href} className="font-medium hover:underline">{r.title}</Link>
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{r.beneficiary || "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {r.amount !== null ? formatCurrency(r.amount) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{r.requester || "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatDate(r.createdAt)}</td>
+                    <td className="px-3 py-2"><Badge tone={st.tone} dot={false}>{st.label}</Badge></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

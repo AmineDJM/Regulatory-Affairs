@@ -5,6 +5,8 @@ import { canAccessEntity } from "@/lib/entity-access";
 import { getAppSettings } from "@/lib/settings";
 import { persistUploadedDocument } from "@/lib/documents";
 import { mirrorRegulatoryUpload } from "@/lib/regulatory-drive-mirror";
+import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
+import { shouldMirrorToDrive } from "@/lib/drive/mirror-path";
 
 /**
  * Téléversement de documents **en lot** (fichiers ET dossiers) pour un objet métier :
@@ -33,9 +35,11 @@ export async function POST(req: NextRequest) {
 
   // Une seule lecture des réglages pour tout le lot (repli généreux si la lecture échoue).
   const maxUploadMb = await getAppSettings().then((s) => s.maxUploadMb).catch(() => 200);
-  // Regulatory : tout document officiellement téléversé est AUSSI répliqué dans le Drive, sous le
-  // dossier du produit (miroir automatique, plus d'option manuelle). On garde le binaire pour ça.
+  // TOUT document téléversé est AUSSI répliqué dans le Drive de celui qui importe : Regulatory sous
+  // le dossier du produit (miroir historique, partagé avec les parties prenantes), les autres
+  // modules sous « Mes documents importés / <module> / <objet> ». On garde le binaire pour ça.
   const isRegulatory = entityType === "REGULATORY_PRODUCT";
+  const mirrorHere = isRegulatory || shouldMirrorToDrive(entityType);
   const toMirror: { name: string; data: Buffer; mime?: string }[] = [];
   let created = 0;
   const errors: { name: string; error: string }[] = [];
@@ -45,10 +49,12 @@ export async function POST(req: NextRequest) {
     try {
       // Lecture unique du binaire : réutilisée par l'enregistrement ET le miroir Drive (Regulatory).
       const buffer = Buffer.from(await file.arrayBuffer());
-      const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, file, maxUploadMb, buffer });
+      // `mirrorToDrive: false` — le lot fait son miroir lui-même, en une seule fois, après la
+      // boucle : un envoi de 40 fichiers ne doit pas rouvrir 40 fois la même arborescence.
+      const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, file, maxUploadMb, buffer, mirrorToDrive: false });
       if (r.ok) {
         created++;
-        if (isRegulatory) toMirror.push({ name: file.name, data: buffer, mime: file.type || undefined });
+        if (mirrorHere) toMirror.push({ name: file.name, data: buffer, mime: file.type || undefined });
       } else {
         errors.push({ name: file.name, error: r.error ?? "Échec du téléversement." });
       }
@@ -62,8 +68,11 @@ export async function POST(req: NextRequest) {
   // est déjà enregistré (c'est ce que l'utilisateur voit) ; la copie Drive se termine juste après,
   // sur le serveur persistant (Render) → téléversement ressenti « instantané », l'utilisateur peut
   // enchaîner d'autres tâches. Best-effort : toute erreur est journalisée, jamais propagée.
-  if (isRegulatory && toMirror.length > 0) {
-    void mirrorRegulatoryUpload({ productId: entityId, ownerId: user.id, files: toMirror }).catch((e) => console.error("[documents upload] miroir Drive en arrière-plan a échoué", e));
+  if (toMirror.length > 0) {
+    const mirror = isRegulatory
+      ? mirrorRegulatoryUpload({ productId: entityId, ownerId: user.id, files: toMirror })
+      : mirrorDocumentsToDrive({ ownerId: user.id, entityType, entityId, files: toMirror });
+    void mirror.catch((e) => console.error("[documents upload] miroir Drive en arrière-plan a échoué", e));
   }
 
   return NextResponse.json({ ok: errors.length === 0, created, errors });

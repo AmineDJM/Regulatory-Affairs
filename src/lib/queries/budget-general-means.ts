@@ -45,15 +45,24 @@ const EMPTY: GeneralMeansConsumption = { byCategory: new Map(), rows: [] };
  */
 export async function generalMeansConsumption(
   categoryIds: readonly string[],
-  from: Date,
-  to: Date,
+  from?: Date | null,
+  to?: Date | null,
 ): Promise<GeneralMeansConsumption> {
   if (categoryIds.length === 0) return EMPTY;
   const ids = [...categoryIds];
 
+  // PAS DE BORNE ARTIFICIELLE. La vue consolidée n'a pas de période : elle additionne chaque
+  // enveloppe sur sa propre durée de vie. Une borne « infinie » (`new Date(8.64e15)`) semblait
+  // équivalente à l'absence de filtre — elle ne l'est pas : Prisma refuse de convertir une année
+  // à cinq chiffres et l'écran entier tombait en erreur serveur. Quand il n'y a pas de période,
+  // on n'écrit pas de filtre de date, tout simplement.
+  const dateWhere = from || to
+    ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
+    : {};
+
   const expenses = await prisma.departmentBudgetExpense.findMany({
     where: {
-      date: { gte: from, lte: to },
+      ...dateWhere,
       OR: [
         { budgetCategoryId: { in: ids } },
         { lines: { some: { budgetCategoryId: { in: ids } } } },

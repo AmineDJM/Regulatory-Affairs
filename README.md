@@ -676,6 +676,54 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
 - **Fichiers** : `src/lib/archive.ts` (`archiveProcessedRequest` — testé sur base réelle dans `archive.test.ts`),
   appels dans `hr-document-actions.ts`, `admin-request-actions.ts`, `medical-info-actions.ts`.
 
+### Drive — l'explorateur de fichiers, et le miroir automatique de tout ce qui est importé
+
+**L'écran est un explorateur.** Personne n'a appris à se servir de l'explorateur Windows : on le
+sait, c'est tout. Reproduire ses habitudes coûte moins cher que d'en enseigner d'autres.
+
+- **Un seul onglet.** Plus de barre d'onglets ni de vues flottantes : un volet de navigation à
+  gauche (`ExplorerNav` — Accès rapide *Récents / Téléchargements*, puis Emplacements *Drive* et
+  les catégories, puis Corbeille), la liste à droite. **Identique** sur `/drive` et sur
+  `/drive/espace/[id]` : entrer dans une catégorie ne fait plus disparaître l'arborescence.
+- **Colonnes triables** : clic sur *Nom / Type / Taille / Modifié le*, re-clic pour inverser. Le tri
+  vient de `sortRows` (`src/lib/drive/explorer.ts`, pur, testé) — **les dossiers restent en tête
+  dans les deux sens**, et le tri par nom est naturel (« Fichier 2 » avant « Fichier 10 »).
+- **Clic droit → « Nouveau ▸ »** (`DriveCanvas`) : Dossier, Document Word, Classeur Excel,
+  Présentation. Le nom se saisit **dans le menu** (Entrée valide), comme la case de renommage sous
+  une icône fraîchement créée. Le clic droit sur un lien ou un bouton laisse le menu du navigateur.
+  Les boutons d'en-tête restent : on ne devine pas un menu contextuel.
+- **Plein écran** (`DriveWideToggle`) : relève `--shell-max` à 100 %, mémorisé par navigateur, et
+  **reposé en quittant la page** — le plafond de lecture protège un texte, pas six colonnes.
+- **Partage à plusieurs** : `shareNodeWithMany` (une seule vérification de droit, un `upsert` et une
+  notification par personne, un audit) + liste à cocher avec recherche dans `share-panel.tsx`.
+- **Fichiers** : `app/(app)/drive/{page,drive-table,drive-canvas,explorer-nav,wide-toggle}.tsx`,
+  `app/(app)/drive/espace/[id]/page.tsx`, `src/lib/drive/explorer.ts` (+ `explorer.test.ts`).
+
+**Tout ce qui entre dans l'ERP entre aussi dans le Drive.** Une pièce importée depuis un sponsoring,
+un appel d'offres ou une demande RH restait accrochée à son objet métier ; six semaines plus tard on
+la cherchait « dans le Drive » — parce que c'est là qu'on cherche les fichiers — et elle n'y était
+pas.
+
+- **Où** : `Mes documents importés / <module> / <objet>`, dans le Drive **de celui qui importe**.
+  Le nœud lui appartient : la visibilité du Drive ne s'ouvre qu'au propriétaire, aux partages
+  explicites et au Super Admin — le miroir **ne crée aucun accès nouveau**, et c'est la condition
+  pour qu'il puisse être automatique même sur une pièce confidentielle.
+- **Le nom de l'objet** est sa **référence** quand l'ERP en connaît une (« SPO-2026-014 ») — résolue
+  via le registre d'entités de l'API (`referenceField`), donc sans table à maintenir à côté ; sinon
+  un identifiant abrégé, pour que deux demandes ne se mélangent pas.
+- **Points d'entrée** : `persistUploadedDocument` (téléversement unitaire), `POST
+  /api/documents/upload` (lot — une seule descente d'arborescence pour tout l'envoi, d'où
+  `mirrorToDrive: false` passé au persisteur) et `attachFiles` (pièces jointes à la création d'une
+  demande). **Regulatory garde son miroir par produit**, plus riche (partagé avec les parties
+  prenantes) : `shouldMirrorToDrive` l'exclut pour ne pas fabriquer de doublon.
+- **Best-effort, toujours** : le document est déjà enregistré quand le miroir part ; il tourne **en
+  arrière-plan** et toute erreur est journalisée, jamais propagée. Même nom au même endroit →
+  **nouvelle version**, pas « devis (2).pdf ».
+- **Fichiers** : `src/lib/drive/mirror-path.ts` (pur, testé : `shouldMirrorToDrive`,
+  `safeFolderName`, `importFolderPath`), `src/lib/drive/mirror.ts` (`ensureDriveFolder`,
+  `ensureDrivePath`, `putDriveFile` — les deux gestes que trois modules réécrivaient),
+  `src/lib/drive/document-mirror.ts`.
+
 ### Corbeille des suppressions définitives (réversible, Super Admin)
 
 - `superAdminDelete` (bouton « Supprimer définitivement », ~23 types d'objets) ne détruit plus : il dépose un
@@ -1749,8 +1797,8 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
 | **Transverse** | `lib/archive.ts` (Dossier traité), `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
-| **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès + `effectiveSpaceId`/`canCreateInSpace`), `lib/storage.ts` (Documents + `validateDocumentUpload`), `lib/documents.ts` (`persistUploadedDocument`), `lib/actions/drive-actions.ts` + `document-actions.ts`, `app/api/drive/upload/route.ts` (quotas) + `app/api/documents/upload/route.ts` (lot/dossier, flux, parallèle), `components/documents/`. |
-| **Catégories Drive (espaces partagés)** | Modèle `DriveSpace` + `DriveNode.spaceId` ; RBAC `canCreateDriveSpace`/`canViewDriveSpace`/`canManageDriveSpace` (`lib/rbac.ts`, accès implicite module Drive dans `getAccess`) ; `lib/queries/drive.ts` (`getDriveSpacesForUser`, `getDriveTabs`, `getDriveListing(…, spaceId)`) ; `lib/actions/drive-space-actions.ts` (créer/modifier/archiver/supprimer) ; page `app/(app)/drive/espace/[id]/` + `drive-space-manager.tsx` ; réglage `AppSetting.driveSpaceCreatorRoles` (`DriveSpaceCreatorForm` en Administration). Onglets à côté de Drive · Documents. |
+| **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès + `effectiveSpaceId`/`canCreateInSpace`), `lib/drive/explorer.ts` (pur : type lisible, taille, tri, volet), `lib/drive/{mirror,mirror-path,document-mirror}.ts` (miroir Drive de tout import), `lib/storage.ts` (Documents + `validateDocumentUpload`), `lib/documents.ts` (`persistUploadedDocument`), `lib/attach-files.ts`, `lib/actions/drive-actions.ts` + `document-actions.ts`, `app/api/drive/upload/route.ts` (quotas) + `app/api/documents/upload/route.ts` (lot/dossier, flux, parallèle), `app/(app)/drive/{drive-table,drive-canvas,explorer-nav,wide-toggle}.tsx`, `components/documents/`. |
+| **Catégories Drive (espaces partagés)** | Modèle `DriveSpace` + `DriveNode.spaceId` ; RBAC `canCreateDriveSpace`/`canViewDriveSpace`/`canManageDriveSpace` (`lib/rbac.ts`, accès implicite module Drive dans `getAccess`) ; `lib/queries/drive.ts` (`getDriveSpacesForUser`, `getDriveTabs`, `getDriveListing(…, spaceId)`) ; `lib/actions/drive-space-actions.ts` (créer/modifier/archiver/supprimer) ; page `app/(app)/drive/espace/[id]/` + `drive-space-manager.tsx` ; réglage `AppSetting.driveSpaceCreatorRoles` (`DriveSpaceCreatorForm` en Administration). Les catégories sont des **Emplacements du volet de navigation** (`ExplorerNav`), plus des onglets — `getDriveTabs` ne sert plus qu'à la page Documents. |
 | **Admin** | `app/(app)/admin/` (`page.tsx` comptes + stockage + activité, `corbeille/`, `drive-storage-settings.tsx`, `access/`, `settings/`…), `lib/actions/admin-actions.ts`, `settings-actions.ts`. |
 | **IA / Brain** | `lib/ai.ts`, `lib/assistant.ts`, `lib/adventum/risks.ts` (+ `risk-detectors.test.ts`), `app/(app)/adventum-brain/`. |
 | **Assistant — mémoire personnelle** | `lib/assistant-memory.ts` (**seule** porte d'entrée, tout scopé par `userId`) + `assistant-memory.test.ts` (tests de fuite), `lib/actions/assistant-actions.ts` (garde impersonation, persistance, distillation), `app/(app)/assistant/assistant-chat.tsx` (rail des conversations). Modèles `AssistantThread`/`AssistantMessage`/`AssistantMemory`. |
@@ -2125,8 +2173,12 @@ navigateur envoie une archive volumineuse directement au bucket — jamais des U
 **Gros fichiers.** Trois chemins, selon la situation :
 - **navigateur → bucket** en direct (URL présignée) pour les dossiers CTD : ni le serveur ni
   Postgres ne voient passer les octets ;
-- **serveur → bucket en plusieurs parties** (16 Mio) dès qu'un fichier dépasse 32 Mo : le pic
-  mémoire vaut une partie, qu'il s'agisse d'un PDF de 2 Mo ou d'une archive d'un gigaoctet ;
+- **serveur → bucket en plusieurs parties** (16 Mio) dès qu'un contenu dépasse 32 Mo : le pic
+  mémoire vaut une partie, qu'il s'agisse d'un PDF de 2 Mo ou d'une archive d'un gigaoctet.
+  Les parties partent **en parallèle** (4 en vol par défaut, `S3_UPLOAD_CONCURRENCY`) : envoyées
+  une par une, elles additionnaient leurs allers-retours et n'utilisaient jamais le débit
+  disponible — un fichier de 500 Mo payait 31 attentes en série pour rien. L'ordre des ETags suit
+  les **numéros de partie**, pas l'ordre des réponses (`uploadPartsBounded`, testé) ;
 - **base, en tranches ordonnées**, quand le stockage objet n'est pas configuré.
 
 **Repli et pannes.** Les fichiers déjà stockés en base **restent lisibles** quoi qu'il arrive : la
@@ -2141,11 +2193,22 @@ et le supprime. « Les variables sont renseignées » ne prouve rien : un bucket
 périmée ou une région fausse donnent la même page verte. Aucun secret n'apparaît dans le rapport ni
 dans les journaux.
 
+**Le bucket est le stockage PAR DÉFAUT dès qu'il est configuré.** Il n'y a pas de bascule à
+actionner ni de réglage à cocher : si `S3_ENDPOINT`/`S3_BUCKET`/les clés sont présents, tout
+nouveau contenu part dans le bucket (`objectStorageConfigured()`), et la base ne reçoit plus
+d'octets. Retirer les variables ramène au stockage en base — pour les **nouveaux** fichiers
+seulement ; ceux déjà dans le bucket continuent d'être lus depuis le bucket.
+
 **Migration de l'historique** (à faire **séparément**, quand la connexion est validée en
-production) : `npm run blobs:migrate-r2` déplace le contenu des blobs déjà en base vers le bucket,
-un par un, et bascule leur `storageKey`. Rien n'est supprimé de Postgres automatiquement ; le script
-peut être relancé et repris. Tant qu'il n'a pas tourné, anciens et nouveaux fichiers coexistent sans
-incident.
+production) : `npm run blobs:migrate-r2` déplace vers le bucket le contenu des blobs déjà en base
+et bascule leur `storageKey`. Il traite les **deux** formes de stockage en base — la valeur unique
+(`FileBlob.data`) *et* les **tranches** (`FileBlobChunk`, au-delà de 16 Mo), c'est-à-dire justement
+les plus gros fichiers : les oublier reviendrait à migrer le menu fretin et à laisser la base
+pleine. Les gros blobs sont poussés **en flux**, tranche par tranche (mémoire bornée). Un blob
+illisible est signalé et sauté, sans arrêter les autres. Le script est **idempotent** et se relance
+sans risque. Rien n'est supprimé de Postgres automatiquement : l'espace n'est rendu au disque
+qu'après un `VACUUM FULL "FileBlob", "FileBlobChunk";`, à lancer à la main. Tant que le script n'a
+pas tourné, anciens et nouveaux fichiers coexistent sans incident.
 
 ---
 
@@ -2258,6 +2321,29 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Drive : l'explorateur pour de bon, et tout ce qui est importé y atterrit.** Un **seul onglet**
+  (le volet de navigation remplace la barre d'onglets, `/drive` et `/drive/espace/[id]` ont
+  désormais le même écran), **colonnes triables** branchées sur `sortRows`, **clic droit →
+  « Nouveau ▸ Dossier / Word / Excel / PowerPoint »** avec saisie du nom dans le menu, **plein
+  écran** mémorisé, **partage à plusieurs personnes** en une fois. Et surtout : chaque document
+  téléversé depuis n'importe quel module est **répliqué dans le Drive de celui qui l'importe**, sous
+  `Mes documents importés / <module> / <objet>` — dans son drive à lui, donc sans créer le moindre
+  accès nouveau. `lib/drive/{mirror-path,mirror,document-mirror}.ts` (12 tests).
+
+- **Téléversements plus rapides vers le bucket.** Les parties d'un envoi multipart partaient une par
+  une : leurs allers-retours s'additionnaient et le débit disponible n'était jamais utilisé. Elles
+  partent maintenant **4 en vol** (`S3_UPLOAD_CONCURRENCY`), les ETags restant ordonnés par numéro
+  de partie et non par ordre d'arrivée (`uploadPartsBounded`, 6 tests). Un gros contenu déjà en
+  mémoire passe lui aussi par le multipart, et le découpage ne recopie plus rien (il était
+  quadratique sur un bloc unique). **Migration de l'historique** : le script traite désormais aussi
+  les blobs stockés **en tranches** (`FileBlobChunk`) — c'est-à-dire les plus gros, jusqu'ici
+  ignorés — en flux, et un blob illisible n'arrête plus les autres.
+
+- **Budget : l'écran ne tombe plus** (`Digest 3300873632`). La vue consolidée bornait la période
+  avec une date « infinie » (`new Date(8.64e15)`) que Prisma refuse de convertir — l'année à cinq
+  chiffres faisait échouer toute la page. Les bornes sont devenues **facultatives** : sans période,
+  le filtre de date n'est plus émis du tout (`generalMeansConsumption`, 7 tests de non-régression).
 
 - **Ad & Pro : une seule demande, une seule liste** (`/ad-pro`). Cinq écrans posaient la même
   question — « je veux engager une dépense de promotion ». « Nouvelle demande » demande maintenant

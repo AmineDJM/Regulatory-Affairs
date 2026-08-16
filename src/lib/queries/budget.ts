@@ -211,7 +211,8 @@ export async function getEnvelopesGrandTotal(viewer: SessionUser): Promise<Envel
           where: { categoryId: { in: catIds } },
           _sum: { amount: true },
         }),
-        generalMeansConsumption(catIds, new Date(0), new Date(8.64e15)),
+        // Sans bornes : la vue consolidée n'a pas de période commune.
+        generalMeansConsumption(catIds),
       ])
     : [[], [], { byCategory: new Map<string, number>(), rows: [] }];
   // Consommation = dépenses réglées attribuées + lignes purement budgétaires (découplées)

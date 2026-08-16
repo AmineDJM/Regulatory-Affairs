@@ -6,6 +6,7 @@ import { getAppSettings } from "@/lib/settings";
 import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
 
 export interface PersistDocInput {
   entityType: EntityType;
@@ -18,6 +19,13 @@ export interface PersistDocInput {
   maxUploadMb?: number;
   /** Contenu déjà lu (évite une 2ᵉ lecture quand l'appelant a besoin du binaire — ex. miroir Drive). */
   buffer?: Buffer;
+  /**
+   * Miroir Drive : `false` quand l'appelant s'en charge lui-même (route de lot, qui groupe les
+   * fichiers d'un même envoi en une seule descente d'arborescence, ou miroir Regulatory par
+   * produit). Par défaut le miroir part d'ici — un chemin de téléversement oublié serait un
+   * fichier absent du Drive, et c'est précisément ce qu'on corrige.
+   */
+  mirrorToDrive?: boolean;
 }
 
 /**
@@ -39,9 +47,10 @@ export async function persistUploadedDocument(
   if (invalid) return { ok: false, error: invalid };
 
   const key = `${entityType}/${entityId}/${randomUUID()}__${file.name}`;
+  let content: Buffer | null = null;
   try {
-    const buffer = input.buffer ?? Buffer.from(await file.arrayBuffer());
-    await saveFile(key, buffer);
+    content = input.buffer ?? Buffer.from(await file.arrayBuffer());
+    await saveFile(key, content);
   } catch (err) {
     // Stockage indisponible : on garde la métadonnée pour ne pas casser la bibliothèque ;
     // le binaire pourra être ré-attaché plus tard.
@@ -83,5 +92,13 @@ export async function persistUploadedDocument(
     entityId,
     summary: `Document « ${file.name} » téléversé`,
   }).catch((e) => console.error("[upload] audit failed (non-bloquant)", e));
+
+  // MIROIR DRIVE, en arrière-plan : le document est déjà enregistré, c'est ce que la personne
+  // voit. La copie se termine côté serveur — on ne fait pas attendre un téléversement pour elle.
+  if (input.mirrorToDrive !== false && content) {
+    const data = content;
+    void mirrorDocumentsToDrive({ ownerId: userId, entityType, entityId, files: [{ name: file.name, data, mime: file.type || null }] })
+      .catch((e) => console.error("[upload] miroir Drive échoué (non bloquant)", e));
+  }
   return { ok: true };
 }

@@ -257,6 +257,53 @@ export async function shareNode(formData: FormData): Promise<ActionResult> {
   return { ok: true };
 }
 
+/**
+ * PARTAGER AVEC PLUSIEURS PERSONNES EN UNE FOIS.
+ *
+ * Partager un dossier de campagne avec six délégués un par un, c'est six ouvertures du panneau,
+ * six sélections, six clics — et la sixième personne se fait oublier une fois sur deux. On accepte
+ * donc une liste, avec le même droit pour tout le monde : c'est le cas réel (« l'équipe peut
+ * lire »), et les exceptions se règlent ensuite personne par personne.
+ *
+ * Le droit d'écrire sur le nœud est vérifié UNE fois — il ne dépend pas du destinataire — puis
+ * chaque partage est écrit et notifié. Un destinataire déjà présent voit son droit mis à jour
+ * plutôt que dupliqué.
+ */
+export async function shareNodeWithMany(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const nodeId = fdStr(formData, "nodeId");
+  const access = (fdStr(formData, "access") as DriveAccess) ?? "VIEW";
+  const userIds = Array.from(new Set(formData.getAll("userId").map(String).filter(Boolean)))
+    // On ne se partage pas à soi-même : le partage n'ajouterait rien et brouillerait la liste.
+    .filter((id) => id !== user.id);
+  if (!nodeId) return { ok: false, error: "Élément introuvable." };
+  if (userIds.length === 0) return { ok: false, error: "Choisissez au moins une personne." };
+  if ((await resolveDriveAccess(user, nodeId)) !== "EDIT") return DENIED;
+
+  const node = await prisma.driveNode.findUnique({ where: { id: nodeId }, select: { name: true } });
+  if (!node) return { ok: false, error: "Élément introuvable." };
+
+  for (const userId of userIds) {
+    await prisma.driveShare.upsert({
+      where: { nodeId_userId: { nodeId, userId } },
+      create: { nodeId, userId, access },
+      update: { access },
+    });
+    await notifyUser({
+      userId, type: "DOCUMENT_UPLOADED", title: "Élément partagé avec vous",
+      body: node.name, link: `/drive/${nodeId}`,
+    });
+  }
+
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Drive", entityType: "DRIVE_NODE", entityId: nodeId,
+    summary: `Partagé avec ${userIds.length} personne(s) — ${access === "EDIT" ? "modification" : "lecture"}`,
+  });
+  revalidatePath(`/drive/${nodeId}`);
+  revalidatePath("/drive");
+  return { ok: true, message: `Partagé avec ${userIds.length} personne(s).` };
+}
+
 export async function unshareNode(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const nodeId = fdStr(formData, "nodeId");

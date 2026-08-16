@@ -3,10 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Download, Loader2, House, FolderInput, GripVertical } from "lucide-react";
+import { Download, Loader2, House, FolderInput, GripVertical, ChevronUp, ChevronDown } from "lucide-react";
 import { Icon } from "@/components/ui/icon";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { moveNode } from "@/lib/actions/drive-actions";
+import { sortRows, type SortKey, type SortDir } from "@/lib/drive/explorer";
 import { NodeActions } from "./node-actions";
 
 export interface DriveRow {
@@ -16,9 +17,13 @@ export interface DriveRow {
   icon: string;
   category: string | null;
   owner: string;
+  /** Taille brute, pour trier ; `sizeLabel` est ce qu'on affiche. */
+  size: number;
   sizeLabel: string;
   /** Type lisible (« Document PDF », « Dossier compressé ») — pas un type MIME. */
   typeLabel: string;
+  /** Date ISO, pour trier ; `updatedLabel` est ce qu'on affiche. */
+  updatedAt: string;
   updatedLabel: string;
   canEdit: boolean;
   href: string;
@@ -35,6 +40,29 @@ interface DropCategory { id: string; name: string }
  */
 export function DriveTable({ rows, moveTargets, trash, users, spaceId, categories }: { rows: DriveRow[]; moveTargets: MoveTarget[]; trash: boolean; users?: UserLite[]; spaceId?: string | null; categories?: DropCategory[] }) {
   const router = useRouter();
+  // TRI PAR EN-TÊTE, comme dans un explorateur : on clique sur « Taille » pour trouver le gros
+  // fichier, sur « Modifié le » pour retrouver celui d'hier. Les dossiers restent en tête dans les
+  // deux sens (règle du module `explorer`, testée) — sinon l'arborescence se dissout dans la liste.
+  const [sortKey, setSortKey] = React.useState<SortKey>("name");
+  const [sortDir, setSortDir] = React.useState<SortDir>("asc");
+  const sorted = React.useMemo(() => sortRows(rows, sortKey, sortDir), [rows, sortKey, sortDir]);
+  const clickSort = (k: SortKey) => {
+    if (k === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(k); setSortDir("asc"); }
+  };
+  const SortHead = ({ k, label, align }: { k: SortKey; label: string; align?: "right" }) => (
+    <TableHead className={align === "right" ? "text-right" : undefined}>
+      <button
+        type="button" onClick={() => clickSort(k)}
+        className={`inline-flex items-center gap-1 hover:text-foreground ${sortKey === k ? "text-foreground" : ""}`}
+        aria-sort={sortKey === k ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+      >
+        {label}
+        {sortKey === k && (sortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+      </button>
+    </TableHead>
+  );
+
   const [sel, setSel] = React.useState<Set<string>>(new Set());
   const [zipping, setZipping] = React.useState(false);
   const [dragId, setDragId] = React.useState<string | null>(null);
@@ -150,18 +178,18 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
               <TableHead className="w-8">
                 <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Tout sélectionner" className="h-4 w-4 rounded border-input" />
               </TableHead>
-              <TableHead>Nom</TableHead>
+              <SortHead k="name" label="Nom" />
               {/* « Type » vient d'un explorateur, et il y sert : à dosage égal de noms qui se
                   ressemblent, c'est lui qui distingue le PDF de l'archive. */}
-              <TableHead>Type</TableHead>
+              <SortHead k="type" label="Type" />
               <TableHead>Propriétaire</TableHead>
-              <TableHead className="text-right">Taille</TableHead>
-              <TableHead>Modifié le</TableHead>
+              <SortHead k="size" label="Taille" align="right" />
+              <SortHead k="updatedAt" label="Modifié le" />
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((n) => {
+            {sorted.map((n) => {
               const isFolderTarget = dndEnabled && !n.isFile && dragId !== null && dragId !== n.id;
               const isOver = overId === n.id;
               return (

@@ -6,11 +6,25 @@ import { describe, it, expect, vi, afterAll } from "vitest";
  * part dans l'objet (la base ne garde que les métadonnées → son disque ne gonfle plus), et que
  * l'aller-retour déchiffré est identique. La validation « live » se fait avec un vrai bucket.
  */
-const { store } = vi.hoisted(() => ({ store: new Map<string, Buffer>() }));
+// Seuil volontairement BAS dans le double : envoyer 32 Mo dans un test pour vérifier un aiguillage
+// coûterait des secondes et de la mémoire pour prouver exactement la même chose. Il est déclaré
+// dans `vi.hoisted` car la fabrique de `vi.mock` est remontée en tête de fichier.
+const { store, calls, THRESHOLD } = vi.hoisted(() => ({
+  store: new Map<string, Buffer>(),
+  calls: { put: 0, stream: 0 },
+  THRESHOLD: 1024,
+}));
 
 vi.mock("./regulatory/intelligence/upload/object-storage", () => ({
   objectStorageConfigured: () => true,
-  putObject: async (key: string, body: Buffer) => { store.set(key, Buffer.from(body)); },
+  MULTIPART_THRESHOLD_BYTES: THRESHOLD,
+  putObject: async (key: string, body: Buffer) => { calls.put += 1; store.set(key, Buffer.from(body)); },
+  putObjectStream: async (key: string, source: AsyncIterable<Buffer>) => {
+    calls.stream += 1;
+    const parts: Buffer[] = [];
+    for await (const p of source) parts.push(Buffer.from(p));
+    store.set(key, Buffer.concat(parts));
+  },
   getObject: async (key: string) => { const v = store.get(key); if (!v) throw new Error("404"); return v; },
   deleteObject: async (key: string) => { store.delete(key); },
 }));
@@ -47,5 +61,27 @@ describe("drive-storage — stockage objet R2 (magasin en mémoire, chiffrement 
     expect(await prisma.fileBlob.findUnique({ where: { id: blobId } })).toBeNull();
     expect(store.has(row!.storageKey!)).toBe(false);
     blobId = "";
+  });
+
+  it("un petit contenu part en UN envoi ; un gros part EN PARTIES — et se relit à l'identique", async () => {
+    // Un PUT unique attend un seul flux du début à la fin ; au-delà du seuil, les parties partent
+    // en parallèle. L'aller-retour doit rester identique au bit près : c'est ce qui autorise
+    // l'aiguillage — sinon on aurait deux formats de stockage au lieu d'un.
+    calls.put = 0; calls.stream = 0;
+
+    const small = Buffer.from("court", "utf8");
+    const put1 = await putBlob(small);
+    expect(calls.put).toBe(1);
+    expect(calls.stream).toBe(0);
+    expect(Buffer.compare((await getBlob(put1.blobId))!, small)).toBe(0);
+    await releaseBlob(put1.blobId);
+
+    const big = Buffer.alloc(THRESHOLD * 3, 0);
+    big.write(`gros-${Date.now()}`, "utf8"); // unique : sinon la déduplication court-circuite l'écriture
+    const put2 = await putBlob(big);
+    expect(calls.stream).toBe(1);
+    expect(calls.put).toBe(1); // toujours le seul envoi du petit
+    expect(Buffer.compare((await getBlob(put2.blobId))!, big)).toBe(0);
+    await releaseBlob(put2.blobId);
   });
 });

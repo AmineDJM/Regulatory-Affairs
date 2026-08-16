@@ -106,4 +106,24 @@ describe("Moyens généraux → Budget : le ticket de caisse consomme l'envelopp
     const total = o!.monthly.reduce((a, m) => a + m.consumed, 0);
     expect(total).toBe(o!.totals.consumed);
   });
+
+  /**
+   * RÉGRESSION — la vue consolidée tombait en erreur serveur.
+   *
+   * Elle appelait la consommation des moyens généraux avec une borne de date « infinie »
+   * (`new Date(8.64e15)`), en croyant l'équivalent d'aucun filtre. Prisma refuse de convertir
+   * une année à cinq chiffres : la page Budgets entière rendait « Application error ».
+   */
+  it("SANS bornes de date, elle répond au lieu de lever — c'est ce que fait la vue consolidée", async () => {
+    const c = await generalMeansConsumption([papeterieId, transportId]);
+    expect(c.byCategory.get(papeterieId)).toBe(6_000);
+    expect(c.byCategory.get(transportId)).toBe(6_500);
+  });
+
+  it("accepte une borne unique : début seul, ou fin seule", async () => {
+    const after = await generalMeansConsumption([transportId], new Date("2026-01-01T00:00:00.000Z"), null);
+    expect(after.byCategory.get(transportId)).toBe(6_500);
+    const before = await generalMeansConsumption([transportId], null, new Date("2020-01-01T00:00:00.000Z"));
+    expect(before.byCategory.get(transportId)).toBeUndefined();
+  });
 });

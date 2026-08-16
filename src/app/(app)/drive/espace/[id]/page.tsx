@@ -3,12 +3,11 @@ import { notFound } from "next/navigation";
 import { Trash2, ChevronRight, FolderOpen } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getDriveListing, getDriveTabs, getDriveSpacesForUser } from "@/lib/queries/drive";
+import { getDriveListing, getDriveSpacesForUser } from "@/lib/queries/drive";
 import { canCreateInSpace } from "@/lib/drive";
 import { fileTypeLabel, fileIconName, explorerSize } from "@/lib/drive/explorer";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
-import { ModuleTabs } from "@/components/shared/module-tabs";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatDateTime } from "@/lib/utils";
@@ -17,6 +16,9 @@ import { NewFolderButton } from "../../new-folder-button";
 import { NewOfficeButton } from "../../new-office-button";
 import { SpaceSettingsButton } from "../../drive-space-manager";
 import { DriveTable, type DriveRow } from "../../drive-table";
+import { DriveCanvas } from "../../drive-canvas";
+import { ExplorerNav } from "../../explorer-nav";
+import { DriveWideToggle } from "../../wide-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -34,8 +36,10 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
   const canEditHere = listing.level === "EDIT"; // gestionnaire de la catégorie (ou dossier éditable)
 
   // Personnes (pour partages à l'import) + données d'accès de la catégorie (pour les réglages).
-  const [tabs, users, spaceRow] = await Promise.all([
-    getDriveTabs(user),
+  // `spaces` alimente le volet de navigation : LE MÊME que sur /drive, sans quoi entrer dans une
+  // catégorie ferait disparaître l'arborescence — un explorateur ne perd jamais sa colonne gauche.
+  const [spaces, users, spaceRow] = await Promise.all([
+    getDriveSpacesForUser(user),
     canEditHere
       ? prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : Promise.resolve([] as { id: string; name: string }[]),
@@ -58,9 +62,8 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
       ];
 
   // Autres catégories où DÉPOSER (glisser-déposer) — celles que l'utilisateur gère, hors la courante.
-  const otherSpaces = trash ? [] : await getDriveSpacesForUser(user);
-  const dropCategories = (await Promise.all(
-    otherSpaces.filter((s) => s.id !== spaceId).map(async (s) => ({ id: s.id, name: s.name, ok: await canCreateInSpace(user, s.id) })),
+  const dropCategories = trash ? [] : (await Promise.all(
+    spaces.filter((s) => s.id !== spaceId).map(async (s) => ({ id: s.id, name: s.name, ok: await canCreateInSpace(user, s.id) })),
   )).filter((s) => s.ok).map((s) => ({ id: s.id, name: s.name }));
 
   const rows: DriveRow[] = listing.nodes.map((n) => {
@@ -72,8 +75,10 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
       icon: fileIconName(n.name, isFile),
       category: n.category ?? null,
       owner: n.owner?.name ?? "—",
+      size: n.size,
       sizeLabel: explorerSize(n.size, isFile),
       typeLabel: fileTypeLabel(n.name, isFile),
+      updatedAt: n.updatedAt.toISOString(),
       updatedLabel: formatDateTime(n.updatedAt),
       canEdit: n.canEdit,
       href: isFile ? `/drive/${n.id}` : `${base}?folder=${n.id}`,
@@ -83,6 +88,7 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
   return (
     <div className="space-y-5">
       <PageHeader title={space.name} description="Catégorie partagée du Drive — espace commun aux personnes autorisées.">
+        <DriveWideToggle />
         {!trash && canEditHere && (
           <>
             {/* `spaceId` sert de repli quand on crée à la RACINE de la catégorie ; dans un
@@ -99,7 +105,6 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
           </Link>
         )}
       </PageHeader>
-      <ModuleTabs tabs={tabs} />
 
       {/* Breadcrumb : racine de la catégorie → dossiers */}
       {!trash && (
@@ -117,15 +122,22 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
       )}
       {trash && <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Corbeille — {space.name}</h2>}
 
-      {listing.nodes.length === 0 ? (
-        <EmptyState
-          icon="FolderOpen"
-          title={trash ? "Corbeille vide" : "Catégorie vide"}
-          description={trash ? "Aucun élément supprimé." : canEditHere ? "Importez des fichiers ou créez un dossier dans cette catégorie." : "Aucun fichier n'a encore été déposé ici."}
-        />
-      ) : (
-        <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canEditHere ? users : undefined} spaceId={spaceId} categories={dropCategories} />
-      )}
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <ExplorerNav active={spaceId} spaces={spaces.map((s) => ({ id: s.id, name: s.name, icon: s.icon }))} />
+        <div className="min-w-0 flex-1">
+          <DriveCanvas parentId={folderId} spaceId={spaceId} canCreate={!trash && canEditHere} officeEnabled={onlyofficeConfigured()}>
+            {listing.nodes.length === 0 ? (
+              <EmptyState
+                icon="FolderOpen"
+                title={trash ? "Corbeille vide" : "Catégorie vide"}
+                description={trash ? "Aucun élément supprimé." : canEditHere ? "Importez des fichiers, ou faites un clic droit ici pour créer un dossier." : "Aucun fichier n'a encore été déposé ici."}
+              />
+            ) : (
+              <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canEditHere ? users : undefined} spaceId={spaceId} categories={dropCategories} />
+            )}
+          </DriveCanvas>
+        </div>
+      </div>
     </div>
   );
 }
