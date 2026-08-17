@@ -83,6 +83,15 @@ export function NewRequestButton({ users, departments, articles = [] }: { users:
                         {f.placeholder && <option value="">{f.placeholder}</option>}
                         {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </Select>
+                    ) : f.type === "multiselect" ? (
+                      <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-input p-2">
+                        {f.options.map((o) => (
+                          <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+                            <input type="checkbox" name={name} value={o.value} className="h-4 w-4 rounded border-input" />
+                            {o.label}
+                          </label>
+                        ))}
+                      </div>
                     ) : f.type === "checkbox" ? null : (
                       <Input id={name} name={name} type={f.type} defaultValue={f.defaultValue} step={f.type === "number" ? "any" : undefined} />
                     )}

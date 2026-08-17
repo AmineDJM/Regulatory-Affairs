@@ -6,7 +6,7 @@ import { toNumber } from "@/lib/utils";
 
 /** Personalised workspace data for the signed-in user ("Mon espace"). */
 export async function getMyWorkspace(userId: string) {
-  const [employee, myTasks, delegated, myLeaves, myAdvances, activity] = await Promise.all([
+  const [employee, myTasks, delegated, shared, myLeaves, myAdvances, activity] = await Promise.all([
     prisma.employee.findUnique({
       where: { userId },
       select: { id: true, leaveBalanceDays: true, contractType: true, contractEnd: true, position: true, department: true },
@@ -21,6 +21,19 @@ export async function getMyWorkspace(userId: string) {
       include: { assignedTo: { select: { name: true } } },
       orderBy: [{ dueDate: "asc" }],
       take: 20,
+    }),
+    // Tâches PARTAGÉES avec moi : je participe ou j'ai un accès en lecture, sans en être le
+    // responsable ni le créateur (ceux-là remontent déjà plus haut).
+    prisma.task.findMany({
+      where: {
+        status: { in: ["TODO", "IN_PROGRESS"] },
+        assignedToId: { not: userId },
+        createdById: { not: userId },
+        OR: [{ participantIds: { has: userId } }, { readerIds: { has: userId } }],
+      },
+      include: { assignedTo: { select: { name: true } } },
+      orderBy: [{ dueDate: "asc" }],
+      take: 30,
     }),
     prisma.leaveRequest.findMany({
       where: { employee: { userId } },
@@ -48,6 +61,7 @@ export async function getMyWorkspace(userId: string) {
     employee,
     myTasks,
     delegated,
+    shared,
     myLeaves,
     myAdvances,
     activity,

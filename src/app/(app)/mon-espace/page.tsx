@@ -40,16 +40,35 @@ export default async function MonEspacePage() {
   ]);
   const reminderRows = reminders.map((r) => ({ ...r, remindAt: r.remindAt.toISOString(), sentAt: r.sentAt ? r.sentAt.toISOString() : null }));
 
+  // Le cercle d'une tâche, en clair : « Participants : … · Lecture : … ». Les identifiants sont
+  // résolus une fois, contre la liste déjà chargée.
+  const nameById = new Map(users.map((u) => [u.id, u.name]));
+  const involvedText = (participantIds: string[], readerIds: string[]): string | null => {
+    const names = (ids: string[]) => ids.map((id) => nameById.get(id)).filter((n): n is string => Boolean(n));
+    const parts: string[] = [];
+    const p = names(participantIds); if (p.length) parts.push(`Participants : ${p.join(", ")}`);
+    const r = names(readerIds); if (r.length) parts.push(`Lecture : ${r.join(", ")}`);
+    return parts.length ? parts.join(" · ") : null;
+  };
+
   // Course / livraison : on remonte aussi adresse + horodatages pour le suivi de durée.
   const toItem = (t: (typeof data.myTasks)[number]): TaskItem => ({
     id: t.id, title: t.title, description: t.description, status: t.status,
     priority: t.priority, dueDate: t.dueDate ? t.dueDate.toISOString() : null, module: t.module,
     address: t.address, startedAt: t.startedAt ? t.startedAt.toISOString() : null,
     completedAt: t.completedAt ? t.completedAt.toISOString() : null, expectedMinutes: t.expectedMinutes,
+    involved: involvedText(t.participantIds, t.readerIds),
   });
   const myTasks: TaskItem[] = data.myTasks.map(toItem);
   const delegated: TaskItem[] = data.delegated.map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
   const requestedTasks: TaskItem[] = requested.map((t) => ({ ...toItem(t), requestedBy: t.createdBy?.name ?? null }));
+  // Tâches partagées avec moi : je PARTICIPE (je peux agir) ou je suis en LECTURE (je vois).
+  const participating: TaskItem[] = data.shared
+    .filter((t) => t.participantIds.includes(user.id))
+    .map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
+  const watching: TaskItem[] = data.shared
+    .filter((t) => !t.participantIds.includes(user.id))
+    .map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
   // Mes congés ET les congés que je dois trancher : le responsable d'équipe n'a pas le module
   // RH, sa file de validation ne peut donc vivre qu'ici.
   const [myLeaves, leavesToDecide] = await Promise.all([
@@ -72,6 +91,8 @@ export default async function MonEspacePage() {
     { type: "select", name: "priority", label: "Priorité", options: optionsFromMap(PRIORITY), defaultValue: "MEDIUM" },
     { type: "date", name: "dueDate", label: "Échéance" },
     { type: "select", name: "module", label: "Module concerné", options: moduleOptions, placeholder: "—" },
+    { type: "multiselect", name: "participantIds", label: "Participants", options: userOptions.filter((o) => o.value !== user.id), hint: "Ils peuvent agir sur la tâche (démarrer, terminer).", full: true },
+    { type: "multiselect", name: "readerIds", label: "En lecture", options: userOptions.filter((o) => o.value !== user.id), hint: "Ils voient la tâche sans pouvoir la modifier.", full: true },
     { type: "text", name: "address", label: "Adresse / lieu (course, livraison)", full: true, placeholder: "ex. PCH, Route de…, Alger" },
     { type: "number", name: "expectedMinutes", label: "Durée estimée (min, pour détecter un retard)" },
   ];
@@ -141,6 +162,20 @@ export default async function MonEspacePage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes tâches</h2>
         <TaskList tasks={myTasks} canCreateDossier={canCreateDossier} />
       </section>
+
+      {participating.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches où je participe ({participating.length})</h2>
+          <TaskList tasks={participating} showAssignee canCreateDossier={canCreateDossier} />
+        </section>
+      )}
+
+      {watching.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches partagées en lecture ({watching.length})</h2>
+          <TaskList tasks={watching} showAssignee readOnly />
+        </section>
+      )}
 
       {delegated.length > 0 && (
         <section className="space-y-3">

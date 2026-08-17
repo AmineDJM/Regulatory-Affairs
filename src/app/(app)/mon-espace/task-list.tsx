@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Play, Check, FolderKanban, MapPin, Navigation, Timer, X } from "lucide-react";
+import { Loader2, Play, Check, FolderKanban, MapPin, Navigation, Timer, X, Users } from "lucide-react";
 import { updateTaskStatus, startTask, respondTaskRequest } from "@/lib/actions/task-actions";
 import { createDossierFromTask } from "@/lib/actions/dossier-actions";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -26,6 +26,8 @@ export interface TaskItem {
   completedAt?: string | null;
   expectedMinutes?: number | null;
   requestedBy?: string | null;
+  /** « Participants : … · Lecture : … » — le cercle de la tâche, pré-calculé côté serveur. */
+  involved?: string | null;
 }
 
 function mapsUrl(address: string) {
@@ -72,7 +74,7 @@ function CreateDossierButton({ id }: { id: string }) {
   );
 }
 
-export function TaskList({ tasks, showAssignee = false, canCreateDossier = false }: { tasks: TaskItem[]; showAssignee?: boolean; canCreateDossier?: boolean }) {
+export function TaskList({ tasks, showAssignee = false, canCreateDossier = false, readOnly = false }: { tasks: TaskItem[]; showAssignee?: boolean; canCreateDossier?: boolean; readOnly?: boolean }) {
   if (tasks.length === 0) {
     return <EmptyState icon="CheckCheck" title="Aucune tâche en cours" description="Tout est à jour de ce côté." />;
   }
@@ -107,7 +109,13 @@ export function TaskList({ tasks, showAssignee = false, canCreateDossier = false
                 )}
                 <CourseDuration t={t} />
               </div>
+              {t.involved && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Users className="h-3.5 w-3.5 shrink-0" /> {t.involved}
+                </p>
+              )}
             </div>
+            {readOnly ? null : (
             <div className="flex shrink-0 flex-wrap items-center gap-1.5">
               {requested ? (
                 <>
@@ -136,6 +144,7 @@ export function TaskList({ tasks, showAssignee = false, canCreateDossier = false
                 </>
               )}
             </div>
+            )}
           </li>
         );
       })}

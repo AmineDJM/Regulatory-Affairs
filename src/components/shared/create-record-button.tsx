@@ -51,6 +51,7 @@ export type FieldDef =
       full?: boolean;
     }
   | { type: "checkbox"; name: string; label: string; full?: boolean }
+  | { type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; hint?: string; full?: boolean }
   | { type: "file"; name: string; label: string; multiple?: boolean; hint?: string; defaultValue?: string | number; full?: boolean };
 
 interface CreateRecordButtonProps {
@@ -220,6 +221,22 @@ export function RecordForm({
                   <input type="checkbox" name={field.name} className="h-4 w-4 rounded border-input" />
                   {field.label}
                 </label>
+              ) : field.type === "multiselect" ? (
+                <>
+                  {field.options.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">Aucune personne disponible.</p>
+                  ) : (
+                    <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-input p-2">
+                      {field.options.map((o) => (
+                        <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+                          <input type="checkbox" name={field.name} value={o.value} className="h-4 w-4 rounded border-input" />
+                          {o.label}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
+                </>
               ) : (
                 <Input
                   id={field.name}

@@ -19,11 +19,23 @@ export async function createTask(
   if (!title) return { ok: false, error: "L'intitulé est obligatoire." };
 
   const assignedToId = fdStr(formData, "assignedToId") ?? user.id;
+
+  // Participants (peuvent agir) et lecteurs (voient seulement), fixés à la création. Le
+  // responsable et le créateur ont déjà accès : on les retire de ces listes. Un participant
+  // l'emporte sur un lecteur si quelqu'un figure dans les deux.
+  const clean = (field: string): string[] =>
+    [...new Set(formData.getAll(field).map(String).filter(Boolean))]
+      .filter((id) => id !== assignedToId && id !== user.id);
+  const participantIds = clean("participantIds");
+  const readerIds = clean("readerIds").filter((id) => !participantIds.includes(id));
+
   const created = await prisma.task.create({
     data: {
       title,
       description: fdStr(formData, "description"),
       assignedToId,
+      participantIds,
+      readerIds,
       createdById: user.id,
       dueDate: fdDate(formData, "dueDate"),
       priority: (fdStr(formData, "priority") as Priority) ?? "MEDIUM",
@@ -34,16 +46,16 @@ export async function createTask(
     },
   });
 
-  // Notify the assignee when delegating to someone else.
-  if (assignedToId !== user.id) {
-    await prisma.notification.create({
-      data: {
-        userId: assignedToId,
-        type: "ASSIGNMENT",
-        title: "Nouvelle tâche assignée",
-        body: title,
-        link: "/mon-espace",
-      },
+  // Prévenir chacun selon son rôle — l'assigné, les participants (qui peuvent agir), les
+  // lecteurs (informés). Une seule notification par personne, jamais au créateur.
+  const notify: { userId: string; title: string }[] = [
+    ...(assignedToId !== user.id ? [{ userId: assignedToId, title: "Nouvelle tâche assignée" }] : []),
+    ...participantIds.map((userId) => ({ userId, title: "Vous participez à une tâche" })),
+    ...readerIds.map((userId) => ({ userId, title: "Une tâche vous est partagée (lecture)" })),
+  ];
+  if (notify.length) {
+    await prisma.notification.createMany({
+      data: notify.map((n) => ({ userId: n.userId, type: "ASSIGNMENT" as const, title: n.title, body: title, link: "/mon-espace" })),
     }).catch(() => undefined);
   }
 
@@ -64,10 +76,12 @@ export async function updateTaskStatus(formData: FormData): Promise<ActionResult
   const status = fdStr(formData, "status") as TaskStatus;
   if (!id || !status) return { ok: false, error: "Paramètres manquants." };
 
-  const task = await prisma.task.findUnique({ where: { id }, select: { assignedToId: true, createdById: true, title: true } });
+  const task = await prisma.task.findUnique({ where: { id }, select: { assignedToId: true, createdById: true, participantIds: true, title: true } });
   if (!task) return { ok: false, error: "Tâche introuvable." };
 
-  const allowed = task.assignedToId === user.id || task.createdById === user.id || hasGlobalView(user.role);
+  // Le responsable, le créateur, un PARTICIPANT (pas un simple lecteur) ou un manager peuvent agir.
+  const allowed = task.assignedToId === user.id || task.createdById === user.id
+    || task.participantIds.includes(user.id) || hasGlobalView(user.role);
   if (!allowed) return { ok: false, error: "Non autorisé." };
 
   await prisma.task.update({
@@ -87,9 +101,9 @@ export async function startTask(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Tâche introuvable." };
-  const task = await prisma.task.findUnique({ where: { id }, select: { assignedToId: true, createdById: true, title: true, startedAt: true } });
+  const task = await prisma.task.findUnique({ where: { id }, select: { assignedToId: true, createdById: true, participantIds: true, title: true, startedAt: true } });
   if (!task) return { ok: false, error: "Tâche introuvable." };
-  if (!(task.assignedToId === user.id || task.createdById === user.id || hasGlobalView(user.role))) return { ok: false, error: "Non autorisé." };
+  if (!(task.assignedToId === user.id || task.createdById === user.id || task.participantIds.includes(user.id) || hasGlobalView(user.role))) return { ok: false, error: "Non autorisé." };
   await prisma.task.update({ where: { id }, data: { startedAt: task.startedAt ?? new Date(), status: "IN_PROGRESS" } });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Espace de travail", entityType: "TASK", entityId: id, summary: `Départ — « ${task.title} »` });
   revalidatePath("/mon-espace");

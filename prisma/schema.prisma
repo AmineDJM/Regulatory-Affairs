@@ -3550,6 +3550,11 @@ model Task {
   description       String?
   assignedToId      String?
   assignedTo        User?       @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  // Personnes associées à la tâche, fixées à la création. Les PARTICIPANTS peuvent agir
+  // (démarrer, terminer) comme le responsable ; les LECTEURS la voient sans pouvoir la changer.
+  // Identifiants bruts (pas de relation) — même patron léger que `Dossier.participantIds`.
+  participantIds    String[]    @default([])
+  readerIds         String[]    @default([])
   createdById       String?
   createdBy         User?       @relation("TaskCreator", fields: [createdById], references: [id])
   dueDate           DateTime?
