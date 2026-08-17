@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Link2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { requireModule } from "@/lib/session";
 import { userCan, scopeRegulatory, isRegulatorySupervisor } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -58,6 +59,14 @@ export default async function RegulatoryPage() {
         description="Suivi des molécules/DCI et de leur avancement réglementaire jusqu'à l'enregistrement."
       >
         <div className="flex flex-wrap items-center gap-2">
+          {/* Le catalogue réglementaire fait RÉFÉRENCE pour les autres modules : c'est donc d'ici
+              qu'on rapproche leurs produits, pas depuis chacun d'eux. Écran de maintenance —
+              atteint depuis Regulatory plutôt que par une entrée de menu de plus. */}
+          <Link href="/regulatory/catalogue">
+            <Button variant="outline" size="sm">
+              <Link2 className="h-4 w-4" /> Catalogue produits
+            </Button>
+          </Link>
           {canCreate && (
             <>
               <SuppliersManager suppliers={supplierList} />

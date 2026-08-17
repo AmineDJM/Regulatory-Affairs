@@ -1250,6 +1250,12 @@ model RegulatoryProduct {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  /// LE CATALOGUE DE RÉFÉRENCE : les autres modules rattachent LEUR produit à celui-ci plutôt que
+  /// de retaper la molécule à leur façon. Le rattachement reste facultatif — beaucoup de produits
+  /// à l'étude n'ont pas encore de dossier — et il est toujours confirmé par une personne.
+  bdProducts    BdProduct[]    @relation("BdProductDossier")
+  promoProducts PromoProduct[] @relation("PromoProductDossier")
+
   @@index([status])
   @@index([priority])
   @@index([responsibleId])
@@ -2978,14 +2984,19 @@ model BdRange {
 }
 
 model BdProduct {
-  custom    Json?
-  id        String     @id @default(cuid())
-  dci       String // DCI / produit
-  brandName String?
-  dosage    String?
-  form      String? // forme galénique
-  sourcing  BdSourcing @default(TO_STUDY)
-  sortOrder Int        @default(0)
+  custom              Json?
+  id                  String             @id @default(cuid())
+  /// LE DOSSIER RÉGLEMENTAIRE CORRESPONDANT, quand quelqu'un l'a confirmé.
+  /// Facultatif et JAMAIS deviné : un produit à l'étude n'a souvent pas encore de dossier, et
+  /// rapprocher automatiquement sur ressemblance confondrait un jour un 500 mg et un 1 g.
+  regulatoryProductId String?
+  regulatoryProduct   RegulatoryProduct? @relation("BdProductDossier", fields: [regulatoryProductId], references: [id], onDelete: SetNull)
+  dci                 String // DCI / produit
+  brandName           String?
+  dosage              String?
+  form                String? // forme galénique
+  sourcing            BdSourcing         @default(TO_STUDY)
+  sortOrder           Int                @default(0)
 
   // Marché
   marketSizeDzd     Decimal? @db.Decimal(18, 2)
@@ -3657,30 +3668,30 @@ model ExpenseOrder {
 /// FileBlob (chiffré, adressé par contenu) ; l'historique dans FileVersion.
 model DriveNode {
   custom      Json?
-  id          String         @id @default(cuid())
+  id          String          @id @default(cuid())
   name        String
   type        DriveNodeType
   parentId    String?
-  parent      DriveNode?     @relation("DriveTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children    DriveNode[]    @relation("DriveTree")
+  parent      DriveNode?      @relation("DriveTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    DriveNode[]     @relation("DriveTree")
   ownerId     String?
-  owner       User?          @relation("DriveOwner", fields: [ownerId], references: [id])
+  owner       User?           @relation("DriveOwner", fields: [ownerId], references: [id])
   // Catégorie/espace partagé (ex. « Promotion Médicale ») auquel ce nœud appartient. null =
   // Drive PERSONNEL (comportement historique). Tout le sous-arbre d'un espace porte le même
   // spaceId (l'invariant est maintenu à la création et au déplacement).
   spaceId     String?
-  space       DriveSpace?    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  space       DriveSpace?     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   mimeType    String? // version courante (fichier)
-  size        Int            @default(0) // octets de la version courante ; 0 pour un dossier
+  size        Int             @default(0) // octets de la version courante ; 0 pour un dossier
   category    String? // classement choisi à l'import (Contrat, Facture, Réglementaire…)
-  isTrashed   Boolean        @default(false)
+  isTrashed   Boolean         @default(false)
   versions    FileVersion[]
   legalDocs   LegalDocument[]
   shares      DriveShare[]
   comments    DriveComment[]
   createdById String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   @@index([parentId])
   @@index([ownerId])
@@ -5032,51 +5043,51 @@ model DeletedRecord {
 }
 
 model AppSetting {
-  id                        String   @id @default("global")
-  maxUploadMb               Int      @default(200) // pièces jointes des modules (Documents/messagerie/RH) — ZIP de dossier
-  maxDriveUploadMb          Int      @default(1024) // fichiers du Drive (~1 Go, stockage en tranches)
-  driveCapacityGb           Int      @default(100) // capacité globale du Drive (modifiable Super Admin)
-  driveUserQuotaGb          Int      @default(10) // quota par utilisateur (modifiable Super Admin)
+  id                            String   @id @default("global")
+  maxUploadMb                   Int      @default(200) // pièces jointes des modules (Documents/messagerie/RH) — ZIP de dossier
+  maxDriveUploadMb              Int      @default(1024) // fichiers du Drive (~1 Go, stockage en tranches)
+  driveCapacityGb               Int      @default(100) // capacité globale du Drive (modifiable Super Admin)
+  driveUserQuotaGb              Int      @default(10) // quota par utilisateur (modifiable Super Admin)
   // Budget total au-dessus des enveloppes : FIXED (montant figé) ou FLEXIBLE
   // (= somme des enveloppes actives). Réglé par le Super Admin.
-  budgetTotalMode           String   @default("FLEXIBLE")
-  budgetFixedTotal          Decimal  @default(0) @db.Decimal(14, 2)
+  budgetTotalMode               String   @default("FLEXIBLE")
+  budgetFixedTotal              Decimal  @default(0) @db.Decimal(14, 2)
   // Onglet Regulatory « Enregistrement » (analyseur de dossier CTD) — masqué tant que
   // le Super Admin ne l'a pas débloqué.
-  regEnrollmentEnabled      Boolean  @default(false)
+  regEnrollmentEnabled          Boolean  @default(false)
   // Rôles « superviseurs Regulatory » (en plus du Super Admin, toujours inclus) : fixent
   // la priorité et les dates cibles, reçoivent les notifications (nouveau dossier / dépôt),
   // et peuvent demander des mises à jour de statut. Configurable en Administration.
-  regulatorySupervisorRoles String[] @default([])
+  regulatorySupervisorRoles     String[] @default([])
   // Segments thérapeutiques que le tableau Regulatory propose (menu déroulant multi-choix de la
   // colonne « Segments »). VIDE = la liste par défaut intégrée. L'administrateur les gère en
   // Administration : le marché d'un groupe pharma n'est pas celui d'un autre.
   regulatoryTherapeuticSegments String[] @default([])
   // Rôles autorisés à CRÉER des « Demandes à Regulatory » (en plus du PRIM, toujours inclus).
   // L'équipe Regulatory RÉPOND mais ne crée pas. Configurable en Administration.
-  regRequestCreatorRoles    String[] @default([])
+  regRequestCreatorRoles        String[] @default([])
   // Rôles autorisés à CRÉER des « catégories » de Drive (espaces partagés type « Promotion
   // Médicale » présentés en onglets à côté de Drive/Documents). En plus du Super Admin,
   // toujours inclus. Configurable en Administration.
-  driveSpaceCreatorRoles    String[] @default([])
+  driveSpaceCreatorRoles        String[] @default([])
   // Rôles autorisés (par le Super Admin) à voir l'onglet « Overview » des Rapports terrain
   // (graphes d'analyse : visites par médecin / hôpital / délégué / spécialité, tendance…).
   // En plus du Super Admin, toujours inclus. Configurable en Administration.
-  fieldReportsOverviewRoles String[] @default([])
+  fieldReportsOverviewRoles     String[] @default([])
   // ORGANIGRAMME — qui a le droit de le CONSULTER (l'édition reste au Super Admin). Les RH en
   // ont besoin au quotidien ; d'autres personnes peuvent y être ajoutées nommément. Un
   // consultant voit toutes les entités ou filtre sur l'une d'elles ; il ne modifie rien.
-  orgChartViewerRoles       String[] @default([])
-  orgChartViewerUserIds     String[] @default([])
+  orgChartViewerRoles           String[] @default([])
+  orgChartViewerUserIds         String[] @default([])
   /// ENREGISTREMENT (CTD) — l'onglet est réservé à l'ADMINISTRATEUR par défaut (liste vide) ;
   /// l'admin peut l'ouvrir à des rôles précis depuis la console.
-  regEnrollmentRoles        String[] @default([])
+  regEnrollmentRoles            String[] @default([])
   // Clés VAPID (Web Push) auto-générées et persistées si non fournies par l'environnement.
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
-  vapidPublicKey            String?
-  vapidPrivateKey           String?
-  updatedAt                 DateTime @updatedAt
-  updatedById               String?
+  vapidPublicKey                String?
+  vapidPrivateKey               String?
+  updatedAt                     DateTime @updatedAt
+  updatedById                   String?
 }
 
 /// Sonde QUOTIDIENNE de l'API IA (chatbot & fonctions IA). Le planificateur interne
@@ -6044,27 +6055,27 @@ enum RegUploadStatus {
 /// finalisation vérifie taille + SHA-256 côté stockage puis produit un FileBlob (inspection
 /// seulement APRÈS finalisation). Quotas par organisation appliqués à la création.
 model RegulatoryUploadSession {
-  id             String          @id @default(cuid())
-  companyId      String
-  dossierId      String?
-  createdById    String
-  filename       String
-  contentType    String?
-  totalBytes     BigInt // taille annoncée (contrôlée à la création : quota + capacité)
-  partSize       Int // taille de partie attendue
-  expectedSha256 String? // SHA-256 annoncé (vérifié à la finalisation si fourni)
-  receivedBytes  BigInt          @default(0)
-  status         RegUploadStatus @default(UPLOADING)
-  blobId         String? // renseigné après finalisation
-  storageKey     String? // clé objet S3/R2 pour l'upload DIRECT (chantier 1) ; null = mode résumable
+  id              String          @id @default(cuid())
+  companyId       String
+  dossierId       String?
+  createdById     String
+  filename        String
+  contentType     String?
+  totalBytes      BigInt // taille annoncée (contrôlée à la création : quota + capacité)
+  partSize        Int // taille de partie attendue
+  expectedSha256  String? // SHA-256 annoncé (vérifié à la finalisation si fourni)
+  receivedBytes   BigInt          @default(0)
+  status          RegUploadStatus @default(UPLOADING)
+  blobId          String? // renseigné après finalisation
+  storageKey      String? // clé objet S3/R2 pour l'upload DIRECT (chantier 1) ; null = mode résumable
   /// Identifiant du téléversement EN PLUSIEURS PARTIES piloté par le navigateur. Renseigné, il
   /// signifie que les parties montent en parallèle vers le bucket et qu'il faudra les recoller
   /// (`CompleteMultipartUpload`) à la finalisation — ou les libérer à l'abandon.
   storageUploadId String?
-  versionId      String? // version de dossier créée à la finalisation
-  error          String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  versionId       String? // version de dossier créée à la finalisation
+  error           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   parts RegulatoryUploadPart[]
 
@@ -6616,17 +6627,21 @@ enum ProductChannel {
 }
 
 model PromoProduct {
-  id             String         @id @default(cuid())
-  name           String
-  code           String?
-  channel        ProductChannel @default(BOTH) // Ville / Hôpital / les deux
-  businessUnitId String?
-  businessUnit   BusinessUnit?  @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
-  managerId      String? // chef de produit (id utilisateur)
-  isActive       Boolean        @default(true)
-  sortOrder      Int            @default(0)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                  String             @id @default(cuid())
+  /// Le dossier réglementaire du produit promu, quand il est confirmé. Même règle que pour
+  /// `BdProduct` : proposé par le rapprochement, validé par une personne, jamais imposé.
+  regulatoryProductId String?
+  regulatoryProduct   RegulatoryProduct? @relation("PromoProductDossier", fields: [regulatoryProductId], references: [id], onDelete: SetNull)
+  name                String
+  code                String?
+  channel             ProductChannel     @default(BOTH) // Ville / Hôpital / les deux
+  businessUnitId      String?
+  businessUnit        BusinessUnit?      @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  managerId           String? // chef de produit (id utilisateur)
+  isActive            Boolean            @default(true)
+  sortOrder           Int                @default(0)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
   forecasts   ProductForecast[]
   assignments PromotionAssignment[]
@@ -7551,41 +7566,41 @@ enum LegalDocStatus {
 /// Drive ne sait pas dire : le titre exact, les dates, l'échéance, qui est en face, et ce qu'il
 /// advient du document (renouvelé, annulé).
 model LegalDocument {
-  custom        Json?
-  id            String          @id @default(cuid())
-  companyId     String?
-  company       Company?        @relation(fields: [companyId], references: [id])
-  reference     String? // référence interne / n° de BC
-  title         String // le titre EXACT, tel qu'il figure sur la pièce
-  kind          LegalDocKind    @default(CONTRACT)
-  counterparty  String? // l'autre partie (fournisseur, client, prestataire)
+  custom         Json?
+  id             String          @id @default(cuid())
+  companyId      String?
+  company        Company?        @relation(fields: [companyId], references: [id])
+  reference      String? // référence interne / n° de BC
+  title          String // le titre EXACT, tel qu'il figure sur la pièce
+  kind           LegalDocKind    @default(CONTRACT)
+  counterparty   String? // l'autre partie (fournisseur, client, prestataire)
   /// Dates FACULTATIVES : beaucoup d'engagements n'ont pas de terme (statuts, police tacite).
   /// `endDate` nul = sans échéance — jamais « expiré », jamais rappelé.
-  startDate     DateTime?
-  endDate       DateTime?
-  status        LegalDocStatus  @default(ACTIVE)
-  amount        Decimal?        @db.Decimal(14, 2)
-  notes         String?
-  cancelledAt   DateTime?
-  cancelReason  String?
+  startDate      DateTime?
+  endDate        DateTime?
+  status         LegalDocStatus  @default(ACTIVE)
+  amount         Decimal?        @db.Decimal(14, 2)
+  notes          String?
+  cancelledAt    DateTime?
+  cancelReason   String?
   /// Chaîne de RENOUVELLEMENT : le nouveau document pointe vers celui qu'il remplace, et
   /// l'ancien passe en RENEWED. On garde les deux — un renouvellement n'efface pas le passé.
-  renewedFromId String?
-  renewedFrom   LegalDocument?  @relation("LegalRenewal", fields: [renewedFromId], references: [id])
-  renewals      LegalDocument[] @relation("LegalRenewal")
+  renewedFromId  String?
+  renewedFrom    LegalDocument?  @relation("LegalRenewal", fields: [renewedFromId], references: [id])
+  renewals       LegalDocument[] @relation("LegalRenewal")
   /// LE FICHIER RESTE DANS LE DRIVE : on le référence, on ne le duplique pas.
-  driveNodeId   String?
-  driveNode     DriveNode?      @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
+  driveNodeId    String?
+  driveNode      DriveNode?      @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
   /// Rattachement à ce qui l'a fait naître (demande Ad & Pro, demande au secrétariat…).
-  sourceType    EntityType?
-  sourceId      String?
+  sourceType     EntityType?
+  sourceId       String?
   /// Dernier rappel d'échéance envoyé — évite de renotifier tous les jours.
   lastRemindedAt DateTime?
-  createdById   String?
-  createdBy     User?           @relation("LegalDocCreator", fields: [createdById], references: [id])
-  updatedById   String?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  createdById    String?
+  createdBy      User?           @relation("LegalDocCreator", fields: [createdById], references: [id])
+  updatedById    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   @@index([companyId, status])
   @@index([kind])
