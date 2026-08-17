@@ -20,6 +20,9 @@ export interface DossierInput {
   assignedToId?: string | null;
   participantIds?: string[];
   dueDate?: Date | null;
+  /** Demande Ad & Pro d'origine (implication de tierce personne) — pour remonter la conversation. */
+  sourceType?: string | null;
+  sourceId?: string | null;
 }
 
 export async function nextDossierRef(): Promise<string> {
@@ -57,6 +60,8 @@ export async function createDossierRecord(input: DossierInput, actorId: string):
       assignedToId,
       participantIds,
       dueDate: input.dueDate ?? null,
+      sourceType: (input.sourceType ?? null) as never,
+      sourceId: input.sourceId ?? null,
       createdById: actorId,
     },
     select: { id: true, reference: true, title: true },

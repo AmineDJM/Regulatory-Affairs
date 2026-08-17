@@ -177,6 +177,8 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
     eventLabel: `Sponsoring ${req.reference} — ${req.institution}`,
     moduleLabel: "Ad & Pro",
     note: fdStr(formData, "note"),
+    sourceType: "SPONSORING",
+    sourceId: id,
   });
   if (!res.ok) return { ok: false, error: res.error };
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Tierce personne impliquée — ${req.reference}` });

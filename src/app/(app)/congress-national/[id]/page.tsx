@@ -14,6 +14,7 @@ import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { type DocItem } from "@/components/documents/document-list";
 import { CONGRESS_REQUEST_STATUS } from "@/lib/labels";
 import { CongressDetailView } from "../../congress-international/congress-detail-view";
+import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { toNumber } from "@/lib/utils";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
@@ -118,6 +119,8 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
         canUpload={canUpload} canDelete={canDelete} path={`/congress-national/${detail.id}`}
         missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions}
         currentUserId={user.id}
+        involvementThreads={await getInvolvementThreads("CONGRESS_NATIONAL", detail.id)}
+        canModerate={hasGlobalView(user)}
         itemsPanel={
           <AdProItemsPanel
             parent="CONGRESS_NATIONAL"

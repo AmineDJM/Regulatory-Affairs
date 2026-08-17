@@ -19,6 +19,8 @@ import { SPONSORING_STATUS, PRIORITY } from "@/lib/labels";
 import { WorkflowPanel } from "@/components/workflow/workflow-panel";
 import { AppealPanel } from "./decision-panel";
 import { ThirdPartyButton } from "./third-party-button";
+import { InvolvementConversations } from "@/components/ad-pro/involvement-conversations";
+import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
@@ -71,11 +73,12 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   ]);
   const decided = ["APPROVED", "ACCEPTED", "PAID", "CLOSED"].includes(req.status);
 
-  const [missions, canManageMissions, missionUsers, workflow] = await Promise.all([
+  const [missions, canManageMissions, missionUsers, workflow, involvementThreads] = await Promise.all([
     getEntityMissions("SPONSORING", req.id),
     canAccessEntity(user, "SPONSORING", req.id, "UPDATE"),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getWorkflowForEntity(user, "SPONSORING", req.id, req.requesterId),
+    getInvolvementThreads("SPONSORING", req.id),
   ]);
 
   // L'appel du délégué reste une action propre au sponsoring (après décision).
@@ -221,6 +224,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
           </Card>
         </div>
       </div>
+      <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
     </div>
   );
 }

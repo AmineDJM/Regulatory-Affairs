@@ -12,6 +12,8 @@ import { WorkflowPanel } from "@/components/workflow/workflow-panel";
 import type { WorkflowView } from "@/lib/queries/workflow";
 import { BeneficiariesCard } from "./beneficiaries-card";
 import { ThirdPartyInvolveButton } from "@/components/shared/third-party-involve";
+import { InvolvementConversations } from "@/components/ad-pro/involvement-conversations";
+import type { InvolvementThread } from "@/lib/queries/involvement";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import type { MissionAssignmentDTO } from "@/lib/queries/missions";
 
@@ -19,7 +21,7 @@ const CONGRESS_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE"
 
 export function CongressDetailView({
   detail, workflow, canInvolveThirdParty, entityType, entityId, documents, canUpload, canDelete, path,
-  missions, missionUsers, canManageMissions, currentUserId, itemsPanel,
+  missions, missionUsers, canManageMissions, currentUserId, itemsPanel, involvementThreads = [], canModerate = false,
 }: {
   detail: CongressDetail;
   workflow: WorkflowView | null;
@@ -38,10 +40,14 @@ export function CongressDetailView({
       Un emplacement plutôt qu'un branchement en dur : la vue n'a pas à connaître les postes,
       et l'international ne change pas d'un pixel. */
   itemsPanel?: React.ReactNode;
+  /** Conversations avec les tierces personnes impliquées — remontées SOUS la demande. */
+  involvementThreads?: InvolvementThread[];
+  canModerate?: boolean;
 }) {
   const d = detail;
 
   return (
+    <div className="space-y-5">
     <div className="grid gap-5 lg:grid-cols-3">
       <div className="space-y-5 lg:col-span-2">
         <Card>
@@ -144,6 +150,8 @@ export function CongressDetailView({
           </CardContent>
         </Card>
       </div>
+    </div>
+    <InvolvementConversations threads={involvementThreads} currentUserId={currentUserId} canManage={canModerate} />
     </div>
   );
 }

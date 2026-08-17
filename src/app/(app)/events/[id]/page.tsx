@@ -15,6 +15,8 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { EditEventButton } from "../event-form";
 import { EventFundingPanel } from "./funding-panel";
 import { ThirdPartyInvolveButton } from "@/components/shared/third-party-involve";
+import { InvolvementConversations } from "@/components/ad-pro/involvement-conversations";
+import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { getEntityMissions } from "@/lib/queries/missions";
 import { getWorkflowForEntity } from "@/lib/queries/workflow";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
@@ -63,7 +65,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
     { requesterId: e.requesterId ?? null, decided: eventDecided },
   );
   const eventEditValues = canEditEventRequest ? await adProEditValues("EVENT", e.id) : null;
-  const [responsibles, missions, workflow, pmCandidates, documents] = await Promise.all([
+  const [responsibles, missions, workflow, pmCandidates, documents, involvementThreads] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
     getWorkflowForEntity(user, "EVENT", e.id, null),
@@ -71,6 +73,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
       ? prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : Promise.resolve([]),
     prisma.document.findMany({ where: { entityType: "EVENT", entityId: e.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
+    getInvolvementThreads("EVENT", e.id),
   ]);
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
@@ -196,6 +199,8 @@ export default async function EventDetailPage({ params }: { params: { id: string
           </CardContent>
         </Card>
       )}
+
+      <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
 
       <MissionAssignmentsCard
         entityType="EVENT"

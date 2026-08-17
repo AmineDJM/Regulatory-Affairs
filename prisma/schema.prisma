@@ -2586,6 +2586,12 @@ model Dossier {
   assignedToId   String? // responsable principal
   assignedTo     User?            @relation("DossierAssignee", fields: [assignedToId], references: [id])
   participantIds String[]         @default([]) // collaborateurs additionnels (userIds)
+  /// OBJET D'ORIGINE quand ce dossier est né d'une implication de tierce personne sur une
+  /// demande Ad & Pro (congrès, événement) : c'est ce qui permet de faire remonter la
+  /// conversation À L'ENDROIT de la demande, au lieu de la laisser dans un projet à part que le
+  /// demandeur oublie d'ouvrir.
+  sourceType     EntityType?
+  sourceId       String?
   dueDate        DateTime?
   messages       DossierMessage[]
   createdAt      DateTime         @default(now())
@@ -2595,6 +2601,7 @@ model Dossier {
   @@index([createdById])
   @@index([assignedToId])
   @@index([companyId])
+  @@index([sourceType, sourceId])
 }
 
 model DossierMessage {

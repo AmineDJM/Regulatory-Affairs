@@ -23,6 +23,9 @@ interface InvolveThirdPartyInput {
   moduleLabel?: string;
   /** Message libre du demandeur (optionnel) — ne doit pas contenir de budget. */
   note?: string | null;
+  /** Demande d'origine (EVENT / CONGRESS_*) — pour remonter la conversation à son endroit. */
+  sourceType?: string | null;
+  sourceId?: string | null;
 }
 
 export async function involveThirdParty(input: InvolveThirdPartyInput): Promise<{ ok: boolean; error?: string; dossierId?: string }> {
@@ -37,6 +40,8 @@ export async function involveThirdParty(input: InvolveThirdPartyInput): Promise<
       description: input.note?.trim() || "Vous êtes sollicité(e) pour cet événement. Merci d'apporter votre avis / contribution depuis votre espace.",
       category: "Implication",
       assignedToId: personId,
+      sourceType: input.sourceType ?? null,
+      sourceId: input.sourceId ?? null,
     },
     input.actorId,
   );

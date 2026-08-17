@@ -378,6 +378,8 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
     eventLabel: `${NOUN(t)} — ${c.name}`,
     moduleLabel: t === "EVENT" ? "Événements" : "Ad & Pro",
     note: fdStr(formData, "note"),
+    sourceType: entityFor(t),
+    sourceId: id,
   });
   if (!res.ok) return { ok: false, error: res.error };
   await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Tierce personne impliquée — ${c.name}` });
