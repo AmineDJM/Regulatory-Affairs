@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ExternalLink, Paperclip } from "lucide-react";
+import { ExternalLink, Paperclip, Banknote } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { accessibleModules } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -23,6 +23,7 @@ import { SupervisionBoard } from "./supervision-board";
 import { supervisionCounters } from "@/lib/validation-supervision";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { DocumentList } from "@/components/documents/document-list";
+import { NewPaymentButton } from "./new-payment-button";
 
 export default async function ValidationsPage() {
   const user = await requireModule("VALIDATIONS");
@@ -81,7 +82,22 @@ export default async function ValidationsPage() {
           action={createValidationRequest}
           fields={requestFields}
         />
+        {/* Un paiement n'est pas une validation ordinaire : il a un montant, un bénéficiaire, une
+            échéance, et une discussion PIÈCE PAR PIÈCE avec les Finances. Il a donc sa porte. */}
+        <NewPaymentButton people={people} />
       </PageHeader>
+
+      <Link
+        href="/validations/paiements"
+        className="surface flex items-center justify-between gap-3 p-3 text-sm transition-colors hover:bg-secondary/40"
+      >
+        <span className="flex items-center gap-2 font-medium">
+          <Banknote className="h-4 w-4 text-primary" /> Demandes de paiement
+        </span>
+        <span className="text-xs text-muted-foreground">
+          Le dossier qui part aux Finances : factures, bons de commande, montant, échéance — instruits pièce par pièce.
+        </span>
+      </Link>
 
       {/* Les chiffres du haut répondent à « qu'est-ce qui m'attend ? » puis, pour la Direction,
           à « qu'est-ce qui est en retard, et où ? » — pas à « combien en ai-je envoyé ». */}

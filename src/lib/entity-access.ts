@@ -56,6 +56,10 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   // interlocuteurs. Le repli sur « Mon espace » ne sert que si le contrôle nominatif
   // ci-dessous ne s'applique pas.
   DOCUMENT_REQUEST: "WORKSPACE",
+  // Une demande de paiement se dépose depuis le bureau de validation et s'instruit aux
+  // Finances : c'est le module de validation qui en gouverne l'accès, le contrôle nominatif
+  // ci-dessous faisant le reste.
+  PAYMENT_REQUEST: "VALIDATIONS",
   HR_REQUEST: "RH",
   EVENT: "EVENTS",
   // Polymorphe : l'accès réel est résolu spécifiquement (assigné ou entité parente).

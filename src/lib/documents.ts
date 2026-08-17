@@ -38,7 +38,7 @@ export interface PersistDocInput {
 export async function persistUploadedDocument(
   userId: string,
   input: PersistDocInput,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; documentId?: string }> {
   const { entityType, entityId, category, confidentiality, stepKey, file } = input;
   if (!file || file.size === 0) return { ok: false, error: "Fichier vide." };
 
@@ -61,9 +61,13 @@ export async function persistUploadedDocument(
   // Toute erreur d'écriture est CAPTURÉE et renvoyée telle quelle (jamais une 500 opaque) : le
   // widget de téléversement affiche alors la vraie cause, et un fichier fautif ne fait pas échouer
   // le lot entier.
+  let documentId: string;
   try {
     const previous = await prisma.document.count({ where: { entityType, entityId, name: file.name } });
-    await prisma.document.create({
+    // L'identifiant est RENDU : un appelant qui rattache la pièce à un objet métier (une pièce de
+    // dossier de paiement, par exemple) ne doit pas avoir à la retrouver « la plus récente », ce
+    // qui se trompe dès que deux fichiers partent en même temps.
+    const created = await prisma.document.create({
       data: {
         name: file.name,
         category,
@@ -77,7 +81,9 @@ export async function persistUploadedDocument(
         confidentiality,
         uploadedById: userId,
       },
+      select: { id: true },
     });
+    documentId = created.id;
   } catch (err) {
     console.error("[upload] document.create failed", { name: file.name, entityType, entityId }, err);
     const msg = err instanceof Error ? err.message : String(err);
@@ -100,5 +106,5 @@ export async function persistUploadedDocument(
     void mirrorDocumentsToDrive({ ownerId: userId, entityType, entityId, files: [{ name: file.name, data, mime: file.type || null }] })
       .catch((e) => console.error("[upload] miroir Drive échoué (non bloquant)", e));
   }
-  return { ok: true };
+  return { ok: true, documentId };
 }

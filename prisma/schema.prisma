@@ -381,6 +381,7 @@ enum EntityType {
   AD_PRO_OTHER
   AD_PRO_ITEM
   DOCUMENT_REQUEST
+  PAYMENT_REQUEST
 }
 
 enum DocumentCategory {
@@ -1126,6 +1127,7 @@ model Company {
   promoMaterials          PromoMaterial[]
   consultingContracts     ConsultingContract[]
   adProOtherRequests      AdProOtherRequest[]
+  paymentRequests         PaymentRequest[]
   promoStockItems         PromoStockItem[]
   medicalDoctors          MedicalDoctor[]
   financeTransactions     FinanceTransaction[]
@@ -7314,4 +7316,162 @@ model DocumentRequest {
   @@index([askedToId, status])
   @@index([askedById, status])
   @@index([entityType, entityId])
+}
+
+// ═══════════════════════ DEMANDE DE PAIEMENT ═══════════════════════
+
+/// L'état d'une demande de paiement, du point de vue de celui qui attend son argent.
+/// « En attente » n'est pas « refusée » : la première reviendra, la seconde non — et
+/// les confondre, c'est relancer les finances pour rien ou laisser mourir un dossier.
+enum PaymentRequestStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  ON_HOLD
+  CHANGES_REQUESTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// À défaut de date convenue, l'URGENCE. Une demande sans échéance n'est pas une demande
+/// sans priorité — et sans ce champ, elle finit systématiquement au bas de la pile.
+enum PaymentUrgency {
+  WHEN_POSSIBLE
+  THIS_MONTH
+  THIS_WEEK
+  URGENT
+}
+
+/// La nature d'une pièce du dossier. Les finances ne cherchent pas « la pièce n° 3 » :
+/// elles cherchent LA FACTURE, et le bon de commande qui la justifie.
+enum PaymentPieceKind {
+  INVOICE
+  PURCHASE_ORDER
+  QUOTE
+  DELIVERY_NOTE
+  CONTRACT
+  PROOF
+  OTHER
+}
+
+/// Le verdict des finances sur UNE pièce. Refuser tout un dossier parce qu'une facture
+/// est illisible oblige à tout redéposer — ici, on ne reprend que ce qui est en cause.
+enum PaymentPieceStatus {
+  PENDING
+  ACCEPTED
+  CHANGES_REQUESTED
+  REJECTED
+}
+
+/// DEMANDE DE PAIEMENT — le dossier qui part aux Finances.
+///
+/// Elle porte ce qui décide d'un paiement : un montant, un bénéficiaire, une échéance
+/// (ou, à défaut, une urgence), et LES PIÈCES qui le justifient. Ce n'est pas une
+/// validation ordinaire : la discussion se tient **pièce par pièce**, elle repart
+/// autant de fois qu'il le faut, et le dossier reste vivant entre les tours.
+model PaymentRequest {
+  id          String  @id @default(cuid())
+  reference   String  @unique // PAY-2026-001
+  title       String
+  description String?
+
+  amount Decimal @db.Decimal(14, 2)
+  /// À QUI l'argent va — fournisseur, prestataire, praticien.
+  payee  String
+
+  /// Interlocuteur désigné aux Finances. Vide = tout le pôle est prévenu : une demande
+  /// adressée à une personne absente ne doit pas dormir jusqu'à son retour.
+  recipientId String?
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id])
+
+  /// L'échéance CONVENUE, quand elle existe.
+  dueDate DateTime?
+  /// À défaut de date : le degré d'urgence, discuté.
+  urgency PaymentUrgency @default(WHEN_POSSIBLE)
+
+  status      PaymentRequestStatus @default(DRAFT)
+  requesterId String
+
+  /// Objet d'origine (poste de dépense, contrat de consulting…) — facultatif.
+  entityType EntityType?
+  entityId   String?
+  link       String?
+
+  decidedById  String?
+  decidedAt    DateTime?
+  decisionNote String?
+  /// Motif de la mise en attente — sans lui, « en attente » ne dit rien à personne.
+  holdReason   String?
+
+  /// Ordre de dépense créé une fois le bon à payer donné.
+  expenseOrderId String?
+
+  submittedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  pieces PaymentPiece[]
+  events PaymentRequestEvent[]
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([recipientId, status])
+}
+
+/// UNE PIÈCE DU DOSSIER, avec sa conversation propre.
+///
+/// Le commentaire du demandeur (`note`) et celui des finances (`reviewNote`) vivent côte à
+/// côte : « voici la facture, le montant TTC inclut la livraison » appelle une réponse sur
+/// CETTE pièce, pas un message général qu'il faudra rattacher de tête.
+model PaymentPiece {
+  id         String           @id @default(cuid())
+  requestId  String
+  request    PaymentRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  /// Le Document réel (blob chiffré, versionné) — jamais recopié ici.
+  documentId String
+  kind       PaymentPieceKind @default(OTHER)
+
+  /// Ce que le DEMANDEUR dit de cette pièce.
+  note String?
+
+  status       PaymentPieceStatus @default(PENDING)
+  /// Ce que les FINANCES répondent sur cette pièce.
+  reviewNote   String?
+  reviewedById String?
+  reviewedAt   DateTime?
+
+  /// Reprise : la pièce qui remplace celle-ci après un refus. On ne supprime pas
+  /// l'originale — c'est elle qui explique pourquoi il y a eu un second tour.
+  replacesId String?       @unique
+  replaces   PaymentPiece? @relation("PieceRevision", fields: [replacesId], references: [id], onDelete: SetNull)
+  replacedBy PaymentPiece? @relation("PieceRevision")
+
+  position    Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([requestId, position])
+  @@index([documentId])
+}
+
+/// LE FIL DE LA DEMANDE — chaque geste laisse une trace lisible, dans l'ordre.
+/// Un dossier qui a fait trois allers-retours doit pouvoir se relire : sans le fil, on ne
+/// sait plus si la facture a été refusée avant ou après le changement de montant.
+model PaymentRequestEvent {
+  id        String         @id @default(cuid())
+  requestId String
+  request   PaymentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actorId   String?
+  /// Geste posé : SUBMIT, HOLD, RESUME, APPROVE, REJECT, CHANGES, COMMENT, PIECE_ADDED,
+  /// PIECE_REVIEWED, VALIDATION_ASKED.
+  kind      String
+  message   String?
+  /// Pièce concernée, quand le geste en vise une.
+  pieceId   String?
+  at        DateTime       @default(now())
+
+  @@index([requestId, at])
 }
