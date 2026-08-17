@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-export async function POST(_req: NextRequest, { params }: { params: { sessionId: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { sessionId: string } }) {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
@@ -20,7 +20,15 @@ export async function POST(_req: NextRequest, { params }: { params: { sessionId:
     const companyId = await resolveRegCompanyId(getCompanyScope());
     if (!companyId) return NextResponse.json({ error: "Module non activé." }, { status: 403 });
 
-    const r = await finalizeDirectUploadSession(params.sessionId, companyId, user.id);
+    // MULTIPART : le navigateur renvoie l'empreinte (ETag) de chaque partie, dans l'ordre. Sans
+    // elles, S3 refuse de recoller le fichier. Corps absent = envoi en un seul PUT, rien à lire.
+    let etags: string[] | undefined;
+    try {
+      const body = (await req.json()) as { etags?: unknown };
+      if (Array.isArray(body?.etags)) etags = body.etags.map((e) => String(e));
+    } catch { /* pas de corps : envoi simple */ }
+
+    const r = await finalizeDirectUploadSession(params.sessionId, companyId, user.id, etags);
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 422 });
     return NextResponse.json({ ok: true, summary: r.ingest?.summary ?? null });
   } catch (err) {

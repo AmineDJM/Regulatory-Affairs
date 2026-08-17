@@ -89,13 +89,16 @@ export function hostAndPath(cfg: S3Config, key: string): { protocol: string; hos
  * URL PRÉSIGNÉE pour un PUT (téléversement direct navigateur → bucket). Signature par query string,
  * `UNSIGNED-PAYLOAD`, seul l'en-tête `host` signé → le navigateur envoie juste le corps. Null si non configuré.
  */
-export function presignPutUrl(key: string, expiresSec = 3600): string | null {
+export function presignPutUrl(key: string, expiresSec = 3600, extraQuery: Record<string, string> = {}): string | null {
   const cfg = config();
   if (!cfg) return null;
   const { protocol, host, resourcePath } = hostAndPath(cfg, key);
   const { amz, date } = amzDate(new Date());
   const scope = `${date}/${cfg.region}/${SERVICE}/aws4_request`;
   const params: Record<string, string> = {
+    // `extraQuery` d'abord : les paramètres de l'opération (`partNumber`, `uploadId`) entrent dans
+    // la requête canonique au même titre que les autres, et ne peuvent pas écraser la signature.
+    ...extraQuery,
     "X-Amz-Algorithm": ALGO,
     "X-Amz-Credential": `${cfg.accessKeyId}/${scope}`,
     "X-Amz-Date": amz,
@@ -110,6 +113,20 @@ export function presignPutUrl(key: string, expiresSec = 3600): string | null {
   const stringToSign = [ALGO, amz, scope, sha256hex(canonicalRequest)].join("\n");
   const signature = createHmac("sha256", signingKey(cfg, date)).update(stringToSign).digest("hex");
   return `${protocol}//${host}${resourcePath}?${canonicalQuery}&X-Amz-Signature=${signature}`;
+}
+
+/**
+ * URL PRÉSIGNÉE D'UNE PARTIE — c'est elle qui permet au NAVIGATEUR de faire du multipart.
+ *
+ * Le serveur ouvre le téléversement et le referme ; entre les deux, le navigateur envoie les
+ * parties EN PARALLÈLE, directement au bucket. Aucun octet ne transite par l'application : ni la
+ * mémoire du serveur, ni sa bande passante, ni Postgres ne sont sur le chemin.
+ *
+ * ⚠️ Le bucket doit exposer l'en-tête `ETag` en CORS (`ExposeHeaders: ETag`) : sans lui, le
+ * navigateur ne peut pas lire l'empreinte de chaque partie, et la finalisation est impossible.
+ */
+export function presignUploadPartUrl(key: string, uploadId: string, partNumber: number, expiresSec = 3600): string | null {
+  return presignPutUrl(key, expiresSec, { partNumber: String(partNumber), uploadId });
 }
 
 /** Requête S3 signée (en-tête Authorization SigV4) — GET/PUT/DELETE côté serveur. */
@@ -236,7 +253,7 @@ export async function uploadPartsBounded(
   return etags;
 }
 
-async function createMultipartUpload(key: string, contentType: string): Promise<string> {
+export async function createMultipartUpload(key: string, contentType: string): Promise<string> {
   const res = await signedRequestQ("POST", key, { uploads: "" }, undefined, contentType);
   const xml = await res.text();
   if (!res.ok) throw new Error(`Ouverture du téléversement échouée (${res.status}${s3ErrorCode(xml) ? ` ${s3ErrorCode(xml)}` : ""}).`);
@@ -257,7 +274,7 @@ async function uploadPart(key: string, uploadId: string, partNumber: number, bod
   return etag;
 }
 
-async function completeMultipartUpload(key: string, uploadId: string, etags: string[]): Promise<void> {
+export async function completeMultipartUpload(key: string, uploadId: string, etags: string[]): Promise<void> {
   const body = Buffer.from(
     `<CompleteMultipartUpload>${etags
       .map((etag, i) => `<Part><PartNumber>${i + 1}</PartNumber><ETag>${etag}</ETag></Part>`)
@@ -274,7 +291,7 @@ async function completeMultipartUpload(key: string, uploadId: string, etags: str
 }
 
 /** Abandonne un téléversement entamé — libère les parties déjà envoyées. Ne lève jamais. */
-async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
   try {
     await signedRequestQ("DELETE", key, { uploadId });
   } catch (err) {

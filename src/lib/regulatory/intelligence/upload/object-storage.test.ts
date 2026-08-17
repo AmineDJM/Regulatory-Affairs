@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { intoParts, uploadPartsBounded, hostAndPath, objectStorageConfigured, presignPutUrl, _deriveSigningKeyHex, parseBucketNames, euJurisdictionHost } from "./object-storage";
+import { intoParts, uploadPartsBounded, hostAndPath, objectStorageConfigured, presignPutUrl, presignUploadPartUrl, _deriveSigningKeyHex, parseBucketNames, euJurisdictionHost } from "./object-storage";
 
 /**
  * Vérifie la signature SigV4 faite main (chantier 1 — upload direct S3/R2) SANS bucket réel :
@@ -50,6 +50,34 @@ describe("object-storage — SigV4 (S3/R2), sans dépendance SDK", () => {
     expect(u.searchParams.get("X-Amz-Credential")).toContain("AKIAEXAMPLE/");
     expect(u.searchParams.get("X-Amz-Credential")).toContain("/auto/s3/aws4_request");
     expect(u.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("URL présignée d'une PARTIE — les paramètres de l'opération sont SIGNÉS, pas ajoutés après", () => {
+    // Le piège du multipart présigné : coller « ?partNumber=… » à une URL déjà signée produit une
+    // signature qui ne couvre pas ces paramètres, et S3 répond 403 — un échec qu'on met des heures
+    // à attribuer à la bonne cause. Ils doivent entrer dans la requête canonique.
+    process.env.REG_S3_ENDPOINT = "https://acct.r2.cloudflarestorage.com";
+    process.env.REG_S3_BUCKET = "ctd";
+    process.env.REG_S3_ACCESS_KEY_ID = "AKIAEXAMPLE";
+    process.env.REG_S3_SECRET_ACCESS_KEY = "secretexample";
+    process.env.REG_S3_REGION = "auto";
+
+    const url = presignUploadPartUrl("reg-uploads/co/abc.zip", "UPLOAD-ID-42", 7, 3600);
+    expect(url).toBeTruthy();
+    const u = new URL(url!);
+    expect(u.searchParams.get("partNumber")).toBe("7");
+    expect(u.searchParams.get("uploadId")).toBe("UPLOAD-ID-42");
+    expect(u.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
+
+    // La preuve que les paramètres sont bien SIGNÉS : changer le seul numéro de partie change
+    // la signature. S'ils étaient collés après coup, elle serait identique.
+    const other = new URL(presignUploadPartUrl("reg-uploads/co/abc.zip", "UPLOAD-ID-42", 8, 3600)!);
+    expect(other.searchParams.get("X-Amz-Signature")).not.toBe(u.searchParams.get("X-Amz-Signature"));
+  });
+
+  it("une partie présignée sans stockage configuré rend null, comme le PUT simple", () => {
+    for (const k of ENV_KEYS) delete process.env[k];
+    expect(presignUploadPartUrl("k", "u", 1)).toBeNull();
   });
 
   it("parseBucketNames — extrait les noms de bucket, ignore le DisplayName du propriétaire", () => {

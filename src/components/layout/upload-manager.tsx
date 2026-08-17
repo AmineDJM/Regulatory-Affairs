@@ -49,6 +49,8 @@ function putPartXhr(
   // Rend la requête INTERROMPABLE : sans cette prise, annuler n'arrêterait rien tant que la
   // tranche en vol (jusqu'à plusieurs Mo) n'aurait pas fini de monter.
   onOpen?: (xhr: XMLHttpRequest) => void,
+  // Reçoit l'ETag renvoyé par le bucket — indispensable pour recoller un envoi multipart.
+  onEtag?: (etag: string) => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -57,7 +59,17 @@ function putPartXhr(
     xhr.timeout = timeoutMs;
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) onLoaded(e.loaded); };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        if (onEtag) {
+          // ⚠️ Lisible seulement si le bucket expose `ETag` en CORS (`ExposeHeaders: ETag`).
+          // Sans lui, on ne peut pas recoller les parties — le message doit le dire, sinon on
+          // cherche l'erreur du côté du réseau pendant des heures.
+          const etag = xhr.getResponseHeader("ETag") ?? xhr.getResponseHeader("etag") ?? "";
+          if (!etag) return reject(new Error("le stockage n'expose pas l'en-tête ETag (règle CORS « ExposeHeaders: ETag » manquante)"));
+          onEtag(etag);
+        }
+        return resolve();
+      }
       let msg = `code ${xhr.status}`;
       try { msg = JSON.parse(xhr.responseText)?.error ?? msg; } catch { /* corps non-JSON */ }
       reject(new Error(msg));
@@ -79,13 +91,20 @@ async function readJsonSafe<T extends { ok?: boolean; error?: string; retryable?
   catch { return { ok: false, error: `Réponse serveur illisible (code ${res.status}).`, retryable: true } as T; }
 }
 
-async function postJsonWithRetry<T extends { ok?: boolean; error?: string; retryable?: boolean }>(url: string, attempts = 6): Promise<T> {
+async function postJsonWithRetry<T extends { ok?: boolean; error?: string; retryable?: boolean }>(
+  url: string, attempts = 6, body?: unknown,
+): Promise<T> {
   let lastErr = "Échec réseau";
   for (let attempt = 0; attempt < attempts; attempt++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 300_000);
     let res: Response | null = null;
-    try { res = await fetch(url, { method: "POST", signal: ctrl.signal }); }
+    try {
+      res = await fetch(url, {
+        method: "POST", signal: ctrl.signal,
+        ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+      });
+    }
     catch { lastErr = "réseau"; }
     finally { clearTimeout(timer); }
     if (res) {
@@ -174,10 +193,74 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       }
       bailIfCancelled();
       if (!open) throw new Error(`Ouverture de session impossible : ${openErr} (${OPEN_ATTEMPTS} tentatives). Relancez le même fichier pour reprendre.`);
-      const meta = await readJsonSafe<{ ok?: boolean; error?: string; mode?: string; uploadUrl?: string; sessionId?: string; partSize?: number; expectedParts?: number; receivedIndices?: number[]; concurrency?: number }>(open);
+      const meta = await readJsonSafe<{ ok?: boolean; error?: string; mode?: string; uploadUrl?: string; sessionId?: string; partSize?: number; expectedParts?: number; receivedIndices?: number[]; concurrency?: number; partUrls?: string[] }>(open);
       if (!open.ok || meta.error) throw new Error(meta.error ?? "Ouverture de session refusée.");
       // Dès qu'on la connaît : c'est elle que l'annulation ira faire effacer côté serveur.
       if (meta.sessionId) sessionOf.current.set(dossierId, meta.sessionId);
+
+      // ── ENVOI DIRECT EN PLUSIEURS PARTIES, EN PARALLÈLE ──
+      //
+      // C'est le chemin le plus rapide qui existe pour ce fichier : les octets vont du navigateur
+      // AU BUCKET, sans passer par l'application ni par Postgres, et plusieurs parties montent de
+      // front. Un flux unique n'utilise qu'une fraction du débit disponible — sa fenêtre de
+      // congestion met des dizaines de secondes à s'ouvrir et le moindre paquet perdu la divise.
+      // Corollaire honnête : au-delà, c'est la bande passante MONTANTE du poste qui décide, et
+      // aucune technologie ne la dépasse.
+      if (meta.mode === "direct-multipart" && meta.partUrls?.length && meta.sessionId && meta.partSize) {
+        const urls = meta.partUrls;
+        const partSize = meta.partSize;
+        const etags = new Array<string>(urls.length);
+        const loaded = new Array<number>(urls.length).fill(0);
+        let shown = 0;
+        const refresh = () => {
+          const pct = Math.min(99, Math.round((loaded.reduce((a, b) => a + b, 0) / file.size) * 100));
+          // Barre MONOTONE : une partie renvoyée remet son compteur à zéro ; reculer donnerait
+          // l'impression que le travail est perdu, alors qu'il est simplement rejoué.
+          if (pct > shown) shown = pct;
+          setProgress(shown);
+        };
+
+        const sendPart = async (i: number): Promise<void> => {
+          const blob = file.slice(i * partSize, Math.min((i + 1) * partSize, file.size));
+          const ATTEMPTS = 5;
+          let lastErr = "";
+          for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+            bailIfCancelled();
+            try {
+              await putPartXhr(urls[i], blob, (l) => { loaded[i] = l; refresh(); }, 30 * 60_000, "",
+                (x) => track(dossierId, x), (etag) => { etags[i] = etag; });
+              loaded[i] = blob.size; refresh(); return;
+            } catch (e) {
+              if (e instanceof UploadCancelled) throw e;
+              loaded[i] = 0; refresh();
+              lastErr = e instanceof Error ? e.message : "échec";
+              if (attempt < ATTEMPTS - 1) await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+            }
+          }
+          throw new Error(`Partie ${i + 1}/${urls.length} : ${lastErr}.`);
+        };
+
+        const pool = Math.max(1, Math.min(meta.concurrency ?? 6, urls.length));
+        let cursor = 0;
+        const worker = async (): Promise<void> => { while (cursor < urls.length) { const i = cursor++; await sendPart(i); } };
+        const startedAt = Date.now();
+        await Promise.all(Array.from({ length: pool }, () => worker()));
+        bailIfCancelled();
+        setProgress(100);
+        const seconds = (Date.now() - startedAt) / 1000;
+        console.info(`[upload] ${(file.size / 1048576).toFixed(0)} Mo en ${seconds.toFixed(1)} s — ${(file.size / 1048576 / Math.max(seconds, 0.001)).toFixed(1)} Mo/s (${urls.length} parties × ${pool} en parallèle)`);
+
+        patch(dossierId, { phase: "processing" });
+        const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: UploadSummary }>(
+          `/api/regulatory/intelligence/upload/direct/${meta.sessionId}/finalize`, 45, { etags },
+        );
+        if (!data.ok) throw new Error(data.error ?? "Finalisation refusée.");
+        patch(dossierId, { phase: "done", summary: data.summary ?? null });
+        void forgetUpload(dossierId);
+        fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
+        router.refresh();
+        return;
+      }
 
       // Envoi DIRECT vers le bucket (si configuré).
       if (meta.mode === "direct" && meta.uploadUrl && meta.sessionId) {

@@ -6057,6 +6057,10 @@ model RegulatoryUploadSession {
   status         RegUploadStatus @default(UPLOADING)
   blobId         String? // renseigné après finalisation
   storageKey     String? // clé objet S3/R2 pour l'upload DIRECT (chantier 1) ; null = mode résumable
+  /// Identifiant du téléversement EN PLUSIEURS PARTIES piloté par le navigateur. Renseigné, il
+  /// signifie que les parties montent en parallèle vers le bucket et qu'il faudra les recoller
+  /// (`CompleteMultipartUpload`) à la finalisation — ou les libérer à l'abandon.
+  storageUploadId String?
   versionId      String? // version de dossier créée à la finalisation
   error          String?
   createdAt      DateTime        @default(now())

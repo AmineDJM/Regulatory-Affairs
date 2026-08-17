@@ -34,6 +34,15 @@ export async function POST(req: NextRequest) {
       contentType: body.contentType ?? null, totalBytes: Number(body.totalBytes), expectedSha256: body.sha256 ?? null,
     });
     if (!d.ok) return NextResponse.json({ error: d.error }, { status: 422 });
+    // MULTIPART : le navigateur reçoit une URL présignée PAR PARTIE et les envoie EN PARALLÈLE.
+    // C'est ce qui fait la différence de débit sur un gros dossier — un flux unique n'utilise
+    // qu'une fraction du lien disponible.
+    if (d.partUrls?.length) {
+      return NextResponse.json({
+        ok: true, mode: "direct-multipart", sessionId: d.sessionId,
+        partUrls: d.partUrls, partSize: d.partSize, concurrency: d.concurrency, maxTotalBytes: MAX_TOTAL_BYTES,
+      });
+    }
     return NextResponse.json({ ok: true, mode: "direct", sessionId: d.sessionId, uploadUrl: d.uploadUrl, maxTotalBytes: MAX_TOTAL_BYTES });
   }
 

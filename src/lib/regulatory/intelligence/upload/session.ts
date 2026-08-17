@@ -6,7 +6,10 @@ import { createWriteStream } from "fs";
 import { prisma } from "@/lib/prisma";
 import { ingestDossierZip, ingestDossierZipFromFile, type IngestResult } from "../ingest/ingest-dossier";
 import { DEFAULT_ZIP_LIMITS } from "../ingest/zip-inspector";
-import { presignPutUrl, getObject, deleteObject, objectStorageConfigured } from "./object-storage";
+import {
+  presignPutUrl, presignUploadPartUrl, getObject, deleteObject, objectStorageConfigured,
+  createMultipartUpload, completeMultipartUpload, abortMultipartUpload,
+} from "./object-storage";
 import { regAudit } from "../audit";
 
 export { objectStorageConfigured } from "./object-storage";
@@ -428,7 +431,33 @@ export async function finalizeUploadSession(sessionId: string, companyId: string
 
 // ─────────────────────────── UPLOAD DIRECT S3/R2 (chantier 1) ───────────────────────────
 
-export interface DirectStartResult { ok: boolean; error?: string; sessionId?: string; uploadUrl?: string }
+export interface DirectStartResult {
+  ok: boolean; error?: string; sessionId?: string; uploadUrl?: string;
+  /** Mode MULTIPART : une URL présignée par partie, à envoyer EN PARALLÈLE au bucket. */
+  partUrls?: string[];
+  partSize?: number;
+  concurrency?: number;
+}
+
+/**
+ * TAILLE D'UNE PARTIE EN ENVOI DIRECT — 32 Mo, et c'est l'inverse du réglage résumable.
+ *
+ * Le chemin résumable écrit chaque partie EN BASE : là, grossir les parties ralentit (Postgres
+ * écrit d'autant moins vite qu'on lui présente un gros `bytea`, mesures dans `DEFAULT_PART_SIZE`).
+ * Ici, les octets vont DIRECTEMENT au bucket : plus rien n'écrit en base, et le coût dominant
+ * redevient l'aller-retour. On prend donc de grosses parties — 32 Mo, soit 50 parties pour 1,6 Go
+ * au lieu de 400 — et l'on en envoie plusieurs de front.
+ *
+ * Le minimum imposé par S3 est 5 Mio (sauf la dernière partie) et le maximum 10 000 parties : à
+ * 32 Mo, le plafond théorique est de 320 Go, très au-delà de la limite d'archive.
+ */
+export const DIRECT_PART_BYTES = Math.max(5 * MB, Number(process.env.REG_DIRECT_PART_MB ?? 32) * MB);
+
+/** Combien de parties en vol à la fois, côté navigateur. Au-delà, on sature surtout la RAM. */
+export const DIRECT_CONCURRENCY = (() => {
+  const n = Number(process.env.REG_DIRECT_CONCURRENCY ?? 6);
+  return Number.isFinite(n) && n >= 1 ? Math.min(Math.floor(n), 16) : 6;
+})();
 
 /** Nettoie les sessions directes fantômes du même dossier (+ objets temporaires) avant un nouvel envoi. */
 async function reapDirectSessions(companyId: string, dossierId: string): Promise<void> {
@@ -472,6 +501,48 @@ export async function startDirectUploadSession(opts: {
   }
 
   const key = `reg-uploads/${opts.companyId}/${randomBytes(12).toString("hex")}.zip`;
+
+  // ── AU-DELÀ D'UNE PARTIE : téléversement EN PLUSIEURS PARTIES, en parallèle ──
+  //
+  // Un PUT unique de 1,6 Go, c'est un seul flux TCP : il n'utilise qu'une fraction du débit
+  // disponible (la fenêtre de congestion met des dizaines de secondes à s'ouvrir, et le moindre
+  // paquet perdu la divise), et la moindre coupure oblige à TOUT recommencer. Découpé et envoyé
+  // de front, le même fichier sature le lien, et une coupure ne coûte qu'une partie.
+  if (opts.totalBytes > DIRECT_PART_BYTES) {
+    const partCount = Math.ceil(opts.totalBytes / DIRECT_PART_BYTES);
+    let uploadId: string;
+    try {
+      uploadId = await createMultipartUpload(key, opts.contentType || "application/zip");
+    } catch (err) {
+      // Le bucket refuse le multipart (configuration, droits) : on retombe sur le PUT unique
+      // plutôt que d'empêcher l'envoi. Plus lent, mais il passe.
+      console.error("[upload] multipart indisponible, repli sur un PUT unique", err);
+      uploadId = "";
+    }
+    if (uploadId) {
+      const partUrls: string[] = [];
+      for (let i = 1; i <= partCount; i++) {
+        const url = presignUploadPartUrl(key, uploadId, i, 6 * 3600);
+        if (!url) break;
+        partUrls.push(url);
+      }
+      if (partUrls.length === partCount) {
+        const session = await prisma.regulatoryUploadSession.create({
+          data: {
+            companyId: opts.companyId, dossierId: opts.dossierId, createdById: opts.createdById,
+            filename: opts.filename.slice(0, 255), contentType: opts.contentType ?? null,
+            totalBytes: BigInt(Math.floor(opts.totalBytes)), partSize: DIRECT_PART_BYTES,
+            expectedSha256: opts.expectedSha256 ?? null, storageKey: key, storageUploadId: uploadId,
+          },
+          select: { id: true },
+        });
+        await regAudit({ companyId: opts.companyId, actorId: opts.createdById, dossierId: opts.dossierId, action: "UPLOAD_SESSION_START", detail: `Envoi DIRECT MULTIPART « ${opts.filename} » (${Math.round(opts.totalBytes / MB)} Mo, ${partCount} parties × ${Math.round(DIRECT_PART_BYTES / MB)} Mo).` });
+        return { ok: true, sessionId: session.id, partUrls, partSize: DIRECT_PART_BYTES, concurrency: DIRECT_CONCURRENCY };
+      }
+      await abortMultipartUpload(key, uploadId); // présignature incomplète : on ne laisse rien derrière
+    }
+  }
+
   const uploadUrl = presignPutUrl(key, 3600);
   if (!uploadUrl) return { ok: false, error: "Génération de l'URL d'envoi impossible." };
 
@@ -493,9 +564,13 @@ export async function startDirectUploadSession(opts: {
  * fourni), lance l'ingestion sécurisée, puis supprime l'archive temporaire du bucket. Une lecture
  * échouée (objet absent) laisse la session ré-ouverte (le client peut renvoyer le fichier).
  */
-export async function finalizeDirectUploadSession(sessionId: string, companyId: string, actorId: string): Promise<FinalizeResult> {
+export async function finalizeDirectUploadSession(
+  sessionId: string, companyId: string, actorId: string,
+  /** Multipart : les ETags renvoyés par le bucket, dans l'ordre des numéros de partie. */
+  etags?: string[],
+): Promise<FinalizeResult> {
   const session = await prisma.regulatoryUploadSession.findFirst({
-    where: { id: sessionId, companyId }, select: { id: true, status: true, dossierId: true, filename: true, totalBytes: true, storageKey: true, expectedSha256: true, versionId: true },
+    where: { id: sessionId, companyId }, select: { id: true, status: true, dossierId: true, filename: true, totalBytes: true, storageKey: true, storageUploadId: true, expectedSha256: true, versionId: true },
   });
   if (!session) return { ok: false, error: "Session introuvable." };
   if (session.status === "COMPLETED") return finalizeResultFromVersion(session.versionId); // rejeu idempotent
@@ -504,6 +579,32 @@ export async function finalizeDirectUploadSession(sessionId: string, companyId: 
   if (!session.storageKey) return { ok: false, error: "Session non directe." };
 
   await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "FINALIZING" } });
+
+  // ── RECOLLAGE DES PARTIES ──
+  //
+  // Tant que le `CompleteMultipartUpload` n'a pas eu lieu, l'objet N'EXISTE PAS : les parties sont
+  // stockées à part et la lecture qui suit échouerait. On le fait donc ici, avant tout le reste.
+  // Le rejeu est prévu : une finalisation relancée (le client re-sonde après un proxy qui coupe)
+  // retrouve un téléversement déjà recollé — S3 répond alors « NoSuchUpload », et l'objet est là.
+  if (session.storageUploadId) {
+    if (!etags || etags.length === 0) {
+      await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "UPLOADING", error: "Empreintes des parties manquantes." } });
+      return { ok: false, error: "Les empreintes des parties manquent — relancez l'envoi." };
+    }
+    try {
+      await completeMultipartUpload(session.storageKey, session.storageUploadId, etags);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "recollage impossible";
+      // Déjà recollé lors d'une tentative précédente : ce n'est pas une erreur, c'est l'idempotence.
+      if (!/NoSuchUpload/i.test(message)) {
+        await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { status: "UPLOADING", error: `Recollage des parties impossible : ${message}` } });
+        return { ok: false, error: `Recollage des parties impossible : ${message}`, retryable: true };
+      }
+    }
+    // Recollé : l'identifiant de téléversement n'a plus cours, et le garder ferait retenter le
+    // recollage à chaque rejeu de finalisation.
+    await prisma.regulatoryUploadSession.update({ where: { id: session.id }, data: { storageUploadId: null } });
+  }
 
   let buffer: Buffer;
   try {
@@ -537,10 +638,24 @@ export async function finalizeDirectUploadSession(sessionId: string, companyId: 
   return { ok: true, ingest };
 }
 
-/** Abandonne une session et supprime ses parties (nettoyage des envois incomplets). */
+/**
+ * Abandonne une session et supprime CE QU'ELLE A DÉJÀ COÛTÉ — parties en base, parties du bucket,
+ * objet temporaire. Sans ce ménage, un envoi annulé à 80 % laisserait plus d'un gigaoctet payé et
+ * invisible : personne ne le verrait, personne ne le supprimerait.
+ */
 export async function abortUploadSession(sessionId: string, companyId: string): Promise<{ ok: boolean }> {
+  const session = await prisma.regulatoryUploadSession.findFirst({
+    where: { id: sessionId, companyId }, select: { storageKey: true, storageUploadId: true },
+  });
   await prisma.regulatoryUploadSession.updateMany({ where: { id: sessionId, companyId, status: { in: ["UPLOADING", "FINALIZING"] } }, data: { status: "ABORTED", error: "Abandon demandé." } });
   await prisma.regulatoryUploadPart.deleteMany({ where: { sessionId } });
+  if (session?.storageKey && session.storageUploadId) {
+    // Les parties d'un multipart non recollé ne sont pas l'objet : seul `AbortMultipartUpload`
+    // les libère, et elles restent facturées tant qu'on ne le fait pas.
+    await abortMultipartUpload(session.storageKey, session.storageUploadId);
+  } else if (session?.storageKey) {
+    await deleteObject(session.storageKey).catch(() => undefined);
+  }
   return { ok: true };
 }
 
