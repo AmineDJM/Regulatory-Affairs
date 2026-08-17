@@ -901,6 +901,15 @@ export const THERAPEUTIC_SEGMENTS: string[] = [
 ];
 
 /**
+ * La liste EFFECTIVE des segments thérapeutiques : celle que l'administrateur a définie si elle
+ * existe, sinon la liste par défaut intégrée. Un seul endroit tranche — l'écran, le menu déroulant
+ * et la validation à l'écriture lisent tous la même chose. Fonction PURE (partagée client/serveur).
+ */
+export function effectiveTherapeuticSegments(stored: readonly string[] | null | undefined): string[] {
+  return stored && stored.length > 0 ? [...stored] : THERAPEUTIC_SEGMENTS;
+}
+
+/**
  * LES 58 WILAYAS D'ALGÉRIE — liste fermée, dans l'ordre du code administratif (1 → 58).
  *
  * Une liste fermée, et non un champ libre : « Alger », « ALGER », « alger » ou « Wilaya d'Alger »

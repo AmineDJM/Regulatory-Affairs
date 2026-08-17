@@ -5032,6 +5032,10 @@ model AppSetting {
   // la priorité et les dates cibles, reçoivent les notifications (nouveau dossier / dépôt),
   // et peuvent demander des mises à jour de statut. Configurable en Administration.
   regulatorySupervisorRoles String[] @default([])
+  // Segments thérapeutiques que le tableau Regulatory propose (menu déroulant multi-choix de la
+  // colonne « Segments »). VIDE = la liste par défaut intégrée. L'administrateur les gère en
+  // Administration : le marché d'un groupe pharma n'est pas celui d'un autre.
+  regulatoryTherapeuticSegments String[] @default([])
   // Rôles autorisés à CRÉER des « Demandes à Regulatory » (en plus du PRIM, toujours inclus).
   // L'équipe Regulatory RÉPOND mais ne crée pas. Configurable en Administration.
   regRequestCreatorRoles    String[] @default([])

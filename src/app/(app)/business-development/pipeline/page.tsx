@@ -8,6 +8,7 @@ import { BackLink } from "@/components/shared/back-link";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { getRegulatoryRows } from "@/lib/queries/regulatory-rows";
+import { effectiveTherapeuticSegments } from "@/lib/labels";
 import { RegulatoryTable } from "@/app/(app)/regulatory/regulatory-table";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export default async function BusinessDevelopmentPipelinePage() {
   const canAssign = userCan(user, "REGULATORY", "UPDATE");
   const canLock = user.role === "SUPER_ADMIN";
 
-  const { rows, companies, canSupervise } = await getRegulatoryRows(user);
+  const { rows, companies, canSupervise, settings } = await getRegulatoryRows(user);
   const pipeline = rows.filter((r) => r.stage === "pipeline");
 
   const assignableUsers = canAssign
@@ -71,6 +72,7 @@ export default async function BusinessDevelopmentPipelinePage() {
           canLock={canLock}
           assignableUsers={assignableUsers}
           companies={companies}
+          segments={effectiveTherapeuticSegments(settings.regulatoryTherapeuticSegments)}
         />
       )}
     </div>

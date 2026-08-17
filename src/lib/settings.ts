@@ -25,6 +25,8 @@ export interface AppSettings {
   regEnrollmentEnabled: boolean;
   /** Rôles superviseurs Regulatory (en plus du Super Admin) : priorité/dates, notifs, MàJ statut. */
   regulatorySupervisorRoles: string[];
+  /** Segments thérapeutiques proposés par le tableau Regulatory. VIDE = la liste par défaut. */
+  regulatoryTherapeuticSegments: string[];
   /** Rôles autorisés à CRÉER des « Demandes à Regulatory » (en plus du PRIM). Regulatory RÉPOND mais ne crée pas. */
   /** Rôles autorisés à CRÉER des catégories de Drive (espaces partagés en onglets). En plus du Super Admin. */
   driveSpaceCreatorRoles: string[];
@@ -50,6 +52,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   driveUserQuotaGb: 10,
   regEnrollmentEnabled: false,
   regulatorySupervisorRoles: [],
+  regulatoryTherapeuticSegments: [],
   driveSpaceCreatorRoles: [],
   fieldReportsOverviewRoles: [],
   orgChartViewerRoles: [],
@@ -70,6 +73,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       driveUserQuotaGb: row.driveUserQuotaGb,
       regEnrollmentEnabled: row.regEnrollmentEnabled,
       regulatorySupervisorRoles: row.regulatorySupervisorRoles ?? [],
+      regulatoryTherapeuticSegments: row.regulatoryTherapeuticSegments ?? [],
       driveSpaceCreatorRoles: row.driveSpaceCreatorRoles ?? [],
       fieldReportsOverviewRoles: row.fieldReportsOverviewRoles ?? [],
       orgChartViewerRoles: row.orgChartViewerRoles ?? [],

@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Check, Megaphone, Search } from "lucide-react";
-import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setOrgChartViewers } from "@/lib/actions/settings-actions";
+import { Loader2, Check, Megaphone, Search, Plus, X, RotateCcw } from "lucide-react";
+import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegulatoryTherapeuticSegments, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setOrgChartViewers } from "@/lib/actions/settings-actions";
 import { setRegIntelligenceEnabled } from "@/lib/regulatory/intelligence/actions";
 import { sendBroadcast } from "@/lib/actions/notification-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { THERAPEUTIC_SEGMENTS } from "@/lib/labels";
 import type { AppSettings } from "@/lib/settings";
 
 interface Opt { value: string; label: string }
@@ -342,6 +343,95 @@ export function RegulatorySupervisorForm({ roles, selected }: { roles: Opt[]; se
         {saved ? "Enregistré" : "Enregistrer les superviseurs"}
       </Button>
     </form>
+  );
+}
+
+/**
+ * Les SEGMENTS THÉRAPEUTIQUES du tableau Regulatory — l'administrateur compose la liste.
+ *
+ * Le marché d'un groupe n'est pas celui d'un autre : la liste intégrée n'est qu'un point de
+ * départ. On ajoute, on retire, on enregistre — et une liste vide rétablit la liste par défaut,
+ * pour ne jamais laisser le menu de la colonne « Segments » sans aucune option.
+ */
+export function RegulatoryTherapeuticSegmentsForm({ segments }: { segments: string[] }) {
+  const [list, setList] = React.useState<string[]>(segments);
+  const [draft, setDraft] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const usingDefault = list.length === 0;
+
+  const add = () => {
+    const v = draft.replace(/\s+/g, " ").trim();
+    if (!v) return;
+    if (list.some((s) => s.toLowerCase() === v.toLowerCase())) { setDraft(""); return; }
+    setList((l) => [...l, v]);
+    setDraft("");
+  };
+  const remove = (seg: string) => setList((l) => l.filter((s) => s !== seg));
+
+  const save = async () => {
+    setSaving(true);
+    const fd = new FormData();
+    list.forEach((s) => fd.append("segments", s));
+    const res = await setRegulatoryTherapeuticSegments(fd);
+    setSaving(false);
+    if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
+  };
+
+  return (
+    <div className="space-y-3">
+      {usingDefault && (
+        <p className="rounded-lg border border-border bg-secondary/30 p-2.5 text-xs text-muted-foreground">
+          Aucune liste personnalisée : le tableau Regulatory propose la <strong>liste par défaut</strong>
+          {" "}({THERAPEUTIC_SEGMENTS.length} segments). Ajoutez-en pour composer votre propre liste —
+          elle remplacera alors entièrement la liste par défaut.
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {(usingDefault ? THERAPEUTIC_SEGMENTS : list).map((seg) => (
+          <span
+            key={seg}
+            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium ${usingDefault ? "border-input text-muted-foreground" : "border-primary bg-primary/10 text-primary"}`}
+          >
+            {seg}
+            {!usingDefault && (
+              <button type="button" onClick={() => remove(seg)} className="rounded-full p-0.5 hover:bg-primary/20" aria-label={`Retirer ${seg}`}>
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+          placeholder="Ajouter un segment (ex. Cardiologie)…"
+          className="w-64"
+        />
+        <Button type="button" size="sm" variant="outline" onClick={add} disabled={!draft.trim()}>
+          <Plus className="h-4 w-4" /> Ajouter
+        </Button>
+        {!usingDefault && (
+          <Button type="button" size="sm" variant="ghost" onClick={() => setList([])} title="Vider — rétablit la liste par défaut">
+            <RotateCcw className="h-4 w-4" /> Liste par défaut
+          </Button>
+        )}
+        {usingDefault && list.length === 0 && (
+          <Button type="button" size="sm" variant="ghost" onClick={() => setList([...THERAPEUTIC_SEGMENTS])} title="Partir de la liste par défaut pour la personnaliser">
+            Partir de la liste par défaut
+          </Button>
+        )}
+      </div>
+
+      <Button type="button" size="sm" onClick={save} disabled={saving}>
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
+        {saved ? "Enregistré" : "Enregistrer les segments"}
+      </Button>
+    </div>
   );
 }
 

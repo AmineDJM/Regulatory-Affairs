@@ -1,7 +1,7 @@
 "use server";
 
 import { randomUUID } from "crypto";
-import { THERAPEUTIC_SEGMENTS } from "@/lib/labels";
+import { effectiveTherapeuticSegments } from "@/lib/labels";
 import { revalidatePath } from "next/cache";
 import type { Priority, ProductChannel, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, ManufacturingStatus, VariationStatus, UserRole } from "@prisma/client";
 import { Prisma } from "@prisma/client";
@@ -937,8 +937,15 @@ export async function setRegulatoryClassification(formData: FormData): Promise<A
 
   if (formData.has("segments")) {
     // Liste blanche : un segment inventé ne se compte avec rien, et c'est le comptage qu'on
-    // vient chercher.
-    const picked = formData.getAll("segments").map(String).filter((v) => THERAPEUTIC_SEGMENTS.includes(v));
+    // vient chercher. La liste effective est celle réglée par l'administrateur (sinon la liste
+    // par défaut) ; un segment DÉJÀ posé sur la fiche reste accepté même s'il a depuis quitté le
+    // référentiel — sinon on ne pourrait plus le retirer.
+    const settings = await getAppSettings();
+    const allowed = new Set([
+      ...effectiveTherapeuticSegments(settings.regulatoryTherapeuticSegments),
+      ...(before.therapeuticSegments ?? []),
+    ]);
+    const picked = formData.getAll("segments").map(String).filter((v) => allowed.has(v));
     data.therapeuticSegments = [...new Set(picked)];
   }
 

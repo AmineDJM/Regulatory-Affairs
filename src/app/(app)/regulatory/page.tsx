@@ -10,7 +10,7 @@ import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { PHARMA_FORM, DOSAGE_UNIT, effectiveTherapeuticSegments } from "@/lib/labels";
 import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { RegulatoryTable } from "./regulatory-table";
 import { getRegulatoryRows } from "@/lib/queries/regulatory-rows";
@@ -98,6 +98,7 @@ export default async function RegulatoryPage() {
         canLock={canLock}
         assignableUsers={assignableUsers}
         companies={companies}
+        segments={effectiveTherapeuticSegments(settings.regulatoryTherapeuticSegments)}
       />
     </div>
   );

@@ -7,7 +7,6 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { PRIORITY, REGULATORY_STATUS, REGULATORY_CATEGORY, MANUFACTURING_STATUS } from "@/lib/labels";
 import { formatDate, daysUntil } from "@/lib/utils";
 import { setRegulatoryPriority, setRegulatoryResponsible, setRegulatoryClassification, setRegulatoryLock, unlockAllRegulatory } from "@/lib/actions/regulatory-actions";
-import { THERAPEUTIC_SEGMENTS } from "@/lib/labels";
 import { visibleStages, defaultStage, type RegStage } from "@/lib/regulatory/stage";
 
 export interface RegulatoryRow {
@@ -120,10 +119,13 @@ export function RegulatoryTable({
   canLock = false,
   assignableUsers = [],
   companies = [],
+  segments = [],
 }: {
   rows: RegulatoryRow[];
   /** Entités du groupe — le menu « Entité » de la colonne. */
   companies?: { id: string; name: string }[];
+  /** Segments thérapeutiques proposés par le menu « Segments » (liste effective, admin ou défaut). */
+  segments?: string[];
   canEditPriority?: boolean;
   canAssign?: boolean;
   canLock?: boolean;
@@ -385,9 +387,10 @@ export function RegulatoryTable({
           <td key={key} className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
             {canAssign ? (
               <SegmentPicker
+                all={segments}
                 selected={r.therapeuticSegments}
                 busy={busyId === r.id}
-                onChange={(segments) => changeClassification(r.id, { segments })}
+                onChange={(next) => changeClassification(r.id, { segments: next })}
               />
             ) : (r.therapeuticSegments.join(", ") || "—")}
           </td>
@@ -629,10 +632,13 @@ function StageCell({ row }: { row: RegulatoryRow }) {
  * lisant qu'on s'aperçoit qu'un segment manque.
  */
 function SegmentPicker({
-  selected, busy, onChange,
-}: { selected: string[]; busy: boolean; onChange: (next: string[]) => void }) {
+  all, selected, busy, onChange,
+}: { all: string[]; selected: string[]; busy: boolean; onChange: (next: string[]) => void }) {
   const [open, setOpen] = React.useState(false);
   const label = selected.length === 0 ? "— Aucun —" : selected.length <= 2 ? selected.join(", ") : `${selected.length} segments`;
+  // Un segment retiré du référentiel mais encore posé sur un produit doit rester cochable, sinon
+  // on ne pourrait plus le décocher : on l'ajoute donc en fin de liste.
+  const options = [...all, ...selected.filter((s) => !all.includes(s))];
 
   return (
     <div className="relative">
@@ -647,7 +653,7 @@ function SegmentPicker({
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute left-0 top-full z-20 mt-1 max-h-64 w-64 overflow-y-auto rounded-xl border border-border bg-popover p-1.5 shadow-xl">
-            {THERAPEUTIC_SEGMENTS.map((seg) => (
+            {options.map((seg) => (
               <label key={seg} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-secondary">
                 <input
                   type="checkbox" className="h-3.5 w-3.5 rounded border-input"

@@ -72,6 +72,39 @@ export async function setRegulatorySupervisorRoles(formData: FormData): Promise<
 }
 
 /**
+ * Segments thérapeutiques proposés par le tableau Regulatory (menu de la colonne « Segments »).
+ * Une liste VIDE rétablit la liste par défaut intégrée. **Super Admin uniquement.**
+ */
+export async function setRegulatoryTherapeuticSegments(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  // On dédoublonne SANS tenir compte de la casse/des espaces, mais on garde l'écriture d'origine
+  // (le premier vu) : « Oncologie » et « oncologie » ne doivent pas coexister dans le menu.
+  const seen = new Set<string>();
+  const segments: string[] = [];
+  for (const raw of formData.getAll("segments").map(String)) {
+    const v = raw.replace(/\s+/g, " ").trim();
+    const key = v.toLowerCase();
+    if (!v || seen.has(key)) continue;
+    seen.add(key);
+    segments.push(v);
+  }
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", regulatoryTherapeuticSegments: segments, updatedById: admin.id },
+    update: { regulatoryTherapeuticSegments: segments, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Segments thérapeutiques Regulatory — ${segments.length} segment(s)`,
+  });
+  revalidatePath("/admin");
+  revalidatePath("/regulatory");
+  revalidatePath("/business-development/pipeline");
+  return { ok: true };
+}
+
+/**
  * Rôles autorisés à CRÉER des catégories de Drive (espaces partagés en onglets), en plus du
  * Super Admin toujours autorisé. **Super Admin uniquement.**
  */
