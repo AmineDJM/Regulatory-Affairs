@@ -12,7 +12,8 @@ import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
-import { RegulatoryTable, type RegulatoryRow } from "./regulatory-table";
+import { RegulatoryTable } from "./regulatory-table";
+import { getRegulatoryRows } from "@/lib/queries/regulatory-rows";
 import { NewProductButton } from "./new-product";
 import { SuppliersManager } from "./suppliers-manager";
 
@@ -23,69 +24,9 @@ export default async function RegulatoryPage() {
   const canAssign = userCan(user, "REGULATORY", "UPDATE");
   // Le cadenas n'appartient qu'au Super Admin — les autres ne voient même pas les dossiers verrouillés.
   const canLock = user.role === "SUPER_ADMIN";
-  const [products, suppliers, companies, settings] = await Promise.all([
-    prisma.regulatoryProduct.findMany({
-      where: { ...scopeRegulatory(user), ...currentCompanyWhere() },
-      orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
-      include: {
-        responsible: { select: { name: true } },
-        assistant: { select: { name: true } },
-        supplier: { select: { name: true } },
-        company: { select: { id: true, name: true, shortName: true, color: true } },
-        // Variations : c'est la variation OBTENUE qui fait foi sur le niveau de process.
-        variations: { select: { toStatus: true, status: true, decisionDate: true, createdAt: true } },
-      },
-    }),
-    prisma.supplier.findMany({
-      where: { active: true },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-    getCompanies(),
-    getAppSettings(),
-  ]);
-  // Supervision Regulatory : Super Admin + rôles configurés (priorité, dates, MàJ de statut).
-  const canSupervise = isRegulatorySupervisor(user, settings.regulatorySupervisorRoles);
-
-  const rows: RegulatoryRow[] = products.map((p) => {
-    const prog = regProgress(p.workflow as RegWorkflowState | null);
-    const done = prog.done;
-    const total = prog.total;
-    const dosage = [p.dosage, p.dosageUnit ? DOSAGE_UNIT[p.dosageUnit] ?? p.dosageUnit : null]
-      .filter(Boolean)
-      .join(" ");
-    const stage = effectiveStage(p.manufacturingStatus, p.variations);
-    return {
-      id: p.id,
-      reference: p.reference,
-      dci: p.dci,
-      brandName: p.brandName ?? "",
-      dosage,
-      form: p.pharmaceuticalForm ? PHARMA_FORM[p.pharmaceuticalForm] ?? p.pharmaceuticalForm : "",
-      packaging: p.packaging ?? "",
-      therapeuticClass: p.therapeuticClass ?? "",
-      supplier: p.supplier?.name ?? "",
-      category: p.category,
-      // RÈGLE : une variation OBTENUE fait foi ; sinon, le niveau déclaré sur la fiche.
-      manufacturingStatus: stage.status,
-      manufacturingSource: stage.source,
-      manufacturingPending: stage.pendingTo,
-      status: p.status,
-      priority: p.priority,
-      isLocked: p.isLocked,
-      responsible: p.responsible?.name ?? "",
-      responsibleId: p.responsibleId ?? "",
-      assistant: p.assistant?.name ?? "",
-      targetSubmissionDate: p.targetSubmissionDate?.toISOString() ?? null,
-      targetDate: p.targetDate?.toISOString() ?? null,
-      progress: Math.round((done / total) * 100),
-      stepsDone: done,
-      stepsTotal: total,
-      // LE VERROU EST LE PIPELINE : un dossier verrouillé attend d'être ouvert, un dossier
-      // ouvert est à traiter, un dossier abouti reste abouti. Règle pure et testée.
-      stage: regStage({ isLocked: p.isLocked, status: p.status }),
-    };
-  });
+  const { rows, products, suppliers, companies, settings, canSupervise } = await getRegulatoryRows(user);
+  // Le PIPELINE a quitté cet écran : il vit dans Business Development (ce qu'on étudie).
+  const visible = rows.filter((r) => r.stage !== "pipeline");
 
   // Personnes à qui un dossier peut être confié : l'équipe Regulatory + la Direction. Sert au
   // formulaire de création ET au menu déroulant « Chargé du dossier » du tableau.
@@ -151,11 +92,12 @@ export default async function RegulatoryPage() {
       )}
 
       <RegulatoryTable
-        rows={rows}
+        rows={visible}
         canEditPriority={canSupervise}
         canAssign={canAssign}
         canLock={canLock}
         assignableUsers={assignableUsers}
+        companies={companies}
       />
     </div>
   );

@@ -39,7 +39,7 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
   // catégorie ferait disparaître la colonne de gauche — un explorateur ne la perd jamais.
   const [spaces, users, spaceRow] = await Promise.all([
     getDriveSpacesForUser(user),
-    canEditHere
+    canEditHere || space.canManage
       ? prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : Promise.resolve([] as { id: string; name: string }[]),
     space.canManage

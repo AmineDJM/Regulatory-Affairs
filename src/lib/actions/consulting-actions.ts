@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { companyIdForNew } from "@/lib/company";
+import { attachFiles } from "@/lib/attach-files";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { nextConsultingStatus, isContractEditable } from "@/lib/ad-pro/consulting";
 
@@ -116,7 +117,14 @@ export async function createConsultingContract(_prev: ActionResult | undefined, 
       }),
     );
 
-    await audit(user, contract.id, "CREATE", `Contrat de consulting créé — ${contract.reference} (${counterparty})`);
+    // Les pièces déposées à la saisie sont rattachées tout de suite : un contrat sans son
+    // exemplaire signé n'est qu'une note.
+    const attached = await attachFiles({
+      files: formData.getAll("files").filter((f): f is File => f instanceof File),
+      entityType: "CONSULTING_CONTRACT", entityId: contract.id, uploadedById: user.id, category: "CONVENTION",
+    });
+
+    await audit(user, contract.id, "CREATE", `Contrat de consulting créé — ${contract.reference} (${counterparty})${attached.saved > 0 ? ` (${attached.saved} pièce(s))` : ""}`);
     revalidate(contract.id);
     return { ok: true, id: contract.id };
   } catch (err) {

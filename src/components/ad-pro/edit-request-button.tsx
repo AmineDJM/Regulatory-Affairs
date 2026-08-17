@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Pencil, Loader2, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { Input, Textarea, Label } from "@/components/ui/input";
+import { Input, Textarea, Label, Select } from "@/components/ui/input";
 import { updateAdProRequest } from "@/lib/actions/ad-pro-edit-actions";
 import { EDITABLE_FIELDS, type AdProKind } from "@/lib/ad-pro-edit";
 
@@ -90,6 +90,13 @@ export function AdProEditButton({
                   <Label htmlFor={`edit-${f.key}`}>{f.label}</Label>
                   {f.type === "textarea" ? (
                     <Textarea id={`edit-${f.key}`} name={f.key} defaultValue={defaultValue} className="min-h-[64px]" />
+                  ) : f.type === "select" && f.options ? (
+                    // Le MÊME menu qu'à la création : corriger un type ne doit pas rouvrir la
+                    // porte aux variantes orthographiques que le formulaire d'origine interdit.
+                    <Select id={`edit-${f.key}`} name={f.key} defaultValue={defaultValue}>
+                      <option value="">— Non renseigné —</option>
+                      {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </Select>
                   ) : (
                     <Input
                       id={`edit-${f.key}`}

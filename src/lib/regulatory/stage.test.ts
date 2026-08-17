@@ -41,14 +41,18 @@ describe("Ce que chacun voit", () => {
     expect(visibleStages(false).map((s) => s.key)).toEqual(["todo", "done"]);
   });
 
-  it("le Super Admin voit les trois colonnes", () => {
-    expect(visibleStages(true).map((s) => s.key)).toEqual(["pipeline", "todo", "done"]);
+  it("le PIPELINE a quitté l'écran Regulatory — même pour le Super Admin", () => {
+    // Un dossier verrouillé n'est pas un dossier réglementaire en cours : c'est un produit qu'on
+    // ÉTUDIE. Cette question appartient au Business Development, pas à l'équipe qui instruit.
+    expect(visibleStages(true).map((s) => s.key)).toEqual(["todo", "done"]);
+    // Le rangement, lui, existe toujours : c'est l'écran qui change, pas la règle.
     expect(REG_STAGES).toHaveLength(3);
+    expect(regStage({ isLocked: true, status: "IN_PREPARATION" })).toBe("pipeline");
   });
 
-  it("l'équipe arrive sur « À traiter », le Super Admin sur le pipeline quand il en reste", () => {
+  it("on arrive toujours sur « À traiter »", () => {
     expect(defaultStage(false, 42)).toBe("todo");
-    expect(defaultStage(true, 42)).toBe("pipeline");
+    expect(defaultStage(true, 42)).toBe("todo");
     expect(defaultStage(true, 0)).toBe("todo");
   });
 

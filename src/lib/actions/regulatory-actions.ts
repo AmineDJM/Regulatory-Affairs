@@ -1,6 +1,7 @@
 "use server";
 
 import { randomUUID } from "crypto";
+import { THERAPEUTIC_SEGMENTS } from "@/lib/labels";
 import { revalidatePath } from "next/cache";
 import type { Priority, ProductChannel, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, ManufacturingStatus, VariationStatus, UserRole } from "@prisma/client";
 import { Prisma } from "@prisma/client";
@@ -899,4 +900,55 @@ export async function deleteVariation(formData: FormData): Promise<ActionResult>
   await recordAudit({ actorId: user.id, action: "DELETE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: variation.productId, summary: "Variation supprimée" });
   revalidatePath(`/regulatory/${variation.productId}`);
   return { ok: true };
+}
+
+/**
+ * L'ENTITÉ et les SEGMENTS THÉRAPEUTIQUES, changés depuis le tableau.
+ *
+ * Les deux se corrigent à la volée parce qu'on s'en aperçoit EN LISANT la liste — « celui-là
+ * n'est pas chez Pharmagène », « celui-là sert aussi la gynéco ». Ouvrir la fiche, corriger,
+ * revenir, retrouver sa ligne : c'est ce parcours-là qui fait qu'on ne corrige pas.
+ *
+ * L'entité gouverne QUI VOIT le dossier : la changer est un acte de cloisonnement, pas un
+ * détail de saisie — d'où le même droit que la modification de la fiche, et l'audit.
+ */
+export async function setRegulatoryClassification(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = str(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", id, "UPDATE"))) {
+    return { ok: false, error: "Modification non autorisée." };
+  }
+  const before = await prisma.regulatoryProduct.findUnique({
+    where: { id }, select: { reference: true, companyId: true, therapeuticSegments: true },
+  });
+  if (!before) return { ok: false, error: "Dossier introuvable." };
+
+  const data: { companyId?: string | null; therapeuticSegments?: string[]; updatedById: string } = { updatedById: user.id };
+
+  if (formData.has("companyId")) {
+    const companyId = str(formData, "companyId");
+    if (companyId) {
+      const known = await prisma.company.count({ where: { id: companyId } });
+      if (!known) return { ok: false, error: "Entité inconnue." };
+    }
+    data.companyId = companyId || null;
+  }
+
+  if (formData.has("segments")) {
+    // Liste blanche : un segment inventé ne se compte avec rien, et c'est le comptage qu'on
+    // vient chercher.
+    const picked = formData.getAll("segments").map(String).filter((v) => THERAPEUTIC_SEGMENTS.includes(v));
+    data.therapeuticSegments = [...new Set(picked)];
+  }
+
+  await prisma.regulatoryProduct.update({ where: { id }, data });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Regulatory",
+    entityType: "REGULATORY_PRODUCT", entityId: id,
+    summary: `Classement mis à jour — ${before.reference}`,
+  });
+  revalidatePath("/regulatory");
+  revalidatePath("/business-development/pipeline");
+  return { ok: true, id };
 }

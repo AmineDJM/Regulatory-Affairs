@@ -6,7 +6,8 @@ import { Loader2, Filter, Columns3, Lock, LockOpen, FileSpreadsheet, Maximize2, 
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PRIORITY, REGULATORY_STATUS, REGULATORY_CATEGORY, MANUFACTURING_STATUS } from "@/lib/labels";
 import { formatDate, daysUntil } from "@/lib/utils";
-import { setRegulatoryPriority, setRegulatoryResponsible, setRegulatoryLock, unlockAllRegulatory } from "@/lib/actions/regulatory-actions";
+import { setRegulatoryPriority, setRegulatoryResponsible, setRegulatoryClassification, setRegulatoryLock, unlockAllRegulatory } from "@/lib/actions/regulatory-actions";
+import { THERAPEUTIC_SEGMENTS } from "@/lib/labels";
 import { visibleStages, defaultStage, type RegStage } from "@/lib/regulatory/stage";
 
 export interface RegulatoryRow {
@@ -19,6 +20,9 @@ export interface RegulatoryRow {
   /** Conditionnement (« B/30 ») : à dosage égal, c'est lui qui distingue deux dossiers. */
   packaging: string;
   therapeuticClass: string;
+  therapeuticSegments: string[];
+  companyId: string;
+  companyName: string;
   supplier: string;
   category: string;
   /** Niveau industriel qui FAIT FOI (variation obtenue prioritaire sur la déclaration). */
@@ -59,7 +63,7 @@ type Col = {
   raw?: (r: RegulatoryRow) => string; // valeur brute pour un filtre « select »
   options?: { value: string; label: string }[]; // filtre déroulant façon Excel
   /** Colonne dont les choix ne sont connus qu'à l'exécution (les personnes assignables). */
-  dynamic?: "people";
+  dynamic?: "people" | "companies" | "segments";
 };
 
 // TITRES voulus par le métier : « Statut » = importation / packaging / full process (la
@@ -71,6 +75,8 @@ const COLS: Col[] = [
   { key: "dosage", header: "Dosage / Forme", text: (r) => [r.dosage, r.form].filter(Boolean).join(" · ") },
   { key: "packaging", header: "Conditionnement", text: (r) => r.packaging },
   { key: "therapeuticClass", header: "Classe thérapeutique", text: (r) => r.therapeuticClass },
+  { key: "company", header: "Entité", text: (r) => r.companyName, raw: (r) => r.companyId || "—", dynamic: "companies" },
+  { key: "segments", header: "Segments thérapeutiques", text: (r) => r.therapeuticSegments.join(", "), dynamic: "segments" },
   { key: "category", header: "Catégorie", text: (r) => lbl(REGULATORY_CATEGORY as never, r.category), raw: (r) => r.category, options: CATEGORY_OPTS },
   { key: "supplier", header: "Fournisseur", text: (r) => r.supplier },
   {
@@ -113,8 +119,11 @@ export function RegulatoryTable({
   canAssign = false,
   canLock = false,
   assignableUsers = [],
+  companies = [],
 }: {
   rows: RegulatoryRow[];
+  /** Entités du groupe — le menu « Entité » de la colonne. */
+  companies?: { id: string; name: string }[];
   canEditPriority?: boolean;
   canAssign?: boolean;
   canLock?: boolean;
@@ -203,7 +212,14 @@ export function RegulatoryTable({
     [assignableUsers],
   );
   const optsFor = React.useCallback(
-    (c: Col) => (c.dynamic === "people" ? peopleOpts : c.options),
+    (c: Col) => (
+      c.dynamic === "people" ? peopleOpts
+      : c.dynamic === "companies" ? [{ value: "—", label: "Sans entité" }, ...companies.map((x) => ({ value: x.id, label: x.name }))]
+      // Un produit porte PLUSIEURS segments : filtrer sur une valeur exacte n'aurait aucun sens,
+      // la recherche libre de la colonne fait le travail.
+      : c.dynamic === "segments" ? undefined
+      : c.options
+    ),
     [peopleOpts],
   );
 
@@ -288,6 +304,23 @@ export function RegulatoryTable({
 
   /** Confier le dossier à quelqu'un. Un refus du serveur se DIT — sinon le menu revient
    *  silencieusement en arrière et personne ne comprend pourquoi. */
+  /** Entité et segments se corrigent EN LISANT la liste — c'est là qu'on s'en aperçoit. */
+  async function changeClassification(id: string, fields: { companyId?: string; segments?: string[] }) {
+    setBusyId(id);
+    setAssignError(null);
+    const fd = new FormData();
+    fd.set("id", id);
+    if (fields.companyId !== undefined) fd.set("companyId", fields.companyId);
+    if (fields.segments !== undefined) for (const v of fields.segments) fd.append("segments", v);
+    // Un tableau vide n'enverrait aucune clé : sans ce marqueur, « retirer tous les segments »
+    // serait indiscernable de « ne pas y toucher ».
+    if (fields.segments !== undefined && fields.segments.length === 0) fd.append("segments", "");
+    const res = await setRegulatoryClassification(fd);
+    setBusyId(null);
+    if (!res.ok) setAssignError(res.error ?? "Modification impossible.");
+    router.refresh();
+  }
+
   async function changeResponsible(id: string, responsibleId: string) {
     setBusyId(id);
     setAssignError(null);
@@ -330,6 +363,35 @@ export function RegulatoryTable({
         return <td key={key} className="px-3 py-2 text-muted-foreground">{[r.dosage, r.form].filter(Boolean).join(" · ") || "—"}</td>;
       case "packaging":
         return <td key={key} className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.packaging || "—"}</td>;
+      case "company":
+        return (
+          <td key={key} className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+            {canAssign ? (
+              <select
+                value={r.companyId}
+                onChange={(e) => changeClassification(r.id, { companyId: e.target.value })}
+                disabled={busyId === r.id}
+                aria-label="Entité du dossier"
+                className={`h-7 max-w-[10rem] rounded border px-1 text-xs ${r.companyId ? "border-input bg-background" : "border-warning/50 bg-warning/5 text-muted-foreground"}`}
+              >
+                <option value="">— Sans entité —</option>
+                {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            ) : r.companyName || "—"}
+          </td>
+        );
+      case "segments":
+        return (
+          <td key={key} className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+            {canAssign ? (
+              <SegmentPicker
+                selected={r.therapeuticSegments}
+                busy={busyId === r.id}
+                onChange={(segments) => changeClassification(r.id, { segments })}
+              />
+            ) : (r.therapeuticSegments.join(", ") || "—")}
+          </td>
+        );
       case "therapeuticClass":
         return <td key={key} className="px-3 py-2">{r.therapeuticClass || "—"}</td>;
       case "category":
@@ -553,6 +615,51 @@ function StageCell({ row }: { row: RegulatoryRow }) {
           </>
         )}
       </p>
+    </div>
+  );
+}
+
+
+/**
+ * PLUSIEURS SEGMENTS POUR UN MÊME PRODUIT.
+ *
+ * Un anti-émétique sert l'oncologie ET la gastro-entérologie : un menu à choix unique
+ * obligerait à en sacrifier un, et c'est exactement l'information qu'on vient chercher. Le
+ * panneau s'ouvre sur place, dans la ligne, pour ne pas faire quitter la liste — c'est en la
+ * lisant qu'on s'aperçoit qu'un segment manque.
+ */
+function SegmentPicker({
+  selected, busy, onChange,
+}: { selected: string[]; busy: boolean; onChange: (next: string[]) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const label = selected.length === 0 ? "— Aucun —" : selected.length <= 2 ? selected.join(", ") : `${selected.length} segments`;
+
+  return (
+    <div className="relative">
+      <button
+        type="button" disabled={busy} onClick={() => setOpen((v) => !v)}
+        title={selected.join(", ")}
+        className={`h-7 max-w-[12rem] truncate rounded border px-1.5 text-xs ${selected.length > 0 ? "border-input bg-background" : "border-warning/50 bg-warning/5 text-muted-foreground"}`}
+      >
+        {busy ? "…" : label}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-20 mt-1 max-h-64 w-64 overflow-y-auto rounded-xl border border-border bg-popover p-1.5 shadow-xl">
+            {THERAPEUTIC_SEGMENTS.map((seg) => (
+              <label key={seg} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-secondary">
+                <input
+                  type="checkbox" className="h-3.5 w-3.5 rounded border-input"
+                  checked={selected.includes(seg)}
+                  onChange={() => onChange(selected.includes(seg) ? selected.filter((x) => x !== seg) : [...selected, seg])}
+                />
+                {seg}
+              </label>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

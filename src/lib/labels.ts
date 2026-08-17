@@ -870,6 +870,36 @@ export const PAYMENT_URGENCY_OPTIONS: { value: string; label: string }[] =
  * « Refusé » n'est pas une fin : la demande repart, avec son motif. C'est le cas le plus
  * fréquent — ce n'était pas la bonne pièce — et il ne doit pas obliger à tout recommencer.
  */
+/**
+ * SEGMENTS THÉRAPEUTIQUES — le marché qu'un produit vise.
+ *
+ * Une liste fermée et non un champ libre : « Oncologie », « oncologie » et « Onco » ne se
+ * comptent pas ensemble, et c'est précisément le comptage qu'on vient chercher. Un produit peut
+ * en servir PLUSIEURS — un anti-émétique sert l'oncologie et la gastro-entérologie.
+ */
+export const THERAPEUTIC_SEGMENTS: string[] = [
+  "Oncologie",
+  "Hématologie",
+  "Cardiologie",
+  "Diabétologie / Endocrinologie",
+  "Gynécologie / Obstétrique",
+  "Urologie / Néphrologie",
+  "Neurologie",
+  "Psychiatrie",
+  "Pneumologie",
+  "Gastro-entérologie",
+  "Rhumatologie",
+  "Dermatologie",
+  "Ophtalmologie",
+  "ORL",
+  "Infectiologie",
+  "Immunologie",
+  "Anesthésie / Réanimation",
+  "Pédiatrie",
+  "Antalgie",
+  "Nutrition",
+];
+
 export const PIECE_REQUEST_STATUS: Record<string, Display> = {
   PENDING: { label: "En attente de dépôt", tone: "warning" },
   SUBMITTED: { label: "Déposé — à confirmer", tone: "info" },
@@ -1372,7 +1402,7 @@ export const NAVIGATION: NavItem[] = [
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
   // réalisées sont passées dans Sales & Marketing : analyser une opportunité et constater un
   // chiffre d'affaires ne sont pas le même métier.
-  { module: "BUSINESS_DEVELOPMENT", label: "Market Intelligence", href: "/business-development", icon: "Lightbulb", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche"] },
+  { module: "BUSINESS_DEVELOPMENT", label: "Market Intelligence", href: "/business-development", icon: "Lightbulb", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche", "/business-development/pipeline"] },
   { module: "PCH", label: "Marchés PCH", href: "/pch", icon: "Gavel", group: "Pôles", pole: "BUSINESS_DEV" },
 
   // SUPPLY CHAIN & LOGISTICS — l'exécution physique. Les modèles existaient déjà

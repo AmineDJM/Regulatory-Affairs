@@ -20,6 +20,8 @@
  *      liste blanche ne se trompe pas quand un champ nouveau apparaît dans le modèle.
  */
 
+import { SPONSORING_TYPES, PRIORITY, NATIONAL_EVENT_TYPE, EVENT_TYPE, EVENT_FORMAT, MATERIAL_TYPE } from "@/lib/labels";
+
 export type AdProKind = "SPONSORING" | "CONGRESS_NATIONAL" | "CONGRESS_INTERNATIONAL" | "PROMO_MATERIAL" | "EVENT";
 
 /** Ce qu'on sait de la personne qui veut modifier. */
@@ -79,13 +81,23 @@ export function isAdProDecided(kind: AdProKind, status: string): boolean {
 export interface EditableField {
   key: string;
   label: string;
-  type: "text" | "textarea" | "number" | "date";
+  type: "text" | "textarea" | "number" | "date" | "select";
+  /**
+   * Choix d'un champ à liste. Un champ qui se saisissait dans un MENU à la création doit se
+   * remodifier dans le même menu : offrir un champ libre à la correction, c'est laisser entrer
+   * « congres », « Congrés » et « CONGRÈS » à côté du « Congrès » du formulaire d'origine — et
+   * les compteurs par type ne veulent alors plus rien dire.
+   */
+  options?: readonly { value: string; label: string }[];
 }
+
+const mapOptions = (m: Record<string, string | { label: string }>) =>
+  Object.entries(m).map(([value, v]) => ({ value, label: typeof v === "string" ? v : v.label }));
 
 export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
   SPONSORING: [
     { key: "institution", label: "Institution / service / association", type: "text" },
-    { key: "type", label: "Type de sponsoring", type: "text" },
+    { key: "type", label: "Type de sponsoring", type: "select", options: SPONSORING_TYPES.map((t) => ({ value: t, label: t })) },
     { key: "doctor", label: "Médecin concerné", type: "text" },
     { key: "specialty", label: "Spécialité", type: "text" },
     { key: "city", label: "Ville", type: "text" },
@@ -97,6 +109,7 @@ export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
   ],
   CONGRESS_NATIONAL: [
     { key: "name", label: "Événement", type: "text" },
+    { key: "eventType", label: "Type d'événement", type: "select", options: mapOptions(NATIONAL_EVENT_TYPE) },
     { key: "hostInstitution", label: "Établissement / association hôte", type: "text" },
     { key: "country", label: "Pays", type: "text" },
     { key: "city", label: "Ville", type: "text" },
@@ -121,11 +134,14 @@ export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
   ],
   PROMO_MATERIAL: [
     { key: "title", label: "Intitulé du matériel", type: "text" },
+    { key: "materialType", label: "Type de matériel", type: "select", options: mapOptions(MATERIAL_TYPE) },
     { key: "description", label: "Description / besoin", type: "textarea" },
     { key: "amount", label: "Budget global", type: "number" },
   ],
   EVENT: [
     { key: "name", label: "Nom de l'événement", type: "text" },
+    { key: "type", label: "Type", type: "select", options: mapOptions(EVENT_TYPE) },
+    { key: "format", label: "Format", type: "select", options: mapOptions(EVENT_FORMAT) },
     { key: "location", label: "Lieu", type: "text" },
     { key: "city", label: "Ville", type: "text" },
     { key: "country", label: "Pays", type: "text" },

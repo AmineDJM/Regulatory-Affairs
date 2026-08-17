@@ -43,17 +43,25 @@ export const REG_STAGES: { key: RegStage; label: string; hint: string }[] = [
 ];
 
 /**
- * L'onglet qui s'ouvre par défaut.
+ * L'onglet qui s'ouvre par défaut sur l'écran REGULATORY : « À traiter ».
  *
- * Pour l'équipe, c'est « À traiter » : le pipeline lui est invisible, l'ouvrir sur un onglet
- * toujours vide serait absurde. Le Super Admin, lui, arrive sur le pipeline quand il en reste —
- * c'est là qu'il a une décision à prendre.
+ * Le pipeline a quitté cet écran (voir `visibleStages`) : il n'y a plus qu'un choix entre ce
+ * qu'on traite et ce qui est terminé, et l'on commence évidemment par le premier.
  */
-export function defaultStage(canLock: boolean, pipelineCount: number): RegStage {
-  return canLock && pipelineCount > 0 ? "pipeline" : "todo";
+export function defaultStage(_canLock: boolean, _pipelineCount: number): RegStage {
+  return "todo";
 }
 
-/** Les onglets réellement affichés : sans le verrou, le pipeline n'existe pas pour cette personne. */
-export function visibleStages(canLock: boolean): typeof REG_STAGES {
-  return canLock ? REG_STAGES : REG_STAGES.filter((s) => s.key !== "pipeline");
+/**
+ * Les onglets de l'écran REGULATORY — le pipeline n'en fait plus partie.
+ *
+ * Un dossier verrouillé n'est pas un dossier réglementaire en cours : c'est un produit qu'on
+ * ÉTUDIE, et dont on n'a pas encore décidé qu'on le déposerait. Cette question-là appartient au
+ * Business Development (l'avant-vente : ce qu'on étudie et ce qu'on vise), pas à l'équipe qui
+ * instruit les dossiers ouverts. Il vit désormais sur `/business-development/pipeline`.
+ *
+ * `regStage` continue de le classer : c'est le rangement qui reste, seul l'écran change.
+ */
+export function visibleStages(_canLock: boolean): typeof REG_STAGES {
+  return REG_STAGES.filter((s) => s.key !== "pipeline");
 }

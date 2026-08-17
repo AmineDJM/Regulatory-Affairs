@@ -135,6 +135,10 @@ export function consultingCreateFields(opts: {
     { type: "number", name: "amount", label: "Rémunération (DZD)" },
     { type: "select", name: "billing", label: "Rythme de la rémunération", options: CONSULTING_BILLING_OPTIONS, defaultValue: "ONE_OFF" },
     { type: "textarea", name: "scope", label: "Objet de la mission", full: true, placeholder: "Ce pour quoi on paie." },
+    // Le contrat signé, les CV, une proposition commerciale : ils existent AU MOMENT où l'on
+    // saisit le contrat. Renvoyer leur dépôt « à l'écran suivant », c'est les voir manquer une
+    // fois sur deux.
+    { type: "file", name: "files", label: "Pièces jointes", multiple: true, full: true, hint: "Contrat signé, proposition, CV, tout type de fichier." },
     { type: "textarea", name: "tasks", label: "Tâches attendues (une par ligne)", full: true, placeholder: "Audit des dossiers\nFormation de l'équipe\nRapport final" },
     { type: "textarea", name: "paymentTerms", label: "Modalités de paiement", full: true },
     { type: "textarea", name: "notes", label: "Notes internes", full: true },

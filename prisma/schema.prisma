@@ -1176,6 +1176,11 @@ model RegulatoryProduct {
   // distingue deux dossiers — une boîte de 28 et une boîte de 56 sont deux enregistrements.
   packaging              String?
   therapeuticClass       String?
+  /// SEGMENTS THÉRAPEUTIQUES — Oncologie, Gynécologie, Cardiologie…
+  /// Une LISTE et non un texte : un produit sert souvent plusieurs segments, et « Oncologie,
+  /// Gynéco » écrit à la main ne se compte ni ne se filtre. La classe thérapeutique reste, en
+  /// texte : elle dit la classe pharmacologique, pas le marché visé.
+  therapeuticSegments    String[]            @default([])
   partnerLab             String? // fournisseur / laboratoire partenaire
   countryOfOrigin        String?
   category               RegulatoryCategory  @default(MEDICINE) // médicament vs dispositif médical

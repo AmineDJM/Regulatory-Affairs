@@ -90,6 +90,10 @@ export function DriveToolbar({
   return (
     <div className="flex items-center gap-2">
       {primary}
+      {/* « Accès & réglages » vit ICI et non dans le menu « ⋯ » : le panneau y était rendu à
+          l'intérieur du menu, et le clic qui l'ouvrait fermait le menu — donc démontait le
+          panneau dans le même geste. Rien ne se passait, et c'était sans recours. */}
+      {settings}
       <div className="relative">
         <button
           type="button"
@@ -120,11 +124,6 @@ export function DriveToolbar({
                 <MoveHorizontal className="h-4 w-4 text-muted-foreground" />
                 {wide ? "Largeur de lecture" : "Pleine largeur"}
               </button>
-              {settings && (
-                <div onClick={() => setOpen(false)} className="[&_button]:w-full [&_button]:justify-start [&_button]:border-0 [&_button]:bg-transparent [&_button]:px-2.5 [&_button]:py-2 [&_button]:text-sm [&_button]:font-normal [&_button:hover]:bg-secondary">
-                  {settings}
-                </div>
-              )}
               <Link
                 href={trashHref}
                 onClick={() => setOpen(false)}
