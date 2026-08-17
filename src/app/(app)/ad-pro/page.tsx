@@ -1,12 +1,11 @@
-import Link from "next/link";
 import { requireModule } from "@/lib/session";
-import { accessibleModules, userCan, type Module } from "@/lib/rbac";
+import { userCan, type Module } from "@/lib/rbac";
 import { canChooseAnalysisAtCreation, canDesignateProductManagerAtCreation } from "@/lib/workflow/origin";
 import { getAdProRequests, getAdProCreateData } from "@/lib/queries/ad-pro";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { AD_PRO_KINDS, countByState, creatableKinds } from "@/lib/ad-pro/unified";
+import { countByState, creatableKinds } from "@/lib/ad-pro/unified";
 import { AdProList } from "./ad-pro-list";
 import { NewRequestPicker } from "./new-request-picker";
 
@@ -42,9 +41,6 @@ export default async function AdProPage() {
   ]);
   const counts = countByState(rows);
 
-  const mine = accessibleModules(user);
-  const links = AD_PRO_KINDS.filter((k) => mine.includes(k.module as Module));
-
   return (
     <div className="space-y-5">
       <PageHeader
@@ -76,20 +72,6 @@ export default async function AdProPage() {
         />
       ) : (
         <AdProList rows={rows} />
-      )}
-
-      {/* Les écrans d'origine restent accessibles : ils portent les champs propres à chaque
-          nature, et c'est là que se suivent les circuits. */}
-      {links.length > 0 && (
-        <p className="text-xs text-muted-foreground">
-          Écrans détaillés par nature :{" "}
-          {links.map((k, i) => (
-            <span key={k.kind}>
-              {i > 0 && " · "}
-              <Link href={k.href} className="text-primary hover:underline">{k.label}</Link>
-            </span>
-          ))}
-        </p>
       )}
     </div>
   );

@@ -2,13 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { FilterX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import {
-  AD_PRO_KINDS, AD_PRO_STATE, kindSpec, countByState,
+  AD_PRO_KINDS, AD_PRO_STATE, kindSpec,
   type AdProRequest, type AdProState, type AdProKind,
 } from "@/lib/ad-pro/unified";
 
@@ -17,75 +16,106 @@ import {
  * liste rangée par date seule enterre les demandes bloquées depuis trois semaines sous celles de
  * ce matin, or ce sont précisément celles-là qu'il faut voir.
  *
- * Les filtres sont les compteurs eux-mêmes : on clique sur « en attente » pour ne voir que ça.
- * Un panneau de filtres séparé s'utilise deux fois, puis plus jamais.
+ * On filtre DANS LES COLONNES, comme une vraie feuille : chaque en-tête porte son filtre (texte
+ * pour la référence, l'objet, le bénéficiaire, le demandeur ; menu pour la nature et l'état ;
+ * montant minimum ; date « à partir du »). Ils se COMBINENT — « Sponsoring » + « en attente » +
+ * « ≥ 100 000 » répond à une question précise sans quitter le tableau.
  */
-export function AdProList({ rows }: { rows: AdProRequest[] }) {
-  const [state, setState] = React.useState<AdProState | "ALL">("ALL");
-  const [kind, setKind] = React.useState<AdProKind | "ALL">("ALL");
-  const [q, setQ] = React.useState("");
 
-  const counts = countByState(rows);
-  const needle = q.trim().toLowerCase();
+interface Filters {
+  reference: string;
+  kind: AdProKind | "";
+  title: string;
+  beneficiary: string;
+  minAmount: string;
+  requester: string;
+  dateFrom: string;
+  state: AdProState | "";
+}
+
+const EMPTY: Filters = {
+  reference: "", kind: "", title: "", beneficiary: "", minAmount: "", requester: "", dateFrom: "", state: "",
+};
+
+const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-xs font-normal normal-case tracking-normal outline-none focus:ring-1 focus:ring-ring";
+
+export function AdProList({ rows }: { rows: AdProRequest[] }) {
+  const [f, setF] = React.useState<Filters>(EMPTY);
+  const set = (k: keyof Filters) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setF((prev) => ({ ...prev, [k]: e.target.value }));
+
+  const has = (hay: string | null, needle: string) => (hay ?? "").toLowerCase().includes(needle.toLowerCase());
   const shown = rows.filter((r) => {
-    if (state !== "ALL" && r.state !== state) return false;
-    if (kind !== "ALL" && r.kind !== kind) return false;
-    if (needle && !`${r.reference} ${r.title} ${r.beneficiary ?? ""} ${r.requester ?? ""}`.toLowerCase().includes(needle)) return false;
+    if (f.reference && !has(r.reference, f.reference)) return false;
+    if (f.kind && r.kind !== f.kind) return false;
+    if (f.title && !has(r.title, f.title)) return false;
+    if (f.beneficiary && !has(r.beneficiary, f.beneficiary)) return false;
+    if (f.minAmount && !(r.amount !== null && r.amount >= Number(f.minAmount))) return false;
+    if (f.requester && !has(r.requester, f.requester)) return false;
+    if (f.dateFrom && new Date(r.createdAt) < new Date(f.dateFrom)) return false;
+    if (f.state && r.state !== f.state) return false;
     return true;
   });
 
-  const chip = (active: boolean) =>
-    `rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-      active ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"
-    }`;
+  // Les valeurs proposées dans les menus se limitent à ce qui EXISTE dans la liste — inutile de
+  // proposer « Consulting » s'il n'y a aucune demande de ce type.
+  const kindsPresent = AD_PRO_KINDS.filter((k) => rows.some((r) => r.kind === k.kind));
+  const statesPresent = (Object.keys(AD_PRO_STATE) as AdProState[]).filter((s) => rows.some((r) => r.state === s));
+  const active = Object.values(f).some(Boolean);
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Chercher une demande, un bénéficiaire…" className="w-72 pl-8" />
-        </div>
-        <button type="button" className={chip(state === "ALL")} onClick={() => setState("ALL")}>Toutes ({rows.length})</button>
-        {(Object.keys(AD_PRO_STATE) as AdProState[]).filter((s) => counts[s] > 0).map((s) => (
-          <button key={s} type="button" className={chip(state === s)} onClick={() => setState(s)}>
-            {AD_PRO_STATE[s].label} ({counts[s]})
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span>{shown.length} / {rows.length} demande{rows.length > 1 ? "s" : ""}</span>
+        {active && (
+          <button type="button" onClick={() => setF(EMPTY)} className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 font-medium hover:bg-secondary">
+            <FilterX className="h-3.5 w-3.5" /> Réinitialiser les filtres
           </button>
-        ))}
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted-foreground">Nature :</span>
-        <button type="button" className={chip(kind === "ALL")} onClick={() => setKind("ALL")}>Toutes</button>
-        {AD_PRO_KINDS.filter((k) => rows.some((r) => r.kind === k.kind)).map((k) => (
-          <button key={k.kind} type="button" className={chip(kind === k.kind)} onClick={() => setKind(k.kind)}>
-            {k.label}
-          </button>
-        ))}
-      </div>
-
-      {shown.length === 0 ? (
-        <p className="surface p-6 text-center text-sm text-muted-foreground">Aucune demande ne correspond à ces filtres.</p>
-      ) : (
-        // EN TABLEAU : une demande, c'est une référence, un objet, un bénéficiaire, un montant et
-        // une date — cinq colonnes qui se comparent d'un coup d'œil. Empilées dans une phrase,
-        // ces mêmes informations obligent à relire chaque ligne en entier pour en comparer deux.
-        <div className="surface overflow-x-auto">
-          <table className="table-clean w-full min-w-[56rem] text-sm">
-            <thead className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
+      <div className="surface overflow-x-auto">
+        <table className="table-clean w-full min-w-[64rem] text-sm">
+          <thead className="border-b border-border">
+            <tr className="text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="px-3 pt-2 text-left font-medium">Référence</th>
+              <th className="px-3 pt-2 text-left font-medium">Nature</th>
+              <th className="px-3 pt-2 text-left font-medium">Objet</th>
+              <th className="px-3 pt-2 text-left font-medium">Bénéficiaire</th>
+              <th className="px-3 pt-2 text-right font-medium">Montant</th>
+              <th className="px-3 pt-2 text-left font-medium">Demandeur</th>
+              <th className="px-3 pt-2 text-left font-medium">Date</th>
+              <th className="px-3 pt-2 text-left font-medium">État</th>
+            </tr>
+            {/* La rangée de filtres, alignée sous chaque colonne. */}
+            <tr>
+              <th className="px-2 pb-2 pt-1"><input value={f.reference} onChange={set("reference")} placeholder="Filtrer" className={cellInput} /></th>
+              <th className="px-2 pb-2 pt-1">
+                <select value={f.kind} onChange={set("kind")} className={cellInput}>
+                  <option value="">Toutes</option>
+                  {kindsPresent.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+                </select>
+              </th>
+              <th className="px-2 pb-2 pt-1"><input value={f.title} onChange={set("title")} placeholder="Filtrer" className={cellInput} /></th>
+              <th className="px-2 pb-2 pt-1"><input value={f.beneficiary} onChange={set("beneficiary")} placeholder="Filtrer" className={cellInput} /></th>
+              <th className="px-2 pb-2 pt-1"><input type="number" value={f.minAmount} onChange={set("minAmount")} placeholder="≥" className={cn(cellInput, "text-right")} /></th>
+              <th className="px-2 pb-2 pt-1"><input value={f.requester} onChange={set("requester")} placeholder="Filtrer" className={cellInput} /></th>
+              <th className="px-2 pb-2 pt-1"><input type="date" value={f.dateFrom} onChange={set("dateFrom")} className={cellInput} title="À partir du" /></th>
+              <th className="px-2 pb-2 pt-1">
+                <select value={f.state} onChange={set("state")} className={cellInput}>
+                  <option value="">Tous</option>
+                  {statesPresent.map((s) => <option key={s} value={s}>{AD_PRO_STATE[s].label}</option>)}
+                </select>
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {shown.length === 0 ? (
               <tr>
-                <th className="px-3 py-2 text-left font-medium">Référence</th>
-                <th className="px-3 py-2 text-left font-medium">Nature</th>
-                <th className="px-3 py-2 text-left font-medium">Objet</th>
-                <th className="px-3 py-2 text-left font-medium">Bénéficiaire</th>
-                <th className="px-3 py-2 text-right font-medium">Montant</th>
-                <th className="px-3 py-2 text-left font-medium">Demandeur</th>
-                <th className="px-3 py-2 text-left font-medium">Date</th>
-                <th className="px-3 py-2 text-left font-medium">État</th>
+                <td colSpan={8} className="px-3 py-8 text-center text-sm text-muted-foreground">Aucune demande ne correspond à ces filtres.</td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {shown.map((r) => {
+            ) : (
+              shown.map((r) => {
                 const spec = kindSpec(r.kind);
                 const st = AD_PRO_STATE[r.state];
                 return (
@@ -109,11 +139,11 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
                     <td className="px-3 py-2"><Badge tone={st.tone} dot={false}>{st.label}</Badge></td>
                   </tr>
                 );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
