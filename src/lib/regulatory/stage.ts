@@ -25,8 +25,15 @@ export interface StageInput {
   status: string;
 }
 
-/** Statuts qui closent un dossier — la décision est tombée, il n'y a plus à traiter. */
-const FINISHED = ["DECISION_OBTAINED", "CLOSED"];
+/**
+ * Statuts qui closent un dossier — la décision est tombée, il n'y a plus à traiter.
+ *
+ * Exporté parce que d'autres modules en dépendent : les STOCKS ne proposent que des produits
+ * dont le traitement est terminé (on ne stocke pas un produit qui n'est pas enregistré). Une
+ * seconde liste recopiée ailleurs finirait par diverger de celle-ci.
+ */
+export const FINISHED_REG_STATUSES = ["DECISION_OBTAINED", "CLOSED"] as const;
+const FINISHED: readonly string[] = FINISHED_REG_STATUSES;
 
 export function regStage(input: StageInput): RegStage {
   // L'aboutissement prime sur le verrou : reverrouiller un dossier obtenu ne le remet pas
@@ -58,7 +65,7 @@ export function defaultStage(_canLock: boolean, _pipelineCount: number): RegStag
  * Un dossier verrouillé n'est pas un dossier réglementaire en cours : c'est un produit qu'on
  * ÉTUDIE, et dont on n'a pas encore décidé qu'on le déposerait. Cette question-là appartient au
  * Business Development (l'avant-vente : ce qu'on étudie et ce qu'on vise), pas à l'équipe qui
- * instruit les dossiers ouverts. Il vit désormais sur `/business-development/pipeline`.
+ * instruit les dossiers ouverts. Il vit désormais sur `/regulatory/pipeline`.
  *
  * `regStage` continue de le classer : c'est le rangement qui reste, seul l'écran change.
  */

@@ -17,9 +17,8 @@ export const dynamic = "force-dynamic";
  * LE PIPELINE — ce qu'on ÉTUDIE, pas ce qu'on instruit.
  *
  * Un dossier verrouillé n'est pas un dossier réglementaire en cours : c'est un produit dont on
- * n'a pas encore décidé qu'on le déposerait. Cette question appartient au Business Development —
- * l'avant-vente, ce qu'on étudie et ce qu'on vise — et non à l'équipe qui instruit les dossiers
- * ouverts, pour qui le pipeline était de toute façon invisible.
+ * n'a pas encore décidé qu'on le déposerait. Module à part, mais rangé SOUS Regulatory et déplié
+ * par sa flèche : ces dossiers en découlent, et c'est là qu'on vient les chercher.
  *
  * L'ouverture reste le geste du Super Admin : déverrouiller EST l'acte qui met un dossier au
  * travail, et il se pose ici, là où la décision se prend.
@@ -44,7 +43,7 @@ export default async function BusinessDevelopmentPipelinePage() {
 
   return (
     <div className="space-y-5">
-      <BackLink href="/business-development"><ArrowLeft className="h-4 w-4" /> Business Development</BackLink>
+      <BackLink href="/regulatory"><ArrowLeft className="h-4 w-4" /> Suivi des dossiers</BackLink>
       <PageHeader
         title="Pipeline réglementaire"
         description="Les produits à l'étude : des dossiers créés, pas encore ouverts à l'équipe réglementaire. Les déverrouiller, c'est décider de les mettre au travail."

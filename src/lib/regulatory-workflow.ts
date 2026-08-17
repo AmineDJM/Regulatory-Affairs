@@ -151,6 +151,24 @@ export function presubOutcome(state: RegWorkflowState | null | undefined): RegPr
 export interface RegProgress { done: number; total: number; pct: number; current: RegStep | null }
 
 /** Avancement global + étape « courante » (1re étape non terminée dans l'ordre officiel). */
+/**
+ * LA PRÉSOUMISSION EST UN VERROU, pas une formalité.
+ *
+ * Tant que l'ANPP n'a pas rendu un avis FAVORABLE, le dossier n'est pas engagé : il en est encore
+ * à sa réception. Cocher les étapes suivantes en attendant donne une avance qui n'existe pas —
+ * et sur un tableau de soixante-neuf dossiers, c'est ce chiffre-là qu'on regarde pour décider où
+ * mettre les gens.
+ *
+ * On ne RÉÉCRIT rien : les étapes déjà cochées restent cochées (le travail a bien été fait). On
+ * PLAFONNE l'avancement affiché à l'étape 1, « Réception du CTD complet » — le dossier reçu.
+ */
+export const PRESUB_GATE_STEP = "ctd";
+
+/** L'avis de présoumission autorise-t-il le dossier à avancer au-delà de sa réception ? */
+export function presubUnlocked(state: RegWorkflowState | null | undefined): boolean {
+  return presubOutcome(state) === "FAVORABLE";
+}
+
 export function regProgress(state: RegWorkflowState | null | undefined): RegProgress {
   const total = REG_STEPS.length;
   let done = 0;
@@ -160,7 +178,15 @@ export function regProgress(state: RegWorkflowState | null | undefined): RegProg
     if (st === "DONE") done += 1;
     else if (!current) current = step;
   }
-  return { done, total, pct: Math.round((done / total) * 100), current };
+
+  // VERROU DE PRÉSOUMISSION : sans avis favorable, le dossier EST ENCORE à sa réception, quoi
+  // qu'on ait coché plus loin. On ne touche pas au décompte — le travail fait reste compté, ce
+  // serait mentir dans l'autre sens — mais l'ÉTAPE OÙ SE TROUVE LE DOSSIER reste « Réception du
+  // CTD complet » tant que l'ANPP n'a pas répondu favorablement.
+  const gate = REG_STEPS.find((s) => s.key === PRESUB_GATE_STEP) ?? null;
+  const at = presubUnlocked(state) ? current : (gate ?? current);
+
+  return { done, total, pct: Math.round((done / total) * 100), current: at };
 }
 
 /** Avancement de la checklist (cochés / total). */

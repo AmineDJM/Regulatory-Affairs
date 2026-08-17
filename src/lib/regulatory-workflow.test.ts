@@ -3,7 +3,7 @@ import {
   REG_PHASES, REG_STEPS, REG_CHECKLIST,
   regProgress, regChecklistProgress, regStepStatus,
   isRegStepKey, isRegChecklistKey, isRegStepState,
-  PRESUB_ANSWER_STEP, REG_PRESUB_OUTCOME, isRegPresubOutcome, presubOutcome,
+  PRESUB_ANSWER_STEP, REG_PRESUB_OUTCOME, isRegPresubOutcome, presubOutcome, presubUnlocked,
   REG_STATUS_MILESTONE, completeStepsThrough,
   type RegWorkflowState, type RegChecklistState,
 } from "./regulatory-workflow";
@@ -36,13 +36,41 @@ describe("regulatory ANPP workflow", () => {
     expect(p.current?.n).toBe(1);
   });
 
-  it("regProgress : étapes faites comptées, courante = 1re non terminée", () => {
-    const wf: RegWorkflowState = { ctd: { status: "DONE" }, sample: { status: "DONE" }, bv25_req: { status: "DOING" } };
+  it("regProgress : étapes faites comptées, courante = 1re non terminée (présoumission favorable)", () => {
+    const wf: RegWorkflowState = {
+      ctd: { status: "DONE" }, sample: { status: "DONE" }, bv25_req: { status: "DOING" },
+      [PRESUB_ANSWER_STEP]: { status: "DONE", outcome: "FAVORABLE" },
+    };
     const p = regProgress(wf);
-    expect(p.done).toBe(2);
     expect(p.current?.key).toBe("bv25_req"); // 1re non-DONE
     expect(regStepStatus(wf, "bv25_req")).toBe("DOING");
     expect(regStepStatus(wf, "decision")).toBe("TODO");
+  });
+
+  it("SANS avis favorable, le dossier reste À L'ÉTAPE « Réception du CTD complet »", () => {
+    // Le verrou de présoumission : cocher les étapes suivantes en attendant l'ANPP donnerait une
+    // avance qui n'existe pas — et c'est ce chiffre-là qu'on regarde pour décider où mettre les gens.
+    const base: RegWorkflowState = { ctd: { status: "DONE" }, sample: { status: "DONE" }, bv25_req: { status: "DOING" } };
+    expect(regProgress(base).current?.key).toBe("ctd");
+    expect(regProgress({ ...base, [PRESUB_ANSWER_STEP]: { status: "DONE", outcome: "EN_ATTENTE" } }).current?.key).toBe("ctd");
+    expect(regProgress({ ...base, [PRESUB_ANSWER_STEP]: { status: "BLOCKED", outcome: "DEFAVORABLE" } }).current?.key).toBe("ctd");
+  });
+
+  it("le verrou ne MENT PAS sur le travail fait : le décompte reste intact", () => {
+    // Plafonner le compteur reviendrait à effacer des étapes réellement franchies. On ne
+    // déplace que l'étape OÙ SE TROUVE le dossier.
+    const wf: RegWorkflowState = { ctd: { status: "DONE" }, sample: { status: "DONE" }, bv25_req: { status: "DONE" } };
+    expect(regProgress(wf).done).toBe(3);
+  });
+
+  it("l'avis favorable rouvre la marche", () => {
+    const wf: RegWorkflowState = {
+      ctd: { status: "DONE" }, sample: { status: "DONE" },
+      [PRESUB_ANSWER_STEP]: { status: "DONE", outcome: "FAVORABLE" },
+    };
+    expect(presubUnlocked(wf)).toBe(true);
+    expect(presubUnlocked(null)).toBe(false);
+    expect(regProgress(wf).current?.key).not.toBe("ctd");
   });
 
   it("regChecklistProgress compte les documents cochés", () => {

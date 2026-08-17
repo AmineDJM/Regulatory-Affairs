@@ -1455,7 +1455,14 @@ export const NAVIGATION: NavItem[] = [
 
   // REGULATORY — deux portes, et deux seulement. Une assistante qui suit un dossier n'a pas à
   // traverser toute l'interface d'analyse CTD pour y arriver.
-  { module: "REGULATORY", label: "Suivi des dossiers", href: "/regulatory", icon: "FileCheck2", group: "Pôles", pole: "REGULATORY" },
+  // Le PIPELINE est un module à part, rangé SOUS Regulatory et déplié par sa flèche : ce sont
+  // des dossiers réglementaires pas encore ouverts à l'équipe — ils découlent d'ici.
+  {
+    module: "REGULATORY", label: "Suivi des dossiers", href: "/regulatory", icon: "FileCheck2", group: "Pôles", pole: "REGULATORY",
+    children: [
+      { module: "REGULATORY", label: "Pipeline", href: "/regulatory/pipeline", icon: "GitBranch", group: "Pôles", pole: "REGULATORY" },
+    ],
+  },
   { module: "REGULATORY", label: "Analyse CTD", href: "/regulatory/enregistrement", icon: "ScanSearch", group: "Pôles", pole: "REGULATORY", gate: "regEnrollment" },
 
   // ADMINISTRATION — l'administration de L'ENTREPRISE (à ne pas confondre avec la Console
@@ -1496,15 +1503,7 @@ export const NAVIGATION: NavItem[] = [
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
   // réalisées sont passées dans Sales & Marketing : analyser une opportunité et constater un
   // chiffre d'affaires ne sont pas le même métier.
-  // Le PIPELINE est un module à part — ce qu'on ÉTUDIE — rangé sous Business Development et
-  // déplié par la flèche. Fondu dans « Market Intelligence », personne ne le trouvait.
-  {
-    module: "BUSINESS_DEVELOPMENT", label: "Market Intelligence", href: "/business-development", icon: "Lightbulb", group: "Pôles", pole: "BUSINESS_DEV",
-    match: ["/business-development/marche"],
-    children: [
-      { module: "REGULATORY", label: "Pipeline réglementaire", href: "/business-development/pipeline", icon: "GitBranch", group: "Pôles", pole: "BUSINESS_DEV" },
-    ],
-  },
+  { module: "BUSINESS_DEVELOPMENT", label: "Market Intelligence", href: "/business-development", icon: "Lightbulb", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche"] },
   { module: "PCH", label: "Marchés PCH", href: "/pch", icon: "Gavel", group: "Pôles", pole: "BUSINESS_DEV" },
 
   // SUPPLY CHAIN & LOGISTICS — l'exécution physique. Les modèles existaient déjà

@@ -11,7 +11,7 @@ import type { RegulatoryRow } from "@/app/(app)/regulatory/regulatory-table";
 /**
  * LES LIGNES DU TABLEAU REGULATORY — chargées une seule fois, lues par deux écrans.
  *
- * Le suivi des dossiers (`/regulatory`) et le PIPELINE (`/business-development/pipeline`)
+ * Le suivi des dossiers (`/regulatory`) et le PIPELINE (`/regulatory/pipeline`)
  * montrent les mêmes objets sous deux angles : ce qu'on instruit, et ce qu'on étudie. Deux
  * chargements parallèles finiraient par diverger sur une colonne — celle qu'on aurait corrigée
  * d'un côté seulement.

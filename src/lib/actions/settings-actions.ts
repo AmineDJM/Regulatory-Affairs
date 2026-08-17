@@ -100,7 +100,7 @@ export async function setRegulatoryTherapeuticSegments(formData: FormData): Prom
   });
   revalidatePath("/admin");
   revalidatePath("/regulatory");
-  revalidatePath("/business-development/pipeline");
+  revalidatePath("/regulatory/pipeline");
   return { ok: true };
 }
 

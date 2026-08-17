@@ -50,10 +50,10 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
   });
 
   it("un SOUS-MODULE ouvre le pôle de son parent — sinon on atterrit sans repère", () => {
-    // Le pipeline vit sous Business Development. Y arriver par un lien doit déplier le pôle,
-    // pas laisser le menu replié sur un écran qu'on n'y retrouve pas.
-    const poles = groupIntoPoles(accessible(["BUSINESS_DEVELOPMENT"]));
-    expect(poleOfPath(poles, "/business-development/pipeline")).toBe("BUSINESS_DEV");
+    // Le pipeline vit sous Regulatory. Y arriver par un lien doit déplier le pôle, pas laisser
+    // le menu replié sur un écran qu'on n'y retrouve pas.
+    const poles = groupIntoPoles(accessible(["REGULATORY"]));
+    expect(poleOfPath(poles, "/regulatory/pipeline")).toBe("REGULATORY");
   });
 
   it("garde l'ordre des pôles déclaré, quel que soit l'ordre des droits", () => {

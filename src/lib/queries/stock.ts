@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { regulatoryLockWhere, type SessionUser } from "@/lib/rbac";
+import { FINISHED_REG_STATUSES } from "@/lib/regulatory/stage";
 
 export interface ProductOption {
   id: string;
@@ -14,8 +15,11 @@ export interface ProductOption {
  * produits nommerait aussi sûrement qu'un tableau.
  */
 export async function getProductOptions(user: SessionUser | null = null): Promise<ProductOption[]> {
+  // SEULS LES PRODUITS DONT LE TRAITEMENT EST TERMINÉ. On ne tient pas de stock d'un produit
+  // qui n'est pas enregistré : le proposer fait saisir des relevés sur un produit qui n'existe
+  // pas encore commercialement, et ces lignes-là ne se corrigent jamais.
   const products = await prisma.regulatoryProduct.findMany({
-    where: regulatoryLockWhere(user),
+    where: { ...regulatoryLockWhere(user), status: { in: [...FINISHED_REG_STATUSES] } },
     select: { id: true, brandName: true, dci: true, reference: true },
     orderBy: [{ brandName: "asc" }, { dci: "asc" }],
   });

@@ -956,6 +956,6 @@ export async function setRegulatoryClassification(formData: FormData): Promise<A
     summary: `Classement mis à jour — ${before.reference}`,
   });
   revalidatePath("/regulatory");
-  revalidatePath("/business-development/pipeline");
+  revalidatePath("/regulatory/pipeline");
   return { ok: true, id };
 }

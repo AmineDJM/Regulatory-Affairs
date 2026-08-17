@@ -2,12 +2,13 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Download, Trash2, RotateCcw, Pencil, Loader2, Check, FolderInput, UserPlus } from "lucide-react";
+import { Download, Trash2, RotateCcw, Pencil, Loader2, Check, FolderInput, UserPlus, Scale } from "lucide-react";
 import { renameNode, trashNode, restoreNode, deleteNode, moveNode, getDriveNodeShares } from "@/lib/actions/drive-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { SharePanel, type ShareItem } from "./[id]/share-panel";
+import { SendToLegalButton } from "./send-to-legal";
 
 interface MoveTarget { id: string; name: string }
 interface UserLite { id: string; name: string }
@@ -97,6 +98,9 @@ export function NodeActions({ id, name, isFile, canEdit, trash, moveTargets, use
               <UserPlus className="h-3.5 w-3.5" />
             </button>
           )}
+          {/* VERS LEGAL — déclarer ce fichier comme engagement de la société. Il RESTE ici :
+              Legal pointe dessus, il n'en est jamais fait de copie. */}
+          {isFile && <SendToLegalButton nodeId={id} name={name} />}
           <IconForm action={trashNode} id={id} title="Corbeille"><Trash2 className="h-3.5 w-3.5" /></IconForm>
         </>
       )}
