@@ -1224,6 +1224,11 @@ export const NAVIGATION: NavItem[] = [
   // page plein écran avec dictée vocale et lecture de pièces jointes.
   { module: "WORKSPACE", label: "Assistant IA", href: "/assistant", icon: "Sparkles", group: "Pilotage" },
   { module: "DOSSIERS", label: "Projets", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
+  // Messagerie Microsoft 365 — sous le module MESSAGING (droit déjà existant) ; l'ouverture réelle
+  // dépend en plus du drapeau MICROSOFT_MAIL et de la liste pilote, vérifiés dans l'écran.
+  // Elle est dans PILOTAGE et non dans Transverse : on relève ses mails en même temps qu'on
+  // regarde son espace et son calendrier, pas en même temps qu'on range un fichier.
+  { module: "MESSAGING", label: "Messagerie e-mail", href: "/messagerie", icon: "Mail", group: "Pilotage" },
   // « Courrier » (boîte mail intégrée) retiré de la plateforme — la messagerie e-mail se gère
   // désormais directement dans l'app Infomaniak. Le code back-end reste dormant (non exposé).
   // ─────────────────────────── PÔLES D'ENTREPRISE ───────────────────────────
@@ -1274,9 +1279,6 @@ export const NAVIGATION: NavItem[] = [
   // Bureautique : même module que le Drive (les documents Y vivent), écran séparé parce que le
   // geste est différent — on vient écrire, pas ranger.
   { module: "DRIVE", label: "Bureautique", href: "/office", icon: "FileText", group: "Transverse" },
-  // Messagerie Microsoft 365 — sous le module MESSAGING (droit déjà existant) ; l'ouverture réelle
-  // dépend en plus du drapeau MICROSOFT_MAIL et de la liste pilote, vérifiés dans l'écran.
-  { module: "MESSAGING", label: "Messagerie e-mail", href: "/messagerie", icon: "Mail", group: "Transverse" },
   { module: "ADMIN_REQUESTS", label: "Bureau du secrétariat", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
   { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   // Système

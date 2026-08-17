@@ -4,7 +4,7 @@ import { ChevronRight, House } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, canCreateDriveSpace } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getDriveListing, getDriveSpacesForUser, getDriveNavFolders } from "@/lib/queries/drive";
+import { getDriveListing, getDriveSpacesForUser } from "@/lib/queries/drive";
 import { canCreateInSpace } from "@/lib/drive";
 import { getAppSettings } from "@/lib/settings";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
@@ -20,7 +20,7 @@ import { DriveCanvas } from "./drive-canvas";
 import { ExplorerNav } from "./explorer-nav";
 import { DriveToolbar } from "./drive-toolbar";
 import { QuickAccessList, type QuickRow } from "./quick-access-list";
-import { parseView, VIEW_TITLE, fileTypeLabel, fileIconName, explorerSize } from "@/lib/drive/explorer";
+import { parseView, VIEW_TITLE, fileTypeLabel, explorerSize } from "@/lib/drive/explorer";
 import { getRecentFiles } from "@/lib/queries/drive-quick-access";
 
 
@@ -33,10 +33,9 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
   // ACCÈS RAPIDE — une liste transverse, qui ne parcourt pas l'arborescence. Elle passe par le
   // même filtre de visibilité : un raccourci ne doit jamais montrer plus que la navigation.
   if (view === "recent") {
-    const [files, navSpaces, navFolders] = await Promise.all([
+    const [files, navSpaces] = await Promise.all([
       getRecentFiles(user),
       getDriveSpacesForUser(user),
-      getDriveNavFolders(user),
     ]);
     const quick: QuickRow[] = files.map((f) => ({
       id: f.id, name: f.name, isFile: true, size: f.size, updatedAt: f.updatedAt,
@@ -46,7 +45,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
       <div className="space-y-4">
         <PageHeader title={VIEW_TITLE.recent} />
         <div className="flex flex-col gap-4 lg:flex-row">
-          <ExplorerNav active="recent" spaces={navSpaces} folders={navFolders} />
+          <ExplorerNav active="recent" spaces={navSpaces} />
           <div className="min-w-0 flex-1">
             <QuickAccessList
               rows={quick}
@@ -65,7 +64,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
   // Droit de créer/importer DANS le dossier courant (à la racine : on crée chez soi).
   const canEditHere = listing.level === "EDIT";
   const canCreate = userCan(user, "DRIVE", "CREATE") && canEditHere;
-  const [settings, spaces, navFolders] = await Promise.all([getAppSettings(), getDriveSpacesForUser(user), getDriveNavFolders(user)]);
+  const [settings, spaces] = await Promise.all([getAppSettings(), getDriveSpacesForUser(user)]);
   const canCreateSpace = canCreateDriveSpace(user, settings.driveSpaceCreatorRoles);
   // Catégories où l'on peut DÉPOSER (glisser-déposer) : celles que l'utilisateur gère.
   const dropCategories = trash
@@ -101,7 +100,6 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
       id: n.id,
       name: n.name,
       isFile,
-      icon: fileIconName(n.name, isFile),
       category: n.category ?? null,
       owner: n.owner?.name ?? "—",
       size: n.size,
@@ -150,7 +148,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
         <ExplorerNav
           active={trash ? "trash" : (folderId ?? "root")}
           spaces={spaces}
-          folders={navFolders}
+         
           users={users}
         />
         <div className="min-w-0 flex-1">

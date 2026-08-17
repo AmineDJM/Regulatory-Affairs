@@ -6,7 +6,7 @@ import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatDateTime } from "@/lib/utils";
-import { explorerSize, fileTypeLabel, fileIconName } from "@/lib/drive/explorer";
+import { explorerSize, fileTypeLabel } from "@/lib/drive/explorer";
 import { OFFICE_APPS, type OfficeAppKey } from "@/lib/office/apps";
 import { DriveTable, type DriveRow } from "../drive/drive-table";
 import { OfficeLauncher } from "./office-launcher";
@@ -63,7 +63,6 @@ export default async function OfficePage({ searchParams }: { searchParams: { app
   // c'est ce détail qu'on remarque.
   const rows: DriveRow[] = visible.map(({ row: n, canEdit }) => ({
     id: n.id, name: n.name, isFile: true,
-    icon: fileIconName(n.name, true),
     category: null,
     owner: n.owner?.name ?? "—",
     size: n.size,

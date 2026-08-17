@@ -3,9 +3,9 @@ import { notFound } from "next/navigation";
 import { ChevronRight, FolderOpen } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getDriveListing, getDriveSpacesForUser, getDriveNavFolders } from "@/lib/queries/drive";
+import { getDriveListing, getDriveSpacesForUser } from "@/lib/queries/drive";
 import { canCreateInSpace } from "@/lib/drive";
-import { fileTypeLabel, fileIconName, explorerSize } from "@/lib/drive/explorer";
+import { fileTypeLabel, explorerSize } from "@/lib/drive/explorer";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -36,10 +36,9 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
 
   // Personnes (pour partages à l'import) + données d'accès de la catégorie (pour les réglages).
   // `spaces` alimente le volet de navigation : LE MÊME que sur /drive, sans quoi entrer dans une
-  // catégorie ferait disparaître l'arborescence — un explorateur ne perd jamais sa colonne gauche.
-  const [spaces, navFolders, users, spaceRow] = await Promise.all([
+  // catégorie ferait disparaître la colonne de gauche — un explorateur ne la perd jamais.
+  const [spaces, users, spaceRow] = await Promise.all([
     getDriveSpacesForUser(user),
-    getDriveNavFolders(user),
     canEditHere
       ? prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : Promise.resolve([] as { id: string; name: string }[]),
@@ -72,7 +71,6 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
       id: n.id,
       name: n.name,
       isFile,
-      icon: fileIconName(n.name, isFile),
       category: n.category ?? null,
       owner: n.owner?.name ?? "—",
       size: n.size,
@@ -119,7 +117,7 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
         </div>
       )}
       <div className="flex flex-col gap-4 lg:flex-row">
-        <ExplorerNav active={folderId ?? spaceId} spaces={spaces} folders={navFolders} users={users} />
+        <ExplorerNav active={folderId ?? spaceId} spaces={spaces} users={users} />
         <div className="min-w-0 flex-1">
           <DriveCanvas parentId={folderId} spaceId={spaceId} canCreate={!trash && canEditHere} officeEnabled={onlyofficeConfigured()}>
             {listing.nodes.length === 0 ? (

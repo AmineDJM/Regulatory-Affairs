@@ -6,7 +6,7 @@ import { getDriveListing } from "@/lib/queries/drive";
 import { REG_DRIVE_ROOT } from "@/lib/regulatory-drive-mirror";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { formatDateTime } from "@/lib/utils";
-import { fileTypeLabel, fileIconName, explorerSize } from "@/lib/drive/explorer";
+import { fileTypeLabel, explorerSize } from "@/lib/drive/explorer";
 import { DriveTable, type DriveRow } from "@/app/(app)/drive/drive-table";
 import { DriveCanvas } from "@/app/(app)/drive/drive-canvas";
 import { UploadButton } from "@/app/(app)/drive/upload-button";
@@ -67,7 +67,6 @@ export async function ProductDriveExplorer({
     const isFile = n.type === "FILE";
     return {
       id: n.id, name: n.name, isFile,
-      icon: fileIconName(n.name, isFile),
       category: n.category ?? null,
       owner: n.owner?.name ?? "—",
       size: n.size,

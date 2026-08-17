@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  fileTypeLabel, fileIconName, explorerSize, extensionOf, sortRows, parseView, VIEW_TITLE, QUICK_ACCESS,
+  fileTypeLabel, explorerSize, extensionOf, sortRows, parseView, VIEW_TITLE, QUICK_ACCESS,
   type ExplorerRow,
 } from "./explorer";
 
@@ -27,12 +27,6 @@ describe("Le type se lit, il ne se décode pas", () => {
     expect(extensionOf("v1.2.final.pdf")).toBe("pdf");
   });
 
-  it("choisit une icône par famille", () => {
-    expect(fileIconName("x.zip", true)).toBe("FileArchive");
-    expect(fileIconName("x.png", true)).toBe("FileImage");
-    expect(fileIconName("x.xlsx", true)).toBe("FileSpreadsheet");
-    expect(fileIconName("Dossier", false)).toBe("Folder");
-  });
 });
 
 describe("La taille s'écrit comme un explorateur l'écrit", () => {

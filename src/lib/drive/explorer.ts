@@ -61,20 +61,6 @@ export function fileTypeLabel(name: string, isFile: boolean): string {
   return found ? found.label : `Fichier ${ext.toUpperCase()}`;
 }
 
-/** Icône du type, pour la vue en grandes icônes. */
-export function fileIconName(name: string, isFile: boolean): string {
-  if (!isFile) return "Folder";
-  const ext = extensionOf(name);
-  if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return "FileArchive";
-  if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "heic"].includes(ext)) return "FileImage";
-  if (["mp4", "mov", "avi", "mkv", "webm"].includes(ext)) return "FileVideo";
-  if (["mp3", "wav", "m4a", "ogg", "flac"].includes(ext)) return "FileAudio";
-  if (["xls", "xlsx", "ods", "csv"].includes(ext)) return "FileSpreadsheet";
-  if (["doc", "docx", "odt", "rtf", "pdf", "txt", "md"].includes(ext)) return "FileText";
-  if (["json", "xml", "yml", "yaml"].includes(ext)) return "FileCode";
-  return "File";
-}
-
 /** Taille écrite comme un explorateur l'écrit : entière, en kilo-octets dès qu'on dépasse l'octet. */
 export function explorerSize(bytes: number, isFile: boolean): string {
   if (!isFile) return "";

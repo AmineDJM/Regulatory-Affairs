@@ -4,8 +4,8 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Download, Loader2, House, FolderInput, GripVertical, ChevronUp, ChevronDown, Trash2, Share2, FolderOpen, Check, Search } from "lucide-react";
-import { Icon } from "@/components/ui/icon";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { FileGlyph } from "@/components/drive/file-glyph";
 import { moveNode, trashNodes, shareNodesWithMany } from "@/lib/actions/drive-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -19,7 +19,6 @@ export interface DriveRow {
   id: string;
   name: string;
   isFile: boolean;
-  icon: string;
   category: string | null;
   owner: string;
   /** Taille brute, pour trier ; `sizeLabel` est ce qu'on affiche. */
@@ -307,7 +306,7 @@ export function DriveTable({ rows, moveTargets, trash, users, spaceId, categorie
                     <div className="flex items-center gap-2">
                       {dndEnabled && n.canEdit && <GripVertical className="h-3.5 w-3.5 shrink-0 cursor-grab text-muted-foreground/50" aria-hidden />}
                       <Link href={n.href} draggable={false} className="inline-flex items-center gap-2 font-medium hover:underline">
-                        <Icon name={n.icon} className={`h-4 w-4 ${n.isFile ? "text-muted-foreground" : "text-primary"}`} />
+                        <FileGlyph name={n.name} isFile={n.isFile} />
                         <span className="truncate">{n.name}</span>
                       </Link>
                       {n.isFile && n.category && (

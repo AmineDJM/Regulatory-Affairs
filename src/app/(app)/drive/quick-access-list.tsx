@@ -3,11 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import { ArrowUp, ArrowDown, LayoutGrid, List } from "lucide-react";
-import { Icon } from "@/components/ui/icon";
+import { FileGlyph } from "@/components/drive/file-glyph";
 import { Input } from "@/components/ui/input";
 import { formatDateTime } from "@/lib/utils";
 import {
-  sortRows, fileTypeLabel, fileIconName, explorerSize, type ExplorerRow, type SortKey, type SortDir,
+  sortRows, fileTypeLabel, explorerSize, type ExplorerRow, type SortKey, type SortDir,
 } from "@/lib/drive/explorer";
 
 export interface QuickRow extends ExplorerRow {
@@ -83,7 +83,7 @@ export function QuickAccessList({
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
           {sorted.map((r) => (
             <Link key={r.id} href={r.href} className="surface flex flex-col items-center gap-2 p-3 text-center hover:bg-secondary/60">
-              <Icon name={fileIconName(r.name, r.isFile)} className="h-9 w-9 text-primary/80" />
+              <FileGlyph name={r.name} isFile={r.isFile} size="lg" />
               <span className="line-clamp-2 break-all text-xs font-medium">{r.name}</span>
               <span className="text-[0.6875rem] text-muted-foreground">{explorerSize(r.size, r.isFile)}</span>
             </Link>
@@ -106,7 +106,7 @@ export function QuickAccessList({
                 <tr key={r.id} className="hover:bg-secondary/50">
                   <td className="px-3 py-1.5">
                     <Link href={r.href} className="inline-flex items-center gap-2 font-medium hover:underline">
-                      <Icon name={fileIconName(r.name, r.isFile)} className="h-4 w-4 shrink-0 text-primary/80" />
+                      <FileGlyph name={r.name} isFile={r.isFile} />
                       <span className="truncate">{r.name}</span>
                     </Link>
                   </td>

@@ -6,7 +6,6 @@ import { resolveDriveAccess, canViewDrive, fileKind } from "@/lib/drive";
 import { onlyofficeConfigured, onlyofficeEditable } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
-import { fileIconName } from "@/lib/drive/explorer";
 import { DocumentWorkspace, type OpenDoc } from "./workspace";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +36,6 @@ export default async function DriveMultiViewPage({ searchParams }: { searchParam
     docs.push({
       id: node.id,
       name: node.name,
-      icon: fileIconName(node.name, true),
       kind: fileKind(node.mimeType, node.name),
       canEdit: access === "EDIT",
       editable: onlyofficeEditable(node.name),
