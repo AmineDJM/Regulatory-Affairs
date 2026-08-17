@@ -1,14 +1,17 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Download, Trash2, RotateCcw, Pencil, Loader2, Check, FolderInput, UserPlus, Scale } from "lucide-react";
+import {
+  Download, Trash2, RotateCcw, Pencil, Loader2, Check, FolderInput, UserPlus, MoreVertical, User,
+} from "lucide-react";
 import { renameNode, trashNode, restoreNode, deleteNode, moveNode, getDriveNodeShares } from "@/lib/actions/drive-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { SharePanel, type ShareItem } from "./[id]/share-panel";
-import { SendToLegalButton } from "./send-to-legal";
+import { SendToLegalItem } from "./send-to-legal";
 
 interface MoveTarget { id: string; name: string }
 interface UserLite { id: string; name: string }
@@ -18,6 +21,8 @@ interface Props {
   name: string;
   isFile: boolean;
   canEdit: boolean;
+  /** Le propriétaire — affiché EN TÊTE du menu, puisqu'il n'a plus de colonne à lui. */
+  owner?: string;
   trash?: boolean;
   /** Dossiers de destination pour « Déplacer » (présent = action disponible). */
   moveTargets?: MoveTarget[];
@@ -51,65 +56,183 @@ function AccessSheet({ nodeId, name, users, open, onClose }: { nodeId: string; n
   );
 }
 
-function IconForm({ action, id, title, children }: { action: (fd: FormData) => Promise<unknown>; id: string; title: string; children: React.ReactNode }) {
-  const [saving, setSaving] = React.useState(false);
+/** Une entrée du menu — même hauteur, même gabarit d'icône, quel que soit ce qu'elle déclenche. */
+export function MenuItem({
+  icon, label, onClick, href, download, danger, disabled,
+}: {
+  icon: React.ReactNode; label: string;
+  onClick?: () => void; href?: string; download?: boolean;
+  danger?: boolean; disabled?: boolean;
+}) {
+  const cls = [
+    "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[0.8125rem] transition-colors",
+    danger ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-secondary",
+    disabled ? "pointer-events-none opacity-50" : "",
+  ].join(" ");
+  const body = <><span className="shrink-0 text-muted-foreground">{icon}</span><span className="truncate">{label}</span></>;
+  if (href) {
+    return <a href={href} className={cls} {...(download ? { download: "" } : {})}>{body}</a>;
+  }
+  return <button type="button" onClick={onClick} className={cls} disabled={disabled}>{body}</button>;
+}
+
+/**
+ * LE MENU ⋮ — flottant, jamais coupé.
+ *
+ * Le tableau vit dans un conteneur qui masque son débordement (c'est ce qui l'empêche de pousser
+ * la page de travers). Un menu posé en `absolute` dedans serait donc TRONQUÉ dès la dernière
+ * ligne. Il est rendu en PORTAIL, positionné en coordonnées d'écran depuis le bouton, et remis à
+ * gauche quand il déborderait à droite.
+ */
+function Kebab({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
+  const btnRef = React.useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = React.useState(false);
+  const [pos, setPos] = React.useState<{ top: number; left: number } | null>(null);
+
+  const close = React.useCallback(() => setOpen(false), []);
+
+  const place = React.useCallback(() => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const W = 224; // largeur du menu (w-56)
+    const left = Math.max(8, Math.min(r.right - W, window.innerWidth - W - 8));
+    // Sous le bouton, sauf s'il n'y a plus la place en dessous — auquel cas au-dessus.
+    const below = window.innerHeight - r.bottom;
+    const top = below > 260 ? r.bottom + 4 : Math.max(8, r.top - 4 - 260);
+    setPos({ top, left });
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    place();
+    const onDown = (e: MouseEvent) => {
+      if (btnRef.current?.contains(e.target as Node)) return;
+      if ((e.target as HTMLElement).closest("[data-kebab-menu]")) return;
+      close();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    // Un défilement décroche le menu de sa ligne : on le referme plutôt que de le laisser flotter
+    // à côté d'une autre ligne, ce qui ferait agir sur le mauvais fichier.
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [open, place, close]);
+
   return (
-    <form action={async (fd) => { setSaving(true); await action(fd); setSaving(false); }} className="inline">
-      <input type="hidden" name="id" value={id} />
-      <button type="submit" title={title} disabled={saving}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50">
-        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : children}
+    <>
+      <button
+        ref={btnRef} type="button" aria-label={label} aria-haspopup="menu" aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        className={`inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground ${open ? "bg-secondary text-foreground" : ""}`}
+      >
+        <MoreVertical className="h-4 w-4" />
       </button>
-    </form>
+      {open && pos && typeof document !== "undefined" && createPortal(
+        <div
+          data-kebab-menu
+          role="menu"
+          style={{ top: pos.top, left: pos.left }}
+          className="fixed z-50 w-56 overflow-hidden rounded-xl border border-border bg-card p-1 shadow-xl animate-fade-in"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {children(close)}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
-export function NodeActions({ id, name, isFile, canEdit, trash, moveTargets, users, spaceId }: Props) {
+/**
+ * LES ACTIONS D'UNE LIGNE — une seule cible, un menu.
+ *
+ * Six icônes alignées dans une colonne « Actions » mangeaient un quart de la largeur, se
+ * chevauchaient avec la date dès que le nom était long, et n'étaient de toute façon pas
+ * reconnaissables sans les survoler une à une. Un seul point d'entrée libère la place pour ce
+ * qu'on vient vraiment lire — le nom — et donne aux actions ce qu'aucune icône n'avait : un mot.
+ *
+ * Le PROPRIÉTAIRE ouvre le menu, en information, puisque sa colonne a disparu : c'est un
+ * renseignement qu'on consulte de temps en temps, pas une donnée qu'on parcourt.
+ */
+export function NodeActions({ id, name, isFile, canEdit, owner, trash, moveTargets, users, spaceId }: Props) {
   const router = useRouter();
   const [renaming, setRenaming] = React.useState(false);
   const [moving, setMoving] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [pending, setPending] = React.useState(false);
   const [moveErr, setMoveErr] = React.useState<string | null>(null);
   // On ne peut pas déplacer un dossier dans lui-même.
   const targets = (moveTargets ?? []).filter((t) => t.id !== id);
 
+  /** Une action serveur simple (corbeille, restauration, suppression) lancée depuis le menu. */
+  const run = async (action: (fd: FormData) => Promise<unknown>, close: () => void) => {
+    close();
+    setPending(true);
+    const fd = new FormData();
+    fd.set("id", id);
+    await action(fd);
+    setPending(false);
+    router.refresh();
+  };
+
   return (
-    <div className="flex items-center justify-end gap-0.5">
-      <a href={`/api/drive/${id}/raw?dl=1`} title={isFile ? "Télécharger" : "Télécharger le dossier (ZIP)"}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground">
-        <Download className="h-3.5 w-3.5" />
-      </a>
-      {canEdit && !trash && (
-        <>
-          <button type="button" title="Renommer" onClick={() => setRenaming(true)}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground">
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          {moveTargets && targets.length > 0 && (
-            <button type="button" title="Déplacer" onClick={() => { setMoveErr(null); setMoving(true); }}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground">
-              <FolderInput className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {users && (
-            <button type="button" title={isFile ? "Gérer l'accès" : "Gérer l'accès (dossier + contenu)"} onClick={() => setSharing(true)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground">
-              <UserPlus className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {/* VERS LEGAL — déclarer ce fichier comme engagement de la société. Il RESTE ici :
-              Legal pointe dessus, il n'en est jamais fait de copie. */}
-          {isFile && <SendToLegalButton nodeId={id} name={name} />}
-          <IconForm action={trashNode} id={id} title="Corbeille"><Trash2 className="h-3.5 w-3.5" /></IconForm>
-        </>
-      )}
-      {canEdit && trash && (
-        <>
-          <IconForm action={restoreNode} id={id} title="Restaurer"><RotateCcw className="h-3.5 w-3.5" /></IconForm>
-          <IconForm action={deleteNode} id={id} title="Supprimer définitivement"><Trash2 className="h-3.5 w-3.5 text-destructive" /></IconForm>
-        </>
-      )}
+    <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+      {pending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+
+      <Kebab label={`Actions — ${name}`}>
+        {(close) => (
+          <>
+            {owner && (
+              <div className="flex items-center gap-2.5 border-b border-border px-2.5 pb-2 pt-1.5 text-[0.75rem] text-muted-foreground">
+                <User className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate" title={owner}>{owner}</span>
+              </div>
+            )}
+            <div className="pt-1">
+              <MenuItem
+                icon={<Download className="h-3.5 w-3.5" />}
+                label={isFile ? "Télécharger" : "Télécharger (ZIP)"}
+                href={`/api/drive/${id}/raw?dl=1`}
+              />
+              {canEdit && !trash && (
+                <>
+                  <MenuItem icon={<Pencil className="h-3.5 w-3.5" />} label="Renommer" onClick={() => { close(); setRenaming(true); }} />
+                  {moveTargets && targets.length > 0 && (
+                    <MenuItem icon={<FolderInput className="h-3.5 w-3.5" />} label="Déplacer" onClick={() => { close(); setMoveErr(null); setMoving(true); }} />
+                  )}
+                  {users && (
+                    <MenuItem
+                      icon={<UserPlus className="h-3.5 w-3.5" />}
+                      label={isFile ? "Gérer l'accès" : "Gérer l'accès (dossier + contenu)"}
+                      onClick={() => { close(); setSharing(true); }}
+                    />
+                  )}
+                  {/* VERS LEGAL — déclarer ce fichier comme engagement de la société. Il RESTE
+                      ici : Legal pointe dessus, il n'en est jamais fait de copie. */}
+                  {isFile && <SendToLegalItem nodeId={id} name={name} onOpened={close} />}
+                  <div className="my-1 border-t border-border" />
+                  <MenuItem icon={<Trash2 className="h-3.5 w-3.5" />} label="Mettre à la corbeille" danger onClick={() => void run(trashNode, close)} />
+                </>
+              )}
+              {canEdit && trash && (
+                <>
+                  <MenuItem icon={<RotateCcw className="h-3.5 w-3.5" />} label="Restaurer" onClick={() => void run(restoreNode, close)} />
+                  <div className="my-1 border-t border-border" />
+                  <MenuItem icon={<Trash2 className="h-3.5 w-3.5" />} label="Supprimer définitivement" danger onClick={() => void run(deleteNode, close)} />
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </Kebab>
 
       <Sheet open={renaming} onClose={() => setRenaming(false)} title="Renommer" width="md">
         <form action={async (fd) => { setSaving(true); await renameNode(fd); setSaving(false); setRenaming(false); }} className="space-y-3">

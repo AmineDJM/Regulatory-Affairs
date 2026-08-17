@@ -336,26 +336,27 @@ export function DriveTable({
       )}
 
       <div className="surface overflow-hidden">
-        {/* QUATRE COLONNES, PAS SIX — Nom, Propriétaire, Modifié le, Actions.
-            « Type » répétait ce que l'icône du fichier dit déjà, et « Taille » n'a de sens que
-            pour un fichier (elle affichait « — » sur chaque dossier). Les entasser sur une largeur
-            fixe faisait se chevaucher les en-têtes et déborder les actions sur la date.
-            `table-fixed` + une largeur déclarée pour CHAQUE colonne : le nom prend ce qui reste et
-            se tronque (nom complet en infobulle) au lieu de pousser le reste hors de l'écran. */}
-        <Table className="table-fixed">
+        {/* TROIS COLONNES — Nom, Modifié le, et un menu.
+            « Type » répétait l'icône ; « Taille » affichait « — » sur chaque dossier ; « Propriétaire »
+            mangeait 11 rem pour un renseignement qu'on consulte de temps en temps — il est passé EN
+            TÊTE DU MENU. Restait une colonne « Actions » de six icônes muettes qui débordait sur la
+            date dès qu'un nom était long : un seul bouton ⋮ la remplace.
+            Résultat : le nom dispose de presque toute la largeur, et plus rien ne se chevauche.
+
+            POLICE RÉDUITE D'ENVIRON 30 % (0,875 rem → 0,625 rem ; en-têtes 0,75 → 0,5625 rem), avec
+            des lignes resserrées en proportion — sans quoi on aurait un texte petit dans des lignes
+            hautes, ce qui est simplement moins lisible, pas plus dense. Les deux valeurs sont ici,
+            en un seul endroit, si l'on veut les rouvrir. */}
+        <Table className="table-fixed text-[0.625rem] [&_th]:h-8 [&_th]:px-2 [&_th]:text-[0.5625rem] [&_td]:px-2 [&_td]:py-1.5 sm:[&_td]:py-1.5">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-8">
-                <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Tout sélectionner" className="h-4 w-4 rounded border-input" />
+              <TableHead className="w-7">
+                <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Tout sélectionner" className="h-3.5 w-3.5 rounded border-input" />
               </TableHead>
               <SortHead k="name" label="Nom" className="w-auto" />
-              {/* « Type » vient d'un explorateur, et il y sert : à dosage égal de noms qui se
-                  ressemblent, c'est lui qui distingue le PDF de l'archive. */}
-              <TableHead className="hidden w-44 lg:table-cell">Propriétaire</TableHead>
-              <SortHead k="updatedAt" label="Modifié le" className="hidden w-44 sm:table-cell" />
-              {/* Jusqu'à SIX icônes (télécharger, renommer, déplacer, partager, Legal, corbeille)
-                  à 1,75 rem chacune : en dessous de 13 rem, elles débordent sur la date. */}
-              <TableHead className="w-52 text-right">Actions</TableHead>
+              <SortHead k="updatedAt" label="Modifié le" className="hidden w-36 sm:table-cell" />
+              {/* Un seul bouton : la colonne n'a plus besoin que de sa largeur. */}
+              <TableHead className="w-10 text-right"><span className="sr-only">Actions</span></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -397,26 +398,30 @@ export function DriveTable({
                     <input
                       type="checkbox" checked={sel.ids.includes(n.id)}
                       onChange={(e) => toggle(n.id, { toggle: true, range: (e.nativeEvent as MouseEvent).shiftKey })}
-                      aria-label={`Sélectionner ${n.name}`} className="h-4 w-4 rounded border-input"
+                      aria-label={`Sélectionner ${n.name}`} className="h-3.5 w-3.5 rounded border-input"
                     />
                   </TableCell>
                   <TableCell>
-                    <div className="flex min-w-0 items-center gap-2">
-                      {dndEnabled && n.canEdit && <GripVertical className="h-3.5 w-3.5 shrink-0 cursor-grab text-muted-foreground/50" aria-hidden />}
-                      <Link href={n.href} draggable={false} title={n.name} className="inline-flex min-w-0 items-center gap-2 font-medium hover:underline">
+                    {/* `min-w-0` à CHAQUE niveau : sans lui, `truncate` n'a aucun effet et le nom
+                        pousse la ligne — c'est exactement ce qui faisait se chevaucher les colonnes. */}
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      {dndEnabled && n.canEdit && <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-muted-foreground/40" aria-hidden />}
+                      <Link href={n.href} draggable={false} title={n.name} className="flex min-w-0 items-center gap-1.5 font-medium hover:underline">
                         <FileGlyph name={n.name} isFile={n.isFile} />
                         <span className="truncate">{n.name}</span>
                       </Link>
                       {n.isFile && n.category && (
-                        <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[0.625rem] font-medium text-muted-foreground">{n.category}</span>
+                        <span className="hidden shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[0.5625rem] font-medium text-muted-foreground md:inline">{n.category}</span>
                       )}
-                      {!n.isFile && isFolderTarget && <span className="shrink-0 text-[0.625rem] font-medium text-primary">déposer ici</span>}
+                      {!n.isFile && isFolderTarget && <span className="shrink-0 text-[0.5625rem] font-medium text-primary">déposer ici</span>}
                     </div>
+                    {/* Sous le nom, sur ÉCRAN ÉTROIT : la date n'a plus de colonne, mais elle reste
+                        l'information qu'on cherche le plus après le nom. */}
+                    <span className="mt-0.5 block truncate text-[0.5625rem] text-muted-foreground sm:hidden">{n.updatedLabel}</span>
                   </TableCell>
-                  <TableCell className="hidden truncate text-muted-foreground lg:table-cell">{n.owner}</TableCell>
                   <TableCell className="hidden whitespace-nowrap text-muted-foreground sm:table-cell">{n.updatedLabel}</TableCell>
                   <TableCell className="text-right">
-                    <NodeActions id={n.id} name={n.name} isFile={n.isFile} canEdit={n.canEdit} trash={trash} moveTargets={n.canEdit && !trash ? moveTargets : undefined} users={n.canEdit && !trash ? users : undefined} spaceId={spaceId} />
+                    <NodeActions id={n.id} name={n.name} isFile={n.isFile} canEdit={n.canEdit} owner={n.owner} trash={trash} moveTargets={n.canEdit && !trash ? moveTargets : undefined} users={n.canEdit && !trash ? users : undefined} spaceId={spaceId} />
                   </TableCell>
                 </TableRow>
               );

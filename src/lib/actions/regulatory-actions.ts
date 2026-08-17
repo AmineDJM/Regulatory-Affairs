@@ -379,6 +379,10 @@ export async function setRegulatoryLock(formData: FormData): Promise<ActionResul
   });
   revalidatePath("/regulatory");
   revalidatePath(`/regulatory/${id}`);
+  // LE PIPELINE AUSSI — c'est l'écran d'où l'on déverrouille, et le seul dont le contenu CHANGE
+  // du fait de ce geste. Sans cette ligne, le dossier ouvert restait affiché parmi les verrouillés
+  // jusqu'à expiration du cache de navigation : on croyait que le déverrouillage n'avait rien fait.
+  revalidatePath("/regulatory/pipeline");
   return { ok: true, id };
 }
 
@@ -407,6 +411,8 @@ export async function unlockAllRegulatory(): Promise<ActionResult> {
     summary: `${res.count} dossier(s) déverrouillés en une fois — désormais visibles par l'équipe`,
   });
   revalidatePath("/regulatory");
+  // Le pipeline se vide d'un coup : c'est précisément ce qu'on doit voir après ce bouton.
+  revalidatePath("/regulatory/pipeline");
   return { ok: true };
 }
 

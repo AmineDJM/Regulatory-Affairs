@@ -50,7 +50,7 @@ export default async function BusinessDevelopmentPipelinePage() {
       <BackLink href="/regulatory"><ArrowLeft className="h-4 w-4" /> Suivi des dossiers</BackLink>
       <PageHeader
         title="Pipeline réglementaire"
-        description="TOUS les dossiers verrouillés — les produits à l'étude, pas encore ouverts à l'équipe réglementaire. Les déverrouiller, c'est décider de les mettre au travail."
+        description="TOUS les dossiers verrouillés, sans exception — les produits à l'étude, pas encore ouverts à l'équipe. Ouvrir le cadenas les fait sortir d'ici et entrer dans « À traiter », sur le suivi des dossiers : c'est le geste, et le seul, qui met un dossier au travail."
       />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
@@ -58,7 +58,10 @@ export default async function BusinessDevelopmentPipelinePage() {
         {/* Un dossier peut être verrouillé ET abouti : le compter à part évite de croire que
             « à l'étude » et « aboutis » s'excluent. */}
         <KpiCard label="Dont aboutis" value={pipeline.filter((r) => r.stage === "done").length} icon="CheckCircle2" tone="success" />
-        <KpiCard label="Ouverts (à traiter)" value={rows.filter((r) => r.stage === "todo").length} icon="FileCheck2" />
+        {/* La DESTINATION, cliquable : ce compteur dit où vont les dossiers qu'on ouvre ici. */}
+        <Link href="/regulatory" className="block transition-opacity hover:opacity-80">
+          <KpiCard label="Déjà ouverts — à traiter" value={rows.filter((r) => r.stage === "todo").length} icon="FileCheck2" />
+        </Link>
       </div>
 
       {pipeline.length === 0 ? (

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Scale, Loader2, Check } from "lucide-react";
+import { MenuItem } from "./node-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -20,7 +21,7 @@ import { attachDriveNodeToLegal } from "@/lib/actions/legal-actions";
  * montre toujours la version courante. Deux copies auraient divergé dès la première correction,
  * et plus personne n'aurait su laquelle fait foi.
  */
-export function SendToLegalButton({ nodeId, name }: { nodeId: string; name: string }) {
+export function SendToLegalItem({ nodeId, name, onOpened }: { nodeId: string; name: string; onOpened?: () => void }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -51,13 +52,13 @@ export function SendToLegalButton({ nodeId, name }: { nodeId: string; name: stri
 
   return (
     <>
-      <button
-        type="button" title="Déclarer comme document légal (le fichier reste dans le Drive)"
-        onClick={() => { setErr(null); setOpen(true); }}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-      >
-        <Scale className="h-3.5 w-3.5" />
-      </button>
+      {/* Entrée de menu : le libellé dit ce que l'icône seule ne disait pas — et surtout que le
+          fichier RESTE dans le Drive, ce qui est la question qu'on se pose avant de cliquer. */}
+      <MenuItem
+        icon={<Scale className="h-3.5 w-3.5" />}
+        label="Déclarer dans Legal"
+        onClick={() => { setErr(null); setOpen(true); onOpened?.(); }}
+      />
 
       <Sheet open={open} onClose={() => setOpen(false)} title="Déclarer dans Legal" width="md">
         <form onSubmit={submit} className="space-y-3">
