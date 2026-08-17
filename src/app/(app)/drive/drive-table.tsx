@@ -336,25 +336,26 @@ export function DriveTable({
       )}
 
       <div className="surface overflow-hidden">
-        {/* LARGEURS FIXES — le tableau tient dans l'écran, quoi qu'il arrive.
-            `table-fixed` + des largeurs déclarées : un nom trop long est TRONQUÉ (avec le nom
-            complet en infobulle) au lieu de pousser « Modifié le » et les actions hors de vue.
-            On ne tire plus la page vers la gauche pour atteindre un bouton ; pour voir plus, on
-            dézoome — c'est le geste du navigateur, pas un réglage de plus à inventer. */}
+        {/* QUATRE COLONNES, PAS SIX — Nom, Propriétaire, Modifié le, Actions.
+            « Type » répétait ce que l'icône du fichier dit déjà, et « Taille » n'a de sens que
+            pour un fichier (elle affichait « — » sur chaque dossier). Les entasser sur une largeur
+            fixe faisait se chevaucher les en-têtes et déborder les actions sur la date.
+            `table-fixed` + une largeur déclarée pour CHAQUE colonne : le nom prend ce qui reste et
+            se tronque (nom complet en infobulle) au lieu de pousser le reste hors de l'écran. */}
         <Table className="table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead className="w-8">
                 <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Tout sélectionner" className="h-4 w-4 rounded border-input" />
               </TableHead>
-              <SortHead k="name" label="Nom" />
+              <SortHead k="name" label="Nom" className="w-auto" />
               {/* « Type » vient d'un explorateur, et il y sert : à dosage égal de noms qui se
                   ressemblent, c'est lui qui distingue le PDF de l'archive. */}
-              <SortHead k="type" label="Type" className="hidden w-28 md:table-cell" />
-              <TableHead className="hidden w-40 lg:table-cell">Propriétaire</TableHead>
-              <SortHead k="size" label="Taille" align="right" className="w-24" />
-              <SortHead k="updatedAt" label="Modifié le" className="hidden w-36 sm:table-cell" />
-              <TableHead className="w-24 text-right">Actions</TableHead>
+              <TableHead className="hidden w-44 lg:table-cell">Propriétaire</TableHead>
+              <SortHead k="updatedAt" label="Modifié le" className="hidden w-44 sm:table-cell" />
+              {/* Jusqu'à SIX icônes (télécharger, renommer, déplacer, partager, Legal, corbeille)
+                  à 1,75 rem chacune : en dessous de 13 rem, elles débordent sur la date. */}
+              <TableHead className="w-52 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -412,9 +413,7 @@ export function DriveTable({
                       {!n.isFile && isFolderTarget && <span className="shrink-0 text-[0.625rem] font-medium text-primary">déposer ici</span>}
                     </div>
                   </TableCell>
-                  <TableCell className="hidden truncate text-muted-foreground md:table-cell">{n.typeLabel}</TableCell>
                   <TableCell className="hidden truncate text-muted-foreground lg:table-cell">{n.owner}</TableCell>
-                  <TableCell className="whitespace-nowrap text-right tabular-nums text-muted-foreground">{n.sizeLabel || "—"}</TableCell>
                   <TableCell className="hidden whitespace-nowrap text-muted-foreground sm:table-cell">{n.updatedLabel}</TableCell>
                   <TableCell className="text-right">
                     <NodeActions id={n.id} name={n.name} isFile={n.isFile} canEdit={n.canEdit} trash={trash} moveTargets={n.canEdit && !trash ? moveTargets : undefined} users={n.canEdit && !trash ? users : undefined} spaceId={spaceId} />
