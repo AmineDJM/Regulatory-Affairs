@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { putBlob, releaseBlob } from "@/lib/drive-storage";
-import { resolveDriveAccess, effectiveSpaceId, canCreateInSpace } from "@/lib/drive";
+import { resolveDriveAccess, effectiveSpaceId, canCreateInSpace, canViewDrive } from "@/lib/drive";
 import { blankOffice, isOfficeKind } from "@/lib/office-templates";
 import { convertConfigured, convertDocument } from "@/lib/office-convert";
 import { makeEditToken, appBaseUrl, onlyofficeEditable, fileExt } from "@/lib/onlyoffice";
@@ -498,4 +498,138 @@ export async function shareNodesWithMany(formData: FormData): Promise<BulkResult
     denied,
     error: done === 0 ? "Vous ne pouvez partager aucun des éléments sélectionnés." : undefined,
   };
+}
+
+// ───────────────────────── Copier / coller, comme dans un explorateur ─────────────────────────
+
+/** Au-delà, on refuse plutôt que de copier une arborescence sans fin. */
+const COPY_MAX_NODES = 500;
+
+/**
+ * COPIER des éléments dans un dossier — Ctrl+C puis Ctrl+V.
+ *
+ * Le contenu n'est PAS recopié : les blobs sont adressés par leur empreinte, une copie ne fait
+ * donc que pointer les mêmes octets. Copier un dossier de 400 Mo ne consomme rien de plus que
+ * les quelques lignes de l'arborescence — et c'est ce qui rend le geste utilisable au quotidien
+ * plutôt que réservé aux petits fichiers.
+ *
+ * L'HISTORIQUE NE SE COPIE PAS. La copie part à la version courante : reprendre les dix
+ * versions antérieures d'un fichier ferait croire que la copie a une histoire qu'elle n'a pas.
+ */
+export async function copyNodes(formData: FormData): Promise<BulkResult> {
+  const user = await requireUser();
+  const ids = formData.getAll("id").map(String).filter(Boolean);
+  const targetId = fdStr(formData, "targetId");
+  const contextSpaceId = fdStr(formData, "spaceId") || null;
+  if (ids.length === 0) return { ok: false, done: 0, denied: 0, error: "Rien à coller." };
+
+  // Destination : le dossier visé, ou la racine de l'emplacement courant.
+  let destSpaceId: string | null;
+  if (targetId) {
+    if ((await resolveDriveAccess(user, targetId)) !== "EDIT") return { ok: false, done: 0, denied: ids.length, error: DENIED.error };
+    const t = await prisma.driveNode.findUnique({ where: { id: targetId }, select: { spaceId: true, type: true } });
+    if (!t || t.type !== "FOLDER") return { ok: false, done: 0, denied: 0, error: "La destination n'est pas un dossier." };
+    destSpaceId = t.spaceId ?? null;
+  } else {
+    if (contextSpaceId && !(await canCreateInSpace(user, contextSpaceId))) return { ok: false, done: 0, denied: ids.length, error: DENIED.error };
+    destSpaceId = contextSpaceId;
+  }
+
+  let done = 0;
+  let denied = 0;
+  let budget = COPY_MAX_NODES;
+
+  /** Duplique un nœud et, si c'est un dossier, tout ce qu'il contient. */
+  const duplicate = async (sourceId: string, parentId: string | null): Promise<void> => {
+    if (budget <= 0) return;
+    const src = await prisma.driveNode.findUnique({
+      where: { id: sourceId },
+      select: { id: true, name: true, type: true, mimeType: true, size: true, category: true, isTrashed: true },
+    });
+    if (!src || src.isTrashed) return;
+    budget -= 1;
+
+    const copy = await prisma.driveNode.create({
+      data: {
+        name: src.name, type: src.type, parentId, spaceId: destSpaceId,
+        mimeType: src.mimeType, size: src.size, category: src.category,
+        // La copie APPARTIENT à celui qui colle : c'est lui qui en répond désormais, et c'est ce
+        // qui lui permet de la renommer ou de la supprimer sans redemander un droit.
+        ownerId: user.id, createdById: user.id,
+      },
+      select: { id: true },
+    });
+
+    if (src.type === "FILE") {
+      const current = await prisma.fileVersion.findFirst({
+        where: { nodeId: sourceId }, orderBy: { version: "desc" },
+        select: { blobId: true, size: true, mimeType: true },
+      });
+      if (current) {
+        await prisma.fileVersion.create({
+          data: { nodeId: copy.id, blobId: current.blobId, version: 1, size: current.size, mimeType: current.mimeType, createdById: user.id },
+        });
+      }
+    } else {
+      const children = await prisma.driveNode.findMany({
+        where: { parentId: sourceId, isTrashed: false }, select: { id: true }, orderBy: { name: "asc" },
+      });
+      for (const c of children) await duplicate(c.id, copy.id);
+    }
+  };
+
+  for (const id of ids) {
+    // On ne copie que ce qu'on a le droit de LIRE — copier ouvrirait sinon une porte dérobée
+    // vers un contenu qu'on ne pouvait pas voir.
+    if (!canViewDrive(await resolveDriveAccess(user, id))) { denied += 1; continue; }
+    // Coller un dossier dans lui-même ou dans un de ses descendants boucle sans fin.
+    if (targetId && (await collectSubtree(id)).includes(targetId)) { denied += 1; continue; }
+    try {
+      await duplicate(id, targetId || null);
+      done += 1;
+    } catch (e) {
+      console.error("[drive] copie impossible", id, e);
+      denied += 1;
+    }
+  }
+
+  if (done > 0) {
+    await recordAudit({ actorId: user.id, action: "CREATE", module: "Drive", entityType: "DRIVE_NODE", entityId: targetId || "root", summary: `${done} élément(s) copié(s)` });
+    revalidatePath("/drive");
+  }
+  const truncated = budget <= 0;
+  return {
+    ok: done > 0,
+    done, denied,
+    error: done === 0
+      ? "Rien n'a pu être collé."
+      : truncated
+        ? `Copie partielle : au-delà de ${COPY_MAX_NODES} éléments, le reste n'a pas été copié.`
+        : denied > 0 ? `${denied} élément(s) refusé(s).` : undefined,
+  };
+}
+
+/**
+ * DÉPLACER plusieurs éléments d'un coup — le pendant de `moveNode` pour une sélection.
+ *
+ * Boucler côté client marcherait, mais chaque échec y arriverait séparément et l'on verrait
+ * passer cinq messages d'erreur pour un seul geste.
+ */
+export async function moveNodes(formData: FormData): Promise<BulkResult> {
+  const user = await requireUser();
+  const ids = formData.getAll("id").map(String).filter(Boolean);
+  if (ids.length === 0) return { ok: false, done: 0, denied: 0, error: "Rien à déplacer." };
+
+  let done = 0;
+  let denied = 0;
+  for (const id of ids) {
+    const one = new FormData();
+    one.set("id", id);
+    one.set("targetId", fdStr(formData, "targetId") ?? "");
+    one.set("spaceId", fdStr(formData, "spaceId") ?? "");
+    const r = await moveNode(one);
+    if (r.ok) done += 1;
+    else denied += 1;
+  }
+  return { ok: done > 0, done, denied, error: done === 0 ? "Déplacement impossible." : denied > 0 ? `${denied} élément(s) refusé(s).` : undefined };
 }

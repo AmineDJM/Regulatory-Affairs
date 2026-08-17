@@ -127,7 +127,7 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
                 description={trash ? "Aucun élément supprimé." : canEditHere ? "Importez des fichiers, ou faites un clic droit ici pour créer un dossier." : "Aucun fichier n'a encore été déposé ici."}
               />
             ) : (
-              <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canEditHere ? users : undefined} spaceId={spaceId} categories={dropCategories} />
+              <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canEditHere ? users : undefined} spaceId={spaceId} categories={dropCategories} folderId={folderId} ancestorIds={listing.breadcrumb.map((c) => c.id)} />
             )}
           </DriveCanvas>
         </div>

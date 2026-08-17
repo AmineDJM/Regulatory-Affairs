@@ -156,7 +156,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
             {listing.nodes.length === 0 ? (
               <EmptyState icon="FolderOpen" title={trash ? "Corbeille vide" : "Dossier vide"} description={trash ? "Aucun élément supprimé." : "Importez des fichiers, ou faites un clic droit ici pour créer un dossier."} />
             ) : (
-              <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canCreate ? users : undefined} spaceId={null} categories={dropCategories} />
+              <DriveTable rows={rows} moveTargets={moveTargets} trash={trash} users={canCreate ? users : undefined} spaceId={null} categories={dropCategories} folderId={folderId} ancestorIds={listing.breadcrumb.map((c) => c.id)} />
             )}
           </DriveCanvas>
         </div>

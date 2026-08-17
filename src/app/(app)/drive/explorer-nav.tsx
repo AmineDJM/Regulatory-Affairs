@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Share2 } from "lucide-react";
 import { Icon } from "@/components/ui/icon";
 import { QUICK_ACCESS, TRASH_ENTRY } from "@/lib/drive/explorer";
-import { moveNode } from "@/lib/actions/drive-actions";
+import { moveNodes } from "@/lib/actions/drive-actions";
 
 interface SpaceLite { id: string; name: string; icon: string | null; canManage: boolean }
 interface UserLite { id: string; name: string }
@@ -26,7 +26,7 @@ interface UserLite { id: string; name: string }
  *     ou sur une catégorie, en un seul geste, sans naviguer d'abord jusqu'à la destination ;
  *   • **les accès d'une catégorie** (clic droit), parce que c'est là qu'on y pense.
  *
- * L'autorisation n'est JAMAIS décidée ici : `moveNode` et `shareNodeWithMany` tranchent côté
+ * L'autorisation n'est JAMAIS décidée ici : `moveNodes` tranche côté
  * serveur. Une entrée de trop ne donne aucun droit — elle donnerait un refus.
  */
 export function ExplorerNav({
@@ -56,15 +56,17 @@ export function ExplorerNav({
     e.preventDefault();
     e.stopPropagation();
     setOver(null);
-    const id = e.dataTransfer.getData("text/drive-node");
-    if (!id || id === opts.targetId) return;
+    // La liste peut porter TOUTE une sélection : on ne déplace pas une ligne sur cinq.
+    const many = (e.dataTransfer.getData("text/drive-nodes") || "").split(",").filter(Boolean);
+    const ids = many.length > 0 ? many : [e.dataTransfer.getData("text/drive-node")].filter(Boolean);
+    if (ids.length === 0) return;
     setMsg({ ok: true, text: `Déplacement vers ${opts.label}…` });
     const fd = new FormData();
-    fd.set("id", id);
+    for (const id of ids) fd.append("id", id);
     fd.set("targetId", opts.targetId ?? "");
     fd.set("spaceId", opts.spaceId ?? "");
-    const r = await moveNode(fd);
-    setMsg(r.ok ? { ok: true, text: `Déplacé vers ${opts.label}.` } : { ok: false, text: r.error ?? "Déplacement impossible." });
+    const r = await moveNodes(fd);
+    setMsg(r.ok ? { ok: true, text: `${r.done} élément(s) déplacé(s) vers ${opts.label}.` } : { ok: false, text: r.error ?? "Déplacement impossible." });
     if (r.ok) router.refresh();
     window.setTimeout(() => setMsg(null), 3000);
   }, [router]);
