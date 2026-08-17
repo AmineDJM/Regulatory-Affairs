@@ -87,7 +87,7 @@ export function ReportEditor({ detail, doctors }: { detail: FieldReportDetail; d
   };
 
   const validate = async () => {
-    if (!window.confirm("Valider ce compte rendu ? Il alimentera les vues Direction et Promotion médicale.")) return;
+    if (!window.confirm("Valider ce compte rendu ? Il alimentera les vues Direction et Annuaire.")) return;
     setSaving(true);
     await updateFieldReport(fd());
     const f = new FormData(); f.set("id", detail.id);

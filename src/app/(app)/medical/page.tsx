@@ -41,7 +41,7 @@ export default async function MedicalPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Promotion médicale" description="Spécialités, médecins (hôpital / libéral), influence & potentiel, et suivi des visites des délégués." />
+      <PageHeader title="Annuaire" description="Spécialités, médecins (hôpital / libéral), influence & potentiel, et suivi des visites des délégués." />
       <ModuleTabs tabs={tabs} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

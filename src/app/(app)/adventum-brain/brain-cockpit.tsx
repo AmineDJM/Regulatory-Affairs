@@ -30,7 +30,7 @@ const levelEmoji = (l: string) => (l === "critical" ? "🔴" : l === "high" ? "�
 
 const CAT_LABEL: Record<string, string> = {
   all: "Tous", REGULATORY: "Regulatory", PCH: "PCH", BUDGET: "Budget", CONGRESS: "Congrès",
-  SPONSORING: "Sponsoring", FINANCE: "Finance", MEDICAL: "Promotion médicale", QUALITY: "PV / Qualité",
+  SPONSORING: "Sponsoring", FINANCE: "Finance", MEDICAL: "Annuaire", QUALITY: "PV / Qualité",
   DIRECTIVES: "Directives", ADMIN: "Secrétariat", EVENTS: "Events",
 };
 

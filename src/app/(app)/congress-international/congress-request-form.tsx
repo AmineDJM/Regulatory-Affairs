@@ -156,7 +156,7 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
         {/* Médecins invités : spécialité → liste */}
         <div className="space-y-2 rounded-lg border border-border p-3">
           <Label>Médecins invités</Label>
-          <p className="text-xs text-muted-foreground">Choisissez une spécialité (issue de la Promotion médicale), puis sélectionnez les médecins.</p>
+          <p className="text-xs text-muted-foreground">Choisissez une spécialité (issue de l&apos;Annuaire), puis sélectionnez les médecins.</p>
           <Select value={specialty} onChange={(e) => setSpecialty(e.target.value)}>
             <option value="">— Choisir une spécialité —</option>
             {specialties.map((s) => <option key={s} value={s}>{s}</option>)}

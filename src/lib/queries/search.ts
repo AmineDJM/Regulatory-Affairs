@@ -111,7 +111,7 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
   for (const r of employees) out.push({ id: r.id, group: "RH", title: r.fullName, subtitle: r.position ?? "", href: `/rh/${r.id}`, icon: "UsersRound" });
   for (const r of sales) out.push({ id: r.id, group: "Ventes", title: r.product, subtitle: r.client, href: `/sales`, icon: "TrendingUp" });
   for (const r of logistics) out.push({ id: r.id, group: "Logistique PCH", title: r.product, subtitle: r.reference, href: `/logistics/${r.id}`, icon: "Truck" });
-  for (const r of doctors) out.push({ id: r.id, group: "Promotion médicale", title: r.name, subtitle: r.specialty ?? "", href: `/medical`, icon: "Stethoscope" });
+  for (const r of doctors) out.push({ id: r.id, group: "Annuaire", title: r.name, subtitle: r.specialty ?? "", href: `/medical`, icon: "Stethoscope" });
   for (const r of bd) out.push({ id: r.id, group: "Business Development", title: r.name, subtitle: r.dci ?? "", href: `/business-development`, icon: "Lightbulb" });
   for (const r of drive) out.push({ id: r.id, group: "Drive", title: r.name, subtitle: r.mimeType ?? "", href: `/drive/${r.id}`, icon: "HardDrive" });
   for (const r of documents) out.push({ id: r.id, group: "Documents", title: r.name, subtitle: "Télécharger", href: `/api/documents/${r.id}`, icon: "FolderOpen" });

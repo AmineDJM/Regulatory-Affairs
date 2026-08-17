@@ -183,7 +183,7 @@ export default async function DashboardPage() {
         {data.medical && (
           <Card>
             <CardHeader>
-              <CardTitle>Promotion médicale</CardTitle>
+              <CardTitle>Annuaire</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <Row label="Visites prévues" value={data.medical.planned} />

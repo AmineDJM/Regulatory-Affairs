@@ -11,7 +11,7 @@ import { AnnuaireGrid } from "./annuaire-grid";
 export const dynamic = "force-dynamic";
 
 /**
- * ANNUAIRE — sous-module de la Promotion médicale.
+ * ANNUAIRE — la feuille détaillée du module Annuaire (ex-« Promotion médicale »).
  *
  * Tous ceux avec qui l'on travaille : médecins, pharmaciens, praticiens hospitaliers. En FEUILLE
  * MODIFIABLE — on ne consulte pas un annuaire, on le corrige : chaque cellule s'édite sur place,
@@ -62,7 +62,7 @@ export default async function AnnuairePage() {
   return (
     <div className="space-y-5">
       <BackLink href="/medical">
-        <ArrowLeft className="h-4 w-4" /> Promotion médicale
+        <ArrowLeft className="h-4 w-4" /> Annuaire
       </BackLink>
       <PageHeader
         title="Annuaire"

@@ -234,7 +234,7 @@ const MODULE_FR: Partial<Record<Module, string>> = {
   FINANCES: "Finances", RH: "Ressources humaines", CONGRESS_INTERNATIONAL: "Prises en charge Internationales",
   CONGRESS_NATIONAL: "Prises en charge Nationales", EVENTS: "Events (billetterie)", SALES: "Ventes",
   LOGISTICS: "Logistique PCH", PCH: "Marchés PCH", STOCKS: "Stocks PCH",
-  MEDICAL: "Promotion médicale", BUSINESS_DEVELOPMENT: "Business Development", PROMO_MATERIAL: "Matériel promotionnel",
+  MEDICAL: "Annuaire", BUSINESS_DEVELOPMENT: "Business Development", PROMO_MATERIAL: "Matériel promotionnel",
   VALIDATIONS: "Demandes de validations", DRIVE: "Drive", ADMIN_REQUESTS: "Bureau du secrétariat",
   PROCESS_INTELLIGENCE: "Process Intelligence", ADMIN: "Administration",
 };
@@ -785,7 +785,7 @@ export async function executeReadTool(name: string, input: Record<string, unknow
       })));
     }
     case "search_doctors": {
-      if (!userCan(user, "MEDICAL", "VIEW")) return "Accès non autorisé au module Promotion médicale.";
+      if (!userCan(user, "MEDICAL", "VIEW")) return "Accès non autorisé au module Annuaire.";
       const q = asStr(input, "query");
       const doctors = await prisma.medicalDoctor.findMany({
         where: {

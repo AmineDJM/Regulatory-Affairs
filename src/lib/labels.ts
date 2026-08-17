@@ -1343,7 +1343,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   EVENTS: "Événements",
   SALES: "Ventes",
   LOGISTICS: "Logistique",
-  MEDICAL: "Promotion médicale",
+  MEDICAL: "Annuaire",
   FIELD_REPORTS: "Rapports terrain",
   SALES_PLANNING: "Prévisions & Force de vente",
   BUSINESS_DEVELOPMENT: "Business Development",
@@ -1422,7 +1422,7 @@ export const NAVIGATION: NavItem[] = [
   // praticiens vit DANS Promotion médicale : on ne consulte pas un annuaire pour lui-même, on
   // le consulte en préparant une visite.
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles", pole: "SALES_MARKETING" },
-  { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical/annuaire"] },
+  { module: "MEDICAL", label: "Annuaire", href: "/medical", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical/annuaire"] },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/promo-material/stock", "/consulting"] },

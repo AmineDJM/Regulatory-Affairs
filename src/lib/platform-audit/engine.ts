@@ -288,7 +288,7 @@ function probePharma(): Finding[] {
   const findings: Finding[] = [];
   const navModules = new Set<string>();
   for (const n of NAVIGATION) { navModules.add(n.module); for (const t of n.tabs ?? []) navModules.add(t.module); }
-  const needed: [Module, string][] = [["REGULATORY", "Regulatory (dossiers ANPP)"], ["MEDICAL_INFO", "Information médicale (PRIM)"], ["MEDICAL", "Promotion médicale"], ["PCH", "PCH — marchés publics"]];
+  const needed: [Module, string][] = [["REGULATORY", "Regulatory (dossiers ANPP)"], ["MEDICAL_INFO", "Information médicale (PRIM)"], ["MEDICAL", "Annuaire"], ["PCH", "PCH — marchés publics"]];
   const absent = needed.filter(([m]) => !navModules.has(m));
   if (absent.length) {
     findings.push({ severity: "warning", area: "Pharma", title: "Module pharma clé sans entrée de menu", detail: `Non exposé dans la navigation : ${absent.map((a) => a[1]).join(", ")}.`, suggestion: "Vérifier que ces piliers métier (réglementaire, information médicale) restent accessibles." });

@@ -172,7 +172,7 @@ export async function deleteSpecialty(formData: FormData): Promise<ActionResult>
  *  en cascade ; il est retiré des listes d'invités de congrès (IDs orphelins ignorés). */
 export async function deleteDoctor(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Suppression réservée (droit Supprimer sur Promotion médicale)." };
+  if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Suppression réservée (droit Supprimer sur l'Annuaire)." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const doc = await prisma.medicalDoctor.findUnique({ where: { id }, select: { name: true } });
