@@ -2,13 +2,13 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Search, Upload, Loader2, FileSpreadsheet, Info, Plus, Rows3, LayoutList, Check, X } from "lucide-react";
+import { Search, Upload, Loader2, FileSpreadsheet, Info, Plus, Rows3, LayoutList, Check, X, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { normalizeHeader } from "@/lib/medical/directory-sheet";
 import { ANNUAIRE_COLUMNS, annuaireCell, type AnnuaireRow, type AnnuaireColumn } from "@/lib/medical/directory-grid";
-import { importDirectorySheet, saveDirectoryCell, addDirectoryDoctor } from "@/lib/actions/medical-directory-actions";
+import { importDirectorySheet, saveDirectoryCell, addDirectoryDoctor, deleteDirectoryDoctors } from "@/lib/actions/medical-directory-actions";
 
 /**
  * L'ANNUAIRE COMME UNE VRAIE FEUILLE — modifiable en place, exportable, vue par spécialité.
@@ -135,12 +135,25 @@ function Cell({ row, col, editable }: { row: AnnuaireRow; col: AnnuaireColumn; e
  * la cinquième ligne et l'on corrige la mauvaise cellule. D'où le quadrillage complet, et le
  * surlignage de la ligne survolée.
  */
-function GridTable({ rows, editable }: { rows: AnnuaireRow[]; editable: boolean }) {
+function GridTable({
+  rows, editable, selected, onToggle, onToggleAll,
+}: {
+  rows: AnnuaireRow[]; editable: boolean;
+  selected: Set<string>; onToggle: (id: string, on: boolean) => void; onToggleAll: (ids: string[], on: boolean) => void;
+}) {
+  const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
     <div className="surface overflow-x-auto">
       <table className="w-full min-w-[72rem] border-collapse text-sm">
         <thead>
           <tr className="bg-secondary/60 text-xs uppercase tracking-wide text-muted-foreground">
+            <th className="w-10 border border-border px-2 py-2">
+              <input
+                type="checkbox" checked={allChecked}
+                onChange={(e) => onToggleAll(rows.map((r) => r.id), e.target.checked)}
+                aria-label="Tout sélectionner" className="h-4 w-4 rounded border-input"
+              />
+            </th>
             {ANNUAIRE_COLUMNS.map((c) => (
               <th
                 key={c.field}
@@ -154,7 +167,15 @@ function GridTable({ rows, editable }: { rows: AnnuaireRow[]; editable: boolean 
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id} className="hover:bg-secondary/20">
+            <tr key={r.id} className={cn("hover:bg-secondary/20", selected.has(r.id) && "bg-primary/5")}>
+              <td className="border border-border px-2 text-center">
+                <input
+                  type="checkbox" checked={selected.has(r.id)}
+                  onChange={(e) => onToggle(r.id, e.target.checked)}
+                  aria-label={`Sélectionner ${r.lastName ?? r.firstName ?? "cette ligne"}`}
+                  className="h-4 w-4 rounded border-input"
+                />
+              </td>
               {ANNUAIRE_COLUMNS.map((c) => (
                 <td
                   key={c.field}
@@ -172,11 +193,21 @@ function GridTable({ rows, editable }: { rows: AnnuaireRow[]; editable: boolean 
 }
 
 export function AnnuaireGrid({
-  rows, canEdit, canImport, specialties,
+  rows, canEdit, canImport, canDelete, specialties,
 }: {
-  rows: AnnuaireRow[]; canEdit: boolean; canImport: boolean; specialties: string[];
+  rows: AnnuaireRow[]; canEdit: boolean; canImport: boolean; canDelete: boolean; specialties: string[];
 }) {
   const router = useRouter();
+  // SÉLECTION MULTIPLE — un annuaire se nettoie par lots (doublons d'import, cabinet fermé).
+  // Ligne par ligne, personne ne le fait : on garde alors des fiches fausses, pire qu'absentes.
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const toggleOne = React.useCallback((id: string, on: boolean) => {
+    setSelected((p) => { const n = new Set(p); if (on) n.add(id); else n.delete(id); return n; });
+  }, []);
+  const toggleMany = React.useCallback((ids: string[], on: boolean) => {
+    setSelected((p) => { const n = new Set(p); for (const id of ids) { if (on) n.add(id); else n.delete(id); } return n; });
+  }, []);
+  const [deleting, setDeleting] = React.useState(false);
   const [q, setQ] = React.useState("");
   const [bySpecialty, setBySpecialty] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -273,6 +304,34 @@ export function AnnuaireGrid({
         </div>
       </div>
 
+      {/* CE QUI EST SÉLECTIONNÉ, ET CE QU'ON EN FAIT — la barre n'apparaît que s'il y a une
+          sélection : un bouton « Supprimer » toujours visible finit par être cliqué à vide. */}
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 p-2.5 text-sm">
+          <span className="font-medium">{selected.size} ligne{selected.size > 1 ? "s" : ""} sélectionnée{selected.size > 1 ? "s" : ""}</span>
+          {canDelete && (
+            <Button
+              size="sm" variant="outline" disabled={deleting}
+              onClick={() => {
+                if (!window.confirm(`Supprimer ${selected.size} fiche(s) de l'annuaire ? Cette action est définitive.`)) return;
+                setDeleting(true);
+                void deleteDirectoryDoctors([...selected]).then((r) => {
+                  setDeleting(false);
+                  setMsg({ ok: r.ok, text: r.ok ? (r.message ?? "Supprimé.") : (r.error ?? "Suppression impossible.") });
+                  if (r.ok) { setSelected(new Set()); router.refresh(); }
+                });
+              }}
+              className="text-destructive"
+            >
+              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Supprimer
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+            <X className="h-3.5 w-3.5" /> Tout désélectionner
+          </Button>
+        </div>
+      )}
+
       {canImport && <AddDoctorRow specialtyListId={SPECIALTY_LIST_ID} />}
 
       {canImport && (
@@ -306,12 +365,12 @@ export function AnnuaireGrid({
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 {name} <span className="text-xs font-normal text-muted-foreground">· {list.length}</span>
               </h3>
-              <GridTable rows={list} editable={canEdit} />
+              <GridTable rows={list} editable={canEdit} selected={selected} onToggle={toggleOne} onToggleAll={toggleMany} />
             </section>
           ))}
         </div>
       ) : (
-        <GridTable rows={filtered} editable={canEdit} />
+        <GridTable rows={filtered} editable={canEdit} selected={selected} onToggle={toggleOne} onToggleAll={toggleMany} />
       )}
     </div>
   );

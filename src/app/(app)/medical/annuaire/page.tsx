@@ -26,6 +26,7 @@ export default async function AnnuairePage() {
   const user = await requireModule("MEDICAL");
   const canImport = userCan(user, "MEDICAL", "CREATE");
   const canEdit = userCan(user, "MEDICAL", "UPDATE");
+  const canDelete = userCan(user, "MEDICAL", "DELETE");
 
   const [doctors, specialtyRefs] = await Promise.all([
     prisma.medicalDoctor.findMany({
@@ -68,7 +69,7 @@ export default async function AnnuairePage() {
         title="Annuaire"
         description="Tous les praticiens avec qui nous travaillons — médecins, pharmaciens, hospitaliers — en feuille modifiable, exportable, avec vue par spécialité."
       />
-      <AnnuaireGrid rows={rows} canEdit={canEdit} canImport={canImport} specialties={specialties} />
+      <AnnuaireGrid rows={rows} canEdit={canEdit} canImport={canImport} canDelete={canDelete} specialties={specialties} />
     </div>
   );
 }

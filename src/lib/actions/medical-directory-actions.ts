@@ -229,3 +229,45 @@ export async function addDirectoryDoctor(input: {
   revalidatePath("/medical");
   return { ok: true, id: created.id };
 }
+
+/**
+ * SUPPRIMER DES FICHES DE L'ANNUAIRE — une, ou plusieurs d'un coup.
+ *
+ * Un annuaire se nettoie par lots : des doublons d'import, un cabinet fermé, une liste
+ * périmée. Les supprimer une par une, personne ne le fait — on garde alors des fiches fausses,
+ * ce qui est pire qu'une fiche manquante.
+ *
+ * Chaque ligne est revérifiée INDIVIDUELLEMENT : un délégué ne supprime que ses praticiens, et
+ * une sélection qui déborde ne supprime que ce qu'elle avait le droit de supprimer — jamais
+ * tout ou rien, jamais plus que le droit.
+ */
+export async function deleteDirectoryDoctors(ids: string[]): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "DELETE")) {
+    return { ok: false, error: "Suppression réservée (droit Supprimer sur l'Annuaire)." };
+  }
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return { ok: false, error: "Aucune ligne sélectionnée." };
+
+  const allowed: string[] = [];
+  for (const id of unique) {
+    if (await canAccessEntity(user, "DOCTOR", id, "DELETE")) allowed.push(id);
+  }
+  if (allowed.length === 0) return { ok: false, error: "Aucune de ces fiches ne vous appartient." };
+
+  const { count } = await prisma.medicalDoctor.deleteMany({ where: { id: { in: allowed } } });
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Promotion médicale",
+    summary: `Annuaire — ${count} fiche(s) supprimée(s)`,
+  });
+  revalidatePath("/medical/annuaire");
+  revalidatePath("/medical");
+
+  const skipped = unique.length - allowed.length;
+  return {
+    ok: true,
+    message: skipped > 0
+      ? `${count} fiche(s) supprimée(s) · ${skipped} hors de votre portée, laissée(s) en place`
+      : `${count} fiche(s) supprimée(s)`,
+  };
+}
