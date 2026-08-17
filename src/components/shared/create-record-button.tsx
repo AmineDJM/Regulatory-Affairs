@@ -24,7 +24,9 @@ export interface AnalyzePrefill {
 
 export type FieldDef =
   | {
-      type: "text" | "number" | "date";
+      // `datetime-local` pour les champs qui portent une HEURE (départ d'un courrier) : taper
+      // « 2026-08-17T14:30 » à la main dans un champ texte, personne ne le fait juste.
+      type: "text" | "number" | "date" | "datetime-local";
       name: string;
       label: string;
       required?: boolean;
@@ -38,6 +40,9 @@ export type FieldDef =
       label: string;
       required?: boolean;
       placeholder?: string;
+      // Le même formulaire sert à CRÉER et à MODIFIER : sans valeur initiale, rouvrir une fiche
+      // pour corriger une date effacerait les notes déjà saisies.
+      defaultValue?: string;
       full?: boolean;
     }
   | {
@@ -206,7 +211,7 @@ export function RecordForm({
                   {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
                 </>
               ) : field.type === "textarea" ? (
-                <Textarea id={field.name} name={field.name} required={field.required} placeholder={field.placeholder} />
+                <Textarea id={field.name} name={field.name} required={field.required} placeholder={field.placeholder} defaultValue={dv(field) as string | undefined} />
               ) : field.type === "select" ? (
                 <Select id={field.name} name={field.name} required={field.required} defaultValue={dv(field) as string | undefined}>
                   {field.placeholder && <option value="">{field.placeholder}</option>}

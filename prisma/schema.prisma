@@ -382,6 +382,7 @@ enum EntityType {
   AD_PRO_ITEM
   DOCUMENT_REQUEST
   PAYMENT_REQUEST
+  MAIL_ENTRY
 }
 
 enum DocumentCategory {

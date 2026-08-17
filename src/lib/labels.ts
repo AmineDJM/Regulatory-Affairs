@@ -811,6 +811,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   AD_PRO_ITEM: "Poste de dépense",
   DOCUMENT_REQUEST: "Demande de pièce",
   PAYMENT_REQUEST: "Demande de paiement",
+  MAIL_ENTRY: "Courrier",
 };
 
 /**

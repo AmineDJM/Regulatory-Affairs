@@ -346,6 +346,21 @@ export const ENTITIES: EntityDef[] = [
     orderBy: { createdAt: "desc" },
   },
   {
+    name: "mail_entry",
+    model: "MailEntry",
+    module: "MAIL_REGISTER",
+    label: "Courrier",
+    description:
+      "Un pli entrant ou sortant du registre de l'assistante de direction : objet, parties, départ (avec l'heure), "
+      + "arrivée, accusé de réception, porteur — et ses pièces jointes (scan du pli, accusé signé).",
+    scope: moduleOnly,
+    listFields: ["id", "reference", "title", "direction", "sender", "recipient", "sentAt", "receivedAt", "acknowledgedAt", "carrier", "companyId", "createdAt"],
+    searchFields: ["reference", "title", "sender", "recipient", "carrier", "notes"],
+    referenceField: "reference",
+    entityType: "MAIL_ENTRY",
+    orderBy: { createdAt: "desc" },
+  },
+  {
     name: "sale",
     model: "Sale",
     module: "SALES",

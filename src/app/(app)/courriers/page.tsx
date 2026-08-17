@@ -4,8 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { currentCompanyWhere } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
-import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
+import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { createMailEntry } from "@/lib/actions/mail-register-actions";
+import { mailFields } from "./mail-fields";
 import { MailTable, type MailRow } from "./mail-table";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,11 @@ export const metadata = { title: "Courriers — AMD Internal OS" };
  * Les quatre dates ne se remplissent pas au même moment : on POSTE (avec l'heure), le pli
  * ARRIVE, puis l'ACCUSÉ revient. Aucune n'est obligatoire — exiger une date qu'on n'a pas encore
  * ferait inventer une information.
+ *
+ * Le tableau sert à RETROUVER ; c'est la fiche (`/courriers/<id>`) qui porte le travail : les
+ * pièces jointes (scan du pli, accusé signé), la modification, et le journal qui garde qui a
+ * corrigé quoi. Enregistrer un courrier ouvre donc directement sa fiche — on vient presque
+ * toujours d'un scan à joindre.
  */
 export default async function CourriersPage() {
   const user = await requireModule("MAIL_REGISTER");
@@ -33,6 +39,15 @@ export default async function CourriersPage() {
     take: 500,
   });
 
+  // Le nombre de pièces jointes par courrier, en UNE requête : afficher « 0 » partout serait faux,
+  // et interroger la table document par ligne mettrait 500 requêtes derrière un simple affichage.
+  const attachments = await prisma.document.groupBy({
+    by: ["entityId"],
+    where: { entityType: "MAIL_ENTRY", entityId: { in: entries.map((m) => m.id) } },
+    _count: { _all: true },
+  });
+  const attachmentCount = new Map(attachments.map((a) => [a.entityId, a._count._all]));
+
   const rows: MailRow[] = entries.map((m) => ({
     id: m.id,
     reference: m.reference,
@@ -44,39 +59,24 @@ export default async function CourriersPage() {
     receivedAt: m.receivedAt?.toISOString() ?? null,
     acknowledgedAt: m.acknowledgedAt?.toISOString() ?? null,
     carrier: m.carrier,
+    attachments: attachmentCount.get(m.id) ?? 0,
   }));
 
   const incoming = rows.filter((r) => r.direction === "INCOMING").length;
   const outgoing = rows.filter((r) => r.direction === "OUTGOING").length;
   const noAck = rows.filter((r) => !r.acknowledgedAt).length;
 
-  const fields: FieldDef[] = [
-    { type: "text", name: "title", label: "Objet du courrier", required: true, full: true },
-    { type: "select", name: "direction", label: "Sens", options: [
-      { value: "OUTGOING", label: "Sortant" }, { value: "INCOMING", label: "Entrant" },
-    ], defaultValue: "OUTGOING" },
-    { type: "text", name: "reference", label: "N° de chrono" },
-    { type: "text", name: "sender", label: "Expéditeur" },
-    { type: "text", name: "recipient", label: "Destinataire" },
-    // Le départ porte l'HEURE : c'est ce qui départage deux plis du même jour.
-    { type: "text", name: "sentAt", label: "Départ (date et heure)", placeholder: "2026-08-17T14:30" },
-    { type: "date", name: "receivedAt", label: "Arrivée" },
-    { type: "date", name: "acknowledgedAt", label: "Accusé de réception" },
-    { type: "text", name: "carrier", label: "Porteur (poste, coursier, e-mail…)" },
-    { type: "textarea", name: "notes", label: "Notes", full: true },
-  ];
-
   return (
     <div className="space-y-5">
       <PageHeader
         title="Courriers"
-        description="Le carnet des plis entrants et sortants : objet, parties, départ, arrivée et accusé de réception. Filtrable — on y cherche toujours une pièce précise."
+        description="Le carnet des plis entrants et sortants : objet, parties, départ, arrivée et accusé de réception. Filtrable — on y cherche toujours une pièce précise. Chaque courrier ouvre sa fiche : pièces jointes, modification, journal."
       >
         {canCreate && (
           <CreateRecordButton
             label="Nouveau courrier" title="Enregistrer un courrier" width="lg"
             description="Seul l'objet est obligatoire : l'arrivée et l'accusé se posent plus tard, en un clic depuis le tableau."
-            action={createMailEntry} fields={fields}
+            action={createMailEntry} fields={mailFields()} redirectBase="/courriers"
           />
         )}
       </PageHeader>

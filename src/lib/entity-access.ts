@@ -1,5 +1,6 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { platformScope } from "@/lib/company";
 import {
   userCan,
   hasGlobalView,
@@ -68,6 +69,8 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   PCH_TENDER: "PCH",
   // Justificatif d'une dépense imputée à un budget départemental.
   DEPARTMENT_EXPENSE: "BUDGETS",
+  // Un courrier du registre : c'est le module Courriers qui en gouverne les pièces jointes.
+  MAIL_ENTRY: "MAIL_REGISTER",
 };
 
 /**
@@ -240,6 +243,16 @@ export async function canAccessEntity(
     case "DOSSIER": {
       const found = await prisma.dossier.findFirst({
         where: { id: entityId, ...scopeDossiers(user) },
+        select: { id: true },
+      });
+      return Boolean(found);
+    }
+    case "MAIL_ENTRY": {
+      // Le registre est CLOISONNÉ PAR ENTITÉ : avoir le module Courriers ne donne pas accès aux
+      // plis d'une autre société du groupe. Sans ce contrôle, une pièce jointe se téléverserait
+      // sur le courrier d'une entité voisine en devinant son identifiant.
+      const found = await prisma.mailEntry.findFirst({
+        where: { AND: [{ id: entityId }, await platformScope(user.id)] },
         select: { id: true },
       });
       return Boolean(found);

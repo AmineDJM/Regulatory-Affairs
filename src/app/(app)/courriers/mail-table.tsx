@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FilterX, Check } from "lucide-react";
+import { FilterX, Check, Paperclip } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { MAIL_DIRECTION } from "@/lib/labels";
@@ -15,6 +16,9 @@ import { setMailDate } from "@/lib/actions/mail-register-actions";
  * Les deux dates qui manquent le plus souvent — l'ARRIVÉE et l'ACCUSÉ — se posent ici, dans la
  * ligne : elles se constatent des jours après la saisie, et rouvrir un formulaire complet pour
  * cocher une date, personne ne le fait. Ce qu'on ne peut pas remplir en un geste reste vide.
+ *
+ * Tout le reste — joindre le scan, corriger un champ, relire le journal — se fait sur la FICHE,
+ * qu'on ouvre en cliquant l'objet.
  */
 
 export interface MailRow {
@@ -28,6 +32,8 @@ export interface MailRow {
   receivedAt: string | null;
   acknowledgedAt: string | null;
   carrier: string | null;
+  /** Nombre de pièces jointes — un courrier sans pièce se repère d'un coup d'œil. */
+  attachments: number;
 }
 
 const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-xs font-normal normal-case tracking-normal outline-none focus:ring-1 focus:ring-ring";
@@ -114,6 +120,7 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
               <th className="px-3 pt-2 text-left font-medium">Arrivée</th>
               <th className="px-3 pt-2 text-left font-medium">Accusé</th>
               <th className="px-3 pt-2 text-left font-medium">Porteur</th>
+              <th className="px-3 pt-2 text-left font-medium"><Paperclip className="h-3.5 w-3.5" aria-label="Pièces jointes" /></th>
             </tr>
             <tr>
               <th className="px-2 pb-2 pt-1"><input value={f.reference} onChange={set("reference")} placeholder="Filtrer" className={cellInput} /></th>
@@ -129,18 +136,21 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
               <th className="px-2 pb-2 pt-1" />
               <th className="px-2 pb-2 pt-1" />
               <th className="px-2 pb-2 pt-1" />
+              <th className="px-2 pb-2 pt-1" />
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {shown.length === 0 ? (
-              <tr><td colSpan={9} className="px-3 py-8 text-center text-sm text-muted-foreground">Aucun courrier ne correspond à ces filtres.</td></tr>
+              <tr><td colSpan={10} className="px-3 py-8 text-center text-sm text-muted-foreground">Aucun courrier ne correspond à ces filtres.</td></tr>
             ) : shown.map((r) => {
               const dir = MAIL_DIRECTION[r.direction];
               return (
                 <tr key={r.id} className="hover:bg-secondary/30">
                   <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{r.reference || "—"}</td>
                   <td className="px-3 py-2"><Badge tone={dir?.tone ?? "neutral"} dot={false}>{dir?.label ?? r.direction}</Badge></td>
-                  <td className="px-3 py-2 font-medium">{r.title}</td>
+                  <td className="px-3 py-2 font-medium">
+                    <Link href={`/courriers/${r.id}`} className="hover:underline">{r.title}</Link>
+                  </td>
                   <td className="px-3 py-2 text-muted-foreground">{r.sender || "—"}</td>
                   <td className="px-3 py-2 text-muted-foreground">{r.recipient || "—"}</td>
                   {/* Le départ garde son HEURE : deux plis du même jour ne partent pas ensemble. */}
@@ -148,6 +158,16 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
                   <td className="px-3 py-2 whitespace-nowrap"><DateCell id={r.id} field="receivedAt" value={r.receivedAt} canEdit={canEdit} /></td>
                   <td className="px-3 py-2 whitespace-nowrap"><DateCell id={r.id} field="acknowledgedAt" value={r.acknowledgedAt} canEdit={canEdit} /></td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{r.carrier || "—"}</td>
+                  <td className="px-3 py-2">
+                    {r.attachments > 0 ? (
+                      <Link href={`/courriers/${r.id}`} title={`${r.attachments} pièce(s) jointe(s)`}
+                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                        <Paperclip className="h-3.5 w-3.5" /> {r.attachments}
+                      </Link>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
