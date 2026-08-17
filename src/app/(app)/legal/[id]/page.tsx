@@ -14,6 +14,7 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
 import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL, AUDIT_ACTION } from "@/lib/labels";
 import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/utils";
 import { effectiveStatus, expiryLevel, daysLeft } from "@/lib/legal/lifecycle";
+import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { legalFields, dateInput } from "../legal-fields";
 import { EditLegalButton } from "./edit-legal";
 
@@ -142,6 +143,20 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
               <Info label="Montant" value={doc.amount !== null ? formatCurrency(toNumber(doc.amount)) : null} />
               <Info label="Annulé le" value={doc.cancelledAt ? formatDate(doc.cancelledAt) : null} />
               <Info label="Motif d'annulation" value={doc.cancelReason} />
+              {/* D'OÙ ÇA VIENT : le chemin de retour vers la demande qui a justifié cet
+                  engagement. Sans lui, le lien n'existe que dans un sens et ne sert qu'à moitié. */}
+              {doc.sourceType && (
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Rattaché à</p>
+                  {sourceHref(doc.sourceType, doc.sourceId) ? (
+                    <Link href={sourceHref(doc.sourceType, doc.sourceId)!} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                      {sourceCaption(doc.sourceType)} <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  ) : (
+                    <p className="font-medium">{sourceCaption(doc.sourceType)}</p>
+                  )}
+                </div>
+              )}
               {doc.notes && (
                 <div className="col-span-2 sm:col-span-3">
                   <p className="text-xs text-muted-foreground">Notes</p>

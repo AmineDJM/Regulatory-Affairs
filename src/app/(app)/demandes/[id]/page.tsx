@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { CommentThread, type CommentItem } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { LinkedRecords } from "@/components/shared/linked-records";
 import { AttachmentValidationBlock } from "./attachment-validation";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, ADMIN_APPROVAL_STATUS, DRIVER_MISSION_STATUS, PRIORITY, AUDIT_ACTION, PROMO_MATERIAL_STATUS, VALIDATION_STATUS } from "@/lib/labels";
@@ -236,6 +237,10 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
               </CardContent>
             </Card>
           )}
+
+          {/* CE QUI EN DÉCOULE : bon de commande, facture, courrier. Créés d'ici, ils gardent le
+              lien vers cette demande — c'est le seul moment où l'on sait de quoi ils viennent. */}
+          <LinkedRecords entityType="ADMIN_REQUEST" entityId={req.id} reference={req.reference} canCreate={canManage} />
 
           <Card>
             <CardHeader><CardTitle>Commentaires</CardTitle></CardHeader>

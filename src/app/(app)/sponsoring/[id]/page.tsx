@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { LinkedRecords } from "@/components/shared/linked-records";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SPONSORING_STATUS, PRIORITY } from "@/lib/labels";
 import { WorkflowPanel } from "@/components/workflow/workflow-panel";
@@ -188,6 +189,10 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               )}
             </CardContent>
           </Card>
+
+          {/* CE QUI EN DÉCOULE : bon de commande, facture, courrier. Créés d'ici, ils gardent le
+              lien vers cette demande — c'est le seul moment où l'on sait de quoi ils viennent. */}
+          <LinkedRecords entityType="SPONSORING" entityId={req.id} reference={req.reference} canCreate={canDirection || canEditRequest} />
         </div>
 
         <div className="space-y-5">

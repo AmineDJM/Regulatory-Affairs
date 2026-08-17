@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Paperclip } from "lucide-react";
+import { ArrowLeft, Paperclip, ExternalLink } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -13,6 +14,7 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
 import { MAIL_DIRECTION, AUDIT_ACTION } from "@/lib/labels";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { renderTraceValue } from "@/lib/mail-register/trace";
+import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { mailFields, dateInput, dateTimeInput } from "../mail-fields";
 import { EditMailButton, DeleteMailButton } from "./edit-mail";
 
@@ -122,6 +124,19 @@ export default async function MailEntryPage({ params }: { params: { id: string }
               <Info label="Départ" value={entry.sentAt ? formatDateTime(entry.sentAt) : null} />
               <Info label="Arrivée" value={entry.receivedAt ? formatDate(entry.receivedAt) : null} />
               <Info label="Accusé de réception" value={entry.acknowledgedAt ? formatDate(entry.acknowledgedAt) : null} />
+              {/* D'OÙ ÇA VIENT : le chemin de retour vers l'affaire qui a motivé ce pli. */}
+              {entry.sourceType && (
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Rattaché à</p>
+                  {sourceHref(entry.sourceType, entry.sourceId) ? (
+                    <Link href={sourceHref(entry.sourceType, entry.sourceId)!} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                      {sourceCaption(entry.sourceType)} <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  ) : (
+                    <p className="font-medium">{sourceCaption(entry.sourceType)}</p>
+                  )}
+                </div>
+              )}
               {entry.notes && (
                 <div className="col-span-2 sm:col-span-3">
                   <p className="text-xs text-muted-foreground">Notes</p>

@@ -55,9 +55,23 @@ export type FieldDef =
       placeholder?: string;
       full?: boolean;
     }
+  // Valeur portée par le formulaire sans être saisie : le RATTACHEMENT à l'objet d'où l'on
+  // crée la pièce (« cette facture vient de CETTE demande »). Ce n'est pas un secret — le
+  // serveur revérifie ce qu'il en fait — c'est un contexte que l'utilisateur n'a pas à ressaisir.
+  | { type: "hidden"; name: string; value: string }
   | { type: "checkbox"; name: string; label: string; full?: boolean }
   | { type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; hint?: string; full?: boolean }
   | { type: "file"; name: string; label: string; multiple?: boolean; hint?: string; defaultValue?: string | number; full?: boolean };
+
+/**
+ * Les champs QUI S'AFFICHENT — tous sauf le champ caché.
+ *
+ * Certains écrans dessinent eux-mêmes leur formulaire à partir d'une liste de `FieldDef` (les
+ * champs propres à un type de demande administrative, par exemple) et lisent `label` sur chacun.
+ * Un champ caché n'a pas de libellé : les typer avec celui-ci évite de leur faire traiter un cas
+ * qui ne se présentera jamais chez eux.
+ */
+export type VisibleFieldDef = Exclude<FieldDef, { type: "hidden" }>;
 
 interface CreateRecordButtonProps {
   label: string;
@@ -186,7 +200,9 @@ export function RecordForm({
         className="space-y-4"
       >
         <div key={prefillVersion} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {fields.map((field) => (
+          {fields.map((field) => (field.type === "hidden" ? (
+            <input key={field.name} type="hidden" name={field.name} value={field.value} />
+          ) : (
             <div
               key={field.name}
               className={cn("space-y-1.5", (field.full || field.type === "textarea") && "sm:col-span-2")}
@@ -254,7 +270,7 @@ export function RecordForm({
                 />
               )}
             </div>
-          ))}
+          )))}
         </div>
 
         {state?.error && (

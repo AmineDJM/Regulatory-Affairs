@@ -1,4 +1,4 @@
-import type { FieldDef } from "@/components/shared/create-record-button";
+import type { VisibleFieldDef } from "@/components/shared/create-record-button";
 
 /** Catalogue des types de demande (cartes de l'assistant de création). */
 export const REQUEST_TYPES: { value: string; label: string; icon: string; description: string }[] = [
@@ -17,7 +17,7 @@ export const REQUEST_TYPES: { value: string; label: string; icon: string; descri
 const ouiNon = [{ value: "oui", label: "Oui" }, { value: "non", label: "Non" }];
 
 /** Champs spécifiques par type — stockés dans `fields` (JSON). */
-export const REQUEST_TYPE_FIELDS: Record<string, FieldDef[]> = {
+export const REQUEST_TYPE_FIELDS: Record<string, VisibleFieldDef[]> = {
   TRAVEL: [
     { type: "text", name: "poste", label: "Poste / fonction" },
     { type: "text", name: "villeDepart", label: "Ville de départ" },
