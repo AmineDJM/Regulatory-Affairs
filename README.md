@@ -5,7 +5,7 @@
 **L'« OS d'entreprise » d'un laboratoire pharmaceutique algérien : un seul outil connecté pour piloter 100 % de l'activité.**
 
 Regulatory · Ad & Pro (Sponsoring · Congrès · Événements · Matériel promotionnel) · Budgets & enveloppes · Finances ·
-Ventes · Logistique & Marchés PCH · Promotion médicale · Information médicale · Business Development (+ Pharmatool) ·
+Ventes · Logistique & Marchés PCH · Annuaire (praticiens) · Information médicale · Business Development (+ Pharmatool) ·
 RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Calendrier · Réunions · Assistant IA · Adventum Brain
 
 [![Next.js](https://img.shields.io/badge/Next.js-14.2-black?logo=next.js)](https://nextjs.org)
@@ -192,7 +192,7 @@ jamais identique.
 | **PCH — Marchés** | `/pch` | **Marchés publics gagnés** : appels d'offres → **bons de commande** + **caution** (alertes d'expiration). → [détails](#pch--marchés-publics) |
 | **Stocks** | `/stocks` | Refonte en **états datés** (« à cette date, il reste X ») — **sans** entrées/sorties : 3 onglets **Stock PCH · Stock hôpitaux · Annexes PCH** (hôpitaux **et** annexes PCH = lieux nommés, créés/supprimés **uniquement par le Super Admin**), **vue par produit** (catalogue Regulatory) en **graphique** (courbe date → quantité) ou **tableau** (avec évolution entre relevés), un état par jour (ressaisie = correction). Le détecteur « Stock PCH bas » du Brain lit en priorité le dernier état. |
 | **Rapports terrain** | `/field-reports` | **Rapports vocaux IA** des délégués : parler → transcription → analyse → relecture → validation. Onglet **« Overview »** (`/field-reports/overview`) : **graphes d'analyse** (visites par médecin / hôpital / délégué / spécialité, tendance 12 mois, statut, produits) — accès **par autorisation du Super Admin** (`fieldReportsOverviewRoles`). La fiche d'un rapport est gardée par le module **Rapports terrain** (et non plus « Promotion médicale »). → [détails](#-intelligence-artificielle-claude--whisper) |
-| **Promotion médicale** | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué**, plans de tournées **duplicables**. |
+| **Annuaire** *(ex-« Promotion médicale »)* | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. Onglet **Annuaire** (`/medical/annuaire`) = **feuille modifiable en place** (12 colonnes exactes, 58 wilayas, potentiel, export). **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué**, plans de tournées **duplicables**. |
 | **Information médicale** | `/information-medicale` | Module du **pharmacien responsable de l'information médicale (PRIM)** : déclaration réglementaire **intercalée** entre la validation de la Direction et l'ordre de dépense ; **consultation des pièces de l'événement source**, upload de la déclaration, affichage du demandeur. → [workflow](#information-médicale--déclaration-réglementaire-prim) |
 | **Business Development** | `/business-development` | **Grand tableau stratégique Projet → Gamme → Produit** (~20 colonnes), colonnes gelées, export CSV. **Intègre Pharmatool** : pipeline de données concurrentielles, **Vue d'ensemble**, **moteur de matching DCI**, **Opportunités**, **Pricing** (ville / hôpital), **Analyse produit / concurrence** (HHI, parts de marché, radar), **Explorateur produits** (recherche **en temps réel** + filtres classe/labo, sélection multi-produits, comparaison volume/prix/valeur). |
 
@@ -2548,6 +2548,41 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Annuaire : une vraie feuille, modifiable en place.** L'annuaire des praticiens (module
+  renommé de « Promotion médicale » en **Annuaire**) se corrige cellule par cellule, chaque
+  modification partant seule au serveur, revérifiée au niveau de la ligne (un délégué ne touche
+  que ses praticiens). Colonnes exactes du terrain — Nom, Prénom, Adresse, Ville, **Wilaya**,
+  **Potentiel** (ex-« cibles »), Code postal, Téléphone, Spécialité, Grade, Mail, Privé/Public —
+  avec menus fermés (les **58 wilayas** d'Algérie, grade, secteur, potentiel), vue par spécialité,
+  et export reprenant exactement ces colonnes. Module pur testé `lib/medical/directory-grid.ts`.
+
+- **Regulatory : l'administrateur compose les segments thérapeutiques.** La liste du menu
+  « Segments » n'est plus figée dans le code : elle se gère en Administration › Réglages
+  (`AppSetting.regulatoryTherapeuticSegments`, vide = liste par défaut). `effectiveTherapeutic
+  Segments()` tranche partout — écran, menu, validation à l'écriture.
+
+- **Tâches : participants et lecteurs dès la création.** Une tâche pouvait être confiée à une
+  seule personne ; on y associe désormais des **participants** (qui peuvent agir) et des personnes
+  **en lecture**. « Mon espace » remonte les tâches partagées avec moi (`Task.participantIds` /
+  `readerIds` ; nouveau champ `multiselect` du formulaire générique).
+
+- **Ad & Pro : on filtre dans les colonnes.** Fin des onglets/compteurs par état et du filtre
+  « Nature », remplacés par un filtre **sous chaque en-tête** (texte, menus Nature/État, montant
+  minimum, date « à partir du ») ; le bloc « Écrans détaillés par nature » disparaît.
+
+- **Moyens généraux : l'enveloppe et la caisse ne font plus qu'un.** Une seule notion — LA CAISSE —
+  lue à deux horizons : l'exercice (l'année) et le mois. Vocabulaire et présentation seulement ;
+  la mécanique (dotation annuelle, fond mensuel, rallonges) est inchangée.
+
+- **Plein écran partout, sans masquer la barre latérale.** Le bouton vit dans l'en-tête (donc sur
+  tous les écrans) ; il replie le chrome et élargit le contenu **en gardant le menu de gauche**.
+  L'état vit sur `<html>` (`amd-focus`), sans contexte React — `components/layout/focus-mode.tsx`.
+
+- **Ad & Pro : la conversation avec la tierce personne remonte sous la demande.** Impliquer
+  quelqu'un ouvrait un projet à part qu'on oubliait ; le fil (messages + pièces jointes, des deux
+  côtés) s'affiche maintenant en bas de la demande, en réutilisant tel quel le fil des dossiers.
+  `lib/queries/involvement.ts`, `components/ad-pro/involvement-conversations.tsx`.
 
 - **Ad & Pro : la nouvelle demande se remplit sur place, et deux natures de plus.** Choisir
   « envoyer un praticien à un congrès » emmenait sur l'écran de la nature — son titre, sa
