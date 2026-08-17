@@ -9,6 +9,7 @@ import { UserMenu } from "@/components/layout/user-menu";
 import { MessagesIndicator } from "@/components/layout/messages-indicator";
 import { CompanySwitcher } from "@/components/layout/company-switcher";
 import { cn } from "@/lib/utils";
+import { FocusToggle } from "@/components/layout/focus-mode";
 import { useScrollLock } from "@/lib/use-scroll-lock";
 import type { NavItem } from "@/lib/labels";
 
@@ -73,6 +74,8 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
             comprimer par la recherche — c'est la recherche qui tronque son libellé. */}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <CompanySwitcher companies={companies} scope={companyScope} />
+          {/* Plein écran — présent ici, donc sur TOUS les écrans. Garde la barre latérale. */}
+          <FocusToggle />
           {adoption && (
             <div
               title={`Mon score d'adoption : ${adoption.score}/100${adoption.label ? ` — ${adoption.label}` : ""}`}

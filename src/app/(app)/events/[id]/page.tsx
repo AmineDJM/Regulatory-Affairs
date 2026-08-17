@@ -7,7 +7,6 @@ import { canDesignateProductManagerAtCreation, canChooseAnalysisAtCreation, PROD
 import { prisma } from "@/lib/prisma";
 import { getEventDetail } from "@/lib/queries/events";
 import { PageHeader } from "@/components/shared/page-header";
-import { KpiCard } from "@/components/shared/kpi-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +28,9 @@ import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
 import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { toNumber } from "@/lib/utils";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
+import { DocumentUpload } from "@/components/documents/document-upload";
+import { DocumentList, type DocItem } from "@/components/documents/document-list";
 
 export const dynamic = "force-dynamic";
 
@@ -61,14 +63,21 @@ export default async function EventDetailPage({ params }: { params: { id: string
     { requesterId: e.requesterId ?? null, decided: eventDecided },
   );
   const eventEditValues = canEditEventRequest ? await adProEditValues("EVENT", e.id) : null;
-  const [responsibles, missions, workflow, pmCandidates] = await Promise.all([
+  const [responsibles, missions, workflow, pmCandidates, documents] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
     getWorkflowForEntity(user, "EVENT", e.id, null),
     canDesignatePM
       ? prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : Promise.resolve([]),
+    prisma.document.findMany({ where: { entityType: "EVENT", entityId: e.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
   ]);
+  const docItems: DocItem[] = documents.map((d) => ({
+    id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
+    confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
+    createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
+  }));
+  const canUploadDocs = userCan(user, "EVENTS", "UPLOAD") || canManage;
 
   return (
     <div className="space-y-5">
@@ -84,8 +93,8 @@ export default async function EventDetailPage({ params }: { params: { id: string
         <SuperAdminDeleteButton kind="EVENT" id={e.id} name={e.name} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
 
-      <div className="grid gap-5 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      <div className="grid gap-5">
+        <Card>
           <CardHeader><CardTitle>Informations</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
             <Info label="Dates" value={[e.startDate && formatDate(e.startDate), e.endDate && formatDate(e.endDate)].filter(Boolean).join(" → ") || "—"} />
@@ -100,23 +109,25 @@ export default async function EventDetailPage({ params }: { params: { id: string
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle>Présence</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <Mini label="Inscrits" value={e.stats.registered + e.stats.confirmed + e.stats.present} />
-              <Mini label="Présents" value={e.stats.present} tone="success" />
-              <Mini label="Taux présence" value={`${e.stats.attendanceRate}%`} tone="info" />
-              <Mini label="Places restantes" value={e.stats.spotsLeft !== null ? String(e.stats.spotsLeft) : "∞"} />
-            </div>
-            {e.stats.byRole.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {e.stats.byRole.map((r) => <Badge key={r.role} tone="neutral" dot={false}>{PARTICIPANT_ROLE[r.role]} · {r.count}</Badge>)}
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
+
+      {/* DOCUMENTS de l'événement — comme partout ailleurs : convention, programme, photos,
+          facture… Le module portait des chiffres de présence (inscrits, taux) qui n'ont plus
+          cours depuis qu'on ne gère plus les inscriptions ; il lui manquait ce qui sert
+          vraiment, la liste des pièces. */}
+      <Card>
+        <CardHeader><CardTitle>Documents</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {canUploadDocs && <DocumentUpload entityType="EVENT" entityId={e.id} />}
+          <DocumentList
+            documents={docItems}
+            canDelete={userCan(user, "EVENTS", "DELETE") || hasGlobalView(user)}
+            canRename={canUploadDocs}
+            canEdit={onlyofficeConfigured() && canUploadDocs}
+            path={`/events/${e.id}`}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle>Suivi de validation</CardTitle></CardHeader>
@@ -222,8 +233,4 @@ function eventValidationSteps(status: string): VStep[] {
     else state = i === 2 ? "done" : "current";
     return { label, state };
   });
-}
-function Mini({ label, value, tone }: { label: string; value: string | number; tone?: "success" | "info" }) {
-  const c = tone === "success" ? "text-success" : tone === "info" ? "text-primary" : "";
-  return <div className="rounded-lg border border-border p-2.5"><p className="text-[0.6875rem] text-muted-foreground">{label}</p><p className={`text-lg font-semibold ${c}`}>{value}</p></div>;
 }

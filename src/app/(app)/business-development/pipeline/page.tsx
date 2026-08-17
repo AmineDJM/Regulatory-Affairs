@@ -1,8 +1,10 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
-import { ModuleTabs } from "@/components/shared/module-tabs";
+import { BackLink } from "@/components/shared/back-link";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { getRegulatoryRows } from "@/lib/queries/regulatory-rows";
@@ -41,16 +43,10 @@ export default async function BusinessDevelopmentPipelinePage() {
 
   return (
     <div className="space-y-5">
+      <BackLink href="/business-development"><ArrowLeft className="h-4 w-4" /> Business Development</BackLink>
       <PageHeader
-        title="Pipeline"
+        title="Pipeline réglementaire"
         description="Les produits à l'étude : des dossiers créés, pas encore ouverts à l'équipe réglementaire. Les déverrouiller, c'est décider de les mettre au travail."
-      />
-
-      <ModuleTabs
-        tabs={[
-          { label: "Market Intelligence", href: "/business-development" },
-          { label: "Pipeline", href: "/business-development/pipeline" },
-        ]}
       />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">

@@ -8,6 +8,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { MobileTabBar } from "@/components/layout/mobile-tabbar";
 import { ActivityTracker } from "@/components/layout/activity-tracker";
+import { FocusExit } from "@/components/layout/focus-mode";
 import { ScreenGuard } from "@/components/layout/screen-guard";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
@@ -106,6 +107,8 @@ export default async function AppLayout({
     <BackgroundUploadProvider>
     <div className="flex h-screen overflow-hidden bg-background">
       <ActivityTracker />
+      {/* Bouton flottant « quitter le plein écran » — hors du chrome qu'on replie. */}
+      <FocusExit />
       {/* Compte les navigations internes : c'est ce qui permet aux liens « Retour » de remonter
           la page précédente au lieu de renvoyer à la racine du module. */}
       <NavDepthTracker />

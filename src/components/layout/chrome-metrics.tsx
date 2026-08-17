@@ -46,7 +46,7 @@ function usePublishedHeight(ref: React.RefObject<HTMLElement>, cssVar: string): 
 export function ChromeMetrics({ children }: { children: React.ReactNode }) {
   const ref = React.useRef<HTMLDivElement>(null);
   usePublishedHeight(ref, "--app-chrome-top");
-  return <div ref={ref} className="shrink-0">{children}</div>;
+  return <div ref={ref} data-app-chrome className="shrink-0">{children}</div>;
 }
 
 /** Publie la hauteur de la barre d'onglets basse dans `--app-chrome-bottom` (0 sur ordinateur). */

@@ -195,6 +195,17 @@ export function isRegulatorySupervisor(u: RoleBearer, supervisorRoles: string[])
 /** Filtre Prisma « porte l'un de ces rôles » — principal **OU secondaire**. À utiliser
  *  pour TOUTE sélection d'utilisateurs par rôle (notifications, candidats désignables,
  *  pharmacien PRIM, annuaires…), sinon un rôle attribué en secondaire est ignoré. */
+/**
+ * Les rôles dont la matrice donne au moins la VUE sur un module.
+ *
+ * Sert à dresser « les personnes concernées par X » sans deviner : c'est la même matrice qui
+ * gouverne l'accès à l'écran, on ne réinvente pas une liste en parallèle qui divergerait au
+ * premier réglage.
+ */
+export function rolesWithModule(module: Module, action: Action = "VIEW"): UserRole[] {
+  return (Object.keys(PERMISSIONS) as UserRole[]).filter((r) => (PERMISSIONS[r][module] ?? []).includes(action));
+}
+
 export function anyRoleFilter(roles: UserRole[]): Prisma.UserWhereInput {
   return { OR: [{ role: { in: roles } }, { secondaryRole: { in: roles } }] };
 }

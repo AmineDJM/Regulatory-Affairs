@@ -38,6 +38,11 @@ export default async function BusinessDevelopmentPage() {
         <Link href="/business-development/opportunites">
           <Button variant="outline"><Lightbulb className="h-4 w-4" /> Opportunités (pipeline)</Button>
         </Link>
+        {/* Le pipeline RÉGLEMENTAIRE : les produits à l'étude (dossiers verrouillés), sortis de
+            Regulatory — c'est du business development, ce qu'on étudie avant de déposer. */}
+        <Link href="/business-development/pipeline">
+          <Button variant="outline"><FlaskConical className="h-4 w-4" /> Pipeline réglementaire</Button>
+        </Link>
         {canCreate && (
           <CreateRecordButton
             label="Nouveau projet"

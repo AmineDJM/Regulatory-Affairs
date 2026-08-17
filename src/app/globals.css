@@ -365,3 +365,17 @@
 @media (prefers-reduced-motion: reduce) {
   .reg-progress-sheen { animation: none; }
 }
+
+/* ── PLEIN ÉCRAN (mode focus) — piloté par la classe `amd-focus` sur <html>.
+   On replie le CHROME (en-tête + bandeaux), on relâche la largeur maximale, on serre les marges.
+   La BARRE LATÉRALE reste : un plein écran qui masque la navigation est un cul-de-sac. */
+:root.amd-focus {
+  --shell-max: 100%;
+}
+:root.amd-focus [data-app-chrome] {
+  display: none;
+}
+:root.amd-focus main {
+  padding-top: 0.5rem;
+  padding-bottom: 0.75rem;
+}

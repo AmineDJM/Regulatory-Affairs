@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ExternalLink, Paperclip, Banknote } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { accessibleModules } from "@/lib/rbac";
+import { accessibleModules, rolesWithModule } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getMyValidations, type PendingValidationItem, type MyValidationItem } from "@/lib/queries/validations";
 import { groupValidations, type ValidationGroup } from "@/lib/validations/grouping";
@@ -45,6 +45,23 @@ export default async function ValidationsPage() {
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
+
+  // DESTINATAIRE D'UN PAIEMENT : les personnes des Finances, pas toute la société. On croise
+  // les rôles qui gouvernent le module (matrice RBAC, pas une liste devinée) et les accès
+  // accordés au cas par cas par le Super Admin — sans quoi un contrôleur promu par override
+  // n'apparaîtrait jamais.
+  const financeRoles = rolesWithModule("FINANCES");
+  const financePeople = await prisma.user.findMany({
+    where: {
+      isActive: true,
+      OR: [
+        { role: { in: financeRoles } },
+        { access: { some: { module: "FINANCES", canView: true } } },
+      ],
+    },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
   const peopleOptions = people.map((p) => ({ value: p.id, label: p.name }));
 
   const requestFields: FieldDef[] = [
@@ -84,7 +101,7 @@ export default async function ValidationsPage() {
         />
         {/* Un paiement n'est pas une validation ordinaire : il a un montant, un bénéficiaire, une
             échéance, et une discussion PIÈCE PAR PIÈCE avec les Finances. Il a donc sa porte. */}
-        <NewPaymentButton people={people} />
+        <NewPaymentButton people={financePeople} />
       </PageHeader>
 
       <Link

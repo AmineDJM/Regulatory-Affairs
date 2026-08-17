@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { MoreHorizontal, Trash2, Maximize2, Minimize2, MoveHorizontal, Settings2 } from "lucide-react";
+import { MoreHorizontal, Trash2, Maximize2, MoveHorizontal, Settings2 } from "lucide-react";
+import { setFocusMode } from "@/components/layout/focus-mode";
 
 /**
  * LA BARRE D'OUTILS DU DRIVE — discrète, parce qu'elle n'est pas le sujet.
@@ -33,7 +34,6 @@ export function DriveToolbar({
 }) {
   const [open, setOpen] = React.useState(false);
   const [wide, setWide] = React.useState(false);
-  const [full, setFull] = React.useState(false);
 
   React.useEffect(() => { setWide(window.localStorage.getItem(WIDE_KEY) === "1"); }, []);
 
@@ -46,40 +46,6 @@ export function DriveToolbar({
     else root.style.removeProperty("--shell-max");
     return () => { root.style.removeProperty("--shell-max"); };
   }, [wide]);
-
-  /**
-   * LE VRAI PLEIN ÉCRAN.
-   *
-   * Relâcher la largeur maximale ne donnait qu'un écran un peu plus large : le menu latéral, la
-   * barre du haut et les marges de la coque restaient là, et il manquait précisément la place
-   * qu'on cherchait. On demande donc le plein écran au NAVIGATEUR — l'explorateur occupe alors
-   * la dalle entière, comme une application. La largeur maximale est relâchée du même coup :
-   * l'un sans l'autre laisserait une colonne de 1400 px au milieu d'un écran vide.
-   */
-  React.useEffect(() => {
-    const sync = () => {
-      const on = Boolean(document.fullscreenElement);
-      setFull(on);
-      if (on) document.documentElement.style.setProperty("--shell-max", "100%");
-      else if (!wide) document.documentElement.style.removeProperty("--shell-max");
-    };
-    document.addEventListener("fullscreenchange", sync);
-    return () => document.removeEventListener("fullscreenchange", sync);
-  }, [wide]);
-
-  const toggleFullscreen = async () => {
-    try {
-      if (document.fullscreenElement) { await document.exitFullscreen(); return; }
-      // On met en plein écran la PAGE entière et non le seul tableau : sinon le volet de
-      // navigation et le fil d'Ariane disparaissent, et l'on ne sait plus où l'on est.
-      await document.documentElement.requestFullscreen();
-    } catch {
-      // Refusé (permission, navigateur) : on garde au moins la pleine largeur, qui ne dépend
-      // de personne.
-      setWide(true);
-      try { window.localStorage.setItem(WIDE_KEY, "1"); } catch { /* sans mémoire */ }
-    }
-  };
 
   const toggleWide = () => {
     const next = !wide;
@@ -110,11 +76,11 @@ export function DriveToolbar({
             <div className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-xl">
               <button
                 type="button"
-                onClick={() => { void toggleFullscreen(); setOpen(false); }}
+                onClick={() => { setFocusMode(true); setOpen(false); }}
                 className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary"
               >
-                {full ? <Minimize2 className="h-4 w-4 text-muted-foreground" /> : <Maximize2 className="h-4 w-4 text-muted-foreground" />}
-                {full ? "Quitter le plein écran" : "Plein écran"}
+                <Maximize2 className="h-4 w-4 text-muted-foreground" />
+                Plein écran
               </button>
               <button
                 type="button"
