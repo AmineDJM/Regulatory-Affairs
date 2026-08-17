@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  adProState, sortAdPro, countByState, kindLabel, kindSpec, AD_PRO_KINDS, AD_PRO_STATE,
+  adProState, sortAdPro, countByState, kindLabel, kindSpec, creatableKinds, AD_PRO_KINDS, AD_PRO_STATE,
   type AdProRequest,
 } from "./unified";
 
@@ -98,14 +98,35 @@ describe("Ce qui attend une décision passe devant", () => {
   });
 });
 
-describe("« Nouvelle demande » ouvre le FORMULAIRE, pas une liste de plus", () => {
-  it("chaque nature porte un lien de création distinct de son écran de liste", () => {
-    // Sans cela, choisir « envoyer un praticien à un congrès » déposait sur une liste où il
-    // fallait retrouver un bouton — soit exactement ce qu'on venait d'éviter.
+describe("Le lien direct vers le formulaire d'une nature", () => {
+  it("ouvre le FORMULAIRE de la nature, pas une liste de plus", () => {
+    // Ce lien ne sert plus à Ad & Pro — le formulaire s'y ouvre sur place. Il reste la façon de
+    // pointer quelqu'un droit sur le formulaire d'un module, depuis un message ou un favori.
     for (const k of AD_PRO_KINDS) {
       expect(k.createHref, k.kind).not.toBe(k.href);
       expect(k.createHref.startsWith(k.href), k.kind).toBe(true);
       expect(k.createHref.endsWith("?new=1"), k.kind).toBe(true);
     }
+  });
+});
+
+describe("Ce que « Nouvelle demande » propose", () => {
+  it("ne propose que ce que la personne peut CRÉER", () => {
+    // Consulter n'est pas créer. Ouvrir un formulaire qui sera refusé à l'enregistrement fait
+    // arriver le refus après la saisie — au pire moment.
+    const only = creatableKinds((m) => m === "SPONSORING" || m === "EVENTS");
+    expect(only.map((k) => k.kind)).toEqual(["SPONSORING", "EVENT"]);
+  });
+
+  it("ne propose rien à qui ne peut rien créer — le bouton disparaît alors", () => {
+    expect(creatableKinds(() => false)).toEqual([]);
+  });
+
+  it("garde l'ordre de référence — la liste ne change pas de forme selon les droits", () => {
+    expect(creatableKinds(() => true).map((k) => k.kind)).toEqual(AD_PRO_KINDS.map((k) => k.kind));
+  });
+
+  it("chaque nature proposable désigne un module RBAC réel", () => {
+    for (const k of AD_PRO_KINDS) expect(k.module.length, k.kind).toBeGreaterThan(0);
   });
 });

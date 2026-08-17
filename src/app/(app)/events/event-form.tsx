@@ -42,22 +42,37 @@ function EventFields({ e, responsibles }: { e?: EventDetail; responsibles: { id:
   );
 }
 
-export function CreateEventButton({ responsibles }: { responsibles: { id: string; name: string }[] }) {
+/**
+ * LE FORMULAIRE SEUL, sans son bouton ni son panneau — il se monte aussi bien sur l'écran Events
+ * que dans le panneau commun d'Ad & Pro, où la nature vient d'être choisie.
+ */
+export function CreateEventForm({ responsibles, onDone, onCancel, cancelLabel = "Annuler" }: {
+  responsibles: { id: string; name: string }[];
+  onDone: () => void;
+  onCancel: () => void;
+  cancelLabel?: string;
+}) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
-  // Arrivée depuis « Nouvelle demande » d'Ad & Pro : le formulaire s'ouvre de lui-même.
-  useAutoOpen("new", () => setOpen(true));
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   return (
+    <form action={async (fd) => { setSaving(true); setErr(null); const r: Result = await createEvent(fd); setSaving(false); if (r.ok && r.id) { onDone(); router.push(`/events/${r.id}`); } else setErr(r.error ?? "Erreur."); }} className="space-y-4">
+      <EventFields responsibles={responsibles} />
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onCancel}>{cancelLabel}</Button><Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Créer</Button></div>
+    </form>
+  );
+}
+
+export function CreateEventButton({ responsibles }: { responsibles: { id: string; name: string }[] }) {
+  const [open, setOpen] = React.useState(false);
+  // Lien direct `?new=1` vers ce formulaire — voir `useAutoOpen`.
+  useAutoOpen("new", () => setOpen(true));
+  return (
     <>
-      <Button size="sm" onClick={() => { setErr(null); setOpen(true); }}><Plus className="h-4 w-4" /> Nouvel événement</Button>
+      <Button size="sm" onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> Nouvel événement</Button>
       <Sheet open={open} onClose={() => setOpen(false)} title="Nouvel événement" width="lg">
-        <form action={async (fd) => { setSaving(true); setErr(null); const r: Result = await createEvent(fd); setSaving(false); if (r.ok && r.id) router.push(`/events/${r.id}`); else setErr(r.error ?? "Erreur."); }} className="space-y-4">
-          <EventFields responsibles={responsibles} />
-          {err && <p className="text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button><Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Créer</Button></div>
-        </form>
+        <CreateEventForm responsibles={responsibles} onDone={() => setOpen(false)} onCancel={() => setOpen(false)} />
       </Sheet>
     </>
   );

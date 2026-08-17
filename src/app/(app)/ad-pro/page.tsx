@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
-import { accessibleModules, type Module } from "@/lib/rbac";
-import { getAdProRequests } from "@/lib/queries/ad-pro";
+import { accessibleModules, userCan, type Module } from "@/lib/rbac";
+import { canChooseAnalysisAtCreation, canDesignateProductManagerAtCreation } from "@/lib/workflow/origin";
+import { getAdProRequests, getAdProCreateData } from "@/lib/queries/ad-pro";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { AD_PRO_KINDS, countByState } from "@/lib/ad-pro/unified";
+import { AD_PRO_KINDS, countByState, creatableKinds } from "@/lib/ad-pro/unified";
 import { AdProList } from "./ad-pro-list";
 import { NewRequestPicker } from "./new-request-picker";
 
@@ -22,16 +23,27 @@ export const dynamic = "force-dynamic";
  * Les circuits, eux, restent distincts : un congrès international a des billets et des visas qu'un
  * sponsoring n'a pas. On unifie l'ENTRÉE et la LECTURE, pas le stockage — chaque nature garde son
  * écran, maître de ses champs propres et de son circuit de validation.
+ *
+ * L'entrée est unifiée JUSQU'AU BOUT : le formulaire de la nature choisie s'ouvre ici, dans le
+ * panneau commun. Renvoyer vers l'écran du module rendait au demandeur, au dernier moment, le
+ * découpage interne qu'on venait de lui épargner.
  */
 export default async function AdProPage() {
   // La porte d'entrée du pôle : le Sponsoring suffit à l'ouvrir, la liste s'adapte ensuite aux
   // modules réellement accessibles.
   const user = await requireModule("SPONSORING");
-  const rows = await getAdProRequests(user);
+
+  // Créer et consulter ne sont pas le même droit : le panneau ne propose que les natures qui
+  // aboutiront, la liste des écrans détaillés suit les modules simplement accessibles.
+  const kinds = creatableKinds((m) => userCan(user, m as Module, "CREATE"));
+  const [rows, createData] = await Promise.all([
+    getAdProRequests(user),
+    getAdProCreateData(kinds.map((k) => k.kind)),
+  ]);
   const counts = countByState(rows);
 
   const mine = accessibleModules(user);
-  const kinds = AD_PRO_KINDS.filter((k) => mine.includes(k.module as Module));
+  const links = AD_PRO_KINDS.filter((k) => mine.includes(k.module as Module));
 
   return (
     <div className="space-y-5">
@@ -39,7 +51,12 @@ export default async function AdProPage() {
         title="Ad & Pro"
         description="Toutes les demandes de promotion, au même endroit : sponsoring, prises en charge, événements, matériel. Chaque demande garde son circuit — c'est l'entrée et la lecture qui sont communes."
       >
-        <NewRequestPicker kinds={kinds} />
+        <NewRequestPicker
+          kinds={kinds}
+          data={createData}
+          canDesignatePM={canDesignateProductManagerAtCreation(user)}
+          canChooseAnalysis={canChooseAnalysisAtCreation(user)}
+        />
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -54,8 +71,8 @@ export default async function AdProPage() {
           icon="PartyPopper"
           title="Aucune demande"
           description={kinds.length > 0
-            ? "Commencez par « Nouvelle demande » : décrivez ce que vous voulez faire, l'outil vous emmène au bon formulaire."
-            : "Aucun module Ad & Pro ne vous est ouvert."}
+            ? "Commencez par « Nouvelle demande » : décrivez ce que vous voulez faire, le formulaire s'ouvre ici même."
+            : "Aucune demande à afficher pour l'instant."}
         />
       ) : (
         <AdProList rows={rows} />
@@ -63,10 +80,10 @@ export default async function AdProPage() {
 
       {/* Les écrans d'origine restent accessibles : ils portent les champs propres à chaque
           nature, et c'est là que se suivent les circuits. */}
-      {kinds.length > 0 && (
+      {links.length > 0 && (
         <p className="text-xs text-muted-foreground">
           Écrans détaillés par nature :{" "}
-          {kinds.map((k, i) => (
+          {links.map((k, i) => (
             <span key={k.kind}>
               {i > 0 && " · "}
               <Link href={k.href} className="text-primary hover:underline">{k.label}</Link>

@@ -15,12 +15,32 @@ export interface UserOpt { id: string; name: string; role: string }
 
 const PM_ROLES = ["PRODUCT_MANAGER", "MEDICAL_PROMOTION_MANAGER"];
 
-export function CongressRequestButton({ national, doctors, users, canDesignatePM, canChooseAnalysis }: { national?: boolean; doctors: DoctorOpt[]; users: UserOpt[]; canDesignatePM?: boolean; canChooseAnalysis?: boolean }) {
+export interface CongressFormProps {
+  national?: boolean;
+  doctors: DoctorOpt[];
+  users: UserOpt[];
+  canDesignatePM?: boolean;
+  canChooseAnalysis?: boolean;
+}
+
+interface CongressRequestFormProps extends CongressFormProps {
+  /** Demande envoyée — l'appelant referme le panneau qui porte ce formulaire. */
+  onDone: () => void;
+  /** Bouton secondaire : fermer ici, revenir au choix de la nature depuis Ad & Pro. */
+  onCancel: () => void;
+  cancelLabel?: string;
+}
+
+/**
+ * LE FORMULAIRE SEUL, sans son bouton ni son panneau.
+ *
+ * Il se monte à deux endroits : l'écran de la nature (via `CongressRequestButton`) et le panneau
+ * commun d'Ad & Pro, où la nature vient d'être choisie — on y ouvrirait sinon un panneau
+ * par-dessus le panneau.
+ */
+export function CongressRequestForm({ national, doctors, users, canDesignatePM, canChooseAnalysis, onDone, onCancel, cancelLabel = "Annuler" }: CongressRequestFormProps) {
   const router = useRouter();
   const formRef = React.useRef<HTMLFormElement>(null);
-  const [open, setOpen] = React.useState(false);
-  // Arrivée depuis « Nouvelle demande » d'Ad & Pro : le formulaire s'ouvre de lui-même.
-  useAutoOpen("new", () => setOpen(true));
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -52,8 +72,6 @@ export function CongressRequestButton({ national, doctors, users, canDesignatePM
     setter(n);
   };
 
-  const reset = () => { setSpecialty(""); setPickedDoctors(new Set()); setPickedUsers(new Set()); setUserQuery(""); setProductManagerId(""); setErr(null); };
-
   const submit = async () => {
     const form = formRef.current;
     if (!form) return;
@@ -71,132 +89,153 @@ export function CongressRequestButton({ national, doctors, users, canDesignatePM
     setSaving(true); setErr(null);
     const r = await createCongressRequest(undefined, fd);
     setSaving(false);
-    if (r.ok) { setOpen(false); reset(); router.refresh(); if (r.id) router.push(`${national ? "/congress-national" : "/congress-international"}/${r.id}`); }
+    if (r.ok) { onDone(); router.refresh(); if (r.id) router.push(`${national ? "/congress-national" : "/congress-international"}/${r.id}`); }
     else setErr(r.error ?? "Erreur.");
   };
 
   return (
-    <>
-      <Button onClick={() => { reset(); setOpen(true); }}><Plus className="h-4 w-4" /> Nouvelle demande</Button>
-      <Sheet open={open} onClose={() => setOpen(false)} title={national ? "Nouvelle prise en charge — nationale" : "Nouvelle prise en charge — internationale"} description="Renseignez l\u2019événement, puis ajoutez les personnes à prendre en charge sur la fiche." width="lg">
-        <form ref={formRef} action={submit} className="space-y-5">
-          {/* Infos générales */}
-          <div className="grid grid-cols-2 gap-3">
-            <Field full label="Nom de l'événement" required><Input name="name" required placeholder="Ex. ECCMID 2026" /></Field>
-            <Field full label="Demande(s) du médecin">
-              <input name="files" type="file" multiple
-                className="block w-full text-sm file:mr-3 file:rounded-lg file:border file:border-border file:bg-secondary file:px-3 file:py-1.5 file:text-sm" />
-              <p className="mt-1 text-[0.6875rem] text-muted-foreground">Courrier, invitation, programme… Plusieurs fichiers possibles.</p>
-            </Field>
-            <Field label="Type d'événement">
-              <Select name="eventType" defaultValue="CONGRESS">
-                {Object.entries(NATIONAL_EVENT_TYPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </Select>
-            </Field>
-            <Field label="Spécialité (thème)"><Input name="specialty" placeholder="Ex. Infectiologie" /></Field>
-            {national ? (
-              <>
-                <Field label="Pays"><Input name="country" placeholder="Algérie" /></Field>
-                <Field label="Ville"><Input name="city" /></Field>
-                <Field label="Institution hôte"><Input name="hostInstitution" placeholder="Hôpital / association" /></Field>
-                <Field label="Date"><Input name="date" type="date" /></Field>
-              </>
-            ) : (
-              <>
-                <Field label="Pays"><Input name="country" /></Field>
-                <Field label="Ville"><Input name="city" /></Field>
-                <Field label="Date début"><Input name="startDate" type="date" /></Field>
-                <Field label="Date fin"><Input name="endDate" type="date" /></Field>
-              </>
-            )}
-            <Field label="Budget estimé (DZD)"><Input name="estimatedBudget" type="number" step="any" placeholder="Estimation du demandeur" /></Field>
-          </div>
-
-          {/* National Sales : désignation directe du chef de produit (pas d'auto-approbation
-              préliminaire). Direction : le passage par l'analyse est un CHOIX. */}
-          {showPmPicker && (
-            <div className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 p-3">
-              {canChooseAnalysis && (
-                <div className="space-y-1.5 pb-1.5">
-                  <Label>Circuit</Label>
-                  <Select value={viaProductManager ? "1" : "0"} onChange={(e) => setViaProductManager(e.target.value === "1")}>
-                    <option value="0">Décider maintenant (aucune analyse préalable)</option>
-                    <option value="1">Demander d&apos;abord l&apos;avis d&apos;un chef de produit</option>
-                  </Select>
-                </div>
-              )}
-              {canChooseAnalysis && !viaProductManager ? null : (
-              <>
-              <Label>Chef de produit (analyse) <span className="text-destructive">*</span></Label>
-              <p className="text-xs text-muted-foreground">Désignez le chef de produit qui analysera la demande — l&apos;étape préliminaire est franchie automatiquement.</p>
-              <Select value={productManagerId} onChange={(e) => setProductManagerId(e.target.value)}>
-                <option value="">— Sélectionner le chef de produit —</option>
-                {pmCandidates.map((u) => <option key={u.id} value={u.id}>{u.name} · {ROLE_LABELS[u.role] ?? u.role}</option>)}
-              </Select>
-              </>
-              )}
-            </div>
-          )}
-
-          {/* Médecins invités : spécialité → liste */}
-          <div className="space-y-2 rounded-lg border border-border p-3">
-            <Label>Médecins invités</Label>
-            <p className="text-xs text-muted-foreground">Choisissez une spécialité (issue de la Promotion médicale), puis sélectionnez les médecins.</p>
-            <Select value={specialty} onChange={(e) => setSpecialty(e.target.value)}>
-              <option value="">— Choisir une spécialité —</option>
-              {specialties.map((s) => <option key={s} value={s}>{s}</option>)}
+    <form ref={formRef} action={submit} className="space-y-5">
+        {/* Infos générales */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field full label="Nom de l'événement" required><Input name="name" required placeholder="Ex. ECCMID 2026" /></Field>
+          <Field full label="Demande(s) du médecin">
+            <input name="files" type="file" multiple
+              className="block w-full text-sm file:mr-3 file:rounded-lg file:border file:border-border file:bg-secondary file:px-3 file:py-1.5 file:text-sm" />
+            <p className="mt-1 text-[0.6875rem] text-muted-foreground">Courrier, invitation, programme… Plusieurs fichiers possibles.</p>
+          </Field>
+          <Field label="Type d'événement">
+            <Select name="eventType" defaultValue="CONGRESS">
+              {Object.entries(NATIONAL_EVENT_TYPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
-            {specialty && (
-              <div className="max-h-44 space-y-1 overflow-auto rounded-md bg-muted/30 p-2">
-                {doctorsInSpecialty.length === 0 ? (
-                  <p className="px-1 text-xs text-muted-foreground">Aucun médecin pour cette spécialité.</p>
-                ) : doctorsInSpecialty.map((d) => (
-                  <label key={d.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
-                    <input type="checkbox" checked={pickedDoctors.has(d.id)} onChange={() => toggle(pickedDoctors, d.id, setPickedDoctors)} className="h-4 w-4 rounded border-input" />
-                    <span>{d.name}</span>{d.city && <span className="text-xs text-muted-foreground">· {d.city}</span>}
-                  </label>
-                ))}
+          </Field>
+          <Field label="Spécialité (thème)"><Input name="specialty" placeholder="Ex. Infectiologie" /></Field>
+          {national ? (
+            <>
+              <Field label="Pays"><Input name="country" placeholder="Algérie" /></Field>
+              <Field label="Ville"><Input name="city" /></Field>
+              <Field label="Institution hôte"><Input name="hostInstitution" placeholder="Hôpital / association" /></Field>
+              <Field label="Date"><Input name="date" type="date" /></Field>
+            </>
+          ) : (
+            <>
+              <Field label="Pays"><Input name="country" /></Field>
+              <Field label="Ville"><Input name="city" /></Field>
+              <Field label="Date début"><Input name="startDate" type="date" /></Field>
+              <Field label="Date fin"><Input name="endDate" type="date" /></Field>
+            </>
+          )}
+          <Field label="Budget estimé (DZD)"><Input name="estimatedBudget" type="number" step="any" placeholder="Estimation du demandeur" /></Field>
+        </div>
+
+        {/* National Sales : désignation directe du chef de produit (pas d'auto-approbation
+            préliminaire). Direction : le passage par l'analyse est un CHOIX. */}
+        {showPmPicker && (
+          <div className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 p-3">
+            {canChooseAnalysis && (
+              <div className="space-y-1.5 pb-1.5">
+                <Label>Circuit</Label>
+                <Select value={viaProductManager ? "1" : "0"} onChange={(e) => setViaProductManager(e.target.value === "1")}>
+                  <option value="0">Décider maintenant (aucune analyse préalable)</option>
+                  <option value="1">Demander d&apos;abord l&apos;avis d&apos;un chef de produit</option>
+                </Select>
               </div>
             )}
-            {pickedDoctors.size > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {[...pickedDoctors].map((id) => (
-                  <Chip key={id} label={doctorById.get(id)?.name ?? id} onRemove={() => toggle(pickedDoctors, id, setPickedDoctors)} />
-                ))}
-              </div>
+            {canChooseAnalysis && !viaProductManager ? null : (
+            <>
+            <Label>Chef de produit (analyse) <span className="text-destructive">*</span></Label>
+            <p className="text-xs text-muted-foreground">Désignez le chef de produit qui analysera la demande — l&apos;étape préliminaire est franchie automatiquement.</p>
+            <Select value={productManagerId} onChange={(e) => setProductManagerId(e.target.value)}>
+              <option value="">— Sélectionner le chef de produit —</option>
+              {pmCandidates.map((u) => <option key={u.id} value={u.id}>{u.name} · {ROLE_LABELS[u.role] ?? u.role}</option>)}
+            </Select>
+            </>
             )}
           </div>
+        )}
 
-          {/* Participants Adventum */}
-          <div className="space-y-2 rounded-lg border border-border p-3">
-            <Label>Participants Adventum</Label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={userQuery} onChange={(e) => setUserQuery(e.target.value)} placeholder="Rechercher un collaborateur…" className="pl-8" />
-            </div>
-            <div className="max-h-40 space-y-1 overflow-auto rounded-md bg-muted/30 p-2">
-              {filteredUsers.map((u) => (
-                <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
-                  <input type="checkbox" checked={pickedUsers.has(u.id)} onChange={() => toggle(pickedUsers, u.id, setPickedUsers)} className="h-4 w-4 rounded border-input" />
-                  <span>{u.name}</span><span className="text-xs text-muted-foreground">· {ROLE_LABELS[u.role] ?? u.role}</span>
+        {/* Médecins invités : spécialité → liste */}
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          <Label>Médecins invités</Label>
+          <p className="text-xs text-muted-foreground">Choisissez une spécialité (issue de la Promotion médicale), puis sélectionnez les médecins.</p>
+          <Select value={specialty} onChange={(e) => setSpecialty(e.target.value)}>
+            <option value="">— Choisir une spécialité —</option>
+            {specialties.map((s) => <option key={s} value={s}>{s}</option>)}
+          </Select>
+          {specialty && (
+            <div className="max-h-44 space-y-1 overflow-auto rounded-md bg-muted/30 p-2">
+              {doctorsInSpecialty.length === 0 ? (
+                <p className="px-1 text-xs text-muted-foreground">Aucun médecin pour cette spécialité.</p>
+              ) : doctorsInSpecialty.map((d) => (
+                <label key={d.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+                  <input type="checkbox" checked={pickedDoctors.has(d.id)} onChange={() => toggle(pickedDoctors, d.id, setPickedDoctors)} className="h-4 w-4 rounded border-input" />
+                  <span>{d.name}</span>{d.city && <span className="text-xs text-muted-foreground">· {d.city}</span>}
                 </label>
               ))}
             </div>
-            {pickedUsers.size > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {[...pickedUsers].map((id) => (
-                  <Chip key={id} label={userById.get(id)?.name ?? id} onRemove={() => toggle(pickedUsers, id, setPickedUsers)} />
-                ))}
-              </div>
-            )}
-          </div>
+          )}
+          {pickedDoctors.size > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {[...pickedDoctors].map((id) => (
+                <Chip key={id} label={doctorById.get(id)?.name ?? id} onRemove={() => toggle(pickedDoctors, id, setPickedDoctors)} />
+              ))}
+            </div>
+          )}
+        </div>
 
-          {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-            <Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Envoyer la demande</Button>
+        {/* Participants Adventum */}
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          <Label>Participants Adventum</Label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={userQuery} onChange={(e) => setUserQuery(e.target.value)} placeholder="Rechercher un collaborateur…" className="pl-8" />
           </div>
-        </form>
+          <div className="max-h-40 space-y-1 overflow-auto rounded-md bg-muted/30 p-2">
+            {filteredUsers.map((u) => (
+              <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+                <input type="checkbox" checked={pickedUsers.has(u.id)} onChange={() => toggle(pickedUsers, u.id, setPickedUsers)} className="h-4 w-4 rounded border-input" />
+                <span>{u.name}</span><span className="text-xs text-muted-foreground">· {ROLE_LABELS[u.role] ?? u.role}</span>
+              </label>
+            ))}
+          </div>
+          {pickedUsers.size > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {[...pickedUsers].map((id) => (
+                <Chip key={id} label={userById.get(id)?.name ?? id} onRemove={() => toggle(pickedUsers, id, setPickedUsers)} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onCancel}>{cancelLabel}</Button>
+          <Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Envoyer la demande</Button>
+        </div>
+      </form>
+  );
+}
+
+/**
+ * Le bouton de l'écran Prises en charge : déclencheur et panneau autour du formulaire.
+ *
+ * Le formulaire se remonte à chaque ouverture — les médecins cochés et l'erreur affichée
+ * la fois précédente ne reviennent donc pas accueillir la demande suivante.
+ */
+export function CongressRequestButton(props: CongressFormProps) {
+  const [open, setOpen] = React.useState(false);
+  // Lien direct `?new=1` vers ce formulaire — voir `useAutoOpen`.
+  useAutoOpen("new", () => setOpen(true));
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> Nouvelle demande</Button>
+      <Sheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title={props.national ? "Nouvelle prise en charge \u2014 nationale" : "Nouvelle prise en charge \u2014 internationale"}
+        description={"Renseignez l\u2019\u00e9v\u00e9nement, puis ajoutez les personnes \u00e0 prendre en charge sur la fiche."}
+        width="lg"
+      >
+        <CongressRequestForm {...props} onDone={() => setOpen(false)} onCancel={() => setOpen(false)} />
       </Sheet>
     </>
   );

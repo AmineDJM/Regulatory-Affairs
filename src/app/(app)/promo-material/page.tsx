@@ -8,10 +8,11 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
+import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PROMO_MATERIAL_STATUS, EVENTS_TABS, MATERIAL_TYPE, MATERIAL_TYPE_OPTIONS } from "@/lib/labels";
+import { promoMaterialCreateFields } from "@/lib/ad-pro/create-fields";
+import { PROMO_MATERIAL_STATUS, EVENTS_TABS, MATERIAL_TYPE } from "@/lib/labels";
 import { CompanyBadge } from "@/components/shared/company-badge";
 import { getCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -27,14 +28,8 @@ export default async function PromoMaterialPage() {
   const assistants = canCreate
     ? await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [];
-  const createFields: FieldDef[] = [
-    { type: "text", name: "title", label: "Campagne / matériel", required: true, full: true, placeholder: "Ex. Brochure Cardiomax 2026" },
-    { type: "select", name: "materialType", label: "Type de matériel", options: MATERIAL_TYPE_OPTIONS, placeholder: "— Type de matériel —" },
-    { type: "select", name: "companyId", label: "Entité", options: companyOptions(companies), placeholder: "— Entité —" },
-    { type: "textarea", name: "description", label: "Brief / description", full: true },
-    { type: "number", name: "amount", label: "Budget estimé (DZD)" },
-    { type: "select", name: "assistantId", label: "Assistante de direction", options: assistants.map((a) => ({ value: a.id, label: a.name })), placeholder: "— À notifier (Direction) —" },
-  ];
+  // Mêmes champs qu'au panneau commun d'Ad & Pro : une seule définition, deux portes d'entrée.
+  const createFields = promoMaterialCreateFields({ companies: companyOptions(companies), assistants });
 
   const active = items.filter((i) => i.status !== "SETTLED" && i.status !== "CANCELLED").length;
   const settled = items.filter((i) => i.status === "SETTLED").length;

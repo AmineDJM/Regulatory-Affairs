@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { platformScope, getCompanies, companyOptions } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
-import { userCan, type SessionUser } from "@/lib/rbac";
-import { adProState, sortAdPro, type AdProRequest } from "@/lib/ad-pro/unified";
+import { userCan, anyRoleFilter, type SessionUser } from "@/lib/rbac";
+import { PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { adProState, sortAdPro, type AdProKind, type AdProRequest } from "@/lib/ad-pro/unified";
+import type { AdProCreateData } from "@/lib/ad-pro/create-fields";
 
 /**
  * LA LISTE UNIFIÉE DES DEMANDES AD & PRO.
@@ -110,4 +112,51 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
   ];
 
   return sortAdPro(rows);
+}
+
+/**
+ * CE QU'IL FAUT POUR CRÉER, SUR L'ÉCRAN AD & PRO LUI-MÊME.
+ *
+ * Le formulaire de chaque nature s'ouvre désormais dans le panneau commun. Ses listes (médecins
+ * invitables, collaborateurs, chefs de produit, entités) ne peuvent donc plus venir de l'écran de
+ * la nature : elles se lisent ici.
+ *
+ * ON NE LIT QUE CE QUI SERA UTILISÉ. Les natures créables sont connues avant l'appel : quelqu'un
+ * qui ne peut créer qu'un sponsoring ne déclenche ni la liste des médecins ni celle des entités.
+ * Une page qui interroge cinq tables pour un panneau que personne n'ouvrira, c'est du temps
+ * d'affichage payé par tout le monde au bénéfice de personne.
+ */
+export async function getAdProCreateData(kinds: readonly AdProKind[]): Promise<AdProCreateData> {
+  const has = (k: AdProKind) => kinds.includes(k);
+  const needsDoctors = has("CONGRESS_INTERNATIONAL") || has("CONGRESS_NATIONAL");
+  const needsProductManagers = needsDoctors || has("SPONSORING");
+  const needsPeople = kinds.length > 0;
+
+  const [doctors, users, productManagers, companies] = await Promise.all([
+    needsDoctors
+      ? prisma.medicalDoctor.findMany({
+          select: { id: true, name: true, specialty: true, city: true },
+          orderBy: [{ specialty: "asc" }, { name: "asc" }],
+        })
+      : Promise.resolve([] as { id: string; name: string; specialty: string | null; city: string | null }[]),
+    needsPeople
+      ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } })
+      : Promise.resolve([] as { id: string; name: string; role: string }[]),
+    needsProductManagers
+      ? prisma.user.findMany({
+          where: { isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) },
+          select: { id: true, name: true }, orderBy: { name: "asc" },
+        })
+      : Promise.resolve([] as { id: string; name: string }[]),
+    has("PROMO_MATERIAL")
+      ? getCompanies().then(companyOptions)
+      : Promise.resolve([] as { value: string; label: string }[]),
+  ]);
+
+  return {
+    doctors: doctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty ?? "Sans spécialité", city: d.city ?? "" })),
+    users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
+    productManagers,
+    companies,
+  };
 }

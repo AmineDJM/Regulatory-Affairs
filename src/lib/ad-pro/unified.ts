@@ -29,11 +29,12 @@ export interface KindSpec {
   /** Écran d'origine, qui reste maître du circuit et des champs propres. */
   href: string;
   /**
-   * Lien qui ouvre DIRECTEMENT le formulaire de création de cette nature.
+   * Lien direct vers le formulaire de cette nature, SUR SON ÉCRAN.
    *
-   * Sans lui, choisir « envoyer un praticien à un congrès » déposait sur une liste où il fallait
-   * retrouver un bouton — soit exactement ce qu'on venait d'éviter. Le paramètre est retiré de
-   * l'URL à l'ouverture, pour qu'un rafraîchissement ne rouvre pas le formulaire sans fin.
+   * Ce n'est plus le chemin d'Ad & Pro — « Nouvelle demande » y ouvre le formulaire sans quitter
+   * l'écran. Il reste utile pour pointer quelqu'un droit sur le formulaire d'un module (un
+   * message, un favori, un rappel). Le paramètre est retiré de l'URL à l'ouverture, pour qu'un
+   * rafraîchissement ne rouvre pas le formulaire sans fin.
    */
   createHref: string;
   /** Module RBAC qui gouverne cette nature. */
@@ -133,6 +134,17 @@ export function kindLabel(kind: AdProKind): string {
 
 export function kindSpec(kind: AdProKind): KindSpec | undefined {
   return AD_PRO_KINDS.find((k) => k.kind === kind);
+}
+
+/**
+ * Les natures que cette personne peut réellement CRÉER.
+ *
+ * Le droit de créer n'est pas celui de consulter. Proposer « Événement » à quelqu'un qui ne peut
+ * que lire les événements, c'est promettre un formulaire qui sera refusé à l'enregistrement — le
+ * refus arrive alors après la saisie, au pire moment. On ne propose que ce qui aboutira.
+ */
+export function creatableKinds(canCreate: (module: string) => boolean): KindSpec[] {
+  return AD_PRO_KINDS.filter((k) => canCreate(k.module));
 }
 
 /**
