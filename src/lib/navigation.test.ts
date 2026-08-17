@@ -49,11 +49,22 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
     expect(sm?.defaultOpen).toBe(true);
   });
 
-  it("un SOUS-MODULE ouvre le pôle de son parent — sinon on atterrit sans repère", () => {
-    // Le pipeline vit sous Regulatory. Y arriver par un lien doit déplier le pôle, pas laisser
-    // le menu replié sur un écran qu'on n'y retrouve pas.
+  it("le PIPELINE est un module du pôle Regulatory — on le trouve en dépliant sa flèche", () => {
     const poles = groupIntoPoles(accessible(["REGULATORY"]));
+    const reg = poles.find((p) => p.key === "REGULATORY");
+    expect(reg?.children.map((c) => c.label)).toEqual(expect.arrayContaining(["Suivi des dossiers", "Pipeline"]));
     expect(poleOfPath(poles, "/regulatory/pipeline")).toBe("REGULATORY");
+  });
+
+  it("un SOUS-MODULE (capacité `children`) ouvre le pôle de son parent", () => {
+    // Plus aucune entrée n'utilise `children` aujourd'hui ; on l'exerce sur un cas construit pour
+    // que la capacité reste garantie le jour où un module s'en resservira.
+    const parent = NAVIGATION.find((n) => n.href === "/regulatory")!;
+    const withChild: NavItem = {
+      ...parent,
+      children: [{ ...parent, label: "Sous-module", href: "/regulatory/sous-module", children: undefined }],
+    };
+    expect(poleOfPath(groupIntoPoles([withChild]), "/regulatory/sous-module")).toBe("REGULATORY");
   });
 
   it("garde l'ordre des pôles déclaré, quel que soit l'ordre des droits", () => {

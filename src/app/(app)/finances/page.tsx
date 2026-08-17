@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ReceiptText } from "lucide-react";
+import { ReceiptText, Banknote } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -37,11 +37,16 @@ export default async function FinancesPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Finances" description="Cockpit du DAF : règlements à effectuer, recettes à encaisser, trésorerie et livre comptable. La paie est tenue par les Ressources humaines.">
+        {/* Les deux écrans du module vivent ICI, pas dans le menu latéral : la page Finances
+            reste la porte unique, et l'on y trouve ce qui reste à payer d'un coup d'œil. */}
         <Link href="/finances/ordres-de-depense">
           <Button variant="outline">
-            <ReceiptText className="h-4 w-4" /> Règlements à effectuer
+            <Banknote className="h-4 w-4" /> Règlements à effectuer
             {pendingOrders > 0 && <span className="ml-1 rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">{pendingOrders}</span>}
           </Button>
+        </Link>
+        <Link href="/finances/factures">
+          <Button variant="outline"><ReceiptText className="h-4 w-4" /> Factures</Button>
         </Link>
         {canUpdate && <OpeningBalancesButton items={data.openingBalances} openingTotal={data.openingTotal} />}
         {/* L'administration DEMANDE l'actualisation ; les Finances la font. */}

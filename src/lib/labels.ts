@@ -1264,9 +1264,13 @@ export interface NavItem {
    * SOUS-MODULES — des modules à part entière, rangés SOUS un autre dans le menu.
    *
    * Différent de `tabs` : un onglet est une section d'un même écran, un enfant est un module
-   * autonome (sa route, sa garde, son écran) qu'on range sous son parent parce que c'est de là
-   * qu'il découle — « Règlements à effectuer » sous Finances, « Pipeline » sous Business
-   * Development. Il se déplie par la flèche, sur ordinateur comme sur mobile.
+   * autonome (sa route, sa garde, son écran) rangé sous son parent. Il se déplie par une flèche,
+   * sur ordinateur comme sur mobile.
+   *
+   * AUCUNE entrée ne s'en sert aujourd'hui : le pipeline est passé au rang de module du pôle
+   * Regulatory, et les écrans de Finances sont revenus dans la page Finances. La capacité reste
+   * en place — elle est testée et rendue par la barre latérale comme par le tiroir mobile — pour
+   * le jour où un module aura de nouveau besoin d'un vrai sous-module.
    */
   children?: NavItem[];
   /** Préfixes de chemin additionnels qui activent l'entrée (pour les entrées fusionnées). */
@@ -1455,28 +1459,21 @@ export const NAVIGATION: NavItem[] = [
 
   // REGULATORY — deux portes, et deux seulement. Une assistante qui suit un dossier n'a pas à
   // traverser toute l'interface d'analyse CTD pour y arriver.
-  // Le PIPELINE est un module à part, rangé SOUS Regulatory et déplié par sa flèche : ce sont
-  // des dossiers réglementaires pas encore ouverts à l'équipe — ils découlent d'ici.
-  {
-    module: "REGULATORY", label: "Suivi des dossiers", href: "/regulatory", icon: "FileCheck2", group: "Pôles", pole: "REGULATORY",
-    children: [
-      { module: "REGULATORY", label: "Pipeline", href: "/regulatory/pipeline", icon: "GitBranch", group: "Pôles", pole: "REGULATORY" },
-    ],
-  },
+  { module: "REGULATORY", label: "Suivi des dossiers", href: "/regulatory", icon: "FileCheck2", group: "Pôles", pole: "REGULATORY" },
+  // Le PIPELINE est un module du pôle REGULATORY, au même rang que le suivi des dossiers : il se
+  // découvre en dépliant la flèche de Regulatory. Ce sont les dossiers verrouillés — ce qu'on
+  // étudie sans l'avoir encore ouvert à l'équipe.
+  { module: "REGULATORY", label: "Pipeline", href: "/regulatory/pipeline", icon: "GitBranch", group: "Pôles", pole: "REGULATORY" },
   { module: "REGULATORY", label: "Analyse CTD", href: "/regulatory/enregistrement", icon: "ScanSearch", group: "Pôles", pole: "REGULATORY", gate: "regEnrollment" },
 
   // ADMINISTRATION — l'administration de L'ENTREPRISE (à ne pas confondre avec la Console
   // d'Administration, qui est celle du logiciel et vit dans « Système »).
   { module: "GENERAL_MEANS", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket", group: "Pôles", pole: "ADMINISTRATION" },
-  // FINANCES et ses sous-modules. « Règlements à effectuer » et « Factures » sont des écrans
-  // qu'on ouvre POUR EUX-MÊMES (payer ce qui est dû, retrouver une facture) : ils méritent leur
-  // entrée, sous Finances puisque c'est de là qu'ils découlent.
+  // FINANCES porte ses écrans DEDANS, pas en sous-entrées de menu : « Règlements à effectuer » et
+  // « Factures » s'atteignent depuis la page Finances, qui reste la porte unique du module.
   {
     module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION",
-    children: [
-      { module: "FINANCES", label: "Règlements à effectuer", href: "/finances/ordres-de-depense", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
-      { module: "FINANCES", label: "Factures", href: "/finances/factures", icon: "ReceiptText", group: "Pôles", pole: "ADMINISTRATION" },
-    ],
+    match: ["/finances/ordres-de-depense", "/finances/factures"],
   },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", pole: "ADMINISTRATION", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie", "/formations"] },
   // LEGAL — les engagements de la société : contrats, bons de commande, assurances, baux. Le

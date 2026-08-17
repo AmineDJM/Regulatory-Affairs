@@ -31,7 +31,11 @@ export default async function BusinessDevelopmentPipelinePage() {
   const canLock = user.role === "SUPER_ADMIN";
 
   const { rows, companies, canSupervise, settings } = await getRegulatoryRows(user);
-  const pipeline = rows.filter((r) => r.stage === "pipeline");
+  // TOUS LES DOSSIERS VERROUILLÉS, sans exception. On filtrait sur l'étape « pipeline », or
+  // `regStage` classe un dossier ABOUTI comme « done » même s'il est verrouillé : un dossier
+  // verrouillé dont la décision était tombée disparaissait donc de l'écran censé les lister
+  // tous. Le verrou est le critère, pas l'étape.
+  const pipeline = rows.filter((r) => r.isLocked);
 
   const assignableUsers = canAssign
     ? await prisma.user.findMany({
@@ -46,22 +50,24 @@ export default async function BusinessDevelopmentPipelinePage() {
       <BackLink href="/regulatory"><ArrowLeft className="h-4 w-4" /> Suivi des dossiers</BackLink>
       <PageHeader
         title="Pipeline réglementaire"
-        description="Les produits à l'étude : des dossiers créés, pas encore ouverts à l'équipe réglementaire. Les déverrouiller, c'est décider de les mettre au travail."
+        description="TOUS les dossiers verrouillés — les produits à l'étude, pas encore ouverts à l'équipe réglementaire. Les déverrouiller, c'est décider de les mettre au travail."
       />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <KpiCard label="À l'étude" value={pipeline.length} icon="Lightbulb" tone={pipeline.length > 0 ? "info" : "default"} />
+        <KpiCard label="Dossiers verrouillés" value={pipeline.length} icon="Lock" tone={pipeline.length > 0 ? "info" : "default"} />
+        {/* Un dossier peut être verrouillé ET abouti : le compter à part évite de croire que
+            « à l'étude » et « aboutis » s'excluent. */}
+        <KpiCard label="Dont aboutis" value={pipeline.filter((r) => r.stage === "done").length} icon="CheckCircle2" tone="success" />
         <KpiCard label="Ouverts (à traiter)" value={rows.filter((r) => r.stage === "todo").length} icon="FileCheck2" />
-        <KpiCard label="Aboutis" value={rows.filter((r) => r.stage === "done").length} icon="CheckCircle2" tone="success" />
       </div>
 
       {pipeline.length === 0 ? (
         <EmptyState
           icon="Lightbulb"
-          title="Aucun produit à l'étude"
+          title="Aucun dossier verrouillé"
           description={canLock
             ? "Un dossier créé puis verrouillé apparaît ici tant qu'il n'est pas ouvert à l'équipe."
-            : "Les produits à l'étude ne sont visibles que du Super Admin tant qu'ils ne sont pas ouverts."}
+            : "Les dossiers verrouillés ne sont visibles que du Super Admin tant qu'ils ne sont pas ouverts."}
         />
       ) : (
         <RegulatoryTable
