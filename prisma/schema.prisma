@@ -379,6 +379,8 @@ enum EntityType {
   DEPARTMENT_EXPENSE
   CONSULTING_CONTRACT
   AD_PRO_OTHER
+  AD_PRO_ITEM
+  DOCUMENT_REQUEST
 }
 
 enum DocumentCategory {
@@ -934,6 +936,8 @@ model User {
   companyAccess      UserCompanyAccess[]
   adProItemDecisions AdProItemDecision[] @relation("AdProItemDecider")
   apiClients         ApiClient[]         @relation("ApiClientActAs")
+  docRequestsAsked   DocumentRequest[]   @relation("DocRequestAsker")
+  docRequestsToMe    DocumentRequest[]   @relation("DocRequestAsked")
 
   @@index([role])
   @@index([departmentId])
@@ -7253,4 +7257,61 @@ model AdProOtherRequest {
   @@index([status])
   @@index([requesterId])
   @@index([companyId])
+}
+
+// ═══════════════════════ DEMANDE DE PIÈCE ═══════════════════════
+
+/// L'état d'une demande de pièce. Court, parce que la vie d'une demande de pièce est courte :
+/// on demande, on dépose, on accepte — ou l'on redemande parce que ce n'était pas la bonne.
+enum DocumentRequestStatus {
+  PENDING
+  SUBMITTED
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
+/// DEMANDER UNE PIÈCE À QUELQU'UN — n'importe qui, pas seulement le secrétariat.
+///
+/// Une facture est chez le commercial, un devis chez l'assistante, une attestation chez le
+/// comptable : la pièce qui manque n'est presque jamais chez celui qui en a besoin. Sans ce
+/// mécanisme, on la réclame par message et l'on perd la trace de ce qu'on attend, de qui, depuis
+/// quand — jusqu'à ce que le dossier bloque sans que personne sache pourquoi.
+///
+/// GÉNÉRIQUE par construction : elle vise n'importe quel objet de l'ERP (`entityType`/`entityId`).
+/// Une deuxième implémentation « spéciale poste de dépense » finirait par diverger sur un détail
+/// qui compte — la relance, l'accès, ou le refus.
+model DocumentRequest {
+  id        String @id @default(cuid())
+  reference String @unique // PIE-2026-001
+
+  /// L'objet auquel la pièce se rattache — un poste de dépense, un contrat, un dossier.
+  entityType EntityType
+  entityId   String
+  /// Retour vers l'écran d'origine : celui à qui l'on demande n'a pas forcément accès au module,
+  /// mais celui qui a demandé, si.
+  link       String?
+
+  /// Ce qu'on demande, en clair. « La facture définitive de l'agence », pas « pièce n° 3 ».
+  label   String
+  note    String?
+  dueDate DateTime?
+
+  askedById String
+  askedBy   User   @relation("DocRequestAsker", fields: [askedById], references: [id], onDelete: Cascade)
+  askedToId String
+  askedTo   User   @relation("DocRequestAsked", fields: [askedToId], references: [id], onDelete: Cascade)
+
+  status       DocumentRequestStatus @default(PENDING)
+  responseNote String?
+  submittedAt  DateTime?
+  closedAt     DateTime?
+  closedById   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([askedToId, status])
+  @@index([askedById, status])
+  @@index([entityType, entityId])
 }

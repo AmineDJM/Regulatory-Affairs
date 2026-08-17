@@ -808,6 +808,22 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   PCH_TENDER: "Appel d'offres",
   CONSULTING_CONTRACT: "Contrat de consulting",
   AD_PRO_OTHER: "Demande Ad & Pro — autre",
+  AD_PRO_ITEM: "Poste de dépense",
+  DOCUMENT_REQUEST: "Demande de pièce",
+};
+
+/**
+ * DEMANDE DE PIÈCE — les cinq états d'un fil court.
+ *
+ * « Refusé » n'est pas une fin : la demande repart, avec son motif. C'est le cas le plus
+ * fréquent — ce n'était pas la bonne pièce — et il ne doit pas obliger à tout recommencer.
+ */
+export const PIECE_REQUEST_STATUS: Record<string, Display> = {
+  PENDING: { label: "En attente de dépôt", tone: "warning" },
+  SUBMITTED: { label: "Déposé — à confirmer", tone: "info" },
+  ACCEPTED: { label: "Pièce reçue", tone: "success" },
+  DECLINED: { label: "Refusé — à redéposer", tone: "danger" },
+  CANCELLED: { label: "Annulée", tone: "neutral" },
 };
 
 /** Accompagnant ou délégué de référence assigné à une mission. */
@@ -1108,6 +1124,7 @@ export const WORKSPACE_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Aujourd'hui", href: "/aujourdhui", feature: "home_today" },
   { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
+  { module: "WORKSPACE", label: "Pièces demandées", href: "/pieces" },
   { module: "DASHBOARD", label: "Dashboard", href: "/dashboard" },
   { module: "DIRECTIVES", label: "Directives", href: "/directives" },
 ];
@@ -1260,7 +1277,7 @@ export const ACTION_LABELS: Record<Action, string> = {
 export const NAVIGATION: NavItem[] = [
   // Pilotage — « Mon espace » regroupe désormais Mon travail, Mon espace, Dashboard, Calendrier
   // et Directives (onglets). `match` couvre ces routes pour l'état actif de la barre latérale.
-  { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-espace", "/dashboard", "/directives"] },
+  { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-espace", "/dashboard", "/directives", "/pieces"] },
   { module: "WORKSPACE", label: "Calendrier", href: "/calendar", icon: "CalendarDays", group: "Pilotage" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage", tabs: MON_DOSSIER_TABS, match: ["/missions"] },
   // Assistant IA : MODULE À PART ENTIÈRE (l'ancienne bulle flottante a été retirée) —

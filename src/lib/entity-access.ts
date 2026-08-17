@@ -51,6 +51,11 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   PROMO_MATERIAL: "PROMO_MATERIAL",
   CONSULTING_CONTRACT: "CONSULTING",
   AD_PRO_OTHER: "AD_PRO_OTHER",
+  AD_PRO_ITEM: "SPONSORING",
+  // Une demande de pièce n'appartient à aucun module : elle appartient à ses deux
+  // interlocuteurs. Le repli sur « Mon espace » ne sert que si le contrôle nominatif
+  // ci-dessous ne s'applique pas.
+  DOCUMENT_REQUEST: "WORKSPACE",
   HR_REQUEST: "RH",
   EVENT: "EVENTS",
   // Polymorphe : l'accès réel est résolu spécifiquement (assigné ou entité parente).
@@ -94,6 +99,22 @@ export async function canAccessEntity(
   action: Action = "VIEW",
 ): Promise<boolean> {
   const module = ENTITY_MODULE[entityType];
+
+  // DEMANDE DE PIÈCE : l'accès ne vient PAS du module de l'objet visé. Celui à qui l'on réclame
+  // une facture n'a pas forcément accès au poste de dépense — et il ne doit pas y avoir accès
+  // pour autant. Il vient du fil : on a demandé, ou on est celui à qui l'on demande.
+  if (entityType === "DOCUMENT_REQUEST") {
+    if (hasGlobalView(user.role)) return true;
+    const r = await prisma.documentRequest.findUnique({
+      where: { id: entityId }, select: { askedById: true, askedToId: true, status: true },
+    });
+    if (!r) return false;
+    if (r.askedById === user.id) return true;
+    // Celui qui dépose ne peut plus toucher aux pièces une fois la demande close : sinon on ne
+    // saurait plus laquelle a servi à la décision.
+    if (r.askedToId !== user.id) return false;
+    return action === "VIEW" || (r.status !== "ACCEPTED" && r.status !== "CANCELLED");
+  }
 
   // Le DEMANDEUR d'une demande de sponsoring/congrès peut toujours consulter et
   // joindre des pièces à SA propre demande (devis, programme…), même si son rôle

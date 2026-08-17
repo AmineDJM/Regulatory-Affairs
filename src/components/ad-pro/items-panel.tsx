@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Loader2, CheckCircle2, XCircle, Receipt, Link2, AlertTriangle, ExternalLink, Send, FileText, Wallet, ThumbsUp, ThumbsDown, RotateCcw, History, Pencil, X } from "lucide-react";
 import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind, AdProItemOrderStage } from "@prisma/client";
 import { Button } from "@/components/ui/button";
+import { ItemAskPanel } from "./item-ask-panel";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
@@ -94,6 +95,14 @@ interface Props {
  *      sans poste correspondant a un budget incomplet — on le dit, sans bloquer : un stand peut
  *      être offert par l'organisateur.
  */
+/** Où vit chaque opération porteuse de postes — une seule table, jamais recopiée. */
+const PARENT_PATH: Record<AdProParent, string> = {
+  SPONSORING: "/sponsoring",
+  CONGRESS_NATIONAL: "/congress-national",
+  CONGRESS_INTERNATIONAL: "/congress-international",
+  EVENT: "/events",
+};
+
 export function AdProItemsPanel({
   parent, parentId, items, amountGranted, decided, canEdit, canAllocate, promoOptions, plan,
   budgetOptions = [], canIssueOrder = false,
@@ -104,6 +113,10 @@ export function AdProItemsPanel({
   const [adding, setAdding] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const lock = React.useRef(false);
+
+  // Le chemin de l'opération porteuse : la demande de pièce y renvoie, pour que celui qui a
+  // demandé retrouve son dossier depuis le fil.
+  const parentLink = `${PARENT_PATH[parent]}/${parentId}`;
 
   const b = breakdown(items, amountGranted);
   const gaps = plannedGaps(items, plan ?? {});
@@ -308,6 +321,7 @@ export function AdProItemsPanel({
                   budgetOptions={budgetOptions}
                   busy={busy}
                   run={run}
+                  parentLink={parentLink}
                 />
 
                 {/* Paiement du poste. */}
@@ -580,7 +594,7 @@ function Figure({ label, value, hint, tone }: { label: string; value: string; hi
  * avant l'accord, ni de demander un bon de commande sans budget. Un écran qui affiche des
  * boutons inertes fait perdre plus de temps qu'il n'en fait gagner.
  */
-function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOptions, busy, run }: {
+function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOptions, busy, run, parentLink }: {
   item: ItemRow;
   canEdit: boolean;
   canAllocate: boolean;
@@ -588,6 +602,8 @@ function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOption
   budgetOptions: { id: string; label: string }[];
   busy: string | null;
   run: (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) => Promise<void>;
+  /** Retour vers l'opération porteuse — celui qui dépose une pièce n'a pas forcément accès ici. */
+  parentLink: string;
 }) {
   const [note, setNote] = React.useState("");
   const [showHistory, setShowHistory] = React.useState(false);
@@ -632,6 +648,18 @@ function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOption
           <span className="text-muted-foreground">Aucune demande de devis.</span>
         )}
       </div>
+
+      {/* ── Réclamer à quelqu'un : une pièce, ou une validation ──
+          Le devis passe par le secrétariat ; tout le reste — une facture, une attestation, un
+          contrat signé — est chez quelqu'un d'autre, et n'a aucune raison de transiter par lui. */}
+      {canEdit && (
+        <ItemAskPanel
+          entityType="AD_PRO_ITEM"
+          entityId={item.id}
+          link={parentLink}
+          subject={`${ITEM_KIND_LABELS[item.kind]} : ${item.label}`}
+        />
+      )}
 
       {/* ── Validation du poste ── */}
       {item.decisionNote && (item.status === "REVISION" || item.status === "REJECTED") && (
