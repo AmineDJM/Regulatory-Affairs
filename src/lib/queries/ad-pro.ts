@@ -25,7 +25,7 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
   const scope = await platformScope(user.id);
   const can = (m: Parameters<typeof userCan>[1]) => userCan(user, m, "VIEW");
 
-  const [sponsorings, intl, national, events, promo] = await Promise.all([
+  const [sponsorings, intl, national, events, promo, consulting, other] = await Promise.all([
     can("SPONSORING")
       ? prisma.sponsoringRequest.findMany({
           where: scope, orderBy: { createdAt: "desc" }, take: LIMIT,
@@ -59,6 +59,18 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
           select: { id: true, reference: true, title: true, status: true, createdAt: true, chosenAmount: true, amount: true, chosenAgency: true },
         }).catch(() => [])
       : [],
+    can("CONSULTING")
+      ? prisma.consultingContract.findMany({
+          where: scope, orderBy: { createdAt: "desc" }, take: LIMIT,
+          select: { id: true, reference: true, title: true, counterparty: true, status: true, createdAt: true, amount: true, requesterId: true },
+        }).catch(() => [])
+      : [],
+    can("AD_PRO_OTHER")
+      ? prisma.adProOtherRequest.findMany({
+          where: scope, orderBy: { createdAt: "desc" }, take: LIMIT,
+          select: { id: true, reference: true, title: true, beneficiary: true, status: true, createdAt: true, amount: true, requesterId: true },
+        }).catch(() => [])
+      : [],
   ]);
 
   // Les demandeurs en UN lot : cinq relations séparées feraient cinq fois le même travail, et
@@ -68,6 +80,8 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
     ...intl.map((r) => r.requesterId),
     ...national.map((r) => r.requesterId),
     ...events.map((r) => r.requesterId),
+    ...consulting.map((r) => r.requesterId),
+    ...other.map((r) => r.requesterId),
   ].filter((x): x is string => Boolean(x)))];
   const people = requesterIds.length
     ? await prisma.user.findMany({ where: { id: { in: requesterIds } }, select: { id: true, name: true } })
@@ -109,6 +123,22 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
       status: r.status, state: adProState(r.status), requester: null,
       createdAt: r.createdAt.toISOString(), href: `/promo-material/${r.id}`,
     })),
+    ...consulting.map((r) => ({
+      id: r.id, kind: "CONSULTING" as const, reference: r.reference, title: r.title,
+      // L'AUTRE PARTIE tient lieu de bénéficiaire : c'est elle qu'on cherche dans la liste
+      // quand on se demande avec qui l'on a déjà contracté.
+      beneficiary: r.counterparty,
+      amount: r.amount === null ? null : toNumber(r.amount),
+      status: r.status, state: adProState(r.status), requester: nameOf(r.requesterId),
+      createdAt: r.createdAt.toISOString(), href: `/consulting/${r.id}`,
+    })),
+    ...other.map((r) => ({
+      id: r.id, kind: "OTHER" as const, reference: r.reference, title: r.title,
+      beneficiary: r.beneficiary,
+      amount: r.amount === null ? null : toNumber(r.amount),
+      status: r.status, state: adProState(r.status), requester: nameOf(r.requesterId),
+      createdAt: r.createdAt.toISOString(), href: `/ad-pro/autres/${r.id}`,
+    })),
   ];
 
   return sortAdPro(rows);
@@ -148,7 +178,7 @@ export async function getAdProCreateData(kinds: readonly AdProKind[]): Promise<A
           select: { id: true, name: true }, orderBy: { name: "asc" },
         })
       : Promise.resolve([] as { id: string; name: string }[]),
-    has("PROMO_MATERIAL")
+    has("PROMO_MATERIAL") || has("CONSULTING") || has("OTHER")
       ? getCompanies().then(companyOptions)
       : Promise.resolve([] as { value: string; label: string }[]),
   ]);

@@ -1,5 +1,5 @@
 import type { FieldDef } from "@/components/shared/create-record-button";
-import { PRIORITY, SPONSORING_TYPES, MATERIAL_TYPE_OPTIONS } from "@/lib/labels";
+import { PRIORITY, SPONSORING_TYPES, MATERIAL_TYPE_OPTIONS, CONSULTING_BILLING_OPTIONS } from "@/lib/labels";
 
 /**
  * LES CHAMPS DE CRÉATION AD & PRO, ÉCRITS UNE SEULE FOIS.
@@ -108,5 +108,54 @@ export function promoMaterialCreateFields(opts: {
     { type: "textarea", name: "description", label: "Brief / description", full: true },
     { type: "number", name: "amount", label: "Budget estimé (DZD)" },
     { type: "select", name: "assistantId", label: "Assistante de direction", options: opts.assistants.map((a) => ({ value: a.id, label: a.name })), placeholder: "— À notifier (Direction) —" },
+  ];
+}
+
+/**
+ * LE CONTRAT DE CONSULTING — deux parties, une période, une rémunération, des tâches.
+ *
+ * Le montant ne se comprend qu'avec son RYTHME : 200 000 DZD par mois et 200 000 DZD pour la
+ * mission entière n'engagent pas la même somme, et c'est exactement la confusion qui coûte cher
+ * au moment de la facture. Les deux champs se suivent donc, jamais séparés.
+ *
+ * Les tâches se saisissent une par ligne — c'est ainsi qu'on les dicte. Un formulaire qui
+ * demanderait de les ajouter une par une aurait tout l'air d'une corvée, et l'on écrirait tout
+ * dans le champ « objet ».
+ */
+export function consultingCreateFields(opts: {
+  companies: readonly { value: string; label: string }[];
+}): FieldDef[] {
+  return [
+    { type: "text", name: "title", label: "Intitulé du contrat", required: true, full: true, placeholder: "Ex. Accompagnement réglementaire 2026" },
+    { type: "text", name: "counterparty", label: "Consultant / cabinet", required: true, placeholder: "L'autre partie au contrat" },
+    { type: "text", name: "counterpartyContact", label: "Contact (e-mail, téléphone)" },
+    { type: "select", name: "companyId", label: "Entité signataire", options: [...opts.companies], placeholder: "— Entité —" },
+    { type: "date", name: "startDate", label: "Début" },
+    { type: "date", name: "endDate", label: "Fin" },
+    { type: "number", name: "amount", label: "Rémunération (DZD)" },
+    { type: "select", name: "billing", label: "Rythme de la rémunération", options: CONSULTING_BILLING_OPTIONS, defaultValue: "ONE_OFF" },
+    { type: "textarea", name: "scope", label: "Objet de la mission", full: true, placeholder: "Ce pour quoi on paie." },
+    { type: "textarea", name: "tasks", label: "Tâches attendues (une par ligne)", full: true, placeholder: "Audit des dossiers\nFormation de l'équipe\nRapport final" },
+    { type: "textarea", name: "paymentTerms", label: "Modalités de paiement", full: true },
+    { type: "textarea", name: "notes", label: "Notes internes", full: true },
+  ];
+}
+
+/**
+ * LA DEMANDE « AUTRE » — volontairement courte.
+ *
+ * Elle n'a pas de champs propres, par définition : c'est la DESCRIPTION qui portera tout, puisque
+ * aucun formulaire ne décrit pour nous ce dont il s'agit. Elle est donc obligatoire — une case
+ * vide ne se tranche pas.
+ */
+export function adProOtherCreateFields(opts: {
+  companies: readonly { value: string; label: string }[];
+}): FieldDef[] {
+  return [
+    { type: "text", name: "title", label: "Objet de la demande", required: true, full: true, placeholder: "En une phrase" },
+    { type: "textarea", name: "description", label: "Description", required: true, full: true, placeholder: "Ce que vous demandez, pour qui, et pourquoi." },
+    { type: "text", name: "beneficiary", label: "Pour qui / avec qui" },
+    { type: "number", name: "amount", label: "Montant estimé (DZD)" },
+    { type: "select", name: "companyId", label: "Entité", options: [...opts.companies], placeholder: "— Entité —" },
   ];
 }

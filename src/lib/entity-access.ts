@@ -49,6 +49,8 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   SUPPORT_REQUEST: "SUPPORT",
   DOSSIER: "DOSSIERS",
   PROMO_MATERIAL: "PROMO_MATERIAL",
+  CONSULTING_CONTRACT: "CONSULTING",
+  AD_PRO_OTHER: "AD_PRO_OTHER",
   HR_REQUEST: "RH",
   EVENT: "EVENTS",
   // Polymorphe : l'accès réel est résolu spécifiquement (assigné ou entité parente).

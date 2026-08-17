@@ -1,11 +1,11 @@
 /**
  * AD & PRO — UNE SEULE DEMANDE.
  *
- * Sponsoring, prise en charge internationale, prise en charge nationale, événement, matériel
- * promotionnel : cinq écrans, cinq listes, cinq boutons « nouvelle demande ». Pour celui qui
- * demande, ce sont pourtant cinq façons de poser la MÊME question — « je veux engager une dépense
- * de promotion, voici pour qui et pour quoi ». Lui faire choisir d'abord le bon écran, c'est lui
- * demander de connaître notre découpage interne avant de pouvoir formuler son besoin.
+ * Sponsoring, prises en charge, événement, matériel promotionnel, consulting, et tout le reste :
+ * autant d'écrans, autant de listes, autant de boutons « nouvelle demande ». Pour celui qui
+ * demande, ce sont pourtant autant de façons de poser la MÊME question — « je veux engager une
+ * dépense de promotion, voici pour qui et pour quoi ». Lui faire choisir d'abord le bon écran,
+ * c'est lui demander de connaître notre découpage interne avant de pouvoir formuler son besoin.
  *
  * On unifie donc l'ENTRÉE et la LECTURE, pas le stockage. Chaque nature garde son modèle, ses
  * champs propres et son circuit : un congrès international a des billets et des visas qu'un
@@ -18,7 +18,9 @@
  * Module PUR — testé.
  */
 
-export type AdProKind = "SPONSORING" | "CONGRESS_INTERNATIONAL" | "CONGRESS_NATIONAL" | "EVENT" | "PROMO_MATERIAL";
+export type AdProKind =
+  | "SPONSORING" | "CONGRESS_INTERNATIONAL" | "CONGRESS_NATIONAL" | "EVENT" | "PROMO_MATERIAL"
+  | "CONSULTING" | "OTHER";
 
 export interface KindSpec {
   kind: AdProKind;
@@ -62,10 +64,21 @@ export const AD_PRO_KINDS: KindSpec[] = [
     kind: "PROMO_MATERIAL", label: "Matériel promotionnel", icon: "Package", href: "/promo-material", module: "PROMO_MATERIAL", createHref: "/promo-material?new=1",
     hint: "Faire produire une brochure, un présentoir, un objet — par une agence.",
   },
+  {
+    kind: "CONSULTING", label: "Consulting", icon: "Handshake", href: "/consulting", module: "CONSULTING", createHref: "/consulting?new=1",
+    hint: "Engager un consultant ou un cabinet : mission, rémunération, durée.",
+  },
+  {
+    // LA CASE QUI MANQUAIT. Sans elle, une dépense de promotion inhabituelle se déclare
+    // « en sponsoring » faute de mieux — et l'on perd à la fois la lisibilité du sponsoring et
+    // la trace de la dépense.
+    kind: "OTHER", label: "Autre", icon: "CircleEllipsis", href: "/ad-pro/autres", module: "AD_PRO_OTHER", createHref: "/ad-pro/autres?new=1",
+    hint: "Tout ce qui n'entre dans aucune des natures ci-dessus.",
+  },
 ];
 
 /**
- * L'ÉTAT COMMUN — cinq mots, les mêmes pour les cinq natures.
+ * L'ÉTAT COMMUN — cinq mots, les mêmes pour toutes les natures.
  *
  * Chaque module a son propre vocabulaire (« CONSIDERED », « BC_FINANCE_REVIEW », « PRELIMINARY_
  * APPROVED »…), et c'est légitime : ce sont des circuits différents. Mais dans une liste unifiée,
@@ -85,10 +98,10 @@ export const AD_PRO_STATE: Record<AdProState, { label: string; tone: "neutral" |
 /** Statuts refusés ou annulés, toutes natures confondues. */
 const REFUSED = ["REFUSED", "CANCELLED", "REJECTED"];
 /** Statuts qui closent une demande. */
-const DONE = ["PAID", "CLOSED", "COMPLETED", "SETTLED", "PAYMENT_DONE", "MATERIAL_DELIVERED", "ARCHIVED"];
+const DONE = ["PAID", "CLOSED", "COMPLETED", "SETTLED", "PAYMENT_DONE", "MATERIAL_DELIVERED", "ARCHIVED", "DONE", "EXPIRED"];
 /** Statuts « validée, en cours d'exécution ». */
 const APPROVED = [
-  "ACCEPTED", "APPROVED", "VALIDATED", "PRELIMINARY_APPROVED", "ORGANIZED", "PREPARATION",
+  "ACCEPTED", "APPROVED", "VALIDATED", "PRELIMINARY_APPROVED", "ORGANIZED", "PREPARATION", "ACTIVE",
   "REGISTRATION_OPEN", "FULL", "AGENCY_CHOSEN", "BC_VALIDATED", "BC_SENT", "PAYMENT_INITIATED",
   "MATERIAL_PRODUCED",
 ];

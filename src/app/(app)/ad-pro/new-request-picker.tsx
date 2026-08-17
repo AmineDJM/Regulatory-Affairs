@@ -8,8 +8,13 @@ import { Icon } from "@/components/ui/icon";
 import { RecordForm } from "@/components/shared/create-record-button";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
 import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
+import { createConsultingContract } from "@/lib/actions/consulting-actions";
+import { createAdProOtherRequest } from "@/lib/actions/ad-pro-other-actions";
 import type { AdProKind, KindSpec } from "@/lib/ad-pro/unified";
-import { sponsoringCreateFields, promoMaterialCreateFields, toPeople, type AdProCreateData } from "@/lib/ad-pro/create-fields";
+import {
+  sponsoringCreateFields, promoMaterialCreateFields, consultingCreateFields, adProOtherCreateFields,
+  toPeople, type AdProCreateData,
+} from "@/lib/ad-pro/create-fields";
 import { CongressRequestForm } from "../congress-international/congress-request-form";
 import { CreateEventForm } from "../events/event-form";
 
@@ -118,6 +123,22 @@ export function NewRequestPicker({ kinds, data, canDesignatePM, canChooseAnalysi
                 action={createPromoMaterial}
                 redirectBase="/promo-material"
                 fields={promoMaterialCreateFields({ companies: data.companies, assistants: people })}
+              />
+            )}
+            {spec.kind === "CONSULTING" && (
+              <RecordForm
+                {...nav}
+                action={createConsultingContract}
+                redirectBase="/consulting"
+                fields={consultingCreateFields({ companies: data.companies })}
+              />
+            )}
+            {spec.kind === "OTHER" && (
+              <RecordForm
+                {...nav}
+                action={createAdProOtherRequest}
+                redirectBase="/ad-pro/autres"
+                fields={adProOtherCreateFields({ companies: data.companies })}
               />
             )}
           </div>

@@ -39,11 +39,25 @@ describe("Cinq circuits, un seul vocabulaire", () => {
   });
 });
 
-describe("Les cinq natures, décrites dans les mots du demandeur", () => {
-  it("couvre les cinq portes d'entrée d'Ad & Pro", () => {
+describe("Les natures, décrites dans les mots du demandeur", () => {
+  it("couvre toutes les portes d'entrée d'Ad & Pro, « Autre » comprise", () => {
+    // « Autre » ferme la liste, et c'est volontaire : sans elle, une dépense inhabituelle se
+    // déclare « en sponsoring » faute de mieux, et l'on perd la trace de ce qu'elle était.
     expect(AD_PRO_KINDS.map((k) => k.kind)).toEqual([
       "SPONSORING", "CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENT", "PROMO_MATERIAL",
+      "CONSULTING", "OTHER",
     ]);
+    expect(AD_PRO_KINDS[AD_PRO_KINDS.length - 1].kind).toBe("OTHER");
+  });
+
+  it("un contrat actif est « validé », un contrat expiré est « terminé »", () => {
+    // Deux fins qui ne se confondent pas : la liste unifiée doit les distinguer comme les
+    // écrans de la nature le font.
+    expect(adProState("ACTIVE")).toBe("APPROVED");
+    expect(adProState("EXPIRED")).toBe("DONE");
+    expect(adProState("CANCELLED")).toBe("REFUSED");
+    expect(adProState("AWAITING_VALIDATION")).toBe("AWAITING");
+    expect(adProState("AWAITING_DECISION")).toBe("AWAITING");
   });
 
   it("chaque nature dit CE QU'ON VEUT FAIRE, pas son nom technique", () => {

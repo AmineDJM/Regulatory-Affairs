@@ -806,6 +806,8 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   EVENT: "Événement",
   MISSION_ASSIGNMENT: "Ordre de mission",
   PCH_TENDER: "Appel d'offres",
+  CONSULTING_CONTRACT: "Contrat de consulting",
+  AD_PRO_OTHER: "Demande Ad & Pro — autre",
 };
 
 /** Accompagnant ou délégué de référence assigné à une mission. */
@@ -856,6 +858,43 @@ export const PROMO_MATERIAL_STATUS: Record<string, Display> = {
   INVOICED: { label: "Facturé", tone: "warning" },
   SETTLED: { label: "Réglé", tone: "success" },
   CANCELLED: { label: "Annulé", tone: "danger" },
+};
+
+/**
+ * CONTRAT DE CONSULTING — les cinq états d'une relation avec un prestataire.
+ *
+ * « Expiré » n'est pas « annulé » : le premier a produit ses effets jusqu'au bout, le second a
+ * été rompu. Les confondre, c'est perdre l'historique de la relation — et se tromper le jour où
+ * l'on se demande avec qui l'on a déjà travaillé.
+ */
+export const CONSULTING_STATUS: Record<string, Display> = {
+  DRAFT: { label: "Brouillon", tone: "neutral" },
+  AWAITING_VALIDATION: { label: "En cours de validation", tone: "warning" },
+  ACTIVE: { label: "Actif", tone: "success" },
+  EXPIRED: { label: "Expiré", tone: "neutral" },
+  CANCELLED: { label: "Annulé", tone: "danger" },
+};
+
+/** Rythme de la rémunération : 200 000 DZD par mois et 200 000 DZD pour la mission entière ne sont pas la même dépense. */
+export const CONSULTING_BILLING: Record<string, string> = {
+  ONE_OFF: "Forfait unique",
+  MONTHLY: "Mensuel",
+  QUARTERLY: "Trimestriel",
+  YEARLY: "Annuel",
+  ON_DELIVERY: "À la livraison",
+};
+
+export const CONSULTING_BILLING_OPTIONS: { value: string; label: string }[] =
+  Object.entries(CONSULTING_BILLING).map(([value, label]) => ({ value, label }));
+
+/** DEMANDE « AUTRE » — circuit court : il n'y a pas de parcours propre, il y a un décideur. */
+export const AD_PRO_OTHER_STATUS: Record<string, Display> = {
+  DRAFT: { label: "Brouillon", tone: "neutral" },
+  AWAITING_DECISION: { label: "En attente de décision", tone: "warning" },
+  APPROVED: { label: "Validée", tone: "info" },
+  REFUSED: { label: "Refusée", tone: "danger" },
+  DONE: { label: "Terminée", tone: "success" },
+  CANCELLED: { label: "Annulée", tone: "danger" },
 };
 
 /** Ordre du circuit (hors annulation) — pour la frise de suivi. */
@@ -1129,6 +1168,8 @@ export const EVENTS_TABS: NavTab[] = [
   // Le STOCK est un écran à part : on n'y vient pas pour suivre une campagne mais pour savoir
   // ce qu'il reste, et le tenir à jour. Deux questions différentes, deux écrans.
   { module: "PROMO_MATERIAL", label: "Stock promotionnel", href: "/promo-material/stock" },
+  { module: "CONSULTING", label: "Consulting", href: "/consulting" },
+  { module: "AD_PRO_OTHER", label: "Autres demandes", href: "/ad-pro/autres" },
 ];
 // Module « Drive » (Drive personnel). L'onglet « Documents » a été retiré (tout est consolidé
 // dans le Drive + les catégories partagées ; on y glisse des dossiers à la souris).
@@ -1182,6 +1223,8 @@ export const MODULE_LABELS: Record<Module, string> = {
   STOCKS: "Stocks PCH",
   MEDICAL_INFO: "Information médicale",
   PROMO_MATERIAL: "Matériel promotionnel",
+  CONSULTING: "Consulting",
+  AD_PRO_OTHER: "Ad & Pro — autres demandes",
   VALIDATIONS: "Demandes de validations",
   DIRECTIVES: "Directives",
   SUPPORT: "Demandes de support",
@@ -1254,7 +1297,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical/annuaire"] },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
-  { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/promo-material/stock"] },
+  { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/promo-material/stock", "/consulting"] },
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles", pole: "SALES_MARKETING" },
 
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes

@@ -377,6 +377,8 @@ enum EntityType {
   OFFICE_SUPPLY_ARTICLE
   PCH_TENDER
   DEPARTMENT_EXPENSE
+  CONSULTING_CONTRACT
+  AD_PRO_OTHER
 }
 
 enum DocumentCategory {
@@ -1118,6 +1120,8 @@ model Company {
   pchTenders              PchTender[]
   employees               Employee[]
   promoMaterials          PromoMaterial[]
+  consultingContracts     ConsultingContract[]
+  adProOtherRequests      AdProOtherRequest[]
   promoStockItems         PromoStockItem[]
   medicalDoctors          MedicalDoctor[]
   financeTransactions     FinanceTransaction[]
@@ -7121,4 +7125,132 @@ model PaymentThreshold {
   amount      Decimal  @default(500000) @db.Decimal(14, 2)
   updatedById String?
   updatedAt   DateTime @updatedAt
+}
+
+// ═══════════════════════ AD & PRO — CONSULTING ═══════════════════════
+
+/// L'état d'un contrat de consulting, tel que le voit celui qui le suit.
+/// « Expiré » n'est pas « annulé » : le premier a produit ses effets jusqu'au bout,
+/// le second a été rompu. Les confondre, c'est perdre l'historique de la relation.
+enum ConsultingStatus {
+  DRAFT
+  AWAITING_VALIDATION
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+/// Rythme de la rémunération — il change la lecture d'un montant : 200 000 DZD par mois
+/// et 200 000 DZD pour la mission entière ne sont pas la même dépense.
+enum ConsultingBilling {
+  ONE_OFF
+  MONTHLY
+  QUARTERLY
+  YEARLY
+  ON_DELIVERY
+}
+
+/// CONTRAT DE CONSULTING — un engagement entre DEUX PARTIES.
+/// Notre partie est une entité du groupe (`companyId`) ; l'autre est le prestataire,
+/// personne physique ou cabinet. Le contrat porte ce qui se négocie : une période, une
+/// rémunération, des tâches attendues, et les pièces signées.
+model ConsultingContract {
+  id                  String            @id @default(cuid())
+  reference           String            @unique // CONS-2026-001
+  title               String
+  /// L'AUTRE PARTIE : consultant, cabinet, expert.
+  counterparty        String
+  counterpartyContact String?
+  /// Notre partie : l'entité du groupe qui signe.
+  companyId           String?
+  company             Company?          @relation(fields: [companyId], references: [id])
+  /// Objet de la mission — ce pour quoi on paie.
+  scope               String?
+  startDate           DateTime?
+  endDate             DateTime?
+  /// Rémunération convenue, dans le rythme indiqué par `billing`.
+  amount              Decimal?          @db.Decimal(14, 2)
+  billing             ConsultingBilling @default(ONE_OFF)
+  paymentTerms        String?
+  status              ConsultingStatus  @default(DRAFT)
+
+  requesterId   String? // qui porte le contrat en interne
+  /// Personne à qui la validation a été demandée, tant qu'elle n'a pas tranché.
+  validatorId   String?
+  validatedById String?
+  validatedAt   DateTime?
+  decisionNote  String?
+  cancelledAt   DateTime?
+
+  notes String?
+  tasks ConsultingTask[]
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([validatorId])
+  @@index([companyId])
+}
+
+/// UNE TÂCHE ATTENDUE DU PRESTATAIRE.
+/// Elles vivent à part et non dans un champ de texte : « ce qui reste à livrer » est une
+/// question qu'on pose au contrat, et un paragraphe ne sait pas y répondre.
+model ConsultingTask {
+  id         String             @id @default(cuid())
+  contractId String
+  contract   ConsultingContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  label      String
+  dueDate    DateTime?
+  doneAt     DateTime?
+  position   Int                @default(0)
+  createdAt  DateTime           @default(now())
+
+  @@index([contractId])
+}
+
+// ═══════════════════════ AD & PRO — AUTRE ═══════════════════════
+
+/// L'état d'une demande « Autre ». Le circuit est volontairement court : une demande
+/// qui n'entre dans aucune nature n'a pas de circuit propre — elle a un décideur.
+enum AdProOtherStatus {
+  DRAFT
+  AWAITING_DECISION
+  APPROVED
+  REFUSED
+  DONE
+  CANCELLED
+}
+
+/// LA DEMANDE QUI N'ENTRE DANS AUCUNE CASE.
+/// Sans elle, une dépense de promotion inhabituelle se déclare « en sponsoring » faute de
+/// mieux — et l'on perd à la fois la lisibilité du sponsoring et la trace de la dépense.
+model AdProOtherRequest {
+  id          String           @id @default(cuid())
+  reference   String           @unique // AUT-2026-001
+  title       String
+  description String?
+  /// Pour qui / avec qui : praticien, association, prestataire…
+  beneficiary String?
+  amount      Decimal?         @db.Decimal(14, 2)
+  companyId   String?
+  company     Company?         @relation(fields: [companyId], references: [id])
+  status      AdProOtherStatus @default(AWAITING_DECISION)
+
+  requesterId  String?
+  decidedById  String?
+  decidedAt    DateTime?
+  decisionNote String?
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([companyId])
 }
