@@ -127,22 +127,39 @@ function Cell({ row, col, editable }: { row: AnnuaireRow; col: AnnuaireColumn; e
   );
 }
 
+/**
+ * LE QUADRILLAGE — des CELLULES, comme dans un tableur.
+ *
+ * Un annuaire qu'on corrige se lit à l'horizontale (« quelle est la wilaya de cette ligne ? ») et
+ * à la verticale (« qui est en cardiologie ? »). Sans trait vertical, l'œil perd la colonne dès
+ * la cinquième ligne et l'on corrige la mauvaise cellule. D'où le quadrillage complet, et le
+ * surlignage de la ligne survolée.
+ */
 function GridTable({ rows, editable }: { rows: AnnuaireRow[]; editable: boolean }) {
   return (
     <div className="surface overflow-x-auto">
       <table className="w-full min-w-[72rem] border-collapse text-sm">
         <thead>
-          <tr className="border-b border-border bg-secondary/40 text-xs uppercase tracking-wide text-muted-foreground">
+          <tr className="bg-secondary/60 text-xs uppercase tracking-wide text-muted-foreground">
             {ANNUAIRE_COLUMNS.map((c) => (
-              <th key={c.field} className="whitespace-nowrap px-2 py-2 text-left font-medium" style={{ minWidth: `${c.width ?? 12}rem` }}>{c.header}</th>
+              <th
+                key={c.field}
+                className="whitespace-nowrap border border-border px-2 py-2 text-left font-medium"
+                style={{ minWidth: `${c.width ?? 12}rem` }}
+              >
+                {c.header}
+              </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-border">
+        <tbody>
           {rows.map((r) => (
             <tr key={r.id} className="hover:bg-secondary/20">
               {ANNUAIRE_COLUMNS.map((c) => (
-                <td key={c.field} className={cn("align-middle", c.field === "lastName" && "font-medium")}>
+                <td
+                  key={c.field}
+                  className={cn("border border-border align-middle", c.field === "lastName" && "font-medium")}
+                >
                   <Cell row={r} col={c} editable={editable} />
                 </td>
               ))}

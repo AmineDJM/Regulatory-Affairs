@@ -67,8 +67,8 @@ export function DriveTable({
     if (k === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortKey(k); setSortDir("asc"); }
   };
-  const SortHead = ({ k, label, align }: { k: SortKey; label: string; align?: "right" }) => (
-    <TableHead className={align === "right" ? "text-right" : undefined}>
+  const SortHead = ({ k, label, align, className }: { k: SortKey; label: string; align?: "right"; className?: string }) => (
+    <TableHead className={[align === "right" ? "text-right" : "", className ?? ""].filter(Boolean).join(" ") || undefined}>
       <button
         type="button" onClick={() => clickSort(k)}
         className={`inline-flex items-center gap-1 hover:text-foreground ${sortKey === k ? "text-foreground" : ""}`}
@@ -336,7 +336,12 @@ export function DriveTable({
       )}
 
       <div className="surface overflow-hidden">
-        <Table>
+        {/* LARGEURS FIXES — le tableau tient dans l'écran, quoi qu'il arrive.
+            `table-fixed` + des largeurs déclarées : un nom trop long est TRONQUÉ (avec le nom
+            complet en infobulle) au lieu de pousser « Modifié le » et les actions hors de vue.
+            On ne tire plus la page vers la gauche pour atteindre un bouton ; pour voir plus, on
+            dézoome — c'est le geste du navigateur, pas un réglage de plus à inventer. */}
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead className="w-8">
@@ -345,11 +350,11 @@ export function DriveTable({
               <SortHead k="name" label="Nom" />
               {/* « Type » vient d'un explorateur, et il y sert : à dosage égal de noms qui se
                   ressemblent, c'est lui qui distingue le PDF de l'archive. */}
-              <SortHead k="type" label="Type" />
-              <TableHead>Propriétaire</TableHead>
-              <SortHead k="size" label="Taille" align="right" />
-              <SortHead k="updatedAt" label="Modifié le" />
-              <TableHead className="text-right">Actions</TableHead>
+              <SortHead k="type" label="Type" className="hidden w-28 md:table-cell" />
+              <TableHead className="hidden w-40 lg:table-cell">Propriétaire</TableHead>
+              <SortHead k="size" label="Taille" align="right" className="w-24" />
+              <SortHead k="updatedAt" label="Modifié le" className="hidden w-36 sm:table-cell" />
+              <TableHead className="w-24 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -395,9 +400,9 @@ export function DriveTable({
                     />
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       {dndEnabled && n.canEdit && <GripVertical className="h-3.5 w-3.5 shrink-0 cursor-grab text-muted-foreground/50" aria-hidden />}
-                      <Link href={n.href} draggable={false} className="inline-flex items-center gap-2 font-medium hover:underline">
+                      <Link href={n.href} draggable={false} title={n.name} className="inline-flex min-w-0 items-center gap-2 font-medium hover:underline">
                         <FileGlyph name={n.name} isFile={n.isFile} />
                         <span className="truncate">{n.name}</span>
                       </Link>
@@ -407,10 +412,10 @@ export function DriveTable({
                       {!n.isFile && isFolderTarget && <span className="shrink-0 text-[0.625rem] font-medium text-primary">déposer ici</span>}
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{n.typeLabel}</TableCell>
-                  <TableCell className="text-muted-foreground">{n.owner}</TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">{n.sizeLabel || "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{n.updatedLabel}</TableCell>
+                  <TableCell className="hidden truncate text-muted-foreground md:table-cell">{n.typeLabel}</TableCell>
+                  <TableCell className="hidden truncate text-muted-foreground lg:table-cell">{n.owner}</TableCell>
+                  <TableCell className="whitespace-nowrap text-right tabular-nums text-muted-foreground">{n.sizeLabel || "—"}</TableCell>
+                  <TableCell className="hidden whitespace-nowrap text-muted-foreground sm:table-cell">{n.updatedLabel}</TableCell>
                   <TableCell className="text-right">
                     <NodeActions id={n.id} name={n.name} isFile={n.isFile} canEdit={n.canEdit} trash={trash} moveTargets={n.canEdit && !trash ? moveTargets : undefined} users={n.canEdit && !trash ? users : undefined} spaceId={spaceId} />
                   </TableCell>

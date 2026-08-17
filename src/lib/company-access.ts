@@ -15,8 +15,18 @@
  * base de données, et lisible sans dérouler une requête.
  */
 
-/** Les rôles qui voient l'ensemble du groupe — ils arbitrent pour tout le monde. */
-const GROUP_WIDE_ROLES = ["SUPER_ADMIN", "DIRECTION"] as const;
+/**
+ * LE SEUL RÔLE QUI VOIT TOUT LE GROUPE — le Super Admin, et lui seul.
+ *
+ * Chacun ne voit que SON entité : quelqu'un d'Adventum voit Adventum, et rien d'autre, à moins
+ * qu'on ne lui ait explicitement accordé une autre société (`UserCompanyAccess`). La Direction
+ * était ici et voyait donc tout le groupe sans autorisation à saisir — ce n'est plus le cas :
+ * elle relève de la règle commune, et ses accès inter-entités se donnent, comme pour les autres.
+ *
+ * C'est une règle de CLOISONNEMENT : l'élargir se fait par une autorisation nominative, jamais
+ * par un rôle qui traverse tout en silence.
+ */
+const GROUP_WIDE_ROLES = ["SUPER_ADMIN"] as const;
 
 export interface AccessGrant {
   companyId: string;

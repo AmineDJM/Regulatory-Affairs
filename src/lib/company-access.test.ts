@@ -17,23 +17,29 @@ const bearer = (over: Partial<AccessBearer> = {}): AccessBearer => ({
  */
 
 describe("seesWholeGroup", () => {
-  it("le Super Admin et la Direction voient tout le groupe", () => {
+  it("le Super Admin, et LUI SEUL, voit tout le groupe", () => {
     expect(seesWholeGroup({ role: "SUPER_ADMIN" })).toBe(true);
-    expect(seesWholeGroup({ role: "DIRECTION" })).toBe(true);
   });
 
-  it("un rôle SECONDAIRE Direction compte aussi — régression classique de cet ERP", () => {
-    expect(seesWholeGroup({ role: "MEDICAL_DELEGATE", secondaryRole: "DIRECTION" })).toBe(true);
+  it("la DIRECTION relève de la règle commune : son entité, et ce qu'on lui a accordé", () => {
+    // Elle traversait tout le groupe sans autorisation à saisir. Le cloisonnement s'élargit
+    // désormais par une autorisation nominative, jamais par un rôle qui passe partout en silence.
+    expect(seesWholeGroup({ role: "DIRECTION" })).toBe(false);
+    expect(seesWholeGroup({ role: "MEDICAL_DELEGATE", secondaryRole: "DIRECTION" })).toBe(false);
   });
 
-  it("les autres rôles non", () => {
+  it("les autres rôles non plus", () => {
     expect(seesWholeGroup({ role: "PRODUCT_MANAGER" })).toBe(false);
+  });
+
+  it("un rôle SECONDAIRE Super Admin compte aussi — régression classique de cet ERP", () => {
+    expect(seesWholeGroup({ role: "MEDICAL_DELEGATE", secondaryRole: "SUPER_ADMIN" })).toBe(true);
   });
 });
 
 describe("allowedCompanyIds — on n'enferme personne par omission", () => {
   it("la vue groupe accède à toutes les entités existantes", () => {
-    expect(allowedCompanyIds(bearer({ role: "DIRECTION" }), ALL)).toEqual(ALL);
+    expect(allowedCompanyIds(bearer({ role: "SUPER_ADMIN" }), ALL)).toEqual(ALL);
   });
 
   it("l'entité d'appartenance est TOUJOURS accessible, même sans autorisation saisie", () => {
@@ -127,7 +133,7 @@ describe("companyAccessWhere — « toutes » veut dire « toutes celles auxquel
   });
 
   it("la vue groupe sans portée ne filtre rien", () => {
-    expect(companyAccessWhere(bearer({ role: "DIRECTION" }), null, ALL)).toEqual({});
+    expect(companyAccessWhere(bearer({ role: "SUPER_ADMIN" }), null, ALL)).toEqual({});
   });
 
   it("aucun droit : un filtre qui ne remonte RIEN, jamais un filtre vide", () => {
@@ -143,14 +149,14 @@ describe("platformScopeWhere", () => {
   });
 
   it("vue groupe sans portée : aucun filtre", () => {
-    expect(platformScopeWhere(bearer({ role: "DIRECTION" }), null, ALL)).toEqual({});
+    expect(platformScopeWhere(bearer({ role: "SUPER_ADMIN" }), null, ALL)).toEqual({});
   });
 
   it("PORTÉE CHOISIE : CETTE ENTITÉ, ET RIEN D'AUTRE", () => {
     // « Je mets Adventum, je vois Adventum. » Le non-rattaché n'entre plus : l'ancienne
     // exception faisait lire le travail d'une entité depuis la vue d'une autre, sans qu'aucun
     // écran ne le signale.
-    expect(platformScopeWhere(bearer({ role: "DIRECTION" }), "pha", ALL)).toEqual({ companyId: "pha" });
+    expect(platformScopeWhere(bearer({ role: "SUPER_ADMIN" }), "pha", ALL)).toEqual({ companyId: "pha" });
   });
 
   it("sans portée : les entités auxquelles j'ai droit", () => {
@@ -174,7 +180,7 @@ describe("platformScopeWhere", () => {
     // Il reste lisible en vue « toutes les entités » (aucun filtre) — rien ne disparaît de la
     // plateforme, seulement des vues d'entité.
     for (const scope of ["adv", "pha", "xyz"]) {
-      const w = platformScopeWhere(bearer({ role: "DIRECTION" }), scope, ALL);
+      const w = platformScopeWhere(bearer({ role: "SUPER_ADMIN" }), scope, ALL);
       expect(JSON.stringify(w)).not.toContain("null");
     }
   });
