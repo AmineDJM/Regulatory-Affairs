@@ -2755,6 +2755,14 @@ model MedicalDoctor {
   institutionRef        MedicalInstitution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
   city                  String?
   region                String?
+  /// Découpage administratif algérien — une des 58 wilayas, choisie dans une liste fermée pour
+  /// que « Alger », « ALGER » et « alger » se comptent et se filtrent ensemble.
+  wilaya                String?
+  address               String?
+  postalCode            String?
+  /// Nom / prénom séparés (annuaire). `name` reste le libellé d'affichage, recomposé à l'édition.
+  lastName              String?
+  firstName             String?
   phone                 String?
   email                 String?
   influenceLevel        InfluenceLevel      @default(MEDIUM) // hérité (remplacé par `influence`)

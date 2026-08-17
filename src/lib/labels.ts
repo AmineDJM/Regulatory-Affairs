@@ -900,6 +900,26 @@ export const THERAPEUTIC_SEGMENTS: string[] = [
   "Nutrition",
 ];
 
+/**
+ * LES 58 WILAYAS D'ALGÉRIE — liste fermée, dans l'ordre du code administratif (1 → 58).
+ *
+ * Une liste fermée, et non un champ libre : « Alger », « ALGER », « alger » ou « Wilaya d'Alger »
+ * doivent se compter et se filtrer ENSEMBLE — c'est tout l'intérêt d'une wilaya sur une fiche.
+ * Le découpage compte 58 wilayas depuis la réforme de 2019 (les dix dernières, 49 → 58, ont été
+ * érigées à partir d'anciennes circonscriptions du Sud). On stocke le seul nom : le code n'ajoute
+ * rien à l'écran et compliquerait la reconnaissance à l'import.
+ */
+export const ALGERIA_WILAYAS: string[] = [
+  "Adrar", "Chlef", "Laghouat", "Oum El Bouaghi", "Batna", "Béjaïa", "Biskra", "Béchar", "Blida",
+  "Bouira", "Tamanrasset", "Tébessa", "Tlemcen", "Tiaret", "Tizi Ouzou", "Alger", "Djelfa", "Jijel",
+  "Sétif", "Saïda", "Skikda", "Sidi Bel Abbès", "Annaba", "Guelma", "Constantine", "Médéa",
+  "Mostaganem", "M'Sila", "Mascara", "Ouargla", "Oran", "El Bayadh", "Illizi", "Bordj Bou Arréridj",
+  "Boumerdès", "El Tarf", "Tindouf", "Tissemsilt", "El Oued", "Khenchela", "Souk Ahras", "Tipaza",
+  "Mila", "Aïn Defla", "Naâma", "Aïn Témouchent", "Ghardaïa", "Relizane", "Timimoun",
+  "Bordj Badji Mokhtar", "Ouled Djellal", "Béni Abbès", "In Salah", "In Guezzam", "Touggourt",
+  "Djanet", "El M'Ghair", "El Meniaa",
+];
+
 export const PIECE_REQUEST_STATUS: Record<string, Display> = {
   PENDING: { label: "En attente de dépôt", tone: "warning" },
   SUBMITTED: { label: "Déposé — à confirmer", tone: "info" },

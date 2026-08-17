@@ -5,59 +5,59 @@ import { prisma } from "@/lib/prisma";
 import { currentCompanyWhere } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { BackLink } from "@/components/shared/back-link";
-import { DIRECTORY_COLUMNS } from "@/lib/medical/directory-sheet";
-import { directoryCell, type DirectoryExportRow } from "@/lib/medical/directory-workbook";
-import { DirectorySheetView, type DirectorySheetRow } from "./directory-sheet-view";
+import type { AnnuaireRow } from "@/lib/medical/directory-grid";
+import { AnnuaireGrid } from "./annuaire-grid";
 
 export const dynamic = "force-dynamic";
 
 /**
  * ANNUAIRE — sous-module de la Promotion médicale.
  *
- * Tous ceux avec qui l'on travaille : médecins, pharmaciens, praticiens hospitaliers. En FEUILLE,
- * parce que c'est ainsi qu'un annuaire se lit, se trie et se corrige — et parce que l'écran et le
- * classeur exporté portent alors exactement les mêmes colonnes.
+ * Tous ceux avec qui l'on travaille : médecins, pharmaciens, praticiens hospitaliers. En FEUILLE
+ * MODIFIABLE — on ne consulte pas un annuaire, on le corrige : chaque cellule s'édite sur place,
+ * les colonnes fermées (wilaya, grade, secteur, potentiel) se choisissent dans un menu, et l'on
+ * peut basculer en vue par spécialité.
  *
- * La portée est celle du module : un délégué voit ses praticiens, la direction voit tout. C'est
- * `scopeMedicalDoctors` qui décide, la même fonction que partout ailleurs — un annuaire qui
- * appliquerait sa propre règle finirait par montrer ce que le reste de l'outil cache.
+ * La portée est celle du module : un délégué voit et corrige ses praticiens, la direction voit
+ * tout. C'est `scopeMedicalDoctors` qui décide, la même fonction que partout ailleurs — et chaque
+ * écriture est revérifiée au niveau de la ligne côté serveur.
  */
 export default async function AnnuairePage() {
   const user = await requireModule("MEDICAL");
   const canImport = userCan(user, "MEDICAL", "CREATE");
+  const canEdit = userCan(user, "MEDICAL", "UPDATE");
 
-  const doctors = await prisma.medicalDoctor.findMany({
-    where: { ...scopeMedicalDoctors(user), ...currentCompanyWhere() },
-    orderBy: [{ name: "asc" }],
-    include: {
-      specialtyRef: { select: { name: true } },
-      institutionRef: { select: { name: true } },
-      delegate: { select: { name: true } },
-    },
-  });
+  const [doctors, specialtyRefs] = await Promise.all([
+    prisma.medicalDoctor.findMany({
+      where: { ...scopeMedicalDoctors(user), ...currentCompanyWhere() },
+      orderBy: [{ name: "asc" }],
+      include: { specialtyRef: { select: { name: true } } },
+    }),
+    prisma.medicalSpecialty.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
+  ]);
 
-  // Les cellules sont écrites par LA MÊME fonction que l'export : l'écran et le classeur ne
-  // peuvent donc pas raconter deux choses différentes du même praticien.
-  const rows: DirectorySheetRow[] = doctors.map((d) => {
-    const row: DirectoryExportRow = {
-      name: d.name,
-      title: d.title,
-      specialty: d.specialtyRef?.name ?? d.specialty,
-      sector: d.sector,
-      institution: d.institutionRef?.name ?? d.institution,
-      city: d.city,
-      region: d.region,
-      phone: d.phone,
-      email: d.email,
-      influence: d.influence,
-      potential: d.potential,
-      affinity: d.affinity,
-      targetProducts: d.targetProducts,
-      delegate: d.delegate?.name ?? null,
-      comments: d.comments,
-    };
-    return { id: d.id, cells: DIRECTORY_COLUMNS.map((c) => directoryCell(row, c.key)) };
-  });
+  const rows: AnnuaireRow[] = doctors.map((d) => ({
+    id: d.id,
+    lastName: d.lastName,
+    firstName: d.firstName,
+    address: d.address,
+    city: d.city,
+    wilaya: d.wilaya,
+    potential: d.potential,
+    postalCode: d.postalCode,
+    phone: d.phone,
+    // La saisie libre l'emporte à l'affichage sur le référentiel, comme à l'édition.
+    specialty: d.specialty ?? d.specialtyRef?.name ?? null,
+    title: d.title,
+    email: d.email,
+    sector: d.sector,
+  }));
+
+  // Saisie assistée de la spécialité : le référentiel structuré ET les libellés déjà employés.
+  const specialties = [...new Set([
+    ...specialtyRefs.map((s) => s.name),
+    ...rows.map((r) => r.specialty).filter((s): s is string => Boolean(s)),
+  ])].sort((a, b) => a.localeCompare(b, "fr"));
 
   return (
     <div className="space-y-5">
@@ -66,9 +66,9 @@ export default async function AnnuairePage() {
       </BackLink>
       <PageHeader
         title="Annuaire"
-        description="Tous les praticiens avec qui nous travaillons — médecins, pharmaciens, hospitaliers — en format feuille, exportable et importable."
+        description="Tous les praticiens avec qui nous travaillons — médecins, pharmaciens, hospitaliers — en feuille modifiable, exportable, avec vue par spécialité."
       />
-      <DirectorySheetView rows={rows} canImport={canImport} />
+      <AnnuaireGrid rows={rows} canEdit={canEdit} canImport={canImport} specialties={specialties} />
     </div>
   );
 }

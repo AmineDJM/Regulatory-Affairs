@@ -1,13 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { Priority, SegmentLevel } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { companyIdForNew } from "@/lib/company";
 import { readDirectoryWorkbook } from "@/lib/medical/directory-workbook";
 import { parseDirectorySheet, type DirectoryImportRow } from "@/lib/medical/directory-sheet";
+import {
+  isAnnuaireField, validateAnnuaireValue, composeDoctorName, type AnnuaireField,
+} from "@/lib/medical/directory-grid";
 import type { ActionResult } from "@/lib/actions/types";
 
 /**
@@ -120,4 +125,107 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   if (parsed.skipped > 0) parts.push(`${parsed.skipped} ligne(s) sans nom ignorée(s)`);
   if (unknownCols.length) parts.push(`colonne(s) non reconnue(s) : ${unknownCols.join(", ")}`);
   return { ok: true, message: parts.join(" · ") };
+}
+
+/** L'échelle de potentiel tient à jour l'ancien champ de priorité (lecteurs hérités). */
+const segToPriority: Record<SegmentLevel, Priority> = {
+  VERY_HIGH: "CRITICAL", HIGH: "HIGH", MEDIUM: "MEDIUM", LOW: "LOW", VERY_LOW: "LOW",
+};
+
+/**
+ * ÉCRITURE D'UNE SEULE CELLULE — l'annuaire édité comme une vraie feuille.
+ *
+ * Chaque correction (une wilaya, un grade, un numéro) part seule : on clique, on tape, on passe à
+ * la cellule suivante. Le champ est validé par le module pur (les menus déroulants n'acceptent que
+ * leurs options), la portée est la MÊME que partout ailleurs (`canAccessEntity` — un délégué ne
+ * touche que ses praticiens), et le nom d'affichage se recompose quand on change le nom ou le
+ * prénom, pour que le reste de l'outil (visites, congrès) reste cohérent.
+ */
+export async function saveDirectoryCell(input: { id: string; field: string; value: string }): Promise<ActionResult> {
+  const user = await requireUser();
+  const { id, field, value } = input;
+  if (!id) return { ok: false, error: "Fiche introuvable." };
+  if (!isAnnuaireField(field)) return { ok: false, error: "Colonne inconnue." };
+  if (!(await canAccessEntity(user, "DOCTOR", id, "UPDATE"))) return { ok: false, error: "Non autorisé à modifier cette fiche." };
+
+  const checked = validateAnnuaireValue(field as AnnuaireField, value);
+  if (!checked.ok) return { ok: false, error: checked.error };
+  const v = checked.value;
+
+  const before = await prisma.medicalDoctor.findUnique({
+    where: { id },
+    select: { firstName: true, lastName: true },
+  });
+  if (!before) return { ok: false, error: "Fiche introuvable." };
+
+  const data: Record<string, unknown> = { updatedById: user.id };
+  switch (field as AnnuaireField) {
+    case "lastName":
+    case "firstName": {
+      data[field] = v;
+      const first = field === "firstName" ? v : before.firstName;
+      const last = field === "lastName" ? v : before.lastName;
+      const name = composeDoctorName(first, last);
+      if (name) data.name = name; // un nom vide n'écrase pas le libellé existant
+      break;
+    }
+    case "specialty":
+      // La saisie libre prend le pas sur le référentiel : ce qu'on tape doit s'afficher.
+      data.specialty = v;
+      data.specialtyId = null;
+      break;
+    case "potential":
+      data.potential = v;
+      data.prescriptionPotential = segToPriority[v as SegmentLevel];
+      break;
+    default:
+      data[field] = v; // address, city, wilaya, postalCode, phone, email, title, sector
+  }
+
+  await prisma.medicalDoctor.update({ where: { id }, data });
+  revalidatePath("/medical/annuaire");
+  revalidatePath("/medical");
+  return { ok: true };
+}
+
+/**
+ * AJOUTER UNE LIGNE — un praticien de plus dans la feuille.
+ *
+ * Un annuaire vivant se complète à la main, pas seulement par import. On exige au moins un nom
+ * (une fiche sans nom n'est pas une fiche) ; le reste se remplit ensuite, cellule par cellule.
+ */
+export async function addDirectoryDoctor(input: {
+  lastName: string; firstName: string; specialty: string; wilaya: string;
+}): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé à alimenter l'annuaire." };
+
+  const lastName = input.lastName.replace(/\s+/g, " ").trim();
+  const firstName = input.firstName.replace(/\s+/g, " ").trim();
+  const name = composeDoctorName(firstName, lastName);
+  if (!name) return { ok: false, error: "Le nom (ou le prénom) est obligatoire." };
+
+  const wilaya = validateAnnuaireValue("wilaya", input.wilaya);
+  if (!wilaya.ok) return { ok: false, error: wilaya.error };
+  const specialty = input.specialty.replace(/\s+/g, " ").trim() || null;
+
+  // Un délégué est propriétaire des fiches qu'il crée (portée au niveau ligne).
+  const delegateId = user.role === "MEDICAL_DELEGATE" ? user.id : null;
+  const companyId = await companyIdForNew(user.id);
+
+  const created = await prisma.medicalDoctor.create({
+    data: {
+      name, lastName: lastName || null, firstName: firstName || null,
+      specialty, wilaya: wilaya.value, delegateId, companyId,
+      createdById: user.id, updatedById: user.id,
+    },
+    select: { id: true },
+  });
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Promotion médicale",
+    entityType: "DOCTOR", entityId: created.id, summary: `Annuaire — fiche « ${name} »`,
+  });
+  revalidatePath("/medical/annuaire");
+  revalidatePath("/medical");
+  return { ok: true, id: created.id };
 }

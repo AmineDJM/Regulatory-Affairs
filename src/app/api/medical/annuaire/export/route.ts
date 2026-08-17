@@ -4,11 +4,12 @@ import { userCan, scopeMedicalDoctors } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { currentCompanyWhere } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
-import { buildDirectoryWorkbook, type DirectoryExportRow } from "@/lib/medical/directory-workbook";
+import { buildAnnuaireWorkbook } from "@/lib/medical/directory-workbook";
 import { directoryExportFilename } from "@/lib/medical/directory-sheet";
+import type { AnnuaireRow } from "@/lib/medical/directory-grid";
 
 /**
- * EXPORT DE L'ANNUAIRE EN CLASSEUR.
+ * EXPORT DE L'ANNUAIRE EN CLASSEUR — exactement les colonnes de l'écran.
  *
  * La PORTÉE gouverne, ici comme partout : un délégué exporte ses praticiens, pas ceux des
  * autres. `scopeMedicalDoctors` est la même fonction que celle qui filtre l'écran — un export
@@ -22,32 +23,26 @@ export async function GET() {
   const doctors = await prisma.medicalDoctor.findMany({
     where: { ...scopeMedicalDoctors(user), ...currentCompanyWhere() },
     orderBy: [{ name: "asc" }],
-    include: {
-      specialtyRef: { select: { name: true } },
-      institutionRef: { select: { name: true } },
-      delegate: { select: { name: true } },
-    },
+    include: { specialtyRef: { select: { name: true } } },
   });
 
-  const rows: DirectoryExportRow[] = doctors.map((d) => ({
-    name: d.name,
-    title: d.title,
-    specialty: d.specialtyRef?.name ?? d.specialty,
-    sector: d.sector,
-    institution: d.institutionRef?.name ?? d.institution,
+  const rows: AnnuaireRow[] = doctors.map((d) => ({
+    id: d.id,
+    lastName: d.lastName,
+    firstName: d.firstName,
+    address: d.address,
     city: d.city,
-    region: d.region,
-    phone: d.phone,
-    email: d.email,
-    influence: d.influence,
+    wilaya: d.wilaya,
     potential: d.potential,
-    affinity: d.affinity,
-    targetProducts: d.targetProducts,
-    delegate: d.delegate?.name ?? null,
-    comments: d.comments,
+    postalCode: d.postalCode,
+    phone: d.phone,
+    specialty: d.specialty ?? d.specialtyRef?.name ?? null,
+    title: d.title,
+    email: d.email,
+    sector: d.sector,
   }));
 
-  const buffer = buildDirectoryWorkbook(rows);
+  const buffer = buildAnnuaireWorkbook(rows);
   await recordAudit({
     actorId: user.id, action: "EXPORT", module: "Promotion médicale",
     summary: `Export de l'annuaire — ${rows.length} praticien(s)`,
