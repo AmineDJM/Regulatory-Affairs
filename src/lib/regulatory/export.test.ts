@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import {
-  buildRegulatoryWorkbook, exportRowValues, EXPORT_COLUMNS,
+  buildRegulatoryWorkbook, exportRowValues, EXPORT_COLUMNS, PRIORITY_FILL,
   frDate, dosageLabel, regulatoryExportFilename, type RegulatoryExportRow,
 } from "./export";
 
@@ -63,33 +63,34 @@ describe("dosageLabel", () => {
   });
 });
 
-describe("exportRowValues", () => {
+describe("Les colonnes voulues par le métier — et elles seules", () => {
+  it("porte exactement les huit colonnes demandées, dans l'ordre", () => {
+    expect([...EXPORT_COLUMNS]).toEqual([
+      "DCI", "Dosage", "Forme", "Laboratoire partenaire",
+      "Statut de fabrication", "Niveau de process", "Priorité", "Chargé du dossier",
+    ]);
+  });
+
   it("traduit les codes en libellés lisibles — un classeur sort de l'outil", () => {
     const v = exportRowValues(row());
+    expect(v[EXPORT_COLUMNS.indexOf("DCI")]).toBe("FINGOLIMOD");
+    expect(v[EXPORT_COLUMNS.indexOf("Dosage")]).toBe("0.5 mg");
     expect(v[EXPORT_COLUMNS.indexOf("Forme")]).toBe("Gélule");
-    expect(v[EXPORT_COLUMNS.indexOf("Catégorie")]).toBe("Médicament");
     expect(v[EXPORT_COLUMNS.indexOf("Priorité")]).toBe("Critique");
+    expect(v[EXPORT_COLUMNS.indexOf("Chargé du dossier")]).toBe("Amina B.");
     expect(v).not.toContain("COMPRIME_PELLICULE");
   });
 
-  it("dit si le statut de fabrication est DÉCLARÉ ou ACQUIS", () => {
-    expect(exportRowValues(row())[EXPORT_COLUMNS.indexOf("Origine du statut")]).toBe("Déclaré sur la fiche");
-    expect(exportRowValues(row({ manufacturingSource: "VARIATION" }))[EXPORT_COLUMNS.indexOf("Origine du statut")])
-      .toBe("Variation obtenue");
-  });
-
-  it("recompose l'association de molécules", () => {
-    const v = exportRowValues(row({ molecules: ["TAMSULOSINE", "TADALAFIL"] }));
-    expect(v[EXPORT_COLUMNS.indexOf("Molécules")]).toBe("TAMSULOSINE + TADALAFIL");
-  });
-
-  it("rend l'avancement en ratio (mis en forme en % dans le classeur)", () => {
-    expect(exportRowValues(row())[EXPORT_COLUMNS.indexOf("Avancement")]).toBe(0.18);
-    expect(exportRowValues(row({ stepsDone: 0, stepsTotal: 0 }))[EXPORT_COLUMNS.indexOf("Avancement")]).toBe(0);
+  it("ne confond pas « statut de fabrication » et « niveau de process »", () => {
+    // Deux notions différentes : la profondeur industrielle d'un côté, l'avancement de la
+    // procédure de l'autre. Les intitulés avaient déjà été inversés une fois.
+    const v = exportRowValues(row());
+    expect(v[EXPORT_COLUMNS.indexOf("Statut de fabrication")]).toBe("Full Process");
+    expect(v[EXPORT_COLUMNS.indexOf("Niveau de process")]).toBe("Pré-soumission");
   });
 
   it("écrit une chaîne vide, jamais « null », pour un champ absent", () => {
-    expect(exportRowValues(row()).filter((v) => typeof v === "string" && /null|undefined/.test(v))).toEqual([]);
+    expect(exportRowValues(row()).filter((v) => /null|undefined/.test(v))).toEqual([]);
   });
 
   it("rend autant de valeurs que de colonnes — sinon tout le tableau se décale", () => {
@@ -98,26 +99,50 @@ describe("exportRowValues", () => {
 });
 
 describe("buildRegulatoryWorkbook", () => {
-  it("produit un classeur relisible, en-tête compris", () => {
-    const buf = buildRegulatoryWorkbook([row(), row({ reference: "REG-2026-002", dci: "CLADRIBINE" })]);
-    const wb = XLSX.read(buf, { type: "buffer" });
-    expect(wb.SheetNames).toEqual(["Dossiers"]);
-    const rows = XLSX.utils.sheet_to_json<string[]>(wb.Sheets.Dossiers, { header: 1, raw: false });
-    expect(rows[0]).toEqual([...EXPORT_COLUMNS]);
-    expect(rows).toHaveLength(3);
-    expect(rows[2][1]).toBe("CLADRIBINE");
+  /** Relit le classeur produit — la seule façon de vérifier ce qui sort vraiment. */
+  const reopen = async (rows: RegulatoryExportRow[]) => {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(await buildRegulatoryWorkbook(rows));
+    return wb.getWorksheet("Dossiers")!;
+  };
+
+  it("produit un classeur relisible, en-tête compris", async () => {
+    const ws = await reopen([row(), row({ dci: "CLADRIBINE" })]);
+    expect(ws.getRow(1).values).toEqual([undefined, ...EXPORT_COLUMNS]);
+    expect(ws.rowCount).toBe(3);
+    expect(ws.getRow(3).getCell(1).value).toBe("CLADRIBINE");
   });
 
-  it("pose un filtre et fige l'en-tête — un tableau de 69 lignes se lit autrement", () => {
-    const buf = buildRegulatoryWorkbook([row()]);
-    const wb = XLSX.read(buf, { type: "buffer" });
-    expect(wb.Sheets.Dossiers["!autofilter"]).toBeTruthy();
+  it("PEINT la priorité — sur soixante-neuf lignes, « Critique » en noir ne se voit pas", async () => {
+    const ws = await reopen([row({ priority: "CRITICAL" }), row({ priority: "LOW" })]);
+    const col = EXPORT_COLUMNS.indexOf("Priorité") + 1;
+
+    const critical = ws.getRow(2).getCell(col);
+    expect((critical.fill as ExcelJS.FillPattern).fgColor?.argb).toBe(PRIORITY_FILL.CRITICAL.bg);
+    expect((critical.font as ExcelJS.Font).color?.argb).toBe(PRIORITY_FILL.CRITICAL.fg);
+
+    // Chaque priorité a SA couleur : deux priorités qui se ressemblent ne trient rien.
+    const low = ws.getRow(3).getCell(col);
+    expect((low.fill as ExcelJS.FillPattern).fgColor?.argb).toBe(PRIORITY_FILL.LOW.bg);
+    expect((low.fill as ExcelJS.FillPattern).fgColor?.argb)
+      .not.toBe((critical.fill as ExcelJS.FillPattern).fgColor?.argb);
   });
 
-  it("accepte une liste vide : un export sans résultat reste un fichier valide", () => {
-    const wb = XLSX.read(buildRegulatoryWorkbook([]), { type: "buffer" });
-    const rows = XLSX.utils.sheet_to_json<string[]>(wb.Sheets.Dossiers, { header: 1, raw: false });
-    expect(rows).toHaveLength(1);
+  it("donne une couleur distincte aux quatre priorités", () => {
+    const backgrounds = Object.values(PRIORITY_FILL).map((p) => p.bg);
+    expect(new Set(backgrounds).size).toBe(4);
+  });
+
+  it("pose un filtre et fige l'en-tête — un tableau de 69 lignes se lit autrement", async () => {
+    const ws = await reopen([row()]);
+    expect(ws.autoFilter).toBeTruthy();
+    expect(ws.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
+  });
+
+  it("accepte une liste vide : un export sans résultat reste un fichier valide", async () => {
+    const ws = await reopen([]);
+    expect(ws.rowCount).toBe(1);
+    expect(ws.getRow(1).values).toEqual([undefined, ...EXPORT_COLUMNS]);
   });
 });
 

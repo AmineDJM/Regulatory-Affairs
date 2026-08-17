@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
     };
   });
 
-  const buffer = buildRegulatoryWorkbook(rows);
+  const buffer = await buildRegulatoryWorkbook(rows);
   await recordAudit({
     actorId: user.id, action: "EXPORT", module: "Regulatory",
     summary: `Export Excel de ${rows.length} dossier(s) réglementaire(s)`,
