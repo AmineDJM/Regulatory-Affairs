@@ -53,7 +53,7 @@ export function CashPanel({ view, people, articles, budgetTargets = [] }: { view
         <>
           <div className="flex flex-wrap items-center gap-2">
             <Wallet className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold">Caisse d&apos;avance — {periodLabel(cash.period)}</h2>
+            <h2 className="text-sm font-semibold">Caisse du mois — {periodLabel(cash.period)}</h2>
             <Badge tone={PETTY_CASH_STATUS_LABEL[cash.status].tone} dot={false}>
               {PETTY_CASH_STATUS_LABEL[cash.status].label}
             </Badge>
@@ -147,7 +147,7 @@ export function CashPanel({ view, people, articles, budgetTargets = [] }: { view
       ) : (
         <EmptyState
           icon="Wallet"
-          title="Aucune caisse d'avance ce mois-ci"
+          title="Aucune caisse ce mois-ci"
           description={view.canAllot
             ? "Remettez une somme à la personne qui achète au quotidien : elle confirmera l'avoir reçue, puis y imputera ses dépenses."
             : "L'administration n'a pas encore remis de somme pour ce mois."}
@@ -231,8 +231,8 @@ export function CashPanel({ view, people, articles, budgetTargets = [] }: { view
             <input type="file" name="files" multiple required className="mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
           </label>
           <p className="text-[0.6875rem] text-muted-foreground">
-            La dépense est déduite de la caisse <strong>et</strong> imputée au budget des moyens généraux :
-            c&apos;est le même argent, vu de deux endroits.
+            La dépense est déduite de la caisse du mois <strong>et</strong> de la caisse de l&apos;exercice :
+            c&apos;est le même argent, vu à deux horizons.
           </p>
           <div className="flex gap-2">
             <Button size="sm" type="submit" disabled={busy === "spend"}>

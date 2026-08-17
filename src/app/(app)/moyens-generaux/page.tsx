@@ -31,10 +31,12 @@ export const metadata = { title: "Moyens généraux — AMD Internal OS" };
  * reste-t-il de quoi payer ? » exigeait d'additionner à la main, en espérant n'avoir rien
  * oublié.
  *
- * Un seul écran répond désormais aux trois questions, dans l'ordre où elles se posent :
- * l'enveloppe de l'année (ai-je le droit ?), la caisse d'avance (ai-je de quoi payer ?), et le
- * détail des dépenses avec leurs pièces (où est passé l'argent ?). Chaque dépense porte sa
- * facture ou son bon de paiement — sans pièce, une ligne n'est qu'une affirmation.
+ * Un seul écran, une seule notion : LA CAISSE. Elle se lit à deux horizons — la caisse de
+ * l'exercice (la dotation de l'année, ce qu'on a le droit de dépenser) et la caisse du mois
+ * (l'argent en main aujourd'hui). Ce n'est pas un budget d'un côté et une caisse de l'autre :
+ * c'est le même argent, la caisse du mois étant prélevée sur celle de l'exercice. Puis le détail
+ * des dépenses avec leurs pièces (où est passé l'argent ?). Chaque dépense porte sa facture ou
+ * son bon de paiement — sans pièce, une ligne n'est qu'une affirmation.
  */
 export default async function MoyensGenerauxPage({
   searchParams,
@@ -49,7 +51,7 @@ export default async function MoyensGenerauxPage({
   if (!departmentId) {
     return (
       <div className="space-y-5">
-        <PageHeader title="Moyens généraux" description="Le budget, les achats et la caisse d'avance d'un département, au même endroit." />
+        <PageHeader title="Moyens généraux" description="La caisse d'un département — l'exercice et le mois — et ses achats, au même endroit." />
         <EmptyState
           icon="Building2"
           title="Aucun département rattaché à votre compte"
@@ -109,7 +111,7 @@ export default async function MoyensGenerauxPage({
     <div className="space-y-5">
       <PageHeader
         title={`Moyens généraux — ${view.department.path}`}
-        description="Le budget de l'exercice, la caisse d'avance du mois et le détail des dépenses, avec leurs justificatifs. Tout achat porte sa facture ou son bon de paiement."
+        description="La caisse à deux horizons — l'exercice (l'année) et le mois — et le détail des dépenses avec leurs justificatifs. Tout achat porte sa facture ou son bon de paiement."
       >
         {departments.length > 1 && <DepartmentSwitcher departments={departments} current={view.department.id} year={year} />}
         {canManageCatalog && <SuppliesManager articles={catalogRows} />}
@@ -122,14 +124,14 @@ export default async function MoyensGenerauxPage({
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label={`${DEPT_BUDGET_LABEL.OPERATING} ${year}`} value={formatCurrency(view.allocated)} icon="Wallet" />
+        <KpiCard label={`Caisse de l'exercice ${year}`} value={formatCurrency(view.allocated)} icon="Wallet" />
         <KpiCard
-          label={`Consommé — ${DEPT_BUDGET_LABEL.OPERATING}`} value={formatCurrency(view.consumed)} icon="Receipt" tone={tone}
-          hint={view.allocated > 0 ? `${consumedPercent(view.allocated, view.consumed)} % de l'enveloppe` : "aucune enveloppe réglée"}
+          label="Consommé (année)" value={formatCurrency(view.consumed)} icon="Receipt" tone={tone}
+          hint={view.allocated > 0 ? `${consumedPercent(view.allocated, view.consumed)} % de la caisse annuelle` : "aucune caisse annuelle réglée"}
         />
-        <KpiCard label="Restant sur l'enveloppe" value={formatCurrency(view.remaining)} icon="PiggyBank" tone={view.remaining < 0 ? "danger" : "default"} />
+        <KpiCard label="Restant sur l'année" value={formatCurrency(view.remaining)} icon="PiggyBank" tone={view.remaining < 0 ? "danger" : "default"} />
         <KpiCard
-          label="Reste en caisse" value={view.cash ? formatCurrency(view.cash.balance.remaining) : "—"} icon="HandCoins"
+          label="Reste en caisse ce mois" value={view.cash ? formatCurrency(view.cash.balance.remaining) : "—"} icon="HandCoins"
           tone={view.cash?.balance.overspent ? "danger" : view.cash?.balance.lowOnCash ? "warning" : "info"}
           hint={view.cash ? undefined : "aucune caisse ce mois-ci"}
         />
@@ -137,14 +139,14 @@ export default async function MoyensGenerauxPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Wallet className="h-4 w-4 text-primary" /> Caisse d&apos;avance</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Wallet className="h-4 w-4 text-primary" /> Caisse du mois</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="mb-3 text-xs text-muted-foreground">
-            L&apos;argent <strong>en main</strong>, distinct du budget qui dit ce qu&apos;on a le <strong>droit</strong> de
-            dépenser. L&apos;administration remet une somme chaque mois ; la personne qui la détient confirme
-            l&apos;avoir reçue, puis chaque dépense en est déduite, justificatif scanné à l&apos;appui, jusqu&apos;à
-            épuisement — moment où elle demande une rallonge.
+            La part de la caisse de l&apos;exercice <strong>en main ce mois-ci</strong> — pas un budget à côté,
+            le <strong>même argent</strong>. L&apos;administration remet une somme chaque mois ; la personne qui la
+            détient confirme l&apos;avoir reçue, puis chaque dépense en est déduite, justificatif scanné à
+            l&apos;appui, jusqu&apos;à épuisement — moment où elle demande une rallonge.
           </p>
           <CashPanel view={view} people={people} articles={articleOptions} budgetTargets={budgetTargets} />
         </CardContent>
@@ -153,13 +155,13 @@ export default async function MoyensGenerauxPage({
       <Card>
         <CardHeader>
           <CardTitle>Toutes les dépenses {year} ({view.expenseCount})</CardTitle>
-          {/* La liste MÊLE les natures ; l'enveloppe affichée plus haut, elle, n'en porte
+          {/* La liste MÊLE les natures ; la caisse affichée plus haut, elle, n'en porte
               qu'une. Sans cette phrase, la somme des lignes ne retomberait pas sur le
               « Consommé » et on croirait à une erreur de calcul. */}
           {view.otherConsumed > 0 && (
             <p className="text-xs text-muted-foreground">
-              Dont <strong>{formatCurrency(view.otherConsumed)}</strong> imputés à d&apos;autres enveloppes
-              (budget métier, formation) — non déduits des {DEPT_BUDGET_LABEL.OPERATING.toLowerCase()}.
+              Dont <strong>{formatCurrency(view.otherConsumed)}</strong> imputés à d&apos;autres budgets
+              (métier, formation) — non déduits de la caisse des {DEPT_BUDGET_LABEL.OPERATING.toLowerCase()}.
             </p>
           )}
           {view.truncated && (
@@ -171,9 +173,9 @@ export default async function MoyensGenerauxPage({
         {view.canSpend && (
           <CardContent className="pb-0">
             <p className="mb-2 text-xs text-muted-foreground">
-              Un achat réglé <strong>autrement que par la caisse</strong> (virement, carte, facture payée par les
+              Un achat réglé <strong>autrement que par la caisse du mois</strong> (virement, carte, facture payée par les
               Finances) s&apos;enregistre ici : montant, scan de la facture ou du bon de paiement — et il est
-              <strong> déduit du budget</strong>.
+              <strong> déduit de la caisse de l&apos;exercice</strong>.
             </p>
             <ExpensePanel departmentId={view.department.id} year={year} remaining={view.remaining} articles={articleOptions} budgetTargets={budgetTargets} />
           </CardContent>
@@ -181,8 +183,8 @@ export default async function MoyensGenerauxPage({
         <CardContent className="p-0">
           {view.expenses.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">
-              Aucune dépense imputée cette année. Les achats enregistrés ici alimentent la consommation du budget —
-              c&apos;est ce qui permet de confronter l&apos;enveloppe à ce qui en a réellement été dépensé.
+              Aucune dépense imputée cette année. Les achats enregistrés ici alimentent la consommation de la caisse —
+              c&apos;est ce qui permet de confronter la caisse de l&apos;exercice à ce qui en a réellement été dépensé.
             </p>
           ) : (
             <ul className="divide-y divide-border">

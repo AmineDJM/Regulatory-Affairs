@@ -98,7 +98,7 @@ export function ExpensePanel({
             <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 p-2 text-xs text-muted-foreground">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
               <span>
-                Ce montant dépasse ce qu&apos;il reste sur l&apos;enveloppe ({formatCurrency(remaining)}). La dépense
+                Ce montant dépasse ce qu&apos;il reste sur la caisse de l&apos;exercice ({formatCurrency(remaining)}). La dépense
                 sera enregistrée — mais le budget passera en dépassement, et cela se verra.
               </span>
             </p>
