@@ -929,6 +929,48 @@ export const ALGERIA_WILAYAS: string[] = [
   "Djanet", "El M'Ghair", "El Meniaa",
 ];
 
+/** LEGAL — nature d'un engagement. Les bons de commande vivent ici avec les contrats. */
+export const LEGAL_DOC_KIND: Record<string, string> = {
+  CONTRACT: "Contrat",
+  PURCHASE_ORDER: "Bon de commande",
+  AGREEMENT: "Convention / accord-cadre",
+  NDA: "Accord de confidentialité",
+  INSURANCE: "Assurance",
+  LICENSE: "Licence / autorisation",
+  LEASE: "Bail",
+  OTHER: "Autre",
+};
+
+export const LEGAL_DOC_STATUS: Record<string, Display> = {
+  ACTIVE: { label: "En vigueur", tone: "success" },
+  EXPIRED: { label: "Échu", tone: "danger" },
+  RENEWED: { label: "Renouvelé", tone: "info" },
+  CANCELLED: { label: "Annulé", tone: "neutral" },
+};
+
+/** L'urgence d'une échéance — même échelle que le module pur `legal/lifecycle`. */
+export const LEGAL_EXPIRY_LEVEL: Record<string, Display> = {
+  NONE: { label: "Sans échéance", tone: "neutral" },
+  SCHEDULED: { label: "À terme", tone: "neutral" },
+  SOON: { label: "Échéance < 3 mois", tone: "warning" },
+  IMMINENT: { label: "Échéance < 1 mois", tone: "danger" },
+  OVERDUE: { label: "Échéance dépassée", tone: "danger" },
+};
+
+/** COURRIERS — sens du pli. */
+export const MAIL_DIRECTION: Record<string, Display> = {
+  INCOMING: { label: "Entrant", tone: "info" },
+  OUTGOING: { label: "Sortant", tone: "purple" },
+};
+
+/** FACTURES — état de règlement. */
+export const INVOICE_STATUS: Record<string, Display> = {
+  UNPAID: { label: "À régler", tone: "warning" },
+  PARTIAL: { label: "Partiellement réglée", tone: "info" },
+  PAID: { label: "Réglée", tone: "success" },
+  CANCELLED: { label: "Annulée", tone: "neutral" },
+};
+
 export const PIECE_REQUEST_STATUS: Record<string, Display> = {
   PENDING: { label: "En attente de dépôt", tone: "warning" },
   SUBMITTED: { label: "Déposé — à confirmer", tone: "info" },
@@ -1333,6 +1375,8 @@ export const ADMIN_TABS: NavTab[] = [
  */
 export const MODULE_LABELS: Record<Module, string> = {
   GENERAL_MEANS: "Moyens généraux",
+  LEGAL: "Legal",
+  MAIL_REGISTER: "Courriers",
   DASHBOARD: "Dashboard",
   WORKSPACE: "Espace de travail",
   MESSAGING: "Messagerie",
@@ -1424,9 +1468,16 @@ export const NAVIGATION: NavItem[] = [
     module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION",
     children: [
       { module: "FINANCES", label: "Règlements à effectuer", href: "/finances/ordres-de-depense", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
+      { module: "FINANCES", label: "Factures", href: "/finances/factures", icon: "ReceiptText", group: "Pôles", pole: "ADMINISTRATION" },
     ],
   },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", pole: "ADMINISTRATION", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie", "/formations"] },
+  // LEGAL — les engagements de la société : contrats, bons de commande, assurances, baux. Le
+  // fichier reste dans le Drive ; Legal porte ce que le Drive ne sait pas dire (dates, échéance,
+  // partie en face) et rappelle avant l'échéance.
+  { module: "LEGAL", label: "Legal", href: "/legal", icon: "Scale", group: "Pôles", pole: "ADMINISTRATION" },
+  // COURRIERS — le carnet entrant/sortant de l'assistante de direction.
+  { module: "MAIL_REGISTER", label: "Courriers", href: "/courriers", icon: "Mails", group: "Pôles", pole: "ADMINISTRATION" },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages"] },
 
   // SALES & MARKETING — tout ce qui touche au terrain et au business réalisé. L'annuaire des

@@ -859,6 +859,9 @@ model User {
   outboundEmails         OutboundEmail[]           @relation("OutboundEmails")
   tasksAssigned          Task[]                    @relation("TaskAssignee")
   tasksCreated           Task[]                    @relation("TaskCreator")
+  legalDocsCreated       LegalDocument[]           @relation("LegalDocCreator")
+  mailEntriesCreated     MailEntry[]               @relation("MailEntryCreator")
+  invoicesCreated        Invoice[]                 @relation("InvoiceCreator")
   leaveDecisions         LeaveRequest[]            @relation("LeaveDecider")
   advanceDecisions       SalaryAdvance[]           @relation("AdvanceDecider")
   expenseOrders          ExpenseOrder[]            @relation("ExpenseOrderRequester")
@@ -1122,6 +1125,9 @@ model Company {
   updatedAt   DateTime @updatedAt
 
   regulatoryProducts      RegulatoryProduct[]
+  legalDocuments          LegalDocument[]
+  mailEntries             MailEntry[]
+  invoices                Invoice[]
   pchTenders              PchTender[]
   employees               Employee[]
   promoMaterials          PromoMaterial[]
@@ -3665,6 +3671,7 @@ model DriveNode {
   category    String? // classement choisi à l'import (Contrat, Facture, Réglementaire…)
   isTrashed   Boolean        @default(false)
   versions    FileVersion[]
+  legalDocs   LegalDocument[]
   shares      DriveShare[]
   comments    DriveComment[]
   createdById String?
@@ -7503,4 +7510,162 @@ model PaymentRequestEvent {
   at        DateTime       @default(now())
 
   @@index([requestId, at])
+}
+
+// ───────────────────────────── LEGAL — les engagements de la société ─────────────────────────────
+
+/// Nature d'un document légal. Les BONS DE COMMANDE vivent ici avec les contrats : ce sont des
+/// engagements de la société, ils se relisent et s'opposent de la même façon.
+enum LegalDocKind {
+  CONTRACT // contrat (prestation, distribution…)
+  PURCHASE_ORDER // bon de commande
+  AGREEMENT // convention / accord-cadre
+  NDA // accord de confidentialité
+  INSURANCE // police d'assurance
+  LICENSE // licence / autorisation
+  LEASE // bail
+  OTHER
+}
+
+/// État d'un document légal. `PERPETUAL` n'existe pas : un document SANS date de fin reste
+/// simplement ACTIVE — c'est l'absence d'échéance qui le dit, pas un statut de plus.
+enum LegalDocStatus {
+  ACTIVE // en vigueur
+  EXPIRED // échéance passée
+  RENEWED // remplacé par un renouvellement (la suite vit dans un autre document)
+  CANCELLED // annulé avant terme
+}
+
+/// UN ENGAGEMENT DE LA SOCIÉTÉ — contrat, bon de commande, convention, assurance.
+///
+/// Le document lui-même reste où il est : dans le DRIVE. On n'en fait pas une copie (deux
+/// fichiers divergent toujours) — on pointe vers lui (`driveNodeId`). Le Legal ajoute ce que le
+/// Drive ne sait pas dire : le titre exact, les dates, l'échéance, qui est en face, et ce qu'il
+/// advient du document (renouvelé, annulé).
+model LegalDocument {
+  custom        Json?
+  id            String          @id @default(cuid())
+  companyId     String?
+  company       Company?        @relation(fields: [companyId], references: [id])
+  reference     String? // référence interne / n° de BC
+  title         String // le titre EXACT, tel qu'il figure sur la pièce
+  kind          LegalDocKind    @default(CONTRACT)
+  counterparty  String? // l'autre partie (fournisseur, client, prestataire)
+  /// Dates FACULTATIVES : beaucoup d'engagements n'ont pas de terme (statuts, police tacite).
+  /// `endDate` nul = sans échéance — jamais « expiré », jamais rappelé.
+  startDate     DateTime?
+  endDate       DateTime?
+  status        LegalDocStatus  @default(ACTIVE)
+  amount        Decimal?        @db.Decimal(14, 2)
+  notes         String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+  /// Chaîne de RENOUVELLEMENT : le nouveau document pointe vers celui qu'il remplace, et
+  /// l'ancien passe en RENEWED. On garde les deux — un renouvellement n'efface pas le passé.
+  renewedFromId String?
+  renewedFrom   LegalDocument?  @relation("LegalRenewal", fields: [renewedFromId], references: [id])
+  renewals      LegalDocument[] @relation("LegalRenewal")
+  /// LE FICHIER RESTE DANS LE DRIVE : on le référence, on ne le duplique pas.
+  driveNodeId   String?
+  driveNode     DriveNode?      @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
+  /// Rattachement à ce qui l'a fait naître (demande Ad & Pro, demande au secrétariat…).
+  sourceType    EntityType?
+  sourceId      String?
+  /// Dernier rappel d'échéance envoyé — évite de renotifier tous les jours.
+  lastRemindedAt DateTime?
+  createdById   String?
+  createdBy     User?           @relation("LegalDocCreator", fields: [createdById], references: [id])
+  updatedById   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([companyId, status])
+  @@index([kind])
+  @@index([endDate])
+  @@index([sourceType, sourceId])
+  @@index([driveNodeId])
+}
+
+// ───────────────────────────── COURRIERS — le carnet entrant / sortant ─────────────────────────────
+
+enum MailDirection {
+  INCOMING // courrier reçu
+  OUTGOING // courrier expédié
+}
+
+/// UN COURRIER, ENTRANT OU SORTANT — le carnet de l'assistante de direction.
+///
+/// Les quatre dates ne disent pas la même chose et se remplissent à des moments différents :
+/// on POSTE (`sentAt`, avec l'heure), le pli ARRIVE (`receivedAt`), et l'on récupère
+/// l'ACCUSÉ (`acknowledgedAt`). Aucune n'est obligatoire : un courrier qu'on vient de déposer
+/// n'a encore ni arrivée ni accusé.
+model MailEntry {
+  custom         Json?
+  id             String        @id @default(cuid())
+  companyId      String?
+  company        Company?      @relation(fields: [companyId], references: [id])
+  reference      String? // n° de chrono
+  title          String
+  direction      MailDirection
+  sender         String? // expéditeur (surtout pour un entrant)
+  recipient      String? // destinataire (surtout pour un sortant)
+  sentAt         DateTime? // date ET heure de départ
+  receivedAt     DateTime? // date d'arrivée
+  acknowledgedAt DateTime? // date d'accusé de réception
+  carrier        String? // porteur / transporteur (coursier, poste, e-mail…)
+  notes          String?
+  sourceType     EntityType?
+  sourceId       String?
+  createdById    String?
+  createdBy      User?         @relation("MailEntryCreator", fields: [createdById], references: [id])
+  updatedById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([companyId, direction])
+  @@index([sentAt])
+  @@index([receivedAt])
+  @@index([sourceType, sourceId])
+}
+
+// ───────────────────────────── FACTURES ─────────────────────────────
+
+enum InvoiceStatus {
+  UNPAID // émise, non réglée
+  PARTIAL // partiellement réglée
+  PAID // réglée
+  CANCELLED
+}
+
+/// UNE FACTURE — reçue ou émise, avec sa pièce et son règlement.
+///
+/// `payer` et `recipient` sont écrits en clair et non déduits du sens : la même société peut
+/// être l'un ou l'autre selon la facture, et c'est justement ce qu'on vient vérifier.
+model Invoice {
+  custom      Json?
+  id          String        @id @default(cuid())
+  companyId   String?
+  company     Company?      @relation(fields: [companyId], references: [id])
+  number      String? // n° de facture
+  title       String
+  issueDate   DateTime? // date d'émission
+  dueDate     DateTime? // échéance de règlement
+  paidDate    DateTime? // date de paiement effectif
+  amount      Decimal?      @db.Decimal(14, 2)
+  status      InvoiceStatus @default(UNPAID)
+  recipient   String? // destinataire (à qui la facture est adressée)
+  payer       String? // payeur (qui règle)
+  notes       String?
+  sourceType  EntityType?
+  sourceId    String?
+  createdById String?
+  createdBy   User?         @relation("InvoiceCreator", fields: [createdById], references: [id])
+  updatedById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([companyId, status])
+  @@index([issueDate])
+  @@index([paidDate])
+  @@index([sourceType, sourceId])
 }
