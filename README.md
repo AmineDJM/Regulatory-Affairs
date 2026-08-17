@@ -208,9 +208,11 @@ jamais identique.
 | **Feedback** | `/feedback` | Retour libre utilisateur → admin, **+ boîte de réception** : les réponses de l'administration s'affichent à l'utilisateur (avec notification). |
 
 > **Menu simplifié** : modules fusionnés en **onglets** — « Mon espace » (Mon travail · Mon espace · Directives),
-> « Ad & Pro » (Sponsoring · Congrès · Événements · Matériel promotionnel), « **Drive** » (Drive personnel + **catégories partagées** ; l'onglet « Documents » a été retiré, tout est consolidé dans le Drive),
-> « Mon dossier RH » (RH perso · Mes ordres de mission). **Messagerie** et **Notifications** restent accessibles
-> via leurs **icônes** dans la barre du haut.
+> « Ad & Pro » (Sponsoring · Congrès · Événements · Matériel promotionnel · **Consulting** · **Autres demandes**), « **Drive** » (Drive personnel + **catégories partagées** ; l'onglet « Documents » a été retiré, tout est consolidé dans le Drive),
+> « Mon dossier RH » (RH perso · Mes ordres de mission), « Mon espace » porte aussi **Pièces demandées**.
+> La **messagerie e-mail Microsoft 365** est dans **Pilotage** (on relève ses mails en même temps qu'on
+> regarde son espace, pas en même temps qu'on range un fichier). **Messagerie interne** et
+> **Notifications** restent accessibles via leurs **icônes** dans la barre du haut.
 
 ### Système
 
@@ -378,6 +380,35 @@ Demande (délégué + budget estimé)
 > produit → la Direction tranche définitivement. Pour les congrès/événements pris en charge, on saisit la **liste
 > des personnes prises en charge** (avec pièces d'identité) et un **ordre de mission**.
 
+**Sept natures, une seule porte.** Sponsoring, prise en charge internationale, prise en charge
+nationale, événement, matériel promotionnel, **consulting** et **autre** : pour celui qui demande,
+autant de façons de poser la même question. « Nouvelle demande » (`/ad-pro`) demande donc *ce qu'on
+veut faire*, dans ses mots, et **le formulaire de la nature choisie s'ouvre sur place** — on ne
+quitte plus Ad & Pro. Les CHAMPS restent ceux de la nature, et ce sont les **mêmes objets** que sur
+son écran d'origine (`RecordForm`, `CongressRequestForm`, `CreateEventForm`), jamais des copies qui
+divergeraient au premier champ ajouté. `lib/ad-pro/create-fields.ts` définit une seule fois les
+champs lus par les deux portes d'entrée. On ne propose que les natures que la personne peut
+réellement **CRÉER** : un formulaire refusé à l'enregistrement fait arriver le refus après la
+saisie, au pire moment.
+
+**Consulting** (`/consulting`, module `CONSULTING`) — un contrat n'est pas une demande qu'on
+approuve puis qu'on oublie : c'est une relation qui court dans le temps. Le modèle porte les deux
+parties (l'entité qui signe, le prestataire), la période, la rémunération **avec son rythme**
+— 200 000 DZD par mois et 200 000 DZD pour la mission entière n'engagent pas la même somme —, les
+tâches attendues (à part, parce que « ce qui reste à livrer » est une question qu'on pose au
+contrat et qu'un paragraphe ne sait pas y répondre) et les pièces signées. Cycle de vie dans un
+module pur (`lib/ad-pro/consulting.ts`, 23 tests) : brouillon → en validation → actif → **expiré**
+ou **annulé**. Les deux fins ne se confondent pas — la première a produit ses effets jusqu'au bout,
+la seconde a été rompue — et une fin est **définitive** : rouvrir effacerait la date à laquelle la
+relation s'est terminée. Un terme dépassé se **signale** (compteur et badge) sans rien basculer
+tout seul : une échéance se prolonge souvent d'un avenant.
+
+**Autre** (`/ad-pro/autres`, module `AD_PRO_OTHER`) — la case qui manquait. Sans elle, une dépense
+de promotion inhabituelle se déclarait « en sponsoring » faute de mieux, et l'on perdait deux
+choses : la lisibilité du sponsoring, qui se remplissait d'objets qui n'en étaient pas, et la trace
+de la dépense, rangée sous une étiquette fausse. Circuit volontairement court — un demandeur, une
+description **obligatoire** (c'est elle qui portera tout), une décision, un motif.
+
 ### Impliquer une tierce personne (sans accès au module)
 
 Sur un **sponsoring**, un **congrès** ou un **événement**, un acteur du circuit peut **impliquer une tierce
@@ -390,6 +421,37 @@ personne** (ex. l'assistante de direction) **même si elle n'a aucun accès au m
         (SANS budget ni détail confidentiel) ; la demande pointe vers ce dossier (accessible),
         jamais vers la fiche de l'événement.
 ```
+
+### Demander une pièce à quelqu'un (`/pieces`)
+
+La pièce qui manque n'est presque jamais chez celui qui en a besoin : la facture est chez le
+commercial, le devis chez l'assistante, l'attestation chez le comptable. On la réclamait par
+message, et l'on perdait la trace de ce qu'on attendait, de qui, depuis quand — le dossier
+bloquait sans que personne sache pourquoi.
+
+Depuis un **poste de dépense** (et, par construction, depuis n'importe quel objet de l'ERP) :
+on choisit la personne, on dit **ce qu'on demande en clair** (« la facture définitive de l'agence »,
+pas « pièce n° 3 »), on fixe une échéance. Elle est prévenue, dépose une ou plusieurs pièces,
+signale le dépôt ; on accepte, ou l'on **refuse en disant ce qui manque** — la demande repart alors
+sur le même fil plutôt que d'obliger à tout recommencer (c'est le cas le plus fréquent).
+
+- **L'accès vient du FIL, pas du module** : celui à qui l'on réclame une facture dépose sans avoir
+  accès au pôle Ad & Pro. `canAccessEntity` tranche sur `DOCUMENT_REQUEST` avant tout contrôle de
+  module — on ouvre la seule chose qui le concerne, et rien d'autre.
+- **On n'accepte jamais sa propre pièce** : la demande existe précisément pour qu'un tiers confirme
+  avoir reçu ce qu'il attendait.
+- **Signaler un dépôt vide est refusé** : cela enverrait le demandeur chercher un fichier
+  inexistant, et le fil repartirait pour un tour inutile.
+- Le mécanisme est **générique** (`entityType`/`entityId`) — une seconde implémentation « spéciale
+  poste de dépense » finirait par diverger sur la relance, l'accès ou le refus.
+
+Règles dans `lib/doc-request.ts` (module pur, 20 tests) ; écrans `/pieces` (onglet de « Mon
+espace » : ce que je dois déposer d'un côté, ce que j'attends de l'autre — l'un appelle une action,
+l'autre une relance) et `/pieces/[id]`.
+
+Depuis le même poste : **« Demander une validation »** — un ou deux validateurs choisis nommément,
+et chacun peut à son tour en redemander une à quelqu'un d'autre. La transmission aux **Finances**
+reste le circuit existant : demande de bon de commande → visa Direction → émission.
 
 ### Bureau du secrétariat — flux par demande
 
@@ -689,10 +751,19 @@ sait, c'est tout. Reproduire ses habitudes coûte moins cher que d'en enseigner 
   personne ne distinguait au premier regard. Chez Windows, Téléchargements est un **vrai dossier** :
   les deux ont fondu, **« Téléchargements » EST l'espace personnel** (`/drive`), et l'ancienne
   vue-journal a disparu (`getDownloadedFiles` supprimée, l'historique reste dans le journal d'audit).
-- **L'ARBORESCENCE dans le volet**, pas seulement les emplacements : on déplie une catégorie et on
-  voit ses dossiers (`getDriveNavFolders` → `buildNavTree`, pur et testé — un dossier dont le parent
-  est hors de portée remonte à la racine plutôt que de disparaître, et un cycle ne fige pas
-  l'onglet).
+- **Le volet dit OÙ, la liste dit QUOI.** Il a porté un temps l'arborescence complète, et c'était
+  une erreur : un dossier de travail contient vite quarante sous-dossiers (« 1.1 Req_Info »,
+  « 1.10 Meet »…) et la colonne devenait un mur qu'il fallait faire défiler pour atteindre la
+  Corbeille. Un dossier se trouve **dans** son emplacement, à droite. (`nav-tree.ts` et
+  `getDriveNavFolders` ont disparu avec l'arborescence qu'ils servaient.)
+- **Les types de fichiers se reconnaissent sans lire.** Word, PDF, texte et Markdown partageaient
+  la même feuille grise : quatre types, une seule image, donc aucune information. Chaque famille a
+  SA forme et SA couleur — Word bleu, Excel vert, PowerPoint orange, PDF rouge, archive ambre,
+  image violette — et l'extension (« RAR », « ZIP ») sépare les voisins qu'un pictogramme
+  rapproche à juste titre. La couleur ne porte **jamais** l'information seule : la forme distingue
+  déjà, pour qui la perçoit mal comme à l'impression. `lib/drive/file-glyph.ts` (classification,
+  12 tests) + `components/drive/file-glyph.tsx` (les classes de style, là où l'outil de style les
+  inspecte).
 - **Un seul geste pour ranger** : on attrape un fichier dans la liste et on le lâche sur une
   catégorie ou un dossier **du volet**. Sans cela, ranger obligeait à naviguer d'abord jusqu'à la
   destination — soit exactement ce que le glisser-déposer devait éviter. L'autorisation reste
@@ -739,13 +810,21 @@ Comparer deux versions d'une notice, recopier un tableau d'un classeur dans un a
 devis en rédigeant le courrier qui l'accompagne : ces gestes supposent **deux documents sous les
 yeux**. Un écran par fichier oblige à des allers-retours en mémorisant ce qu'on vient de lire.
 
-- **Onglets** (8 au plus), bascule **lecture / modification** par onglet — on n'ouvre pas l'éditeur
-  pour vérifier une date. Fermer un onglet bascule sur le **voisin**, comme un navigateur.
-- Les onglets inactifs restent **montés, simplement cachés** : rebasculer sur un classeur ne
-  relance pas son chargement ni ne perd la page où l'on en était.
+- **Des FENÊTRES, pas des onglets.** Des onglets montrent l'un OU l'autre, et l'on retombe sur des
+  allers-retours de mémoire. Chaque document ouvre sa fenêtre : on la déplace par sa barre de
+  titre, on la redimensionne par son coin, on la réduit dans la barre du bas, on l'agrandit.
+  **« Mosaïque »** les range côte à côte d'un geste — c'est la réponse directe à la comparaison
+  qu'on venait chercher. Géométrie dans `lib/drive/windows.ts` (24 tests) : une nouvelle fenêtre
+  ne se cache jamais derrière la précédente, aucune ne sort de l'écran au point de ne plus être
+  rattrapable, et restaurer rend **exactement** la place d'avant.
+- Une fenêtre réduite reste **montée, simplement cachée** : rouvrir un classeur ne relance pas son
+  chargement ni ne perd la page où l'on en était. La bascule **lecture / modification** est par
+  fenêtre — on n'ouvre pas l'éditeur pour vérifier une date, et l'on ne perd pas sa place dans le
+  document d'à côté en le faisant.
 - **Plein écran par défaut** ici : un document lu à travers 1400 px dans une fenêtre de 2500 px,
-  c'est un tiers de l'écran perdu.
-- L'onglet d'édition embarque `/office-embed/[id]` — l'éditeur **nu**, hors du groupe `(app)` :
+  c'est un tiers de l'écran perdu. **Sur téléphone**, où il n'y a pas de bureau, les documents
+  s'empilent en pleine largeur.
+- La fenêtre d'édition embarque `/office-embed/[id]` — l'éditeur **nu**, hors du groupe `(app)` :
   l'embarquer depuis la page normale afficherait le menu et la barre du haut *dans* l'onglet.
   Cette route n'a pas moins de droits pour autant : `buildEditorSetup` (`src/lib/onlyoffice-config.ts`)
   vérifie l'accès ÉDITEUR quelle que soit la porte d'entrée, et sert les deux écrans — une
@@ -2469,6 +2548,28 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Ad & Pro : la nouvelle demande se remplit sur place, et deux natures de plus.** Choisir
+  « envoyer un praticien à un congrès » emmenait sur l'écran de la nature — son titre, sa
+  description, sa barre d'onglets : on rendait au demandeur, au dernier moment, le découpage
+  interne qu'on venait de lui épargner. Le formulaire s'ouvre désormais **dans** le panneau
+  d'Ad & Pro. S'ajoutent **Consulting** (contrats entre deux parties : rémunération et son rythme,
+  tâches attendues, pièces, cycle brouillon → validation → actif → expiré/annulé) et **Autre**
+  (la case qui manquait, pour ne plus déclarer « en sponsoring » ce qui n'en est pas).
+  `lib/ad-pro/{create-fields,consulting}.ts` (32 tests).
+
+- **Réclamer une pièce à n'importe qui, depuis un poste de dépense.** Le seul geste offert était
+  « demander un devis au secrétariat » ; tout le reste se réclamait par message. On choisit
+  maintenant la personne, on dit ce qu'on demande en clair, elle dépose **sans avoir accès au
+  module** — le fil ne lui ouvre que ce qui la concerne — et un refus relance la demande avec son
+  motif au lieu d'obliger à tout recommencer. `lib/doc-request.ts` (20 tests), écrans `/pieces`.
+
+- **Drive : la colonne de gauche dit OÙ, la liste dit QUOI.** Les sous-dossiers quittent le volet
+  (quarante entrées en faisaient un mur qu'il fallait faire défiler pour atteindre la Corbeille),
+  chaque type de fichier reçoit **sa forme et sa couleur** (Word bleu, Excel vert, PowerPoint
+  orange, PDF rouge…) au lieu de la feuille grise commune, et plusieurs documents s'ouvrent en
+  **fenêtres** déplaçables, redimensionnables, rangeables en mosaïque — des onglets montraient
+  l'un OU l'autre. `lib/drive/{file-glyph,windows}.ts` (36 tests).
 
 - **Drive : l'explorateur pour de bon, et tout ce qui est importé y atterrit.** Un **seul onglet**
   (le volet de navigation remplace la barre d'onglets, `/drive` et `/drive/espace/[id]` ont
