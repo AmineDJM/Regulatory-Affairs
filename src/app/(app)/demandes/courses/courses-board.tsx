@@ -149,8 +149,8 @@ export function CoursesBoard({ courses, drivers, others }: { courses: CourseDTO[
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 space-y-1.5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2 space-y-1.5">
               <Label htmlFor="course-title">Objet de la course <span className="text-destructive">*</span></Label>
               <Input id="course-title" name="title" required placeholder="Ex. Dépôt dossier ANPP + récupération chèque" />
             </div>
@@ -203,7 +203,7 @@ export function CoursesBoard({ courses, drivers, others }: { courses: CourseDTO[
             </Button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="course-contact">Contact sur place</Label>
               <Input id="course-contact" name="contactName" placeholder="Nom" />
@@ -212,11 +212,11 @@ export function CoursesBoard({ courses, drivers, others }: { courses: CourseDTO[
               <Label htmlFor="course-phone">Téléphone</Label>
               <Input id="course-phone" name="contactPhone" placeholder="05…" />
             </div>
-            <div className="col-span-2 space-y-1.5">
+            <div className="sm:col-span-2 space-y-1.5">
               <Label htmlFor="course-instructions">Instructions générales</Label>
               <Textarea id="course-instructions" name="instructions" placeholder="Tout ce que le chauffeur doit savoir (badge, horaires, consignes…)" />
             </div>
-            <div className="col-span-2 space-y-1.5">
+            <div className="sm:col-span-2 space-y-1.5">
               <Label htmlFor="course-files">Pièces jointes</Label>
               <input id="course-files" name="files" type="file" multiple className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-border file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-foreground hover:file:bg-secondary/70" />
               <p className="text-xs text-muted-foreground">Bon de commande, dossier à déposer, plan d&apos;accès… Le chauffeur les ouvre depuis son espace.</p>

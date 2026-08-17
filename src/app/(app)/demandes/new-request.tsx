@@ -52,7 +52,7 @@ export function NewRequestButton({ users, departments, articles = [] }: { users:
               <ArrowLeft className="h-3.5 w-3.5" /> Changer de type
             </button>
             <input type="hidden" name="type" value={type} />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <FieldWrap full label="Titre" required><Input name="title" required placeholder="Ex. Billet délégué Oran → Alger" /></FieldWrap>
               <FieldWrap label="Priorité"><Select name="priority" defaultValue="MEDIUM">{optionsFromMap(PRIORITY).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select></FieldWrap>
               <FieldWrap label="Échéance"><Input name="deadline" type="date" /></FieldWrap>
@@ -113,7 +113,7 @@ export function NewRequestButton({ users, departments, articles = [] }: { users:
 
 function FieldWrap({ label, full, required, children }: { label: string; full?: boolean; required?: boolean; children: React.ReactNode }) {
   return (
-    <div className={full ? "col-span-2 space-y-1.5" : "space-y-1.5"}>
+    <div className={full ? "sm:col-span-2 space-y-1.5" : "space-y-1.5"}>
       <Label>{label}{required && <span className="ml-0.5 text-destructive">*</span>}</Label>
       {children}
     </div>

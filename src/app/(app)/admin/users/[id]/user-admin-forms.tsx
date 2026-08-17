@@ -27,7 +27,7 @@ export function ProfileForm({ user }: { user: Profile }) {
         if (r.ok) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
         else setError(r.error ?? "Échec de l'enregistrement.");
       }}
-      className="grid grid-cols-2 gap-3"
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2"
     >
       <input type="hidden" name="userId" value={user.id} />
       <div className="space-y-1"><Label htmlFor="name">Nom</Label><Input id="name" name="name" defaultValue={user.name} /></div>
@@ -36,14 +36,14 @@ export function ProfileForm({ user }: { user: Profile }) {
           {Object.entries(ROLE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
       </div>
-      <div className="col-span-2 space-y-1">
+      <div className="sm:col-span-2 space-y-1">
         <Label htmlFor="email">E-mail (identifiant de connexion)</Label>
         <Input id="email" name="email" type="email" defaultValue={user.email} />
       </div>
       <div className="space-y-1"><Label htmlFor="title">Fonction</Label><Input id="title" name="title" defaultValue={user.title} /></div>
       <div className="space-y-1"><Label htmlFor="region">Région</Label><Input id="region" name="region" defaultValue={user.region} /></div>
-      {error && <p className="col-span-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-      <div className="col-span-2 flex justify-end">
+      {error && <p className="sm:col-span-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+      <div className="sm:col-span-2 flex justify-end">
         <Button type="submit" disabled={saving}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
           {saved ? "Enregistré" : "Enregistrer le profil"}

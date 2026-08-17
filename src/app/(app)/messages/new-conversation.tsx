@@ -39,7 +39,7 @@ export function NewConversation({ open, onClose, directory, channels, onCreated 
 
   return (
     <Sheet open={open} onClose={() => { reset(); onClose(); }} title="Nouvelle conversation" description="Démarrez un échange privé, créez un groupe ou un canal d'équipe." width="lg">
-      <div className="mb-4 grid grid-cols-4 gap-1.5">
+      <div className="mb-4 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         {([
           ["dm", "Message", MessageSquare],
           ["group", "Groupe", Users],

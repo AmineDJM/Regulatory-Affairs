@@ -49,8 +49,11 @@ function UserGrid({ name, users, selected, max = "max-h-40" }: { name: string; u
 function AccessFields({ users, space }: { users: UserOpt[]; space?: SpaceData }) {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-3">
-        <div className="col-span-2 space-y-1.5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {/* Le nom prend deux colonnes SUR TROIS — mais seulement quand il y en a trois. Sur une
+            grille à une colonne, `col-span-2` fabriquerait une deuxième colonne implicite et
+            casserait l'alignement. */}
+        <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="name">Nom de la catégorie</Label>
           <Input id="name" name="name" required defaultValue={space?.name} placeholder="ex. Promotion Médicale" />
         </div>

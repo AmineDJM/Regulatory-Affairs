@@ -45,7 +45,7 @@ export default async function PromoMaterialPage() {
 
       <ModuleTabs tabs={EVENTS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <KpiCard label="Dossiers" value={items.length} icon="Megaphone" />
         <KpiCard label="En cours" value={active} icon="Loader" tone={active > 0 ? "info" : "default"} />
         <KpiCard label="Réglés" value={settled} icon="CheckCircle2" tone="success" />

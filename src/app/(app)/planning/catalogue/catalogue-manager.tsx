@@ -41,15 +41,15 @@ export function CatalogueManager({ companies, businessUnits, products, users }: 
         <CardHeader><CardTitle>Business Units (franchises)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <form
-            className="grid grid-cols-2 gap-2"
+            className="grid grid-cols-1 gap-2 sm:grid-cols-2"
             action={(fd) => run(createBusinessUnit, fd)}
             onSubmit={() => {}}
           >
-            <input name="name" required placeholder="Nom (ex. Neurology)" className={`${inputCls} col-span-2`} />
+            <input name="name" required placeholder="Nom (ex. Neurology)" className={`${inputCls} sm:col-span-2`} />
             <select name="companyId" className={inputCls} defaultValue=""><option value="">— Société —</option>{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
             <select name="headId" className={inputCls} defaultValue=""><option value="">— Chef de BU —</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select>
             <input name="color" type="color" defaultValue="#2563eb" className="h-9 w-16 rounded-lg border border-input bg-background" title="Couleur" />
-            <button type="submit" disabled={busy} className="col-span-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
+            <button type="submit" disabled={busy} className="sm:col-span-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Ajouter la BU
             </button>
           </form>
@@ -69,12 +69,12 @@ export function CatalogueManager({ companies, businessUnits, products, users }: 
       <Card>
         <CardHeader><CardTitle>Produits promus</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <form className="grid grid-cols-2 gap-2" action={(fd) => run(createPromoProduct, fd)}>
-            <input name="name" required placeholder="Nom du produit" className={`${inputCls} col-span-2`} />
+          <form className="grid grid-cols-1 gap-2 sm:grid-cols-2" action={(fd) => run(createPromoProduct, fd)}>
+            <input name="name" required placeholder="Nom du produit" className={`${inputCls} sm:col-span-2`} />
             <select name="businessUnitId" className={inputCls} defaultValue=""><option value="">— BU —</option>{buOptions.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
             <select name="managerId" className={inputCls} defaultValue=""><option value="">— Chef de produit —</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select>
-            <select name="channel" className={`${inputCls} col-span-2`} defaultValue="BOTH" title="Canal de distribution">{CHANNELS.map((c) => <option key={c.value} value={c.value}>Canal : {c.label}</option>)}</select>
-            <button type="submit" disabled={busy} className="col-span-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
+            <select name="channel" className={`${inputCls} sm:col-span-2`} defaultValue="BOTH" title="Canal de distribution">{CHANNELS.map((c) => <option key={c.value} value={c.value}>Canal : {c.label}</option>)}</select>
+            <button type="submit" disabled={busy} className="sm:col-span-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Ajouter le produit
             </button>
           </form>

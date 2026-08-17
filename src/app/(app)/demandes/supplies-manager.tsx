@@ -70,14 +70,14 @@ export function SuppliesManager({ articles }: { articles: SupplyArticleRow[] }) 
               )}
             </div>
             {editing && <input type="hidden" name="id" value={editing.id} />}
-            <div className="grid grid-cols-2 gap-3">
-              <TextField label="Nom de l'article" name="name" placeholder="Ex. Rame de papier A4 80g" defaultValue={editing?.name} className="col-span-2" />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <TextField label="Nom de l'article" name="name" placeholder="Ex. Rame de papier A4 80g" defaultValue={editing?.name} className="sm:col-span-2" />
               <SelectField label="Catégorie" name="category" options={optionsFromMap(SUPPLY_CATEGORY)} placeholder="—" defaultValue={editing?.category ?? ""} />
               <SelectField label="Unité" name="unit" options={optionsFromMap(SUPPLY_UNIT)} placeholder="—" defaultValue={editing?.unit ?? ""} />
               <TextField label="Référence / code" name="reference" placeholder="Ex. PAP-A4-80" defaultValue={editing?.reference ?? undefined} />
               <TextField label="Prix indicatif (DZD)" name="estimatedPrice" type="number" defaultValue={editing?.estimatedPrice ?? undefined} />
-              <TextField label="Fournisseur habituel" name="supplierHint" placeholder="Ex. Papeterie Centrale" defaultValue={editing?.supplierHint ?? undefined} className="col-span-2" />
-              <TextAreaField label="Notes" name="notes" placeholder="Précisions éventuelles…" defaultValue={editing?.notes ?? undefined} className="col-span-2" />
+              <TextField label="Fournisseur habituel" name="supplierHint" placeholder="Ex. Papeterie Centrale" defaultValue={editing?.supplierHint ?? undefined} className="sm:col-span-2" />
+              <TextAreaField label="Notes" name="notes" placeholder="Précisions éventuelles…" defaultValue={editing?.notes ?? undefined} className="sm:col-span-2" />
             </div>
 
             {error && (

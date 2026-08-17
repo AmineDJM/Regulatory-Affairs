@@ -66,7 +66,7 @@ export default async function AdminSuppliersPage() {
         )}
       </PageHeader>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <KpiCard label="Fournisseurs" value={suppliers.length} icon="Factory" />
         <KpiCard label="Comptes d'accès" value={totalUsers} icon="KeyRound" />
         <KpiCard label="Actifs" value={suppliers.filter((s) => s.active).length} icon="Power" tone="success" />

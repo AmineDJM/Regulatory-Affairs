@@ -64,7 +64,7 @@ export function RuleEditor({
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Wrap full label="Nom de la règle" required><Input name="name" required defaultValue={rule?.name} placeholder="Ex. Validation paiement prestataire" /></Wrap>
             <Wrap label="Module concerné">
               <Select name="module" defaultValue={rule?.module ?? ""}><option value="">Tous</option>{moduleOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>
@@ -128,7 +128,7 @@ export function RuleControls({ id, active }: { id: string; active: boolean }) {
 
 function Wrap({ label, full, required, children }: { label: string; full?: boolean; required?: boolean; children: React.ReactNode }) {
   return (
-    <div className={full ? "col-span-2 space-y-1.5" : "space-y-1.5"}>
+    <div className={full ? "sm:col-span-2 space-y-1.5" : "space-y-1.5"}>
       <Label>{label}{required && <span className="ml-0.5 text-destructive">*</span>}</Label>
       {children}
     </div>

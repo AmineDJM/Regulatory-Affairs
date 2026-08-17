@@ -96,7 +96,7 @@ export function StepTimeline({ steps, canUpdate }: { steps: StepItem[]; canUpdat
                   setSaving(false);
                   setEditing(null);
                 }}
-                className="mt-2 grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-3"
+                className="mt-2 grid grid-cols-1 gap-2 rounded-lg bg-muted/40 p-3 sm:grid-cols-2"
               >
                 <input type="hidden" name="stepId" value={step.id} />
                 <div className="space-y-1">
@@ -131,11 +131,11 @@ export function StepTimeline({ steps, canUpdate }: { steps: StepItem[]; canUpdat
                     defaultValue={step.actualDate?.slice(0, 10) ?? ""}
                   />
                 </div>
-                <div className="col-span-2 space-y-1">
+                <div className="sm:col-span-2 space-y-1">
                   <Label htmlFor={`missing-${step.id}`}>Pièces manquantes</Label>
                   <Input id={`missing-${step.id}`} name="missingDocs" defaultValue={step.missingDocs ?? ""} />
                 </div>
-                <div className="col-span-2 space-y-1">
+                <div className="sm:col-span-2 space-y-1">
                   <Label htmlFor={`comment-${step.id}`}>Commentaire</Label>
                   <Textarea
                     id={`comment-${step.id}`}
@@ -144,7 +144,7 @@ export function StepTimeline({ steps, canUpdate }: { steps: StepItem[]; canUpdat
                     className="min-h-[60px]"
                   />
                 </div>
-                <div className="col-span-2 flex justify-end gap-2">
+                <div className="sm:col-span-2 flex justify-end gap-2">
                   <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(null)}>
                     Annuler
                   </Button>

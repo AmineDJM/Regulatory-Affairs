@@ -183,7 +183,7 @@ export function RequestActions({
       {/* Mission chauffeur */}
       <Sheet open={mission} onClose={() => setMission(false)} title="Créer une mission chauffeur" width="md">
         <form action={(fd) => { fd.set("requestId", requestId); return run(fd, createMission, () => setMission(false)); }} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field full label="Titre"><Input name="title" required placeholder="Ex. Déposer dossier à la PCH" /></Field>
             <Field label="Chauffeur"><Select name="assignedToId" defaultValue=""><option value="">—</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</Select></Field>
             <Field label="Échéance"><Input name="deadline" type="date" /></Field>
@@ -211,5 +211,5 @@ export function RequestActions({
 }
 
 function Field({ label, full, children }: { label: string; full?: boolean; children: React.ReactNode }) {
-  return <div className={full ? "col-span-2 space-y-1" : "space-y-1"}><Label>{label}</Label>{children}</div>;
+  return <div className={full ? "sm:col-span-2 space-y-1" : "space-y-1"}><Label>{label}</Label>{children}</div>;
 }

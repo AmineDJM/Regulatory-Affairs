@@ -35,7 +35,7 @@ export default async function AdminFeedbackPage() {
       </BackLink>
       <PageHeader title="Feedbacks" description="Les retours envoyés par les utilisateurs depuis leur compte." />
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <KpiCard label="À traiter" value={stats.toHandle} icon="Inbox" tone={stats.toHandle > 0 ? "warning" : "default"} />
         <KpiCard label="En cours" value={stats.inProgress} icon="Loader" tone="info" />
         <KpiCard label="Traités" value={stats.done} icon="CheckCheck" tone="success" />

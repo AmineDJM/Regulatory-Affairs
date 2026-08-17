@@ -97,7 +97,7 @@ export function MultiRequestButton({ users, departments, articles }: { users: Op
                     </button>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label>Type</Label>
                     <Select value={c.type} onChange={(e) => update(i, { type: e.target.value })}>{REQUEST_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</Select>
@@ -106,7 +106,7 @@ export function MultiRequestButton({ users, departments, articles }: { users: Op
                     <Label>Priorité</Label>
                     <Select value={c.priority} onChange={(e) => update(i, { priority: e.target.value })}>{optionsFromMap(PRIORITY).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>
                   </div>
-                  <div className="col-span-2 space-y-1">
+                  <div className="sm:col-span-2 space-y-1">
                     <Label>Objet</Label>
                     <Input value={c.title} onChange={(e) => update(i, { title: e.target.value })} placeholder="Ex. Commander 5 rames de papier A4" />
                   </div>
@@ -129,7 +129,7 @@ export function MultiRequestButton({ users, departments, articles }: { users: Op
                     <Label>Échéance</Label>
                     <Input value={c.deadline} onChange={(e) => update(i, { deadline: e.target.value })} type="date" />
                   </div>
-                  <div className="col-span-2 space-y-1">
+                  <div className="sm:col-span-2 space-y-1">
                     <Label>Détails (optionnel)</Label>
                     <Textarea value={c.description} onChange={(e) => update(i, { description: e.target.value })} />
                   </div>

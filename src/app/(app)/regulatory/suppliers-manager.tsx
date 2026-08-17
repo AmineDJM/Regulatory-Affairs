@@ -60,11 +60,11 @@ export function SuppliersManager({ suppliers }: { suppliers: SupplierRow[] }) {
             className="space-y-4 rounded-xl border bg-card p-4"
           >
             <p className="text-sm font-medium">Nouveau fournisseur</p>
-            <div className="grid grid-cols-2 gap-3">
-              <TextField label="Nom" name="name" placeholder="Ex. Pharma Lab" className="col-span-2" />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <TextField label="Nom" name="name" placeholder="Ex. Pharma Lab" className="sm:col-span-2" />
               <TextField label="Pays" name="country" placeholder="Inde" />
               <TextField label="Email de contact" name="contactEmail" type="email" placeholder="contact@labo.com" />
-              <TextAreaField label="Notes (optionnel)" name="notes" placeholder="Informations utiles…" className="col-span-2" />
+              <TextAreaField label="Notes (optionnel)" name="notes" placeholder="Informations utiles…" className="sm:col-span-2" />
             </div>
 
             {error && (
