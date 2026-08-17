@@ -1218,6 +1218,15 @@ export interface NavItem {
    * son propre module.
    */
   tabs?: NavTab[];
+  /**
+   * SOUS-MODULES — des modules à part entière, rangés SOUS un autre dans le menu.
+   *
+   * Différent de `tabs` : un onglet est une section d'un même écran, un enfant est un module
+   * autonome (sa route, sa garde, son écran) qu'on range sous son parent parce que c'est de là
+   * qu'il découle — « Règlements à effectuer » sous Finances, « Pipeline » sous Business
+   * Development. Il se déplie par la flèche, sur ordinateur comme sur mobile.
+   */
+  children?: NavItem[];
   /** Préfixes de chemin additionnels qui activent l'entrée (pour les entrées fusionnées). */
   match?: string[];
 }
@@ -1241,12 +1250,8 @@ export const WORKSPACE_TABS: NavTab[] = [
 ];
 // BUDGETS — trois écrans au lieu d'un seul écran fourre-tout : on REGARDE (vue d'ensemble
 // graphique), on TRAVAILLE (dépenses à imputer), on RÈGLE (enveloppe, catégories, total).
-// PROMOTION MÉDICALE — l'ANNUAIRE est un sous-module à part entière : c'est un référentiel qui
-// se consulte, s'exporte et s'importe pour lui-même, pas une section d'un écran de visites.
-export const MEDICAL_TABS: NavTab[] = [
-  { module: "MEDICAL", label: "Visites & segmentation", href: "/medical" },
-  { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire" },
-];
+// ANNUAIRE / VISITES — plus d'onglets partagés : ce sont DEUX entrées de menu distinctes
+// (« Annuaire » = le référentiel, « Visites & segmentation » = la préparation des tournées).
 
 export const BUDGET_TABS: NavTab[] = [
   { module: "BUDGETS", label: "Vue d'ensemble", href: "/budgets" },
@@ -1274,15 +1279,13 @@ export const MON_DOSSIER_TABS: NavTab[] = [
 // matériel promotionnel, sous un seul module. Le matériel promotionnel a été
 // déplacé ici depuis « Promotion médicale » (sa fonctionnalité est inchangée).
 /**
- * VENTES · LOGISTIQUE · PCH — une seule entrée à onglets. Les trois modules parlent du même
- * mouvement (ce qu'on vend, ce qu'on livre, ce qu'on remporte en marché public) et se
- * consultaient l'un après l'autre ; chacun garde sa route et sa garde de module.
+ * VENTES · LOGISTIQUE · PCH — TROIS MODULES SÉPARÉS, plus une entrée à onglets.
+ *
+ * Les regrouper supposait qu'on passe de l'un à l'autre ; en réalité on ouvre les Ventes pour
+ * le chiffre d'affaires, la Logistique pour une livraison et PCH pour un appel d'offres — trois
+ * métiers, trois moments. Chacun a désormais sa propre entrée de menu (Ventes sous Sales &
+ * Marketing, Marchés PCH sous Business Development, Commandes & logistique sous Supply Chain).
  */
-export const COMMERCE_TABS: NavTab[] = [
-  { module: "SALES", label: "Ventes", href: "/sales" },
-  { module: "LOGISTICS", label: "Logistique", href: "/logistics" },
-  { module: "PCH", label: "PCH — Marchés", href: "/pch" },
-];
 
 export const EVENTS_TABS: NavTab[] = [
   // UNE SEULE DEMANDE : la vue unifiée ouvre le pôle. Les écrans par nature restent derrière —
@@ -1414,7 +1417,15 @@ export const NAVIGATION: NavItem[] = [
   // ADMINISTRATION — l'administration de L'ENTREPRISE (à ne pas confondre avec la Console
   // d'Administration, qui est celle du logiciel et vit dans « Système »).
   { module: "GENERAL_MEANS", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket", group: "Pôles", pole: "ADMINISTRATION" },
-  { module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION" },
+  // FINANCES et ses sous-modules. « Règlements à effectuer » et « Factures » sont des écrans
+  // qu'on ouvre POUR EUX-MÊMES (payer ce qui est dû, retrouver une facture) : ils méritent leur
+  // entrée, sous Finances puisque c'est de là qu'ils découlent.
+  {
+    module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION",
+    children: [
+      { module: "FINANCES", label: "Règlements à effectuer", href: "/finances/ordres-de-depense", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
+    ],
+  },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", pole: "ADMINISTRATION", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie", "/formations"] },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages"] },
 
@@ -1422,7 +1433,10 @@ export const NAVIGATION: NavItem[] = [
   // praticiens vit DANS Promotion médicale : on ne consulte pas un annuaire pour lui-même, on
   // le consulte en préparant une visite.
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles", pole: "SALES_MARKETING" },
-  { module: "MEDICAL", label: "Annuaire", href: "/medical", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical/annuaire"] },
+  // L'ANNUAIRE est un référentiel qu'on ouvre pour lui-même ; les VISITES sont un autre métier
+  // (préparer une tournée). Deux entrées, deux écrans — l'annuaire ne s'ouvre plus sur les visites.
+  { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING" },
+  { module: "MEDICAL", label: "Visites & segmentation", href: "/medical", icon: "Route", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/promo-material/stock", "/consulting"] },
@@ -1431,7 +1445,15 @@ export const NAVIGATION: NavItem[] = [
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
   // réalisées sont passées dans Sales & Marketing : analyser une opportunité et constater un
   // chiffre d'affaires ne sont pas le même métier.
-  { module: "BUSINESS_DEVELOPMENT", label: "Market Intelligence", href: "/business-development", icon: "Lightbulb", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche", "/business-development/pipeline"] },
+  // Le PIPELINE est un module à part — ce qu'on ÉTUDIE — rangé sous Business Development et
+  // déplié par la flèche. Fondu dans « Market Intelligence », personne ne le trouvait.
+  {
+    module: "BUSINESS_DEVELOPMENT", label: "Market Intelligence", href: "/business-development", icon: "Lightbulb", group: "Pôles", pole: "BUSINESS_DEV",
+    match: ["/business-development/marche"],
+    children: [
+      { module: "REGULATORY", label: "Pipeline réglementaire", href: "/business-development/pipeline", icon: "GitBranch", group: "Pôles", pole: "BUSINESS_DEV" },
+    ],
+  },
   { module: "PCH", label: "Marchés PCH", href: "/pch", icon: "Gavel", group: "Pôles", pole: "BUSINESS_DEV" },
 
   // SUPPLY CHAIN & LOGISTICS — l'exécution physique. Les modèles existaient déjà

@@ -4,7 +4,6 @@ import { userCan } from "@/lib/rbac";
 import { getPchTenders, pchSummary } from "@/lib/queries/pch";
 import { createTender } from "@/lib/actions/pch-actions";
 import { PageHeader } from "@/components/shared/page-header";
-import { ModuleTabs } from "@/components/shared/module-tabs";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -12,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
-import { PCH_TENDER_STATUS, COMMERCE_TABS } from "@/lib/labels";
+import { PCH_TENDER_STATUS } from "@/lib/labels";
 import { getCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 
@@ -54,7 +53,6 @@ export default async function PchPage() {
           />
         )}
       </PageHeader>
-      <ModuleTabs tabs={COMMERCE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-5">
         <KpiCard label="Appels d'offres" value={s.count} icon="Gavel" />

@@ -30,6 +30,34 @@ const PRIMARY: { href: string; label: string; icon: React.ComponentType<{ classN
 const isActive = (pathname: string, targets: string[]) =>
   targets.some((t) => pathname === t || pathname.startsWith(`${t}/`));
 
+/** Une tuile du tiroir — un module. `nested` marque un sous-module (rangé sous son parent). */
+function Tile({
+  item, pathname, badge, nested = false, children,
+}: {
+  item: NavItem; pathname: string; badge: number; nested?: boolean; children?: React.ReactNode;
+}) {
+  const active = isActive(pathname, [item.href, ...(item.match ?? [])]);
+  return (
+    <Link
+      href={item.href}
+      className={cn(
+        "relative flex flex-col items-center gap-1.5 rounded-2xl border px-2 py-3.5 text-center transition active:scale-95",
+        active ? "border-primary/50 bg-primary/10 text-primary" : "border-border bg-card text-foreground",
+        nested && "border-dashed bg-secondary/30",
+      )}
+    >
+      <Icon name={item.icon} className="h-6 w-6" />
+      <span className="text-[0.6875rem] font-medium leading-tight">{item.label}</span>
+      {badge > 0 && (
+        <span className="absolute right-1.5 top-1.5 min-w-[1.125rem] rounded-full bg-destructive px-1 text-[0.625rem] font-bold leading-[1.125rem] text-destructive-foreground">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
+      {children}
+    </Link>
+  );
+}
+
 export function MobileTabBar({
   items, messagingUnread = 0, moduleBadges = {},
 }: {
@@ -40,6 +68,8 @@ export function MobileTabBar({
   const pathname = usePathname();
   const [drawer, setDrawer] = React.useState(false);
   const [q, setQ] = React.useState("");
+  /** Sous-modules dépliés, par route du parent (mémoire de session du tiroir). */
+  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   // La hauteur RÉELLE de la barre est publiée pour les écrans pleine hauteur. Sur ordinateur
   // elle est `display: none` et vaut donc 0 — sans règle média supplémentaire à maintenir.
   const navRef = React.useRef<HTMLElement>(null);
@@ -53,14 +83,27 @@ export function MobileTabBar({
   useScrollLock(drawer);
 
   const visible = items.filter((i) => PRIMARY.every((p) => p.href !== i.href));
-  const filtered = q.trim()
-    ? visible.filter((i) => i.label.toLowerCase().includes(q.trim().toLowerCase()))
+  const needle = q.trim().toLowerCase();
+  const hit = (i: NavItem) => i.label.toLowerCase().includes(needle);
+  // Un parent reste affiché si LUI ou l'un de ses sous-modules correspond — et l'on ne garde
+  // alors que les sous-modules qui correspondent vraiment.
+  const filtered = needle
+    ? visible.reduce<NavItem[]>((acc, i) => {
+        const kids = (i.children ?? []).filter(hit);
+        if (hit(i)) acc.push(i);
+        else if (kids.length) acc.push({ ...i, children: kids });
+        return acc;
+      }, [])
     : visible;
 
   const grouped = filtered.reduce<Record<string, NavItem[]>>((acc, i) => {
     (acc[i.group] ??= []).push(i);
     return acc;
   }, {});
+
+  // Une recherche ne doit RIEN cacher derrière une flèche : quand on filtre, les sous-modules
+  // sont dépliés d'office — sinon « pipeline » ne remonterait rien alors qu'il existe.
+  const searching = q.trim().length > 0;
 
   return (
     <>
@@ -87,24 +130,29 @@ export function MobileTabBar({
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                   {list.map((item) => {
-                    const active = isActive(pathname, [item.href, ...(item.match ?? [])]);
-                    const badge = moduleBadges[item.module] ?? 0;
+                    const kids = item.children ?? [];
+                    const opened = searching || expanded[item.href] === true;
                     return (
-                      <Link
-                        key={item.href} href={item.href}
-                        className={cn(
-                          "relative flex flex-col items-center gap-1.5 rounded-2xl border px-2 py-3.5 text-center transition active:scale-95",
-                          active ? "border-primary/50 bg-primary/10 text-primary" : "border-border bg-card text-foreground",
-                        )}
-                      >
-                        <Icon name={item.icon} className="h-6 w-6" />
-                        <span className="text-[0.6875rem] font-medium leading-tight">{item.label}</span>
-                        {badge > 0 && (
-                          <span className="absolute right-1.5 top-1.5 min-w-[1.125rem] rounded-full bg-destructive px-1 text-[0.625rem] font-bold leading-[1.125rem] text-destructive-foreground">
-                            {badge > 99 ? "99+" : badge}
-                          </span>
-                        )}
-                      </Link>
+                      <React.Fragment key={item.href}>
+                        <Tile item={item} pathname={pathname} badge={moduleBadges[item.module] ?? 0}>
+                          {/* LA FLÈCHE, SUR MOBILE AUSSI — les sous-modules ne doivent pas être
+                              réservés à l'ordinateur : c'est au téléphone qu'on cherche vite. */}
+                          {kids.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); setExpanded((p) => ({ ...p, [item.href]: !opened })); }}
+                              aria-expanded={opened}
+                              aria-label={opened ? `Replier ${item.label}` : `Déplier ${item.label}`}
+                              className="absolute bottom-1 right-1 rounded-lg p-1 text-muted-foreground"
+                            >
+                              <Icon name="ChevronDown" className={cn("h-3.5 w-3.5 transition-transform", opened ? "" : "-rotate-90")} />
+                            </button>
+                          )}
+                        </Tile>
+                        {kids.length > 0 && opened && kids.map((c) => (
+                          <Tile key={c.href} item={c} pathname={pathname} badge={moduleBadges[c.module] ?? 0} nested />
+                        ))}
+                      </React.Fragment>
                     );
                   })}
                 </div>

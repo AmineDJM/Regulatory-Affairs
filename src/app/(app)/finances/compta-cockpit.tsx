@@ -72,7 +72,7 @@ export function ComptaCockpit({ d }: { d: ComptaData }) {
             Masse salariale à venir ({d.depensesSalaires.length}) · {formatCurrency(d.depensesSalairesTotal)}
           </h2>
           <p className="text-xs text-muted-foreground">Salaires et avances — récurrents, à provisionner ; ils ne se négocient pas comme une dépense fournisseur.</p>
-          <ItemTable items={d.depensesSalaires} thirdLabel="Bénéficiaire" href="/finances/paie" />
+          <ItemTable items={d.depensesSalaires} thirdLabel="Bénéficiaire" href="/rh/paie" />
         </section>
       )}
 

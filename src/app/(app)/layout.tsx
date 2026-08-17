@@ -66,15 +66,23 @@ export default async function AppLayout({
     regEnrollment: canSeeRegEnrollment(user, await getAppSettings()),
   };
 
+  // Les SOUS-MODULES suivent la même règle que leur parent : chacun a son module et sa garde,
+  // et une entrée interdite n'est jamais envoyée au navigateur. Un parent dont l'utilisateur
+  // n'a pas le module disparaît AVEC ses enfants — mais un enfant interdit ne fait pas
+  // disparaître le parent.
+  const allowedChildren = (n: NavItem): NavItem[] =>
+    (n.children ?? []).filter((c) => (!c.gate || gateOpen[c.gate]) && modules.includes(c.module));
+
   const navItems = NAVIGATION.reduce<NavItem[]>((acc, n) => {
     if (n.gate && !gateOpen[n.gate]) return acc;
+    const kids = allowedChildren(n);
     if (!n.tabs) {
-      if (modules.includes(n.module)) acc.push(n);
+      if (modules.includes(n.module)) acc.push(kids.length ? { ...n, children: kids } : { ...n, children: undefined });
       return acc;
     }
     const accessible = n.tabs.filter(tabVisible);
     if (accessible.length > 0) {
-      acc.push({ ...n, href: accessible[0].href, match: n.tabs.map((t) => t.href) });
+      acc.push({ ...n, href: accessible[0].href, match: n.tabs.map((t) => t.href), children: kids.length ? kids : undefined });
     }
     return acc;
   }, []);

@@ -77,7 +77,10 @@ export function poleOfPath(poles: NavPoleGroup[], path: string): NavPoleKey | nu
   let found: NavPoleKey | null = null;
   for (const p of poles) {
     for (const c of p.children) {
-      for (const href of [c.href, ...(c.match ?? [])]) {
+      // Les SOUS-MODULES comptent : arriver sur le pipeline doit ouvrir le pôle Business
+      // Development, pas laisser le menu replié sur une page qu'on n'y retrouve pas.
+      const kids = (c.children ?? []).flatMap((k) => [k.href, ...(k.match ?? [])]);
+      for (const href of [c.href, ...(c.match ?? []), ...kids]) {
         if (href && (path === href || path.startsWith(`${href}/`)) && href.length > best) {
           best = href.length;
           found = p.key;

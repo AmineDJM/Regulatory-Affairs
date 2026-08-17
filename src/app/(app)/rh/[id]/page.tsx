@@ -287,7 +287,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle>Derniers bulletins</CardTitle>
-              <Link href="/finances/paie" className="text-xs text-primary hover:underline">Voir la paie</Link>
+              <Link href="/rh/paie" className="text-xs text-primary hover:underline">Voir la paie</Link>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               {employee.payrolls.length === 0 ? (

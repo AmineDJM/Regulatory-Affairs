@@ -41,11 +41,19 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
   });
 
   it("le décompte porte sur CE QUE LA PERSONNE VOIT, pas sur le total du pôle", () => {
-    // Deux sous-modules de Sales & Marketing seulement : le pôle s'ouvre, alors qu'il en compte
-    // six au total. Replier pour deux lignes n'aurait aucun sens.
+    // Trois entrées seulement (les Rapports terrain, plus l'Annuaire et les Visites — deux
+    // entrées distinctes du même module MEDICAL) : le pôle s'ouvre, alors qu'il en compte
+    // davantage au total. Replier pour trois lignes n'aurait aucun sens.
     const sm = groupIntoPoles(accessible(["FIELD_REPORTS", "MEDICAL"])).find((p) => p.key === "SALES_MARKETING");
-    expect(sm?.children).toHaveLength(2);
+    expect(sm?.children).toHaveLength(3);
     expect(sm?.defaultOpen).toBe(true);
+  });
+
+  it("un SOUS-MODULE ouvre le pôle de son parent — sinon on atterrit sans repère", () => {
+    // Le pipeline vit sous Business Development. Y arriver par un lien doit déplier le pôle,
+    // pas laisser le menu replié sur un écran qu'on n'y retrouve pas.
+    const poles = groupIntoPoles(accessible(["BUSINESS_DEVELOPMENT"]));
+    expect(poleOfPath(poles, "/business-development/pipeline")).toBe("BUSINESS_DEV");
   });
 
   it("garde l'ordre des pôles déclaré, quel que soit l'ordre des droits", () => {

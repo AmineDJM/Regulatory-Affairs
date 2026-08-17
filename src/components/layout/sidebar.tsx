@@ -28,6 +28,11 @@ function badgeFor(item: NavItem, badges: Record<string, number>): number {
   return mods.reduce((a, m) => a + (badges[m] ?? 0), 0);
 }
 
+/** Tous les chemins qui rendent une entrée « active », ses sous-modules compris. */
+export function navPaths(item: NavItem): string[] {
+  return [item.href, ...(item.match ?? []), ...(item.children ?? []).flatMap(navPaths)];
+}
+
 /** Pastille de compteur statique (badge de menu). */
 function NavBadge({ count }: { count: number }) {
   return (
@@ -88,31 +93,58 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
     return open[key] ?? defaultOpen;
   };
 
-  const toggle = (key: NavPoleKey, next: boolean) => {
+  // La même mémoire sert aux pôles (clé = pôle) et aux sous-modules (clé = route du parent).
+  const toggle = (key: string, next: boolean) => {
     const merged = { ...open, [key]: next };
     setOpen(merged);
     try { window.localStorage.setItem(OPEN_POLES_KEY, JSON.stringify(merged)); } catch { /* refusé : sans mémoire */ }
   };
 
-  const renderItem = (item: NavItem, nested = false) => {
+  const renderItem = (item: NavItem, nested = false, depth = 0) => {
     const paths = [item.href, ...(item.match ?? [])];
     const active = paths.some((p) => pathname === p || pathname.startsWith(p + "/"));
+    const kids = item.children ?? [];
+    // Un parent dont un ENFANT est ouvert se déplie tout seul : sinon on atterrit sur le
+    // pipeline sans voir d'où il vient, et l'on croit s'être perdu.
+    const childActive = kids.some((c) => [c.href, ...(c.match ?? [])]
+      .some((p) => pathname === p || pathname.startsWith(p + "/")));
+    const opened = childActive || (open[item.href] ?? false);
+
     return (
       <li key={item.href}>
-        <Link
-          href={item.href}
-          className={cn(
-            "flex items-center gap-2.5 rounded-lg py-2 text-sm font-medium transition-colors",
-            nested ? "pl-9 pr-3" : "px-3",
-            active ? "bg-sidebar-active text-white" : "text-sidebar-muted hover:bg-sidebar-active/60 hover:text-white",
+        <div className="flex items-stretch">
+          <Link
+            href={item.href}
+            className={cn(
+              "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 text-sm font-medium transition-colors",
+              nested ? "pl-9 pr-3" : "px-3",
+              depth > 1 && "pl-12",
+              active ? "bg-sidebar-active text-white" : "text-sidebar-muted hover:bg-sidebar-active/60 hover:text-white",
+            )}
+          >
+            <Icon name={item.icon} className="h-4 w-4 shrink-0" />
+            <span className="truncate">{item.label}</span>
+            {item.href === "/messages"
+              ? <MessagesNavBadge initial={messagingUnread} />
+              : (() => { const b = badgeFor(item, moduleBadges); return b > 0 ? <NavBadge count={b} /> : null; })()}
+          </Link>
+          {/* LA FLÈCHE DES SOUS-MODULES — séparée du lien : on doit pouvoir ouvrir le parent
+              SANS déplier, et déplier sans quitter la page où l'on est. */}
+          {kids.length > 0 && (
+            <button
+              type="button"
+              onClick={() => toggle(item.href, !opened)}
+              aria-expanded={opened}
+              aria-label={opened ? `Replier ${item.label}` : `Déplier ${item.label}`}
+              className="rounded-lg px-2 text-sidebar-muted transition-colors hover:bg-sidebar-active/60 hover:text-white"
+            >
+              <Icon name="ChevronDown" className={cn("h-3.5 w-3.5 transition-transform", opened ? "" : "-rotate-90")} />
+            </button>
           )}
-        >
-          <Icon name={item.icon} className="h-4 w-4 shrink-0" />
-          <span className="truncate">{item.label}</span>
-          {item.href === "/messages"
-            ? <MessagesNavBadge initial={messagingUnread} />
-            : (() => { const b = badgeFor(item, moduleBadges); return b > 0 ? <NavBadge count={b} /> : null; })()}
-        </Link>
+        </div>
+        {kids.length > 0 && opened && (
+          <ul className="mt-0.5 space-y-0.5">{kids.map((c) => renderItem(c, true, depth + 1))}</ul>
+        )}
       </li>
     );
   };
@@ -127,7 +159,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
   );
 
   return (
-    <aside className="hidden w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground lg:flex">
+    <aside data-app-sidebar className="hidden w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground lg:flex">
       <div className="flex h-16 items-center gap-2.5 px-5">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-accent text-sm font-bold text-sidebar">
           A
@@ -151,7 +183,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
             <ul className="space-y-1">
               {poles.map((pole) => {
                 const opened = isOpen(pole.key, pole.defaultOpen);
-                const anyActive = pole.children.some((c) => [c.href, ...(c.match ?? [])]
+                const anyActive = pole.children.some((c) => navPaths(c)
                   .some((p) => pathname === p || pathname.startsWith(p + "/")));
                 const badge = pole.children.reduce((a, c) => a + badgeFor(c, moduleBadges), 0);
                 return (

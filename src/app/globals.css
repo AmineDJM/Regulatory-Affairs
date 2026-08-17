@@ -367,12 +367,15 @@
 }
 
 /* ── PLEIN ÉCRAN (mode focus) — piloté par la classe `amd-focus` sur <html>.
-   On replie le CHROME (en-tête + bandeaux), on relâche la largeur maximale, on serre les marges.
-   La BARRE LATÉRALE reste : un plein écran qui masque la navigation est un cul-de-sac. */
+   TOUT s'efface : le chrome (en-tête, bandeaux) ET la barre latérale. Un tableau de quarante
+   colonnes ne se lit pas dans huit cents pixels — quand on demande le plein écran, on veut la
+   largeur de l'écran, pas la largeur restante. Le bouton flottant « Quitter » (rendu hors du
+   chrome) reste la porte de sortie, et la touche Échap y ramène aussi. */
 :root.amd-focus {
   --shell-max: 100%;
 }
-:root.amd-focus [data-app-chrome] {
+:root.amd-focus [data-app-chrome],
+:root.amd-focus [data-app-sidebar] {
   display: none;
 }
 :root.amd-focus main {

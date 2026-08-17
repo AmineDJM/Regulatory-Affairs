@@ -6,12 +6,11 @@ import { Maximize2, Minimize2 } from "lucide-react";
 /**
  * LE PLEIN ÉCRAN, PARTOUT, ET QUI GARDE LA NAVIGATION.
  *
- * Deux exigences qu'il fallait tenir ENSEMBLE :
- *   • un vrai grand écran — on récupère la barre du navigateur ET l'en-tête de l'application,
- *     le contenu occupe toute la largeur ;
- *   • **la barre latérale reste**. Un plein écran qui l'escamote oblige à en sortir dès qu'on
- *     veut changer d'écran — ce n'est plus du plein écran, c'est un cul-de-sac. On ne masque
- *     donc que le CHROME (en-tête, bandeaux), jamais le menu de gauche.
+ * Plein écran veut dire PLEIN ÉCRAN : on récupère la barre du navigateur, l'en-tête de
+ * l'application ET la barre latérale. Un tableau de quarante colonnes ne se lit pas dans la
+ * largeur qui reste à côté d'un menu de 256 px — c'est précisément pour ces écrans-là qu'on
+ * demande le plein écran. La sortie est toujours à portée : le bouton flottant « Quitter », rendu
+ * à la racine (hors du chrome masqué), et la touche Échap.
  *
  * L'état vit sur `<html>` (classe `amd-focus`) et non dans un contexte React : c'est ce qui
  * permet à n'importe quel écran d'offrir le bouton — celui de l'en-tête, celui de la barre du
@@ -35,8 +34,8 @@ export function setFocusMode(on: boolean): void {
   window.dispatchEvent(new Event(EVENT));
 }
 
-/** Suit l'état du plein écran, où qu'il soit basculé (en-tête, Drive, touche Échap). */
-function useFocusState(): boolean {
+/** Suit l'état du plein écran, où qu'il soit basculé (en-tête, Drive, Regulatory, touche Échap). */
+export function useFocusState(): boolean {
   const [on, setOn] = React.useState(false);
   React.useEffect(() => {
     const sync = () => setOn(document.documentElement.classList.contains(FOCUS_CLASS));

@@ -8,6 +8,7 @@ import { PRIORITY, REGULATORY_STATUS, REGULATORY_CATEGORY, MANUFACTURING_STATUS 
 import { formatDate, daysUntil } from "@/lib/utils";
 import { setRegulatoryPriority, setRegulatoryResponsible, setRegulatoryClassification, setRegulatoryLock, unlockAllRegulatory } from "@/lib/actions/regulatory-actions";
 import { visibleStages, defaultStage, type RegStage } from "@/lib/regulatory/stage";
+import { setFocusMode, useFocusState } from "@/components/layout/focus-mode";
 
 export interface RegulatoryRow {
   id: string;
@@ -140,6 +141,9 @@ export function RegulatoryTable({
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [assignError, setAssignError] = React.useState<string | null>(null);
   const [exporting, setExporting] = React.useState(false);
+  // Le plein écran est global (classe sur <html>) : on le SUIT, on ne le duplique pas — sortir
+  // par Échap ou par le bouton flottant doit remettre ce bouton-ci dans le bon état.
+  const focused = useFocusState();
   // PLEINE LARGEUR : le plafond de 1400 px protège la LECTURE d'un texte, pas celle d'un
   // tableau. On le relève pour cet écran, et pour lui seul — la variable est reposée en
   // quittant la page, sinon un formulaire hériterait d'une largeur faite pour des colonnes.
@@ -468,14 +472,26 @@ export function RegulatoryTable({
               <Filter className="h-3.5 w-3.5" /> Effacer les filtres
             </button>
           )}
+          {/* PLEINE LARGEUR : relâche le plafond de lecture, sans rien masquer. */}
           <button
             type="button" onClick={toggleWide}
-            title={wide ? "Revenir à la largeur de lecture" : "Étendre le tableau à tout l'écran"}
+            title={wide ? "Revenir à la largeur de lecture" : "Étendre le tableau à toute la largeur"}
             aria-pressed={wide}
             className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-2 text-xs transition-colors ${wide ? "border-primary/50 text-primary" : "border-input text-muted-foreground"} hover:bg-secondary`}
           >
-            {wide ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            {wide ? "Largeur de lecture" : "Plein écran"}
+            <Columns3 className="h-3.5 w-3.5" />
+            {wide ? "Largeur de lecture" : "Pleine largeur"}
+          </button>
+          {/* PLEIN ÉCRAN, le vrai : en-tête ET barre latérale s'effacent — quarante colonnes ne
+              se lisent pas à côté d'un menu. Le même geste que dans le Drive, partout. */}
+          <button
+            type="button" onClick={() => setFocusMode(!focused)}
+            title={focused ? "Quitter le plein écran" : "Plein écran — masque le menu et l'en-tête"}
+            aria-pressed={focused}
+            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-2 text-xs transition-colors ${focused ? "border-primary/50 text-primary" : "border-input text-muted-foreground"} hover:bg-secondary`}
+          >
+            {focused ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            {focused ? "Quitter" : "Plein écran"}
           </button>
 
           <button

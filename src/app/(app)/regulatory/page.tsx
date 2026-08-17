@@ -6,10 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { regStage } from "@/lib/regulatory/stage";
 import { currentCompanyWhere, getCompanies } from "@/lib/company";
-import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
-import { ModuleTabs } from "@/components/shared/module-tabs";
 import { PHARMA_FORM, DOSAGE_UNIT, effectiveTherapeuticSegments } from "@/lib/labels";
 import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { RegulatoryTable } from "./regulatory-table";
@@ -68,13 +66,6 @@ export default async function RegulatoryPage() {
           )}
         </div>
       </PageHeader>
-
-      <ModuleTabs
-        tabs={[
-          { label: "Dossiers", href: "/regulatory" },
-          { label: "Enregistrement (CTD)", href: "/regulatory/enregistrement", show: canSeeRegEnrollment(user, settings) },
-        ]}
-      />
 
       {/* Un dossier sans entité est visible de TOUT LE MONDE en vue « toutes les entités ».
           On ne le devine pas à sa place — on le signale, pour qu'un humain le rattache. */}

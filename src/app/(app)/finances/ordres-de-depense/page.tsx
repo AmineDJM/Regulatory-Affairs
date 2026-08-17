@@ -56,7 +56,7 @@ export default async function OrdresDepensePage() {
       <BackLink href="/finances">
         <ArrowLeft className="h-4 w-4" /> Retour aux finances
       </BackLink>
-      <PageHeader title="Ordres de dépense" description="Dépenses validées par la Direction, à exécuter par la comptabilité. Le règlement génère l'écriture de trésorerie." />
+      <PageHeader title="Règlements à effectuer" description="Dépenses validées par la Direction, à régler par la comptabilité. Le règlement génère l'écriture de trésorerie." />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <KpiCard label="Ordres à régler" value={pending.length} icon="ReceiptText" tone={pending.length > 0 ? "warning" : "default"} />

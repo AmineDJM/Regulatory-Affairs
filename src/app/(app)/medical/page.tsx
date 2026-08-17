@@ -7,9 +7,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
-import { VISIT_STATUS, doctorDisplayName, MEDICAL_TABS } from "@/lib/labels";
-import { ModuleTabs } from "@/components/shared/module-tabs";
-import { visibleTabs } from "@/lib/nav-tabs";
+import { VISIT_STATUS, doctorDisplayName } from "@/lib/labels";
 import { MedicalDirectory } from "./medical-directory";
 import { VisitsTable, type VisitRow } from "./visits-table";
 import { DelegatePlans } from "./delegate-plans";
@@ -21,8 +19,8 @@ export default async function MedicalPage() {
   const canDelete = userCan(user, "MEDICAL", "DELETE");
   const isManager = hasGlobalView(user.role) || user.role === "MEDICAL_PROMOTION_MANAGER";
 
-  const [data, plans, companies, tabs] = await Promise.all([
-    getMedicalData(user), getDelegatePlans(user), getCompanies(), visibleTabs(user, MEDICAL_TABS),
+  const [data, plans, companies] = await Promise.all([
+    getMedicalData(user), getDelegatePlans(user), getCompanies(),
   ]);
   const allDoctors = data.groups.flatMap((g) => g.doctors).sort((a, b) => a.name.localeCompare(b.name));
   const delegateOptions = data.delegates.map((d) => ({ value: d.id, label: d.name }));
@@ -41,8 +39,7 @@ export default async function MedicalPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Annuaire" description="Spécialités, médecins (hôpital / libéral), influence & potentiel, et suivi des visites des délégués." />
-      <ModuleTabs tabs={tabs} />
+      <PageHeader title="Visites & segmentation" description="Segmentation des praticiens (influence, potentiel, affinité) et suivi des visites et tournées des délégués. Le référentiel lui-même vit dans l'Annuaire." />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <KpiCard label="Spécialités" value={data.stats.specialties} icon="Tags" tone="info" />
