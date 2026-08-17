@@ -91,6 +91,44 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     // NB : Administration et Adventum Brain (+ Process Intelligence) sont réservés au
     // Super Admin. La Direction n'y a plus accès.
   },
+  // DIRECTEUR GÉNÉRAL — tous les pouvoirs MÉTIER, sans la souveraineté du Super Admin.
+  //
+  // Il gère et décide sur tous les pôles (y compris les circuits Ad & Pro, dont il est le
+  // signataire), mais il est délibérément ABSENT de `GLOBAL_VIEW_ROLES`. Deux conséquences
+  // voulues, et c'est toute la différence avec la Direction :
+  //  - il ne SUPERVISE PAS les demandes de validation de tout le monde (le tableau de
+  //    supervision est réservé à la vue globale) : il voit et tranche ce qu'on lui adresse ;
+  //  - les modules PERSONNELS (Drive, directives, dossiers, support) restent cloisonnés —
+  //    un directeur général n'a pas à lire le Drive privé de chacun.
+  // Administration, Adventum Brain et Process Intelligence restent au seul Super Admin.
+  GENERAL_MANAGER: {
+    DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, DRIVE: DRIVE_USER,
+    REGULATORY: MANAGE, SPONSORING: MANAGE, BUDGETS: READ, FINANCES: MANAGE, RH: MANAGE,
+    CONGRESS_INTERNATIONAL: MANAGE, CONGRESS_NATIONAL: MANAGE, EVENTS: MANAGE, SALES: MANAGE,
+    LOGISTICS: MANAGE, PCH: MANAGE, STOCKS: MANAGE, MEDICAL: MANAGE, FIELD_REPORTS: MANAGE,
+    SALES_PLANNING: MANAGE, BUSINESS_DEVELOPMENT: MANAGE, MEDICAL_INFO: MANAGE,
+    PROMO_MATERIAL: MANAGE, CONSULTING: MANAGE, AD_PRO_OTHER: MANAGE, DOCUMENTS: MANAGE,
+    ADMIN_REQUESTS: MANAGE, GENERAL_MEANS: MANAGE, LEGAL: MANAGE, MAIL_REGISTER: MANAGE,
+    // Pas de VALIDATE global : il valide ce dont il est nommément validateur, comme tout le monde.
+    VALIDATIONS: VALIDATION_USER, DIRECTIVES: MANAGE, SUPPORT: MANAGE, DOSSIERS: MANAGE,
+    NOTIFICATIONS: ["VIEW"],
+  },
+  // DIRECTEUR DES OPÉRATIONS — rôle À PART, pas une Direction au rabais.
+  //
+  // Son métier, c'est ce qui FAIT TOURNER la maison : la chaîne d'approvisionnement
+  // (logistique, marchés PCH, stocks), les ventes, les moyens généraux et le secrétariat.
+  // Il LIT ce dont il dépend sans le piloter — le réglementaire qui conditionne ce qu'on peut
+  // vendre, les budgets et les finances qui bornent ses achats — parce qu'un directeur des
+  // opérations qui ne voit pas la date d'une décision d'enregistrement planifie à l'aveugle.
+  OPERATIONS_DIRECTOR: {
+    DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, DRIVE: DRIVE_USER,
+    VALIDATIONS: VALIDATION_USER,
+    LOGISTICS: MANAGE, PCH: MANAGE, STOCKS: MANAGE, SALES: MANAGE,
+    GENERAL_MEANS: MANAGE, ADMIN_REQUESTS: MANAGE, LEGAL: CONTRIBUTE, MAIL_REGISTER: READ,
+    REGULATORY: READ, BUDGETS: READ, FINANCES: READ, RH: READ, MEDICAL: READ, FIELD_REPORTS: READ,
+    SALES_PLANNING: READ, DOCUMENTS: CONTRIBUTE,
+    DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
+  },
   HEAD_OF_REGULATORY: {
     DASHBOARD: READ, WORKSPACE: WORKSPACE_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, REGULATORY: MANAGE, DOCUMENTS: CONTRIBUTE, BUDGETS: READ, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
   },
@@ -310,9 +348,12 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
   if (hasGlobalView(role)) return "ALL";
   // Drive defaults to per-user scope: one only sees one's own and shared files.
   if (module === "DRIVE") return "ASSIGNED";
-  // Admin requests: l'Assistante de Direction pilote toutes les demandes (ALL) ; les
-  // autres ne voient que les leurs (l'admin peut élargir via un override).
-  if (module === "ADMIN_REQUESTS") return role === "DIRECTION_ASSISTANT" ? "ALL" : "ASSIGNED";
+  // Admin requests : ceux qui PILOTENT le secrétariat les voient toutes (ALL) — l'Assistante
+  // de Direction, et les deux directions qui gèrent le module. Les autres ne voient que les
+  // leurs (l'admin peut élargir via un override).
+  if (module === "ADMIN_REQUESTS") {
+    return (["DIRECTION_ASSISTANT", "GENERAL_MANAGER", "OPERATIONS_DIRECTOR"] as UserRole[]).includes(role) ? "ALL" : "ASSIGNED";
+  }
   // Information médicale : le pharmacien responsable voit tout ; les autres (Direction
   // exceptée via hasGlobalView) ne voient que les déclarations où une pièce leur est demandée.
   if (module === "MEDICAL_INFO") return role === "MEDICAL_INFO_PHARMACIST" ? "ALL" : "ASSIGNED";

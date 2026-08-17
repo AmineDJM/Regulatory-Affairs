@@ -305,7 +305,13 @@ describe("Moyens généraux — les RH pilotent, l'assistante utilise", () => {
     // un rôle qui n'a rien à voir avec les achats.
     const holders = (Object.keys(PERMISSIONS) as UserRole[]).filter((r) => PERMISSIONS[r].GENERAL_MEANS);
     expect(new Set(holders)).toEqual(
-      new Set<UserRole>(["SUPER_ADMIN", "DIRECTION", "FINANCE_BUDGET_MANAGER", "DIRECTION_ASSISTANT"]),
+      // Les deux directions s'y ajoutent volontairement : le Directeur Général parce qu'il a
+      // tous les pouvoirs métier, le Directeur des Opérations parce que les moyens généraux
+      // SONT son métier. Aucun rôle de terrain n'y figure.
+      new Set<UserRole>([
+        "SUPER_ADMIN", "DIRECTION", "GENERAL_MANAGER", "OPERATIONS_DIRECTOR",
+        "FINANCE_BUDGET_MANAGER", "DIRECTION_ASSISTANT",
+      ]),
     );
   });
 
@@ -316,5 +322,61 @@ describe("Moyens généraux — les RH pilotent, l'assistante utilise", () => {
     // Elle n'ARBITRE pas : doter, valider une rallonge, ce n'est pas son rôle.
     expect(a).not.toContain("VALIDATE");
     expect(a).not.toContain("DELETE");
+  });
+});
+
+describe("Directeur Général — tous les pouvoirs métier, sans la souveraineté du Super Admin", () => {
+  it("gère les pôles opérationnels comme la Direction", () => {
+    for (const m of ["REGULATORY", "SPONSORING", "FINANCES", "RH", "SALES", "LOGISTICS", "PCH", "STOCKS", "MEDICAL", "LEGAL", "MAIL_REGISTER"] as Module[]) {
+      expect(can("GENERAL_MANAGER", m, "UPDATE"), m).toBe(true);
+      expect(can("GENERAL_MANAGER", m, "DELETE"), m).toBe(true);
+    }
+  });
+
+  it("NE SUPERVISE PAS les demandes de validation de tout le monde", () => {
+    // C'est LA différence avec la Direction, et elle tient à un seul fait : le tableau de
+    // supervision est réservé à la vue globale (`hasGlobalView`). Le Directeur Général voit et
+    // tranche ce qu'on lui adresse nommément, pas les circuits de chacun.
+    expect(hasGlobalView("DIRECTION")).toBe(true);
+    expect(hasGlobalView("GENERAL_MANAGER")).toBe(false);
+    expect(can("GENERAL_MANAGER", "VALIDATIONS", "VALIDATE")).toBe(false);
+  });
+
+  it("n'a NI l'Administration, NI l'IA, NI Process Intelligence — la souveraineté reste au Super Admin", () => {
+    for (const m of ["ADMIN", "ADVENTUM_BRAIN", "PROCESS_INTELLIGENCE"] as Module[]) {
+      expect(can("GENERAL_MANAGER", m, "VIEW"), m).toBe(false);
+    }
+  });
+
+  it("le Drive et les fils personnels restent cloisonnés", () => {
+    // « Tous les pouvoirs » ne veut pas dire lire le Drive privé de chacun : la portée par
+    // défaut du Drive reste celle de tout le monde.
+    expect(defaultScope("GENERAL_MANAGER", "DRIVE")).toBe("ASSIGNED");
+    expect(defaultScope("GENERAL_MANAGER", "DIRECTIVES")).toBe("ASSIGNED");
+    // En revanche il pilote le secrétariat : il voit TOUTES les demandes administratives.
+    expect(defaultScope("GENERAL_MANAGER", "ADMIN_REQUESTS")).toBe("ALL");
+  });
+});
+
+describe("Directeur des Opérations — un rôle À PART, pas une Direction au rabais", () => {
+  it("pilote ce qui fait tourner la maison : approvisionnement, ventes, moyens généraux", () => {
+    for (const m of ["LOGISTICS", "PCH", "STOCKS", "SALES", "GENERAL_MEANS", "ADMIN_REQUESTS"] as Module[]) {
+      expect(can("OPERATIONS_DIRECTOR", m, "UPDATE"), m).toBe(true);
+    }
+  });
+
+  it("LIT ce dont il dépend sans le piloter — réglementaire, budgets, finances", () => {
+    for (const m of ["REGULATORY", "BUDGETS", "FINANCES", "RH"] as Module[]) {
+      expect(can("OPERATIONS_DIRECTOR", m, "VIEW"), m).toBe(true);
+      expect(can("OPERATIONS_DIRECTOR", m, "UPDATE"), m).toBe(false);
+    }
+  });
+
+  it("n'est pas une vue globale, et n'a pas les pouvoirs du Directeur Général", () => {
+    expect(hasGlobalView("OPERATIONS_DIRECTOR")).toBe(false);
+    // Les circuits Ad & Pro (sponsoring, congrès, événements) ne sont pas les siens.
+    for (const m of ["SPONSORING", "CONGRESS_INTERNATIONAL", "EVENTS"] as Module[]) {
+      expect(can("OPERATIONS_DIRECTOR", m, "VIEW"), m).toBe(false);
+    }
   });
 });

@@ -20,7 +20,12 @@ interface Display {
 
 export const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Super Admin",
-  DIRECTION: "Direction des opérations",
+  // « Direction » tout court : le libellé disait « Direction des opérations », or le Directeur
+  // des Opérations est désormais un rôle à part — deux entrées portant le même nom dans un menu
+  // déroulant de rôles, c'est la garantie d'attribuer le mauvais.
+  DIRECTION: "Direction",
+  GENERAL_MANAGER: "Directeur Général",
+  OPERATIONS_DIRECTOR: "Directeur des Opérations",
   HEAD_OF_REGULATORY: "Responsable Réglementaire",
   REGULATORY_ASSISTANT: "Assistante Réglementaire",
   HEAD_OF_SALES: "Responsable Ventes",
@@ -812,6 +817,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   DOCUMENT_REQUEST: "Demande de pièce",
   PAYMENT_REQUEST: "Demande de paiement",
   MAIL_ENTRY: "Courrier",
+  LEGAL_DOCUMENT: "Document légal",
 };
 
 /**

@@ -41,10 +41,12 @@ const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-x
 
 const URGENT = new Set(["SOON", "IMMINENT", "OVERDUE"]);
 
-export function LegalTable({ rows, canEdit }: { rows: LegalRow[]; canEdit: boolean }) {
+export function LegalTable({ rows, canEdit, watchByDefault = false }: { rows: LegalRow[]; canEdit: boolean; watchByDefault?: boolean }) {
   const router = useRouter();
   const [f, setF] = React.useState({ title: "", kind: "", counterparty: "", status: "", reference: "" });
-  const [watchOnly, setWatchOnly] = React.useState(false);
+  // Arrivée depuis un rappel d'échéance (`/legal?echeances=1`) : le filtre est déjà posé, sinon
+  // la notification renverrait sur une liste de trois cents lignes où retrouver la bonne.
+  const [watchOnly, setWatchOnly] = React.useState(watchByDefault);
   const [busy, setBusy] = React.useState<string | null>(null);
 
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>

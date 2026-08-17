@@ -71,6 +71,8 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   DEPARTMENT_EXPENSE: "BUDGETS",
   // Un courrier du registre : c'est le module Courriers qui en gouverne les pièces jointes.
   MAIL_ENTRY: "MAIL_REGISTER",
+  // Un engagement de la société (contrat, bon de commande, assurance) et ses pièces.
+  LEGAL_DOCUMENT: "LEGAL",
 };
 
 /**
@@ -252,6 +254,14 @@ export async function canAccessEntity(
       // plis d'une autre société du groupe. Sans ce contrôle, une pièce jointe se téléverserait
       // sur le courrier d'une entité voisine en devinant son identifiant.
       const found = await prisma.mailEntry.findFirst({
+        where: { AND: [{ id: entityId }, await platformScope(user.id)] },
+        select: { id: true },
+      });
+      return Boolean(found);
+    }
+    case "LEGAL_DOCUMENT": {
+      // Même raison : les engagements d'une société du groupe ne se lisent pas depuis une autre.
+      const found = await prisma.legalDocument.findFirst({
         where: { AND: [{ id: entityId }, await platformScope(user.id)] },
         select: { id: true },
       });

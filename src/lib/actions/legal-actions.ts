@@ -69,6 +69,7 @@ export async function createLegalDocument(
   });
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: created.id,
     summary: `Document légal « ${title} »`,
   });
   revalidatePath("/legal");
@@ -98,11 +99,30 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: id,
     summary: `Document légal « ${title} » mis à jour`,
   });
   revalidatePath("/legal");
   revalidatePath(`/legal/${id}`);
   return { ok: true };
+}
+
+/**
+ * MODIFIER depuis la FICHE du document.
+ *
+ * Même règle métier que `updateLegalDocument`, mais l'identifiant est LIÉ côté serveur
+ * (`editLegalDocument.bind(null, id)`) au lieu d'être posé dans un champ caché : un champ caché se
+ * réécrit dans le navigateur, et l'on modifierait alors l'engagement de quelqu'un d'autre.
+ */
+export async function editLegalDocument(
+  id: string,
+  _prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  const fd = new FormData();
+  for (const [k, v] of formData.entries()) fd.append(k, v);
+  fd.set("id", id);
+  return updateLegalDocument(fd);
 }
 
 /**
@@ -155,6 +175,7 @@ export async function attachDriveNodeToLegal(input: {
   });
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: created.id,
     summary: `Document du Drive rattaché à Legal — « ${node.name} » (le fichier reste dans le Drive)`,
   });
   revalidatePath("/legal");
@@ -213,8 +234,16 @@ export async function renewLegalDocument(formData: FormData): Promise<ActionResu
     return next;
   });
 
+  // Le renouvellement s'inscrit AU JOURNAL DES DEUX : sur l'ancien, parce que c'est là qu'on
+  // cherchera ce qu'il est devenu ; sur le nouveau, parce que c'est là qu'on cherchera d'où il vient.
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: previous.id,
+    summary: `Renouvelé — la suite est « ${fdStr(formData, "title") ?? previous.title} »`,
+  });
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: created.id,
     summary: `Renouvellement de « ${previous.title} »`,
   });
   revalidatePath("/legal");
@@ -244,6 +273,8 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
   });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: id,
+    field: "status", oldValue: doc.status, newValue: "CANCELLED",
     summary: `Annulation de « ${doc.title} »`,
   });
   revalidatePath("/legal");
@@ -263,6 +294,7 @@ export async function deleteLegalDocument(formData: FormData): Promise<ActionRes
   await prisma.legalDocument.delete({ where: { id } });
   await recordAudit({
     actorId: user.id, action: "DELETE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: id,
     summary: `Fiche légale « ${doc.title} » supprimée (le fichier reste dans le Drive)`,
   });
   revalidatePath("/legal");

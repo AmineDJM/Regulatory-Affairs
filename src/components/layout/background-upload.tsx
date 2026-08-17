@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { UploadCloud, Loader2, CheckCircle2, AlertCircle, X, ChevronDown } from "lucide-react";
+import { UploadCloud, Loader2, CheckCircle2, AlertCircle, X, ChevronDown, Ban } from "lucide-react";
 
 /**
  * GESTIONNAIRE D'ENVOIS GÉNÉRIQUE, GLOBAL — n'importe quel téléversement de la plateforme
@@ -15,10 +15,10 @@ import { UploadCloud, Loader2, CheckCircle2, AlertCircle, X, ChevronDown } from 
  * (Le dossier CTD garde son propre moteur résumable par parties — voir upload-manager.tsx.)
  */
 
-type FileStatus = "pending" | "checking" | "uploading" | "done" | "error";
+type FileStatus = "pending" | "checking" | "uploading" | "done" | "error" | "cancelled";
 interface BgFile { name: string; size: number; status: FileStatus; progress: number; error?: string }
 interface BgJob {
-  id: string; label: string; files: BgFile[]; phase: "uploading" | "done" | "error"; spec: EnqueueSpec;
+  id: string; label: string; files: BgFile[]; phase: "uploading" | "done" | "error" | "cancelled"; spec: EnqueueSpec;
   /** Diagnostic du serveur sur l'envoi le plus lent du lot — affiché quand ça traîne. */
   slowest?: { name: string; line: string };
 }
@@ -42,6 +42,11 @@ export interface EnqueueSpec {
 }
 
 interface Ctx { enqueue: (spec: EnqueueSpec) => void }
+
+/** Sortie de boucle par annulation — ce n'est pas une erreur, on ne l'affiche pas comme telle. */
+class BgCancelled extends Error {
+  constructor() { super("Envoi annulé."); }
+}
 const BgUploadContext = React.createContext<Ctx | null>(null);
 
 /** Accès au gestionnaire d'envois générique (démarrer un envoi en arrière-plan). */
@@ -56,9 +61,18 @@ const humanSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo
 /** Au-delà, un envoi mérite une explication plutôt qu'une barre qui avance en silence. */
 const SLOW_MS = 3000;
 
-/** POST d'un FormData avec progression d'upload réelle ; ne rejette jamais. */
-function postFormXhr(url: string, formData: FormData, onProgress: (frac: number) => void, timeoutMs: number): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  return new Promise((resolve) => {
+/**
+ * POST d'un FormData avec progression d'upload réelle ; ne rejette jamais — SAUF sur annulation,
+ * qui doit se distinguer d'un échec réseau (un échec se retente, une annulation non).
+ *
+ * `onOpen` rend la requête interruptible : sans cette prise, annuler n'arrêterait rien tant que le
+ * fichier en vol n'aurait pas fini de monter.
+ */
+function postFormXhr(
+  url: string, formData: FormData, onProgress: (frac: number) => void, timeoutMs: number,
+  onOpen?: (xhr: XMLHttpRequest) => void,
+): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
     xhr.timeout = timeoutMs;
@@ -70,6 +84,8 @@ function postFormXhr(url: string, formData: FormData, onProgress: (frac: number)
     };
     xhr.onerror = () => resolve({ ok: false, status: 0, body: {} });
     xhr.ontimeout = () => resolve({ ok: false, status: 0, body: {} });
+    xhr.onabort = () => reject(new BgCancelled());
+    onOpen?.(xhr);
     xhr.send(formData);
   });
 }
@@ -86,10 +102,27 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
   }, []);
   const dismiss = React.useCallback((jobId: string) => setJobs((js) => js.filter((j) => j.id !== jobId)), []);
 
+  // ANNULATION — le drapeau arrête la file, l'avortement coupe ce qui est déjà en vol. Les deux
+  // sont nécessaires : sans le second, annuler un envoi de 200 Mo attendrait la fin du fichier
+  // courant, ce qui n'a rien d'une annulation.
+  const cancelled = React.useRef(new Set<string>());
+  const inflight = React.useRef(new Map<string, Set<XMLHttpRequest>>());
+  const track = React.useCallback((jobId: string, xhr: XMLHttpRequest) => {
+    const set = inflight.current.get(jobId) ?? new Set();
+    set.add(xhr);
+    inflight.current.set(jobId, set);
+    xhr.addEventListener("loadend", () => set.delete(xhr));
+  }, []);
+
   // Lance (ou relance) l'envoi des fichiers du lot dont l'index est dans `indices`.
   const runJob = React.useCallback(async (jobId: string, spec: EnqueueSpec, indices: number[]) => {
+    cancelled.current.delete(jobId);
+    inflight.current.set(jobId, new Set());
+    const stopped = () => cancelled.current.has(jobId);
+
     const uploadOne = async (idx: number): Promise<void> => {
       const file = spec.files[idx];
+      if (stopped()) { patchFile(jobId, idx, { status: "cancelled", progress: 0 }); return; }
       patchFile(jobId, idx, { status: "uploading", progress: 0, error: undefined });
 
       // Le contenu est-il déjà là ? Si oui, aucun octet ne part sur le réseau. L'état
@@ -106,7 +139,15 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       const { url, formData } = spec.makeRequest(file);
       const attempts = 5;
       for (let attempt = 0; attempt < attempts; attempt++) {
-        const r = await postFormXhr(url, formData, (frac) => patchFile(jobId, idx, { progress: Math.round(frac * 100) }), 20 * 60_000);
+        if (stopped()) { patchFile(jobId, idx, { status: "cancelled", progress: 0 }); return; }
+        let r: { ok: boolean; status: number; body: Record<string, unknown> };
+        try {
+          r = await postFormXhr(url, formData, (frac) => patchFile(jobId, idx, { progress: Math.round(frac * 100) }), 20 * 60_000, (x) => track(jobId, x));
+        } catch (e) {
+          // Annulation : on ne retente pas ce que l'utilisateur vient d'arrêter.
+          if (e instanceof BgCancelled) { patchFile(jobId, idx, { status: "cancelled", progress: 0 }); return; }
+          throw e;
+        }
         if (r.ok && (r.body.ok ?? true)) {
           patchFile(jobId, idx, { status: "done", progress: 100 });
           // Le serveur dit où est passé le temps. On garde le pire du lot : quand quelqu'un
@@ -130,13 +171,40 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     // Concurrence bornée : plusieurs fichiers montent en parallèle.
     const pool = Math.max(1, Math.min(spec.concurrency ?? 4, indices.length));
     let cursor = 0;
-    const worker = async () => { while (cursor < indices.length) { const i = cursor++; await uploadOne(indices[i]); } };
+    const worker = async () => { while (cursor < indices.length && !stopped()) { const i = cursor++; await uploadOne(indices[i]); } };
     await Promise.all(Array.from({ length: pool }, () => worker()));
+    inflight.current.delete(jobId);
 
-    // État final du lot + rafraîchissement de la vue courante.
-    setJobs((js) => js.map((j) => (j.id === jobId ? { ...j, phase: j.files.some((f) => f.status === "error") ? "error" : "done" } : j)));
+    // État final du lot + rafraîchissement de la vue courante. Les fichiers restés en attente au
+    // moment de l'annulation le disent, plutôt que de figer une barre à mi-course.
+    setJobs((js) => js.map((j) => {
+      if (j.id !== jobId) return j;
+      if (cancelled.current.has(jobId)) {
+        return {
+          ...j, phase: "cancelled",
+          files: j.files.map((f) => (f.status === "done" || f.status === "error" ? f : { ...f, status: "cancelled" as FileStatus, progress: 0 })),
+        };
+      }
+      return { ...j, phase: j.files.some((f) => f.status === "error") ? "error" : "done" };
+    }));
     router.refresh();
-  }, [patchFile, router]);
+  }, [patchFile, router, track]);
+
+  /**
+   * ANNULER UN LOT EN COURS.
+   *
+   * Ce qui n'est pas encore parti ne partira pas ; ce qui est en vol est coupé. Ce qui est DÉJÀ
+   * arrivé reste : le serveur l'a enregistré, et le prétendre annulé serait mentir. Le compte est
+   * affiché pour qu'on sache exactement quoi supprimer si on le veut.
+   */
+  const cancelJob = React.useCallback((jobId: string) => {
+    cancelled.current.add(jobId);
+    for (const xhr of inflight.current.get(jobId) ?? []) { try { xhr.abort(); } catch { /* déjà terminée */ } }
+    inflight.current.delete(jobId);
+    setJobs((js) => js.map((j) => (j.id === jobId
+      ? { ...j, phase: "cancelled", files: j.files.map((f) => (f.status === "done" || f.status === "error" ? f : { ...f, status: "cancelled" as FileStatus, progress: 0 })) }
+      : j)));
+  }, []);
 
   const enqueue = React.useCallback((spec: EnqueueSpec) => {
     const files = spec.files.filter((f) => f.size > 0);
@@ -171,7 +239,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
   return (
     <BgUploadContext.Provider value={value}>
       {children}
-      <BgUploadWidget jobs={jobs} onDismiss={dismiss} onRetry={retryFailed} />
+      <BgUploadWidget jobs={jobs} onDismiss={dismiss} onRetry={retryFailed} onCancel={cancelJob} />
     </BgUploadContext.Provider>
   );
 }
@@ -181,7 +249,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
  * **réductible** en une petite bulle (bouton −). Un bouton **Réessayer** relance les fichiers en
  * échec sans perdre la file. Position par défaut : bas-gauche (n'écrase ni l'assistant ni le CTD).
  */
-function BgUploadWidget({ jobs, onDismiss, onRetry }: { jobs: BgJob[]; onDismiss: (id: string) => void; onRetry: (id: string) => void }) {
+function BgUploadWidget({ jobs, onDismiss, onRetry, onCancel }: { jobs: BgJob[]; onDismiss: (id: string) => void; onRetry: (id: string) => void; onCancel: (id: string) => void }) {
   const [minimized, setMinimized] = React.useState(false);
   // Position libre (coin haut-gauche du widget). `null` = ancrage par défaut en bas-gauche.
   const [pos, setPos] = React.useState<{ x: number; y: number } | null>(null);
@@ -209,6 +277,8 @@ function BgUploadWidget({ jobs, onDismiss, onRetry }: { jobs: BgJob[]; onDismiss
   if (jobs.length === 0) return null;
   const active = jobs.filter((j) => j.phase === "uploading").length;
   const anyFailed = jobs.some((j) => j.phase === "error");
+  // « Terminé » sur un lot qu'on vient d'annuler serait un mensonge à l'écran.
+  const allCancelled = jobs.length > 0 && jobs.every((j) => j.phase === "cancelled");
   const style: React.CSSProperties = pos ? { left: pos.x, top: pos.y } : { left: 16, bottom: 96 };
 
   // ── Réduit : petite bulle déplaçable (clic pour rouvrir) ──
@@ -219,8 +289,11 @@ function BgUploadWidget({ jobs, onDismiss, onRetry }: { jobs: BgJob[]; onDismiss
           onClick={() => { if (!drag.current) setMinimized(false); }}
           className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-sm font-medium shadow-lg hover:bg-muted/60"
           title="Ouvrir les téléversements">
-          {active > 0 ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : anyFailed ? <AlertCircle className="h-4 w-4 text-destructive" /> : <CheckCircle2 className="h-4 w-4 text-success" />}
-          <span>{active > 0 ? `Envoi (${active})` : anyFailed ? "Échecs" : "Terminé"}</span>
+          {active > 0 ? <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            : anyFailed ? <AlertCircle className="h-4 w-4 text-destructive" />
+            : allCancelled ? <Ban className="h-4 w-4 text-muted-foreground" />
+            : <CheckCircle2 className="h-4 w-4 text-success" />}
+          <span>{active > 0 ? `Envoi (${active})` : anyFailed ? "Échecs" : allCancelled ? "Annulé" : "Terminé"}</span>
         </button>
       </div>
     );
@@ -254,10 +327,16 @@ function BgUploadWidget({ jobs, onDismiss, onRetry }: { jobs: BgJob[]; onDismiss
                   <span className="flex min-w-0 items-center gap-1.5">
                     {j.phase === "uploading" ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
                       : j.phase === "done" ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
+                      : j.phase === "cancelled" ? <Ban className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       : <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />}
                     <span className="truncate text-foreground" title={j.label}>{j.label}</span>
                   </span>
-                  {j.phase !== "uploading" && (
+                  {j.phase === "uploading" ? (
+                    <button type="button" onClick={() => onCancel(j.id)}
+                      className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-destructive">
+                      Annuler
+                    </button>
+                  ) : (
                     <button type="button" onClick={() => onDismiss(j.id)} className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted" aria-label="Masquer"><X className="h-3.5 w-3.5" /></button>
                   )}
                 </div>
@@ -271,6 +350,14 @@ function BgUploadWidget({ jobs, onDismiss, onRetry }: { jobs: BgJob[]; onDismiss
                   </div>
                 )}
                 {j.phase === "done" && <p className="mt-1 text-xs text-success">{done} fichier·s téléversé·s{failed > 0 ? `, ${failed} en échec` : ""}.</p>}
+                {/* On ne prétend PAS avoir annulé ce qui est déjà arrivé : le serveur l'a
+                    enregistré. On dit combien, pour qu'on sache quoi supprimer si on le veut. */}
+                {j.phase === "cancelled" && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Envoi annulé — {j.files.filter((f) => f.status === "cancelled").length} fichier·s non envoyé·s
+                    {done > 0 ? `, ${done} déjà enregistré·s (à supprimer depuis la liste si besoin)` : ""}.
+                  </p>
+                )}
                 {j.slowest && (
                   <p className="mt-1 rounded bg-secondary/60 px-2 py-1 text-[0.6875rem] leading-snug text-muted-foreground" title={j.slowest.name}>
                     Le plus lent : {j.slowest.line}

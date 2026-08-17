@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  daysBetween, expiryLevel, daysLeft, effectiveStatus, shouldRemind,
+  daysBetween, expiryLevel, daysLeft, effectiveStatus, shouldRemind, expiryMessage,
   canRenew, canCancel, proposeRenewalDates, validateDates,
   REMIND_SOON_DAYS, REMIND_IMMINENT_DAYS,
 } from "./lifecycle";
@@ -119,5 +119,35 @@ describe("Contrôle des dates", () => {
     expect(validateDates(null, null)).toEqual({ ok: true });
     expect(validateDates(D("2026-01-01"), null)).toEqual({ ok: true });
     expect(validateDates(null, D("2026-01-01"))).toEqual({ ok: true });
+  });
+});
+
+describe("expiryMessage — ce que dit le rappel, seul sur un écran verrouillé", () => {
+  it("ne dit RIEN quand il n'y a rien à dire", () => {
+    // Ni pour un document sans échéance, ni pour un terme encore lointain : une notification
+    // qu'on n'attendait pas apprend à ignorer les suivantes.
+    expect(expiryMessage("NONE", null, "Statuts")).toBeNull();
+    expect(expiryMessage("SCHEDULED", 200, "Bail")).toBeNull();
+  });
+
+  it("porte TOUJOURS le nombre de jours — « échéance proche » ne fait lever personne", () => {
+    expect(expiryMessage("SOON", 62, "Assurance flotte")?.title).toContain("62 jours");
+    expect(expiryMessage("IMMINENT", 12, "Assurance flotte")?.title).toContain("12 jours");
+  });
+
+  it("dit « aujourd'hui » et « demain » plutôt que « dans 0 jour »", () => {
+    expect(expiryMessage("IMMINENT", 0, "Bail")?.title).toContain("aujourd'hui");
+    expect(expiryMessage("IMMINENT", 1, "Bail")?.title).toContain("demain");
+  });
+
+  it("nomme le dépassement pour ce qu'il est, avec son ancienneté", () => {
+    const m = expiryMessage("OVERDUE", -9, "Contrat de maintenance");
+    expect(m?.title).toContain("DÉPASSÉE");
+    expect(m?.title).toContain("9 jours");
+    expect(m?.body).toContain("Contrat de maintenance");
+  });
+
+  it("un titre vide ne produit pas un message amputé", () => {
+    expect(expiryMessage("IMMINENT", 5, "   ")?.body).toContain("Document sans titre");
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { UploadCloud, Loader2, CheckCircle2, AlertCircle, FileArchive, ShieldCheck, ShieldAlert } from "lucide-react";
+import { UploadCloud, Loader2, CheckCircle2, AlertCircle, FileArchive, ShieldCheck, ShieldAlert, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCtdUpload } from "@/components/layout/upload-manager";
@@ -15,7 +15,7 @@ const humanSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo
  */
 export function CtdUpload({ dossierId }: { dossierId: string }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const { jobs, start } = useCtdUpload();
+  const { jobs, start, cancel } = useCtdUpload();
   const job = jobs[dossierId];
   const [dragOver, setDragOver] = React.useState(false);
   const busy = job?.phase === "uploading" || job?.phase === "processing";
@@ -59,7 +59,25 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
             <div className="h-full rounded-full bg-primary transition-all" style={{ width: job?.phase === "processing" ? "100%" : `${job?.progress ?? 0}%` }} />
           </div>
-          <p className="text-xs text-muted-foreground">Vous pouvez quitter cette page — l'envoi continue (voir la pastille en bas à droite).</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">Vous pouvez quitter cette page — l&apos;envoi continue (voir la pastille en bas à droite).</p>
+            {/* Annuler ne s'offre que TANT QUE LES OCTETS MONTENT : passé en inspection, l'archive
+                est entièrement reçue et le serveur la dépouille — s'arrêter là laisserait une
+                version à moitié constituée. */}
+            {job?.phase === "uploading" && (
+              <button type="button" onClick={() => cancel(dossierId)}
+                className="shrink-0 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-destructive">
+                <Ban className="mr-1 inline h-3.5 w-3.5" /> Annuler l&apos;envoi
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {job?.phase === "cancelled" && (
+        <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          <Ban className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Envoi annulé — les tranches déjà reçues ont été supprimées. Choisissez un fichier pour repartir.</span>
         </div>
       )}
 

@@ -24,6 +24,8 @@ datasource db {
 enum UserRole {
   SUPER_ADMIN
   DIRECTION
+  GENERAL_MANAGER // Directeur Général : tous les pouvoirs métier, sans la souveraineté du Super Admin ni la supervision des validations de tous
+  OPERATIONS_DIRECTOR // Directeur des Opérations : chaîne d'approvisionnement, ventes, moyens généraux — rôle à part de la Direction
   HEAD_OF_REGULATORY
   REGULATORY_ASSISTANT
   HEAD_OF_SALES
@@ -383,6 +385,7 @@ enum EntityType {
   DOCUMENT_REQUEST
   PAYMENT_REQUEST
   MAIL_ENTRY
+  LEGAL_DOCUMENT
 }
 
 enum DocumentCategory {

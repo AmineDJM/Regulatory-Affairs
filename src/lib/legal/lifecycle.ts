@@ -93,6 +93,35 @@ export function shouldRemind(
   return expiryLevel(doc, doc.lastRemindedAt) !== level;
 }
 
+/**
+ * CE QUE DIT LE RAPPEL — le titre et le corps de la notification.
+ *
+ * Le titre doit se suffire à lui-même : il est lu dans une cloche, et sur un téléphone verrouillé
+ * où il n'y a que lui. « Échéance proche » ne dit ni quoi, ni quand, ni s'il faut se lever de sa
+ * chaise. Le NOMBRE DE JOURS y figure donc toujours, et le dépassement est nommé pour ce qu'il
+ * est : un engagement qui court peut-être encore sans couverture.
+ */
+export function expiryMessage(
+  level: ExpiryLevel,
+  days: number | null,
+  title: string,
+): { title: string; body: string } | null {
+  if (level === "NONE" || level === "SCHEDULED" || days === null) return null;
+  const name = title.trim() || "Document sans titre";
+  if (level === "OVERDUE") {
+    const late = Math.abs(days);
+    return {
+      title: `Échéance DÉPASSÉE depuis ${late} jour${late > 1 ? "s" : ""}`,
+      body: `« ${name} » est arrivé à terme. Renouvelez-le, ou clôturez-le s'il n'a plus lieu d'être.`,
+    };
+  }
+  const when = days === 0 ? "aujourd'hui" : days === 1 ? "demain" : `dans ${days} jours`;
+  return {
+    title: level === "IMMINENT" ? `Échéance ${when}` : `Échéance ${when} — à préparer`,
+    body: `« ${name} » arrive à terme ${when}.`,
+  };
+}
+
 /** Peut-on encore renouveler / annuler ce document ? Une fois sorti du jeu, non. */
 export function canRenew(status: LegalStatus): boolean {
   return status === "ACTIVE" || status === "EXPIRED";

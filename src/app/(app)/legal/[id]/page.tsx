@@ -1,0 +1,230 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ArrowLeft, Paperclip, ExternalLink } from "lucide-react";
+import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+import { platformScope } from "@/lib/company";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/status-badge";
+import { BackLink } from "@/components/shared/back-link";
+import { DocumentUpload } from "@/components/documents/document-upload";
+import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL, AUDIT_ACTION } from "@/lib/labels";
+import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/utils";
+import { effectiveStatus, expiryLevel, daysLeft } from "@/lib/legal/lifecycle";
+import { legalFields, dateInput } from "../legal-fields";
+import { EditLegalButton } from "./edit-legal";
+
+export const dynamic = "force-dynamic";
+
+/** Les natures de pièce qu'on joint à un engagement — pas les 40 du référentiel complet. */
+const LEGAL_DOC_CATEGORIES = [
+  "CONVENTION", "PURCHASE_ORDER", "INVOICE", "REQUEST_LETTER",
+  "SUPPORTING_DOC", "QUOTE", "DELIVERY_NOTE", "OTHER",
+];
+
+/**
+ * LA FICHE D'UN ENGAGEMENT — ses dates, sa chaîne de renouvellement, ses pièces, son journal.
+ *
+ * Le tableau du module sert à RETROUVER (« qu'est-ce qui arrive à échéance ? ») ; la fiche sert à
+ * instruire : joindre le contrat signé et ses avenants, corriger une date, et relire ce qu'il est
+ * advenu du document. C'est aussi la destination des rappels d'échéance — un rappel qui ne mène
+ * nulle part ne vaut rien.
+ *
+ * Le FICHIER de référence, lui, reste dans le Drive : Legal pointe dessus, ne le duplique pas.
+ * Les pièces jointes ici sont les pièces PROPRES à l'engagement, par la table `Document` commune.
+ */
+export default async function LegalDocumentPage({ params }: { params: { id: string } }) {
+  const user = await requireModule("LEGAL");
+
+  // Cloisonnement par entité : deviner un identifiant n'ouvre pas les engagements d'une autre
+  // société du groupe.
+  const doc = await prisma.legalDocument.findFirst({
+    where: { AND: [{ id: params.id }, await platformScope(user.id)] },
+    include: {
+      driveNode: { select: { id: true, name: true } },
+      renewedFrom: { select: { id: true, title: true } },
+      renewals: { select: { id: true, title: true, endDate: true }, orderBy: { createdAt: "desc" } },
+      createdBy: { select: { name: true } },
+      company: { select: { name: true, shortName: true } },
+    },
+  });
+  if (!doc) notFound();
+
+  const canEdit = userCan(user, "LEGAL", "UPDATE");
+  const canUpload = userCan(user, "LEGAL", "UPLOAD") || canEdit;
+
+  const [documents, history] = await Promise.all([
+    prisma.document.findMany({
+      where: { entityType: "LEGAL_DOCUMENT", entityId: doc.id },
+      include: { uploadedBy: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.auditLog.findMany({
+      where: { entityType: "LEGAL_DOCUMENT", entityId: doc.id },
+      include: { actor: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 60,
+    }),
+  ]);
+
+  const docItems: DocItem[] = documents.map((d) => ({
+    id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
+    confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
+    createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
+  }));
+
+  const today = new Date();
+  const status = effectiveStatus(doc, today);
+  const expiry = expiryLevel(doc, today);
+  const left = daysLeft(doc, today);
+  const st = LEGAL_DOC_STATUS[status];
+  const exp = LEGAL_EXPIRY_LEVEL[expiry];
+
+  const fields = legalFields({
+    title: doc.title,
+    reference: doc.reference ?? undefined,
+    kind: doc.kind,
+    counterparty: doc.counterparty ?? undefined,
+    startDate: dateInput(doc.startDate),
+    endDate: dateInput(doc.endDate),
+    amount: doc.amount !== null ? String(toNumber(doc.amount)) : undefined,
+    notes: doc.notes ?? undefined,
+  });
+
+  return (
+    <div className="space-y-5">
+      <BackLink href="/legal">
+        <ArrowLeft className="h-4 w-4" /> Retour aux engagements
+      </BackLink>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={st?.tone ?? "neutral"} dot={false}>{st?.label ?? status}</Badge>
+            <span className="text-xs text-muted-foreground">{LEGAL_DOC_KIND[doc.kind] ?? doc.kind}</span>
+            {doc.reference && <span className="font-mono text-xs text-muted-foreground">{doc.reference}</span>}
+            {doc.company && <span className="text-xs text-muted-foreground">{doc.company.shortName || doc.company.name}</span>}
+          </div>
+          <h1 className="mt-1 text-xl font-semibold sm:text-2xl">{doc.title}</h1>
+          <p className="text-sm text-muted-foreground">
+            Enregistré par {doc.createdBy?.name ?? "—"} le {formatDate(doc.createdAt)}
+          </p>
+        </div>
+        {canEdit && <EditLegalButton id={doc.id} fields={fields} />}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="space-y-4 lg:col-span-2">
+          <Card>
+            <CardHeader><CardTitle>L&apos;engagement</CardTitle></CardHeader>
+            <CardContent className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+              <Info label="Partie" value={doc.counterparty} />
+              <Info label="Début" value={doc.startDate ? formatDate(doc.startDate) : null} />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Échéance</p>
+                {doc.endDate ? (
+                  <p className="flex flex-wrap items-center gap-1.5 font-medium">
+                    {formatDate(doc.endDate)}
+                    {expiry !== "NONE" && expiry !== "SCHEDULED" && (
+                      <Badge tone={exp?.tone ?? "neutral"} dot={false}>
+                        {left !== null && left >= 0 ? `dans ${left} j` : "dépassée"}
+                      </Badge>
+                    )}
+                  </p>
+                ) : (
+                  // SANS ÉCHÉANCE : dit explicitement, pour qu'on ne croie pas à un oubli de saisie.
+                  <p className="font-medium text-muted-foreground">sans échéance</p>
+                )}
+              </div>
+              <Info label="Montant" value={doc.amount !== null ? formatCurrency(toNumber(doc.amount)) : null} />
+              <Info label="Annulé le" value={doc.cancelledAt ? formatDate(doc.cancelledAt) : null} />
+              <Info label="Motif d'annulation" value={doc.cancelReason} />
+              {doc.notes && (
+                <div className="col-span-2 sm:col-span-3">
+                  <p className="text-xs text-muted-foreground">Notes</p>
+                  <p className="whitespace-pre-wrap">{doc.notes}</p>
+                </div>
+              )}
+              {doc.driveNode && (
+                <div className="col-span-2 sm:col-span-3">
+                  <p className="text-xs text-muted-foreground">Pièce de référence (dans le Drive)</p>
+                  {/* Le fichier vit dans le DRIVE : on y renvoie, on n'en sert pas une copie. */}
+                  <Link href={`/drive?node=${doc.driveNode.id}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                    <Paperclip className="h-3.5 w-3.5" /> {doc.driveNode.name} <ExternalLink className="h-3 w-3" />
+                  </Link>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {(doc.renewedFrom || doc.renewals.length > 0) && (
+            <Card>
+              <CardHeader><CardTitle>Chaîne de renouvellement</CardTitle></CardHeader>
+              <CardContent className="space-y-1.5 text-sm">
+                {/* Un renouvellement n'efface pas le passé : les deux bouts restent atteignables. */}
+                {doc.renewedFrom && (
+                  <p>
+                    Prend la suite de{" "}
+                    <Link href={`/legal/${doc.renewedFrom.id}`} className="font-medium hover:underline">{doc.renewedFrom.title}</Link>
+                  </p>
+                )}
+                {doc.renewals.map((r) => (
+                  <p key={r.id}>
+                    Renouvelé par{" "}
+                    <Link href={`/legal/${r.id}`} className="font-medium hover:underline">{r.title}</Link>
+                    {r.endDate && <span className="text-muted-foreground"> — jusqu&apos;au {formatDate(r.endDate)}</span>}
+                  </p>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Paperclip className="h-4 w-4" /> Pièces jointes
+                <span className="text-sm font-normal text-muted-foreground">({documents.length})</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {canUpload && (
+                <DocumentUpload entityType="LEGAL_DOCUMENT" entityId={doc.id} categories={LEGAL_DOC_CATEGORIES} />
+              )}
+              <DocumentList documents={docItems} canDelete={canEdit} canEdit={canEdit} canRename={canEdit} path={`/legal/${doc.id}`} />
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="lg:col-span-1">
+          <CardHeader><CardTitle>Journal</CardTitle></CardHeader>
+          <CardContent className="space-y-2.5 text-xs">
+            {history.length === 0 ? (
+              <p className="text-muted-foreground">Aucun mouvement enregistré.</p>
+            ) : history.map((h) => (
+              <div key={h.id} className="space-y-0.5 border-b border-border pb-2 last:border-0 last:pb-0">
+                <div className="flex items-start justify-between gap-2">
+                  <StatusBadge map={AUDIT_ACTION} value={h.action} dot={false} />
+                  <span className="shrink-0 text-muted-foreground">{formatDateTime(h.createdAt)}</span>
+                </div>
+                <p className="text-muted-foreground">{h.summary ?? h.field ?? "—"}</p>
+                <p className="text-muted-foreground">{h.actor?.name ?? "Système"}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="truncate font-medium" title={value ?? undefined}>{value || "—"}</p>
+    </div>
+  );
+}
