@@ -322,13 +322,15 @@ Toute action sensible est **ré-autorisée côté serveur** et **journalisée**.
 
 ## 👤 Rôles
 
-**17 rôles** métier. Le Super Admin attribue/retire tout via la **matrice d'accès** (`/admin/users/[id]`) ; les
+**19 rôles** métier. Le Super Admin attribue/retire tout via la **matrice d'accès** (`/admin/users/[id]`) ; les
 libellés français viennent de `src/lib/labels.ts`.
 
 | Rôle | Libellé | Portée typique |
 |---|---|---|
 | `SUPER_ADMIN` | Super Admin | Tout + administration (permissions, comptes, sécurité, IA, Brain, enveloppes budgétaires, Vue exacte). Compte **souverain**. |
-| `DIRECTION` | **Direction des opérations** | **Pair quasi-administrateur** : accès complet (gérer + valider) aux pôles, console d'admin en **lecture**. **Décision définitive** des demandes Ad & Pro (budget accordé). Attribue les dépenses aux enveloppes. Restreignable par overrides. |
+| `DIRECTION` | **Direction** | **Pair quasi-administrateur** : accès complet (gérer + valider) aux pôles, **vue globale** (`hasGlobalView`) donc supervision de toutes les demandes de validation. **Décision définitive** des demandes Ad & Pro (budget accordé). Attribue les dépenses aux enveloppes. Restreignable par overrides. |
+| `GENERAL_MANAGER` | **Directeur Général** | **Tous les pouvoirs métier** (gère et décide sur tous les pôles, signataire des circuits Ad & Pro) mais **délibérément hors vue globale** : il ne supervise **pas** les demandes de validation de tout le monde, et les modules **personnels** (Drive, directives, dossiers, support) restent cloisonnés. Administration, IA et Process Intelligence restent au seul Super Admin. |
+| `OPERATIONS_DIRECTOR` | **Directeur des Opérations** | Rôle **à part**, pas une Direction au rabais : approvisionnement (logistique, PCH, stocks), ventes, moyens généraux, secrétariat. **Lit** ce dont il dépend — réglementaire, budgets, finances, RH — sans le piloter. Pas de vue globale ; les circuits Ad & Pro ne sont pas les siens. |
 | `NATIONAL_SALES` | **National Sales** | **Toutes les capacités du délégué médical** + **approbation préliminaire** des demandes Ad & Pro / événements (approuver / refuser + **désigner le chef de produit**). Portée **ALL** pour voir toutes les demandes à instruire ; **pas** de décision définitive (réservée à la Direction). |
 | `MEDICAL_PROMOTION_MANAGER` | Manager Promotion Médicale | Promotion médicale, module Ad & Pro. **Peut être désigné chef de produit.** N'assure **plus** l'étape préliminaire (désormais National Sales). |
 | `HEAD_OF_REGULATORY` | Responsable Réglementaire | Regulatory (gestion complète + fournisseurs). |
@@ -2038,6 +2040,13 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
 | **CTD — rattrapage de l'existant** | `lib/regulatory/intelligence/jobs/catchup.ts` — `shouldCatchUpAi` / `batchStillFresh` (pures + tests), `catchUpMissingAiReviews` (revue de fond jamais livrée → job `AI_REVIEW` en mode `immediate`, marqueur d'audit `AI_CATCHUP` = une fois par version), `catchUpStalledPipelines` (pipeline arrêté → `FACTS`, audit `PIPELINE_RESUMED`) ; branchés dans `lib/scheduled.ts`. Coupure : `REG_AI_CATCHUP=0`. |
 | **CTD — progression vivante** | `lib/regulatory/intelligence/progress/analysis-progress.ts` (`computeAnalysisProgress`, `formatEta` — pures + tests : phases réception→lecture→OCR→données→conformité→revue IA, % renormalisé, ETA au débit réel), `query.ts` (`getAnalysisProgress` — comptes légers) ; route de polling `app/api/regulatory/intelligence/progress/[versionId]` (réveille aussi le planificateur) ; carte cliente `analyse/[dossierId]/analysis-progress-card.tsx` (barre + bande lumineuse + étapes + temps restant) ; badge vivant `analyse/live-badge.tsx` sur la liste. |
 | **CTD — Entraînement IA (admin)** | `lib/regulatory/intelligence/training/` — `ingest-case.ts` (extraction + repérage CTD déterministe, dédup sha256 par étude), `for-section.ts` (`experienceForSection`, `rankCaseDocs` pure + tests, dédup par empreinte), `labels.ts` (pur, importable client), `actions.ts` (SUPER_ADMIN only) ; bloc « EXPÉRIENCE INTERNE » dans `agents/review-agent.ts` (`buildPrompt.experience` + tests), câblé dans `jobs/runner.ts` ET `cost/batch-runner.ts` ; embeddings via `corpus/semantic.ts` (`embedBacklog`) ; écran `app/(app)/regulatory/enregistrement/entrainement/`. Modèles `RegulatoryCaseStudy`/`RegulatoryCaseDoc`. |
+| **Courriers — registre, pièces & trace** | `lib/mail-register/trace.ts` (pur : `traceValue`, `diffMailEntry`, `describeMailChanges`, `renderTraceValue` + tests) et `write.ts` (le CŒUR partagé écran/API : `createMailEntryFor`, `updateMailEntryFor`, `setMailDateFor`) ; `lib/actions/mail-register-actions.ts` (ne fait plus que lire le formulaire et rafraîchir) ; `app/(app)/courriers/` (`page.tsx`, `mail-table.tsx`, `mail-fields.ts`, `[id]/`). `EntityType.MAIL_ENTRY` pour les pièces jointes. |
+| **Legal — engagements & échéances** | `lib/legal/lifecycle.ts` (pur : `expiryLevel`, `shouldRemind`, `expiryMessage`, `proposeRenewalDates` + tests) ; `lib/legal/expiry-sweep.ts` (`runLegalExpirySweep`, branché dans `lib/scheduled.ts` — aligne le statut échu, prévient à l'entrée d'une zone d'urgence, verrou atomique sur `lastRemindedAt`) ; `app/(app)/legal/` (`page.tsx`, `legal-table.tsx`, `legal-fields.ts`, `[id]/`). `EntityType.LEGAL_DOCUMENT`. |
+| **Liaisons transverses** | `lib/links/source-link.ts` (pur : `LINKABLE_SOURCES`, `sourceHref`, `sourceCaption` — un test remonte CHAQUE route jusqu'à `NAVIGATION` pour interdire les liens morts) ; `components/shared/linked-records.tsx` (bloc serveur posable sur toute fiche) + `attach-to-source.tsx` (créer une pièce déjà rattachée). Les modèles `LegalDocument`/`Invoice`/`MailEntry` portent `sourceType`/`sourceId`. |
+| **Catalogues produits — rapprochement** | `lib/products/catalog-match.ts` (pur : `productKey`, `matchScore`, `bestMatches` — le score CHUTE quand les dosages diffèrent + tests) ; `lib/products/link.ts` (cœur partagé écran/API) ; `lib/queries/product-catalog.ts` ; `app/(app)/regulatory/catalogue/`. Champs `BdProduct.regulatoryProductId` / `PromoProduct.regulatoryProductId`. |
+| **API agents — écriture** | `lib/api/registry/operations.ts` (catalogue déclaratif + `validateParams` pur, qui REFUSE au lieu de deviner ; un test exige une portée d'écriture par opération) ; `app/api/v1/operations/[operation]/route.ts` (idempotent) et `app/api/v1/meta/operations/route.ts`. Chaque opération appelle le même cœur métier que l'écran. |
+| **Téléversement direct multipart** | `lib/regulatory/intelligence/upload/object-storage.ts` (`presignUploadPartUrl` — les paramètres de l'opération entrent dans la requête canonique) et `session.ts` (`DIRECT_PART_BYTES`, `DIRECT_CONCURRENCY`, recollage à la finalisation, abandon qui libère les parties) ; `components/layout/upload-manager.tsx` (envoi parallèle + annulation). Voir `docs/UPLOAD_PERFORMANCE.md`. |
+| **Garde-fous de style** | `lib/client-bundle-guard.test.ts` (frontière client/serveur) et `lib/responsive-guard.test.ts` (table large hors conteneur défilant, `col-span` non préfixé dans une grille mono-colonne) — deux tests qui lisent les sources, sans navigateur. |
 | **Courrier smart (sans SMTP)** | `lib/mail-smart.ts` (agnostique fournisseur, `buildProviderCall`/`verifyInboundSignature`/`normalizeInbound`) + `mail-smart.test.ts`, `lib/actions/smart-mail-actions.ts` (journal), `app/api/mail/inbound/route.ts` (webhook signé), `app/(app)/admin/courrier/`. Modèles `OutboundEmail`/`InboundEmail`. |
 
 ---
@@ -2548,6 +2557,61 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Courriers : pièces jointes, modification, et un journal qui dit qui a corrigé quoi.** Chaque
+  courrier a sa **fiche** (`/courriers/<id>`) — le pli, ses pièces (nouveau `EntityType.MAIL_ENTRY`,
+  donc même stockage, même contrôle d'accès, même copie Drive que partout), sa modification et son
+  journal. La trace est réelle : **une ligne par champ touché**, ancienne → nouvelle valeur, grâce
+  au module pur `lib/mail-register/trace.ts` qui ferme deux pièges (une date relue de la base est un
+  `Date`, la même ressaisie une chaîne ; `null`/`undefined`/`""` disent tous « vide »). Le raccourci
+  « poser une date » du tableau, qui n'était pas journalisé, l'est désormais.
+
+- **Directions : Directeur Général et Directeur des Opérations.** Le **DG** a tous les pouvoirs
+  métier mais **pas la vue globale** : il ne supervise pas les demandes de validation de tout le
+  monde, et les modules personnels (Drive, directives, dossiers) restent cloisonnés. Le **Directeur
+  des Opérations** est un rôle à part — approvisionnement, ventes, moyens généraux, secrétariat —
+  qui **lit** le réglementaire, les budgets et les finances sans les piloter.
+
+- **Annuler un téléversement en cours**, dans les deux moteurs. Le drapeau arrête la file, les
+  requêtes **en vol** sont avorties, et côté CTD le serveur **supprime les tranches déjà reçues**
+  (ce qui règle au passage la fuite relevée par l'audit disque). Proposé tant que les octets
+  montent seulement : passé en inspection, l'archive est reçue et s'arrêter laisserait une version
+  à moitié constituée.
+
+- **Échéances Legal : la règle existait, personne ne la lui posait.** `runLegalExpirySweep` (au
+  planificateur) aligne le statut d'un terme passé et prévient **à l'entrée** dans une zone
+  d'urgence — 90 j, 30 j, dépassement — jamais tous les jours. Le titre du rappel porte **toujours**
+  le nombre de jours. Le module avait deux liens morts (`/legal/<id>` n'existait pas) : la **fiche**
+  existe désormais, avec dates, chaîne de renouvellement, pièces jointes et journal.
+
+- **Liaisons transverses : un BC, une facture, un courrier savent d'où ils viennent.** Bloc
+  `LinkedRecords` posable sur n'importe quelle fiche (posé sur le secrétariat et le sponsoring) +
+  création **déjà rattachée** depuis l'objet qui la justifie — le seul moment où l'on sait de quoi
+  la pièce vient. Chemin de retour sur les fiches Legal et Courrier. Carte pure `lib/links/source-link.ts`,
+  dont un test remonte **chaque route déclarée** jusqu'à la navigation pour interdire les liens morts.
+
+- **Téléversement d'un gros CTD : envoi direct EN PLUSIEURS PARTIES, en parallèle.** Le serveur
+  ouvre un multipart S3, présigne **une URL par partie** (32 Mo) et le navigateur en envoie 6 de
+  front **directement au bucket** — ni l'application, ni Postgres sur le chemin. Une coupure ne
+  coûte plus qu'une partie. `docs/UPLOAD_PERFORMANCE.md` pose l'arithmétique sans détour (1,6 Go en
+  10 s = ~1,3 Gbit/s montants) et les prérequis, dont la règle CORS `ExposeHeaders: ETag`.
+
+- **Catalogues produits : fusion par RATTACHEMENT.** Le réglementaire fait référence ; le Business
+  Development et le planning promotionnel s'y **rattachent** (`regulatoryProductId`) sans rien
+  écraser. Écran `/regulatory/catalogue` : chaque produit orphelin avec ses correspondances **et le
+  motif en toutes lettres**. Rien n'est deviné — un dosage différent est un produit différent
+  (500 mg et 1 g : deux AMM, deux prix). Module pur `lib/products/catalog-match.ts`.
+
+- **API agents — Lot 3 : l'écriture passe par un registre d'opérations.** Pas d'écriture générique :
+  on déclare les opérations que le métier connaît, chacune avec sa portée et ses paramètres
+  (`POST /api/v1/operations/<nom>`, idempotent ; `GET /api/v1/meta/operations` pour les découvrir).
+  Une opération appelle **le même cœur que l'écran** — mêmes droits, même cloisonnement, même
+  journal. La validation **refuse au lieu de deviner**, y compris un paramètre inconnu.
+
+- **Responsive : les formulaires tiennent sur un téléphone.** Neuf écrans de saisie passent d'une
+  grille à deux colonnes fixes au motif « une colonne, deux à partir de `sm` », avec leurs
+  `col-span` préfixés. `lib/responsive-guard.test.ts` fige les deux règles en lisant les sources :
+  une table large hors conteneur défilant, et un `col-span` non préfixé dans une grille mono-colonne.
 
 - **Annuaire : une vraie feuille, modifiable en place.** L'annuaire des praticiens (module
   renommé de « Promotion médicale » en **Annuaire**) se corrige cellule par cellule, chaque
