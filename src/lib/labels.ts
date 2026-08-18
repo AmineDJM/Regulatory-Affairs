@@ -1371,6 +1371,8 @@ export const BRAIN_TABS: NavTab[] = [
 export const ADMIN_TABS: NavTab[] = [
   { module: "ADMIN", label: "Administration", href: "/admin" },
   { module: "ADMIN", label: "Bases de données", href: "/admin/bases" },
+  // L'arbre entité → gammes → produits : de lui découle ce que chacun voit de la plateforme.
+  { module: "ADMIN", label: "Gammes & produits", href: "/admin/gammes" },
   { module: "ADMIN", label: "Contrôle de l'IA", href: "/admin/ai" },
   { module: "ADMIN", label: "Coût IA & audit Regulatory", href: "/admin/regulatory-ia" },
   { module: "ADMIN", label: "Score d'adoption", href: "/admin/adoption" },

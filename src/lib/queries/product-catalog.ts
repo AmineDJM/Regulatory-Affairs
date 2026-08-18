@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { scopeRegulatory, type SessionUser } from "@/lib/rbac";
-import { currentCompanyWhereFor } from "@/lib/company";
+import { currentCompanyWhereFor, productRangeScope } from "@/lib/company";
 import { bestMatches, isConfident, type MatchProposal } from "@/lib/products/catalog-match";
 
 /**
@@ -57,11 +57,18 @@ function proposalsFor(
 }
 
 export async function getCatalogReconciliation(user: SessionUser): Promise<CatalogReconciliation> {
+  // Même règle que le tableau Regulatory : on ne propose pas de rattacher à un dossier d'une
+  // gamme qu'on ne suit pas.
+  const rangeScope = await productRangeScope(user.id);
   const [products, bd, promo] = await Promise.all([
     // La portée réglementaire s'applique : on ne propose pas de rattacher à un dossier qu'on
     // n'aurait pas le droit de voir.
     prisma.regulatoryProduct.findMany({
-      where: { ...scopeRegulatory(user), ...await currentCompanyWhereFor(user.id) },
+      where: {
+        ...scopeRegulatory(user),
+        ...await currentCompanyWhereFor(user.id),
+        ...(rangeScope ? { AND: [rangeScope] } : {}),
+      },
       select: { id: true, reference: true, dci: true, brandName: true, dosage: true, pharmaceuticalForm: true },
       orderBy: [{ dci: "asc" }, { dosage: "asc" }],
       take: 2000,

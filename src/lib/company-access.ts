@@ -39,6 +39,14 @@ export interface AccessBearer {
   /** Entité d'appartenance (fiche salarié), si elle est connue. */
   homeCompanyId?: string | null;
   grants: AccessGrant[];
+  /**
+   * Gammes rattachées nominativement (`UserProductRange`). Une gamme OUVRE son entité en
+   * lecture : rattacher quelqu'un à « Cardiologie » de Pharmagène sans lui donner Pharmagène
+   * ne lui ouvrirait rien, et un droit qui n'ouvre rien se paie en heures de recherche.
+   * Ce qu'il voit DEDANS est ensuite restreint aux produits de ses gammes — voir
+   * `src/lib/org/product-ranges.ts`, qui porte cette règle-là.
+   */
+  rangeGrants?: { rangeId: string; companyId: string }[];
 }
 
 /** Vue groupe : accès à toutes les entités, sans autorisation à saisir. */
@@ -61,6 +69,11 @@ export function allowedCompanyIds(user: AccessBearer, allCompanyIds: string[]): 
 
   const ids = new Set<string>();
   for (const g of user.grants) {
+    if (allCompanyIds.includes(g.companyId)) ids.add(g.companyId);
+  }
+  // Une GAMME rattachée ouvre l'entité qui la porte — en lecture seulement, et le contenu
+  // visible y sera limité à cette gamme (`productRangeWhere`).
+  for (const g of user.rangeGrants ?? []) {
     if (allCompanyIds.includes(g.companyId)) ids.add(g.companyId);
   }
   if (user.homeCompanyId && allCompanyIds.includes(user.homeCompanyId)) ids.add(user.homeCompanyId);

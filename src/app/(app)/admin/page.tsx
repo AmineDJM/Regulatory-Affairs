@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, Bot, Building2, Coins, Columns3, Database, Factory, Gauge, HardDrive, Library, Mail, MessageSquare, Network, Rocket, Settings2, ShieldCheck, Trash2, Workflow } from "lucide-react";
+import { Activity, Bot, Building2, Coins, Columns3, Database, Factory, Gauge, HardDrive, Layers, Library, Mail, MessageSquare, Network, Rocket, Settings2, ShieldCheck, Trash2, Workflow } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -106,6 +106,10 @@ export default async function AdminPage() {
             </Link>
             <Link href="/admin/entites">
               <Button variant="outline"><Building2 className="h-4 w-4" /> Entités</Button>
+            </Link>
+            {/* L'arbre entité → gammes → produits : c'est de LUI que découle ce que chacun voit. */}
+            <Link href="/admin/gammes">
+              <Button variant="outline"><Layers className="h-4 w-4" /> Gammes & produits</Button>
             </Link>
             <Link href="/organigramme">
               <Button variant="outline"><Network className="h-4 w-4" /> Organigramme</Button>

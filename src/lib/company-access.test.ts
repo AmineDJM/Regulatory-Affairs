@@ -69,6 +69,26 @@ describe("allowedCompanyIds — on n'enferme personne par omission", () => {
   it("sans appartenance ni autorisation : aucun accès", () => {
     expect(allowedCompanyIds(bearer(), ALL)).toEqual([]);
   });
+
+  // Une GAMME rattachée ouvre l'entité qui la porte : sans cela, rattacher quelqu'un à une
+  // gamme de Pharmagène sans lui donner Pharmagène ne lui ouvrirait rien du tout.
+  it("une gamme rattachée ouvre son entité", () => {
+    const u = bearer({ rangeGrants: [{ rangeId: "cardio", companyId: "pha" }] });
+    expect(allowedCompanyIds(u, ALL)).toEqual(["pha"]);
+  });
+
+  it("les gammes s'ajoutent à l'appartenance, sans dédoubler", () => {
+    const u = bearer({
+      homeCompanyId: "adv",
+      rangeGrants: [{ rangeId: "cardio", companyId: "pha" }, { rangeId: "hosp", companyId: "adv" }],
+    });
+    expect(allowedCompanyIds(u, ALL)).toEqual(["adv", "pha"]);
+  });
+
+  it("ignore une gamme dont l'entité n'existe plus", () => {
+    const u = bearer({ rangeGrants: [{ rangeId: "x", companyId: "supprimee" }] });
+    expect(allowedCompanyIds(u, ALL)).toEqual([]);
+  });
 });
 
 describe("canEditCompany — appartenir n'est pas pouvoir modifier", () => {

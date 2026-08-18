@@ -942,6 +942,7 @@ model User {
   /// Entités auxquelles cette personne a accès (voir / modifier). Distinct de son entité
   /// d'appartenance, portée par sa fiche Employee.
   companyAccess      UserCompanyAccess[]
+  rangeAccess        UserProductRange[]
   adProItemDecisions AdProItemDecision[] @relation("AdProItemDecider")
   apiClients         ApiClient[]         @relation("ApiClientActAs")
   docRequestsAsked   DocumentRequest[]   @relation("DocRequestAsker")
@@ -1162,8 +1163,59 @@ model Company {
   dossiers                Dossier[]
   fieldReports            FieldReport[]
   Training                Training[]
+  productRanges           ProductRange[]
 
   @@index([isActive])
+}
+
+/// UNE GAMME — le regroupement de produits d'une entité (« Cardiologie », « Hôpital », …).
+///
+/// L'entité dit DE QUI est le produit ; la gamme dit DE QUOI il relève. Les deux ensemble
+/// forment l'arbre qu'on lit en Administration : entité → gammes → produits. Une gamme
+/// appartient à une seule entité (la supprimer ne supprime jamais un produit : le produit
+/// reste, simplement sans gamme).
+model ProductRange {
+  id          String  @id @default(cuid())
+  name        String
+  companyId   String
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  description String?
+  color       String?
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+
+  products   RegulatoryProduct[]
+  userAccess UserProductRange[]
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /// Deux gammes du même nom dans la même entité n'auraient aucun sens : on ne saurait pas
+  /// laquelle on rattache. Le même nom dans DEUX entités, en revanche, est normal.
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+/// LE RATTACHEMENT D'UNE PERSONNE À UNE GAMME — plus fin que l'entité.
+///
+/// Quelqu'un rattaché à une entité voit tout ce qui est de cette entité. Quelqu'un rattaché
+/// à une ou plusieurs GAMMES (de la même entité ou de plusieurs) ne voit que les produits de
+/// ces gammes-là. C'est ce qui permet à un chef de produit de ne voir que sa gamme sans lui
+/// fermer la société entière.
+model UserProductRange {
+  id      String       @id @default(cuid())
+  userId  String
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rangeId String
+  range   ProductRange @relation(fields: [rangeId], references: [id], onDelete: Cascade)
+
+  grantedById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, rangeId])
+  @@index([userId])
+  @@index([rangeId])
 }
 
 model RegulatoryProduct {
@@ -1218,6 +1270,12 @@ model RegulatoryProduct {
   /// assistant, portail fournisseur…).
   isLocked Boolean @default(false)
 
+  /// GAMME — le regroupement métier du produit à l'intérieur de son entité (« Cardiologie »,
+  /// « Hôpital »…). Facultatif : beaucoup de dossiers n'en relèvent d'aucune, et l'imposer
+  /// aurait obligé à inventer une gamme pour chaque produit importé.
+  rangeId String?
+  range   ProductRange? @relation(fields: [rangeId], references: [id], onDelete: SetNull)
+
   responsibleId String?
   responsible   User?   @relation("RegulatoryResponsible", fields: [responsibleId], references: [id])
   assistantId   String?
@@ -1263,6 +1321,7 @@ model RegulatoryProduct {
   @@index([dci])
   @@index([supplierId])
   @@index([isLocked])
+  @@index([rangeId])
 }
 
 // Variation de fabrication : après la DE d'un produit, on peut demander une variation

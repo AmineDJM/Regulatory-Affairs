@@ -3,8 +3,9 @@ import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import {
   allowedCompanyIds, canEditCompany, companyAccessWhere, platformScopeWhere, resolveScope,
-  type AccessBearer, type ScopeWhere,
+  seesWholeGroup, type AccessBearer, type ScopeWhere,
 } from "@/lib/company-access";
+import { productRangeWhere } from "@/lib/org/product-ranges";
 
 // Mémoïsation par requête si React `cache` est disponible ; sinon (tests, hors requête) no-op.
 const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
@@ -118,6 +119,7 @@ export const accessBearerOf = perRequest(async (userId: string): Promise<AccessB
       select: {
         role: true, secondaryRole: true,
         companyAccess: { select: { companyId: true, canEdit: true } },
+        rangeAccess: { select: { rangeId: true, range: { select: { companyId: true } } } },
         employee: { select: { companyId: true } },
       },
     });
@@ -127,6 +129,7 @@ export const accessBearerOf = perRequest(async (userId: string): Promise<AccessB
       secondaryRole: u.secondaryRole ? String(u.secondaryRole) : null,
       homeCompanyId: u.employee?.companyId ?? null,
       grants: u.companyAccess.map((g) => ({ companyId: g.companyId, canEdit: g.canEdit })),
+      rangeGrants: u.rangeAccess.map((g) => ({ rangeId: g.rangeId, companyId: g.range.companyId })),
     };
   } catch (e) {
     console.error("[company] lecture des droits d'entité impossible", e);
@@ -169,6 +172,32 @@ export async function platformScope(userId: string): Promise<ScopeWhere> {
   const [all, bearer] = await Promise.all([getCompanies(), accessBearerOf(userId)]);
   if (!bearer) return {};
   return platformScopeWhere(bearer, getCompanyScope(), all.map((c) => c.id));
+}
+
+/**
+ * LE FILTRE PAR GAMME — plus fin que l'entité, à composer AVEC elle.
+ *
+ * Rend `null` quand rien n'est à restreindre (aucune gamme rattachée, ou des gammes dont
+ * l'entité est déjà ouverte en entier). Sinon, un `OR` : les produits des gammes de la
+ * personne, plus tout ce qui relève des sociétés qu'elle a en entier.
+ *
+ * S'utilise en COMPOSITION, jamais en remplacement du filtre d'entité :
+ *   `where: { AND: [scopeRegulatory(user), await currentCompanyWhereFor(id), ...rangeAnd] }`
+ */
+export async function productRangeScope(userId: string): Promise<ReturnType<typeof productRangeWhere>> {
+  const [all, bearer] = await Promise.all([getCompanies(), accessBearerOf(userId)]);
+  if (!bearer) return null;
+  const allIds = all.map((c) => c.id);
+  // Les sociétés ouvertes EN ENTIER : autorisation nominative d'entité + société
+  // d'appartenance. Les gammes, elles, n'en font justement pas partie.
+  const full = new Set<string>();
+  for (const g of bearer.grants) if (allIds.includes(g.companyId)) full.add(g.companyId);
+  if (bearer.homeCompanyId && allIds.includes(bearer.homeCompanyId)) full.add(bearer.homeCompanyId);
+  return productRangeWhere({
+    wholeGroup: seesWholeGroup(bearer),
+    fullCompanyIds: [...full],
+    rangeGrants: (bearer.rangeGrants ?? []).filter((g) => allIds.includes(g.companyId)),
+  });
 }
 
 /**

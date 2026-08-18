@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { scopeRegulatory, isRegulatorySupervisor, type SessionUser } from "@/lib/rbac";
-import { currentCompanyWhereFor, getMyCompanies } from "@/lib/company";
+import { currentCompanyWhereFor, productRangeScope, getMyCompanies } from "@/lib/company";
 import { getAppSettings } from "@/lib/settings";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { regStage } from "@/lib/regulatory/stage";
@@ -17,9 +17,17 @@ import type { RegulatoryRow } from "@/app/(app)/regulatory/regulatory-table";
  * d'un côté seulement.
  */
 export async function getRegulatoryRows(user: SessionUser) {
+  // LA GAMME AFFINE L'ENTITÉ, elle ne la remplace pas. Quelqu'un rattaché à une ou plusieurs
+  // gammes ne voit que leurs produits ; quelqu'un rattaché à une société entière la garde
+  // entière. `null` quand il n'y a rien à restreindre — la clause n'est alors même pas posée.
+  const rangeScope = await productRangeScope(user.id);
   const [products, suppliers, companies, settings] = await Promise.all([
     prisma.regulatoryProduct.findMany({
-      where: { ...scopeRegulatory(user), ...await currentCompanyWhereFor(user.id) },
+      where: {
+        ...scopeRegulatory(user),
+        ...await currentCompanyWhereFor(user.id),
+        ...(rangeScope ? { AND: [rangeScope] } : {}),
+      },
       orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
       include: {
         responsible: { select: { name: true } },
