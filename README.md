@@ -1981,6 +1981,38 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
   recevait « je n'ai pas pu finaliser la demande » alors que l'assistant travaillait. Un tour ne coûte que s'il est
   utilisé — la boucle s'arrête dès que le modèle répond sans outil.
 
+### Cloisonnement — entité, gamme, et ce que chacun voit
+
+**Deux dimensions, pas une.** L'**entité** (société du groupe) dit *de qui* est un objet. La
+**gamme** (`ProductRange`, propre à une entité) dit *de quoi* relève un produit. Elles se composent :
+une gamme AFFINE l'entité, elle ne la remplace pas.
+
+**Ce qui ouvre une entité** (`allowedCompanyIds`, pur, testé) : la société d'appartenance
+(`Employee.companyId`), une autorisation nominative (`UserCompanyAccess`), **ou une gamme rattachée**
+— une gamme ouvre son entité en lecture, sans quoi le rattachement n'ouvrirait rien. Le Super Admin
+voit tout le groupe (`GROUP_WIDE_ROLES`) ; la Direction, non — ses accès inter-entités se saisissent.
+
+**Ce qui restreint les produits** (`productRangeWhere`, pur, testé) : les gammes rattachées, **sauf**
+celles dont l'entité est déjà ouverte en entier — on ne retire jamais un droit donné plus haut.
+Composé côté serveur par `productRangeScope(userId)` dans `queries/regulatory-rows.ts` et
+`queries/product-catalog.ts`.
+
+**Le filtre d'entité des écrans** : `currentCompanyWhereFor(userId)` — la portée du cookie
+**validée** contre les droits, avec deux garde-fous (aucun filtre si le groupe n'a qu'une société ;
+aucun filtre pour qui ne relève d'aucune entité, on n'aveugle personne par omission). ⚠️ L'ancien
+`currentCompanyWhere()` a été **supprimé** : il posait le cookie tel quel et, **sans cookie, ne
+filtrait rien**.
+
+**Le sélecteur** (`CompanySwitcher`) n'affiche un menu que si l'on a **plusieurs** entités ; sinon
+il montre la sienne, sans choix. `setCompanyScope` **refuse** une entité hors droits et retombe sur
+la portée légitime — jamais sur « toutes ».
+
+**Écran** : `/admin/gammes` (Super Admin) — arbre entité › gammes › produits + rattachement des
+personnes. Les produits sont ceux de Regulatory ; seuls ceux de l'entité de la gamme (ou sans
+entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SET NULL`).
+
+---
+
 ### Accusés, verrous & confidentialité — règles éparses à ne pas casser
 
 - Événements (`Event`) n'a **pas** de champ `updatedById` → le moteur de workflow le retire avant `update`.
@@ -2009,6 +2041,9 @@ de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` 
 | **Moyens généraux — corriger / supprimer une dépense** | `updateDepartmentExpense` + `deleteDepartmentExpense` (`lib/actions/department-budget-actions.ts`, garde `canAmendExpense`) ; `pettyCashBalanceExcluding` (`lib/petty-cash.ts`, pure + tests) ; `app/(app)/moyens-generaux/expense-row-actions.tsx`. Totaux exacts (`groupBy` par nature, `expenseCount`, `truncated`, `otherConsumed`) dans `lib/queries/general-means.ts`. |
 | **Moyens généraux — catalogue & ticket multi-articles** | `lib/general-means/receipt.ts` (pur : `normalizeLines`, `receiptTotal`, `validateReceipt`, `receiptLabel`, `parseLinesField`) + `receipt.test.ts` (20 tests) ; `lib/general-means/expense-lines.ts` (`readReceipt`, `saveReceiptLines`, partagé par les deux actions) ; modèle `DepartmentExpenseLine` ; `app/(app)/moyens-generaux/receipt-lines.tsx` ; catalogue `OfficeSupplyArticle` + `SuppliesManager` réutilisé depuis `app/(app)/demandes/`. |
 | **Regulatory — import d'un classeur** | `lib/regulatory/sheet-import.ts` (pur : `mapSheetRow`, `parseDosage`, `formOf`, `splitProduct`, `stripContainerSize`…) + `sheet-import.test.ts` (34 tests) ; générateur `scripts/gen-selection-pf-migration.ts` ; source `data/selection-pf-produits.xlsx` ; migration `prisma/migrations/20260812110000_selection_pf_products/`. |
+| **Entités, gammes & produits** | Modèles `ProductRange` / `UserProductRange` + `RegulatoryProduct.rangeId` ; module PUR `lib/org/product-ranges.ts` (`companyIdsFromRanges`, `restrictingRangeIds`, `productRangeWhere`, `canSeeProduct`, `buildRangeTree`) + `product-ranges.test.ts` (18 tests) ; `lib/company.ts` → `productRangeScope` (composé dans `queries/regulatory-rows.ts` et `queries/product-catalog.ts`) ; `AccessBearer.rangeGrants` dans `lib/company-access.ts` ; `lib/actions/product-range-actions.ts` ; écran `app/(app)/admin/gammes/` (`page.tsx` + `ranges-manager.tsx`). |
+| **Cloisonnement d'entité (portée validée)** | `lib/company.ts` → `currentCompanyWhereFor(userId)` (**remplace** `currentCompanyWhere()`, qui posait le cookie tel quel), `myCompanyScope`, `myCompanyWhere`, `platformScope`, `getMyCompanies` ; règles pures dans `lib/company-access.ts` (`allowedCompanyIds`, `resolveScope`, `platformScopeWhere`) ; `setCompanyScope` refuse une entité hors droits (`lib/actions/company-actions.ts`) ; `components/layout/company-switcher.tsx` (pas de menu quand on n'a qu'une entité). |
+| **Explorateur Drive dans un formulaire** | `lib/actions/drive-browse-actions.ts` (`browseDrive`, lecture seule via `getDriveListing`) ; `components/drive/drive-picker.tsx` (`DrivePickerField`) ; type de champ `drivepicker` dans `components/shared/create-record-button.tsx` ; pièces jointes de création via `attachFormFiles` (`lib/documents.ts`). |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
 | **Transverse** | `lib/archive.ts` (Dossier traité), `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
@@ -2557,6 +2592,51 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Entités › gammes › produits, et le rattachement des personnes** (`/admin/gammes`). L'entité dit
+  **de qui** est un produit ; la **gamme** dit **de quoi** il relève. De cet arbre découle ce que
+  chacun voit : rattaché à une **entité**, on voit toute la société ; rattaché à une ou plusieurs
+  **gammes** — de la même société ou de plusieurs — on ne voit que leurs produits. Trois règles,
+  portées par un module pur testé (`lib/org/product-ranges.ts`) : une gamme **ouvre** son entité en
+  lecture (sinon le rattachement n'ouvrirait rien) ; elle **restreint** les produits sans jamais
+  retirer un droit donné plus haut (une gamme dans une société qu'on a déjà en entier ne restreint
+  rien) ; le Super Admin n'est jamais restreint. Les produits proposés sont ceux de Regulatory, et
+  seuls ceux de l'entité de la gamme — ranger ailleurs ouvrirait un dossier à une autre société
+  sans qu'aucun écran d'entité ne le montre. Rien ne se détruit : supprimer une gamme rend ses
+  produits « sans gamme ».
+
+- **Cloisonnement d'entité : deux trous refermés.** `currentCompanyWhere()` posait le cookie tel
+  quel. Le cookie se modifie à la main — et surtout, **sans cookie il ne filtrait rien** : un
+  salarié mono-entité voyait par défaut le Regulatory, le Legal et les Courriers de tout le groupe.
+  Le filtre passe par la portée **validée contre les droits** (`currentCompanyWhereFor`), le
+  sélecteur d'entité **disparaît** quand on n'en a qu'une, changer de portée **refuse** une société
+  à laquelle on n'a pas droit, et les listes déroulantes d'entité des formulaires ne proposent plus
+  que les siennes.
+
+- **Pipeline et suivi des dossiers, vraiment séparés.** Le critère est le **verrou**, et lui seul :
+  on filtrait sur l'étape, or un dossier **abouti** est classé « terminé » même verrouillé et
+  réapparaissait donc dans le suivi. Un dossier se crée désormais **directement au pipeline** (il y
+  naît verrouillé, et **ne prévient personne** : il n'existe que pour le Super Admin), et l'ouverture
+  du cadenas reste le seul geste qui le fait passer dans « À traiter ». L'**analyse CTD** cesse
+  d'être un onglet du suivi des dossiers.
+
+- **Pièces jointes et explorateur du Drive dès la création** (Legal, Courriers). La pièce est en
+  main **au moment de la saisie** : on téléverse une ou plusieurs pièces (un fichier refusé ne
+  défait pas la création — l'objet est enregistré, on dit ce qui n'a pas suivi), **ou** l'on désigne
+  ce qui existe déjà dans le Drive via un explorateur qui s'ouvre **par-dessus le formulaire**
+  (catégories, fil d'Ariane, dossiers **et** fichiers sélectionnables). Rien n'est recopié : le nœud
+  est **référencé** et l'écran en montre toujours la version courante. `MailEntry.driveNodeId`
+  rejoint `LegalDocument.driveNodeId`. L'explorateur ne fait que **lire**, par le même
+  `getDriveListing` que l'écran du Drive.
+
+- **Mobile : le tiroir prend ses pôles, et l'écran cesse de glisser.** Le tiroir de gauche listait
+  les treize modules **à plat** ; il range désormais par pôle, chacun derrière sa flèche, avec la
+  **même mémoire d'ouverture** que la barre latérale et que la grille « Tout ». « Ça glisse trop »
+  avait une cause exacte : le conteneur défilant portait `overflow-y-auto` **seul**, or un axe en
+  `auto` force l'autre à devenir défilant — il défilait donc aussi latéralement, et le moindre
+  tableau trop large faisait partir toute la page de travers. Enfin, la page déclarait
+  `viewport-fit=cover` **sans que personne ne réserve la bande du haut** : installée depuis l'écran
+  d'accueil, l'application dessinait sa barre **sous** l'heure et la batterie.
 
 - **Courriers : pièces jointes, modification, et un journal qui dit qui a corrigé quoi.** Chaque
   courrier a sa **fiche** (`/courriers/<id>`) — le pli, ses pièces (nouveau `EntityType.MAIL_ENTRY`,
