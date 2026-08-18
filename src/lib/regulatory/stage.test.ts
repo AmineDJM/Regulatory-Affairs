@@ -59,4 +59,21 @@ describe("Ce que chacun voit", () => {
   it("les libellés disent l'état, pas une étape technique", () => {
     expect(REG_STAGES.map((s) => s.label)).toEqual(["Pipeline", "À traiter", "Traitement terminé"]);
   });
+
+  /**
+   * LA CONTRADICTION QUI A VIDÉ L'ÉCRAN DU PIPELINE.
+   *
+   * Un dossier verrouillé est rangé « pipeline » ; or `visibleStages` exclut volontairement cette
+   * étape, puisque le suivi des dossiers ne la montre plus. Un tableau qui filtre par onglet
+   * d'étape ne peut donc afficher AUCUN dossier verrouillé — c'est ce qui donnait « 68 dossiers
+   * verrouillés » en haut de page et un tableau vide en dessous.
+   *
+   * La règle n'est pas fausse : c'est l'écran du pipeline qui ne doit pas trier par étape
+   * (`<RegulatoryTable stageTabs={false}>`). Ce test fige la contradiction pour qu'on ne
+   * rebranche jamais les onglets sur cet écran en croyant bien faire.
+   */
+  it("aucun onglet d'étape ne peut afficher un dossier verrouillé", () => {
+    const locked = regStage({ isLocked: true, status: "IN_PREPARATION" });
+    expect(visibleStages(true).map((s) => s.key)).not.toContain(locked);
+  });
 });

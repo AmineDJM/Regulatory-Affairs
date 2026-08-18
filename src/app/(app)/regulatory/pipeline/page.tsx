@@ -1,10 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
-import { BackLink } from "@/components/shared/back-link";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { getRegulatoryRows } from "@/lib/queries/regulatory-rows";
@@ -49,7 +46,9 @@ export default async function BusinessDevelopmentPipelinePage() {
 
   return (
     <div className="space-y-5">
-      <BackLink href="/regulatory"><ArrowLeft className="h-4 w-4" /> Suivi des dossiers</BackLink>
+      {/* PAS DE LIEN « ← Suivi des dossiers ». Un fil d'Ariane vers un module VOISIN fait croire
+          que le pipeline est une sous-page du suivi — c'est exactement la confusion qu'on veut
+          lever. Les deux se rejoignent par le menu, comme deux modules qu'ils sont. */}
       <PageHeader
         title="Pipeline réglementaire"
         description="TOUS les dossiers verrouillés, sans exception — les produits à l'étude, pas encore ouverts à l'équipe. Ouvrir le cadenas les fait sortir d'ici et entrer dans « À traiter », sur le suivi des dossiers : c'est le geste, et le seul, qui met un dossier au travail."
@@ -62,15 +61,14 @@ export default async function BusinessDevelopmentPipelinePage() {
         )}
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      {/* DEUX COMPTEURS, ET ILS PARLENT DU PIPELINE. « Déjà ouverts — à traiter » affichait ici le
+          chiffre du SUIVI des dossiers : deux écrans qui montrent les mêmes indicateurs sont deux
+          écrans qu'on confond. Le chemin vers le suivi existe déjà, en haut de page. */}
+      <div className="grid grid-cols-2 gap-3">
         <KpiCard label="Dossiers verrouillés" value={pipeline.length} icon="Lock" tone={pipeline.length > 0 ? "info" : "default"} />
         {/* Un dossier peut être verrouillé ET abouti : le compter à part évite de croire que
             « à l'étude » et « aboutis » s'excluent. */}
         <KpiCard label="Dont aboutis" value={pipeline.filter((r) => r.stage === "done").length} icon="CheckCircle2" tone="success" />
-        {/* La DESTINATION, cliquable : ce compteur dit où vont les dossiers qu'on ouvre ici. */}
-        <Link href="/regulatory" className="block transition-opacity hover:opacity-80">
-          <KpiCard label="Déjà ouverts — à traiter" value={rows.filter((r) => r.stage === "todo").length} icon="FileCheck2" />
-        </Link>
       </div>
 
       {pipeline.length === 0 ? (
@@ -84,6 +82,10 @@ export default async function BusinessDevelopmentPipelinePage() {
       ) : (
         <RegulatoryTable
           rows={pipeline}
+          // PAS D'ONGLETS D'ÉTAPE ICI. Ils trient « À traiter » / « Terminé » — deux étapes que le
+          // pipeline ne contient jamais, puisque tout y est verrouillé. La table filtrait donc sur
+          // une étape absente : 68 dossiers annoncés en haut, et un tableau vide en dessous.
+          stageTabs={false}
           canEditPriority={canSupervise}
           canAssign={canAssign}
           canLock={canLock}

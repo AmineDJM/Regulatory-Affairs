@@ -121,6 +121,7 @@ export function RegulatoryTable({
   assignableUsers = [],
   companies = [],
   segments = [],
+  stageTabs = true,
 }: {
   rows: RegulatoryRow[];
   /** Entités du groupe — le menu « Entité » de la colonne. */
@@ -131,10 +132,18 @@ export function RegulatoryTable({
   canAssign?: boolean;
   canLock?: boolean;
   assignableUsers?: AssignableUser[];
+  /**
+   * LES ONGLETS D'ÉTAPE — À TRAITER / TERMINÉ. Vrais sur le suivi des dossiers, où le tri par
+   * étape EST la lecture de l'écran. FAUX sur le pipeline, et il fallait qu'ils le soient :
+   * ces onglets excluent volontairement l'étape « pipeline », si bien que la table filtrait sur
+   * « À traiter » des lignes qui sont toutes « pipeline » — 68 dossiers verrouillés annoncés en
+   * haut, et un tableau vide en dessous. Sans onglets, la table montre ce qu'on lui donne.
+   */
+  stageTabs?: boolean;
 }) {
   const router = useRouter();
   // Les colonnes visibles dépendent du verrou : sans lui, le pipeline serait toujours vide.
-  const stages = React.useMemo(() => visibleStages(canLock), [canLock]);
+  const stages = React.useMemo(() => (stageTabs ? visibleStages(canLock) : []), [canLock, stageTabs]);
   const pipelineCount = React.useMemo(() => rows.filter((r) => r.stage === "pipeline").length, [rows]);
   const [stage, setStage] = React.useState<RegStage>(() => defaultStage(canLock, pipelineCount));
   const [filters, setFilters] = React.useState<Record<string, string>>({});
@@ -236,7 +245,8 @@ export function RegulatoryTable({
   }), [rows]);
 
   const filtered = React.useMemo(() => rows.filter((r) => {
-    if (r.stage !== stage) return false;
+    // Sans onglets, aucune étape n'est sélectionnée : tout ce qu'on reçoit s'affiche.
+    if (stageTabs && r.stage !== stage) return false;
     for (const c of COLS) {
       const f = filters[c.key]?.trim();
       if (!f) continue;
@@ -244,7 +254,7 @@ export function RegulatoryTable({
       else if (!c.text(r).toLowerCase().includes(f.toLowerCase())) return false;
     }
     return true;
-  }), [rows, stage, filters, optsFor]);
+  }), [rows, stage, stageTabs, filters, optsFor]);
 
   const anyFilter = Object.values(filters).some((v) => v && v.trim());
 
