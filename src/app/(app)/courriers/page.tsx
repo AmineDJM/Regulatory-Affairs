@@ -76,7 +76,7 @@ export default async function CourriersPage() {
           <CreateRecordButton
             label="Nouveau courrier" title="Enregistrer un courrier" width="lg"
             description="Seul l'objet est obligatoire : l'arrivée et l'accusé se posent plus tard, en un clic depuis le tableau."
-            action={createMailEntry} fields={mailFields()} redirectBase="/courriers"
+            action={createMailEntry} fields={mailFields({}, "create")} redirectBase="/courriers"
           />
         )}
       </PageHeader>

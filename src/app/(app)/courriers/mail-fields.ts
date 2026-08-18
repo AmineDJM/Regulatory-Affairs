@@ -12,7 +12,7 @@ import { MAIL_DIRECTION } from "@/lib/labels";
  * `dateTimeInput` côté serveur, qui les produisent dans le MÊME fuseau que celui où l'action
  * serveur les relira : sans quoi ouvrir puis enregistrer sans rien toucher décalerait l'heure.
  */
-export function mailFields(values: Partial<Record<string, string>> = {}): FieldDef[] {
+export function mailFields(values: Partial<Record<string, string>> = {}, mode: "create" | "edit" = "edit"): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
   return [
     { type: "text", name: "title", label: "Objet du courrier", required: true, full: true, defaultValue: v("title") },
@@ -30,6 +30,21 @@ export function mailFields(values: Partial<Record<string, string>> = {}): FieldD
     { type: "date", name: "acknowledgedAt", label: "Accusé de réception", defaultValue: v("acknowledgedAt") },
     { type: "text", name: "carrier", label: "Porteur (poste, coursier, e-mail…)", defaultValue: v("carrier") },
     { type: "textarea", name: "notes", label: "Notes", full: true, defaultValue: v("notes") },
+    // LE PLI SCANNÉ, DÈS L'ENREGISTREMENT — c'est le moment où on l'a en main. Ou bien on
+    // téléverse le scan, ou bien on désigne le fichier qui est DÉJÀ dans le Drive, qui n'est
+    // alors pas recopié mais référencé. La fiche porte ensuite ses propres blocs pour les deux.
+    ...(mode === "create"
+      ? ([
+          {
+            type: "file", name: "attachment", label: "Pièces jointes", multiple: true, full: true,
+            hint: "Le scan du pli, l'accusé de réception… rattachés au courrier dès sa création.",
+          },
+          {
+            type: "drivepicker", name: "driveNodeId", label: "…ou un dossier / fichier du Drive", full: true,
+            hint: "Le fichier RESTE dans le Drive : le courrier le référence, il ne le duplique pas.",
+          },
+        ] as FieldDef[])
+      : []),
   ];
 }
 

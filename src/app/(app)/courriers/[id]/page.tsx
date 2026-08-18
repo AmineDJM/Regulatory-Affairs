@@ -44,7 +44,11 @@ export default async function MailEntryPage({ params }: { params: { id: string }
   // le registre d'une autre société du groupe.
   const entry = await prisma.mailEntry.findFirst({
     where: { AND: [{ id: params.id }, await platformScope(user.id)] },
-    include: { createdBy: { select: { name: true } }, company: { select: { name: true, shortName: true } } },
+    include: {
+      createdBy: { select: { name: true } },
+      company: { select: { name: true, shortName: true } },
+      driveNode: { select: { id: true, name: true } },
+    },
   });
   if (!entry) notFound();
 
@@ -135,6 +139,16 @@ export default async function MailEntryPage({ params }: { params: { id: string }
                   ) : (
                     <p className="font-medium">{sourceCaption(entry.sourceType)}</p>
                   )}
+                </div>
+              )}
+              {/* LE FICHIER DU DRIVE, RÉFÉRENCÉ — associé à la création ou depuis le Drive. Il n'a
+                  pas été recopié : on renvoie vers lui, et c'est sa version courante qui fait foi. */}
+              {entry.driveNode && (
+                <div className="col-span-2 min-w-0 sm:col-span-3">
+                  <p className="text-xs text-muted-foreground">Pièce de référence (dans le Drive)</p>
+                  <Link href={`/drive?node=${entry.driveNode.id}`} className="inline-flex min-w-0 items-center gap-1 font-medium text-primary hover:underline">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{entry.driveNode.name}</span> <ExternalLink className="h-3 w-3 shrink-0" />
+                  </Link>
                 </div>
               )}
               {entry.notes && (

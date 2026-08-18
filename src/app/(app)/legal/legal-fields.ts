@@ -8,7 +8,7 @@ import { LEGAL_DOC_KIND } from "@/lib/labels";
  * Deux listes séparées finiraient par diverger : on ajouterait un champ à la création, la fiche
  * ne saurait plus le corriger, et l'on aurait un engagement qu'on ne peut plus rectifier.
  */
-export function legalFields(values: Partial<Record<string, string>> = {}): FieldDef[] {
+export function legalFields(values: Partial<Record<string, string>> = {}, mode: "create" | "edit" = "edit"): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
   return [
     { type: "text", name: "title", label: "Titre exact du document", required: true, full: true, defaultValue: v("title") },
@@ -19,6 +19,23 @@ export function legalFields(values: Partial<Record<string, string>> = {}): Field
     { type: "date", name: "endDate", label: "Date de fin — vide = sans échéance", defaultValue: v("endDate") },
     { type: "number", name: "amount", label: "Montant (DZD)", defaultValue: v("amount") },
     { type: "textarea", name: "notes", label: "Notes", full: true, defaultValue: v("notes") },
+    // LA PIÈCE, DÈS LA CRÉATION. Un engagement sans son document n'est qu'une ligne de tableau :
+    // ou bien on téléverse le fichier, ou bien on désigne celui qui EXISTE DÉJÀ dans le Drive —
+    // et dans ce cas il n'est pas recopié, il est référencé. Sur la fiche, ces deux gestes ont
+    // leurs propres blocs (bibliothèque de pièces, lien Drive) : les redoubler ici ferait deux
+    // chemins pour la même chose.
+    ...(mode === "create"
+      ? ([
+          {
+            type: "file", name: "attachment", label: "Pièces jointes", multiple: true, full: true,
+            hint: "Une ou plusieurs pièces — elles sont rattachées au document dès sa création.",
+          },
+          {
+            type: "drivepicker", name: "driveNodeId", label: "…ou un dossier / fichier du Drive", full: true,
+            hint: "Le fichier RESTE dans le Drive : il continuera de s'y versionner, et Legal en montrera toujours la version courante.",
+          },
+        ] as FieldDef[])
+      : []),
   ];
 }
 

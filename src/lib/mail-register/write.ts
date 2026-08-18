@@ -32,6 +32,13 @@ export interface MailFields {
   notes?: string | null;
   sourceType?: EntityType | null;
   sourceId?: string | null;
+  /**
+   * Nœud du Drive RÉFÉRENCÉ par le courrier — jamais recopié. Le fichier continue de s'y
+   * versionner et de s'y renommer, et le courrier en montre toujours la version courante.
+   * Vérifié par l'appelant (droit de lecture, nœud vivant) : ce module écrit, il n'arbitre pas
+   * les accès au Drive.
+   */
+  driveNodeId?: string | null;
 }
 
 /** Les colonnes suivies, lues telles quelles pour la comparaison avant/après. */
@@ -79,6 +86,7 @@ export async function createMailEntryFor(user: SessionUser, f: MailFields): Prom
       acknowledgedAt: f.acknowledgedAt ?? null,
       carrier: f.carrier ?? null,
       notes: f.notes ?? null,
+      driveNodeId: f.driveNodeId ?? null,
       companyId: await companyIdForNew(user.id),
       sourceType: f.sourceType ?? null,
       sourceId: f.sourceId ?? null,

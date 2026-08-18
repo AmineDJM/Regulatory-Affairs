@@ -8,6 +8,7 @@ import { Plus, Loader2, AlertCircle, Wand2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
+import { DrivePickerField } from "@/components/drive/drive-picker";
 import type { ActionResult } from "@/lib/actions/types";
 import { cn } from "@/lib/utils";
 
@@ -61,7 +62,11 @@ export type FieldDef =
   | { type: "hidden"; name: string; value: string }
   | { type: "checkbox"; name: string; label: string; full?: boolean }
   | { type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; hint?: string; full?: boolean }
-  | { type: "file"; name: string; label: string; multiple?: boolean; hint?: string; defaultValue?: string | number; full?: boolean };
+  | { type: "file"; name: string; label: string; multiple?: boolean; hint?: string; defaultValue?: string | number; full?: boolean }
+  // L'EXPLORATEUR DU DRIVE, ouvert par-dessus le formulaire : on désigne un dossier ou un
+  // fichier qui existe déjà plutôt que d'en téléverser une copie. Le champ ne transporte qu'un
+  // identifiant de nœud — le fichier, lui, ne bouge pas.
+  | { type: "drivepicker"; name: string; label: string; hint?: string; full?: boolean };
 
 /**
  * Les champs QUI S'AFFICHENT — tous sauf le champ caché.
@@ -207,7 +212,7 @@ export function RecordForm({
               key={field.name}
               className={cn("space-y-1.5", (field.full || field.type === "textarea") && "sm:col-span-2")}
             >
-              {field.type !== "checkbox" && (
+              {field.type !== "checkbox" && field.type !== "drivepicker" && (
                 <Label htmlFor={field.name}>
                   {field.label}
                   {"required" in field && field.required && (
@@ -215,7 +220,9 @@ export function RecordForm({
                   )}
                 </Label>
               )}
-              {field.type === "file" ? (
+              {field.type === "drivepicker" ? (
+                <DrivePickerField name={field.name} label={field.label} hint={field.hint} />
+              ) : field.type === "file" ? (
                 <>
                   <input
                     id={field.name}

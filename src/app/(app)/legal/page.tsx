@@ -74,7 +74,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
           <CreateRecordButton
             label="Nouveau document" title="Déclarer un document légal" width="lg"
             description="Un document peut n'avoir aucune date : laissez les dates vides, il ne se périmera jamais et ne déclenchera aucun rappel."
-            action={createLegalDocument} fields={legalFields()} redirectBase="/legal"
+            action={createLegalDocument} fields={legalFields({}, "create")} redirectBase="/legal"
           />
         )}
       </PageHeader>

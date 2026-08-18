@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { Icon } from "@/components/ui/icon";
 import { optionsFromMap } from "@/components/shared/form-fields";
+import { DrivePickerField } from "@/components/drive/drive-picker";
 import { PRIORITY } from "@/lib/labels";
 
 type Option = { id: string; name: string };
@@ -92,7 +93,11 @@ export function NewRequestButton({ users, departments, articles = [] }: { users:
                           </label>
                         ))}
                       </div>
-                    ) : f.type === "checkbox" ? null : (
+                    ) : f.type === "checkbox" ? null : f.type === "drivepicker" ? (
+                      // Un type de demande peut désigner une pièce DÉJÀ dans le Drive plutôt
+                      // que d'en téléverser une copie : l'explorateur s'ouvre par-dessus.
+                      <DrivePickerField name={name} label={f.label} hint={f.hint} />
+                    ) : (
                       <Input id={name} name={name} type={f.type} defaultValue={f.defaultValue} step={f.type === "number" ? "any" : undefined} />
                     )}
                   </FieldWrap>

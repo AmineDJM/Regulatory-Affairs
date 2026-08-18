@@ -9,6 +9,8 @@ import { recordAudit } from "@/lib/audit";
 import { companyIdForNew } from "@/lib/company";
 import { canRenew, canCancel, validateDates, proposeRenewalDates } from "@/lib/legal/lifecycle";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+import { attachFormFiles } from "@/lib/documents";
+import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 
 /**
  * LES ENGAGEMENTS DE LA SOCIÉTÉ — écriture.
@@ -53,13 +55,25 @@ export async function createLegalDocument(
   const dates = validateDates(f.startDate, f.endDate);
   if (!dates.ok) return { ok: false, error: dates.error };
 
+  // LE NŒUD DU DRIVE EST VÉRIFIÉ AVANT D'ÊTRE ÉCRIT. L'identifiant vient d'un champ de
+  // formulaire : sans contrôle, on référencerait un fichier corbeillé, inexistant, ou qu'on n'a
+  // pas le droit de lire — et la fiche montrerait un lien mort ou, pire, une pièce d'ailleurs.
+  const driveNodeId = fdStr(formData, "driveNodeId");
+  if (driveNodeId) {
+    const node = await prisma.driveNode.findUnique({ where: { id: driveNodeId }, select: { isTrashed: true } });
+    if (!node || node.isTrashed) return { ok: false, error: "Le dossier / fichier choisi n'existe plus dans le Drive." };
+    if (!canViewDrive(await resolveDriveAccess(user, driveNodeId))) {
+      return { ok: false, error: "Vous n'avez pas accès à ce dossier / fichier du Drive." };
+    }
+  }
+
   const companyId = await companyIdForNew(user.id);
   const created = await prisma.legalDocument.create({
     data: {
       ...f, title,
       companyId,
       // Le fichier du Drive est RÉFÉRENCÉ, jamais recopié.
-      driveNodeId: fdStr(formData, "driveNodeId"),
+      driveNodeId,
       sourceType: (fdStr(formData, "sourceType") as EntityType | null) ?? null,
       sourceId: fdStr(formData, "sourceId"),
       createdById: user.id,
@@ -72,8 +86,19 @@ export async function createLegalDocument(
     entityType: "LEGAL_DOCUMENT", entityId: created.id,
     summary: `Document légal « ${title} »`,
   });
+
+  // Les pièces jointes du formulaire, rattachées au document qui vient de naître. Un échec de
+  // fichier ne défait PAS la création : l'engagement est enregistré, on dit ce qui n'a pas suivi.
+  const files = await attachFormFiles(user.id, "LEGAL_DOCUMENT", created.id, formData);
+
   revalidatePath("/legal");
-  return { ok: true, id: created.id };
+  return {
+    ok: true,
+    id: created.id,
+    message: files.failed.length
+      ? `Document créé. ${files.attached} pièce(s) jointe(s) ; échec sur : ${files.failed.map((x) => x.name).join(", ")}.`
+      : undefined,
+  };
 }
 
 export async function updateLegalDocument(formData: FormData): Promise<ActionResult> {

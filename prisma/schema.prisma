@@ -3746,6 +3746,7 @@ model DriveNode {
   isTrashed   Boolean         @default(false)
   versions    FileVersion[]
   legalDocs   LegalDocument[]
+  mailEntries MailEntry[]
   shares      DriveShare[]
   comments    DriveComment[]
   createdById String?
@@ -7696,6 +7697,10 @@ model MailEntry {
   acknowledgedAt DateTime? // date d'accusé de réception
   carrier        String? // porteur / transporteur (coursier, poste, e-mail…)
   notes          String?
+  /// LE FICHIER RESTE DANS LE DRIVE : on le référence, on ne le duplique pas. Deux copies
+  /// auraient divergé dès la première correction, et plus personne n'aurait su laquelle fait foi.
+  driveNodeId    String?
+  driveNode      DriveNode?    @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
   sourceType     EntityType?
   sourceId       String?
   createdById    String?
@@ -7708,6 +7713,7 @@ model MailEntry {
   @@index([sentAt])
   @@index([receivedAt])
   @@index([sourceType, sourceId])
+  @@index([driveNodeId])
 }
 
 // ───────────────────────────── FACTURES ─────────────────────────────

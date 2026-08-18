@@ -10,6 +10,8 @@ import { canAccessEntity } from "@/lib/entity-access";
 import { deleteFileByKey } from "@/lib/storage";
 import { createMailEntryFor, updateMailEntryFor, setMailDateFor, type MailFields } from "@/lib/mail-register/write";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+import { attachFormFiles } from "@/lib/documents";
+import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 
 /**
  * LE CARNET DE COURRIERS — la porte de l'ÉCRAN.
@@ -54,13 +56,34 @@ export async function createMailEntry(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
+
+  // LE NŒUD DU DRIVE EST VÉRIFIÉ AVANT D'ÊTRE ÉCRIT. L'identifiant vient d'un champ de
+  // formulaire : sans contrôle, le registre pointerait vers un fichier corbeillé, inexistant,
+  // ou qu'on n'a pas le droit de lire.
+  const driveNodeId = fdStr(formData, "driveNodeId");
+  if (driveNodeId) {
+    const node = await prisma.driveNode.findUnique({ where: { id: driveNodeId }, select: { isTrashed: true } });
+    if (!node || node.isTrashed) return { ok: false, error: "Le dossier / fichier choisi n'existe plus dans le Drive." };
+    if (!canViewDrive(await resolveDriveAccess(user, driveNodeId))) {
+      return { ok: false, error: "Vous n'avez pas accès à ce dossier / fichier du Drive." };
+    }
+  }
+
   const r = await createMailEntryFor(user, {
     ...readFields(formData),
+    driveNodeId,
     sourceType: (fdStr(formData, "sourceType") as EntityType | null) ?? null,
     sourceId: fdStr(formData, "sourceId"),
   });
-  if (r.ok) revalidatePath("/courriers");
-  return r;
+  if (!r.ok || !r.id) return r;
+
+  // Les pièces jointes du formulaire, rattachées au courrier qui vient de naître. Un échec de
+  // fichier ne défait PAS l'enregistrement : le pli est au registre, on dit ce qui n'a pas suivi.
+  const files = await attachFormFiles(user.id, "MAIL_ENTRY", r.id, formData);
+  revalidatePath("/courriers");
+  return files.failed.length
+    ? { ...r, message: `Courrier enregistré. ${files.attached} pièce(s) jointe(s) ; échec sur : ${files.failed.map((x) => x.name).join(", ")}.` }
+    : r;
 }
 
 /**

@@ -108,3 +108,40 @@ export async function persistUploadedDocument(
   }
   return { ok: true, documentId };
 }
+
+/**
+ * LES PIÈCES JOINTES D'UN FORMULAIRE DE CRÉATION — rattachées à l'objet qui vient de naître.
+ *
+ * Un document légal ou un courrier se saisit avec sa pièce en main : la personne l'a sous les
+ * yeux, c'est le seul moment où elle est certaine de laquelle il s'agit. La renvoyer sur la
+ * fiche pour l'y déposer ensuite, c'est la moitié des dossiers qui restent sans pièce.
+ *
+ * NE FAIT JAMAIS ÉCHOUER LA CRÉATION. L'objet existe déjà quand cette fonction s'exécute :
+ * refuser tout parce qu'un fichier sur trois est trop gros ferait perdre la saisie entière.
+ * Les échecs sont RENDUS, à afficher — jamais avalés en silence.
+ */
+export async function attachFormFiles(
+  userId: string,
+  entityType: EntityType,
+  entityId: string,
+  formData: FormData,
+  fieldName = "attachment",
+): Promise<{ attached: number; failed: { name: string; error: string }[] }> {
+  const files = formData
+    .getAll(fieldName)
+    .filter((v): v is File => v instanceof File && v.size > 0);
+  if (files.length === 0) return { attached: 0, failed: [] };
+
+  // La limite est lue UNE fois pour le lot : chaque fichier n'a pas à relire les réglages.
+  const maxUploadMb = (await getAppSettings()).maxUploadMb;
+  let attached = 0;
+  const failed: { name: string; error: string }[] = [];
+  for (const file of files) {
+    const r = await persistUploadedDocument(userId, {
+      entityType, entityId, category: "OTHER", confidentiality: "INTERNAL", stepKey: null, file, maxUploadMb,
+    });
+    if (r.ok) attached += 1;
+    else failed.push({ name: file.name, error: r.error ?? "Échec." });
+  }
+  return { attached, failed };
+}
