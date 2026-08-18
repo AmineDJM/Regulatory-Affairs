@@ -138,9 +138,18 @@ export default async function AppLayout({
 
             `id` : c'est CE conteneur qui défile (la coque est `overflow-hidden`). Les couches
             modales le verrouillent par cet identifiant — verrouiller le `body` ne ferait rien. */}
+        {/* `overflow-x-hidden` — LA CAUSE DU « ça glisse trop ».
+            `overflow-y: auto` seul ne suffit pas : en CSS, un axe en `auto` force l'autre à
+            devenir défilant. Ce conteneur défilait donc AUSSI latéralement, et le moindre
+            tableau trop large faisait partir toute la page de travers, en-tête compris — on
+            « tirait l'écran vers la gauche » pour lire une colonne.
+            En le bornant, le contenu large doit défiler DANS SON PROPRE conteneur
+            (`overflow-x-auto`), ce que `src/lib/responsive-guard.test.ts` vérifie fichier par
+            fichier. `overscroll-contain` complète le geste : le rebond en fin de liste ne
+            remonte plus jusqu'à la page hôte, comme dans une application native. */}
         <main
           id={APP_SCROLL_ID}
-          className="flex-1 overflow-y-auto px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-3 sm:px-4 sm:pt-6 lg:px-8 lg:pb-8"
+          className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-[calc(5.5rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))] pr-[calc(0.75rem+env(safe-area-inset-right))] pt-3 sm:pl-[calc(1rem+env(safe-area-inset-left))] sm:pr-[calc(1rem+env(safe-area-inset-right))] sm:pt-6 lg:px-8 lg:pb-8"
         >
           {/* La largeur du contenu est PLAFONNÉE par défaut : au-delà, une ligne de texte devient
               illisible parce que l'œil perd le début de la suivante. Mais un tableau de treize

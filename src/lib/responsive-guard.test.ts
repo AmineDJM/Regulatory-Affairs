@@ -86,4 +86,20 @@ describe("responsive — la page ne doit JAMAIS défiler latéralement", () => {
     expect(offenders, `« col-span » non préfixé dans un fichier à grille mono-colonne (utiliser « sm:col-span-N ») :\n${offenders.join("\n")}`)
       .toEqual([]);
   });
+
+  /**
+   * LA COQUE ELLE-MÊME — la garde qui rend les deux précédentes utiles.
+   *
+   * Le conteneur défilant de l'application porte `overflow-y-auto`. En CSS, un axe en `auto`
+   * force l'autre à devenir défilant : sans borne explicite, ce conteneur défile AUSSI
+   * latéralement, et le moindre contenu trop large fait partir toute la page de travers —
+   * exactement ce dont on se plaignait (« ça glisse trop »). Les deux règles ci-dessus obligent
+   * le contenu large à défiler chez lui ; celle-ci empêche de rouvrir la porte par le haut.
+   */
+  it("le conteneur défilant de l'application ne défile pas latéralement", () => {
+    const shell = readFileSync("src/app/(app)/layout.tsx", "utf8");
+    const main = shell.slice(shell.indexOf("<main"), shell.indexOf(">", shell.indexOf("<main")));
+    expect(main, "Le <main> de la coque doit rester `overflow-x-hidden` (voir le commentaire du fichier).")
+      .toMatch(/overflow-x-hidden/);
+  });
 });

@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { FocusToggle } from "@/components/layout/focus-mode";
 import { useScrollLock } from "@/lib/use-scroll-lock";
 import type { NavItem } from "@/lib/labels";
+import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, FLAT_GROUPS } from "@/lib/navigation";
 
 interface TopbarProps {
   navItems: NavItem[];
@@ -42,6 +43,28 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
   // Sans ce verrou, faire glisser le doigt dans le menu faisait défiler la PAGE derrière lui,
   // menu immobile — le tiroir n'avait aucun verrou du tout.
   useScrollLock(drawerOpen);
+
+  // Les pôles du tiroir : mêmes groupes et MÊME mémoire d'ouverture que la barre latérale.
+  // Chargée après montage — le serveur ne connaît pas le `localStorage`, et rendre deux arbres
+  // différents ferait sauter l'hydratation.
+  const poles = React.useMemo(() => groupIntoPoles(navItems), [navItems]);
+  const activePole = React.useMemo(() => poleOfPath(poles, pathname), [poles, pathname]);
+  const [open, setOpen] = React.useState<Record<string, boolean>>({});
+  React.useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(OPEN_POLES_KEY);
+      if (raw) setOpen(JSON.parse(raw) as Record<string, boolean>);
+    } catch {
+      /* préférence illisible → règle par défaut */
+    }
+  }, []);
+  const toggle = (key: string, next: boolean) => {
+    setOpen((prev) => {
+      const merged = { ...prev, [key]: next };
+      try { window.localStorage.setItem(OPEN_POLES_KEY, JSON.stringify(merged)); } catch { /* refusé : sans mémoire */ }
+      return merged;
+    });
+  };
 
   return (
     <>
@@ -117,35 +140,48 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
               </button>
             </div>
             <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-1">
-              {GROUP_ORDER.map((group) => {
-                const groupItems = navItems.filter((i) => i.group === group);
-                if (groupItems.length === 0) return null;
-                return (
-                  <div key={group}>
-                    <p className="px-3 pb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-sidebar-muted">{group}</p>
-                    <ul className="space-y-0.5">
-                      {groupItems.map((item) => {
-                        const paths = [item.href, ...(item.match ?? [])];
-                        const active = paths.some((p) => pathname === p || pathname.startsWith(p + "/"));
-                        return (
-                          <li key={item.href}>
-                            <Link
-                              href={item.href}
-                              className={cn(
-                                "flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium",
-                                active ? "bg-white/10 text-white" : "text-sidebar-muted hover:bg-white/5",
-                              )}
-                            >
-                              <Icon name={item.icon} className="h-4 w-4 shrink-0" />
-                              <span className="truncate">{item.label}</span>
-                            </Link>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                );
-              })}
+              {FLAT_GROUPS.filter((g) => g === "Pilotage").map((group) => (
+                <DrawerGroup key={group} label={group} items={itemsOfGroup(navItems, group)} pathname={pathname} />
+              ))}
+
+              {/* LES PÔLES, DÉPLIABLES — comme sur l'ordinateur. Le tiroir listait les treize
+                  modules à plat sous un titre « Pôles » : c'était la carte du code, pas celle de
+                  l'entreprise, et sur un téléphone la liste dépassait l'écran. Même mémoire
+                  d'ouverture que la barre latérale : replier Regulatory sur l'ordinateur le
+                  replie ici. */}
+              {poles.length > 0 && (
+                <div>
+                  <p className="px-3 pb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-sidebar-muted">Pôles</p>
+                  <ul className="space-y-0.5">
+                    {poles.map((pole) => {
+                      const opened = activePole === pole.key || (open[pole.key] ?? pole.defaultOpen);
+                      return (
+                        <li key={pole.key}>
+                          <button
+                            type="button"
+                            onClick={() => toggle(pole.key, !opened)}
+                            aria-expanded={opened}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-semibold text-sidebar-muted hover:bg-white/5"
+                          >
+                            <Icon name={pole.icon} className="h-4 w-4 shrink-0" />
+                            <span className="min-w-0 flex-1 truncate text-left">{pole.label}</span>
+                            <Icon name="ChevronDown" className={cn("h-3.5 w-3.5 shrink-0 transition-transform", opened ? "" : "-rotate-90")} />
+                          </button>
+                          {opened && (
+                            <ul className="mt-0.5 space-y-0.5">
+                              {pole.children.map((item) => <DrawerItem key={item.href} item={item} pathname={pathname} nested />)}
+                            </ul>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+
+              {FLAT_GROUPS.filter((g) => g !== "Pilotage").map((group) => (
+                <DrawerGroup key={group} label={group} items={itemsOfGroup(navItems, group)} pathname={pathname} />
+              ))}
             </nav>
           </div>
         </div>
@@ -154,4 +190,58 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
   );
 }
 
-const GROUP_ORDER: NavItem["group"][] = ["Pilotage", "Pôles", "Transverse", "Système"];
+/** Une entrée du tiroir. `nested` la décale sous son pôle. */
+function DrawerItem({ item, pathname, nested = false }: { item: NavItem; pathname: string; nested?: boolean }) {
+  const paths = [item.href, ...(item.match ?? [])];
+  const active = paths.some((p) => pathname === p || pathname.startsWith(p + "/"));
+  return (
+    <li>
+      <Link
+        href={item.href}
+        className={cn(
+          "flex items-center gap-2.5 rounded-lg py-2.5 text-sm font-medium",
+          nested ? "pl-9 pr-3" : "px-3",
+          active ? "bg-white/10 text-white" : "text-sidebar-muted hover:bg-white/5",
+        )}
+      >
+        <Icon name={item.icon} className="h-4 w-4 shrink-0" />
+        <span className="truncate">{item.label}</span>
+      </Link>
+      {/* Les SOUS-MODULES suivent leur parent : ils sont peu nombreux et toujours visibles ici —
+          une flèche de plus dans un tiroir déjà déplié n'ajouterait qu'un clic. */}
+      {(item.children ?? []).length > 0 && (
+        <ul className="space-y-0.5">
+          {item.children!.map((c) => (
+            <li key={c.href}>
+              <Link
+                href={c.href}
+                className={cn(
+                  "flex items-center gap-2.5 rounded-lg py-2 pl-12 pr-3 text-sm",
+                  pathname === c.href || pathname.startsWith(c.href + "/")
+                    ? "bg-white/10 text-white"
+                    : "text-sidebar-muted hover:bg-white/5",
+                )}
+              >
+                <Icon name={c.icon} className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{c.label}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+/** Un groupe historique (Pilotage / Transverse / Système) — sans flèche : il est court. */
+function DrawerGroup({ label, items, pathname }: { label: string; items: NavItem[]; pathname: string }) {
+  if (items.length === 0) return null;
+  return (
+    <div>
+      <p className="px-3 pb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-sidebar-muted">{label}</p>
+      <ul className="space-y-0.5">
+        {items.map((item) => <DrawerItem key={item.href} item={item} pathname={pathname} />)}
+      </ul>
+    </div>
+  );
+}

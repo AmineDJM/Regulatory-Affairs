@@ -46,7 +46,21 @@ function usePublishedHeight(ref: React.RefObject<HTMLElement>, cssVar: string): 
 export function ChromeMetrics({ children }: { children: React.ReactNode }) {
   const ref = React.useRef<HTMLDivElement>(null);
   usePublishedHeight(ref, "--app-chrome-top");
-  return <div ref={ref} data-app-chrome className="shrink-0">{children}</div>;
+  return (
+    // L'ENCOCHE. La page déclare `viewport-fit=cover` — c'est ce qui rend `env(safe-area-inset-*)`
+    // utilisable — mais personne ne réservait la bande du HAUT : installée depuis « Ajouter à
+    // l'écran d'accueil », l'application dessinait sa barre SOUS l'heure et la batterie, et le
+    // menu comme l'avatar se trouvaient à moitié cachés. On réserve la bande, et on la peint de
+    // la couleur de la barre : sans fond, on verrait le contenu défiler derrière l'encoche.
+    // La hauteur mesurée inclut cette réserve — les écrans pleine hauteur restent justes.
+    <div
+      ref={ref}
+      data-app-chrome
+      className="shrink-0 bg-card pt-[env(safe-area-inset-top)]"
+    >
+      {children}
+    </div>
+  );
 }
 
 /** Publie la hauteur de la barre d'onglets basse dans `--app-chrome-bottom` (0 sur ordinateur). */
