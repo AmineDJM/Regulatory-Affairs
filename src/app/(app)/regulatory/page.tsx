@@ -6,7 +6,7 @@ import { userCan, scopeRegulatory, isRegulatorySupervisor } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { regStage } from "@/lib/regulatory/stage";
-import { currentCompanyWhere, getCompanies } from "@/lib/company";
+import { getCompanies } from "@/lib/company";
 import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
 import { PHARMA_FORM, DOSAGE_UNIT, effectiveTherapeuticSegments } from "@/lib/labels";
@@ -24,8 +24,11 @@ export default async function RegulatoryPage() {
   // Le cadenas n'appartient qu'au Super Admin — les autres ne voient même pas les dossiers verrouillés.
   const canLock = user.role === "SUPER_ADMIN";
   const { rows, products, suppliers, companies, settings, canSupervise } = await getRegulatoryRows(user);
-  // Le PIPELINE a quitté cet écran : il vit dans Business Development (ce qu'on étudie).
-  const visible = rows.filter((r) => r.stage !== "pipeline");
+  // LE VERROU, ET RIEN D'AUTRE, SÉPARE LES DEUX ÉCRANS. On filtrait sur l'étape « pipeline » :
+  // or un dossier ABOUTI est classé « done » même verrouillé, et réapparaissait donc ici sous
+  // l'onglet « Terminé » alors qu'il est censé vivre dans le pipeline. Le suivi des dossiers ne
+  // montre QUE ce qui est ouvert à l'équipe ; tout ce qui est cadenassé est au pipeline.
+  const visible = rows.filter((r) => !r.isLocked);
 
   // Personnes à qui un dossier peut être confié : l'équipe Regulatory + la Direction. Sert au
   // formulaire de création ET au menu déroulant « Chargé du dossier » du tableau.

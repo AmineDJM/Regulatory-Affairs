@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS, PAYROLL_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/utils";
 import { getEmployeeHrDossier } from "@/lib/queries/hr-documents";
-import { getCompanies, companyOptions } from "@/lib/company";
+import { getMyCompanies, companyOptions } from "@/lib/company";
 import { getDepartmentOptions, getDepartmentPath, getManagerOf } from "@/lib/departments";
 import { aiConfigured } from "@/lib/ai";
 import { EmployeeForm, type EmployeeFormValues } from "./employee-form";
@@ -45,7 +45,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
     prisma.employee.findMany({ where: { id: { not: employee.id } }, select: { id: true, fullName: true }, orderBy: { fullName: "asc" } }),
     prisma.user.findMany({ where: { isActive: true, employee: { is: null } }, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
     getEmployeeHrDossier(employee.id),
-    getCompanies(),
+    getMyCompanies(user.id),
     getDepartmentOptions(),
     // N+1 EFFECTIF, résolu par la cascade (manager désigné → responsable de département → parent).
     getManagerOf(employee.id),
@@ -99,7 +99,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
   // Accès aux entités : l'ensemble des sociétés, croisé avec ce qui est réellement accordé.
   const [allCompanies, targetUser] = employee.userId
     ? await Promise.all([
-        getCompanies(),
+        getMyCompanies(user.id),
         prisma.user.findUnique({
           where: { id: employee.userId },
           select: { role: true, secondaryRole: true, companyAccess: { select: { companyId: true, canEdit: true } } },

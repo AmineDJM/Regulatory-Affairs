@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { platformScope, getCompanies, companyOptions } from "@/lib/company";
+import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { userCan, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
@@ -156,7 +156,7 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
  * Une page qui interroge cinq tables pour un panneau que personne n'ouvrira, c'est du temps
  * d'affichage payé par tout le monde au bénéfice de personne.
  */
-export async function getAdProCreateData(kinds: readonly AdProKind[]): Promise<AdProCreateData> {
+export async function getAdProCreateData(userId: string, kinds: readonly AdProKind[]): Promise<AdProCreateData> {
   const has = (k: AdProKind) => kinds.includes(k);
   const needsDoctors = has("CONGRESS_INTERNATIONAL") || has("CONGRESS_NATIONAL");
   const needsProductManagers = needsDoctors || has("SPONSORING");
@@ -179,7 +179,9 @@ export async function getAdProCreateData(kinds: readonly AdProKind[]): Promise<A
         })
       : Promise.resolve([] as { id: string; name: string }[]),
     has("PROMO_MATERIAL") || has("CONSULTING") || has("OTHER")
-      ? getCompanies().then(companyOptions)
+      // Les entités PROPOSÉES sont celles de la personne : sans quoi le formulaire laisserait
+      // rattacher une demande à une société qu'elle n'a pas le droit de voir.
+      ? getMyCompanies(userId).then(companyOptions)
       : Promise.resolve([] as { value: string; label: string }[]),
   ]);
 

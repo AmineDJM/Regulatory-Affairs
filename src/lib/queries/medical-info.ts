@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { scopeMedicalInfo, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
-import { currentCompanyWhere } from "@/lib/company";
+import { currentCompanyWhereFor } from "@/lib/company";
 
 export async function getDeclarations(user: SessionUser) {
   return prisma.medicalInfoDeclaration.findMany({
-    where: { ...scopeMedicalInfo(user), ...currentCompanyWhere() },
+    where: { ...scopeMedicalInfo(user), ...await currentCompanyWhereFor(user.id) },
     include: {
       pharmacist: { select: { name: true } },
       requests: { select: { id: true, status: true } },

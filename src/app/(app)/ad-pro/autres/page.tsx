@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { platformScope, getCompanies, companyOptions } from "@/lib/company";
+import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber, formatCurrency, formatDate } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -36,7 +36,7 @@ export default async function AdProOtherPage() {
       orderBy: { createdAt: "desc" },
       include: { company: { select: { name: true } } },
     }),
-    getCompanies(),
+    getMyCompanies(user.id),
   ]);
 
   return (

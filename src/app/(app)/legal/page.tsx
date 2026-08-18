@@ -1,7 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhere } from "@/lib/company";
+import { currentCompanyWhereFor } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -32,7 +32,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   const canEdit = userCan(user, "LEGAL", "UPDATE");
 
   const docs = await prisma.legalDocument.findMany({
-    where: { ...currentCompanyWhere() },
+    where: { ...await currentCompanyWhereFor(user.id) },
     orderBy: [{ endDate: "asc" }, { createdAt: "desc" }],
     include: {
       driveNode: { select: { id: true, name: true } },

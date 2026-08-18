@@ -1,7 +1,7 @@
 import type { DoctorTitle, InfluenceLevel, MedicalSector, Priority, SegmentLevel } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { anyRoleFilter, scopeMedicalDoctors, scopeMedicalVisits, hasGlobalView, type SessionUser } from "@/lib/rbac";
-import { currentCompanyWhere } from "@/lib/company";
+import { currentCompanyWhereFor } from "@/lib/company";
 
 /**
  * Lecture du module Promotion médicale, désormais structuré :
@@ -173,7 +173,7 @@ export async function getMedicalData(user: SessionUser): Promise<MedicalData> {
 
   const [doctors, specialties, institutions, visits, delegates] = await Promise.all([
     prisma.medicalDoctor.findMany({
-      where: { ...scopeMedicalDoctors(user), ...currentCompanyWhere() },
+      where: { ...scopeMedicalDoctors(user), ...await currentCompanyWhereFor(user.id) },
       orderBy: [{ name: "asc" }],
       include: { delegate: { select: { name: true } }, specialtyRef: { select: { name: true } }, institutionRef: { select: { name: true } } },
     }),

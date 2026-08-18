@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhere } from "@/lib/company";
+import { currentCompanyWhereFor } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 
 /**
@@ -11,7 +11,7 @@ import { toNumber } from "@/lib/utils";
  * l'état de l'équipe *maintenant* — c'est pourtant ce qu'on demande à un service RH quand on
  * cherche quelqu'un, qu'on planifie une réunion ou qu'on répartit une charge.
  *
- * Tout est borné à l'entité sélectionnée (`currentCompanyWhere`) comme le reste du module.
+ * Tout est borné à l'entité sélectionnée (`currentCompanyWhereFor`) comme le reste du module.
  */
 
 export interface AbsenceRow {
@@ -69,7 +69,7 @@ function startOfToday(): Date {
   return d;
 }
 
-export async function getHrPulse(): Promise<HrPulse> {
+export async function getHrPulse(userId: string): Promise<HrPulse> {
   const today = startOfToday();
   const in14 = new Date(today.getTime() + 14 * DAY);
   const in60 = new Date(today.getTime() + 60 * DAY);
@@ -87,7 +87,7 @@ export async function getHrPulse(): Promise<HrPulse> {
       orderBy: { startDate: "asc" },
     }),
     prisma.employee.findMany({
-      where: { ...currentCompanyWhere(), isActive: true },
+      where: { ...await currentCompanyWhereFor(userId), isActive: true },
       select: {
         id: true, fullName: true, department: true,
         leaveBalanceDays: true, trialEnd: true, trialRenewalEnd: true, contractEnd: true,

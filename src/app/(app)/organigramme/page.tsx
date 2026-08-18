@@ -4,7 +4,7 @@ import { UserPlus } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
-import { platformScope, getCompanyScope, getCompanies, companyLabel } from "@/lib/company";
+import { platformScope, getCompanyScope, getMyCompanies, companyLabel } from "@/lib/company";
 import { canViewOrgChart, canEditOrgChart } from "@/lib/org-chart-access";
 import { userCan } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,7 +34,7 @@ export default async function OrganigrammePage() {
   // entité doit apparaître quelque part, sinon il n'apparaît nulle part.
   const scope = await platformScope(user.id);
   const activeCompanyId = getCompanyScope();
-  const companies = await getCompanies();
+  const companies = await getMyCompanies(user.id);
   const activeCompany = activeCompanyId ? companies.find((c) => c.id === activeCompanyId) : null;
   const scopeLabel = activeCompany ? companyLabel(activeCompany) : "Toutes les entités";
 

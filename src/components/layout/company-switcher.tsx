@@ -33,6 +33,23 @@ export function CompanySwitcher({ companies, scope }: { companies: Company[]; sc
   if (companies.length === 0) return null;
   const current = companies.find((c) => c.id === scope) ?? null;
 
+  // UNE SEULE ENTITÉ ⇒ AUCUN SÉLECTEUR. Quelqu'un d'Adventum n'a pas à voir un menu déroulant
+  // qui laisse croire qu'il pourrait changer de société, ni une entrée « Toutes les entités »
+  // qui n'ouvre rien de plus que la sienne. On affiche son entité, comme une information — et
+  // le cloisonnement cesse d'être une case à cocher qu'on se demande s'il faut décocher.
+  if (companies.length === 1) {
+    const only = companies[0];
+    return (
+      <span
+        className="flex h-9 items-center gap-1.5 rounded-lg border border-input bg-secondary/30 px-2.5 text-sm font-medium"
+        title={`Votre entité : ${only.name}`}
+      >
+        <span className="flex h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: only.color ?? "#94a3b8" }} />
+        <span className="hidden max-w-[9rem] truncate sm:inline">{only.shortName || only.name}</span>
+      </span>
+    );
+  }
+
   async function choose(value: string) {
     setBusy(true);
     await setCompanyScope(value);

@@ -123,13 +123,17 @@ export default async function MoyensGenerauxPage({
         )}
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {/* TROIS INDICATEURS, PAS QUATRE. « Restant sur l'année » affichait allocation − consommé :
+          sans caisse annuelle réglée, cela donnait un « restant » NÉGATIF du montant déjà dépensé
+          (« −11 680 DZD »), qui ne veut rien dire pour personne. La consommation de l'année est
+          déjà là, avec son pourcentage quand une caisse existe ; le seul reste qui se dépense
+          vraiment est celui du mois, juste à côté. */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <KpiCard label={`Caisse de l'exercice ${year}`} value={formatCurrency(view.allocated)} icon="Wallet" />
         <KpiCard
           label="Consommé (année)" value={formatCurrency(view.consumed)} icon="Receipt" tone={tone}
           hint={view.allocated > 0 ? `${consumedPercent(view.allocated, view.consumed)} % de la caisse annuelle` : "aucune caisse annuelle réglée"}
         />
-        <KpiCard label="Restant sur l'année" value={formatCurrency(view.remaining)} icon="PiggyBank" tone={view.remaining < 0 ? "danger" : "default"} />
         <KpiCard
           label="Reste en caisse ce mois" value={view.cash ? formatCurrency(view.cash.balance.remaining) : "—"} icon="HandCoins"
           tone={view.cash?.balance.overspent ? "danger" : view.cash?.balance.lowOnCash ? "warning" : "info"}

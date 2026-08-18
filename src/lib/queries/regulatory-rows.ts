@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { scopeRegulatory, isRegulatorySupervisor, type SessionUser } from "@/lib/rbac";
-import { currentCompanyWhere, getCompanies } from "@/lib/company";
+import { currentCompanyWhereFor, getMyCompanies } from "@/lib/company";
 import { getAppSettings } from "@/lib/settings";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { regStage } from "@/lib/regulatory/stage";
@@ -19,7 +19,7 @@ import type { RegulatoryRow } from "@/app/(app)/regulatory/regulatory-table";
 export async function getRegulatoryRows(user: SessionUser) {
   const [products, suppliers, companies, settings] = await Promise.all([
     prisma.regulatoryProduct.findMany({
-      where: { ...scopeRegulatory(user), ...currentCompanyWhere() },
+      where: { ...scopeRegulatory(user), ...await currentCompanyWhereFor(user.id) },
       orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
       include: {
         responsible: { select: { name: true } },
@@ -35,7 +35,7 @@ export async function getRegulatoryRows(user: SessionUser) {
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
-    getCompanies(),
+    getMyCompanies(user.id),
     getAppSettings(),
   ]);
   // Supervision Regulatory : Super Admin + rôles configurés (priorité, dates, MàJ de statut).

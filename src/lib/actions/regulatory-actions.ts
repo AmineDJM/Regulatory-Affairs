@@ -130,6 +130,12 @@ export async function createRegulatoryProduct(
   // Connect responsible + assistant as assigned users so row-level scope works.
   const assignIds = Array.from(new Set([responsibleId, assistantId].filter(Boolean))) as string[];
 
+  // CRÉÉ DIRECTEMENT DANS LE PIPELINE. Le formulaire du pipeline envoie `lock=1` : le dossier
+  // naît verrouillé, donc à l'étude, invisible de l'équipe tant que le cadenas n'est pas ouvert.
+  // Le droit reste celui du cadenas — le Super Admin, et lui seul : sans cette garde, n'importe
+  // qui pourrait créer un dossier que personne d'autre ne verrait.
+  const lockOnCreate = str(formData, "lock") === "1" && user.role === "SUPER_ADMIN";
+
   const product = await prisma.regulatoryProduct.create({
     data: {
       reference,
@@ -151,6 +157,7 @@ export async function createRegulatoryProduct(
       status: (str(formData, "status") as RegulatoryStatus) ?? "PRE_SUBMISSION",
       priority: (str(formData, "priority") as Priority) ?? "MEDIUM",
       companyId,
+      isLocked: lockOnCreate,
       targetSubmissionDate: targetSubmissionDateRaw ? new Date(targetSubmissionDateRaw) : null,
       targetDate: targetDateRaw ? new Date(targetDateRaw) : null,
       comments: str(formData, "comments"),
@@ -180,29 +187,38 @@ export async function createRegulatoryProduct(
     module: "Regulatory",
     entityType: "REGULATORY_PRODUCT",
     entityId: product.id,
-    summary: `Nouveau dossier ${reference} — ${dci}`,
+    summary: `Nouveau dossier ${reference} — ${dci}${lockOnCreate ? " (créé verrouillé, dans le pipeline)" : ""}`,
   });
 
-  if (assistantId && assistantId !== user.id) {
-    await notifyUser({
-      userId: assistantId,
-      type: "ASSIGNMENT",
-      title: "Nouveau dossier assigné",
-      body: `${reference} — ${dci}`,
+  // UN DOSSIER VERROUILLÉ NE PRÉVIENT PERSONNE. Il n'existe que pour le Super Admin
+  // (`lockGate`) : annoncer sa création à l'équipe reviendrait à lui envoyer un lien qui
+  // s'ouvre sur un 404, tout en révélant qu'un dossier confidentiel vient d'entrer. Les
+  // notifications reprennent à l'ouverture du cadenas, quand le dossier devient un travail.
+  if (!lockOnCreate) {
+    if (assistantId && assistantId !== user.id) {
+      await notifyUser({
+        userId: assistantId,
+        type: "ASSIGNMENT",
+        title: "Nouveau dossier assigné",
+        body: `${reference} — ${dci}`,
+        link: `/regulatory/${product.id}`,
+      });
+    }
+
+    // Supervision : prévenir les superviseurs Regulatory (Super Admin + rôles configurés)
+    // qu'un nouveau dossier attend une priorité et une date cible de dépôt.
+    await notifyRoles(await regSupervisorRoles(), {
+      type: "GENERIC",
+      title: "Nouveau dossier Regulatory à prioriser",
+      body: `${reference} — ${dci} · définir la priorité et la date cible de dépôt.`,
       link: `/regulatory/${product.id}`,
     });
   }
 
-  // Supervision : prévenir les superviseurs Regulatory (Super Admin + rôles configurés)
-  // qu'un nouveau dossier attend une priorité et une date cible de dépôt.
-  await notifyRoles(await regSupervisorRoles(), {
-    type: "GENERIC",
-    title: "Nouveau dossier Regulatory à prioriser",
-    body: `${reference} — ${dci} · définir la priorité et la date cible de dépôt.`,
-    link: `/regulatory/${product.id}`,
-  });
-
   revalidatePath("/regulatory");
+  // Le pipeline est l'écran des dossiers verrouillés : un dossier qui y naît doit s'y voir
+  // tout de suite, sans attendre l'expiration du cache de navigation.
+  revalidatePath("/regulatory/pipeline");
   return { ok: true, id: product.id };
 }
 

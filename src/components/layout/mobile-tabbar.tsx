@@ -9,6 +9,7 @@ import type { NavItem } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { useScrollLock } from "@/lib/use-scroll-lock";
 import { useTabBarHeight } from "@/components/layout/chrome-metrics";
+import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, FLAT_GROUPS } from "@/lib/navigation";
 
 /**
  * BARRE D'ONGLETS MOBILE — navigation principale sur téléphone (l'app installée depuis
@@ -68,8 +69,27 @@ export function MobileTabBar({
   const pathname = usePathname();
   const [drawer, setDrawer] = React.useState(false);
   const [q, setQ] = React.useState("");
-  /** Sous-modules dépliés, par route du parent (mémoire de session du tiroir). */
+  /**
+   * Ouvertures dépliées — MÊME mémoire que la barre latérale (clé = pôle pour un pôle, route du
+   * parent pour un sous-module). Chargée après montage : le serveur ne connaît pas le
+   * `localStorage`, et rendre deux arbres différents ferait sauter l'hydratation.
+   */
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
+  React.useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(OPEN_POLES_KEY);
+      if (raw) setExpanded(JSON.parse(raw) as Record<string, boolean>);
+    } catch {
+      /* préférence illisible → règle par défaut */
+    }
+  }, []);
+  const toggle = (key: string, next: boolean) => {
+    setExpanded((prev) => {
+      const merged = { ...prev, [key]: next };
+      try { window.localStorage.setItem(OPEN_POLES_KEY, JSON.stringify(merged)); } catch { /* refusé : sans mémoire */ }
+      return merged;
+    });
+  };
   // La hauteur RÉELLE de la barre est publiée pour les écrans pleine hauteur. Sur ordinateur
   // elle est `display: none` et vaut donc 0 — sans règle média supplémentaire à maintenir.
   const navRef = React.useRef<HTMLElement>(null);
@@ -96,14 +116,55 @@ export function MobileTabBar({
       }, [])
     : visible;
 
-  const grouped = filtered.reduce<Record<string, NavItem[]>>((acc, i) => {
-    (acc[i.group] ??= []).push(i);
-    return acc;
-  }, {});
+  // LES MÊMES PÔLES QUE LA BARRE LATÉRALE. Le tiroir listait les treize modules à plat sous un
+  // titre « Pôles » : c'était la carte du code, pas celle de l'entreprise, et sur un écran de
+  // téléphone la liste ne tenait pas. On range par pôle, et chaque pôle se déplie par sa flèche.
+  const poles = React.useMemo(() => groupIntoPoles(filtered), [filtered]);
+  const activePole = React.useMemo(() => poleOfPath(poles, pathname), [poles, pathname]);
+  const flatGroups = React.useMemo(
+    () => FLAT_GROUPS.map((g) => [g, itemsOfGroup(filtered, g)] as const).filter(([, list]) => list.length > 0),
+    [filtered],
+  );
 
-  // Une recherche ne doit RIEN cacher derrière une flèche : quand on filtre, les sous-modules
-  // sont dépliés d'office — sinon « pipeline » ne remonterait rien alors qu'il existe.
+  // Une recherche ne doit RIEN cacher derrière une flèche : quand on filtre, pôles et
+  // sous-modules sont dépliés d'office — sinon « pipeline » ne remonterait rien alors qu'il existe.
   const searching = q.trim().length > 0;
+  // Le pôle de la page courante s'ouvre tout seul : arriver par un lien de notification sans
+  // voir où l'on se trouve, c'est perdre son repère à chaque fois.
+  const isPoleOpen = (key: string, defaultOpen: boolean) =>
+    searching || activePole === key || (expanded[key] ?? defaultOpen);
+
+  /** La grille de tuiles d'une section — un module par tuile, ses sous-modules dessous. */
+  const renderTiles = (list: NavItem[]) => (
+    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+      {list.map((item) => {
+        const kids = item.children ?? [];
+        const opened = searching || expanded[item.href] === true;
+        return (
+          <React.Fragment key={item.href}>
+            <Tile item={item} pathname={pathname} badge={moduleBadges[item.module] ?? 0}>
+              {/* LA FLÈCHE, SUR MOBILE AUSSI — les sous-modules ne doivent pas être
+                  réservés à l'ordinateur : c'est au téléphone qu'on cherche vite. */}
+              {kids.length > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); toggle(item.href, !opened); }}
+                  aria-expanded={opened}
+                  aria-label={opened ? `Replier ${item.label}` : `Déplier ${item.label}`}
+                  className="absolute bottom-1 right-1 rounded-lg p-1 text-muted-foreground"
+                >
+                  <Icon name="ChevronDown" className={cn("h-3.5 w-3.5 transition-transform", opened ? "" : "-rotate-90")} />
+                </button>
+              )}
+            </Tile>
+            {kids.length > 0 && opened && kids.map((c) => (
+              <Tile key={c.href} item={c} pathname={pathname} badge={moduleBadges[c.module] ?? 0} nested />
+            ))}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
 
   return (
     <>
@@ -125,37 +186,52 @@ export function MobileTabBar({
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-4">
-            {Object.entries(grouped).map(([group, list]) => (
+            {/* Pilotage d'abord : ce qu'on ouvre le plus souvent ne se cherche pas. */}
+            {flatGroups.filter(([g]) => g === "Pilotage").map(([group, list]) => (
               <div key={group} className="mb-6">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {list.map((item) => {
-                    const kids = item.children ?? [];
-                    const opened = searching || expanded[item.href] === true;
+                {renderTiles(list)}
+              </div>
+            ))}
+
+            {/* LES PÔLES DE L'ENTREPRISE, chacun derrière sa flèche. */}
+            {poles.length > 0 && (
+              <div className="mb-6">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pôles</p>
+                <div className="space-y-2">
+                  {poles.map((pole) => {
+                    const opened = isPoleOpen(pole.key, pole.defaultOpen);
+                    const badge = pole.children.reduce((a, c) => a + (moduleBadges[c.module] ?? 0), 0);
                     return (
-                      <React.Fragment key={item.href}>
-                        <Tile item={item} pathname={pathname} badge={moduleBadges[item.module] ?? 0}>
-                          {/* LA FLÈCHE, SUR MOBILE AUSSI — les sous-modules ne doivent pas être
-                              réservés à l'ordinateur : c'est au téléphone qu'on cherche vite. */}
-                          {kids.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); setExpanded((p) => ({ ...p, [item.href]: !opened })); }}
-                              aria-expanded={opened}
-                              aria-label={opened ? `Replier ${item.label}` : `Déplier ${item.label}`}
-                              className="absolute bottom-1 right-1 rounded-lg p-1 text-muted-foreground"
-                            >
-                              <Icon name="ChevronDown" className={cn("h-3.5 w-3.5 transition-transform", opened ? "" : "-rotate-90")} />
-                            </button>
+                      <div key={pole.key} className="overflow-hidden rounded-2xl border border-border bg-card">
+                        <button
+                          type="button"
+                          onClick={() => toggle(pole.key, !opened)}
+                          aria-expanded={opened}
+                          className="flex w-full items-center gap-2.5 px-3 py-3 text-left transition active:bg-secondary/60"
+                        >
+                          <Icon name={pole.icon} className="h-5 w-5 shrink-0 text-primary" />
+                          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{pole.label}</span>
+                          {badge > 0 && !opened && (
+                            <span className="min-w-[1.125rem] rounded-full bg-destructive px-1 text-[0.625rem] font-bold leading-[1.125rem] text-destructive-foreground">
+                              {badge > 99 ? "99+" : badge}
+                            </span>
                           )}
-                        </Tile>
-                        {kids.length > 0 && opened && kids.map((c) => (
-                          <Tile key={c.href} item={c} pathname={pathname} badge={moduleBadges[c.module] ?? 0} nested />
-                        ))}
-                      </React.Fragment>
+                          <span className="shrink-0 text-[0.625rem] text-muted-foreground">{pole.children.length}</span>
+                          <Icon name="ChevronDown" className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", opened ? "" : "-rotate-90")} />
+                        </button>
+                        {opened && <div className="border-t border-border p-2">{renderTiles(pole.children)}</div>}
+                      </div>
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {flatGroups.filter(([g]) => g !== "Pilotage").map(([group, list]) => (
+              <div key={group} className="mb-6">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
+                {renderTiles(list)}
               </div>
             ))}
             {filtered.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">Aucun module ne correspond.</p>}

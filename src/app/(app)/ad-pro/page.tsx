@@ -37,7 +37,7 @@ export default async function AdProPage() {
   const kinds = creatableKinds((m) => userCan(user, m as Module, "CREATE"));
   const [rows, createData] = await Promise.all([
     getAdProRequests(user),
-    getAdProCreateData(kinds.map((k) => k.kind)),
+    getAdProCreateData(user.id, kinds.map((k) => k.kind)),
   ]);
   const counts = countByState(rows);
 

@@ -35,9 +35,12 @@ export default async function EnregistrementPage() {
         title="Enregistrement — Référentiel ANPP"
         description="Cadre légal algérien de l'enregistrement des produits pharmaceutiques, intégré au logiciel. Outil d'aide au pharmacien directeur technique — la validation finale lui revient."
       />
+      {/* L'ANALYSE CTD EST UN MODULE À PART, pas un onglet du suivi des dossiers. L'onglet
+          « Dossiers » ramenait ici le tableau de suivi et brouillait les deux métiers : suivre
+          l'avancement d'un dépôt d'un côté, analyser un CTD de l'autre. Le suivi se rejoint par
+          le menu, comme n'importe quel autre module. */}
       <ModuleTabs
         tabs={[
-          { label: "Dossiers", href: "/regulatory" },
           { label: "Référentiel ANPP", href: "/regulatory/enregistrement" },
           { label: "Analyse CTD", href: "/regulatory/enregistrement/analyse" },
         ]}

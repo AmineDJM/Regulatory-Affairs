@@ -17,7 +17,12 @@ interface UserOption {
   role: string;
 }
 
-export function NewProductButton({ users, suppliers, companies }: { users: UserOption[]; suppliers: { id: string; name: string }[]; companies: { id: string; name: string; shortName: string | null }[] }) {
+/**
+ * `lockOnCreate` — le MÊME formulaire, ouvert depuis le pipeline : le dossier naît verrouillé,
+ * donc à l'étude et invisible de l'équipe. Un second formulaire recopié aurait divergé du
+ * premier au premier champ ajouté ; c'est le même, avec une case de plus.
+ */
+export function NewProductButton({ users, suppliers, companies, lockOnCreate = false }: { users: UserOption[]; suppliers: { id: string; name: string }[]; companies: { id: string; name: string; shortName: string | null }[]; lockOnCreate?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [state, formAction] = useFormState<ActionResult | undefined, FormData>(
@@ -49,14 +54,16 @@ export function NewProductButton({ users, suppliers, companies }: { users: UserO
     <>
       <Button onClick={() => setOpen(true)}>
         <Plus className="h-4 w-4" />
-        Nouveau dossier
+        {lockOnCreate ? "Nouveau dossier au pipeline" : "Nouveau dossier"}
       </Button>
 
       <Sheet
         open={open}
         onClose={() => setOpen(false)}
-        title="Nouveau dossier réglementaire"
-        description="Le workflow en 17 étapes est créé automatiquement."
+        title={lockOnCreate ? "Nouveau dossier au pipeline" : "Nouveau dossier réglementaire"}
+        description={lockOnCreate
+          ? "Créé VERROUILLÉ : à l'étude, visible du seul Super Admin. Ouvrir le cadenas le fera passer dans « À traiter »."
+          : "Le workflow en 17 étapes est créé automatiquement."}
         width="lg"
       >
         <form
@@ -68,12 +75,15 @@ export function NewProductButton({ users, suppliers, companies }: { users: UserO
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-2 gap-3">
+          {/* La destination du dossier, portée par le formulaire lui-même : c'est l'écran d'où
+              l'on crée qui décide, pas une case que l'on peut oublier de cocher. */}
+          {lockOnCreate && <input type="hidden" name="lock" value="1" />}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue="MEDICINE" />
             <SelectField label="Canal (Ville / Hôpital)" name="channel" options={optionsFromMap(PRODUCT_CHANNEL)} defaultValue="BOTH" />
             <SelectField label="Entité" name="companyId" required options={companies.map((c) => ({ value: c.id, label: c.shortName || c.name }))} placeholder="— Choisir l'entité —" defaultValue={companies.length === 1 ? companies[0].id : ""} />
             <DciAssociationField />
-            <TextField label="Nom commercial envisagé" name="brandName" placeholder="Ex. Adventor" className="col-span-2" />
+            <TextField label="Nom commercial envisagé" name="brandName" placeholder="Ex. Adventor" className="sm:col-span-2" />
             <TextField label="Dosage" name="dosage" placeholder="20" />
             <SelectField label="Unité" name="dosageUnit" options={optionsFromMap(DOSAGE_UNIT)} placeholder="—" />
             <SelectField label="Forme pharmaceutique" name="pharmaceuticalForm" options={optionsFromMap(PHARMA_FORM)} placeholder="—" />
@@ -87,8 +97,8 @@ export function NewProductButton({ users, suppliers, companies }: { users: UserO
             <SelectField label="Statut initial" name="status" options={optionsFromMap(REGULATORY_STATUS)} defaultValue="PRE_SUBMISSION" />
             <SelectField label="Responsable" name="responsibleId" options={userOptions} placeholder="—" />
             <SelectField label="Assistante assignée" name="assistantId" options={userOptions} placeholder="—" />
-            <TextField label="Date cible d'enregistrement" name="targetDate" type="date" className="col-span-2" />
-            <TextField label="Détenteur de DE" name="deHolder" placeholder="Titulaire de la décision d'enregistrement" className="col-span-2" />
+            <TextField label="Date cible d'enregistrement" name="targetDate" type="date" className="sm:col-span-2" />
+            <TextField label="Détenteur de DE" name="deHolder" placeholder="Titulaire de la décision d'enregistrement" className="sm:col-span-2" />
           </div>
           <TextAreaField label="Commentaires" name="comments" placeholder="Notes internes…" />
 

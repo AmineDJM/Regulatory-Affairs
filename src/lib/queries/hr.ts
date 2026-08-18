@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhere, platformScope } from "@/lib/company";
+import { platformScope } from "@/lib/company";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { canDecideLeave, type LeaveStage } from "@/lib/leave-workflow";
 import { toNumber } from "@/lib/utils";

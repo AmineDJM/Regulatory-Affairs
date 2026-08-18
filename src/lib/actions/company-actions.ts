@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/session";
 import { userCan, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { COMPANY_COOKIE } from "@/lib/company";
+import { COMPANY_COOKIE, getMyCompanies } from "@/lib/company";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 an
@@ -19,15 +19,25 @@ function canManageCompanies(user: SessionUser): boolean {
 
 /**
  * Change la portée d'entité du sélecteur de la barre supérieure (cookie).
- * `"ALL"` (ou une entité inconnue/inactive) = toutes les entités. Le client
- * rafraîchit ensuite la page pour appliquer le filtre aux vues serveur.
+ *
+ * ON NE CHOISIT QUE CE À QUOI ON A DROIT. L'action acceptait n'importe quelle entité active :
+ * demander Pharmagène depuis un compte Adventum écrivait le cookie sans broncher, et les écrans
+ * qui posent ce cookie tel quel montraient alors les dossiers de l'autre société. Une entité
+ * refusée retombe sur la portée légitime de la personne — jamais sur « toutes ».
+ *
+ * `"ALL"` reste possible pour qui a plusieurs entités : cela veut dire « toutes CELLES
+ * AUXQUELLES J'AI DROIT », ce que les filtres serveur savent déjà appliquer.
  */
 export async function setCompanyScope(value: string): Promise<void> {
-  await requireUser();
+  const user = await requireUser();
+  const mine = await getMyCompanies(user.id);
   let scope = "ALL";
   if (value && value !== "ALL") {
-    const c = await prisma.company.findFirst({ where: { id: value, isActive: true }, select: { id: true } });
-    if (c) scope = c.id;
+    scope = mine.some((c) => c.id === value) ? value : (mine.length === 1 ? mine[0].id : "ALL");
+  } else if (mine.length === 1) {
+    // Mono-entité : « toutes » n'a pas de sens, et laisser le cookie vide reviendrait à ne
+    // filtrer nulle part. On l'ancre sur la seule entité qui le concerne.
+    scope = mine[0].id;
   }
   cookies().set(COMPANY_COOKIE, scope, { path: "/", maxAge: COOKIE_MAX_AGE, sameSite: "lax", httpOnly: true });
 }

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { scopeRegulatory, type SessionUser } from "@/lib/rbac";
-import { currentCompanyWhere } from "@/lib/company";
+import { currentCompanyWhereFor } from "@/lib/company";
 import { bestMatches, isConfident, type MatchProposal } from "@/lib/products/catalog-match";
 
 /**
@@ -61,7 +61,7 @@ export async function getCatalogReconciliation(user: SessionUser): Promise<Catal
     // La portée réglementaire s'applique : on ne propose pas de rattacher à un dossier qu'on
     // n'aurait pas le droit de voir.
     prisma.regulatoryProduct.findMany({
-      where: { ...scopeRegulatory(user), ...currentCompanyWhere() },
+      where: { ...scopeRegulatory(user), ...await currentCompanyWhereFor(user.id) },
       select: { id: true, reference: true, dci: true, brandName: true, dosage: true, pharmaceuticalForm: true },
       orderBy: [{ dci: "asc" }, { dosage: "asc" }],
       take: 2000,

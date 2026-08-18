@@ -2,7 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, scopeMedicalDoctors } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhere } from "@/lib/company";
+import { currentCompanyWhereFor } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { BackLink } from "@/components/shared/back-link";
 import type { AnnuaireRow } from "@/lib/medical/directory-grid";
@@ -30,7 +30,7 @@ export default async function AnnuairePage() {
 
   const [doctors, specialtyRefs] = await Promise.all([
     prisma.medicalDoctor.findMany({
-      where: { ...scopeMedicalDoctors(user), ...currentCompanyWhere() },
+      where: { ...scopeMedicalDoctors(user), ...await currentCompanyWhereFor(user.id) },
       orderBy: [{ name: "asc" }],
       include: { specialtyRef: { select: { name: true } } },
     }),

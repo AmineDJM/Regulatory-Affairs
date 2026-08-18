@@ -25,6 +25,15 @@ export const NAV_POLES = [
 export type NavPoleKey = (typeof NAV_POLES)[number]["key"];
 
 /**
+ * Préférence LOCALE d'ouverture des pôles (par navigateur, donc par personne).
+ *
+ * La MÊME clé pour la barre latérale et pour le tiroir mobile : quelqu'un qui replie Regulatory
+ * sur son ordinateur doit le retrouver replié sur son téléphone. Deux clés auraient donné deux
+ * menus qui se contredisent sans que personne comprenne pourquoi.
+ */
+export const OPEN_POLES_KEY = "amd-open-poles";
+
+/**
  * Au-delà de cinq sous-modules VISIBLES, un pôle déplié occupe tout l'écran et l'on ne voit
  * plus les autres. En deçà, un chevron à ouvrir n'est qu'un clic de plus pour rien.
  */
@@ -61,6 +70,9 @@ export function groupIntoPoles(items: NavItem[]): NavPoleGroup[] {
     };
   }).filter((p) => p.children.length > 0);
 }
+
+/** Les groupes historiques encadrent les pôles : le personnel au-dessus, le système en bas. */
+export const FLAT_GROUPS: NavItem["group"][] = ["Pilotage", "Transverse", "Système"];
 
 /** Entrées d'un groupe historique (Pilotage / Transverse / Système) — inchangées. */
 export function itemsOfGroup(items: NavItem[], group: NavItem["group"]): NavItem[] {

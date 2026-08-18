@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhere } from "@/lib/company";
+import { currentCompanyWhereFor } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 
 const dec = (v: unknown): number | null => (v === null || v === undefined ? null : toNumber(v));
@@ -134,16 +134,16 @@ function toTenderDTO(t: Awaited<ReturnType<typeof fetchTenders>>[number], lines:
   };
 }
 
-function fetchTenders() {
+async function fetchTenders(userId: string) {
   return prisma.pchTender.findMany({
-    where: { ...currentCompanyWhere() },
+    where: { ...await currentCompanyWhereFor(userId) },
     include: { orders: { orderBy: { createdAt: "desc" } } },
     orderBy: [{ createdAt: "desc" }],
   });
 }
 
-export async function getPchTenders(): Promise<PchTenderDTO[]> {
-  return (await fetchTenders()).map((t) => toTenderDTO(t));
+export async function getPchTenders(userId: string): Promise<PchTenderDTO[]> {
+  return (await fetchTenders(userId)).map((t) => toTenderDTO(t));
 }
 
 export async function getPchTenderDetail(id: string): Promise<PchTenderDTO | null> {

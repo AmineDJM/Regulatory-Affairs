@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { platformScope, getCompanies, companyOptions } from "@/lib/company";
+import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber, formatCurrency, formatDate } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -36,7 +36,7 @@ export default async function ConsultingPage() {
       orderBy: { createdAt: "desc" },
       include: { company: { select: { name: true } }, tasks: { select: { doneAt: true } } },
     }),
-    getCompanies(),
+    getMyCompanies(user.id),
   ]);
 
   const active = contracts.filter((c) => c.status === "ACTIVE");

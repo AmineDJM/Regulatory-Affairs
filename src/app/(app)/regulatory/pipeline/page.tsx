@@ -10,6 +10,7 @@ import { KpiCard } from "@/components/shared/kpi-card";
 import { getRegulatoryRows } from "@/lib/queries/regulatory-rows";
 import { effectiveTherapeuticSegments } from "@/lib/labels";
 import { RegulatoryTable } from "@/app/(app)/regulatory/regulatory-table";
+import { NewProductButton } from "@/app/(app)/regulatory/new-product";
 
 export const dynamic = "force-dynamic";
 
@@ -30,14 +31,15 @@ export default async function BusinessDevelopmentPipelinePage() {
   const canAssign = userCan(user, "REGULATORY", "UPDATE");
   const canLock = user.role === "SUPER_ADMIN";
 
-  const { rows, companies, canSupervise, settings } = await getRegulatoryRows(user);
+  const canCreate = userCan(user, "REGULATORY", "CREATE");
+  const { rows, companies, canSupervise, settings, suppliers } = await getRegulatoryRows(user);
   // TOUS LES DOSSIERS VERROUILLÉS, sans exception. On filtrait sur l'étape « pipeline », or
   // `regStage` classe un dossier ABOUTI comme « done » même s'il est verrouillé : un dossier
   // verrouillé dont la décision était tombée disparaissait donc de l'écran censé les lister
   // tous. Le verrou est le critère, pas l'étape.
   const pipeline = rows.filter((r) => r.isLocked);
 
-  const assignableUsers = canAssign
+  const assignableUsers = canAssign || canCreate
     ? await prisma.user.findMany({
         where: { isActive: true, role: { in: ["HEAD_OF_REGULATORY", "REGULATORY_ASSISTANT", "DIRECTION"] } },
         select: { id: true, name: true, role: true },
@@ -51,7 +53,14 @@ export default async function BusinessDevelopmentPipelinePage() {
       <PageHeader
         title="Pipeline réglementaire"
         description="TOUS les dossiers verrouillés, sans exception — les produits à l'étude, pas encore ouverts à l'équipe. Ouvrir le cadenas les fait sortir d'ici et entrer dans « À traiter », sur le suivi des dossiers : c'est le geste, et le seul, qui met un dossier au travail."
-      />
+      >
+        {/* CRÉER DIRECTEMENT ICI. Un produit qu'on étudie n'a rien à faire dans le suivi des
+            dossiers en attendant qu'on le verrouille : il naît au pipeline, verrouillé, et n'en
+            sort que par le cadenas. Réservé à qui tient ce cadenas — le Super Admin. */}
+        {canCreate && canLock && (
+          <NewProductButton lockOnCreate users={assignableUsers} suppliers={suppliers} companies={companies} />
+        )}
+      </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <KpiCard label="Dossiers verrouillés" value={pipeline.length} icon="Lock" tone={pipeline.length > 0 ? "info" : "default"} />
@@ -69,7 +78,7 @@ export default async function BusinessDevelopmentPipelinePage() {
           icon="Lightbulb"
           title="Aucun dossier verrouillé"
           description={canLock
-            ? "Un dossier créé puis verrouillé apparaît ici tant qu'il n'est pas ouvert à l'équipe."
+            ? "Créez un dossier ici : il naît verrouillé et y reste tant que vous n'ouvrez pas le cadenas."
             : "Les dossiers verrouillés ne sont visibles que du Super Admin tant qu'ils ne sont pas ouverts."}
         />
       ) : (

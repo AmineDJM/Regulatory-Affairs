@@ -12,13 +12,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { PCH_TENDER_STATUS } from "@/lib/labels";
-import { getCompanies, companyOptions } from "@/lib/company";
+import { getMyCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 
 export default async function PchPage() {
   const user = await requireModule("PCH");
   const canCreate = userCan(user, "PCH", "CREATE");
-  const [tenders, companies] = await Promise.all([getPchTenders(), getCompanies()]);
+  const [tenders, companies] = await Promise.all([getPchTenders(user.id), getMyCompanies(user.id)]);
   const s = pchSummary(tenders);
 
   return (

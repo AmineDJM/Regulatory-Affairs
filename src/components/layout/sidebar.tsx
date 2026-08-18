@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import type { NavItem } from "@/lib/labels";
-import { groupIntoPoles, itemsOfGroup, poleOfPath, type NavPoleKey } from "@/lib/navigation";
+import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, type NavPoleKey } from "@/lib/navigation";
 import { OfficePins } from "./office-pins";
 
 interface SidebarProps {
@@ -15,12 +15,6 @@ interface SidebarProps {
   /** Notifications non lues par module → badge sur l'entrée de menu concernée. */
   moduleBadges?: Record<string, number>;
 }
-
-/** Les groupes historiques encadrent les pôles : le personnel au-dessus, le système en bas. */
-const FLAT_GROUPS: NavItem["group"][] = ["Pilotage", "Transverse", "Système"];
-
-/** Préférence LOCALE d'ouverture des pôles (par navigateur, donc par personne). */
-const OPEN_POLES_KEY = "amd-open-poles";
 
 /** Nombre de notifications non lues d'une entrée (module + ses onglets fusionnés). */
 function badgeFor(item: NavItem, badges: Record<string, number>): number {

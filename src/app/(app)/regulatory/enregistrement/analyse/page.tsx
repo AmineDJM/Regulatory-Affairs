@@ -31,8 +31,9 @@ export default async function AnalyseWorkspacePage() {
   // Les deux écrans qui portent la MÉMOIRE du module ne s'affichent que pour qui peut les
   // utiliser : la bibliothèque des réserves (ce que l'ANPP nous a déjà reproché) et le corpus
   // (les textes sur lesquels l'analyse s'appuie).
+  // L'analyse CTD est un MODULE À PART : ses onglets sont les siens, pas ceux du suivi des
+  // dossiers (qui se rejoint par le menu, comme n'importe quel autre module).
   const tabs = [
-    { label: "Dossiers", href: "/regulatory" },
     { label: "Référentiel ANPP", href: "/regulatory/enregistrement" },
     { label: "Analyse CTD", href: "/regulatory/enregistrement/analyse" },
     ...(regCan(user, "regulatory.reserve.manage") ? [{ label: "Réserves ANPP", href: "/regulatory/enregistrement/reserves" }] : []),

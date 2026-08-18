@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { promoMaterialCreateFields } from "@/lib/ad-pro/create-fields";
 import { PROMO_MATERIAL_STATUS, EVENTS_TABS, MATERIAL_TYPE } from "@/lib/labels";
 import { CompanyBadge } from "@/components/shared/company-badge";
-import { getCompanies, companyOptions } from "@/lib/company";
+import { getMyCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
 export default async function PromoMaterialPage() {
   const user = await requireModule("PROMO_MATERIAL");
   const canCreate = userCan(user, "PROMO_MATERIAL", "CREATE");
-  const [items, companies] = await Promise.all([getPromoMaterials(user), getCompanies()]);
+  const [items, companies] = await Promise.all([getPromoMaterials(user), getMyCompanies(user.id)]);
 
   // Liste des assistantes possibles (pour assigner la demande) : réservée au créateur.
   const assistants = canCreate

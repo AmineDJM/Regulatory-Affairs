@@ -15,7 +15,7 @@ import { optionsFromMap } from "@/components/shared/form-fields";
 import { TrendChart, DonutChart } from "@/components/dashboard/charts";
 import { createTransaction, createQuickIncome } from "@/lib/actions/finance-actions";
 import { FINANCE_CATEGORY, FINANCE_DIRECTION, FINANCE_METHOD, FINANCE_STATUS } from "@/lib/labels";
-import { getCompanies, companyOptions } from "@/lib/company";
+import { getMyCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency } from "@/lib/utils";
 import { LedgerTable } from "./ledger-table";
 import { RecettesDepensesChart } from "./finance-charts";
@@ -32,7 +32,7 @@ export default async function FinancesPage() {
   const canDelete = userCan(user, "FINANCES", "DELETE");
   const [data, compta] = await Promise.all([getFinanceData(user.id), getComptaData(user.id)]);
   const pendingOrders = await prisma.expenseOrder.count({ where: { status: "PENDING" } });
-  const companies = await getCompanies();
+  const companies = await getMyCompanies(user.id);
 
   return (
     <div className="space-y-6">

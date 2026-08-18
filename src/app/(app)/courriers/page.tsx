@@ -1,7 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhere } from "@/lib/company";
+import { currentCompanyWhereFor } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -34,7 +34,7 @@ export default async function CourriersPage() {
   const canEdit = userCan(user, "MAIL_REGISTER", "UPDATE");
 
   const entries = await prisma.mailEntry.findMany({
-    where: { ...currentCompanyWhere() },
+    where: { ...await currentCompanyWhereFor(user.id) },
     orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
     take: 500,
   });

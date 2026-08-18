@@ -58,9 +58,25 @@ export function companyWhere(scope: string | null): { companyId?: string } {
   return scope ? { companyId: scope } : {};
 }
 
-/** Raccourci serveur : filtre Prisma de la portée active (lue du cookie). */
-export function currentCompanyWhere(): { companyId?: string } {
-  return companyWhere(getCompanyScope());
+/**
+ * LE FILTRE D'ENTITÉ DES ÉCRANS DE MODULE — la portée du sélecteur, VALIDÉE contre les droits.
+ *
+ * Remplace l'ancien `currentCompanyWhere()`, qui posait le cookie tel quel. Deux trous s'y
+ * ouvraient, et le second n'avait rien de théorique :
+ *
+ *   • le cookie se modifie à la main : il suffisait d'y écrire l'identifiant d'une autre société
+ *     pour lire ses dossiers, puisque aucun écran ne revalidait la demande ;
+ *   • SANS cookie, il ne filtrait RIEN. Un salarié mono-entité dont le module a une portée
+ *     « toutes les lignes » (Regulatory, Legal, Courriers…) voyait donc, par défaut, le travail
+ *     de toutes les sociétés du groupe — exactement ce que le cloisonnement doit empêcher.
+ *
+ * On passe donc par `platformScope`, qui applique la règle commune et ses deux garde-fous :
+ * aucun filtre si le groupe ne compte qu'une société, aucun filtre pour qui ne relève d'aucune
+ * entité (on n'aveugle personne par omission).
+ */
+export async function currentCompanyWhereFor(userId: string): Promise<{ companyId?: string | { in: string[] } }> {
+  const where = await platformScope(userId);
+  return "companyId" in where && where.companyId !== undefined ? { companyId: where.companyId } : {};
 }
 
 /** Libellé court d'une entité (fallback sur le nom complet). */

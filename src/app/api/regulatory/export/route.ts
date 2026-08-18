@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { userCan, scopeRegulatory } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhere } from "@/lib/company";
+import { currentCompanyWhereFor } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { buildRegulatoryWorkbook, regulatoryExportFilename, type RegulatoryExportRow } from "@/lib/regulatory/export";
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   const products = await prisma.regulatoryProduct.findMany({
     where: {
       ...scopeRegulatory(user),
-      ...currentCompanyWhere(),
+      ...await currentCompanyWhereFor(user.id),
       ...(ids && ids.length > 0 ? { id: { in: ids } } : {}),
     },
     orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],

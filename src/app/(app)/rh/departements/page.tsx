@@ -4,7 +4,7 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getDepartmentTree, flattenTree } from "@/lib/departments";
-import { getCompanies, getCompanyScope, companyLabel } from "@/lib/company";
+import { getMyCompanies, getCompanyScope, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -22,7 +22,7 @@ export default async function DepartmentsPage() {
   // propres départements ; « toutes les entités » donne la vue groupe.
   const companyScope = getCompanyScope();
   const [companies, tree, employees, unassigned] = await Promise.all([
-    getCompanies(),
+    getMyCompanies(user.id),
     getDepartmentTree(companyScope),
     prisma.employee.findMany({
       where: { isActive: true, ...(companyScope ? { companyId: companyScope } : {}) },
