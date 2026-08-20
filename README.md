@@ -2044,6 +2044,15 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Entités, gammes & produits** | Modèles `ProductRange` / `UserProductRange` + `RegulatoryProduct.rangeId` ; module PUR `lib/org/product-ranges.ts` (`companyIdsFromRanges`, `restrictingRangeIds`, `productRangeWhere`, `canSeeProduct`, `buildRangeTree`) + `product-ranges.test.ts` (18 tests) ; `lib/company.ts` → `productRangeScope` (composé dans `queries/regulatory-rows.ts` et `queries/product-catalog.ts`) ; `AccessBearer.rangeGrants` dans `lib/company-access.ts` ; `lib/actions/product-range-actions.ts` ; écran `app/(app)/admin/gammes/` (`page.tsx` + `ranges-manager.tsx`). |
 | **Cloisonnement d'entité (portée validée)** | `lib/company.ts` → `currentCompanyWhereFor(userId)` (**remplace** `currentCompanyWhere()`, qui posait le cookie tel quel), `myCompanyScope`, `myCompanyWhere`, `platformScope`, `getMyCompanies` ; règles pures dans `lib/company-access.ts` (`allowedCompanyIds`, `resolveScope`, `platformScopeWhere`) ; `setCompanyScope` refuse une entité hors droits (`lib/actions/company-actions.ts`) ; `components/layout/company-switcher.tsx` (pas de menu quand on n'a qu'une entité). |
 | **Explorateur Drive dans un formulaire** | `lib/actions/drive-browse-actions.ts` (`browseDrive`, lecture seule via `getDriveListing`) ; `components/drive/drive-picker.tsx` (`DrivePickerField`) ; type de champ `drivepicker` dans `components/shared/create-record-button.tsx` ; pièces jointes de création via `attachFormFiles` (`lib/documents.ts`). |
+| **Bureautique — papier en-tête** | Modèle `OfficeLetterhead` ; module PUR `lib/office/letterhead.ts` (`canManageLetterheads`, `validateLetterheadFile`, `letterheadsFor`, `documentName`) + `letterhead.test.ts` (14 tests) ; `lib/actions/letterhead-actions.ts` (téléverser / renommer / retirer / supprimer) ; `lib/queries/letterheads.ts` (`letterheadContextFor`) ; `components/office/letterhead-choice.tsx` (Vierge / Avec en-tête) ; `app/(app)/office/letterhead-manager.tsx`. `createOfficeNode` recopie les OCTETS du modèle (voir circuit). |
+| **Tâches demandées (accepter / faire / valider)** | `Task.requestedAt|respondedAt|declineReason|completionNote` ; module PUR `lib/tasks/request-flow.ts` (`canRespond`, `canDoWork`, `canSee`, `canAttach`, **`taskActions`**, `requestStage`, `declineSummary`) + `request-flow.test.ts` (25 tests) ; `lib/actions/task-actions.ts` (`respondTaskRequest`, `submitTaskWork`, `reopenTaskWork`) ; dossier `app/(app)/mon-espace/taches/[id]/` (+ `work-panel.tsx`) ; cas `TASK` dans `lib/entity-access.ts`. |
+| **Demandes de paiement (aux Finances)** | `app/(app)/finances/paiements/` (`page.tsx`, `[id]/page.tsx` + `dossier.tsx`, `new-payment-button.tsx`) ; anciennes routes `app/(app)/validations/paiements/**` conservées en **redirections** ; `lib/queries/finance-people.ts` (`financeRecipients`) ; garde nominative `PAYMENT_REQUEST` dans `lib/entity-access.ts` ; règles pures inchangées dans `lib/finance/payment-request.ts`. |
+| **Moyens généraux — caisse ou hors caisse** | Module PUR `lib/general-means/payment-source.ts` (`sourceOf`, `cashAvailable`, `resolveSource`, `sourceChange`, `defaultSource`) + `payment-source.test.ts` (15 tests) ; `addDepartmentExpense` / `updateDepartmentExpense` acceptent `paymentSource` (`lib/actions/department-budget-actions.ts`) ; `app/(app)/moyens-generaux/{expense-panel,expense-row-actions}.tsx`. Le volet « dépense » de `cash-panel.tsx` a été **retiré** : un seul bouton. |
+| **Moyens généraux — demande d'achat (tous)** | Module PUR `lib/general-means/purchase-request.ts` (`cleanLines`, `estimatedTotal`, `summarize`, `purchaseStage`, `canWithdraw`) + `purchase-request.test.ts` (20 tests) ; `lib/actions/purchase-request-actions.ts` (validateur = **N+1 résolu par `getManagerOfUser`**) ; `app/(app)/moyens-generaux/{purchase-section,purchase-request-form,my-purchase-requests}.tsx`. La demande est une `AdministrativeRequest` de type `PURCHASE`. |
+| **Paie — correction d'une ligne** | Module PUR `lib/hr/payroll-amend.ts` (`validateAmounts` — partagé avec le marquage —, `resolvedGross`, `amendImpact`, `canAmend`) + `payroll-amend.test.ts` (16 tests) ; `updatePayrollEntry` (`lib/actions/payroll-hr-actions.ts`, reprend l'écriture de trésorerie liée) ; `app/(app)/rh/paie/payroll-matrix.tsx`. |
+| **Legal — dossiers de classement** | Modèle `LegalFolder` + `LegalDocument.folderId` (`ON DELETE SET NULL` : on déclasse, on ne détruit pas) ; module PUR `lib/legal/folders.ts` (`buildFolderTree`, `flattenFolders`, `folderPath`, `subtreeIds`, `canReparent`, `deletionSummary`) + `folders.test.ts` (17 tests) ; `lib/actions/legal-folder-actions.ts` ; `app/(app)/legal/folder-bar.tsx` ; champ `folderId` dans `legal-fields.ts`. |
+| **Legal — coordonnées légales & fiscales** | Modèle `CompanyLegalIdentity` + `EntityType.COMPANY` ; module PUR `lib/legal/identity.ts` (`IDENTITY_SECTIONS`, `identityBlock`, `filledCount`) + tests ; `lib/actions/company-identity-actions.ts` ; `app/(app)/legal/identites/`. |
+| **RH — contrats : visibilité et miroir Drive** | Module PUR `lib/hr/document-visibility.ts` (`defaultVisibleToEmployee`, `resolveVisibility`, `shouldMirrorToDrive`) + tests ; `lib/hr-drive-mirror.ts` écrit dans une **catégorie de Drive** « RH — Contrats » ouverte aux seuls rôles RH (`rolesWithModule("RH")`), plus dans un Drive personnel. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
 | **Transverse** | `lib/archive.ts` (Dossier traité), `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
@@ -2592,6 +2601,62 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Bureautique : créer un document avec ou sans papier en-tête.** L'assistante de direction tient
+  la papeterie ; tout le monde choisit, à la création d'un Word/Excel/PowerPoint, entre « Vierge »
+  et « Avec en-tête ». Un en-tête est stocké comme un **vrai document Office déjà mis en page**, et
+  créer « avec en-tête » en **recopie les octets** : le résultat s'ouvre exactement comme le modèle,
+  là où injecter une image ou fusionner deux documents produit des décalages qu'on ne découvre qu'à
+  l'impression. Et parce que c'est une copie, modifier ou supprimer le modèle ne réécrit jamais un
+  courrier déjà parti. Un en-tête retiré se **désactive** au lieu de disparaître — sinon il se
+  re-téléverse en double et l'ancienne version repart en circulation.
+
+- **Tâches demandées : accepter ou refuser, puis faire et valider — sans étape de plus.** Le circuit
+  tient en trois gestes. Ce qui a été **retiré** compte autant : une demande acceptée ne repasse plus
+  par « Démarrer » ni par « Mettre dans un projet » — ces boutons n'apprenaient rien à personne et
+  faisaient qu'une demande acceptée restait affichée « à faire » pendant deux semaines. Accepter,
+  c'est commencer. Le **motif de refus est facultatif** (l'exiger produit des « non » et des « pas
+  dispo », pas de meilleures raisons) et son absence se dit au demandeur. Le travail se fait DANS la
+  demande — pièces, compte rendu — et reste **toujours modifiable** après validation. Corrigé au
+  passage : une demande envoyée n'apparaissait **nulle part** chez son auteur.
+
+- **Les demandes de paiement arrivent aux Finances**, et ne sont plus dans les Validations. L'écran
+  de dossier ne change pas d'un pixel — c'est celui-là qu'on voulait garder. Les anciennes adresses
+  **redirigent** (des notifications déjà envoyées pointent dessus). La porte n'est **pas** le module
+  Finances : n'importe qui peut avoir à faire payer une facture sans avoir de raison de voir le grand
+  livre. La garde est le **cercle du dossier** — demandeur, destinataire, Finances — à l'écran comme
+  sur les pièces.
+
+- **Moyens généraux : un seul bouton de dépense.** Il y en avait deux — « Ajouter une dépense » (sur
+  le budget) et « Enregistrer une dépense » (sur la caisse) — pour la **même** dépense : même achat,
+  même facture, même budget consommé. On saisissait par le mauvais, et la caisse du mois se
+  retrouvait fausse d'un côté, gonflée de l'autre. Le moyen de paiement est devenu une case du
+  formulaire unique, **corrigeable après coup** sur une dépense déjà enregistrée. On ne retombe
+  jamais silencieusement sur « hors caisse » quand la caisse est demandée sans être disponible : on
+  refuse, avec le motif.
+
+- **La demande d'achat s'ouvre à tous, le budget reste fermé.** Un délégué qui a besoin de
+  cartouches coche dans le catalogue de la société (ou décrit son besoin en clair) sans connaître le
+  circuit ni écrire à l'assistante. Le validateur **ne se choisit pas** : c'est le responsable
+  hiérarchique du demandeur, résolu par l'organigramme — laisser choisir reviendrait à laisser
+  choisir qui vous dit oui. Et le demandeur ne voit **pas** le budget : connaître le reste de
+  l'enveloppe transforme une demande en négociation. Le module a donc deux visages sur le même écran.
+
+- **Paie : une ligne payée se corrige, y compris après transfert au budget.** On ne pouvait que
+  l'annuler en entier, et seulement avant le transfert : une erreur de mille dinars obligeait à tout
+  ressaisir, donc on la laissait fausse. La correction **suit jusqu'à l'écriture de trésorerie**
+  créée par le transfert — sinon la paie dit un montant et le budget en dit un autre. La fiche de
+  paie **remplace** la précédente dans le dossier du salarié.
+
+- **Le contrat d'un employé est aussi rangé dans le Drive**, dans une **catégorie** « RH — Contrats »
+  ouverte aux seuls rôles RH (lus dans la matrice RBAC), et non plus dans le Drive personnel de qui
+  téléverse. Réserve dite franchement : les comptes à portée Drive globale (Direction, Super Admin)
+  voient tout le Drive — c'est une règle de plateforme.
+
+- **Legal : des dossiers de classement.** Trois cents contrats dans une seule liste se cherchent au
+  filtre, jamais au regard. Un dossier **range, il n'autorise pas** : la restriction d'un engagement
+  reste sur lui. Supprimer un dossier emporte ses sous-dossiers mais **jamais ses documents** — ils
+  repassent « non classés », garanti par la contrainte de base, pas par une précaution d'écran.
 
 - **Entités › gammes › produits, et le rattachement des personnes** (`/admin/gammes`). L'entité dit
   **de qui** est un produit ; la **gamme** dit **de quoi** il relève. De cet arbre découle ce que
