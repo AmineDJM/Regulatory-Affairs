@@ -38,6 +38,12 @@ export interface AppSettings {
   regEnrollmentRoles: string[];
   /** Personnes nommément autorisées à consulter l'organigramme (en plus des rôles ci-dessus). */
   orgChartViewerUserIds: string[];
+  /** PIPELINE — qui CONSULTE les dossiers verrouillés (rôles / personnes). Voir `lib/regulatory/pipeline-access.ts`. */
+  pipelineViewerRoles: string[];
+  pipelineViewerUserIds: string[];
+  /** PIPELINE — qui tient le CADENAS (ouvrir un dossier = le publier à toute l'entreprise). */
+  pipelineManagerRoles: string[];
+  pipelineManagerUserIds: string[];
   /** Modules RETIRÉS de la plateforme (menu ET adresse). Voir `lib/modules-visibility.ts`. */
   hiddenModules: string[];
 }
@@ -59,6 +65,11 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   fieldReportsOverviewRoles: [],
   orgChartViewerRoles: [],
   orgChartViewerUserIds: [],
+  // Listes VIDES : par défaut, le pipeline reste ce qu'il était — le Super Admin, et lui seul.
+  pipelineViewerRoles: [],
+  pipelineViewerUserIds: [],
+  pipelineManagerRoles: [],
+  pipelineManagerUserIds: [],
   regEnrollmentRoles: [],
   hiddenModules: [],
 };
@@ -81,6 +92,10 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       fieldReportsOverviewRoles: row.fieldReportsOverviewRoles ?? [],
       orgChartViewerRoles: row.orgChartViewerRoles ?? [],
       orgChartViewerUserIds: row.orgChartViewerUserIds ?? [],
+      pipelineViewerRoles: row.pipelineViewerRoles ?? [],
+      pipelineViewerUserIds: row.pipelineViewerUserIds ?? [],
+      pipelineManagerRoles: row.pipelineManagerRoles ?? [],
+      pipelineManagerUserIds: row.pipelineManagerUserIds ?? [],
       regEnrollmentRoles: row.regEnrollmentRoles ?? [],
       hiddenModules: row.hiddenModules ?? [],
     };

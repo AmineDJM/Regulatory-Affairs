@@ -5483,6 +5483,15 @@ model AppSetting {
   /// ENREGISTREMENT (CTD) — l'onglet est réservé à l'ADMINISTRATEUR par défaut (liste vide) ;
   /// l'admin peut l'ouvrir à des rôles précis depuis la console.
   regEnrollmentRoles            String[] @default([])
+  /// PIPELINE (dossiers VERROUILLÉS) — deux droits distincts, réglés en Administration.
+  /// CONSULTER : voir les dossiers à l'étude, partout (pipeline, recherche, sélecteurs).
+  /// CADENAS : ouvrir un dossier, donc le publier à toute l'entreprise — l'acte est irréversible
+  /// dans les faits (ce qui a été lu a été lu), il se donne à moins de monde. Le Super Admin
+  /// détient toujours les deux. Voir `lib/regulatory/pipeline-access.ts`.
+  pipelineViewerRoles           String[] @default([])
+  pipelineViewerUserIds         String[] @default([])
+  pipelineManagerRoles          String[] @default([])
+  pipelineManagerUserIds        String[] @default([])
   // Clés VAPID (Web Push) auto-générées et persistées si non fournies par l'environnement.
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
   vapidPublicKey                String?

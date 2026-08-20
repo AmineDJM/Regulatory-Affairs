@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import type { Priority, ProductChannel, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, ManufacturingStatus, VariationStatus, UserRole } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, isRegulatorySupervisor } from "@/lib/rbac";
+import { userCan, isRegulatorySupervisor, holdsRegulatoryLock } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { buildRef } from "@/lib/refs";
@@ -366,19 +366,20 @@ export async function setRegulatoryPriority(formData: FormData): Promise<ActionR
 }
 
 /**
- * VERROUILLER / DÉVERROUILLER un dossier — le cadenas, réservé au SUPER ADMIN.
+ * VERROUILLER / DÉVERROUILLER un dossier — le cadenas.
  *
  * Un dossier verrouillé n'existe pour personne d'autre : ni la Direction, ni son responsable,
  * ni une autorisation nominative ne l'ouvrent (`scopeRegulatory` → `lockGate`). C'est ce qui
  * permet de charger un portefeuille encore confidentiel dans l'outil sans le publier à l'équipe.
  *
- * Le droit se vérifie sur le RÔLE et non sur le module : « qui peut modifier un dossier » est
- * une question plus large que « qui décide de ce qui est confidentiel ».
+ * Le droit ne se vérifie PAS sur le module : « qui peut modifier un dossier » est une question
+ * bien plus large que « qui décide de ce qui est confidentiel ». Il se règle en Administration —
+ * le Super Admin, et ceux à qui il confie le cadenas (`lib/regulatory/pipeline-access.ts`).
  */
 export async function setRegulatoryLock(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (user.role !== "SUPER_ADMIN") {
-    return { ok: false, error: "Seul le Super Admin ouvre ou ferme le cadenas." };
+  if (!holdsRegulatoryLock(user)) {
+    return { ok: false, error: "Vous ne tenez pas le cadenas des dossiers réglementaires." };
   }
   const id = str(formData, "id");
   if (!id) return { ok: false, error: "Dossier introuvable." };
@@ -404,7 +405,7 @@ export async function setRegulatoryLock(formData: FormData): Promise<ActionResul
 
 /**
  * OUVRIR LE CADENAS SUR TOUT ce qui est verrouillé — un portefeuille se publie d'un geste, pas
- * ligne par ligne sur 69 dossiers. Réservé au Super Admin, audité avec le nombre réel de
+ * ligne par ligne sur 69 dossiers. Réservé à qui tient le cadenas, audité avec le nombre réel de
  * dossiers ouverts : rendre visible un portefeuille entier est une décision.
  *
  * Volontairement à SENS UNIQUE. Un « tout verrouiller » symétrique ferait disparaître le
@@ -413,8 +414,8 @@ export async function setRegulatoryLock(formData: FormData): Promise<ActionResul
  */
 export async function unlockAllRegulatory(): Promise<ActionResult> {
   const user = await requireUser();
-  if (user.role !== "SUPER_ADMIN") {
-    return { ok: false, error: "Seul le Super Admin ouvre ou ferme le cadenas." };
+  if (!holdsRegulatoryLock(user)) {
+    return { ok: false, error: "Vous ne tenez pas le cadenas des dossiers réglementaires." };
   }
   const res = await prisma.regulatoryProduct.updateMany({
     where: { isLocked: true },

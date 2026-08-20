@@ -173,6 +173,44 @@ export async function setOrgChartViewers(formData: FormData): Promise<ActionResu
   return { ok: true };
 }
 
+/**
+ * PIPELINE — qui CONSULTE les dossiers verrouillés, et qui tient le CADENAS.
+ *
+ * Deux listes distinctes, et c'est le cœur du réglage : consulter un portefeuille encore
+ * confidentiel est une confidence ; l'ouvrir, c'est le publier à toute l'entreprise, et cela ne
+ * se reprend pas. Le Super Admin reste toujours inclus dans les deux — c'est lui qui distribue
+ * ces accès, et un réglage malheureux ne doit pas pouvoir l'enfermer dehors.
+ * **Super Admin uniquement.**
+ */
+export async function setPipelineAccess(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const viewerRoles = [...new Set(formData.getAll("viewerRoles").map(String).filter(Boolean))];
+  const viewerUserIds = [...new Set(formData.getAll("viewerUserIds").map(String).filter(Boolean))];
+  const managerRoles = [...new Set(formData.getAll("managerRoles").map(String).filter(Boolean))];
+  const managerUserIds = [...new Set(formData.getAll("managerUserIds").map(String).filter(Boolean))];
+  const data = {
+    pipelineViewerRoles: viewerRoles,
+    pipelineViewerUserIds: viewerUserIds,
+    pipelineManagerRoles: managerRoles,
+    pipelineManagerUserIds: managerUserIds,
+    updatedById: admin.id,
+  };
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", ...data },
+    update: data,
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Accès au pipeline réglementaire — consultation : ${viewerRoles.length} rôle(s) / ${viewerUserIds.length} personne(s) ; cadenas : ${managerRoles.length} rôle(s) / ${managerUserIds.length} personne(s)`,
+  });
+  revalidatePath("/admin");
+  revalidatePath("/regulatory");
+  revalidatePath("/regulatory/pipeline");
+  return { ok: true };
+}
+
 /** Capacité globale du Drive + quota par utilisateur (Go). **Super Admin uniquement.** */
 export async function saveDriveStorageSettings(formData: FormData): Promise<ActionResult> {
   const admin = await requireUser();

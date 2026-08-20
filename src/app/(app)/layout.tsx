@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/session";
-import { accessibleModules, userCan } from "@/lib/rbac";
+import { accessibleModules, userCan, seesLockedRegulatory } from "@/lib/rbac";
 import { NAVIGATION, moduleForPath, type NavItem } from "@/lib/labels";
 import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
@@ -72,6 +72,10 @@ export default async function AppLayout({
   // jamais envoyée au navigateur, donc jamais « cachée » par du CSS.
   const gateOpen: Record<string, boolean> = {
     regEnrollment: canSeeRegEnrollment(user, await getAppSettings()),
+    // Le PIPELINE ne s'affiche qu'à qui voit des dossiers verrouillés. Une entrée de menu qui
+    // ouvre une page vide n'est pas neutre : on la clique, on ne comprend pas, et on finit par
+    // demander à l'administrateur ce qui ne marche pas.
+    pipeline: seesLockedRegulatory(user),
   };
 
   // Les SOUS-MODULES suivent la même règle que leur parent : chacun a son module et sa garde,

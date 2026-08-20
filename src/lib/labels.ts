@@ -1260,7 +1260,7 @@ export interface NavItem {
    * écrans dont l'ouverture dépend d'un réglage et pas seulement d'un rôle (l'analyse CTD est
    * débloquée en Administration, rôle par rôle).
    */
-  gate?: "regEnrollment";
+  gate?: "regEnrollment" | "pipeline";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -1473,7 +1473,10 @@ export const NAVIGATION: NavItem[] = [
   // Le PIPELINE est un module du pôle REGULATORY, au même rang que le suivi des dossiers : il se
   // découvre en dépliant la flèche de Regulatory. Ce sont les dossiers verrouillés — ce qu'on
   // étudie sans l'avoir encore ouvert à l'équipe.
-  { module: "REGULATORY", label: "Pipeline", href: "/regulatory/pipeline", icon: "GitBranch", group: "Pôles", pole: "REGULATORY" },
+  // GARDE `pipeline` : l'entrée ne s'affiche que pour qui voit RÉELLEMENT des dossiers
+  // verrouillés (accès réglé en Administration). Sans elle, tout le pôle Regulatory voyait un
+  // menu menant à un écran vide — et se demandait ce qu'il avait manqué.
+  { module: "REGULATORY", label: "Pipeline", href: "/regulatory/pipeline", icon: "GitBranch", group: "Pôles", pole: "REGULATORY", gate: "pipeline" },
   { module: "REGULATORY", label: "Analyse CTD", href: "/regulatory/enregistrement", icon: "ScanSearch", group: "Pôles", pole: "REGULATORY", gate: "regEnrollment" },
 
   // ADMINISTRATION — l'administration de L'ENTREPRISE (à ne pas confondre avec la Console

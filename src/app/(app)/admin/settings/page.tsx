@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch, ShieldCheck, MessageSquarePlus, FolderPlus, BarChart3, Network, Layers, LayoutGrid } from "lucide-react";
+import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch, ShieldCheck, MessageSquarePlus, FolderPlus, BarChart3, Network, Layers, LayoutGrid, Lock } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm, HiddenModulesForm } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm, HiddenModulesForm, PipelineAccessForm } from "./admin-settings-forms";
 import { MODULES } from "@/lib/rbac";
 import { MODULE_LABELS } from "@/lib/labels";
 import { isHideable } from "@/lib/modules-visibility";
@@ -79,6 +79,18 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <RegulatoryTherapeuticSegmentsForm segments={settings.regulatoryTherapeuticSegments} />
+        </CardContent>
+      </Card>
+
+      {/* LE PIPELINE — le portefeuille qu'on étudie avant de décider de le déposer. Réglage à
+          part, et deux niveaux distincts : lire n'est pas publier. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Lock className="h-4 w-4" /> Pipeline réglementaire — Accès aux dossiers verrouillés</CardTitle>
+          <p className="text-sm text-muted-foreground">Un dossier <strong>verrouillé</strong> est un produit à l&apos;étude : invisible de toute la plateforme — tableau, recherche, sélecteurs de produits, assistant. Ouvrez la <strong>consultation</strong> à ceux qui montent le dossier, et le <strong>cadenas</strong> — qui publie un dossier à toute l&apos;entreprise — à beaucoup moins de monde. Le Super Admin garde les deux.</p>
+        </CardHeader>
+        <CardContent>
+          <PipelineAccessForm roles={roleOptions} users={users} settings={settings} />
         </CardContent>
       </Card>
 

@@ -2,6 +2,8 @@ import { cache } from "react";
 import type { AccessScope, EntityType, Prisma, UserRole } from "@prisma/client";
 import { prisma } from "./prisma";
 import { activeStandInsFor } from "./hr/stand-in-resolve";
+import { getAppSettings } from "./settings"; // settings n'importe que prisma → aucun cycle
+import { pipelineAccessFor } from "./regulatory/pipeline-access";
 import { NAVIGATION, NAV_LEGACY_LABELS } from "./labels"; // labels n'importe de rbac QUE le type `Module` → aucun cycle runtime
 
 // `cache` is a React Server Components API; fall back to identity outside an
@@ -511,6 +513,13 @@ export interface EffectiveAccess {
    *  il peut être périmé après un changement de rôle). Utilisé par la session comme
    *  rôle faisant autorité. Optionnel : les fabriques de test peuvent l'omettre. */
   role?: UserRole;
+  /** PIPELINE — voit-il les dossiers VERROUILLÉS ? Réglé en Administration, résolu ici une
+   *  fois par requête parce que le verrou est consulté par des fonctions SYNCHRONES
+   *  (`scopeRegulatory`, `regulatoryLockWhere`) qui ne peuvent pas lire la base.
+   *  Optionnel : les fabriques de test construisent un accès minimal. */
+  pipelineView?: boolean;
+  /** PIPELINE — tient-il le CADENAS (ouvrir un dossier = le publier à toute l'entreprise) ? */
+  pipelineManage?: boolean;
 }
 export interface SessionUser {
   id: string;
@@ -527,7 +536,7 @@ export interface SessionUser {
  */
 export const getAccess = perRequest(
   async (userId: string, roleHint: UserRole): Promise<EffectiveAccess> => {
-    const [overrides, grants, userRow, pendingValidations, departmentsLed, standIns] = await Promise.all([
+    const [overrides, grants, userRow, pendingValidations, departmentsLed, standIns, appSettings] = await Promise.all([
       prisma.userAccess.findMany({ where: { userId } }),
       prisma.rowGrant.findMany({ where: { userId }, select: { entityType: true, entityId: true } }),
       prisma.user.findUnique({ where: { id: userId }, select: { role: true, secondaryRole: true } }),
@@ -542,6 +551,11 @@ export const getAccess = perRequest(
       // Remplace-t-il quelqu'un en congé aujourd'hui ? La délégation est bornée par les droits
       // de l'absent et s'éteint d'elle-même à la fin du congé — voir `lib/hr/stand-in.ts`.
       activeStandInsFor(userId).catch(() => []),
+      // Les accès au PIPELINE (dossiers verrouillés) sont un réglage d'instance, pas un rôle :
+      // le Super Admin décide qui voit le portefeuille à l'étude et qui tient le cadenas.
+      // `getAppSettings` est lui-même mis en cache par requête et retombe sur ses valeurs par
+      // défaut en cas de souci — le doute referme le verrou, il ne l'ouvre pas.
+      getAppSettings(),
     ]);
 
     // Rôle principal résolu EN DIRECT depuis la base : le JWT fige le rôle au login, donc
@@ -776,7 +790,13 @@ export const getAccess = perRequest(
       if (shared) modules.set("DRIVE", { actions: new Set<Action>(["VIEW"]), scope: "ASSIGNED" });
     }
 
-    return { modules, rowGrants, secondaryRole, role };
+    // ── LE PIPELINE (dossiers VERROUILLÉS) ──────────────────────────────────────
+    // Résolu ICI et non au moment de la lecture : `scopeRegulatory` et `regulatoryLockWhere`
+    // sont synchrones et servent partout (tableau, recherche, sélecteurs de produits,
+    // assistant). Un droit qui exigerait une requête à chaque appel ne pourrait pas y vivre.
+    const pipeline = pipelineAccessFor({ id: userId, role, secondaryRole }, appSettings);
+
+    return { modules, rowGrants, secondaryRole, role, pipelineView: pipeline.view, pipelineManage: pipeline.manage };
   },
 );
 
@@ -801,16 +821,32 @@ function grantsFor(user: SessionUser, entityType: EntityType): string[] {
 }
 
 /**
+ * QUI VOIT LES DOSSIERS VERROUILLÉS — le Super Admin, et ceux à qui il a ouvert le pipeline.
+ *
+ * Le Super Admin est en dur : c'est lui qui distribue ces accès depuis la console, et un réglage
+ * malheureux ne doit pas pouvoir l'enfermer dehors. Les autres viennent du réglage d'instance,
+ * résolu par `getAccess` (voir `lib/regulatory/pipeline-access.ts`).
+ */
+export function seesLockedRegulatory(user: SessionUser): boolean {
+  return user.role === "SUPER_ADMIN" || user.access.pipelineView === true;
+}
+
+/** Qui tient le CADENAS : ouvrir un dossier, c'est le publier à toute l'entreprise. */
+export function holdsRegulatoryLock(user: SessionUser): boolean {
+  return user.role === "SUPER_ADMIN" || user.access.pipelineManage === true;
+}
+
+/**
  * Le VERROU d'un dossier réglementaire passe AVANT tout le reste : ni la portée « toutes les
- * lignes », ni le fait d'en être responsable, ni une autorisation nominative ne l'ouvrent. Seul
- * le Super Admin voit un dossier verrouillé — et il est le seul à pouvoir le déverrouiller.
+ * lignes », ni le fait d'en être responsable, ni une autorisation nominative ne l'ouvrent. Il ne
+ * s'ouvre QUE par l'accès au pipeline, accordé nommément ou par rôle en Administration.
  *
  * Cette règle vit ici, dans la portée, et non dans l'écran Regulatory : un dossier caché du
  * tableau mais visible depuis la recherche, le sélecteur de produits des stocks ou l'assistant
  * ne serait pas caché du tout.
  */
 function lockGate(user: SessionUser): Prisma.RegulatoryProductWhereInput | null {
-  return user.role === "SUPER_ADMIN" ? null : { isLocked: false };
+  return seesLockedRegulatory(user) ? null : { isLocked: false };
 }
 
 export function scopeRegulatory(user: SessionUser): Prisma.RegulatoryProductWhereInput {
@@ -836,7 +872,7 @@ export function scopeRegulatory(user: SessionUser): Prisma.RegulatoryProductWher
  * un nom qui apparaît suffit à révéler le portefeuille.
  */
 export function regulatoryLockWhere(user: SessionUser | null): Prisma.RegulatoryProductWhereInput {
-  return user && user.role === "SUPER_ADMIN" ? {} : { isLocked: false };
+  return user && seesLockedRegulatory(user) ? {} : { isLocked: false };
 }
 
 export function scopeMedicalDoctors(user: SessionUser): Prisma.MedicalDoctorWhereInput {
