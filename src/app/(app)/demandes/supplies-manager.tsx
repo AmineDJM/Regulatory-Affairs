@@ -2,8 +2,11 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Package, Loader2, AlertCircle, Check, Plus, Pencil, X } from "lucide-react";
-import { createSupplyArticle, updateSupplyArticle, toggleSupplyArticle } from "@/lib/actions/office-supply-actions";
+import { Package, Loader2, AlertCircle, Check, Plus, Pencil, X, WandSparkles } from "lucide-react";
+import {
+  createSupplyArticle, updateSupplyArticle, toggleSupplyArticle,
+  previewCatalogNormalization, applyCatalogNormalization, type CatalogRewrite,
+} from "@/lib/actions/office-supply-actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
@@ -21,6 +24,80 @@ export interface SupplyArticleRow {
   supplierHint: string | null;
   active: boolean;
   notes: string | null;
+}
+
+/**
+ * UNIFORMISER L'EXISTANT — on MONTRE d'abord, on applique ensuite.
+ *
+ * Réécrire des libellés que des gens reconnaissent est un geste visible : ils doivent le voir
+ * venir, ligne par ligne, et pouvoir le refuser. Un bouton qui réécrirait tout le catalogue sans
+ * rien montrer serait un bouton qu'on n'ose pas cliquer — donc un bouton mort.
+ */
+function NormalizePanel() {
+  const router = useRouter();
+  const [rewrites, setRewrites] = React.useState<CatalogRewrite[] | null>(null);
+  const [busy, setBusy] = React.useState<"scan" | "apply" | null>(null);
+  const [done, setDone] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function scan() {
+    setBusy("scan"); setError(null); setDone(null);
+    const r = await previewCatalogNormalization();
+    setBusy(null);
+    if (!r.ok) { setError(r.error ?? "Lecture impossible."); return; }
+    setRewrites(r.rewrites);
+    if (r.rewrites.length === 0) setDone(`Le catalogue est déjà uniforme (${r.total} articles).`);
+  }
+
+  async function apply() {
+    setBusy("apply"); setError(null);
+    const r = await applyCatalogNormalization();
+    setBusy(null);
+    if (!r.ok) { setError(r.error ?? "Application impossible."); return; }
+    setRewrites(null);
+    setDone(r.message ?? "Catalogue uniformisé.");
+    router.refresh();
+  }
+
+  return (
+    <div className="space-y-2 rounded-xl border border-border bg-secondary/30 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Uniformiser l&apos;écriture</p>
+          <p className="text-xs text-muted-foreground">
+            Casse, espaces, ponctuation, catégories et unités — une seule façon d&apos;écrire.
+            Le vocabulaire n&apos;est jamais changé : « Ramette » ne devient pas « Rame ».
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" disabled={busy !== null} onClick={scan}>
+          {busy === "scan" ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}
+          Vérifier
+        </Button>
+      </div>
+
+      {rewrites && rewrites.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium">{rewrites.length} article(s) à réécrire :</p>
+          <ul className="max-h-56 space-y-1 overflow-y-auto rounded-lg border bg-card p-2 text-xs">
+            {rewrites.map((r) => (
+              <li key={r.id}>
+                {r.changes.map((c, i) => <p key={i} className="text-muted-foreground">{c}</p>)}
+              </li>
+            ))}
+          </ul>
+          <div className="flex justify-end">
+            <Button type="button" size="sm" disabled={busy !== null} onClick={apply}>
+              {busy === "apply" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              Appliquer
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {done && <p className="flex items-center gap-2 text-xs text-success"><Check className="h-3.5 w-3.5" /> {done}</p>}
+      {error && <p className="flex items-center gap-2 text-xs text-destructive"><AlertCircle className="h-3.5 w-3.5" /> {error}</p>}
+    </div>
+  );
 }
 
 export function SuppliesManager({ articles }: { articles: SupplyArticleRow[] }) {
@@ -95,6 +172,8 @@ export function SuppliesManager({ articles }: { articles: SupplyArticleRow[] }) 
               </Button>
             </div>
           </form>
+
+          <NormalizePanel />
 
           <div className="space-y-2">
             <p className="text-sm font-medium">
