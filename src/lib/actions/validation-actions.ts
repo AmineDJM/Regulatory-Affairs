@@ -12,6 +12,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { createValidationFromRules, createDirectValidation, notifyValidator } from "@/lib/validation";
 import { createExpenseOrder } from "@/lib/expense-orders";
+import { actsForUser } from "@/lib/hr/stand-in-resolve";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
@@ -194,7 +195,16 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
   });
   if (!step) return { ok: false, error: "Étape introuvable." };
   const isSuper = user.role === "SUPER_ADMIN";
-  if (step.validatorId !== user.id && !isSuper) return { ok: false, error: "Vous n'êtes pas le validateur de cette étape." };
+  // L'INTÉRIMAIRE D'UN CONGÉ décide à la place de l'absent. C'est tout l'objet de l'intérim :
+  // sans cela, les validations s'empilent trois semaines et l'on découvre au retour qu'une
+  // demande attendait depuis quinze jours. La délégation est validée par les RH et s'éteint
+  // seule à la fin du congé — voir `lib/hr/stand-in.ts`.
+  const asStandIn = step.validatorId !== user.id && !isSuper
+    ? await actsForUser(user.id, step.validatorId)
+    : false;
+  if (step.validatorId !== user.id && !isSuper && !asStandIn) {
+    return { ok: false, error: "Vous n'êtes pas le validateur de cette étape." };
+  }
   if (step.status !== "PENDING") return { ok: false, error: "Étape déjà traitée." };
 
   const req = step.request;
@@ -257,7 +267,10 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
   }
   await recordAudit({
     actorId: user.id, action: decision === "REJECTED" ? "REFUSE" : "VALIDATE", module: "Validations",
-    entityType: "VALIDATION_REQUEST", entityId: req.id, field: "decision", newValue: decision, summary: `${req.reference} → ${decision}`,
+    entityType: "VALIDATION_REQUEST", entityId: req.id, field: "decision", newValue: decision,
+    // Le journal DIT que la décision a été prise au titre d'un intérim. Sans cette mention, on
+    // relirait « Untel a validé » sans comprendre pourquoi ce n'est pas le validateur désigné.
+    summary: `${req.reference} → ${decision}${asStandIn ? " (par l'intérimaire du validateur, congé en cours)" : ""}`,
   });
 
   // PIÈCE JOINTE APPROUVÉE + MONTANT SAISI À LA SOUMISSION → la suite est FINANCIÈRE : un ordre

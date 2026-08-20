@@ -890,6 +890,7 @@ model User {
   recruitmentInfoAsked   RecruitmentInfoRequest[]   @relation("RecruitmentInfoAsker")
   recruitmentInfoAnswered RecruitmentInfoRequest[]  @relation("RecruitmentInfoAnswerer")
   recruitmentCandidates  RecruitmentCandidate[]     @relation("RecruitmentCandidateAdder")
+  leaveStandIns          LeaveRequest[]             @relation("LeaveStandIn")
   invoicesCreated        Invoice[]                 @relation("InvoiceCreator")
   leaveDecisions         LeaveRequest[]            @relation("LeaveDecider")
   advanceDecisions       SalaryAdvance[]           @relation("AdvanceDecider")
@@ -3916,9 +3917,31 @@ model LeaveRequest {
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
+  /// ─── INTÉRIMAIRE : quelqu'un tient la place pendant l'absence ───
+  ///
+  /// L'absent DÉSIGNE (il est seul à savoir qui peut le remplacer sur son métier), les RH
+  /// VALIDENT (sans quoi chacun se choisirait un remplaçant complaisant), et la délégation ne
+  /// vit QUE pendant le congé : c'est le calendrier qui la ferme, pas la mémoire de quelqu'un.
+  standInId          String?
+  standIn            User?            @relation("LeaveStandIn", fields: [standInId], references: [id], onDelete: SetNull)
+  standInStatus      StandInStatus?
+  /// Les modules délégués — jamais tout le compte. Un directeur en congé délègue ses
+  /// validations, pas la lecture de ses courriels. Voir `lib/hr/stand-in.ts`.
+  standInModules     String[]         @default([])
+  standInDecidedById String?
+  standInDecidedAt   DateTime?
+  standInNote        String?
+
   @@index([employeeId])
   @@index([status])
   @@index([startDate])
+  @@index([standInId, standInStatus])
+}
+
+enum StandInStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 /// Tâche assignable — cœur de l'espace de travail (to-do, délégation, suivi).

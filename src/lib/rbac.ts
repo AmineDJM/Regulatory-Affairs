@@ -1,6 +1,7 @@
 import { cache } from "react";
 import type { AccessScope, EntityType, Prisma, UserRole } from "@prisma/client";
 import { prisma } from "./prisma";
+import { activeStandInsFor } from "./hr/stand-in-resolve";
 import { NAVIGATION, NAV_LEGACY_LABELS } from "./labels"; // labels n'importe de rbac QUE le type `Module` → aucun cycle runtime
 
 // `cache` is a React Server Components API; fall back to identity outside an
@@ -526,7 +527,7 @@ export interface SessionUser {
  */
 export const getAccess = perRequest(
   async (userId: string, roleHint: UserRole): Promise<EffectiveAccess> => {
-    const [overrides, grants, userRow, pendingValidations, departmentsLed] = await Promise.all([
+    const [overrides, grants, userRow, pendingValidations, departmentsLed, standIns] = await Promise.all([
       prisma.userAccess.findMany({ where: { userId } }),
       prisma.rowGrant.findMany({ where: { userId }, select: { entityType: true, entityId: true } }),
       prisma.user.findUnique({ where: { id: userId }, select: { role: true, secondaryRole: true } }),
@@ -538,6 +539,9 @@ export const getAccess = perRequest(
       // Dirige-t-il un département ? C'est ce FAIT — et non son rôle — qui ouvre le module
       // Recrutement. L'adjoint compte : il tient le service quand le responsable est absent.
       prisma.department.count({ where: { OR: [{ head: { userId } }, { deputy: { userId } }] } }),
+      // Remplace-t-il quelqu'un en congé aujourd'hui ? La délégation est bornée par les droits
+      // de l'absent et s'éteint d'elle-même à la fin du congé — voir `lib/hr/stand-in.ts`.
+      activeStandInsFor(userId).catch(() => []),
     ]);
 
     // Rôle principal résolu EN DIRECT depuis la base : le JWT fige le rôle au login, donc
@@ -705,6 +709,23 @@ export const getAccess = perRequest(
         if (recruitment.scope === "ALL") cur.scope = "ALL";
       } else {
         modules.set("RECRUITMENT", { actions: new Set<Action>(recruitment.actions), scope: recruitment.scope });
+      }
+    }
+
+    // ── INTÉRIM D'UN CONGÉ ──
+    //
+    // Quelqu'un est absent, quelqu'un d'autre tient sa place : l'intérimaire reçoit, LE TEMPS DU
+    // CONGÉ, les modules que l'absent a délégués — jamais plus que ce que l'absent avait
+    // lui-même, jamais la suppression, et jamais ses espaces personnels (Drive, messagerie).
+    //
+    // La délégation s'ÉTEINT SEULE : elle n'est calculée que si le congé couvre aujourd'hui.
+    // Personne n'a rien à révoquer au retour, et c'est précisément ce qui la rend sûre — un
+    // accès ouvert « pour cette fois » par un administrateur, lui, ne se referme jamais.
+    for (const intérim of standIns) {
+      for (const d of intérim.delegations) {
+        const cur = modules.get(d.module);
+        if (cur) for (const a of d.actions) cur.actions.add(a);
+        else modules.set(d.module, { actions: new Set<Action>(d.actions), scope: "ASSIGNED" });
       }
     }
 

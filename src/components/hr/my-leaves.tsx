@@ -9,6 +9,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { LEAVE_TYPE, LEAVE_STATUS } from "@/lib/labels";
 import { LEAVE_STAGE_LABELS, type LeaveStage } from "@/lib/leave-workflow";
 import { formatDate, cn } from "@/lib/utils";
+import { StandInButton, StandInBadge } from "@/components/hr/stand-in-panel";
+import type { StandInStatus } from "@/lib/hr/stand-in";
 
 export interface LeaveItem {
   id: string;
@@ -21,6 +23,12 @@ export interface LeaveItem {
   stage: LeaveStage;
   /** Marches déjà franchies, dans l'ordre — pour montrer OÙ en est la demande. */
   passed: { label: string; note: string | null }[];
+  /** L'intérimaire désigné pour ce congé, et où en est sa validation par les RH. */
+  standInId: string | null;
+  standInName: string | null;
+  standInStatus: StandInStatus | null;
+  standInModules: string[];
+  standInNote: string | null;
 }
 
 function CancelButton({ id }: { id: string }) {
@@ -81,7 +89,14 @@ function StageTrail({ leave }: { leave: LeaveItem }) {
  * Elle montre l'avancement réel du circuit : savoir qu'une demande est « en attente » sans
  * savoir DE QUI, c'est ne rien savoir — et c'est ce qui déclenche les relances au hasard.
  */
-export function MyLeaves({ leaves }: { leaves: LeaveItem[] }) {
+export function MyLeaves({ leaves, people = [], modules = [], moduleLabels = {} }: {
+  leaves: LeaveItem[];
+  /** Collègues désignables comme intérimaire. Vide = la colonne reste en lecture. */
+  people?: { id: string; name: string }[];
+  /** Modules délégables (déjà filtrés par `isDelegatable`). */
+  modules?: { value: string; label: string }[];
+  moduleLabels?: Record<string, string>;
+}) {
   if (leaves.length === 0) {
     return <EmptyState icon="Plane" title="Aucune demande de congé" description="Vos demandes apparaîtront ici, avec l'étape où elles en sont." />;
   }
@@ -95,6 +110,7 @@ export function MyLeaves({ leaves }: { leaves: LeaveItem[] }) {
             <TableHead className="text-right">Jours</TableHead>
             <TableHead>Statut</TableHead>
             <TableHead>Circuit</TableHead>
+            <TableHead>Intérimaire</TableHead>
             <TableHead className="text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
@@ -115,6 +131,16 @@ export function MyLeaves({ leaves }: { leaves: LeaveItem[] }) {
                 {l.passed.filter((p) => p.note).map((p, i) => (
                   <p key={i} className="mt-0.5 text-[0.6875rem] text-muted-foreground">{p.label} : {p.note}</p>
                 ))}
+              </TableCell>
+              {/* L'INTÉRIMAIRE se désigne tant que le congé n'est pas passé : c'est souvent en
+                  voyant la demande accordée qu'on pense à faire tenir sa place. */}
+              <TableCell label="Intérimaire">
+                <div className="flex flex-col items-start gap-1.5">
+                  <StandInBadge state={l} moduleLabels={moduleLabels} />
+                  {people.length > 0 && l.status !== "REJECTED" && l.status !== "CANCELLED" && (
+                    <StandInButton leaveId={l.id} state={l} people={people} modules={modules} />
+                  )}
+                </div>
               </TableCell>
               <TableCell label="Action" className="text-right">
                 {l.status === "PENDING" ? <CancelButton id={l.id} /> : <span className="text-muted-foreground">—</span>}

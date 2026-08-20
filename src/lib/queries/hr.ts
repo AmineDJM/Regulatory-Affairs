@@ -199,6 +199,12 @@ export interface MyLeaveDTO {
   status: string;
   stage: LeaveStage;
   passed: { label: string; note: string | null }[];
+  /** L'intérimaire désigné pour ce congé, et où en est sa validation par les RH. */
+  standInId: string | null;
+  standInName: string | null;
+  standInStatus: "PENDING" | "APPROVED" | "REJECTED" | null;
+  standInModules: string[];
+  standInNote: string | null;
 }
 
 /**
@@ -214,6 +220,12 @@ export async function getMyLeaveRequests(userId: string): Promise<MyLeaveDTO[]> 
     orderBy: { startDate: "desc" },
     take: 20,
   });
+  const names = new Map(
+    (await prisma.user.findMany({
+      where: { id: { in: rows.map((l) => l.standInId).filter((v): v is string => Boolean(v)) } },
+      select: { id: true, name: true },
+    })).map((u) => [u.id, u.name]),
+  );
   return rows.map((l) => ({
     id: l.id,
     type: l.type,
@@ -222,6 +234,13 @@ export async function getMyLeaveRequests(userId: string): Promise<MyLeaveDTO[]> 
     days: Number(l.days),
     status: l.status,
     stage: l.stage as LeaveStage,
+    // L'intérim se lit SUR la demande de congé : c'est elle qui le porte, et c'est elle qui le
+    // termine. Le nom est résolu en une requête pour tout le lot.
+    standInId: l.standInId,
+    standInName: l.standInId ? names.get(l.standInId) ?? null : null,
+    standInStatus: l.standInStatus,
+    standInModules: l.standInModules,
+    standInNote: l.standInNote,
     passed: [
       l.managerDecidedAt ? { label: "Responsable (N+1)", note: l.managerNote } : null,
       l.hrDecidedAt ? { label: "Ressources humaines", note: l.hrNote } : null,

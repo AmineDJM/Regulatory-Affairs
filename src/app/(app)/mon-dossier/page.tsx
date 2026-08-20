@@ -12,6 +12,10 @@ import { formatDate, formatDateTime, formatMonth, formatCurrency } from "@/lib/u
 import { NewRequestButton, CancelRequestButton } from "./request-controls";
 import { LeaveRequestButton } from "@/components/hr/leave-request-button";
 import { MyLeaves } from "@/components/hr/my-leaves";
+import { prisma } from "@/lib/prisma";
+import { MODULES } from "@/lib/rbac";
+import { MODULE_LABELS } from "@/lib/labels";
+import { isDelegatable } from "@/lib/hr/stand-in";
 import { MeetingControls } from "@/components/shared/hr-meeting-controls";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
 
@@ -22,6 +26,16 @@ export default async function MonDossierPage() {
   const dossier = await getMyHrDossier(user.id);
   // MÊME demande, MÊME liste que « Mon espace » : un congé n'existe qu'une fois.
   const myLeaves = await getMyLeaveRequests(user.id);
+  // Qui peut me remplacer, et sur quoi. Les collègues actifs (moi excepté — on ne se remplace
+  // pas soi-même) et les modules réellement délégables, jamais les espaces personnels.
+  const [colleagues, delegatable] = await Promise.all([
+    prisma.user.findMany({
+      where: { isActive: true, id: { not: user.id } },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    Promise.resolve(MODULES.filter(isDelegatable).map((m) => ({ value: m, label: MODULE_LABELS[m] }))),
+  ]);
   // Onglets de « Mon dossier RH » (module autonome) : dossier RH + ordres de mission.
   const dossierTabs = MON_DOSSIER_TABS.map((t) => ({ label: t.label, href: t.href }));
 
@@ -104,7 +118,7 @@ export default async function MonDossierPage() {
             <strong> responsable (N+1) → ressources humaines → direction générale</strong> ;
             votre solde n&apos;est débité qu&apos;une fois le circuit terminé.
           </p>
-          <MyLeaves leaves={myLeaves} />
+          <MyLeaves leaves={myLeaves} people={colleagues} modules={delegatable} moduleLabels={MODULE_LABELS} />
         </CardContent>
       </Card>
 

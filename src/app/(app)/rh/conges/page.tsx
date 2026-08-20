@@ -13,6 +13,10 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDate } from "@/lib/utils";
 import { LeaveEditButton } from "@/components/hr/leave-edit";
+import { prisma } from "@/lib/prisma";
+import { MODULE_LABELS } from "@/lib/labels";
+import { StandInBadge, StandInDecision } from "@/components/hr/stand-in-panel";
+import type { StandInStatus } from "@/lib/hr/stand-in";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +33,14 @@ export default async function RhLeavePage() {
   const canManage = userCan(user, "RH", "UPDATE");
 
   const [data, pulse, tabs] = await Promise.all([getRhData(user.id), getHrPulse(user.id), visibleTabs(user, HR_TABS)]);
+  // Les intérims EN ATTENTE des RH : la marche qui manque pour que la délégation s'ouvre.
+  const standIns = canManage
+    ? await prisma.leaveRequest.findMany({
+        where: { standInStatus: "PENDING", status: { notIn: ["REJECTED", "CANCELLED"] } },
+        orderBy: { startDate: "asc" },
+        include: { employee: { select: { fullName: true } }, standIn: { select: { name: true } } },
+      })
+    : [];
   const absentPct = pulse.activeCount > 0 ? Math.round((pulse.absentToday.length / pulse.activeCount) * 100) : 0;
 
   return (
@@ -127,6 +139,44 @@ export default async function RhLeavePage() {
             {pulse.leaveBalance.heaviest.map((b) => (
               <li key={b.employee} className="rounded-lg border border-border px-2.5 py-1 text-xs">
                 {b.employee} · <strong>{b.days} j</strong>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* 4 bis. LES INTÉRIMAIRES À VALIDER — c'est la marche RH du dispositif.
+          L'absent désigne (il sait qui peut le remplacer sur son métier), les RH vérifient que
+          ce n'est pas un remplaçant de complaisance. Sans cette marche, la délégation
+          deviendrait un moyen de contourner un circuit. */}
+      {canManage && standIns.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Intérimaires à valider ({standIns.length})
+          </h2>
+          <ul className="divide-y rounded-xl border">
+            {standIns.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-start justify-between gap-3 px-3 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">
+                    {l.employee.fullName} — congé du {formatDate(l.startDate)} au {formatDate(l.endDate)}
+                  </p>
+                  <StandInBadge
+                    state={{
+                      standInId: l.standInId,
+                      standInName: l.standIn?.name ?? null,
+                      standInStatus: l.standInStatus as StandInStatus | null,
+                      standInModules: l.standInModules,
+                      standInNote: l.standInNote,
+                    }}
+                    moduleLabels={MODULE_LABELS}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Une fois validé, l&apos;intérimaire pourra ouvrir ces modules et trancher les
+                    validations adressées à l&apos;absent — pendant le congé seulement.
+                  </p>
+                </div>
+                <StandInDecision leaveId={l.id} />
               </li>
             ))}
           </ul>
