@@ -851,6 +851,23 @@ sait, c'est tout. Reproduire ses habitudes coûte moins cher que d'en enseigner 
 - **Partage sur place** : clic droit sur un dossier du volet → plusieurs personnes d'un coup
   (`shareNodeWithMany`, l'accès descend l'arbre) ; sur une catégorie → ses accès (rôles + personnes)
   dans ses réglages. C'est là qu'on y pense — pas une fois entré dedans.
+- 🔎 **La barre de recherche** (`DriveSearch` → `/drive?q=…`). On se souvient d'un mot du nom,
+  jamais du chemin : sans recherche, la seule issue est de rouvrir les dossiers un par un — et l'on
+  finit par redemander le fichier à celui qui l'a déposé, ou par le **re-téléverser en double**.
+  Trois décisions : elle cherche **sur tout le Drive visible**, jamais dans le dossier courant (si
+  l'on savait où regarder, on ne chercherait pas) ; **chaque résultat porte son chemin complet**
+  (« Drive › Contrats › 2026 »), sans quoi trois « Contrat.docx » sont indiscernables ; le
+  classement est par **pertinence** — nom exact, puis préfixe, puis mot, puis le reste — et non par
+  date, qui remonterait le fichier touché ce matin devant celui qu'on nomme précisément.
+  Elle est présente sur le Drive, les Récents et les catégories, et **renvoie toujours à la
+  recherche globale**. Règles : `src/lib/drive/search.ts` (module pur, 29 tests).
+  Côté requête (`src/lib/queries/drive-search.ts`), deux points de conception : le périmètre de
+  `driveVisibilityWhere` est **étendu aux sous-arbres des dossiers visibles** — un dossier partagé
+  contient surtout des fichiers déposés par d'autres, et ce sont ceux-là qu'on cherche ; et la
+  recherche se fait en **deux passes**, la base sur le motif exact (tout le Drive) puis une tranche
+  bornée relue en mémoire pour **ignorer les accents** (« reglement » trouve « Règlement »),
+  PostgreSQL ne sachant pas le faire sans extension. Quand on coupe, **on le dit** : une recherche
+  tronquée prise pour une absence conduirait à re-téléverser un fichier qui existe déjà.
 - **En-tête discret** (`DriveToolbar`). Sept commandes de même poids et une phrase d'explication
   repoussaient les fichiers sous la ligne de flottaison. Restent visibles les deux gestes
   quotidiens — **créer** et **importer** ; plein écran, accès & réglages et corbeille passent dans
@@ -1329,9 +1346,26 @@ ni à quel prix, ni si le total correspond au ticket qu'on vient de scanner.
 ### Regulatory — le cadenas : un dossier invisible pour toute l'équipe
 
 Charger un portefeuille dans l'outil et le publier à l'entreprise sont deux gestes différents.
-Un dossier **verrouillé** (`RegulatoryProduct.isLocked`) n'existe que pour le **Super Admin** :
-ni la Direction, ni son responsable, ni une autorisation nominative ne l'ouvrent.
+Un dossier **verrouillé** (`RegulatoryProduct.isLocked`) n'existe que pour le **Super Admin** et
+pour **ceux à qui il a ouvert le pipeline** : ni la Direction, ni son responsable, ni une
+autorisation nominative ne l'ouvrent d'eux-mêmes.
 
+- **Deux droits, jamais confondus** (`src/lib/regulatory/pipeline-access.ts`, module pur testé) :
+  **CONSULTER** les dossiers verrouillés — une confidence, pour ceux qui *montent* le dossier
+  avant l'ouverture ; et **TENIR LE CADENAS** — ouvrir un dossier, donc le publier à toute
+  l'entreprise, ce qui ne se reprend pas (ce qui a été lu a été lu). Tenir le cadenas implique de
+  voir ; l'inverse est faux. Le Super Admin détient toujours les deux : c'est lui qui distribue
+  ces accès, et un réglage malheureux ne doit pas pouvoir l'enfermer dehors.
+- **Réglé en Administration › Réglages** (`AppSetting.pipeline*Roles` / `pipeline*UserIds`, action
+  `setPipelineAccess`) : rôles **et** personnes nommées, par niveau. Listes **vides par défaut** —
+  sans réglage, le pipeline reste ce qu'il était : le Super Admin, et lui seul.
+- **Résolu une fois par requête** dans `getAccess` (`access.pipelineView` / `pipelineManage`),
+  parce que le verrou est consulté par des fonctions **synchrones** (`scopeRegulatory`,
+  `regulatoryLockWhere`) qui servent partout et ne peuvent pas lire la base. Les helpers publics
+  sont `seesLockedRegulatory(user)` et `holdsRegulatoryLock(user)`.
+- L'**entrée de menu « Pipeline »** (garde `pipeline`) et la **page** elle-même se ferment à qui ne
+  voit aucun dossier verrouillé : une entrée qui ouvre un écran vide se clique, ne se comprend pas,
+  et finit en question à l'administrateur.
 - **La règle vit dans la PORTÉE, pas dans l'écran** : `scopeRegulatory` (→ `lockGate`) l'applique
   avant tout le reste. Un dossier caché du tableau mais visible depuis la recherche globale,
   l'assistant IA, le sélecteur de produits des stocks ou les documents ne serait pas caché du tout.
@@ -1346,10 +1380,11 @@ ni la Direction, ni son responsable, ni une autorisation nominative ne l'ouvrent
   déverrouiller** d'un geste (`unlockAllRegulatory`) — un portefeuille se publie en une fois, pas
   ligne par ligne. Volontairement **à sens unique** : un « tout verrouiller » symétrique ferait
   disparaître le catalogue entier pour toute l'entreprise d'un clic. Chaque bascule est **auditée**.
-- Un bandeau permanent rappelle au Super Admin **combien** de dossiers il est seul à voir — sans
-  lui, un portefeuille reste verrouillé des mois par oubli.
+- Un bandeau permanent rappelle **combien** de dossiers sont encore verrouillés — sans lui, un
+  portefeuille reste fermé des mois par oubli.
 - Tests : `rbac.test.ts` couvre les trois cas qui garantissent que la règle ne se contourne pas
-  (portée ALL, responsable nommé, Super Admin).
+  (portée ALL, responsable nommé, Super Admin) ; `pipeline-access.test.ts` (17 tests) couvre les
+  deux niveaux d'accès, le rôle secondaire, et le fait que tenir le cadenas implique de voir.
 
 ### Regulatory — la personne chargée du dossier (menu déroulant du tableau)
 
@@ -2122,9 +2157,9 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Entités, gammes & produits** | Modèles `ProductRange` / `UserProductRange` + `RegulatoryProduct.rangeId` ; module PUR `lib/org/product-ranges.ts` (`companyIdsFromRanges`, `restrictingRangeIds`, `productRangeWhere`, `canSeeProduct`, `buildRangeTree`) + `product-ranges.test.ts` (18 tests) ; `lib/company.ts` → `productRangeScope` (composé dans `queries/regulatory-rows.ts` et `queries/product-catalog.ts`) ; `AccessBearer.rangeGrants` dans `lib/company-access.ts` ; `lib/actions/product-range-actions.ts` ; écran `app/(app)/admin/gammes/` (`page.tsx` + `ranges-manager.tsx`). |
 | **Cloisonnement d'entité (portée validée)** | `lib/company.ts` → `currentCompanyWhereFor(userId)` (**remplace** `currentCompanyWhere()`, qui posait le cookie tel quel), `myCompanyScope`, `myCompanyWhere`, `platformScope`, `getMyCompanies` ; règles pures dans `lib/company-access.ts` (`allowedCompanyIds`, `resolveScope`, `platformScopeWhere`) ; `setCompanyScope` refuse une entité hors droits (`lib/actions/company-actions.ts`) ; `components/layout/company-switcher.tsx` (pas de menu quand on n'a qu'une entité). |
 | **Explorateur Drive dans un formulaire** | `lib/actions/drive-browse-actions.ts` (`browseDrive`, lecture seule via `getDriveListing`) ; `components/drive/drive-picker.tsx` (`DrivePickerField`) ; type de champ `drivepicker` dans `components/shared/create-record-button.tsx` ; pièces jointes de création via `attachFormFiles` (`lib/documents.ts`). |
-| **Bureautique — papier en-tête** | Modèle `OfficeLetterhead` ; module PUR `lib/office/letterhead.ts` (`canManageLetterheads`, `validateLetterheadFile`, `letterheadsFor`, `documentName`) + `letterhead.test.ts` (14 tests) ; `lib/actions/letterhead-actions.ts` (téléverser / renommer / retirer / supprimer) ; `lib/queries/letterheads.ts` (`letterheadContextFor`) ; `components/office/letterhead-choice.tsx` (Vierge / Avec en-tête) ; `app/(app)/office/letterhead-manager.tsx`. `createOfficeNode` recopie les OCTETS du modèle (voir circuit). |
+| **Bureautique — papier en-tête** | Modèle `OfficeLetterhead` ; module PUR `lib/office/letterhead.ts` (`canManageLetterheads` — **assistante de direction + Super Admin, et personne d'autre** : la Direction et le DG en ont été retirés, ils signent les courriers, ils ne tiennent pas la papeterie ; CHOISIR un en-tête à la création reste ouvert à tous —, `validateLetterheadFile`, `letterheadsFor`, `documentName`) + `letterhead.test.ts` (15 tests) ; `lib/actions/letterhead-actions.ts` (téléverser / renommer / retirer / supprimer) ; `lib/queries/letterheads.ts` (`letterheadContextFor`) ; `components/office/letterhead-choice.tsx` (Vierge / Avec en-tête) ; `app/(app)/office/letterhead-manager.tsx`. `createOfficeNode` recopie les OCTETS du modèle (voir circuit). |
 | **Tâches demandées (accepter / faire / valider)** | `Task.requestedAt|respondedAt|declineReason|completionNote` ; module PUR `lib/tasks/request-flow.ts` (`canRespond`, `canDoWork`, `canSee`, `canAttach`, **`taskActions`**, `requestStage`, `declineSummary`) + `request-flow.test.ts` (25 tests) ; `lib/actions/task-actions.ts` (`respondTaskRequest`, `submitTaskWork`, `reopenTaskWork`) ; dossier `app/(app)/mon-espace/taches/[id]/` (+ `work-panel.tsx`) ; cas `TASK` dans `lib/entity-access.ts`. |
-| **Demandes de paiement (aux Finances)** | `app/(app)/finances/paiements/` (`page.tsx`, `[id]/page.tsx` + `dossier.tsx`, `new-payment-button.tsx`) ; anciennes routes `app/(app)/validations/paiements/**` conservées en **redirections** ; `lib/queries/finance-people.ts` (`financeRecipients`) ; garde nominative `PAYMENT_REQUEST` dans `lib/entity-access.ts` ; règles pures inchangées dans `lib/finance/payment-request.ts`. |
+| **Demandes de paiement** | Les écrans vivent sous `app/(app)/validations/paiements/` (`page.tsx`, `[id]/page.tsx` + `dossier.tsx`, `new-payment-button.tsx`) ; `app/(app)/finances/paiements/**` sont des **redirections**. Pas de bouton « retour aux Finances » : la page est **ouverte à tout le monde** (n'importe qui peut avoir une facture à faire payer) alors que le module Finances ne l'est pas — le bouton menait donc la plupart des gens vers un refus. Les Finances les voient depuis **leur propre module**. `lib/queries/finance-people.ts` (`financeRecipients`) ; garde **nominative** `PAYMENT_REQUEST` dans `lib/entity-access.ts` (demandeur / destinataire / Finances — elle tranche avant la porte du module, donc elle a survécu aux deux déménagements sans changer) ; règles pures dans `lib/finance/payment-request.ts`. |
 | **Moyens généraux — caisse ou hors caisse** | Module PUR `lib/general-means/payment-source.ts` (`sourceOf`, `cashAvailable`, `resolveSource`, `sourceChange`, `defaultSource`) + `payment-source.test.ts` (15 tests) ; `addDepartmentExpense` / `updateDepartmentExpense` acceptent `paymentSource` (`lib/actions/department-budget-actions.ts`) ; `app/(app)/moyens-generaux/{expense-panel,expense-row-actions}.tsx`. Le volet « dépense » de `cash-panel.tsx` a été **retiré** : un seul bouton. |
 | **Moyens généraux — demande d'achat (tous)** | Module PUR `lib/general-means/purchase-request.ts` (`cleanLines`, `estimatedTotal`, `summarize`, `purchaseStage`, `canWithdraw`) + `purchase-request.test.ts` (20 tests) ; `lib/actions/purchase-request-actions.ts` (validateur = **N+1 résolu par `getManagerOfUser`**) ; `app/(app)/moyens-generaux/{purchase-section,purchase-request-form,my-purchase-requests}.tsx`. La demande est une `AdministrativeRequest` de type `PURCHASE`. |
 | **Paie — correction d'une ligne** | Module PUR `lib/hr/payroll-amend.ts` (`validateAmounts` — partagé avec le marquage —, `resolvedGross`, `amendImpact`, `canAmend`) + `payroll-amend.test.ts` (16 tests) ; `updatePayrollEntry` (`lib/actions/payroll-hr-actions.ts`, reprend l'écriture de trésorerie liée) ; `app/(app)/rh/paie/payroll-matrix.tsx`. |
@@ -2141,7 +2176,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
 | **Transverse** | `lib/archive.ts` (Dossier traité), `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
-| **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès + `effectiveSpaceId`/`canCreateInSpace`), `lib/drive/explorer.ts` (pur : type lisible, taille, tri, volet), `lib/drive/{mirror,mirror-path,document-mirror}.ts` (miroir Drive de tout import), `lib/storage.ts` (Documents + `validateDocumentUpload`), `lib/documents.ts` (`persistUploadedDocument`), `lib/attach-files.ts`, `lib/actions/drive-actions.ts` + `document-actions.ts`, `app/api/drive/upload/route.ts` (quotas) + `app/api/documents/upload/route.ts` (lot/dossier, flux, parallèle), `app/(app)/drive/{drive-table,drive-canvas,explorer-nav,wide-toggle}.tsx`, `components/documents/`. |
+| **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès + `effectiveSpaceId`/`canCreateInSpace`), `lib/drive/explorer.ts` (pur : type lisible, taille, tri, volet), `lib/drive/search.ts` (**pur** : repli des accents, pertinence, chemin lisible — 29 tests) + `lib/queries/drive-search.ts` (périmètre étendu aux sous-arbres visibles, deux passes) + `app/(app)/drive/drive-search.tsx`, `lib/drive/{mirror,mirror-path,document-mirror}.ts` (miroir Drive de tout import), `lib/storage.ts` (Documents + `validateDocumentUpload`), `lib/documents.ts` (`persistUploadedDocument`), `lib/attach-files.ts`, `lib/actions/drive-actions.ts` + `document-actions.ts`, `app/api/drive/upload/route.ts` (quotas) + `app/api/documents/upload/route.ts` (lot/dossier, flux, parallèle), `app/(app)/drive/{drive-table,drive-canvas,explorer-nav,wide-toggle}.tsx`, `components/documents/`. |
 | **Catégories Drive (espaces partagés)** | Modèle `DriveSpace` + `DriveNode.spaceId` ; RBAC `canCreateDriveSpace`/`canViewDriveSpace`/`canManageDriveSpace` (`lib/rbac.ts`, accès implicite module Drive dans `getAccess`) ; `lib/queries/drive.ts` (`getDriveSpacesForUser`, `getDriveTabs`, `getDriveListing(…, spaceId)`) ; `lib/actions/drive-space-actions.ts` (créer/modifier/archiver/supprimer) ; page `app/(app)/drive/espace/[id]/` + `drive-space-manager.tsx` ; réglage `AppSetting.driveSpaceCreatorRoles` (`DriveSpaceCreatorForm` en Administration). Les catégories sont des **Emplacements du volet de navigation** (`ExplorerNav`), plus des onglets — `getDriveTabs` ne sert plus qu'à la page Documents. |
 | **Admin** | `app/(app)/admin/` (`page.tsx` comptes + stockage + activité, `corbeille/`, `drive-storage-settings.tsx`, `access/`, `settings/`…), `lib/actions/admin-actions.ts`, `settings-actions.ts`. |
 | **IA / Brain** | `lib/ai.ts`, `lib/assistant.ts`, `lib/adventum/risks.ts` (+ `risk-detectors.test.ts`), `app/(app)/adventum-brain/`. |
@@ -2321,6 +2356,28 @@ mis en cache). Le Super Admin n'est pas mesuré.
   arrière-plan** (vous êtes sur un autre site) grâce au **polling continu**.
 - 📎 **Pièces jointes** : un fichier reçu ne se télécharge plus automatiquement au clic — le nom ouvre un **aperçu**
   (inline, nouvel onglet) et une **icône dédiée** permet le **téléchargement explicite**.
+- 📁 **Trois façons de joindre**, sous un seul trombone (`composer.tsx`) : des **fichiers** de son
+  ordinateur ; un **dossier** de son ordinateur — le navigateur ne sait pas envoyer un dossier, il
+  rend ses fichiers à plat, alors on les rassemble en une **archive .zip** nommée d'après le dossier
+  (JSZip chargé à la demande) ; et **depuis le Drive**.
+- 🔗 **Depuis le Drive — sans recopier.** Le message porte une **référence** au nœud
+  (`MessageAttachment.driveNodeId`, `blobId` restant nul) et les destinataires reçoivent un
+  **`DriveShare` en LECTURE**. Recopier un contrat de 40 Mo dans cinq conversations stockerait cinq
+  copies **et figerait cinq versions** — six mois plus tard, cinq personnes travaillent sur cinq
+  fichiers différents et nul ne sait lequel fait foi. La référence ouvre toujours la **version
+  courante**. Un **dossier** se partage comme un fichier (une liasse s'envoie d'un geste).
+  Le serveur ne croit **rien** de ce que dit le client : il relit nom, taille et type **en base** et
+  revérifie par `resolveDriveAccess` que l'expéditeur a réellement accès au nœud. L'octroi passe par
+  `skipDuplicates` — poser un `VIEW` par-dessus un `EDIT` existant **retirerait l'édition** à
+  quelqu'un en lui envoyant un message. Règles : `src/lib/messaging-attachments.ts` (module pur testé).
+- 🚪 Un **partage nominatif ouvre le module Drive** à lui seul (`getAccess`) : sans cela, recevoir un
+  document donnait un lien menant à un refus — l'accès existait en base, la porte du module le
+  rendait inutile.
+- **Types acceptés** : la même règle que le Drive — on refuse les **exécutables**, et rien d'autre.
+  La liste blanche étroite d'origine rejetait une vidéo de congrès, un export `.msg`, un `.odt`, un
+  `.7z` — que les gens envoyaient donc par WhatsApp, hors de l'outil. La **limite de taille** reste
+  celle des pièces jointes (`maxUploadMb`), plus basse que le Drive : une conversation n'est pas un
+  espace de stockage.
 - **Accès gouverné par l'appartenance** (`ConversationMember`), **jamais** par scope RBAC — **même le Super Admin
   ne lit pas par-dessus l'épaule**. Un tiers non-membre reçoit **403**.
 - **Temps réel sans WebSocket** : server actions + **UI optimiste** + **polling**, présence par heartbeat.
@@ -2402,7 +2459,7 @@ comme sur **toutes les pièces jointes des modules**.
 | **Information médicale** | `MedicalInfoDeclaration` (`sourceType`/`sourceId` polymorphe → événement source, clé unique). |
 | **Promotion médicale** | `MedicalDoctor`, `MedicalVisit`, `DelegatePlan`, segmentation par spécialité/produit. |
 | **Transverse** | `AdministrativeRequest` (+ cellules/approbations, `archivedNodeId`), `DriverMission` + `DriverMissionStop` (courses multi-points), `OfficeSupplyArticle`, `ValidationRequest` (+ steps + rules), `Dossier` (+ `DossierMessage`), `Directive`, `SupportRequest`, `Document` + `FileBlob` (chiffré), `Comment`, `AuditLog`, `Notification`, `DeletedRecord` (corbeille des suppressions définitives), `WorkflowDefinition/Step/Instance/StepEvent` (moteur Ad & Pro). |
-| **Messagerie & Courrier** | `Conversation`, `ConversationMember`, `Message` (+ réactions/attachments), `MailAccount` (chiffré). |
+| **Messagerie & Courrier** | `Conversation`, `ConversationMember`, `Message` (+ réactions), `MessageAttachment` (**deux natures** : `blobId` = fichier téléversé, `driveNodeId` = référence au Drive sans recopie), `MailAccount` (chiffré). |
 | **IA & Brain** | `AiUsageLog`, `RiskSetting`, `AdoptionSetting`, `FieldReport`. |
 | **RH & structure** | `Employee` (contrat, périodes d'essai `trial*`, salaires `baseSalary`/`retSS9`/`retSS35`/`tfp`/`retIrg`/`expenseRefund`/`netToPay`/`grossSalary`, **`departmentId`** = rattachement structuré, `managerId` = N+1 explicite), **`Department`** (auto-relation `parentId` = sous-départements sur **N niveaux**, `headId` = responsable, `deputyId` = adjoint), `EmployeeDocument` (blob Drive + `period`), `HrDocumentRequest` (types + `expenseMonth`/`approvedMonth`/`originalsAck*`, `meeting*`, `archivedNodeId`), `LeaveRequest`, `PayrollEntry`. |
 | **Externe** | `Supplier`, `SupplierUser` (auth séparée). |
@@ -2698,6 +2755,62 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Le Drive a une barre de recherche.** On se souvient d'un mot du nom, jamais du chemin : sans
+  recherche, la seule issue était de rouvrir les dossiers un par un — et l'on finissait par
+  redemander le fichier à celui qui l'avait déposé, ou par le **re-téléverser en double**. Elle
+  cherche **sur tout le Drive visible** (chercher là où l'on est déjà ne sert à rien), **chaque
+  résultat porte son chemin complet** (trois « Contrat.docx » sont sinon indiscernables), et le
+  classement est par **pertinence** — nom exact, préfixe, mot, reste — non par date, qui remonterait
+  le fichier touché ce matin devant celui qu'on nomme précisément. Deux points de conception : le
+  périmètre est **étendu aux sous-arbres des dossiers visibles** (un dossier partagé contient
+  surtout des fichiers déposés par d'autres, et ce sont ceux-là qu'on cherche), et la recherche se
+  fait en **deux passes** — la base sur le motif exact, puis une tranche bornée relue en mémoire
+  pour **ignorer les accents**, PostgreSQL ne sachant pas le faire sans extension. Quand on coupe,
+  **on le dit** : une recherche tronquée prise pour une absence conduirait à re-téléverser un
+  fichier qui existe déjà.
+
+- **Messagerie : joindre un dossier, et partager le Drive sans recopie.** Trois façons de joindre
+  sous un seul trombone — des fichiers, un **dossier** (le navigateur ne sait pas envoyer un
+  dossier, il rend ses fichiers à plat : on les rassemble en une **archive .zip** nommée d'après le
+  dossier), et **depuis le Drive**. Ce dernier ne recopie rien : le message porte une **référence**
+  au nœud et les destinataires reçoivent un **accès en lecture**. Recopier un contrat de 40 Mo dans
+  cinq conversations stockait cinq copies **et figeait cinq versions** — six mois plus tard, cinq
+  personnes travaillent sur cinq fichiers différents et nul ne sait lequel fait foi ; la référence
+  ouvre toujours la **version courante**. Le serveur ne croit rien du client : il relit nom, taille
+  et type **en base** et revérifie que l'expéditeur a réellement accès au nœud. L'octroi ne
+  **régresse jamais** un droit existant (un `VIEW` posé sur un `EDIT` retirerait l'édition à
+  quelqu'un en lui envoyant un message). Un **partage nominatif ouvre désormais le module Drive à
+  lui seul** — sans cela, recevoir un document donnait un lien qui menait à un refus. Et les pièces
+  jointes suivent enfin la règle du Drive : on refuse les **exécutables**, et rien d'autre — la
+  liste blanche étroite rejetait une vidéo de congrès ou un export `.msg`, que les gens envoyaient
+  donc par WhatsApp, hors de l'outil.
+
+- **Pipeline réglementaire : le Super Admin ouvre l'accès à qui il veut.** Un dossier verrouillé —
+  un produit qu'on **étudie** — n'existait que pour une seule personne au monde. C'était trop peu :
+  le directeur du développement ou le responsable réglementaire qui **montent** le dossier
+  travaillent dessus avant l'ouverture du cadenas, et recevaient donc le portefeuille par courriel,
+  hors de l'outil — exactement ce que le verrou voulait empêcher. **Deux droits, jamais
+  confondus** : **consulter** (une confidence) et **tenir le cadenas** (publier à toute
+  l'entreprise, ce qui ne se reprend pas — ce qui a été lu a été lu), le second à moins de monde que
+  le premier. Rôles **et** personnes nommées, réglés en Administration ; listes vides par défaut,
+  donc comportement identique tant que rien n'est réglé. L'entrée de menu « Pipeline » et la page
+  se **ferment** à qui ne voit aucun dossier verrouillé : une entrée qui ouvre un écran vide se
+  clique, ne se comprend pas, et finit en question à l'administrateur.
+
+- **Demandes de paiement : de retour dans « Demandes de validations ».** Le bouton « Finances » de
+  la liste a disparu : la page est **ouverte à tout le monde** — n'importe qui peut avoir une
+  facture à faire payer — alors que le module Finances ne l'est pas ; le bouton menait donc la
+  plupart des gens vers un refus. Les Finances continuent de les voir depuis **leur propre module**.
+  La règle d'accès était déjà **nominative** (demandeur, destinataire, Finances) et tranche avant la
+  porte du module : elle a survécu au déménagement sans changer d'une ligne.
+
+- **Papiers en-tête : l'assistante de direction et le Super Admin, et personne d'autre.** La
+  Direction et le Directeur Général en ont été retirés : ils **signent** les courriers, ils ne
+  tiennent pas la papeterie. Leur laisser le bloc, c'était afficher un panneau de gestion — bouton
+  « Téléverser » et modèles retirés compris — à des gens qui n'ont jamais à y toucher. **Choisir**
+  un en-tête à la création d'un document reste ouvert à tout le monde : c'est le but même d'avoir
+  des modèles.
 
 - **Module Recrutement — du besoin d'un directeur jusqu'à l'intégration.** Recruter est un
   engagement pluriannuel qui n'appartient à personne seul : le circuit est donc long, et
