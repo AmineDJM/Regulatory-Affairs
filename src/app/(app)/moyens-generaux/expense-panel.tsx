@@ -10,23 +10,35 @@ import { DEPT_BUDGET_LABEL } from "@/lib/department-budget";
 import { addDepartmentExpense } from "@/lib/actions/department-budget-actions";
 import { ReceiptLines, type CatalogArticle } from "./receipt-lines";
 import { BudgetTargetField } from "./budget-target-field";
+import { SOURCE_LABEL, SOURCE_HINT, defaultSource, type PaymentSource } from "@/lib/general-means/payment-source";
+import { cn } from "@/lib/utils";
 import type { BudgetTarget } from "@/lib/budget/target";
 
 /**
- * AJOUTER UN ACHAT — le geste quotidien, à portée de clic.
+ * AJOUTER UN ACHAT — UN SEUL BOUTON, la question du paiement à l'intérieur.
  *
- * Il n'existait que par la caisse d'avance : un achat réglé autrement (virement, carte, facture
- * fournisseur payée par les Finances) n'avait aucun endroit où être saisi, et le budget restait
- * donc faux. Ce bouton-ci enregistre la dépense **directement sur le budget** — c'est le même
- * enregistrement, sans passer par l'argent liquide.
+ * Il y en avait deux : « Ajouter une dépense » (sur le budget) et « Enregistrer une dépense »
+ * (sur la caisse du mois). Deux boutons, deux formulaires, deux endroits — pour la MÊME dépense :
+ * le même achat, la même facture, le même budget consommé. Seul le moyen de paiement changeait.
+ * On saisissait régulièrement par le mauvais, et la caisse du mois se retrouvait fausse d'un
+ * côté, gonflée de l'autre, sans qu'aucun des deux écrans ne le dise.
  *
  * La pièce est obligatoire, et le formulaire le dit avant qu'on ne clique : une dépense sans
  * facture ni bon de paiement n'est qu'une affirmation, et un budget bâti sur des affirmations
  * ne sert à rien.
  */
 export function ExpensePanel({
-  departmentId, year, remaining, articles, budgetTargets = [],
-}: { departmentId: string; year: number; remaining: number; articles: CatalogArticle[]; budgetTargets?: BudgetTarget[] }) {
+  departmentId, year, remaining, articles, budgetTargets = [], cash, period,
+}: {
+  departmentId: string;
+  year: number;
+  remaining: number;
+  articles: CatalogArticle[];
+  budgetTargets?: BudgetTarget[];
+  /** La caisse du mois, quand elle existe ET qu'on peut en sortir de l'argent. */
+  cash?: { status: string; remaining: number; canSpend: boolean } | null;
+  period?: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -34,7 +46,18 @@ export function ExpensePanel({
   // Le montant vient du DÉTAIL du ticket : il se calcule, il ne se saisit pas à côté.
   const [total, setTotal] = React.useState(0);
 
-  const overBudget = total > 0 && total > remaining;
+  const cashUsable = Boolean(cash?.canSpend);
+  const [source, setSource] = React.useState<PaymentSource>(
+    defaultSource(cash ? { status: cash.status } : null, { isHolder: cashUsable }),
+  );
+  React.useEffect(() => {
+    if (open) setSource(defaultSource(cash ? { status: cash.status } : null, { isHolder: cashUsable }));
+  }, [open, cash, cashUsable]);
+
+  // Le plafond dépassé n'est pas le même selon le moyen de paiement : le fond du mois d'un côté,
+  // la caisse de l'exercice de l'autre. Prévenir avec le mauvais chiffre serait pire que se taire.
+  const ceiling = source === "CASH" && cash ? cash.remaining : remaining;
+  const overBudget = total > 0 && total > ceiling;
 
   return (
     <div className="space-y-2">
@@ -49,16 +72,42 @@ export function ExpensePanel({
             const fd = new FormData(e.currentTarget);
             fd.set("departmentId", departmentId);
             fd.set("year", String(year));
+            fd.set("paymentSource", source);
+            if (period) fd.set("period", period);
             setBusy(true); setMsg(null);
             void addDepartmentExpense(fd).then((r) => {
               setBusy(false);
-              setMsg({ ok: r.ok, text: r.ok ? "Dépense enregistrée et déduite du budget." : (r.error ?? "Échec.") });
+              setMsg({
+                ok: r.ok,
+                text: r.ok
+                  ? (source === "CASH" ? "Dépense enregistrée et déduite de la caisse du mois." : "Dépense enregistrée et déduite de la caisse de l'exercice.")
+                  : (r.error ?? "Échec."),
+              });
               if (r.ok) { setOpen(false); setTotal(0); router.refresh(); }
             });
           }}
           className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
         >
-          <p className="text-sm font-medium">Achat à imputer sur le budget</p>
+          <p className="text-sm font-medium">Achat à imputer</p>
+
+          {/* PAYÉ COMMENT ? La question qui séparait deux boutons — elle tient en deux cases. */}
+          {cashUsable && (
+            <div className="grid grid-cols-2 gap-2">
+              {(["CASH", "OFF_CASH"] as PaymentSource[]).map((s) => (
+                <button
+                  key={s} type="button" onClick={() => setSource(s)} aria-pressed={source === s}
+                  className={cn(
+                    "rounded-lg border p-2 text-left transition",
+                    source === s ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-background hover:bg-secondary",
+                  )}
+                >
+                  <span className="block text-sm font-medium">{SOURCE_LABEL[s]}</span>
+                  <span className="block text-[0.6875rem] text-muted-foreground">{SOURCE_HINT[s]}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="grid gap-2 sm:grid-cols-3">
             <label className="text-xs sm:col-span-2">
               Objet de l&apos;achat
@@ -98,8 +147,10 @@ export function ExpensePanel({
             <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 p-2 text-xs text-muted-foreground">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
               <span>
-                Ce montant dépasse ce qu&apos;il reste sur la caisse de l&apos;exercice ({formatCurrency(remaining)}). La dépense
-                sera enregistrée — mais le budget passera en dépassement, et cela se verra.
+                Ce montant dépasse ce qu&apos;il reste{source === "CASH" ? " dans la caisse du mois" : " sur la caisse de l'exercice"} ({formatCurrency(ceiling)}).
+                {source === "CASH"
+                  ? " La dépense sera refusée : on ne sort pas d'un fond ce qu'il ne contient pas."
+                  : " La dépense sera enregistrée — mais le budget passera en dépassement, et cela se verra."}
               </span>
             </p>
           )}

@@ -152,7 +152,7 @@ export default async function MoyensGenerauxPage({
             détient confirme l&apos;avoir reçue, puis chaque dépense en est déduite, justificatif scanné à
             l&apos;appui, jusqu&apos;à épuisement — moment où elle demande une rallonge.
           </p>
-          <CashPanel view={view} people={people} articles={articleOptions} budgetTargets={budgetTargets} />
+          <CashPanel view={view} people={people} />
         </CardContent>
       </Card>
 
@@ -177,11 +177,21 @@ export default async function MoyensGenerauxPage({
         {view.canSpend && (
           <CardContent className="pb-0">
             <p className="mb-2 text-xs text-muted-foreground">
-              Un achat réglé <strong>autrement que par la caisse du mois</strong> (virement, carte, facture payée par les
-              Finances) s&apos;enregistre ici : montant, scan de la facture ou du bon de paiement — et il est
-              <strong> déduit de la caisse de l&apos;exercice</strong>.
+              <strong>Un seul endroit pour enregistrer un achat</strong>, qu&apos;il ait été réglé sur la caisse
+              du mois ou autrement (virement, carte, facture payée par les Finances). Le moyen de paiement se
+              choisit dans le formulaire, et se corrige après coup sur une dépense déjà saisie.
             </p>
-            <ExpensePanel departmentId={view.department.id} year={year} remaining={view.remaining} articles={articleOptions} budgetTargets={budgetTargets} />
+            <ExpensePanel
+              departmentId={view.department.id} year={year} remaining={view.remaining}
+              articles={articleOptions} budgetTargets={budgetTargets} period={period}
+              cash={view.cash ? {
+                status: view.cash.status,
+                remaining: view.cash.balance.remaining,
+                // La caisse n'est proposée qu'à qui peut réellement en sortir de l'argent :
+                // offrir l'option à quelqu'un d'autre, c'est un refus après la saisie.
+                canSpend: view.isHolder || view.canAmendCash,
+              } : null}
+            />
           </CardContent>
         )}
         <CardContent className="p-0">
@@ -239,6 +249,7 @@ export default async function MoyensGenerauxPage({
                       }}
                       articles={articleOptions}
                       budgetTargets={budgetTargets}
+                      cashUsable={Boolean(view.cash && view.cash.status === "RECEIVED" && (view.isHolder || view.canAmendCash))}
                     />
                   )}
                 </li>

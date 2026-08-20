@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  Wallet, Loader2, Check, Plus, Receipt, HandCoins, AlertTriangle, Lock, FileText, Download,
+  Wallet, Loader2, Check, Plus, HandCoins, AlertTriangle, Lock, FileText, Download,
   CalendarClock, ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,11 +12,8 @@ import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { PETTY_CASH_STATUS_LABEL, periodLabel, MAX_RECHARGE_DAY } from "@/lib/petty-cash";
-import { ReceiptLines, type CatalogArticle } from "./receipt-lines";
-import { BudgetTargetField } from "./budget-target-field";
-import type { BudgetTarget } from "@/lib/budget/target";
 import {
-  allotPettyCash, confirmPettyCashReceipt, spendFromPettyCash, requestPettyCashTopUp, closePettyCash,
+  allotPettyCash, confirmPettyCashReceipt, requestPettyCashTopUp, closePettyCash,
   decidePettyCashTopUp, setPettyCashPlan,
 } from "@/lib/actions/petty-cash-actions";
 import type { GeneralMeansView } from "@/lib/queries/general-means";
@@ -29,11 +26,11 @@ import type { GeneralMeansView } from "@/lib/queries/general-means";
  * justificatif obligatoire ; la rallonge se demande depuis le même endroit, sans changer
  * d'écran — c'est au moment où l'on constate qu'il ne reste rien qu'on la demande.
  */
-export function CashPanel({ view, people, articles, budgetTargets = [] }: { view: GeneralMeansView; people: { id: string; name: string }[]; articles: CatalogArticle[]; budgetTargets?: BudgetTarget[] }) {
+export function CashPanel({ view, people }: { view: GeneralMeansView; people: { id: string; name: string }[] }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
-  const [pane, setPane] = React.useState<"none" | "spend" | "topup" | "allot" | "plan">("none");
+  const [pane, setPane] = React.useState<"none" | "topup" | "allot" | "plan">("none");
   const [grant, setGrant] = React.useState<Record<string, string>>({});
 
   const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) => {
@@ -113,15 +110,15 @@ export function CashPanel({ view, people, articles, budgetTargets = [] }: { view
           )}
 
           <div className="flex flex-wrap gap-2">
+            {/* UN SEUL BOUTON DE DÉPENSE, et il est plus bas, avec la liste des dépenses. Le
+                second bouton vivait ici, sur la caisse — même achat, même facture, même budget
+                consommé, mais deux formulaires : on saisissait par le mauvais, et le fond du
+                mois se retrouvait faux sans qu'aucun écran ne le dise. Le moyen de paiement est
+                devenu une case du formulaire unique. */}
             {view.isHolder && cash.status === "RECEIVED" && (
-              <>
-                <Button size="sm" onClick={() => setPane(pane === "spend" ? "none" : "spend")}>
-                  <Receipt className="h-4 w-4" /> Enregistrer une dépense
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setPane(pane === "topup" ? "none" : "topup")}>
-                  <HandCoins className="h-4 w-4" /> Demander une rallonge
-                </Button>
-              </>
+              <Button size="sm" variant="outline" onClick={() => setPane(pane === "topup" ? "none" : "topup")}>
+                <HandCoins className="h-4 w-4" /> Demander une rallonge
+              </Button>
             )}
             {view.canAllot && (
               <>
@@ -187,58 +184,6 @@ export function CashPanel({ view, people, articles, budgetTargets = [] }: { view
               {busy === "allot" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Remettre
             </Button>
             {cash && <Button size="sm" type="button" variant="outline" onClick={() => setPane("none")}>Annuler</Button>}
-          </div>
-        </form>
-      )}
-
-      {cash && pane === "spend" && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const fd = new FormData(e.currentTarget);
-            fd.set("cashId", cash.id);
-            fd.set("year", String(view.year));
-            void run("spend", () => spendFromPettyCash(fd), "Dépense enregistrée et déduite de la caisse.");
-          }}
-          className="space-y-2 rounded-xl border border-border bg-secondary/30 p-3"
-        >
-          <p className="text-sm font-medium">Ticket de caisse</p>
-          <label className="block text-xs">
-            Objet
-            <Input name="label" placeholder="Facultatif — résumé depuis les articles si vide" className="mt-1 h-9" />
-          </label>
-
-          {/* UN TICKET, PLUSIEURS ARTICLES. Le montant de la dépense est la somme des lignes :
-              c'est ce qui permet de savoir ce qu'on achète, et pas seulement ce qu'on paie. */}
-          <div className="rounded-lg border border-border bg-background p-2">
-            <p className="mb-1.5 text-xs font-medium">
-              Articles du ticket <span className="text-destructive">*</span>
-              <span className="ml-1 font-normal text-muted-foreground">— le montant en découle</span>
-            </p>
-            <ReceiptLines articles={articles} budgetTargets={budgetTargets} />
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-3">
-            <BudgetTargetField targets={budgetTargets} />
-          </div>
-
-          <label className="block text-xs">
-            Précisions
-            <Input name="notes" placeholder="Facultatif" className="mt-1 h-9" />
-          </label>
-          <label className="block text-xs">
-            Ticket de caisse / facture scanné <span className="text-destructive">*</span>
-            <input type="file" name="files" multiple required className="mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
-          </label>
-          <p className="text-[0.6875rem] text-muted-foreground">
-            La dépense est déduite de la caisse du mois <strong>et</strong> de la caisse de l&apos;exercice :
-            c&apos;est le même argent, vu à deux horizons.
-          </p>
-          <div className="flex gap-2">
-            <Button size="sm" type="submit" disabled={busy === "spend"}>
-              {busy === "spend" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />} Enregistrer
-            </Button>
-            <Button size="sm" type="button" variant="outline" onClick={() => setPane("none")}>Annuler</Button>
           </div>
         </form>
       )}

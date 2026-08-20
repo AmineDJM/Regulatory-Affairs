@@ -18,7 +18,8 @@ import {
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
 import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/queries/general-means-budget";
-import { pettyCashBalanceExcluding, canSpendFromPettyCash, type PettyCashStatus } from "@/lib/petty-cash";
+import { pettyCashBalanceExcluding, pettyCashBalance, canSpendFromPettyCash, type PettyCashStatus } from "@/lib/petty-cash";
+import { resolveSource, sourceOf, sourceChange } from "@/lib/general-means/payment-source";
 import { toNumber } from "@/lib/utils";
 
 const PATH = "/budgets/departements";
@@ -368,11 +369,32 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
   // La valeur est revérifiée contre les enveloppes réellement ouvertes aux moyens généraux.
   const budgetCategoryId = keepAllowedCategory(fdStr(formData, "budgetCategoryId"), await allowedGeneralMeansCategoryIds());
 
+  // PAYÉ SUR LA CAISSE, OU AUTREMENT — la même dépense, le même budget consommé, un seul
+  // formulaire. Le moyen de paiement était jusqu'ici un SECOND BOUTON, et l'on saisissait
+  // régulièrement par le mauvais : la caisse du mois se retrouvait fausse d'un côté, gonflée
+  // de l'autre, sans qu'aucun des deux écrans ne le dise.
+  const cash = await currentCashOf(departmentId, fdStr(formData, "period"));
+  const src = resolveSource(fdStr(formData, "paymentSource"), cash, {
+    isHolder: cash?.holderId === user.id, globalView: hasGlobalView(user),
+  });
+  if (src.error) return { ok: false, error: src.error };
+  // L'argent liquide ne s'invente pas : le fond doit couvrir le montant, comme avant.
+  if (src.pettyCashId && cash) {
+    const state = { id: cash.id, period: cash.period, amount: toNumber(cash.amount), status: cash.status as PettyCashStatus };
+    const balance = pettyCashBalance(
+      state,
+      cash.expenses.map((e) => ({ id: e.id, label: e.label, amount: toNumber(e.amount), date: e.date.toISOString() })),
+    );
+    const room = canSpendFromPettyCash(state, balance, amount);
+    if (!room.ok) return { ok: false, error: room.reason ?? "Le fond ne couvre pas ce montant." };
+  }
+
   const created = await prisma.departmentBudgetExpense.create({
     data: {
       departmentId, year, kind, label, amount, budgetCategoryId,
       notes: fdStr(formData, "notes"),
       adminRequestId: fdStr(formData, "adminRequestId"),
+      pettyCashId: src.pettyCashId,
       createdById: user.id,
     },
     select: { id: true },
@@ -400,11 +422,28 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
 
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Budgets", entityType: "BUDGET", entityId: departmentId,
-    summary: `Dépense imputée — ${DEPT_BUDGET_LABEL[kind]} ${year} : ${label} (${amount} DZD)`,
+    summary: `Dépense imputée — ${DEPT_BUDGET_LABEL[kind]} ${year} : ${label} (${amount} DZD)${src.pettyCashId ? " · caisse du mois" : ""}`,
   });
   revalidatePath(PATH);
   revalidatePath("/moyens-generaux");
   return { ok: true, id: created.id };
+}
+
+/**
+ * La caisse du mois d'un département, telle qu'il faut la lire pour y imputer une dépense.
+ *
+ * `null` quand il n'y en a pas — l'appelant refuse alors « payé sur la caisse » avec un motif,
+ * plutôt que de basculer silencieusement en hors caisse.
+ */
+async function currentCashOf(departmentId: string, period: string | null) {
+  return prisma.pettyCashAllotment.findFirst({
+    where: { departmentId, ...(period ? { period } : {}), status: { not: "CLOSED" } },
+    orderBy: { period: "desc" },
+    select: {
+      id: true, period: true, amount: true, status: true, holderId: true,
+      expenses: { select: { id: true, label: true, amount: true, date: true } },
+    },
+  });
 }
 
 /**
@@ -481,9 +520,30 @@ export async function updateDepartmentExpense(formData: FormData): Promise<Actio
   if (typeof amount !== "number") return { ok: false, error: amount.error };
   if (amount <= 0) return { ok: false, error: "Indiquez le montant de la dépense." };
 
+  // CHANGER DE MOYEN DE PAIEMENT APRÈS COUP — « c'était en fait sur la caisse ».
+  //
+  // Une dépense saisie hors caisse alors qu'elle a été réglée en liquide laisse le fond du mois
+  // faux jusqu'au solde, et l'erreur ne se voit qu'à ce moment-là. On la corrige donc là où on
+  // la constate. Champ absent du formulaire = moyen de paiement inchangé.
+  const beforeSource = sourceOf(before);
+  let cash = before.pettyCash;
+  let nextCashId: string | null = before.pettyCashId;
+  if (formData.has("paymentSource")) {
+    const target = fdStr(formData, "paymentSource");
+    if (target === "CASH") {
+      cash = cash ?? (await currentCashOf(before.departmentId, null));
+      const src = resolveSource("CASH", cash, {
+        isHolder: cash?.holderId === user.id, globalView: hasGlobalView(user),
+      });
+      if (src.error) return { ok: false, error: src.error };
+      nextCashId = src.pettyCashId;
+    } else {
+      nextCashId = null;
+    }
+  }
+
   // La caisse doit pouvoir porter le NOUVEAU montant, la dépense corrigée mise de côté.
-  const cash = before.pettyCash;
-  if (cash) {
+  if (nextCashId && cash) {
     const state = { id: cash.id, period: cash.period, amount: toNumber(cash.amount), status: cash.status as PettyCashStatus };
     const balance = pettyCashBalanceExcluding(
       state,
@@ -503,7 +563,7 @@ export async function updateDepartmentExpense(formData: FormData): Promise<Actio
   await prisma.$transaction(async (tx) => {
     await tx.departmentBudgetExpense.update({
       where: { id },
-      data: { label, amount, kind, budgetCategoryId: rawCategory, notes: fdStr(formData, "notes") },
+      data: { label, amount, kind, budgetCategoryId: rawCategory, notes: fdStr(formData, "notes"), pettyCashId: nextCashId },
     });
     // Les lignes se REMPLACENT en bloc : fusionner ligne à ligne demanderait des identifiants
     // stables côté formulaire pour un gain nul — on réécrit le détail du ticket.
@@ -519,9 +579,13 @@ export async function updateDepartmentExpense(formData: FormData): Promise<Actio
   });
 
   const was = toNumber(before.amount);
+  // Le changement de moyen de paiement se journalise EXPLICITEMENT : c'est lui qui déplace de
+  // l'argent entre le fond du mois et le reste, et c'est la première chose qu'on cherche quand
+  // une caisse ne tombe pas juste.
+  const moved = sourceChange(beforeSource, nextCashId ? "CASH" : "OFF_CASH");
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Budgets", entityType: "BUDGET", entityId: before.departmentId,
-    summary: `Dépense corrigée — ${before.label} (${was} DZD) → ${label} (${amount} DZD)${kind !== before.kind ? ` · nature ${DEPT_BUDGET_LABEL[kind]}` : ""}`,
+    summary: `Dépense corrigée — ${before.label} (${was} DZD) → ${label} (${amount} DZD)${kind !== before.kind ? ` · nature ${DEPT_BUDGET_LABEL[kind]}` : ""}${moved ? ` · ${moved}` : ""}`,
   });
   revalidatePath(PATH);
   revalidatePath("/moyens-generaux");

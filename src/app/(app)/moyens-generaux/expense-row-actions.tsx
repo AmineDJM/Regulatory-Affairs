@@ -10,6 +10,8 @@ import { DEPT_BUDGET_LABEL } from "@/lib/department-budget";
 import { updateDepartmentExpense, deleteDepartmentExpense } from "@/lib/actions/department-budget-actions";
 import { ReceiptLines, type CatalogArticle, type ExistingLine } from "./receipt-lines";
 import { BudgetTargetField } from "./budget-target-field";
+import { SOURCE_LABEL, SOURCE_HINT, type PaymentSource } from "@/lib/general-means/payment-source";
+import { cn } from "@/lib/utils";
 import type { BudgetTarget } from "@/lib/budget/target";
 
 export interface EditableExpense {
@@ -36,13 +38,23 @@ export interface EditableExpense {
  * réellement — plutôt que de perdre l'information au premier passage.
  */
 export function ExpenseRowActions({
-  expense, articles, budgetTargets = [],
-}: { expense: EditableExpense; articles: CatalogArticle[]; budgetTargets?: BudgetTarget[] }) {
+  expense, articles, budgetTargets = [], cashUsable = false,
+}: {
+  expense: EditableExpense;
+  articles: CatalogArticle[];
+  budgetTargets?: BudgetTarget[];
+  /** Une caisse du mois existe, reçue, entre les mains de qui regarde : le moyen de paiement se corrige. */
+  cashUsable?: boolean;
+}) {
   const router = useRouter();
   const [mode, setMode] = React.useState<"idle" | "edit" | "confirm">("idle");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [total, setTotal] = React.useState(expense.amount);
+  const [source, setSource] = React.useState<PaymentSource>(expense.fromPettyCash ? "CASH" : "OFF_CASH");
+  React.useEffect(() => {
+    if (mode === "edit") setSource(expense.fromPettyCash ? "CASH" : "OFF_CASH");
+  }, [mode, expense.fromPettyCash]);
 
   const initial: ExistingLine[] = expense.lines.length > 0
     ? expense.lines
@@ -106,6 +118,9 @@ export function ExpenseRowActions({
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
             fd.set("id", expense.id);
+            // Champ envoyé UNIQUEMENT quand le choix est offert : absent = moyen de paiement
+            // inchangé côté serveur, ce qui protège les écrans qui ne le proposent pas.
+            if (cashUsable || expense.fromPettyCash) fd.set("paymentSource", source);
             setBusy(true); setError(null);
             void updateDepartmentExpense(fd).then((r) => {
               setBusy(false);
@@ -134,6 +149,26 @@ export function ExpenseRowActions({
               <Input name="notes" defaultValue={expense.notes ?? ""} placeholder="Facultatif" className="mt-1 h-9" />
             </label>
           </div>
+
+          {/* « C'ÉTAIT EN FAIT SUR LA CAISSE. » Une dépense saisie du mauvais côté laisse le fond
+              du mois faux jusqu'au solde, et l'erreur ne se voit qu'à ce moment-là. On la corrige
+              donc ici, là où on la constate. */}
+          {(cashUsable || expense.fromPettyCash) && (
+            <div className="grid grid-cols-2 gap-2">
+              {(["CASH", "OFF_CASH"] as PaymentSource[]).map((v) => (
+                <button
+                  key={v} type="button" onClick={() => setSource(v)} aria-pressed={source === v}
+                  className={cn(
+                    "rounded-lg border p-2 text-left transition",
+                    source === v ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-background hover:bg-secondary",
+                  )}
+                >
+                  <span className="block text-xs font-medium">{SOURCE_LABEL[v]}</span>
+                  <span className="block text-[0.6875rem] text-muted-foreground">{SOURCE_HINT[v]}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="rounded-lg border border-border bg-background p-2">
             <p className="mb-1.5 text-xs font-medium">
