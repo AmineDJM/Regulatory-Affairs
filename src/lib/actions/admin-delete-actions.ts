@@ -203,7 +203,7 @@ const REGISTRY: Record<DeletableKind, KindSpec> = {
   DOCTOR: {
     label: "médecin",
     module: "Médical",
-    redirect: "/medical",
+    redirect: "/medical/annuaire",
     model: "medicalDoctor",
     entityType: "DOCTOR",
     async describe(id) {

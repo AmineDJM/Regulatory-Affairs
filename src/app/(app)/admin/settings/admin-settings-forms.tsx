@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Check, Megaphone, Search, Plus, X, RotateCcw } from "lucide-react";
-import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegulatoryTherapeuticSegments, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setOrgChartViewers } from "@/lib/actions/settings-actions";
+import { Loader2, Check, Megaphone, Search, Plus, X, RotateCcw, Eye, EyeOff } from "lucide-react";
+import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegulatoryTherapeuticSegments, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setOrgChartViewers, setHiddenModules } from "@/lib/actions/settings-actions";
 import { setRegIntelligenceEnabled } from "@/lib/regulatory/intelligence/actions";
 import { sendBroadcast } from "@/lib/actions/notification-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { THERAPEUTIC_SEGMENTS } from "@/lib/labels";
+import { hiddenSummary } from "@/lib/modules-visibility";
 import type { AppSettings } from "@/lib/settings";
 
 interface Opt { value: string; label: string }
@@ -605,6 +606,67 @@ export function OrgChartViewersForm({ roles, users, selectedRoles, selectedUserI
       <Button type="submit" size="sm" disabled={saving}>
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
         {saved ? "Enregistré" : "Enregistrer les accès"}
+      </Button>
+    </form>
+  );
+}
+
+/**
+ * MASQUER / DÉMASQUER DES MODULES.
+ *
+ * Le geste est RÉVERSIBLE et le formulaire le dit : masquer ne supprime rien — ni les données,
+ * ni les droits. C'est ce qui permet de couper un module en refonte sans se demander ce qu'on
+ * perd, et de le rallumer d'un clic.
+ *
+ * Les pastilles montrent l'état RÉEL : une pastille allumée = module masqué. On lit donc l'écran
+ * comme on lit un tableau de bord — ce qui est éteint se voit d'un coup d'œil, sans compter.
+ */
+export function HiddenModulesForm({ modules, selected }: { modules: Opt[]; selected: string[] }) {
+  const [picked, setPicked] = React.useState<string[]>(selected);
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const toggle = (v: string) => setPicked((p) => (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]));
+
+  return (
+    <form
+      action={async () => {
+        setSaving(true);
+        const fd = new FormData();
+        picked.forEach((m) => fd.append("modules", m));
+        const res = await setHiddenModules(fd);
+        setSaving(false);
+        if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
+      }}
+      className="space-y-3"
+    >
+      <p className="text-xs text-muted-foreground">{hiddenSummary(picked)}</p>
+      <div className="flex flex-wrap gap-2">
+        {modules.map((m) => {
+          const off = picked.includes(m.value);
+          return (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => toggle(m.value)}
+              aria-pressed={off}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${off ? "border-destructive/50 bg-destructive/10 text-destructive" : "border-input text-muted-foreground hover:bg-secondary"}`}
+            >
+              {off ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Un module masqué disparaît du menu <strong>et devient injoignable par son adresse</strong> — sinon
+        « masqué » ne voudrait dire que « absent du menu ». <strong>Rien n&apos;est supprimé</strong> : les
+        données, les droits et les circuits restent en place, et démasquer rend le module tel qu&apos;il était.
+        Vous continuez de le voir, vous seul. La Console d&apos;Administration ne peut pas être masquée :
+        c&apos;est par elle qu&apos;on rallume.
+      </p>
+      <Button type="submit" size="sm" disabled={saving}>
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
+        {saved ? "Enregistré" : "Enregistrer les modules en service"}
       </Button>
     </form>
   );

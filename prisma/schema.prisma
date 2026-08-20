@@ -5222,6 +5222,10 @@ model AppSetting {
   // Onglet Regulatory « Enregistrement » (analyseur de dossier CTD) — masqué tant que
   // le Super Admin ne l'a pas débloqué.
   regEnrollmentEnabled          Boolean  @default(false)
+  /// MODULES MASQUÉS — retirés de la plateforme sans toucher aux droits ni aux données.
+  /// Ce n'est pas une permission : c'est « ce module n'est pas en service ici, pour personne ».
+  /// Le Super Admin continue de les voir (signalés), sans quoi il ne pourrait plus les rallumer.
+  hiddenModules                 String[] @default([])
   // Rôles « superviseurs Regulatory » (en plus du Super Admin, toujours inclus) : fixent
   // la priorité et les dates cibles, reçoivent les notifications (nouveau dossier / dépôt),
   // et peuvent demander des mises à jour de statut. Configurable en Administration.

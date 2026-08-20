@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch, ShieldCheck, MessageSquarePlus, FolderPlus, BarChart3, Network, Layers } from "lucide-react";
+import { ArrowLeft, SlidersHorizontal, Megaphone, MailWarning, FileCheck2, ScanSearch, ShieldCheck, MessageSquarePlus, FolderPlus, BarChart3, Network, Layers, LayoutGrid } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm, HiddenModulesForm } from "./admin-settings-forms";
+import { MODULES } from "@/lib/rbac";
+import { MODULE_LABELS } from "@/lib/labels";
+import { isHideable } from "@/lib/modules-visibility";
 import { BackLink } from "@/components/shared/back-link";
 
 export const metadata = { title: "Réglages & diffusion — AMD Internal OS" };
@@ -85,6 +88,21 @@ export default async function AdminSettingsPage() {
           <p className="text-sm text-muted-foreground">Rôles autorisés à créer des « Demandes à Regulatory » (en plus du PRIM et du Super Admin, toujours inclus). L&apos;équipe Regulatory répond aux demandes mais n&apos;en crée pas — sauf si vous ajoutez son rôle ici.</p>
         </CardHeader>
         <CardContent>
+        </CardContent>
+      </Card>
+
+      {/* MODULES EN SERVICE — masquer n'est pas un droit, c'est un état : « ce module n'est pas
+          en usage ici, pour personne ». Rien n'est supprimé, et démasquer rend tout tel quel. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><LayoutGrid className="h-4 w-4" /> Modules en service</CardTitle>
+          <p className="text-sm text-muted-foreground">Retirez de la plateforme les modules qui ne sont pas en usage — pas encore déployés, en refonte, ou dont l&apos;entreprise ne se sert pas. Ce n&apos;est <strong>pas une permission</strong> : les droits ne bougent pas, les données restent, et démasquer rend le module tel qu&apos;il était.</p>
+        </CardHeader>
+        <CardContent>
+          <HiddenModulesForm
+            modules={MODULES.filter(isHideable).map((m) => ({ value: m, label: MODULE_LABELS[m] ?? m }))}
+            selected={settings.hiddenModules}
+          />
         </CardContent>
       </Card>
 

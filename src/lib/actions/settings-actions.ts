@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { DEFAULT_APP_SETTINGS } from "@/lib/settings";
 import { fdNum, type ActionResult } from "@/lib/actions/types";
+import { normalizeHidden } from "@/lib/modules-visibility";
 
 /** Réglages d'instance (limites de taille d'upload). **Super Admin uniquement.** */
 export async function saveAppSettings(formData: FormData): Promise<ActionResult> {
@@ -191,5 +192,35 @@ export async function saveDriveStorageSettings(formData: FormData): Promise<Acti
     summary: `Stockage Drive — capacité ${driveCapacityGb} Go, quota utilisateur ${driveUserQuotaGb} Go`,
   });
   revalidatePath("/admin");
+  return { ok: true };
+}
+
+/**
+ * MODULES MASQUÉS — retirer un ou plusieurs modules de la plateforme. **Super Admin uniquement.**
+ *
+ * Ce n'est pas une permission : c'est un état de service. Rien n'est supprimé — ni les données,
+ * ni les droits, ni les actions serveur. Démasquer rend le module tel qu'il était.
+ *
+ * La console d'administration est écartée par `normalizeHidden` : la masquer fermerait la porte
+ * de l'intérieur, sans moyen de revenir autrement qu'en écrivant en base.
+ */
+export async function setHiddenModules(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const hidden = normalizeHidden(formData.getAll("modules").map(String));
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", hiddenModules: hidden, updatedById: admin.id },
+    update: { hiddenModules: hidden, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: hidden.length === 0
+      ? "Modules masqués — tous les modules remis en service"
+      : `Modules masqués — ${hidden.length} module(s) retiré(s) : ${hidden.join(", ")}`,
+  });
+  // Le menu est calculé dans le layout : sans revalidation de la racine, il resterait tel quel
+  // jusqu'au prochain rechargement complet.
+  revalidatePath("/", "layout");
   return { ok: true };
 }

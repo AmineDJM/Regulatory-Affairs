@@ -1305,8 +1305,6 @@ export const WORKSPACE_TABS: NavTab[] = [
 ];
 // BUDGETS — trois écrans au lieu d'un seul écran fourre-tout : on REGARDE (vue d'ensemble
 // graphique), on TRAVAILLE (dépenses à imputer), on RÈGLE (enveloppe, catégories, total).
-// ANNUAIRE / VISITES — plus d'onglets partagés : ce sont DEUX entrées de menu distinctes
-// (« Annuaire » = le référentiel, « Visites & segmentation » = la préparation des tournées).
 
 export const BUDGET_TABS: NavTab[] = [
   { module: "BUDGETS", label: "Vue d'ensemble", href: "/budgets" },
@@ -1521,10 +1519,10 @@ export const NAVIGATION: NavItem[] = [
   // praticiens vit DANS Promotion médicale : on ne consulte pas un annuaire pour lui-même, on
   // le consulte en préparant une visite.
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles", pole: "SALES_MARKETING" },
-  // L'ANNUAIRE est un référentiel qu'on ouvre pour lui-même ; les VISITES sont un autre métier
-  // (préparer une tournée). Deux entrées, deux écrans — l'annuaire ne s'ouvre plus sur les visites.
-  { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING" },
-  { module: "MEDICAL", label: "Visites & segmentation", href: "/medical", icon: "Route", group: "Pôles", pole: "SALES_MARKETING" },
+  // L'ANNUAIRE — le référentiel des praticiens. « Visites & segmentation » a été RETIRÉ : un
+  // écran mieux pensé le remplacera. Les données (visites, plans de tournée) restent en base ;
+  // c'est l'écran qui disparaît, pas l'historique. La route `/medical` redirige vers l'annuaire.
+  { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", match: ["/medical"] },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/promo-material/stock", "/consulting"] },
@@ -1534,6 +1532,11 @@ export const NAVIGATION: NavItem[] = [
   // réalisées sont passées dans Sales & Marketing : analyser une opportunité et constater un
   // chiffre d'affaires ne sont pas le même métier.
   { module: "BUSINESS_DEVELOPMENT", label: "Market Intelligence", href: "/business-development", icon: "Lightbulb", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche"] },
+  // L'EXPLORATEUR PRODUITS — module à part, et non plus une sous-page d'Intelligence marché.
+  // On ne l'ouvre pas « en analysant le marché » : on l'ouvre parce qu'on cherche UN produit,
+  // UNE molécule, UN laboratoire. C'était le geste le plus fréquent du pôle, et il fallait deux
+  // clics et connaître le chemin pour y arriver.
+  { module: "BUSINESS_DEVELOPMENT", label: "Explorateur produits", href: "/explorateur-produits", icon: "PackageSearch", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche/produits"] },
   { module: "PCH", label: "Marchés PCH", href: "/pch", icon: "Gavel", group: "Pôles", pole: "BUSINESS_DEV" },
 
   // SUPPLY CHAIN & LOGISTICS — l'exécution physique. Les modèles existaient déjà

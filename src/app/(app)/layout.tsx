@@ -4,6 +4,7 @@ import { accessibleModules, userCan } from "@/lib/rbac";
 import { NAVIGATION, moduleForPath, type NavItem } from "@/lib/labels";
 import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
+import { visibleModules } from "@/lib/modules-visibility";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { MobileTabBar } from "@/components/layout/mobile-tabbar";
@@ -44,7 +45,14 @@ export default async function AppLayout({
     });
     if (flags?.mustOnboard) redirect("/onboarding");
   }
-  const modules = accessibleModules(user);
+  // MODULES MASQUÉS — retirés du menu pour tout le monde, sauf du Super Admin, qui doit pouvoir
+  // vérifier ce qu'il vient d'éteindre et le rallumer. Le masquage n'est pas un droit : c'est un
+  // état de service, réglé une fois pour toute la plateforme (Administration › Modules).
+  const modules = visibleModules(
+    accessibleModules(user),
+    (await getAppSettings().catch(() => null))?.hiddenModules ?? [],
+    { isSuperAdmin: user.role === "SUPER_ADMIN" },
+  );
   // Entrées fusionnées (`tabs`) : visibles si l'utilisateur a accès à au moins un
   // onglet ; le lien pointe vers le premier onglet autorisé, et `match` couvre les
   // chemins de tous les onglets pour le surlignage. Les entrées simples sont

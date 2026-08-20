@@ -7,6 +7,8 @@ import { prisma } from "./prisma";
 import { getAccess, userCan, type Action, type EffectiveAccess, type Module } from "./rbac";
 import { firstAccessibleHref } from "./labels";
 import { shouldTouch } from "./touch-throttle";
+import { getAppSettings } from "./settings";
+import { canOpenModule } from "./modules-visibility";
 
 /** Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. */
 export const IMPERSONATE_COOKIE = "amd_impersonate";
@@ -122,6 +124,14 @@ export async function requireModule(
   if (user.mustChangePassword) redirect("/change-password");
   if (!userCan(user, module, action)) {
     redirect(`${safeLanding(user)}?denied=${module}`);
+  }
+  // MODULE MASQUÉ : la garde de navigation ne suffit pas. Sans ce contrôle, « masqué » ne
+  // voudrait dire que « absent du menu », et un lien envoyé par courriel il y a un mois
+  // rouvrirait l'écran qu'on croyait retiré. Le Super Admin passe : il doit pouvoir vérifier
+  // ce qu'il vient d'éteindre, et le rallumer.
+  const { hiddenModules } = await getAppSettings();
+  if (!canOpenModule(module, hiddenModules, { isSuperAdmin: user.role === "SUPER_ADMIN" })) {
+    redirect(`${safeLanding(user)}?masque=${module}`);
   }
   return user;
 }

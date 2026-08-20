@@ -121,7 +121,7 @@ export const NAV_ALIASES: { terms: string[]; href: string; label: string }[] = [
   { terms: ["pch", "appel d'offres", "appel d offres", "marché", "marche"], href: "/pch", label: "Business Development — Marchés PCH" },
   { terms: ["intelligence marché", "intelligence marche", "iqvia", "molécule", "molecule"], href: "/business-development", label: "Business Development — Market Intelligence" },
   { terms: ["ctd", "enregistrement", "anpp"], href: "/regulatory/enregistrement", label: "Regulatory — Analyse CTD" },
-  { terms: ["annuaire", "médecins", "medecins", "pharmaciens", "établissements", "etablissements"], href: "/medical", label: "Annuaire — médecins & praticiens" },
+  { terms: ["annuaire", "médecins", "medecins", "pharmaciens", "établissements", "etablissements"], href: "/medical/annuaire", label: "Annuaire — médecins & praticiens" },
 ];
 
 /** Destinations correspondant à un terme tapé — insensible à la casse et aux accents. */

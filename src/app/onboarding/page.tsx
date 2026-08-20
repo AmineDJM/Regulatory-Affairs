@@ -29,7 +29,7 @@ const DESTINATION_HELP: Record<string, string> = {
   "/sales": "Suivi des ventes (produits & services) et performance.",
   "/logistics": "Logistique et suivi des stocks à la PCH.",
   "/pch": "Marchés PCH : appels d'offres, bons de commande et cautions.",
-  "/medical": "Annuaire : médecins (hôpital / libéral), visites et plans des délégués.",
+  "/medical/annuaire": "Annuaire : médecins et pharmaciens (hôpital / libéral), leurs coordonnées et leur segmentation.",
   "/field-reports": "Rapports terrain vocaux des délégués (dictés, relus, validés).",
   "/information-medicale": "Information médicale réglementaire : déclarations et circuit documentaire.",
   "/business-development": "Business Development : opportunités, projets, gammes et produits.",

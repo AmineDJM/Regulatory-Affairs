@@ -38,6 +38,8 @@ export interface AppSettings {
   regEnrollmentRoles: string[];
   /** Personnes nommément autorisées à consulter l'organigramme (en plus des rôles ci-dessus). */
   orgChartViewerUserIds: string[];
+  /** Modules RETIRÉS de la plateforme (menu ET adresse). Voir `lib/modules-visibility.ts`. */
+  hiddenModules: string[];
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -58,6 +60,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   orgChartViewerRoles: [],
   orgChartViewerUserIds: [],
   regEnrollmentRoles: [],
+  hiddenModules: [],
 };
 
 export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
@@ -79,6 +82,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       orgChartViewerRoles: row.orgChartViewerRoles ?? [],
       orgChartViewerUserIds: row.orgChartViewerUserIds ?? [],
       regEnrollmentRoles: row.regEnrollmentRoles ?? [],
+      hiddenModules: row.hiddenModules ?? [],
     };
   } catch {
     return DEFAULT_APP_SETTINGS;
