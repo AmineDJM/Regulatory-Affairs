@@ -8,6 +8,9 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { companyIdForNew } from "@/lib/company";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+import { toNumber } from "@/lib/utils";
+import { buildRef } from "@/lib/refs";
+import { settlementAction, invoiceDirection, invoiceSettlementLabel } from "@/lib/finances/settlement";
 
 /**
  * LES FACTURES — reçues ou émises, avec leur pièce et leur règlement.
@@ -45,6 +48,8 @@ function readFields(formData: FormData) {
     status: statusFor(fdStr(formData, "status"), paidDate),
     recipient: fdStr(formData, "recipient"),
     payer: fdStr(formData, "payer"),
+    // Sens de l'argent — jamais deviné des noms : voir `invoiceDirection`.
+    direction: invoiceDirection(fdStr(formData, "direction")),
     notes: fdStr(formData, "notes"),
   };
 }
@@ -74,7 +79,10 @@ export async function createInvoice(
     actorId: user.id, action: "CREATE", module: "Finances",
     summary: `Facture « ${title} »${f.number ? ` (n° ${f.number})` : ""}`,
   });
+  // Une facture créée DÉJÀ réglée (saisie a posteriori) inscrit son mouvement aussitôt.
+  await syncInvoiceSettlement(created.id, user.id);
   revalidatePath("/finances/factures");
+  revalidatePath("/finances");
   return { ok: true, id: created.id };
 }
 
@@ -92,8 +100,11 @@ export async function updateInvoice(formData: FormData): Promise<ActionResult> {
     actorId: user.id, action: "UPDATE", module: "Finances",
     summary: `Facture « ${title} » mise à jour`,
   });
+  // La date de règlement peut avoir été posée ou retirée depuis la fiche : l'écriture suit.
+  await syncInvoiceSettlement(id, user.id);
   revalidatePath("/finances/factures");
   revalidatePath(`/finances/factures/${id}`);
+  revalidatePath("/finances");
   return { ok: true };
 }
 
@@ -109,7 +120,10 @@ export async function setInvoicePaid(input: { id: string; paidDate: string | nul
     // Le statut suit la date : pas de facture « à régler » portant une date de paiement.
     data: { paidDate: paid, status: paid ? "PAID" : "UNPAID", updatedById: user.id },
   });
+  // L'ARGENT PASSE PAR LES FINANCES : marquer réglée y inscrit le mouvement, dé-marquer le retire.
+  await syncInvoiceSettlement(input.id, user.id);
   revalidatePath("/finances/factures");
+  revalidatePath("/finances");
   return { ok: true };
 }
 
@@ -128,4 +142,79 @@ export async function deleteInvoice(formData: FormData): Promise<ActionResult> {
   });
   revalidatePath("/finances/factures");
   return { ok: true };
+}
+
+/**
+ * L'ÉCRITURE FINANCIÈRE D'UNE FACTURE — créée quand on la marque réglée, retirée quand on
+ * revient dessus.
+ *
+ * TOUT PAIEMENT DE LA PLATEFORME PASSE PAR LES FINANCES. Marquer une facture « réglée » posait
+ * une date, et rien d'autre : l'argent bougeait sans qu'aucune écriture n'apparaisse, si bien
+ * que la trésorerie et le budget décrivaient une entreprise qui n'existait pas — et l'écran
+ * qu'on aurait consulté pour s'en apercevoir était précisément celui qui mentait.
+ *
+ * Idempotent, dans les deux sens : ré-enregistrer une facture déjà réglée ne double pas son
+ * écriture, et dé-marquer un règlement retire la sienne plutôt que de la laisser traîner.
+ */
+async function syncInvoiceSettlement(invoiceId: string, actorId: string): Promise<void> {
+  const inv = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    select: {
+      id: true, number: true, title: true, amount: true, paidDate: true, direction: true,
+      companyId: true, payer: true, recipient: true, transactionId: true,
+    },
+  });
+  if (!inv) return;
+
+  const what = settlementAction({ paidDate: inv.paidDate, transactionId: inv.transactionId });
+  if (what === "NOOP") return;
+
+  if (what === "REMOVE") {
+    const txId = inv.transactionId!;
+    // On délie AVANT de supprimer : si la suppression échoue, la facture ne pointe plus vers
+    // une écriture fantôme — mieux vaut une écriture orpheline, visible, qu'un lien mort.
+    await prisma.invoice.update({ where: { id: inv.id }, data: { transactionId: null } });
+    await prisma.financeTransaction.delete({ where: { id: txId } }).catch(() => undefined);
+    await recordAudit({
+      actorId, action: "UPDATE", module: "Finances", entityType: "FINANCE_TRANSACTION", entityId: txId,
+      summary: `Règlement annulé — écriture retirée pour « ${inv.title} »`,
+    });
+    return;
+  }
+
+  // CREATE — le montant est obligatoire pour écrire : une écriture à zéro est un mouvement qui
+  // n'a pas eu lieu, et elle brouillerait la trésorerie sans rien apporter.
+  const amount = inv.amount != null ? toNumber(inv.amount) : 0;
+  if (!(amount > 0)) return;
+
+  const year = (inv.paidDate ?? new Date()).getFullYear();
+  const refs = (await prisma.financeTransaction.findMany({
+    where: { reference: { startsWith: `FIN-${year}-` } },
+    select: { reference: true },
+  })).map((r) => r.reference);
+
+  const direction = invoiceDirection(inv.direction);
+  const tx = await prisma.financeTransaction.create({
+    data: {
+      reference: buildRef("FIN", year, refs),
+      date: inv.paidDate ?? new Date(),
+      direction,
+      category: "AUTRE",
+      label: invoiceSettlementLabel(inv),
+      amount,
+      method: "BANK_TRANSFER",
+      account: "Banque",
+      // La contrepartie, c'est L'AUTRE : pour une facture reçue, celui qu'on paie.
+      counterparty: (direction === "OUT" ? inv.recipient : inv.payer) ?? null,
+      status: "SETTLED",
+      companyId: inv.companyId,
+      createdById: actorId,
+    },
+    select: { id: true },
+  });
+  await prisma.invoice.update({ where: { id: inv.id }, data: { transactionId: tx.id } });
+  await recordAudit({
+    actorId, action: "CREATE", module: "Finances", entityType: "FINANCE_TRANSACTION", entityId: tx.id,
+    summary: `${direction === "OUT" ? "Décaissement" : "Encaissement"} ${amount.toLocaleString("fr-FR")} DZD — « ${inv.title} » (facture réglée)`,
+  });
 }

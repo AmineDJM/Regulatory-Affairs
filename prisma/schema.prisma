@@ -3367,6 +3367,9 @@ model FinanceTransaction {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  /// Règlement de facture dont ce mouvement est l'écriture (relation inverse).
+  settledInvoice Invoice? @relation("InvoiceSettlement")
+
   @@index([date])
   @@index([direction])
   @@index([category])
@@ -7766,27 +7769,36 @@ enum InvoiceStatus {
 /// `payer` et `recipient` sont écrits en clair et non déduits du sens : la même société peut
 /// être l'un ou l'autre selon la facture, et c'est justement ce qu'on vient vérifier.
 model Invoice {
-  custom      Json?
-  id          String        @id @default(cuid())
-  companyId   String?
-  company     Company?      @relation(fields: [companyId], references: [id])
-  number      String? // n° de facture
-  title       String
-  issueDate   DateTime? // date d'émission
-  dueDate     DateTime? // échéance de règlement
-  paidDate    DateTime? // date de paiement effectif
-  amount      Decimal?      @db.Decimal(14, 2)
-  status      InvoiceStatus @default(UNPAID)
-  recipient   String? // destinataire (à qui la facture est adressée)
-  payer       String? // payeur (qui règle)
-  notes       String?
-  sourceType  EntityType?
-  sourceId    String?
-  createdById String?
-  createdBy   User?         @relation("InvoiceCreator", fields: [createdById], references: [id])
-  updatedById String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  custom        Json?
+  id            String              @id @default(cuid())
+  companyId     String?
+  company       Company?            @relation(fields: [companyId], references: [id])
+  number        String? // n° de facture
+  title         String
+  issueDate     DateTime? // date d'émission
+  dueDate       DateTime? // échéance de règlement
+  paidDate      DateTime? // date de paiement effectif
+  amount        Decimal?            @db.Decimal(14, 2)
+  status        InvoiceStatus       @default(UNPAID)
+  recipient     String? // destinataire (à qui la facture est adressée)
+  payer         String? // payeur (qui règle)
+  /// SENS DE L'ARGENT — `OUT` : facture REÇUE, la société paie. `IN` : facture ÉMISE, elle
+  /// encaisse. `payer` et `recipient` sont du texte libre : on ne devine pas le sens d'un nom
+  /// de société, et une écriture comptable posée à l'envers est pire qu'une écriture absente.
+  direction     String              @default("OUT")
+  /// L'ÉCRITURE FINANCIÈRE de son règlement. Toute sortie ou entrée d'argent de la plateforme
+  /// passe par le module Finances : une facture marquée réglée y inscrit son mouvement, et
+  /// dé-marquer le règlement le retire. Nul = facture non réglée.
+  transactionId String?             @unique
+  transaction   FinanceTransaction? @relation("InvoiceSettlement", fields: [transactionId], references: [id], onDelete: SetNull)
+  notes         String?
+  sourceType    EntityType?
+  sourceId      String?
+  createdById   String?
+  createdBy     User?               @relation("InvoiceCreator", fields: [createdById], references: [id])
+  updatedById   String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
 
   @@index([companyId, status])
   @@index([issueDate])

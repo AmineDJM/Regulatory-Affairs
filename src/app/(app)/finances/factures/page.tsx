@@ -60,6 +60,13 @@ export default async function FacturesPage() {
     { type: "date", name: "issueDate", label: "Date d'émission" },
     { type: "date", name: "dueDate", label: "Échéance de règlement" },
     { type: "date", name: "paidDate", label: "Date de paiement (si déjà réglée)" },
+    {
+      type: "select", name: "direction", label: "Sens", defaultValue: "OUT",
+      options: [
+        { value: "OUT", label: "Reçue — nous payons" },
+        { value: "IN", label: "Émise — nous encaissons" },
+      ],
+    },
     { type: "text", name: "recipient", label: "Destinataire (à qui elle est adressée)" },
     { type: "text", name: "payer", label: "Payeur (qui règle)" },
     { type: "textarea", name: "notes", label: "Notes", full: true },
