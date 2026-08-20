@@ -8,6 +8,8 @@ import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { createMailEntry } from "@/lib/actions/mail-register-actions";
 import { mailFields } from "./mail-fields";
 import { MailTable, type MailRow } from "./mail-table";
+import { getMyCompanies, companyLabel } from "@/lib/company";
+import { MailPartnersManager } from "./mail-partners";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Courriers — AMD Internal OS" };
@@ -33,10 +35,27 @@ export default async function CourriersPage() {
   const canCreate = userCan(user, "MAIL_REGISTER", "CREATE");
   const canEdit = userCan(user, "MAIL_REGISTER", "UPDATE");
 
+  // Les entités que CETTE personne peut choisir, et les partenaires actifs du registre.
+  const [myCompanies, partners] = await Promise.all([
+    getMyCompanies(user.id),
+    prisma.mailPartner.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, kind: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  const companyOpts = myCompanies.map((c) => ({ value: c.id, label: companyLabel(c) }));
+  const partnerRows = partners.map((p) => ({ id: p.id, name: p.name, kind: p.kind }));
+  const partnerOpts = partners.map((p) => ({ value: p.id, label: p.kind ? `${p.name} — ${p.kind}` : p.name }));
+
   const entries = await prisma.mailEntry.findMany({
     where: { ...await currentCompanyWhereFor(user.id) },
     orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
     take: 500,
+    include: {
+      company: { select: { name: true, shortName: true } },
+      partner: { select: { name: true } },
+    },
   });
 
   // Le nombre de pièces jointes par courrier, en UNE requête : afficher « 0 » partout serait faux,
@@ -59,6 +78,8 @@ export default async function CourriersPage() {
     receivedAt: m.receivedAt?.toISOString() ?? null,
     acknowledgedAt: m.acknowledgedAt?.toISOString() ?? null,
     carrier: m.carrier,
+    companyName: m.company?.shortName ?? m.company?.name ?? "",
+    partnerName: m.partner?.name ?? "",
     attachments: attachmentCount.get(m.id) ?? 0,
   }));
 
@@ -72,11 +93,15 @@ export default async function CourriersPage() {
         title="Courriers"
         description="Le carnet des plis entrants et sortants : objet, parties, départ, arrivée et accusé de réception. Filtrable — on y cherche toujours une pièce précise. Chaque courrier ouvre sa fiche : pièces jointes, modification, journal."
       >
+        {/* LA LISTE DES PARTENAIRES, tenue depuis le module — pas depuis l'Administration :
+            c'est l'assistante qui l'alimente en enregistrant ses plis, et l'envoyer ailleurs
+            pour ajouter un nom qu'elle a sous les yeux, c'est garantir que la liste ne vivra pas. */}
+        {canEdit && <MailPartnersManager partners={partnerRows} />}
         {canCreate && (
           <CreateRecordButton
             label="Nouveau courrier" title="Enregistrer un courrier" width="lg"
             description="Seul l'objet est obligatoire : l'arrivée et l'accusé se posent plus tard, en un clic depuis le tableau."
-            action={createMailEntry} fields={mailFields({}, "create")} redirectBase="/courriers"
+            action={createMailEntry} fields={mailFields({}, "create", companyOpts, partnerOpts)} redirectBase="/courriers"
           />
         )}
       </PageHeader>

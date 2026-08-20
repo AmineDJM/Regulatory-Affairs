@@ -48,6 +48,10 @@ function readFields(formData: FormData): MailFields {
     acknowledgedAt: fdDate(formData, "acknowledgedAt"),
     carrier: fdStr(formData, "carrier"),
     notes: fdStr(formData, "notes"),
+    // Le champ n'est présent que si le formulaire propose des entités. `undefined` laisse le
+    // noyau retomber sur l'entité par défaut du créateur — l'ancien comportement.
+    ...(formData.has("companyId") ? { companyId: fdStr(formData, "companyId") } : {}),
+    partnerId: fdStr(formData, "partnerId"),
   };
 }
 

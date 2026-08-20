@@ -32,6 +32,10 @@ export interface MailRow {
   receivedAt: string | null;
   acknowledgedAt: string | null;
   carrier: string | null;
+  /** Entité concernée et partenaire — deux colonnes qu'on cherche en retrouvant un pli
+   *  (« le courrier de Pharmagène à North Tech »). */
+  companyName: string;
+  partnerName: string;
   /** Nombre de pièces jointes — un courrier sans pièce se repère d'un coup d'œil. */
   attachments: number;
 }
@@ -119,6 +123,8 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
               <th className="px-3 pt-2 text-left font-medium">Départ</th>
               <th className="px-3 pt-2 text-left font-medium">Arrivée</th>
               <th className="px-3 pt-2 text-left font-medium">Accusé</th>
+              <th className="px-3 pt-2 text-left font-medium">Entité</th>
+              <th className="px-3 pt-2 text-left font-medium">Partenaire</th>
               <th className="px-3 pt-2 text-left font-medium">Porteur</th>
               <th className="px-3 pt-2 text-left font-medium"><Paperclip className="h-3.5 w-3.5" aria-label="Pièces jointes" /></th>
             </tr>
@@ -132,16 +138,15 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
               </th>
               <th className="px-2 pb-2 pt-1"><input value={f.title} onChange={set("title")} placeholder="Filtrer" className={cellInput} /></th>
               <th className="px-2 pb-2 pt-1" colSpan={2}><input value={f.party} onChange={set("party")} placeholder="Expéditeur ou destinataire" className={cellInput} /></th>
-              <th className="px-2 pb-2 pt-1" />
-              <th className="px-2 pb-2 pt-1" />
-              <th className="px-2 pb-2 pt-1" />
-              <th className="px-2 pb-2 pt-1" />
-              <th className="px-2 pb-2 pt-1" />
+              {/* Départ · Arrivée · Accusé · Entité · Partenaire · Porteur · Pièces — sept
+                  colonnes sans filtre propre : la ligne doit les compter, sinon les cellules
+                  de filtre se décalent d'une colonne et ne filtrent plus ce qu'elles annoncent. */}
+              <th className="px-2 pb-2 pt-1" colSpan={7} />
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {shown.length === 0 ? (
-              <tr><td colSpan={10} className="px-3 py-8 text-center text-sm text-muted-foreground">Aucun courrier ne correspond à ces filtres.</td></tr>
+              <tr><td colSpan={12} className="px-3 py-8 text-center text-sm text-muted-foreground">Aucun courrier ne correspond à ces filtres.</td></tr>
             ) : shown.map((r) => {
               const dir = MAIL_DIRECTION[r.direction];
               return (
@@ -157,6 +162,8 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
                   <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">{r.sentAt ? formatDateTime(r.sentAt) : "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap"><DateCell id={r.id} field="receivedAt" value={r.receivedAt} canEdit={canEdit} /></td>
                   <td className="px-3 py-2 whitespace-nowrap"><DateCell id={r.id} field="acknowledgedAt" value={r.acknowledgedAt} canEdit={canEdit} /></td>
+                  <td className="px-3 py-2 text-xs text-muted-foreground">{r.companyName || "—"}</td>
+                  <td className="px-3 py-2 text-xs text-muted-foreground">{r.partnerName || "—"}</td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{r.carrier || "—"}</td>
                   <td className="px-3 py-2">
                     {r.attachments > 0 ? (

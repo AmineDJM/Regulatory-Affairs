@@ -12,7 +12,14 @@ import { MAIL_DIRECTION } from "@/lib/labels";
  * `dateTimeInput` côté serveur, qui les produisent dans le MÊME fuseau que celui où l'action
  * serveur les relira : sans quoi ouvrir puis enregistrer sans rien toucher décalerait l'heure.
  */
-export function mailFields(values: Partial<Record<string, string>> = {}, mode: "create" | "edit" = "edit"): FieldDef[] {
+export function mailFields(
+  values: Partial<Record<string, string>> = {},
+  mode: "create" | "edit" = "edit",
+  /** Entités que CETTE personne a le droit de choisir. Une seule → le menu la présélectionne. */
+  companies: { value: string; label: string }[] = [],
+  /** Partenaires actifs du registre — la liste que tient l'assistante de direction. */
+  partners: { value: string; label: string }[] = [],
+): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
   return [
     { type: "text", name: "title", label: "Objet du courrier", required: true, full: true, defaultValue: v("title") },
@@ -22,6 +29,24 @@ export function mailFields(values: Partial<Record<string, string>> = {}, mode: "
       defaultValue: v("direction") ?? "OUTGOING",
     },
     { type: "text", name: "reference", label: "N° de chrono", defaultValue: v("reference") },
+    // L'ENTITÉ SE CHOISIT. Elle était déduite de la portée du sélecteur : un courrier saisi en
+    // vue « toutes les entités » n'en portait aucune, et l'assistante qui traite les plis des
+    // trois sociétés devait changer de portée entre deux enregistrements.
+    ...(companies.length > 0
+      ? ([{
+          type: "select", name: "companyId", label: "Entité concernée", options: companies,
+          placeholder: companies.length > 1 ? "— Choisir l'entité —" : undefined,
+          defaultValue: v("companyId") ?? (companies.length === 1 ? companies[0].value : undefined),
+        }] as FieldDef[])
+      : []),
+    // LE PARTENAIRE, s'il y en a un. Facultatif : beaucoup de plis sont internes, et rendre le
+    // champ obligatoire ferait inventer des partenaires pour pouvoir enregistrer un courrier.
+    ...(partners.length > 0
+      ? ([{
+          type: "select", name: "partnerId", label: "Partenaire concerné", options: partners,
+          placeholder: "— Aucun —", defaultValue: v("partnerId"),
+        }] as FieldDef[])
+      : []),
     { type: "text", name: "sender", label: "Expéditeur", defaultValue: v("sender") },
     { type: "text", name: "recipient", label: "Destinataire", defaultValue: v("recipient") },
     // Le départ porte l'HEURE : c'est ce qui départage deux plis du même jour.

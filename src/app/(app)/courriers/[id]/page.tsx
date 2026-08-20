@@ -17,6 +17,7 @@ import { renderTraceValue } from "@/lib/mail-register/trace";
 import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { mailFields, dateInput, dateTimeInput } from "../mail-fields";
 import { EditMailButton, DeleteMailButton } from "./edit-mail";
+import { getMyCompanies, companyLabel } from "@/lib/company";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +77,13 @@ export default async function MailEntryPage({ params }: { params: { id: string }
     createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
   }));
 
+  // Les mêmes menus qu'à la création : une entité ou un partenaire qu'on ne peut pas corriger
+  // sur la fiche, c'est une erreur de saisie qui reste au registre pour toujours.
+  const [myCompanies, partners] = await Promise.all([
+    getMyCompanies(user.id),
+    prisma.mailPartner.findMany({ where: { isActive: true }, select: { id: true, name: true, kind: true }, orderBy: { name: "asc" } }),
+  ]);
+
   const dir = MAIL_DIRECTION[entry.direction];
   const fields = mailFields({
     title: entry.title,
@@ -88,7 +96,12 @@ export default async function MailEntryPage({ params }: { params: { id: string }
     acknowledgedAt: dateInput(entry.acknowledgedAt),
     carrier: entry.carrier ?? undefined,
     notes: entry.notes ?? undefined,
-  });
+    companyId: entry.companyId ?? undefined,
+    partnerId: entry.partnerId ?? undefined,
+  }, "edit",
+    myCompanies.map((c) => ({ value: c.id, label: companyLabel(c) })),
+    partners.map((x) => ({ value: x.id, label: x.kind ? `${x.name} — ${x.kind}` : x.name })),
+  );
 
   return (
     <div className="space-y-5">

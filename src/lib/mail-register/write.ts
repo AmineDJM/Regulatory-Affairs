@@ -2,7 +2,7 @@ import type { EntityType, MailDirection } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { userCan, type SessionUser } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
-import { companyIdForNew } from "@/lib/company";
+import { companyIdForNew, getMyCompanies } from "@/lib/company";
 import { canAccessEntity } from "@/lib/entity-access";
 import type { ActionResult } from "@/lib/actions/types";
 import { diffMailEntry, describeMailChanges, MAIL_TRACKED_FIELDS, type MailSnapshot } from "./trace";
@@ -39,6 +39,14 @@ export interface MailFields {
    * les accès au Drive.
    */
   driveNodeId?: string | null;
+  /**
+   * ENTITÉ du courrier, CHOISIE et non déduite de la portée d'affichage. `undefined` retombe
+   * sur l'entité par défaut du créateur — l'ancien comportement, conservé pour les écritures
+   * qui ne passent pas par le formulaire (API d'agents).
+   */
+  companyId?: string | null;
+  /** Partenaire concerné (liste du module). `null` = aucun, ce qui est fréquent et normal. */
+  partnerId?: string | null;
 }
 
 /** Les colonnes suivies, lues telles quelles pour la comparaison avant/après. */
@@ -74,6 +82,16 @@ export async function createMailEntryFor(user: SessionUser, f: MailFields): Prom
   const title = (f.title ?? "").trim();
   if (!title) return { ok: false, error: "L'objet du courrier est obligatoire." };
 
+  // L'ENTITÉ CHOISIE EST VÉRIFIÉE. Elle vient d'un menu, donc d'un champ de formulaire : sans
+  // contrôle, on rangerait un pli dans une société qu'on n'a pas le droit de voir — et il y
+  // disparaîtrait aussitôt de sa propre vue.
+  if (f.companyId) {
+    const mine = await getMyCompanies(user.id);
+    if (!mine.some((c) => c.id === f.companyId)) {
+      return { ok: false, error: "Cette entité n'est pas dans votre périmètre." };
+    }
+  }
+
   const created = await prisma.mailEntry.create({
     data: {
       title,
@@ -87,7 +105,8 @@ export async function createMailEntryFor(user: SessionUser, f: MailFields): Prom
       carrier: f.carrier ?? null,
       notes: f.notes ?? null,
       driveNodeId: f.driveNodeId ?? null,
-      companyId: await companyIdForNew(user.id),
+      partnerId: f.partnerId ?? null,
+      companyId: f.companyId !== undefined ? f.companyId : await companyIdForNew(user.id),
       sourceType: f.sourceType ?? null,
       sourceId: f.sourceId ?? null,
       createdById: user.id, updatedById: user.id,
@@ -127,7 +146,20 @@ export async function updateMailEntryFor(user: SessionUser, id: string, f: MailF
     carrier: f.carrier ?? null,
     notes: f.notes ?? null,
   };
-  await prisma.mailEntry.update({ where: { id }, data: { ...after, updatedById: user.id } });
+  // ENTITÉ ET PARTENAIRE se corrigent aussi — une erreur de saisie qui ne se rattrape pas
+  // reste au registre pour toujours. Ils sont écrits À CÔTÉ de `after` : le journal suit des
+  // champs LISIBLES, et y inscrire « cmt1es… → cmt2fk… » n'apprendrait rien à personne.
+  if (f.companyId !== undefined && f.companyId) {
+    const mine = await getMyCompanies(user.id);
+    if (!mine.some((c) => c.id === f.companyId)) {
+      return { ok: false, error: "Cette entité n'est pas dans votre périmètre." };
+    }
+  }
+  const links = {
+    ...(f.companyId !== undefined ? { companyId: f.companyId } : {}),
+    ...(f.partnerId !== undefined ? { partnerId: f.partnerId ?? null } : {}),
+  };
+  await prisma.mailEntry.update({ where: { id }, data: { ...after, ...links, updatedById: user.id } });
   const changes = await traceMailChanges(user.id, id, title, before, after);
   return {
     ok: true,

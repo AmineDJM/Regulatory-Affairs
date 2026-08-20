@@ -7710,6 +7710,30 @@ model LegalDocumentReader {
 
 // ───────────────────────────── COURRIERS — le carnet entrant / sortant ─────────────────────────────
 
+/// UN PARTENAIRE DU REGISTRE DES COURRIERS — fournisseur, administration, client, prestataire.
+///
+/// Liste PROPRE au module, et non les fournisseurs du Regulatory : ceux-là sont des fabricants
+/// pharmaceutiques référencés dans des dossiers d'enregistrement, et les mêler ferait de
+/// l'assistante de direction quelqu'un qui peut supprimer un fabricant d'AMM en rangeant son
+/// courrier. Elle tient CETTE liste, elle seule, et elle n'engage que le registre.
+model MailPartner {
+  id       String  @id @default(cuid())
+  name     String  @unique
+  /// Nature libre — « Fournisseur », « Administration », « Client », « Prestataire »…
+  kind     String?
+  contact  String?
+  notes    String?
+  isActive Boolean @default(true)
+
+  entries MailEntry[]
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+}
+
 enum MailDirection {
   INCOMING // courrier reçu
   OUTGOING // courrier expédié
@@ -7735,6 +7759,10 @@ model MailEntry {
   receivedAt     DateTime? // date d'arrivée
   acknowledgedAt DateTime? // date d'accusé de réception
   carrier        String? // porteur / transporteur (coursier, poste, e-mail…)
+  /// LE PARTENAIRE CONCERNÉ, s'il y en a un — choisi dans la liste du module (`MailPartner`).
+  /// Facultatif : beaucoup de plis sont internes ou n'engagent personne d'extérieur.
+  partnerId      String?
+  partner        MailPartner?  @relation(fields: [partnerId], references: [id], onDelete: SetNull)
   notes          String?
   /// LE FICHIER RESTE DANS LE DRIVE : on le référence, on ne le duplique pas. Deux copies
   /// auraient divergé dès la première correction, et plus personne n'aurait su laquelle fait foi.
@@ -7753,6 +7781,7 @@ model MailEntry {
   @@index([receivedAt])
   @@index([sourceType, sourceId])
   @@index([driveNodeId])
+  @@index([partnerId])
 }
 
 // ───────────────────────────── FACTURES ─────────────────────────────
