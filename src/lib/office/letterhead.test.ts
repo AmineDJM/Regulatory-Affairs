@@ -5,10 +5,18 @@ import {
 } from "./letterhead";
 
 describe("canManageLetterheads — qui tient la papeterie de la société", () => {
-  it("l'assistante de direction et l'encadrement au-dessus d'elle", () => {
-    for (const role of ["SUPER_ADMIN", "DIRECTION", "GENERAL_MANAGER", "DIRECTION_ASSISTANT"]) {
+  it("l'assistante de direction et le Super Admin", () => {
+    for (const role of ["SUPER_ADMIN", "DIRECTION_ASSISTANT"]) {
       expect(canManageLetterheads({ role }), role).toBe(true);
     }
+  });
+
+  // Ils SIGNENT les courriers, ils ne tiennent pas la papeterie. Leur laisser le bloc, c'était
+  // afficher un panneau de gestion — bouton « Téléverser », modèles retirés — à des gens qui
+  // n'ont jamais à y toucher.
+  it("ni la Direction ni le Directeur Général", () => {
+    expect(canManageLetterheads({ role: "DIRECTION" })).toBe(false);
+    expect(canManageLetterheads({ role: "GENERAL_MANAGER" })).toBe(false);
   });
 
   // Un en-tête erroné part sur tous les courriers de la société avant qu'on le remarque :

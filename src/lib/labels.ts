@@ -1499,7 +1499,11 @@ export const NAVIGATION: NavItem[] = [
   // l'aurait rendue invisible à ceux-là mêmes qui doivent y déposer leurs dossiers. L'écran,
   // lui, est gardé par le cercle de chaque demande : on n'y voit que les siennes, et les
   // Finances y voient la file à instruire.
-  { module: "WORKSPACE", label: "Demandes de paiement", href: "/finances/paiements", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
+  // LA DEMANDE DE PAIEMENT EST UNE DEMANDE : elle vit avec les autres, dans les Demandes de
+  // validations. Module WORKSPACE, donc ouverte à tous — n'importe qui peut avoir à faire payer
+  // une facture sans avoir la moindre raison de voir le grand livre. Les Finances, elles, la
+  // retrouvent depuis LEUR module, où elles instruisent.
+  { module: "WORKSPACE", label: "Demandes de paiement", href: "/validations/paiements", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", pole: "ADMINISTRATION", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie", "/formations"] },
   // LEGAL — les engagements de la société : contrats, bons de commande, assurances, baux. Le
   // fichier reste dans le Drive ; Legal porte ce que le Drive ne sait pas dire (dates, échéance,

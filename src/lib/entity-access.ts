@@ -139,8 +139,12 @@ export async function canAccessEntity(
   //
   // N'importe qui peut avoir à faire payer une facture — un chef de produit, une assistante, un
   // délégué — sans avoir la moindre raison de voir le grand livre ou la trésorerie. Exiger le
-  // module Finances aurait fermé les pièces à ceux-là mêmes qui doivent les déposer ; exiger le
-  // module de validation, lui, n'avait plus de sens une fois le dossier parti aux Finances.
+  // module Finances fermerait les pièces à ceux-là mêmes qui doivent les déposer ; exiger le
+  // module de validation les fermerait à qui dépose sa première demande.
+  //
+  // La garde est donc le CERCLE du dossier — demandeur, destinataire, Finances — et elle ne
+  // dépend PAS de l'écran où le dossier s'affiche. C'est ce qui lui a permis de traverser sans
+  // dommage ses deux déménagements (Validations → Finances → Validations).
   if (entityType === "PAYMENT_REQUEST") {
     if (hasGlobalView(user.role)) return true;
     const r = await prisma.paymentRequest.findUnique({

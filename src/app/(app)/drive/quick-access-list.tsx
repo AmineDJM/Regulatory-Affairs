@@ -26,12 +26,18 @@ export interface QuickRow extends ExplorerRow {
  * La bascule « grandes icônes » sert aux dossiers d'images et de scans, où le nom ne dit rien.
  */
 export function QuickAccessList({
-  rows, emptyTitle, emptyHint, showFolder = true,
+  rows, emptyTitle, emptyHint, showFolder = true, showFilter = true, summary, folderHeading = "Emplacement",
 }: {
   rows: QuickRow[];
   emptyTitle: string;
   emptyHint: string;
   showFolder?: boolean;
+  /** Le filtre local. Coupé sur la page de RECHERCHE : deux champs de saisie côte à côte, dont
+   *  l'un cherche dans tout le Drive et l'autre dans la liste affichée, ne se distinguent pas. */
+  showFilter?: boolean;
+  /** Phrase affichée à la place du décompte brut (« 3 résultats pour « contrat » »). */
+  summary?: string;
+  folderHeading?: string;
 }) {
   const [key, setKey] = React.useState<SortKey>("updatedAt");
   const [dir, setDir] = React.useState<SortDir>("desc");
@@ -61,8 +67,12 @@ export function QuickAccessList({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher dans cette liste…" className="w-64" />
-        <span className="text-xs text-muted-foreground">{sorted.length} élément{sorted.length > 1 ? "s" : ""}</span>
+        {showFilter && (
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher dans cette liste…" className="w-64" />
+        )}
+        <span className="text-xs text-muted-foreground">
+          {summary ?? `${sorted.length} élément${sorted.length > 1 ? "s" : ""}`}
+        </span>
         <button
           type="button"
           onClick={() => setTiles(!tiles)}
@@ -98,7 +108,7 @@ export function QuickAccessList({
                 {head("updatedAt", "Modifié le", "w-48")}
                 {head("type", "Type", "w-48")}
                 {head("size", "Taille", "w-28")}
-                {showFolder && <th className="px-3 py-2 text-left font-medium w-48">Emplacement</th>}
+                {showFolder && <th className="px-3 py-2 text-left font-medium w-48">{folderHeading}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">

@@ -51,7 +51,7 @@ export default async function FinancesPage() {
             {pendingOrders > 0 && <span className="ml-1 rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">{pendingOrders}</span>}
           </Button>
         </Link>
-        <Link href="/finances/paiements">
+        <Link href="/validations/paiements">
           <Button variant="outline">
             <Banknote className="h-4 w-4" /> Demandes de paiement
             {pendingPayments > 0 && <span className="ml-1 rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">{pendingPayments}</span>}

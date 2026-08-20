@@ -20,16 +20,59 @@ import { DriveCanvas } from "./drive-canvas";
 import { ExplorerNav } from "./explorer-nav";
 import { DriveToolbar } from "./drive-toolbar";
 import { QuickAccessList, type QuickRow } from "./quick-access-list";
+import { DriveSearch } from "./drive-search";
 import { parseView, VIEW_TITLE, fileTypeLabel, explorerSize } from "@/lib/drive/explorer";
 import { getRecentFiles } from "@/lib/queries/drive-quick-access";
+import { searchDrive } from "@/lib/queries/drive-search";
+import { normalizeQuery, searchSummary } from "@/lib/drive/search";
 import { letterheadContextFor } from "@/lib/queries/letterheads";
 
 
-export default async function DrivePage({ searchParams }: { searchParams: { folder?: string; trash?: string; view?: string } }) {
+export default async function DrivePage({ searchParams }: { searchParams: { folder?: string; trash?: string; view?: string; q?: string } }) {
   const user = await requireModule("DRIVE");
   const folderId = searchParams.folder ?? null;
   const trash = searchParams.trash === "1";
   const view = parseView(searchParams.view, trash);
+  const query = normalizeQuery(searchParams.q);
+
+  // LA RECHERCHE est un MODE, pas un filtre du dossier courant : elle prend toute la page et
+  // ignore `folder`. Chercher dans le dossier où l'on se trouve déjà ne sert à rien — si l'on
+  // savait où regarder, on n'aurait pas ouvert la barre de recherche.
+  if (query) {
+    const [outcome, navSpaces] = await Promise.all([
+      searchDrive(user, query),
+      getDriveSpacesForUser(user),
+    ]);
+    const found: QuickRow[] = outcome.rows.map((r) => ({
+      id: r.id, name: r.name, isFile: r.isFile, size: r.size, updatedAt: r.updatedAt,
+      folderName: r.path, href: r.href,
+    }));
+    return (
+      <div className="space-y-4">
+        <PageHeader title="Recherche">
+          <DriveSearch initial={query} />
+        </PageHeader>
+        <div className="flex flex-col gap-4 lg:flex-row">
+          <ExplorerNav active="search" spaces={navSpaces} />
+          <div className="min-w-0 flex-1 space-y-2">
+            <QuickAccessList
+              rows={found}
+              showFilter={false}
+              summary={searchSummary(found.length, query)}
+              folderHeading="Chemin"
+              emptyTitle="Aucun résultat"
+              emptyHint="Essayez un autre mot du nom du fichier — la recherche ignore les accents et la casse."
+            />
+            {outcome.truncated && (
+              <p className="text-xs text-muted-foreground">
+                Tous les résultats ne sont pas affichés — précisez votre recherche.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ACCÈS RAPIDE — une liste transverse, qui ne parcourt pas l'arborescence. Elle passe par le
   // même filtre de visibilité : un raccourci ne doit jamais montrer plus que la navigation.
@@ -44,7 +87,9 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
     }));
     return (
       <div className="space-y-4">
-        <PageHeader title={VIEW_TITLE.recent} />
+        <PageHeader title={VIEW_TITLE.recent}>
+          <DriveSearch />
+        </PageHeader>
         <div className="flex flex-col gap-4 lg:flex-row">
           <ExplorerNav active="recent" spaces={navSpaces} />
           <div className="min-w-0 flex-1">
@@ -120,6 +165,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
   return (
     <div className="space-y-4">
       <PageHeader title={trash ? "Corbeille" : VIEW_TITLE.browse}>
+        <DriveSearch />
         <DriveToolbar
           trashHref={trash ? "/drive" : "/drive?trash=1"}
           trashLabel={trash ? "Mes fichiers" : "Corbeille"}

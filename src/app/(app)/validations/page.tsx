@@ -89,7 +89,7 @@ export default async function ValidationsPage() {
           par pièce. Le garder dans ce bureau obligeait à chercher un dossier de paiement à deux
           endroits — et à se demander lequel faisait foi. Le renvoi reste, le dossier a déménagé. */}
       <Link
-        href="/finances/paiements"
+        href="/validations/paiements"
         className="surface flex flex-wrap items-center justify-between gap-3 p-3 text-sm transition-colors hover:bg-secondary/40"
       >
         <span className="flex items-center gap-2 font-medium">

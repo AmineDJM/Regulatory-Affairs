@@ -18,6 +18,7 @@ import { DriveTable, type DriveRow } from "../../drive-table";
 import { DriveCanvas } from "../../drive-canvas";
 import { ExplorerNav } from "../../explorer-nav";
 import { DriveToolbar } from "../../drive-toolbar";
+import { DriveSearch } from "../../drive-search";
 import { letterheadContextFor } from "@/lib/queries/letterheads";
 
 export const dynamic = "force-dynamic";
@@ -92,6 +93,9 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
   return (
     <div className="space-y-4">
       <PageHeader title={trash ? `Corbeille — ${space.name}` : space.name}>
+        {/* La recherche est GLOBALE, même lancée depuis une catégorie : un fichier qu'on croit
+            rangé ici est souvent ailleurs — c'est justement pour cela qu'on le cherche. */}
+        <DriveSearch />
         <DriveToolbar
           trashHref={trash ? base : `${base}?trash=1`}
           trashLabel={trash ? "Fichiers" : "Corbeille"}

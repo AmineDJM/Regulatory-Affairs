@@ -13,19 +13,24 @@
 import type { OfficeKind } from "@/lib/office-templates";
 
 /**
- * QUI TIENT LA PAPETERIE DE LA SOCIÉTÉ.
+ * QUI TIENT LA PAPETERIE DE LA SOCIÉTÉ — deux personnes, pas un cercle.
  *
- * L'assistante de direction, et l'encadrement au-dessus d'elle. Ce n'est pas un droit de module
- * (« qui peut créer un document Word ») mais une responsabilité : un en-tête erroné part sur
- * tous les courriers de la société avant que quiconque le remarque.
+ * L'ASSISTANTE DE DIRECTION et le SUPER ADMIN, et personne d'autre. Ce n'est pas un droit de
+ * module (« qui peut créer un document Word ») mais une responsabilité étroite : un en-tête
+ * erroné part sur tous les courriers de la société avant que quiconque le remarque.
+ *
+ * La Direction et le Directeur Général en ont été RETIRÉS : ils signent les courriers, ils ne
+ * tiennent pas la papeterie. Leur laisser le bloc, c'était afficher un panneau de gestion — avec
+ * son bouton « Téléverser » et ses modèles retirés — à des gens qui n'ont jamais à y toucher.
+ *
+ * ⚠️ Ceci ne gouverne QUE la bibliothèque. CHOISIR un en-tête à la création d'un document reste
+ * ouvert à tout le monde : c'est le but même d'avoir des modèles.
  *
  * Liste EXPLICITE plutôt qu'un droit dérivé : on doit pouvoir lire, en une ligne, qui peut
  * changer le papier à en-tête d'Adventum.
  */
 const LETTERHEAD_MANAGER_ROLES: readonly string[] = [
   "SUPER_ADMIN",
-  "DIRECTION",
-  "GENERAL_MANAGER",
   "DIRECTION_ASSISTANT",
 ];
 
