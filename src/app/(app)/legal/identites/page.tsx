@@ -1,0 +1,71 @@
+import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+import { PageHeader } from "@/components/shared/page-header";
+import { EmptyState } from "@/components/shared/empty-state";
+import { getMyCompanies, companyLabel } from "@/lib/company";
+import { IDENTITY_SECTIONS, identityFieldKeys } from "@/lib/legal/identity";
+import { IdentityBoard, type IdentityCompany } from "./identity-board";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * COORDONNÉES LÉGALES & FISCALES — la carte d'identité de chaque entité, copiable.
+ *
+ * RC, NIF, NIS, article d'imposition, RIB, siège : on les redemande dix fois par mois, sur un
+ * appel d'offres, une facture, un contrat, un dossier bancaire. Recopiés de mémoire d'un vieux
+ * document Word, ils arrivent avec une faute de frappe une fois sur cinq — et sur un numéro à
+ * quinze chiffres, personne ne la voit avant le rejet du dossier.
+ *
+ * Leur place est ici, dans LEGAL : c'est le module des engagements de la société, et ces
+ * numéros sont ce par quoi elle s'engage. On choisit l'entité, on lit, on copie — le champ
+ * seul ou le bloc entier.
+ */
+export default async function LegalIdentitiesPage({ searchParams }: { searchParams?: { entite?: string } }) {
+  const user = await requireModule("LEGAL");
+  const canEdit = userCan(user, "LEGAL", "UPDATE");
+
+  // Le cloisonnement s'applique : on ne lit pas la carte fiscale d'une société qu'on ne voit pas.
+  const mine = await getMyCompanies(user.id);
+  if (mine.length === 0) {
+    return (
+      <div className="space-y-5">
+        <PageHeader title="Coordonnées légales & fiscales" />
+        <EmptyState
+          icon="Building2"
+          title="Aucune entité dans votre périmètre"
+          description="Ces coordonnées appartiennent à une société : sans entité, il n'y a rien à afficher."
+        />
+      </div>
+    );
+  }
+
+  const identities = await prisma.companyLegalIdentity.findMany({
+    where: { companyId: { in: mine.map((c) => c.id) } },
+  });
+  const byCompany = new Map(identities.map((i) => [i.companyId, i]));
+
+  const companies: IdentityCompany[] = mine.map((c) => {
+    const row = byCompany.get(c.id) as Record<string, unknown> | undefined;
+    const values: Record<string, string> = {};
+    for (const key of identityFieldKeys()) {
+      const v = row?.[key];
+      values[key] = typeof v === "string" ? v : "";
+    }
+    return { id: c.id, label: companyLabel(c), color: c.color, values };
+  });
+
+  const initial = searchParams?.entite && companies.some((c) => c.id === searchParams.entite)
+    ? searchParams.entite
+    : companies[0].id;
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title="Coordonnées légales & fiscales"
+        description="La carte d'identité de chaque entité — dénomination exacte, RC, NIF, NIS, article d'imposition, siège, banque, représentant légal. Choisissez l'entité, copiez le champ dont vous avez besoin ou le bloc entier : c'est ce qu'on recopie de mémoire, et c'est là que les fautes de frappe entrent dans les dossiers."
+      />
+      <IdentityBoard companies={companies} sections={IDENTITY_SECTIONS} initial={initial} canEdit={canEdit} />
+    </div>
+  );
+}

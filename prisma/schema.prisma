@@ -386,6 +386,9 @@ enum EntityType {
   PAYMENT_REQUEST
   MAIL_ENTRY
   LEGAL_DOCUMENT
+  /// L'ENTITÉ elle-même — porte les pièces de sa carte d'identité légale et fiscale (extrait
+  /// du registre, attestation fiscale, statuts, RIB scanné). Gouvernée par le module LEGAL.
+  COMPANY
 }
 
 enum DocumentCategory {
@@ -1165,8 +1168,54 @@ model Company {
   fieldReports            FieldReport[]
   Training                Training[]
   productRanges           ProductRange[]
+  legalIdentity           CompanyLegalIdentity?
 
   @@index([isActive])
+}
+
+/// LA CARTE D'IDENTITÉ LÉGALE ET FISCALE D'UNE ENTITÉ.
+///
+/// Ces coordonnées — RC, NIF, NIS, article d'imposition, RIB, adresse du siège — sont demandées
+/// dix fois par mois : sur un appel d'offres, une facture, un contrat, un dossier bancaire. Elles
+/// vivaient dans un vieux document Word que chacun recopiait de mémoire, avec les fautes de
+/// frappe que cela suppose sur un numéro à quinze chiffres. Elles sont ici, à leur place — dans
+/// LEGAL, module des engagements de la société — et se copient d'un clic.
+///
+/// Un seul jeu par entité (relation 1-1) : deux « identités fiscales » d'une même société
+/// seraient exactement le doute qu'on vient lever.
+model CompanyLegalIdentity {
+  id        String  @id @default(cuid())
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// Dénomination EXACTE telle qu'elle figure au registre — souvent différente du nom d'usage.
+  legalName    String?
+  legalForm    String? // SARL, SPA, EURL…
+  shareCapital String? // en toutes lettres et en chiffres, tel qu'aux statuts
+  /// Registre de commerce, identifiants fiscaux algériens.
+  rcNumber     String? // n° du registre de commerce
+  nif          String? // numéro d'identification fiscale
+  nis          String? // numéro d'identification statistique
+  taxArticle   String? // article d'imposition
+  /// Coordonnées.
+  headOffice   String? // adresse du siège social
+  phone        String?
+  email        String?
+  website      String?
+  /// Banque.
+  bankName     String?
+  bankAgency   String?
+  rib          String? // relevé d'identité bancaire (20 chiffres)
+  iban         String?
+  swift        String?
+  /// Représentation légale.
+  managerName  String?
+  managerTitle String?
+  notes        String?
+
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 /// UNE GAMME — le regroupement de produits d'une entité (« Cardiologie », « Hôpital », …).

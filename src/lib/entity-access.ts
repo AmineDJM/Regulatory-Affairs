@@ -2,6 +2,7 @@ import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { platformScope } from "@/lib/company";
 import { legalReaderWhere } from "@/lib/legal/readers";
+import { getMyCompanies } from "@/lib/company";
 import {
   userCan,
   hasGlobalView,
@@ -35,6 +36,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   BD_PROJECT: "BUSINESS_DEVELOPMENT",
   FINANCE_TRANSACTION: "FINANCES",
   EMPLOYEE: "RH",
+  COMPANY: "LEGAL",
   PAYROLL: "FINANCES",
   LEAVE_REQUEST: "RH",
   TASK: "WORKSPACE",
@@ -259,6 +261,12 @@ export async function canAccessEntity(
         select: { id: true },
       });
       return Boolean(found);
+    }
+    case "COMPANY": {
+      // Les pièces d'identité d'une société ne se lisent QUE depuis son périmètre : le module
+      // Legal ne donne pas accès aux statuts et au RIB de toutes les sociétés du groupe.
+      const mine = await getMyCompanies(user.id);
+      return mine.some((c) => c.id === entityId);
     }
     case "LEGAL_DOCUMENT": {
       // Deux gardes : l'ENTITÉ (les engagements d'une société ne se lisent pas depuis une autre)

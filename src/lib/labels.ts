@@ -1488,7 +1488,14 @@ export const NAVIGATION: NavItem[] = [
   // LEGAL — les engagements de la société : contrats, bons de commande, assurances, baux. Le
   // fichier reste dans le Drive ; Legal porte ce que le Drive ne sait pas dire (dates, échéance,
   // partie en face) et rappelle avant l'échéance.
-  { module: "LEGAL", label: "Legal", href: "/legal", icon: "Scale", group: "Pôles", pole: "ADMINISTRATION" },
+  {
+    module: "LEGAL", label: "Legal", href: "/legal", icon: "Scale", group: "Pôles", pole: "ADMINISTRATION",
+    // Les COORDONNÉES LÉGALES & FISCALES de chaque entité vivent sous Legal : ce sont les
+    // numéros par lesquels la société s'engage, et on les cherche là où l'on range ses engagements.
+    children: [
+      { module: "LEGAL", label: "Coordonnées des entités", href: "/legal/identites", icon: "IdCard", group: "Pôles", pole: "ADMINISTRATION" },
+    ],
+  },
   // COURRIERS — le carnet entrant/sortant de l'assistante de direction.
   { module: "MAIL_REGISTER", label: "Courriers", href: "/courriers", icon: "Mails", group: "Pôles", pole: "ADMINISTRATION" },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages"] },
