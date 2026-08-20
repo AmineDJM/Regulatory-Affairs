@@ -27,9 +27,14 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
   });
 
   it("≤ 5 sous-modules visibles → ouvert par défaut", () => {
-    const admin = groupIntoPoles(accessible(["GENERAL_MEANS", "FINANCES", "RH", "BUDGETS"]))
+    // « Moyens généraux » et « Demandes de paiement » relèvent de WORKSPACE, que TOUT LE MONDE
+    // a : demander un achat ou un paiement est un geste de n'importe quel employé, et l'écran
+    // se charge ensuite de ne montrer ni budget ni trésorerie à qui n'y a pas droit.
+    const admin = groupIntoPoles(accessible(["WORKSPACE", "FINANCES", "RH", "BUDGETS"]))
       .find((p) => p.key === "ADMINISTRATION");
-    expect(admin?.children).toHaveLength(4);
+    expect(admin?.children.map((c) => c.label)).toEqual([
+      "Moyens généraux", "Finances", "Demandes de paiement", "Ressources humaines", "Budgets",
+    ]);
     expect(admin?.defaultOpen).toBe(true);
   });
 

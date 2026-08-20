@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Wallet, ExternalLink, FileText, Download } from "lucide-react";
-import { requireModule } from "@/lib/session";
+import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
 import { getGeneralMeans, resolveGeneralMeansDepartment, LIST_LIMIT } from "@/lib/queries/general-means";
@@ -19,6 +19,7 @@ import { ExpensePanel } from "./expense-panel";
 import { DepartmentSwitcher } from "./department-switcher";
 import { SuppliesManager } from "../demandes/supplies-manager";
 import { ExpenseRowActions } from "./expense-row-actions";
+import { PurchaseSection } from "./purchase-section";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Moyens généraux — AMD Internal OS" };
@@ -41,21 +42,52 @@ export const metadata = { title: "Moyens généraux — AMD Internal OS" };
 export default async function MoyensGenerauxPage({
   searchParams,
 }: { searchParams: { dept?: string; year?: string; period?: string } }) {
-  // Module À PART : sa porte est « Moyens généraux », pas « Budgets » — l'assistante de
-  // direction n'a pas le second, et c'est elle qui s'en sert tous les jours.
-  const user = await requireModule("GENERAL_MEANS");
+  // DEUX VISAGES SUR LE MÊME ÉCRAN, et c'est le sujet de cette page.
+  //
+  // Demander un achat est un geste de TOUT employé : un délégué qui a besoin de cartouches n'a
+  // pas à connaître le circuit ni à écrire à l'assistante. La porte du module s'ouvre donc à
+  // tous — mais le BUDGET, lui, reste fermé à qui n'a pas le droit de module. Ce n'est pas de
+  // la cachotterie : connaître le reste de l'enveloppe transforme une demande en négociation,
+  // et le rôle du demandeur est de dire ce dont il a besoin, pas d'arbitrer une caisse qu'il
+  // ne tient pas.
+  const user = await requireUser();
   const year = normalizeYear(searchParams.year);
   const period = searchParams.period ?? currentPeriod();
+
+  // Le catalogue est proposé à TOUT LE MONDE : c'est lui qui rend la demande possible sans
+  // connaître les références internes.
+  const articles = await prisma.officeSupplyArticle.findMany({
+    where: { active: true },
+    select: { id: true, name: true, unit: true, estimatedPrice: true },
+    orderBy: { name: "asc" },
+  });
+  const articleOptions = articles.map((a) => ({
+    id: a.id, name: a.name, unit: a.unit, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null,
+  }));
+
+  // LA VUE DU DEMANDEUR — son catalogue, ses demandes, et rien du budget.
+  if (!userCan(user, "GENERAL_MEANS", "VIEW")) {
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title="Moyens généraux"
+          description="Demandez ce dont vous avez besoin pour travailler — dans le catalogue de la société, ou décrit en clair. Votre responsable valide, et l'achat suit."
+        />
+        <PurchaseSection userId={user.id} articles={articleOptions} />
+      </div>
+    );
+  }
 
   const departmentId = await resolveGeneralMeansDepartment(user, searchParams.dept);
   if (!departmentId) {
     return (
       <div className="space-y-5">
         <PageHeader title="Moyens généraux" description="La caisse d'un département — l'exercice et le mois — et ses achats, au même endroit." />
+        <PurchaseSection userId={user.id} articles={articleOptions} />
         <EmptyState
           icon="Building2"
           title="Aucun département rattaché à votre compte"
-          description="Les moyens généraux se tiennent par département. Demandez aux ressources humaines de rattacher votre fiche employé."
+          description="La caisse et le budget se tiennent par département. Demandez aux ressources humaines de rattacher votre fiche employé — vos demandes d'achat, elles, fonctionnent déjà."
         />
       </div>
     );
@@ -82,22 +114,12 @@ export default async function MoyensGenerauxPage({
   // La liste courte alimente les menus déroulants des tickets ; la liste détaillée n'est
   // chargée que pour qui peut la tenir.
   const canManageCatalog = userCan(user, "GENERAL_MEANS", "UPDATE");
-  const [articles, catalog] = await Promise.all([
-    prisma.officeSupplyArticle.findMany({
-      where: { active: true },
-      select: { id: true, name: true, unit: true, estimatedPrice: true },
-      orderBy: { name: "asc" },
-    }),
-    canManageCatalog
-      ? prisma.officeSupplyArticle.findMany({
-          select: { id: true, name: true, category: true, unit: true, reference: true, estimatedPrice: true, supplierHint: true, active: true, notes: true },
-          orderBy: [{ active: "desc" }, { name: "asc" }],
-        })
-      : Promise.resolve([]),
-  ]);
-  const articleOptions = articles.map((a) => ({
-    id: a.id, name: a.name, unit: a.unit, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null,
-  }));
+  const catalog = canManageCatalog
+    ? await prisma.officeSupplyArticle.findMany({
+        select: { id: true, name: true, category: true, unit: true, reference: true, estimatedPrice: true, supplierHint: true, active: true, notes: true },
+        orderBy: [{ active: "desc" }, { name: "asc" }],
+      })
+    : [];
   const catalogRows = catalog.map((a) => ({ ...a, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null }));
 
   // LES CASES BUDGÉTAIRES OUVERTES ICI. Liste volontairement pauvre : des destinations, sans
@@ -140,6 +162,8 @@ export default async function MoyensGenerauxPage({
           hint={view.cash ? undefined : "aucune caisse ce mois-ci"}
         />
       </div>
+
+      <PurchaseSection userId={user.id} articles={articleOptions} />
 
       <Card>
         <CardHeader>

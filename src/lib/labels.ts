@@ -1477,7 +1477,13 @@ export const NAVIGATION: NavItem[] = [
 
   // ADMINISTRATION — l'administration de L'ENTREPRISE (à ne pas confondre avec la Console
   // d'Administration, qui est celle du logiciel et vit dans « Système »).
-  { module: "GENERAL_MEANS", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket", group: "Pôles", pole: "ADMINISTRATION" },
+  // MOYENS GÉNÉRAUX — ouvert à TOUT LE MONDE, mais pas au même écran.
+  //
+  // Le module retenu est WORKSPACE, et ce n'est pas un raccourci : demander un achat est un
+  // geste de tout employé — un délégué qui a besoin de cartouches n'a pas à connaître le
+  // circuit ni à écrire à l'assistante. Le BUDGET, lui, reste gardé par `GENERAL_MEANS` DANS
+  // la page : qui ne l'a pas voit son catalogue et ses demandes, et rien de l'enveloppe.
+  { module: "WORKSPACE", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket", group: "Pôles", pole: "ADMINISTRATION" },
   // FINANCES porte ses écrans DEDANS, pas en sous-entrées de menu : « Règlements à effectuer » et
   // « Factures » s'atteignent depuis la page Finances, qui reste la porte unique du module.
   {
