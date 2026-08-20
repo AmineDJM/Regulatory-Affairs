@@ -16,6 +16,7 @@ import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/util
 import { effectiveStatus, expiryLevel, daysLeft } from "@/lib/legal/lifecycle";
 import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { legalFields, dateInput } from "../legal-fields";
+import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { EditLegalButton } from "./edit-legal";
 import { legalReaderWhere, readersCaption } from "@/lib/legal/readers";
 
@@ -91,6 +92,11 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   const st = LEGAL_DOC_STATUS[status];
   const exp = LEGAL_EXPIRY_LEVEL[expiry];
 
+  // Le classement se corrige depuis la fiche : constater qu'un engagement est au mauvais endroit
+  // et devoir revenir à la liste pour le déplacer, c'est ne jamais le déplacer.
+  const folderRows = await prisma.legalFolder.findMany({ select: { id: true, name: true, parentId: true } });
+  const folderOptions = flattenFolders(buildFolderTree(folderRows)).map((n) => ({ value: n.id, label: indentedLabel(n) }));
+
   const fields = legalFields({
     title: doc.title,
     reference: doc.reference ?? undefined,
@@ -100,7 +106,8 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     endDate: dateInput(doc.endDate),
     amount: doc.amount !== null ? String(toNumber(doc.amount)) : undefined,
     notes: doc.notes ?? undefined,
-  });
+    folderId: doc.folderId ?? undefined,
+  }, "edit", [], folderOptions);
 
   return (
     <div className="space-y-5">

@@ -13,6 +13,8 @@ export function legalFields(
   mode: "create" | "edit" = "edit",
   /** Personnes désignables comme lecteurs. Vide → la case n'apparaît pas. */
   people: { value: string; label: string }[] = [],
+  /** Dossiers de classement. Vide → le champ n'apparaît pas (aucune armoire à ranger). */
+  folders: { value: string; label: string }[] = [],
 ): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
   return [
@@ -24,6 +26,14 @@ export function legalFields(
     { type: "date", name: "endDate", label: "Date de fin — vide = sans échéance", defaultValue: v("endDate") },
     { type: "number", name: "amount", label: "Montant (DZD)", defaultValue: v("amount") },
     { type: "textarea", name: "notes", label: "Notes", full: true, defaultValue: v("notes") },
+    // OÙ ON LE RANGE. Facultatif, et ça compte : un engagement se dépose vite, il se classe
+    // ensuite. Le dossier RANGE, il n'autorise pas — la restriction reste sur le document.
+    ...(folders.length > 0
+      ? ([{
+          type: "select", name: "folderId", label: "Dossier de classement", options: folders,
+          placeholder: "— Non classé —", defaultValue: v("folderId"), full: true,
+        }] as FieldDef[])
+      : []),
     // LA PIÈCE, DÈS LA CRÉATION. Un engagement sans son document n'est qu'une ligne de tableau :
     // ou bien on téléverse le fichier, ou bien on désigne celui qui EXISTE DÉJÀ dans le Drive —
     // et dans ce cas il n'est pas recopié, il est référencé. Sur la fiche, ces deux gestes ont

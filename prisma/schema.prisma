@@ -1170,6 +1170,7 @@ model Company {
   productRanges           ProductRange[]
   legalIdentity           CompanyLegalIdentity?
   letterheads             OfficeLetterhead[]
+  legalFolders            LegalFolder[]
 
   @@index([isActive])
 }
@@ -7757,6 +7758,10 @@ model LegalDocument {
   /// Rattachement à ce qui l'a fait naître (demande Ad & Pro, demande au secrétariat…).
   sourceType     EntityType?
   sourceId       String?
+  /// DOSSIER DE CLASSEMENT. Nul = « non classé », et c'est un état normal, pas un oubli :
+  /// un engagement se dépose vite, il se range ensuite.
+  folderId       String?
+  folder         LegalFolder?          @relation(fields: [folderId], references: [id], onDelete: SetNull)
   /// LES LECTEURS AUTORISÉS — qui, en plus du déposant, a le droit d'ouvrir ce document.
   ///
   /// Un engagement de la société n'est pas une pièce d'équipe : un bail, un contrat de travail
@@ -7785,6 +7790,35 @@ model LegalDocument {
 
 /// UN LECTEUR AUTORISÉ d'un document légal. Le déposant les désigne à la création, et peut les
 /// revoir ensuite. Supprimer le document emporte ses lecteurs.
+/// DOSSIER DE CLASSEMENT DES ENGAGEMENTS — l'armoire, pas le classeur.
+///
+/// Trois cents contrats dans une seule liste se cherchent au filtre, jamais au regard. Les
+/// dossiers rendent au module la structure qu'ont les armoires réelles : « Baux », « Assurances »,
+/// « Prestataires 2026 » — avec des sous-dossiers quand c'est utile.
+///
+/// Le dossier ne porte AUCUN droit : la restriction d'un engagement reste sur lui (ses lecteurs
+/// désignés) et sur son entité. Un dossier qui donnerait accès à son contenu ferait qu'y ranger
+/// une pièce l'ouvrirait à d'autres — exactement le contraire de ce que le classement doit faire.
+model LegalFolder {
+  id          String        @id @default(cuid())
+  name        String
+  /// Entité de rattachement. Nul = dossier commun au groupe.
+  companyId   String?
+  company     Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  parentId    String?
+  parent      LegalFolder?  @relation("LegalFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    LegalFolder[] @relation("LegalFolderTree")
+  description String?
+  createdById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  documents LegalDocument[]
+
+  @@index([companyId])
+  @@index([parentId])
+}
+
 model LegalDocumentReader {
   id          String        @id @default(cuid())
   documentId  String

@@ -1,7 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhereFor } from "@/lib/company";
+import { currentCompanyWhereFor, getMyCompanies, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -10,6 +10,8 @@ import { createLegalDocument } from "@/lib/actions/legal-actions";
 import { effectiveStatus, expiryLevel, daysLeft } from "@/lib/legal/lifecycle";
 import { legalFields } from "./legal-fields";
 import { LegalTable, type LegalRow } from "./legal-table";
+import { LegalFolderBar, type FolderRow } from "./folder-bar";
+import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { legalReaderWhere } from "@/lib/legal/readers";
 import { ROLE_LABELS } from "@/lib/labels";
 
@@ -28,7 +30,7 @@ export const metadata = { title: "Legal — AMD Internal OS" };
  * un oubli. Il ne se périme jamais et ne déclenche donc aucun rappel — la règle vit dans le
  * module pur `legal/lifecycle`, testé, partagé par l'écran et par le balayage des échéances.
  */
-export default async function LegalPage({ searchParams }: { searchParams?: { echeances?: string } }) {
+export default async function LegalPage({ searchParams }: { searchParams?: { echeances?: string; dossier?: string } }) {
   const user = await requireModule("LEGAL");
   const canCreate = userCan(user, "LEGAL", "CREATE");
   const canEdit = userCan(user, "LEGAL", "UPDATE");
@@ -37,9 +39,17 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   // pas dans la liste de ceux qui n'y sont pas nommés — pas même en grisé : une ligne qu'on voit
   // sans pouvoir l'ouvrir révèle déjà le titre, la partie en face et le montant.
   const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
+  // LE DOSSIER OUVERT. `dossier=none` = les engagements non classés — ils ont leur porte, sinon
+  // un document déposé vite et jamais rangé devient invisible dès qu'on prend l'habitude
+  // d'ouvrir un dossier.
+  const openFolderId = searchParams?.dossier && searchParams.dossier !== "none" ? searchParams.dossier : null;
+  const unfiledOnly = searchParams?.dossier === "none";
+  const folderWhere = unfiledOnly ? { folderId: null } : openFolderId ? { folderId: openFolderId } : {};
+
   const docs = await prisma.legalDocument.findMany({
     where: {
       ...await currentCompanyWhereFor(user.id),
+      ...folderWhere,
       ...(readerScope ? { AND: [readerScope] } : {}),
     },
     orderBy: [{ endDate: "asc" }, { createdAt: "desc" }],
@@ -81,6 +91,32 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
     restricted: d.readers.length > 0,
   }));
 
+  // L'ARMOIRE. Le compte de documents par dossier respecte le MÊME cloisonnement que la liste :
+  // afficher « Baux (12) » à quelqu'un qui n'a le droit d'en ouvrir aucun révélerait déjà qu'il
+  // en existe douze.
+  const [folderRows, myCompanies] = await Promise.all([
+    prisma.legalFolder.findMany({ select: { id: true, name: true, parentId: true, companyId: true, company: { select: { name: true, shortName: true } } } }),
+    getMyCompanies(user.id),
+  ]);
+  const counts = await prisma.legalDocument.groupBy({
+    by: ["folderId"],
+    where: {
+      ...await currentCompanyWhereFor(user.id),
+      ...(readerScope ? { AND: [readerScope] } : {}),
+      folderId: { not: null },
+    },
+    _count: { _all: true },
+  });
+  const countByFolder = new Map(counts.map((c) => [c.folderId as string, c._count._all]));
+  const folders: FolderRow[] = folderRows.map((f) => ({
+    id: f.id, name: f.name, parentId: f.parentId, companyId: f.companyId,
+    companyLabel: f.company ? (f.company.shortName || f.company.name) : null,
+    documentCount: countByFolder.get(f.id) ?? 0,
+  }));
+
+  // Le menu de classement montre l'ARBRE, indenté : « 2026 » seul ne dit pas de quoi.
+  const folderOptions = flattenFolders(buildFolderTree(folders)).map((n) => ({ value: n.id, label: indentedLabel(n) }));
+
   const watch = rows.filter((r) => r.expiry === "SOON" || r.expiry === "IMMINENT").length;
   const overdue = rows.filter((r) => r.expiry === "OVERDUE").length;
   const purchaseOrders = rows.filter((r) => r.kind === "PURCHASE_ORDER").length;
@@ -95,7 +131,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
           <CreateRecordButton
             label="Nouveau document" title="Déclarer un document légal" width="lg"
             description="Un document peut n'avoir aucune date : laissez les dates vides, il ne se périmera jamais et ne déclenchera aucun rappel."
-            action={createLegalDocument} fields={legalFields({}, "create", people)} redirectBase="/legal"
+            action={createLegalDocument} fields={legalFields({ folderId: openFolderId ?? undefined }, "create", people, folderOptions)} redirectBase="/legal"
           />
         )}
       </PageHeader>
@@ -107,7 +143,18 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
         <KpiCard label="Bons de commande" value={purchaseOrders} icon="ClipboardList" tone="info" />
       </div>
 
-      <LegalTable rows={rows} canEdit={canEdit} watchByDefault={searchParams?.echeances === "1"} />
+      <LegalFolderBar
+        folders={folders}
+        current={searchParams?.dossier ?? null}
+        companies={myCompanies.map((c) => ({ id: c.id, label: companyLabel(c) }))}
+        canManage={canCreate}
+      />
+
+      <LegalTable
+        rows={rows} canEdit={canEdit} watchByDefault={searchParams?.echeances === "1"}
+        folders={folders.map((f) => ({ id: f.id, name: f.name }))}
+        currentFolderId={openFolderId}
+      />
     </div>
   );
 }

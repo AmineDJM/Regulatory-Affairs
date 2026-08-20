@@ -2,13 +2,14 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { FilterX, Loader2, RefreshCw, Ban, Paperclip, ExternalLink, Lock } from "lucide-react";
+import { FilterX, Loader2, RefreshCw, Ban, Paperclip, ExternalLink, Lock, FolderInput } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL } from "@/lib/labels";
 import { renewLegalDocument, cancelLegalDocument } from "@/lib/actions/legal-actions";
+import { moveLegalDocuments } from "@/lib/actions/legal-folder-actions";
 
 /**
  * LES ENGAGEMENTS DE LA SOCIÉTÉ, EN TABLEAU FILTRABLE.
@@ -44,7 +45,16 @@ const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-x
 
 const URGENT = new Set(["SOON", "IMMINENT", "OVERDUE"]);
 
-export function LegalTable({ rows, canEdit, watchByDefault = false }: { rows: LegalRow[]; canEdit: boolean; watchByDefault?: boolean }) {
+export function LegalTable({
+  rows, canEdit, watchByDefault = false, folders = [], currentFolderId = null,
+}: {
+  rows: LegalRow[];
+  canEdit: boolean;
+  watchByDefault?: boolean;
+  /** Dossiers de classement disponibles — vide : le classement n'est pas proposé. */
+  folders?: { id: string; name: string }[];
+  currentFolderId?: string | null;
+}) {
   const router = useRouter();
   const [f, setF] = React.useState({ title: "", kind: "", counterparty: "", status: "", reference: "" });
   // Arrivée depuis un rappel d'échéance (`/legal?echeances=1`) : le filtre est déjà posé, sinon
@@ -96,6 +106,34 @@ export function LegalTable({ rows, canEdit, watchByDefault = false }: { rows: Le
           >
             <FilterX className="h-3.5 w-3.5" /> Réinitialiser
           </button>
+        )}
+        {/* RANGER CE QU'ON VOIT. On classe depuis la liste, là où l'on constate qu'un engagement
+            n'est pas au bon endroit — pas en rouvrant sa fiche une par une. Le classement ne
+            change RIEN à qui peut lire le document. */}
+        {canEdit && folders.length > 0 && shown.length > 0 && (
+          <span className="inline-flex items-center gap-1.5">
+            <FolderInput className="h-3.5 w-3.5" />
+            <select
+              value="" disabled={busy === "move"}
+              onChange={(e) => {
+                const target = e.target.value;
+                if (!target) return;
+                e.target.value = "";
+                const name = target === "none" ? "Non classés" : folders.find((x) => x.id === target)?.name ?? "";
+                if (!window.confirm(`Ranger les ${shown.length} document(s) affiché(s) dans « ${name} » ?`)) return;
+                const fd = new FormData();
+                for (const r of shown) fd.append("documentId", r.id);
+                if (target !== "none") fd.set("folderId", target);
+                void run("move", () => moveLegalDocuments(fd));
+              }}
+              className="rounded-md border border-input bg-background px-2 py-1 text-xs font-medium"
+              aria-label="Ranger les documents affichés dans un dossier"
+            >
+              <option value="">Ranger les {shown.length} affichés…</option>
+              {folders.filter((x) => x.id !== currentFolderId).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              {currentFolderId && <option value="none">Sortir du dossier</option>}
+            </select>
+          </span>
         )}
       </div>
 

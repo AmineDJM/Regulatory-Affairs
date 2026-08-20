@@ -41,6 +41,9 @@ function readFields(formData: FormData) {
     endDate: fdDate(formData, "endDate"),
     notes: fdStr(formData, "notes"),
     amount: fdStr(formData, "amount") ? Number(fdStr(formData, "amount")) : null,
+    // DOSSIER DE CLASSEMENT. Vide = « non classé », et c'est un état normal : un engagement se
+    // dépose vite, il se range ensuite. Le dossier ne change RIEN à qui peut le lire.
+    folderId: fdStr(formData, "folderId"),
   };
 }
 
