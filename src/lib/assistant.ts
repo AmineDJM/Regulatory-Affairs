@@ -20,7 +20,7 @@
 
 import type { AdminRequestType, CongressRequestStatus, Priority, CalendarEventKind, HrRequestType, RegulatoryCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { companyIdForNew } from "@/lib/company";
+import { companyIdForNew, currentCompanyWhereFor } from "@/lib/company";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles, broadcastNotification, type BroadcastAudience } from "@/lib/notify";
@@ -46,9 +46,15 @@ import type { CurrentUser } from "@/lib/session";
 import {
   ROLE_LABELS, TASK_STATUS, PRIORITY, ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS,
   MEDICAL_SECTOR, INFLUENCE_LEVEL, REGULATORY_STATUS, EVENT_STATUS, EVENT_TYPE,
-  doctorDisplayName,
+  MODULE_LABELS, doctorDisplayName,
 } from "@/lib/labels";
 import { regulatoryKnowledgeDigest } from "@/lib/regulatory/anpp-knowledge";
+import { getAppSettings } from "@/lib/settings";
+import { DATASETS, isExportDataset, exportDatasetToDrive } from "@/lib/assistant/exports";
+import {
+  WRITABLE_SETTINGS, parseSettingValue, parseRegFieldValue, regFieldSpec, settingSpec,
+  renderSettingValue,
+} from "@/lib/assistant/admin-write";
 
 // ───────────────────────────── Types publics ─────────────────────────────
 
@@ -58,6 +64,39 @@ export interface ChatTurn {
 }
 
 export type AssistantActionPayload =
+  | {
+      /**
+       * MODIFIER UN DOSSIER RÉGULATORY, champ par champ.
+       *
+       * Le champ et la valeur sont RELUS par `parseRegFieldValue` avant d'atteindre la base : la
+       * confirmation de l'utilisateur ne remplace pas la validation, personne ne relit une
+       * énumération dans une carte de confirmation.
+       */
+      kind: "update_regulatory_product";
+      productId: string;
+      reference: string;
+      field: string;
+      fieldLabel: string;
+      /** Valeur déjà validée et convertie, prête à écrire. */
+      value: string | string[] | boolean | Date | null;
+      /** Valeur actuelle, pour le journal et pour la carte de confirmation. */
+      before: string;
+      after: string;
+    }
+  | {
+      /**
+       * MODIFIER UN RÉGLAGE DE LA PLATEFORME (Super Admin).
+       *
+       * Même principe : seule la liste blanche de `WRITABLE_SETTINGS` est atteignable, et la
+       * valeur est bornée avant d'être proposée.
+       */
+      kind: "update_platform_setting";
+      settingKey: string;
+      settingLabel: string;
+      value: string | number | boolean | string[];
+      before: string;
+      after: string;
+    }
   | {
       /**
        * Rattacher des produits Regulatory à une entité — éventuellement PLUSIEURS d'un coup.
@@ -343,6 +382,38 @@ const READ_TOOLS: ClaudeToolDef[] = [
   },
 ];
 
+/**
+ * EXPORTER EN EXCEL — disponible à tout le monde, borné par les DROITS DE LECTURE.
+ *
+ * Ce n'est pas un outil de Super Admin : c'est une lecture de plus, et `canExport` refuse tout
+ * jeu de données que la personne ne pourrait pas ouvrir à l'écran. Le classeur atterrit dans son
+ * Drive personnel — un export contient souvent des coordonnées, il doit vivre là où les
+ * autorisations existent déjà plutôt que dans un lien qui traîne.
+ */
+const EXPORT_TOOL: ClaudeToolDef = {
+  name: "export_excel",
+  description:
+    "Génère un vrai fichier EXCEL (.xlsx) et le dépose dans le Drive personnel de l'utilisateur, "
+    + "dossier « Exports IA ». À utiliser dès qu'on demande « exporte », « sors-moi un Excel », "
+    + "« mets ça dans un tableur ». Jeux de données : regulatory (dossiers réglementaires), "
+    + "annuaire (médecins), courriers (registre), recrutement (demandes), employes (effectif, SANS "
+    + "aucune rémunération), comptes (comptes de la plateforme — direction seulement). "
+    + "Le contenu ne dépasse jamais ce que l'utilisateur a le droit de lire. Après l'appel, DONNER "
+    + "le nom du fichier et le nombre de lignes, et dire qu'il est dans le Drive (dossier « Exports IA »).",
+  input_schema: {
+    type: "object",
+    properties: {
+      dataset: {
+        type: "string",
+        enum: ["regulatory", "annuaire", "courriers", "recrutement", "employes", "comptes"],
+        description: "Le jeu de données à exporter.",
+      },
+      limit: { type: "number", description: "Nombre maximum de lignes (défaut 2000, maximum 5000)." },
+    },
+    required: ["dataset"],
+  },
+};
+
 /** Outils EXCLUSIFS au Super Admin — vision globale, tous comptes confondus. */
 const SUPERADMIN_TOOLS: ClaudeToolDef[] = [
   {
@@ -353,6 +424,16 @@ const SUPERADMIN_TOOLS: ClaudeToolDef[] = [
       type: "object",
       properties: { query: { type: "string", description: "Filtre optionnel par nom ou fonction." } },
     },
+  },
+  {
+    name: "read_platform_settings",
+    description:
+      "RÉSERVÉ AU SUPER ADMIN : lit les RÉGLAGES ACTUELS de la plateforme (limites de téléversement, "
+      + "capacité et quota du Drive, mode et total du budget, analyse CTD, rôles superviseurs Regulatory, "
+      + "segments thérapeutiques, rôles d'accès divers, modules masqués). "
+      + "À APPELER AVANT toute modification d'une LISTE (rôles, segments, modules) : update_platform_setting "
+      + "REMPLACE la valeur, donc pour AJOUTER quelqu'un il faut d'abord connaître la liste existante.",
+    input_schema: { type: "object", properties: {} },
   },
 ];
 
@@ -376,9 +457,51 @@ const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
       required: ["audience", "title"],
     },
   },
+  {
+    name: "update_platform_setting",
+    description:
+      "RÉSERVÉ AU SUPER ADMIN : PROPOSE la modification d'un RÉGLAGE de la plateforme. N'exécute rien : "
+      + "confirmation requise. Réglages modifiables : maxUploadMb, maxDriveUploadMb, driveCapacityGb, "
+      + "driveUserQuotaGb, budgetTotalMode (FIXED/FLEXIBLE), budgetFixedTotal, regEnrollmentEnabled (oui/non), "
+      + "regulatorySupervisorRoles, regulatoryTherapeuticSegments, regEnrollmentRoles, driveSpaceCreatorRoles, "
+      + "fieldReportsOverviewRoles, orgChartViewerRoles, hiddenModules. "
+      + "Les listes de rôles et de modules se donnent par leur NOM FRANÇAIS, séparés par des virgules "
+      + "(ex. « Direction, Responsable Réglementaire »). Une liste vide retire tout le monde. "
+      + "Ces réglages REMPLACENT la valeur existante : lire d'abord la valeur actuelle avec "
+      + "read_platform_settings si l'utilisateur veut AJOUTER quelqu'un plutôt que tout remplacer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "Clé exacte du réglage." },
+        value: { type: "string", description: "Nouvelle valeur (nombre, oui/non, ou liste séparée par des virgules)." },
+      },
+      required: ["key", "value"],
+    },
+  },
 ];
 
 const WRITE_TOOLS: ClaudeToolDef[] = [
+  {
+    name: "update_regulatory_product",
+    description:
+      "PROPOSE la modification d'UN champ d'UN dossier Regulatory, identifié par sa RÉFÉRENCE (REG-AAAA-NNN). "
+      + "N'exécute rien : confirmation requise. Utiliser search_products AVANT pour retrouver la référence exacte. "
+      + "Champs modifiables : status, priority, category, channel, brandName, dosage, dosageUnit, "
+      + "pharmaceuticalForm, packaging, therapeuticClass, therapeuticSegments, partnerLab, countryOfOrigin, "
+      + "deHolder, manufacturer, targetSubmissionDate, targetDate, comments, isLocked. "
+      + "Une date se donne en AAAA-MM-JJ (vide pour l'effacer) ; les segments en liste séparée par des virgules ; "
+      + "isLocked en oui/non — ATTENTION, un dossier verrouillé devient invisible pour toute l'équipe. "
+      + "Pour rattacher des produits à une ENTITÉ, utiliser set_products_company (qui traite un lot).",
+    input_schema: {
+      type: "object",
+      properties: {
+        reference: { type: "string", description: "Référence du dossier (ex. REG-2026-014)." },
+        field: { type: "string", description: "Nom exact du champ à modifier." },
+        value: { type: "string", description: "Nouvelle valeur." },
+      },
+      required: ["reference", "field", "value"],
+    },
+  },
   {
     name: "set_products_company",
     description:
@@ -630,6 +753,15 @@ NOTIFICATION (create_notification) à tous les comptes, à un rôle précis, ou 
 (elle arrive dans la cloche + en push sur leur téléphone) — ou en POP-UP PLEIN ÉCRAN pour une annonce
 importante (popup=true, accusé de réception « J'ai compris »). Sers le pilotage de l'entreprise : détecte les
 blocages, désigne les responsables, propose des relances. Les actions restent soumises à confirmation.
+
+TU RÈGLES AUSSI LA PLATEFORME. read_platform_settings te donne les réglages ACTUELS ;
+update_platform_setting les modifie (limites de téléversement, capacité et quota du Drive, mode et
+total du budget, analyse CTD, rôles superviseurs Regulatory, segments thérapeutiques, rôles d'accès,
+MODULES MASQUÉS). Deux règles à ne jamais oublier :
+- une LISTE (rôles, segments, modules) est REMPLACÉE, pas complétée : quand on te dit « ajoute X »,
+  lis d'abord la valeur actuelle et propose la liste COMPLÈTE, ancienne + X ;
+- masquer un module le retire pour TOUT LE MONDE, menu et adresse comprises. Dis-le avant de le proposer.
+Ne dis JAMAIS « je ne peux pas modifier les paramètres » — ces outils existent.
 ` : ""}
 CONTEXTE :
 ${buildContext(user)}${powers}
@@ -651,8 +783,14 @@ CE QUE TU PEUX FAIRE :
   que l'utilisateur a cliqué « Confirmer ». Ne prétends jamais qu'une action est déjà faite : dis « je
   prépare… », pas « c'est fait ».
 - MODIFIER DES FICHES PRODUIT REGULATORY : rattacher un ou PLUSIEURS produits à une entité du groupe
-  (set_products_company). Tu ne dis JAMAIS « je ne dispose pas d'outil pour modifier une fiche produit » —
-  cet outil existe. Vérifie d'abord le lot avec search_products, puis propose le rattachement.
+  (set_products_company), et modifier UN CHAMP d'un dossier précis (update_regulatory_product : statut,
+  priorité, dates cibles, forme, dosage, conditionnement, classe et segments thérapeutiques, laboratoire,
+  fabricant, détenteur de la DE, commentaires, cadenas). Tu ne dis JAMAIS « je ne dispose pas d'outil pour
+  modifier une fiche produit » — ces outils existent. Vérifie d'abord avec search_products, puis propose.
+- EXPORTER EN EXCEL (export_excel) : dossiers réglementaires, annuaire médical, registre des courriers,
+  demandes de recrutement, effectif, comptes. Le fichier est déposé dans le Drive personnel de
+  l'utilisateur, dossier « Exports IA » — dis-lui le nom du fichier, le nombre de lignes et où il est.
+  Tu ne dis JAMAIS « je ne peux pas générer de fichier » : tu le peux.
 
 RÈGLES IMPÉRATIVES :
 - Fonde TOUJOURS tes réponses sur les outils de lecture ; n'invente JAMAIS un médecin, un produit, un
@@ -702,6 +840,13 @@ STYLE DE RÉPONSE — IMPÉRATIF :
 function asStr(input: Record<string, unknown>, key: string): string {
   const v = input[key];
   return typeof v === "string" ? v.trim() : "";
+}
+
+/** Un nombre venu du modèle — `null` s'il n'en a pas donné, ou s'il a écrit autre chose. */
+function asNum(input: Record<string, unknown>, key: string): number | null {
+  const v = input[key];
+  const n = typeof v === "number" ? v : Number(String(v ?? "").replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : null;
 }
 
 interface PersonMatch { id: string; name: string; title: string | null; department: string | null; role: string }
@@ -923,6 +1068,35 @@ export async function executeReadTool(name: string, input: Record<string, unknow
         actif: u.isActive, tachesOuvertes: taskMap.get(u.id) ?? 0, demandesACharge: reqMap.get(u.id) ?? 0,
       })));
     }
+    case "read_platform_settings": {
+      if (user.role !== "SUPER_ADMIN") return "Accès réservé au Super Admin.";
+      const s = await getAppSettings();
+      // On rend les LIBELLÉS en plus des codes : sans eux, le modèle propose « HEAD_OF_REGULATORY »
+      // à un humain qui a dit « le responsable réglementaire », et la carte de confirmation
+      // devient illisible.
+      return JSON.stringify({
+        reglages: s,
+        libellesRoles: ROLE_LABELS,
+        modifiables: WRITABLE_SETTINGS.map((w) => ({ cle: w.key, libelle: w.label, type: w.kind, apropos: w.hint })),
+      });
+    }
+    case "export_excel": {
+      const dataset = asStr(input, "dataset");
+      if (!isExportDataset(dataset)) {
+        return `Jeu de données inconnu. Disponibles : ${Object.keys(DATASETS).join(", ")}.`;
+      }
+      const r = await exportDatasetToDrive(user, dataset, { limit: asNum(input, "limit") ?? undefined });
+      if (!r.ok) return r.error ?? "Export impossible.";
+      await recordAudit({
+        actorId: user.id, action: "EXPORT", module: "Assistant IA",
+        summary: `Export « ${DATASETS[dataset].label} » (${r.count} ligne(s)) via l'assistant → Drive / ${r.filename}`,
+      });
+      return JSON.stringify({
+        fichier: r.filename, lignes: r.count,
+        emplacement: "Drive personnel, dossier « Exports IA »",
+        lien: `/drive?node=${r.nodeId}`,
+      });
+    }
     default:
       return `Outil inconnu : ${name}.`;
   }
@@ -940,6 +1114,8 @@ const READ_LABEL: Record<string, string> = {
   list_emails: "Boîte mail consultée",
   read_email: "E-mail lu",
   list_accounts: "Tous les comptes consultés",
+  read_platform_settings: "Réglages de la plateforme consultés",
+  export_excel: "Classeur Excel généré",
 };
 
 /**
@@ -1029,6 +1205,96 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
       return { id: null, name };
     }
     return { id: r.id, name: r.name };
+  }
+
+  if (toolName === "update_regulatory_product") {
+    if (!userCan(user, "REGULATORY", "UPDATE")) {
+      return { error: "Vous n'avez pas le droit de modifier les dossiers Regulatory." };
+    }
+    const reference = asStr(input, "reference");
+    const field = asStr(input, "field");
+    if (!reference) return { error: "Précisez la référence du dossier (REG-AAAA-NNN)." };
+
+    const spec = regFieldSpec(field);
+    if (!spec) {
+      return { error: `Champ « ${field } » inconnu ou non modifiable par l'assistant.` };
+    }
+    const parsed = parseRegFieldValue(field, input.value);
+    if (!parsed.ok) return { error: parsed.error };
+
+    // Le dossier est cherché DANS LE PÉRIMÈTRE de la personne : deviner une référence ne doit
+    // pas permettre de modifier le portefeuille d'une autre entité.
+    const product = await prisma.regulatoryProduct.findFirst({
+      where: { AND: [{ reference }, scopeRegulatory(user), await currentCompanyWhereFor(user.id)] },
+      select: { id: true, reference: true, dci: true, ...({ [field]: true } as Record<string, true>) },
+    }) as (Record<string, unknown> & { id: string; reference: string; dci: string }) | null;
+    if (!product) {
+      return { error: `Dossier « ${reference} » introuvable dans votre périmètre. Vérifiez la référence avec search_products.` };
+    }
+
+    const before = renderSettingValue(product[field]);
+    const after = renderSettingValue(parsed.value instanceof Date ? parsed.value.toISOString().slice(0, 10) : parsed.value);
+    if (before === after) return { error: `« ${spec.label} » vaut déjà ${after || "(vide)"} sur ${reference}.` };
+    if (spec.warning) warnings.push(spec.warning);
+
+    return {
+      kind: "update_regulatory_product",
+      module: "REGULATORY",
+      title: `modifier ${spec.label.toLowerCase()} sur ${reference}`,
+      fields: [
+        { label: "Dossier", value: `${reference} — ${product.dci}` },
+        { label: spec.label, value: `${before || "(vide)"} → ${after || "(vide)"}` },
+      ],
+      warnings,
+      payload: {
+        kind: "update_regulatory_product",
+        productId: product.id, reference: product.reference,
+        field, fieldLabel: spec.label,
+        value: parsed.value, before, after,
+      },
+    };
+  }
+
+  if (toolName === "update_platform_setting") {
+    // Les réglages gouvernent la plateforme entière : ils restent au Super Admin, exactement
+    // comme la console d'administration d'où ils se règlent autrement.
+    if (user.role !== "SUPER_ADMIN") return { error: "Les réglages de la plateforme sont réservés au Super Admin." };
+    const key = asStr(input, "key");
+    const spec = settingSpec(key);
+    if (!spec) {
+      return { error: `Réglage « ${key} » inconnu. Réglages modifiables : ${WRITABLE_SETTINGS.map((w) => `${w.key} (${w.label})`).join(", ")}.` };
+    }
+    const parsed = parseSettingValue(key, input.value, {
+      roleLabels: ROLE_LABELS,
+      moduleLabels: MODULE_LABELS as Record<string, string>,
+    });
+    if (!parsed.ok) return { error: parsed.error };
+
+    const current = (await getAppSettings()) as unknown as Record<string, unknown>;
+    const labels = spec.kind === "roles" ? ROLE_LABELS : spec.kind === "modules" ? (MODULE_LABELS as Record<string, string>) : {};
+    const before = renderSettingValue(current[key], labels);
+    const after = renderSettingValue(parsed.value, labels);
+    if (before === after) return { error: `« ${spec.label} » vaut déjà ${after}.` };
+    if (spec.warning) warnings.push(spec.warning);
+    // Une liste REMPLACE : le dire, parce que « ajoute la Direction » et « mets la Direction »
+    // s'écrivent pareil dans une conversation et ne veulent pas dire la même chose.
+    if (Array.isArray(parsed.value)) warnings.push("Cette liste REMPLACE l'ancienne — elle ne s'y ajoute pas.");
+
+    return {
+      kind: "update_platform_setting",
+      module: "ADMIN",
+      title: `modifier le réglage « ${spec.label} »`,
+      fields: [
+        { label: spec.label, value: `${before} → ${after}` },
+        { label: "À propos", value: spec.hint },
+      ],
+      warnings,
+      payload: {
+        kind: "update_platform_setting",
+        settingKey: key, settingLabel: spec.label,
+        value: parsed.value, before, after,
+      },
+    };
   }
 
   if (toolName === "set_products_company") {
@@ -1512,6 +1778,9 @@ export async function runAssistant(
     // cette personne — pas par son rôle. L'administrateur les a toutes ; un compte à qui l'on
     // ouvre les Budgets gagne l'outil budget sans qu'on touche au code.
     ...powerToolsFor(user),
+    // L'export est borné par les DROITS DE LECTURE, pas par le rôle : `canExport` refuse
+    // tout jeu de données que la personne ne pourrait pas ouvrir à l'écran.
+    EXPORT_TOOL,
     ...(user.role === "SUPER_ADMIN" ? [...SUPERADMIN_TOOLS, ...SUPERADMIN_WRITE_TOOLS] : []),
     ...WRITE_TOOLS,
   ];
@@ -1609,6 +1878,9 @@ export async function runAssistantStream(
     // cette personne — pas par son rôle. L'administrateur les a toutes ; un compte à qui l'on
     // ouvre les Budgets gagne l'outil budget sans qu'on touche au code.
     ...powerToolsFor(user),
+    // L'export est borné par les DROITS DE LECTURE, pas par le rôle : `canExport` refuse
+    // tout jeu de données que la personne ne pourrait pas ouvrir à l'écran.
+    EXPORT_TOOL,
     ...(user.role === "SUPER_ADMIN" ? [...SUPERADMIN_TOOLS, ...SUPERADMIN_WRITE_TOOLS] : []),
     ...WRITE_TOOLS,
   ];
@@ -1725,6 +1997,63 @@ function dateValue(s: string | null | undefined): Date | null {
  * applique la revalidation. C'est le seul point d'écriture du chatbot.
  */
 export async function performAction(user: CurrentUser, payload: AssistantActionPayload): Promise<ExecuteResult> {
+  if (payload?.kind === "update_regulatory_product") {
+    if (!userCan(user, "REGULATORY", "UPDATE")) return { ok: false, error: "Vous n'avez pas le droit de modifier les dossiers Regulatory." };
+    const spec = regFieldSpec(payload.field);
+    if (!spec) return { ok: false, error: "Champ non modifiable." };
+
+    // On REVÉRIFIE le périmètre à l'exécution : entre l'aperçu et le clic, le dossier a pu
+    // changer d'entité — ou la personne, de portée.
+    const target = await prisma.regulatoryProduct.findFirst({
+      where: { AND: [{ id: payload.productId }, scopeRegulatory(user), await currentCompanyWhereFor(user.id)] },
+      select: { id: true, reference: true },
+    });
+    if (!target) return { ok: false, error: "Ce dossier n'est plus dans votre périmètre." };
+
+    await prisma.regulatoryProduct.update({
+      where: { id: target.id },
+      data: { [payload.field]: payload.value, updatedById: user.id } as Record<string, unknown>,
+    });
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Assistant IA",
+      entityType: "REGULATORY_PRODUCT", entityId: target.id,
+      field: payload.fieldLabel, oldValue: payload.before, newValue: payload.after,
+      summary: `${target.reference} — ${payload.fieldLabel} : ${payload.before || "(vide)"} → ${payload.after || "(vide)"} (via l'assistant)`,
+    });
+    return {
+      ok: true,
+      message: `${target.reference} — ${payload.fieldLabel} : ${payload.after || "(vide)"}.`,
+      link: `/regulatory/${target.id}`,
+      revalidate: ["/regulatory", `/regulatory/${target.id}`],
+    };
+  }
+
+  if (payload?.kind === "update_platform_setting") {
+    if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Les réglages de la plateforme sont réservés au Super Admin." };
+    if (!settingSpec(payload.settingKey)) return { ok: false, error: "Réglage non modifiable." };
+
+    // La ligne « global » est créée si elle n'existe pas encore : une plateforme neuve tourne
+    // sur les valeurs par défaut, sans enregistrement en base.
+    await prisma.appSetting.upsert({
+      where: { id: "global" },
+      update: { [payload.settingKey]: payload.value } as Record<string, unknown>,
+      create: { id: "global", [payload.settingKey]: payload.value } as Record<string, unknown> & { id: string },
+    });
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Assistant IA",
+      field: payload.settingLabel, oldValue: payload.before, newValue: payload.after,
+      summary: `Réglage « ${payload.settingLabel} » : ${payload.before} → ${payload.after} (via l'assistant)`,
+    });
+    return {
+      ok: true,
+      message: `« ${payload.settingLabel} » : ${payload.after}.`,
+      link: "/admin/settings",
+      // Un réglage touche la plateforme entière (menu compris quand il s'agit des modules
+      // masqués) : on rafraîchit la mise en page, pas une page.
+      revalidate: ["/", "/admin/settings"],
+    };
+  }
+
   if (payload?.kind === "set_products_company") {
     if (!userCan(user, "REGULATORY", "UPDATE")) return { ok: false, error: "Vous n'avez pas le droit de modifier les dossiers Regulatory." };
     const company = await prisma.company.findFirst({
