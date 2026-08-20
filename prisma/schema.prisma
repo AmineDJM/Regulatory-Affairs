@@ -873,6 +873,8 @@ model User {
   legalDocsCreated       LegalDocument[]           @relation("LegalDocCreator")
   mailEntriesCreated     MailEntry[]               @relation("MailEntryCreator")
   mailEntriesConcerned   MailEntry[]               @relation("MailEntryConcerned")
+  regRemindersReceived   RegulatoryUpdateReminder[] @relation("RegUpdateReminderRecipient")
+  regRemindersSent       RegulatoryUpdateReminder[] @relation("RegUpdateReminderSender")
   invoicesCreated        Invoice[]                 @relation("InvoiceCreator")
   leaveDecisions         LeaveRequest[]            @relation("LeaveDecider")
   advanceDecisions       SalaryAdvance[]           @relation("AdvanceDecider")
@@ -1398,6 +1400,33 @@ model RegulatoryVariation {
   updatedAt    DateTime            @updatedAt
 
   @@index([productId])
+}
+
+/// RELANCE DE MISE À JOUR — « où en sont vos dossiers ? », posé par la direction.
+///
+/// Une ligne PAR PERSONNE relancée, même quand la relance visait tout le monde d'un coup : c'est
+/// ce qui permet d'afficher « dernière relance il y a 3 jours » en face de chacun, et donc de ne
+/// pas harceler quelqu'un qu'on vient de relancer. Une seule ligne « relance groupée » n'aurait
+/// pas répondu à cette question, qui est la seule qu'on pose à cet historique.
+model RegulatoryUpdateReminder {
+  id           String   @id @default(cuid())
+  recipientId  String
+  recipient    User     @relation("RegUpdateReminderRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  /// Qui a relancé. Null si le compte a été supprimé depuis — la relance, elle, a bien eu lieu.
+  senderId     String?
+  sender       User?    @relation("RegUpdateReminderSender", fields: [senderId], references: [id], onDelete: SetNull)
+  /// Dossiers à traiter que la personne portait AU MOMENT de la relance : relu des mois plus
+  /// tard, « 12 dossiers » explique la relance mieux que le portefeuille d'aujourd'hui.
+  dossierCount Int      @default(0)
+  /// Parmi eux, ceux sans mouvement depuis le seuil de sommeil.
+  staleCount   Int      @default(0)
+  /// Vrai si la relance visait TOUT LE MONDE, faux si elle ne visait que cette personne.
+  toEveryone   Boolean  @default(false)
+  note         String?
+  createdAt    DateTime @default(now())
+
+  @@index([recipientId, createdAt])
+  @@index([createdAt])
 }
 
 model RegulatoryStep {

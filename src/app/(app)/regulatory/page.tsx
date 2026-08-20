@@ -15,6 +15,9 @@ import { RegulatoryTable } from "./regulatory-table";
 import { getRegulatoryRows } from "@/lib/queries/regulatory-rows";
 import { NewProductButton } from "./new-product";
 import { SuppliersManager } from "./suppliers-manager";
+import { UpdateReminderButton } from "./update-reminder";
+import { canSendUpdateReminder } from "@/lib/regulatory/update-reminder";
+import { regulatoryReminderBoard } from "@/lib/queries/regulatory-reminders";
 
 export default async function RegulatoryPage() {
   const user = await requireModule("REGULATORY");
@@ -55,6 +58,11 @@ export default async function RegulatoryPage() {
   // dossier que la personne n'aurait pas le droit de voir, et cela évite une requête de plus.
   const unassignedCount = products.filter((p) => !p.companyId).length;
 
+  // LA RELANCE DE MISE À JOUR — réservée au Super Admin et au Directeur Général. Le tableau des
+  // portefeuilles n'est chargé que pour eux : personne d'autre ne doit voir qui porte combien.
+  const canRemind = canSendUpdateReminder(user);
+  const reminderBoard = canRemind ? await regulatoryReminderBoard(user) : null;
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -70,6 +78,15 @@ export default async function RegulatoryPage() {
               <Link2 className="h-4 w-4" /> Catalogue produits
             </Button>
           </Link>
+          {reminderBoard && (
+            <UpdateReminderButton
+              people={reminderBoard.targets.map((t) => ({
+                userId: t.userId, name: t.name, total: t.total, stale: t.stale,
+                lastRemindedAt: t.lastRemindedAt?.toISOString() ?? null,
+              }))}
+              unassigned={reminderBoard.unassigned}
+            />
+          )}
           {canCreate && (
             <>
               <SuppliersManager suppliers={supplierList} />
