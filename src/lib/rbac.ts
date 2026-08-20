@@ -343,6 +343,24 @@ export function can(role: UserRole, module: Module, action: Action): boolean {
   return PERMISSIONS[role]?.[module]?.includes(action) ?? false;
 }
 
+/**
+ * QUI VOIT TOUT LE BUREAU DU SECRÉTARIAT, au-delà de ses propres demandes.
+ *
+ * Ceux qui PAIENT et ceux qui CONTRÔLENT : une mission chauffeur, un achat de fournitures, une
+ * prestation, un visa d'invité finissent tous en décaissement ou au dossier du personnel. Ne
+ * montrer au DRH et aux Finances que « leurs » demandes revenait à leur faire valider des
+ * dépenses dont ils ne voyaient ni l'origine, ni les pièces, ni le circuit.
+ *
+ * Il faut TENIR le module, pas seulement le lire : une lecture des RH accordée à quelqu'un pour
+ * consulter un organigramme n'ouvre pas le courrier de toute l'entreprise.
+ *
+ * Portée de LECTURE uniquement — le bureau reste tenu par l'assistante de direction. Voir n'est
+ * pas instruire.
+ */
+export function seesWholeSecretariat(caps: { rhCanUpdate: boolean; financeCanUpdate: boolean }): boolean {
+  return caps.rhCanUpdate || caps.financeCanUpdate;
+}
+
 /** Default row scope for a role on a module (ALL vs only assigned rows). */
 export function defaultScope(role: UserRole, module: Module): AccessScope {
   if (hasGlobalView(role)) return "ALL";
@@ -594,6 +612,25 @@ export const getAccess = perRequest(
         actions: new Set<Action>(["VIEW", "CREATE", "UPDATE", "DELETE", "VALIDATE", "EXPORT", "UPLOAD"]),
         scope: "ALL",
       });
+    }
+
+    // ── LE DRH ET LES FINANCES VOIENT TOUT LE BUREAU DU SECRÉTARIAT ──
+    //
+    // Ce sont eux qui PAIENT et qui CONTRÔLENT ce que le secrétariat engage : une mission
+    // chauffeur, un achat de fournitures, une prestation, un visa d'invité finissent tous en
+    // décaissement ou en dossier du personnel. Ne leur montrer que « leurs » demandes — celles
+    // qu'ils ont eux-mêmes émises — revenait à leur demander de valider des dépenses dont ils
+    // ne voyaient ni l'origine, ni les pièces, ni le circuit.
+    //
+    // On accorde la portée ALL en LECTURE, jamais le pilotage : le bureau reste tenu par
+    // l'assistante de direction. Voir n'est pas instruire.
+    if (seesWholeSecretariat({
+      rhCanUpdate: modules.get("RH")?.actions.has("UPDATE") ?? false,
+      financeCanUpdate: modules.get("FINANCES")?.actions.has("UPDATE") ?? false,
+    })) {
+      const cur = modules.get("ADMIN_REQUESTS");
+      if (cur) cur.scope = "ALL";
+      else modules.set("ADMIN_REQUESTS", { actions: new Set<Action>(["VIEW", "EXPORT"]), scope: "ALL" });
     }
 
     // ── Accès IMPLICITE au module Budget quand une enveloppe est PARTAGÉE avec ce compte ──

@@ -9,6 +9,7 @@ import {
   defaultScope,
   hasGlobalView,
   scopeMedicalDoctors,
+  seesWholeSecretariat,
   scopeRegulatory,
   regulatoryLockWhere,
   scopeSales,
@@ -378,5 +379,21 @@ describe("Directeur des Opérations — un rôle À PART, pas une Direction au r
     for (const m of ["SPONSORING", "CONGRESS_INTERNATIONAL", "EVENTS"] as Module[]) {
       expect(can("OPERATIONS_DIRECTOR", m, "VIEW"), m).toBe(false);
     }
+  });
+});
+
+describe("seesWholeSecretariat — le DRH et les Finances voient tout le bureau", () => {
+  it("celui qui TIENT les RH voit toutes les demandes", () => {
+    expect(seesWholeSecretariat({ rhCanUpdate: true, financeCanUpdate: false })).toBe(true);
+  });
+
+  it("celui qui TIENT les Finances aussi — c'est lui qui paie", () => {
+    expect(seesWholeSecretariat({ rhCanUpdate: false, financeCanUpdate: true })).toBe(true);
+  });
+
+  // Une lecture des RH accordée pour consulter un organigramme n'ouvre pas le courrier de
+  // toute l'entreprise : il faut tenir le module, pas seulement le lire.
+  it("une simple lecture ne suffit pas", () => {
+    expect(seesWholeSecretariat({ rhCanUpdate: false, financeCanUpdate: false })).toBe(false);
   });
 });
