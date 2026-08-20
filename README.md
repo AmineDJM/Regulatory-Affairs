@@ -32,6 +32,8 @@ RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Cale
 - [Rôles](#-rôles)
 - [Workflows critiques](#-workflows-critiques)
 - [**Référence détaillée des circuits & mécanismes transverses**](#-référence-détaillée-des-circuits--mécanismes-transverses)
+  - [Recrutement — de la demande à l'intégration](#recrutement--de-la-demande-dun-directeur-jusquà-lintégration)
+  - [Congés — l'intérimaire qui tient la place](#congés--lintérimaire-qui-tient-la-place)
   - [Dimension multi-entités (cloisonnement)](#dimension-multi-entités-sociétés-du-groupe)
   - [Budgets par département (trois natures)](#budgets-par-département--trois-natures-trois-responsables)
   - [Ad & Pro — corriger une demande, joindre un fichier](#ad--pro--corriger-une-demande-joindre-un-fichier-à-un-avis)
@@ -180,7 +182,7 @@ jamais identique.
 
 | Module | Route | Description |
 |---|---|---|
-| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). |
+| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
 | **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le chef de produit**), **analyse confidentielle du chef de produit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. → [workflows](#-workflows-critiques) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). |
@@ -203,6 +205,7 @@ jamais identique.
 | **Demandes de validations** | `/validations` | **Bureau de validation central** : agrège **toutes les validations en attente** issues des autres modules (Bureau du secrétariat, Ad & Pro, **Finances**, information médicale…) — visible des **validateurs** (pas du demandeur). Le Super Admin définit des **règles configurables** (module, type d'objet, montant, département, rôle, priorité → 1 ou 2 validateurs, séquentiel/parallèle). → [détails](#centre-de-validation-agrégation--configurable) |
 | **Documents** (Drive + Documents + **catégories**) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob`), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), **impression**, versioning. **Imports larges**, **déplacer**, **corbeille en cascade**, **accès par personne** (voir / modifier) à l'import. **Catégories** (espaces partagés type « Promotion Médicale ») créées par un rôle autorisé par le Super Admin, présentées en **onglets** à côté de Drive/Documents, accès encadré (consultation vs gestion). |
 | **Projets** | `/dossiers` | **Projet** de suivi d'un sujet ad hoc : description, **responsable + participants**, statut, **fichiers** et **fil de discussion**. Créable **manuellement**, **proposé par l'IA**, ou **créé automatiquement** quand on implique une tierce personne sur un événement. (Route interne `/dossiers`, entité `Dossier` inchangées.) |
+| **Recrutement** | `/recrutement` | Le poste demandé, de l'idée d'un directeur jusqu'à l'intégration. Un **directeur de département** formule le besoin (poste, missions, compétences, contrat **CDI / CDD / consulting / stage**, fourchette de rémunération, dates, fiche de poste) — le droit de demander suit l'**organigramme**, pas une liste de rôles. Sa **hiérarchie valide marche par marche jusqu'au sommet** (chaîne **figée à la soumission** ; la direction peut trancher à n'importe quelle marche, les marches sautées étant marquées **non consultées**). Les **RH instruisent** et demandent des précisions autant de fois qu'il le faut — la demande **retourne alors au demandeur**. Poste ouvert : **CV reçus** déposés par les RH, **présélection par le demandeur**, **choix de la direction parmi les présélectionnés ou en dehors**, entretiens, recrutement. Puis l'**intégration** (fiche employé pré-remplie) — **sauf pour un consulting**, intervenant externe hors effectif et hors paie. → [circuit](#-journal-des-évolutions-récentes) |
 | **Bureau du secrétariat** | `/demandes` | « Bureau de l'assistante de direction » : **10 types** de demandes, **catalogue d'articles de fourniture**, **demandes multi-cellules**, **fenêtre de 15 min** pour que le demandeur **modifie TOUT ce qu'il a saisi** ou supprime sa demande, **suppression traçable** (corbeille + motif), **flux par demande** (achat → validation Finances → devis/facture → Fin de la demande), validations, ordres de dépense, **espace Courses** (`/demandes/courses` : courses chauffeur **multi-points A/B/C** avec consigne par point, date **et heure max** — heure d'Alger —, pièces jointes, vue chauffeur en checklist), **accusé de réception des originaux de notes de frais** (section dédiée sur `/demandes`, verrouille/déverrouille le traitement RH), demandes terminées **archivées dans le Drive** (« Dossier traité »). → [workflow](#bureau-du-secrétariat--flux-par-demande) |
 | **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou au **chef de produit**, avec fil + pièces jointes. |
 | **Feedback** | `/feedback` | Retour libre utilisateur → admin, **+ boîte de réception** : les réponses de l'administration s'affichent à l'utilisateur (avec notification). |
@@ -587,6 +590,81 @@ ensuite). C'est une **dimension transverse** appliquée à tout le logiciel :
   `src/components/layout/company-switcher.tsx`, `src/components/shared/company-badge.tsx`.
 - ⚠ **Ne pas confondre** avec l'enum polymorphe `EntityType` (type d'objet pour Documents/Commentaires/accès) : la
   société est le modèle **`Company`** (libellé UI « Entité »).
+
+### Recrutement — de la demande d'un directeur jusqu'à l'intégration
+
+**Modèles** : `RecruitmentRequest` (référence `REC-AAAA-NNN`, entité, département, demandeur, poste, effectif,
+`contractType`, `salaryMin`/`salaryMax`, dates, missions, compétences, justification, `stage`, note et date de
+clôture) · `RecruitmentApproval` (`order`, `approverId`, `status`, `reason`, `decidedAt` — unique par
+`(requestId, order)`) · `RecruitmentInfoRequest` (question / réponse / auteurs / dates) · `RecruitmentCandidate`
+(identité, source, notes, `status`, traces de présélection / sélection / entretien, `employeeId` unique).
+Enums `RecruitmentStage` · `RecruitmentApprovalState` · `RecruitmentCandidateStatus` ; `ContractType.CONSULTING`.
+
+**Étapes** : `CHAIN` → `HR_REVIEW` ⇄ `INFO_REQUESTED` → `SOURCING` → `ONBOARDING` → `CLOSED`
+(`REJECTED` / `CANCELLED` en sortie). Le **pipeline des candidats** est porté par les CANDIDATS
+(`RECEIVED` → `SHORTLISTED` → `SELECTED` → `INTERVIEWED` → `HIRED` / `DECLINED`), pas par la demande :
+plusieurs personnes avancent en parallèle à des vitesses différentes, et une demande qui porterait un seul état
+« en entretien » ne saurait pas dire de qui elle parle.
+
+**Qui peut demander** : `recruitmentAccessFor` (`lib/rbac.ts`) — la condition est **factuelle** (diriger ou
+seconder un département, compté dans `getAccess`), pas nominale. Un rôle « Responsable » qui ne dirige rien n'a
+pas à demander de poste ; quelqu'un dont le rôle ne dit rien mais qui tient un service en a besoin. Les RH
+obtiennent le module entier (portée `ALL`).
+
+**La chaîne** : bâtie par `getManagementChain` à la soumission, puis **figée** — une réorganisation en cours de
+route changerait sinon les validateurs d'une demande déjà partie. Le demandeur est écarté de sa propre chaîne.
+La direction générale (`isTopManagement`) peut trancher à n'importe quelle marche ; les marches d'en dessous
+passent alors en **`SKIPPED`**, jamais en `APPROVED` — et la fiche écrit « n'a pas été consulté ». Un refus
+clôt tout, à n'importe quelle marche.
+
+**Les RH** : `askRecruitmentInfo` renvoie la demande en `INFO_REQUESTED` (elle **quitte leur file** tant que la
+réponse n'est pas venue, sinon ils rouvriraient chaque jour un dossier inchangé) ; `answerRecruitmentInfo` ne
+la leur rend qu'une fois **toutes** les questions répondues ; `openRecruitmentSourcing` ouvre le poste.
+
+**Les candidats** : `addRecruitmentCandidate` (RH) ; `moveRecruitmentCandidate` porte tout le pipeline en une
+action — même question, mêmes droits, donc pas quatre actions qui divergeraient. La **présélection appartient
+au demandeur** ; la **sélection à la direction générale**, et `canSelectCandidate` autorise un candidat
+**présélectionné OU non** : la présélection est un avis, pas un tri éliminatoire opposable au dernier décideur.
+
+**L'intégration** : `onboardRecruitment` crée la fiche employé pré-remplie depuis la demande (poste, direction,
+entité, contrat, dates, borne basse de la fourchette) et depuis le candidat. **`needsOnboarding(contract)` est
+faux pour un CONSULTING** : la demande se clôt sans fiche — un consultant est un intervenant externe, et
+l'inscrire à l'effectif fausserait la masse salariale, les congés et l'organigramme.
+
+**Accès** : `recruitmentViewer` / `recruitmentScope` (`lib/recruitment/access.ts`) — la même règle pour la liste
+et pour la fiche. Un CV et une fourchette de rémunération sont des **données personnelles** : avoir le module ne
+suffit pas, il faut être partie à la demande (auteur, validateur, RH, direction). Types d'entité
+`RECRUITMENT_REQUEST` (fiche de poste) et `RECRUITMENT_CANDIDATE` (CV) dans `lib/entity-access.ts`.
+
+**Fichiers** : `lib/recruitment/request-flow.ts` (+ 32 tests) · `lib/recruitment/access.ts` ·
+`lib/actions/recruitment-actions.ts` · `app/(app)/recrutement/`.
+
+### Congés — l'intérimaire qui tient la place
+
+**Modèle** : `LeaveRequest.standInId` · `standInStatus` (`StandInStatus`) · `standInModules` ·
+`standInDecidedById` · `standInDecidedAt` · `standInNote`.
+
+**Le circuit** : l'**absent désigne** (`proposeStandIn`) et choisit les modules délégués ; les **RH valident**
+(`decideStandIn`, refus motivé obligatoire). Toute nouvelle désignation **repart en attente** : l'accord donné
+pour quelqu'un ne s'hérite pas. Les RH ne peuvent pas valider un intérim **qui ne transmettrait rien** — cela
+laisserait croire que la place est tenue.
+
+**La fenêtre** : `isDelegationActive` exige quatre conditions — congé accordé, intérimaire désigné, RH d'accord,
+date du jour dans `[startDate, endDate]`. La comparaison se fait au **jour**, pas à l'instant : un congé du 3 au
+10 couvre le 10 tout entier. La délégation s'**éteint seule** ; personne n'a rien à révoquer, et c'est ce qui la
+rend sûre là où un accès ouvert « pour cette fois » ne se referme jamais.
+
+**La portée** : `NEVER_DELEGATED` exclut `ADMIN`, `DRIVE`, `MESSAGING`, `WORKSPACE`, `NOTIFICATIONS` — remplacer
+quelqu'un n'est pas lire son Drive privé. `delegatedActions` part de la matrice du rôle de l'**absent** et retire
+`DELETE` : une délégation ne crée pas un droit, elle en prête un, et un remplaçant ne détruit pas.
+
+**Effets** : les modules délégués sont ajoutés dans `getAccess` (recalculé à chaque requête, donc éteint le
+lendemain du congé) ; `decideValidationStep` accepte l'intérimaire sur les étapes du validateur absent
+(`actsForUser`), et le journal **dit** que la décision a été prise au titre d'un intérim.
+
+**Fichiers** : `lib/hr/stand-in.ts` (+ 25 tests) · `lib/hr/stand-in-resolve.ts` ·
+`lib/actions/stand-in-actions.ts` · `components/hr/stand-in-panel.tsx` · sections de `/rh/conges` et
+`/mon-dossier`.
 
 ### Moteur de workflow dynamique (Ad & Pro — 4 catégories)
 
@@ -2050,6 +2128,13 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Moyens généraux — caisse ou hors caisse** | Module PUR `lib/general-means/payment-source.ts` (`sourceOf`, `cashAvailable`, `resolveSource`, `sourceChange`, `defaultSource`) + `payment-source.test.ts` (15 tests) ; `addDepartmentExpense` / `updateDepartmentExpense` acceptent `paymentSource` (`lib/actions/department-budget-actions.ts`) ; `app/(app)/moyens-generaux/{expense-panel,expense-row-actions}.tsx`. Le volet « dépense » de `cash-panel.tsx` a été **retiré** : un seul bouton. |
 | **Moyens généraux — demande d'achat (tous)** | Module PUR `lib/general-means/purchase-request.ts` (`cleanLines`, `estimatedTotal`, `summarize`, `purchaseStage`, `canWithdraw`) + `purchase-request.test.ts` (20 tests) ; `lib/actions/purchase-request-actions.ts` (validateur = **N+1 résolu par `getManagerOfUser`**) ; `app/(app)/moyens-generaux/{purchase-section,purchase-request-form,my-purchase-requests}.tsx`. La demande est une `AdministrativeRequest` de type `PURCHASE`. |
 | **Paie — correction d'une ligne** | Module PUR `lib/hr/payroll-amend.ts` (`validateAmounts` — partagé avec le marquage —, `resolvedGross`, `amendImpact`, `canAmend`) + `payroll-amend.test.ts` (16 tests) ; `updatePayrollEntry` (`lib/actions/payroll-hr-actions.ts`, reprend l'écriture de trésorerie liée) ; `app/(app)/rh/paie/payroll-matrix.tsx`. |
+| **Recrutement (circuit complet)** | Modèles `RecruitmentRequest` · `RecruitmentApproval` · `RecruitmentInfoRequest` · `RecruitmentCandidate` ; enums `RecruitmentStage` / `RecruitmentApprovalState` / `RecruitmentCandidateStatus` ; `ContractType.CONSULTING`. Module PUR `lib/recruitment/request-flow.ts` (`contractNeedsEndDate`, **`needsOnboarding`**, `currentStep`, `canDecideStep`, `applyChainDecision`, `chainProgress`, `abilities`, `canSelectCandidate`, `validateDraft`, `summarize`, `salaryRange`) + `request-flow.test.ts` (32 tests) ; `lib/recruitment/access.ts` (`recruitmentViewer`, `recruitmentScope` — la même règle pour la liste et pour la fiche) ; `lib/actions/recruitment-actions.ts` (chaîne bâtie par `getManagementChain`, **figée** à la soumission) ; `app/(app)/recrutement/` (`page.tsx`, `new-request.tsx`, `[id]/page.tsx` + `panels.tsx`). Module RBAC `RECRUITMENT` + `recruitmentAccessFor` (accès dicté par l'**organigramme**, pas par une liste de rôles). Types d'entité `RECRUITMENT_REQUEST` / `RECRUITMENT_CANDIDATE` dans `lib/entity-access.ts`. |
+| **Congés — intérimaire** | `LeaveRequest.standInId|standInStatus|standInModules|standInDecidedById|standInDecidedAt|standInNote` + enum `StandInStatus`. Module PUR `lib/hr/stand-in.ts` (`isDelegatable`, `normalizeDelegated`, **`isDelegationActive`**, `inactiveReason`, `delegatedActions`, `delegationsFor`, `actsFor`, `delegationNotice`) + `stand-in.test.ts` (25 tests) ; `lib/hr/stand-in-resolve.ts` (`activeStandInsFor`, `actsForUser`, `standInForUserIds`) ; grant implicite dans `getAccess` (`lib/rbac.ts`) ; garde d'intérim dans `decideValidationStep` (`lib/actions/validation-actions.ts`) ; `lib/actions/stand-in-actions.ts` ; `components/hr/stand-in-panel.tsx` (désignation + décision RH). |
+| **Assistant — export Excel & réglages** | `lib/assistant/admin-write.ts` (**liste blanche** : `WRITABLE_SETTINGS`, `WRITABLE_REG_FIELDS`, `parseSettingValue`, `parseRegFieldValue`, `renderSettingValue`) + `admin-write.test.ts` (22 tests) ; `lib/assistant/exports.ts` (`DATASETS`, `canExport`, `exportDatasetToDrive` → Drive personnel, dossier « Exports IA ») ; outils `export_excel`, `read_platform_settings`, `update_platform_setting`, `update_regulatory_product` + les deux `AssistantActionPayload` correspondants dans `lib/assistant.ts`. |
+| **Regulatory — relance de mise à jour** | Modèle `RegulatoryUpdateReminder` (une ligne **par destinataire**, même pour une relance groupée) ; module PUR `lib/regulatory/update-reminder.ts` (`canSendUpdateReminder`, `isStaleDossier`, `remindedRecently`, `reminderTargets`, messages) + `update-reminder.test.ts` (21 tests) ; `lib/queries/regulatory-reminders.ts` (**mêmes chiffres à l'écran et à l'envoi**) ; `lib/actions/regulatory-reminder-actions.ts` ; `app/(app)/regulatory/update-reminder.tsx`. |
+| **Courriers — direction & personne concernées** | `MailEntry.departmentId|concernedUserId` ; `lib/queries/mail-routing.ts` (menus partagés liste ↔ fiche) ; `diffMailAssignments` + `MAIL_ASSIGNMENT_FIELDS` dans `lib/mail-register/trace.ts` (journal **par le nom**, jamais par l'identifiant) ; `resolveAssignments` dans `lib/mail-register/write.ts` ; colonne « Concerne » filtrable dans `app/(app)/courriers/mail-table.tsx`. |
+| **Masquer / démasquer un module** | Module PUR `lib/modules-visibility.ts` (`NEVER_HIDDEN`, `isHideable`, `normalizeHidden`, `visibleModules`, **`canOpenModule`**) + `modules-visibility.test.ts` (17 tests) ; `AppSetting.hiddenModules` ; garde d'adresse dans `requireModule` (`lib/session.ts`) et filtre de menu dans `app/(app)/layout.tsx` ; `setHiddenModules` + `HiddenModulesForm` (Administration). |
+| **Catalogue d'articles — écriture uniforme** | Module PUR `lib/general-means/catalog-normalize.ts` (`normalizeArticleName`, `articleKey`, `normalizeReference`, `normalizeToCode`, `normalizeArticle`, `needsRewrite`, `describeRewrite`, `CATEGORY_ALIASES`, `UNIT_ALIASES`) + `catalog-normalize.test.ts` (23 tests) ; normalisation + **refus du doublon** dans `lib/actions/office-supply-actions.ts` ; `previewCatalogNormalization` / `applyCatalogNormalization` (on montre avant d'appliquer) ; `NormalizePanel` dans `app/(app)/demandes/supplies-manager.tsx`. |
 | **Legal — dossiers de classement** | Modèle `LegalFolder` + `LegalDocument.folderId` (`ON DELETE SET NULL` : on déclasse, on ne détruit pas) ; module PUR `lib/legal/folders.ts` (`buildFolderTree`, `flattenFolders`, `folderPath`, `subtreeIds`, `canReparent`, `deletionSummary`) + `folders.test.ts` (17 tests) ; `lib/actions/legal-folder-actions.ts` ; `app/(app)/legal/folder-bar.tsx` ; champ `folderId` dans `legal-fields.ts`. |
 | **Legal — coordonnées légales & fiscales** | Modèle `CompanyLegalIdentity` + `EntityType.COMPANY` ; module PUR `lib/legal/identity.ts` (`IDENTITY_SECTIONS`, `identityBlock`, `filledCount`) + tests ; `lib/actions/company-identity-actions.ts` ; `app/(app)/legal/identites/`. |
 | **RH — contrats : visibilité et miroir Drive** | Module PUR `lib/hr/document-visibility.ts` (`defaultVisibleToEmployee`, `resolveVisibility`, `shouldMirrorToDrive`) + tests ; `lib/hr-drive-mirror.ts` écrit dans une **catégorie de Drive** « RH — Contrats » ouverte aux seuls rôles RH (`rolesWithModule("RH")`), plus dans un Drive personnel. |
@@ -2158,6 +2243,18 @@ affiche proprement « IA non configurée » — **aucune fonctionnalité ne cass
   les feuilles), **PowerPoint** (texte des diapositives), **Word**, **PDF** (couche texte), **CSV/texte** — puis
   injecté dans le message pour que l'assistant s'appuie dessus (résumé, extraction de chiffres, comparaison). Fichiers
   du Drive lus **après contrôle d'accès** ; formats scannés/binaires hérités signalés (`lib/assistant-files.ts`).
+  **Export Excel** — `export_excel` produit un vrai `.xlsx` (dossiers réglementaires, annuaire, courriers,
+  recrutement, effectif, comptes) et le dépose dans le **Drive personnel** du demandeur, dossier « Exports IA » :
+  il doit vivre là où les autorisations existent déjà, pas dans un lien qui traîne. Le contenu ne dépasse
+  **jamais** ce que la personne a le droit de lire, et l'export de l'effectif ne porte **aucune** colonne de
+  rémunération — un classeur circule sans ses droits d'accès. Même nom le même jour = nouvelle **version**.
+  **Réglages de la plateforme et fiches Regulatory** — `read_platform_settings` / `update_platform_setting`
+  (Super Admin) et `update_regulatory_product` (droit `REGULATORY:UPDATE`). Ce qui rend cela tenable est une
+  **liste blanche déclarative, typée et bornée** (`lib/assistant/admin-write.ts`) : ce qui n'y figure pas n'est
+  pas écrivable, la **console d'administration ne se masque jamais**, une **liste remplace** l'ancienne (la carte
+  de confirmation le dit), verrouiller un dossier annonce sa conséquence, et **chaque valeur est relue** avant
+  d'atteindre la base — la confirmation de l'utilisateur ne remplace pas la validation, personne ne relit une
+  énumération dans une carte de confirmation. Rôles et modules se désignent par leur **nom français**.
   **Dictée vocale** — un bouton micro dans la zone de saisie : on parle, l'audio est transcrit (**Whisper**,
   `POST /api/assistant/transcribe`, audio non conservé) et le texte arrive **dans le champ, ÉDITABLE** — on relit /
   corrige avant d'envoyer. Affiché seulement si `OPENAI_API_KEY` est configurée, et soumis à l'interrupteur « voix ».
@@ -2601,6 +2698,75 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Module Recrutement — du besoin d'un directeur jusqu'à l'intégration.** Recruter est un
+  engagement pluriannuel qui n'appartient à personne seul : le circuit est donc long, et
+  volontairement. Un **directeur formule** le besoin (poste, missions, compétences, contrat parmi
+  CDI / CDD / consulting / stage, fourchette de rémunération, dates, fiche de poste) — et le droit
+  de demander suit l'**organigramme**, pas une liste de rôles : diriger ou seconder un département
+  ouvre le module. Sa **hiérarchie valide marche par marche jusqu'au sommet** ; la chaîne est
+  calculée sur l'organigramme réel puis **figée à la soumission**, sinon une réorganisation
+  changerait les validateurs d'une demande déjà partie. La direction générale peut trancher à
+  n'importe quelle marche — sans quoi une demande reste bloquée pendant une absence — et les
+  marches sautées sont marquées **non consultées**, jamais « approuvées » : écrire qu'un N+1 a
+  validé ce qu'il n'a pas vu serait un faux. Les **RH instruisent** et demandent des précisions
+  autant de fois qu'il le faut ; la demande **retourne alors au demandeur** et quitte leur file.
+  Poste ouvert, les RH déposent les **CV reçus**, le **demandeur présélectionne** (c'est lui qui
+  sait ce que le poste exige) et la direction **tranche — parmi les présélectionnés ou en dehors** :
+  la présélection est un avis, pas un tri éliminatoire. Enfin l'**intégration**, fiche employé
+  pré-remplie depuis la demande — **sauf pour un consulting**, intervenant externe qui n'entre ni
+  dans l'effectif, ni dans la paie, ni dans l'organigramme. Le pipeline vit sur les **candidats**,
+  pas sur la demande : plusieurs personnes avancent en parallèle à des vitesses différentes.
+
+- **Congés : un intérimaire tient la place.** Une personne part trois semaines, ses validations
+  s'empilent, et l'on découvre au retour qu'une demande attendait depuis quinze jours. L'**absent
+  désigne** son remplaçant et **choisit ce qu'il délègue** ; les **RH valident** (sans cette marche,
+  chacun se choisirait un remplaçant complaisant) ; la délégation **ne vit que pendant le congé** et
+  s'éteint d'elle-même — personne n'a rien à révoquer, et c'est précisément ce qui la rend sûre, au
+  contraire d'un accès ouvert « pour cette fois » qui ne se referme jamais. Deux bornes la
+  distinguent d'un compte partagé : **jamais tout le compte** (Drive, messagerie et espace personnel
+  ne se délèguent pas) et **jamais plus que ce que l'absent avait**, suppression exclue. Pendant la
+  fenêtre, l'intérimaire ouvre les modules délégués et **tranche les validations adressées à
+  l'absent** — le journal disant qu'elles l'ont été au titre d'un intérim.
+
+- **L'assistant IA exporte en Excel, règle la plateforme et modifie un dossier Regulatory.**
+  L'export produit un vrai `.xlsx` déposé dans le **Drive personnel** du demandeur (dossier
+  « Exports IA ») — il doit vivre là où les autorisations existent déjà, pas dans un lien qui traîne
+  — et son contenu ne dépasse **jamais** ce que la personne a le droit de lire (l'export de
+  l'effectif ne porte aucune colonne de rémunération : un classeur circule sans ses droits d'accès).
+  Le Super Admin lit et modifie les réglages ; n'importe quel champ d'un dossier réglementaire se
+  corrige par la conversation. Ce qui rend cela tenable est une **liste blanche typée et bornée** :
+  ce qui n'y figure pas n'est pas écrivable, la console d'administration ne se masque jamais, une
+  liste **remplace** l'ancienne (et la carte de confirmation le dit), et chaque valeur est **relue**
+  avant d'atteindre la base — la confirmation de l'utilisateur ne remplace pas la validation.
+
+- **Regulatory : relancer la mise à jour des dossiers**, une personne ou tout le monde, par le
+  Super Admin ou le Directeur Général seulement. On ne parle pas d'un dossier mais d'un
+  **portefeuille** : le panneau montre d'abord, par personne, le nombre de dossiers, la part en
+  sommeil (plus de 30 jours sans mouvement) et la date de la dernière relance. Un dossier
+  **verrouillé** ou **abouti** ne compte pas — relancer quelqu'un sur un dossier qu'il ne peut pas
+  ouvrir, c'est lui demander l'impossible. Les dossiers **sans chargé de dossier** sont comptés à
+  part : les taire donnerait une somme fausse.
+
+- **Courriers : la direction et la personne que le pli concerne.** Deux champs facultatifs et
+  cumulables — un contrat vise « la Direction Générale » ET son directeur, une convocation une
+  seule personne. La direction vient de l'organigramme réel, la personne est un compte actif. Une
+  colonne « Concerne » filtrable au registre, et un journal qui suit les rattachements **par leur
+  nom** : « cmt1es… → cmt2fk… » n'apprendrait rien à personne.
+
+- **Masquer un module**, sans toucher aux droits ni aux données. Ce n'est pas une permission :
+  masquer dit « ce module n'est pas en service ici, pour personne ». Rien n'est supprimé, démasquer
+  rend le module tel qu'il était. La **console d'administration ne se masque jamais** (la cacher
+  fermerait la porte de l'intérieur) et le **Super Admin continue de voir** ce qu'il a masqué —
+  sinon il ne pourrait plus le rallumer. Un module masqué est **injoignable par son adresse**, pas
+  seulement absent du menu.
+
+- **Catalogue d'articles : une seule façon d'écrire, et le doublon refusé.** Casse, espaces,
+  ponctuation, catégories et unités sont uniformisés à la saisie ; les sigles et formats restent en
+  majuscules (« Câble HDMI », jamais « Câble Hdmi »). On **normalise sans traduire** : « Ramette »
+  ne devient pas « Rame ». Un article déjà présent sous une autre orthographe est refusé, avec le
+  renvoi vers celui qui existe. L'existant n'est **pas réécrit en silence** : « Vérifier » montre la
+  liste avant → après, « Appliquer » vient ensuite.
 
 - **Bureautique : créer un document avec ou sans papier en-tête.** L'assistante de direction tient
   la papeterie ; tout le monde choisit, à la création d'un Word/Excel/PowerPoint, entre « Vierge »
