@@ -938,15 +938,16 @@ model User {
   meetingTaskProposals  MeetingTaskProposal[] @relation("MeetingTaskAssignee")
   meetingMessages       MeetingMessage[]      @relation("MeetingMsgAuthor")
 
-  reminders          Reminder[]          @relation("UserReminders")
+  reminders          Reminder[]            @relation("UserReminders")
   /// Entités auxquelles cette personne a accès (voir / modifier). Distinct de son entité
   /// d'appartenance, portée par sa fiche Employee.
   companyAccess      UserCompanyAccess[]
   rangeAccess        UserProductRange[]
-  adProItemDecisions AdProItemDecision[] @relation("AdProItemDecider")
-  apiClients         ApiClient[]         @relation("ApiClientActAs")
-  docRequestsAsked   DocumentRequest[]   @relation("DocRequestAsker")
-  docRequestsToMe    DocumentRequest[]   @relation("DocRequestAsked")
+  legalDocReads      LegalDocumentReader[]
+  adProItemDecisions AdProItemDecision[]   @relation("AdProItemDecider")
+  apiClients         ApiClient[]           @relation("ApiClientActAs")
+  docRequestsAsked   DocumentRequest[]     @relation("DocRequestAsker")
+  docRequestsToMe    DocumentRequest[]     @relation("DocRequestAsked")
 
   @@index([role])
   @@index([departmentId])
@@ -3460,6 +3461,10 @@ model Employee {
   expenseRefund Decimal?    @db.Decimal(12, 2) // remboursement de frais
   netToPay      Decimal?    @db.Decimal(12, 2) // net à payer
   grossSalary   Decimal?    @db.Decimal(12, 2) // salaire brut (confidentiel)
+  /// COÛT EMPLOYEUR — ce que le salarié coûte RÉELLEMENT à la société : le brut, plus les
+  /// charges patronales. C'est LUI qui fait la masse salariale, pas le brut : deux salariés au
+  /// même brut ne coûtent pas la même chose. Confidentiel, comme le brut.
+  employerCost  Decimal?    @db.Decimal(12, 2)
   hireDate      DateTime?
   isActive      Boolean     @default(true)
   notes         String?
@@ -4017,6 +4022,10 @@ model PayrollEntry {
   year                Int
   month               Int
   gross               Decimal       @default(0) @db.Decimal(12, 2)
+  /// COÛT EMPLOYEUR du mois — le montant imputé au BUDGET, et la brique de la masse salariale.
+  /// Nul sur les mois saisis avant l'introduction du champ : les lectures retombent alors sur
+  /// le brut, en le disant (voir `src/lib/hr/payroll-cost.ts`).
+  employerCost        Decimal?      @db.Decimal(12, 2)
   bonuses             Decimal       @default(0) @db.Decimal(12, 2)
   deductions          Decimal       @default(0) @db.Decimal(12, 2)
   net                 Decimal       @default(0) @db.Decimal(12, 2)
@@ -7627,46 +7636,73 @@ enum LegalDocStatus {
 /// advient du document (renouvelé, annulé).
 model LegalDocument {
   custom         Json?
-  id             String          @id @default(cuid())
+  id             String                @id @default(cuid())
   companyId      String?
-  company        Company?        @relation(fields: [companyId], references: [id])
+  company        Company?              @relation(fields: [companyId], references: [id])
   reference      String? // référence interne / n° de BC
   title          String // le titre EXACT, tel qu'il figure sur la pièce
-  kind           LegalDocKind    @default(CONTRACT)
+  kind           LegalDocKind          @default(CONTRACT)
   counterparty   String? // l'autre partie (fournisseur, client, prestataire)
   /// Dates FACULTATIVES : beaucoup d'engagements n'ont pas de terme (statuts, police tacite).
   /// `endDate` nul = sans échéance — jamais « expiré », jamais rappelé.
   startDate      DateTime?
   endDate        DateTime?
-  status         LegalDocStatus  @default(ACTIVE)
-  amount         Decimal?        @db.Decimal(14, 2)
+  status         LegalDocStatus        @default(ACTIVE)
+  amount         Decimal?              @db.Decimal(14, 2)
   notes          String?
   cancelledAt    DateTime?
   cancelReason   String?
   /// Chaîne de RENOUVELLEMENT : le nouveau document pointe vers celui qu'il remplace, et
   /// l'ancien passe en RENEWED. On garde les deux — un renouvellement n'efface pas le passé.
   renewedFromId  String?
-  renewedFrom    LegalDocument?  @relation("LegalRenewal", fields: [renewedFromId], references: [id])
-  renewals       LegalDocument[] @relation("LegalRenewal")
+  renewedFrom    LegalDocument?        @relation("LegalRenewal", fields: [renewedFromId], references: [id])
+  renewals       LegalDocument[]       @relation("LegalRenewal")
   /// LE FICHIER RESTE DANS LE DRIVE : on le référence, on ne le duplique pas.
   driveNodeId    String?
-  driveNode      DriveNode?      @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
+  driveNode      DriveNode?            @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
   /// Rattachement à ce qui l'a fait naître (demande Ad & Pro, demande au secrétariat…).
   sourceType     EntityType?
   sourceId       String?
+  /// LES LECTEURS AUTORISÉS — qui, en plus du déposant, a le droit d'ouvrir ce document.
+  ///
+  /// Un engagement de la société n'est pas une pièce d'équipe : un bail, un contrat de travail
+  /// de cadre, un protocole d'accord ne se lisent pas parce qu'on a le module Legal. Le
+  /// déposant désigne ses lecteurs ; hors d'eux (et du Super Admin, qui arbitre), le document
+  /// n'existe pas — il ne figure ni dans la liste, ni par son identifiant.
+  ///
+  /// Liste VIDE = document ouvert à tout le module, comme avant. C'est le seul défaut sûr pour
+  /// l'historique : le remplir de listes devinées aurait fermé des documents à ceux qui les
+  /// utilisent, sans que personne sache lesquels.
+  readers        LegalDocumentReader[]
   /// Dernier rappel d'échéance envoyé — évite de renotifier tous les jours.
   lastRemindedAt DateTime?
   createdById    String?
-  createdBy      User?           @relation("LegalDocCreator", fields: [createdById], references: [id])
+  createdBy      User?                 @relation("LegalDocCreator", fields: [createdById], references: [id])
   updatedById    String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
 
   @@index([companyId, status])
   @@index([kind])
   @@index([endDate])
   @@index([sourceType, sourceId])
   @@index([driveNodeId])
+}
+
+/// UN LECTEUR AUTORISÉ d'un document légal. Le déposant les désigne à la création, et peut les
+/// revoir ensuite. Supprimer le document emporte ses lecteurs.
+model LegalDocumentReader {
+  id          String        @id @default(cuid())
+  documentId  String
+  document    LegalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grantedById String?
+  createdAt   DateTime      @default(now())
+
+  @@unique([documentId, userId])
+  @@index([documentId])
+  @@index([userId])
 }
 
 // ───────────────────────────── COURRIERS — le carnet entrant / sortant ─────────────────────────────

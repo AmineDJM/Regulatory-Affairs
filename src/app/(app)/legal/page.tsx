@@ -10,6 +10,8 @@ import { createLegalDocument } from "@/lib/actions/legal-actions";
 import { effectiveStatus, expiryLevel, daysLeft } from "@/lib/legal/lifecycle";
 import { legalFields } from "./legal-fields";
 import { LegalTable, type LegalRow } from "./legal-table";
+import { legalReaderWhere } from "@/lib/legal/readers";
+import { ROLE_LABELS } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Legal — AMD Internal OS" };
@@ -31,14 +33,32 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   const canCreate = userCan(user, "LEGAL", "CREATE");
   const canEdit = userCan(user, "LEGAL", "UPDATE");
 
+  // LES LECTEURS DÉSIGNÉS, en plus du cloisonnement d'entité. Un document restreint n'apparaît
+  // pas dans la liste de ceux qui n'y sont pas nommés — pas même en grisé : une ligne qu'on voit
+  // sans pouvoir l'ouvrir révèle déjà le titre, la partie en face et le montant.
+  const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
   const docs = await prisma.legalDocument.findMany({
-    where: { ...await currentCompanyWhereFor(user.id) },
+    where: {
+      ...await currentCompanyWhereFor(user.id),
+      ...(readerScope ? { AND: [readerScope] } : {}),
+    },
     orderBy: [{ endDate: "asc" }, { createdAt: "desc" }],
     include: {
       driveNode: { select: { id: true, name: true } },
       renewedFrom: { select: { title: true } },
+      readers: { select: { userId: true } },
     },
   });
+
+  // Les personnes désignables comme lecteurs : les comptes actifs, sauf soi-même — on a déjà
+  // accès à ce qu'on dépose, et se proposer dans sa propre liste ne veut rien dire.
+  const people = canCreate
+    ? (await prisma.user.findMany({
+        where: { isActive: true, id: { not: user.id } },
+        select: { id: true, name: true, role: true },
+        orderBy: { name: "asc" },
+      })).map((u) => ({ value: u.id, label: `${u.name} — ${ROLE_LABELS[u.role] ?? u.role}` }))
+    : [];
 
   const today = new Date();
   const rows: LegalRow[] = docs.map((d) => ({
@@ -58,6 +78,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
     driveNodeId: d.driveNode?.id ?? null,
     driveName: d.driveNode?.name ?? null,
     renewedFromTitle: d.renewedFrom?.title ?? null,
+    restricted: d.readers.length > 0,
   }));
 
   const watch = rows.filter((r) => r.expiry === "SOON" || r.expiry === "IMMINENT").length;
@@ -74,7 +95,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
           <CreateRecordButton
             label="Nouveau document" title="Déclarer un document légal" width="lg"
             description="Un document peut n'avoir aucune date : laissez les dates vides, il ne se périmera jamais et ne déclenchera aucun rappel."
-            action={createLegalDocument} fields={legalFields({}, "create")} redirectBase="/legal"
+            action={createLegalDocument} fields={legalFields({}, "create", people)} redirectBase="/legal"
           />
         )}
       </PageHeader>

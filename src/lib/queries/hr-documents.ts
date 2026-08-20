@@ -13,6 +13,11 @@ export interface HrDocumentDTO {
   size: number;
   period: string | null;
   createdAt: string;
+  /**
+   * Le salarié voit-il cette pièce dans « Mon dossier RH » ? Affiché sur la ligne côté RH :
+   * une restriction qu'on ne voit pas est une restriction dont on doute.
+   */
+  visibleToEmployee: boolean;
 }
 
 export interface HrRequestDTO {
@@ -63,8 +68,14 @@ export interface MyHrDossier {
   requests: HrRequestDTO[];
 }
 
-function mapDoc(d: { id: string; category: HrDocumentCategory; name: string; mime: string; size: number; period: string | null; createdAt: Date }): HrDocumentDTO {
-  return { id: d.id, category: d.category, name: d.name, mime: d.mime, size: d.size, period: d.period, createdAt: d.createdAt.toISOString() };
+function mapDoc(d: { id: string; category: HrDocumentCategory; name: string; mime: string; size: number; period: string | null; createdAt: Date; visibleToEmployee?: boolean }): HrDocumentDTO {
+  return {
+    id: d.id, category: d.category, name: d.name, mime: d.mime, size: d.size, period: d.period,
+    createdAt: d.createdAt.toISOString(),
+    // Côté salarié, la requête ne remonte QUE ses pièces partagées : l'absence du champ y vaut
+    // « visible », et non « on ne sait pas ».
+    visibleToEmployee: d.visibleToEmployee ?? true,
+  };
 }
 
 type ReqRow = {

@@ -8,7 +8,8 @@ import { Input, Select, Label } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
 import { formatDate, formatMonth } from "@/lib/utils";
-import { processHrRequest, deleteEmployeeDocument, decideExpenseReport, decideHrLeave, deleteHrRequest } from "@/lib/actions/hr-document-actions";
+import { processHrRequest, deleteEmployeeDocument, decideExpenseReport, decideHrLeave, deleteHrRequest, setEmployeeDocumentVisibility } from "@/lib/actions/hr-document-actions";
+import { defaultVisibleToEmployee, visibilityLabel } from "@/lib/hr/document-visibility";
 import { hrNature, HR_DOCUMENT_STATUSES } from "@/lib/hr-request-flow";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
 import { MeetingControls } from "@/components/shared/hr-meeting-controls";
@@ -26,15 +27,25 @@ const REQ_TO_CAT: Record<string, string> = {
 export function HrDossier({ employeeId, documents, requests, currentUserId }: { employeeId: string; documents: HrDocumentDTO[]; requests: HrRequestDTO[]; currentUserId: string }) {
   const router = useRouter();
   const [category, setCategory] = React.useState("PAYSLIP");
+  // La case suit la CATÉGORIE tant que personne ne l'a touchée : choisir « Contrat » doit
+  // décocher tout seul, sinon le défaut ne protège que ceux qui y pensent.
+  const [shareWithEmployee, setShareWithEmployee] = React.useState(() => defaultVisibleToEmployee("PAYSLIP"));
+  const setCategoryAndVisibility = (next: string) => {
+    setCategory(next);
+    setShareWithEmployee(defaultVisibleToEmployee(next));
+  };
   const [period, setPeriod] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
-  const upload = async (file: File, opts: { category: string; period?: string; requestId?: string }) => {
+  const upload = async (file: File, opts: { category: string; period?: string; requestId?: string; visibleToEmployee?: boolean }) => {
     setBusy(true); setErr(null);
     const fd = new FormData();
     fd.set("file", file); fd.set("employeeId", employeeId); fd.set("category", opts.category);
+    // Toujours envoyé, y compris pour un dépôt qui répond à une demande : le serveur distingue
+    // « rien coché » de « décoché », et une demande d'attestation se remet évidemment au salarié.
+    fd.set("visibleToEmployee", (opts.visibleToEmployee ?? defaultVisibleToEmployee(opts.category)) ? "1" : "0");
     if (opts.period) fd.set("period", opts.period);
     if (opts.requestId) fd.set("requestId", opts.requestId);
     try {
@@ -53,7 +64,7 @@ export function HrDossier({ employeeId, documents, requests, currentUserId }: { 
         <p className="mb-2 text-sm font-medium">Déposer un document RH</p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="space-y-1.5 sm:col-span-2"><Label>Catégorie</Label>
-            <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+            <Select value={category} onChange={(e) => setCategoryAndVisibility(e.target.value)}>
               {Object.entries(HR_DOCUMENT_CATEGORY).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
           </div>
@@ -64,7 +75,24 @@ export function HrDossier({ employeeId, documents, requests, currentUserId }: { 
             </Button>
           </div>
         </div>
-        <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f, { category, period: period || undefined }); e.target.value = ""; }} />
+        {/* QUI VERRA CETTE PIÈCE — préréglé sur la NATURE du document, et modifiable. Un contrat
+            ou un avenant reste aux RH ; un bulletin, une attestation vont au salarié, puisqu'ils
+            existent pour lui. La case dit l'état AVANT le dépôt, pas après. */}
+        <label className="mt-2 flex items-start gap-2 text-sm">
+          <input
+            type="checkbox" className="mt-0.5 h-4 w-4 shrink-0"
+            checked={shareWithEmployee} onChange={(e) => setShareWithEmployee(e.target.checked)}
+          />
+          <span>
+            Visible par le salarié dans « Mon dossier RH »
+            <span className="block text-xs text-muted-foreground">
+              {shareWithEmployee
+                ? "Il retrouvera cette pièce dans son espace."
+                : "Pièce de gestion : elle reste au dossier RH, le salarié ne la voit pas."}
+            </span>
+          </span>
+        </label>
+        <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f, { category, period: period || undefined, visibleToEmployee: shareWithEmployee }); e.target.value = ""; }} />
         {err && <p className="mt-2 text-xs text-destructive">{err}</p>}
       </div>
 
@@ -82,6 +110,15 @@ export function HrDossier({ employeeId, documents, requests, currentUserId }: { 
                   <p className="truncate text-sm font-medium">{d.name}</p>
                   <p className="text-xs text-muted-foreground">{HR_DOCUMENT_CATEGORY[d.category]}{d.period ? ` · ${d.period}` : ""} · {formatDate(d.createdAt)}</p>
                 </div>
+                {/* L'ÉTAT SE VOIT, et se change d'un clic : une restriction invisible est une
+                    restriction dont on doute, et qu'on finit par contourner « au cas où ». */}
+                <button
+                  onClick={() => { const fd = new FormData(); fd.set("id", d.id); fd.set("visible", d.visibleToEmployee ? "0" : "1"); setEmployeeDocumentVisibility(fd).then(() => router.refresh()); }}
+                  title={d.visibleToEmployee ? "Reprendre l'accès du salarié" : "Partager avec le salarié"}
+                  className={`hidden shrink-0 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium transition-colors sm:inline ${d.visibleToEmployee ? "border-success/40 text-success hover:bg-success/10" : "border-border text-muted-foreground hover:bg-secondary"}`}
+                >
+                  {visibilityLabel(d.visibleToEmployee)}
+                </button>
                 <a href={`/api/rh/document/${d.id}?dl=1`} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Télécharger"><Download className="h-4 w-4" /></a>
                 <button
                   onClick={() => { if (window.confirm("Supprimer ce document ?")) { const fd = new FormData(); fd.set("id", d.id); deleteEmployeeDocument(fd).then(() => router.refresh()); } }}

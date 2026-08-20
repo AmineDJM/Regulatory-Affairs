@@ -1,6 +1,7 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { platformScope } from "@/lib/company";
+import { legalReaderWhere } from "@/lib/legal/readers";
 import {
   userCan,
   hasGlobalView,
@@ -260,9 +261,13 @@ export async function canAccessEntity(
       return Boolean(found);
     }
     case "LEGAL_DOCUMENT": {
-      // Même raison : les engagements d'une société du groupe ne se lisent pas depuis une autre.
+      // Deux gardes : l'ENTITÉ (les engagements d'une société ne se lisent pas depuis une autre)
+      // ET les LECTEURS DÉSIGNÉS. Cette porte-ci gouverne les pièces jointes, les commentaires
+      // et les liaisons : sans la seconde, un document restreint resterait fermé à l'écran mais
+      // ses pièces se téléchargeraient encore par leur identifiant.
+      const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
       const found = await prisma.legalDocument.findFirst({
-        where: { AND: [{ id: entityId }, await platformScope(user.id)] },
+        where: { AND: [{ id: entityId }, await platformScope(user.id), ...(readerScope ? [readerScope] : [])] },
         select: { id: true },
       });
       return Boolean(found);

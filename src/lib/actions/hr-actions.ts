@@ -136,6 +136,7 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
     expenseRefund: fdNum(formData, "expenseRefund"),
     netToPay: fdNum(formData, "netToPay"),
     grossSalary: fdNum(formData, "grossSalary"),
+    employerCost: fdNum(formData, "employerCost"),
     hireDate: fdDate(formData, "hireDate"),
     contractType: castContract(fdStr(formData, "contractType")),
     contractStart: fdDate(formData, "contractStart"),

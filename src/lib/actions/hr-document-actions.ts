@@ -23,6 +23,7 @@ import {
   hrTypeIsLeave, HR_TYPE_TO_LEAVE,
 } from "@/lib/hr/leave-core";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+import { visibilityLabel } from "@/lib/hr/document-visibility";
 
 const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
@@ -533,6 +534,42 @@ export async function deleteEmployeeDocument(formData: FormData): Promise<Action
   await prisma.employeeDocument.delete({ where: { id } });
   await releaseBlob(doc.blobId);
   await recordAudit({ actorId: user.id, action: "DELETE", module: "RH", entityType: "EMPLOYEE", entityId: doc.employeeId, summary: `Document RH « ${doc.name} » supprimé` });
+  revalidatePath(`/rh/${doc.employeeId}`);
+  revalidatePath("/mon-dossier");
+  return { ok: true };
+}
+
+/**
+ * PARTAGER (ou reprendre) UNE PIÈCE RH AVEC LE SALARIÉ.
+ *
+ * Le défaut suit la nature du document — un contrat reste aux RH, un bulletin va au salarié.
+ * Ce geste-ci est l'exception assumée : remettre à quelqu'un son contrat signé, ou au contraire
+ * retirer une pièce déposée par erreur dans son espace.
+ *
+ * Tracé dans les deux sens : ouvrir l'accès à une pièce du dossier d'un salarié n'est pas un
+ * réglage d'affichage, et le refermer non plus.
+ */
+export async function setEmployeeDocumentVisibility(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Document introuvable." };
+  const visible = fdStr(formData, "visible") === "1";
+
+  const doc = await prisma.employeeDocument.findUnique({
+    where: { id },
+    select: { employeeId: true, name: true, visibleToEmployee: true, employee: { select: { fullName: true } } },
+  });
+  if (!doc) return { ok: false, error: "Document introuvable." };
+  if (doc.visibleToEmployee === visible) return { ok: true };
+
+  await prisma.employeeDocument.update({ where: { id }, data: { visibleToEmployee: visible } });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "RH", entityType: "EMPLOYEE", entityId: doc.employeeId,
+    field: "visibleToEmployee",
+    oldValue: String(doc.visibleToEmployee), newValue: String(visible),
+    summary: `Document RH « ${doc.name} » (${doc.employee.fullName}) — ${visibilityLabel(visible)}`,
+  });
   revalidatePath(`/rh/${doc.employeeId}`);
   revalidatePath("/mon-dossier");
   return { ok: true };

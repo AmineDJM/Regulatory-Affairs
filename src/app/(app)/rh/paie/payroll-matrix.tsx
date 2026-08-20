@@ -23,6 +23,8 @@ export interface PayrollRow {
   name: string;
   /** Pré-remplissage au marquage : salaire brut (→ budget) et net (→ salarié). */
   defaultGross: number | null;
+  /** Coût employeur de référence — ce qui préremplit le champ obligatoire de la paie. */
+  defaultEmployerCost: number | null;
   defaultNet: number | null;
   months: PayrollCell[]; // index 0 = janvier
 }
@@ -145,15 +147,24 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
             className="space-y-4"
           >
             <div className="grid gap-3 sm:grid-cols-2">
+              {/* LE COÛT EMPLOYEUR REMPLACE LE BRUT comme montant obligatoire : c'est ce que la
+                  société décaisse réellement, et donc ce qui pèse sur le budget et fait la masse
+                  salariale. Le brut, lui, n'est qu'une ligne du bulletin — l'imputer sous-évaluait
+                  la masse du montant exact des charges patronales. */}
               <div className="space-y-1.5">
-                <Label htmlFor="pay-gross">Salaire brut (DZD) <span className="text-destructive">*</span></Label>
-                <Input id="pay-gross" name="gross" type="number" step="any" min="1" required defaultValue={paying.row.defaultGross ?? undefined} />
-                <p className="text-xs text-muted-foreground">Total imputé au <span className="font-medium text-foreground">budget</span>. Pré-rempli depuis la fiche employé — modifiable.</p>
+                <Label htmlFor="pay-cost">Coût employeur (DZD) <span className="text-destructive">*</span></Label>
+                <Input id="pay-cost" name="employerCost" type="number" step="any" min="1" required defaultValue={paying.row.defaultEmployerCost ?? undefined} />
+                <p className="text-xs text-muted-foreground">Brut + <span className="font-medium text-foreground">charges patronales</span> : le total imputé au budget, et la brique de la masse salariale. Pré-rempli depuis la fiche employé — modifiable.</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="pay-net">Salaire net (DZD) <span className="text-destructive">*</span></Label>
                 <Input id="pay-net" name="net" type="number" step="any" min="1" required defaultValue={paying.row.defaultNet ?? undefined} />
-                <p className="text-xs text-muted-foreground">Montant <span className="font-medium text-foreground">affiché au salarié</span>. Ne peut pas dépasser le brut.</p>
+                <p className="text-xs text-muted-foreground">Montant <span className="font-medium text-foreground">affiché au salarié</span>. Ne peut pas dépasser le coût employeur.</p>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="pay-gross">Salaire brut (DZD) <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
+                <Input id="pay-gross" name="gross" type="number" step="any" min="0" defaultValue={paying.row.defaultGross ?? undefined} />
+                <p className="text-xs text-muted-foreground">Information de bulletin. Laissé vide, il est repris du coût employeur — il n'entre pas dans le calcul du budget.</p>
               </div>
             </div>
             <div className="space-y-1.5">

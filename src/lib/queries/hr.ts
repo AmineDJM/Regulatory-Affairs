@@ -3,6 +3,7 @@ import { platformScope } from "@/lib/company";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { canDecideLeave, type LeaveStage } from "@/lib/leave-workflow";
 import { toNumber } from "@/lib/utils";
+import { payrollMass as payrollMassOf, basisLabel } from "@/lib/hr/payroll-cost";
 
 /** Personalised workspace data for the signed-in user ("Mon espace"). */
 export async function getMyWorkspace(userId: string) {
@@ -112,24 +113,34 @@ export async function getRhData(userId: string) {
   // d'un module Paie qui, lui, connaissait le vrai. On lit donc le mois de paie le plus récent
   // effectivement saisi (brut + primes − retenues) ; à défaut seulement, on retombe sur les
   // salaires de base, en le disant à l'écran.
-  const payrollAgg = await prisma.payrollEntry
-    .groupBy({
-      by: ["year", "month"],
-      _sum: { gross: true, bonuses: true, deductions: true },
-      orderBy: [{ year: "desc" }, { month: "desc" }],
-      take: 1,
-    })
-    .catch(() => [] as { year: number; month: number; _sum: { gross: unknown; bonuses: unknown; deductions: unknown } }[]);
-  const lastPayroll = payrollAgg[0] ?? null;
-  const payrollMass = lastPayroll
-    ? toNumber(lastPayroll._sum.gross ?? 0) + toNumber(lastPayroll._sum.bonuses ?? 0) - toNumber(lastPayroll._sum.deductions ?? 0)
-    : 0;
+  // LE COÛT EMPLOYEUR fait la masse, pas le brut : deux salariés au même brut ne coûtent pas la
+  // même chose à la société, et c'est le décaissement réel qu'on oppose au budget. On lit les
+  // LIGNES du dernier mois (et non une somme agrégée) pour que chacune retombe sur son brut si
+  // son coût employeur n'a pas été saisi — les mois antérieurs au champ — et pour dire ensuite
+  // sur quoi le total repose.
+  const lastMonthAgg = await prisma.payrollEntry
+    .groupBy({ by: ["year", "month"], orderBy: [{ year: "desc" }, { month: "desc" }], take: 1 })
+    .catch(() => [] as { year: number; month: number }[]);
+  const lastPayroll = lastMonthAgg[0] ?? null;
+  const lastEntries = lastPayroll
+    ? await prisma.payrollEntry
+        .findMany({
+          where: { year: lastPayroll.year, month: lastPayroll.month },
+          select: { employerCost: true, gross: true, bonuses: true, deductions: true },
+        })
+        .catch(() => [])
+    : [];
+  const mass = payrollMassOf(lastEntries.map((e) => ({
+    employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
+    gross: toNumber(e.gross), bonuses: toNumber(e.bonuses), deductions: toNumber(e.deductions),
+  })));
   const baseMass = active.reduce((a, e) => a + toNumber(e.baseSalary), 0);
-  const masseSalariale = payrollMass > 0 ? payrollMass : baseMass;
-  /** D'où vient le chiffre affiché : « la paie de MM/AAAA » ou « les salaires de base ». */
-  const masseSalarialeSource = payrollMass > 0 && lastPayroll
-    ? `paie ${String(lastPayroll.month).padStart(2, "0")}/${lastPayroll.year}`
-    : "salaires de base";
+  const masseSalariale = mass.total > 0 ? mass.total : baseMass;
+  /** D'où vient le chiffre affiché — et sur QUELLE base : un indicateur dont on ignore la base
+   *  est un indicateur qu'on finit par ne plus croire. */
+  const masseSalarialeSource = mass.total > 0 && lastPayroll
+    ? `paie ${String(lastPayroll.month).padStart(2, "0")}/${lastPayroll.year} · ${basisLabel(mass.basis)}`
+    : basisLabel("BASE_SALARY");
   const contractsExpiring = employees.filter(
     (e) => e.contractEnd && e.contractEnd >= now && e.contractEnd <= in60,
   );

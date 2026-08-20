@@ -17,6 +17,7 @@ import { effectiveStatus, expiryLevel, daysLeft } from "@/lib/legal/lifecycle";
 import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { legalFields, dateInput } from "../legal-fields";
 import { EditLegalButton } from "./edit-legal";
+import { legalReaderWhere, readersCaption } from "@/lib/legal/readers";
 
 export const dynamic = "force-dynamic";
 
@@ -42,14 +43,20 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
 
   // Cloisonnement par entité : deviner un identifiant n'ouvre pas les engagements d'une autre
   // société du groupe.
+  const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
   const doc = await prisma.legalDocument.findFirst({
-    where: { AND: [{ id: params.id }, await platformScope(user.id)] },
+    // Deux gardes, et elles se composent : l'ENTITÉ (on ne lit pas les engagements d'une autre
+    // société) et les LECTEURS DÉSIGNÉS (un document restreint ne s'ouvre pas parce qu'on en
+    // devine l'identifiant). Un refus rend 404, jamais « accès refusé » : dire qu'un document
+    // existe, c'est déjà en dire trop.
+    where: { AND: [{ id: params.id }, await platformScope(user.id), ...(readerScope ? [readerScope] : [])] },
     include: {
       driveNode: { select: { id: true, name: true } },
       renewedFrom: { select: { id: true, title: true } },
       renewals: { select: { id: true, title: true, endDate: true }, orderBy: { createdAt: "desc" } },
       createdBy: { select: { name: true } },
       company: { select: { name: true, shortName: true } },
+      readers: { select: { userId: true, user: { select: { name: true } } } },
     },
   });
   if (!doc) notFound();
@@ -172,6 +179,18 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
                   </Link>
                 </div>
               )}
+              {/* QUI PEUT L'OUVRIR — dit sur la fiche, avec les noms. Une restriction invisible
+                  est une restriction dont on doute, et qu'on contourne « au cas où » en envoyant
+                  le fichier par mail — ce qu'elle sert précisément à éviter. */}
+              <div className="col-span-2 min-w-0 sm:col-span-3">
+                <p className="text-xs text-muted-foreground">Accès</p>
+                <p className="font-medium">{readersCaption({ createdById: doc.createdById, readerIds: doc.readers.map((r) => r.userId) })}</p>
+                {doc.readers.length > 0 && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {doc.readers.map((r) => r.user.name).join(", ")}
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
 

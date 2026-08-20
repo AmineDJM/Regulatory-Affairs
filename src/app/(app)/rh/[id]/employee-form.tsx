@@ -26,6 +26,7 @@ export interface EmployeeFormValues {
   expenseRefund: string;
   netToPay: string;
   grossSalary: string;
+  employerCost: string;
   leaveBalanceDays: string;
   hireDate: string;
   contractStart: string;
@@ -148,6 +149,9 @@ export function EmployeeForm({ employee, managerOptions, departmentOptions, user
           <p className="col-span-2 mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rémunération (bulletin de paie)</p>
           <TextInput name="baseSalary" label="Salaire de base (DZD)" type="number" defaultValue={v.baseSalary} />
           <TextInput name="grossSalary" label="Salaire brut (confidentiel)" type="number" defaultValue={v.grossSalary} />
+          {/* CE QUE LE SALARIÉ COÛTE VRAIMENT — brut + charges patronales. C'est ce montant, et
+              non le brut, qui fait la masse salariale et qu'on impute au budget. */}
+          <TextInput name="employerCost" label="Coût employeur (confidentiel)" type="number" defaultValue={v.employerCost} />
           <TextInput name="retSS9" label="Ret. SS 9 %" type="number" defaultValue={v.retSS9} />
           <TextInput name="retSS35" label="Ret. SS 35 % (confidentiel)" type="number" defaultValue={v.retSS35} />
           <TextInput name="tfp" label="TFP — taxe formation prof. (confidentiel)" type="number" defaultValue={v.tfp} />

@@ -8,7 +8,12 @@ import { LEGAL_DOC_KIND } from "@/lib/labels";
  * Deux listes séparées finiraient par diverger : on ajouterait un champ à la création, la fiche
  * ne saurait plus le corriger, et l'on aurait un engagement qu'on ne peut plus rectifier.
  */
-export function legalFields(values: Partial<Record<string, string>> = {}, mode: "create" | "edit" = "edit"): FieldDef[] {
+export function legalFields(
+  values: Partial<Record<string, string>> = {},
+  mode: "create" | "edit" = "edit",
+  /** Personnes désignables comme lecteurs. Vide → la case n'apparaît pas. */
+  people: { value: string; label: string }[] = [],
+): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
   return [
     { type: "text", name: "title", label: "Titre exact du document", required: true, full: true, defaultValue: v("title") },
@@ -24,6 +29,15 @@ export function legalFields(values: Partial<Record<string, string>> = {}, mode: 
     // et dans ce cas il n'est pas recopié, il est référencé. Sur la fiche, ces deux gestes ont
     // leurs propres blocs (bibliothèque de pièces, lien Drive) : les redoubler ici ferait deux
     // chemins pour la même chose.
+    // QUI POURRA L'OUVRIR. Un engagement de la société n'est pas une pièce d'équipe : le
+    // déposant nomme ses lecteurs. Aucun nom coché = document visible de tout le module, ce
+    // qui reste le cas normal d'une police d'assurance ou d'un bon de commande courant.
+    ...(people.length > 0
+      ? ([{
+          type: "multiselect", name: "readerId", label: "Lecteurs autorisés", options: people, full: true,
+          hint: "Personne d'autre ne verra ce document — ni dans la liste, ni par son lien. Vous y gardez accès, et le Super Admin arbitre. Aucun nom coché : visible de tout le module Legal.",
+        }] as FieldDef[])
+      : []),
     ...(mode === "create"
       ? ([
           {

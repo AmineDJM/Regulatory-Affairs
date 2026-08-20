@@ -195,28 +195,30 @@ interface EntitySummary {
   legacyStatus: string | null;
   /** Montant estimé/demandé par le demandeur — repli pour le routage par seuil tant qu'aucun montant de travail n'est fixé. */
   estimatedAmount: number | null;
+  /** Instant EXACT de création de la demande — première ligne de son historique. */
+  createdAt: Date | null;
 }
 
 async function loadEntity(entityType: EntityType, entityId: string): Promise<EntitySummary | null> {
   if (entityType === "SPONSORING") {
-    const r = await prisma.sponsoringRequest.findUnique({ where: { id: entityId }, select: { reference: true, institution: true, requesterId: true, status: true, amountRequested: true } });
+    const r = await prisma.sponsoringRequest.findUnique({ where: { id: entityId }, select: { reference: true, institution: true, requesterId: true, status: true, amountRequested: true, createdAt: true } });
     if (!r) return null;
-    return { name: r.institution, requesterId: r.requesterId, beneficiary: r.institution, label: `Sponsoring ${r.reference} — ${r.institution}`, legacyStatus: r.status, estimatedAmount: r.amountRequested != null ? toNumber(r.amountRequested) : null };
+    return { name: r.institution, requesterId: r.requesterId, beneficiary: r.institution, label: `Sponsoring ${r.reference} — ${r.institution}`, legacyStatus: r.status, estimatedAmount: r.amountRequested != null ? toNumber(r.amountRequested) : null, createdAt: r.createdAt };
   }
   if (entityType === "CONGRESS_INTERNATIONAL") {
-    const c = await prisma.congressInternational.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true, estimatedBudget: true } });
+    const c = await prisma.congressInternational.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true, estimatedBudget: true, createdAt: true } });
     if (!c) return null;
-    return { name: c.name, requesterId: c.requesterId, beneficiary: c.name, label: `Congrès — ${c.name}`, legacyStatus: c.requestStatus, estimatedAmount: c.estimatedBudget != null ? toNumber(c.estimatedBudget) : null };
+    return { name: c.name, requesterId: c.requesterId, beneficiary: c.name, label: `Congrès — ${c.name}`, legacyStatus: c.requestStatus, estimatedAmount: c.estimatedBudget != null ? toNumber(c.estimatedBudget) : null, createdAt: c.createdAt };
   }
   if (entityType === "CONGRESS_NATIONAL") {
-    const c = await prisma.congressNational.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true, estimatedBudget: true } });
+    const c = await prisma.congressNational.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true, estimatedBudget: true, createdAt: true } });
     if (!c) return null;
-    return { name: c.name, requesterId: c.requesterId, beneficiary: c.name, label: `Congrès — ${c.name}`, legacyStatus: c.requestStatus, estimatedAmount: c.estimatedBudget != null ? toNumber(c.estimatedBudget) : null };
+    return { name: c.name, requesterId: c.requesterId, beneficiary: c.name, label: `Congrès — ${c.name}`, legacyStatus: c.requestStatus, estimatedAmount: c.estimatedBudget != null ? toNumber(c.estimatedBudget) : null, createdAt: c.createdAt };
   }
   if (entityType === "EVENT") {
-    const e = await prisma.event.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true, estimatedBudget: true } });
+    const e = await prisma.event.findUnique({ where: { id: entityId }, select: { name: true, requesterId: true, requestStatus: true, estimatedBudget: true, createdAt: true } });
     if (!e) return null;
-    return { name: e.name, requesterId: e.requesterId, beneficiary: e.name, label: `Événement — ${e.name}`, legacyStatus: e.requestStatus, estimatedAmount: e.estimatedBudget != null ? toNumber(e.estimatedBudget) : null };
+    return { name: e.name, requesterId: e.requesterId, beneficiary: e.name, label: `Événement — ${e.name}`, legacyStatus: e.requestStatus, estimatedAmount: e.estimatedBudget != null ? toNumber(e.estimatedBudget) : null, createdAt: e.createdAt };
   }
   return null;
 }
@@ -250,9 +252,35 @@ export async function ensureInstance(entityType: EntityType, entityId: string): 
   const summary = await loadEntity(entityType, entityId);
   const { currentSlug, status } = positionFromLegacy(orderedSteps(def), summary?.legacyStatus ?? null);
   try {
-    return await prisma.workflowInstance.create({
+    const created = await prisma.workflowInstance.create({
       data: { definitionId: def.id, entityType, entityId, category, currentSlug, status },
     });
+    // LA PREMIÈRE LIGNE DE L'HISTORIQUE : QUI a demandé, et QUAND.
+    //
+    // L'historique ne commençait qu'à la première validation : on lisait « approuvé par X à
+    // 14 h 12 » sans jamais savoir qui avait demandé, ni à quelle heure. On horodate donc à
+    // l'instant EXACT de création de la demande (`summary.createdAt`), et non à celui où
+    // l'instance est ouverte — elle l'est paresseusement, parfois des jours plus tard.
+    if (summary?.requesterId) {
+      const requester = await prisma.user
+        .findUnique({ where: { id: summary.requesterId }, select: { name: true } })
+        .catch(() => null);
+      await prisma.workflowStepEvent
+        .create({
+          data: {
+            instanceId: created.id,
+            stepSlug: "__created__",
+            stepTitle: "Demande créée",
+            action: "CREATE",
+            actorId: summary.requesterId,
+            actorName: requester?.name ?? null,
+            note: summary.label,
+            createdAt: summary.createdAt ?? created.createdAt,
+          },
+        })
+        .catch((e) => console.error("[workflow] ligne de création non journalisée (non bloquant)", e));
+    }
+    return created;
   } catch {
     return prisma.workflowInstance.findUnique({ where: { entityType_entityId: { entityType, entityId } } });
   }

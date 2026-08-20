@@ -105,6 +105,32 @@ async function loadOutcome(entityType: EntityType, entityId: string): Promise<Wo
 }
 
 /**
+ * Reconstitue la ligne « demande créée » d'une demande ouverte avant que le moteur ne
+ * l'inscrive. Rend `null` si l'instant de création est introuvable : mieux vaut un historique
+ * qui commence à la première validation qu'une ligne datée d'aujourd'hui, qui ferait croire que
+ * la demande vient d'être déposée.
+ */
+async function synthesizeCreationEvent(
+  entityType: EntityType, entityId: string, requesterId: string | null,
+): Promise<{ stepSlug: string; stepTitle: string; action: string; actorName: string | null; note: string | null; amount: null; createdAt: Date } | null> {
+  const sel = { createdAt: true } as const;
+  const row =
+    entityType === "SPONSORING" ? await prisma.sponsoringRequest.findUnique({ where: { id: entityId }, select: sel })
+      : entityType === "CONGRESS_INTERNATIONAL" ? await prisma.congressInternational.findUnique({ where: { id: entityId }, select: sel })
+        : entityType === "CONGRESS_NATIONAL" ? await prisma.congressNational.findUnique({ where: { id: entityId }, select: sel })
+          : entityType === "EVENT" ? await prisma.event.findUnique({ where: { id: entityId }, select: sel })
+            : null;
+  if (!row) return null;
+  const requester = requesterId
+    ? await prisma.user.findUnique({ where: { id: requesterId }, select: { name: true } }).catch(() => null)
+    : null;
+  return {
+    stepSlug: "__created__", stepTitle: "Demande créée", action: "CREATE",
+    actorName: requester?.name ?? null, note: null, amount: null, createdAt: row.createdAt,
+  };
+}
+
+/**
  * Vue « workflow » d'une demande pour un spectateur : frise dynamique dérivée de la
  * définition + historique + l'action éventuellement disponible (selon les pouvoirs de
  * l'étape courante et le rôle du spectateur). Crée l'instance à la volée si besoin
@@ -124,6 +150,16 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
   const confidentialSlugs = new Set(steps.filter((s) => s.confidential).map((s) => s.slug));
 
   const events = await prisma.workflowStepEvent.findMany({ where: { instanceId: instance.id }, orderBy: { createdAt: "asc" } });
+
+  // LA LIGNE DE CRÉATION — qui a demandé, et quand.
+  //
+  // Le moteur l'inscrit désormais à l'ouverture de l'instance. Mais les demandes ouvertes AVANT
+  // n'en ont pas, et leur historique commencerait encore à la première validation : on la
+  // reconstitue alors depuis la demande elle-même, sans rien écrire en base — reconstituer à
+  // l'affichage est exact, réécrire l'historique a posteriori ne le serait pas.
+  const createdLine = events.some((e) => e.action === "CREATE")
+    ? null
+    : await synthesizeCreationEvent(entityType, entityId, requesterId);
   const approved = new Set(events.filter((e) => e.action === "APPROVE").map((e) => e.stepSlug));
   const rejectedSlug = [...events].reverse().find((e) => e.action === "REJECT")?.stepSlug ?? null;
   const currentPos = instance.currentSlug ? steps.find((s) => s.slug === instance.currentSlug)?.position ?? -1 : Infinity;
@@ -172,7 +208,7 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
     isSuperAdmin: viewer.role === "SUPER_ADMIN",
     canViewHistory: privileged,
     steps: stepViews, assigneeName: assignee?.name ?? null,
-    events: events.map((e) => {
+    events: [...(createdLine ? [createdLine] : []), ...events].map((e) => {
       const hide = !privileged && confidentialSlugs.has(e.stepSlug);
       return {
         stepTitle: e.stepTitle, action: e.action, actorName: e.actorName,

@@ -11,6 +11,7 @@ import { recordAudit } from "@/lib/audit";
 import { buildRef } from "@/lib/refs";
 import { formatMonth } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { entryCost } from "@/lib/hr/payroll-cost";
 
 const PATH = "/rh/paie";
 /** Marge avant de notifier l'employé (en cas d'erreur de saisie, les RH peuvent annuler). */
@@ -33,13 +34,23 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
   const employeeId = fdStr(formData, "employeeId");
   const year = fdNum(formData, "year");
   const month = fdNum(formData, "month");
-  // Brut = total imputé au BUDGET ; net = salaire affiché au SALARIÉ.
+  // COÛT EMPLOYEUR = ce que la société décaisse réellement (brut + charges patronales), et donc
+  // le total imputé au BUDGET ; net = salaire affiché au SALARIÉ. Le brut reste une information
+  // de bulletin, facultative : c'est le coût employeur qui fait la masse salariale.
+  const employerCost = fdNum(formData, "employerCost");
   const gross = fdNum(formData, "gross");
   const net = fdNum(formData, "net");
   if (!employeeId || !year || !month || month < 1 || month > 12) return { ok: false, error: "Paramètres invalides." };
-  if (gross === null || gross <= 0) return { ok: false, error: "Indiquez le salaire brut (total imputé au budget)." };
+  if (employerCost === null || employerCost <= 0) {
+    return { ok: false, error: "Indiquez le coût employeur (brut + charges patronales) — c'est lui qui est imputé au budget." };
+  }
   if (net === null || net <= 0) return { ok: false, error: "Indiquez le salaire net (montant affiché au salarié)." };
-  if (net > gross) return { ok: false, error: "Le salaire net ne peut pas dépasser le brut." };
+  if (net > employerCost) return { ok: false, error: "Le salaire net ne peut pas dépasser le coût employeur." };
+  if (gross !== null && gross > 0 && gross > employerCost) {
+    // Un brut supérieur au coût employeur est arithmétiquement impossible : les charges
+    // patronales s'ajoutent au brut, elles ne s'en retranchent pas.
+    return { ok: false, error: "Le salaire brut ne peut pas dépasser le coût employeur (les charges patronales s'y ajoutent)." };
+  }
 
   const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { fullName: true } });
   if (!employee) return { ok: false, error: "Employé introuvable." };
@@ -68,7 +79,11 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
 
   const now = new Date();
   const data = {
-    gross, net, status: "PAID" as const, paidDate: now,
+    // Le brut n'est plus obligatoire : à défaut de saisie, on l'inscrit au coût employeur
+    // plutôt que de laisser un 0 qui ferait passer la ligne pour une paie nulle.
+    gross: gross !== null && gross > 0 ? gross : employerCost,
+    employerCost,
+    net, status: "PAID" as const, paidDate: now,
     payslipDocumentId,
     employeeNotifyAt: new Date(now.getTime() + NOTIFY_DELAY_MS),
     employeeNotifiedAt: null,
@@ -79,7 +94,7 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
 
   await recordAudit({
     actorId: user.id, action: "VALIDATE", module: "RH", entityType: "PAYROLL",
-    summary: `Paie ${ym(year, month)} — ${employee.fullName} : payé (brut ${gross.toLocaleString("fr-FR")} → budget · net ${net.toLocaleString("fr-FR")} DZD au salarié)`,
+    summary: `Paie ${ym(year, month)} — ${employee.fullName} : payé (coût employeur ${employerCost.toLocaleString("fr-FR")} → budget · net ${net.toLocaleString("fr-FR")} DZD au salarié)`,
   });
   revalidatePath(PATH);
   return { ok: true };
@@ -153,9 +168,14 @@ export async function transferPayrollToBudget(formData: FormData): Promise<Actio
         date: new Date(),
         direction: "OUT",
         category: "SALAIRE",
-        label: `Salaire ${ym(year, month)} — ${entry.employee.fullName} (brut)`,
-        // Le BRUT est le coût réel imputé au budget (le net est ce que perçoit le salarié).
-        amount: entry.gross,
+        label: `Salaire ${ym(year, month)} — ${entry.employee.fullName} (coût employeur)`,
+        // LE COÛT EMPLOYEUR est ce que la société décaisse réellement — charges patronales
+        // comprises — et donc ce qui doit peser sur le budget. Le brut n'en est qu'une partie ;
+        // imputer le brut sous-évaluait la masse salariale du montant des charges.
+        amount: entryCost({
+          employerCost: entry.employerCost != null ? Number(entry.employerCost) : null,
+          gross: Number(entry.gross), bonuses: Number(entry.bonuses), deductions: Number(entry.deductions),
+        }),
         method: "BANK_TRANSFER",
         account: "Banque",
         counterparty: entry.employee.fullName,
@@ -170,7 +190,10 @@ export async function transferPayrollToBudget(formData: FormData): Promise<Actio
       where: { id: entry.id },
       data: { transactionId: tx.id, budgetTransferredAt: new Date(), budgetCategoryId },
     });
-    total += Number(entry.gross);
+    total += entryCost({
+      employerCost: entry.employerCost != null ? Number(entry.employerCost) : null,
+      gross: Number(entry.gross), bonuses: Number(entry.bonuses), deductions: Number(entry.deductions),
+    });
   }
 
   await recordAudit({

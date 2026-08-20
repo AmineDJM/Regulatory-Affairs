@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { FilterX, Loader2, RefreshCw, Ban, Paperclip, ExternalLink } from "lucide-react";
+import { FilterX, Loader2, RefreshCw, Ban, Paperclip, ExternalLink, Lock } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,9 @@ export interface LegalRow {
   driveNodeId: string | null;
   driveName: string | null;
   renewedFromTitle: string | null;
+  /** Document réservé à des lecteurs désignés — signalé pour qu'on sache pourquoi un collègue
+   *  ne le voit pas, sans avoir à demander. */
+  restricted: boolean;
 }
 
 const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-xs font-normal normal-case tracking-normal outline-none focus:ring-1 focus:ring-ring";
@@ -145,6 +148,9 @@ export function LegalTable({ rows, canEdit, watchByDefault = false }: { rows: Le
                   <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{r.reference || "—"}</td>
                   <td className="px-3 py-2">
                     <Link href={`/legal/${r.id}`} className="font-medium hover:underline">{r.title}</Link>
+                    {r.restricted && (
+                      <Lock className="ml-1 inline h-3 w-3 shrink-0 text-warning" aria-label="Accès restreint aux lecteurs désignés" />
+                    )}
                     {r.renewedFromTitle && (
                       <span className="block text-[0.6875rem] text-muted-foreground">renouvelle « {r.renewedFromTitle} »</span>
                     )}

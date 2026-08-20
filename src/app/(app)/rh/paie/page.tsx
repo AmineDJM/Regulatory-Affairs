@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { toNumber } from "@/lib/utils";
 import { PayrollMatrix, type PayrollRow } from "./payroll-matrix";
 import { BackLink } from "@/components/shared/back-link";
+import { defaultEmployerCost } from "@/lib/hr/payroll-cost";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
   const [employees, entries, budgetOptions] = await Promise.all([
     prisma.employee.findMany({
       where: { isActive: true },
-      select: { id: true, fullName: true, netToPay: true, grossSalary: true, baseSalary: true },
+      select: { id: true, fullName: true, netToPay: true, grossSalary: true, baseSalary: true, employerCost: true },
       orderBy: { fullName: "asc" },
     }),
     prisma.payrollEntry.findMany({ where: { year } }),
@@ -37,6 +38,13 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
     name: emp.fullName,
     // Pré-remplissage : brut depuis le salaire brut de la fiche (à défaut le salaire de base), net depuis le net à payer.
     defaultGross: emp.grossSalary != null ? toNumber(emp.grossSalary) : emp.baseSalary != null ? toNumber(emp.baseSalary) : null,
+    // Ordre : le coût employeur de la fiche, à défaut le brut, à défaut le salaire de base — et
+    // JAMAIS 0, qui se validerait sans qu'on le relise et amputerait la masse d'un salaire.
+    defaultEmployerCost: defaultEmployerCost({
+      employerCost: emp.employerCost != null ? toNumber(emp.employerCost) : null,
+      grossSalary: emp.grossSalary != null ? toNumber(emp.grossSalary) : null,
+      baseSalary: emp.baseSalary != null ? toNumber(emp.baseSalary) : null,
+    }),
     defaultNet: emp.netToPay != null ? toNumber(emp.netToPay) : emp.baseSalary != null ? toNumber(emp.baseSalary) : null,
     months: Array.from({ length: 12 }, (_, i) => {
       const e = byKey.get(`${emp.id}:${i + 1}`);

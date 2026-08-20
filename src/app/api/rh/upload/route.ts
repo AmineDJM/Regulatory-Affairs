@@ -9,6 +9,7 @@ import { getAppSettings } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { mirrorEmployeeContractToDrive } from "@/lib/hr-drive-mirror";
+import { resolveVisibility, shouldMirrorToDrive, visibilityLabel } from "@/lib/hr/document-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,17 @@ export async function POST(req: NextRequest) {
   const category = (Object.values(HrDocumentCategory) as string[]).includes(catRaw) ? (catRaw as HrDocumentCategory) : "OTHER";
   const requestId = (form.get("requestId") as string) || null;
 
+  // QUI VERRA CETTE PIÈCE. Le défaut suit la NATURE du document : ce qu'on remet au salarié
+  // (bulletin, attestations) lui est visible, ce que les RH conservent (contrat, avenant, pièce
+  // d'identité, diplôme) reste aux RH. Le champ du formulaire, s'il est envoyé, l'emporte —
+  // remettre son contrat signé à quelqu'un est un geste normal, mais c'est alors une décision,
+  // pas un défaut. Absent = « rien coché », ce qui n'est PAS « décoché ».
+  const visRaw = form.get("visibleToEmployee");
+  const visibleToEmployee = resolveVisibility(
+    category,
+    visRaw == null ? undefined : visRaw === "1" || visRaw === "true" || visRaw === "on",
+  );
+
   const buf = Buffer.from(await file.arrayBuffer());
   const { blobId, size } = await putBlob(buf);
 
@@ -45,6 +57,7 @@ export async function POST(req: NextRequest) {
       mime: file.type || "application/octet-stream",
       size,
       period: (form.get("period") as string) || null,
+      visibleToEmployee,
       uploadedById: user.id,
       requestId: requestId || undefined,
     },
@@ -60,12 +73,17 @@ export async function POST(req: NextRequest) {
   }
 
   // Contrat / avenant : AUSSI enregistré dans le Drive (« RH — Contrats / <employé> »), en
-  // arrière-plan et best-effort — ne bloque jamais le dépôt RH.
-  if (category === "CONTRACT" || category === "AMENDMENT") {
+  // arrière-plan et best-effort — ne bloque jamais le dépôt RH. MAIS uniquement s'il est
+  // partagé : cet arbre du Drive se lit en vue globale, et y recopier une pièce qu'on vient de
+  // réserver aux RH lèverait la restriction sans que rien ne le signale.
+  if (shouldMirrorToDrive(category, visibleToEmployee)) {
     void mirrorEmployeeContractToDrive({ ownerId: user.id, employeeName: employee.fullName, filename: doc.name, data: buf, mime: file.type || undefined })
       .catch((e) => console.error("[rh upload] miroir contrat → Drive échoué", e));
   }
 
-  await recordAudit({ actorId: user.id, action: "UPLOAD", module: "RH", entityType: "EMPLOYEE", entityId: employeeId, summary: `Document RH « ${doc.name} »` });
+  await recordAudit({
+    actorId: user.id, action: "UPLOAD", module: "RH", entityType: "EMPLOYEE", entityId: employeeId,
+    summary: `Document RH « ${doc.name} » — ${visibilityLabel(visibleToEmployee)}`,
+  });
   return NextResponse.json({ id: doc.id });
 }

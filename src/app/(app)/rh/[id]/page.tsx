@@ -73,6 +73,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
     expenseRefund: employee.expenseRefund != null ? String(toNumber(employee.expenseRefund)) : "",
     netToPay: employee.netToPay != null ? String(toNumber(employee.netToPay)) : "",
     grossSalary: employee.grossSalary != null ? String(toNumber(employee.grossSalary)) : "",
+    employerCost: employee.employerCost != null ? String(toNumber(employee.employerCost)) : "",
     leaveBalanceDays: String(toNumber(employee.leaveBalanceDays)),
     hireDate: d10(employee.hireDate),
     contractStart: d10(employee.contractStart),

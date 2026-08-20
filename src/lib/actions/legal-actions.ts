@@ -10,6 +10,7 @@ import { companyIdForNew } from "@/lib/company";
 import { canRenew, canCancel, validateDates, proposeRenewalDates } from "@/lib/legal/lifecycle";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFormFiles } from "@/lib/documents";
+import { normalizeReaderIds } from "@/lib/legal/readers";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 
 /**
@@ -81,10 +82,25 @@ export async function createLegalDocument(
     },
     select: { id: true },
   });
+  // LES LECTEURS DÉSIGNÉS. Aucun nom = document visible de tout le module (le cas d'une police
+  // d'assurance courante). Un ou plusieurs noms = personne d'autre ne le voit, ni dans la liste
+  // ni par son lien — le déposant gardant sa propre porte, on le retire de la liste.
+  const readerIds = normalizeReaderIds(formData.getAll("readerId").map((v) => String(v)), user.id);
+  if (readerIds.length > 0) {
+    const known = await prisma.user.findMany({
+      where: { id: { in: readerIds }, isActive: true },
+      select: { id: true },
+    });
+    await prisma.legalDocumentReader.createMany({
+      data: known.map((u) => ({ documentId: created.id, userId: u.id, grantedById: user.id })),
+      skipDuplicates: true,
+    });
+  }
+
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Legal",
     entityType: "LEGAL_DOCUMENT", entityId: created.id,
-    summary: `Document légal « ${title} »`,
+    summary: `Document légal « ${title} »${readerIds.length ? ` — restreint à ${readerIds.length} lecteur(s)` : ""}`,
   });
 
   // Les pièces jointes du formulaire, rattachées au document qui vient de naître. Un échec de
@@ -324,4 +340,60 @@ export async function deleteLegalDocument(formData: FormData): Promise<ActionRes
   });
   revalidatePath("/legal");
   return { ok: true };
+}
+
+/**
+ * REVOIR LES LECTEURS d'un document légal — la liste envoyée REMPLACE la précédente.
+ *
+ * Qui peut : le DÉPOSANT et le Super Admin, personne d'autre. Le droit d'écriture sur le module
+ * ne suffit pas : pouvoir corriger une date d'échéance n'est pas pouvoir s'ouvrir un document
+ * qu'on ne devrait pas lire — ce serait la porte dérobée exacte que la restriction ferme.
+ *
+ * Une liste vide rouvre le document à tout le module. C'est une décision, et elle est tracée
+ * comme telle : on saura qui a levé la restriction, et quand.
+ */
+export async function setLegalReaders(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Document introuvable." };
+
+  const doc = await prisma.legalDocument.findUnique({
+    where: { id },
+    select: { title: true, createdById: true, readers: { select: { userId: true } } },
+  });
+  if (!doc) return { ok: false, error: "Document introuvable." };
+
+  const isOwner = doc.createdById === user.id;
+  if (!isOwner && user.role !== "SUPER_ADMIN") {
+    return { ok: false, error: "Seul le déposant du document peut en revoir les lecteurs." };
+  }
+
+  const wanted = normalizeReaderIds(formData.getAll("readerId").map((v) => String(v)), doc.createdById);
+  const known = wanted.length
+    ? (await prisma.user.findMany({ where: { id: { in: wanted }, isActive: true }, select: { id: true } })).map((u) => u.id)
+    : [];
+
+  await prisma.$transaction([
+    prisma.legalDocumentReader.deleteMany({ where: { documentId: id, userId: { notIn: known } } }),
+    ...known.map((userId) =>
+      prisma.legalDocumentReader.upsert({
+        where: { documentId_userId: { documentId: id, userId } },
+        create: { documentId: id, userId, grantedById: user.id },
+        update: {},
+      }),
+    ),
+  ]);
+
+  const before = doc.readers.length;
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: id, field: "readers",
+    oldValue: String(before), newValue: String(known.length),
+    summary: known.length
+      ? `« ${doc.title} » — restreint à ${known.length} lecteur(s) désigné(s)`
+      : `« ${doc.title} » — restriction levée : visible de tout le module Legal`,
+  });
+  revalidatePath("/legal");
+  revalidatePath(`/legal/${id}`);
+  return { ok: true, message: known.length ? `${known.length} lecteur(s) autorisé(s).` : "Restriction levée." };
 }

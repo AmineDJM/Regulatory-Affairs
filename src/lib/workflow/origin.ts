@@ -23,12 +23,26 @@ type OriginUser = { role: UserRole; secondaryRole?: UserRole | null };
 const PRODUCT_MANAGER_ROLES: UserRole[] = ["PRODUCT_MANAGER", "MEDICAL_PROMOTION_MANAGER"];
 
 /**
+ * LES DIRECTIONS, au sens du circuit d'approbation — rang le plus haut.
+ *
+ * Distinct de `hasGlobalView`, et il fallait qu'il le soit : celui-ci répond à « qui voit les
+ * données de tout le groupe », question de cloisonnement ; celui-là répond à « qui n'a personne
+ * au-dessus de soi pour approuver sa demande », question de hiérarchie. Le Directeur Général et
+ * le Directeur des Opérations n'ont PAS la vue globale — c'est voulu — mais leur demande n'a
+ * évidemment pas à passer par l'accord d'un superviseur national ou d'un chef de produit.
+ *
+ * Sans cette liste, ces deux rôles retombaient au rang 0, celui du délégué : un directeur
+ * attendait l'approbation préliminaire de quelqu'un qu'il dirige.
+ */
+const DIRECTOR_ROLES: UserRole[] = ["GENERAL_MANAGER", "OPERATIONS_DIRECTOR"];
+
+/**
  * Rang du créateur dans la hiérarchie d'approbation Ad & Pro :
  * 0 = délégué / autre demandeur · 1 = National Sales · 2 = chef de produit ·
- * 3 = Direction / Super Admin (vue globale).
+ * 3 = Direction / Super Admin / Directeur Général / Directeur des Opérations.
  */
 export function adProOriginRank(user: OriginUser): number {
-  if (hasGlobalView(user)) return 3;
+  if (hasGlobalView(user) || DIRECTOR_ROLES.some((r) => hasRole(user, r))) return 3;
   if (PRODUCT_MANAGER_ROLES.some((r) => hasRole(user, r))) return 2;
   if (hasRole(user, "NATIONAL_SALES")) return 1;
   return 0;
@@ -109,4 +123,4 @@ export function adProInit(
   return { stage: "PRELIMINARY", status: "AWAITING_PRELIMINARY", productManagerId: null, preliminaryBySelf: false };
 }
 
-export { PRODUCT_MANAGER_ROLES };
+export { PRODUCT_MANAGER_ROLES, DIRECTOR_ROLES };

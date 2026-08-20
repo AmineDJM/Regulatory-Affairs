@@ -51,6 +51,26 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
     }
   });
 
+  // Le Directeur Général et le Directeur des Opérations n'ont pas la VUE GLOBALE (cloisonnement
+  // voulu), mais ils n'ont personne au-dessus d'eux pour approuver : sans rang explicite, ils
+  // retombaient au rang 0 et attendaient l'accord d'un superviseur qu'ils dirigent.
+  it("le Directeur Général et le Directeur des Opérations vont directement à la validation définitive", () => {
+    for (const role of ["GENERAL_MANAGER", "OPERATIONS_DIRECTOR"] as UserRole[]) {
+      expect(adProOriginRank(u(role)), role).toBe(3);
+      const init = adProInit(u(role));
+      expect(init.stage, role).toBe("FINAL");
+      expect(init.status, role).toBe("AWAITING_FINAL");
+      expect(init.preliminaryBySelf, role).toBe(true);
+    }
+  });
+
+  it("un directeur PEUT demander l'avis d'un chef de produit — sans y être tenu", () => {
+    expect(canChooseAnalysisAtCreation(u("OPERATIONS_DIRECTOR"))).toBe(true);
+    const init = adProInit(u("OPERATIONS_DIRECTOR"), "pm-1", { viaProductManager: true });
+    expect(init.stage).toBe("ANALYSIS");
+    expect(init.productManagerId).toBe("pm-1");
+  });
+
   it("le rang tient compte du rôle secondaire (ex. délégué avec National Sales en secondaire)", () => {
     expect(adProOriginRank(u("MEDICAL_DELEGATE", "NATIONAL_SALES"))).toBe(1);
     expect(adProOriginRank(u("MEDICAL_DELEGATE", "DIRECTION"))).toBe(3);
