@@ -10,6 +10,7 @@ import { mailFields } from "./mail-fields";
 import { MailTable, type MailRow } from "./mail-table";
 import { getMyCompanies, companyLabel } from "@/lib/company";
 import { MailPartnersManager } from "./mail-partners";
+import { mailRoutingOptions } from "@/lib/queries/mail-routing";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Courriers — AMD Internal OS" };
@@ -35,14 +36,16 @@ export default async function CourriersPage() {
   const canCreate = userCan(user, "MAIL_REGISTER", "CREATE");
   const canEdit = userCan(user, "MAIL_REGISTER", "UPDATE");
 
-  // Les entités que CETTE personne peut choisir, et les partenaires actifs du registre.
-  const [myCompanies, partners] = await Promise.all([
+  // Les entités que CETTE personne peut choisir, les partenaires actifs du registre, et à qui
+  // le pli s'adresse en interne (direction de l'organigramme, personne nommément visée).
+  const [myCompanies, partners, routing] = await Promise.all([
     getMyCompanies(user.id),
     prisma.mailPartner.findMany({
       where: { isActive: true },
       select: { id: true, name: true, kind: true },
       orderBy: { name: "asc" },
     }),
+    mailRoutingOptions(),
   ]);
   const companyOpts = myCompanies.map((c) => ({ value: c.id, label: companyLabel(c) }));
   const partnerRows = partners.map((p) => ({ id: p.id, name: p.name, kind: p.kind }));
@@ -55,6 +58,8 @@ export default async function CourriersPage() {
     include: {
       company: { select: { name: true, shortName: true } },
       partner: { select: { name: true } },
+      department: { select: { name: true } },
+      concernedUser: { select: { name: true } },
     },
   });
 
@@ -80,6 +85,8 @@ export default async function CourriersPage() {
     carrier: m.carrier,
     companyName: m.company?.shortName ?? m.company?.name ?? "",
     partnerName: m.partner?.name ?? "",
+    departmentName: m.department?.name ?? "",
+    concernedName: m.concernedUser?.name ?? "",
     attachments: attachmentCount.get(m.id) ?? 0,
   }));
 
@@ -101,7 +108,9 @@ export default async function CourriersPage() {
           <CreateRecordButton
             label="Nouveau courrier" title="Enregistrer un courrier" width="lg"
             description="Seul l'objet est obligatoire : l'arrivée et l'accusé se posent plus tard, en un clic depuis le tableau."
-            action={createMailEntry} fields={mailFields({}, "create", companyOpts, partnerOpts)} redirectBase="/courriers"
+            action={createMailEntry}
+            fields={mailFields({}, "create", companyOpts, partnerOpts, routing.departments, routing.people)}
+            redirectBase="/courriers"
           />
         )}
       </PageHeader>

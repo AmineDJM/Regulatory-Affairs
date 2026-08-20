@@ -36,6 +36,9 @@ export interface MailRow {
    *  (« le courrier de Pharmagène à North Tech »). */
   companyName: string;
   partnerName: string;
+  /** À QUI le pli s'adresse en interne : la direction, la personne, ou les deux. */
+  departmentName: string;
+  concernedName: string;
   /** Nombre de pièces jointes — un courrier sans pièce se repère d'un coup d'œil. */
   attachments: number;
 }
@@ -74,7 +77,7 @@ function DateCell({ id, field, value, canEdit }: {
 }
 
 export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean }) {
-  const [f, setF] = React.useState({ title: "", reference: "", direction: "", party: "", pending: false });
+  const [f, setF] = React.useState({ title: "", reference: "", direction: "", party: "", concerns: "", pending: false });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }));
   const has = (hay: string | null, needle: string) => (hay ?? "").toLowerCase().includes(needle.toLowerCase());
@@ -84,12 +87,15 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
     if (f.reference && !has(r.reference, f.reference)) return false;
     if (f.direction && r.direction !== f.direction) return false;
     if (f.party && !has(r.sender, f.party) && !has(r.recipient, f.party)) return false;
+    // « Concerne » cherche dans la direction ET dans la personne : on tape « finances » ou un nom
+    // propre sans avoir à savoir lequel des deux champs avait été rempli.
+    if (f.concerns && !has(r.departmentName, f.concerns) && !has(r.concernedName, f.concerns)) return false;
     // « Sans accusé » : la seule question qui fasse rouvrir le carnet.
     if (f.pending && r.acknowledgedAt) return false;
     return true;
   });
 
-  const active = f.pending || Boolean(f.title || f.reference || f.direction || f.party);
+  const active = f.pending || Boolean(f.title || f.reference || f.direction || f.party || f.concerns);
   const noAck = rows.filter((r) => !r.acknowledgedAt).length;
 
   return (
@@ -104,7 +110,7 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
           Sans accusé de réception ({noAck})
         </button>
         {active && (
-          <button type="button" onClick={() => setF({ title: "", reference: "", direction: "", party: "", pending: false })}
+          <button type="button" onClick={() => setF({ title: "", reference: "", direction: "", party: "", concerns: "", pending: false })}
             className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 font-medium hover:bg-secondary">
             <FilterX className="h-3.5 w-3.5" /> Réinitialiser
           </button>
@@ -112,7 +118,7 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
       </div>
 
       <div className="surface overflow-x-auto">
-        <table className="w-full min-w-[62rem] border-collapse text-sm">
+        <table className="w-full min-w-[68rem] border-collapse text-sm">
           <thead className="border-b border-border">
             <tr className="text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-3 pt-2 text-left font-medium">Chrono</th>
@@ -123,6 +129,7 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
               <th className="px-3 pt-2 text-left font-medium">Départ</th>
               <th className="px-3 pt-2 text-left font-medium">Arrivée</th>
               <th className="px-3 pt-2 text-left font-medium">Accusé</th>
+              <th className="px-3 pt-2 text-left font-medium">Concerne</th>
               <th className="px-3 pt-2 text-left font-medium">Entité</th>
               <th className="px-3 pt-2 text-left font-medium">Partenaire</th>
               <th className="px-3 pt-2 text-left font-medium">Porteur</th>
@@ -138,15 +145,18 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
               </th>
               <th className="px-2 pb-2 pt-1"><input value={f.title} onChange={set("title")} placeholder="Filtrer" className={cellInput} /></th>
               <th className="px-2 pb-2 pt-1" colSpan={2}><input value={f.party} onChange={set("party")} placeholder="Expéditeur ou destinataire" className={cellInput} /></th>
-              {/* Départ · Arrivée · Accusé · Entité · Partenaire · Porteur · Pièces — sept
-                  colonnes sans filtre propre : la ligne doit les compter, sinon les cellules
-                  de filtre se décalent d'une colonne et ne filtrent plus ce qu'elles annoncent. */}
-              <th className="px-2 pb-2 pt-1" colSpan={7} />
+              {/* Départ · Arrivée · Accusé — trois colonnes sans filtre propre : la ligne doit les
+                  compter, sinon les cellules de filtre se décalent d'une colonne et ne filtrent
+                  plus ce qu'elles annoncent. */}
+              <th className="px-2 pb-2 pt-1" colSpan={3} />
+              <th className="px-2 pb-2 pt-1"><input value={f.concerns} onChange={set("concerns")} placeholder="Direction ou personne" className={cellInput} /></th>
+              {/* Entité · Partenaire · Porteur · Pièces — quatre colonnes sans filtre propre. */}
+              <th className="px-2 pb-2 pt-1" colSpan={4} />
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {shown.length === 0 ? (
-              <tr><td colSpan={12} className="px-3 py-8 text-center text-sm text-muted-foreground">Aucun courrier ne correspond à ces filtres.</td></tr>
+              <tr><td colSpan={13} className="px-3 py-8 text-center text-sm text-muted-foreground">Aucun courrier ne correspond à ces filtres.</td></tr>
             ) : shown.map((r) => {
               const dir = MAIL_DIRECTION[r.direction];
               return (
@@ -162,6 +172,19 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
                   <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">{r.sentAt ? formatDateTime(r.sentAt) : "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap"><DateCell id={r.id} field="receivedAt" value={r.receivedAt} canEdit={canEdit} /></td>
                   <td className="px-3 py-2 whitespace-nowrap"><DateCell id={r.id} field="acknowledgedAt" value={r.acknowledgedAt} canEdit={canEdit} /></td>
+                  {/* LA DIRECTION ET LA PERSONNE dans une seule colonne : elles répondent à la même
+                      question (« qui devait traiter ce pli ? ») et se cumulent souvent — deux
+                      colonnes à moitié vides côte à côte auraient élargi le tableau pour rien. */}
+                  <td className="px-3 py-2 text-xs">
+                    {r.departmentName || r.concernedName ? (
+                      <span className="flex flex-col leading-tight">
+                        {r.departmentName && <span className="text-foreground">{r.departmentName}</span>}
+                        {r.concernedName && <span className="text-muted-foreground">{r.concernedName}</span>}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{r.companyName || "—"}</td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{r.partnerName || "—"}</td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{r.carrier || "—"}</td>

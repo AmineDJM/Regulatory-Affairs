@@ -18,6 +18,7 @@ import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { mailFields, dateInput, dateTimeInput } from "../mail-fields";
 import { EditMailButton, DeleteMailButton } from "./edit-mail";
 import { getMyCompanies, companyLabel } from "@/lib/company";
+import { mailRoutingOptions } from "@/lib/queries/mail-routing";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,8 @@ export default async function MailEntryPage({ params }: { params: { id: string }
       createdBy: { select: { name: true } },
       company: { select: { name: true, shortName: true } },
       driveNode: { select: { id: true, name: true } },
+      department: { select: { name: true } },
+      concernedUser: { select: { name: true } },
     },
   });
   if (!entry) notFound();
@@ -79,9 +82,10 @@ export default async function MailEntryPage({ params }: { params: { id: string }
 
   // Les mêmes menus qu'à la création : une entité ou un partenaire qu'on ne peut pas corriger
   // sur la fiche, c'est une erreur de saisie qui reste au registre pour toujours.
-  const [myCompanies, partners] = await Promise.all([
+  const [myCompanies, partners, routing] = await Promise.all([
     getMyCompanies(user.id),
     prisma.mailPartner.findMany({ where: { isActive: true }, select: { id: true, name: true, kind: true }, orderBy: { name: "asc" } }),
+    mailRoutingOptions(),
   ]);
 
   const dir = MAIL_DIRECTION[entry.direction];
@@ -98,9 +102,13 @@ export default async function MailEntryPage({ params }: { params: { id: string }
     notes: entry.notes ?? undefined,
     companyId: entry.companyId ?? undefined,
     partnerId: entry.partnerId ?? undefined,
+    departmentId: entry.departmentId ?? undefined,
+    concernedUserId: entry.concernedUserId ?? undefined,
   }, "edit",
     myCompanies.map((c) => ({ value: c.id, label: companyLabel(c) })),
     partners.map((x) => ({ value: x.id, label: x.kind ? `${x.name} — ${x.kind}` : x.name })),
+    routing.departments,
+    routing.people,
   );
 
   return (
@@ -136,6 +144,12 @@ export default async function MailEntryPage({ params }: { params: { id: string }
             <CardContent className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
               <Info label="Expéditeur" value={entry.sender} />
               <Info label="Destinataire" value={entry.recipient} />
+              {/* À QUI LE PLI S'ADRESSE EN INTERNE — la question qu'on pose au registre le plus
+                  souvent (« qui devait traiter ça ? »). Les deux se cumulent et sont facultatives :
+                  un contrat vise la Direction Générale ET son directeur, une convocation une seule
+                  personne, une mise en demeure un seul service. */}
+              <Info label="Direction concernée" value={entry.department?.name} />
+              <Info label="Personne concernée" value={entry.concernedUser?.name} />
               <Info label="Porteur" value={entry.carrier} />
               {/* Le départ garde son HEURE : deux plis du même jour ne partent pas ensemble. */}
               <Info label="Départ" value={entry.sentAt ? formatDateTime(entry.sentAt) : null} />

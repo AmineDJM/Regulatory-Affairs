@@ -621,6 +621,7 @@ model Department {
   members        Employee[]                @relation("DepartmentMembers")
   users          User[]
   adminRequests  AdministrativeRequest[]
+  mailEntries    MailEntry[]
   budgets        DepartmentBudget[]
   budgetAccess   DepartmentBudgetAccess?
   budgetRequests DepartmentBudgetRequest[]
@@ -871,6 +872,7 @@ model User {
   tasksCreated           Task[]                    @relation("TaskCreator")
   legalDocsCreated       LegalDocument[]           @relation("LegalDocCreator")
   mailEntriesCreated     MailEntry[]               @relation("MailEntryCreator")
+  mailEntriesConcerned   MailEntry[]               @relation("MailEntryConcerned")
   invoicesCreated        Invoice[]                 @relation("InvoiceCreator")
   leaveDecisions         LeaveRequest[]            @relation("LeaveDecider")
   advanceDecisions       SalaryAdvance[]           @relation("AdvanceDecider")
@@ -7895,6 +7897,15 @@ model MailEntry {
   /// Facultatif : beaucoup de plis sont internes ou n'engagent personne d'extérieur.
   partnerId      String?
   partner        MailPartner?  @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+  /// LA DIRECTION CONCERNÉE — le département que le pli vise. Un courrier arrive au registre,
+  /// mais il s'adresse à quelqu'un : sans cette colonne, l'assistante doit se souvenir de qui
+  /// l'attendait, et un pli non relevé ne se retrouve que par son objet.
+  departmentId   String?
+  department     Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  /// LA PERSONNE CONCERNÉE. Indépendante de la direction, et les deux se cumulent : un contrat
+  /// vise « la Direction Générale » ET son directeur, une convocation vise une seule personne.
+  concernedUserId String?
+  concernedUser   User?        @relation("MailEntryConcerned", fields: [concernedUserId], references: [id], onDelete: SetNull)
   notes          String?
   /// LE FICHIER RESTE DANS LE DRIVE : on le référence, on ne le duplique pas. Deux copies
   /// auraient divergé dès la première correction, et plus personne n'aurait su laquelle fait foi.
@@ -7914,6 +7925,8 @@ model MailEntry {
   @@index([sourceType, sourceId])
   @@index([driveNodeId])
   @@index([partnerId])
+  @@index([departmentId])
+  @@index([concernedUserId])
 }
 
 // ───────────────────────────── FACTURES ─────────────────────────────

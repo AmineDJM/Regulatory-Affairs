@@ -81,6 +81,8 @@ export const OPERATIONS: readonly OperationDef[] = [
       { name: "receivedAt", type: "date", description: "Arrivée." },
       { name: "carrier", type: "string", description: "Porteur (poste, coursier, e-mail…)." },
       { name: "notes", type: "string", description: "Notes." },
+      { name: "departmentId", type: "string", description: "Direction (département) concernée par le pli." },
+      { name: "concernedUserId", type: "string", description: "Personne nommément concernée par le pli." },
       { name: "sourceType", type: "string", description: "Type de l'objet d'origine (rattachement)." },
       { name: "sourceId", type: "string", description: "Identifiant de l'objet d'origine." },
     ],
@@ -91,6 +93,7 @@ export const OPERATIONS: readonly OperationDef[] = [
       sentAt: i.sentAt instanceof Date ? i.sentAt : null,
       receivedAt: i.receivedAt instanceof Date ? i.receivedAt : null,
       carrier: s(i.carrier), notes: s(i.notes),
+      departmentId: s(i.departmentId), concernedUserId: s(i.concernedUserId),
       sourceType: (s(i.sourceType) as EntityType | null) ?? null,
       sourceId: s(i.sourceId),
     }),
@@ -116,6 +119,8 @@ export const OPERATIONS: readonly OperationDef[] = [
       { name: "acknowledgedAt", type: "date", description: "Accusé de réception." },
       { name: "carrier", type: "string", description: "Porteur." },
       { name: "notes", type: "string", description: "Notes." },
+      { name: "departmentId", type: "string", description: "Direction (département) concernée — valeur vide pour la retirer." },
+      { name: "concernedUserId", type: "string", description: "Personne concernée — valeur vide pour la retirer." },
     ],
     run: (user, i) => updateMailEntryFor(user, String(i.id), {
       title: String(i.title ?? ""),
@@ -125,6 +130,10 @@ export const OPERATIONS: readonly OperationDef[] = [
       receivedAt: i.receivedAt instanceof Date ? i.receivedAt : null,
       acknowledgedAt: i.acknowledgedAt instanceof Date ? i.acknowledgedAt : null,
       carrier: s(i.carrier), notes: s(i.notes),
+      // Absents de l'appel = on n'en parle pas, donc on ne les efface pas. C'est la même règle
+      // qu'à l'écran : une mise à jour partielle ne doit pas débrancher un pli de sa direction.
+      ...("departmentId" in i ? { departmentId: s(i.departmentId) } : {}),
+      ...("concernedUserId" in i ? { concernedUserId: s(i.concernedUserId) } : {}),
     }),
   },
   {

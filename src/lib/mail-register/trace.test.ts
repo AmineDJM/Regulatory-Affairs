@@ -3,6 +3,7 @@ import {
   MAIL_TRACKED_FIELDS,
   traceValue,
   diffMailEntry,
+  diffMailAssignments,
   describeMailChanges,
   renderTraceValue,
 } from "./trace";
@@ -72,6 +73,38 @@ describe("diffMailEntry — ce qui a VRAIMENT changé", () => {
     const after = { title: "Relance", companyId: "autre-entite" } as Record<string, unknown>;
     expect(diffMailEntry(before, after)).toEqual([]);
     expect(Object.keys(MAIL_TRACKED_FIELDS)).not.toContain("companyId");
+  });
+});
+
+describe("diffMailAssignments — à qui le pli s'adresse, journalisé EN CLAIR", () => {
+  it("compare des noms, jamais des identifiants", () => {
+    const moved = diffMailAssignments(
+      { department: "Direction Commerciale", person: "" },
+      { department: "Finances", person: "Karim Benali" },
+    );
+    expect(moved).toEqual([
+      { label: "Direction concernée", before: "Direction Commerciale", after: "Finances" },
+      { label: "Personne concernée", before: "", after: "Karim Benali" },
+    ]);
+  });
+
+  it("un rattachement ABSENT de la nouvelle version n'est pas retiré par omission", () => {
+    // Corriger la seule personne concernée ne doit pas débrancher le pli de sa direction — et
+    // surtout pas inscrire au journal un retrait qui n'a pas eu lieu.
+    expect(diffMailAssignments(
+      { department: "Finances", person: "Karim Benali" },
+      { person: "Sofiane Meziane" },
+    )).toEqual([{ label: "Personne concernée", before: "Karim Benali", after: "Sofiane Meziane" }]);
+  });
+
+  it("retirer un rattachement EST une modification, et elle se voit", () => {
+    expect(diffMailAssignments({ department: "Finances" }, { department: "" }))
+      .toEqual([{ label: "Direction concernée", before: "Finances", after: "" }]);
+  });
+
+  it("vide, nul et espaces se valent — reposer le même rattachement ne change rien", () => {
+    expect(diffMailAssignments({ department: null, person: "Karim Benali" }, { department: "", person: " Karim Benali " }))
+      .toEqual([]);
   });
 });
 

@@ -19,6 +19,10 @@ export function mailFields(
   companies: { value: string; label: string }[] = [],
   /** Partenaires actifs du registre — la liste que tient l'assistante de direction. */
   partners: { value: string; label: string }[] = [],
+  /** Directions (départements) de l'organigramme, indentées selon leur profondeur. */
+  departments: { value: string; label: string }[] = [],
+  /** Comptes actifs — la personne nommément visée par le pli. */
+  people: { value: string; label: string }[] = [],
 ): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
   return [
@@ -45,6 +49,23 @@ export function mailFields(
       ? ([{
           type: "select", name: "partnerId", label: "Partenaire concerné", options: partners,
           placeholder: "— Aucun —", defaultValue: v("partnerId"),
+        }] as FieldDef[])
+      : []),
+    // À QUI LE PLI S'ADRESSE, en interne. Un courrier arrive au registre, mais il vise quelqu'un :
+    // sans ces deux champs, l'assistante devait se souvenir de qui l'attendait, et un pli non
+    // relevé ne se retrouvait que par son objet. Les deux sont FACULTATIFS et se CUMULENT — un
+    // contrat vise « la Direction Générale » ET son directeur, une convocation une seule personne,
+    // une mise en demeure un seul service.
+    ...(departments.length > 0
+      ? ([{
+          type: "select", name: "departmentId", label: "Direction concernée", options: departments,
+          placeholder: "— Aucune —", defaultValue: v("departmentId"),
+        }] as FieldDef[])
+      : []),
+    ...(people.length > 0
+      ? ([{
+          type: "select", name: "concernedUserId", label: "Personne concernée", options: people,
+          placeholder: "— Aucune —", defaultValue: v("concernedUserId"),
         }] as FieldDef[])
       : []),
     { type: "text", name: "sender", label: "Expéditeur", defaultValue: v("sender") },

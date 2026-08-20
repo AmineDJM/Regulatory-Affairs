@@ -52,6 +52,11 @@ function readFields(formData: FormData): MailFields {
     // noyau retomber sur l'entité par défaut du créateur — l'ancien comportement.
     ...(formData.has("companyId") ? { companyId: fdStr(formData, "companyId") } : {}),
     partnerId: fdStr(formData, "partnerId"),
+    // Même précaution que pour l'entité : les deux menus ne sont rendus que s'il y a quelque chose
+    // à choisir. Les lire inconditionnellement effacerait le rattachement d'un pli à chaque
+    // enregistrement fait depuis un formulaire qui ne les propose pas.
+    ...(formData.has("departmentId") ? { departmentId: fdStr(formData, "departmentId") } : {}),
+    ...(formData.has("concernedUserId") ? { concernedUserId: fdStr(formData, "concernedUserId") } : {}),
   };
 }
 

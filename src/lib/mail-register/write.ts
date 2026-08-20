@@ -5,7 +5,10 @@ import { recordAudit } from "@/lib/audit";
 import { companyIdForNew, getMyCompanies } from "@/lib/company";
 import { canAccessEntity } from "@/lib/entity-access";
 import type { ActionResult } from "@/lib/actions/types";
-import { diffMailEntry, describeMailChanges, MAIL_TRACKED_FIELDS, type MailSnapshot } from "./trace";
+import {
+  diffMailEntry, diffMailAssignments, describeMailChanges, MAIL_TRACKED_FIELDS,
+  type MailSnapshot, type MailLabelChange,
+} from "./trace";
 
 /**
  * L'ÉCRITURE DU REGISTRE DES COURRIERS — le cœur, appelé par les DEUX portes.
@@ -47,6 +50,16 @@ export interface MailFields {
   companyId?: string | null;
   /** Partenaire concerné (liste du module). `null` = aucun, ce qui est fréquent et normal. */
   partnerId?: string | null;
+  /**
+   * LA DIRECTION CONCERNÉE et LA PERSONNE CONCERNÉE — à qui ce pli s'adresse.
+   *
+   * Les deux se cumulent et sont indépendantes : un contrat vise « la Direction Générale » ET son
+   * directeur, une convocation ne vise qu'une personne, une mise en demeure ne vise qu'un service.
+   * `undefined` = la mise à jour n'en parle pas (elle ne les efface donc pas) ; `null` = on retire
+   * explicitement le rattachement.
+   */
+  departmentId?: string | null;
+  concernedUserId?: string | null;
 }
 
 /** Les colonnes suivies, lues telles quelles pour la comparaison avant/après. */
@@ -55,14 +68,56 @@ export const TRACKED_SELECT = Object.fromEntries(
 ) as Record<keyof typeof MAIL_TRACKED_FIELDS, true>;
 
 /**
+ * VÉRIFIE la direction et la personne CHOISIES, et rend leurs NOMS pour le journal.
+ *
+ * Les deux viennent de menus, donc de champs de formulaire qu'on peut réécrire dans le
+ * navigateur. Sans contrôle, on rattacherait un pli à la direction d'une société qu'on n'a pas le
+ * droit de voir — ou, plus banalement, la base refuserait la clé étrangère et l'assistante
+ * lirait une erreur technique au lieu d'une phrase.
+ */
+async function resolveAssignments(
+  user: SessionUser, f: MailFields,
+): Promise<{ ok: true; department: string; person: string } | { ok: false; error: string }> {
+  let department = "";
+  let person = "";
+  if (f.departmentId) {
+    const d = await prisma.department.findUnique({
+      where: { id: f.departmentId }, select: { name: true, companyId: true },
+    });
+    if (!d) return { ok: false, error: "Cette direction n'existe plus." };
+    // Une direction TRANSVERSE (sans entité) est ouverte à tous ; une direction rattachée à une
+    // société ne l'est qu'à ceux qui voient cette société.
+    if (d.companyId) {
+      const mine = await getMyCompanies(user.id);
+      if (!mine.some((c) => c.id === d.companyId)) {
+        return { ok: false, error: "Cette direction n'est pas dans votre périmètre." };
+      }
+    }
+    department = d.name;
+  }
+  if (f.concernedUserId) {
+    const u = await prisma.user.findUnique({
+      where: { id: f.concernedUserId }, select: { name: true, isActive: true },
+    });
+    if (!u || !u.isActive) return { ok: false, error: "Cette personne n'a plus de compte actif." };
+    person = u.name;
+  }
+  return { ok: true, department, person };
+}
+
+/**
  * Écrit au journal une ligne PAR CHAMP touché (ancienne → nouvelle valeur), plus la synthèse.
  * Les deux sont rattachées au courrier : sa fiche affiche son propre historique sans fouiller le
  * journal global.
+ *
+ * `extra` reçoit les changements DÉJÀ RÉSOLUS EN CLAIR (direction, personne concernée) : ils ne
+ * peuvent pas être comparés sur les colonnes brutes sans écrire des identifiants au journal.
  */
 export async function traceMailChanges(
   actorId: string, id: string, title: string, before: MailSnapshot, after: MailSnapshot,
+  extra: readonly MailLabelChange[] = [],
 ) {
-  const changes = diffMailEntry(before, after);
+  const changes: MailLabelChange[] = [...diffMailEntry(before, after), ...extra];
   if (changes.length === 0) return changes;
   const summary = describeMailChanges(title, changes);
   for (const c of changes) {
@@ -91,6 +146,8 @@ export async function createMailEntryFor(user: SessionUser, f: MailFields): Prom
       return { ok: false, error: "Cette entité n'est pas dans votre périmètre." };
     }
   }
+  const assigned = await resolveAssignments(user, f);
+  if (!assigned.ok) return { ok: false, error: assigned.error };
 
   const created = await prisma.mailEntry.create({
     data: {
@@ -106,6 +163,8 @@ export async function createMailEntryFor(user: SessionUser, f: MailFields): Prom
       notes: f.notes ?? null,
       driveNodeId: f.driveNodeId ?? null,
       partnerId: f.partnerId ?? null,
+      departmentId: f.departmentId ?? null,
+      concernedUserId: f.concernedUserId ?? null,
       companyId: f.companyId !== undefined ? f.companyId : await companyIdForNew(user.id),
       sourceType: f.sourceType ?? null,
       sourceId: f.sourceId ?? null,
@@ -113,10 +172,13 @@ export async function createMailEntryFor(user: SessionUser, f: MailFields): Prom
     },
     select: { id: true },
   });
+  // Le résumé porte le DESTINATAIRE INTERNE quand il y en a un : c'est la question qu'on pose au
+  // journal global (« qui devait traiter ce pli ? »), et l'y lire évite d'ouvrir la fiche.
+  const addressee = [assigned.department, assigned.person].filter(Boolean).join(" · ");
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Courriers",
     entityType: "MAIL_ENTRY", entityId: created.id,
-    summary: `Courrier ${(f.direction ?? "OUTGOING") === "INCOMING" ? "entrant" : "sortant"} « ${title} »`,
+    summary: `Courrier ${(f.direction ?? "OUTGOING") === "INCOMING" ? "entrant" : "sortant"} « ${title} »${addressee ? ` — ${addressee}` : ""}`,
   });
   return { ok: true, id: created.id };
 }
@@ -131,7 +193,12 @@ export async function updateMailEntryFor(user: SessionUser, id: string, f: MailF
   const title = (f.title ?? "").trim();
   if (!title) return { ok: false, error: "L'objet du courrier est obligatoire." };
 
-  const before = await prisma.mailEntry.findUnique({ where: { id }, select: TRACKED_SELECT });
+  const before = await prisma.mailEntry.findUnique({
+    where: { id },
+    // Les rattachements sont relus par leur NOM, pas par leur identifiant : c'est ce nom qui part
+    // au journal, et c'est lui qu'on compare.
+    select: { ...TRACKED_SELECT, department: { select: { name: true } }, concernedUser: { select: { name: true } } },
+  });
   if (!before) return { ok: false, error: "Courrier introuvable." };
 
   const after = {
@@ -155,12 +222,26 @@ export async function updateMailEntryFor(user: SessionUser, id: string, f: MailF
       return { ok: false, error: "Cette entité n'est pas dans votre périmètre." };
     }
   }
+  const assigned = await resolveAssignments(user, f);
+  if (!assigned.ok) return { ok: false, error: assigned.error };
   const links = {
     ...(f.companyId !== undefined ? { companyId: f.companyId } : {}),
     ...(f.partnerId !== undefined ? { partnerId: f.partnerId ?? null } : {}),
+    ...(f.departmentId !== undefined ? { departmentId: f.departmentId ?? null } : {}),
+    ...(f.concernedUserId !== undefined ? { concernedUserId: f.concernedUserId ?? null } : {}),
   };
+  // LA DIRECTION ET LA PERSONNE, ELLES, SE JOURNALISENT — mais par leur nom. Réorienter un pli de
+  // la Direction Commerciale vers les Finances est exactement ce qu'on vient chercher dans ce
+  // journal des mois plus tard, et c'est aussi ce qui explique qu'un dossier ait dormi.
+  const moved = diffMailAssignments(
+    { department: before.department?.name ?? "", person: before.concernedUser?.name ?? "" },
+    {
+      ...(f.departmentId !== undefined ? { department: assigned.department } : {}),
+      ...(f.concernedUserId !== undefined ? { person: assigned.person } : {}),
+    },
+  );
   await prisma.mailEntry.update({ where: { id }, data: { ...after, ...links, updatedById: user.id } });
-  const changes = await traceMailChanges(user.id, id, title, before, after);
+  const changes = await traceMailChanges(user.id, id, title, before, after, moved);
   return {
     ok: true,
     message: changes.length === 0 ? "Aucune modification." : `${changes.length} champ(s) modifié(s) — inscrit au journal.`,

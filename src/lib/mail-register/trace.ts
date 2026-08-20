@@ -37,13 +37,51 @@ export type MailField = keyof typeof MAIL_TRACKED_FIELDS;
 export type MailTraceValue = string | Date | null | undefined;
 export type MailSnapshot = Partial<Record<MailField, MailTraceValue>>;
 
-export interface MailChange {
-  field: MailField;
+/** Une ligne de journal : un libellé français, et les deux valeurs entre lesquelles on a basculé. */
+export interface MailLabelChange {
   /** Le libellé français du champ — ce qu'on lit dans le journal. */
   label: string;
   /** Valeurs canoniques : « » pour un champ vide. */
   before: string;
   after: string;
+}
+
+export interface MailChange extends MailLabelChange {
+  field: MailField;
+}
+
+/**
+ * LES RATTACHEMENTS DU PLI — la direction et la personne qu'il concerne.
+ *
+ * Ils se journalisent comme le reste, mais par leur NOM et jamais par leur identifiant : ce
+ * registre existe pour être relu des mois plus tard, et « cmt1es… → cmt2fk… » n'apprend rien à
+ * personne. C'est pourquoi ils sont comparés ici, une fois résolus, et non dans `diffMailEntry`
+ * qui travaille sur les colonnes brutes.
+ */
+export const MAIL_ASSIGNMENT_FIELDS = {
+  department: "Direction concernée",
+  person: "Personne concernée",
+} as const;
+
+export type MailAssignmentField = keyof typeof MAIL_ASSIGNMENT_FIELDS;
+/** Des NOMS déjà résolus, pas des identifiants. Un champ absent = « on n'en parle pas ». */
+export type MailAssignments = Partial<Record<MailAssignmentField, string | null | undefined>>;
+
+/**
+ * Ce qui a changé dans les rattachements, comparé sur les noms.
+ *
+ * Même règle que pour les autres champs : un rattachement ABSENT de la nouvelle version n'est pas
+ * une remise à vide — c'est une mise à jour qui ne parle pas de lui.
+ */
+export function diffMailAssignments(before: MailAssignments, after: MailAssignments): MailLabelChange[] {
+  const out: MailLabelChange[] = [];
+  for (const [field, label] of Object.entries(MAIL_ASSIGNMENT_FIELDS) as [MailAssignmentField, string][]) {
+    if (!(field in after)) continue;
+    const a = (before[field] ?? "").trim();
+    const b = (after[field] ?? "").trim();
+    if (a !== b) out.push({ label, before: a, after: b });
+  }
+  return out;
 }
 
 /** Une valeur au format ISO d'un instant — ce que `traceValue` produit pour une date. */
@@ -89,7 +127,7 @@ export function diffMailEntry(before: MailSnapshot, after: MailSnapshot): MailCh
 }
 
 /** « Courrier « Relance CNAS » — Arrivée, Accusé de réception modifiés ». */
-export function describeMailChanges(title: string, changes: MailChange[]): string {
+export function describeMailChanges(title: string, changes: readonly MailLabelChange[]): string {
   const head = `Courrier « ${title.trim() || "sans objet"} »`;
   if (changes.length === 0) return `${head} — aucune modification`;
   return `${head} — ${changes.map((c) => c.label).join(", ")} modifié${changes.length > 1 ? "s" : ""}`;
