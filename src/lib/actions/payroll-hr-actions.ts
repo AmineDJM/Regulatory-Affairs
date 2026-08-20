@@ -12,6 +12,7 @@ import { buildRef } from "@/lib/refs";
 import { formatMonth } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { entryCost } from "@/lib/hr/payroll-cost";
+import { validateAmounts, resolvedGross, amendImpact, canAmend } from "@/lib/hr/payroll-amend";
 
 const PATH = "/rh/paie";
 /** Marge avant de notifier l'employé (en cas d'erreur de saisie, les RH peuvent annuler). */
@@ -41,16 +42,11 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
   const gross = fdNum(formData, "gross");
   const net = fdNum(formData, "net");
   if (!employeeId || !year || !month || month < 1 || month > 12) return { ok: false, error: "Paramètres invalides." };
-  if (employerCost === null || employerCost <= 0) {
-    return { ok: false, error: "Indiquez le coût employeur (brut + charges patronales) — c'est lui qui est imputé au budget." };
-  }
-  if (net === null || net <= 0) return { ok: false, error: "Indiquez le salaire net (montant affiché au salarié)." };
-  if (net > employerCost) return { ok: false, error: "Le salaire net ne peut pas dépasser le coût employeur." };
-  if (gross !== null && gross > 0 && gross > employerCost) {
-    // Un brut supérieur au coût employeur est arithmétiquement impossible : les charges
-    // patronales s'ajoutent au brut, elles ne s'en retranchent pas.
-    return { ok: false, error: "Le salaire brut ne peut pas dépasser le coût employeur (les charges patronales s'y ajoutent)." };
-  }
+  // Les règles arithmétiques du bulletin vivent dans un module partagé : la CORRECTION les
+  // rejoue à l'identique, et une ligne corrigée ne peut donc pas passer un contrôle que la
+  // même ligne créée n'aurait pas passé.
+  const invalidAmounts = validateAmounts({ employerCost, net, gross });
+  if (invalidAmounts) return { ok: false, error: invalidAmounts };
 
   const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { fullName: true } });
   if (!employee) return { ok: false, error: "Employé introuvable." };
@@ -81,9 +77,9 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
   const data = {
     // Le brut n'est plus obligatoire : à défaut de saisie, on l'inscrit au coût employeur
     // plutôt que de laisser un 0 qui ferait passer la ligne pour une paie nulle.
-    gross: gross !== null && gross > 0 ? gross : employerCost,
-    employerCost,
-    net, status: "PAID" as const, paidDate: now,
+    gross: resolvedGross({ employerCost, net, gross }),
+    employerCost: employerCost as number,
+    net: net as number, status: "PAID" as const, paidDate: now,
     payslipDocumentId,
     employeeNotifyAt: new Date(now.getTime() + NOTIFY_DELAY_MS),
     employeeNotifiedAt: null,
@@ -94,7 +90,7 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
 
   await recordAudit({
     actorId: user.id, action: "VALIDATE", module: "RH", entityType: "PAYROLL",
-    summary: `Paie ${ym(year, month)} — ${employee.fullName} : payé (coût employeur ${employerCost.toLocaleString("fr-FR")} → budget · net ${net.toLocaleString("fr-FR")} DZD au salarié)`,
+    summary: `Paie ${ym(year, month)} — ${employee.fullName} : payé (coût employeur ${data.employerCost.toLocaleString("fr-FR")} → budget · net ${data.net.toLocaleString("fr-FR")} DZD au salarié)`,
   });
   revalidatePath(PATH);
   return { ok: true };
@@ -204,4 +200,101 @@ export async function transferPayrollToBudget(formData: FormData): Promise<Actio
   revalidatePath("/finances");
   revalidatePath("/budgets");
   return { ok: true };
+}
+
+/**
+ * CORRIGER UNE LIGNE DE PAIE DÉJÀ FAITE — montants, fiche de paie, y compris après transfert.
+ *
+ * Jusqu'ici un mois marqué payé ne se corrigeait pas : on ne pouvait que l'ANNULER en entier,
+ * et seulement avant le transfert au budget. Une erreur de mille dinars sur un net obligeait
+ * donc à défaire la ligne puis à tout ressaisir — ce que personne ne fait un vendredi soir.
+ * On la laissait fausse, et la masse salariale avec.
+ *
+ * APRÈS LE TRANSFERT, la correction ne s'arrête pas à la ligne : elle suit jusqu'à l'écriture
+ * de trésorerie créée par le transfert. Sinon la paie dit un montant et le budget en dit un
+ * autre, et l'on découvre l'écart en fin d'exercice sans savoir lequel des deux a raison.
+ *
+ * La FICHE DE PAIE se remplace : la nouvelle prend la place de l'ancienne dans le dossier de
+ * l'employé, et l'ancienne est libérée. Empiler deux bulletins pour le même mois dans le
+ * dossier d'un salarié, c'est lui laisser deviner lequel fait foi.
+ */
+export async function updatePayrollEntry(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!canRunPayroll(user)) return { ok: false, error: "Réservé aux RH." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Ligne introuvable." };
+
+  const entry = await prisma.payrollEntry.findUnique({
+    where: { id },
+    include: { employee: { select: { fullName: true } } },
+  });
+  if (!entry) return { ok: false, error: "Ligne introuvable." };
+  const allowed = canAmend(entry);
+  if (!allowed.ok) return { ok: false, error: allowed.error };
+
+  const employerCost = fdNum(formData, "employerCost");
+  const net = fdNum(formData, "net");
+  const gross = fdNum(formData, "gross");
+  const invalid = validateAmounts({ employerCost, net, gross });
+  if (invalid) return { ok: false, error: invalid };
+
+  const before = { employerCost: Number(entry.employerCost ?? entry.gross), net: Number(entry.net) };
+  const after = { employerCost: employerCost as number, net: net as number };
+  const impact = amendImpact(before, after, { transferred: Boolean(entry.budgetTransferredAt) });
+
+  // La fiche de paie REMPLACE la précédente, elle ne s'y ajoute pas.
+  const file = formData.get("payslip");
+  let payslipDocumentId = entry.payslipDocumentId;
+  if (file instanceof File && file.size > 0) {
+    const badFile = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
+    if (badFile) return { ok: false, error: badFile };
+    const { blobId } = await putBlob(Buffer.from(await file.arrayBuffer()));
+    const fresh = await prisma.employeeDocument.create({
+      data: {
+        employeeId: entry.employeeId, category: "PAYSLIP", name: file.name, blobId,
+        mime: file.type || "application/pdf", size: file.size,
+        period: ym(entry.year, entry.month), visibleToEmployee: true, uploadedById: user.id,
+      },
+      select: { id: true },
+    });
+    if (entry.payslipDocumentId) {
+      const old = await prisma.employeeDocument.findUnique({ where: { id: entry.payslipDocumentId }, select: { blobId: true } });
+      await prisma.employeeDocument.delete({ where: { id: entry.payslipDocumentId } }).catch(() => {});
+      if (old) await releaseBlob(old.blobId).catch(() => {});
+    }
+    payslipDocumentId = fresh.id;
+  }
+
+  await prisma.payrollEntry.update({
+    where: { id },
+    data: {
+      employerCost: after.employerCost,
+      net: after.net,
+      gross: resolvedGross({ employerCost, net, gross }),
+      payslipDocumentId,
+    },
+  });
+
+  // LE BUDGET SUIT. Sans cette reprise, la ligne corrigée et l'écriture de trésorerie
+  // divergeraient en silence.
+  if (impact.syncBudget && entry.transactionId) {
+    await prisma.financeTransaction.update({
+      where: { id: entry.transactionId },
+      data: {
+        amount: entryCost({
+          employerCost: after.employerCost,
+          gross: Number(entry.gross), bonuses: Number(entry.bonuses), deductions: Number(entry.deductions),
+        }),
+        label: `Salaire ${ym(entry.year, entry.month)} — ${entry.employee.fullName} (coût employeur, corrigé)`,
+      },
+    }).catch(() => undefined);
+  }
+
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "RH", entityType: "PAYROLL", entityId: id,
+    summary: `Paie ${formatMonth(ym(entry.year, entry.month))} — ${entry.employee.fullName} : ${impact.summary}${impact.syncBudget ? " · écriture budgétaire corrigée" : ""}`,
+  });
+  revalidatePath(PATH);
+  if (impact.syncBudget) { revalidatePath("/finances"); revalidatePath("/budgets"); }
+  return { ok: true, message: impact.syncBudget ? "Ligne et écriture budgétaire corrigées." : "Ligne corrigée." };
 }

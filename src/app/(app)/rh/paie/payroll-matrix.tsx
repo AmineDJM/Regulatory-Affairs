@@ -3,8 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Check, Undo2, PiggyBank, ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
-import { markSalaryPaid, unmarkSalaryPaid, transferPayrollToBudget } from "@/lib/actions/payroll-hr-actions";
+import { Loader2, Check, Undo2, Pencil, PiggyBank, ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
+import { markSalaryPaid, unmarkSalaryPaid, updatePayrollEntry, transferPayrollToBudget } from "@/lib/actions/payroll-hr-actions";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -16,6 +16,8 @@ export interface PayrollCell {
   amount: number | null;
   /** Net = ce que perçoit le salarié. */
   net: number | null;
+  /** Coût employeur réellement enregistré — c'est lui qu'on rouvre pour corriger. */
+  employerCost?: number | null;
   entryId: string | null;
 }
 export interface PayrollRow {
@@ -35,6 +37,8 @@ const ym = (year: number, month: number) => `${year}-${String(month).padStart(2,
 export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; rows: PayrollRow[]; budgetOptions: { id: string; label: string }[] }) {
   const router = useRouter();
   const [paying, setPaying] = React.useState<{ row: PayrollRow; month: number } | null>(null);
+  // CORRIGER une ligne déjà payée : le même formulaire, prérempli avec ce qui a été enregistré.
+  const [editing, setEditing] = React.useState<{ row: PayrollRow; month: number; cell: PayrollCell } | null>(null);
   const [transfer, setTransfer] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -104,13 +108,25 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
                         >
                           <Check className="h-3 w-3" /> Payé
                         </span>
-                        {cell.state === "PAID" && cell.entryId && (
-                          <button
-                            onClick={() => undo(cell.entryId!, r.name, i + 1)}
-                            className="mt-0.5 hidden items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-destructive group-hover:inline-flex"
-                          >
-                            <Undo2 className="h-3 w-3" /> annuler
-                          </button>
+                        {cell.entryId && (
+                          <span className="mt-0.5 hidden items-center gap-1.5 group-hover:inline-flex">
+                            {/* Une paie fausse ne se rattrape pas au mois suivant : elle se
+                                corrige, même transférée — l'écriture budgétaire suit. */}
+                            <button
+                              onClick={() => { setErr(null); setEditing({ row: r, month: i + 1, cell }); }}
+                              className="inline-flex items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-primary"
+                            >
+                              <Pencil className="h-3 w-3" /> modifier
+                            </button>
+                            {cell.state === "PAID" && (
+                              <button
+                                onClick={() => undo(cell.entryId!, r.name, i + 1)}
+                                className="inline-flex items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-destructive"
+                              >
+                                <Undo2 className="h-3 w-3" /> annuler
+                              </button>
+                            )}
+                          </span>
                         )}
                       </div>
                     )}
@@ -122,7 +138,9 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
         </table>
       </div>
       <p className="text-xs text-muted-foreground">
-        Vert = payé (annulable tant que non transféré) · Bleu = transféré dans le budget (verrouillé). L&apos;employé reçoit sa notification 24 h après le marquage.
+        Vert = payé (annulable tant que non transféré) · Bleu = transféré dans le budget.
+        Une ligne se <strong>corrige</strong> dans les deux cas — après transfert, l&apos;écriture
+        budgétaire est corrigée avec elle. L&apos;employé reçoit sa notification 24 h après le marquage.
       </p>
 
       {/* Marquer payé : montant total + fiche de paie */}
@@ -176,6 +194,64 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setPaying(null)} disabled={busy}>Annuler</Button>
               <Button type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Marquer payé</Button>
+            </div>
+          </form>
+        )}
+      </Sheet>
+
+      {/* CORRIGER une ligne déjà payée — le même formulaire, prérempli. Refuser la correction
+          après transfert, c'est garantir qu'on vit avec un chiffre faux : personne ne défera un
+          transfert de paie pour mille dinars. On corrige donc, et le budget suit. */}
+      <Sheet
+        open={editing !== null}
+        onClose={() => !busy && setEditing(null)}
+        title={editing ? `Corriger la paie — ${editing.row.name}` : ""}
+        description={editing
+          ? `${formatMonth(ym(year, editing.month))}${editing.cell.state === "TRANSFERRED" ? " · déjà transférée : l'écriture budgétaire sera corrigée avec la ligne." : ""}`
+          : undefined}
+        width="md"
+      >
+        {editing && (
+          <form
+            action={async (fd) => {
+              setBusy(true); setErr(null);
+              fd.set("id", editing.cell.entryId ?? "");
+              const r = await updatePayrollEntry(fd);
+              setBusy(false);
+              if (r.ok) { setEditing(null); router.refresh(); } else setErr(r.error ?? "Échec.");
+            }}
+            className="space-y-4"
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-cost">Coût employeur (DZD) <span className="text-destructive">*</span></Label>
+                <Input
+                  id="edit-cost" name="employerCost" type="number" step="any" min="1" required
+                  defaultValue={editing.cell.employerCost ?? editing.cell.amount ?? undefined}
+                />
+                <p className="text-xs text-muted-foreground">Le total imputé au budget. Le corriger corrige la masse salariale.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-net">Salaire net (DZD) <span className="text-destructive">*</span></Label>
+                <Input id="edit-net" name="net" type="number" step="any" min="1" required defaultValue={editing.cell.net ?? undefined} />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="edit-gross">Salaire brut (DZD) <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
+                <Input id="edit-gross" name="gross" type="number" step="any" min="0" defaultValue={editing.cell.amount ?? undefined} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-file">Remplacer la fiche de paie <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
+              <input id="edit-file" name="payslip" type="file" className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
+              <p className="text-xs text-muted-foreground">
+                La nouvelle prend la place de l&apos;ancienne dans le dossier du salarié — deux bulletins
+                pour le même mois lui laisseraient deviner lequel fait foi.
+              </p>
+            </div>
+            {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditing(null)} disabled={busy}>Annuler</Button>
+              <Button type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer la correction</Button>
             </div>
           </form>
         )}

@@ -48,12 +48,14 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
     defaultNet: emp.netToPay != null ? toNumber(emp.netToPay) : emp.baseSalary != null ? toNumber(emp.baseSalary) : null,
     months: Array.from({ length: 12 }, (_, i) => {
       const e = byKey.get(`${emp.id}:${i + 1}`);
-      if (!e || e.status !== "PAID") return { state: "UNPAID" as const, amount: null, net: null, entryId: e?.id ?? null };
+      if (!e || e.status !== "PAID") return { state: "UNPAID" as const, amount: null, net: null, employerCost: null, entryId: e?.id ?? null };
       return {
         state: e.budgetTransferredAt ? ("TRANSFERRED" as const) : ("PAID" as const),
-        // `amount` = BRUT (base du transfert budgétaire) ; `net` = ce que perçoit le salarié.
+        // `amount` = BRUT (ligne de bulletin) ; `net` = ce que perçoit le salarié ;
+        // `employerCost` = ce qui pèse sur le budget, et donc ce qu'on rouvre pour corriger.
         amount: toNumber(e.gross),
         net: toNumber(e.net),
+        employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
         entryId: e.id,
       };
     }),
