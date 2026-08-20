@@ -4,14 +4,14 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
-  Download, Trash2, RotateCcw, Pencil, Loader2, Check, FolderInput, UserPlus, MoreVertical, User,
+  Download, Trash2, RotateCcw, Pencil, Loader2, Check, FolderInput, UserPlus, MoreVertical, User, Scale,
 } from "lucide-react";
 import { renameNode, trashNode, restoreNode, deleteNode, moveNode, getDriveNodeShares } from "@/lib/actions/drive-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { SharePanel, type ShareItem } from "./[id]/share-panel";
-import { SendToLegalItem } from "./send-to-legal";
+import { SendToLegalSheet } from "./send-to-legal";
 
 interface MoveTarget { id: string; name: string }
 interface UserLite { id: string; name: string }
@@ -166,6 +166,9 @@ export function NodeActions({ id, name, isFile, canEdit, owner, trash, moveTarge
   const [renaming, setRenaming] = React.useState(false);
   const [moving, setMoving] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
+  // Le panneau « Déclarer dans Legal » est piloté ICI, pas par l'entrée de menu : le menu est un
+  // portail démonté à la fermeture, et un panneau rendu par lui disparaissait dans le même clic.
+  const [legal, setLegal] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [moveErr, setMoveErr] = React.useState<string | null>(null);
@@ -217,7 +220,13 @@ export function NodeActions({ id, name, isFile, canEdit, owner, trash, moveTarge
                   )}
                   {/* VERS LEGAL — déclarer ce fichier comme engagement de la société. Il RESTE
                       ici : Legal pointe dessus, il n'en est jamais fait de copie. */}
-                  {isFile && <SendToLegalItem nodeId={id} name={name} onOpened={close} />}
+                  {isFile && (
+                    <MenuItem
+                      icon={<Scale className="h-3.5 w-3.5" />}
+                      label="Déclarer dans Legal"
+                      onClick={() => { close(); setLegal(true); }}
+                    />
+                  )}
                   <div className="my-1 border-t border-border" />
                   <MenuItem icon={<Trash2 className="h-3.5 w-3.5" />} label="Mettre à la corbeille" danger onClick={() => void run(trashNode, close)} />
                 </>
@@ -276,6 +285,9 @@ export function NodeActions({ id, name, isFile, canEdit, owner, trash, moveTarge
       </Sheet>
 
       {users && <AccessSheet nodeId={id} name={name} users={users} open={sharing} onClose={() => setSharing(false)} />}
+
+      {/* Rendu par la LIGNE, hors du menu : c'est ce qui rend l'action opérante. */}
+      {isFile && <SendToLegalSheet open={legal} nodeId={id} name={name} onClose={() => setLegal(false)} />}
     </div>
   );
 }

@@ -21,6 +21,8 @@
  * lues et rend des lignes prêtes à écrire.
  */
 
+import { resolveWilaya } from "./wilaya";
+
 /** Colonne de l'annuaire, telle qu'on l'exporte et telle qu'on la reconnaît à l'import. */
 export interface DirectoryColumn {
   key: DirectoryField;
@@ -31,19 +33,33 @@ export interface DirectoryColumn {
 }
 
 export type DirectoryField =
-  | "name" | "title" | "specialty" | "sector" | "institution" | "city" | "region"
+  | "name" | "lastName" | "firstName"
+  | "title" | "specialty" | "sector" | "institution"
+  | "address" | "city" | "wilaya" | "postalCode" | "region"
   | "phone" | "email" | "influence" | "potential" | "affinity" | "targetProducts"
   | "delegate" | "comments";
 
 export const DIRECTORY_COLUMNS: DirectoryColumn[] = [
-  { key: "name", header: "Nom", aliases: ["nom et prenom", "nom & prenom", "prenom et nom", "praticien", "medecin", "docteur", "nom du medecin", "nom du praticien", "pharmacien", "contact", "nom complet"] },
+  // NOM COMPLET en une seule colonne — la forme la plus répandue dans les fichiers reçus.
+  { key: "name", header: "Nom complet", aliases: ["nom et prenom", "nom & prenom", "prenom et nom", "praticien", "medecin", "docteur", "nom du medecin", "nom du praticien", "pharmacien", "nom prenom"] },
+  // NOM et PRÉNOM SÉPARÉS — les colonnes de NOTRE écran, et donc de notre propre export. Leur
+  // absence de cette liste était le défaut principal : un fichier exporté puis réimporté perdait
+  // le nom, le prénom et l'adresse, qui restaient vides à l'écran alors qu'ils étaient bien là.
+  { key: "lastName", header: "Nom", aliases: ["nom de famille", "last name"] },
+  { key: "firstName", header: "Prénom", aliases: ["prenom", "prenoms", "first name"] },
   { key: "title", header: "Grade", aliases: ["titre", "qualite", "fonction", "grade universitaire", "statut"] },
-  { key: "specialty", header: "Spécialité", aliases: ["specialite", "discipline", "service"] },
-  { key: "sector", header: "Secteur", aliases: ["type d exercice", "exercice", "public prive", "secteur d activite"] },
+  { key: "specialty", header: "Spécialité", aliases: ["specialite", "specialite 1", "discipline", "service"] },
+  { key: "sector", header: "Secteur", aliases: ["type d exercice", "exercice", "public prive", "prive public", "secteur d activite"] },
   { key: "institution", header: "Établissement", aliases: ["etablissement", "hopital", "clinique", "structure", "officine", "lieu d exercice", "ehs", "chu"] },
-  { key: "city", header: "Ville", aliases: ["wilaya", "commune", "localite", "ville wilaya"] },
+  { key: "address", header: "Adresse", aliases: ["adresse", "adresse complete", "rue", "adresse du cabinet", "adresse professionnelle", "lieu"] },
+  { key: "city", header: "Ville", aliases: ["commune", "localite", "agglomeration"] },
+  // LA WILAYA A SA PROPRE COLONNE. Elle était un simple alias de « Ville » : un fichier portant
+  // les deux perdait la wilaya, et le comptage par territoire — la raison d'être de ce champ —
+  // ne fonctionnait plus.
+  { key: "wilaya", header: "Wilaya", aliases: ["wilaya", "w", "departement", "willaya", "code wilaya"] },
+  { key: "postalCode", header: "Code postal", aliases: ["code postal", "cp", "zip", "code post"] },
   { key: "region", header: "Région", aliases: ["region", "zone", "secteur geographique", "territoire"] },
-  { key: "phone", header: "Téléphone", aliases: ["telephone", "tel", "mobile", "gsm", "portable", "numero", "n tel"] },
+  { key: "phone", header: "Téléphone", aliases: ["telephone", "tel", "mobile", "gsm", "portable", "numero", "n tel", "numero de telephone", "num tel", "contact", "coordonnees"] },
   { key: "email", header: "E-mail", aliases: ["email", "e mail", "mail", "courriel", "adresse mail"] },
   { key: "influence", header: "Influence", aliases: ["niveau d influence", "kol", "leader d opinion"] },
   { key: "potential", header: "Potentiel", aliases: ["potentiel de prescription", "prescription", "potentiel prescripteur"] },
@@ -121,6 +137,9 @@ export function titleFrom(raw: unknown): string {
   if (/(^|\s)(pr|prof|professeur)(\s|$)/.test(n)) return "PROFESSEUR";
   if (n.includes("maitre de conference") || n.includes("maitre conference") || n === "mca") return "MAITRE_CONFERENCES";
   if (n.includes("maitre assistant") || n === "ma") return "MAITRE_ASSISTANT";
+  // « Chef de service » AVANT « spécialiste » : un chef de service EST un spécialiste, et la
+  // règle la plus précise doit gagner — sinon la fonction disparaît au profit du grade.
+  if (n.includes("chef de service") || n.includes("chef service") || n === "cds") return "CHEF_DE_SERVICE";
   if (n.includes("specialiste") || n.includes("praticien specialiste")) return "PRATICIEN_SPECIALISTE";
   if (n.includes("resident")) return "RESIDENT";
   if (n.includes("assistant")) return "ASSISTANT";
@@ -153,14 +172,45 @@ export function levelFrom(raw: unknown): string {
   return "MEDIUM";
 }
 
+/**
+ * SÉPARER UN NOM COMPLET en nom et prénom.
+ *
+ * L'écran de l'annuaire a DEUX colonnes ; beaucoup de fichiers n'en ont qu'une. Laisser le prénom
+ * vide parce que le fichier ne le sépare pas revient à afficher un annuaire à moitié vide alors
+ * que l'information est là.
+ *
+ * La règle suit ce qu'on observe réellement sur les fichiers algériens : le NOM DE FAMILLE est
+ * écrit EN MAJUSCULES (« BENALI Karim »). Quand rien n'est en majuscules, on retombe sur la
+ * convention d'usage — le premier mot est le nom. C'est une heuristique, et elle est corrigeable
+ * à la main dans la grille : mieux vaut un prénom parfois à replacer qu'une colonne vide.
+ */
+export function splitFullName(full: string): { lastName: string; firstName: string } {
+  const parts = tidy(full).split(" ").filter(Boolean);
+  if (parts.length === 0) return { lastName: "", firstName: "" };
+  if (parts.length === 1) return { lastName: parts[0], firstName: "" };
+
+  const isCaps = (w: string) => w.length > 1 && w === w.toUpperCase() && /[A-ZÀ-Ý]/.test(w);
+  const caps = parts.filter(isCaps);
+  if (caps.length > 0 && caps.length < parts.length) {
+    return { lastName: caps.join(" "), firstName: parts.filter((w) => !isCaps(w)).join(" ") };
+  }
+  return { lastName: parts[0], firstName: parts.slice(1).join(" ") };
+}
+
 /** Une ligne d'annuaire, prête à écrire. */
 export interface DirectoryImportRow {
   name: string;
+  lastName: string | null;
+  firstName: string | null;
   title: string;
   specialty: string | null;
   sector: string;
   institution: string | null;
+  address: string | null;
   city: string | null;
+  /** Une des 58 wilayas, déduite quand le fichier ne la nomme pas. `null` plutôt que devinée. */
+  wilaya: string | null;
+  postalCode: string | null;
   region: string | null;
   phone: string | null;
   email: string | null;
@@ -188,15 +238,37 @@ export function parseDirectoryRow(
     const i = mapping.indexOf(field);
     return i >= 0 ? tidy(values[i]) : "";
   };
-  const name = get("name");
+  // LE NOM, quelle que soit la forme du fichier : une colonne unique, deux colonnes séparées,
+  // ou les deux. On remplit TOUJOURS les trois champs — `name` sert d'affichage partout ailleurs
+  // dans la plateforme, `lastName`/`firstName` sont les colonnes de la grille.
+  const full = get("name");
+  const rawLast = get("lastName");
+  const rawFirst = get("firstName");
+  const split = !rawLast && !rawFirst && full ? splitFullName(full) : { lastName: rawLast, firstName: rawFirst };
+  const lastName = split.lastName;
+  const firstName = split.firstName;
+  const name = full || [lastName, firstName].filter(Boolean).join(" ");
   if (!name) return null;
+
+  const address = get("address");
+  const city = get("city");
+  const institution = get("institution");
+  const postalCode = get("postalCode");
+
   return {
     name,
+    lastName: orNull(lastName),
+    firstName: orNull(firstName),
     title: titleFrom(get("title")),
     specialty: orNull(get("specialty")),
-    sector: sectorFrom(get("sector") || get("institution")),
-    institution: orNull(get("institution")),
-    city: orNull(get("city")),
+    sector: sectorFrom(get("sector") || institution),
+    institution: orNull(institution),
+    address: orNull(address),
+    city: orNull(city),
+    // LA WILAYA SE DÉDUIT quand le fichier ne la nomme pas : c'est elle qui permet de filtrer et
+    // de compter par territoire, et un annuaire sans wilaya ne sert pas à grand-chose.
+    wilaya: resolveWilaya({ wilaya: get("wilaya"), postalCode, city, address, institution }),
+    postalCode: orNull(postalCode),
     region: orNull(get("region")),
     phone: orNull(get("phone")),
     email: orNull(get("email")),

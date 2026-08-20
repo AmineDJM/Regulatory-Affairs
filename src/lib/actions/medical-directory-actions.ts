@@ -10,6 +10,8 @@ import { recordAudit } from "@/lib/audit";
 import { companyIdForNew } from "@/lib/company";
 import { readDirectoryWorkbook } from "@/lib/medical/directory-workbook";
 import { parseDirectorySheet, type DirectoryImportRow } from "@/lib/medical/directory-sheet";
+import { unresolvedHint } from "@/lib/medical/wilaya";
+import { inferWilayas } from "@/lib/medical/wilaya-ai";
 import {
   isAnnuaireField, validateAnnuaireValue, composeDoctorName, type AnnuaireField,
 } from "@/lib/medical/directory-grid";
@@ -64,6 +66,23 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
     : [];
   const delegateByName = new Map(delegates.map((d) => [d.name.toLowerCase(), d.id]));
 
+  // LA WILAYA EN RENFORT D'IA — pour ce que la reconnaissance ne peut pas savoir : « Rouiba »,
+  // « Bab Ezzouar », « El Harrach » sont des communes d'Alger, mais rien dans leur nom ne le
+  // dit. UN SEUL appel pour tout le fichier, et chaque réponse revalidée contre les 58 wilayas :
+  // une hallucination ne doit jamais entrer dans un champ à liste fermée.
+  const needAi = parsed.rows.filter((r) => !r.wilaya);
+  if (needAi.length > 0) {
+    const hintOf = (r: DirectoryImportRow) => unresolvedHint({ city: r.city, address: r.address, institution: r.institution });
+    const guessed = await inferWilayas(needAi.map(hintOf));
+    if (guessed.size > 0) {
+      for (const r of needAi) {
+        const w = guessed.get(hintOf(r));
+        if (w) r.wilaya = w;
+      }
+    }
+  }
+  const aiFilled = needAi.filter((r) => r.wilaya).length;
+
   const companyId = await companyIdForNew(user.id);
   const key = (r: { name: string; institution: string | null }) =>
     `${r.name.toLowerCase()}|${(r.institution ?? "").toLowerCase()}`;
@@ -77,6 +96,14 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   const existingByKey = new Map(existing.map((d) => [key(d), d.id]));
 
   const dataOf = (r: DirectoryImportRow) => ({
+    // NOM / PRÉNOM / ADRESSE / WILAYA / CODE POSTAL sont les colonnes de la GRILLE. Ils étaient
+    // absents de cette écriture : le fichier les portait, l'import les lisait — et l'écran
+    // restait vide. C'était le défaut principal de l'import.
+    lastName: r.lastName,
+    firstName: r.firstName,
+    address: r.address,
+    wilaya: r.wilaya,
+    postalCode: r.postalCode,
     title: r.title as never,
     specialty: r.specialty,
     sector: r.sector as never,
@@ -115,7 +142,7 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   const unknownCols = parsed.unknown.map((u) => u.header);
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Promotion médicale",
-    summary: `Import de l'annuaire — ${created} créé(s), ${updated} mis à jour, ${parsed.skipped} ignoré(s)${unknownCols.length ? ` · colonnes non reconnues : ${unknownCols.join(", ")}` : ""}`,
+    summary: `Import de l'annuaire — ${created} créé(s), ${updated} mis à jour, ${parsed.skipped} ignoré(s)${aiFilled > 0 ? ` · ${aiFilled} wilaya(s) déduite(s) par l'assistant` : ""}${unknownCols.length ? ` · colonnes non reconnues : ${unknownCols.join(", ")}` : ""}`,
   });
 
   revalidatePath("/medical");

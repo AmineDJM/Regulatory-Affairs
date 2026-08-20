@@ -294,6 +294,9 @@ enum DoctorTitle {
   MAITRE_CONFERENCES // Maître de conférences
   MAITRE_ASSISTANT // Maître-assistant
   PRATICIEN_SPECIALISTE // Praticien spécialiste
+  /// Chef de service — une FONCTION hospitalière, pas un grade universitaire, mais c'est ainsi
+  /// qu'un praticien se présente et qu'un délégué le note sur sa fiche.
+  CHEF_DE_SERVICE
   ASSISTANT // Assistant
   RESIDENT // Résident
   GENERALISTE // Médecin généraliste

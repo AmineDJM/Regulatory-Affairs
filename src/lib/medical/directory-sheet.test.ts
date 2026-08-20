@@ -14,7 +14,13 @@ describe("Reconnaître les colonnes d'un fichier qu'on n'a pas écrit", () => {
   it("retrouve nos colonnes sous les noms qu'emploient les vrais fichiers", () => {
     expect(matchColumn("NOM ET PRENOM")).toBe("name");
     expect(matchColumn("Médecin")).toBe("name");
-    expect(matchColumn("Wilaya")).toBe("city");
+    // La WILAYA a désormais sa propre colonne : elle était un alias de « Ville », et un fichier
+    // portant les deux perdait la wilaya — donc le comptage par territoire.
+    expect(matchColumn("Wilaya")).toBe("wilaya");
+    expect(matchColumn("Ville")).toBe("city");
+    expect(matchColumn("Prénom")).toBe("firstName");
+    expect(matchColumn("Adresse")).toBe("address");
+    expect(matchColumn("Code postal")).toBe("postalCode");
     expect(matchColumn("N° Tél.")).toBe("phone");
     expect(matchColumn("Courriel")).toBe("email");
     expect(matchColumn("Hôpital")).toBe("institution");
@@ -32,15 +38,18 @@ describe("Reconnaître les colonnes d'un fichier qu'on n'a pas écrit", () => {
   });
 
   it("ne prend une cible qu'une fois : la seconde colonne homonyme part en non reconnue", () => {
-    const r = mapHeaderRow(["Nom", "Nom complet", "Ville"]);
-    expect(r.mapping).toEqual(["name", null, "city"]);
-    expect(r.unknown).toEqual([{ index: 1, header: "Nom complet" }]);
+    // « Nom » et « Nom complet » sont maintenant DEUX colonnes distinctes (nom de famille et
+    // nom complet) : les deux sont exploitées, ce qui est le but. Le doublon se teste donc sur
+    // deux écritures de la MÊME cible.
+    const r = mapHeaderRow(["Ville", "Commune", "Nom"]);
+    expect(r.mapping).toEqual(["city", null, "lastName"]);
+    expect(r.unknown).toEqual([{ index: 1, header: "Commune" }]);
   });
 
   it("RESTITUE les en-têtes non reconnus — une colonne perdue en silence est un piège", () => {
     const r = mapHeaderRow(["Nom", "Score interne", "Ville"]);
     expect(r.unknown).toEqual([{ index: 1, header: "Score interne" }]);
-    expect(r.matched).toEqual(["name", "city"]);
+    expect(r.matched).toEqual(["lastName", "city"]);
   });
 });
 
@@ -87,8 +96,13 @@ describe("Restructurer une ligne à NOTRE format", () => {
       mapping,
     );
     expect(row).toEqual({
-      name: "MOUFFOK Amina", title: "PROFESSEUR", specialty: "Cardiologie",
-      sector: "HOSPITAL", institution: "CHU Mustapha", city: "Alger", region: null,
+      name: "MOUFFOK Amina",
+      // Le nom complet est SÉPARÉ : l'écran a deux colonnes, et les laisser vides afficherait un
+      // annuaire à moitié vide alors que l'information est là.
+      lastName: "MOUFFOK", firstName: "Amina",
+      title: "PROFESSEUR", specialty: "Cardiologie",
+      sector: "HOSPITAL", institution: "CHU Mustapha",
+      address: null, city: null, wilaya: "Alger", postalCode: null, region: null,
       phone: "0550 11 22 33", email: null,
       influence: "VERY_HIGH", potential: "MEDIUM", affinity: "MEDIUM",
       targetProducts: null, delegate: null, comments: null,
@@ -118,7 +132,7 @@ describe("Lire une feuille entière, et dire ce qui a été écarté", () => {
     const r = parseDirectorySheet(sheet);
     expect(r.rows.map((x) => x.name)).toEqual(["MOUFFOK Amina", "BENALI Karim"]);
     expect(r.rows[1].title).toBe("RESIDENT");
-    expect(r.rows[0].city).toBe("Alger");
+    expect(r.rows[0].wilaya).toBe("Alger");
   });
 
   it("COMPTE ce qui a été écarté — « 312 importées » sans le reste fabrique un annuaire troué", () => {
@@ -145,14 +159,23 @@ describe("Le classeur exporté se réimporte tel quel", () => {
 
   it("l'ordre des colonnes exportées est celui de l'annuaire", () => {
     expect(directoryHeaderRow()).toHaveLength(DIRECTORY_COLUMNS.length);
-    expect(directoryHeaderRow()[0]).toBe("Nom");
+    expect(directoryHeaderRow()[0]).toBe("Nom complet");
   });
 
   it("un aller-retour complet conserve les valeurs", () => {
+    // La ligne est construite DEPUIS les colonnes, jamais écrite à la main : une liste figée se
+    // décale silencieusement dès qu'une colonne est ajoutée, et le test cesse alors de tester
+    // ce qu'il annonce.
+    const values: Partial<Record<string, string>> = {
+      name: "MOUFFOK Amina", title: "Professeur", specialty: "Cardiologie",
+      sector: "Hôpital / Public", institution: "CHU Mustapha", city: "Alger", region: "Centre",
+      phone: "0550112233", email: "a.mouffok@chu.dz",
+      influence: "Très haut", potential: "Haut", affinity: "Moyen",
+      targetProducts: "Produit A", delegate: "K. Benali", comments: "KOL national",
+    };
     const exported = [
       directoryHeaderRow(),
-      ["MOUFFOK Amina", "Professeur", "Cardiologie", "Hôpital / Public", "CHU Mustapha", "Alger", "Centre",
-        "0550112233", "a.mouffok@chu.dz", "Très haut", "Haut", "Moyen", "Produit A", "K. Benali", "KOL national"],
+      DIRECTORY_COLUMNS.map((c) => values[c.key] ?? ""),
     ];
     const r = parseDirectorySheet(exported);
     expect(r.skipped).toBe(0);
