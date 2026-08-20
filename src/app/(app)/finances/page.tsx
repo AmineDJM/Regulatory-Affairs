@@ -32,6 +32,12 @@ export default async function FinancesPage() {
   const canDelete = userCan(user, "FINANCES", "DELETE");
   const [data, compta] = await Promise.all([getFinanceData(user.id), getComptaData(user.id)]);
   const pendingOrders = await prisma.expenseOrder.count({ where: { status: "PENDING" } });
+  // Les DEMANDES DE PAIEMENT arrivent ici : c'est le module qui les instruit. Le compteur est
+  // sur le bouton parce qu'une file qu'on ne voit pas depuis la page d'accueil du module est une
+  // file qu'on ouvre le vendredi soir.
+  const pendingPayments = await prisma.paymentRequest.count({
+    where: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "ON_HOLD"] } },
+  });
   const companies = await getMyCompanies(user.id);
 
   return (
@@ -43,6 +49,12 @@ export default async function FinancesPage() {
           <Button variant="outline">
             <Banknote className="h-4 w-4" /> Règlements à effectuer
             {pendingOrders > 0 && <span className="ml-1 rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">{pendingOrders}</span>}
+          </Button>
+        </Link>
+        <Link href="/finances/paiements">
+          <Button variant="outline">
+            <Banknote className="h-4 w-4" /> Demandes de paiement
+            {pendingPayments > 0 && <span className="ml-1 rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">{pendingPayments}</span>}
           </Button>
         </Link>
         <Link href="/finances/factures">

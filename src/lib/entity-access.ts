@@ -61,10 +61,10 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   // interlocuteurs. Le repli sur « Mon espace » ne sert que si le contrôle nominatif
   // ci-dessous ne s'applique pas.
   DOCUMENT_REQUEST: "WORKSPACE",
-  // Une demande de paiement se dépose depuis le bureau de validation et s'instruit aux
-  // Finances : c'est le module de validation qui en gouverne l'accès, le contrôle nominatif
-  // ci-dessous faisant le reste.
-  PAYMENT_REQUEST: "VALIDATIONS",
+  // Une demande de paiement s'instruit aux FINANCES. Le module n'est toutefois qu'un repli :
+  // l'accès réel est nominatif (demandeur / destinataire / Finances), résolu plus bas — sans
+  // quoi celui qui fait payer une facture aurait besoin du grand livre pour joindre sa pièce.
+  PAYMENT_REQUEST: "FINANCES",
   HR_REQUEST: "RH",
   EVENT: "EVENTS",
   // Polymorphe : l'accès réel est résolu spécifiquement (assigné ou entité parente).
@@ -127,6 +127,23 @@ export async function canAccessEntity(
     // saurait plus laquelle a servi à la décision.
     if (r.askedToId !== user.id) return false;
     return action === "VIEW" || (r.status !== "ACCEPTED" && r.status !== "CANCELLED");
+  }
+
+  // DEMANDE DE PAIEMENT : l'accès ne vient PAS d'un module, mais du CERCLE du dossier.
+  //
+  // N'importe qui peut avoir à faire payer une facture — un chef de produit, une assistante, un
+  // délégué — sans avoir la moindre raison de voir le grand livre ou la trésorerie. Exiger le
+  // module Finances aurait fermé les pièces à ceux-là mêmes qui doivent les déposer ; exiger le
+  // module de validation, lui, n'avait plus de sens une fois le dossier parti aux Finances.
+  if (entityType === "PAYMENT_REQUEST") {
+    if (hasGlobalView(user.role)) return true;
+    const r = await prisma.paymentRequest.findUnique({
+      where: { id: entityId }, select: { requesterId: true, recipientId: true },
+    });
+    if (!r) return false;
+    if (r.requesterId === user.id || r.recipientId === user.id) return true;
+    return user.role === "FINANCE_BUDGET_MANAGER"
+      || userCan(user, "FINANCES", "VALIDATE") || userCan(user, "FINANCES", "UPDATE");
   }
 
   // Le DEMANDEUR d'une demande de sponsoring/congrès peut toujours consulter et

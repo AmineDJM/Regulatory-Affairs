@@ -18,7 +18,7 @@ import {
   needsReplacement, type PaymentMove,
 } from "@/lib/finance/payment-request";
 
-const PATH = "/validations/paiements";
+const PATH = "/finances/paiements";
 
 /**
  * LA DEMANDE DE PAIEMENT — le dossier qui part aux Finances, et qui revient.

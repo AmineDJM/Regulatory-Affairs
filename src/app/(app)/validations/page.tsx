@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ExternalLink, Paperclip, Banknote } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { accessibleModules, rolesWithModule } from "@/lib/rbac";
+import { accessibleModules } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getMyValidations, type PendingValidationItem, type MyValidationItem } from "@/lib/queries/validations";
 import { groupValidations, type ValidationGroup } from "@/lib/validations/grouping";
@@ -23,7 +23,6 @@ import { SupervisionBoard } from "./supervision-board";
 import { supervisionCounters } from "@/lib/validation-supervision";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { DocumentList } from "@/components/documents/document-list";
-import { NewPaymentButton } from "./new-payment-button";
 
 export default async function ValidationsPage() {
   const user = await requireModule("VALIDATIONS");
@@ -46,22 +45,6 @@ export default async function ValidationsPage() {
     orderBy: { name: "asc" },
   });
 
-  // DESTINATAIRE D'UN PAIEMENT : les personnes des Finances, pas toute la société. On croise
-  // les rôles qui gouvernent le module (matrice RBAC, pas une liste devinée) et les accès
-  // accordés au cas par cas par le Super Admin — sans quoi un contrôleur promu par override
-  // n'apparaîtrait jamais.
-  const financeRoles = rolesWithModule("FINANCES");
-  const financePeople = await prisma.user.findMany({
-    where: {
-      isActive: true,
-      OR: [
-        { role: { in: financeRoles } },
-        { access: { some: { module: "FINANCES", canView: true } } },
-      ],
-    },
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
   const peopleOptions = people.map((p) => ({ value: p.id, label: p.name }));
 
   const requestFields: FieldDef[] = [
@@ -99,20 +82,21 @@ export default async function ValidationsPage() {
           action={createValidationRequest}
           fields={requestFields}
         />
-        {/* Un paiement n'est pas une validation ordinaire : il a un montant, un bénéficiaire, une
-            échéance, et une discussion PIÈCE PAR PIÈCE avec les Finances. Il a donc sa porte. */}
-        <NewPaymentButton people={financePeople} />
       </PageHeader>
 
+      {/* LES PAIEMENTS NE SONT PLUS ICI. Un paiement n'est pas une validation professionnelle :
+          il a un montant, un bénéficiaire, une échéance, et il s'instruit aux Finances, pièce
+          par pièce. Le garder dans ce bureau obligeait à chercher un dossier de paiement à deux
+          endroits — et à se demander lequel faisait foi. Le renvoi reste, le dossier a déménagé. */}
       <Link
-        href="/validations/paiements"
-        className="surface flex items-center justify-between gap-3 p-3 text-sm transition-colors hover:bg-secondary/40"
+        href="/finances/paiements"
+        className="surface flex flex-wrap items-center justify-between gap-3 p-3 text-sm transition-colors hover:bg-secondary/40"
       >
         <span className="flex items-center gap-2 font-medium">
-          <Banknote className="h-4 w-4 text-primary" /> Demandes de paiement
+          <Banknote className="h-4 w-4 text-primary" /> Les demandes de paiement sont aux Finances
         </span>
         <span className="text-xs text-muted-foreground">
-          Le dossier qui part aux Finances : factures, bons de commande, montant, échéance — instruits pièce par pièce.
+          Demander un paiement, suivre le vôtre, l&apos;instruire : tout se passe désormais dans « Demandes de paiement ».
         </span>
       </Link>
 

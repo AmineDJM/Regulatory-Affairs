@@ -59,7 +59,7 @@ export function NewPaymentButton({ people }: { people: { id: string; name: strin
     setBusy(false);
     if (!r.ok) { setErr(r.error ?? "La demande n'a pas pu être créée."); return; }
     setOpen(false); reset();
-    router.push(`/validations/paiements/${r.id}`);
+    router.push(`/finances/paiements/${r.id}`);
   };
 
   return (
