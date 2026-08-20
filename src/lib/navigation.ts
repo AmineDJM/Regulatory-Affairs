@@ -122,6 +122,9 @@ export const NAV_ALIASES: { terms: string[]; href: string; label: string }[] = [
   { terms: ["intelligence marché", "intelligence marche", "iqvia", "molécule", "molecule"], href: "/business-development", label: "Business Development — Market Intelligence" },
   { terms: ["ctd", "enregistrement", "anpp"], href: "/regulatory/enregistrement", label: "Regulatory — Analyse CTD" },
   { terms: ["annuaire", "médecins", "medecins", "pharmaciens", "établissements", "etablissements"], href: "/medical/annuaire", label: "Annuaire — médecins & praticiens" },
+  // On cherche « embauche » ou « CV » bien plus souvent que « recrutement » — et « demande de
+  // recrutement » est le nom du circuit, pas celui que l'on tape.
+  { terms: ["recrutement", "embauche", "cv", "candidature", "candidatures", "poste à pourvoir", "poste a pourvoir"], href: "/recrutement", label: "Recrutement — demandes, CV et intégration" },
 ];
 
 /** Destinations correspondant à un terme tapé — insensible à la casse et aux accents. */

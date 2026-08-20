@@ -392,6 +392,11 @@ enum EntityType {
   /// L'ENTITÉ elle-même — porte les pièces de sa carte d'identité légale et fiscale (extrait
   /// du registre, attestation fiscale, statuts, RIB scanné). Gouvernée par le module LEGAL.
   COMPANY
+  /// La DEMANDE de recrutement — porte la fiche de poste.
+  RECRUITMENT_REQUEST
+  /// Un CANDIDAT — porte son CV et ses pièces. Séparé de la demande : un CV appartient à une
+  /// personne, et le rattacher à la demande entière rendrait impossible de dire de qui il est.
+  RECRUITMENT_CANDIDATE
 }
 
 enum DocumentCategory {
@@ -477,6 +482,10 @@ enum ContractType {
   INTERIM
   STAGE
   FREELANCE
+  /// Mission de CONSULTING — un intervenant EXTERNE. Distinct de `FREELANCE` (prestation
+  /// ponctuelle) : le recrutement d'un consultant suit le même circuit qu'une embauche, mais ne
+  /// débouche PAS sur une fiche employé — il n'entre ni dans l'effectif, ni dans la paie.
+  CONSULTING
   OTHER
 }
 
@@ -622,6 +631,7 @@ model Department {
   users          User[]
   adminRequests  AdministrativeRequest[]
   mailEntries    MailEntry[]
+  recruitments   RecruitmentRequest[]      @relation("RecruitmentDepartment")
   budgets        DepartmentBudget[]
   budgetAccess   DepartmentBudgetAccess?
   budgetRequests DepartmentBudgetRequest[]
@@ -875,6 +885,11 @@ model User {
   mailEntriesConcerned   MailEntry[]               @relation("MailEntryConcerned")
   regRemindersReceived   RegulatoryUpdateReminder[] @relation("RegUpdateReminderRecipient")
   regRemindersSent       RegulatoryUpdateReminder[] @relation("RegUpdateReminderSender")
+  recruitmentRequests    RecruitmentRequest[]       @relation("RecruitmentRequester")
+  recruitmentApprovals   RecruitmentApproval[]      @relation("RecruitmentApprover")
+  recruitmentInfoAsked   RecruitmentInfoRequest[]   @relation("RecruitmentInfoAsker")
+  recruitmentInfoAnswered RecruitmentInfoRequest[]  @relation("RecruitmentInfoAnswerer")
+  recruitmentCandidates  RecruitmentCandidate[]     @relation("RecruitmentCandidateAdder")
   invoicesCreated        Invoice[]                 @relation("InvoiceCreator")
   leaveDecisions         LeaveRequest[]            @relation("LeaveDecider")
   advanceDecisions       SalaryAdvance[]           @relation("AdvanceDecider")
@@ -1143,6 +1158,7 @@ model Company {
   regulatoryProducts      RegulatoryProduct[]
   legalDocuments          LegalDocument[]
   mailEntries             MailEntry[]
+  recruitments            RecruitmentRequest[]
   invoices                Invoice[]
   pchTenders              PchTender[]
   employees               Employee[]
@@ -1400,6 +1416,164 @@ model RegulatoryVariation {
   updatedAt    DateTime            @updatedAt
 
   @@index([productId])
+}
+
+// ─────────────────────────── Demandes de recrutement ───────────────────────────
+// Un directeur formule le besoin, sa hiérarchie valide marche par marche jusqu'au PDG, les RH
+// instruisent (et peuvent demander des précisions), puis le poste s'ouvre : CV reçus,
+// présélection par le demandeur, choix du PDG, entretiens, et enfin l'intégration — sauf pour un
+// consulting, qui reste un intervenant externe.
+
+enum RecruitmentStage {
+  CHAIN
+  HR_REVIEW
+  INFO_REQUESTED
+  SOURCING
+  ONBOARDING
+  CLOSED
+  REJECTED
+  CANCELLED
+}
+
+enum RecruitmentApprovalState {
+  PENDING
+  APPROVED
+  REJECTED
+  /// Marche NON CONSULTÉE : le PDG a tranché depuis une marche supérieure. On ne l'inscrit pas
+  /// « approuvée » — écrire qu'un N+1 a validé alors qu'il n'a rien vu serait un faux.
+  SKIPPED
+}
+
+enum RecruitmentCandidateStatus {
+  RECEIVED
+  SHORTLISTED
+  SELECTED
+  INTERVIEWED
+  HIRED
+  DECLINED
+}
+
+model RecruitmentRequest {
+  id             String           @id @default(cuid())
+  reference      String           @unique // REC-2026-001
+  companyId      String?
+  company        Company?         @relation(fields: [companyId], references: [id])
+  /// Le département POUR LEQUEL on recrute — pas celui du demandeur, qui peut recruter pour un
+  /// sous-département dont il a la charge.
+  departmentId   String?
+  department     Department?      @relation("RecruitmentDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  requesterId    String
+  requester      User             @relation("RecruitmentRequester", fields: [requesterId], references: [id])
+
+  position       String
+  headcount      Int              @default(1)
+  contractType   ContractType
+  /// Fourchette de rémunération mensuelle brute (DZD). Les deux bornes sont facultatives : un
+  /// poste se pose souvent « à partir de », et forcer un maximum inventerait un plafond.
+  salaryMin      Decimal?         @db.Decimal(12, 2)
+  salaryMax      Decimal?         @db.Decimal(12, 2)
+  startDate      DateTime?
+  /// Terme du contrat — obligatoire pour un CDD, un stage ou un consulting, interdit sur un CDI.
+  endDate        DateTime?
+  missions       String?
+  skills         String?
+  justification  String?
+
+  stage          RecruitmentStage @default(CHAIN)
+  /// Décision finale des RH / de la direction, en clair, quand la demande se clôt.
+  closingNote    String?
+  closedAt       DateTime?
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  approvals      RecruitmentApproval[]
+  infoRequests   RecruitmentInfoRequest[]
+  candidates     RecruitmentCandidate[]
+
+  @@index([stage])
+  @@index([requesterId])
+  @@index([departmentId])
+  @@index([companyId, stage])
+}
+
+/// Une MARCHE de la chaîne hiérarchique, figée à la soumission.
+///
+/// Figée, parce qu'une réorganisation en cours de route changerait les validateurs d'une demande
+/// déjà partie — et l'on ne saurait plus qui devait trancher quand elle a été déposée.
+model RecruitmentApproval {
+  id          String                   @id @default(cuid())
+  requestId   String
+  request     RecruitmentRequest       @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  order       Int
+  approverId  String
+  approver    User                     @relation("RecruitmentApprover", fields: [approverId], references: [id])
+  status      RecruitmentApprovalState @default(PENDING)
+  reason      String?
+  decidedAt   DateTime?
+  createdAt   DateTime                 @default(now())
+
+  @@unique([requestId, order])
+  @@index([approverId, status])
+}
+
+/// Une PRÉCISION demandée par les RH, et la réponse du demandeur.
+///
+/// Ce va-et-vient est le cœur du travail RH, pas une exception : compétences attendues,
+/// rémunération, tâches, dates, type de contrat. Il est donc historisé, question par question.
+model RecruitmentInfoRequest {
+  id           String             @id @default(cuid())
+  requestId    String
+  request      RecruitmentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  askedById    String
+  askedBy      User               @relation("RecruitmentInfoAsker", fields: [askedById], references: [id])
+  question     String
+  answer       String?
+  answeredById String?
+  answeredBy   User?              @relation("RecruitmentInfoAnswerer", fields: [answeredById], references: [id], onDelete: SetNull)
+  answeredAt   DateTime?
+  createdAt    DateTime           @default(now())
+
+  @@index([requestId, createdAt])
+}
+
+/// Un CV REÇU, et son parcours jusqu'à l'embauche.
+///
+/// Le pipeline vit ICI et non sur la demande : plusieurs candidats avancent en parallèle, à des
+/// vitesses différentes. Une demande qui porterait un seul état « en entretien » ne saurait pas
+/// dire de qui elle parle.
+model RecruitmentCandidate {
+  id             String                    @id @default(cuid())
+  requestId      String
+  request        RecruitmentRequest        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  fullName       String
+  email          String?
+  phone          String?
+  /// D'où vient le CV (candidature spontanée, cabinet, cooptation…). Texte libre : les sources
+  /// changent tout le temps et une liste fermée serait fausse dès le mois suivant.
+  source         String?
+  notes          String?
+  status         RecruitmentCandidateStatus @default(RECEIVED)
+
+  addedById      String?
+  addedBy        User?                     @relation("RecruitmentCandidateAdder", fields: [addedById], references: [id], onDelete: SetNull)
+  shortlistedById String?
+  shortlistedAt  DateTime?
+  selectedById   String?
+  selectedAt     DateTime?
+  interviewAt    DateTime?
+  interviewNote  String?
+  decidedAt      DateTime?
+
+  /// Fiche employé créée à l'intégration. Absente pour un consulting — un consultant externe
+  /// n'entre pas dans l'effectif.
+  employeeId     String?                   @unique
+  employee       Employee?                 @relation("RecruitmentHire", fields: [employeeId], references: [id], onDelete: SetNull)
+
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@index([requestId, status])
 }
 
 /// RELANCE DE MISE À JOUR — « où en sont vos dossiers ? », posé par la direction.
@@ -3629,6 +3803,8 @@ model Employee {
   advances      SalaryAdvance[]
   documents     EmployeeDocument[]
   hrRequests    HrDocumentRequest[]
+  /// La candidature dont cette fiche est issue, quand elle vient d'un recrutement.
+  recruitedAs   RecruitmentCandidate? @relation("RecruitmentHire")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

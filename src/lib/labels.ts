@@ -1390,6 +1390,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   GENERAL_MEANS: "Moyens généraux",
   LEGAL: "Legal",
   MAIL_REGISTER: "Courriers",
+  RECRUITMENT: "Recrutement",
   DASHBOARD: "Dashboard",
   WORKSPACE: "Espace de travail",
   MESSAGING: "Messagerie",
@@ -1513,6 +1514,10 @@ export const NAVIGATION: NavItem[] = [
   },
   // COURRIERS — le carnet entrant/sortant de l'assistante de direction.
   { module: "MAIL_REGISTER", label: "Courriers", href: "/courriers", icon: "Mails", group: "Pôles", pole: "ADMINISTRATION" },
+  // RECRUTEMENT — module à part, et non un écran de plus dans RH : celui qui demande un poste
+  // est un directeur opérationnel, qui n'a rien à faire dans la paie ni dans les dossiers du
+  // personnel. C'est aux RH que la demande ARRIVE, pas de chez eux qu'elle part.
+  { module: "RECRUITMENT", label: "Recrutement", href: "/recrutement", icon: "UserPlus", group: "Pôles", pole: "ADMINISTRATION" },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages"] },
 
   // SALES & MARKETING — tout ce qui touche au terrain et au business réalisé. L'annuaire des

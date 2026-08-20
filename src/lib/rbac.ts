@@ -26,7 +26,10 @@ export const MODULES = [
   // LEGAL : les engagements de la société (contrats, bons de commande, assurances).
   // MAIL_REGISTER : le carnet de courriers entrants/sortants de l'assistante de direction —
   // module à part, dont le Super Admin ouvre l'accès à qui il veut.
-  "LEGAL", "MAIL_REGISTER",
+  // RECRUITMENT : les demandes de recrutement, de la demande d'un directeur à l'intégration.
+  // Module À PART de RH, et pas un écran de plus dedans : le DEMANDEUR est un directeur
+  // opérationnel qui n'a rien à faire dans la paie ni dans les dossiers du personnel.
+  "LEGAL", "MAIL_REGISTER", "RECRUITMENT",
   "PROCESS_INTELLIGENCE", "ADVENTUM_BRAIN", "ADMIN",
 ] as const;
 export type Module = (typeof MODULES)[number];
@@ -85,7 +88,7 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     CONGRESS_INTERNATIONAL: MANAGE, CONGRESS_NATIONAL: MANAGE, EVENTS: MANAGE, SALES: MANAGE,
     LOGISTICS: MANAGE, PCH: MANAGE, STOCKS: MANAGE, MEDICAL: MANAGE, FIELD_REPORTS: MANAGE, SALES_PLANNING: MANAGE, BUSINESS_DEVELOPMENT: MANAGE,
     MEDICAL_INFO: MANAGE, PROMO_MATERIAL: MANAGE, CONSULTING: MANAGE, AD_PRO_OTHER: MANAGE, DOCUMENTS: MANAGE, ADMIN_REQUESTS: MANAGE,
-    GENERAL_MEANS: MANAGE, LEGAL: MANAGE, MAIL_REGISTER: MANAGE,
+    GENERAL_MEANS: MANAGE, LEGAL: MANAGE, MAIL_REGISTER: MANAGE, RECRUITMENT: MANAGE,
     VALIDATIONS: [...VALIDATION_USER, "VALIDATE"], DIRECTIVES: MANAGE, SUPPORT: MANAGE, DOSSIERS: MANAGE,
     NOTIFICATIONS: ["VIEW"],
     // NB : Administration et Adventum Brain (+ Process Intelligence) sont réservés au
@@ -109,6 +112,9 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     SALES_PLANNING: MANAGE, BUSINESS_DEVELOPMENT: MANAGE, MEDICAL_INFO: MANAGE,
     PROMO_MATERIAL: MANAGE, CONSULTING: MANAGE, AD_PRO_OTHER: MANAGE, DOCUMENTS: MANAGE,
     ADMIN_REQUESTS: MANAGE, GENERAL_MEANS: MANAGE, LEGAL: MANAGE, MAIL_REGISTER: MANAGE,
+    // Le DG est le SOMMET de la chaîne de validation d'un recrutement, et celui qui tranche
+    // entre les candidats : le module lui est acquis, quelle que soit sa place dans l'organigramme.
+    RECRUITMENT: MANAGE,
     // Pas de VALIDATE global : il valide ce dont il est nommément validateur, comme tout le monde.
     VALIDATIONS: VALIDATION_USER, DIRECTIVES: MANAGE, SUPPORT: MANAGE, DOSSIERS: MANAGE,
     NOTIFICATIONS: ["VIEW"],
@@ -215,6 +221,25 @@ type RoleBearer = { role: UserRole; secondaryRole?: UserRole | null };
 export function hasGlobalView(u: UserRole | RoleBearer): boolean {
   if (typeof u === "string") return GLOBAL_VIEW_ROLES.includes(u);
   return GLOBAL_VIEW_ROLES.includes(u.role) || (u.secondaryRole != null && GLOBAL_VIEW_ROLES.includes(u.secondaryRole));
+}
+
+/**
+ * LE SOMMET DE LA MAISON — celui qui tranche en dernier ressort.
+ *
+ * Plus large que `hasGlobalView` d'un cran : le Directeur Général en fait partie. Il est
+ * délibérément hors de la vue globale (il ne supervise pas les validations de tout le monde, il
+ * ne lit pas les Drive privés), mais sur les décisions d'ENTREPRISE — arbitrer un recrutement,
+ * choisir entre deux candidats — il est précisément la personne qu'on appelle « le PDG ».
+ *
+ * Sert d'OUTREPASSE, jamais de raccourci : la chaîne de validation d'un recrutement est
+ * calculée sur l'organigramme réel, et son dernier échelon est le vrai sommet, quel que soit son
+ * rôle applicatif. Ce prédicat ne fait que permettre de trancher quand un maillon est absent —
+ * exactement la période où les demandes s'accumulent.
+ */
+export function isTopManagement(u: UserRole | RoleBearer): boolean {
+  const tops: UserRole[] = ["SUPER_ADMIN", "DIRECTION", "GENERAL_MANAGER"];
+  if (typeof u === "string") return tops.includes(u);
+  return tops.includes(u.role) || (u.secondaryRole != null && tops.includes(u.secondaryRole));
 }
 
 /** L'utilisateur porte-t-il ce rôle, en **principal OU en secondaire** ? */
@@ -357,6 +382,35 @@ export function can(role: UserRole, module: Module, action: Action): boolean {
  * Portée de LECTURE uniquement — le bureau reste tenu par l'assistante de direction. Voir n'est
  * pas instruire.
  */
+/**
+ * L'ACCÈS AU MODULE RECRUTEMENT — dicté par l'ORGANIGRAMME, pas par une liste de rôles.
+ *
+ * « Chaque directeur de département a le droit de demander un recrutement » : la condition est
+ * FACTUELLE (diriger un département), pas nominale. Un « Responsable Logistique » qui ne dirige
+ * rien n'a pas à demander de poste ; quelqu'un dont le rôle ne dit rien de particulier mais qui
+ * tient un service en a besoin. Écrire une liste de rôles serait donc faux dans les deux sens, et
+ * fausse dès la première réorganisation.
+ *
+ * L'ADJOINT compte comme le responsable : c'est lui qui tient le service quand l'autre est
+ * absent, et un recrutement ne s'arrête pas pendant les congés du directeur.
+ *
+ * Les RH obtiennent le module ENTIER : ce sont eux qui instruisent, publient et intègrent.
+ *
+ * Fonction PURE — les faits (dirige-t-il un département ? tient-il les RH ?) sont établis par
+ * l'appelant ; la règle, elle, est ici et se teste.
+ */
+export function recruitmentAccessFor(caps: {
+  headsDepartment: boolean;
+  rhCanUpdate: boolean;
+}): { actions: Action[]; scope: AccessScope } | null {
+  if (caps.rhCanUpdate) return { actions: [...MANAGE], scope: "ALL" };
+  // Le demandeur voit SES demandes — pas celles des autres départements. Ce qu'un directeur
+  // recrute ailleurs ne le regarde pas, et une fourchette de rémunération est une information
+  // sensible qui n'a aucune raison de circuler entre pairs.
+  if (caps.headsDepartment) return { actions: ["VIEW", "CREATE", "UPDATE", "UPLOAD", "EXPORT"], scope: "ASSIGNED" };
+  return null;
+}
+
 export function seesWholeSecretariat(caps: { rhCanUpdate: boolean; financeCanUpdate: boolean }): boolean {
   return caps.rhCanUpdate || caps.financeCanUpdate;
 }
@@ -472,7 +526,7 @@ export interface SessionUser {
  */
 export const getAccess = perRequest(
   async (userId: string, roleHint: UserRole): Promise<EffectiveAccess> => {
-    const [overrides, grants, userRow, pendingValidations] = await Promise.all([
+    const [overrides, grants, userRow, pendingValidations, departmentsLed] = await Promise.all([
       prisma.userAccess.findMany({ where: { userId } }),
       prisma.rowGrant.findMany({ where: { userId }, select: { entityType: true, entityId: true } }),
       prisma.user.findUnique({ where: { id: userId }, select: { role: true, secondaryRole: true } }),
@@ -481,6 +535,9 @@ export const getAccess = perRequest(
         where: { validatorId: userId, status: "PENDING", request: { status: "PENDING" } },
         select: { request: { select: { module: true, link: true, entityType: true, entityId: true } } },
       }),
+      // Dirige-t-il un département ? C'est ce FAIT — et non son rôle — qui ouvre le module
+      // Recrutement. L'adjoint compte : il tient le service quand le responsable est absent.
+      prisma.department.count({ where: { OR: [{ head: { userId } }, { deputy: { userId } }] } }),
     ]);
 
     // Rôle principal résolu EN DIRECT depuis la base : le JWT fige le rôle au login, donc
@@ -631,6 +688,24 @@ export const getAccess = perRequest(
       const cur = modules.get("ADMIN_REQUESTS");
       if (cur) cur.scope = "ALL";
       else modules.set("ADMIN_REQUESTS", { actions: new Set<Action>(["VIEW", "EXPORT"]), scope: "ALL" });
+    }
+
+    // ── LE RECRUTEMENT SUIT L'ORGANIGRAMME ──
+    // Qui dirige un département peut demander un poste ; qui tient les RH instruit tout. La
+    // règle est dans `recruitmentAccessFor` — ici on ne fait que la poser, en ÉLARGISSANT :
+    // un rôle qui accorde déjà davantage (Direction, DG) ne doit pas s'en trouver rétréci.
+    const recruitment = recruitmentAccessFor({
+      headsDepartment: departmentsLed > 0,
+      rhCanUpdate: modules.get("RH")?.actions.has("UPDATE") ?? false,
+    });
+    if (recruitment) {
+      const cur = modules.get("RECRUITMENT");
+      if (cur) {
+        for (const a of recruitment.actions) cur.actions.add(a);
+        if (recruitment.scope === "ALL") cur.scope = "ALL";
+      } else {
+        modules.set("RECRUITMENT", { actions: new Set<Action>(recruitment.actions), scope: recruitment.scope });
+      }
     }
 
     // ── Accès IMPLICITE au module Budget quand une enveloppe est PARTAGÉE avec ce compte ──

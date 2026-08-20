@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { platformScope } from "@/lib/company";
 import { legalReaderWhere } from "@/lib/legal/readers";
 import { canSee as canSeeTask, canAttach as canAttachTask } from "@/lib/tasks/request-flow";
+import { recruitmentViewer } from "@/lib/recruitment/access";
 import { getMyCompanies } from "@/lib/company";
 import {
   userCan,
@@ -77,6 +78,11 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   MAIL_ENTRY: "MAIL_REGISTER",
   // Un engagement de la société (contrat, bon de commande, assurance) et ses pièces.
   LEGAL_DOCUMENT: "LEGAL",
+  // La demande de recrutement (fiche de poste) et les candidats (CV). Le module n'est qu'un
+  // repli : l'accès réel est nominatif — demandeur, validateurs de la chaîne, RH — et résolu
+  // plus bas. Un CV est une donnée personnelle : le module seul ne doit pas suffire à l'ouvrir.
+  RECRUITMENT_REQUEST: "RECRUITMENT",
+  RECRUITMENT_CANDIDATE: "RECRUITMENT",
 };
 
 /**
@@ -313,6 +319,21 @@ export async function canAccessEntity(
         select: { id: true },
       });
       return Boolean(found);
+    }
+    case "RECRUITMENT_REQUEST": {
+      // Un CV et une fourchette de rémunération sont des données PERSONNELLES : avoir le module
+      // ne suffit pas. Il faut être partie à la demande — l'avoir écrite, devoir la valider, ou
+      // tenir les RH. Sans cette porte, la fiche de poste et les CV se téléchargeraient en
+      // devinant un identifiant.
+      return Boolean(await recruitmentViewer(user, entityId));
+    }
+    case "RECRUITMENT_CANDIDATE": {
+      // Le CV suit sa DEMANDE : les mêmes personnes, ni plus ni moins.
+      const c = await prisma.recruitmentCandidate.findUnique({
+        where: { id: entityId },
+        select: { requestId: true },
+      });
+      return c ? Boolean(await recruitmentViewer(user, c.requestId)) : false;
     }
     default:
       // Modules without row-level scoping: module permission is sufficient.
