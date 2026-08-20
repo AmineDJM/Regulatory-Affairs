@@ -8,6 +8,8 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import type { OfficeKind } from "@/lib/office-templates";
+import { LetterheadChoice } from "@/components/office/letterhead-choice";
+import type { LetterheadOption } from "@/lib/queries/letterheads";
 
 const TYPES: { kind: OfficeKind; label: string; hint: string; icon: React.ElementType }[] = [
   { kind: "word", label: "Word", hint: "Document texte (.docx)", icon: FileText },
@@ -15,11 +17,20 @@ const TYPES: { kind: OfficeKind; label: string; hint: string; icon: React.Elemen
   { kind: "slide", label: "PowerPoint", hint: "Présentation (.pptx)", icon: Presentation },
 ];
 
-/** Crée un document Office vierge dans le Drive ; ouvre l'éditeur si OnlyOffice est actif. */
-export function NewOfficeButton({ parentId, officeEnabled, spaceId }: { parentId: string | null; officeEnabled: boolean; spaceId?: string | null }) {
+/** Crée un document Office (vierge ou sur papier en-tête) dans le Drive ; ouvre l'éditeur si OnlyOffice est actif. */
+export function NewOfficeButton({
+  parentId, officeEnabled, spaceId, letterheads = [], companyId = null,
+}: {
+  parentId: string | null;
+  officeEnabled: boolean;
+  spaceId?: string | null;
+  letterheads?: LetterheadOption[];
+  companyId?: string | null;
+}) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [kind, setKind] = React.useState<OfficeKind>("word");
+  const [letterheadId, setLetterheadId] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -33,6 +44,7 @@ export function NewOfficeButton({ parentId, officeEnabled, spaceId }: { parentId
           action={async (fd) => {
             setSaving(true); setErr(null);
             fd.set("kind", kind);
+            if (letterheadId) fd.set("letterheadId", letterheadId);
             const r = await createOfficeNode(fd);
             setSaving(false);
             if (r.ok && r.id) {
@@ -69,6 +81,11 @@ export function NewOfficeButton({ parentId, officeEnabled, spaceId }: { parentId
             <Label htmlFor="name">Nom du document</Label>
             <Input id="name" name="name" placeholder="Sans titre" defaultValue="Sans titre" required />
           </div>
+
+          <LetterheadChoice
+            kind={kind} letterheads={letterheads} companyId={companyId}
+            value={letterheadId} onChange={setLetterheadId} disabled={saving}
+          />
 
           {!officeEnabled && (
             <p className="rounded-lg bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">

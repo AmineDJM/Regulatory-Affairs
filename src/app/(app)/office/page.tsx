@@ -8,8 +8,12 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { formatDateTime } from "@/lib/utils";
 import { explorerSize, fileTypeLabel } from "@/lib/drive/explorer";
 import { OFFICE_APPS, type OfficeAppKey } from "@/lib/office/apps";
+import { canManageLetterheads } from "@/lib/office/letterhead";
+import { letterheadContextFor } from "@/lib/queries/letterheads";
+import { getMyCompanies, companyLabel } from "@/lib/company";
 import { DriveTable, type DriveRow } from "../drive/drive-table";
 import { OfficeLauncher } from "./office-launcher";
+import { LetterheadManager } from "./letterhead-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +57,14 @@ export default async function OfficePage({ searchParams }: { searchParams: { app
     if (canViewDrive(access)) visible.push({ row: n, canEdit: access === "EDIT" });
   }
 
+  // La papeterie : proposée à tous à la création, tenue par les seuls habilités. Ces derniers
+  // voient AUSSI les en-têtes retirés — sinon un modèle mis de côté devient introuvable.
+  const canManage = canManageLetterheads(user);
+  const { letterheads, companyId } = await letterheadContextFor(user.id, { includeInactive: canManage });
+  const manageableCompanies = canManage
+    ? (await getMyCompanies(user.id)).map((c) => ({ id: c.id, label: companyLabel(c) }))
+    : [];
+
   const officeEnabled = onlyofficeConfigured();
   const users = visible.some((v) => v.canEdit)
     ? await prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
@@ -78,7 +90,12 @@ export default async function OfficePage({ searchParams }: { searchParams: { app
     <div className="space-y-5">
       <PageHeader title="Bureautique" description="Word, Excel et PowerPoint sur vos documents — ils restent dans le Drive, avec ses droits." />
 
-      <OfficeLauncher officeEnabled={officeEnabled} focus={focus} />
+      <OfficeLauncher
+        officeEnabled={officeEnabled} focus={focus}
+        letterheads={letterheads.filter((l) => l.isActive)} companyId={companyId}
+      />
+
+      {canManage && <LetterheadManager letterheads={letterheads} companies={manageableCompanies} />}
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Documents récents</h2>

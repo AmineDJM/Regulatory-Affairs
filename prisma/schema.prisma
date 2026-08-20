@@ -1169,6 +1169,7 @@ model Company {
   Training                Training[]
   productRanges           ProductRange[]
   legalIdentity           CompanyLegalIdentity?
+  letterheads             OfficeLetterhead[]
 
   @@index([isActive])
 }
@@ -3425,6 +3426,36 @@ model FinanceTransaction {
   @@index([status])
   @@index([account])
   @@index([budgetCategoryId])
+}
+
+/// UN PAPIER EN-TÊTE — le modèle Office qu'on ouvre au lieu d'une page blanche.
+///
+/// Un en-tête n'est pas une image qu'on colle : c'est un DOCUMENT déjà mis en page, avec ses
+/// marges, son pied de page, sa police et ses mentions légales. On stocke donc un vrai
+/// `.docx` / `.xlsx` / `.pptx`, et créer « avec en-tête » en recopie les octets — le résultat
+/// s'ouvre dans l'éditeur exactement comme le modèle, sans conversion ni approximation.
+///
+/// L'assistante de direction les téléverse, les renomme et les supprime : c'est elle qui tient
+/// la papeterie de la société.
+model OfficeLetterhead {
+  id        String   @id @default(cuid())
+  name      String
+  /// `word` | `cell` | `slide` — un en-tête Word ne s'ouvre pas dans un tableur.
+  kind      String
+  /// Entité concernée. Nul = commun à tout le groupe (rare, mais légitime).
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  blobId    String
+  mime      String
+  size      Int
+  isActive  Boolean  @default(true)
+
+  uploadedById String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([kind, isActive])
+  @@index([companyId])
 }
 
 /// Solde d'ouverture d'un compte de trésorerie (Caisse, Banque…). Sert de base de

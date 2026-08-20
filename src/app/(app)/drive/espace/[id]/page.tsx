@@ -18,6 +18,7 @@ import { DriveTable, type DriveRow } from "../../drive-table";
 import { DriveCanvas } from "../../drive-canvas";
 import { ExplorerNav } from "../../explorer-nav";
 import { DriveToolbar } from "../../drive-toolbar";
+import { letterheadContextFor } from "@/lib/queries/letterheads";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,11 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
       ? prisma.driveSpace.findUnique({ where: { id: spaceId }, select: { id: true, name: true, icon: true, accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true } })
       : Promise.resolve(null),
   ]);
+
+  // La papeterie proposée à la création d'un document Office (vide si personne n'en a déposé).
+  const { letterheads, companyId: letterheadCompanyId } = canEditHere
+    ? await letterheadContextFor(user.id)
+    : { letterheads: [], companyId: null };
 
   // Dossiers de destination pour « Déplacer » : ceux de CETTE catégorie (invariant préservé).
   const moveTargets = trash || !canEditHere
@@ -95,7 +101,7 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
               {/* `spaceId` sert de repli quand on crée à la RACINE de la catégorie ; dans un
                   sous-dossier, `parentId` prime (le nouveau nœud hérite de la catégorie du parent). */}
               <NewFolderButton parentId={folderId} spaceId={spaceId} />
-              <NewOfficeButton parentId={folderId} spaceId={spaceId} officeEnabled={onlyofficeConfigured()} />
+              <NewOfficeButton parentId={folderId} spaceId={spaceId} officeEnabled={onlyofficeConfigured()} letterheads={letterheads} companyId={letterheadCompanyId} />
               <UploadButton parentId={folderId} spaceId={spaceId} users={users} />
             </>
           ) : undefined}

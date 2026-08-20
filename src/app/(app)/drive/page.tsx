@@ -22,6 +22,7 @@ import { DriveToolbar } from "./drive-toolbar";
 import { QuickAccessList, type QuickRow } from "./quick-access-list";
 import { parseView, VIEW_TITLE, fileTypeLabel, explorerSize } from "@/lib/drive/explorer";
 import { getRecentFiles } from "@/lib/queries/drive-quick-access";
+import { letterheadContextFor } from "@/lib/queries/letterheads";
 
 
 export default async function DrivePage({ searchParams }: { searchParams: { folder?: string; trash?: string; view?: string } }) {
@@ -72,6 +73,10 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
     : (await Promise.all(spaces.map(async (s) => ({ id: s.id, name: s.name, ok: await canCreateInSpace(user, s.id) }))))
         .filter((s) => s.ok)
         .map((s) => ({ id: s.id, name: s.name }));
+  // La papeterie proposée à la création d'un document Office (vide si personne n'en a déposé).
+  const { letterheads, companyId: letterheadCompanyId } = canCreate
+    ? await letterheadContextFor(user.id)
+    : { letterheads: [], companyId: null };
   // Personnes avec qui partager à l'import / ouvrir une catégorie (hors soi-même).
   const users = (canCreate || canCreateSpace)
     ? await prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
@@ -122,7 +127,7 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
           primary={!trash && canCreate ? (
             <>
               <NewFolderButton parentId={folderId} />
-              <NewOfficeButton parentId={folderId} officeEnabled={onlyofficeConfigured()} />
+              <NewOfficeButton parentId={folderId} officeEnabled={onlyofficeConfigured()} letterheads={letterheads} companyId={letterheadCompanyId} />
               <UploadButton parentId={folderId} users={users} />
             </>
           ) : undefined}

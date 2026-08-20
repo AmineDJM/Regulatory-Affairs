@@ -9,6 +9,8 @@ import { Input, Label } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { createOfficeNode } from "@/lib/actions/drive-actions";
 import { OFFICE_APPS, OFFICE_PINS_KEY, parsePinned, togglePinned, type OfficeAppKey } from "@/lib/office/apps";
+import { LetterheadChoice } from "@/components/office/letterhead-choice";
+import type { LetterheadOption } from "@/lib/queries/letterheads";
 
 /**
  * LE LANCEUR — trois applications, et le geste qu'on vient faire : créer un document.
@@ -23,11 +25,19 @@ import { OFFICE_APPS, OFFICE_PINS_KEY, parsePinned, togglePinned, type OfficeApp
  * (évènement `amd:office-pins`), pour que l'entrée apparaisse au moment du clic et non au
  * rechargement suivant.
  */
-export function OfficeLauncher({ officeEnabled, focus }: { officeEnabled: boolean; focus?: OfficeAppKey }) {
+export function OfficeLauncher({
+  officeEnabled, focus, letterheads = [], companyId = null,
+}: {
+  officeEnabled: boolean;
+  focus?: OfficeAppKey;
+  letterheads?: LetterheadOption[];
+  companyId?: string | null;
+}) {
   const router = useRouter();
   const [pins, setPins] = React.useState<OfficeAppKey[]>([]);
   const [open, setOpen] = React.useState<OfficeAppKey | null>(focus ?? null);
   const [name, setName] = React.useState("");
+  const [letterheadId, setLetterheadId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -38,6 +48,7 @@ export function OfficeLauncher({ officeEnabled, focus }: { officeEnabled: boolea
   React.useEffect(() => {
     if (!open) return;
     setName(OFFICE_APPS.find((a) => a.key === open)?.defaultName ?? "Sans titre");
+    setLetterheadId(null);
     setErr(null);
   }, [open]);
 
@@ -58,6 +69,7 @@ export function OfficeLauncher({ officeEnabled, focus }: { officeEnabled: boolea
     const fd = new FormData();
     fd.set("kind", open);
     fd.set("name", clean);
+    if (letterheadId) fd.set("letterheadId", letterheadId);
     const r = await createOfficeNode(fd);
     setBusy(false);
     if (!r.ok || !r.id) { setErr(r.error ?? "Création impossible."); return; }
@@ -111,6 +123,12 @@ export function OfficeLauncher({ officeEnabled, focus }: { officeEnabled: boolea
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void create(); } }}
             />
           </div>
+          {open && (
+            <LetterheadChoice
+              kind={open} letterheads={letterheads} companyId={companyId}
+              value={letterheadId} onChange={setLetterheadId} disabled={busy}
+            />
+          )}
           {!officeEnabled && (
             <p className="rounded-lg bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
               L&apos;éditeur en ligne n&apos;est pas encore activé sur ce serveur : le document sera créé dans

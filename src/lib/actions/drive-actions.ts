@@ -5,9 +5,11 @@ import type { DriveAccess } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { putBlob, releaseBlob } from "@/lib/drive-storage";
+import { putBlob, releaseBlob, getBlob } from "@/lib/drive-storage";
 import { resolveDriveAccess, effectiveSpaceId, canCreateInSpace, canViewDrive } from "@/lib/drive";
 import { blankOffice, isOfficeKind } from "@/lib/office-templates";
+import { documentName, KIND_LABEL } from "@/lib/office/letterhead";
+import { getMyCompanies } from "@/lib/company";
 import { convertConfigured, convertDocument } from "@/lib/office-convert";
 import { makeEditToken, appBaseUrl, onlyofficeEditable, fileExt } from "@/lib/onlyoffice";
 import { recordAudit } from "@/lib/audit";
@@ -316,9 +318,16 @@ export async function unshareNode(formData: FormData): Promise<ActionResult> {
 }
 
 /**
- * Crée un document Office **vierge** (Word / Excel / PowerPoint) dans le Drive, puis
- * renvoie son id pour l'ouvrir dans l'éditeur OnlyOffice. Le fichier est un vrai OOXML
- * valide généré côté serveur (sans dépendance), donc téléchargeable même sans OnlyOffice.
+ * Crée un document Office (Word / Excel / PowerPoint) dans le Drive, **vierge ou sur papier
+ * en-tête**, puis renvoie son id pour l'ouvrir dans l'éditeur OnlyOffice.
+ *
+ * Sans en-tête : un vrai OOXML vierge, généré côté serveur sans dépendance.
+ *
+ * Avec en-tête (`letterheadId`) : on RECOPIE les octets du modèle. Le document neuf s'ouvre
+ * donc exactement comme lui — mêmes marges, même pied de page, même logo à la bonne taille —
+ * là où une fusion ou une image injectée produirait des décalages qu'on ne découvre qu'à
+ * l'impression, chez le destinataire. Et parce que c'est une COPIE, modifier ou supprimer le
+ * modèle plus tard ne réécrit jamais un courrier déjà parti.
  */
 export async function createOfficeNode(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -337,9 +346,38 @@ export async function createOfficeNode(formData: FormData): Promise<ActionResult
   }
   const effSpaceId = await effectiveSpaceId(parentId || null, spaceId || null);
 
-  const { data, ext, mime } = blankOffice(kind);
-  const base = (fdStr(formData, "name") ?? "Document").replace(/\.(docx|xlsx|pptx)$/i, "").trim() || "Document";
-  const name = `${base}.${ext}`;
+  const base = fdStr(formData, "name") ?? "Document";
+  const name = documentName(base, kind);
+  const blank = blankOffice(kind);
+  let data = blank.data;
+  let mime = blank.mime;
+  let letterheadName: string | null = null;
+
+  const letterheadId = fdStr(formData, "letterheadId");
+  if (letterheadId) {
+    const lh = await prisma.officeLetterhead.findUnique({
+      where: { id: letterheadId },
+      select: { name: true, kind: true, blobId: true, mime: true, isActive: true, companyId: true },
+    });
+    if (!lh || !lh.isActive) return { ok: false, error: "Ce papier en-tête n'existe plus." };
+    // Le type doit correspondre : un en-tête Word recopié sous un nom `.xlsx` donnerait un
+    // fichier qui refuse de s'ouvrir, et l'erreur ne se verrait qu'au moment de l'urgence.
+    if (lh.kind !== kind) {
+      const label = isOfficeKind(lh.kind) ? KIND_LABEL[lh.kind] : lh.kind;
+      return { ok: false, error: `Ce papier en-tête est un modèle ${label} — il ne convient pas ici.` };
+    }
+    // Le cloisonnement s'applique aussi à la papeterie : on n'écrit pas sur l'en-tête d'une
+    // société qu'on ne voit pas. Les en-têtes communs (sans entité) restent ouverts à tous.
+    if (lh.companyId) {
+      const mine = await getMyCompanies(user.id);
+      if (!mine.some((c) => c.id === lh.companyId)) return { ok: false, error: "Ce papier en-tête n'est pas dans votre périmètre." };
+    }
+    const bytes = await getBlob(lh.blobId);
+    if (!bytes) return { ok: false, error: "Le fichier du papier en-tête est introuvable sur le serveur." };
+    data = bytes;
+    mime = lh.mime || blank.mime;
+    letterheadName = lh.name;
+  }
 
   const { blobId, size } = await putBlob(data);
   const node = await prisma.driveNode.create({
@@ -349,7 +387,10 @@ export async function createOfficeNode(formData: FormData): Promise<ActionResult
     },
     select: { id: true },
   });
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Drive", entityType: "DRIVE_NODE", entityId: node.id, summary: `Nouveau document « ${name} »` });
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Drive", entityType: "DRIVE_NODE", entityId: node.id,
+    summary: `Nouveau document « ${name} »${letterheadName ? ` — papier en-tête « ${letterheadName} »` : ""}`,
+  });
   revalidatePath("/drive");
   if (effSpaceId) revalidatePath(`/drive/espace/${effSpaceId}`);
   return { ok: true, id: node.id };
