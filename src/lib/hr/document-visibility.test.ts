@@ -44,18 +44,23 @@ describe("resolveVisibility — « rien coché » n'est pas « décoché »", ()
   });
 });
 
-describe("shouldMirrorToDrive — on ne recopie pas dans le Drive ce qu'on vient de réserver", () => {
-  it("un contrat RH-only n'est pas répliqué", () => {
-    expect(shouldMirrorToDrive("CONTRACT", false)).toBe(false);
-    expect(shouldMirrorToDrive("AMENDMENT", false)).toBe(false);
-  });
-
-  it("un contrat PARTAGÉ avec le salarié l'est", () => {
+describe("shouldMirrorToDrive — le contrat se retrouve dans le Drive, restriction comprise", () => {
+  // C'est précisément des pièces RH-only qu'on a besoin des années plus tard, quand la personne
+  // qui les a déposées a changé de poste. La restriction est tenue par la CATÉGORIE de Drive
+  // (ouverte aux seuls rôles RH), pas en refusant d'y écrire.
+  it("un contrat est répliqué, partagé avec le salarié ou non", () => {
+    expect(shouldMirrorToDrive("CONTRACT", false)).toBe(true);
     expect(shouldMirrorToDrive("CONTRACT", true)).toBe(true);
+    expect(shouldMirrorToDrive("AMENDMENT", false)).toBe(true);
   });
 
   it("une pièce d'une autre nature ne l'est jamais — le miroir ne vise que les contrats", () => {
     expect(shouldMirrorToDrive("PAYSLIP", true)).toBe(false);
+    expect(shouldMirrorToDrive("ID_CARD", false)).toBe(false);
+  });
+
+  it("la visibilité n'entre plus dans la décision — le point de décision reste unique", () => {
+    expect(shouldMirrorToDrive("CONTRACT")).toBe(true);
   });
 });
 

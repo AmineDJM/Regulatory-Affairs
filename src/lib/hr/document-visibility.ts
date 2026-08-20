@@ -14,9 +14,10 @@
  * DÉFAUT : les RH peuvent toujours partager une pièce avec le salarié (leur remettre leur
  * contrat signé est un geste normal) — c'est alors un acte explicite, tracé.
  *
- * ⚠️ Un document RH-only n'est PAS répliqué dans le Drive : le miroir range les contrats sous
- * « RH — Contrats », un arbre que la Direction lit en vue globale. Copier là ce qu'on vient de
- * réserver aux RH annulerait la restriction sans que rien ne le signale.
+ * Le CONTRAT, lui, est toujours rangé dans le Drive — c'est là qu'on va le chercher trois ans
+ * plus tard, quand la personne qui l'a déposé a changé de poste. Il atterrit dans la catégorie
+ * « RH — Contrats », ouverte aux seuls rôles qui gouvernent le module RH (voir
+ * `hr-drive-mirror.ts`), et non dans le Drive personnel de qui téléverse.
  *
  * Module PUR — testé, sans base de données.
  */
@@ -56,12 +57,21 @@ export function resolveVisibility(category: string, choice?: boolean): boolean {
 /**
  * Ce document doit-il être répliqué dans le Drive ?
  *
- * Le miroir sert à retrouver un contrat depuis le Drive. Mais un document réservé aux RH n'a
- * rien à faire dans un arbre que d'autres lisent : on ne réplique QUE ce qui est déjà partagé.
+ * Contrats et avenants : OUI, qu'ils soient partagés avec le salarié ou non. Le miroir sert à
+ * retrouver un contrat depuis le Drive, et c'est précisément des pièces RH-only qu'on a besoin
+ * des années plus tard.
+ *
+ * La restriction ne disparaît pas pour autant : le miroir écrit dans une CATÉGORIE de Drive
+ * ouverte aux seuls rôles des ressources humaines, pas dans un arbre personnel ni dans le Drive
+ * de tout le monde. C'est la condition qui rendait ce miroir dangereux jusqu'ici — elle est
+ * tenue par `hr-drive-mirror.ts`, pas par une case du formulaire.
+ *
+ * Le second paramètre est conservé (et ignoré) pour que le point de décision reste UNIQUE :
+ * l'appelant continue de passer la visibilité, et le jour où une catégorie devra à nouveau en
+ * dépendre, la règle se change ici et nulle part ailleurs.
  */
-export function shouldMirrorToDrive(category: string, visibleToEmployee: boolean): boolean {
-  const mirrored = category === "CONTRACT" || category === "AMENDMENT";
-  return mirrored && visibleToEmployee;
+export function shouldMirrorToDrive(category: string, _visibleToEmployee?: boolean): boolean {
+  return category === "CONTRACT" || category === "AMENDMENT";
 }
 
 /** Libellé d'état, tel qu'il s'affiche sur la ligne du document. */

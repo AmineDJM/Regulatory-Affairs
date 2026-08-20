@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Upload, Loader2, Trash2, FileText, Download, Paperclip, FolderArchive } from "lucide-react";
+import { Upload, Loader2, Trash2, FileText, Download, Paperclip, FolderArchive, FolderTree } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -24,7 +24,7 @@ const REQ_TO_CAT: Record<string, string> = {
   OTHER: "OTHER",
 };
 
-export function HrDossier({ employeeId, documents, requests, currentUserId }: { employeeId: string; documents: HrDocumentDTO[]; requests: HrRequestDTO[]; currentUserId: string }) {
+export function HrDossier({ employeeId, employeeName, documents, requests, currentUserId }: { employeeId: string; employeeName: string; documents: HrDocumentDTO[]; requests: HrRequestDTO[]; currentUserId: string }) {
   const router = useRouter();
   const [category, setCategory] = React.useState("PAYSLIP");
   // La case suit la CATÉGORIE tant que personne ne l'a touchée : choisir « Contrat » doit
@@ -92,6 +92,18 @@ export function HrDossier({ employeeId, documents, requests, currentUserId }: { 
             </span>
           </span>
         </label>
+        {/* LE CONTRAT PART AUSSI DANS LE DRIVE, et on le dit AVANT le dépôt. C'est là qu'on ira
+            le chercher dans trois ans, quand la personne qui l'a déposé aura changé de poste —
+            dans la catégorie « RH — Contrats », ouverte aux seules ressources humaines. */}
+        {(category === "CONTRACT" || category === "AMENDMENT") && (
+          <p className="mt-2 flex items-start gap-2 rounded-lg bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
+            <FolderTree className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              Cette pièce sera <strong className="text-foreground">aussi rangée dans le Drive</strong>, sous
+              « RH — Contrats / {employeeName} » — une catégorie ouverte aux seules ressources humaines.
+            </span>
+          </p>
+        )}
         <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f, { category, period: period || undefined, visibleToEmployee: shareWithEmployee }); e.target.value = ""; }} />
         {err && <p className="mt-2 text-xs text-destructive">{err}</p>}
       </div>

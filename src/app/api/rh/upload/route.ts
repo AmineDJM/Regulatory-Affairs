@@ -72,10 +72,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Contrat / avenant : AUSSI enregistré dans le Drive (« RH — Contrats / <employé> »), en
-  // arrière-plan et best-effort — ne bloque jamais le dépôt RH. MAIS uniquement s'il est
-  // partagé : cet arbre du Drive se lit en vue globale, et y recopier une pièce qu'on vient de
-  // réserver aux RH lèverait la restriction sans que rien ne le signale.
+  // Contrat / avenant : AUSSI enregistré dans le Drive, sous « RH — Contrats / <employé> ».
+  // C'est là qu'on ira le chercher dans trois ans, quand la personne qui l'a déposé aura changé
+  // de poste. La restriction tient par la CATÉGORIE de Drive — ouverte aux seuls rôles des
+  // ressources humaines — et non en refusant d'écrire. Best-effort, en arrière-plan : le miroir
+  // ne doit jamais faire échouer le dépôt RH.
   if (shouldMirrorToDrive(category, visibleToEmployee)) {
     void mirrorEmployeeContractToDrive({ ownerId: user.id, employeeName: employee.fullName, filename: doc.name, data: buf, mime: file.type || undefined })
       .catch((e) => console.error("[rh upload] miroir contrat → Drive échoué", e));
