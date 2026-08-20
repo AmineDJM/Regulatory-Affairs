@@ -57,10 +57,17 @@ export default async function MonEspacePage() {
     priority: t.priority, dueDate: t.dueDate ? t.dueDate.toISOString() : null, module: t.module,
     address: t.address, startedAt: t.startedAt ? t.startedAt.toISOString() : null,
     completedAt: t.completedAt ? t.completedAt.toISOString() : null, expectedMinutes: t.expectedMinutes,
+    requestedAt: t.requestedAt ? t.requestedAt.toISOString() : null,
+    declineReason: t.declineReason, completionNote: t.completionNote,
     involved: involvedText(t.participantIds, t.readerIds),
   });
   const myTasks: TaskItem[] = data.myTasks.map(toItem);
-  const delegated: TaskItem[] = data.delegated.map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
+  // Ce que J'AI demandé à quelqu'un, séparé de ce que j'ai simplement délégué : le premier
+  // attend une réponse (ou en a reçu une), le second est déjà en route. Les mélanger, c'est
+  // perdre de vue la demande qu'on vient d'envoyer — exactement ce qui manquait.
+  const delegatedAll: TaskItem[] = data.delegated.map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
+  const myRequests: TaskItem[] = delegatedAll.filter((t) => t.requestedAt || t.status === "REQUESTED" || t.status === "DECLINED");
+  const delegated: TaskItem[] = delegatedAll.filter((t) => !myRequests.includes(t));
   const requestedTasks: TaskItem[] = requested.map((t) => ({ ...toItem(t), requestedBy: t.createdBy?.name ?? null }));
   // Tâches partagées avec moi : je PARTICIPE (je peux agir) ou je suis en LECTURE (je vois).
   const participating: TaskItem[] = data.shared
@@ -146,7 +153,11 @@ export default async function MonEspacePage() {
       {requestedTasks.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches demandées ({requestedTasks.length})</h2>
-          <TaskList tasks={requestedTasks} />
+          <p className="text-xs text-muted-foreground">
+            Acceptez ou refusez. En acceptant, vous entrez directement dans la demande — aucune
+            étape de plus : vous y déposez les pièces et vous validez votre travail.
+          </p>
+          <TaskList tasks={requestedTasks} userId={user.id} />
         </section>
       )}
 
@@ -160,27 +171,40 @@ export default async function MonEspacePage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes tâches</h2>
-        <TaskList tasks={myTasks} canCreateDossier={canCreateDossier} />
+        <TaskList tasks={myTasks} userId={user.id} canCreateDossier={canCreateDossier} />
       </section>
 
       {participating.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches où je participe ({participating.length})</h2>
-          <TaskList tasks={participating} showAssignee canCreateDossier={canCreateDossier} />
+          <TaskList tasks={participating} userId={user.id} showAssignee canCreateDossier={canCreateDossier} />
         </section>
       )}
 
       {watching.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches partagées en lecture ({watching.length})</h2>
-          <TaskList tasks={watching} showAssignee readOnly />
+          <TaskList tasks={watching} userId={user.id} showAssignee readOnly />
+        </section>
+      )}
+
+      {myRequests.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Tâches que j'ai demandées ({myRequests.length})
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Où en est chaque demande : en attente de réponse, acceptée, refusée (avec son motif)
+            ou travail validé.
+          </p>
+          <TaskList tasks={myRequests} userId={user.id} showAssignee />
         </section>
       )}
 
       {delegated.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches que j'ai déléguées</h2>
-          <TaskList tasks={delegated} showAssignee canCreateDossier={canCreateDossier} />
+          <TaskList tasks={delegated} userId={user.id} showAssignee canCreateDossier={canCreateDossier} />
         </section>
       )}
 

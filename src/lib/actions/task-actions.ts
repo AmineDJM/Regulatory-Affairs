@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { canRespond, canDoWork, declineSummary, ACCEPTED_STATUS, DECLINED_STATUS } from "@/lib/tasks/request-flow";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 export async function createTask(
@@ -130,34 +131,125 @@ export async function requestTask(
       title, description: fdStr(formData, "description"), assignedToId, createdById: user.id,
       status: "REQUESTED", priority: (fdStr(formData, "priority") as Priority) ?? "MEDIUM",
       dueDate: fdDate(formData, "dueDate"), address: fdStr(formData, "address"), expectedMinutes: fdNum(formData, "expectedMinutes"),
+      // Marque le PARCOURS : une fois acceptée, cette tâche n'aura pas d'étape intermédiaire.
+      requestedAt: new Date(),
     },
   });
   await prisma.notification.create({
-    data: { userId: assignedToId, type: "ASSIGNMENT", title: "Demande de tâche", body: title, link: "/mon-espace" },
+    data: { userId: assignedToId, type: "ASSIGNMENT", title: "Demande de tâche", body: title, link: `/mon-espace/taches/${created.id}` },
   }).catch(() => undefined);
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Espace de travail", entityType: "TASK", entityId: created.id, summary: `Demande de tâche « ${title} »` });
   revalidatePath("/mon-espace");
   return { ok: true, id: created.id };
 }
 
-/** Le destinataire accepte (→ TODO) ou refuse (→ DECLINED) une demande de tâche. */
+/**
+ * Le destinataire ACCEPTE ou REFUSE une demande de tâche.
+ *
+ * Accepter fait passer directement **en cours** : accepter, c'est prendre en charge. Un
+ * passage par « à faire » obligerait à un second clic qui n'apprend rien à personne — et
+ * c'est exactement l'étape intermédiaire qu'on supprime ici.
+ *
+ * Refuser accepte un motif, FACULTATIF. Le rendre obligatoire ne produit pas de meilleures
+ * raisons : il produit des « non » et des « pas dispo ».
+ */
 export async function respondTaskRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   const accept = fdStr(formData, "accept") === "1";
   if (!id) return { ok: false, error: "Tâche introuvable." };
-  const task = await prisma.task.findUnique({ where: { id }, select: { assignedToId: true, createdById: true, title: true, status: true } });
+  const task = await prisma.task.findUnique({ where: { id }, select: { assignedToId: true, createdById: true, title: true, status: true, requestedAt: true } });
   if (!task) return { ok: false, error: "Tâche introuvable." };
-  if (task.assignedToId !== user.id) return { ok: false, error: "Seul le destinataire peut répondre." };
-  if (task.status !== "REQUESTED") return { ok: false, error: "Cette demande a déjà été traitée." };
+  if (!canRespond({ ...task, status: task.status }, user.id)) {
+    return { ok: false, error: task.status === "REQUESTED" ? "Seul le destinataire peut répondre." : "Cette demande a déjà été traitée." };
+  }
 
-  await prisma.task.update({ where: { id }, data: { status: accept ? "TODO" : "DECLINED" } });
+  const reason = accept ? null : fdStr(formData, "reason");
+  const status = accept ? ACCEPTED_STATUS : DECLINED_STATUS;
+  await prisma.task.update({
+    where: { id },
+    data: { status, respondedAt: new Date(), declineReason: reason, ...(accept ? { startedAt: new Date() } : {}) },
+  });
   if (task.createdById) {
     await prisma.notification.create({
-      data: { userId: task.createdById, type: "GENERIC", title: accept ? "Demande de tâche acceptée" : "Demande de tâche refusée", body: task.title, link: "/mon-espace" },
+      data: {
+        userId: task.createdById, type: "GENERIC",
+        title: accept ? "Demande de tâche acceptée" : "Demande de tâche refusée",
+        body: accept ? task.title : `${task.title} — ${declineSummary(reason)}`,
+        link: `/mon-espace/taches/${id}`,
+      },
     }).catch(() => undefined);
   }
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Espace de travail", entityType: "TASK", entityId: id, field: "status", newValue: accept ? "TODO" : "DECLINED", summary: `Demande ${accept ? "acceptée" : "refusée"} — « ${task.title} »` });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Espace de travail", entityType: "TASK", entityId: id,
+    field: "status", newValue: status,
+    summary: accept ? `Demande acceptée — « ${task.title} »` : `Demande refusée — « ${task.title} » · ${declineSummary(reason)}`,
+  });
   revalidatePath("/mon-espace");
+  revalidatePath(`/mon-espace/taches/${id}`);
+  return { ok: true };
+}
+
+/**
+ * VALIDER SON TRAVAIL — le dernier geste de celui qui a fait la chose demandée.
+ *
+ * Toujours modifiable : on valide en fin de journée, on retrouve une pièce le lendemain. Si
+ * valider fermait la porte, la pièce partirait par message et le dossier resterait faux. Le
+ * même bouton sert donc à valider puis à mettre à jour, et le demandeur est prévenu à chaque
+ * fois — c'est ce qui rend la modification honnête plutôt que discrète.
+ */
+export async function submitTaskWork(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Tâche introuvable." };
+  const task = await prisma.task.findUnique({
+    where: { id },
+    select: { assignedToId: true, createdById: true, participantIds: true, title: true, status: true, requestedAt: true },
+  });
+  if (!task) return { ok: false, error: "Tâche introuvable." };
+  if (!canDoWork(task, user.id)) return { ok: false, error: "Seule la personne chargée de la tâche valide son travail." };
+
+  const again = task.status === "DONE";
+  await prisma.task.update({
+    where: { id },
+    data: { status: "DONE", completedAt: again ? undefined : new Date(), completionNote: fdStr(formData, "note") },
+  });
+  if (task.createdById && task.createdById !== user.id) {
+    await prisma.notification.create({
+      data: {
+        userId: task.createdById, type: "GENERIC",
+        title: again ? "Travail mis à jour" : "Travail terminé",
+        body: task.title, link: `/mon-espace/taches/${id}`,
+      },
+    }).catch(() => undefined);
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Espace de travail", entityType: "TASK", entityId: id,
+    summary: `${again ? "Travail mis à jour" : "Travail validé"} — « ${task.title} »`,
+  });
+  revalidatePath("/mon-espace");
+  revalidatePath(`/mon-espace/taches/${id}`);
+  return { ok: true };
+}
+
+/** Rouvrir son travail : la validation n'est pas une porte qui claque. */
+export async function reopenTaskWork(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Tâche introuvable." };
+  const task = await prisma.task.findUnique({
+    where: { id },
+    select: { assignedToId: true, createdById: true, participantIds: true, title: true, status: true, requestedAt: true },
+  });
+  if (!task) return { ok: false, error: "Tâche introuvable." };
+  if (!canDoWork(task, user.id)) return { ok: false, error: "Non autorisé." };
+
+  await prisma.task.update({ where: { id }, data: { status: "IN_PROGRESS", completedAt: null } });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Espace de travail", entityType: "TASK", entityId: id,
+    summary: `Travail rouvert — « ${task.title} »`,
+  });
+  revalidatePath("/mon-espace");
+  revalidatePath(`/mon-espace/taches/${id}`);
   return { ok: true };
 }

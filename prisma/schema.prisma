@@ -3738,6 +3738,16 @@ model Task {
   address           String? // adresse / lieu (ouvre un lien Maps)
   startedAt         DateTime? // départ effectif (« je pars »)
   expectedMinutes   Int? // durée estimée en minutes (détection de retard)
+  // ── Tâche née d'une DEMANDE faite à quelqu'un ───────────────────────────────────────────
+  // `requestedAt` non nul = on a DEMANDÉ cette tâche à une personne, qui l'accepte ou la
+  // refuse. Une fois acceptée, elle n'a plus d'étape intermédiaire : on entre dedans, on
+  // dépose ce qu'il faut, on valide son travail. Le champ sert précisément à distinguer ce
+  // parcours de celui d'une tâche ordinaire créée directement.
+  requestedAt       DateTime?
+  respondedAt       DateTime? // acceptation ou refus, horodatés
+  declineReason     String? // motif du refus — FACULTATIF : dire non ne se justifie pas
+  /// Compte rendu de la personne qui a fait le travail, TOUJOURS modifiable après validation.
+  completionNote    String?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
@@ -3745,6 +3755,7 @@ model Task {
   @@index([createdById])
   @@index([dueDate])
   @@index([status])
+  @@index([requestedAt])
 }
 
 /// Demande d'avance sur salaire. Validée par les RH, réglée par la Comptabilité

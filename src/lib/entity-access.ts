@@ -2,6 +2,7 @@ import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { platformScope } from "@/lib/company";
 import { legalReaderWhere } from "@/lib/legal/readers";
+import { canSee as canSeeTask, canAttach as canAttachTask } from "@/lib/tasks/request-flow";
 import { getMyCompanies } from "@/lib/company";
 import {
   userCan,
@@ -267,6 +268,22 @@ export async function canAccessEntity(
       // Legal ne donne pas accès aux statuts et au RIB de toutes les sociétés du groupe.
       const mine = await getMyCompanies(user.id);
       return mine.some((c) => c.id === entityId);
+    }
+    case "TASK": {
+      // Une tâche appartient à SON CERCLE — la personne chargée, le demandeur, les participants,
+      // les lecteurs — et non à tous ceux qui ont « Mon espace ». Sans ce contrôle, les pièces
+      // déposées en réponse à une demande (devis, contrat, bulletin) se téléchargeraient en
+      // devinant un identifiant, puisque tout le monde a le module.
+      const t = await prisma.task.findUnique({
+        where: { id: entityId },
+        select: { assignedToId: true, createdById: true, participantIds: true, readerIds: true, status: true, requestedAt: true },
+      });
+      if (!t) return false;
+      if (hasGlobalView(user.role)) return true;
+      if (!canSeeTask(t, user.id)) return false;
+      // Un LECTEUR regarde : il ne dépose ni ne supprime les pièces d'un travail qui n'est pas
+      // le sien. Le demandeur, lui, complète sa propre demande.
+      return action === "VIEW" || canAttachTask(t, user.id);
     }
     case "LEGAL_DOCUMENT": {
       // Deux gardes : l'ENTITÉ (les engagements d'une société ne se lisent pas depuis une autre)

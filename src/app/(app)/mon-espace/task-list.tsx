@@ -1,10 +1,12 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Play, Check, FolderKanban, MapPin, Navigation, Timer, X, Users } from "lucide-react";
+import { Loader2, Play, Check, FolderKanban, MapPin, Navigation, Timer, X, Users, ArrowRight, MessageSquareQuote } from "lucide-react";
 import { updateTaskStatus, startTask, respondTaskRequest } from "@/lib/actions/task-actions";
 import { createDossierFromTask } from "@/lib/actions/dossier-actions";
+import { taskActions, declineSummary, requestStage } from "@/lib/tasks/request-flow";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +28,10 @@ export interface TaskItem {
   completedAt?: string | null;
   expectedMinutes?: number | null;
   requestedBy?: string | null;
+  /** Née d'une demande faite à quelqu'un : parcours accepter → faire → valider, sans étape de plus. */
+  requestedAt?: string | null;
+  declineReason?: string | null;
+  completionNote?: string | null;
   /** « Participants : … · Lecture : … » — le cercle de la tâche, pré-calculé côté serveur. */
   involved?: string | null;
 }
@@ -74,7 +80,28 @@ function CreateDossierButton({ id }: { id: string }) {
   );
 }
 
-export function TaskList({ tasks, showAssignee = false, canCreateDossier = false, readOnly = false }: { tasks: TaskItem[]; showAssignee?: boolean; canCreateDossier?: boolean; readOnly?: boolean }) {
+/**
+ * LA LISTE — et surtout, ce qu'elle ne propose plus.
+ *
+ * Une tâche née d'une DEMANDE ne montre ni « Démarrer », ni « Projet » : accepter, c'est
+ * commencer, et le travail se fait DANS la demande (« Ouvrir »), là où se déposent les pièces
+ * et le compte rendu. Ces boutons intermédiaires n'apprenaient rien à personne — ils faisaient
+ * qu'une demande acceptée restait affichée « à faire » pendant deux semaines.
+ *
+ * Les tâches ORDINAIRES, elles, gardent leur parcours : elles n'ont pas de dossier à remplir.
+ *
+ * `userId` est celui de la personne qui regarde : c'est lui qui décide qui peut répondre.
+ */
+export function TaskList({
+  tasks, userId, showAssignee = false, canCreateDossier = false, readOnly = false,
+}: {
+  tasks: TaskItem[];
+  /** Qui regarde. Sans lui, on ne propose aucune action de réponse (comportement prudent). */
+  userId?: string;
+  showAssignee?: boolean;
+  canCreateDossier?: boolean;
+  readOnly?: boolean;
+}) {
   if (tasks.length === 0) {
     return <EmptyState icon="CheckCheck" title="Aucune tâche en cours" description="Tout est à jour de ce côté." />;
   }
@@ -84,6 +111,8 @@ export function TaskList({ tasks, showAssignee = false, canCreateDossier = false
         const due = t.dueDate ? daysUntil(t.dueDate) : null;
         const overdue = due !== null && due < 0;
         const requested = t.status === "REQUESTED";
+        const actions = taskActions(t, userId ?? "", { canCreateDossier, readOnly });
+        const show = (a: string) => actions.includes(a as never);
         return (
           <li key={t.id} className={cn("surface flex flex-col gap-2 p-3.5 sm:flex-row sm:items-center sm:justify-between", requested && "border-l-2 border-l-primary")}>
             <div className="min-w-0 space-y-1">
@@ -92,7 +121,8 @@ export function TaskList({ tasks, showAssignee = false, canCreateDossier = false
                 <Badge tone={PRIORITY[t.priority]?.tone ?? "neutral"} dot={false}>{PRIORITY[t.priority]?.label ?? t.priority}</Badge>
                 <StatusBadge map={TASK_STATUS} value={t.status} />
                 {showAssignee && t.assignee && <span className="text-xs text-muted-foreground">→ {t.assignee}</span>}
-                {requested && t.requestedBy && <span className="text-xs text-muted-foreground">demandée par {t.requestedBy}</span>}
+                {t.requestedBy && <span className="text-xs text-muted-foreground">demandée par {t.requestedBy}</span>}
+                {t.requestedAt && !requested && <span className="text-xs text-muted-foreground">· {requestStage(t)}</span>}
               </div>
               {t.description && <p className="line-clamp-2 text-sm text-muted-foreground">{t.description}</p>}
               {t.address && (
@@ -114,35 +144,48 @@ export function TaskList({ tasks, showAssignee = false, canCreateDossier = false
                   <Users className="h-3.5 w-3.5 shrink-0" /> {t.involved}
                 </p>
               )}
+              {/* Un refus muet fait rappeler le demandeur pour savoir pourquoi : on l'affiche ici. */}
+              {t.status === "DECLINED" && (
+                <p className="flex items-start gap-1.5 text-xs text-destructive">
+                  <MessageSquareQuote className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {declineSummary(t.declineReason)}
+                </p>
+              )}
+              {t.status === "DONE" && t.completionNote && (
+                <p className="line-clamp-2 text-xs text-muted-foreground">{t.completionNote}</p>
+              )}
             </div>
-            {readOnly ? null : (
+            {actions.length === 0 ? null : (
             <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-              {requested ? (
+              {show("respond") && (
                 <>
                   <ActionForm action={respondTaskRequest} fields={{ id: t.id, accept: "1" }}
                     className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
                     <Check className="h-3.5 w-3.5" /> Accepter
                   </ActionForm>
-                  <ActionForm action={respondTaskRequest} fields={{ id: t.id, accept: "0" }}
-                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                  {/* Refuser passe par le dossier : le motif s'y écrit, et il est facultatif. */}
+                  <Link href={`/mon-espace/taches/${t.id}`}
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
                     <X className="h-3.5 w-3.5" /> Refuser
-                  </ActionForm>
-                </>
-              ) : (
-                <>
-                  {/* Course : « Partir » horodate le départ ; sinon « Démarrer » classique. */}
-                  {t.status === "TODO" && t.address && !t.startedAt && (
-                    <ActionForm action={startTask} fields={{ id: t.id }}><Navigation className="h-3.5 w-3.5" /> Partir</ActionForm>
-                  )}
-                  {t.status === "TODO" && !t.address && (
-                    <ActionForm action={updateTaskStatus} fields={{ id: t.id, status: "IN_PROGRESS" }}><Play className="h-3.5 w-3.5" /> Démarrer</ActionForm>
-                  )}
-                  {t.status !== "DONE" && (
-                    <ActionForm action={updateTaskStatus} fields={{ id: t.id, status: "DONE" }}><Check className="h-3.5 w-3.5" /> {t.address ? "Arrivé / fait" : "Terminer"}</ActionForm>
-                  )}
-                  {canCreateDossier && <CreateDossierButton id={t.id} />}
+                  </Link>
                 </>
               )}
+              {show("open") && (
+                <Link href={`/mon-espace/taches/${t.id}`}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground">
+                  {requested ? "Voir" : "Ouvrir"} <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              )}
+              {/* Course : « Partir » horodate le départ ; sinon « Démarrer » classique. */}
+              {show("start") && t.address && !t.startedAt && (
+                <ActionForm action={startTask} fields={{ id: t.id }}><Navigation className="h-3.5 w-3.5" /> Partir</ActionForm>
+              )}
+              {show("start") && !t.address && (
+                <ActionForm action={updateTaskStatus} fields={{ id: t.id, status: "IN_PROGRESS" }}><Play className="h-3.5 w-3.5" /> Démarrer</ActionForm>
+              )}
+              {show("complete") && (
+                <ActionForm action={updateTaskStatus} fields={{ id: t.id, status: "DONE" }}><Check className="h-3.5 w-3.5" /> {t.address ? "Arrivé / fait" : "Terminer"}</ActionForm>
+              )}
+              {show("dossier") && <CreateDossierButton id={t.id} />}
             </div>
             )}
           </li>

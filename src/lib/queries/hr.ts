@@ -13,15 +13,30 @@ export async function getMyWorkspace(userId: string) {
       select: { id: true, leaveBalanceDays: true, contractType: true, contractEnd: true, position: true, department: true },
     }),
     prisma.task.findMany({
-      where: { assignedToId: userId, status: { in: ["TODO", "IN_PROGRESS"] } },
+      where: {
+        assignedToId: userId,
+        OR: [
+          { status: { in: ["TODO", "IN_PROGRESS"] } },
+          // Une demande validée reste à portée un mois : le travail est TOUJOURS modifiable, et
+          // une pièce retrouvée le lendemain doit pouvoir rejoindre son dossier. Sans cela, elle
+          // repartirait par message et le dossier resterait faux.
+          { status: "DONE", requestedAt: { not: null }, completedAt: { gte: new Date(Date.now() - 30 * 86_400_000) } },
+        ],
+      },
       orderBy: [{ dueDate: "asc" }, { priority: "desc" }],
       take: 50,
     }),
+    // Ce que J'AI demandé à quelqu'un, ou délégué. Les statuts REQUESTED / DECLINED / DONE en
+    // font partie : sans eux, une demande qu'on vient d'envoyer n'apparaissait NULLE PART chez
+    // son auteur — on ne savait ni qu'elle attendait, ni qu'elle avait été refusée.
     prisma.task.findMany({
-      where: { createdById: userId, assignedToId: { not: userId }, status: { in: ["TODO", "IN_PROGRESS"] } },
+      where: {
+        createdById: userId, assignedToId: { not: userId },
+        status: { in: ["REQUESTED", "TODO", "IN_PROGRESS", "DECLINED", "DONE"] },
+      },
       include: { assignedTo: { select: { name: true } } },
-      orderBy: [{ dueDate: "asc" }],
-      take: 20,
+      orderBy: [{ status: "asc" }, { dueDate: "asc" }],
+      take: 40,
     }),
     // Tâches PARTAGÉES avec moi : je participe ou j'ai un accès en lecture, sans en être le
     // responsable ni le créateur (ceux-là remontent déjà plus haut).
@@ -54,7 +69,10 @@ export async function getMyWorkspace(userId: string) {
   ]);
 
   const now = Date.now();
-  const overdue = myTasks.filter((t) => t.dueDate && t.dueDate.getTime() < now).length;
+  // « Ouvertes » = ce qui reste à faire. Les demandes validées, gardées à portée pour rester
+  // modifiables, ne sont plus du travail en attente et ne doivent pas gonfler le compteur.
+  const openMyTasks = myTasks.filter((t) => t.status !== "DONE");
+  const overdue = openMyTasks.filter((t) => t.dueDate && t.dueDate.getTime() < now).length;
   const pendingLeaves = myLeaves.filter((l) => l.status === "PENDING").length;
   const pendingAdvances = myAdvances.filter((a) => a.status === "PENDING").length;
 
@@ -67,7 +85,7 @@ export async function getMyWorkspace(userId: string) {
     myAdvances,
     activity,
     stats: {
-      openTasks: myTasks.length,
+      openTasks: openMyTasks.length,
       overdue,
       pendingLeaves,
       pendingAdvances,
