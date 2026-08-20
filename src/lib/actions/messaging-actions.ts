@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { EntityType, type ConvMemberRole, type ConvNotifyLevel } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
+import { resolveDriveAccess } from "@/lib/drive";
+import { MAX_ATTACHMENTS, recipientsToGrant } from "@/lib/messaging-attachments";
 import {
   getActiveMembership,
   findDirectConversation,
@@ -81,6 +83,85 @@ function parseAttachments(raw: string | null): ParsedAttachment[] {
     return out;
   } catch {
     return [];
+  }
+}
+
+interface ParsedDriveRef {
+  nodeId: string;
+  name: string;
+  mime: string;
+  size: number;
+  isFolder: boolean;
+  ownerId: string | null;
+}
+
+/**
+ * LES RÉFÉRENCES AU DRIVE d'un message — validées contre les droits de l'EXPÉDITEUR.
+ *
+ * On ne fait pas confiance au client : il envoie des identifiants de nœuds, et `resolveDriveAccess`
+ * dit si cette personne y a réellement accès. Sans cette vérification, n'importe qui pourrait
+ * s'accorder — et accorder à toute une conversation — la lecture d'un fichier qu'il n'a jamais vu,
+ * en devinant un identifiant.
+ *
+ * Le nom, la taille et le type viennent de la BASE, jamais du formulaire : un nom soufflé par le
+ * client afficherait « Note de service.pdf » sur un fichier tout autre.
+ */
+async function parseDriveRefs(user: SessionUser, raw: string | null): Promise<ParsedDriveRef[]> {
+  if (!raw) return [];
+  let ids: string[];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    ids = [...new Set(arr.map((x) => (typeof x === "string" ? x : String(x?.id ?? ""))).filter(Boolean))]
+      .slice(0, MAX_ATTACHMENTS);
+  } catch {
+    return [];
+  }
+  if (ids.length === 0) return [];
+
+  const nodes = await prisma.driveNode.findMany({
+    where: { id: { in: ids }, isTrashed: false },
+    select: { id: true, name: true, type: true, mimeType: true, size: true, ownerId: true },
+  });
+
+  const out: ParsedDriveRef[] = [];
+  for (const n of nodes) {
+    if ((await resolveDriveAccess(user, n.id)) === "NONE") continue; // partager ce qu'on ne voit pas : non
+    out.push({
+      nodeId: n.id,
+      name: n.name.slice(0, 200),
+      mime: n.mimeType ?? (n.type === "FOLDER" ? "inode/directory" : "application/octet-stream"),
+      size: n.size,
+      isFolder: n.type === "FOLDER",
+      ownerId: n.ownerId,
+    });
+  }
+  return out;
+}
+
+/**
+ * ACCORDER LA LECTURE aux destinataires d'un partage Drive.
+ *
+ * `skipDuplicates` n'est pas un détail de performance : la contrainte d'unicité protège un droit
+ * EXISTANT. Réécrire la ligne poserait un `VIEW` par-dessus un `EDIT` — on retirerait l'édition à
+ * quelqu'un en lui envoyant un message.
+ *
+ * Le partage porte sur le nœud désigné ; l'héritage du Drive fait le reste pour un dossier, dont
+ * tout le contenu devient lisible — c'est exactement ce qu'on veut en envoyant une liasse.
+ */
+async function grantDriveRefAccess(refs: readonly ParsedDriveRef[], memberIds: readonly string[], senderId: string): Promise<void> {
+  for (const ref of refs) {
+    const existing = await prisma.driveShare.findMany({ where: { nodeId: ref.nodeId }, select: { userId: true } });
+    const targets = recipientsToGrant(memberIds, {
+      senderId,
+      ownerId: ref.ownerId,
+      alreadyShared: existing.map((s) => s.userId),
+    });
+    if (targets.length === 0) continue;
+    await prisma.driveShare.createMany({
+      data: targets.map((userId) => ({ nodeId: ref.nodeId, userId, access: "VIEW" as const })),
+      skipDuplicates: true,
+    });
   }
 }
 
@@ -197,7 +278,9 @@ export async function sendMessage(
 
   const body = (formData.get("body") ? String(formData.get("body")) : "").trim().slice(0, 8000);
   const attachments = parseAttachments(fdStr(formData, "attachments"));
-  if (!body && attachments.length === 0) return { ok: false, error: "Message vide." };
+  const driveRefs = await parseDriveRefs(user, fdStr(formData, "driveRefs"));
+  const pieces = attachments.length + driveRefs.length;
+  if (!body && pieces === 0) return { ok: false, error: "Message vide." };
 
   const members = await prisma.conversationMember.findMany({
     where: { conversationId, leftAt: null },
@@ -212,19 +295,30 @@ export async function sendMessage(
     data: {
       conversationId,
       senderId: user.id,
-      kind: attachments.length > 0 && !body ? "FILE" : "TEXT",
+      kind: pieces > 0 && !body ? "FILE" : "TEXT",
       body,
       parentId,
       refType: ref?.type ?? null,
       refId: ref?.id ?? null,
       refLabel: ref?.label ?? null,
       mentions: mentionIds.length ? { create: mentionIds.map((id) => ({ userId: id })) } : undefined,
-      attachments: attachments.length
-        ? { create: attachments.map((a) => ({ blobId: a.blobId, name: a.name, mime: a.mime, size: a.size })) }
+      attachments: pieces
+        ? {
+            create: [
+              ...attachments.map((a) => ({ blobId: a.blobId, name: a.name, mime: a.mime, size: a.size })),
+              ...driveRefs.map((r) => ({
+                driveNodeId: r.nodeId, isFolder: r.isFolder, name: r.name, mime: r.mime, size: r.size,
+              })),
+            ],
+          }
         : undefined,
     },
     include: messageInclude(user.id),
   });
+
+  // L'ACCÈS SUIT LE PARTAGE, et il le suit APRÈS la création du message : si l'écriture du
+  // message échoue, on n'aura ouvert l'accès à rien.
+  if (driveRefs.length > 0) await grantDriveRefAccess(driveRefs, [...memberIds], user.id);
 
   await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: created.createdAt } });
   await prisma.conversationMember.update({ where: { id: membership.id }, data: { lastReadAt: created.createdAt } });
@@ -238,7 +332,7 @@ export async function sendMessage(
         userId: id,
         type: "GENERIC",
         title: `${user.name} vous a mentionné`,
-        body: preview(body, "TEXT", attachments.length > 0, 120),
+        body: preview(body, "TEXT", pieces > 0, 120),
         link: `/messages?c=${conversationId}`,
       });
     }

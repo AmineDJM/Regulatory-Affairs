@@ -3,12 +3,13 @@
 import * as React from "react";
 import {
   SmilePlus, Reply, Pin, PinOff, Bookmark, BookmarkCheck, Pencil, Trash2, Copy, Check, CheckCheck,
-  Download, FileText, CornerDownRight,
+  Download, FileText, Folder, CornerDownRight,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import type { MessageDTO } from "@/lib/queries/messaging";
 import { timeOf, renderRich, formatBytes } from "./format";
+import { driveRefHref } from "@/lib/messaging-attachments";
 import { QUICK_REACTIONS, EMOJI_PALETTE } from "./emoji";
 
 interface Props {
@@ -159,7 +160,29 @@ export function MessageItem({
             {m.attachments.length > 0 && (
               <div className={cn("flex flex-col gap-2", m.body && "mt-2")}>
                 {m.attachments.map((a) =>
-                  a.isImage ? (
+                  a.driveNodeId ? (
+                    // UNE RÉFÉRENCE AU DRIVE — le document lui-même, pas une copie reçue. On le
+                    // dit explicitement : sans cette mention, on croit avoir une pièce jointe et
+                    // on la re-téléverse ailleurs, ce que ce partage existe précisément pour éviter.
+                    <a
+                      key={a.id}
+                      href={driveRefHref(a.driveNodeId, a.isFolder)}
+                      className="flex items-center gap-2 rounded-lg border border-primary/40 bg-card px-3 py-2 text-foreground hover:bg-secondary/60"
+                    >
+                      {a.isFolder
+                        ? <Folder className="h-5 w-5 shrink-0 text-primary" />
+                        : <FileText className="h-5 w-5 shrink-0 text-primary" />}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">{a.name}</span>
+                        <span className="block text-[0.6875rem] text-muted-foreground">
+                          {a.isFolder ? "Dossier du Drive" : "Fichier du Drive"} · version courante
+                        </span>
+                      </span>
+                      {!a.isFolder && a.size > 0 && (
+                        <span className="shrink-0 text-[0.6875rem] text-muted-foreground">{formatBytes(a.size)}</span>
+                      )}
+                    </a>
+                  ) : a.isImage ? (
                     <a key={a.id} href={`/api/messaging/attachment/${a.id}`} target="_blank" rel="noopener noreferrer" className="block">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={`/api/messaging/attachment/${a.id}`} alt={a.name} className="max-h-64 max-w-full rounded-lg border border-border object-cover" />

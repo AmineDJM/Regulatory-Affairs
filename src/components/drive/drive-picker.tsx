@@ -77,8 +77,14 @@ const KB = 1024;
 const fmtSize = (n: number | null) =>
   n == null ? "" : n >= KB ** 3 ? `${(n / KB ** 3).toFixed(1)} Go` : n >= KB ** 2 ? `${(n / KB ** 2).toFixed(1)} Mo` : `${Math.ceil(n / KB)} Ko`;
 
-/** Le panneau d'exploration : catégories, fil d'Ariane, contenu du dossier courant. */
-function DriveExplorerSheet({ onClose, onPick }: { onClose: () => void; onPick: (v: DrivePickerValue) => void }) {
+/**
+ * Le panneau d'exploration : catégories, fil d'Ariane, contenu du dossier courant.
+ *
+ * EXPORTÉ pour être ouvert hors d'un formulaire — la messagerie s'en sert pour joindre un
+ * document du Drive sans le recopier, et un second explorateur écrit pour l'occasion aurait
+ * divergé de celui-ci dès la première correction.
+ */
+export function DriveExplorerSheet({ onClose, onPick }: { onClose: () => void; onPick: (v: DrivePickerValue) => void }) {
   const [spaceId, setSpaceId] = React.useState<string | null>(null);
   const [folderId, setFolderId] = React.useState<string | null>(null);
   const [spaces, setSpaces] = React.useState<{ id: string; name: string }[]>([]);

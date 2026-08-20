@@ -766,28 +766,33 @@ export const getAccess = perRequest(
       if (shared) modules.set("BUDGETS", { actions: new Set<Action>(["VIEW", "EXPORT"]), scope: "ASSIGNED" });
     }
 
-    // ── Accès IMPLICITE au module Drive quand une CATÉGORIE est PARTAGÉE avec ce compte ──
-    // Être membre d'une catégorie (par personne OU par rôle, consultation ou gestion) doit
-    // suffire à OUVRIR le module Drive et à y voir l'onglet de la catégorie — même si le rôle
-    // n'accorde aucun accès Drive par défaut. On n'accorde qu'une LECTURE du module ; le
-    // filtrage fin (quelles catégories, quels droits) reste assuré par canViewDriveSpace /
-    // canManageDriveSpace dans les requêtes.
+    // ── Accès IMPLICITE au module Drive quand quelque chose est PARTAGÉ avec ce compte ──
+    // Être membre d'une CATÉGORIE (par personne OU par rôle, consultation ou gestion), ou tenir
+    // un partage NOMINATIF sur un fichier/dossier, doit suffire à OUVRIR le module Drive — même
+    // si le rôle n'accorde aucun accès Drive par défaut. Sans cela, recevoir un document du Drive
+    // dans la messagerie donnait un lien qui menait à un refus : l'accès existait en base, et la
+    // porte du module le rendait inutile.
+    // On n'accorde qu'une LECTURE du module ; le filtrage fin (quels nœuds, quels droits) reste
+    // assuré par canViewDriveSpace / resolveDriveAccess / driveVisibilityWhere dans les requêtes.
     if (!modules.has("DRIVE")) {
       const roles = [role, secondaryRole].filter(Boolean) as string[];
-      const shared = await prisma.driveSpace
-        .findFirst({
-          where: {
-            isArchived: false,
-            OR: [
-              { accessUserIds: { has: userId } },
-              { managerUserIds: { has: userId } },
-              ...(roles.length ? [{ accessRoles: { hasSome: roles } }, { managerRoles: { hasSome: roles } }] : []),
-            ],
-          },
-          select: { id: true },
-        })
-        .catch(() => null);
-      if (shared) modules.set("DRIVE", { actions: new Set<Action>(["VIEW"]), scope: "ASSIGNED" });
+      const [space, share] = await Promise.all([
+        prisma.driveSpace
+          .findFirst({
+            where: {
+              isArchived: false,
+              OR: [
+                { accessUserIds: { has: userId } },
+                { managerUserIds: { has: userId } },
+                ...(roles.length ? [{ accessRoles: { hasSome: roles } }, { managerRoles: { hasSome: roles } }] : []),
+              ],
+            },
+            select: { id: true },
+          })
+          .catch(() => null),
+        prisma.driveShare.findFirst({ where: { userId }, select: { id: true } }).catch(() => null),
+      ]);
+      if (space || share) modules.set("DRIVE", { actions: new Set<Action>(["VIEW"]), scope: "ASSIGNED" });
     }
 
     // ── LE PIPELINE (dossiers VERROUILLÉS) ──────────────────────────────────────

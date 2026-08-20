@@ -19,6 +19,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     where: { id: params.id },
     select: {
       blobId: true,
+      driveNodeId: true,
+      isFolder: true,
       name: true,
       mime: true,
       message: { select: { conversationId: true, deletedAt: true } },
@@ -27,6 +29,15 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (!attachment || attachment.message.deletedAt) return new NextResponse(null, { status: 404 });
   if (!(await canAccessConversation(user.id, attachment.message.conversationId))) {
     return new NextResponse(null, { status: 403 });
+  }
+
+  // Une pièce RÉFÉRENCÉE au Drive n'a pas de blob : son contenu vit dans le Drive, avec ses
+  // versions et ses droits propres. On renvoie donc vers le Drive plutôt que de servir une copie
+  // — servir ici court-circuiterait le contrôle d'accès du Drive et figerait une version.
+  if (!attachment.blobId) {
+    if (!attachment.driveNodeId) return new NextResponse(null, { status: 404 });
+    const target = attachment.isFolder ? `/drive?folder=${attachment.driveNodeId}` : `/drive/${attachment.driveNodeId}`;
+    return NextResponse.redirect(new URL(target, req.nextUrl.origin));
   }
 
   const bytes = await getBlob(attachment.blobId);

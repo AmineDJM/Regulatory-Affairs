@@ -156,7 +156,7 @@ export function Messenger({
     const parent = payload.parentId ? detail?.messages.find((m) => m.id === payload.parentId) : null;
     const optimistic: MessageDTO = {
       id: tempId,
-      kind: payload.attachments.length > 0 && !payload.body ? "FILE" : "TEXT",
+      kind: (payload.attachments.length > 0 || payload.driveRefs.length > 0) && !payload.body ? "FILE" : "TEXT",
       body: payload.body,
       deleted: false,
       senderId: selfId,
@@ -169,7 +169,18 @@ export function Messenger({
       parentId: payload.parentId,
       parent: parent ? { id: parent.id, senderName: parent.senderName, preview: parent.body.slice(0, 60) || "Pièce jointe" } : null,
       reactions: [],
-      attachments: payload.attachments.map((a, i) => ({ id: `tmp-${i}`, name: a.name, mime: a.mime, size: a.size, isImage: false })),
+      attachments: [
+        ...payload.attachments.map((a, i) => ({
+          id: `tmp-${i}`, name: a.name, mime: a.mime, size: a.size, isImage: false,
+          driveNodeId: null, isFolder: false,
+        })),
+        // L'aperçu OPTIMISTE d'une référence Drive porte déjà son identifiant de nœud : la
+        // vignette est donc cliquable avant même le retour du serveur.
+        ...payload.driveRefs.map((r, i) => ({
+          id: `tmp-drive-${i}`, name: r.name, mime: "", size: 0, isImage: false,
+          driveNodeId: r.id, isFolder: r.isFolder,
+        })),
+      ],
       mentionIds: payload.mentions,
       refType: null, refId: null, refLabel: null,
       receipt: "sent", // une coche immédiate ; le poll passera à distribué/lu
@@ -182,6 +193,9 @@ export function Messenger({
     if (payload.mentions.length) f.set("mentions", payload.mentions.join(","));
     if (payload.parentId) f.set("parentId", payload.parentId);
     if (payload.attachments.length) f.set("attachments", JSON.stringify(payload.attachments));
+    // Seuls les IDENTIFIANTS partent : le serveur relit le nom, la taille et le type en base, et
+    // revérifie que l'expéditeur a bien accès au nœud qu'il partage.
+    if (payload.driveRefs.length) f.set("driveRefs", JSON.stringify(payload.driveRefs.map((r) => r.id)));
 
     const r = await sendMessage(f);
     if (r.ok && r.message) {

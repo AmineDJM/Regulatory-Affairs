@@ -4082,6 +4082,8 @@ model DriveNode {
   mailEntries MailEntry[]
   shares      DriveShare[]
   comments    DriveComment[]
+  /// Messages qui RÉFÉRENCENT ce nœud (partage dans la messagerie, sans recopie).
+  messageRefs MessageAttachment[] @relation("MessageDriveRef")
   createdById String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
@@ -4991,17 +4993,30 @@ model MessageReaction {
   @@index([messageId])
 }
 
+/// Pièce jointe d'un message — de DEUX natures, jamais des deux à la fois.
+///   • `blobId` renseigné : fichier TÉLÉVERSÉ, contenu chiffré adressé par contenu (réutilise le
+///     stockage du Drive). C'est une copie, figée à l'instant de l'envoi.
+///   • `driveNodeId` renseigné : RÉFÉRENCE à un nœud du Drive — rien n'est recopié, et les
+///     destinataires reçoivent un DriveShare en lecture. Le document reste celui du Drive, avec
+///     ses versions ; recopier un contrat à chaque conversation multiplierait le stockage ET
+///     figerait une version dont personne ne saurait, six mois plus tard, si elle fait foi.
+/// Voir `lib/messaging-attachments.ts` pour les règles.
 model MessageAttachment {
-  id        String   @id @default(cuid())
-  messageId String
-  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  blobId    String // FileBlob chiffré, adressé par contenu (réutilise le Drive)
-  name      String
-  mime      String
-  size      Int
-  createdAt DateTime @default(now())
+  id          String     @id @default(cuid())
+  messageId   String
+  message     Message    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  blobId      String? // FileBlob chiffré — null quand la pièce est une référence au Drive
+  driveNodeId String? // nœud du Drive référencé — null quand le fichier a été téléversé
+  driveNode   DriveNode? @relation("MessageDriveRef", fields: [driveNodeId], references: [id], onDelete: SetNull)
+  /// Vrai quand la référence désigne un DOSSIER : il ne s'aperçoit ni ne se télécharge, il se navigue.
+  isFolder    Boolean    @default(false)
+  name        String
+  mime        String
+  size        Int
+  createdAt   DateTime   @default(now())
 
   @@index([messageId])
+  @@index([driveNodeId])
 }
 
 model MessageMention {

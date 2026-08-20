@@ -59,6 +59,10 @@ export interface AttachmentDTO {
   mime: string;
   size: number;
   isImage: boolean;
+  /** Nœud du Drive RÉFÉRENCÉ (rien n'a été recopié) — null pour un fichier téléversé. */
+  driveNodeId: string | null;
+  /** Vrai quand la référence désigne un dossier : il se navigue, il ne s'aperçoit pas. */
+  isFolder: boolean;
 }
 
 export interface MessageDTO {
@@ -184,7 +188,11 @@ export function mapMessage(m: MessageRow, selfId: string): MessageDTO {
           name: a.name,
           mime: a.mime,
           size: a.size,
-          isImage: a.mime.startsWith("image/"),
+          // Une RÉFÉRENCE au Drive ne s'affiche jamais en vignette : l'image ne passe pas par la
+          // route des pièces jointes, et le `<img>` afficherait un cadre vide.
+          isImage: a.driveNodeId === null && a.mime.startsWith("image/"),
+          driveNodeId: a.driveNodeId,
+          isFolder: a.isFolder,
         })),
     mentionIds: m.mentions.map((x) => x.userId),
     refType: m.refType,

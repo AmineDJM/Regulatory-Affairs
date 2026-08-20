@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { putBlob } from "@/lib/drive-storage";
-import { validateUpload } from "@/lib/storage";
+import { validateDriveUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { canAccessConversation, signBlob } from "@/lib/messaging";
 
@@ -28,7 +28,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Conversation non autorisée." }, { status: 403 });
   }
 
-  const err = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
+  // MÊME RÈGLE QUE LE DRIVE : on refuse les EXÉCUTABLES, et rien d'autre. La liste blanche
+  // étroite d'origine (pdf, docx, xlsx, png, zip…) rejetait une vidéo de congrès, un export
+  // .msg de boîte mail, un .odt, un .7z — des pièces parfaitement ordinaires que les gens
+  // envoyaient alors par WhatsApp, hors de l'outil. La limite de TAILLE, elle, reste celle des
+  // pièces jointes (plus basse que le Drive) : une conversation n'est pas un espace de stockage.
+  const err = validateDriveUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
   if (err) return NextResponse.json({ error: err }, { status: 400 });
 
   const buf = Buffer.from(await file.arrayBuffer());
