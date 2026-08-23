@@ -42,7 +42,10 @@ export async function getMyWorkspace(userId: string) {
     // responsable ni le créateur (ceux-là remontent déjà plus haut).
     prisma.task.findMany({
       where: {
-        status: { in: ["TODO", "IN_PROGRESS"] },
+        // REQUESTED en fait partie : une tâche assignée à quelqu'un d'AUTRE naît désormais en
+        // attente de sa réponse. Sans ce statut, les participants et les lecteurs recevaient la
+        // notification puis ne trouvaient la tâche nulle part — jusqu'à ce qu'elle soit acceptée.
+        status: { in: ["REQUESTED", "TODO", "IN_PROGRESS"] },
         assignedToId: { not: userId },
         createdById: { not: userId },
         OR: [{ participantIds: { has: userId } }, { readerIds: { has: userId } }],

@@ -2158,7 +2158,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Cloisonnement d'entité (portée validée)** | `lib/company.ts` → `currentCompanyWhereFor(userId)` (**remplace** `currentCompanyWhere()`, qui posait le cookie tel quel), `myCompanyScope`, `myCompanyWhere`, `platformScope`, `getMyCompanies` ; règles pures dans `lib/company-access.ts` (`allowedCompanyIds`, `resolveScope`, `platformScopeWhere`) ; `setCompanyScope` refuse une entité hors droits (`lib/actions/company-actions.ts`) ; `components/layout/company-switcher.tsx` (pas de menu quand on n'a qu'une entité). |
 | **Explorateur Drive dans un formulaire** | `lib/actions/drive-browse-actions.ts` (`browseDrive`, lecture seule via `getDriveListing`) ; `components/drive/drive-picker.tsx` (`DrivePickerField`) ; type de champ `drivepicker` dans `components/shared/create-record-button.tsx` ; pièces jointes de création via `attachFormFiles` (`lib/documents.ts`). |
 | **Bureautique — papier en-tête** | Modèle `OfficeLetterhead` ; module PUR `lib/office/letterhead.ts` (`canManageLetterheads` — **assistante de direction + Super Admin, et personne d'autre** : la Direction et le DG en ont été retirés, ils signent les courriers, ils ne tiennent pas la papeterie ; CHOISIR un en-tête à la création reste ouvert à tous —, `validateLetterheadFile`, `letterheadsFor`, `documentName`) + `letterhead.test.ts` (15 tests) ; `lib/actions/letterhead-actions.ts` (téléverser / renommer / retirer / supprimer) ; `lib/queries/letterheads.ts` (`letterheadContextFor`) ; `components/office/letterhead-choice.tsx` (Vierge / Avec en-tête) ; `app/(app)/office/letterhead-manager.tsx`. `createOfficeNode` recopie les OCTETS du modèle (voir circuit). |
-| **Tâches demandées (accepter / faire / valider)** | `Task.requestedAt|respondedAt|declineReason|completionNote` ; module PUR `lib/tasks/request-flow.ts` (`canRespond`, `canDoWork`, `canSee`, `canAttach`, **`taskActions`**, `requestStage`, `declineSummary`) + `request-flow.test.ts` (25 tests) ; `lib/actions/task-actions.ts` (`respondTaskRequest`, `submitTaskWork`, `reopenTaskWork`) ; dossier `app/(app)/mon-espace/taches/[id]/` (+ `work-panel.tsx`) ; cas `TASK` dans `lib/entity-access.ts`. |
+| **Tâches demandées (accepter / faire / valider)** | `Task.requestedAt|respondedAt|declineReason|completionNote` + `TaskComment` (le fil) ; module PUR `lib/tasks/request-flow.ts` (**`taskCreationMode`**, **`creationNotices`**, `canRespond`, `canDoWork`, `canSee`, `canAttach`, **`canComment`**, **`taskActions`**, `requestStage`, `declineSummary`) + `request-flow.test.ts` (43 tests) ; `lib/actions/task-actions.ts` (`createTask` — porte UNIQUE, `respondTaskRequest`, `submitTaskWork`, `reopenTaskWork`, `addTaskComment`) ; dossier `app/(app)/mon-espace/taches/[id]/` (+ `work-panel.tsx`, `comments.tsx`) ; cas `TASK` dans `lib/entity-access.ts`. |
 | **Demandes de paiement** | Les écrans vivent sous `app/(app)/validations/paiements/` (`page.tsx`, `[id]/page.tsx` + `dossier.tsx`, `new-payment-button.tsx`) ; `app/(app)/finances/paiements/**` sont des **redirections**. Pas de bouton « retour aux Finances » : la page est **ouverte à tout le monde** (n'importe qui peut avoir une facture à faire payer) alors que le module Finances ne l'est pas — le bouton menait donc la plupart des gens vers un refus. Les Finances les voient depuis **leur propre module**. `lib/queries/finance-people.ts` (`financeRecipients`) ; garde **nominative** `PAYMENT_REQUEST` dans `lib/entity-access.ts` (demandeur / destinataire / Finances — elle tranche avant la porte du module, donc elle a survécu aux deux déménagements sans changer) ; règles pures dans `lib/finance/payment-request.ts`. |
 | **Moyens généraux — caisse ou hors caisse** | Module PUR `lib/general-means/payment-source.ts` (`sourceOf`, `cashAvailable`, `resolveSource`, `sourceChange`, `defaultSource`) + `payment-source.test.ts` (15 tests) ; `addDepartmentExpense` / `updateDepartmentExpense` acceptent `paymentSource` (`lib/actions/department-budget-actions.ts`) ; `app/(app)/moyens-generaux/{expense-panel,expense-row-actions}.tsx`. Le volet « dépense » de `cash-panel.tsx` a été **retiré** : un seul bouton. |
 | **Moyens généraux — demande d'achat (tous)** | Module PUR `lib/general-means/purchase-request.ts` (`cleanLines`, `estimatedTotal`, `summarize`, `purchaseStage`, `canWithdraw`) + `purchase-request.test.ts` (20 tests) ; `lib/actions/purchase-request-actions.ts` (validateur = **N+1 résolu par `getManagerOfUser`**) ; `app/(app)/moyens-generaux/{purchase-section,purchase-request-form,my-purchase-requests}.tsx`. La demande est une `AdministrativeRequest` de type `PURCHASE`. |
@@ -2755,6 +2755,25 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Assigner une to-do à quelqu'un, c'est lui DEMANDER.** Il y avait deux boutons — « Nouvelle
+  tâche » et « Demander une tâche » — pour un même geste, et personne ne devinait lequel prendre :
+  on choisissait presque toujours le premier, et la tâche atterrissait chez l'autre **sans qu'il
+  l'ait acceptée**, sans échéance négociée, sans endroit où déposer son travail — le demandeur
+  n'apprenait jamais si elle serait faite. Un seul bouton reste, et c'est le champ **« Assignée
+  à »** qui tranche, à l'endroit même où l'on choisit la personne : **pour soi, une to-do**
+  (personne n'accepte ce qu'il s'impose) ; **pour quelqu'un d'autre, une demande** — accepter ou
+  refuser, puis faire et valider. Le destinataire reçoit une **notification en pop-up plein
+  écran** : une demande qui attend SA réponse doit interrompre, sinon elle dort dans la cloche
+  derrière quarante autres et le demandeur attend trois jours une réponse d'une seconde. Les
+  participants et les lecteurs, eux, n'ont que la cloche — les interrompre pour une information
+  qui n'attend rien d'eux apprendrait à fermer les pop-up sans les lire, et la prochaine, celle
+  qui comptait, se fermerait avec. On peut désormais joindre des **pièces dès la création** (le
+  bon de commande à retirer, le plan du lieu), et le dossier de la tâche porte un **fil
+  d'échange** : « pour quelle heure ? », « le bureau était fermé, je repasse demain ». Tout le
+  cercle y écrit, **lecteurs compris** — on les a nommés parce qu'ils connaissent le sujet, et les
+  renvoyer vers la messagerie séparerait l'information de la tâche qu'elle concerne. Le fil ne se
+  modifie ni ne s'efface : c'est la trace de l'échange, pas un brouillon.
 
 - **Le Drive a une barre de recherche.** On se souvient d'un mot du nom, jamais du chemin : sans
   recherche, la seule issue était de rouvrir les dossiers un par un — et l'on finissait par

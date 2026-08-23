@@ -54,6 +54,9 @@ export type FieldDef =
       required?: boolean;
       defaultValue?: string;
       placeholder?: string;
+      /** Ce que le choix ENTRAÎNE, quand ce n'est pas évident (ex. « assignée à quelqu'un
+       *  d'autre » ouvre un circuit de demande). Une liste déroulante ne le dit pas d'elle-même. */
+      hint?: string;
       full?: boolean;
     }
   // Valeur portée par le formulaire sans être saisie : le RATTACHEMENT à l'objet d'où l'on
@@ -236,14 +239,17 @@ export function RecordForm({
               ) : field.type === "textarea" ? (
                 <Textarea id={field.name} name={field.name} required={field.required} placeholder={field.placeholder} defaultValue={dv(field) as string | undefined} />
               ) : field.type === "select" ? (
-                <Select id={field.name} name={field.name} required={field.required} defaultValue={dv(field) as string | undefined}>
-                  {field.placeholder && <option value="">{field.placeholder}</option>}
-                  {field.options.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
+                <>
+                  <Select id={field.name} name={field.name} required={field.required} defaultValue={dv(field) as string | undefined}>
+                    {field.placeholder && <option value="">{field.placeholder}</option>}
+                    {field.options.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </Select>
+                  {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
+                </>
               ) : field.type === "checkbox" ? (
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" name={field.name} className="h-4 w-4 rounded border-input" />

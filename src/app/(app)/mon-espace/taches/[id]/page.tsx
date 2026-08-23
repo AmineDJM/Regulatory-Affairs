@@ -13,8 +13,9 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PRIORITY, TASK_STATUS } from "@/lib/labels";
 import { formatDate, formatDateTime } from "@/lib/utils";
-import { canSee, canDoWork, canAttach, canRespond, isRequest, requestStage, declineSummary } from "@/lib/tasks/request-flow";
+import { canSee, canDoWork, canAttach, canRespond, canComment, isRequest, requestStage, declineSummary } from "@/lib/tasks/request-flow";
 import { TaskWorkPanel } from "./work-panel";
+import { TaskComments, type TaskCommentItem } from "./comments";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export default async function TaskDossierPage({ params }: { params: { id: string
   if (!task) notFound();
   if (!canSee(task, user.id, hasGlobalView(user.role))) notFound();
 
-  const [documents, circle] = await Promise.all([
+  const [documents, circle, comments] = await Promise.all([
     prisma.document.findMany({
       where: { entityType: "TASK", entityId: task.id },
       include: { uploadedBy: { select: { name: true } } },
@@ -53,7 +54,23 @@ export default async function TaskDossierPage({ params }: { params: { id: string
       where: { id: { in: [...task.participantIds, ...task.readerIds] } },
       select: { id: true, name: true },
     }),
+    // Le fil dans l'ORDRE DE LECTURE : le plus ancien en haut. Un échange se lit comme une
+    // conversation, pas comme un journal d'incidents.
+    prisma.taskComment.findMany({
+      where: { taskId: task.id },
+      include: { author: { select: { name: true } } },
+      orderBy: { createdAt: "asc" },
+      take: 200,
+    }),
   ]);
+
+  const commentItems: TaskCommentItem[] = comments.map((c) => ({
+    id: c.id,
+    author: c.author?.name ?? "Compte supprimé",
+    body: c.body,
+    createdAt: c.createdAt.toISOString(),
+    mine: c.authorId === user.id,
+  }));
 
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
@@ -69,6 +86,7 @@ export default async function TaskDossierPage({ params }: { params: { id: string
   const mayWork = canDoWork(task, user.id);
   const mayAttach = canAttach(task, user.id);
   const mayRespond = canRespond(task, user.id);
+  const mayComment = canComment(task, user.id, hasGlobalView(user.role));
 
   // Le fil de la demande : chaque étape porte SON horodatage. C'est ce qu'on relit trois
   // semaines plus tard quand quelqu'un demande « ça a été fait quand ? ».
@@ -168,6 +186,9 @@ export default async function TaskDossierPage({ params }: { params: { id: string
               />
             </CardContent>
           </Card>
+
+          {/* LE FIL, après les pièces : on dépose ce qu'on a fait, puis on en parle. */}
+          <TaskComments id={task.id} items={commentItems} canWrite={mayComment} />
         </div>
 
         <Card className="lg:col-span-1">

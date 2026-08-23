@@ -6,9 +6,27 @@ import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { canRespond, canDoWork, declineSummary, ACCEPTED_STATUS, DECLINED_STATUS } from "@/lib/tasks/request-flow";
+import {
+  canRespond, canDoWork, canComment, declineSummary, taskCreationMode, creationNotices,
+  CREATION_STATUS, ACCEPTED_STATUS, DECLINED_STATUS,
+} from "@/lib/tasks/request-flow";
+import { attachFiles, validateAttachments } from "@/lib/attach-files";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
+/**
+ * CRÉER UNE TÂCHE — et le destinataire décide de ce que ce geste veut dire.
+ *
+ * Une seule porte, là où il y en avait deux. « Nouvelle tâche » assignait sans rien demander,
+ * « Demander une tâche » ouvrait le circuit : personne ne devinait laquelle prendre, et l'on
+ * choisissait presque toujours la première. La tâche atterrissait chez l'autre sans qu'il l'ait
+ * acceptée, sans endroit où déposer son travail, et le demandeur n'apprenait jamais si elle
+ * serait faite.
+ *
+ * Désormais : **pour soi, une to-do** — personne n'accepte ce qu'il s'impose. **Pour quelqu'un
+ * d'autre, une DEMANDE** — statut `REQUESTED`, notification en **pop-up** (une demande qui attend
+ * votre réponse doit interrompre, sinon elle dort dans la cloche derrière quarante autres), et le
+ * dossier complet : accepter / refuser, pièces, fil d'échange, validation du travail.
+ */
 export async function createTask(
   _prev: ActionResult | undefined,
   formData: FormData,
@@ -20,6 +38,13 @@ export async function createTask(
   if (!title) return { ok: false, error: "L'intitulé est obligatoire." };
 
   const assignedToId = fdStr(formData, "assignedToId") ?? user.id;
+  const mode = taskCreationMode(assignedToId, user.id);
+
+  // Les pièces sont contrôlées AVANT toute écriture : créer la tâche puis refuser le fichier
+  // laisserait une demande incomplète et un formulaire perdu.
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File);
+  const refused = await validateAttachments(files);
+  if (refused) return { ok: false, error: refused };
 
   // Participants (peuvent agir) et lecteurs (voient seulement), fixés à la création. Le
   // responsable et le créateur ont déjà accès : on les retire de ces listes. Un participant
@@ -38,6 +63,10 @@ export async function createTask(
       participantIds,
       readerIds,
       createdById: user.id,
+      status: CREATION_STATUS[mode] as TaskStatus,
+      // `requestedAt` MARQUE LE PARCOURS : c'est lui, et non le statut du moment, qui dit qu'une
+      // tâche est née d'une demande — une fois acceptée, elle n'aura pas d'étape intermédiaire.
+      requestedAt: mode === "request" ? new Date() : null,
       dueDate: fdDate(formData, "dueDate"),
       priority: (fdStr(formData, "priority") as Priority) ?? "MEDIUM",
       module: fdStr(formData, "module"),
@@ -47,22 +76,28 @@ export async function createTask(
     },
   });
 
-  // Prévenir chacun selon son rôle — l'assigné, les participants (qui peuvent agir), les
-  // lecteurs (informés). Une seule notification par personne, jamais au créateur.
-  const notify: { userId: string; title: string }[] = [
-    ...(assignedToId !== user.id ? [{ userId: assignedToId, title: "Nouvelle tâche assignée" }] : []),
-    ...participantIds.map((userId) => ({ userId, title: "Vous participez à une tâche" })),
-    ...readerIds.map((userId) => ({ userId, title: "Une tâche vous est partagée (lecture)" })),
-  ];
-  if (notify.length) {
+  if (files.length > 0) {
+    await attachFiles({ files, entityType: "TASK", entityId: created.id, uploadedById: user.id });
+  }
+
+  // Prévenir chacun selon son rôle. Le destinataire d'une DEMANDE reçoit une pop-up ; les
+  // participants et lecteurs, la cloche — les interrompre pour une information qui n'attend rien
+  // d'eux apprendrait à fermer les pop-up sans les lire, et la prochaine, celle qui compte,
+  // partirait avec.
+  const notices = creationNotices({ creatorId: user.id, assignedToId, participantIds, readerIds, mode });
+  const link = `/mon-espace/taches/${created.id}`;
+  if (notices.length) {
     await prisma.notification.createMany({
-      data: notify.map((n) => ({ userId: n.userId, type: "ASSIGNMENT" as const, title: n.title, body: title, link: "/mon-espace" })),
+      data: notices.map((n) => ({
+        userId: n.userId, type: "ASSIGNMENT" as const, title: n.title, body: title, link, popup: n.popup,
+      })),
     }).catch(() => undefined);
   }
 
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Espace de travail",
-    entityType: "TASK", entityId: created.id, summary: `Tâche « ${title} »`,
+    entityType: "TASK", entityId: created.id,
+    summary: mode === "request" ? `Demande de tâche « ${title} »` : `Tâche « ${title} »`,
   });
   revalidatePath("/mon-espace");
   return { ok: true, id: created.id };
@@ -112,35 +147,70 @@ export async function startTask(formData: FormData): Promise<ActionResult> {
 }
 
 /**
- * Demande de tâche (ex. depuis un message) : crée une tâche au statut **REQUESTED**
- * assignée à un collègue, qu'il pourra **accepter** ou **refuser**. Comme un DM.
+ * Demande de tâche à un collègue — conservée comme PORTE D'ENTRÉE (un message qu'on transforme
+ * en tâche, un appel d'API), mais ce n'est plus un circuit à part : `createTask` reconnaît seul
+ * qu'un destinataire différent de soi fait une demande. Deux chemins de code pour la même règle
+ * auraient divergé à la première correction.
+ *
+ * Elle EXIGE un destinataire, là où `createTask` retombe sur soi-même : demander une tâche à
+ * personne n'a pas de sens, et se la « demander » à soi non plus.
  */
 export async function requestTask(
   _prev: ActionResult | undefined,
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "CREATE")) return { ok: false, error: "Non autorisé." };
-  const title = fdStr(formData, "title");
   const assignedToId = fdStr(formData, "assignedToId");
-  if (!title) return { ok: false, error: "L'intitulé est obligatoire." };
   if (!assignedToId || assignedToId === user.id) return { ok: false, error: "Choisissez le destinataire de la demande." };
+  return createTask(undefined, formData);
+}
 
-  const created = await prisma.task.create({
-    data: {
-      title, description: fdStr(formData, "description"), assignedToId, createdById: user.id,
-      status: "REQUESTED", priority: (fdStr(formData, "priority") as Priority) ?? "MEDIUM",
-      dueDate: fdDate(formData, "dueDate"), address: fdStr(formData, "address"), expectedMinutes: fdNum(formData, "expectedMinutes"),
-      // Marque le PARCOURS : une fois acceptée, cette tâche n'aura pas d'étape intermédiaire.
-      requestedAt: new Date(),
-    },
+/**
+ * ÉCRIRE DANS LE FIL D'UNE TÂCHE.
+ *
+ * Un commentaire n'est pas une décision : il ne change ni le statut, ni l'échéance, ni qui fait
+ * quoi. C'est pourquoi tout le cercle peut en écrire un, lecteurs compris — on les a nommés parce
+ * qu'ils connaissent le sujet, et les renvoyer vers la messagerie séparerait l'information de la
+ * tâche qu'elle concerne.
+ *
+ * Le fil ne se modifie ni ne s'efface : c'est la trace de l'échange, pas un brouillon. Une
+ * précision qui remplacerait discrètement la question à laquelle l'autre a répondu rendrait le
+ * fil illisible trois semaines plus tard.
+ */
+export async function addTaskComment(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  const body = (formData.get("body") ? String(formData.get("body")) : "").trim().slice(0, 4000);
+  if (!id) return { ok: false, error: "Tâche introuvable." };
+  if (!body) return { ok: false, error: "Le message est vide." };
+
+  const task = await prisma.task.findUnique({
+    where: { id },
+    select: { assignedToId: true, createdById: true, participantIds: true, readerIds: true, title: true, status: true, requestedAt: true },
   });
-  await prisma.notification.create({
-    data: { userId: assignedToId, type: "ASSIGNMENT", title: "Demande de tâche", body: title, link: `/mon-espace/taches/${created.id}` },
-  }).catch(() => undefined);
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Espace de travail", entityType: "TASK", entityId: created.id, summary: `Demande de tâche « ${title} »` });
-  revalidatePath("/mon-espace");
-  return { ok: true, id: created.id };
+  if (!task) return { ok: false, error: "Tâche introuvable." };
+  if (!canComment(task, user.id, hasGlobalView(user.role))) return { ok: false, error: "Non autorisé." };
+
+  await prisma.taskComment.create({ data: { taskId: id, authorId: user.id, body } });
+
+  // Prévenir LE CERCLE, sauf soi-même : un fil dont personne n'apprend l'existence n'est pas un
+  // fil, c'est un carnet. Cloche simple — un échange n'interrompt pas, seule une demande le fait.
+  const circle = [...new Set([
+    task.assignedToId, task.createdById, ...task.participantIds, ...task.readerIds,
+  ].filter((x): x is string => Boolean(x) && x !== user.id))];
+  if (circle.length) {
+    await prisma.notification.createMany({
+      data: circle.map((userId) => ({
+        userId, type: "GENERIC" as const,
+        title: `${user.name} a commenté une tâche`,
+        body: `${task.title} — ${body.slice(0, 120)}`,
+        link: `/mon-espace/taches/${id}`,
+      })),
+    }).catch(() => undefined);
+  }
+
+  revalidatePath(`/mon-espace/taches/${id}`);
+  return { ok: true };
 }
 
 /**

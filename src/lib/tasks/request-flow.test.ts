@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  isRequest, awaitingResponse, canRespond, canDoWork, canSee, canAttach,
+  isRequest, awaitingResponse, canRespond, canDoWork, canSee, canAttach, canComment,
   taskActions, requestStage, declineSummary, submitLabel, ACCEPTED_STATUS,
+  taskCreationMode, creationNotices, commentsSummary, CREATION_STATUS,
 } from "./request-flow";
 
 const REQ = { requestedAt: new Date("2026-08-01"), createdById: "chef", assignedToId: "amine" };
@@ -156,5 +157,121 @@ describe("submitLabel — on valide une fois, ensuite on met à jour", () => {
   it("change après la première validation", () => {
     expect(submitLabel({ ...REQ, status: "IN_PROGRESS" })).toBe("Valider mon travail");
     expect(submitLabel({ ...REQ, status: "DONE" })).toBe("Mettre à jour mon travail");
+  });
+});
+
+
+describe("taskCreationMode — le destinataire décide de la nature du geste", () => {
+  it("pour soi, c'est une to-do : personne n'accepte ce qu'il s'impose", () => {
+    expect(taskCreationMode("amine", "amine")).toBe("self");
+  });
+
+  it("pour quelqu'un d'autre, c'est une demande", () => {
+    expect(taskCreationMode("karim", "amine")).toBe("request");
+  });
+
+  it("sans destinataire choisi, on retombe sur soi — un formulaire à moitié rempli ne délègue pas", () => {
+    expect(taskCreationMode(null, "amine")).toBe("self");
+    expect(taskCreationMode(undefined, "amine")).toBe("self");
+    expect(taskCreationMode("", "amine")).toBe("self");
+    expect(taskCreationMode("   ", "amine")).toBe("self");
+  });
+
+  it("chaque mode a son statut de départ", () => {
+    expect(CREATION_STATUS[taskCreationMode("amine", "amine")]).toBe("TODO");
+    expect(CREATION_STATUS[taskCreationMode("karim", "amine")]).toBe("REQUESTED");
+  });
+});
+
+describe("creationNotices — qui est prévenu, et qui est INTERROMPU", () => {
+  it("le destinataire d'une demande reçoit une POP-UP : elle attend sa réponse", () => {
+    const out = creationNotices({ creatorId: "amine", assignedToId: "karim", mode: "request" });
+    expect(out).toEqual([{ userId: "karim", title: "Demande de tâche", popup: true }]);
+  });
+
+  it("participants et lecteurs reçoivent la cloche, jamais la pop-up", () => {
+    const out = creationNotices({
+      creatorId: "amine", assignedToId: "karim", mode: "request",
+      participantIds: ["leila"], readerIds: ["samir"],
+    });
+    expect(out.filter((n) => n.popup).map((n) => n.userId)).toEqual(["karim"]);
+    expect(out.map((n) => n.userId)).toEqual(["karim", "leila", "samir"]);
+  });
+
+  it("une tâche pour soi ne prévient personne", () => {
+    expect(creationNotices({ creatorId: "amine", assignedToId: "amine", mode: "self" })).toEqual([]);
+  });
+
+  it("une tâche pour soi prévient tout de même ceux qu'on y associe", () => {
+    const out = creationNotices({
+      creatorId: "amine", assignedToId: "amine", mode: "self",
+      participantIds: ["leila"], readerIds: ["samir"],
+    });
+    expect(out.map((n) => n.userId)).toEqual(["leila", "samir"]);
+    expect(out.some((n) => n.popup)).toBe(false);
+  });
+
+  it("une seule notification par personne, même figurant deux fois", () => {
+    const out = creationNotices({
+      creatorId: "amine", assignedToId: "karim", mode: "request",
+      participantIds: ["karim", "leila"], readerIds: ["leila"],
+    });
+    expect(out.map((n) => n.userId)).toEqual(["karim", "leila"]);
+  });
+
+  it("jamais au créateur — être prévenu de ce qu'on vient de faire use la cloche", () => {
+    const out = creationNotices({
+      creatorId: "amine", assignedToId: "karim", mode: "request",
+      participantIds: ["amine"], readerIds: ["amine"],
+    });
+    expect(out.map((n) => n.userId)).toEqual(["karim"]);
+  });
+
+  it("ignore un identifiant vide plutôt que de créer une notification orpheline", () => {
+    const out = creationNotices({
+      creatorId: "amine", assignedToId: "karim", mode: "request", participantIds: [""],
+    });
+    expect(out.map((n) => n.userId)).toEqual(["karim"]);
+  });
+});
+
+describe("canComment — qui voit peut écrire", () => {
+  const task = {
+    status: "IN_PROGRESS", requestedAt: new Date("2026-08-01"),
+    createdById: "amine", assignedToId: "karim",
+    participantIds: ["leila"], readerIds: ["samir"],
+  };
+
+  it("le demandeur et celui qui fait", () => {
+    expect(canComment(task, "amine")).toBe(true);
+    expect(canComment(task, "karim")).toBe(true);
+  });
+
+  it("un participant", () => {
+    expect(canComment(task, "leila")).toBe(true);
+  });
+
+  it("un LECTEUR aussi — on l'a nommé parce qu'il connaît le sujet", () => {
+    expect(canComment(task, "samir")).toBe(true);
+  });
+
+  it("personne d'autre", () => {
+    expect(canComment(task, "inconnu")).toBe(false);
+  });
+
+  it("une tâche REFUSÉE reste commentable : c'est là qu'on explique et qu'on convient de la suite", () => {
+    expect(canComment({ ...task, status: "DECLINED" }, "karim")).toBe(true);
+    expect(canDoWork({ ...task, status: "DECLINED" }, "karim")).toBe(false);
+  });
+});
+
+describe("commentsSummary", () => {
+  it("annonce le vide plutôt que d'afficher un cadre nu", () => {
+    expect(commentsSummary(0)).toBe("Aucun échange pour l'instant.");
+  });
+
+  it("accorde le pluriel", () => {
+    expect(commentsSummary(1)).toBe("1 message");
+    expect(commentsSummary(4)).toBe("4 messages");
   });
 });

@@ -880,6 +880,7 @@ model User {
   outboundEmails         OutboundEmail[]           @relation("OutboundEmails")
   tasksAssigned          Task[]                    @relation("TaskAssignee")
   tasksCreated           Task[]                    @relation("TaskCreator")
+  taskComments           TaskComment[]             @relation("TaskCommentAuthor")
   legalDocsCreated       LegalDocument[]           @relation("LegalDocCreator")
   mailEntriesCreated     MailEntry[]               @relation("MailEntryCreator")
   mailEntriesConcerned   MailEntry[]               @relation("MailEntryConcerned")
@@ -3406,6 +3407,27 @@ model Notification {
   @@index([createdAt])
 }
 
+/// LE FIL D'UNE TÂCHE — l'échange entre celui qui demande et celui qui fait.
+///
+/// Une demande de tâche se précise presque toujours : « pour quelle heure ? », « je passe demain,
+/// le bureau était fermé », « la facture est jointe ». Sans endroit pour l'écrire, cet échange
+/// part en messagerie et se sépare de la tâche qu'il concerne — trois semaines plus tard, la
+/// tâche dit « validée » et personne ne retrouve pourquoi elle a pris dix jours.
+///
+/// Tout le CERCLE de la tâche écrit ici (voir `canComment` dans `lib/tasks/request-flow.ts`) :
+/// commenter n'est pas décider, et un lecteur nommé l'a été parce qu'il connaît le sujet.
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?    @relation("TaskCommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([taskId, createdAt])
+}
+
 model AuditLog {
   id         String      @id @default(cuid())
   actorId    String?
@@ -3982,6 +4004,8 @@ model Task {
   declineReason     String? // motif du refus — FACULTATIF : dire non ne se justifie pas
   /// Compte rendu de la personne qui a fait le travail, TOUJOURS modifiable après validation.
   completionNote    String?
+  /// Le fil d'échange de la tâche — questions, précisions, comptes rendus intermédiaires.
+  comments          TaskComment[]
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 

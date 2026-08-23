@@ -9,7 +9,7 @@ import { CreateRecordButton, type FieldDef } from "@/components/shared/create-re
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
-import { createTask, requestTask } from "@/lib/actions/task-actions";
+import { createTask } from "@/lib/actions/task-actions";
 import { requestAdvance } from "@/lib/actions/hr-actions";
 import { ROLE_LABELS, PRIORITY, WORKSPACE_TABS, MODULE_LABELS } from "@/lib/labels";
 import { listMyReminders } from "@/lib/queries/reminders";
@@ -94,7 +94,11 @@ export default async function MonEspacePage() {
   const taskFields: FieldDef[] = [
     { type: "text", name: "title", label: "Intitulé", required: true, full: true },
     { type: "textarea", name: "description", label: "Description" },
-    { type: "select", name: "assignedToId", label: "Assignée à", options: userOptions, defaultValue: user.id },
+    // LE DESTINATAIRE DÉCIDE DE LA NATURE DU GESTE. Pour soi, c'est une to-do ; pour quelqu'un
+    // d'autre, c'est une DEMANDE qu'il accepte ou refuse. On le dit ici, sur le champ qui
+    // tranche — pas dans la description du formulaire, que personne ne relit.
+    { type: "select", name: "assignedToId", label: "Assignée à", options: userOptions, defaultValue: user.id,
+      hint: "Vous-même : simple to-do. Quelqu'un d'autre : une demande, qu'il accepte ou refuse — il est prévenu tout de suite." },
     { type: "select", name: "priority", label: "Priorité", options: optionsFromMap(PRIORITY), defaultValue: "MEDIUM" },
     { type: "date", name: "dueDate", label: "Échéance" },
     { type: "select", name: "module", label: "Module concerné", options: moduleOptions, placeholder: "—" },
@@ -102,16 +106,11 @@ export default async function MonEspacePage() {
     { type: "multiselect", name: "readerIds", label: "En lecture", options: userOptions.filter((o) => o.value !== user.id), hint: "Ils voient la tâche sans pouvoir la modifier.", full: true },
     { type: "text", name: "address", label: "Adresse / lieu (course, livraison)", full: true, placeholder: "ex. PCH, Route de…, Alger" },
     { type: "number", name: "expectedMinutes", label: "Durée estimée (min, pour détecter un retard)" },
-  ];
-
-  // Demande de tâche à un collègue (acceptée / refusée), comme un DM.
-  const requestFields: FieldDef[] = [
-    { type: "text", name: "title", label: "Que demandez-vous ?", required: true, full: true },
-    { type: "textarea", name: "description", label: "Détails" },
-    { type: "select", name: "assignedToId", label: "À qui ?", options: userOptions.filter((o) => o.value !== user.id), placeholder: "Choisir une personne" },
-    { type: "select", name: "priority", label: "Priorité", options: optionsFromMap(PRIORITY), defaultValue: "MEDIUM" },
-    { type: "date", name: "dueDate", label: "Pour le (optionnel)" },
-    { type: "text", name: "address", label: "Adresse / lieu (si déplacement)", full: true },
+    // Les pièces DÈS LA CRÉATION : une demande arrive avec le bon de commande à retirer ou le
+    // plan du lieu. Les faire déposer après coup, c'est envoyer une demande incomplète puis
+    // rouvrir le dossier — deux gestes pour un.
+    { type: "file", name: "files", label: "Pièces jointes (facultatif)", multiple: true, full: true,
+      hint: "Le contexte de la tâche : bon de commande, plan, facture à régler…" },
   ];
 
   const advanceFields: FieldDef[] = [
@@ -125,10 +124,14 @@ export default async function MonEspacePage() {
         title={`Bonjour ${user.name.split(" ")[0]} 👋`}
         description={`Votre espace de travail — ${ROLE_LABELS[user.role] ?? user.role}.`}
       >
+        {/* UN SEUL BOUTON. Il y en avait deux — « Nouvelle tâche » et « Demander une tâche » —
+            pour un même geste, et personne ne devinait lequel prendre : on choisissait presque
+            toujours le premier, et la tâche atterrissait chez l'autre sans qu'il l'ait acceptée
+            ni qu'il ait où déposer son travail. C'est le champ « Assignée à » qui tranche
+            désormais, à l'endroit où l'on choisit la personne. */}
         <CreateRecordButton label="Nouvelle tâche" title="Créer une tâche" width="md"
-          description="Une to-do pour vous ou à déléguer. Ajoutez une adresse pour une course (suivi de durée)." action={createTask} fields={taskFields} />
-        <CreateRecordButton label="Demander une tâche" title="Demander une tâche à un collègue" width="md"
-          description="Le destinataire l'accepte ou la refuse (comme un message). Elle apparaît dans ses « Tâches demandées »." action={requestTask} fields={requestFields} />
+          description="Pour vous, c'est une to-do. Pour quelqu'un d'autre, c'est une demande : il l'accepte ou la refuse, puis dépose son travail dans le dossier."
+          action={createTask} fields={taskFields} />
         {data.employee && (
           <>
             <LeaveRequestButton />
