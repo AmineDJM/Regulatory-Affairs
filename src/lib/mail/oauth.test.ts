@@ -89,8 +89,13 @@ describe("L'URL d'autorisation", () => {
     expect(url().searchParams.get("code_challenge")).toBe("challenge-1");
   });
 
-  it("force le choix du compte — un poste partagé ne doit pas enchaîner sur le précédent", () => {
-    expect(url().searchParams.get("prompt")).toBe("select_account");
+  // `select_account` imposait le sélecteur À CHAQUE FOIS, et un sélecteur affiché l'emporte sur
+  // `login_hint` : la personne devait re-choisir son compte alors que l'adresse était déjà
+  // connue — c'est là qu'on prend la mauvaise vignette. Ce qui protégeait un poste partagé est
+  // repris, en mieux, par `domain_hint` (pas de compte personnel) et `login_hint` (la boîte).
+  it("n'impose plus le sélecteur de compte", () => {
+    expect(url().searchParams.get("prompt")).toBeNull();
+    expect(url().toString()).not.toContain("select_account");
   });
 
   it("suggère la bonne boîte", () => {

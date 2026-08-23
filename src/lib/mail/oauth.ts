@@ -68,9 +68,14 @@ export function buildAuthorizeUrl(cfg: MicrosoftMailConfig, state: string, chall
     state,
     code_challenge: challenge,
     code_challenge_method: "S256",
-    // `select_account` : sur un poste partagé, enchaîner sans choisir connecterait la boîte de la
-    // personne précédente — une erreur invisible et durable.
-    prompt: "select_account",
+    // PAS DE `prompt`. `select_account` imposait le sélecteur À CHAQUE FOIS, et un sélecteur
+    // affiché l'emporte sur `login_hint` : la personne devait re-choisir son compte alors que
+    // l'adresse était déjà connue — c'est là qu'on prend la mauvaise vignette. Sans lui, la
+    // session professionnelle en cours est reprise directement.
+    //
+    // Ce qui protégeait un poste partagé est repris, en mieux, par les deux indications
+    // ci-dessous : `domain_hint` exclut les comptes personnels, `login_hint` désigne la boîte.
+
     // `domain_hint=organizations` : ne proposer QUE le compte professionnel ou scolaire.
     //
     // Une adresse d'entreprise existe souvent AUSSI comme compte Microsoft personnel — créé un
