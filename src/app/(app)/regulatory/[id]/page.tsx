@@ -29,6 +29,7 @@ import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { getFieldDefs } from "@/lib/custom-fields";
 import { suggestedExternalStatus } from "@/lib/regulatory-external";
 import { PRIORITY, REGULATORY_STATUS, MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRODUCT_CHANNEL, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { VariationPanel } from "./variation-panel";
 import { ParticipantsPanel } from "./participants-panel";
 import { SupervisionControls } from "./supervision-controls";
@@ -179,6 +180,7 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
           {canUpdate ? (
             <div className="flex items-center gap-2">
               <EditProductButton
+                canSetStructural={canSetStructural(user)}
                 companies={companies}
                 product={{
                   id: product.id,

@@ -118,6 +118,7 @@ export function RegulatoryTable({
   canEditPriority = false,
   canAssign = false,
   canLock = false,
+  canSetStructural = false,
   assignableUsers = [],
   companies = [],
   segments = [],
@@ -131,6 +132,9 @@ export function RegulatoryTable({
   canEditPriority?: boolean;
   canAssign?: boolean;
   canLock?: boolean;
+  /** Les TROIS champs réservés au Super Admin : statut de fabrication, chargé du dossier, entité.
+   *  Le serveur les revérifie ; ici on évite simplement d'offrir un geste qui sera refusé. */
+  canSetStructural?: boolean;
   assignableUsers?: AssignableUser[];
   /**
    * LES ONGLETS D'ÉTAPE — À TRAITER / TERMINÉ. Vrais sur le suivi des dossiers, où le tri par
@@ -386,7 +390,9 @@ export function RegulatoryTable({
       case "company":
         return (
           <td key={key} className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-            {canAssign ? (
+            {/* L'ENTITÉ décide de qui voit le dossier : la changer, c'est le déplacer d'une
+                société à une autre. Réservée au Super Admin. */}
+            {canSetStructural ? (
               <select
                 value={r.companyId}
                 onChange={(e) => changeClassification(r.id, { companyId: e.target.value })}
@@ -442,7 +448,8 @@ export function RegulatoryTable({
         // quelqu'un ouvrirait la fiche du dossier au lieu de le lui confier.
         return (
           <td key={key} className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-            {canAssign ? (
+            {/* CONFIER UN DOSSIER est un engagement pris au nom de quelqu'un : Super Admin seul. */}
+            {canSetStructural ? (
               <span className="inline-flex items-center gap-1">
                 <select
                   value={r.responsibleId}

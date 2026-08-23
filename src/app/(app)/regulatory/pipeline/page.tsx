@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireModule } from "@/lib/session";
 import { userCan, holdsRegulatoryLock, seesLockedRegulatory } from "@/lib/rbac";
+import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -94,6 +95,7 @@ export default async function BusinessDevelopmentPipelinePage() {
           stageTabs={false}
           canEditPriority={canSupervise}
           canAssign={canAssign}
+          canSetStructural={canSetStructural(user)}
           canLock={canLock}
           assignableUsers={assignableUsers}
           companies={companies}

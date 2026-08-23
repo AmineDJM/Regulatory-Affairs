@@ -3,6 +3,7 @@ import { AlertTriangle, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { requireModule } from "@/lib/session";
 import { userCan, scopeRegulatory, isRegulatorySupervisor } from "@/lib/rbac";
+import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { prisma } from "@/lib/prisma";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { regStage } from "@/lib/regulatory/stage";
@@ -115,6 +116,7 @@ export default async function RegulatoryPage() {
         rows={visible}
         canEditPriority={canSupervise}
         canAssign={canAssign}
+        canSetStructural={canSetStructural(user)}
         canLock={canLock}
         assignableUsers={assignableUsers}
         companies={companies}

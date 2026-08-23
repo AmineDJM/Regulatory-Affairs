@@ -1386,6 +1386,47 @@ autorisation nominative ne l'ouvrent d'eux-mêmes.
   (portée ALL, responsable nommé, Super Admin) ; `pipeline-access.test.ts` (17 tests) couvre les
   deux niveaux d'accès, le rôle secondaire, et le fait que tenir le cadenas implique de voir.
 
+### Regulatory — les trois champs du Super Admin
+
+Un dossier a des dizaines de champs, et presque tous se corrigent au fil de l'eau. **Trois** font
+exception, parce qu'ils ne décrivent pas le produit — ils décident de ce qu'il **engage** :
+
+| Champ | Ce qu'il décide |
+|---|---|
+| **Statut de fabrication** (`manufacturingStatus`) | Importation → packaging secondaire → primaire → full process. Ce que la société s'engage à faire **industriellement** : investissements, délais, argumentaire devant l'agence. |
+| **Chargé du dossier** (`responsibleId`) | Un engagement pris **au nom de quelqu'un**. |
+| **Entité** (`companyId`) | **Qui a le droit de voir** le dossier. La changer, c'est le déplacer d'une société à une autre — donc le montrer à des gens et le cacher à d'autres. |
+
+Ces trois-là appartiennent au **SUPER ADMIN**, et à personne d'autre — ni la Direction, ni le
+responsable Regulatory, ni le porteur du dossier. Le reste de la fiche demeure ouvert à qui a le
+droit de la modifier : on ne fige pas un dossier, on protège trois décisions. Règles :
+`src/lib/regulatory/structural-fields.ts` (module pur, 17 tests).
+
+- **Quatre portes, un seul verrou** — la fiche (`updateRegulatoryProduct`), les deux menus du
+  tableau (`setRegulatoryResponsible`, `setRegulatoryClassification` pour l'entité) et la
+  **promotion par variation** (`setVariationStatus` à « OBTENUE », qui fait évoluer le statut de
+  fabrication). Cette dernière était la **porte dérobée** : sans garde, on changeait le statut
+  réservé en déclarant une variation obtenue. Déposer une variation, la mettre en attente ou
+  l'annuler restent ouverts — ce sont des faits du dossier, pas la décision industrielle.
+- **Un refus n'annule pas l'enregistrement.** On compare UNIQUEMENT les champs réellement
+  transmis (« non transmis » ≠ « effacé ») : quelqu'un qui corrige un dosage ne touche à rien de
+  structurel et ne voit aucun refus. S'il en a tenté un, le reste de la fiche est **enregistré**
+  et la réserve **nomme** les champs refusés — perdre un formulaire de trente champs parce qu'une
+  liste déroulante a bougé serait une punition, pas une protection.
+- **À l'écran** : les trois champs s'affichent en lecture, avec un cadenas et « Réservé au Super
+  Admin ». Ils ne sont pas *cachés* (il faudrait ouvrir un autre écran pour lire la valeur) et pas
+  seulement *grisés* (un champ grisé donne envie de cliquer) : on montre la valeur et on dit
+  pourquoi elle ne bouge pas. Le serveur revérifie dans tous les cas.
+- **LE CHARGÉ DU DOSSIER EST PRÉVENU.** C'est lui qui répondra à l'agence sur le statut de
+  fabrication : l'apprendre trois semaines plus tard en rouvrant la fiche par hasard n'est pas
+  acceptable. La notification dit l'**avant** et l'**après** (« Statut de fabrication :
+  Importation → Full Process »), pas « mis à jour ». Elle part que le changement vienne de la
+  fiche ou d'une variation obtenue — même décision, même annonce. Le journal d'audit porte le même
+  détail : « modifié » ne dit pas lequel.
+- **La création n'est pas visée** : choisir l'entité et le statut de départ fait partie de créer un
+  dossier — l'entité est même obligatoire, sans quoi le dossier serait visible du groupe entier.
+  C'est la **modification** qui est réservée.
+
 ### Regulatory — la personne chargée du dossier (menu déroulant du tableau)
 
 Un dossier réglementaire sans porteur n'avance pas. La question « qui s'en occupe ? » se pose
@@ -2169,6 +2210,8 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Secrétariat / courses** | `lib/actions/admin-request-actions.ts` (demandes, missions, courses, archive DONE), `lib/queries/admin-requests.ts`, pages `app/(app)/demandes/` (+ `courses/`, `driver/`, `expense-ack.tsx`). |
 | **Stocks** | `lib/actions/stock-snapshot-actions.ts`, `lib/queries/stock.ts`, `app/(app)/stocks/`. |
 | **Regulatory** | `lib/actions/regulatory-actions.ts` (validation fabricant/variation, `setRegulatoryResponsible`), `app/(app)/regulatory/` (`edit-product.tsx`, `new-product.tsx`, `regulatory-table.tsx`, `[id]/page.tsx`). Champ `RegulatoryProduct.packaging` (conditionnement). |
+| **Regulatory — les trois champs du Super Admin** | Module PUR `lib/regulatory/structural-fields.ts` (`STRUCTURAL_FIELDS`, `canSetStructural`, `structuralChanges`, `structuralRefusal`, `structuralNotice`) + `structural-fields.test.ts` (17 tests). Verrou posé sur les **quatre** portes de `lib/actions/regulatory-actions.ts` : `updateRegulatoryProduct` (helpers `guardStructural` / `notifyCarrierOfStructural`), `setRegulatoryResponsible`, `setRegulatoryClassification` (partie `companyId`) et `setVariationStatus` à « OBTENUE » (porte dérobée du statut de fabrication). Côté écran : `LockedField` dans `app/(app)/regulatory/edit-product.tsx`, prop `canSetStructural` de `regulatory-table.tsx`. |
+| **Regulatory — porter un dossier ouvre le module** | Module PUR `lib/regulatory/assignment.ts` (`carrierAccess`, `assignmentNotice`, `assignmentWarning`) + `assignment.test.ts` (13 tests) ; accès implicite résolu dans `getAccess` (`lib/rbac.ts`) ; exception au filtre de gamme dans `lib/queries/regulatory-rows.ts` (`NAMED_ON_DOSSIER`). |
 | **Regulatory — verrou (cadenas)** | `RegulatoryProduct.isLocked` ; `lib/rbac.ts` → `lockGate` (dans `scopeRegulatory`) + `regulatoryLockWhere` pour les lectures hors portée (`queries/stock.ts`, `actions/pch-tender-line-actions.ts`, `admin/users/[id]`, portail fournisseur) ; `setRegulatoryLock` / `unlockAllRegulatory` ; cadenas et bandeau dans `app/(app)/regulatory/regulatory-table.tsx`. Tests dans `rbac.test.ts`. |
 | **Moyens généraux — corriger / supprimer une dépense** | `updateDepartmentExpense` + `deleteDepartmentExpense` (`lib/actions/department-budget-actions.ts`, garde `canAmendExpense`) ; `pettyCashBalanceExcluding` (`lib/petty-cash.ts`, pure + tests) ; `app/(app)/moyens-generaux/expense-row-actions.tsx`. Totaux exacts (`groupBy` par nature, `expenseCount`, `truncated`, `otherConsumed`) dans `lib/queries/general-means.ts`. |
 | **Moyens généraux — catalogue & ticket multi-articles** | `lib/general-means/receipt.ts` (pur : `normalizeLines`, `receiptTotal`, `validateReceipt`, `receiptLabel`, `parseLinesField`) + `receipt.test.ts` (20 tests) ; `lib/general-means/expense-lines.ts` (`readReceipt`, `saveReceiptLines`, partagé par les deux actions) ; modèle `DepartmentExpenseLine` ; `app/(app)/moyens-generaux/receipt-lines.tsx` ; catalogue `OfficeSupplyArticle` + `SuppliesManager` réutilisé depuis `app/(app)/demandes/`. |
@@ -2774,6 +2817,19 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Regulatory : trois champs passent au Super Admin, et le porteur du dossier est prévenu.** Le
+  **statut de fabrication** (Importation → packaging secondaire → primaire → full process), le
+  **chargé du dossier** et l'**entité** ne décrivent pas le produit : ils décident de ce qu'il
+  engage — l'investissement industriel, un engagement pris au nom de quelqu'un, et qui a le droit
+  de voir le dossier. Ils ne se modifient plus que par le Super Admin, sur les **quatre** portes
+  qui y menaient : la fiche, les deux menus du tableau, et la **promotion par variation obtenue** —
+  celle-là était la porte dérobée, on changeait le statut réservé en déclarant une variation
+  obtenue. Le reste de la fiche demeure ouvert : on ne fige pas un dossier, on protège trois
+  décisions. Un refus **n'annule pas** l'enregistrement — le reste est écrit et la réserve nomme
+  les champs refusés. Et le **chargé du dossier est notifié**, avec l'avant et l'après (« Statut de
+  fabrication : Importation → Full Process ») : c'est lui qui répondra à l'agence, l'apprendre
+  trois semaines plus tard en rouvrant la fiche par hasard n'est pas acceptable.
 
 - **Confier un dossier Regulatory, c'est en donner l'accès — vraiment.** On désignait la personne
   chargée d'un dossier, elle recevait « Vous êtes chargé(e) de ce dossier »… et le lien menait à

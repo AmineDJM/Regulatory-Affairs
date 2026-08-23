@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useFormState } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Pencil, Loader2, AlertCircle } from "lucide-react";
+import { Pencil, Loader2, AlertCircle, Lock } from "lucide-react";
 import { updateRegulatoryProduct, type ActionResult } from "@/lib/actions/regulatory-actions";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
@@ -45,7 +45,27 @@ export interface EditProductValues {
   variationDate: string | null;
 }
 
-export function EditProductButton({ product, users, suppliers, companies }: { product: EditProductValues; users: UserOption[]; suppliers: { id: string; name: string }[]; companies: { id: string; name: string; shortName: string | null }[] }) {
+/**
+ * UN CHAMP RÉSERVÉ AU SUPER ADMIN — montré, jamais soumis.
+ *
+ * On affiche la valeur (la cacher obligerait à ouvrir un autre écran pour la lire) sans poser
+ * d'`input` : le champ est alors ABSENT du formulaire, et le serveur, qui ne compare que ce qui
+ * lui est transmis, laisse la valeur telle quelle. Un `<select disabled>` aurait fait la même
+ * chose visuellement, mais un champ grisé donne envie de cliquer — celui-ci dit pourquoi.
+ */
+function LockedField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <span className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+        <Lock className="h-3.5 w-3.5" /> {label}
+      </span>
+      <p className="truncate rounded-lg border border-dashed border-border bg-secondary/30 px-3 py-2 text-sm">{value}</p>
+      <p className="text-xs text-muted-foreground">Réservé au Super Admin.</p>
+    </div>
+  );
+}
+
+export function EditProductButton({ product, users, suppliers, companies, canSetStructural = false }: { product: EditProductValues; users: UserOption[]; suppliers: { id: string; name: string }[]; companies: { id: string; name: string; shortName: string | null }[]; canSetStructural?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [state, formAction] = useFormState<ActionResult | undefined, FormData>(
@@ -56,9 +76,12 @@ export function EditProductButton({ product, users, suppliers, companies }: { pr
 
   React.useEffect(() => {
     if (state?.ok) {
-      setOpen(false);
       setSubmitting(false);
       router.refresh();
+      // UNE RÉSERVE GARDE LA FENÊTRE OUVERTE. Le reste de la fiche est enregistré, mais un champ
+      // réservé a été refusé : fermer sans le dire ferait croire que tout est passé, et la
+      // personne repartirait convaincue d'avoir changé le statut de fabrication.
+      if (!state.message) setOpen(false);
     } else if (state?.error) {
       setSubmitting(false);
     }
@@ -94,7 +117,15 @@ export function EditProductButton({ product, users, suppliers, companies }: { pr
           <div className="grid grid-cols-2 gap-3">
             {/* L'entité était fixée à la création et n'apparaissait plus : un produit créé sans
                 entité ne pouvait donc JAMAIS en recevoir une. */}
-            <SelectField label="Entité" name="companyId" required options={companies.map((c) => ({ value: c.id, label: c.shortName || c.name }))} placeholder="— Choisir l'entité —" defaultValue={product.companyId ?? (companies.length === 1 ? companies[0].id : "")} />
+            {/* TROIS CHAMPS DÉCIDENT DE CE QUE LE DOSSIER ENGAGE — l'entité (qui le voit), le
+                statut de fabrication (ce qu'on s'engage à faire industriellement) et le chargé du
+                dossier (un engagement pris au nom de quelqu'un). Ils appartiennent au Super Admin ;
+                le reste de la fiche demeure ouvert. Voir `lib/regulatory/structural-fields.ts`. */}
+            {canSetStructural ? (
+              <SelectField label="Entité" name="companyId" required options={companies.map((c) => ({ value: c.id, label: c.shortName || c.name }))} placeholder="— Choisir l'entité —" defaultValue={product.companyId ?? (companies.length === 1 ? companies[0].id : "")} />
+            ) : (
+              <LockedField label="Entité" value={companies.find((c) => c.id === product.companyId)?.shortName || companies.find((c) => c.id === product.companyId)?.name || "—"} />
+            )}
             <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue={product.category} />
             <SelectField label="Canal (Ville / Hôpital)" name="channel" options={optionsFromMap(PRODUCT_CHANNEL)} defaultValue={product.channel} />
             <DciAssociationField defaultMolecules={product.molecules} />
@@ -107,10 +138,18 @@ export function EditProductButton({ product, users, suppliers, companies }: { pr
             <SelectField label="Fournisseur" name="supplierId" options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="— Aucun —" defaultValue={product.supplierId ?? ""} />
             <TextField label="Laboratoire partenaire (optionnel)" name="partnerLab" placeholder="Ex. Pharma Lab" defaultValue={product.partnerLab ?? undefined} />
             <TextField label="Pays d'origine" name="countryOfOrigin" placeholder="Inde" defaultValue={product.countryOfOrigin ?? undefined} />
-            <SelectField label="Statut de fabrication" name="manufacturingStatus" options={optionsFromMap(MANUFACTURING_STATUS)} defaultValue={product.manufacturingStatus} />
+            {canSetStructural ? (
+              <SelectField label="Statut de fabrication" name="manufacturingStatus" options={optionsFromMap(MANUFACTURING_STATUS)} defaultValue={product.manufacturingStatus} />
+            ) : (
+              <LockedField label="Statut de fabrication" value={MANUFACTURING_STATUS[product.manufacturingStatus] ?? product.manufacturingStatus} />
+            )}
             <SelectField label="Priorité" name="priority" options={optionsFromMap(PRIORITY)} defaultValue={product.priority} />
             <SelectField label="Statut" name="status" options={optionsFromMap(REGULATORY_STATUS)} defaultValue={product.status} />
-            <SelectField label="Responsable" name="responsibleId" options={userOptions} placeholder="—" defaultValue={product.responsibleId ?? ""} />
+            {canSetStructural ? (
+              <SelectField label="Chargé du dossier" name="responsibleId" options={userOptions} placeholder="—" defaultValue={product.responsibleId ?? ""} />
+            ) : (
+              <LockedField label="Chargé du dossier" value={users.find((u) => u.id === product.responsibleId)?.name ?? "—"} />
+            )}
             <SelectField label="Assistante assignée" name="assistantId" options={userOptions} placeholder="—" defaultValue={product.assistantId ?? ""} />
             <TextField label="Date cible d'enregistrement" name="targetDate" type="date" defaultValue={product.targetDate ?? undefined} className="col-span-2" />
 
@@ -119,6 +158,13 @@ export function EditProductButton({ product, users, suppliers, companies }: { pr
             <TextField label="Fabricant" name="manufacturer" placeholder="Site de fabrication" defaultValue={product.manufacturer ?? undefined} className="col-span-2" />
           </div>
           <TextAreaField label="Commentaires" name="comments" placeholder="Notes internes…" defaultValue={product.comments ?? undefined} />
+
+          {state?.ok && state.message && (
+            <div className="flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning">
+              <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+              {state.message}
+            </div>
+          )}
 
           {state?.error && (
             <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">

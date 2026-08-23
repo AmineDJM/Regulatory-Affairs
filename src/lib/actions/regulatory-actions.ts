@@ -9,6 +9,10 @@ import { requireUser } from "@/lib/session";
 import { userCan, isRegulatorySupervisor, holdsRegulatoryLock } from "@/lib/rbac";
 import { pipelineAccessFor } from "@/lib/regulatory/pipeline-access";
 import { assignmentNotice, assignmentWarning } from "@/lib/regulatory/assignment";
+import {
+  canSetStructural, structuralChanges, structuralRefusal, structuralNotice, STRUCTURAL_LABELS,
+  type StructuralChange,
+} from "@/lib/regulatory/structural-fields";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { buildRef } from "@/lib/refs";
@@ -17,7 +21,7 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
-import { REGULATORY_STEP_ORDER, LOCAL_MANUFACTURING_VARIATIONS, VARIATION_TARGETS } from "@/lib/labels";
+import { REGULATORY_STEP_ORDER, LOCAL_MANUFACTURING_VARIATIONS, VARIATION_TARGETS, MANUFACTURING_STATUS } from "@/lib/labels";
 import {
   isRegStepKey, isRegStepState, isRegChecklistKey, isRegPresubOutcome,
   REG_STEPS, REG_CHECKLIST, REG_PRESUB_OUTCOME, PRESUB_ANSWER_STEP,
@@ -234,6 +238,64 @@ export async function createRegulatoryProduct(
  * uniformisée en MAJUSCULES. Le statut/priorité ont leur propre action dédiée mais
  * sont aussi acceptés ici pour une édition complète depuis la fiche.
  */
+/**
+ * LES TROIS CHAMPS STRUCTURELS — comparés, refusés à qui n'y a pas droit, et ANNONCÉS.
+ *
+ * Un même verrou sert quatre écrans (la fiche, les deux menus du tableau, la promotion par
+ * variation). Le poser une fois évite qu'une correction ne s'applique qu'à trois d'entre eux.
+ *
+ * Rend les changements RETENUS (vides si l'on n'a pas le droit) et le refus à afficher. Le refus
+ * est une réserve, pas une erreur : le reste de la fiche s'enregistre. Perdre un formulaire de
+ * trente champs parce qu'une liste déroulante a bougé serait une punition, pas une protection.
+ */
+async function guardStructural(
+  user: { id: string; role: string },
+  before: { manufacturingStatus: string | null; responsibleId: string | null; companyId: string | null },
+  after: Partial<{ manufacturingStatus: string | null; responsibleId: string | null; companyId: string | null }>,
+): Promise<{ changes: StructuralChange[]; refusal: string | null }> {
+  // Les valeurs s'affichent LISIBLES : un identifiant `cmxyz…` dans une notification n'apprend
+  // rien à qui la reçoit.
+  const ids = [after.responsibleId, before.responsibleId].filter(Boolean) as string[];
+  const companyIds = [after.companyId, before.companyId].filter(Boolean) as string[];
+  const [people, companies] = await Promise.all([
+    ids.length ? prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [],
+    companyIds.length ? prisma.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true, shortName: true } }) : [],
+  ]);
+  const display = (field: string, value: string | null): string => {
+    if (!value) return "—";
+    if (field === "manufacturingStatus") return MANUFACTURING_STATUS[value] ?? value;
+    if (field === "responsibleId") return people.find((p) => p.id === value)?.name ?? "—";
+    const c = companies.find((x) => x.id === value);
+    return c ? c.shortName || c.name : "—";
+  };
+
+  const changes = structuralChanges(before, after, display as never);
+  if (changes.length === 0) return { changes: [], refusal: null };
+  if (!canSetStructural(user)) return { changes: [], refusal: structuralRefusal(changes) };
+  return { changes, refusal: null };
+}
+
+/**
+ * PRÉVENIR LE CHARGÉ DU DOSSIER qu'un champ structurel a bougé.
+ *
+ * C'est lui qui répondra à l'agence sur le statut de fabrication : l'apprendre trois semaines
+ * plus tard, en rouvrant la fiche par hasard, n'est pas acceptable. On ne se notifie pas
+ * soi-même — le Super Admin sait ce qu'il vient de faire.
+ */
+async function notifyCarrierOfStructural(
+  productId: string,
+  carrierId: string | null,
+  actorId: string,
+  reference: string,
+  dci: string,
+  changes: readonly StructuralChange[],
+): Promise<void> {
+  if (!carrierId || carrierId === actorId) return;
+  const notice = structuralNotice(reference, dci, changes);
+  if (!notice) return;
+  await notifyUser({ userId: carrierId, type: "ASSIGNMENT", ...notice, link: `/regulatory/${productId}` });
+}
+
 export async function updateRegulatoryProduct(
   _prev: ActionResult | undefined,
   formData: FormData,
@@ -279,6 +341,18 @@ export async function updateRegulatoryProduct(
     if (!okCompany) return { ok: false, error: "Entité inconnue ou désactivée." };
   }
 
+  // ── LES TROIS CHAMPS DU SUPER ADMIN ─────────────────────────────────────────
+  // On ne compare QUE les champs réellement transmis : l'écran n'envoie pas ceux qu'il n'affiche
+  // pas, et « non transmis » ne veut pas dire « effacé ». Un utilisateur ordinaire qui corrige un
+  // dosage ne touche donc à rien de structurel et ne voit aucun refus.
+  const wanted = {
+    ...(formData.has("manufacturingStatus") ? { manufacturingStatus: str(formData, "manufacturingStatus") } : {}),
+    ...(formData.has("responsibleId") ? { responsibleId } : {}),
+    ...(formData.has("companyId") ? { companyId: updatedCompanyId } : {}),
+  };
+  const structural = await guardStructural(user, before, wanted);
+  const keep = structural.refusal === null;
+
   await prisma.regulatoryProduct.update({
     where: { id },
     data: {
@@ -293,11 +367,15 @@ export async function updateRegulatoryProduct(
       partnerLab: str(formData, "partnerLab"),
       supplierId: str(formData, "supplierId"),
       countryOfOrigin: str(formData, "countryOfOrigin"),
-      companyId: updatedCompanyId,
+      companyId: keep ? updatedCompanyId : before.companyId,
       category: (str(formData, "category") as RegulatoryCategory) ?? before.category,
       channel: parseProductChannel(str(formData, "channel")) ?? before.channel,
       productType: (str(formData, "productType") as ProductType) ?? before.productType,
-      manufacturingStatus: (str(formData, "manufacturingStatus") as ManufacturingStatus) ?? before.manufacturingStatus,
+      // Refusé à qui n'est pas Super Admin : on repose la valeur d'avant plutôt que de rejeter
+      // tout l'enregistrement.
+      manufacturingStatus: keep
+        ? (str(formData, "manufacturingStatus") as ManufacturingStatus) ?? before.manufacturingStatus
+        : before.manufacturingStatus,
       status: (str(formData, "status") as RegulatoryStatus) ?? before.status,
       priority: (str(formData, "priority") as Priority) ?? before.priority,
       targetSubmissionDate: targetSubmissionDateRaw ? new Date(targetSubmissionDateRaw) : null,
@@ -305,7 +383,7 @@ export async function updateRegulatoryProduct(
       comments: str(formData, "comments"),
       deHolder: str(formData, "deHolder"),
       manufacturer,
-      responsibleId,
+      responsibleId: keep ? responsibleId : before.responsibleId,
       assistantId,
       updatedById: user.id,
       assignedUsers: assignIds.length ? { set: assignIds.map((aid) => ({ id: aid })) } : { set: [] },
@@ -318,8 +396,15 @@ export async function updateRegulatoryProduct(
     module: "Regulatory",
     entityType: "REGULATORY_PRODUCT",
     entityId: id,
-    summary: `Dossier ${before.reference} modifié — ${dci}`,
+    // Un champ structurel qui bouge se relit DANS le journal : « modifié » ne dit pas lequel.
+    summary: structural.changes.length
+      ? `Dossier ${before.reference} — ${structural.changes.map((c) => `${c.label} : ${c.from} → ${c.to}`).join(" · ")}`
+      : `Dossier ${before.reference} modifié — ${dci}`,
   });
+
+  // Le chargé du dossier apprend le changement — celui d'AVANT si la personne a changé : c'est
+  // lui qui portait le dossier au moment de la décision, et c'est à lui qu'on la doit.
+  await notifyCarrierOfStructural(id, before.responsibleId, user.id, before.reference, dci, structural.changes);
 
   if (assistantId && assistantId !== user.id && assistantId !== before.assistantId) {
     await notifyUser({
@@ -333,7 +418,7 @@ export async function updateRegulatoryProduct(
 
   revalidatePath(`/regulatory/${id}`);
   revalidatePath("/regulatory");
-  return { ok: true, id };
+  return { ok: true, id, message: structural.refusal ?? undefined };
 }
 
 /**
@@ -454,6 +539,11 @@ export async function setRegulatoryResponsible(formData: FormData): Promise<Acti
   const user = await requireUser();
   const id = str(formData, "id");
   if (!id) return { ok: false, error: "Dossier introuvable." };
+  // CONFIER UN DOSSIER EST UN ENGAGEMENT PRIS AU NOM DE QUELQU'UN : c'est l'un des trois champs
+  // réservés au Super Admin (voir `lib/regulatory/structural-fields.ts`).
+  if (!canSetStructural(user)) {
+    return { ok: false, error: "Seul le Super Admin désigne le chargé d'un dossier." };
+  }
   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", id, "UPDATE"))) {
     return { ok: false, error: "Modification non autorisée." };
   }
@@ -899,6 +989,13 @@ export async function setVariationStatus(formData: FormData): Promise<ActionResu
   const variation = await prisma.regulatoryVariation.findUnique({ where: { id }, select: { id: true, productId: true, toStatus: true, manufacturer: true } });
   if (!variation) return { ok: false, error: "Variation introuvable." };
   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", variation.productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
+  // « OBTENUE » PROMEUT LE STATUT DE FABRICATION du produit — c'est la porte dérobée du verrou :
+  // sans cette garde, on changerait le statut réservé au Super Admin en déclarant une variation
+  // obtenue. Déposer une variation, la mettre en attente ou l'annuler restent ouverts : ce sont
+  // des faits du dossier, pas la décision industrielle.
+  if (status === "OBTENUE" && !canSetStructural(user)) {
+    return { ok: false, error: "Seul le Super Admin acte une variation obtenue : elle fait évoluer le statut de fabrication." };
+  }
 
   const decisionRaw = str(formData, "decisionDate");
   const decisionDate = decisionRaw ? new Date(decisionRaw) : status === "OBTENUE" ? new Date() : null;
@@ -909,6 +1006,10 @@ export async function setVariationStatus(formData: FormData): Promise<ActionResu
 
   // À l'obtention, le statut de fabrication du produit devient la cible de la variation.
   if (status === "OBTENUE") {
+    const product = await prisma.regulatoryProduct.findUnique({
+      where: { id: variation.productId },
+      select: { reference: true, dci: true, manufacturingStatus: true, responsibleId: true },
+    });
     await prisma.regulatoryProduct.update({
       where: { id: variation.productId },
       data: {
@@ -918,6 +1019,19 @@ export async function setVariationStatus(formData: FormData): Promise<ActionResu
         updatedById: user.id,
       },
     });
+    // MÊME CHANGEMENT, MÊME ANNONCE. Que le statut bouge par la fiche ou par une variation
+    // obtenue, c'est la même décision industrielle : le chargé du dossier l'apprend.
+    if (product && product.manufacturingStatus !== variation.toStatus) {
+      await notifyCarrierOfStructural(
+        variation.productId, product.responsibleId, user.id, product.reference, product.dci,
+        [{
+          field: "manufacturingStatus",
+          label: STRUCTURAL_LABELS.manufacturingStatus,
+          from: MANUFACTURING_STATUS[product.manufacturingStatus] ?? product.manufacturingStatus,
+          to: MANUFACTURING_STATUS[variation.toStatus] ?? variation.toStatus,
+        }],
+      );
+    }
   }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: variation.productId, summary: `Variation → ${variation.toStatus} : ${status}` });
   revalidatePath(`/regulatory/${variation.productId}`);
@@ -962,8 +1076,14 @@ export async function setRegulatoryClassification(formData: FormData): Promise<A
 
   const data: { companyId?: string | null; therapeuticSegments?: string[]; updatedById: string } = { updatedById: user.id };
 
+  // L'ENTITÉ décide de QUI voit le dossier : la changer, c'est le déplacer d'une société à une
+  // autre. Réservée au Super Admin. Les SEGMENTS, eux, restent ouverts — ce sont des étiquettes
+  // de classement, elles n'ouvrent ni ne ferment rien.
   if (formData.has("companyId")) {
     const companyId = str(formData, "companyId");
+    if ((companyId || null) !== before.companyId && !canSetStructural(user)) {
+      return { ok: false, error: "Seul le Super Admin change l'entité d'un dossier." };
+    }
     if (companyId) {
       const known = await prisma.company.count({ where: { id: companyId } });
       if (!known) return { ok: false, error: "Entité inconnue." };
