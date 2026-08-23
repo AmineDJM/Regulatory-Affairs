@@ -169,9 +169,11 @@ async function graphRaw(req: GraphRequest): Promise<{ res: Response; text: strin
 async function toError(res: Response, bodyText: string | undefined, req: GraphRequest): Promise<MailError> {
   const text = bodyText ?? (await res.text().catch(() => ""));
   let code = "";
+  let graphMessage = "";
   try {
-    const j = JSON.parse(text) as { error?: { code?: string } };
+    const j = JSON.parse(text) as { error?: { code?: string; message?: string } };
     code = j.error?.code ?? "";
+    graphMessage = typeof j.error?.message === "string" ? j.error.message : "";
   } catch { /* corps non-JSON : on se contente du statut */ }
   const kind = kindOf(res.status, code);
   const retryAfter = Number(res.headers.get("retry-after"));
@@ -182,5 +184,14 @@ async function toError(res: Response, bodyText: string | undefined, req: GraphRe
     status: res.status, code, requestId: correlationId(res), operation: operationOf(req),
   };
   logGraph(false, diagnostic);
+  // EXCEPTION étroite : le message de Graph, sur un 400 de LECTURE seulement. Un `code` seul dit
+  // « BadRequest » sans dire QUOI ; le message, lui, nomme la faute (« Could not find a property
+  // named 'x' ») — sans lui, un paramètre invalide est indiagnosticable depuis le journal. La
+  // restriction aux lectures n'est pas décorative : sur une écriture, ce même champ recopie
+  // l'adresse d'un destinataire refusé, qui n'a rien à faire dans un journal. Jamais montré à
+  // l'utilisateur.
+  if (res.status === 400 && (req.method ?? "GET") === "GET" && graphMessage) {
+    console.error("[ms-graph] requête invalide", { operation: operationOf(req), detail: graphMessage.slice(0, 200) });
+  }
   return new MailError(kind, HUMAN[kind], Number.isFinite(retryAfter) ? retryAfter : undefined, diagnostic);
 }

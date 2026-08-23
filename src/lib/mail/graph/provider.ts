@@ -1,5 +1,6 @@
 import type {
   MailProvider, MailFolder, MailSummary, MailMessage, MailPage, MailDelta, MailDraftInput, MailAddress,
+  WellKnownFolder,
 } from "../provider";
 import { MailError } from "../provider";
 import { graphJson, graphBinary } from "./client";
@@ -22,6 +23,23 @@ type Raw = Record<string, any>;
 const LIST_FIELDS = "id,conversationId,subject,from,toRecipients,bodyPreview,receivedDateTime,isRead,hasAttachments,isDraft,parentFolderId";
 const MESSAGE_FIELDS = `${LIST_FIELDS},ccRecipients,bccRecipients,replyTo,body,webLink,sentDateTime`;
 const DEFAULT_PAGE = 40;
+
+/**
+ * LES NOMS RÉSERVÉS de Graph v1.0 → notre vocabulaire.
+ *
+ * `GET /me/mailFolders/inbox` rend le dossier Réception quel que soit son nom affiché — ces noms
+ * sont indépendants de la langue de la boîte. C'est le SEUL moyen fiable en v1.0 de savoir quel
+ * dossier joue quel rôle : la propriété `wellKnownName` n'existe qu'en version bêta, et le nom
+ * affiché d'une boîte française (« Éléments envoyés ») ne ressemble à aucun nom Graph.
+ */
+const WELL_KNOWN_PATHS: readonly (readonly [string, WellKnownFolder])[] = [
+  ["inbox", "inbox"],
+  ["sentitems", "sent"],
+  ["drafts", "drafts"],
+  ["archive", "archive"],
+  ["deleteditems", "trash"],
+  ["junkemail", "junk"],
+];
 
 const recipients = (list: readonly MailAddress[] | undefined) =>
   (list ?? []).map((a) => ({ emailAddress: { address: a.address, ...(a.name ? { name: a.name } : {}) } }));
@@ -48,12 +66,35 @@ export class MicrosoftGraphMailProvider implements MailProvider {
   async listFolders(): Promise<MailFolder[]> {
     // 100 dossiers couvre très largement une boîte professionnelle ; au-delà, la colonne de
     // gauche cesse d'être lisible bien avant que la limite ne gêne.
-    const json = await graphJson<{ value: Raw[] }>({
+    //
+    // `wellKnownName` N'EST PAS dans le `$select`, et ce n'est pas un oubli : la propriété
+    // n'existe qu'en version bêta de Graph. En v1.0, la nommer fait répondre 400 BadRequest à
+    // TOUTE la requête — c'est la panne qui affichait « La messagerie n'a pas pu répondre » à
+    // l'ouverture, alors que l'envoi, lui, fonctionnait.
+    const listP = graphJson<{ value: Raw[] }>({
       accessToken: this.token,
       path: "/me/mailFolders",
-      query: { $top: 100, $select: "id,displayName,parentFolderId,unreadItemCount,totalItemCount,wellKnownName" },
+      query: { $top: 100, $select: "id,displayName,parentFolderId,unreadItemCount,totalItemCount" },
     });
-    return (json.value ?? []).map(toFolder);
+
+    // Les rôles, par les noms réservés — six lectures en parallèle, chacune tolérée en échec :
+    // une boîte sans dossier Archive doit afficher sa liste, pas un bandeau d'erreur. Un rôle
+    // introuvable laisse simplement le dossier s'afficher sous son propre nom.
+    const knownP = Promise.all(
+      WELL_KNOWN_PATHS.map(async ([path, role]) => {
+        const f = await graphJson<Raw>({
+          accessToken: this.token,
+          path: `/me/mailFolders/${path}`,
+          query: { $select: "id" },
+        }).catch(() => null);
+        const id = String(f?.id ?? "");
+        return id ? ([id, role] as const) : null;
+      }),
+    );
+
+    const [list, pairs] = await Promise.all([listP, knownP]);
+    const wellKnownById = new Map(pairs.filter((p): p is readonly [string, WellKnownFolder] => p !== null));
+    return (list.value ?? []).map((raw) => toFolder(raw, wellKnownById));
   }
 
   async listMessages(opts: { folderId: string; cursor?: string | null; limit?: number; search?: string | null }): Promise<MailPage<MailSummary>> {

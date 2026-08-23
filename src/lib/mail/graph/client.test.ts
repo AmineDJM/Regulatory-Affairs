@@ -43,6 +43,16 @@ function queue(...responses: Response[]) {
 
 const graphError = (code: string) => ({ error: { code, message: "objet confidentiel du message" } });
 
+/** Un bouchon qui répond selon l'URL — pour les appels parallèles, où l'ordre n'est pas un contrat. */
+function byUrl(routes: [RegExp, Response][]) {
+  const fn = vi.fn(async (url: string) => {
+    const hit = routes.find(([re]) => re.test(url));
+    return hit ? hit[1] : res(404, graphError("ErrorFolderNotFound"));
+  });
+  global.fetch = fn as unknown as typeof fetch;
+  return fn;
+}
+
 let logs: unknown[][];
 let infos: unknown[][];
 const realFetch = global.fetch;
@@ -227,6 +237,73 @@ describe("Dire OÙ l'envoi s'est arrêté", () => {
     queue(res(403, graphError("MailboxNotEnabledForRESTAPI")));
     const err = await send(new MicrosoftGraphMailProvider(TOKEN, "a@adventumdz.com")).catch((e) => e);
     expect((err as MailError).message).not.toContain("brouillons");
+  });
+});
+
+describe("La liste des dossiers — la requête qui répondait 400 BadRequest", () => {
+  const FRENCH_MAILBOX: [RegExp, Response][] = [
+    // La liste : une boîte FRANÇAISE — aucun nom affiché ne correspond aux noms Graph.
+    [/mailFolders\?/, res(200, {
+      value: [
+        { id: "id-inbox", displayName: "Boîte de réception", unreadItemCount: 2, totalItemCount: 5 },
+        { id: "id-sent", displayName: "Éléments envoyés", unreadItemCount: 0, totalItemCount: 0 },
+        { id: "id-perso", displayName: "ANPP 2026", unreadItemCount: 0, totalItemCount: 0 },
+      ],
+    })],
+    // Les noms réservés v1.0, indépendants de la langue. Les quatre autres répondront 404.
+    [/mailFolders\/inbox\?/, res(200, { id: "id-inbox" })],
+    [/mailFolders\/sentitems\?/, res(200, { id: "id-sent" })],
+  ];
+
+  it("le $select ne demande plus wellKnownName — propriété bêta, absente de mailFolder v1.0", async () => {
+    // C'était LA cause du 400 : une propriété inconnue dans un `$select` fait rejeter toute la
+    // requête, et l'écran affichait « La messagerie n'a pas pu répondre » alors que l'envoi marchait.
+    const fetchMock = byUrl(FRENCH_MAILBOX);
+    await new MicrosoftGraphMailProvider(TOKEN, "a@adventumdz.com").listFolders();
+
+    const listUrl = fetchMock.mock.calls.map((c) => String(c[0])).find((u) => /mailFolders\?/.test(u));
+    expect(listUrl).toBeDefined();
+    expect(decodeURIComponent(listUrl!)).not.toContain("wellKnownName");
+  });
+
+  it("les rôles viennent des noms réservés : une boîte française garde Réception et Envoyés", async () => {
+    byUrl(FRENCH_MAILBOX);
+    const folders = await new MicrosoftGraphMailProvider(TOKEN, "a@adventumdz.com").listFolders();
+
+    expect(folders.find((f) => f.id === "id-inbox")?.wellKnown).toBe("inbox");
+    expect(folders.find((f) => f.id === "id-sent")?.wellKnown).toBe("sent");
+    expect(folders.find((f) => f.id === "id-perso")?.wellKnown).toBeNull();
+  });
+
+  it("un rôle introuvable (404) n'abat pas la liste — une boîte quasi vide s'affiche sans erreur", async () => {
+    // Archive, Corbeille, Indésirables et Brouillons répondent 404 ici : la liste doit sortir
+    // quand même, avec ses compteurs à zéro — pas un bandeau d'erreur.
+    byUrl(FRENCH_MAILBOX);
+    const folders = await new MicrosoftGraphMailProvider(TOKEN, "a@adventumdz.com").listFolders();
+
+    expect(folders).toHaveLength(3);
+    const sent = folders.find((f) => f.id === "id-sent");
+    expect(sent?.unread).toBe(0);
+    expect(sent?.total).toBe(0);
+  });
+});
+
+describe("Le détail d'un 400 — savoir QUEL paramètre est invalide", () => {
+  it("un 400 de LECTURE journalise le message de Graph, qui nomme la propriété fautive", async () => {
+    // `code: BadRequest` seul ne dit pas QUOI corriger ; c'est le message qui nomme la faute.
+    queue(res(400, {
+      error: { code: "BadRequest", message: "Could not find a property named 'wellKnownName' on type 'Microsoft.OutlookServices.MailFolder'." },
+    }));
+    await graphJson({ accessToken: TOKEN, path: "/me/mailFolders", query: { $select: "wellKnownName" } }).catch(() => null);
+
+    expect(JSON.stringify(logs)).toContain("wellKnownName");
+  });
+
+  it("un 400 d'ÉCRITURE ne journalise PAS le message — il recopie l'adresse du destinataire refusé", async () => {
+    queue(res(400, { error: { code: "ErrorInvalidRecipients", message: "The address 'secret@ailleurs.dz' is invalid." } }));
+    await graphJson({ accessToken: TOKEN, method: "POST", path: "/me/messages" }).catch(() => null);
+
+    expect(JSON.stringify(logs)).not.toContain("secret@ailleurs.dz");
   });
 });
 

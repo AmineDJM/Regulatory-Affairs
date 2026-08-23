@@ -32,6 +32,16 @@ describe("Les dossiers", () => {
     expect(toFolder({ id: "1", displayName: "Inbox" }).wellKnown).toBe("inbox");
   });
 
+  it("le rôle donné par l'identifiant prime — seul moyen fiable sur une boîte française", () => {
+    // « Éléments envoyés » ne ressemble à aucun nom Graph : sans la carte identifiant → rôle
+    // (construite par les noms réservés v1.0), une boîte française perdrait Réception, Envoyés
+    // et Brouillons, rangés comme de simples dossiers personnels.
+    const byId: ReadonlyMap<string, "sent"> = new Map([["abc", "sent"]]);
+    expect(toFolder({ id: "abc", displayName: "Éléments envoyés" }, byId).wellKnown).toBe("sent");
+    // Un dossier hors de la carte garde le repli par nom affiché (boîte anglaise).
+    expect(toFolder({ id: "zzz", displayName: "Inbox" }, byId).wellKnown).toBe("inbox");
+  });
+
   it("un dossier personnel n'a pas de rôle, et garde son nom", () => {
     const f = toFolder({ id: "9", displayName: "ANPP 2026", unreadItemCount: 3, totalItemCount: 12 });
     expect(f.wellKnown).toBeNull();

@@ -1,4 +1,4 @@
-import type { MailAddress, MailAttachmentMeta, MailFolder, MailMessage, MailSummary } from "../provider";
+import type { MailAddress, MailAttachmentMeta, MailFolder, MailMessage, MailSummary, WellKnownFolder } from "../provider";
 import { wellKnownFromGraph } from "../folders";
 import { sanitizeMailHtml, htmlToText } from "../sanitize";
 
@@ -32,14 +32,19 @@ export function toAddressList(raw: unknown): MailAddress[] {
   return raw.map((r) => toAddress(r)).filter((a): a is MailAddress => a !== null);
 }
 
-export function toFolder(raw: Raw): MailFolder {
+export function toFolder(raw: Raw, wellKnownById?: ReadonlyMap<string, WellKnownFolder>): MailFolder {
+  const id = String(raw.id ?? "");
   return {
-    id: String(raw.id ?? ""),
+    id,
     name: String(raw.displayName ?? "Dossier"),
-    // Graph ne rend `wellKnownName` que sur demande : on retombe sur le nom affiché, qui vaut
-    // « Inbox » / « Sent Items » sur une boîte anglaise et « Boîte de réception » sur une boîte
-    // française — d'où la reconnaissance par les deux.
-    wellKnown: wellKnownFromGraph(raw.wellKnownName) ?? wellKnownFromGraph(raw.displayName),
+    // Le rôle vient d'abord de la carte identifiant → rôle, construite par les noms réservés de
+    // Graph v1.0 (`/me/mailFolders/inbox`…) : c'est la seule source indépendante de la langue de
+    // la boîte. `wellKnownName` n'existe qu'en bêta — la DEMANDER en v1.0 répond 400, mais on la
+    // lit si elle est là. Dernier repli : le nom affiché, qui ne reconnaît qu'une boîte anglaise
+    // (« Sent Items ») — « Éléments envoyés » ne dit rien à `wellKnownFromGraph`.
+    wellKnown: wellKnownById?.get(id)
+      ?? wellKnownFromGraph(raw.wellKnownName)
+      ?? wellKnownFromGraph(raw.displayName),
     unread: Number(raw.unreadItemCount ?? 0),
     total: Number(raw.totalItemCount ?? 0),
     parentId: raw.parentFolderId ? String(raw.parentFolderId) : null,
