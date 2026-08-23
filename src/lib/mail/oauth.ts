@@ -96,6 +96,30 @@ function toTokenSet(json: Record<string, unknown>): TokenSet {
   };
 }
 
+/**
+ * LE REFUS DE MICROSOFT, PORTÉ PAR L'ERREUR — pas seulement raconté dans son message.
+ *
+ * Le message reste identique à ce qu'il était (il est parfois affiché à l'utilisateur) ; on ajoute
+ * à côté le **code** du fournisseur et le **statut HTTP**, pour qu'un journal serveur puisse dire
+ * `invalid_client` plutôt que « ça a échoué ». Aucun jeton, aucun secret, aucun code OAuth n'entre
+ * jamais ici : `error_description` de Microsoft est délibérément ignorée, elle peut recopier des
+ * éléments de la requête.
+ */
+export class MicrosoftAuthError extends Error {
+  readonly providerCode: string;
+  readonly httpStatus: number;
+  /** Les codes AADSTS, quand Microsoft les met dans `error_codes` (numériques, sans contenu). */
+  readonly aadCodes: number[];
+
+  constructor(providerCode: string, httpStatus: number, aadCodes: number[]) {
+    super(`Microsoft a refusé l'authentification (${providerCode}).`);
+    this.name = "MicrosoftAuthError";
+    this.providerCode = providerCode;
+    this.httpStatus = httpStatus;
+    this.aadCodes = aadCodes;
+  }
+}
+
 async function postToken(cfg: MicrosoftMailConfig, body: URLSearchParams): Promise<TokenSet> {
   const res = await fetch(tokenUrl(cfg.tenantId), {
     method: "POST",
@@ -107,7 +131,10 @@ async function postToken(cfg: MicrosoftMailConfig, body: URLSearchParams): Promi
     // On rend le CODE d'erreur de Microsoft (`invalid_grant`, `consent_required`…), jamais la
     // description brute, qui peut contenir des éléments de la requête.
     const code = String(json.error ?? res.status);
-    throw new Error(`Microsoft a refusé l'authentification (${code}).`);
+    const aad = Array.isArray(json.error_codes)
+      ? json.error_codes.map((n) => Number(n)).filter((n) => Number.isFinite(n))
+      : [];
+    throw new MicrosoftAuthError(code, res.status, aad);
   }
   return toTokenSet(json);
 }

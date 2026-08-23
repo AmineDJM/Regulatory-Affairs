@@ -2,13 +2,51 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { requireUser } from "@/lib/session";
 import { resolveMicrosoftConfig, GRAPH_BASE } from "@/lib/mail/config";
-import { exchangeCode, verifyState } from "@/lib/mail/oauth";
+import { exchangeCode, verifyState, MicrosoftAuthError } from "@/lib/mail/oauth";
 import { saveConnection } from "@/lib/mail/connection";
 import { recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
 const PKCE_COOKIE = "amd_ms_pkce";
+
+/**
+ * L'ÉTAPE EN COURS — pour qu'un échec dise OÙ il s'est produit.
+ *
+ * Les trois appels du bloc `try` peuvent échouer pour des raisons totalement différentes (Microsoft
+ * refuse le jeton · Graph refuse le profil · la base refuse l'écriture) et produisaient tous le
+ * même `erreur=echec`. Sans cette étiquette, le journal ne permet pas de trancher.
+ */
+type Stage = "token" | "graph-me" | "save";
+
+/**
+ * JOURNAL DE DIAGNOSTIC — TEMPORAIRE, et sûr par construction.
+ *
+ * Ce qui entre ici : l'étape, le nom et le message de l'erreur, le code du fournisseur, les statuts
+ * HTTP, le code d'erreur Prisma. Ce qui n'y entre JAMAIS : le code OAuth, le vérificateur PKCE, le
+ * jeton d'accès, le jeton de rafraîchissement, le secret d'application. Le message est tronqué —
+ * une erreur de base de données peut recopier une requête entière.
+ *
+ * À RETIRER une fois la cause identifiée.
+ */
+function logFailure(stage: Stage, userId: string, err: unknown, graphStatus: number | null): void {
+  const e = err as { name?: unknown; message?: unknown; code?: unknown };
+  const detail: Record<string, unknown> = {
+    stage,
+    userId,
+    errorName: typeof e?.name === "string" ? e.name : typeof err,
+    errorMessage: typeof e?.message === "string" ? e.message.slice(0, 300) : null,
+    // Code d'erreur Prisma (P2002, P2021…) quand c'est la base qui refuse.
+    errorCode: typeof e?.code === "string" || typeof e?.code === "number" ? e.code : null,
+    graphStatus,
+  };
+  if (err instanceof MicrosoftAuthError) {
+    detail.providerCode = err.providerCode;
+    detail.providerHttpStatus = err.httpStatus;
+    detail.aadCodes = err.aadCodes;
+  }
+  console.error("[ms-mail][callback] échec", detail);
+}
 
 /**
  * RETOUR DE MICROSOFT.
@@ -43,16 +81,26 @@ export async function GET(req: NextRequest) {
   const cfg = resolveMicrosoftConfig(env);
   if (!cfg) return back("erreur=not-configured");
 
+  let stage: Stage = "token";
+  let graphStatus: number | null = null;
   try {
     const tokens = await exchangeCode(cfg, code, verifier);
 
     // Qui vient d'être connecté ? On le demande à Microsoft plutôt que de le déduire : c'est la
     // seule source fiable, et l'adresse affichée doit être celle de la boîte réellement servie.
+    stage = "graph-me";
     const meRes = await fetch(`${GRAPH_BASE}/me`, { headers: { authorization: `Bearer ${tokens.accessToken}` } });
+    graphStatus = meRes.status;
     const me = (await meRes.json().catch(() => ({}))) as Record<string, unknown>;
     const address = String(me.mail ?? me.userPrincipalName ?? "").trim();
-    if (!address) return back("erreur=profil");
+    if (!address) {
+      // Ce chemin ne lève pas : sans ce journal, un refus de Graph (401/403) se présenterait comme
+      // un simple « profil introuvable », alors que la cause est le jeton ou les permissions.
+      logFailure("graph-me", user.id, new Error("Graph /me sans adresse exploitable"), graphStatus);
+      return back("erreur=profil");
+    }
 
+    stage = "save";
     await saveConnection({
       userId: user.id,
       address,
@@ -65,9 +113,11 @@ export async function GET(req: NextRequest) {
       summary: `Boîte Microsoft connectée (${address})`,
     });
     return back("connecte=1");
-  } catch {
+  } catch (err) {
     // Aucun détail dans l'URL : un message d'erreur de Microsoft peut contenir des éléments
-    // de la requête, et une URL se partage par copier-coller.
+    // de la requête, et une URL se partage par copier-coller. Le détail va au JOURNAL SERVEUR,
+    // que seul l'exploitant lit.
+    logFailure(stage, user.id, err, graphStatus);
     return back("erreur=echec");
   }
 }
