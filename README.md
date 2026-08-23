@@ -1395,11 +1395,30 @@ est donc un **menu déroulant modifiable sur place** (`setRegulatoryResponsible`
 - **Droit** : `canAccessEntity(user, "REGULATORY_PRODUCT", id, "UPDATE")` — confier un dossier,
   c'est le modifier. Le tableau n'affiche le menu que si `userCan(user, "REGULATORY", "UPDATE")` ;
   sinon la colonne reste un simple texte. Le serveur **revérifie** dans tous les cas.
-- **Assigner donne l'accès** : `scopeRegulatory` filtre sur les participants, donc le nouveau
-  responsable est **rattaché aux participants** — sans quoi il porterait un dossier qu'il ne
-  verrait pas. L'ancien responsable **n'est pas retiré** : il a travaillé dessus, et lui couper la
-  vue en cours de route ferait perdre l'historique à la seule personne qui le connaît. Le retrait
-  se décide dans le panneau « Participants ».
+- **Assigner donne l'accès — VRAIMENT.** Trois verrous se refermaient l'un après l'autre sur la
+  personne à qui l'on confiait un dossier, et chacun suffisait à le rendre invisible :
+  1. **le module.** Son rôle n'ouvrait pas Regulatory → `requireModule` la renvoyait à l'accueil et
+     `scopeRegulatory` ne lui montrait aucune ligne. On lui confiait un dossier qu'elle ne pouvait
+     ni voir ni ouvrir, et la notification menait à une redirection. Désormais **porter un dossier
+     ouvre le module** (`getAccess` → `carrierAccess`, `lib/regulatory/assignment.ts`) : `VIEW`,
+     `UPDATE`, `UPLOAD`, `EXPORT`, en portée **ASSIGNED** — c'est-à-dire SES dossiers et rien
+     d'autre, puisque `scopeRegulatory` continue de décider lesquels. Ni `CREATE`, ni `DELETE`, ni
+     `VALIDATE` : ce ne sont pas des gestes de porteur. Un **blocage explicite** du module par
+     l'administrateur gagne toujours — un blocage qui se lèverait tout seul serait imprévisible.
+  2. **la gamme.** Confier un dossier « Onco » à quelqu'un rattaché à la gamme « Cardio » le lui
+     donnait sans le lui montrer. Être **nommé** sur un dossier passe désormais avant le filtre de
+     gamme : la gamme dit « votre périmètre habituel », nommer quelqu'un dit « celui-ci aussi,
+     délibérément ». Le cloisonnement par **entité**, lui, n'est pas touché : porter un dossier
+     d'une autre société se décide en ouvrant cette société.
+  3. **le cadenas.** Il ne cède pas, même devant un responsable nommé — mais on ne fait plus
+     semblant : la notification dit que le dossier est **verrouillé** et n'apparaîtra qu'à
+     l'ouverture du cadenas, et l'écran le dit aussi à celui qui vient de le confier
+     (`assignmentNotice` / `assignmentWarning`). Une notification qui annonce un dossier
+     introuvable est pire que pas de notification.
+  Le nouveau responsable reste **rattaché aux participants** (`assignedUsers`). L'ancien **n'est
+  pas retiré** : il a travaillé dessus, et lui couper la vue en cours de route ferait perdre
+  l'historique à la seule personne qui le connaît. Le retrait se décide dans le panneau
+  « Participants ».
 - **Choix vide = décision** : « — Non attribué — » libère le dossier. Le filtre de la colonne
   propose la même entrée, parce que « lesquels n'ont personne ? » est la question la plus utile
   devant une liste. La cellule non attribuée est teintée en avertissement.
@@ -2755,6 +2774,22 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Confier un dossier Regulatory, c'est en donner l'accès — vraiment.** On désignait la personne
+  chargée d'un dossier, elle recevait « Vous êtes chargé(e) de ce dossier »… et le lien menait à
+  une redirection. Trois verrous se refermaient l'un après l'autre : **le module** (son rôle
+  n'ouvrait pas Regulatory, donc aucune ligne, aucune page), **la gamme** (un dossier hors de sa
+  gamme restait invisible même en étant nommée dessus) et **le cadenas** (un dossier au pipeline
+  n'existe pour personne). Porter un dossier **ouvre désormais le module**, en portée ASSIGNED —
+  ses dossiers, et rien d'autre : voir, avancer, déposer, exporter ; ni créer, ni supprimer, ni
+  valider, qui ne sont pas des gestes de porteur. Être **nommé** passe avant le filtre de gamme —
+  la gamme dit « votre périmètre habituel », nommer quelqu'un dit « celui-ci aussi ». Le cadenas,
+  lui, ne cède pas : il protège un portefeuille encore confidentiel, et céder devant une
+  assignation le rendrait décoratif — mais **on le dit**, à la personne comme à celui qui vient de
+  confier le dossier. Deux garde-fous : un **blocage explicite** du module par l'administrateur
+  gagne toujours (sinon il se lèverait tout seul, un jour où personne ne regarde), et le
+  **cloisonnement par entité** reste intact (porter un dossier d'une autre société se décide en
+  ouvrant cette société, pas par effet de bord).
 
 - **Assigner une to-do à quelqu'un, c'est lui DEMANDER.** Il y avait deux boutons — « Nouvelle
   tâche » et « Demander une tâche » — pour un même geste, et personne ne devinait lequel prendre :

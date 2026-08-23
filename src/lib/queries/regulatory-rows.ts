@@ -16,6 +16,15 @@ import type { RegulatoryRow } from "@/app/(app)/regulatory/regulatory-table";
  * chargements parallèles finiraient par diverger sur une colonne — celle qu'on aurait corrigée
  * d'un côté seulement.
  */
+/** « Je suis nommé sur ce dossier » — responsable, assistante, ou participant rattaché. */
+const NAMED_ON_DOSSIER = (userId: string) => ({
+  OR: [
+    { responsibleId: userId },
+    { assistantId: userId },
+    { assignedUsers: { some: { id: userId } } },
+  ],
+});
+
 export async function getRegulatoryRows(user: SessionUser) {
   // LA GAMME AFFINE L'ENTITÉ, elle ne la remplace pas. Quelqu'un rattaché à une ou plusieurs
   // gammes ne voit que leurs produits ; quelqu'un rattaché à une société entière la garde
@@ -26,7 +35,19 @@ export async function getRegulatoryRows(user: SessionUser) {
       where: {
         ...scopeRegulatory(user),
         ...await currentCompanyWhereFor(user.id),
-        ...(rangeScope ? { AND: [rangeScope] } : {}),
+        // ÊTRE NOMMÉ SUR UN DOSSIER PASSE AVANT LE FILTRE DE GAMME.
+        //
+        // La gamme dit « voici votre périmètre habituel » ; désigner quelqu'un sur un dossier dit
+        // « celui-ci aussi, délibérément ». Sans cette exception, confier un dossier « Onco » à
+        // quelqu'un rattaché à la gamme « Cardio » le lui donnait sans le lui montrer : il
+        // recevait la notification, ouvrait la fiche par le lien… et ne retrouvait jamais la
+        // ligne dans son tableau.
+        //
+        // Le cloisonnement par ENTITÉ, lui, n'est pas touché : porter un dossier d'une autre
+        // société se décide en ouvrant cette société, pas par effet de bord d'une assignation.
+        ...(rangeScope
+          ? { AND: [{ OR: [rangeScope, NAMED_ON_DOSSIER(user.id)] }] }
+          : {}),
       },
       orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
       include: {

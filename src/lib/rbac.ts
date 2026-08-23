@@ -4,6 +4,7 @@ import { prisma } from "./prisma";
 import { activeStandInsFor } from "./hr/stand-in-resolve";
 import { getAppSettings } from "./settings"; // settings n'importe que prisma → aucun cycle
 import { pipelineAccessFor } from "./regulatory/pipeline-access";
+import { carrierAccess } from "./regulatory/assignment";
 import { NAVIGATION, NAV_LEGACY_LABELS } from "./labels"; // labels n'importe de rbac QUE le type `Module` → aucun cycle runtime
 
 // `cache` is a React Server Components API; fall back to identity outside an
@@ -568,6 +569,11 @@ export const getAccess = perRequest(
 
     const overrideMap = new Map(overrides.map((o) => [o.module as Module, o]));
     const modules = new Map<Module, EffectiveModuleAccess>();
+    // Modules explicitement BLOQUÉS par l'administrateur. On les retient pour que les accès
+    // IMPLICITES posés plus bas (porter un dossier, se voir partager une catégorie…) ne défassent
+    // pas une décision prise à la main — un blocage qui se lèverait tout seul serait pire
+    // qu'inutile : il serait imprévisible.
+    const blockedModules = new Set<Module>();
 
     for (const module of MODULES) {
       const ov = overrideMap.get(module);
@@ -576,6 +582,7 @@ export const getAccess = perRequest(
       // SECONDAIRE**. C'est ce qui rend l'action de l'admin (« bloquer X à Untel »)
       // réellement effective en temps réel, même si son « autre rôle » l'accorde.
       const blocked = !!ov && !ov.canView;
+      if (blocked) blockedModules.add(module);
       const actions = new Set<Action>();
       let scope: AccessScope = "ASSIGNED";
       let hasView = false;
@@ -741,6 +748,38 @@ export const getAccess = perRequest(
         if (cur) for (const a of d.actions) cur.actions.add(a);
         else modules.set(d.module, { actions: new Set<Action>(d.actions), scope: "ASSIGNED" });
       }
+    }
+
+    // ── PORTER UN DOSSIER RÉGLEMENTAIRE OUVRE LE MODULE ─────────────────────────
+    //
+    // On confie un dossier à quelqu'un depuis le tableau Regulatory, et cette personne recevait
+    // la notification « Vous êtes chargé(e) de ce dossier »… dont le lien menait à une
+    // redirection : son rôle n'ouvrait pas le module, donc `requireModule` la renvoyait à
+    // l'accueil et `scopeRegulatory` ne lui montrait aucune ligne. On lui confiait un dossier
+    // qu'elle ne pouvait ni voir ni ouvrir.
+    //
+    // La portée reste ASSIGNED : `scopeRegulatory` ne retient que les dossiers où elle est
+    // NOMMÉE (responsable, assistante, participante, créatrice). Porter trois dossiers n'ouvre
+    // pas le portefeuille de la société — et le VERROU du pipeline continue de passer avant tout.
+    if (!modules.has("REGULATORY")) {
+      const carried = await prisma.regulatoryProduct
+        .findFirst({
+          where: {
+            OR: [
+              { responsibleId: userId },
+              { assistantId: userId },
+              { assignedUsers: { some: { id: userId } } },
+            ],
+          },
+          select: { id: true },
+        })
+        .catch(() => null);
+      const grant = carrierAccess({
+        carries: Boolean(carried),
+        blocked: blockedModules.has("REGULATORY"),
+        hasModule: modules.has("REGULATORY"),
+      });
+      if (grant) modules.set("REGULATORY", { actions: new Set<Action>(grant.actions), scope: grant.scope });
     }
 
     // ── Accès IMPLICITE au module Budget quand une enveloppe est PARTAGÉE avec ce compte ──

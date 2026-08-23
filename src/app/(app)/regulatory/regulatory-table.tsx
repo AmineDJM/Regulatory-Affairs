@@ -149,6 +149,9 @@ export function RegulatoryTable({
   const [filters, setFilters] = React.useState<Record<string, string>>({});
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [assignError, setAssignError] = React.useState<string | null>(null);
+  // Une RÉSERVE, pas une erreur : le dossier a bien été confié, mais la personne ne le verra pas
+  // encore (dossier verrouillé). Le taire laisserait croire qu'elle y a accès.
+  const [assignNotice, setAssignNotice] = React.useState<string | null>(null);
   const [exporting, setExporting] = React.useState(false);
   // Le plein écran est global (classe sur <html>) : on le SUIT, on ne le duplique pas — sortir
   // par Échap ou par le bouton flottant doit remettre ce bouton-ci dans le bon état.
@@ -344,6 +347,7 @@ export function RegulatoryTable({
     const res = await setRegulatoryResponsible(fd);
     setBusyId(null);
     if (!res.ok) setAssignError(res.error ?? "Impossible de confier ce dossier.");
+    else setAssignNotice(res.message ?? null);
     router.refresh();
   }
 
@@ -567,6 +571,9 @@ export function RegulatoryTable({
         </div>
       )}
 
+      {assignNotice && (
+        <p className="rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning">{assignNotice}</p>
+      )}
       {assignError && (
         <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{assignError}</p>
       )}

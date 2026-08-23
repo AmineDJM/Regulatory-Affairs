@@ -7,6 +7,8 @@ import type { Priority, ProductChannel, ProductType, RegulatoryCategory, Regulat
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, isRegulatorySupervisor, holdsRegulatoryLock } from "@/lib/rbac";
+import { pipelineAccessFor } from "@/lib/regulatory/pipeline-access";
+import { assignmentNotice, assignmentWarning } from "@/lib/regulatory/assignment";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { buildRef } from "@/lib/refs";
@@ -27,6 +29,10 @@ export interface ActionResult {
   ok: boolean;
   error?: string;
   id?: string;
+  /** Réussite ASSORTIE d'une réserve — « c'est fait, mais voilà ce que vous devez savoir ».
+   *  Ex. : un dossier confié alors qu'il est encore verrouillé. Une réussite muette laisserait
+   *  croire que la personne y a accès. */
+  message?: string;
 }
 
 function str(formData: FormData, key: string): string | null {
@@ -453,7 +459,7 @@ export async function setRegulatoryResponsible(formData: FormData): Promise<Acti
   }
   const before = await prisma.regulatoryProduct.findUnique({
     where: { id },
-    select: { reference: true, dci: true, responsibleId: true },
+    select: { reference: true, dci: true, responsibleId: true, isLocked: true },
   });
   if (!before) return { ok: false, error: "Dossier introuvable." };
 
@@ -473,28 +479,35 @@ export async function setRegulatoryResponsible(formData: FormData): Promise<Acti
     },
   });
 
-  const named = responsibleId
-    ? (await prisma.user.findUnique({ where: { id: responsibleId }, select: { name: true } }))?.name ?? "—"
+  const target = responsibleId
+    ? await prisma.user.findUnique({ where: { id: responsibleId }, select: { name: true, role: true, secondaryRole: true } })
     : null;
+  const named = responsibleId ? target?.name ?? "—" : null;
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT",
     entityId: id, field: "responsibleId", newValue: responsibleId ?? "",
     summary: named ? `Dossier confié à ${named}` : "Dossier sans personne chargée",
   });
 
+  // LE CADENAS NE CÈDE PAS DEVANT UN RESPONSABLE NOMMÉ — mais on ne fait pas semblant. Désigner
+  // qui portera un produit encore à l'étude est légitime (on prépare l'équipe avant d'ouvrir) ;
+  // envoyer pour autant un lien qui s'ouvre sur un 404 ne l'est pas. On dit donc les deux : à la
+  // personne, que le dossier n'apparaîtra qu'à l'ouverture du cadenas ; et à celui qui vient de
+  // le confier, la même chose, tout de suite.
+  const seesLocked = target
+    ? pipelineAccessFor({ id: responsibleId as string, role: target.role, secondaryRole: target.secondaryRole }, await getAppSettings()).view
+    : false;
+
   if (responsibleId && responsibleId !== user.id) {
-    await notifyUser({
-      userId: responsibleId,
-      type: "ASSIGNMENT",
-      title: "Vous êtes chargé(e) de ce dossier",
-      body: `${before.reference} — ${before.dci}`,
-      link: `/regulatory/${id}`,
+    const notice = assignmentNotice({
+      reference: before.reference, dci: before.dci, locked: before.isLocked, seesLocked,
     });
+    await notifyUser({ userId: responsibleId, type: "ASSIGNMENT", ...notice, link: `/regulatory/${id}` });
   }
 
   revalidatePath("/regulatory");
   revalidatePath(`/regulatory/${id}`);
-  return { ok: true, id };
+  return { ok: true, id, message: assignmentWarning({ locked: before.isLocked, seesLocked }) ?? undefined };
 }
 
 /** Dates cibles (dépôt + enregistrement) — fixées par la supervision Regulatory. */
