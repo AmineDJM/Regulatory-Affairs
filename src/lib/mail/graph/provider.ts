@@ -41,6 +41,15 @@ const WELL_KNOWN_PATHS: readonly (readonly [string, WellKnownFolder])[] = [
   ["junkemail", "junk"],
 ];
 
+/**
+ * Les dossiers SYSTÈME qu'aucune messagerie n'affiche : « Boîte d'envoi » n'est que la file
+ * d'attente technique d'Exchange (un message y passe deux secondes avant de partir), et
+ * « Historique des conversations » est un dépôt Teams/Skype. Les montrer fait chercher des
+ * messages là où il n'y en a jamais. Résolus eux aussi par nom réservé — donc masqués quelle que
+ * soit la langue de la boîte.
+ */
+const HIDDEN_PATHS = ["outbox", "conversationhistory"] as const;
+
 const recipients = (list: readonly MailAddress[] | undefined) =>
   (list ?? []).map((a) => ({ emailAddress: { address: a.address, ...(a.name ? { name: a.name } : {}) } }));
 
@@ -77,24 +86,35 @@ export class MicrosoftGraphMailProvider implements MailProvider {
       query: { $top: 100, $select: "id,displayName,parentFolderId,unreadItemCount,totalItemCount" },
     });
 
-    // Les rôles, par les noms réservés — six lectures en parallèle, chacune tolérée en échec :
-    // une boîte sans dossier Archive doit afficher sa liste, pas un bandeau d'erreur. Un rôle
-    // introuvable laisse simplement le dossier s'afficher sous son propre nom.
+    // L'identifiant d'un dossier à nom réservé — toléré en échec : une boîte sans dossier Archive
+    // doit afficher sa liste, pas un bandeau d'erreur. Un rôle introuvable laisse simplement le
+    // dossier s'afficher sous son propre nom.
+    const resolveId = async (path: string): Promise<string> => {
+      const f = await graphJson<Raw>({
+        accessToken: this.token,
+        path: `/me/mailFolders/${path}`,
+        query: { $select: "id" },
+      }).catch(() => null);
+      return String(f?.id ?? "");
+    };
+
+    // Les rôles et les dossiers à masquer, par les noms réservés — huit lectures en parallèle.
     const knownP = Promise.all(
       WELL_KNOWN_PATHS.map(async ([path, role]) => {
-        const f = await graphJson<Raw>({
-          accessToken: this.token,
-          path: `/me/mailFolders/${path}`,
-          query: { $select: "id" },
-        }).catch(() => null);
-        const id = String(f?.id ?? "");
+        const id = await resolveId(path);
         return id ? ([id, role] as const) : null;
       }),
     );
+    const hiddenP = Promise.all(HIDDEN_PATHS.map(resolveId));
 
-    const [list, pairs] = await Promise.all([listP, knownP]);
+    const [list, pairs, hiddenIds] = await Promise.all([listP, knownP, hiddenP]);
     const wellKnownById = new Map(pairs.filter((p): p is readonly [string, WellKnownFolder] => p !== null));
-    return (list.value ?? []).map((raw) => toFolder(raw, wellKnownById));
+    const hidden = new Set(hiddenIds.filter(Boolean));
+    return (list.value ?? [])
+      // Le dossier masqué ET ses éventuels sous-dossiers : un enfant orphelin d'un parent invisible
+      // apparaîtrait comme un dossier personnel sans explication.
+      .filter((raw) => !hidden.has(String(raw.id ?? "")) && !hidden.has(String(raw.parentFolderId ?? "")))
+      .map((raw) => toFolder(raw, wellKnownById));
   }
 
   async listMessages(opts: { folderId: string; cursor?: string | null; limit?: number; search?: string | null }): Promise<MailPage<MailSummary>> {

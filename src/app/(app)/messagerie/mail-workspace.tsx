@@ -37,6 +37,17 @@ interface Props {
 
 type Pane = "folders" | "list" | "read";
 
+/** L'heure pour un message du jour, la date sinon — « 23/08 » sur un message d'il y a dix minutes ne dit rien. */
+function listStamp(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  return sameDay
+    ? d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+}
+
 export function MailWorkspace({ address, signature }: Props) {
   const [folders, setFolders] = React.useState<MailFolder[]>([]);
   const [folderId, setFolderId] = React.useState<string | null>(null);
@@ -121,6 +132,11 @@ export function MailWorkspace({ address, signature }: Props) {
 
   const folderByKind = (k: string) => folders.find((f) => f.wellKnown === k)?.id;
 
+  // Dans Envoyés et Brouillons, la colonne « expéditeur » afficherait VOTRE nom sur chaque ligne —
+  // c'est le destinataire qui distingue les messages là-bas, comme dans tout client mail.
+  const currentFolder = folders.find((f) => f.id === folderId);
+  const showRecipients = currentFolder?.wellKnown === "sent" || currentFolder?.wellKnown === "drafts";
+
   const startReply = (mode: ReplyMode) => {
     if (!openMsg) return;
     setCompose({ mode, draft: buildReplyDraft(openMsg, mode, address, signature) });
@@ -190,12 +206,12 @@ export function MailWorkspace({ address, signature }: Props) {
               >
                 <div className="flex items-baseline gap-2">
                   <span className={`min-w-0 flex-1 truncate text-sm ${m.isRead ? "text-muted-foreground" : "font-semibold"}`}>
-                    {m.from?.name ?? m.from?.address ?? "(inconnu)"}
+                    {showRecipients
+                      ? `À : ${m.to.map((a) => a.name ?? a.address).join(", ") || "(sans destinataire)"}`
+                      : m.from?.name ?? m.from?.address ?? "(inconnu)"}
                   </span>
                   {m.hasAttachments && <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />}
-                  <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
-                    {m.receivedAt ? new Date(m.receivedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : ""}
-                  </span>
+                  <span className="shrink-0 text-[0.6875rem] tabular-nums text-muted-foreground">{listStamp(m.receivedAt)}</span>
                 </div>
                 <p className={`truncate text-sm ${m.isRead ? "" : "font-medium"}`}>{m.subject}</p>
                 <p className="truncate text-xs text-muted-foreground">{m.preview}</p>
@@ -217,11 +233,21 @@ export function MailWorkspace({ address, signature }: Props) {
 
       {/* ── Volet 3 : lecture ── */}
       <section className={`surface min-w-0 flex-1 overflow-y-auto ${pane === "read" ? "block" : "hidden lg:block"}`}>
-        {err && <p className="m-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+        {err && (
+          <div className="m-3 flex items-start justify-between gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <p>{err}</p>
+            <button type="button" onClick={() => setErr(null)} aria-label="Fermer" className="shrink-0 rounded p-0.5 hover:bg-destructive/10">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
         {notice && (
-          <p className="m-3 rounded-lg border border-success/20 bg-success/10 px-3 py-2 text-sm text-success">
-            {notice}
-          </p>
+          <div className="m-3 flex items-start justify-between gap-2 rounded-lg border border-success/20 bg-success/10 px-3 py-2 text-sm text-success">
+            <p>{notice}</p>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Fermer" className="shrink-0 rounded p-0.5 hover:bg-success/10">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
         )}
 
         {!openMsg ? (
@@ -230,15 +256,20 @@ export function MailWorkspace({ address, signature }: Props) {
           </div>
         ) : (
           <article className="space-y-3 p-3">
-            <div className="flex flex-wrap items-center gap-1.5">
+            {/* Une seule rangée : répondre à gauche — les gestes fréquents —, ranger/supprimer à
+                droite. Sept boutons étiquetés en vrac se lisaient comme un menu, pas comme une
+                barre d'outils. */}
+            <div className="flex items-center gap-1 border-b border-border pb-2">
               <button type="button" onClick={() => setPane("list")} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary lg:hidden" aria-label="Retour">
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <ToolButton icon={Reply} label="Répondre" onClick={() => startReply("reply")} />
               <ToolButton icon={ReplyAll} label="Répondre à tous" onClick={() => startReply("replyAll")} />
               <ToolButton icon={Forward} label="Transférer" onClick={() => startReply("forward")} />
-              <span className="mx-1 h-4 w-px bg-border" />
+              <span className="flex-1" />
+              {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               <ToolButton
+                compact
                 icon={openMsg.isRead ? MailIcon : MailOpen}
                 label={openMsg.isRead ? "Marquer non lu" : "Marquer lu"}
                 onClick={() => void act(async () => {
@@ -251,26 +282,28 @@ export function MailWorkspace({ address, signature }: Props) {
                 })}
               />
               {folderByKind("archive") && (
-                <ToolButton icon={Archive} label="Archiver"
+                <ToolButton compact icon={Archive} label="Archiver"
                   onClick={() => void act(() => moveMessage(openMsg.id, folderByKind("archive")!), openMsg.id)} />
               )}
-              <ToolButton icon={Trash2} label="Supprimer"
+              <ToolButton compact icon={Printer} label="Imprimer" onClick={() => window.print()} />
+              <span className="mx-0.5 h-4 w-px bg-border" />
+              <ToolButton compact danger icon={Trash2} label="Supprimer"
                 onClick={() => void act(() => deleteMessage(openMsg.id), openMsg.id)} />
-              <ToolButton icon={Printer} label="Imprimer" onClick={() => window.print()} />
-              {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             </div>
 
             <header className="space-y-1 border-b border-border pb-3">
-              <h1 className="text-lg font-semibold">{openMsg.subject}</h1>
-              <p className="text-sm">
-                <span className="font-medium">{openMsg.from ? formatAddress(openMsg.from) : "(inconnu)"}</span>
-              </p>
+              <h1 className="text-lg font-semibold leading-snug">{openMsg.subject}</h1>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                <p className="min-w-0 truncate text-sm font-medium">
+                  {openMsg.from ? formatAddress(openMsg.from) : "(inconnu)"}
+                </p>
+                <p className="shrink-0 text-xs text-muted-foreground">
+                  {openMsg.receivedAt ? new Date(openMsg.receivedAt).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }) : ""}
+                </p>
+              </div>
               <p className="text-xs text-muted-foreground">
                 À {openMsg.to.map(formatAddress).join(", ") || "—"}
                 {openMsg.cc.length > 0 && ` · Cc ${openMsg.cc.map(formatAddress).join(", ")}`}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {openMsg.receivedAt ? new Date(openMsg.receivedAt).toLocaleString("fr-FR") : ""}
               </p>
             </header>
 
@@ -316,14 +349,23 @@ export function MailWorkspace({ address, signature }: Props) {
   );
 }
 
-function ToolButton({ icon: I, label, onClick }: { icon: React.ElementType; label: string; onClick: () => void }) {
+/**
+ * Un bouton d'outil : étiquette visible pour les gestes fréquents, icône seule (`compact`) pour
+ * les gestes de rangement — l'infobulle garde le nom. `danger` réserve le rouge au survol de la
+ * suppression, seul geste de la barre qui retire quelque chose.
+ */
+function ToolButton({ icon: I, label, onClick, compact = false, danger = false }: {
+  icon: React.ElementType; label: string; onClick: () => void; compact?: boolean; danger?: boolean;
+}) {
   return (
     <button
       type="button" onClick={onClick} title={label} aria-label={label}
-      className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+      className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors ${
+        danger ? "hover:bg-destructive/10 hover:text-destructive" : "hover:bg-secondary hover:text-foreground"
+      }`}
     >
       <I className="h-4 w-4" />
-      <span className="hidden xl:inline">{label}</span>
+      <span className={compact ? "sr-only" : "hidden lg:inline"}>{label}</span>
     </button>
   );
 }
@@ -426,7 +468,10 @@ function Composer({
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-6">
       <div className="flex h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-xl border border-border bg-card shadow-xl sm:h-[80vh] sm:rounded-xl">
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
-          <p className="text-sm font-medium">Nouveau message — <span className="text-muted-foreground">{address}</span></p>
+          <p className="text-sm font-medium">
+            {initial?.inReplyTo ? (initial.inReplyTo.mode === "forward" ? "Transférer" : "Répondre") : "Nouveau message"}
+            {" — "}<span className="text-muted-foreground">{address}</span>
+          </p>
           <button type="button" onClick={onClose} className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label="Fermer">
             <X className="h-4 w-4" />
           </button>

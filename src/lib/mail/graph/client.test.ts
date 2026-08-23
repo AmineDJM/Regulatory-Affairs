@@ -248,11 +248,15 @@ describe("La liste des dossiers — la requête qui répondait 400 BadRequest", 
         { id: "id-inbox", displayName: "Boîte de réception", unreadItemCount: 2, totalItemCount: 5 },
         { id: "id-sent", displayName: "Éléments envoyés", unreadItemCount: 0, totalItemCount: 0 },
         { id: "id-perso", displayName: "ANPP 2026", unreadItemCount: 0, totalItemCount: 0 },
+        { id: "id-outbox", displayName: "Boîte d'envoi", unreadItemCount: 0, totalItemCount: 0 },
+        { id: "id-convhist", displayName: "Historique des conversations", unreadItemCount: 0, totalItemCount: 3 },
       ],
     })],
-    // Les noms réservés v1.0, indépendants de la langue. Les quatre autres répondront 404.
+    // Les noms réservés v1.0, indépendants de la langue. Les rôles absents répondront 404.
     [/mailFolders\/inbox\?/, res(200, { id: "id-inbox" })],
     [/mailFolders\/sentitems\?/, res(200, { id: "id-sent" })],
+    [/mailFolders\/outbox\?/, res(200, { id: "id-outbox" })],
+    [/mailFolders\/conversationhistory\?/, res(200, { id: "id-convhist" })],
   ];
 
   it("le $select ne demande plus wellKnownName — propriété bêta, absente de mailFolder v1.0", async () => {
@@ -285,6 +289,19 @@ describe("La liste des dossiers — la requête qui répondait 400 BadRequest", 
     const sent = folders.find((f) => f.id === "id-sent");
     expect(sent?.unread).toBe(0);
     expect(sent?.total).toBe(0);
+  });
+
+  it("les dossiers système sont masqués : Boîte d'envoi et Historique des conversations", async () => {
+    // « Boîte d'envoi » est la file d'attente technique d'Exchange, « Historique des
+    // conversations » un dépôt Teams/Skype : aucune messagerie ne les montre, et les afficher
+    // fait chercher des messages là où il n'y en a jamais.
+    byUrl(FRENCH_MAILBOX);
+    const folders = await new MicrosoftGraphMailProvider(TOKEN, "a@adventumdz.com").listFolders();
+
+    expect(folders.map((f) => f.id)).not.toContain("id-outbox");
+    expect(folders.map((f) => f.id)).not.toContain("id-convhist");
+    // Les vrais dossiers, eux, restent tous là.
+    expect(folders.map((f) => f.id)).toEqual(expect.arrayContaining(["id-inbox", "id-sent", "id-perso"]));
   });
 });
 
