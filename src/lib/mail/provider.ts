@@ -109,16 +109,59 @@ export type MailErrorKind =
   | "network"
   | "unknown";
 
+/**
+ * CE QUE MICROSOFT A RÉPONDU — la partie qu'on garde pour le journal, et elle seule.
+ *
+ * Le message affiché à l'utilisateur reste une phrase en français. Mais une phrase en français ne
+ * permet pas de diagnostiquer un envoi qui ne part pas : « Microsoft refuse cette action » couvre
+ * aussi bien une boîte sans licence Exchange (`MailboxNotEnabledForRESTAPI`) qu'un consentement
+ * retiré (`ErrorAccessDenied`) — deux causes, deux corrections, aucun moyen de les distinguer.
+ *
+ * Ce qui entre ici est **sans danger par construction** : un statut, un code d'erreur, un
+ * identifiant de corrélation, et l'opération tentée. Le corps de la réponse de Graph n'y entre
+ * JAMAIS : il peut recopier l'objet du message ou l'adresse d'un destinataire.
+ */
+export interface MailDiagnostic {
+  /** Statut HTTP rendu par Graph. `0` quand la requête n'a pas abouti du tout. */
+  status: number;
+  /** Le code d'erreur Graph (`ErrorAccessDenied`, `ErrorInvalidRecipients`…), vide s'il n'y en a pas. */
+  code: string;
+  /**
+   * L'identifiant de corrélation Microsoft (`request-id` / `client-request-id`).
+   *
+   * C'est le SEUL élément qu'un support Microsoft sait retrouver dans ses propres journaux. Sans
+   * lui, un ticket « un mail n'est pas parti mardi » n'est pas traitable.
+   */
+  requestId: string | null;
+  /** L'opération tentée, ex. `POST /me/messages/{id}/send`. Sans la requête, qui porte du contenu. */
+  operation: string;
+}
+
 export class MailError extends Error {
   constructor(
     readonly kind: MailErrorKind,
     message: string,
     /** Délai conseillé avant réessai, en secondes (renseigné sur `throttled`). */
     readonly retryAfterSec?: number,
+    /** Le diagnostic Microsoft, quand l'erreur vient de Graph. Absent sinon. */
+    readonly diagnostic?: MailDiagnostic,
   ) {
     super(message);
     this.name = "MailError";
   }
+}
+
+/**
+ * Le diagnostic écrit pour un humain — court, et collable dans un ticket Microsoft.
+ *
+ * Rend une chaîne vide quand il n'y a rien d'exploitable : coller « (réf. ) » à la fin d'un message
+ * d'erreur est pire que de ne rien ajouter.
+ */
+export function describeDiagnostic(d: MailDiagnostic | undefined): string {
+  if (!d) return "";
+  const bits = [d.code || `HTTP ${d.status}`];
+  if (d.requestId) bits.push(`réf. ${d.requestId}`);
+  return `(${bits.join(", ")})`;
 }
 
 /**

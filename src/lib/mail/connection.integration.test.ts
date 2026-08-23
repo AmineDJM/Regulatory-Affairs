@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { getActiveConnection, getConnectionStatus, saveConnection, disconnect, markNeedsReconnect, readDeltaToken, writeFolderState } from "./connection";
 import { MailError } from "./provider";
+import { openSecret } from "@/lib/crypto/secret-box";
 
 /**
  * L'ISOLATION, VÉRIFIÉE SUR UNE VRAIE BASE.
@@ -110,6 +111,51 @@ describe("Le cycle de vie du jeton", () => {
     });
     const c = await getActiveConnection(karimId);
     expect(c?.accessToken).toBe("encore-bon");
+  });
+
+  it("un jeton expiré AVEC jeton de rafraîchissement se renouvelle tout seul", async () => {
+    // Sans ce chemin, la messagerie tomberait toutes les heures — et l'utilisateur verrait
+    // « reconnectez-vous » sans rien comprendre, alors que rien n'est cassé. Microsoft fait aussi
+    // TOURNER le jeton de rafraîchissement : ne pas enregistrer le nouveau reviendrait à casser la
+    // connexion quelques jours plus tard, sans explication.
+    const env = process.env as Record<string, string | undefined>;
+    const saved = { ...env };
+    env.MICROSOFT_TENANT_ID = "tenant-test";
+    env.MICROSOFT_CLIENT_ID = "client-test";
+    env.MICROSOFT_CLIENT_SECRET = "secret-test";
+    env.MICROSOFT_REDIRECT_URI = "https://exemple.dz/api/mail/ms/callback";
+
+    const realFetch = global.fetch;
+    global.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        access_token: "tout-neuf", refresh_token: "refresh-suivant",
+        expires_in: 3600, scope: "Mail.ReadWrite Mail.Send offline_access",
+      }),
+    })) as unknown as typeof fetch;
+
+    try {
+      await saveConnection({
+        userId: karimId, address: "karim@adventumdz.com", displayName: null,
+        homeAccountId: null, tokens: tokens("perime", "refresh-valide", -1000),
+      });
+      const c = await getActiveConnection(karimId);
+      expect(c?.accessToken).toBe("tout-neuf");
+
+      const row = await prisma.mailConnection.findUnique({ where: { userId: karimId } });
+      expect(row?.status).toBe("connected");
+      expect(row?.lastError).toBeNull();
+      expect(openSecret(row?.refreshTokenEnc)).toBe("refresh-suivant");
+      // Le nouveau jeton dort chiffré, comme l'ancien.
+      expect(row?.accessTokenEnc).not.toContain("tout-neuf");
+      expect(openSecret(row?.accessTokenEnc)).toBe("tout-neuf");
+    } finally {
+      global.fetch = realFetch;
+      for (const k of ["MICROSOFT_TENANT_ID", "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET", "MICROSOFT_REDIRECT_URI"]) {
+        if (saved[k] === undefined) delete env[k]; else env[k] = saved[k];
+      }
+    }
   });
 
   it("marquer « à reconnecter » ne garde qu'un motif court, jamais de contenu", async () => {

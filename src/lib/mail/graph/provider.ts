@@ -181,7 +181,24 @@ export class MicrosoftGraphMailProvider implements MailProvider {
     // On passe TOUJOURS par un brouillon puis `send` : l'envoi direct (`/me/sendMail`) ne laisse
     // aucune trace exploitable en cas d'échec partiel, et ne sait pas répondre dans un fil.
     const { id } = await this.createDraft(input);
-    await this.sendDraft(id);
+    try {
+      await this.sendDraft(id);
+    } catch (e) {
+      // DEUX ÉTAPES, DEUX ÉCHECS TRÈS DIFFÉRENTS — et la personne doit savoir lequel.
+      //
+      // Échouer sur la création du brouillon ne laisse rien derrière. Échouer sur l'envoi laisse le
+      // message COMPLET dans « Brouillons » : le travail de rédaction n'est pas perdu, il suffit de
+      // réessayer depuis là. Sans cette phrase, on retape tout — ou pire, on croit le message parti.
+      if (e instanceof MailError) {
+        throw new MailError(
+          e.kind,
+          `${e.message} Le message est resté dans vos brouillons : rien n'a été perdu.`,
+          e.retryAfterSec,
+          e.diagnostic,
+        );
+      }
+      throw e;
+    }
   }
 
   async setRead(id: string, read: boolean): Promise<void> {

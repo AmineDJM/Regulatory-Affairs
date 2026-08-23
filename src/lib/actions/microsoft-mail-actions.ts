@@ -11,7 +11,7 @@ import { getAppSettings } from "@/lib/settings";
 import { mailAccess } from "@/lib/mail/access";
 import { getActiveConnection, disconnect as dropConnection } from "@/lib/mail/connection";
 import { MicrosoftGraphMailProvider } from "@/lib/mail/graph/provider";
-import { MailError, type MailDraftInput, type MailProvider } from "@/lib/mail/provider";
+import { MailError, describeDiagnostic, type MailDraftInput, type MailProvider } from "@/lib/mail/provider";
 import { parseAddressList } from "@/lib/mail/reply";
 
 /**
@@ -25,10 +25,22 @@ import { parseAddressList } from "@/lib/mail/reply";
 
 export interface MailActionResult { ok: boolean; error?: string; needsReconnect?: boolean }
 
-/** Traduit une panne en message affichable, et signale le cas « il faut se reconnecter ». */
+/**
+ * Traduit une panne en message affichable, et signale le cas « il faut se reconnecter ».
+ *
+ * Le CODE de Microsoft est joint au message. « Microsoft refuse cette action » n'est pas
+ * actionnable : la même phrase couvre une boîte sans licence Exchange, un consentement retiré et
+ * une adresse de destinataire refusée. Avec `(ErrorInvalidRecipients, réf. 8f3c…)`, la personne
+ * sait quoi corriger — et l'exploitant a la référence que le support Microsoft sait retrouver.
+ */
 function fail(e: unknown): MailActionResult {
   if (e instanceof MailError) {
-    return { ok: false, error: e.message, needsReconnect: e.kind === "unauthorized" };
+    const detail = describeDiagnostic(e.diagnostic);
+    return {
+      ok: false,
+      error: detail ? `${e.message} ${detail}` : e.message,
+      needsReconnect: e.kind === "unauthorized",
+    };
   }
   // On ne remonte jamais un message brut : il pourrait porter un objet de message ou une adresse.
   console.error("[mail] action en échec", e instanceof Error ? e.name : typeof e);
@@ -62,19 +74,61 @@ function draftFromForm(fd: FormData): MailDraftInput {
   };
 }
 
+/**
+ * LE JOURNAL D'ENVOI — parce qu'un message qui ne part pas ne se voit nulle part.
+ *
+ * C'est le seul défaut de messagerie que personne ne remarque : l'écran dit « envoyé », le
+ * destinataire n'a rien, et il n'existe aucune trace permettant de savoir si Microsoft a seulement
+ * reçu la demande. Une ligne par tentative, des deux côtés (acceptée / refusée), règle la question
+ * en une lecture de journal.
+ *
+ * Ce qui entre : qui a envoyé, depuis quelle boîte, vers combien de personnes, quelle opération,
+ * quel statut, quel code Microsoft, quelle corrélation. Ce qui n'y entre JAMAIS : le jeton, le
+ * secret d'application, l'objet, le corps, ni **les adresses des destinataires** — un journal
+ * d'exploitation se relit à plusieurs, la liste des correspondants de quelqu'un n'y a pas sa place.
+ */
+function logSend(
+  ctx: { userId: string; address: string },
+  recipients: number,
+  outcome: "accepté" | "refusé",
+  e?: MailError,
+): void {
+  const line = {
+    userId: ctx.userId,
+    from: ctx.address,
+    recipients,
+    operation: e?.diagnostic?.operation ?? "POST /me/messages + POST /me/messages/{id}/send",
+    status: e?.diagnostic?.status ?? 202,
+    code: e?.diagnostic?.code || (e ? e.kind : null),
+    requestId: e?.diagnostic?.requestId ?? null,
+  };
+  // `202 Accepted` est la réponse normale de Graph : Microsoft PREND EN CHARGE le message, il ne
+  // garantit pas sa remise. Le journal doit dire « accepté », jamais « remis » — la différence
+  // porte tout le diagnostic quand le destinataire ne reçoit rien.
+  if (outcome === "accepté") console.info("[mail][envoi] accepté par Microsoft", line);
+  else console.error("[mail][envoi] refusé par Microsoft", line);
+}
+
 export async function sendMessage(fd: FormData): Promise<MailActionResult> {
   try {
     const input = draftFromForm(fd);
-    if (input.to.length === 0 && (input.cc ?? []).length === 0 && (input.bcc ?? []).length === 0) {
+    const recipients = input.to.length + (input.cc?.length ?? 0) + (input.bcc?.length ?? 0);
+    if (recipients === 0) {
       return { ok: false, error: "Indiquez au moins un destinataire." };
     }
     return await withProvider(async (p, ctx) => {
-      await p.send(input);
+      try {
+        await p.send(input);
+      } catch (e) {
+        logSend(ctx, recipients, "refusé", e instanceof MailError ? e : undefined);
+        throw e;
+      }
+      logSend(ctx, recipients, "accepté");
       await recordAudit({
         actorId: ctx.userId, action: "CREATE", module: "Messagerie",
         // L'objet n'est PAS journalisé : un journal d'audit se relit à plusieurs, un objet de mail
         // peut être confidentiel. On trace le geste et le nombre de destinataires.
-        summary: `Message envoyé à ${input.to.length + (input.cc?.length ?? 0) + (input.bcc?.length ?? 0)} destinataire·s`,
+        summary: `Message envoyé à ${recipients} destinataire·s`,
       });
       revalidatePath("/messagerie");
       return { ok: true };

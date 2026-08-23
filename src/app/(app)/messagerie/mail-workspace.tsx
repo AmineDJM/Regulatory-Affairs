@@ -48,6 +48,9 @@ export function MailWorkspace({ address, signature }: Props) {
   const [busy, setBusy] = React.useState(false);
   const [loadingList, setLoadingList] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
+  // Ce que Microsoft a réellement confirmé — voir le message affiché plus bas : « accepté » n'est
+  // pas « remis », et c'est exactement la distinction qui manquait quand un envoi disparaissait.
+  const [notice, setNotice] = React.useState<string | null>(null);
   const [compose, setCompose] = React.useState<null | { mode: "new" | ReplyMode; draft: ReturnType<typeof buildReplyDraft> | null }>(null);
 
   const call = React.useCallback(async (params: Record<string, string>) => {
@@ -89,6 +92,7 @@ export function MailWorkspace({ address, signature }: Props) {
   const open = async (s: MailSummary) => {
     setPane("read");
     setOpenMsg(null);
+    setNotice(null);
     try {
       const j = await call({ view: "message", id: s.id });
       const m = j.message as MailMessage;
@@ -137,7 +141,7 @@ export function MailWorkspace({ address, signature }: Props) {
               <li key={f.id}>
                 <button
                   type="button"
-                  onClick={() => { setFolderId(f.id); setPane("list"); setOpenMsg(null); setCursor(null); }}
+                  onClick={() => { setFolderId(f.id); setPane("list"); setOpenMsg(null); setCursor(null); setNotice(null); }}
                   className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors ${
                     active ? "bg-primary/10 font-medium text-primary" : "text-foreground hover:bg-secondary"
                   }`}
@@ -214,6 +218,11 @@ export function MailWorkspace({ address, signature }: Props) {
       {/* ── Volet 3 : lecture ── */}
       <section className={`surface min-w-0 flex-1 overflow-y-auto ${pane === "read" ? "block" : "hidden lg:block"}`}>
         {err && <p className="m-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+        {notice && (
+          <p className="m-3 rounded-lg border border-success/20 bg-success/10 px-3 py-2 text-sm text-success">
+            {notice}
+          </p>
+        )}
 
         {!openMsg ? (
           <div className="flex h-full items-center justify-center p-10 text-center text-sm text-muted-foreground">
@@ -288,7 +297,19 @@ export function MailWorkspace({ address, signature }: Props) {
           signature={signature}
           initial={compose.draft}
           onClose={() => setCompose(null)}
-          onSent={() => { setCompose(null); void loadFolders(); if (folderId) void loadList(folderId, query.trim()); }}
+          onSent={() => {
+            setCompose(null);
+            setErr(null);
+            // ACCEPTÉ, PAS REMIS — et la nuance n'est pas de la prudence de façade.
+            //
+            // Microsoft répond `202` : il prend le message en charge, il ne promet pas qu'il
+            // arrivera. Quand un message se perd, la première question est « est-il seulement
+            // parti ? » — et « Éléments envoyés » y répond en trois secondes. Écrire « envoyé »
+            // tout court aurait fait chercher la panne du mauvais côté.
+            setNotice("Message accepté par Microsoft. Il apparaît dans « Éléments envoyés » ; sa remise dépend ensuite du serveur du destinataire.");
+            void loadFolders();
+            if (folderId) void loadList(folderId, query.trim());
+          }}
         />
       )}
     </div>

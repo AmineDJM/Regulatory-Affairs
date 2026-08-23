@@ -16,6 +16,17 @@ describe("Ce qui mérite un réessai, et ce qui ne s'améliorera jamais", () => 
     expect(isRetryable(200)).toBe(false);
     expect(isRetryable(204)).toBe(false);
   });
+
+  it("sur une ÉCRITURE, un 5xx n'est pas réessayé — le mail partirait deux fois", () => {
+    // Un 5xx ne dit pas si Graph a traité la requête avant de tomber. Sur un envoi, rejouer, c'est
+    // accepter d'expédier deux fois le même courrier à un client — un défaut visible de l'extérieur.
+    for (const s of [500, 502, 503, 504]) expect(isRetryable(s, false), String(s)).toBe(false);
+  });
+
+  it("sur une écriture, 429 et 408 restent réessayables — Microsoft dit n'avoir rien fait", () => {
+    expect(isRetryable(429, false)).toBe(true);
+    expect(isRetryable(408, false)).toBe(true);
+  });
 });
 
 describe("Combien de temps attendre", () => {
@@ -88,6 +99,16 @@ describe("La boucle de réessai", () => {
     const r = await withRetry(async () => { calls += 1; return { status: 503, retryAfter: null }; }, { sleep: noSleep });
     expect(calls).toBe(MAX_ATTEMPTS);
     expect(r.status).toBe(503); // le dernier résultat est rendu : l'appelant décide quoi en dire
+  });
+
+  it("une écriture rend la main au premier 5xx, sans rejeu", async () => {
+    let calls = 0;
+    const r = await withRetry(
+      async () => { calls += 1; return { status: 503, retryAfter: null }; },
+      { sleep: noSleep, idempotent: false },
+    );
+    expect(calls).toBe(1);
+    expect(r.status).toBe(503);
   });
 
   it("attend RÉELLEMENT entre deux essais — sinon on aggrave le blocage", async () => {
