@@ -71,6 +71,19 @@ export function buildAuthorizeUrl(cfg: MicrosoftMailConfig, state: string, chall
     // `select_account` : sur un poste partagé, enchaîner sans choisir connecterait la boîte de la
     // personne précédente — une erreur invisible et durable.
     prompt: "select_account",
+    // `domain_hint=organizations` : ne proposer QUE le compte professionnel ou scolaire.
+    //
+    // Une adresse d'entreprise existe souvent AUSSI comme compte Microsoft personnel — créé un
+    // jour pour Skype, Windows ou Office grand public, bien avant le déploiement de Microsoft 365.
+    // Le sélecteur affiche alors deux vignettes portant la même adresse, on prend la mauvaise, et
+    // Microsoft répond `AADSTS50020` : « le compte du fournisseur d'identité live.com n'existe pas
+    // dans ce locataire ». Le message est exact et parfaitement incompréhensible pour la personne,
+    // qui EST membre du locataire — avec son autre compte.
+    //
+    // L'indication ferme cette porte : le routage vers live.com n'est plus proposé. Elle ne
+    // remplace pas l'autorité, qui reste celle du locataire (`MICROSOFT_TENANT_ID`) : c'est elle,
+    // et elle seule, qui décide de qui a le droit d'entrer.
+    domain_hint: "organizations",
   });
   if (loginHint) p.set("login_hint", loginHint);
   return `${authorizeUrl(cfg.tenantId)}?${p.toString()}`;

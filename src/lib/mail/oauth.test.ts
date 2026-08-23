@@ -96,6 +96,22 @@ describe("L'URL d'autorisation", () => {
   it("suggère la bonne boîte", () => {
     expect(url().searchParams.get("login_hint")).toBe("amine.djouamai@adventumdz.com");
   });
+
+  // Une adresse d'entreprise existe souvent aussi comme compte Microsoft PERSONNEL. Sans cette
+  // indication, le sélecteur propose les deux vignettes, on prend la mauvaise, et Microsoft
+  // répond AADSTS50020 (« compte live.com inexistant dans ce locataire ») — exact, et
+  // incompréhensible pour quelqu'un qui EST membre du locataire, avec son autre compte.
+  it("n'accepte que le compte professionnel ou scolaire", () => {
+    expect(url().searchParams.get("domain_hint")).toBe("organizations");
+  });
+
+  // L'indication de domaine ORIENTE le sélecteur ; elle ne décide de rien. C'est l'autorité du
+  // locataire qui tranche qui a le droit d'entrer, et elle ne bouge pas.
+  it("garde l'autorité du locataire malgré l'indication de domaine", () => {
+    expect(url().pathname).toContain("tenant-123");
+    expect(url().pathname).not.toContain("/organizations/");
+    expect(url().pathname).not.toContain("/common/");
+  });
 });
 
 describe("La configuration du serveur", () => {
