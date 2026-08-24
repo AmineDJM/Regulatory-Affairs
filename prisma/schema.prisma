@@ -5618,6 +5618,11 @@ model DeletedRecord {
 
 model AppSetting {
   id                            String   @id @default("global")
+  /// ARRÊT D'URGENCE DES ACTIONS EXTERNES DE L'IA. Vrai = plus AUCUNE action de l'assistant qui
+  /// touche le monde réel (messages, e-mails, tâches pour autrui, mutations métier, relances
+  /// planifiées) — même confirmée. Les lectures, analyses et rappels pour soi continuent.
+  /// Réglé par le Super Admin (écran Réglages ou update_platform_setting).
+  aiExternalActionsDisabled     Boolean  @default(false)
   maxUploadMb                   Int      @default(200) // pièces jointes des modules (Documents/messagerie/RH) — ZIP de dossier
   maxDriveUploadMb              Int      @default(1024) // fichiers du Drive (~1 Go, stockage en tranches)
   driveCapacityGb               Int      @default(100) // capacité globale du Drive (modifiable Super Admin)
@@ -8507,6 +8512,13 @@ model AssistantReminder {
   /// le rappel, il cesse simplement d'être relancé.
   targetUserId String?
   targetUser   User?   @relation("AssistantReminderTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  /// SURVEILLANCE CONDITIONNELLE — « si ce paiement n'est pas validé sous 48 h, préviens-moi ».
+  /// Le rappel regarde l'entité à l'échéance : encore en attente → il prévient le PROPRIÉTAIRE
+  /// (jamais le responsable de l'entité — surveiller n'est pas relancer) ; réglée → il le dit et
+  /// s'éteint. `watchType` ∈ EXPENSE_ORDER | PAYMENT_REQUEST | TASK | VALIDATION_REQUEST.
+  watchType  String?
+  watchId    String?
+  watchLabel String?
   active      Boolean   @default(true)
   lastFiredAt DateTime?
   createdAt   DateTime  @default(now())

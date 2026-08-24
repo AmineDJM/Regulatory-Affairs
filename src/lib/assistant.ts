@@ -396,6 +396,45 @@ export type AssistantActionPayload =
 
 export type AssistantActionKind = AssistantActionPayload["kind"];
 
+/**
+ * LA POLITIQUE D'ACTION — un registre, pas des if épars.
+ *
+ * Chaque action confirmée déclare :
+ *   • `external` — touche-t-elle le MONDE RÉEL (quelqu'un est prévenu, une donnée métier change) ?
+ *     C'est ce que coupe l'ARRÊT D'URGENCE (`aiExternalActionsDisabled`) : quand il est levé,
+ *     AUCUNE action externe ne s'exécute, même confirmée. Les lectures et analyses continuent.
+ *   • `level` — la dureté de la confirmation (voir `ProposedAction.level`).
+ *
+ * Principe (Executive AI OS) : l'IA est très autonome dans la RECHERCHE et le RAISONNEMENT,
+ * conservatrice dans l'EXÉCUTION — et l'exécution reste toujours sous autorité humaine.
+ */
+export const ACTION_POLICY: Record<AssistantActionKind, { external: boolean; level?: "SENSITIVE" | "CRITICAL" }> = {
+  update_regulatory_product: { external: true },
+  update_platform_setting: { external: true, level: "SENSITIVE" },
+  set_products_company: { external: true },
+  create_task: { external: true },
+  create_admin_request: { external: true },
+  send_message: { external: true },
+  send_email: { external: true },
+  create_congress_request: { external: true },
+  create_dossier: { external: true },
+  create_notification: { external: true },
+  create_calendar_event: { external: true },
+  create_hr_request: { external: true },
+  create_sponsoring_request: { external: true },
+  create_event_request: { external: true },
+  create_promo_material_request: { external: true },
+  decide_payment: { external: true, level: "SENSITIVE" },
+  update_task: { external: true },
+  update_request: { external: true },
+  create_legal_document: { external: true },
+  update_legal_document: { external: true },
+  update_calendar_event: { external: true },
+  create_hospital: { external: true },
+  update_hospital: { external: true },
+  update_salary: { external: true, level: "CRITICAL" },
+};
+
 export interface ProposedAction {
   kind: AssistantActionKind;
   /** Module RBAC qui garde l'exécution (affiché + revérifié). */
@@ -439,6 +478,12 @@ export interface AssistantResult {
   trace: string[];
   /** Action à confirmer avant exécution, le cas échéant. */
   proposal?: ProposedAction;
+  /**
+   * TOUTES les actions proposées dans CE tour — « crée les trois tâches » rend TROIS cartes et
+   * un « Tout confirmer », pas trois allers-retours. `proposal` reste la première (compatibilité).
+   * Chacune s'exécute (ou s'annule) individuellement ; la confirmation groupée les enchaîne.
+   */
+  proposals?: ProposedAction[];
   /** Fil de conversation dans lequel l'échange a été mémorisé (mémoire personnelle). */
   threadId?: string | null;
   /** Mesures de la boucle (flux uniquement) — journalisées par la route, pas affichées. */
@@ -642,7 +687,8 @@ const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
     name: "update_platform_setting",
     description:
       "RÉSERVÉ AU SUPER ADMIN : PROPOSE la modification d'un RÉGLAGE de la plateforme. N'exécute rien : "
-      + "confirmation requise. Réglages modifiables : maxUploadMb, maxDriveUploadMb, driveCapacityGb, "
+      + "confirmation requise. Réglages modifiables : aiExternalActionsDisabled (oui/non — ARRÊT D'URGENCE des actions "
+      + "externes de l'IA), maxUploadMb, maxDriveUploadMb, driveCapacityGb, "
       + "driveUserQuotaGb, budgetTotalMode (FIXED/FLEXIBLE), budgetFixedTotal, regEnrollmentEnabled (oui/non), "
       + "regulatorySupervisorRoles, regulatoryTherapeuticSegments, regEnrollmentRoles, driveSpaceCreatorRoles, "
       + "fieldReportsOverviewRoles, orgChartViewerRoles, hiddenModules. "
@@ -2579,18 +2625,32 @@ export async function runAssistant(
       return { configured: true, ok: true, reply: textOf(blocks) || "D'accord.", trace };
     }
 
-    // Action d'écriture demandée → on intercepte la première et on propose (rien n'est exécuté).
-    const write = toolUses.find((t) => WRITE_TOOL_NAMES.has(t.name));
-    if (write) {
-      const proposal = await buildProposal(write.name, write.input, user);
-      if ("error" in proposal) {
-        // On réinjecte l'erreur pour laisser Claude se corriger.
+    // Actions d'écriture demandées → TOUTES interceptées et proposées (rien n'est exécuté) —
+    // même logique de lot que la variante en flux.
+    const writes = toolUses.filter((t) => WRITE_TOOL_NAMES.has(t.name));
+    if (writes.length > 0) {
+      const okProposals: ProposedAction[] = [];
+      const failures: { id: string; error: string }[] = [];
+      for (const w of writes) {
+        const p = await buildProposal(w.name, w.input, user);
+        if ("error" in p) failures.push({ id: w.id, error: p.error });
+        else okProposals.push(p);
+      }
+      if (okProposals.length === 0) {
+        // On réinjecte les erreurs pour laisser Claude se corriger.
         messages.push({ role: "assistant", content: blocks });
-        messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: write.id, content: proposal.error, is_error: true }] });
+        messages.push({
+          role: "user",
+          content: failures.map((f) => ({ type: "tool_result" as const, tool_use_id: f.id, content: f.error, is_error: true })),
+        });
         continue;
       }
-      const reply = textOf(blocks) || `Je propose de ${proposal.title.toLowerCase()}. Confirmez-vous ?`;
-      return { configured: true, ok: true, reply, trace, proposal };
+      for (const f of failures) okProposals[0].warnings.push(`Autre action non préparée : ${f.error}`);
+      const reply = textOf(blocks)
+        || (okProposals.length === 1
+          ? `Je propose de ${okProposals[0].title.toLowerCase()}. Confirmez-vous ?`
+          : `Je propose ${okProposals.length} actions — confirmez-les une à une, ou toutes d'un coup.`);
+      return { configured: true, ok: true, reply, trace, proposal: okProposals[0], proposals: okProposals };
     }
 
     // Outils de lecture → exécuter tous et réinjecter.
@@ -2746,19 +2806,37 @@ export async function runAssistantStream(
         return { configured: true, ok: true, reply, trace, metrics };
       }
 
-      // Action d'écriture → interceptée et proposée (rien n'est exécuté).
-      const write = toolUses.find((t) => WRITE_TOOL_NAMES.has(t.name));
-      if (write) {
-        const proposal = await buildProposal(write.name, write.input, user);
-        if ("error" in proposal) {
+      // Actions d'écriture → TOUTES interceptées et proposées (rien n'est exécuté). Plusieurs
+      // écritures dans le même tour (« crée les trois tâches ») deviennent plusieurs cartes et
+      // une confirmation groupée — pas trois allers-retours.
+      const writes = toolUses.filter((t) => WRITE_TOOL_NAMES.has(t.name));
+      if (writes.length > 0) {
+        const okProposals: ProposedAction[] = [];
+        const failures: { id: string; error: string }[] = [];
+        for (const w of writes) {
+          const p = await buildProposal(w.name, w.input, user);
+          if ("error" in p) failures.push({ id: w.id, error: p.error });
+          else okProposals.push(p);
+        }
+        // Tout a échoué → on réinjecte les erreurs pour laisser le modèle se corriger.
+        if (okProposals.length === 0) {
           if (streamed) emit({ type: "reset" });
           messages.push({ role: "assistant", content: blocks });
-          messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: write.id, content: proposal.error, is_error: true }] });
+          messages.push({
+            role: "user",
+            content: failures.map((f) => ({ type: "tool_result" as const, tool_use_id: f.id, content: f.error, is_error: true })),
+          });
           continue;
         }
-        const reply = textOf(blocks) || `Je propose de ${proposal.title.toLowerCase()}. Confirmez-vous ?`;
+        // Des réussites ET des échecs : les échecs se DISENT sur la première carte — proposer
+        // deux actions sur trois en taisant la troisième ferait croire qu'elle est prête.
+        for (const f of failures) okProposals[0].warnings.push(`Autre action non préparée : ${f.error}`);
+        const reply = textOf(blocks)
+          || (okProposals.length === 1
+            ? `Je propose de ${okProposals[0].title.toLowerCase()}. Confirmez-vous ?`
+            : `Je propose ${okProposals.length} actions — confirmez-les une à une, ou toutes d'un coup.`);
         if (!streamed) emit({ type: "delta", text: reply });
-        return { configured: true, ok: true, reply, trace, proposal, metrics };
+        return { configured: true, ok: true, reply, trace, proposal: okProposals[0], proposals: okProposals, metrics };
       }
 
       // Outils de lecture : le préambule éventuel est effacé, puis on annonce chaque étape.
@@ -2837,6 +2915,18 @@ function dateValue(s: string | null | undefined): Date | null {
  * applique la revalidation. C'est le seul point d'écriture du chatbot.
  */
 export async function performAction(user: CurrentUser, payload: AssistantActionPayload): Promise<ExecuteResult> {
+  // ARRÊT D'URGENCE : quand le Super Admin l'a levé, AUCUNE action externe ne passe — même
+  // confirmée, même la sienne. Le refus est dit tel quel : prétendre exécuter serait pire.
+  if (payload?.kind && ACTION_POLICY[payload.kind]?.external) {
+    const settings = await getAppSettings().catch(() => null);
+    if (settings?.aiExternalActionsDisabled) {
+      return {
+        ok: false,
+        error: "Les actions externes de l'assistant sont DÉSACTIVÉES (arrêt d'urgence, réglé par le Super Admin). Les lectures et analyses restent disponibles.",
+      };
+    }
+  }
+
   if (payload?.kind === "update_regulatory_product") {
     if (!userCan(user, "REGULATORY", "UPDATE")) return { ok: false, error: "Vous n'avez pas le droit de modifier les dossiers Regulatory." };
     const spec = regFieldSpec(payload.field);

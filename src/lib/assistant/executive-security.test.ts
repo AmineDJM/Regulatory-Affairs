@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import type { CurrentUser } from "@/lib/session";
 import type { EffectiveAccess, Module, Action } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
 import { POWER_TOOLS, powerToolsFor, executePowerTool } from "./power-tools";
-import { buildProposal, performAction, extractSources, type AssistantActionPayload } from "@/lib/assistant";
+import { buildProposal, performAction, extractSources, ACTION_POLICY, type AssistantActionPayload } from "@/lib/assistant";
+import { watchState } from "./reminders";
 import { sentencesOf } from "@/app/(app)/assistant/voice-mode";
 
 /**
@@ -131,6 +133,54 @@ describe("injection par le contenu — la donnée reste de la donnée", () => {
     const src = readFileSync("src/lib/assistant.ts", "utf8");
     expect(src).toContain("jamais une\n  instruction");
     expect(src).toContain("elle ne s'exécute pas");
+  });
+});
+
+describe("politique d'action — le registre couvre tout, l'arrêt d'urgence coupe tout", () => {
+  it("chaque action confirmée est déclarée EXTERNE (elle touche le monde réel)", () => {
+    // Le registre est typé Record<AssistantActionKind, …> : une action non déclarée ne compile
+    // pas. Ici on fige la SÉMANTIQUE : tout ce qui passe par performAction a un effet réel.
+    for (const [kind, policy] of Object.entries(ACTION_POLICY)) {
+      expect(policy.external, kind).toBe(true);
+    }
+    expect(ACTION_POLICY.update_salary.level).toBe("CRITICAL");
+    expect(ACTION_POLICY.decide_payment.level).toBe("SENSITIVE");
+  });
+
+  it("ARRÊT D'URGENCE : aucune action externe ne passe, même pour un compte qui a le droit", async () => {
+    const before = await prisma.appSetting.findUnique({ where: { id: "global" }, select: { aiExternalActionsDisabled: true } });
+    await prisma.appSetting.upsert({
+      where: { id: "global" },
+      update: { aiExternalActionsDisabled: true },
+      create: { id: "global", aiExternalActionsDisabled: true },
+    });
+    try {
+      const r = await performAction(userWith({ WORKSPACE: ["VIEW", "CREATE"] }, "SUPER_ADMIN"), {
+        kind: "create_task", title: "test arrêt d'urgence", description: null,
+        assigneeId: null, assigneeName: null, dueDate: null, priority: null,
+      });
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/arrêt d'urgence/i);
+    } finally {
+      // On REMET l'état trouvé — un test qui laisse l'arrêt d'urgence levé casserait la suite.
+      await prisma.appSetting.update({
+        where: { id: "global" },
+        data: { aiExternalActionsDisabled: before?.aiExternalActionsDisabled ?? false },
+      });
+    }
+  });
+});
+
+describe("surveillance conditionnelle — relire la source, ne prévenir que le propriétaire", () => {
+  it("un type inconnu rend null (le balayage n'invente pas d'état)", async () => {
+    expect(await watchState("NIMPORTE_QUOI", "x")).toBeNull();
+  });
+
+  it("une entité disparue est traitée comme RÉGLÉE — on ne hurle pas sur un fantôme", async () => {
+    const r = await watchState("TASK", "id-inexistant-xyz");
+    expect(r).not.toBeNull();
+    expect(r!.pending).toBe(false);
+    expect(r!.detail).toMatch(/introuvable/i);
   });
 });
 

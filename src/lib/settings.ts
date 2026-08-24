@@ -12,6 +12,8 @@ const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
 export type BudgetTotalMode = "FIXED" | "FLEXIBLE";
 
 export interface AppSettings {
+  /** ARRÊT D'URGENCE : vrai = plus aucune action EXTERNE de l'assistant (lectures inchangées). */
+  aiExternalActionsDisabled: boolean;
   maxUploadMb: number;
   maxDriveUploadMb: number;
   /** Budget total : FIXED (montant figé) ou FLEXIBLE (= somme des enveloppes). */
@@ -49,6 +51,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  aiExternalActionsDisabled: false,
   // Limites généreuses : un ZIP de dossier entier (Documents/Regulatory/messagerie) dépasse
   // facilement les anciennes 25 Mo → l'envoi montait à 100 % puis « échec ». putBlob stocke en
   // tranches (~1 Go) donc le stockage suit. Réglable en Administration.
@@ -79,6 +82,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
     const row = await prisma.appSetting.findUnique({ where: { id: "global" } });
     if (!row) return DEFAULT_APP_SETTINGS;
     return {
+      aiExternalActionsDisabled: row.aiExternalActionsDisabled === true,
       maxUploadMb: row.maxUploadMb,
       maxDriveUploadMb: row.maxDriveUploadMb,
       budgetTotalMode: row.budgetTotalMode === "FIXED" ? "FIXED" : "FLEXIBLE",

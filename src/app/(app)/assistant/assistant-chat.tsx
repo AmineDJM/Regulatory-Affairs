@@ -45,10 +45,12 @@ interface Msg {
   content: string;
   attachmentNames?: string[];
   trace?: string[];
-  proposal?: ProposedAction;
-  actionState?: ActionState;
-  actionResult?: string;
-  actionLink?: string;
+  /** Les actions proposées dans CE tour (souvent une, parfois plusieurs — « crée les trois tâches »). */
+  proposals?: ProposedAction[];
+  /** État / résultat / lien PAR action, alignés sur `proposals`. */
+  actionStates?: ActionState[];
+  actionResults?: (string | undefined)[];
+  actionLinks?: (string | undefined)[];
 }
 
 const SUGGESTIONS = [
@@ -271,9 +273,13 @@ export function AssistantChat({
       return null;
     }
     if (res.ok) {
+      const proposals = res.proposals ?? (res.proposal ? [res.proposal] : []);
       setMessages((m) => [...m, {
         id: nextId(), role: "assistant", content: res.reply, trace: res.trace,
-        proposal: res.proposal, actionState: res.proposal ? "pending" : undefined,
+        proposals: proposals.length ? proposals : undefined,
+        actionStates: proposals.length ? proposals.map(() => "pending" as ActionState) : undefined,
+        actionResults: proposals.length ? proposals.map(() => undefined) : undefined,
+        actionLinks: proposals.length ? proposals.map(() => undefined) : undefined,
       }]);
       if (res.threadId) { setThreadId(res.threadId); void refreshThreads(); }
       return res.reply || null;
@@ -353,22 +359,53 @@ export function AssistantChat({
     abortRef.current = null;
   };
 
-  const confirm = async (msgId: number, payload: AssistantActionPayload) => {
-    setMessages((m) => m.map((x) => (x.id === msgId ? { ...x, actionState: "running" } : x)));
+  /** Met à jour l'état d'UNE action (par son index) dans le message qui la porte. */
+  const patchAction = (msgId: number, index: number, patch: { state: ActionState; result?: string; link?: string }) => {
+    setMessages((m) => m.map((x) => {
+      if (x.id !== msgId || !x.actionStates) return x;
+      const actionStates = [...x.actionStates];
+      const actionResults = [...(x.actionResults ?? [])];
+      const actionLinks = [...(x.actionLinks ?? [])];
+      actionStates[index] = patch.state;
+      actionResults[index] = patch.result;
+      actionLinks[index] = patch.link;
+      return { ...x, actionStates, actionResults, actionLinks };
+    }));
+  };
+
+  const confirm = async (msgId: number, index: number, payload: AssistantActionPayload): Promise<boolean> => {
+    patchAction(msgId, index, { state: "running" });
     try {
       const r = await executeAssistantAction(payload);
-      setMessages((m) => m.map((x) =>
-        x.id === msgId
-          ? { ...x, actionState: r.ok ? "done" : "error", actionResult: r.ok ? r.message : r.error, actionLink: r.link }
-          : x,
-      ));
+      patchAction(msgId, index, { state: r.ok ? "done" : "error", result: r.ok ? r.message : r.error, link: r.link });
+      return r.ok;
     } catch {
-      setMessages((m) => m.map((x) => (x.id === msgId ? { ...x, actionState: "error", actionResult: "Exécution impossible." } : x)));
+      patchAction(msgId, index, { state: "error", result: "Exécution impossible." });
+      return false;
     }
   };
 
-  const cancel = (msgId: number) => {
-    setMessages((m) => m.map((x) => (x.id === msgId ? { ...x, actionState: "cancelled" } : x)));
+  /** « Tout confirmer » : les actions EN ATTENTE du message, l'une après l'autre — jamais en
+   *  parallèle (deux écritures concurrentes sur le même dossier se marcheraient dessus). */
+  const confirmingAllRef = React.useRef<Set<number>>(new Set());
+  const confirmAll = async (msg: Msg) => {
+    if (!msg.proposals || !msg.actionStates) return;
+    if (confirmingAllRef.current.has(msg.id)) return; // double-clic = un seul lot
+    confirmingAllRef.current.add(msg.id);
+    try {
+      for (let i = 0; i < msg.proposals.length; i += 1) {
+        if (msg.actionStates[i] !== "pending") continue;
+        // Une action CRITIQUE (re-saisie du montant) ne s'enchaîne pas : elle se confirme seule.
+        if (msg.proposals[i].level === "CRITICAL") continue;
+        await confirm(msg.id, i, msg.proposals[i].payload);
+      }
+    } finally {
+      confirmingAllRef.current.delete(msg.id);
+    }
+  };
+
+  const cancel = (msgId: number, index: number) => {
+    patchAction(msgId, index, { state: "cancelled" });
   };
 
   const rail = memoryEnabled ? (
@@ -439,7 +476,7 @@ export function AssistantChat({
           </div>
         ) : (
           messages.map((m) => (
-            <MessageBubble key={m.id} msg={m} onConfirm={confirm} onCancel={cancel} />
+            <MessageBubble key={m.id} msg={m} onConfirm={confirm} onCancel={cancel} onConfirmAll={confirmAll} />
           ))
         )}
         {/* Réponse EN COURS : on montre ce que l'assistant fait, puis ce qu'il écrit — jamais
@@ -582,7 +619,10 @@ export function AssistantChat({
 
 /** Le volet CONTEXTE du Chief of Staff : sources consultées + actions proposées du fil. */
 function ExecutivePanel({ sources, messages }: { sources: { label: string; href: string }[]; messages: Msg[] }) {
-  const actions = messages.filter((m) => m.proposal).slice(-6).reverse();
+  const actions = messages
+    .flatMap((m) => (m.proposals ?? []).map((p, i) => ({ id: `${m.id}-${i}`, title: p.title, state: m.actionStates?.[i] ?? "pending" })))
+    .slice(-6)
+    .reverse();
   return (
     <aside className="hidden w-72 shrink-0 xl:block">
       <div className="flex h-full flex-col gap-3 overflow-y-auto rounded-2xl border border-border bg-card p-3">
@@ -613,12 +653,12 @@ function ExecutivePanel({ sources, messages }: { sources: { label: string; href:
               <Sparkles className="h-3 w-3" /> Actions du fil
             </p>
             <div className="mt-1 space-y-1">
-              {actions.map((m) => (
-                <div key={m.id} className="rounded-lg border border-border/60 px-2 py-1.5 text-xs">
-                  <p className="truncate font-medium" title={m.proposal!.title}>{m.proposal!.title}</p>
+              {actions.map((a) => (
+                <div key={a.id} className="rounded-lg border border-border/60 px-2 py-1.5 text-xs">
+                  <p className="truncate font-medium" title={a.title}>{a.title}</p>
                   <p className="mt-0.5 text-muted-foreground">
-                    {m.actionState === "done" ? "✔ Exécutée" : m.actionState === "cancelled" ? "Annulée"
-                      : m.actionState === "error" ? "En échec" : m.actionState === "running" ? "En cours…" : "À confirmer"}
+                    {a.state === "done" ? "✔ Exécutée" : a.state === "cancelled" ? "Annulée"
+                      : a.state === "error" ? "En échec" : a.state === "running" ? "En cours…" : "À confirmer"}
                   </p>
                 </div>
               ))}
@@ -798,11 +838,12 @@ function DriveFilePicker({ onPick, onClose }: { onPick: (f: AssistantFileOption)
 }
 
 function MessageBubble({
-  msg, onConfirm, onCancel,
+  msg, onConfirm, onCancel, onConfirmAll,
 }: {
   msg: Msg;
-  onConfirm: (id: number, payload: AssistantActionPayload) => void;
-  onCancel: (id: number) => void;
+  onConfirm: (id: number, index: number, payload: AssistantActionPayload) => void;
+  onCancel: (id: number, index: number) => void;
+  onConfirmAll: (msg: Msg) => void;
 }) {
   if (msg.role === "user") {
     return (
@@ -841,16 +882,26 @@ function MessageBubble({
             {cleanReply(msg.content)}
           </div>
         )}
-        {msg.proposal && (
-          <ActionCard
-            proposal={msg.proposal}
-            state={msg.actionState ?? "pending"}
-            result={msg.actionResult}
-            link={msg.actionLink}
-            onConfirm={() => onConfirm(msg.id, msg.proposal!.payload)}
-            onCancel={() => onCancel(msg.id)}
-          />
+        {msg.proposals && msg.proposals.length > 1 && (msg.actionStates ?? []).filter((s) => s === "pending").length > 1 && (
+          <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-accent/30 px-3 py-2 text-sm">
+            <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+            <span className="flex-1">{msg.proposals.length} actions proposées — chacune se confirme, ou toutes d&apos;un coup.</span>
+            <Button size="sm" onClick={() => onConfirmAll(msg)}>
+              <CheckCircle2 className="h-4 w-4" /> Tout confirmer
+            </Button>
+          </div>
         )}
+        {msg.proposals?.map((p, i) => (
+          <ActionCard
+            key={i}
+            proposal={p}
+            state={msg.actionStates?.[i] ?? "pending"}
+            result={msg.actionResults?.[i]}
+            link={msg.actionLinks?.[i]}
+            onConfirm={() => onConfirm(msg.id, i, p.payload)}
+            onCancel={() => onCancel(msg.id, i)}
+          />
+        ))}
       </div>
     </div>
   );

@@ -105,10 +105,57 @@ export function formatAlgiersDue(d: Date): string {
 
 const SWEEP_LIMIT = 50;
 
+/** Les entités qu'un rappel peut SURVEILLER (« si pas validé sous 48 h, préviens-moi »). */
+export const WATCH_TYPES = ["EXPENSE_ORDER", "PAYMENT_REQUEST", "TASK", "VALIDATION_REQUEST"] as const;
+export type WatchType = (typeof WATCH_TYPES)[number];
+
+export interface WatchState {
+  /** L'entité attend-elle ENCORE ? (introuvable = résolue : on ne hurle pas sur un fantôme.) */
+  pending: boolean;
+  detail: string;
+}
+
+/**
+ * L'entité surveillée est-elle toujours en attente ? Relu depuis la SOURCE au moment du tir —
+ * jamais depuis un état mémorisé : c'est tout l'intérêt d'une surveillance.
+ */
+export async function watchState(type: string, id: string): Promise<WatchState | null> {
+  if (type === "EXPENSE_ORDER") {
+    const o = await prisma.expenseOrder.findUnique({ where: { id }, select: { reference: true, status: true, centralStatus: true, paidDate: true } });
+    if (!o) return { pending: false, detail: "règlement introuvable (supprimé ?)" };
+    const pending = !o.paidDate && o.status !== "CANCELLED"
+      && (o.centralStatus == null || ["AWAITING", "CHANGES_REQUESTED", "INFO_REQUESTED"].includes(o.centralStatus));
+    return { pending, detail: `${o.reference} — ${o.paidDate ? "payé" : o.centralStatus ?? o.status}` };
+  }
+  if (type === "PAYMENT_REQUEST") {
+    const p = await prisma.paymentRequest.findUnique({ where: { id }, select: { reference: true, status: true } });
+    if (!p) return { pending: false, detail: "demande introuvable (supprimée ?)" };
+    return { pending: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ON_HOLD", "CHANGES_REQUESTED"].includes(p.status), detail: `${p.reference} — ${p.status}` };
+  }
+  if (type === "TASK") {
+    const t = await prisma.task.findUnique({ where: { id }, select: { title: true, status: true } });
+    if (!t) return { pending: false, detail: "tâche introuvable (supprimée ?)" };
+    return { pending: ["REQUESTED", "TODO", "IN_PROGRESS"].includes(t.status), detail: `${t.title} — ${t.status}` };
+  }
+  if (type === "VALIDATION_REQUEST") {
+    const v = await prisma.validationRequest.findUnique({ where: { id }, select: { reference: true, status: true } });
+    if (!v) return { pending: false, detail: "validation introuvable (supprimée ?)" };
+    return { pending: v.status === "PENDING", detail: `${v.reference} — ${v.status}` };
+  }
+  return null;
+}
+
 /**
  * LE BALAYAGE — tire les rappels échus. Idempotent par construction : un rappel simple passe
  * `active=false` dans la MÊME écriture qui précède les notifications ; une récurrence avance son
  * `dueAt` de même. Deux passages concurrents peuvent au pire notifier deux fois — jamais dériver.
+ *
+ * Deux gardes de GOUVERNANCE :
+ *   • un rappel de SURVEILLANCE relit l'entité : réglée → il le dit au propriétaire et s'éteint ;
+ *     encore en attente → il prévient le PROPRIÉTAIRE uniquement (surveiller n'est pas relancer) ;
+ *   • l'ARRÊT D'URGENCE (`aiExternalActionsDisabled`) coupe les RELANCES vers autrui (rôle,
+ *     personne) — le pop-up au propriétaire, lui, reste : se parler à soi-même n'est pas une
+ *     action externe.
  */
 export async function runAssistantReminders(now: Date = new Date()): Promise<void> {
   const due = await prisma.assistantReminder.findMany({
@@ -116,9 +163,20 @@ export async function runAssistantReminders(now: Date = new Date()): Promise<voi
     orderBy: { dueAt: "asc" },
     take: SWEEP_LIMIT,
   });
+  if (due.length === 0) return;
+
+  const externalDisabled = await prisma.appSetting.findUnique({
+    where: { id: "global" },
+    select: { aiExternalActionsDisabled: true },
+  }).then((s) => s?.aiExternalActionsDisabled === true).catch(() => false);
 
   for (const r of due) {
-    const next = nextOccurrence(r.dueAt, r.recurrence, now);
+    // Surveillance : l'état de l'entité décide du message — et une entité RÉGLÉE éteint le
+    // rappel, récurrence comprise (surveiller un dossier clos n'a pas de sens).
+    const watch = r.watchType && r.watchId ? await watchState(r.watchType, r.watchId).catch(() => null) : null;
+    const resolved = watch != null && !watch.pending;
+
+    const next = resolved ? null : nextOccurrence(r.dueAt, r.recurrence, now);
     // L'état d'abord, les notifications ensuite : si l'envoi échoue, on préfère un rappel
     // silencieux à un rappel qui hurle toutes les minutes.
     await prisma.assistantReminder.update({
@@ -126,16 +184,26 @@ export async function runAssistantReminders(now: Date = new Date()): Promise<voi
       data: next ? { dueAt: next, lastFiredAt: now } : { active: false, lastFiredAt: now },
     });
 
+    const watchLine = watch
+      ? (watch.pending
+          ? `Toujours en attente : ${watch.detail}.`
+          : `C'est réglé (${watch.detail}) — surveillance terminée.`)
+      : null;
+
     // Le pop-up passe par la diffusion ciblée (`broadcastNotification`), la seule porte qui
     // sache l'afficher en plein écran : un rappel qu'on a demandé mérite d'interrompre.
     await broadcastNotification({
       audience: "USERS",
       userIds: [r.userId],
       title: `Rappel — ${r.title}`,
-      body: r.note ?? (r.recurrence !== "NONE" ? `Rappel ${RECURRENCE_LABEL[r.recurrence as ReminderRecurrence] ?? ""}.` : undefined),
+      body: watchLine ?? r.note ?? (r.recurrence !== "NONE" ? `Rappel ${RECURRENCE_LABEL[r.recurrence as ReminderRecurrence] ?? ""}.` : undefined),
       link: r.link ?? "/chief-of-staff",
       popup: true,
     }).catch((e) => console.error("[reminders] notify owner failed", e));
+
+    // Les RELANCES vers AUTRUI — jamais quand l'entité surveillée est réglée, jamais sous
+    // arrêt d'urgence.
+    if (resolved || externalDisabled) continue;
 
     // La RELANCE d'un rôle : « Regulatory, où en êtes-vous ? » — envoyée au nom du demandeur.
     if (r.targetRole) {

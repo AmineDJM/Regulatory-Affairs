@@ -592,6 +592,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           recurrence: { type: "string", enum: [...REMINDER_RECURRENCES], description: "NONE, DAILY, WEEKLY, MONTHLY ou MONTHLY_WEEKDAY." },
           target_role: { type: "string", description: "Rôle à relancer à chaque échéance (code rôle interne)." },
           target_person: { type: "string", description: "Nom d'une personne précise à relancer à chaque échéance." },
+          watch_reference: { type: "string", description: "SURVEILLANCE CONDITIONNELLE : référence d'un règlement (ORD-…), d'une demande de paiement (PAY-…), d'une validation (VAL-…) ou fragment du titre d'une tâche. À l'échéance, le rappel RELIT l'entité : encore en attente → il prévient l'utilisateur ; réglée → il le dit et s'éteint. Pour « si ce paiement n'est pas validé sous 48 h, préviens-moi »." },
           note: { type: "string", description: "Le message de la relance / le détail du rappel." },
           link: { type: "string", description: "Lien interne (/regulatory, /legal/…)." },
         },
@@ -633,11 +634,32 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       // porte de sortie déguisée.
       if (link && !link.startsWith("/")) return "Le lien doit être une page interne (commencer par « / »).";
 
+      // SURVEILLANCE : la référence se résout MAINTENANT, dans l'ordre des références les plus
+      // spécifiques — un rappel qui surveillerait « rien » ne préviendrait jamais de rien.
+      let watchType: string | null = null;
+      let watchId: string | null = null;
+      let watchLabel: string | null = null;
+      const watchRaw = str(input, "watch_reference");
+      if (watchRaw) {
+        const [order, payment, validation, task] = await Promise.all([
+          prisma.expenseOrder.findFirst({ where: { reference: { equals: watchRaw, mode: "insensitive" } }, select: { id: true, reference: true, label: true } }),
+          prisma.paymentRequest.findFirst({ where: { reference: { equals: watchRaw, mode: "insensitive" } }, select: { id: true, reference: true, title: true } }),
+          prisma.validationRequest.findFirst({ where: { reference: { equals: watchRaw, mode: "insensitive" } }, select: { id: true, reference: true, title: true } }),
+          prisma.task.findFirst({ where: { title: { contains: watchRaw, mode: "insensitive" }, status: { in: ["REQUESTED", "TODO", "IN_PROGRESS"] } }, orderBy: { createdAt: "desc" }, select: { id: true, title: true } }),
+        ]);
+        if (order) { watchType = "EXPENSE_ORDER"; watchId = order.id; watchLabel = `${order.reference} — ${order.label}`; }
+        else if (payment) { watchType = "PAYMENT_REQUEST"; watchId = payment.id; watchLabel = `${payment.reference} — ${payment.title}`; }
+        else if (validation) { watchType = "VALIDATION_REQUEST"; watchId = validation.id; watchLabel = `${validation.reference} — ${validation.title}`; }
+        else if (task) { watchType = "TASK"; watchId = task.id; watchLabel = task.title; }
+        else return `Rien à surveiller sous « ${watchRaw} » — ni règlement, ni demande de paiement, ni validation, ni tâche ouverte. Vérifier la référence (inspect_record).`;
+      }
+
       const created = await prisma.assistantReminder.create({
         data: {
           userId: user.id, title, dueAt, recurrence,
           targetRole: roleRaw || null,
           targetUserId,
+          watchType, watchId, watchLabel,
           note: str(input, "note") || null,
           link: link || null,
         },
@@ -653,7 +675,9 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         premiereEcheance: formatAlgiersDue(dueAt),
         recurrence: RECURRENCE_LABEL[recurrence],
         relance: relances.length ? relances.join(" et ") : null,
-        note: "À l'échéance : pop-up pour vous" + (relances.length ? ` et relance envoyée à ${relances.join(" et ")}` : "") + ".",
+        surveille: watchLabel,
+        note: "À l'échéance : pop-up pour vous" + (relances.length ? ` et relance envoyée à ${relances.join(" et ")}` : "")
+          + (watchLabel ? `. Surveillance : si « ${watchLabel} » est réglé d'ici là, le rappel le dit et s'éteint ; sinon il vous prévient (vous seul).` : "") + ".",
       });
     },
   },
@@ -680,6 +704,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         recurrence: RECURRENCE_LABEL[r.recurrence as ReminderRecurrence] ?? r.recurrence,
         relanceLeRole: r.targetRole ? ROLE_LABELS[r.targetRole] ?? r.targetRole : null,
         relanceLaPersonne: r.targetUser?.name ?? null,
+        surveille: r.watchLabel ?? null,
       })));
     },
   },
@@ -760,6 +785,17 @@ Vos gestes de chef de cabinet :
   \`create_hospital\` / \`update_hospital\`, \`update_salary\` (NIVEAU CRITIQUE : toujours lire la paie
   avant, la carte montre l'avant, l'après et l'écart). Toutes ces actions passent par la carte de
   confirmation — ne JAMAIS dire « c'est fait » avant qu'elle soit confirmée et exécutée.
+  PLUSIEURS actions d'un coup (« crée les trois tâches ») : appeler les outils d'écriture DANS LE
+  MÊME TOUR — une carte par action + un « Tout confirmer », jamais trois allers-retours.
+- Surveillance sans relance : « si ce paiement n'est pas validé sous 48 h, préviens-moi » =
+  \`plan_reminder\` avec \`watch_reference\` — à l'échéance il relit l'entité et ne prévient QUE
+  l'utilisateur (surveiller n'est pas relancer le responsable).
+
+AUTONOMIE ET AUTORITÉ — la règle d'or : très autonome dans la RECHERCHE et le RAISONNEMENT
+(chercher, lire, recouper, calculer, analyser, simuler — sans demander la permission de lire ce
+que l'utilisateur a déjà le droit de lire), conservateur dans l'EXÉCUTION (aucun message, aucune
+relance, aucune modification, aucune assignation SANS instruction ou confirmation de
+l'utilisateur — en cas d'ambiguïté : ANALYSER et PROPOSER, ne pas exécuter).
 
 RÈGLES DE PREUVE : chaque affirmation importante cite sa référence, sa date et son lien interne.
 Si la donnée n'existe pas, dire « je ne trouve aucune trace de… » — jamais l'affirmer en creux.
