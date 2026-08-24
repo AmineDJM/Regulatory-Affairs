@@ -11,6 +11,8 @@ import { EXECUTIVE_BRIEF_TOOLS } from "@/lib/assistant/executive-brief-tools";
 import { MEMORY_TOOLS } from "@/lib/assistant/memory-tools";
 import { THREE_SIXTY_TOOLS } from "@/lib/assistant/three-sixty";
 import { DOCUMENT_DISCOVERY_TOOLS } from "@/lib/assistant/document-discovery";
+import { WHAT_IF_TOOLS } from "@/lib/assistant/what-if";
+import { DELIVERABLE_TOOLS } from "@/lib/assistant/deliverables";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -220,6 +222,11 @@ export const POWER_TOOLS: PowerTool[] = [
   // La DÉCOUVERTE DOCUMENTAIRE en Drive « sale » : nom + index textuel progressif + lecture
   // bornée de vérification — le nom d'un fichier est un indice, pas une preuve.
   ...DOCUMENT_DISCOVERY_TOOLS,
+  // SIMULATION (jamais mutative), ÉTAT CONSOLIDÉ de l'entreprise, tri de l'ATTENTION du PDG.
+  ...WHAT_IF_TOOLS,
+  // LIVRABLES UNIVERSELS : vrais .docx/.xlsx/.pptx depuis UNE spec (cohérence par construction),
+  // registre versionné, dépôt au Drive.
+  ...DELIVERABLE_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */

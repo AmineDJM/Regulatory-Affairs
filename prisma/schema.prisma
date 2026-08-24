@@ -782,6 +782,29 @@ model ExecutiveCommitment {
   @@index([dueAt])
 }
 
+/// REGISTRE DES LIVRABLES fabriqués par l'assistant (rapports Word, classeurs Excel,
+/// présentations PowerPoint). La SPEC — le contenu STRUCTURÉ du document — est conservée :
+/// c'est elle qui permet de re-générer, de décliner en un autre format avec LES MÊMES
+/// chiffres (cohérence inter-fichiers par construction), et de versionner. Les fichiers
+/// eux-mêmes vivent dans le Drive du propriétaire (dossier « Livrables IA »).
+model AssistantArtifact {
+  id        String   @id @default(cuid())
+  ownerId   String
+  owner     User     @relation("AssistantArtifacts", fields: [ownerId], references: [id], onDelete: Cascade)
+  title     String
+  /// Formats produits à la dernière génération — « DOCX », « DOCX+XLSX+PPTX »…
+  formats   String
+  /// Le contenu structuré (sections, tableaux, sources) — la source unique des rendus.
+  spec      Json
+  version   Int      @default(1)
+  /// [{ format, filename, nodeId }] — les fichiers déposés au Drive.
+  files     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, updatedAt])
+}
+
 /// Point du matin de l'assistant : un texte par personne et par jour (fuseau d'Alger).
 /// Cache indispensable — sans lui, chaque ouverture de la page relancerait un appel IA.
 /// Strictement personnel, comme le reste de la mémoire de l'assistant.
@@ -1068,6 +1091,7 @@ model User {
   assistantMemoryItems  AssistantMemoryItem[]    @relation("AssistantMemoryItems")
   executiveDecisions    ExecutiveDecision[]      @relation("ExecutiveDecisions")
   executiveCommitments  ExecutiveCommitment[]    @relation("ExecutiveCommitments")
+  assistantArtifacts    AssistantArtifact[]      @relation("AssistantArtifacts")
   adProItemDecisions    AdProItemDecision[]    @relation("AdProItemDecider")
   apiClients            ApiClient[]            @relation("ApiClientActAs")
   docRequestsAsked      DocumentRequest[]      @relation("DocRequestAsker")
