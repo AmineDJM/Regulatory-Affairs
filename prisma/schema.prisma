@@ -4909,6 +4909,18 @@ model PromoMaterial {
   settlementOrderId String? // ordre de dépense — règlement final (facture agence)
   adminRequestId    String? // demande administrative liée (visibilité assistante)
 
+  /// LE CIRCUIT COURT — cinq étapes au lieu de seize, puis trois chantiers EN PARALLÈLE.
+  /// L'ancien `status` (seize valeurs en file indienne) reste écrit pour les dossiers en cours et
+  /// pour l'historique ; c'est `circuitState` qui pilote désormais. Voir
+  /// `src/lib/promo-material/circuit.ts`.
+  circuitState      String?  // QUOTE_REQUESTED · REVIEW_* · IN_EXECUTION · COMPLETED · REFUSED
+  /// Le N+1 qui doit valider — figé à la création : un changement d'organigramme en cours de
+  /// circuit ne doit pas transférer une validation en attente à quelqu'un qui n'a rien suivi.
+  managerId         String?
+  /// Les chantiers parallèles déjà clos (`PURCHASE_ORDER`, `PAYMENT`, `AD_VISA`), séparés par des
+  /// virgules. Le dossier n'est terminé que lorsque les trois y figurent.
+  tracksDone        String?
+
   createdById String?
   updatedById String?
   createdAt   DateTime @default(now())
