@@ -38,6 +38,11 @@ export const MODULES = [
   // Il n'appartient qu'au PDG et au Super Admin : celui qui autorise l'argent ne doit pas être
   // dans le même écran que celui qui le décaisse, sinon la séparation des rôles n'est qu'un onglet.
   "PAYMENT_CENTRE",
+  // CHIEF_OF_STAFF : « My Chief of Staff » — l'interface exécutive de pilotage (PDG + Super
+  // Admin). Le même moteur que l'assistant, mais avec les outils de chef de cabinet : histoire
+  // complète d'un dossier, lecture des documents du Drive, bilan d'une personne, rappels
+  // planifiés, décisions du centre de paiement.
+  "CHIEF_OF_STAFF",
   "PROCESS_INTELLIGENCE", "ADVENTUM_BRAIN", "ADMIN",
 ] as const;
 export type Module = (typeof MODULES)[number];
@@ -100,6 +105,8 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     // Le CENTRE DE PAIEMENT : le PDG y siège avec le Super Admin — et personne d'autre,
     // pas même le Directeur Général (règle sitsOnPaymentCentre, lib/payments/authorization.ts).
     PAYMENT_CENTRE: MANAGE,
+    // « My Chief of Staff » — l'interface exécutive, même cercle que le centre de paiement.
+    CHIEF_OF_STAFF: MANAGE,
     VALIDATIONS: [...VALIDATION_USER, "VALIDATE"], DIRECTIVES: MANAGE, SUPPORT: MANAGE, DOSSIERS: MANAGE,
     NOTIFICATIONS: ["VIEW"],
     // NB : Administration et Adventum Brain (+ Process Intelligence) sont réservés au

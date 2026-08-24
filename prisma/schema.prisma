@@ -972,6 +972,7 @@ model User {
   rangeAccess           UserProductRange[]
   legalDocReads         LegalDocumentReader[]
   directoryAccess       MedicalDirectoryAccess[] @relation("MedicalDirectoryAccessUser")
+  assistantReminders    AssistantReminder[]      @relation("AssistantReminderUser")
   adProItemDecisions    AdProItemDecision[]    @relation("AdProItemDecider")
   apiClients            ApiClient[]            @relation("ApiClientActAs")
   docRequestsAsked      DocumentRequest[]      @relation("DocRequestAsker")
@@ -8475,6 +8476,31 @@ model Invoice {
 /// font LogRocket ou FullStory, et ce qui suffit à reproduire un bug.
 /// ⚠️ AUCUNE VALEUR DE CHAMP n'y entre — jamais un mot de passe, un montant, un contenu. Le
 /// masquage est appliqué à l'entrée par `src/lib/replay/capture.ts`, et vérifié par ses tests.
+/// UN RAPPEL DU CHIEF OF STAFF — « rappelle-moi mardi à 10 h », « tous les dimanches relance
+/// Regulatory ». Un rappel appartient à UNE personne ; à l'échéance il la prévient (pop-up), et
+/// s'il porte un `targetRole`, il relance AUSSI ce rôle avec la note. `NONE` s'éteint après le
+/// premier tir ; les récurrences avancent leur échéance et restent actives.
+model AssistantReminder {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation("AssistantReminderUser", fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  note        String?
+  link        String?
+  dueAt       DateTime
+  recurrence  String    @default("NONE") // NONE | DAILY | WEEKLY | MONTHLY
+  /// Rôle à RELANCER à l'échéance (ex. HEAD_OF_REGULATORY) — le cœur du « tous les dimanches,
+  /// demande à Regulatory où en sont les dossiers ». Nul = on ne prévient que soi.
+  targetRole  String?
+  active      Boolean   @default(true)
+  lastFiredAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([active, dueAt])
+  @@index([userId])
+}
+
 model SessionEvent {
   id        String   @id @default(cuid())
   /// La session de navigation — c'est elle qu'on rejoue d'un bout à l'autre.

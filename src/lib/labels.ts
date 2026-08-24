@@ -1436,6 +1436,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   DRIVE: "Drive",
   ADMIN_REQUESTS: "Bureau du secrétariat",
   PAYMENT_CENTRE: "Centre de paiement",
+  CHIEF_OF_STAFF: "My Chief of Staff",
   NOTIFICATIONS: "Notifications",
   PROCESS_INTELLIGENCE: "Process Intelligence",
   ADVENTUM_BRAIN: "Adventum Brain",
@@ -1470,6 +1471,11 @@ export const NAVIGATION: NavItem[] = [
   // Assistant IA : MODULE À PART ENTIÈRE (l'ancienne bulle flottante a été retirée) —
   // page plein écran avec dictée vocale et lecture de pièces jointes.
   { module: "WORKSPACE", label: "Assistant IA", href: "/assistant", icon: "Sparkles", group: "Pilotage" },
+  // « MY CHIEF OF STAFF » — l'interface exécutive de pilotage, réservée au PDG et au Super
+  // Admin (module CHIEF_OF_STAFF). Même moteur que l'assistant, mais les outils d'un chef de
+  // cabinet : histoire complète d'un dossier, lecture des documents, bilans, rappels planifiés,
+  // décisions du centre de paiement.
+  { module: "CHIEF_OF_STAFF", label: "My Chief of Staff", href: "/chief-of-staff", icon: "Crown", group: "Pilotage" },
   { module: "DOSSIERS", label: "Projets", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
   // Messagerie Microsoft 365 — sous le module MESSAGING (droit déjà existant) ; l'ouverture réelle
   // dépend en plus du drapeau MICROSOFT_MAIL et de la liste pilote, vérifiés dans l'écran.

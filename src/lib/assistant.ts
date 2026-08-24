@@ -42,6 +42,13 @@ import {
 import {
   powerToolsFor, executePowerTool, powerToolLabels, powerToolsBriefing,
 } from "@/lib/assistant/power-tools";
+import { executiveBriefing } from "@/lib/assistant/executive-tools";
+import { toNumber } from "@/lib/utils";
+import {
+  sitsOnPaymentCentre, applyDecision, CENTRAL_STATUS_LABEL, CENTRAL_DECISION_LABEL,
+  type CentralStatus,
+} from "@/lib/payments/authorization";
+import { decidePayment } from "@/lib/actions/payment-centre-actions";
 import type { CurrentUser } from "@/lib/session";
 import {
   ROLE_LABELS, TASK_STATUS, PRIORITY, ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS,
@@ -234,6 +241,21 @@ export type AssistantActionPayload =
       materialType?: string | null;
       amount?: number | null;
       description?: string | null;
+    }
+  | {
+      /**
+       * TRANCHER UN PAIEMENT AU CENTRE — autoriser, refuser, demander une révision du montant ou
+       * une argumentation. Toujours confirmé par la carte ; l'exécution repasse par l'action du
+       * centre (`decidePayment`), qui revérifie QUI siège et si la décision a encore un sens.
+       */
+      kind: "decide_payment";
+      orderId: string;
+      reference: string;
+      label: string;
+      amountDzd: number;
+      decision: "APPROVE" | "REFUSE" | "REQUEST_CHANGES" | "REQUEST_INFO";
+      note?: string | null;
+      proposedAmount?: number | null;
     };
 
 export type AssistantActionKind = AssistantActionPayload["kind"];
@@ -715,6 +737,24 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
       required: ["title"],
     },
   },
+  {
+    name: "decide_payment",
+    description:
+      "PROPOSE de trancher un PAIEMENT au CENTRE DE PAIEMENT : autoriser (APPROVE), refuser (REFUSE), demander une révision du montant " +
+      "(REQUEST_CHANGES, avec proposedAmount) ou une argumentation (REQUEST_INFO). Réservé à qui SIÈGE au centre (PDG, Super Admin). " +
+      "N'exécute rien : la carte de confirmation montre le paiement, le montant et la décision avant tout. " +
+      "`reference` = la référence de l'ordre (visible au centre de paiement ou via inspect_record).",
+    input_schema: {
+      type: "object",
+      properties: {
+        reference: { type: "string", description: "Référence de l'ordre de dépense à trancher." },
+        decision: { type: "string", enum: ["APPROVE", "REFUSE", "REQUEST_CHANGES", "REQUEST_INFO"], description: "La décision." },
+        note: { type: "string", description: "Le motif — OBLIGATOIRE sauf pour APPROVE : le demandeur le lira." },
+        proposedAmount: { type: "number", description: "Montant proposé en DZD (REQUEST_CHANGES uniquement) — une proposition, jamais une réécriture." },
+      },
+      required: ["reference", "decision"],
+    },
+  },
 ];
 
 const WRITE_TOOL_NAMES = new Set([...WRITE_TOOLS, ...SUPERADMIN_WRITE_TOOLS].map((t) => t.name));
@@ -740,7 +780,7 @@ function systemPrompt(user: CurrentUser): string {
   const regExpertise = userCan(user, "REGULATORY", "VIEW") ? `\n\n${regulatoryKnowledgeDigest()}\n` : "";
   // Sans cette annonce, le modèle IGNORE qu'il dispose des lectures chiffrées et continue de
   // renvoyer vers les pages — précisément le défaut que ces outils corrigent.
-  const powers = powerToolsBriefing(user);
+  const powers = powerToolsBriefing(user) + executiveBriefing(user);
   return `Tu es « Assistant IA », l'assistant interne d'AMD Internal OS, l'outil de gestion d'Adventum Pharma
 (laboratoire pharmaceutique algérien ; devise DZD ; principal client la PCH — Pharmacie Centrale des Hôpitaux).
 Tu aides l'employé à comprendre l'application, à retrouver ses informations et à passer à l'action.
@@ -1625,6 +1665,46 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  if (toolName === "decide_payment") {
+    // Qui SIÈGE au centre — la même règle que l'écran. Le modèle ne décide jamais d'un droit.
+    if (!sitsOnPaymentCentre(user)) return { error: "Seuls le PDG et le Super Admin siègent au centre de paiement." };
+    const ref = asStr(input, "reference").trim();
+    if (!ref) return { error: "Donnez la référence du paiement à trancher." };
+    const decision = asStr(input, "decision") as "APPROVE" | "REFUSE" | "REQUEST_CHANGES" | "REQUEST_INFO";
+    if (!["APPROVE", "REFUSE", "REQUEST_CHANGES", "REQUEST_INFO"].includes(decision)) return { error: "Décision inconnue." };
+    const note = asStr(input, "note").trim();
+    if (decision !== "APPROVE" && !note) return { error: "Dites pourquoi : sans motif, le demandeur ne peut que deviner." };
+
+    const order = await prisma.expenseOrder.findFirst({
+      where: { reference: { equals: ref, mode: "insensitive" } },
+      select: { id: true, reference: true, label: true, amount: true, centralStatus: true, beneficiary: true },
+    });
+    if (!order) return { error: `Aucun ordre de dépense ne porte la référence « ${ref} ».` };
+    if (!applyDecision(order.centralStatus as CentralStatus, decision)) {
+      return { error: `Ce paiement est « ${CENTRAL_STATUS_LABEL[order.centralStatus as CentralStatus]} » — cette décision n'a plus de sens à ce stade.` };
+    }
+    const amountDzd = Math.round(toNumber(order.amount));
+    const proposedRaw = input.proposedAmount;
+    const proposedAmount = decision === "REQUEST_CHANGES" && typeof proposedRaw === "number" && Number.isFinite(proposedRaw) && proposedRaw > 0
+      ? Math.round(proposedRaw) : null;
+
+    const fields = [
+      { label: "Paiement", value: `${order.reference} — ${order.label}` },
+      { label: "Montant", value: `${amountDzd.toLocaleString("fr-FR")} DZD` },
+      { label: "Décision", value: CENTRAL_DECISION_LABEL[decision] },
+    ];
+    if (order.beneficiary) fields.push({ label: "Bénéficiaire", value: order.beneficiary });
+    if (proposedAmount != null) fields.push({ label: "Montant proposé", value: `${proposedAmount.toLocaleString("fr-FR")} DZD (proposition — le demandeur corrige et resoumet)` });
+    if (note) fields.push({ label: "Motif", value: note });
+    return {
+      kind: "decide_payment", module: "PAYMENT_CENTRE", title: `Centre de paiement — ${CENTRAL_DECISION_LABEL[decision].toLowerCase()}`, fields, warnings,
+      payload: {
+        kind: "decide_payment", orderId: order.id, reference: order.reference, label: order.label,
+        amountDzd, decision, note: note || null, proposedAmount,
+      },
+    };
+  }
+
   if (toolName === "create_calendar_event") {
     if (!userCan(user, "WORKSPACE", "CREATE")) return { error: "Vous n'avez pas accès au calendrier." };
     const title = asStr(input, "title");
@@ -2350,6 +2430,26 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     const r = await createPromoMaterial(undefined, fd);
     if (!r.ok) return { ok: false, error: r.error ?? "La demande de matériel promotionnel n'a pas pu être créée." };
     return { ok: true, message: `Demande de matériel promotionnel « ${title} » créée (prospection d'agences lancée).`, revalidate: ["/demandes"] };
+  }
+
+  if (payload?.kind === "decide_payment") {
+    // L'exécution repasse par L'ACTION DU CENTRE — la même que l'écran : elle revérifie qui
+    // siège, si la décision a encore un sens (transition), écrit le fil et prévient qui attend.
+    // Ne pas dupliquer cette logique ici : deux implémentations divergeraient un jour de paie.
+    if (!sitsOnPaymentCentre(user)) return { ok: false, error: "Seuls le PDG et le Super Admin siègent au centre de paiement." };
+    const fd = new FormData();
+    fd.set("id", payload.orderId);
+    fd.set("decision", payload.decision);
+    if (payload.note) fd.set("body", payload.note);
+    if (payload.proposedAmount != null) fd.set("proposedAmount", String(payload.proposedAmount));
+    const r = await decidePayment(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La décision n'a pas pu être enregistrée." };
+    return {
+      ok: true,
+      message: `${CENTRAL_DECISION_LABEL[payload.decision]} — ${payload.reference} (${payload.amountDzd.toLocaleString("fr-FR")} DZD).`,
+      link: "/centre-de-paiement",
+      revalidate: ["/centre-de-paiement", "/finances/ordres-de-depense"],
+    };
   }
 
   if (payload?.kind === "create_notification") {

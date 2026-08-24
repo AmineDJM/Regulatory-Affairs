@@ -27,13 +27,15 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
   });
 
   it("≤ 5 sous-modules visibles → ouvert par défaut", () => {
-    // « Moyens généraux » et « Demandes de paiement » relèvent de WORKSPACE, que TOUT LE MONDE
-    // a : demander un achat ou un paiement est un geste de n'importe quel employé, et l'écran
-    // se charge ensuite de ne montrer ni budget ni trésorerie à qui n'y a pas droit.
+    // « Moyens généraux » relève de WORKSPACE, que TOUT LE MONDE a : demander un achat est un
+    // geste de n'importe quel employé, et l'écran se charge ensuite de ne montrer ni budget ni
+    // trésorerie à qui n'y a pas droit. « Demandes de paiement » n'a PLUS d'entrée de menu : la
+    // demande se fait depuis les Demandes de validations, et le dossier passe par le centre de
+    // paiement avant d'atteindre les Règlements.
     const admin = groupIntoPoles(accessible(["WORKSPACE", "FINANCES", "RH", "BUDGETS"]))
       .find((p) => p.key === "ADMINISTRATION");
     expect(admin?.children.map((c) => c.label)).toEqual([
-      "Moyens généraux", "Finances", "Demandes de paiement", "Ressources humaines", "Budgets",
+      "Moyens généraux", "Finances", "Ressources humaines", "Budgets",
     ]);
     expect(admin?.defaultOpen).toBe(true);
   });

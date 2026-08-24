@@ -5,6 +5,7 @@ import { getEnvelopes, getEnvelopesGrandTotal, getBudgetOverview } from "@/lib/q
 import { getComptaData } from "@/lib/queries/compta";
 import { getRhData, getLeavesToDecide } from "@/lib/queries/hr";
 import { getActionCenter } from "@/lib/queries/action-center";
+import { EXECUTIVE_TOOLS } from "@/lib/assistant/executive-tools";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -193,6 +194,11 @@ export const POWER_TOOLS: PowerTool[] = [
       return JSON.stringify({ total: items.length + conges.length, elements: [...conges, ...items] });
     },
   },
+  // LES OUTILS EXÉCUTIFS — « My Chief of Staff » (PDG + Super Admin) : fouille et lecture du
+  // Drive, histoire complète d'un dossier, bilan d'une personne, rappels planifiés. Ils vivent
+  // dans leur module (executive-tools.ts) et passent par la MÊME porte que les autres :
+  // `allowed` revérifié à chaque appel par executePowerTool.
+  ...EXECUTIVE_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */
