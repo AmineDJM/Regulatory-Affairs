@@ -108,6 +108,9 @@ export function promoMaterialCreateFields(opts: {
     { type: "textarea", name: "description", label: "Brief / description", full: true },
     { type: "number", name: "amount", label: "Budget estimé (DZD)" },
     { type: "select", name: "assistantId", label: "Assistante de direction", options: opts.assistants.map((a) => ({ value: a.id, label: a.name })), placeholder: "— À notifier (Direction) —" },
+    // Le cas le plus fréquent : on a appelé l'imprimeur AVANT d'ouvrir l'ERP. Cocher saute la
+    // demande de devis — le circuit démarre directement sur la validation du devis en main.
+    { type: "checkbox", name: "hasQuote", label: "J'ai déjà un devis en main (saute la demande de devis)", full: true },
   ];
 }
 

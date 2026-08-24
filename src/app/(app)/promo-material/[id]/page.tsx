@@ -17,30 +17,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { CommentThread } from "@/components/shared/comment-thread";
-import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { PROMO_MATERIAL_STATUS, PROMO_MATERIAL_FLOW } from "@/lib/labels";
+import { PROMO_MATERIAL_STATUS } from "@/lib/labels";
+import {
+  canValidate, seesFullCircuit, progress, waitingOn, PROMO_STEP_LABEL, PROMO_TRACKS,
+  type PromoState, type PromoTrack,
+} from "@/lib/promo-material/circuit";
 import { PromoActionPanel } from "./promo-panels";
+import { PromoCircuitCard } from "./circuit-card";
 import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
 const PROMO_DOC_CATEGORIES = ["QUOTE", "PURCHASE_ORDER", "PAYMENT_SLIP", "PAYMENT_RECEIPT", "PROMO_MATERIAL_FILE", "AD_VISA", "INVOICE", "DELIVERY_NOTE", "SUPPORTING_DOC", "OTHER"];
-
-function promoSteps(status: string): VStep[] {
-  if (status === "CANCELLED") {
-    return [{ label: "Demande", state: "done" }, { label: "Annulé", state: "rejected" }];
-  }
-  const cur = PROMO_MATERIAL_FLOW.indexOf(status);
-  return PROMO_MATERIAL_FLOW.map((s, i): VStep => {
-    let state: VStepState;
-    if (i < cur) state = "done";
-    else if (i > cur) state = "todo";
-    else state = s === "SETTLED" ? "done" : "current";
-    return { label: PROMO_MATERIAL_STATUS[s]?.label ?? s, state };
-  });
-}
 
 export default async function PromoMaterialDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("PROMO_MATERIAL");
@@ -84,20 +74,44 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   }));
   const amount = pm.chosenAmount != null ? toNumber(pm.chosenAmount) : pm.amount != null ? toNumber(pm.amount) : null;
 
+  // LE CIRCUIT COURT — tout se tranche ICI, côté serveur : ce que la personne voit
+  // (seesFullCircuit), ce qu'elle peut faire (canValidate), où en est le dossier. Le composant
+  // client ne fait qu'afficher ce qui lui est permis.
+  const circuitState = (pm.circuitState ?? null) as PromoState | null;
+  const tracksDone = ((pm.tracksDone ?? "").split(",").map((s) => s.trim()).filter(Boolean) as PromoTrack[])
+    .filter((t) => (PROMO_TRACKS as readonly string[]).includes(t));
+  const circuitProgress = circuitState ? progress(circuitState, tracksDone) : { step: 0, total: 1 };
+  const circuitProps = {
+    id: pm.id,
+    state: circuitState,
+    tracksDone: tracksDone as string[],
+    showFull: seesFullCircuit(user),
+    canAct: circuitState ? canValidate(user, circuitState, { requesterId: pm.requesterId, managerId: pm.managerId }) : false,
+    canDrive: flags.isMarketing || flags.isAssistant || isDirection || user.role === "SUPER_ADMIN",
+    waitingLabel: circuitState ? waitingOn(circuitState, tracksDone) : "—",
+    progressStep: circuitProgress.step,
+    progressTotal: circuitProgress.total,
+  };
+
   return (
     <div className="space-y-5">
       <BackLink href="/promo-material"><ArrowLeft className="h-4 w-4" /> Matériel promotionnel</BackLink>
       <PageHeader title={pm.title} description={`Réf. ${pm.reference}`}>
-        <StatusBadge map={PROMO_MATERIAL_STATUS} value={pm.status} />
+        {circuitState
+          ? <StatusBadge map={{ [circuitState]: { label: PROMO_STEP_LABEL[circuitState], tone: circuitState === "REFUSED" ? "danger" : circuitState === "COMPLETED" ? "success" : "info" } }} value={circuitState} />
+          : <StatusBadge map={PROMO_MATERIAL_STATUS} value={pm.status} />}
         {canEditPromoRequest && promoEditValues && (
           <AdProEditButton kind="PROMO_MATERIAL" id={pm.id} decided={promoDecided} values={promoEditValues} />
         )}
         <SuperAdminDeleteButton kind="PROMO_MATERIAL" id={pm.id} name={pm.title} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
 
+      {/* Le circuit COURT — la frise des quinze étapes n'existe plus. Ce que chacun voit ici
+          dépend de qui il est : la chaîne entière pour PDG / Super Admin, l'étape en cours pour
+          les autres (règle `seesFullCircuit`, tranchée côté serveur). */}
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Megaphone className="h-4 w-4" /> Suivi du circuit</CardTitle></CardHeader>
-        <CardContent><ValidationStepper steps={promoSteps(pm.status)} /></CardContent>
+        <CardContent><PromoCircuitCard {...circuitProps} /></CardContent>
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-3">
@@ -136,17 +150,21 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
         </div>
 
         <div className="space-y-5">
-          <PromoActionPanel
-            id={pm.id}
-            status={pm.status}
-            flags={flags}
-            chosenAgency={pm.chosenAgency}
-            bcReference={pm.bcReference}
-            visaReference={pm.visaReference}
-            authorityRef={pm.authorityRef}
-            amount={amount}
-            reminderCount={pm.financeReminderCount}
-          />
+          {/* Les cartes d'action de l'ANCIEN parcours ne servent qu'aux dossiers d'avant la
+              réforme : un dossier au circuit court se pilote depuis la carte « Suivi du circuit ». */}
+          {!circuitState && (
+            <PromoActionPanel
+              id={pm.id}
+              status={pm.status}
+              flags={flags}
+              chosenAgency={pm.chosenAgency}
+              bcReference={pm.bcReference}
+              visaReference={pm.visaReference}
+              authorityRef={pm.authorityRef}
+              amount={amount}
+              reminderCount={pm.financeReminderCount}
+            />
+          )}
         </div>
       </div>
     </div>

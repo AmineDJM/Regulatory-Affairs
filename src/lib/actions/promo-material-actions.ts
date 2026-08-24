@@ -10,6 +10,8 @@ import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { persistUploadedDocument } from "@/lib/documents";
 import { buildRef, createWithRetry } from "@/lib/refs";
+import { initialStep } from "@/lib/promo-material/circuit";
+import { promoManagerOf } from "@/lib/queries/promo-material";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/promo-material";
@@ -93,6 +95,13 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
     const materialType = fdStr(formData, "materialType");
     const companyId = fdStr(formData, "companyId");
 
+    // LE CIRCUIT COURT démarre À LA CRÉATION — plus personne ne passe par les seize marches.
+    // Un devis déjà en main saute la demande de devis ; le N+1 est figé maintenant, par
+    // l'organigramme (changer de chef en cours de route ne change pas qui doit valider CE dossier).
+    const hasQuote = Boolean(fdStr(formData, "hasQuote"));
+    const circuitState = initialStep({ hasQuote });
+    const managerId = await promoManagerOf(user.id);
+
     // Demande administrative liée : l'assistante de direction pilote ses étapes
     // (devis, BC, transmission, facture) depuis « Demandes administratives ».
     // Références dérivées du max existant + réessai en cas de collision concurrente.
@@ -121,6 +130,8 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
             amount: amount ?? null,
             assistantId,
             status: "PROSPECTION_REQUESTED",
+            circuitState,
+            managerId,
             requesterId: user.id,
             adminRequestId: req.id,
             createdById: user.id,
@@ -130,8 +141,10 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
       }),
     );
 
-    await notifyAssistant(pm, "Matériel promotionnel — prospection d'agences demandée");
-    await audit(user, pm.id, "CREATE", `Matériel promotionnel créé — ${pm.reference}`);
+    // Avec un devis en main, on ne demande pas de prospection : le dossier attend la validation
+    // du demandeur, pas l'assistante.
+    if (!hasQuote) await notifyAssistant(pm, "Matériel promotionnel — devis à demander aux agences");
+    await audit(user, pm.id, "CREATE", `Matériel promotionnel créé — ${pm.reference}${hasQuote ? " (devis déjà en main : demande de devis sautée)" : ""}`);
     revalidate(pm.id);
     revalidatePath("/demandes");
     return { ok: true, id: pm.id };

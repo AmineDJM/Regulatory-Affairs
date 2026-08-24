@@ -8,6 +8,8 @@ export interface PromoListItem {
   reference: string;
   title: string;
   status: string;
+  /** L'état du circuit COURT — quand il est présent, c'est LUI que la liste affiche. */
+  circuitState: string | null;
   materialType: string | null;
   company: CompanyLite | null;
   chosenAgency: string | null;
@@ -15,6 +17,22 @@ export interface PromoListItem {
   requester: string;
   assistant: string;
   createdAt: string;
+}
+
+/**
+ * Le N+1 du demandeur, résolu par l'ORGANIGRAMME : le responsable nommé sur la fiche employé,
+ * à défaut le responsable du département. `null` reste possible (un directeur n'a pas de N+1) :
+ * le Super Admin débloque alors l'étape. Partagé entre la création et le lancement du circuit.
+ */
+export async function promoManagerOf(userId: string): Promise<string | null> {
+  const emp = await prisma.employee.findFirst({
+    where: { userId },
+    select: {
+      manager: { select: { userId: true } },
+      departmentRef: { select: { head: { select: { userId: true } } } },
+    },
+  });
+  return emp?.manager?.userId ?? emp?.departmentRef?.head?.userId ?? null;
 }
 
 async function resolveNames(ids: (string | null)[]): Promise<Map<string, string>> {
@@ -34,6 +52,7 @@ export async function getPromoMaterials(user: SessionUser): Promise<PromoListIte
   const names = await resolveNames(rows.flatMap((r) => [r.requesterId, r.assistantId]));
   return rows.map((r) => ({
     id: r.id, reference: r.reference, title: r.title, status: r.status,
+    circuitState: r.circuitState,
     materialType: r.materialType,
     company: r.company,
     chosenAgency: r.chosenAgency,

@@ -10,6 +10,7 @@ import {
   PROMO_STEP_LABEL, PROMO_TRACK_LABEL, PROMO_TRACKS,
   type PromoState, type PromoTrack,
 } from "@/lib/promo-material/circuit";
+import { promoManagerOf } from "@/lib/queries/promo-material";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 /**
@@ -34,25 +35,6 @@ function readTracks(raw: string | null): PromoTrack[] {
 }
 
 /**
- * Le N+1 du demandeur, figé à la création — voir le commentaire du schéma.
- *
- * Deux sources, dans cet ordre : le responsable NOMMÉ sur la fiche employé, puis, à défaut, le
- * responsable du département. Le second est un repli délibéré : beaucoup de fiches n'ont pas de
- * N+1 explicite, et sans lui le circuit s'arrêterait à la deuxième étape faute de destinataire.
- * `null` reste possible (un directeur n'a pas de N+1) : le Super Admin débloque alors l'étape.
- */
-async function managerOf(userId: string): Promise<string | null> {
-  const emp = await prisma.employee.findFirst({
-    where: { userId },
-    select: {
-      manager: { select: { userId: true } },
-      departmentRef: { select: { head: { select: { userId: true } } } },
-    },
-  });
-  return emp?.manager?.userId ?? emp?.departmentRef?.head?.userId ?? null;
-}
-
-/**
  * Démarre le circuit court sur un dossier.
  *
  * Avec un devis DÉJÀ en main, on saute la demande de devis : c'est le cas le plus fréquent, et le
@@ -72,7 +54,7 @@ export async function startPromoCircuit(formData: FormData): Promise<ActionResul
   const requesterId = item.requesterId ?? user.id;
   const hasQuote = fdStr(formData, "hasQuote") === "1";
   const state = initialStep({ hasQuote });
-  const managerId = await managerOf(requesterId);
+  const managerId = await promoManagerOf(requesterId);
 
   await prisma.promoMaterial.update({
     where: { id },
@@ -85,6 +67,50 @@ export async function startPromoCircuit(formData: FormData): Promise<ActionResul
   });
   revalidatePath(path(id));
   return { ok: true, message: hasQuote ? "Circuit lancé — le devis étant en main, la demande de devis est sautée." : "Circuit lancé." };
+}
+
+/**
+ * Le devis est arrivé — l'étape « Devis demandé » se ferme, la validation du demandeur s'ouvre.
+ *
+ * `canValidate` refuse exprès QUOTE_REQUESTED (« il faut d'abord déposer un devis ») : cette
+ * transition-là passe donc par ici, et par personne d'autre que le demandeur, l'assistante
+ * assignée, la Direction ou le Super Admin. On demande que le devis soit DÉPOSÉ dans les pièces —
+ * fermer l'étape sans devis referait exactement le mensonge de l'ancien circuit.
+ */
+export async function markQuoteReceived(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+
+  const item = await prisma.promoMaterial.findUnique({
+    where: { id },
+    select: { id: true, title: true, reference: true, circuitState: true, requesterId: true, assistantId: true },
+  });
+  if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
+  if (item.circuitState !== "QUOTE_REQUESTED") return { ok: false, error: "Ce dossier n'attend pas de devis." };
+
+  const allowed = user.id === item.requesterId || user.id === item.assistantId
+    || user.role === "DIRECTION" || user.role === "SUPER_ADMIN";
+  if (!allowed) return { ok: false, error: "Seul le demandeur ou l'assistante peut confirmer la réception du devis." };
+
+  const hasQuoteDoc = await prisma.document.count({
+    where: { entityType: "PROMO_MATERIAL", entityId: id },
+  });
+  if (hasQuoteDoc === 0) {
+    return { ok: false, error: "Déposez d'abord le devis dans les documents du dossier — confirmer sans pièce n'avance à rien." };
+  }
+
+  await prisma.promoMaterial.update({ where: { id }, data: { circuitState: "REVIEW_REQUESTER", updatedById: user.id } });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
+    entityType: "PROMO_MATERIAL", entityId: id,
+    summary: "Devis reçu — au tour du demandeur de le valider",
+  });
+  if (item.requesterId && item.requesterId !== user.id) {
+    await notifyUser({ userId: item.requesterId, type: "VALIDATION_REQUIRED", title: "Devis reçu — à valider", body: `${item.reference} — ${item.title}`, link: path(id) });
+  }
+  revalidatePath(path(id));
+  return { ok: true, message: "Devis enregistré — au tour du demandeur de le valider." };
 }
 
 /**

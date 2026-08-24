@@ -12,7 +12,7 @@ import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { promoMaterialCreateFields } from "@/lib/ad-pro/create-fields";
-import { PROMO_MATERIAL_STATUS, EVENTS_TABS, MATERIAL_TYPE } from "@/lib/labels";
+import { PROMO_MATERIAL_STATUS, PROMO_CIRCUIT_STATUS, EVENTS_TABS, MATERIAL_TYPE } from "@/lib/labels";
 import { CompanyBadge } from "@/components/shared/company-badge";
 import { getMyCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -31,12 +31,15 @@ export default async function PromoMaterialPage() {
   // Mêmes champs qu'au panneau commun d'Ad & Pro : une seule définition, deux portes d'entrée.
   const createFields = promoMaterialCreateFields({ companies: companyOptions(companies), assistants });
 
-  const active = items.filter((i) => i.status !== "SETTLED" && i.status !== "CANCELLED").length;
-  const settled = items.filter((i) => i.status === "SETTLED").length;
+  // Un dossier au circuit court se juge sur SON état ; un ancien dossier sur l'ancien statut.
+  const isClosed = (i: { status: string; circuitState: string | null }) =>
+    i.circuitState ? i.circuitState === "COMPLETED" || i.circuitState === "REFUSED" : i.status === "SETTLED" || i.status === "CANCELLED";
+  const active = items.filter((i) => !isClosed(i)).length;
+  const settled = items.filter((i) => (i.circuitState ? i.circuitState === "COMPLETED" : i.status === "SETTLED")).length;
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Matériel promotionnel" description="Circuit complet : prospection d'agences → bon de commande → bordereau de paiement → conformité & visa publicitaire → impression → règlement.">
+      <PageHeader title="Matériel promotionnel" description="Circuit court : devis → validation du demandeur → N+1 → PDG / Super Admin → information médicale, puis bon de commande, paiement et visa publicitaire en parallèle.">
         {canCreate && (
           <CreateRecordButton
             autoOpenParam="new" label="Nouvelle demande" title="Demande de matériel promotionnel" description="Marketing — demande de prospection d'agences." width="md" action={createPromoMaterial} redirectBase="/promo-material" fields={createFields} />
@@ -73,7 +76,13 @@ export default async function PromoMaterialPage() {
                   <TableCell className="text-muted-foreground">{i.materialType ? MATERIAL_TYPE[i.materialType] : "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{i.chosenAgency || "—"}</TableCell>
                   <TableCell className="text-right">{i.amount != null ? formatCurrency(i.amount) : "—"}</TableCell>
-                  <TableCell><StatusBadge map={PROMO_MATERIAL_STATUS} value={i.status} dot={false} /></TableCell>
+                  <TableCell>
+                    {/* Un dossier au circuit court affiche l'état du circuit ; un dossier
+                        d'avant la réforme garde son ancien statut. */}
+                    {i.circuitState
+                      ? <StatusBadge map={PROMO_CIRCUIT_STATUS} value={i.circuitState} dot={false} />
+                      : <StatusBadge map={PROMO_MATERIAL_STATUS} value={i.status} dot={false} />}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(i.createdAt)}</TableCell>
                 </TableRow>
               ))}
