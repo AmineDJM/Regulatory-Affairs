@@ -575,18 +575,23 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
     def: {
       name: "plan_reminder",
       description:
-        "PLANIFIE un rappel : « rappelle-moi mardi à 10 h de vérifier X », « tous les dimanches relance Regulatory ». " +
-        "`date` = première échéance (AAAA-MM-JJ, heure d'Alger), `time` = HH:MM (défaut 09:00). `recurrence` : NONE (une fois), DAILY, WEEKLY, MONTHLY. " +
-        "`target_role` (optionnel) = rôle à RELANCER à chaque échéance (ex. HEAD_OF_REGULATORY pour Regulatory) — sans lui, seul l'utilisateur est prévenu. " +
-        "`link` (optionnel) = page interne à rouvrir. Calculer soi-même la date exacte à partir de la date du jour donnée en contexte.",
+        "PLANIFIE un rappel : « rappelle-moi mardi à 10 h de vérifier X », « dans 3 heures » (calculer la date/heure), " +
+        "« tous les dimanches relance Regulatory », « tous les dimanches relance Nesrine », « chaque premier lundi du mois ». " +
+        "`date` = première échéance (AAAA-MM-JJ, heure d'Alger), `time` = HH:MM (défaut 09:00). " +
+        "`recurrence` : NONE (une fois), DAILY, WEEKLY, MONTHLY (même quantième), MONTHLY_WEEKDAY (même Nième jour de semaine — " +
+        "pour « chaque premier lundi du mois », donner comme première échéance un premier lundi). " +
+        "`target_role` (rôle à RELANCER) et/ou `target_person` (personne NOMMÉE à relancer) — sans eux, seul l'utilisateur est prévenu. " +
+        "`link` (optionnel) = page interne à rouvrir. Calculer soi-même la date exacte à partir de la date du jour donnée en contexte. " +
+        "Pour un POINT QUOTIDIEN (« tous les jours à 8h fais-moi mon point ») : DAILY à 08:00, link=/chief-of-staff, note « Point du matin ».",
       input_schema: {
         type: "object",
         properties: {
           title: { type: "string", description: "Ce qu'il faut rappeler, en quelques mots." },
           date: { type: "string", description: "Première échéance, AAAA-MM-JJ (heure d'Alger)." },
           time: { type: "string", description: "Heure HH:MM (défaut 09:00)." },
-          recurrence: { type: "string", enum: [...REMINDER_RECURRENCES], description: "NONE, DAILY, WEEKLY ou MONTHLY." },
+          recurrence: { type: "string", enum: [...REMINDER_RECURRENCES], description: "NONE, DAILY, WEEKLY, MONTHLY ou MONTHLY_WEEKDAY." },
           target_role: { type: "string", description: "Rôle à relancer à chaque échéance (code rôle interne)." },
+          target_person: { type: "string", description: "Nom d'une personne précise à relancer à chaque échéance." },
           note: { type: "string", description: "Le message de la relance / le détail du rappel." },
           link: { type: "string", description: "Lien interne (/regulatory, /legal/…)." },
         },
@@ -607,6 +612,22 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       if (roleRaw && !(roleRaw in ROLE_LABELS)) {
         return `Rôle « ${roleRaw} » inconnu. Rôles possibles : ${Object.keys(ROLE_LABELS).join(", ")}.`;
       }
+      // La PERSONNE NOMMÉE se résout MAINTENANT : un rappel qui relancerait « nesrine » sans
+      // savoir qui c'est finirait par relancer personne, en silence.
+      let targetUserId: string | null = null;
+      let targetUserName: string | null = null;
+      const personRaw = str(input, "target_person");
+      if (personRaw) {
+        const matches = await prisma.user.findMany({
+          where: { isActive: true, OR: [{ name: { contains: personRaw, mode: "insensitive" } }, { title: { contains: personRaw, mode: "insensitive" } }] },
+          select: { id: true, name: true },
+          take: 5,
+        });
+        if (matches.length === 0) return `Personne « ${personRaw} » introuvable dans l'annuaire (search_people pour vérifier).`;
+        if (matches.length > 1) return `Plusieurs personnes correspondent à « ${personRaw} » : ${matches.map((m) => m.name).join(", ")}. Précisez.`;
+        targetUserId = matches[0].id;
+        targetUserName = matches[0].name;
+      }
       const link = str(input, "link");
       // Un lien de rappel reste INTERNE : un rappel qui ouvrirait un site externe serait une
       // porte de sortie déguisée.
@@ -616,18 +637,23 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         data: {
           userId: user.id, title, dueAt, recurrence,
           targetRole: roleRaw || null,
+          targetUserId,
           note: str(input, "note") || null,
           link: link || null,
         },
         select: { id: true },
       });
+      const relances = [
+        roleRaw ? `le rôle « ${ROLE_LABELS[roleRaw] ?? roleRaw} »` : null,
+        targetUserName ? targetUserName : null,
+      ].filter(Boolean);
       return JSON.stringify({
         cree: created.id,
         rappel: title,
         premiereEcheance: formatAlgiersDue(dueAt),
         recurrence: RECURRENCE_LABEL[recurrence],
-        relanceLeRole: roleRaw ? ROLE_LABELS[roleRaw] ?? roleRaw : null,
-        note: "À l'échéance : pop-up pour vous" + (roleRaw ? ` et relance envoyée au rôle « ${ROLE_LABELS[roleRaw] ?? roleRaw} »` : "") + ".",
+        relance: relances.length ? relances.join(" et ") : null,
+        note: "À l'échéance : pop-up pour vous" + (relances.length ? ` et relance envoyée à ${relances.join(" et ")}` : "") + ".",
       });
     },
   },
@@ -644,6 +670,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       const rows = await prisma.assistantReminder.findMany({
         where: { userId: user.id, active: true },
         orderBy: { dueAt: "asc" },
+        include: { targetUser: { select: { name: true } } },
         take: 50,
       });
       if (rows.length === 0) return "Aucun rappel planifié.";
@@ -652,6 +679,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         prochaineEcheance: formatAlgiersDue(r.dueAt),
         recurrence: RECURRENCE_LABEL[r.recurrence as ReminderRecurrence] ?? r.recurrence,
         relanceLeRole: r.targetRole ? ROLE_LABELS[r.targetRole] ?? r.targetRole : null,
+        relanceLaPersonne: r.targetUser?.name ?? null,
       })));
     },
   },
@@ -711,9 +739,19 @@ Vos gestes de chef de cabinet :
 - \`search_courriers\` — le registre des courriers : départs, arrivées, accusés, pièces.
 - \`finance_totals\` — TOUT agrégat financier (total payé à X depuis janvier, période vs période) :
   la base calcule, ne JAMAIS additionner des lignes à la main.
+- \`executive_brief\` — « fais-moi mon point » : décisions en attente, paiements au centre,
+  risques, finance, RH, réunions — en un appel. \`executive_alerts\` — « qu'est-ce qui cloche ? »,
+  « sur quoi me concentrer ? » : les signaux détectés (paiement bloqué, validation qui dort,
+  facture sans BC, contrat expirant, stock épuisé), chacun avec sa criticité et sa preuve.
+- \`create_report\` — « regroupe-moi tout sur le contrat X et fais-moi un rapport » : un vrai
+  .docx consolidé (fiche, chaîne, validateurs, règlement, pièces, timeline) déposé dans le
+  Drive (« Rapports IA ») — donner le nom du fichier et le lien.
 - \`plan_reminder\` / \`list_reminders\` / \`cancel_reminder\` — « rappelle-moi mardi 10 h »,
-  « tous les dimanches relance Regulatory » (recurrence WEEKLY + target_role). Calculer la date
-  exacte depuis la date du jour fournie en contexte.
+  « dans 3 heures » (calculer l'heure), « tous les dimanches relance Regulatory » (WEEKLY +
+  target_role) ou « relance Nesrine » (target_person), « chaque premier lundi du mois »
+  (MONTHLY_WEEKDAY, première échéance = un premier lundi), « tous les jours à 8 h fais-moi mon
+  point » (DAILY 08:00, link=/chief-of-staff). Calculer la date exacte depuis la date du jour
+  fournie en contexte.
 - \`decide_payment\` — trancher un paiement au centre (autoriser, refuser, demander une révision ou
   une argumentation). TOUJOURS soumis à la carte de confirmation.
 - Modifier le réel : \`update_task\` (réassigner, échéance, priorité, statut, commentaire),

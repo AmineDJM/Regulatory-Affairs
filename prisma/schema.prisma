@@ -973,6 +973,7 @@ model User {
   legalDocReads         LegalDocumentReader[]
   directoryAccess       MedicalDirectoryAccess[] @relation("MedicalDirectoryAccessUser")
   assistantReminders    AssistantReminder[]      @relation("AssistantReminderUser")
+  assistantRemindersTargeted AssistantReminder[] @relation("AssistantReminderTarget")
   adProItemDecisions    AdProItemDecision[]    @relation("AdProItemDecider")
   apiClients            ApiClient[]            @relation("ApiClientActAs")
   docRequestsAsked      DocumentRequest[]      @relation("DocRequestAsker")
@@ -8492,6 +8493,11 @@ model AssistantReminder {
   /// Rôle à RELANCER à l'échéance (ex. HEAD_OF_REGULATORY) — le cœur du « tous les dimanches,
   /// demande à Regulatory où en sont les dossiers ». Nul = on ne prévient que soi.
   targetRole  String?
+  /// PERSONNE NOMMÉE à relancer à l'échéance — « tous les dimanches relance Nesrine ». Se cumule
+  /// avec `targetRole` (l'un, l'autre, ou les deux). `SetNull` : un compte supprimé n'emporte pas
+  /// le rappel, il cesse simplement d'être relancé.
+  targetUserId String?
+  targetUser   User?   @relation("AssistantReminderTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
   active      Boolean   @default(true)
   lastFiredAt DateTime?
   createdAt   DateTime  @default(now())

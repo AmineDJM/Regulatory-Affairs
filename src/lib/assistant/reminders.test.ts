@@ -30,6 +30,37 @@ describe("La prochaine échéance d'une récurrence", () => {
   });
 });
 
+describe("« Chaque premier lundi du mois » — le Nième jour de semaine, pas le quantième", () => {
+  // Lundi 7 septembre 2026 = PREMIER lundi du mois, 9 h heure d'Alger (8 h UTC).
+  const firstMonday = new Date("2026-09-07T08:00:00.000Z");
+
+  it("retombe le premier lundi du mois SUIVANT, à la même heure", () => {
+    const next = nextOccurrence(firstMonday, "MONTHLY_WEEKDAY", new Date("2026-09-07T08:05:00Z"));
+    // Premier lundi d'octobre 2026 : le 5.
+    expect(next?.toISOString()).toBe("2026-10-05T08:00:00.000Z");
+  });
+
+  it("un 2e mardi reste un 2e mardi", () => {
+    // Mardi 8 septembre 2026 = 2e mardi. Deuxième mardi d'octobre : le 13.
+    const secondTuesday = new Date("2026-09-08T08:00:00.000Z");
+    const next = nextOccurrence(secondTuesday, "MONTHLY_WEEKDAY", new Date("2026-09-08T09:00:00Z"));
+    expect(next?.toISOString()).toBe("2026-10-13T08:00:00.000Z");
+  });
+
+  it("un mois sans 5e occurrence retombe sur la DERNIÈRE — jamais d'annulation silencieuse", () => {
+    // Jeudi 29 octobre 2026 = 5e jeudi. Novembre 2026 n'a que 4 jeudis → le 26.
+    const fifthThursday = new Date("2026-10-29T08:00:00.000Z");
+    const next = nextOccurrence(fifthThursday, "MONTHLY_WEEKDAY", new Date("2026-10-29T09:00:00Z"));
+    expect(next?.toISOString()).toBe("2026-11-26T08:00:00.000Z");
+  });
+
+  it("rattrape un serveur éteint plusieurs mois sans notifier N fois", () => {
+    const next = nextOccurrence(firstMonday, "MONTHLY_WEEKDAY", new Date("2026-12-15T00:00:00Z"));
+    // Premier lundi de janvier 2027 : le 4.
+    expect(next?.toISOString()).toBe("2027-01-04T08:00:00.000Z");
+  });
+});
+
 describe("L'heure d'Alger (UTC+1, sans changement d'heure)", () => {
   it("« mardi 10 h » devient 9 h UTC", () => {
     expect(algiersToUtc("2026-08-25", "10:00")?.toISOString()).toBe("2026-08-25T09:00:00.000Z");

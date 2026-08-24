@@ -201,18 +201,54 @@ async function buildWorkbook(spec: DatasetSpec, rows: string[][]): Promise<Buffe
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-/** Trouve (ou crée) le dossier « Exports IA » du Drive PERSONNEL de la personne. */
-async function ensureExportFolder(ownerId: string): Promise<string> {
+/** Trouve (ou crée) un dossier nommé à la racine du Drive PERSONNEL de la personne. */
+async function ensurePersonalFolder(ownerId: string, name: string): Promise<string> {
   const existing = await prisma.driveNode.findFirst({
-    where: { type: "FOLDER", name: EXPORT_FOLDER, ownerId, spaceId: null, parentId: null, isTrashed: false },
+    where: { type: "FOLDER", name, ownerId, spaceId: null, parentId: null, isTrashed: false },
     select: { id: true },
   });
   if (existing) return existing.id;
   const node = await prisma.driveNode.create({
-    data: { name: EXPORT_FOLDER, type: "FOLDER", ownerId, createdById: ownerId },
+    data: { name, type: "FOLDER", ownerId, createdById: ownerId },
     select: { id: true },
   });
   return node.id;
+}
+
+/**
+ * DÉPOSE un fichier fabriqué par l'assistant dans le Drive personnel de la personne — la seule
+ * porte de sortie des exports ET des rapports consolidés : un fichier généré vit là où les
+ * autorisations existent déjà, jamais dans un lien qui traîne. Même nom = NOUVELLE VERSION.
+ */
+export async function depositBufferToDrive(
+  ownerId: string,
+  opts: { folder: string; filename: string; data: Buffer; mime: string; category?: string },
+): Promise<{ nodeId: string }> {
+  const folderId = await ensurePersonalFolder(ownerId, opts.folder);
+  const { blobId, size } = await putBlob(opts.data);
+  const existing = await prisma.driveNode.findFirst({
+    where: { type: "FILE", name: opts.filename, parentId: folderId, isTrashed: false },
+    select: { id: true },
+  });
+  if (existing) {
+    const last = await prisma.fileVersion.findFirst({
+      where: { nodeId: existing.id }, orderBy: { version: "desc" }, select: { version: true },
+    });
+    await prisma.fileVersion.create({
+      data: { nodeId: existing.id, blobId, version: (last?.version ?? 0) + 1, size, mimeType: opts.mime, createdById: ownerId },
+    });
+    await prisma.driveNode.update({ where: { id: existing.id }, data: { size, mimeType: opts.mime } });
+    return { nodeId: existing.id };
+  }
+  const node = await prisma.driveNode.create({
+    data: {
+      name: opts.filename, type: "FILE", parentId: folderId, ownerId, createdById: ownerId,
+      mimeType: opts.mime, size, category: opts.category ?? "Export",
+      versions: { create: { blobId, version: 1, size, mimeType: opts.mime, createdById: ownerId } },
+    },
+    select: { id: true },
+  });
+  return { nodeId: node.id };
 }
 
 export interface ExportResult {
@@ -250,34 +286,6 @@ export async function exportDatasetToDrive(
   const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const filename = `${dataset}-${stamp}.xlsx`;
 
-  const folderId = await ensureExportFolder(user.id);
-  const { blobId, size } = await putBlob(data);
-  const existing = await prisma.driveNode.findFirst({
-    where: { type: "FILE", name: filename, parentId: folderId, isTrashed: false },
-    select: { id: true },
-  });
-
-  let nodeId: string;
-  if (existing) {
-    const last = await prisma.fileVersion.findFirst({
-      where: { nodeId: existing.id }, orderBy: { version: "desc" }, select: { version: true },
-    });
-    await prisma.fileVersion.create({
-      data: { nodeId: existing.id, blobId, version: (last?.version ?? 0) + 1, size, mimeType: MIME_XLSX, createdById: user.id },
-    });
-    await prisma.driveNode.update({ where: { id: existing.id }, data: { size, mimeType: MIME_XLSX } });
-    nodeId = existing.id;
-  } else {
-    const node = await prisma.driveNode.create({
-      data: {
-        name: filename, type: "FILE", parentId: folderId, ownerId: user.id, createdById: user.id,
-        mimeType: MIME_XLSX, size, category: "Export",
-        versions: { create: { blobId, version: 1, size, mimeType: MIME_XLSX, createdById: user.id } },
-      },
-      select: { id: true },
-    });
-    nodeId = node.id;
-  }
-
+  const { nodeId } = await depositBufferToDrive(user.id, { folder: EXPORT_FOLDER, filename, data, mime: MIME_XLSX });
   return { ok: true, filename, count: rows.length, nodeId };
 }

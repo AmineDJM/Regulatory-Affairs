@@ -7,6 +7,7 @@ import { getRhData, getLeavesToDecide } from "@/lib/queries/hr";
 import { getActionCenter } from "@/lib/queries/action-center";
 import { EXECUTIVE_TOOLS } from "@/lib/assistant/executive-tools";
 import { EXECUTIVE_READ_TOOLS } from "@/lib/assistant/executive-read-tools";
+import { EXECUTIVE_BRIEF_TOOLS } from "@/lib/assistant/executive-brief-tools";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -203,6 +204,8 @@ export const POWER_TOOLS: PowerTool[] = [
   // Les LECTURES TRANSVERSES (recherche fédérée, calendrier, stocks, hôpitaux, paie, courriers,
   // agrégats financiers) — chacune ouverte par le DROIT de l'écran correspondant.
   ...EXECUTIVE_READ_TOOLS,
+  // Le PILOTAGE PROACTIF : signaux d'alerte, point exécutif, rapport consolidé (.docx → Drive).
+  ...EXECUTIVE_BRIEF_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { notifyRoles, broadcastNotification } from "@/lib/notify";
+import { notifyUser, notifyRoles, broadcastNotification } from "@/lib/notify";
 import type { UserRole } from "@prisma/client";
 
 /**
@@ -19,14 +19,15 @@ import type { UserRole } from "@prisma/client";
  * Un rappel simple s'éteint après son tir ; une récurrence avance son échéance et continue.
  */
 
-export const REMINDER_RECURRENCES = ["NONE", "DAILY", "WEEKLY", "MONTHLY"] as const;
+export const REMINDER_RECURRENCES = ["NONE", "DAILY", "WEEKLY", "MONTHLY", "MONTHLY_WEEKDAY"] as const;
 export type ReminderRecurrence = (typeof REMINDER_RECURRENCES)[number];
 
 export const RECURRENCE_LABEL: Record<ReminderRecurrence, string> = {
   NONE: "une seule fois",
   DAILY: "tous les jours",
   WEEKLY: "toutes les semaines",
-  MONTHLY: "tous les mois",
+  MONTHLY: "tous les mois (même quantième)",
+  MONTHLY_WEEKDAY: "tous les mois (même Nième jour de semaine)",
 };
 
 /**
@@ -38,6 +39,7 @@ export const RECURRENCE_LABEL: Record<ReminderRecurrence, string> = {
  */
 export function nextOccurrence(current: Date, recurrence: string, after: Date): Date | null {
   if (recurrence === "NONE") return null;
+  if (recurrence === "MONTHLY_WEEKDAY") return nextMonthlyWeekday(current, after);
   const next = new Date(current.getTime());
   for (let i = 0; i < 400; i += 1) {
     if (recurrence === "DAILY") next.setUTCDate(next.getUTCDate() + 1);
@@ -45,6 +47,38 @@ export function nextOccurrence(current: Date, recurrence: string, after: Date): 
     else if (recurrence === "MONTHLY") next.setUTCMonth(next.getUTCMonth() + 1);
     else return null;
     if (next.getTime() > after.getTime()) return new Date(next.getTime());
+  }
+  return null;
+}
+
+/**
+ * « CHAQUE PREMIER LUNDI DU MOIS » — le Nième jour de semaine du mois, pas le quantième.
+ *
+ * Le rang (1er…5e) et le jour (lundi…) se LISENT sur l'échéance courante, en HEURE D'ALGER :
+ * un rappel posé le lundi 6 (2e lundi) retombe chaque 2e lundi, à la même heure. Un mois sans
+ * 5e occurrence retombe sur la DERNIÈRE (le « 5e lundi » d'un mois qui n'en a que 4 devient le
+ * 4e) — annuler le rappel un mois sur deux serait pire que le décaler d'une semaine.
+ */
+function nextMonthlyWeekday(current: Date, after: Date): Date | null {
+  const alg = new Date(current.getTime() + 3_600_000); // heure d'Alger (UTC+1, sans été)
+  const weekday = alg.getUTCDay();
+  const nth = Math.ceil(alg.getUTCDate() / 7);
+  const hours = alg.getUTCHours();
+  const minutes = alg.getUTCMinutes();
+
+  let year = alg.getUTCFullYear();
+  let month = alg.getUTCMonth();
+  for (let i = 0; i < 60; i += 1) {
+    month += 1;
+    if (month > 11) { month = 0; year += 1; }
+    // Premier jour du mois → premier `weekday` du mois → avance de (nth−1) semaines, borné au mois.
+    const firstDow = new Date(Date.UTC(year, month, 1)).getUTCDay();
+    const firstMatch = 1 + ((weekday - firstDow + 7) % 7);
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    let day = firstMatch + (nth - 1) * 7;
+    while (day > daysInMonth) day -= 7;
+    const candidate = new Date(Date.UTC(year, month, day, hours, minutes) - 3_600_000); // retour en UTC
+    if (candidate.getTime() > after.getTime()) return candidate;
   }
   return null;
 }
@@ -111,6 +145,18 @@ export async function runAssistantReminders(now: Date = new Date()): Promise<voi
         body: r.note ?? "Un point d'avancement est attendu.",
         link: r.link ?? undefined,
       }).catch((e) => console.error("[reminders] notify role failed", e));
+    }
+
+    // La RELANCE d'une PERSONNE NOMMÉE : « tous les dimanches relance Nesrine ». Se cumule avec
+    // le rôle — l'un, l'autre, ou les deux.
+    if (r.targetUserId) {
+      await notifyUser({
+        userId: r.targetUserId,
+        type: "GENERIC",
+        title: `Relance — ${r.title}`,
+        body: r.note ?? "Un point d'avancement est attendu.",
+        link: r.link ?? undefined,
+      }).catch((e) => console.error("[reminders] notify person failed", e));
     }
   }
 }
