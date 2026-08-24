@@ -1499,7 +1499,10 @@ export const NAVIGATION: NavItem[] = [
   // « Factures » s'atteignent depuis la page Finances, qui reste la porte unique du module.
   {
     module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION",
-    match: ["/finances/ordres-de-depense", "/finances/factures"],
+    // Le CENTRE DE PAIEMENT est dans le périmètre de Finances (le menu ne se désélectionne pas en
+    // y entrant), mais il n'a PAS d'entrée à lui : sa porte est sur la page Finances, et seulement
+    // pour qui y siège.
+    match: ["/finances/ordres-de-depense", "/finances/factures", "/finances/centre-de-paiement"],
   },
   // DEMANDES DE PAIEMENT — chez les Finances, mais ouvertes à TOUT LE MONDE.
   //

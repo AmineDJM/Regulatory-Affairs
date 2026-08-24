@@ -1,5 +1,7 @@
 import type { EntityType, FinanceCategory } from "@prisma/client";
 import { buildRef } from "@/lib/refs";
+import { ENTITY_MODULE } from "@/lib/entity-access";
+import { initialCentralStatus, CENTRAL_AUTH_THRESHOLD_DZD } from "@/lib/payments/authorization";
 import { prisma } from "./prisma";
 import { notifyRoles } from "./notify";
 
@@ -63,6 +65,14 @@ async function companyOfExpense(input: CreateExpenseOrderInput): Promise<string 
 
 export async function createExpenseOrder(input: CreateExpenseOrderInput) {
   const requiresInvoice = (input.sourceType ? INVOICE_REQUIRED_SOURCES.includes(input.sourceType) : false) || input.category === "EVENEMENT";
+
+  // LE CENTRE DE PAIEMENT SE DÉCIDE ICI, à la naissance de l'ordre — le seul endroit par lequel
+  // TOUT décaissement passe. Un ordre au-dessus du seuil part « en attente » et n'arrive pas aux
+  // Finances tant que le PDG ou le Super Admin ne l'a pas autorisé ; au-dessous, il file
+  // directement, comme avant. Les moyens généraux sont exemptés par leur module d'origine.
+  const sourceModule = input.sourceType ? ENTITY_MODULE[input.sourceType] : null;
+  const centralStatus = initialCentralStatus({ amount: input.amount, module: sourceModule });
+
   const order = await prisma.expenseOrder.create({
     data: {
       reference: await nextExpenseRef(),
@@ -78,13 +88,28 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
       dueDate: input.dueDate ?? null,
       budgetCategoryId: input.budgetCategoryId ?? null,
       requiresInvoice,
+      centralStatus,
     },
   });
-  await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {
-    type: "VALIDATION_REQUIRED",
-    title: "Nouvel ordre de dépense",
-    body: `${order.reference} — ${input.label} (${input.amount.toLocaleString("fr-FR")} DZD)`,
-    link: "/finances/ordres-de-depense",
-  });
+
+  const money = `${input.amount.toLocaleString("fr-FR")} DZD`;
+  if (centralStatus === "AWAITING") {
+    // On alerte LE CENTRE, pas les Finances : elles ne doivent rien voir tant que l'autorisation
+    // n'est pas donnée. Les prévenir maintenant les ferait relancer un dossier qu'elles ne
+    // peuvent pas traiter.
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+      type: "VALIDATION_REQUIRED",
+      title: "Autorisation de paiement demandée",
+      body: `${order.reference} — ${input.label} (${money}, au-dessus de ${CENTRAL_AUTH_THRESHOLD_DZD.toLocaleString("fr-FR")} DZD)`,
+      link: "/finances/centre-de-paiement",
+    });
+  } else {
+    await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {
+      type: "VALIDATION_REQUIRED",
+      title: "Nouvel ordre de dépense",
+      body: `${order.reference} — ${input.label} (${money})`,
+      link: "/finances/ordres-de-depense",
+    });
+  }
   return order;
 }

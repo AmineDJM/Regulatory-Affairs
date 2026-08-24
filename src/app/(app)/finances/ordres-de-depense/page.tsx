@@ -7,6 +7,7 @@ import { platformScope } from "@/lib/company";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
+import { visibleToFinance, type CentralStatus } from "@/lib/payments/authorization";
 import { OrdersTable, type OrderRow } from "./orders-table";
 import { BackLink } from "@/components/shared/back-link";
 
@@ -15,12 +16,16 @@ export default async function OrdresDepensePage() {
   const canSettle = userCan(user, "FINANCES", "UPDATE");
   const canDirection = hasGlobalView(user.role) || userCan(user, "FINANCES", "VALIDATE") || userCan(user, "BUDGETS", "VALIDATE");
 
-  const orders = await prisma.expenseOrder.findMany({
+  // LES FINANCES NE REÇOIVENT RIEN tant que le centre de paiement n'a pas tranché : un ordre
+  // au-dessus du seuil n'apparaît ici qu'une fois autorisé (ou refusé — il faut savoir qu'il ne
+  // faut pas payer). Les filtrer en base plutôt qu'à l'écran est délibéré : un ordre non autorisé
+  // ne doit pas exister pour la comptabilité, pas même en total ou en compteur.
+  const orders = (await prisma.expenseOrder.findMany({
     where: await platformScope(user.id),
     orderBy: { createdAt: "desc" },
     include: { requestedBy: { select: { name: true } } },
     take: 300,
-  });
+  })).filter((o) => visibleToFinance(o.centralStatus as CentralStatus));
 
   // Présence d'une facture (catégorie INVOICE) sur l'ordre ou son dossier source.
   const orderIds = orders.map((o) => o.id);

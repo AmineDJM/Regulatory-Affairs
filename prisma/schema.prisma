@@ -859,46 +859,46 @@ model User {
   calendarInvites    CalendarInvite[]    @relation("CalendarInvitee")
 
   // RH & espace de travail
-  employee               Employee?                 @relation("UserEmployee")
-  promotedFeatures       FeatureFlag[]             @relation("FeaturePromoter")
-  departmentBudgets      DepartmentBudget[]        @relation("DepartmentBudgetSetter")
-  departmentBudgetAccess DepartmentBudgetAccess[]  @relation("DepartmentBudgetAccessSetter")
-  deptBudgetRequests     DepartmentBudgetRequest[] @relation("DeptBudgetRequester")
-  deptBudgetDecisions    DepartmentBudgetRequest[] @relation("DeptBudgetDecider")
-  deptBudgetExpenses     DepartmentBudgetExpense[] @relation("DeptExpenseCreator")
-  trainingRequests       Training[]                @relation("TrainingRequester")
-  trainingParticipations TrainingParticipant[]     @relation("TrainingParticipant")
-  pettyCashHeld          PettyCashAllotment[]      @relation("PettyCashHolder")
-  pettyCashPlansHeld     PettyCashPlan[]           @relation("PettyCashPlanHolder")
-  pettyCashPlansSet      PettyCashPlan[]           @relation("PettyCashPlanSetter")
-  pettyCashTopUps        PettyCashTopUpRequest[]   @relation("PettyCashTopUpRequester")
-  pettyCashTopUpsDecided PettyCashTopUpRequest[]   @relation("PettyCashTopUpDecider")
-  pettyCashCreated       PettyCashAllotment[]      @relation("PettyCashCreator")
-  assistantThreads       AssistantThread[]         @relation("AssistantThreads")
-  assistantMemory        AssistantMemory?          @relation("AssistantMemory")
-  dailyBriefs            DailyBrief[]              @relation("DailyBriefs")
-  outboundEmails         OutboundEmail[]           @relation("OutboundEmails")
-  tasksAssigned          Task[]                    @relation("TaskAssignee")
-  tasksCreated           Task[]                    @relation("TaskCreator")
-  taskComments           TaskComment[]             @relation("TaskCommentAuthor")
-  legalDocsCreated       LegalDocument[]           @relation("LegalDocCreator")
-  mailEntriesCreated     MailEntry[]               @relation("MailEntryCreator")
-  mailEntriesConcerned   MailEntry[]               @relation("MailEntryConcerned")
-  regRemindersReceived   RegulatoryUpdateReminder[] @relation("RegUpdateReminderRecipient")
-  regRemindersSent       RegulatoryUpdateReminder[] @relation("RegUpdateReminderSender")
-  recruitmentRequests    RecruitmentRequest[]       @relation("RecruitmentRequester")
-  recruitmentApprovals   RecruitmentApproval[]      @relation("RecruitmentApprover")
-  recruitmentInfoAsked   RecruitmentInfoRequest[]   @relation("RecruitmentInfoAsker")
-  recruitmentInfoAnswered RecruitmentInfoRequest[]  @relation("RecruitmentInfoAnswerer")
-  recruitmentCandidates  RecruitmentCandidate[]     @relation("RecruitmentCandidateAdder")
-  leaveStandIns          LeaveRequest[]             @relation("LeaveStandIn")
-  invoicesCreated        Invoice[]                 @relation("InvoiceCreator")
-  leaveDecisions         LeaveRequest[]            @relation("LeaveDecider")
-  advanceDecisions       SalaryAdvance[]           @relation("AdvanceDecider")
-  expenseOrders          ExpenseOrder[]            @relation("ExpenseOrderRequester")
-  driveNodes             DriveNode[]               @relation("DriveOwner")
-  driveShares            DriveShare[]              @relation("DriveShareUser")
-  driveComments          DriveComment[]            @relation("DriveCommentAuthor")
+  employee                Employee?                  @relation("UserEmployee")
+  promotedFeatures        FeatureFlag[]              @relation("FeaturePromoter")
+  departmentBudgets       DepartmentBudget[]         @relation("DepartmentBudgetSetter")
+  departmentBudgetAccess  DepartmentBudgetAccess[]   @relation("DepartmentBudgetAccessSetter")
+  deptBudgetRequests      DepartmentBudgetRequest[]  @relation("DeptBudgetRequester")
+  deptBudgetDecisions     DepartmentBudgetRequest[]  @relation("DeptBudgetDecider")
+  deptBudgetExpenses      DepartmentBudgetExpense[]  @relation("DeptExpenseCreator")
+  trainingRequests        Training[]                 @relation("TrainingRequester")
+  trainingParticipations  TrainingParticipant[]      @relation("TrainingParticipant")
+  pettyCashHeld           PettyCashAllotment[]       @relation("PettyCashHolder")
+  pettyCashPlansHeld      PettyCashPlan[]            @relation("PettyCashPlanHolder")
+  pettyCashPlansSet       PettyCashPlan[]            @relation("PettyCashPlanSetter")
+  pettyCashTopUps         PettyCashTopUpRequest[]    @relation("PettyCashTopUpRequester")
+  pettyCashTopUpsDecided  PettyCashTopUpRequest[]    @relation("PettyCashTopUpDecider")
+  pettyCashCreated        PettyCashAllotment[]       @relation("PettyCashCreator")
+  assistantThreads        AssistantThread[]          @relation("AssistantThreads")
+  assistantMemory         AssistantMemory?           @relation("AssistantMemory")
+  dailyBriefs             DailyBrief[]               @relation("DailyBriefs")
+  outboundEmails          OutboundEmail[]            @relation("OutboundEmails")
+  tasksAssigned           Task[]                     @relation("TaskAssignee")
+  tasksCreated            Task[]                     @relation("TaskCreator")
+  taskComments            TaskComment[]              @relation("TaskCommentAuthor")
+  legalDocsCreated        LegalDocument[]            @relation("LegalDocCreator")
+  mailEntriesCreated      MailEntry[]                @relation("MailEntryCreator")
+  mailEntriesConcerned    MailEntry[]                @relation("MailEntryConcerned")
+  regRemindersReceived    RegulatoryUpdateReminder[] @relation("RegUpdateReminderRecipient")
+  regRemindersSent        RegulatoryUpdateReminder[] @relation("RegUpdateReminderSender")
+  recruitmentRequests     RecruitmentRequest[]       @relation("RecruitmentRequester")
+  recruitmentApprovals    RecruitmentApproval[]      @relation("RecruitmentApprover")
+  recruitmentInfoAsked    RecruitmentInfoRequest[]   @relation("RecruitmentInfoAsker")
+  recruitmentInfoAnswered RecruitmentInfoRequest[]   @relation("RecruitmentInfoAnswerer")
+  recruitmentCandidates   RecruitmentCandidate[]     @relation("RecruitmentCandidateAdder")
+  leaveStandIns           LeaveRequest[]             @relation("LeaveStandIn")
+  invoicesCreated         Invoice[]                  @relation("InvoiceCreator")
+  leaveDecisions          LeaveRequest[]             @relation("LeaveDecider")
+  advanceDecisions        SalaryAdvance[]            @relation("AdvanceDecider")
+  expenseOrders           ExpenseOrder[]             @relation("ExpenseOrderRequester")
+  driveNodes              DriveNode[]                @relation("DriveOwner")
+  driveShares             DriveShare[]               @relation("DriveShareUser")
+  driveComments           DriveComment[]             @relation("DriveCommentAuthor")
 
   // Demandes administratives
   adminRequests           AdministrativeRequest[] @relation("ReqRequester")
@@ -965,16 +965,17 @@ model User {
   meetingTaskProposals  MeetingTaskProposal[] @relation("MeetingTaskAssignee")
   meetingMessages       MeetingMessage[]      @relation("MeetingMsgAuthor")
 
-  reminders          Reminder[]            @relation("UserReminders")
+  reminders             Reminder[]             @relation("UserReminders")
   /// Entités auxquelles cette personne a accès (voir / modifier). Distinct de son entité
   /// d'appartenance, portée par sa fiche Employee.
-  companyAccess      UserCompanyAccess[]
-  rangeAccess        UserProductRange[]
-  legalDocReads      LegalDocumentReader[]
-  adProItemDecisions AdProItemDecision[]   @relation("AdProItemDecider")
-  apiClients         ApiClient[]           @relation("ApiClientActAs")
-  docRequestsAsked   DocumentRequest[]     @relation("DocRequestAsker")
-  docRequestsToMe    DocumentRequest[]     @relation("DocRequestAsked")
+  companyAccess         UserCompanyAccess[]
+  rangeAccess           UserProductRange[]
+  legalDocReads         LegalDocumentReader[]
+  adProItemDecisions    AdProItemDecision[]    @relation("AdProItemDecider")
+  apiClients            ApiClient[]            @relation("ApiClientActAs")
+  docRequestsAsked      DocumentRequest[]      @relation("DocRequestAsker")
+  docRequestsToMe       DocumentRequest[]      @relation("DocRequestAsked")
+  paymentCentreMessages PaymentCentreMessage[]
 
   @@index([role])
   @@index([departmentId])
@@ -1459,42 +1460,42 @@ enum RecruitmentCandidateStatus {
 }
 
 model RecruitmentRequest {
-  id             String           @id @default(cuid())
-  reference      String           @unique // REC-2026-001
-  companyId      String?
-  company        Company?         @relation(fields: [companyId], references: [id])
+  id           String      @id @default(cuid())
+  reference    String      @unique // REC-2026-001
+  companyId    String?
+  company      Company?    @relation(fields: [companyId], references: [id])
   /// Le département POUR LEQUEL on recrute — pas celui du demandeur, qui peut recruter pour un
   /// sous-département dont il a la charge.
-  departmentId   String?
-  department     Department?      @relation("RecruitmentDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
-  requesterId    String
-  requester      User             @relation("RecruitmentRequester", fields: [requesterId], references: [id])
+  departmentId String?
+  department   Department? @relation("RecruitmentDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  requesterId  String
+  requester    User        @relation("RecruitmentRequester", fields: [requesterId], references: [id])
 
-  position       String
-  headcount      Int              @default(1)
-  contractType   ContractType
+  position      String
+  headcount     Int          @default(1)
+  contractType  ContractType
   /// Fourchette de rémunération mensuelle brute (DZD). Les deux bornes sont facultatives : un
   /// poste se pose souvent « à partir de », et forcer un maximum inventerait un plafond.
-  salaryMin      Decimal?         @db.Decimal(12, 2)
-  salaryMax      Decimal?         @db.Decimal(12, 2)
-  startDate      DateTime?
+  salaryMin     Decimal?     @db.Decimal(12, 2)
+  salaryMax     Decimal?     @db.Decimal(12, 2)
+  startDate     DateTime?
   /// Terme du contrat — obligatoire pour un CDD, un stage ou un consulting, interdit sur un CDI.
-  endDate        DateTime?
-  missions       String?
-  skills         String?
-  justification  String?
+  endDate       DateTime?
+  missions      String?
+  skills        String?
+  justification String?
 
-  stage          RecruitmentStage @default(CHAIN)
+  stage       RecruitmentStage @default(CHAIN)
   /// Décision finale des RH / de la direction, en clair, quand la demande se clôt.
-  closingNote    String?
-  closedAt       DateTime?
+  closingNote String?
+  closedAt    DateTime?
 
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  approvals      RecruitmentApproval[]
-  infoRequests   RecruitmentInfoRequest[]
-  candidates     RecruitmentCandidate[]
+  approvals    RecruitmentApproval[]
+  infoRequests RecruitmentInfoRequest[]
+  candidates   RecruitmentCandidate[]
 
   @@index([stage])
   @@index([requesterId])
@@ -1507,16 +1508,16 @@ model RecruitmentRequest {
 /// Figée, parce qu'une réorganisation en cours de route changerait les validateurs d'une demande
 /// déjà partie — et l'on ne saurait plus qui devait trancher quand elle a été déposée.
 model RecruitmentApproval {
-  id          String                   @id @default(cuid())
-  requestId   String
-  request     RecruitmentRequest       @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  order       Int
-  approverId  String
-  approver    User                     @relation("RecruitmentApprover", fields: [approverId], references: [id])
-  status      RecruitmentApprovalState @default(PENDING)
-  reason      String?
-  decidedAt   DateTime?
-  createdAt   DateTime                 @default(now())
+  id         String                   @id @default(cuid())
+  requestId  String
+  request    RecruitmentRequest       @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  order      Int
+  approverId String
+  approver   User                     @relation("RecruitmentApprover", fields: [approverId], references: [id])
+  status     RecruitmentApprovalState @default(PENDING)
+  reason     String?
+  decidedAt  DateTime?
+  createdAt  DateTime                 @default(now())
 
   @@unique([requestId, order])
   @@index([approverId, status])
@@ -1548,35 +1549,35 @@ model RecruitmentInfoRequest {
 /// vitesses différentes. Une demande qui porterait un seul état « en entretien » ne saurait pas
 /// dire de qui elle parle.
 model RecruitmentCandidate {
-  id             String                    @id @default(cuid())
-  requestId      String
-  request        RecruitmentRequest        @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  fullName       String
-  email          String?
-  phone          String?
+  id        String                     @id @default(cuid())
+  requestId String
+  request   RecruitmentRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  fullName  String
+  email     String?
+  phone     String?
   /// D'où vient le CV (candidature spontanée, cabinet, cooptation…). Texte libre : les sources
   /// changent tout le temps et une liste fermée serait fausse dès le mois suivant.
-  source         String?
-  notes          String?
-  status         RecruitmentCandidateStatus @default(RECEIVED)
+  source    String?
+  notes     String?
+  status    RecruitmentCandidateStatus @default(RECEIVED)
 
-  addedById      String?
-  addedBy        User?                     @relation("RecruitmentCandidateAdder", fields: [addedById], references: [id], onDelete: SetNull)
+  addedById       String?
+  addedBy         User?     @relation("RecruitmentCandidateAdder", fields: [addedById], references: [id], onDelete: SetNull)
   shortlistedById String?
-  shortlistedAt  DateTime?
-  selectedById   String?
-  selectedAt     DateTime?
-  interviewAt    DateTime?
-  interviewNote  String?
-  decidedAt      DateTime?
+  shortlistedAt   DateTime?
+  selectedById    String?
+  selectedAt      DateTime?
+  interviewAt     DateTime?
+  interviewNote   String?
+  decidedAt       DateTime?
 
   /// Fiche employé créée à l'intégration. Absente pour un consulting — un consultant externe
   /// n'entre pas dans l'effectif.
-  employeeId     String?                   @unique
-  employee       Employee?                 @relation("RecruitmentHire", fields: [employeeId], references: [id], onDelete: SetNull)
+  employeeId String?   @unique
+  employee   Employee? @relation("RecruitmentHire", fields: [employeeId], references: [id], onDelete: SetNull)
 
-  createdAt      DateTime                  @default(now())
-  updatedAt      DateTime                  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([requestId, status])
 }
@@ -3172,27 +3173,27 @@ model MedicalDirectory {
 /// on cherche l'imprimeur sur Internet. La `kind` est libre — la réalité invente des métiers plus
 /// vite qu'une liste fermée ne les prévoit.
 model CompanyContact {
-  id        String   @id @default(cuid())
-  name      String
+  id          String   @id @default(cuid())
+  name        String
   /// Nature libre : « Agence de voyage », « Livreur », « Imprimeur », « Agence marketing »…
-  kind      String?
+  kind        String?
   contactName String? // la personne qu'on demande
-  phone     String?
-  phoneAlt  String?
-  email     String?
-  website   String?
-  address   String?
-  city      String?
-  wilaya    String?
+  phone       String?
+  phoneAlt    String?
+  email       String?
+  website     String?
+  address     String?
+  city        String?
+  wilaya      String?
   /// Identifiants utiles pour un dossier de paiement ou un contrat.
-  rc        String?
-  nif       String?
-  rib       String?
-  notes     String?
-  isActive  Boolean  @default(true)
+  rc          String?
+  nif         String?
+  rib         String?
+  notes       String?
+  isActive    Boolean  @default(true)
   /// Entité de rattachement. Nul = contact commun au groupe.
-  companyId String?
-  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   createdById String?
   updatedById String?
@@ -3438,13 +3439,13 @@ model Document {
   uploadedById    String?
   uploadedBy      User?            @relation(fields: [uploadedById], references: [id])
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  mailPieces MailEntryPiece[]
 
   @@index([entityType, entityId])
   @@index([category])
   @@index([uploadedById])
-  mailPieces      MailEntryPiece[]
 }
 
 model Comment {
@@ -4015,11 +4016,11 @@ model LeaveRequest {
   /// VALIDENT (sans quoi chacun se choisirait un remplaçant complaisant), et la délégation ne
   /// vit QUE pendant le congé : c'est le calendrier qui la ferme, pas la mémoire de quelqu'un.
   standInId          String?
-  standIn            User?            @relation("LeaveStandIn", fields: [standInId], references: [id], onDelete: SetNull)
+  standIn            User?          @relation("LeaveStandIn", fields: [standInId], references: [id], onDelete: SetNull)
   standInStatus      StandInStatus?
   /// Les modules délégués — jamais tout le compte. Un directeur en congé délègue ses
   /// validations, pas la lecture de ses courriels. Voir `lib/hr/stand-in.ts`.
-  standInModules     String[]         @default([])
+  standInModules     String[]       @default([])
   standInDecidedById String?
   standInDecidedAt   DateTime?
   standInNote        String?
@@ -4039,21 +4040,21 @@ enum StandInStatus {
 /// Tâche assignable — cœur de l'espace de travail (to-do, délégation, suivi).
 model Task {
   custom            Json?
-  id                String      @id @default(cuid())
+  id                String        @id @default(cuid())
   title             String
   description       String?
   assignedToId      String?
-  assignedTo        User?       @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  assignedTo        User?         @relation("TaskAssignee", fields: [assignedToId], references: [id])
   // Personnes associées à la tâche, fixées à la création. Les PARTICIPANTS peuvent agir
   // (démarrer, terminer) comme le responsable ; les LECTEURS la voient sans pouvoir la changer.
   // Identifiants bruts (pas de relation) — même patron léger que `Dossier.participantIds`.
-  participantIds    String[]    @default([])
-  readerIds         String[]    @default([])
+  participantIds    String[]      @default([])
+  readerIds         String[]      @default([])
   createdById       String?
-  createdBy         User?       @relation("TaskCreator", fields: [createdById], references: [id])
+  createdBy         User?         @relation("TaskCreator", fields: [createdById], references: [id])
   dueDate           DateTime?
-  priority          Priority    @default(MEDIUM)
-  status            TaskStatus  @default(TODO)
+  priority          Priority      @default(MEDIUM)
+  status            TaskStatus    @default(TODO)
   module            String? // module concerné (REGULATORY, FINANCES…)
   relatedEntityType EntityType?
   relatedEntityId   String?
@@ -4076,8 +4077,8 @@ model Task {
   completionNote    String?
   /// Le fil d'échange de la tâche — questions, précisions, comptes rendus intermédiaires.
   comments          TaskComment[]
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   @@index([assignedToId, status])
   @@index([createdById])
@@ -4114,38 +4115,70 @@ model SalaryAdvance {
 /// (sponsoring accepté, avance approuvée…). Le comptable l'exécute, ce qui génère
 /// l'écriture de trésorerie OUT et marque la source comme payée.
 model ExpenseOrder {
-  custom           Json?
-  id               String             @id @default(cuid())
-  companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
-  company          Company?           @relation(fields: [companyId], references: [id])
-  reference        String             @unique // OD-2026-001
-  label            String
-  beneficiary      String?
-  amount           Decimal            @db.Decimal(14, 2)
-  category         FinanceCategory    @default(AUTRE)
-  status           ExpenseOrderStatus @default(PENDING)
-  dueDate          DateTime?
-  requiresInvoice  Boolean            @default(false) // facture obligatoire avant règlement (dépenses événementielles)
-  budgetCategoryId String? // (sous-)catégorie budgétaire choisie par la Direction — sert d'attribution au règlement
-  notes            String?
+  custom                Json?
+  id                    String                 @id @default(cuid())
+  companyId             String? // entité de rattachement (Adventum / Pharmagène / …)
+  company               Company?               @relation(fields: [companyId], references: [id])
+  reference             String                 @unique // OD-2026-001
+  label                 String
+  beneficiary           String?
+  amount                Decimal                @db.Decimal(14, 2)
+  category              FinanceCategory        @default(AUTRE)
+  status                ExpenseOrderStatus     @default(PENDING)
+  dueDate               DateTime?
+  requiresInvoice       Boolean                @default(false) // facture obligatoire avant règlement (dépenses événementielles)
+  budgetCategoryId      String? // (sous-)catégorie budgétaire choisie par la Direction — sert d'attribution au règlement
+  notes                 String?
   // Aller-retour comptable ↔ Direction : le comptable peut demander une baisse de
   // budget (manque de fonds) ; la Direction ajuste le montant ou refuse.
-  revisionReason   String? // motif de la demande de révision (comptable)
-  proposedAmount   Decimal?           @db.Decimal(14, 2) // montant proposé par le comptable
-  revisionById     String? // comptable ayant demandé la révision
-  sourceType       EntityType? // SPONSORING, SALARY_ADVANCE…
-  sourceId         String?
-  requestedById    String?
-  requestedBy      User?              @relation("ExpenseOrderRequester", fields: [requestedById], references: [id])
-  paidById         String?
-  transactionId    String?
-  paidDate         DateTime?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  revisionReason        String? // motif de la demande de révision (comptable)
+  proposedAmount        Decimal?               @db.Decimal(14, 2) // montant proposé par le comptable
+  revisionById          String? // comptable ayant demandé la révision
+  sourceType            EntityType? // SPONSORING, SALARY_ADVANCE…
+  sourceId              String?
+  requestedById         String?
+  requestedBy           User?                  @relation("ExpenseOrderRequester", fields: [requestedById], references: [id])
+  paidById              String?
+  transactionId         String?
+  paidDate              DateTime?
+  /// LE CENTRE DE PAIEMENT — l'autorisation du sommet, au-dessus du seuil.
+  /// Aucun décaissement à partir de 50 000 DZD ne quitte les Finances sans passer par ici (les
+  /// moyens généraux exceptés). `NOT_REQUIRED` = sous le seuil ou exempté ; c'est une trace
+  /// explicite, pas un contournement. Voir `src/lib/payments/authorization.ts`.
+  centralStatus         String                 @default("NOT_REQUIRED")
+  centralDecidedById    String?
+  centralDecidedAt      DateTime?
+  /// Le montant que le centre demande de retenir, quand il demande une révision.
+  centralProposedAmount Decimal?               @db.Decimal(14, 2)
+  centralMessages       PaymentCentreMessage[]
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
 
   @@index([status])
   @@index([sourceType, sourceId])
   @@index([companyId])
+  @@index([centralStatus])
+}
+
+/// LE FIL DU CENTRE DE PAIEMENT — la discussion qui accompagne une autorisation.
+/// Une décision n'est pas toujours « oui » ou « non » : le centre demande une révision du montant
+/// ou une argumentation, le demandeur répond, et cela peut faire plusieurs allers-retours. Sans
+/// endroit pour l'écrire, cet échange part en messagerie et se sépare du paiement qu'il concerne :
+/// six mois plus tard, l'ordre dit « autorisé » et personne ne sait à quelles conditions.
+model PaymentCentreMessage {
+  id        String       @id @default(cuid())
+  orderId   String
+  order     ExpenseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  /// La décision qui accompagne ce message, s'il en porte une (`APPROVE`, `REFUSE`,
+  /// `REQUEST_CHANGES`, `REQUEST_INFO`) — nul pour une simple réponse du demandeur.
+  decision  String?
+  body      String
+  /// `SET NULL` : désactiver un compte ne doit pas effacer ce qu'il a écrit sur un décaissement.
+  authorId  String?
+  author    User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt DateTime     @default(now())
+
+  @@index([orderId])
 }
 
 // ───────────────────────────── Drive (stockage interne) ─────────────────────────────
@@ -4154,23 +4187,23 @@ model ExpenseOrder {
 /// FileBlob (chiffré, adressé par contenu) ; l'historique dans FileVersion.
 model DriveNode {
   custom      Json?
-  id          String          @id @default(cuid())
+  id          String              @id @default(cuid())
   name        String
   type        DriveNodeType
   parentId    String?
-  parent      DriveNode?      @relation("DriveTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children    DriveNode[]     @relation("DriveTree")
+  parent      DriveNode?          @relation("DriveTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    DriveNode[]         @relation("DriveTree")
   ownerId     String?
-  owner       User?           @relation("DriveOwner", fields: [ownerId], references: [id])
+  owner       User?               @relation("DriveOwner", fields: [ownerId], references: [id])
   // Catégorie/espace partagé (ex. « Promotion Médicale ») auquel ce nœud appartient. null =
   // Drive PERSONNEL (comportement historique). Tout le sous-arbre d'un espace porte le même
   // spaceId (l'invariant est maintenu à la création et au déplacement).
   spaceId     String?
-  space       DriveSpace?     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  space       DriveSpace?         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   mimeType    String? // version courante (fichier)
-  size        Int             @default(0) // octets de la version courante ; 0 pour un dossier
+  size        Int                 @default(0) // octets de la version courante ; 0 pour un dossier
   category    String? // classement choisi à l'import (Contrat, Facture, Réglementaire…)
-  isTrashed   Boolean         @default(false)
+  isTrashed   Boolean             @default(false)
   versions    FileVersion[]
   legalDocs   LegalDocument[]
   mailEntries MailEntry[]
@@ -4180,8 +4213,8 @@ model DriveNode {
   messageRefs MessageAttachment[] @relation("MessageDriveRef")
   mailPieces  MailEntryPiece[]    @relation("MailPieceDriveNode")
   createdById String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   @@index([parentId])
   @@index([ownerId])
@@ -8227,50 +8260,50 @@ enum MailDirection {
 /// l'ACCUSÉ (`acknowledgedAt`). Aucune n'est obligatoire : un courrier qu'on vient de déposer
 /// n'a encore ni arrivée ni accusé.
 model MailEntry {
-  custom         Json?
-  id             String        @id @default(cuid())
-  companyId      String?
-  company        Company?      @relation(fields: [companyId], references: [id])
-  reference      String? // n° de chrono
-  title          String
-  direction      MailDirection
-  sender         String? // expéditeur (surtout pour un entrant)
-  recipient      String? // destinataire (surtout pour un sortant)
-  sentAt         DateTime? // date ET heure de départ
-  receivedAt     DateTime? // date d'arrivée
-  acknowledgedAt DateTime? // date d'accusé de réception
-  carrier        String? // porteur / transporteur (coursier, poste, e-mail…)
+  custom          Json?
+  id              String           @id @default(cuid())
+  companyId       String?
+  company         Company?         @relation(fields: [companyId], references: [id])
+  reference       String? // n° de chrono
+  title           String
+  direction       MailDirection
+  sender          String? // expéditeur (surtout pour un entrant)
+  recipient       String? // destinataire (surtout pour un sortant)
+  sentAt          DateTime? // date ET heure de départ
+  receivedAt      DateTime? // date d'arrivée
+  acknowledgedAt  DateTime? // date d'accusé de réception
+  carrier         String? // porteur / transporteur (coursier, poste, e-mail…)
   /// LE PARTENAIRE CONCERNÉ, s'il y en a un — choisi dans la liste du module (`MailPartner`).
   /// Facultatif : beaucoup de plis sont internes ou n'engagent personne d'extérieur.
-  partnerId      String?
-  partner        MailPartner?  @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+  partnerId       String?
+  partner         MailPartner?     @relation(fields: [partnerId], references: [id], onDelete: SetNull)
   /// LA DIRECTION CONCERNÉE — le département que le pli vise. Un courrier arrive au registre,
   /// mais il s'adresse à quelqu'un : sans cette colonne, l'assistante doit se souvenir de qui
   /// l'attendait, et un pli non relevé ne se retrouve que par son objet.
-  departmentId   String?
-  department     Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  departmentId    String?
+  department      Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   /// LA PERSONNE CONCERNÉE. Indépendante de la direction, et les deux se cumulent : un contrat
   /// vise « la Direction Générale » ET son directeur, une convocation vise une seule personne.
   concernedUserId String?
-  concernedUser   User?        @relation("MailEntryConcerned", fields: [concernedUserId], references: [id], onDelete: SetNull)
-  notes          String?
+  concernedUser   User?            @relation("MailEntryConcerned", fields: [concernedUserId], references: [id], onDelete: SetNull)
+  notes           String?
   /// LE FICHIER RESTE DANS LE DRIVE : on le référence, on ne le duplique pas. Deux copies
   /// auraient divergé dès la première correction, et plus personne n'aurait su laquelle fait foi.
-  driveNodeId    String?
-  driveNode      DriveNode?    @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
+  driveNodeId     String?
+  driveNode       DriveNode?       @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
   /// LE DOSSIER DE CLASSEMENT, s'il y en a un. Un dossier RANGE, il n'autorise pas : le
   /// cloisonnement par entité reste la seule règle d'accès. `SET NULL` : supprimer un dossier
   /// déclasse ses plis, il ne les efface jamais.
-  folderId       String?
-  folder         MailEntryFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  sourceType     EntityType?
-  sourceId       String?
-  pieces         MailEntryPiece[]
-  createdById    String?
-  createdBy      User?         @relation("MailEntryCreator", fields: [createdById], references: [id])
-  updatedById    String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  folderId        String?
+  folder          MailEntryFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  sourceType      EntityType?
+  sourceId        String?
+  pieces          MailEntryPiece[]
+  createdById     String?
+  createdBy       User?            @relation("MailEntryCreator", fields: [createdById], references: [id])
+  updatedById     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   @@index([companyId, direction])
   @@index([sentAt])

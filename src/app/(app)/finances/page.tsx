@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ReceiptText, Banknote } from "lucide-react";
+import { ReceiptText, Banknote, ShieldCheck } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -17,6 +17,7 @@ import { createTransaction, createQuickIncome } from "@/lib/actions/finance-acti
 import { FINANCE_CATEGORY, FINANCE_DIRECTION, FINANCE_METHOD, FINANCE_STATUS } from "@/lib/labels";
 import { getMyCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency } from "@/lib/utils";
+import { sitsOnPaymentCentre } from "@/lib/payments/authorization";
 import { LedgerTable } from "./ledger-table";
 import { RecettesDepensesChart } from "./finance-charts";
 import { ImportTransactionsButton } from "./import-transactions";
@@ -32,6 +33,8 @@ export default async function FinancesPage() {
   const canDelete = userCan(user, "FINANCES", "DELETE");
   const [data, compta] = await Promise.all([getFinanceData(user.id), getComptaData(user.id)]);
   const pendingOrders = await prisma.expenseOrder.count({ where: { status: "PENDING" } });
+  // Ce qui attend le CENTRE de paiement — le compteur n'a de sens que pour qui y siège.
+  const awaitingCentre = await prisma.expenseOrder.count({ where: { centralStatus: "AWAITING" } });
   // Les DEMANDES DE PAIEMENT arrivent ici : c'est le module qui les instruit. Le compteur est
   // sur le bouton parce qu'une file qu'on ne voit pas depuis la page d'accueil du module est une
   // file qu'on ouvre le vendredi soir.
@@ -60,6 +63,16 @@ export default async function FinancesPage() {
         <Link href="/finances/factures">
           <Button variant="outline"><ReceiptText className="h-4 w-4" /> Factures</Button>
         </Link>
+        {/* LE CENTRE DE PAIEMENT — visible du seul PDG (et du Super Admin) : c'est lui qui
+            autorise. Un lien vers un écran qu'on ne peut pas ouvrir est pire qu'une absence. */}
+        {sitsOnPaymentCentre(user) && (
+          <Link href="/finances/centre-de-paiement">
+            <Button variant="outline">
+              <ShieldCheck className="h-4 w-4" /> Centre de paiement
+              {awaitingCentre > 0 && <span className="ml-1 rounded-full bg-warning/20 px-1.5 text-xs font-semibold text-warning">{awaitingCentre}</span>}
+            </Button>
+          </Link>
+        )}
         {canUpdate && <OpeningBalancesButton items={data.openingBalances} openingTotal={data.openingTotal} />}
         {/* L'administration DEMANDE l'actualisation ; les Finances la font. */}
         {(user.role === "SUPER_ADMIN" || hasGlobalView(user)) && <TreasuryUpdateRequestButton />}

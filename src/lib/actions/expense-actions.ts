@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
+import { canDisburse, blockedReason, type CentralStatus } from "@/lib/payments/authorization";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 async function nextFinanceRef(): Promise<string> {
@@ -27,6 +28,15 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
   if (!order) return { ok: false, error: "Ordre introuvable." };
   if (order.status === "PAID") return { ok: true };
   if (order.status !== "PENDING") return { ok: false, error: "Cet ordre a été annulé." };
+
+  // LE VERROU DU CENTRE DE PAIEMENT — la dernière porte avant que l'argent sorte.
+  //
+  // C'est ici, et pas dans un écran, que la règle tient : quelle que soit la façon dont on arrive
+  // à cet ordre, un décaissement au-dessus du seuil ne s'exécute pas sans l'autorisation du PDG
+  // ou du Super Admin. Le message dit POURQUOI — « non autorisé » seul ferait ouvrir un ticket.
+  if (!canDisburse(order.centralStatus as CentralStatus)) {
+    return { ok: false, error: blockedReason(order.centralStatus as CentralStatus) ?? "Ce paiement n'est pas autorisé." };
+  }
 
   // Facture obligatoire pour les dépenses événementielles : joindre la facture
   // (à l'ordre ou au dossier source) avant de régler, sinon la demander.
