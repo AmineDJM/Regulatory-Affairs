@@ -65,6 +65,36 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
 
   return (
     <div className="space-y-2">
+      {/* LA VUE PAR CATÉGORIE — en plus du grand tableau où il y a tout. Une pastille par nature
+          présente, avec son compte : un clic isole les demandes de matériel promotionnel, de
+          consulting, de prise en charge… C'est le MÊME filtre que le menu de la colonne Nature —
+          deux portes, une seule règle. */}
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button" onClick={() => setF((p) => ({ ...p, kind: "" }))}
+          className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+            !f.kind ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"
+          }`}
+        >
+          Toutes ({rows.length})
+        </button>
+        {kindsPresent.map((k) => {
+          const count = rows.filter((r) => r.kind === k.kind).length;
+          const isOn = f.kind === k.kind;
+          return (
+            <button
+              key={k.kind} type="button"
+              onClick={() => setF((p) => ({ ...p, kind: isOn ? "" : k.kind }))}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                isOn ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              {k.label} ({count})
+            </button>
+          );
+        })}
+      </div>
+
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>{shown.length} / {rows.length} demande{rows.length > 1 ? "s" : ""}</span>
         {active && (
