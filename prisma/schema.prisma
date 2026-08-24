@@ -979,6 +979,7 @@ model User {
 
   @@index([role])
   @@index([departmentId])
+  sessionEvents SessionEvent[]
 }
 
 /// RAPPEL personnel « en un clic » posé sur n'importe quel sujet (dossier réglementaire, demande du
@@ -8433,4 +8434,30 @@ model Invoice {
   @@index([issueDate])
   @@index([paidDate])
   @@index([sourceType, sourceId])
+}
+
+/// LE REJEU DE SESSION — la suite des actions d'une personne, pour le support technique.
+/// Ce N'EST PAS une vidéo : un navigateur ne peut pas filmer l'écran sans autorisation explicite ni
+/// indicateur visible. On enregistre les ACTIONS (pages, clics, saisies, envois, erreurs), ce que
+/// font LogRocket ou FullStory, et ce qui suffit à reproduire un bug.
+/// ⚠️ AUCUNE VALEUR DE CHAMP n'y entre — jamais un mot de passe, un montant, un contenu. Le
+/// masquage est appliqué à l'entrée par `src/lib/replay/capture.ts`, et vérifié par ses tests.
+model SessionEvent {
+  id        String   @id @default(cuid())
+  /// La session de navigation — c'est elle qu'on rejoue d'un bout à l'autre.
+  sessionId String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  kind      String   // PAGE | CLICK | INPUT | SUBMIT | ERROR | NAV
+  /// Millisecondes depuis le début de la session : un horodatage relatif se rejoue tel quel.
+  at        Int
+  path      String
+  /// Le LIBELLÉ de l'élément (« Enregistrer »), jamais sa valeur.
+  label     String?
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, at])
+  @@index([userId, createdAt])
+  @@index([kind])
 }

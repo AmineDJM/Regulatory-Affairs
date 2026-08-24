@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, Bot, Building2, Coins, Columns3, Database, Factory, Gauge, HardDrive, Layers, Library, Mail, MessageSquare, Network, Rocket, Settings2, ShieldCheck, Trash2, Workflow } from "lucide-react";
+import { Activity, Bot, Building2, Coins, Columns3, Database, Factory, Gauge, HardDrive, History, Layers, Library, Mail, MessageSquare, Network, Rocket, Settings2, ShieldCheck, Trash2, Workflow } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -68,6 +68,10 @@ export default async function AdminPage() {
         </Link>
         {admin.role === "SUPER_ADMIN" && (
           <>
+            {/* Le rejeu : rembobiner la session d'une personne pour voir où ça a cassé. */}
+            <Link href="/admin/replay">
+              <Button variant="outline"><History className="h-4 w-4" /> Rejeu de session</Button>
+            </Link>
             <Link href="/admin/access">
               <Button variant="outline"><ShieldCheck className="h-4 w-4" /> Accès par module</Button>
             </Link>

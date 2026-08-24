@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { MobileTabBar } from "@/components/layout/mobile-tabbar";
 import { ActivityTracker } from "@/components/layout/activity-tracker";
+import { SessionRecorder } from "@/components/layout/session-recorder";
 import { FocusExit } from "@/components/layout/focus-mode";
 import { ScreenGuard } from "@/components/layout/screen-guard";
 import { CommandPalette } from "@/components/layout/command-palette";
@@ -127,6 +128,10 @@ export default async function AppLayout({
     <BackgroundUploadProvider>
     <div className="flex h-screen overflow-hidden bg-background">
       <ActivityTracker />
+      {/* LE REJEU DE SESSION — pour le support technique : rembobiner la suite des actions et
+          voir où ça a bugué. Aucune valeur de champ n'est lue ; les champs sensibles sont
+          écartés entièrement. La divulgation aux salariés relève du règlement intérieur. */}
+      <SessionRecorder />
       {/* Bouton flottant « quitter le plein écran » — hors du chrome qu'on replie. */}
       <FocusExit />
       {/* Compte les navigations internes : c'est ce qui permet aux liens « Retour » de remonter
