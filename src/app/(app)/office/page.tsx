@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Users } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
@@ -43,7 +44,12 @@ export default async function OfficePage({ searchParams }: { searchParams: { app
         { name: { endsWith: ".pptx", mode: "insensitive" } },
       ],
     },
-    select: { id: true, name: true, size: true, updatedAt: true, owner: { select: { name: true } } },
+    select: {
+      id: true, name: true, size: true, updatedAt: true, owner: { select: { name: true } },
+      // AVEC QUI le document est partagé : c'est ce qui distingue un fichier personnel d'un
+      // document de travail à plusieurs, et c'est invisible tant qu'on ne l'affiche pas.
+      shares: { select: { access: true, user: { select: { name: true } } } },
+    },
     orderBy: { updatedAt: "desc" },
     take: RECENT_TAKE,
   });
@@ -69,6 +75,20 @@ export default async function OfficePage({ searchParams }: { searchParams: { app
   const users = visible.some((v) => v.canEdit)
     ? await prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [];
+
+  // LES DOCUMENTS DÉJÀ COLLABORATIFS — ceux qu'on partage en modification. Les nommer, avec les
+  // personnes concernées, donne à voir que le travail à plusieurs existe et fonctionne ici.
+  const collaborative = visible
+    .filter(({ row }) => row.shares.some((s) => s.access === "EDIT"))
+    .slice(0, 6)
+    .map(({ row }) => {
+      const names = row.shares.filter((s) => s.access === "EDIT").map((s) => s.user?.name ?? "—");
+      return {
+        id: row.id,
+        name: row.name,
+        withWhom: names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`,
+      };
+    });
 
   // EXACTEMENT la liste du Drive — sélection Ctrl/Maj, ouverture multiple, partage et corbeille
   // groupés. Une seconde liste « spéciale bureautique » finirait par diverger sur un détail, et
@@ -96,6 +116,38 @@ export default async function OfficePage({ searchParams }: { searchParams: { app
       />
 
       {canManage && <LetterheadManager letterheads={letterheads} companies={manageableCompanies} />}
+
+      {/* LA CO-ÉDITION NE SE DEVINE PAS. Deux personnes qui ouvrent le même document travaillent
+          dessus EN MÊME TEMPS, curseurs visibles — mais personne ne le découvre par accident, et
+          l'on continue de s'envoyer « v3_final_ok.docx » par mail. Il faut le dire. */}
+      {officeEnabled && (
+        <section className="surface space-y-2 p-3 sm:p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <Users className="h-4 w-4 text-primary" /> Travailler à plusieurs sur le même document
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Partagez un document en <strong className="text-foreground">modification</strong> (bouton « Partager » sur
+            sa ligne), puis ouvrez-le : ceux qui l&apos;ont aussi ouvert apparaissent, chacun avec son curseur, et les
+            modifications se voient en direct. Plus de « v3_final_ok.docx » qui circule par mail.
+            Le fichier reste dans le Drive, avec ses droits et son historique de versions.
+          </p>
+          {collaborative.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5 pt-0.5">
+              {collaborative.map((c) => (
+                <li key={c.id}>
+                  <Link
+                    href={officeEnabled ? `/drive/${c.id}/edit` : `/drive/${c.id}`}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs hover:bg-secondary"
+                  >
+                    <span className="max-w-[16rem] truncate font-medium">{c.name}</span>
+                    <span className="text-muted-foreground">· {c.withWhom}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Documents récents</h2>
