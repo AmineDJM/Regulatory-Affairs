@@ -19,6 +19,7 @@ import { mailFields, dateInput, dateTimeInput } from "../mail-fields";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { EditMailButton } from "./edit-mail";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
+import { MailPieces } from "./mail-pieces";
 import { getMyCompanies, companyLabel } from "@/lib/company";
 import { mailRoutingOptions } from "@/lib/queries/mail-routing";
 
@@ -54,6 +55,12 @@ export default async function MailEntryPage({ params }: { params: { id: string }
       driveNode: { select: { id: true, name: true } },
       department: { select: { name: true } },
       concernedUser: { select: { name: true } },
+      // LES PIÈCES NOMINATIVES : un même pli part souvent à plusieurs endroits, et c'est « qui a
+      // reçu quoi » qu'on vient chercher ici des mois plus tard.
+      pieces: {
+        orderBy: { createdAt: "asc" },
+        include: { driveNode: { select: { name: true } } },
+      },
     },
   });
   if (!entry) notFound();
@@ -213,6 +220,18 @@ export default async function MailEntryPage({ params }: { params: { id: string }
               <DocumentList documents={docItems} canDelete={canEdit} canEdit={canEdit} canRename={canEdit} path={`/courriers/${entry.id}`} />
             </CardContent>
           </Card>
+
+          {/* LES PIÈCES NOMINATIVES — au-dessous des pièces jointes, parce qu'elles s'y appuient :
+              on joint d'abord, on affecte ensuite à qui de droit. */}
+          <MailPieces
+            entryId={entry.id}
+            canEdit={canEdit}
+            pieces={entry.pieces.map((p) => ({
+              id: p.id, label: p.label, recipient: p.recipient, notes: p.notes,
+              documentId: p.documentId, driveNodeId: p.driveNodeId,
+              driveName: p.driveNode?.name ?? null,
+            }))}
+          />
         </div>
 
         <Card className="lg:col-span-1">

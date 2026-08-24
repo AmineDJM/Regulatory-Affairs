@@ -3444,6 +3444,7 @@ model Document {
   @@index([entityType, entityId])
   @@index([category])
   @@index([uploadedById])
+  mailPieces      MailEntryPiece[]
 }
 
 model Comment {
@@ -4177,6 +4178,7 @@ model DriveNode {
   comments    DriveComment[]
   /// Messages qui RÉFÉRENCENT ce nœud (partage dans la messagerie, sans recopie).
   messageRefs MessageAttachment[] @relation("MessageDriveRef")
+  mailPieces  MailEntryPiece[]    @relation("MailPieceDriveNode")
   createdById String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
@@ -8263,6 +8265,7 @@ model MailEntry {
   folder         MailEntryFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   sourceType     EntityType?
   sourceId       String?
+  pieces         MailEntryPiece[]
   createdById    String?
   createdBy      User?         @relation("MailEntryCreator", fields: [createdById], references: [id])
   updatedById    String?
@@ -8278,6 +8281,38 @@ model MailEntry {
   @@index([departmentId])
   @@index([concernedUserId])
   @@index([folderId])
+}
+
+/// UNE PIÈCE D'UN COURRIER, AVEC SON PROPRE DESTINATAIRE.
+/// Un pli porte souvent plusieurs pièces qui ne vont pas au même endroit : le contrat signé pour
+/// le fournisseur, la copie pour les finances, l'attestation pour l'ANPP. Un destinataire unique
+/// au niveau du courrier oblige alors à créer trois courriers pour un seul envoi — et la trace de
+/// ce qui est parti à qui se perd.
+/// La pièce est SOIT un document téléversé (`documentId`), SOIT une référence au Drive
+/// (`driveNodeId`, jamais recopiée) — pas les deux.
+model MailEntryPiece {
+  id          String     @id @default(cuid())
+  entryId     String
+  entry       MailEntry  @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  /// Le nom qu'on lit dans la liste — celui du fichier ne dit pas à quoi la pièce sert.
+  label       String
+  /// À QUI CETTE PIÈCE EST DESTINÉE. Libre : un destinataire est parfois une personne, parfois un
+  /// service, parfois une administration qui n'a pas de compte ici.
+  recipient   String?
+  documentId  String?
+  document    Document?  @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  /// LE FICHIER RESTE DANS LE DRIVE : on le référence, on ne le duplique pas.
+  driveNodeId String?
+  driveNode   DriveNode? @relation("MailPieceDriveNode", fields: [driveNodeId], references: [id], onDelete: SetNull)
+  notes       String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([entryId])
+  @@index([documentId])
+  @@index([driveNodeId])
 }
 
 /// LES DOSSIERS DE CLASSEMENT DU COURRIER — l'armoire du registre, pendant exact de LegalFolder.
