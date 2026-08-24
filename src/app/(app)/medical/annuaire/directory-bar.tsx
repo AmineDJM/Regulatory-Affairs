@@ -3,9 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BookUser, Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import { BookUser, Plus, Pencil, Trash2, Loader2, Lock, Users } from "lucide-react";
 import {
-  createMedicalDirectory, updateMedicalDirectory, deleteMedicalDirectory,
+  createMedicalDirectory, updateMedicalDirectory, deleteMedicalDirectory, setDirectoryAccess,
 } from "@/lib/actions/medical-directory-crud-actions";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
@@ -18,6 +18,8 @@ export interface DirectoryRow {
   companyId: string | null;
   companyLabel: string | null;
   doctorCount: number;
+  /** Les personnes nommées sur cet annuaire. Vide = ouvert à tout le module. */
+  accessUserIds: string[];
 }
 
 /**
@@ -34,7 +36,7 @@ export interface DirectoryRow {
  * restent les seules règles d'accès.
  */
 export function DirectoryBar({
-  directories, current, companies, generalCount, canManage,
+  directories, current, companies, generalCount, canManage, people = [],
 }: {
   directories: DirectoryRow[];
   /** Annuaire ouvert : `null` = tous, `"general"` = ceux qui ne sont dans aucun annuaire. */
@@ -42,10 +44,13 @@ export function DirectoryBar({
   companies: { id: string; label: string }[];
   generalCount: number;
   canManage: boolean;
+  /** Personnes désignables pour l'accès. Vide → le réglage d'accès n'apparaît pas. */
+  people?: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [adding, setAdding] = React.useState(false);
   const [editing, setEditing] = React.useState<DirectoryRow | null>(null);
+  const [accessFor, setAccessFor] = React.useState<DirectoryRow | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -99,12 +104,20 @@ export function DirectoryBar({
               <span className="truncate">{d.name}</span>
               <span className="text-xs text-muted-foreground">({d.doctorCount})</span>
               {d.companyLabel && <span className="text-[0.6875rem] text-muted-foreground">· {d.companyLabel}</span>}
+              {/* Le cadenas dit qu'un accès est réglé — sans lui, un collègue qui ne voit pas
+                  l'annuaire croirait à un bug et demanderait pourquoi. */}
+              {d.accessUserIds.length > 0 && <Lock className="h-3 w-3 shrink-0 text-warning" aria-label="Accès restreint" />}
             </Link>
             {canManage && (
               <span className="hidden items-center gap-0.5 group-hover:inline-flex">
                 <button type="button" title="Renommer" onClick={() => { setErr(null); setEditing(d); }} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
+                {people.length > 0 && (
+                  <button type="button" title="Gérer l'accès" onClick={() => { setErr(null); setAccessFor(d); }} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+                    <Users className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 <button type="button" title="Supprimer" disabled={busy} onClick={() => void remove(d)} className="rounded p-0.5 text-muted-foreground hover:text-destructive">
                   {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                 </button>
@@ -162,7 +175,63 @@ export function DirectoryBar({
           }}
         />
       )}
+
+      {accessFor && (
+        <AccessSheet
+          directory={accessFor} people={people} busy={busy} err={err}
+          onClose={() => setAccessFor(null)}
+          onSubmit={async (fd) => {
+            setBusy(true); setErr(null);
+            fd.set("id", accessFor.id);
+            const r = await setDirectoryAccess(fd);
+            setBusy(false);
+            if (r.ok) { setAccessFor(null); router.refresh(); } else setErr(r.error ?? "Échec.");
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+/**
+ * QUI PEUT OUVRIR CET ANNUAIRE — des cases à cocher, pas un jargon de rôles.
+ *
+ * Aucune case cochée = ouvert à tout le module, le cas normal. Cocher des noms FERME l'annuaire
+ * à tous les autres (hors vue globale) : celui qui règle l'accès reste dedans d'office — le
+ * serveur l'y garde même s'il oublie sa propre case.
+ */
+function AccessSheet({
+  directory, people, busy, err, onClose, onSubmit,
+}: {
+  directory: DirectoryRow;
+  people: { id: string; name: string }[];
+  busy: boolean;
+  err: string | null;
+  onClose: () => void;
+  onSubmit: (fd: FormData) => Promise<void>;
+}) {
+  const initial = new Set(directory.accessUserIds);
+  return (
+    <Sheet
+      open onClose={() => !busy && onClose()} width="md" title={`Accès — ${directory.name}`}
+      description="Aucun nom coché : annuaire ouvert à tout le module. Des noms cochés : personne d'autre ne le voit — ni ses praticiens dans la vue « Tous »."
+    >
+      <form action={onSubmit} className="space-y-4">
+        <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+          {people.map((p) => (
+            <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-secondary">
+              <input type="checkbox" name="userId" value={p.id} defaultChecked={initial.has(p.id)} className="h-4 w-4 accent-primary" />
+              {p.name}
+            </label>
+          ))}
+        </div>
+        {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Annuler</Button>
+          <Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer l&apos;accès</Button>
+        </div>
+      </form>
+    </Sheet>
   );
 }
 

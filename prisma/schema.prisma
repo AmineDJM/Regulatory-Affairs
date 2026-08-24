@@ -971,6 +971,7 @@ model User {
   companyAccess         UserCompanyAccess[]
   rangeAccess           UserProductRange[]
   legalDocReads         LegalDocumentReader[]
+  directoryAccess       MedicalDirectoryAccess[] @relation("MedicalDirectoryAccessUser")
   adProItemDecisions    AdProItemDecision[]    @relation("AdProItemDecider")
   apiClients            ApiClient[]            @relation("ApiClientActAs")
   docRequestsAsked      DocumentRequest[]      @relation("DocRequestAsker")
@@ -3164,8 +3165,26 @@ model MedicalDirectory {
   updatedAt   DateTime @updatedAt
 
   doctors MedicalDoctor[]
+  /// QUI PEUT OUVRIR CET ANNUAIRE. Liste VIDE = ouvert à tout le module — le cas normal, et le
+  /// seul défaut sûr pour l'existant. Nommer quelqu'un FERME l'annuaire à tous les autres (hors
+  /// vue globale) : même règle que les lecteurs désignés de Legal.
+  access MedicalDirectoryAccess[]
 
   @@index([companyId])
+}
+
+/// UN ACCÈS DÉSIGNÉ à un annuaire de praticiens. Supprimer l'annuaire emporte ses accès.
+model MedicalDirectoryAccess {
+  id          String           @id @default(cuid())
+  directoryId String
+  directory   MedicalDirectory @relation(fields: [directoryId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User             @relation("MedicalDirectoryAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantedById String?
+  createdAt   DateTime         @default(now())
+
+  @@unique([directoryId, userId])
+  @@index([userId])
 }
 
 /// L'ANNUAIRE DE L'ENTREPRISE — tout ce qui n'est ni un praticien, ni un salarié.

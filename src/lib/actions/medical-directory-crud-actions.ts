@@ -136,3 +136,47 @@ export async function moveDoctorsToDirectory(formData: FormData): Promise<Action
   revalidatePath(PATH);
   return { ok: true, message: `${movable.length} praticien(s) rangé(s) dans « ${directoryName} ».` };
 }
+
+/**
+ * QUI PEUT OUVRIR CET ANNUAIRE — l'accès se règle DEPUIS l'annuaire, par noms.
+ *
+ * Liste vide = ouvert à tout le module (le cas normal — un annuaire de travail se partage).
+ * Nommer quelqu'un le FERME à tous les autres, hors vue globale : même règle que les lecteurs
+ * désignés de Legal. Celui qui règle l'accès se garde sa propre porte — s'enfermer dehors en
+ * oubliant son nom dans la liste serait la première erreur de tout le monde.
+ */
+export async function setDirectoryAccess(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Annuaire introuvable." };
+  const dir = await prisma.medicalDirectory.findUnique({ where: { id }, select: { name: true } });
+  if (!dir) return { ok: false, error: "Annuaire introuvable." };
+
+  const wanted = [...new Set(formData.getAll("userId").map(String).filter(Boolean))];
+  // Celui qui restreint reste dedans — sinon l'annuaire disparaît de sa propre vue au clic.
+  if (wanted.length > 0 && !wanted.includes(user.id)) wanted.push(user.id);
+  const known = wanted.length
+    ? (await prisma.user.findMany({ where: { id: { in: wanted }, isActive: true }, select: { id: true } })).map((u) => u.id)
+    : [];
+
+  await prisma.$transaction([
+    prisma.medicalDirectoryAccess.deleteMany({ where: { directoryId: id, userId: { notIn: known } } }),
+    ...known.map((userId) =>
+      prisma.medicalDirectoryAccess.upsert({
+        where: { directoryId_userId: { directoryId: id, userId } },
+        create: { directoryId: id, userId, grantedById: user.id },
+        update: {},
+      }),
+    ),
+  ]);
+
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Annuaire", entityType: "DOCTOR", entityId: id,
+    summary: known.length
+      ? `Annuaire « ${dir.name} » — accès restreint à ${known.length} personne(s)`
+      : `Annuaire « ${dir.name} » — restriction levée : ouvert à tout le module`,
+  });
+  revalidatePath(PATH);
+  return { ok: true, message: known.length ? `Accès réglé — ${known.length} personne(s).` : "Restriction levée : ouvert à tout le module." };
+}

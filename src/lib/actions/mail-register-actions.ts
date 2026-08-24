@@ -162,3 +162,49 @@ export async function deleteMailEntry(formData: FormData): Promise<ActionResult>
   revalidatePath("/courriers");
   return { ok: true };
 }
+
+/**
+ * CLASSER UN FICHIER DU DRIVE EN COURRIER — sans copie, comme « Déclarer dans Legal ».
+ *
+ * Le geste réel : le scan du pli est déjà dans le Drive ; on veut l'inscrire au carnet avec ce
+ * que le Drive ne sait pas porter — l'objet, le sens (arrivée / départ), l'expéditeur, le
+ * destinataire. Le fichier NE BOUGE PAS : le courrier le référence (`driveNodeId`), il continue
+ * de se versionner dans le Drive et le carnet en montre toujours la version courante.
+ */
+export async function attachDriveNodeToMail(input: {
+  driveNodeId: string; title?: string; direction?: string;
+  sender?: string; recipient?: string; reference?: string;
+}): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MAIL_REGISTER", "CREATE")) return { ok: false, error: "Non autorisé à alimenter les Courriers." };
+
+  const node = await prisma.driveNode.findUnique({
+    where: { id: input.driveNodeId },
+    select: { id: true, name: true, type: true, isTrashed: true },
+  });
+  if (!node || node.isTrashed) return { ok: false, error: "Fichier introuvable dans le Drive." };
+  if (node.type !== "FILE") return { ok: false, error: "Seul un fichier peut devenir un courrier." };
+  if (!canViewDrive(await resolveDriveAccess(user, node.id))) {
+    return { ok: false, error: "Vous n'avez pas accès à ce fichier du Drive." };
+  }
+
+  // Déjà au carnet : on ne crée pas un deuxième pli pour le même fichier — c'est exactement le
+  // doublon que la référence sans copie sert à éviter.
+  const already = await prisma.mailEntry.findFirst({ where: { driveNodeId: node.id }, select: { id: true } });
+  if (already) return { ok: false, error: "Ce fichier figure déjà au carnet de courriers.", id: already.id };
+
+  const direction: MailDirection = input.direction === "INCOMING" ? "INCOMING" : "OUTGOING";
+  const created = await createMailEntryFor(user, {
+    title: (input.title ?? "").trim() || node.name,
+    direction,
+    sender: input.sender?.trim() || null,
+    recipient: input.recipient?.trim() || null,
+    reference: input.reference?.trim() || null,
+    driveNodeId: node.id,
+    // Un pli qui arrive est déjà arrivé ; un pli qui part n'est pas encore parti — les dates de
+    // trajet se posent ensuite depuis la ligne du carnet, comme pour toute saisie.
+    receivedAt: direction === "INCOMING" ? new Date() : null,
+  });
+  if (created.ok) revalidatePath("/courriers");
+  return created;
+}

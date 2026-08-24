@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react";
+import { notFound } from "next/navigation";
 import { requireModule } from "@/lib/session";
-import { userCan, scopeMedicalDoctors } from "@/lib/rbac";
+import { userCan, scopeMedicalDoctors, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { currentCompanyWhereFor, getMyCompanies, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
@@ -36,17 +37,38 @@ export default async function AnnuairePage({ searchParams }: { searchParams?: { 
   const directoryWhere = generalOnly ? { directoryId: null } : openDirectoryId ? { directoryId: openDirectoryId } : {};
 
   const scope = { ...scopeMedicalDoctors(user), ...await currentCompanyWhereFor(user.id) };
-  const [doctors, specialtyRefs, directoryRows, directoryCounts, generalCount, myCompanies] = await Promise.all([
+
+  // L'ACCÈS PAR ANNUAIRE. Liste d'accès vide = ouvert à tout le module ; des noms = fermé à tous
+  // les autres, hors vue globale. On tranche AVANT de charger les praticiens : un annuaire fermé
+  // ne doit fuir ni par sa pastille, ni par ses praticiens dans la vue « Tous ».
+  const privileged = user.role === "SUPER_ADMIN" || hasGlobalView(user.role);
+  const allDirectories = await prisma.medicalDirectory.findMany({
+    select: {
+      id: true, name: true, companyId: true, createdById: true,
+      company: { select: { name: true, shortName: true } },
+      access: { select: { userId: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+  const canOpenDirectory = (d: { createdById: string | null; access: { userId: string }[] }) =>
+    privileged || d.access.length === 0 || d.createdById === user.id || d.access.some((a) => a.userId === user.id);
+  const visibleDirectoryRows = allDirectories.filter(canOpenDirectory);
+  const hiddenIds = allDirectories.filter((d) => !canOpenDirectory(d)).map((d) => d.id);
+  // Ouvrir un annuaire fermé par son adresse ne marche pas plus que par sa pastille.
+  if (openDirectoryId && !visibleDirectoryRows.some((d) => d.id === openDirectoryId)) notFound();
+  // La vue « Tous » exclut les praticiens des annuaires fermés — sans quoi la restriction ne
+  // serait qu'une pastille masquée.
+  const hiddenWhere = hiddenIds.length > 0 && !openDirectoryId && !generalOnly
+    ? { OR: [{ directoryId: null }, { directoryId: { notIn: hiddenIds } }] }
+    : {};
+
+  const [doctors, specialtyRefs, directoryCounts, generalCount, myCompanies] = await Promise.all([
     prisma.medicalDoctor.findMany({
-      where: { ...scope, ...directoryWhere },
+      where: { ...scope, ...directoryWhere, ...hiddenWhere },
       orderBy: [{ name: "asc" }],
       include: { specialtyRef: { select: { name: true } } },
     }),
     prisma.medicalSpecialty.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
-    prisma.medicalDirectory.findMany({
-      select: { id: true, name: true, companyId: true, company: { select: { name: true, shortName: true } } },
-      orderBy: { name: "asc" },
-    }),
     // Les comptes se calculent DANS LA PORTÉE de la personne : afficher « 300 » à un délégué qui
     // n'en voit que douze donnerait un chiffre faux et ferait croire à un problème d'accès.
     prisma.medicalDoctor.groupBy({ by: ["directoryId"], where: { ...scope, directoryId: { not: null } }, _count: { _all: true } }),
@@ -54,10 +76,11 @@ export default async function AnnuairePage({ searchParams }: { searchParams?: { 
     getMyCompanies(user.id),
   ]);
   const countByDirectory = new Map(directoryCounts.map((c) => [c.directoryId as string, c._count._all]));
-  const directories: DirectoryRow[] = directoryRows.map((d) => ({
+  const directories: DirectoryRow[] = visibleDirectoryRows.map((d) => ({
     id: d.id, name: d.name, companyId: d.companyId,
     companyLabel: d.company ? d.company.shortName ?? d.company.name : null,
     doctorCount: countByDirectory.get(d.id) ?? 0,
+    accessUserIds: d.access.map((a) => a.userId),
   }));
 
   const rows: AnnuaireRow[] = doctors.map((d) => ({
@@ -98,6 +121,9 @@ export default async function AnnuairePage({ searchParams }: { searchParams?: { 
         companies={myCompanies.map((c) => ({ id: c.id, label: companyLabel(c) }))}
         generalCount={generalCount}
         canManage={canEdit}
+        people={canEdit
+          ? (await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }))
+          : []}
       />
       <AnnuaireGrid rows={rows} canEdit={canEdit} canImport={canImport} canDelete={canDelete} specialties={specialties} />
     </div>
