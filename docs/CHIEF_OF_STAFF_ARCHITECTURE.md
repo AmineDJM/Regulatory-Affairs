@@ -215,6 +215,83 @@ La voix peut SUGGÉRER (« je peux aussi te préparer le comparatif ») — une 
 elle ATTEND « fais-le ». Rien ne se déclenche seul : « it does nothing operationally unless
 the CEO asks or confirms ».
 
+### MAXIMUM INTELLIGENCE AT MAXIMUM SPEED — fast + smart, jamais l'un contre l'autre
+
+Le principe : **ne jamais échanger l'intelligence contre la vitesse** — gagner les deux par
+l'architecture. Le calcul déterministe fait ce qu'il sait faire parfaitement (états, délais,
+chronologies) ; le modèle garde son budget de raisonnement pour ce qui demande vraiment de
+l'intelligence ; et quand l'enjeu monte, on AJOUTE du calcul — on n'en retire jamais.
+
+**États exécutifs précalculés** (`lib/assistant/executive-state.ts`) — « precompute
+intelligence, not only data » : « où en est Pembro ? » ne répond pas « étape 6 » mais, D'UN
+SEUL appel d'outil : étape courante et sa responsable, **BLOQUEUR dérivé** (étape bloquée /
+pièces manquantes / retard / validateur en attente), **jours dans l'étape**, prochaine
+échéance, prochaine étape attendue, dernier mouvement, **signaux** (étape en retard, silence
+> 30 j, priorité haute qui n'avance pas, cible dépassée). Fonctions PURES calculées sur des
+données que les outils lisent déjà — zéro requête ajoutée, zéro latence ajoutée. Branché en
+PREMIÈRE clé de `product_360` (`syntheseExecutive`) et d'`inspect_record`
+(`etatExecutif` sur paiement et règlement : QUI bloque, depuis combien de jours, prochaine
+étape du circuit). Chaque champ est dérivé d'une donnée tracée — « aucun bloqueur tracé »
+se dit, il ne s'invente pas.
+
+**Raisonnement parallèle** — les appels d'outils d'un même tour du modèle s'exécutent en
+`Promise.all` (texte streaming ET non-streaming ; la voix l'avait déjà) : trois lectures de
+800 ms coûtent 800 ms, pas 2,4 s. Le prompt système enseigne la DÉCOMPOSITION (« analyse
+Regulatory et dis-moi si je dois recruter » = charge + retards + effectif + coûts +
+dépendances lancés ENSEMBLE, puis une synthèse) — et l'expansion INTELLIGENTE du contexte :
+sources les plus probables d'abord, élargir seulement si la confiance est insuffisante,
+s'arrêter quand une lecture de plus ne changerait ni la conclusion ni la confiance.
+
+**Discipline de preuve** (règles de fond communes texte + voix) — qualifier quand l'enjeu le
+mérite : FAIT VÉRIFIÉ / FAIT DÉRIVÉ / ESTIMATION / HYPOTHÈSE / INCONNU (« une excellente
+réponse n'est pas celle qui paraît sûre — c'est celle qui sait précisément ce qu'elle
+sait ») ; **hiérarchie d'autorité des sources par TYPE de donnée** (salaire actuel : paie >
+avenant signé > contrat > vieux document > e-mail > mémoire — la mémoire ne remplace JAMAIS
+la source métier) ; **contradiction** : jamais choisir une source en silence — chronologie
+d'abord (un avenant explique souvent l'écart), sinon « j'ai une incohérence à signaler »
+avec les deux valeurs. Détection DÉTERMINISTE en plus du prompt : l'écart devis → facture
+d'une même chaîne d'achat est calculé (`amountDrift`) et signalé dans `inspect_record`
+(`incoherences`).
+
+**Profondeur adaptative + seconde passe critique** (`lib/assistant/reasoning.ts` +
+`lib/assistant.ts`) — la profondeur suit l'ENJEU, pas la longueur de la question :
+`isHighStakesQuestion` détecte (déterministe) une décision demandée, une recommandation, une
+réorganisation, un recrutement, un montant en millions. Alors la conclusion substantielle est
+RELUE par le même modèle en adversaire de sa propre analyse (hypothèse la plus fragile,
+preuve contradictoire, explication alternative, manque décisif, chiffre non sourcé) puis
+remise RÉVISÉE — un appel de plus quand ça compte, jamais un modèle de moins. En flux, le
+brouillon déjà diffusé est une vraie réponse progressive ; la version relue le remplace
+(`reset`) et l'étape se DIT dans la trace (« Relecture critique de la conclusion »). La
+chaîne de critique n'est JAMAIS exposée ; en cas d'échec du second appel, le brouillon est
+rendu — la passe ajoute, elle ne retire jamais.
+
+**Continuité sémantique** — `conversationWorkingSet` extrait des derniers tours (fenêtre
+large : 60) les ENTITÉS ACTIVES (références ERP réelles + termes cités « entre guillemets »),
+les plus récentes d'abord, bornées à 8 — injectées dans le prompt texte ET les instructions
+vocales : « et le fournisseur ? », « pourquoi ? », « fais pareil pour Nivo » se résolvent
+sans relancer toute la compréhension.
+
+**Voix — deux vitesses, réponse progressive** : la couche conversationnelle temps réel donne
+IMMÉDIATEMENT le fait fiable disponible (« le blocage immédiat est Regulatory — je vérifie la
+cause exacte ») pendant que la couche d'intelligence (délégation, lectures parallèles)
+travaille ; la réponse se complète quand le résultat arrive. Jamais de silence artificiel,
+jamais une invention pour meubler : tout ce qui est dit avant la fin d'une analyse est sûr,
+qualifié, révisable.
+
+**Benchmark qualité × latence** — ne jamais optimiser le seul TTFT. Deux étages :
+1. **Golden queries déterministes** (`lib/assistant/golden-queries.test.ts`, CI) : sur les
+   vraies questions du PDG (« où en est Pembro ? », « pourquoi est-il bloqué ? », « qui est
+   responsable ? », « où est le paiement ? »), la couche déterministe doit livrer bloqueur /
+   délais / prochaine étape / signaux EN UN APPEL — figé par test.
+2. **Mesure en conditions réelles** (environnement déployé, clé active) : dérouler le corpus
+   de questions golden (« quel âge a Khaled ? », « combien coûte Regulatory ? », « est-ce que
+   je dois recruter ? », « de qui dépend-on trop ? », « qu'est-ce que je dois décider
+   aujourd'hui ? »…) et lire `AiUsageLog` : `ttftMs` (premier mot), `latencyMs` (réponse
+   complète), `turns`, `toolCalls`, `toolErrors`, `toolLatencyMs` — en face d'une évaluation
+   HUMAINE de l'exactitude, des preuves citées et de l'utilité de la recommandation. Une
+   amélioration de latence qui dégrade la qualité est un ÉCHEC ; l'objectif est le produit
+   QUALITÉ × LATENCE.
+
 **Observabilité.** Logs structurés serveur (`voice_session_created/connected/error`,
 `voice_tool_called/completed`, `voice_reconnect`, `voice_session_closed` — reasonCode, latences,
 jamais de contenu audio) + `AiUsageLog` (fonction `voice_realtime`, provider openai : durée de

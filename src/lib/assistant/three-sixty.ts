@@ -5,6 +5,7 @@ import { userCan } from "@/lib/rbac";
 import { toNumber } from "@/lib/utils";
 import { getDepartmentPath } from "@/lib/departments";
 import { ROLE_LABELS } from "@/lib/labels";
+import { regulatoryExecutiveState } from "@/lib/assistant/executive-state";
 
 /**
  * LES VUES 360° ET LES INSIGHTS ORGANISATIONNELS — comprendre une personne, un produit, un
@@ -242,7 +243,7 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
           targetSubmissionDate: true, targetDate: true, comments: true,
           responsible: { select: { name: true } }, assistant: { select: { name: true } },
           company: { select: { shortName: true, name: true } },
-          steps: { orderBy: { order: "asc" }, select: { type: true, status: true, plannedDate: true, actualDate: true, comment: true, missingDocs: true } },
+          steps: { orderBy: { order: "asc" }, select: { type: true, status: true, plannedDate: true, actualDate: true, comment: true, missingDocs: true, responsible: true } },
         },
       });
       if (!p) return `Produit introuvable.`;
@@ -274,6 +275,16 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
       }
 
       return JSON.stringify({
+        // LA SYNTHÈSE D'ABORD — « où en est Pembro ? » reçoit d'un coup l'essentiel exécutif :
+        // bloqueur, jours dans l'étape, prochaine étape, signaux. Dérivée (executive-state.ts)
+        // des données déjà lues — zéro requête de plus, zéro latence ajoutée.
+        syntheseExecutive: regulatoryExecutiveState({
+          status: p.status, priority: p.priority,
+          targetSubmissionDate: p.targetSubmissionDate, targetDate: p.targetDate,
+          responsible: p.responsible?.name ?? null,
+          steps: p.steps,
+          lastActivity: audit[0] ? { at: audit[0].createdAt, summary: audit[0].summary } : null,
+        }),
         fiche: {
           reference: p.reference, dci: p.dci, nomCommercial: p.brandName,
           dosage: p.dosage ? `${p.dosage} ${p.dosageUnit ?? ""}`.trim() : null,

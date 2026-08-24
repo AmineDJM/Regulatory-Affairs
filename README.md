@@ -2510,6 +2510,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Executive AI Operating System (CdS lots A–F)** | Gouvernance : `ACTION_POLICY` + arrêt d'urgence `aiExternalActionsDisabled` dans `lib/assistant.ts` (+ `lib/settings.ts`, `lib/assistant/admin-write.ts`), relances suspendues dans `lib/assistant/reminders.ts` (`watchState` = surveillance conditionnelle, propriétaire seul), cartes groupées `AssistantResult.proposals` (+ « Tout confirmer » dans `assistant-chat.tsx`, CRITIQUES exclues) ; mémoire typée `lib/assistant/memory-context.ts` (`typedMemoryContext`, `expandQueryWithAliases`) + `memory-tools.ts` (remember/list/forget, recall_conversation, décisions `ExecutiveDecision`, engagements `ExecutiveCommitment`) + fil principal `ensurePrimaryThread`/plafond dans `lib/assistant-memory.ts` ; vues 360° `lib/assistant/three-sixty.ts` (employee/product/supplier_360, organization/process_insights — âge calculé backend avec source, salaire derrière le module RH) ; découverte Drive sale `lib/assistant/document-discovery.ts` (`find_documents`, index progressif `DriveTextIndex` nourri par `read_document`) ; simulation/état `lib/assistant/what-if.ts` (`simulate_scenario` jamais mutatif, `company_state`, `ceo_attention`) + bandeau « Aujourd'hui » dans `chief-of-staff/page.tsx` ; livrables `lib/assistant/deliverables.ts` (DOCX/XLSX/PPTX d'une même spec, registre `AssistantArtifact`, Drive « Livrables IA ») ; corpus généralisé `lib/assistant/corpus-tools.ts` (catégories + arabe المادة dans `regulatory/intelligence/corpus/{import,ingest-file,rag}.ts`) ; anomalies dans `lib/assistant/proactive.ts` (doublon facture, montant outlier). Tests : `memory-tools.test.ts`, `three-sixty.test.ts`, `deliverables.test.ts`, `corpus-tools.test.ts`, `executive-security.test.ts` (kill-switch). |
 | **Voix du Chief of Staff — appel temps réel (speech-to-speech)** | Serveur : `lib/assistant/voice-realtime.ts` (`canUseRealtimeVoice`, `realtimeToolsFor` — adaptateur PowerTool→Realtime, ~25 fast paths + délégation —, `buildVoiceInstructions` — contexte commun compact + fil récent borné + **contexte d'écran borné 300 c.** + consignes vocales —, `createVoiceSessionGrant` — secret éphémère via `/v1/realtime/client_secrets`, clé jamais exposée) + routes `app/api/assistant/voice/{session,tool,turn,log}/route.ts` (droit RE-vérifié à chaque appel d'outil ; tours persistés par `rememberExchange`). Client : `app/(app)/assistant/realtime-voice.ts` (`VoiceRealtimeProvider` → `OpenAIGptRealtime21Provider` : WebRTC, barge-in + purge tampon, **outils en parallèle** + discipline une-réponse-active, `sendContext`) ; **appel GLOBAL** `components/layout/call-provider.tsx` (monté dans `app/(app)/layout.tsx` : survit à la navigation, minuterie à la connexion réelle, carte flottante réduite, Échap = réduire, cartes live, contexte d'écran par `usePathname`, **résumé d'appel factuel** au raccrochage, pont tamponné vers le chat) ; écran présentationnel `voice-mode.tsx` (`CallScreen` : plein écran mobile / modal desktop, ● LIVE honnête, TYPE dans l'appel, Mute/Raccrocher/Clavier). Entrée `?call=1&ref=` (`chief-of-staff/page.tsx` → `initialCallRef`) + bouton « Appeler » (`components/shared/ask-chief.tsx`). La dictée (`/api/assistant/transcribe`) reste le repli. Tests : `voice-realtime.test.ts`. |
 | **Time Travel (état passé d'un dossier)** | `lib/assistant/time-travel.ts` — outil **`time_travel`** (EXEC, fast path vocal) : résolution de référence (paiement → règlement → Legal → Regulatory → tâche), reconstruction depuis `AuditLog` (dernière écriture ≤ date / `oldValue` de la première écriture > date), événements avant + **changements depuis + état actuel en face**, étapes ANPP à la date pour un dossier Regulatory, « n'existait pas encore » si créé après. **STRICTEMENT lecture seule** (prouvé par `time-travel.test.ts` : le journal ne bouge pas d'une ligne). |
+| **Maximum intelligence at maximum speed** | États exécutifs PRÉCALCULÉS `lib/assistant/executive-state.ts` (pur : `regulatoryExecutiveState`, `paymentExecutiveState`, `daysSince` — bloqueur dérivé, jours dans l'étape, prochaine étape, signaux) branchés en première clé de `product_360` (`syntheseExecutive`) et `inspect_record` (`etatExecutif`) ; **outils en `Promise.all`** dans les deux boucles de `lib/assistant.ts` ; discipline de preuve + autorité des sources + règle de contradiction dans `CORE_CONDUCT_RULES` (texte + voix) + bloc « PROFONDEUR & VITESSE » (décomposition parallèle, expansion ciblée, synthèse exécutive) ; écart devis→facture calculé (`amountDrift` → `incoherences`) ; **seconde passe critique** (`reviseHighStakes` + `isHighStakesQuestion` dans `lib/assistant/reasoning.ts` — trace « Relecture critique de la conclusion », critique jamais exposée) ; **working set** `conversationWorkingSet` (entités actives, injecté texte + voix via `buildVoiceInstructions`) ; réponse progressive vocale (VOICE_ADDENDUM). Tests : `executive-state.test.ts`, `reasoning.test.ts`, `golden-queries.test.ts` (banc déterministe des vraies questions PDG) ; protocole qualité × latence : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`. |
 | **Rappels planifiés du Chief of Staff** | Modèle `AssistantReminder` (dueAt, `recurrence` NONE/DAILY/WEEKLY/MONTHLY/**MONTHLY_WEEKDAY** — « chaque premier lundi du mois », repli dernière occurrence —, `targetRole` ET/OU **`targetUserId`** — personne nommée, résolue à la création —, `active`) ; module `lib/assistant/reminders.ts` (`nextOccurrence` — retombe le même jour/heure même tiré en retard, rattrape un serveur éteint sans notifier N fois —, `algiersToUtc`, `runAssistantReminders`) + `reminders.test.ts` (13 tests) ; balayage branché dans `lib/scheduled.ts` ; pop-up via `broadcastNotification`, relances via `notifyRoles`/`notifyUser`. |
 | **Observabilité IA (boucle agent)** | `AiUsageLog` + `ttftMs` (délai avant le 1er mot), `turns`, `toolCalls`, `toolErrors`, `toolLatencyMs` — mesurés dans `runAssistantStream` (`AssistantMetrics`), journalisés par `/api/assistant/stream` via `logAiUsage` (`lib/ai-settings.ts`). Migration `20260824230000_ai_usage_metrics`. |
 | **Drive → « Classer en courrier »** | `attachDriveNodeToMail` (`mail-register-actions.ts` — référence sans copie, refus du doublon) ; `app/(app)/drive/send-to-mail.tsx` (panneau rendu PAR LA LIGNE, hors menu-portail) ; entrée dans `node-actions.tsx`. |
@@ -3099,6 +3100,43 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **MAXIMUM INTELLIGENCE AT MAXIMUM SPEED — fast + smart, jamais l'un contre l'autre.** Le
+  principe : ne jamais échanger l'intelligence contre la vitesse — gagner les deux par
+  l'architecture (cacher la latence, jamais la qualité). **États exécutifs précalculés**
+  (`lib/assistant/executive-state.ts`, fonctions PURES sur des données déjà lues — zéro requête,
+  zéro latence ajoutée) : « où en est Pembro ? » reçoit D'UN SEUL appel l'étape courante et sa
+  responsable, le **bloqueur dérivé** (étape bloquée / pièces manquantes / retard / validateur
+  en attente **depuis N jours**), les jours dans l'étape, la prochaine échéance et étape, le
+  dernier mouvement et les **signaux** (retard, silence > 30 j, priorité haute qui n'avance pas,
+  cible dépassée) — en PREMIÈRE clé de `product_360` (`syntheseExecutive`) et d'`inspect_record`
+  (`etatExecutif` paiement/règlement) ; l'absence de bloqueur SE DIT, elle ne s'invente pas.
+  **Raisonnement parallèle** : les appels d'outils d'un même tour s'exécutent en `Promise.all`
+  (streaming et non-streaming — trois lectures de 800 ms coûtent 800 ms) + consigne de
+  DÉCOMPOSITION (sous-lectures indépendantes lancées ensemble, puis synthèse exécutive : « et
+  alors ? qu'est-ce qui change la décision ? ») et d'expansion ciblée (sources probables
+  d'abord, s'arrêter quand une lecture de plus ne change plus rien). **Discipline de preuve**
+  (règles communes texte + voix) : qualifier FAIT VÉRIFIÉ / DÉRIVÉ / ESTIMATION / HYPOTHÈSE /
+  INCONNU ; **autorité des sources par type de donnée** (paie > avenant signé > contrat > vieux
+  document > e-mail > mémoire) ; **contradiction jamais avalée en silence** (chronologie
+  d'abord, sinon « j'ai une incohérence à signaler ») — et détection DÉTERMINISTE de l'écart
+  devis → facture d'une même chaîne (`incoherences` dans inspect_record). **Profondeur
+  adaptative** (`lib/assistant/reasoning.ts`) : `isHighStakesQuestion` (décision, recommandation,
+  réorganisation, recrutement, montants en millions — cinq mots suffisent) déclenche une
+  **SECONDE PASSE CRITIQUE** : la conclusion est relue par le même modèle en adversaire de sa
+  propre analyse puis remise révisée — un appel de PLUS quand ça compte, jamais un modèle de
+  moins ; en flux, le brouillon déjà affiché (vraie réponse progressive) est remplacé (`reset`)
+  et l'étape se dit dans la trace (« Relecture critique de la conclusion ») ; critique jamais
+  exposée, échec du second appel → le brouillon est rendu. **Continuité sémantique** :
+  `conversationWorkingSet` (références ERP réelles + termes cités, fenêtre 60, borné 8, plus
+  récents d'abord) injecté texte ET voix — « et le fournisseur ? », « fais pareil pour Nivo »
+  se résolvent sans relancer la compréhension. **Voix à deux vitesses** : le fait fiable se dit
+  IMMÉDIATEMENT pendant que la couche d'intelligence travaille en parallèle — jamais de silence
+  artificiel, jamais d'invention pour meubler. **Benchmark qualité × latence** : golden queries
+  DÉTERMINISTES figées en CI (`golden-queries.test.ts` — bloqueur/délais/prochaine étape/signaux
+  livrés en un appel sur les vraies questions PDG) + protocole de mesure en conditions réelles
+  documenté (AiUsageLog : ttftMs/latencyMs/turns/toolCalls face à une évaluation humaine de
+  l'exactitude — une latence gagnée en perdant de la qualité est un ÉCHEC). Tests :
+  `executive-state.test.ts` (8), `reasoning.test.ts` (6), `golden-queries.test.ts` (3).
 - **PREMIUM LIVE EXPERIENCE — « je suis au téléphone avec mon Chief of Staff ».** Une couche
   d'expérience d'appel + des capacités exécutives À LA DEMANDE, sans rien reconstruire — le
   principe qui gouverne tout : **CAPABLE ≠ EXÉCUTÉ** (l'IA peut suggérer, elle attend

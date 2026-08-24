@@ -9,7 +9,8 @@ import { readFileByKey } from "@/lib/storage";
 import { extractAttachmentText } from "@/lib/assistant-files";
 import { indexDriveNodeText } from "@/lib/assistant/document-discovery";
 import { toNumber } from "@/lib/utils";
-import { chainOf, type ChainDoc } from "@/lib/legal/chain";
+import { chainOf, amountDrift, type ChainDoc } from "@/lib/legal/chain";
+import { paymentExecutiveState } from "@/lib/assistant/executive-state";
 import {
   REMINDER_RECURRENCES, RECURRENCE_LABEL, algiersToUtc, formatAlgiersDue,
   type ReminderRecurrence,
@@ -217,19 +218,35 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         include: { pieces: { select: { kind: true, status: true, note: true } } },
       });
       if (pay) {
-        const [timeline, validators, docs, order] = await Promise.all([
+        const [timeline, validators, docs, order, valChrono] = await Promise.all([
           auditOf("PAYMENT_REQUEST", pay.id),
           validationsOf("PAYMENT_REQUEST", pay.id),
           documentsOf("PAYMENT_REQUEST", pay.id),
           pay.expenseOrderId
             ? prisma.expenseOrder.findUnique({
                 where: { id: pay.expenseOrderId },
-                select: { reference: true, status: true, centralStatus: true, paidDate: true, amount: true },
+                select: { reference: true, status: true, centralStatus: true, paidDate: true, amount: true, createdAt: true },
               })
             : Promise.resolve(null),
+          // La CHRONOLOGIE des marches de validation — la matière de l'état exécutif dérivé
+          // (qui bloque, depuis combien de jours). Requête bornée, lancée en parallèle.
+          prisma.validationRequest.findMany({
+            where: { entityType: "PAYMENT_REQUEST", entityId: pay.id },
+            select: { createdAt: true, steps: { select: { status: true, decidedAt: true, order: true, validator: { select: { name: true } } } } },
+          }),
         ]);
         return JSON.stringify({
           type: "Demande de paiement",
+          // L'ÉTAT EXÉCUTIF D'ABORD — « où est le paiement ? » = qui le bloque, depuis quand,
+          // la prochaine étape, les signaux. Dérivé de la chronologie tracée (executive-state.ts).
+          etatExecutif: paymentExecutiveState({
+            status: pay.status, dueDate: pay.dueDate, createdAt: pay.createdAt,
+            validations: valChrono.map((v) => ({
+              createdAt: v.createdAt,
+              steps: v.steps.map((s) => ({ status: s.status, decidedAt: s.decidedAt, order: s.order, validatorName: s.validator.name })),
+            })),
+            order: order ? { status: order.status, centralStatus: order.centralStatus, paidDate: order.paidDate, createdAt: order.createdAt } : null,
+          }),
           reference: pay.reference, objet: pay.title, beneficiaire: pay.payee,
           montantDzd: Math.round(toNumber(pay.amount)), statut: pay.status,
           echeance: pay.dueDate ? fr(pay.dueDate) : null,
@@ -257,6 +274,10 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         const timeline = await auditOf("EXPENSE_ORDER", order.id);
         return JSON.stringify({
           type: "Règlement (ordre de dépense)",
+          etatExecutif: paymentExecutiveState({
+            status: order.status, dueDate: null, createdAt: order.createdAt, validations: [],
+            order: { status: order.status, centralStatus: order.centralStatus, paidDate: order.paidDate, createdAt: order.createdAt },
+          }),
           reference: order.reference, objet: order.label,
           montantDzd: Math.round(toNumber(order.amount)),
           statut: order.status, centreDePaiement: order.centralStatus,
@@ -288,6 +309,15 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           const row = byId.get(d.id)!;
           return { nature: row.kind, reference: row.reference, titre: row.title, montantDzd: row.amount != null ? Math.round(toNumber(row.amount as never)) : null, lien: `/legal/${row.id}` };
         });
+        // MOTEUR DE CONTRADICTION (déterministe) : devis et facture de la MÊME chaîne qui ne
+        // disent pas le même montant — on ne choisit jamais l'un en silence, on SIGNALE l'écart
+        // avec les deux valeurs ; au modèle de vérifier la chronologie (un avenant l'explique-t-il ?).
+        const quoteAmt = fil.find((m) => m.nature === "QUOTE")?.montantDzd ?? null;
+        const invoiceAmt = fil.find((m) => m.nature === "INVOICE")?.montantDzd ?? null;
+        const drift = amountDrift(quoteAmt, invoiceAmt);
+        const incoherences = drift != null && drift !== 0
+          ? [`écart devis → facture : ${drift > 0 ? "+" : ""}${drift.toLocaleString("fr-FR")} DZD (devis ${quoteAmt?.toLocaleString("fr-FR")} / facture ${invoiceAmt?.toLocaleString("fr-FR")}) — vérifier la chronologie (avenant ?) avant de citer un montant`]
+          : [];
         const [timeline, validators, docs, settlement] = await Promise.all([
           auditOf("LEGAL_DOCUMENT", legal.id),
           validationsOf("LEGAL_DOCUMENT", legal.id),
@@ -301,6 +331,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           reference: legal.reference, titre: legal.title, partie: legal.counterparty,
           montantDzd: legal.amount != null ? Math.round(toNumber(legal.amount)) : null,
           statut: legal.status,
+          ...(incoherences.length > 0 ? { incoherences } : {}),
           chaineAchat: fil.length > 1 ? fil : "Pièce isolée — aucun lien devis/BC/facture déclaré.",
           reglement: settlement
             ? { reference: settlement.reference, statut: settlement.status, centreDePaiement: settlement.centralStatus, payeLe: settlement.paidDate ? fr(settlement.paidDate) : null }

@@ -3,6 +3,7 @@ import { accessibleModules } from "@/lib/rbac";
 import { buildChiefOfStaffContext } from "@/lib/assistant";
 import { POWER_TOOLS } from "@/lib/assistant/power-tools";
 import { personalContext, getThreadMessages, ensurePrimaryThread } from "@/lib/assistant-memory";
+import { conversationWorkingSet } from "@/lib/assistant/reasoning";
 
 /**
  * VOIX TEMPS RÉEL — la couche SERVEUR de la conversation speech-to-speech.
@@ -144,6 +145,11 @@ CONSIGNES VOCALES — tu es EN LIGNE, à l'oral, avec ton interlocuteur :
 - Ne raconte JAMAIS tes appels d'outils (« je cherche dans la base… ») : si la lecture est
   rapide, réponds simplement ; si un travail de fond démarre (délégation), dis-le en une phrase
   naturelle et CONTINUE la conversation — la session ne se fige pas.
+- RÉPONSE PROGRESSIVE : donne D'ABORD le fait fiable déjà disponible (« le blocage immédiat est
+  Regulatory — aucune progression depuis neuf jours ; je vérifie la cause exacte »), pendant que
+  la délégation ou d'autres lectures continuent en parallèle ; COMPLÈTE dès que le résultat
+  arrive. Jamais de silence artificiel — et jamais une invention pour meubler : tout ce qui est
+  dit avant la fin d'une analyse est SÛR, qualifié, et se révise si une preuve nouvelle arrive.
 - Ne dis JAMAIS qu'une action est faite tant que l'outil ne l'a pas confirmé. Une action passe
   par une carte de confirmation À L'ÉCRAN : dis « je te la propose à l'écran », jamais « c'est fait ».
 - Si l'utilisateur t'interrompt : tais-toi et suis la nouvelle consigne, sans re-dérouler.
@@ -189,7 +195,11 @@ export async function buildVoiceInstructions(
   if (personal) parts.push(`\nCONTEXTE PERSONNEL\n${personal}`);
 
   if (threadId) {
-    const recent = await getThreadMessages(user.id, threadId, 16).catch(() => null);
+    // Une fenêtre LARGE (60) pour extraire les ENTITÉS ACTIVES (« et le fournisseur ? »,
+    // « fais pareil pour Nivo » se résolvent au-delà des derniers tours), une fenêtre COURTE
+    // (16) pour le verbatim — le budget de contexte temps réel se paie en latence.
+    const wide = await getThreadMessages(user.id, threadId, 60).catch(() => null);
+    const recent = wide ? wide.slice(-16) : null;
     if (recent && recent.length > 0) {
       const lines = recent.map((m) =>
         `${m.role === "user" ? "PDG" : "Toi"} (${ymdhm(m.createdAt)}) : ${m.content.replace(/\s+/g, " ").slice(0, 280)}`,
@@ -198,6 +208,8 @@ export async function buildVoiceInstructions(
         `\nCONVERSATION RÉCENTE (le même fil continue — résoudre « il », « ce paiement »… avec ceci) :\n${lines.join("\n")}`,
       );
     }
+    const ws = wide ? conversationWorkingSet(wide) : null;
+    if (ws) parts.push(`\n${ws}`);
   }
 
   const screen = typeof screenContext === "string" ? screenContext.replace(/\s+/g, " ").trim().slice(0, 300) : "";
