@@ -46,7 +46,12 @@ describe("powerToolsFor — les pouvoirs suivent les DROITS, pas le rôle", () =
   });
 
   it("donne toutes les lectures à un compte qui a tous les droits — sans le nommer « admin »", () => {
-    const omni = userWith({ BUDGETS: ["VIEW"], FINANCES: ["VIEW"], RH: ["VIEW"] }, "SUPER_ADMIN");
+    // La liste des droits SUIT le registre : chaque nouvel outil déclare le module qui l'ouvre,
+    // et ce compte-ci les porte tous (le rôle ne sert qu'aux outils exécutifs, gérés à part).
+    const omni = userWith({
+      BUDGETS: ["VIEW"], FINANCES: ["VIEW"], RH: ["VIEW"], WORKSPACE: ["VIEW"],
+      STOCKS: ["VIEW"], MEDICAL: ["VIEW"], MAIL_REGISTER: ["VIEW"],
+    }, "SUPER_ADMIN");
     const names = powerToolsFor(omni).map((t) => t.name);
     expect(new Set(names)).toEqual(new Set(POWER_TOOLS.map((t) => t.def.name)));
   });

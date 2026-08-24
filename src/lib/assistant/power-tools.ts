@@ -6,6 +6,7 @@ import { getComptaData } from "@/lib/queries/compta";
 import { getRhData, getLeavesToDecide } from "@/lib/queries/hr";
 import { getActionCenter } from "@/lib/queries/action-center";
 import { EXECUTIVE_TOOLS } from "@/lib/assistant/executive-tools";
+import { EXECUTIVE_READ_TOOLS } from "@/lib/assistant/executive-read-tools";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -199,6 +200,9 @@ export const POWER_TOOLS: PowerTool[] = [
   // dans leur module (executive-tools.ts) et passent par la MÊME porte que les autres :
   // `allowed` revérifié à chaque appel par executePowerTool.
   ...EXECUTIVE_TOOLS,
+  // Les LECTURES TRANSVERSES (recherche fédérée, calendrier, stocks, hôpitaux, paie, courriers,
+  // agrégats financiers) — chacune ouverte par le DROIT de l'écran correspondant.
+  ...EXECUTIVE_READ_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */

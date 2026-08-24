@@ -36,9 +36,14 @@ import {
   type ClaudeMessage, type ClaudeContentBlock, type ClaudeToolDef,
 } from "@/lib/ai";
 import {
-  userCan, accessibleModules, type Module,
+  userCan, accessibleModules, hasGlobalView, type Module,
   scopeMedicalDoctors, scopeRegulatory, scopeAdminRequests,
 } from "@/lib/rbac";
+import { updateRequestStatus, assignRequest, addRequestComment } from "@/lib/actions/admin-request-actions";
+import { createLegalDocument, updateLegalDocument } from "@/lib/actions/legal-actions";
+import { updateCalendarEvent, deleteCalendarEvent } from "@/lib/actions/calendar-actions";
+import { createInstitution, updateInstitution } from "@/lib/actions/medical-actions";
+import { createStockHospital, createStockAnnex } from "@/lib/actions/stock-snapshot-actions";
 import {
   powerToolsFor, executePowerTool, powerToolLabels, powerToolsBriefing,
 } from "@/lib/assistant/power-tools";
@@ -256,6 +261,137 @@ export type AssistantActionPayload =
       decision: "APPROVE" | "REFUSE" | "REQUEST_CHANGES" | "REQUEST_INFO";
       note?: string | null;
       proposedAmount?: number | null;
+    }
+  | {
+      /**
+       * MODIFIER UNE TÂCHE — réassigner, changer l'échéance / la priorité / le statut, commenter.
+       * La cible est résolue à la proposition (identifiant stocké) et le droit revérifié à
+       * l'exécution : sa propre tâche, ou n'importe laquelle pour une vue globale.
+       */
+      kind: "update_task";
+      taskId: string;
+      taskTitle: string;
+      assigneeId?: string | null;
+      assigneeName?: string | null;
+      dueDate?: string | null;
+      clearDueDate?: boolean;
+      priority?: string | null;
+      status?: string | null;
+      comment?: string | null;
+    }
+  | {
+      /**
+       * MODIFIER UNE DEMANDE DU SECRÉTARIAT — statut, responsable, commentaire. L'exécution
+       * repasse par les actions du module (`updateRequestStatus`, `assignRequest`,
+       * `addRequestComment`) : mêmes gardes, mêmes notifications, même archivage.
+       */
+      kind: "update_request";
+      requestId: string;
+      reference: string;
+      status?: string | null;
+      assigneeId?: string | null;
+      assigneeName?: string | null;
+      comment?: string | null;
+    }
+  | {
+      /**
+       * DÉCLARER UNE PIÈCE LEGAL (devis, BC, facture, contrat…) — éventuellement CHAÎNÉE à sa
+       * pièce amont (le BC de son devis, la facture de son BC). Exécution via
+       * `createLegalDocument` : mêmes contrôles que le formulaire.
+       */
+      kind: "create_legal_document";
+      docKind: string;
+      title: string;
+      reference?: string | null;
+      counterparty?: string | null;
+      amount?: number | null;
+      startDate?: string | null;
+      endDate?: string | null;
+      notes?: string | null;
+      chainFromId?: string | null;
+      chainFromLabel?: string | null;
+    }
+  | {
+      /**
+       * MODIFIER UNE PIÈCE LEGAL. `updateLegalDocument` REMPLACE tous les champs : l'exécution
+       * relit donc la fiche et n'écrase que ce qui a été demandé — jamais un champ par omission.
+       */
+      kind: "update_legal_document";
+      documentId: string;
+      currentTitle: string;
+      updates: {
+        title?: string | null;
+        reference?: string | null;
+        counterparty?: string | null;
+        amount?: number | null;
+        startDate?: string | null;
+        endDate?: string | null;
+        notes?: string | null;
+        chainFromId?: string | null;
+      };
+      changes: string[];
+    }
+  | {
+      /**
+       * DÉPLACER / ANNULER UN RENDEZ-VOUS du calendrier. Même règle que l'écran : seul
+       * l'organisateur (ou une vue globale) modifie. L'exécution relit l'événement et
+       * n'écrase que ce qui change.
+       */
+      kind: "update_calendar_event";
+      eventId: string;
+      eventTitle: string;
+      cancel?: boolean;
+      date?: string | null;
+      time?: string | null;
+      durationMin?: number | null;
+      location?: string | null;
+      changes: string[];
+    }
+  | {
+      /** AJOUTER UN HÔPITAL — à la liste des lieux de stock (STOCKS) ou à l'annuaire médical. */
+      kind: "create_hospital";
+      registre: "STOCKS" | "ANNUAIRE";
+      name: string;
+      annexKind?: "HOSPITAL" | "ANNEX";
+      institutionType?: string | null;
+      sector?: string | null;
+      wilaya?: string | null;
+      city?: string | null;
+    }
+  | {
+      /** MODIFIER UN ÉTABLISSEMENT de l'annuaire médical (l'exécution relit puis fusionne). */
+      kind: "update_hospital";
+      institutionId: string;
+      name: string;
+      updates: {
+        newName?: string | null;
+        type?: string | null;
+        sector?: string | null;
+        wilaya?: string | null;
+        city?: string | null;
+        phone?: string | null;
+        email?: string | null;
+        notes?: string | null;
+        isActive?: boolean | null;
+      };
+      changes: string[];
+    }
+  | {
+      /**
+       * MODIFIER UN SALAIRE — NIVEAU CRITIQUE. Chaque champ porte son AVANT (relu au moment de
+       * la proposition) et son APRÈS ; l'exécution revérifie que la fiche n'a pas bougé entre
+       * les deux (sinon elle refuse : on ne signe pas un montant sur une photo périmée).
+       */
+      kind: "update_salary";
+      employeeId: string;
+      employeeName: string;
+      fields: {
+        field: "baseSalary" | "netToPay" | "grossSalary" | "employerCost";
+        label: string;
+        before: number | null;
+        after: number;
+      }[];
+      note?: string | null;
     };
 
 export type AssistantActionKind = AssistantActionPayload["kind"];
@@ -270,6 +406,15 @@ export interface ProposedAction {
   fields: { label: string; value: string }[];
   /** Avertissements (ex. destinataire introuvable). */
   warnings: string[];
+  /**
+   * Niveau de gravité de l'action, pour l'UI de confirmation. `CRITICAL` (paie, salaires)
+   * exige une CONFIRMATION FORTE : la carte fait RESSAISIR le montant avant d'armer le bouton.
+   * `SENSITIVE` (paiements, réglages plateforme) est marqué visuellement. Absent = confirmation
+   * standard. Ce niveau n'accorde AUCUN droit — il ne fait que durcir l'UI.
+   */
+  level?: "SENSITIVE" | "CRITICAL";
+  /** CRITICAL uniquement : la valeur exacte que l'utilisateur doit RESSAISIR pour confirmer. */
+  confirmText?: string;
   /** Charge utile revérifiée et exécutée côté serveur après confirmation. */
   payload: AssistantActionPayload;
 }
@@ -753,6 +898,165 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
         proposedAmount: { type: "number", description: "Montant proposé en DZD (REQUEST_CHANGES uniquement) — une proposition, jamais une réécriture." },
       },
       required: ["reference", "decision"],
+    },
+  },
+  {
+    name: "update_task",
+    description:
+      "PROPOSE la MODIFICATION d'une tâche existante : réassigner à quelqu'un, changer l'échéance, la priorité ou le statut, ajouter un commentaire. " +
+      "N'exécute rien : confirmation requise. `task` = fragment du titre (la tâche la plus récente qui correspond est retenue — vérifier avec inspect_record en cas de doute). " +
+      "Ne donner QUE les champs à changer. Statuts : TODO, IN_PROGRESS, DONE (clore), CANCELLED (annuler), TODO pour rouvrir.",
+    input_schema: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "Fragment du titre de la tâche à modifier." },
+        assigneeName: { type: "string", description: "Nouveau responsable (résoudre via search_people)." },
+        dueDate: { type: "string", description: "Nouvelle échéance AAAA-MM-JJ." },
+        clearDueDate: { type: "boolean", description: "true pour RETIRER l'échéance." },
+        priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        status: { type: "string", enum: ["TODO", "IN_PROGRESS", "DONE", "CANCELLED"], description: "Nouveau statut (DONE = clore, TODO = rouvrir)." },
+        comment: { type: "string", description: "Commentaire à ajouter au fil de la tâche." },
+      },
+      required: ["task"],
+    },
+  },
+  {
+    name: "update_request",
+    description:
+      "PROPOSE la MODIFICATION d'une demande du secrétariat (REQ-…) : statut, responsable, commentaire. N'exécute rien : confirmation requise. " +
+      "Statuts : NEW, IN_PROGRESS, AWAITING_VALIDATION, AWAITING_EXTERNAL, AWAITING_PAYMENT, AWAITING_DOCUMENT, BLOCKED, DONE, CANCELLED.",
+    input_schema: {
+      type: "object",
+      properties: {
+        reference: { type: "string", description: "Référence de la demande (REQ-AAAA-NNN) ou fragment du titre." },
+        status: { type: "string", enum: ["NEW", "IN_PROGRESS", "AWAITING_VALIDATION", "AWAITING_EXTERNAL", "AWAITING_PAYMENT", "AWAITING_DOCUMENT", "BLOCKED", "DONE", "CANCELLED"] },
+        assigneeName: { type: "string", description: "Nouveau responsable (résoudre via search_people)." },
+        comment: { type: "string", description: "Commentaire à ajouter au fil de la demande." },
+      },
+      required: ["reference"],
+    },
+  },
+  {
+    name: "create_legal_document",
+    description:
+      "PROPOSE de DÉCLARER une pièce au module Legal : devis (QUOTE), bon de commande (PURCHASE_ORDER), facture (INVOICE), contrat (CONTRACT), " +
+      "accord (AGREEMENT), NDA, assurance (INSURANCE), licence (LICENSE), bail (LEASE), autre (OTHER). N'exécute rien : confirmation requise. " +
+      "`chain_from` (référence ou titre de la pièce AMONT) CHAÎNE la pièce : le BC à son devis, la facture à son BC — c'est ce qui rend la chaîne d'achat lisible.",
+    input_schema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["QUOTE", "PURCHASE_ORDER", "INVOICE", "CONTRACT", "AGREEMENT", "NDA", "INSURANCE", "LICENSE", "LEASE", "OTHER"], description: "Nature de la pièce." },
+        title: { type: "string", description: "Titre exact de la pièce (obligatoire)." },
+        reference: { type: "string", description: "Référence / numéro de la pièce (ex. n° du BC)." },
+        counterparty: { type: "string", description: "La partie / le fournisseur." },
+        amount: { type: "number", description: "Montant en DZD." },
+        startDate: { type: "string", description: "Date de début / d'émission AAAA-MM-JJ." },
+        endDate: { type: "string", description: "Date de fin / d'échéance AAAA-MM-JJ." },
+        notes: { type: "string", description: "Notes." },
+        chain_from: { type: "string", description: "Référence ou titre de la pièce AMONT (devis pour un BC, BC pour une facture)." },
+      },
+      required: ["kind", "title"],
+    },
+  },
+  {
+    name: "update_legal_document",
+    description:
+      "PROPOSE la MODIFICATION d'une pièce Legal existante (titre, référence, partie, montant, dates, notes, chaînage). " +
+      "N'exécute rien : confirmation requise. Ne donner QUE les champs à changer — les autres restent tels quels.",
+    input_schema: {
+      type: "object",
+      properties: {
+        document: { type: "string", description: "Référence ou fragment de titre de la pièce à modifier." },
+        title: { type: "string", description: "Nouveau titre." },
+        reference: { type: "string", description: "Nouvelle référence." },
+        counterparty: { type: "string", description: "Nouvelle partie." },
+        amount: { type: "number", description: "Nouveau montant en DZD." },
+        startDate: { type: "string", description: "Nouvelle date de début AAAA-MM-JJ." },
+        endDate: { type: "string", description: "Nouvelle date de fin AAAA-MM-JJ." },
+        notes: { type: "string", description: "Nouvelles notes." },
+        chain_from: { type: "string", description: "Référence / titre de la pièce amont à chaîner." },
+      },
+      required: ["document"],
+    },
+  },
+  {
+    name: "update_calendar_event",
+    description:
+      "PROPOSE de DÉPLACER ou d'ANNULER un rendez-vous du calendrier (le sien, ou n'importe lequel pour une vue globale). " +
+      "N'exécute rien : confirmation requise. `event` = fragment du titre. Pour déplacer : date et/ou time. `cancel`=true pour annuler.",
+    input_schema: {
+      type: "object",
+      properties: {
+        event: { type: "string", description: "Fragment du titre du rendez-vous." },
+        cancel: { type: "boolean", description: "true = ANNULER le rendez-vous." },
+        date: { type: "string", description: "Nouvelle date AAAA-MM-JJ (heure d'Alger)." },
+        time: { type: "string", description: "Nouvelle heure HH:MM (heure d'Alger)." },
+        durationMin: { type: "number", description: "Nouvelle durée en minutes." },
+        location: { type: "string", description: "Nouveau lieu." },
+      },
+      required: ["event"],
+    },
+  },
+  {
+    name: "create_hospital",
+    description:
+      "PROPOSE d'AJOUTER un hôpital : `registre`=STOCKS pour la liste des lieux de stock (hôpitaux / annexes PCH du module Stocks), " +
+      "`registre`=ANNUAIRE pour l'annuaire médical (établissements : CHU, EPH, clinique…). N'exécute rien : confirmation requise. " +
+      "Vérifier d'abord avec search_hospitals qu'il n'existe pas déjà.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Nom de l'hôpital / établissement (obligatoire)." },
+        registre: { type: "string", enum: ["STOCKS", "ANNUAIRE"], description: "STOCKS = lieux de stock ; ANNUAIRE = annuaire médical." },
+        kind: { type: "string", enum: ["HOSPITAL", "ANNEX"], description: "STOCKS uniquement : hôpital ou annexe PCH (défaut HOSPITAL)." },
+        type: { type: "string", enum: ["CHU", "EPH", "EHS", "CLINIQUE_PRIVEE", "POLYCLINIQUE", "CABINET", "CENTRE_SANTE", "PHARMACIE", "GROSSISTE", "AUTRE"], description: "ANNUAIRE uniquement : type d'établissement." },
+        sector: { type: "string", enum: ["PUBLIC", "PRIVE"], description: "ANNUAIRE uniquement : secteur." },
+        wilaya: { type: "string", description: "ANNUAIRE uniquement : wilaya." },
+        city: { type: "string", description: "ANNUAIRE uniquement : ville." },
+      },
+      required: ["name", "registre"],
+    },
+  },
+  {
+    name: "update_hospital",
+    description:
+      "PROPOSE la MODIFICATION d'un établissement de l'ANNUAIRE MÉDICAL (nom, type, secteur, wilaya, ville, téléphone, e-mail, notes, actif). " +
+      "N'exécute rien : confirmation requise. Ne donner QUE les champs à changer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Nom actuel (fragment) de l'établissement." },
+        newName: { type: "string", description: "Nouveau nom." },
+        type: { type: "string", enum: ["CHU", "EPH", "EHS", "CLINIQUE_PRIVEE", "POLYCLINIQUE", "CABINET", "CENTRE_SANTE", "PHARMACIE", "GROSSISTE", "AUTRE"] },
+        sector: { type: "string", enum: ["PUBLIC", "PRIVE"] },
+        wilaya: { type: "string" },
+        city: { type: "string" },
+        phone: { type: "string" },
+        email: { type: "string" },
+        notes: { type: "string" },
+        active: { type: "boolean", description: "false pour désactiver l'établissement." },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "update_salary",
+    description:
+      "PROPOSE une MODIFICATION DE SALAIRE sur la fiche RH d'un employé — NIVEAU CRITIQUE : la carte de confirmation montre l'AVANT, " +
+      "l'APRÈS et l'ÉCART, et exige une confirmation renforcée. N'exécute rien. " +
+      "TOUJOURS appeler read_payroll AVANT pour connaître les montants actuels et calculer le nouveau montant exact (ex. +10 %). " +
+      "Donner UNIQUEMENT les montants à changer, en DZD.",
+    input_schema: {
+      type: "object",
+      properties: {
+        employee_name: { type: "string", description: "Nom de l'employé (registre RH)." },
+        base_salary: { type: "number", description: "Nouveau salaire de base en DZD." },
+        net_to_pay: { type: "number", description: "Nouveau net à payer en DZD." },
+        gross_salary: { type: "number", description: "Nouveau brut en DZD." },
+        employer_cost: { type: "number", description: "Nouveau coût employeur en DZD." },
+        note: { type: "string", description: "Motif / date d'effet (libre) — journalisé." },
+      },
+      required: ["employee_name"],
     },
   },
 ];
@@ -1323,6 +1627,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     return {
       kind: "update_platform_setting",
       module: "ADMIN",
+      level: "SENSITIVE",
       title: `modifier le réglage « ${spec.label} »`,
       fields: [
         { label: spec.label, value: `${before} → ${after}` },
@@ -1698,6 +2003,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (note) fields.push({ label: "Motif", value: note });
     return {
       kind: "decide_payment", module: "PAYMENT_CENTRE", title: `Centre de paiement — ${CENTRAL_DECISION_LABEL[decision].toLowerCase()}`, fields, warnings,
+      level: "SENSITIVE",
       payload: {
         kind: "decide_payment", orderId: order.id, reference: order.reference, label: order.label,
         amountDzd, decision, note: note || null, proposedAmount,
@@ -1784,6 +2090,380 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     return {
       kind: "create_notification", module: "ADMIN", title: popup ? "Diffuser une annonce (pop-up)" : "Diffuser une notification", fields, warnings,
       payload: { kind: "create_notification", audience: audience as BroadcastAudience, role, userIds, recipientNames, title, body, link, popup },
+    };
+  }
+
+  if (toolName === "update_task") {
+    const needle = asStr(input, "task");
+    if (needle.length < 2) return { error: "Donnez un fragment du titre de la tâche." };
+    // Sa propre tâche, ou n'importe laquelle pour une vue globale — la même frontière que
+    // l'écran « Mon espace » : personne ne modifie la tâche d'un autre sans vue globale.
+    const scope = hasGlobalView(user) ? {} : { OR: [{ assignedToId: user.id }, { createdById: user.id }] };
+    const task = await prisma.task.findFirst({
+      where: { AND: [scope, { title: { contains: needle, mode: "insensitive" as const } }] },
+      select: { id: true, title: true, status: true, priority: true, dueDate: true, assignedTo: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!task) return { error: `Aucune tâche « ${needle} » dans votre périmètre.` };
+
+    const fields: { label: string; value: string }[] = [{ label: "Tâche", value: task.title }];
+    const payload: Extract<AssistantActionPayload, { kind: "update_task" }> = { kind: "update_task", taskId: task.id, taskTitle: task.title };
+
+    const assigneeRaw = asStr(input, "assigneeName");
+    if (assigneeRaw) {
+      const a = await resolve("Nouveau responsable", assigneeRaw);
+      if (!a.id) return { error: `Responsable « ${assigneeRaw} » introuvable ou ambigu (search_people).` };
+      payload.assigneeId = a.id; payload.assigneeName = a.name;
+      fields.push({ label: "Assignée à", value: `${task.assignedTo?.name ?? "personne"} → ${a.name}` });
+    }
+    if (input.clearDueDate === true) {
+      payload.clearDueDate = true;
+      fields.push({ label: "Échéance", value: `${task.dueDate?.toISOString().slice(0, 10) ?? "(aucune)"} → (retirée)` });
+    } else if (asStr(input, "dueDate")) {
+      const due = isoDate(asStr(input, "dueDate"));
+      if (!due) return { error: "Échéance illisible (AAAA-MM-JJ)." };
+      pastWarning("La nouvelle échéance", due, warnings);
+      payload.dueDate = due;
+      fields.push({ label: "Échéance", value: `${task.dueDate?.toISOString().slice(0, 10) ?? "(aucune)"} → ${due}` });
+    }
+    const prio = asStr(input, "priority") ? normPriority(asStr(input, "priority")) : null;
+    if (prio) {
+      payload.priority = prio;
+      fields.push({ label: "Priorité", value: `${PRIORITY[task.priority]?.label ?? task.priority} → ${PRIORITY[prio]?.label ?? prio}` });
+    }
+    const status = asStr(input, "status").toUpperCase();
+    if (status) {
+      if (!["TODO", "IN_PROGRESS", "DONE", "CANCELLED"].includes(status)) return { error: "Statut de tâche inconnu." };
+      payload.status = status;
+      fields.push({ label: "Statut", value: `${TASK_STATUS[task.status]?.label ?? task.status} → ${TASK_STATUS[status as keyof typeof TASK_STATUS]?.label ?? status}` });
+    }
+    const comment = asStr(input, "comment");
+    if (comment) { payload.comment = comment; fields.push({ label: "Commentaire", value: comment }); }
+
+    if (fields.length === 1) return { error: "Aucun changement demandé — précisez quoi modifier (responsable, échéance, priorité, statut, commentaire)." };
+    return { kind: "update_task", module: "WORKSPACE", title: `Modifier la tâche « ${task.title.slice(0, 60)} »`, fields, warnings, payload };
+  }
+
+  if (toolName === "update_request") {
+    if (!userCan(user, "ADMIN_REQUESTS", "VIEW")) return { error: "Vous n'avez pas accès aux demandes du secrétariat." };
+    const ref = asStr(input, "reference");
+    if (ref.length < 2) return { error: "Donnez la référence (REQ-…) ou un fragment du titre." };
+    const req = await prisma.administrativeRequest.findFirst({
+      where: { AND: [scopeAdminRequests(user), { deletedAt: null }, { OR: [{ reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] }] },
+      select: { id: true, reference: true, title: true, status: true, assignedTo: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!req) return { error: `Aucune demande « ${ref} » dans votre périmètre.` };
+
+    const fields: { label: string; value: string }[] = [{ label: "Demande", value: `${req.reference} — ${req.title}` }];
+    const payload: Extract<AssistantActionPayload, { kind: "update_request" }> = { kind: "update_request", requestId: req.id, reference: req.reference };
+
+    const status = asStr(input, "status").toUpperCase();
+    if (status) {
+      const valid = ["NEW", "IN_PROGRESS", "AWAITING_VALIDATION", "AWAITING_EXTERNAL", "AWAITING_PAYMENT", "AWAITING_DOCUMENT", "BLOCKED", "DONE", "CANCELLED"];
+      if (!valid.includes(status)) return { error: "Statut de demande inconnu." };
+      payload.status = status;
+      fields.push({ label: "Statut", value: `${ADMIN_REQUEST_STATUS[req.status]?.label ?? req.status} → ${ADMIN_REQUEST_STATUS[status as keyof typeof ADMIN_REQUEST_STATUS]?.label ?? status}` });
+    }
+    const assigneeRaw = asStr(input, "assigneeName");
+    if (assigneeRaw) {
+      const a = await resolve("Nouveau responsable", assigneeRaw);
+      if (!a.id) return { error: `Responsable « ${assigneeRaw} » introuvable ou ambigu (search_people).` };
+      payload.assigneeId = a.id; payload.assigneeName = a.name;
+      fields.push({ label: "Responsable", value: `${req.assignedTo?.name ?? "personne"} → ${a.name}` });
+    }
+    const comment = asStr(input, "comment");
+    if (comment) { payload.comment = comment; fields.push({ label: "Commentaire", value: comment }); }
+
+    if (fields.length === 1) return { error: "Aucun changement demandé — précisez quoi modifier (statut, responsable, commentaire)." };
+    warnings.push("L'exécution repasse par les règles du secrétariat : si vous n'êtes pas gestionnaire de cette demande, elle sera refusée.");
+    return { kind: "update_request", module: "ADMIN_REQUESTS", title: `Modifier la demande ${req.reference}`, fields, warnings, payload };
+  }
+
+  if (toolName === "create_legal_document") {
+    if (!userCan(user, "LEGAL", "CREATE")) return { error: "Vous n'avez pas le droit de déclarer une pièce Legal." };
+    const KINDS_FR: Record<string, string> = {
+      QUOTE: "Devis", PURCHASE_ORDER: "Bon de commande", INVOICE: "Facture", CONTRACT: "Contrat",
+      AGREEMENT: "Accord", NDA: "NDA", INSURANCE: "Assurance", LICENSE: "Licence", LEASE: "Bail", OTHER: "Autre",
+    };
+    const docKind = asStr(input, "kind").toUpperCase();
+    if (!(docKind in KINDS_FR)) return { error: "Nature de pièce inconnue." };
+    const title = asStr(input, "title");
+    if (!title) return { error: "Le titre de la pièce est obligatoire." };
+    const startDate = asStr(input, "startDate") ? isoDate(asStr(input, "startDate")) : null;
+    const endDate = asStr(input, "endDate") ? isoDate(asStr(input, "endDate")) : null;
+    if (startDate && endDate && endDate < startDate) return { error: "La date de fin précède la date de début." };
+    const amountRaw = input.amount;
+    const amount = typeof amountRaw === "number" && Number.isFinite(amountRaw) && amountRaw >= 0 ? amountRaw : null;
+
+    // La pièce AMONT se résout MAINTENANT — jamais un identifiant deviné au moment d'exécuter.
+    let chainFromId: string | null = null;
+    let chainFromLabel: string | null = null;
+    const chainRaw = asStr(input, "chain_from");
+    if (chainRaw) {
+      const prev = await prisma.legalDocument.findFirst({
+        where: { OR: [{ reference: { equals: chainRaw, mode: "insensitive" } }, { title: { contains: chainRaw, mode: "insensitive" } }] },
+        select: { id: true, title: true, reference: true, kind: true },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!prev) return { error: `Pièce amont « ${chainRaw} » introuvable au Legal — vérifier avec search_everything ou inspect_record.` };
+      chainFromId = prev.id;
+      chainFromLabel = `${KINDS_FR[prev.kind] ?? prev.kind} ${prev.reference ?? ""} — ${prev.title}`.trim();
+    }
+
+    const fields = [
+      { label: "Nature", value: KINDS_FR[docKind] },
+      { label: "Titre", value: title },
+    ];
+    if (asStr(input, "reference")) fields.push({ label: "Référence", value: asStr(input, "reference") });
+    if (asStr(input, "counterparty")) fields.push({ label: "Partie", value: asStr(input, "counterparty") });
+    if (amount != null) fields.push({ label: "Montant", value: `${amount.toLocaleString("fr-FR")} DZD` });
+    if (startDate || endDate) fields.push({ label: "Dates", value: [startDate, endDate].filter(Boolean).join(" → ") });
+    if (chainFromLabel) fields.push({ label: "Chaînée à", value: chainFromLabel });
+
+    return {
+      kind: "create_legal_document", module: "LEGAL", title: `Déclarer ${KINDS_FR[docKind].toLowerCase()} au Legal`, fields, warnings,
+      payload: {
+        kind: "create_legal_document", docKind, title,
+        reference: asStr(input, "reference") || null, counterparty: asStr(input, "counterparty") || null,
+        amount, startDate, endDate, notes: asStr(input, "notes") || null,
+        chainFromId, chainFromLabel,
+      },
+    };
+  }
+
+  if (toolName === "update_legal_document") {
+    if (!userCan(user, "LEGAL", "UPDATE")) return { error: "Vous n'avez pas le droit de modifier une pièce Legal." };
+    const needle = asStr(input, "document");
+    if (needle.length < 2) return { error: "Donnez la référence ou un fragment du titre de la pièce." };
+    // La restriction par LECTEURS s'applique aussi ici : on ne modifie pas un document qu'on
+    // n'a pas le droit d'ouvrir.
+    const doc = await prisma.legalDocument.findFirst({
+      where: {
+        AND: [
+          { OR: [{ reference: { equals: needle, mode: "insensitive" } }, { title: { contains: needle, mode: "insensitive" } }] },
+          ...(user.role === "SUPER_ADMIN" ? [] : [{
+            OR: [{ readers: { none: {} } }, { readers: { some: { userId: user.id } } }, { createdById: user.id }],
+          }]),
+        ],
+      },
+      select: { id: true, title: true, reference: true, kind: true, counterparty: true, amount: true, startDate: true, endDate: true },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!doc) return { error: `Aucune pièce Legal « ${needle} » qui vous soit ouverte.` };
+
+    const updates: Extract<AssistantActionPayload, { kind: "update_legal_document" }>["updates"] = {};
+    const changes: string[] = [];
+    const fields: { label: string; value: string }[] = [{ label: "Pièce", value: `${doc.reference ?? doc.kind} — ${doc.title}` }];
+    const push = (label: string, before: string, after: string) => {
+      fields.push({ label, value: `${before || "(vide)"} → ${after || "(vide)"}` });
+      changes.push(label);
+    };
+
+    if (asStr(input, "title")) { updates.title = asStr(input, "title"); push("Titre", doc.title, updates.title); }
+    if (asStr(input, "reference")) { updates.reference = asStr(input, "reference"); push("Référence", doc.reference ?? "", updates.reference); }
+    if (asStr(input, "counterparty")) { updates.counterparty = asStr(input, "counterparty"); push("Partie", doc.counterparty ?? "", updates.counterparty); }
+    if (typeof input.amount === "number" && Number.isFinite(input.amount)) {
+      updates.amount = input.amount;
+      push("Montant", doc.amount != null ? `${Math.round(toNumber(doc.amount)).toLocaleString("fr-FR")} DZD` : "", `${input.amount.toLocaleString("fr-FR")} DZD`);
+    }
+    if (asStr(input, "startDate")) {
+      const d = isoDate(asStr(input, "startDate"));
+      if (!d) return { error: "Date de début illisible (AAAA-MM-JJ)." };
+      updates.startDate = d; push("Début", doc.startDate?.toISOString().slice(0, 10) ?? "", d);
+    }
+    if (asStr(input, "endDate")) {
+      const d = isoDate(asStr(input, "endDate"));
+      if (!d) return { error: "Date de fin illisible (AAAA-MM-JJ)." };
+      updates.endDate = d; push("Fin", doc.endDate?.toISOString().slice(0, 10) ?? "", d);
+    }
+    if (asStr(input, "notes")) { updates.notes = asStr(input, "notes"); changes.push("Notes"); fields.push({ label: "Notes", value: updates.notes }); }
+    const chainRaw = asStr(input, "chain_from");
+    if (chainRaw) {
+      const prev = await prisma.legalDocument.findFirst({
+        where: { id: { not: doc.id }, OR: [{ reference: { equals: chainRaw, mode: "insensitive" } }, { title: { contains: chainRaw, mode: "insensitive" } }] },
+        select: { id: true, title: true, reference: true },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!prev) return { error: `Pièce amont « ${chainRaw} » introuvable au Legal.` };
+      updates.chainFromId = prev.id;
+      push("Chaînée à", "", `${prev.reference ?? ""} ${prev.title}`.trim());
+    }
+    if (changes.length === 0) return { error: "Aucun changement demandé — précisez quoi modifier." };
+
+    return {
+      kind: "update_legal_document", module: "LEGAL", title: `Modifier « ${doc.title.slice(0, 60)} »`, fields, warnings,
+      payload: { kind: "update_legal_document", documentId: doc.id, currentTitle: doc.title, updates, changes },
+    };
+  }
+
+  if (toolName === "update_calendar_event") {
+    if (!userCan(user, "WORKSPACE", "VIEW")) return { error: "Vous n'avez pas accès au calendrier." };
+    const needle = asStr(input, "event");
+    if (needle.length < 2) return { error: "Donnez un fragment du titre du rendez-vous." };
+    // Même frontière que l'écran : l'organisateur, ou une vue globale.
+    const scope = hasGlobalView(user) ? {} : { organizerId: user.id };
+    const event = await prisma.calendarEvent.findFirst({
+      where: { AND: [scope, { title: { contains: needle, mode: "insensitive" as const } }, { startAt: { gte: new Date(Date.now() - 7 * 86_400_000) } }] },
+      select: { id: true, title: true, startAt: true, allDay: true, location: true, organizer: { select: { name: true } } },
+      orderBy: { startAt: "asc" },
+    });
+    if (!event) return { error: `Aucun rendez-vous à venir « ${needle} » que vous puissiez modifier.` };
+
+    const cancel = input.cancel === true;
+    const changes: string[] = [];
+    const fields: { label: string; value: string }[] = [
+      { label: "Rendez-vous", value: event.title },
+      { label: "Actuellement", value: `${event.startAt.toISOString().slice(0, 10)}${event.allDay ? " (journée entière)" : ""} — organisé par ${event.organizer.name}` },
+    ];
+    const payload: Extract<AssistantActionPayload, { kind: "update_calendar_event" }> = {
+      kind: "update_calendar_event", eventId: event.id, eventTitle: event.title, changes,
+    };
+    if (cancel) {
+      payload.cancel = true;
+      changes.push("Annulation");
+      fields.push({ label: "Action", value: "ANNULER le rendez-vous (les invités seront prévenus par la disparition de l'événement)" });
+    } else {
+      const date = asStr(input, "date") ? isoDate(asStr(input, "date")) : null;
+      const time = asStr(input, "time").match(/^\d{1,2}:\d{2}$/) ? asStr(input, "time") : null;
+      if (date) { payload.date = date; changes.push("Date"); }
+      if (time) { payload.time = time; changes.push("Heure"); }
+      if (date || time) fields.push({ label: "Déplacé à", value: `${date ?? "même jour"} ${time ?? "même heure"} (heure d'Alger)` });
+      if (typeof input.durationMin === "number" && input.durationMin > 0) {
+        payload.durationMin = Math.round(input.durationMin); changes.push("Durée");
+        fields.push({ label: "Durée", value: `${payload.durationMin} min` });
+      }
+      if (asStr(input, "location")) { payload.location = asStr(input, "location"); changes.push("Lieu"); fields.push({ label: "Lieu", value: payload.location }); }
+      if (changes.length === 0) return { error: "Aucun changement demandé — donnez une nouvelle date/heure, une durée, un lieu, ou cancel=true." };
+      pastWarning("La nouvelle date", date, warnings);
+    }
+    return {
+      kind: "update_calendar_event", module: "WORKSPACE",
+      title: cancel ? `Annuler « ${event.title.slice(0, 50)} »` : `Déplacer « ${event.title.slice(0, 50)} »`,
+      fields, warnings, payload,
+    };
+  }
+
+  if (toolName === "create_hospital") {
+    const name = asStr(input, "name");
+    if (!name) return { error: "Le nom de l'hôpital est obligatoire." };
+    const registre = asStr(input, "registre").toUpperCase() === "ANNUAIRE" ? "ANNUAIRE" : "STOCKS";
+
+    if (registre === "STOCKS") {
+      // La liste des lieux de stock est tenue par le Super Admin — la même règle que l'écran.
+      if (user.role !== "SUPER_ADMIN") return { error: "Seul le Super Admin ajoute un lieu à la liste des stocks. Pour l'annuaire médical, utiliser registre=ANNUAIRE." };
+      const kind = asStr(input, "kind").toUpperCase() === "ANNEX" ? "ANNEX" : "HOSPITAL";
+      const existing = await prisma.stockAnnex.findFirst({ where: { name: { equals: name, mode: "insensitive" } } });
+      if (existing) return { error: `« ${existing.name} » existe déjà dans les lieux de stock.` };
+      return {
+        kind: "create_hospital", module: "STOCKS", title: `Ajouter ${kind === "ANNEX" ? "une annexe PCH" : "un hôpital"} aux stocks`, warnings,
+        fields: [
+          { label: "Nom", value: name },
+          { label: "Nature", value: kind === "ANNEX" ? "Annexe PCH" : "Hôpital" },
+          { label: "Registre", value: "Lieux de stock (module Stocks)" },
+        ],
+        payload: { kind: "create_hospital", registre: "STOCKS", name, annexKind: kind },
+      };
+    }
+
+    if (!userCan(user, "MEDICAL", "CREATE")) return { error: "Vous n'avez pas le droit d'ajouter un établissement à l'annuaire médical." };
+    const dupe = await prisma.medicalInstitution.findFirst({ where: { name: { equals: name, mode: "insensitive" } }, select: { name: true } });
+    if (dupe) warnings.push(`Un établissement « ${dupe.name} » existe déjà dans l'annuaire — vérifier qu'il ne s'agit pas d'un doublon.`);
+    const fields = [
+      { label: "Nom", value: name },
+      { label: "Registre", value: "Annuaire médical (établissements)" },
+    ];
+    if (asStr(input, "type")) fields.push({ label: "Type", value: asStr(input, "type") });
+    if (asStr(input, "sector")) fields.push({ label: "Secteur", value: asStr(input, "sector") });
+    const place = [asStr(input, "city"), asStr(input, "wilaya")].filter(Boolean).join(", ");
+    if (place) fields.push({ label: "Lieu", value: place });
+    return {
+      kind: "create_hospital", module: "MEDICAL", title: "Ajouter un établissement à l'annuaire", fields, warnings,
+      payload: {
+        kind: "create_hospital", registre: "ANNUAIRE", name,
+        institutionType: asStr(input, "type") || null, sector: asStr(input, "sector") || null,
+        wilaya: asStr(input, "wilaya") || null, city: asStr(input, "city") || null,
+      },
+    };
+  }
+
+  if (toolName === "update_hospital") {
+    if (!userCan(user, "MEDICAL", "UPDATE")) return { error: "Vous n'avez pas le droit de modifier l'annuaire des établissements." };
+    const needle = asStr(input, "name");
+    if (needle.length < 2) return { error: "Donnez le nom (fragment) de l'établissement." };
+    const inst = await prisma.medicalInstitution.findFirst({
+      where: { name: { contains: needle, mode: "insensitive" } },
+      select: { id: true, name: true, type: true, sector: true, wilaya: true, city: true, phone: true, email: true, isActive: true },
+    });
+    if (!inst) return { error: `Aucun établissement « ${needle} » dans l'annuaire.` };
+
+    const updates: Extract<AssistantActionPayload, { kind: "update_hospital" }>["updates"] = {};
+    const changes: string[] = [];
+    const fields: { label: string; value: string }[] = [{ label: "Établissement", value: inst.name }];
+    const push = (label: string, before: string, after: string) => {
+      fields.push({ label, value: `${before || "(vide)"} → ${after || "(vide)"}` });
+      changes.push(label);
+    };
+    if (asStr(input, "newName")) { updates.newName = asStr(input, "newName"); push("Nom", inst.name, updates.newName); }
+    if (asStr(input, "type")) { updates.type = asStr(input, "type").toUpperCase(); push("Type", inst.type, updates.type); }
+    if (asStr(input, "sector")) { updates.sector = asStr(input, "sector").toUpperCase(); push("Secteur", inst.sector, updates.sector); }
+    if (asStr(input, "wilaya")) { updates.wilaya = asStr(input, "wilaya"); push("Wilaya", inst.wilaya ?? "", updates.wilaya); }
+    if (asStr(input, "city")) { updates.city = asStr(input, "city"); push("Ville", inst.city ?? "", updates.city); }
+    if (asStr(input, "phone")) { updates.phone = asStr(input, "phone"); push("Téléphone", inst.phone ?? "", updates.phone); }
+    if (asStr(input, "email")) { updates.email = asStr(input, "email"); push("E-mail", inst.email ?? "", updates.email); }
+    if (asStr(input, "notes")) { updates.notes = asStr(input, "notes"); changes.push("Notes"); fields.push({ label: "Notes", value: updates.notes }); }
+    if (typeof input.active === "boolean") { updates.isActive = input.active; push("Actif", inst.isActive ? "oui" : "non", input.active ? "oui" : "non"); }
+    if (changes.length === 0) return { error: "Aucun changement demandé — précisez quoi modifier." };
+
+    return {
+      kind: "update_hospital", module: "MEDICAL", title: `Modifier « ${inst.name} »`, fields, warnings,
+      payload: { kind: "update_hospital", institutionId: inst.id, name: inst.name, updates, changes },
+    };
+  }
+
+  if (toolName === "update_salary") {
+    // La même porte que la paie RH (`canRunPayroll`) : le droit de MODIFIER le module RH.
+    if (!userCan(user, "RH", "UPDATE")) return { error: "La modification des salaires est réservée aux détenteurs du droit RH (modification)." };
+    const name = asStr(input, "employee_name");
+    if (name.length < 2) return { error: "Donnez le nom de l'employé." };
+    const emp = await prisma.employee.findFirst({
+      where: { fullName: { contains: name, mode: "insensitive" }, isActive: true },
+      select: { id: true, fullName: true, position: true, baseSalary: true, netToPay: true, grossSalary: true, employerCost: true },
+    });
+    if (!emp) return { error: `Aucun employé actif « ${name} » dans le registre RH.` };
+
+    const SALARY_FIELDS = [
+      { key: "base_salary", field: "baseSalary" as const, label: "Salaire de base", before: toNumber(emp.baseSalary) },
+      { key: "net_to_pay", field: "netToPay" as const, label: "Net à payer", before: emp.netToPay != null ? toNumber(emp.netToPay) : null },
+      { key: "gross_salary", field: "grossSalary" as const, label: "Salaire brut", before: emp.grossSalary != null ? toNumber(emp.grossSalary) : null },
+      { key: "employer_cost", field: "employerCost" as const, label: "Coût employeur", before: emp.employerCost != null ? toNumber(emp.employerCost) : null },
+    ];
+    const fields: { label: string; value: string }[] = [{ label: "Employé", value: `${emp.fullName}${emp.position ? ` — ${emp.position}` : ""}` }];
+    const changed: Extract<AssistantActionPayload, { kind: "update_salary" }>["fields"] = [];
+    for (const s of SALARY_FIELDS) {
+      const v = input[s.key];
+      if (typeof v !== "number" || !Number.isFinite(v)) continue;
+      if (v <= 0) return { error: `${s.label} : le montant doit être positif.` };
+      const after = Math.round(v);
+      const pct = s.before != null && s.before > 0 ? Math.round(((after - s.before) / s.before) * 1000) / 10 : null;
+      changed.push({ field: s.field, label: s.label, before: s.before != null ? Math.round(s.before) : null, after });
+      fields.push({
+        label: s.label,
+        value: `${s.before != null ? Math.round(s.before).toLocaleString("fr-FR") : "(non renseigné)"} → ${after.toLocaleString("fr-FR")} DZD`
+          + (pct != null ? ` (écart ${pct > 0 ? "+" : ""}${pct.toLocaleString("fr-FR")} %)` : ""),
+      });
+    }
+    if (changed.length === 0) return { error: "Aucun montant fourni — donnez au moins un montant (base_salary, net_to_pay, gross_salary ou employer_cost). Lire d'abord read_payroll." };
+    const note = asStr(input, "note") || null;
+    if (note) fields.push({ label: "Motif / effet", value: note });
+    warnings.push("NIVEAU CRITIQUE : cette modification change la rémunération sur la fiche RH. La confirmation exige la re-saisie du nouveau montant.");
+    warnings.push("La fiche change ; la paie du mois se saisit toujours dans RH → Paie (la ligne du mois en cours n'est pas réécrite).");
+
+    return {
+      kind: "update_salary", module: "RH", title: `Modifier le salaire de ${emp.fullName}`, fields, warnings,
+      level: "CRITICAL",
+      confirmText: String(changed[0].after),
+      payload: { kind: "update_salary", employeeId: emp.id, employeeName: emp.fullName, fields: changed, note },
     };
   }
 
@@ -2473,6 +3153,289 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     const fmt = payload.popup === true ? " en pop-up plein écran" : "";
     await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", summary: `Notification « ${title} »${fmt} diffusée via l'assistant à ${count} destinataire(s) (${who})` });
     return { ok: true, message: `Notification envoyée${fmt} à ${count} destinataire(s) — ${who}.`, link: "/notifications", revalidate: ["/notifications"] };
+  }
+
+  if (payload?.kind === "update_task") {
+    // Même frontière qu'à la proposition, REVÉRIFIÉE : la tâche a pu changer de main entre-temps.
+    const task = await prisma.task.findFirst({
+      where: {
+        AND: [
+          { id: payload.taskId },
+          hasGlobalView(user) ? {} : { OR: [{ assignedToId: user.id }, { createdById: user.id }] },
+        ],
+      },
+      select: { id: true, title: true, assignedToId: true, status: true },
+    });
+    if (!task) return { ok: false, error: "Cette tâche n'est plus dans votre périmètre." };
+
+    const data: Record<string, unknown> = {};
+    const summary: string[] = [];
+    if (payload.assigneeId) {
+      const a = await activeUserId(payload.assigneeId);
+      if (!a) return { ok: false, error: "Le nouveau responsable n'est plus actif." };
+      data.assignedToId = a;
+      summary.push(`réassignée à ${payload.assigneeName ?? "un collègue"}`);
+    }
+    if (payload.clearDueDate) { data.dueDate = null; summary.push("échéance retirée"); }
+    else if (payload.dueDate) { data.dueDate = dateValue(payload.dueDate); summary.push(`échéance ${payload.dueDate}`); }
+    if (payload.priority) { data.priority = priorityOf(payload.priority); summary.push(`priorité ${payload.priority}`); }
+    if (payload.status && ["TODO", "IN_PROGRESS", "DONE", "CANCELLED"].includes(payload.status)) {
+      data.status = payload.status;
+      if (payload.status === "DONE") data.completedAt = new Date();
+      summary.push(`statut ${payload.status}`);
+    }
+    if (Object.keys(data).length > 0) await prisma.task.update({ where: { id: task.id }, data });
+    if (payload.comment?.trim()) {
+      await prisma.taskComment.create({ data: { taskId: task.id, authorId: user.id, body: payload.comment.trim().slice(0, 4000) } });
+      summary.push("commentaire ajouté");
+    }
+    // Prévenir qui porte la tâche — l'ancien assigné n'apprend pas un retrait par hasard,
+    // le nouveau apprend son arrivée tout de suite.
+    const notifyTargets = new Set<string>();
+    if (data.assignedToId && data.assignedToId !== user.id) notifyTargets.add(data.assignedToId as string);
+    if (task.assignedToId && task.assignedToId !== user.id) notifyTargets.add(task.assignedToId);
+    await Promise.all([...notifyTargets].map((uid) =>
+      notifyUser({ userId: uid, type: "GENERIC", title: "Tâche mise à jour", body: `${task.title} — ${summary.join(", ")}`, link: "/mon-espace" }).catch(() => undefined),
+    ));
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Assistant IA", entityType: "TASK", entityId: task.id,
+      summary: `Tâche « ${task.title} » — ${summary.join(", ")} (via l'assistant)`,
+    }).catch(() => undefined);
+    return { ok: true, message: `Tâche « ${task.title} » : ${summary.join(", ")}.`, link: "/mon-espace", revalidate: ["/mon-espace", "/mon-travail"] };
+  }
+
+  if (payload?.kind === "update_request") {
+    // L'exécution repasse par LES ACTIONS DU MODULE : mêmes gardes (gestionnaire), mêmes
+    // notifications au demandeur, même archivage sur DONE. On ne réécrit pas ces règles ici.
+    const done: string[] = [];
+    if (payload.assigneeId) {
+      const fd = new FormData();
+      fd.set("id", payload.requestId);
+      fd.set("assignedToId", payload.assigneeId);
+      const r = await assignRequest(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "Réassignation refusée." };
+      done.push(`réassignée à ${payload.assigneeName ?? "un collègue"}`);
+    }
+    if (payload.status) {
+      const fd = new FormData();
+      fd.set("id", payload.requestId);
+      fd.set("status", payload.status);
+      const r = await updateRequestStatus(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "Changement de statut refusé." };
+      done.push(`statut ${payload.status}`);
+    }
+    if (payload.comment?.trim()) {
+      const fd = new FormData();
+      fd.set("id", payload.requestId);
+      fd.set("body", payload.comment.trim());
+      const r = await addRequestComment(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "Commentaire refusé." };
+      done.push("commentaire ajouté");
+    }
+    if (done.length === 0) return { ok: false, error: "Aucun changement à appliquer." };
+    return { ok: true, message: `Demande ${payload.reference} : ${done.join(", ")}.`, link: `/demandes/${payload.requestId}`, revalidate: ["/demandes", `/demandes/${payload.requestId}`] };
+  }
+
+  if (payload?.kind === "create_legal_document") {
+    // `createLegalDocument` revérifie LEGAL CREATE, la validité des dates et la pièce amont.
+    const fd = new FormData();
+    fd.set("kind", payload.docKind);
+    fd.set("title", payload.title);
+    if (payload.reference) fd.set("reference", payload.reference);
+    if (payload.counterparty) fd.set("counterparty", payload.counterparty);
+    if (payload.amount != null) fd.set("amount", String(payload.amount));
+    if (payload.startDate) fd.set("startDate", payload.startDate);
+    if (payload.endDate) fd.set("endDate", payload.endDate);
+    if (payload.notes) fd.set("notes", payload.notes);
+    if (payload.chainFromId) fd.set("chainFromId", payload.chainFromId);
+    const r = await createLegalDocument(undefined, fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La pièce n'a pas pu être déclarée." };
+    return {
+      ok: true,
+      message: `Pièce « ${payload.title} » déclarée au Legal${payload.chainFromLabel ? ` (chaînée à ${payload.chainFromLabel})` : ""}.`,
+      link: r.id ? `/legal/${r.id}` : "/legal",
+      revalidate: ["/legal"],
+    };
+  }
+
+  if (payload?.kind === "update_legal_document") {
+    // `updateLegalDocument` REMPLACE tous les champs : on relit la fiche et l'on ne change que
+    // ce qui a été confirmé — jamais un champ effacé par omission.
+    const current = await prisma.legalDocument.findUnique({
+      where: { id: payload.documentId },
+      select: { id: true, title: true, reference: true, kind: true, counterparty: true, amount: true, startDate: true, endDate: true, notes: true, folderId: true, chainFromId: true },
+    });
+    if (!current) return { ok: false, error: "Cette pièce Legal n'existe plus." };
+    const u = payload.updates;
+    const fd = new FormData();
+    fd.set("id", current.id);
+    fd.set("kind", current.kind);
+    fd.set("title", u.title ?? current.title);
+    fd.set("reference", u.reference ?? current.reference ?? "");
+    fd.set("counterparty", u.counterparty ?? current.counterparty ?? "");
+    fd.set("amount", u.amount != null ? String(u.amount) : current.amount != null ? String(toNumber(current.amount)) : "");
+    fd.set("startDate", u.startDate ?? (current.startDate ? current.startDate.toISOString().slice(0, 10) : ""));
+    fd.set("endDate", u.endDate ?? (current.endDate ? current.endDate.toISOString().slice(0, 10) : ""));
+    fd.set("notes", u.notes ?? current.notes ?? "");
+    fd.set("folderId", current.folderId ?? "");
+    fd.set("chainFromId", u.chainFromId ?? current.chainFromId ?? "");
+    const r = await updateLegalDocument(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La modification a été refusée." };
+    return {
+      ok: true,
+      message: `Pièce « ${u.title ?? current.title} » modifiée (${payload.changes.join(", ")}).`,
+      link: `/legal/${current.id}`,
+      revalidate: ["/legal", `/legal/${current.id}`],
+    };
+  }
+
+  if (payload?.kind === "update_calendar_event") {
+    const event = await prisma.calendarEvent.findUnique({
+      where: { id: payload.eventId },
+      select: {
+        id: true, title: true, description: true, location: true, kind: true, startAt: true, endAt: true,
+        allDay: true, color: true, meetLink: true, organizerId: true,
+        invitees: { select: { userId: true } },
+      },
+    });
+    if (!event) return { ok: false, error: "Ce rendez-vous n'existe plus." };
+    if (event.organizerId !== user.id && !hasGlobalView(user)) {
+      return { ok: false, error: "Seul l'organisateur (ou une vue globale) peut modifier ce rendez-vous." };
+    }
+    if (payload.cancel) {
+      const fd = new FormData();
+      fd.set("id", event.id);
+      const r = await deleteCalendarEvent(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "L'annulation a été refusée." };
+      await recordAudit({ actorId: user.id, action: "DELETE", module: "Assistant IA", summary: `Rendez-vous « ${event.title} » annulé via l'assistant` }).catch(() => undefined);
+      return { ok: true, message: `Rendez-vous « ${event.title} » annulé.`, link: "/calendar", revalidate: ["/calendar"] };
+    }
+    // `updateCalendarEvent` remplace tout : on reconstruit l'état complet, overrides compris.
+    const currentStartAlgiers = new Date(event.startAt.getTime() + 3_600_000);
+    const p = (n: number) => String(n).padStart(2, "0");
+    const curDate = `${currentStartAlgiers.getUTCFullYear()}-${p(currentStartAlgiers.getUTCMonth() + 1)}-${p(currentStartAlgiers.getUTCDate())}`;
+    const curTime = `${p(currentStartAlgiers.getUTCHours())}:${p(currentStartAlgiers.getUTCMinutes())}`;
+    const newDate = payload.date ?? curDate;
+    const newTime = event.allDay ? "00:00" : (payload.time ?? curTime);
+    const durMs = payload.durationMin != null
+      ? payload.durationMin * 60_000
+      : event.endAt ? event.endAt.getTime() - event.startAt.getTime() : null;
+    const startAt = algiersInputToUtc(`${newDate}T${newTime}`);
+    if (!startAt) return { ok: false, error: "Nouvelle date invalide." };
+    const fd = new FormData();
+    fd.set("id", event.id);
+    fd.set("title", event.title);
+    fd.set("description", event.description ?? "");
+    fd.set("location", payload.location ?? event.location ?? "");
+    fd.set("kind", event.kind);
+    fd.set("allDay", event.allDay ? "true" : "");
+    fd.set("start", event.allDay ? newDate : `${newDate}T${newTime}`);
+    if (durMs != null && !event.allDay) {
+      const end = new Date(startAt.getTime() + durMs);
+      const endAlg = new Date(end.getTime() + 3_600_000);
+      fd.set("end", `${endAlg.getUTCFullYear()}-${p(endAlg.getUTCMonth() + 1)}-${p(endAlg.getUTCDate())}T${p(endAlg.getUTCHours())}:${p(endAlg.getUTCMinutes())}`);
+    }
+    fd.set("color", event.color ?? "");
+    fd.set("meetLink", event.meetLink ?? "");
+    for (const inv of event.invitees) fd.append("inviteeIds", inv.userId);
+    const r = await updateCalendarEvent(undefined, fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La modification a été refusée." };
+    await recordAudit({ actorId: user.id, action: "UPDATE", module: "Assistant IA", summary: `Rendez-vous « ${event.title} » déplacé via l'assistant (${payload.changes.join(", ")})` }).catch(() => undefined);
+    return { ok: true, message: `Rendez-vous « ${event.title} » mis à jour (${payload.changes.join(", ")}).`, link: "/calendar", revalidate: ["/calendar"] };
+  }
+
+  if (payload?.kind === "create_hospital") {
+    const name = (payload.name ?? "").trim();
+    if (!name) return { ok: false, error: "Nom manquant." };
+    if (payload.registre === "STOCKS") {
+      // `createStockHospital` / `createStockAnnex` revérifient : Super Admin uniquement.
+      const fd = new FormData();
+      fd.set("name", name);
+      const r = payload.annexKind === "ANNEX" ? await createStockAnnex(fd) : await createStockHospital(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "L'ajout a été refusé." };
+      return { ok: true, message: `« ${name} » ajouté aux lieux de stock.`, link: "/stocks", revalidate: ["/stocks"] };
+    }
+    const fd = new FormData();
+    fd.set("name", name);
+    if (payload.institutionType) fd.set("type", payload.institutionType);
+    if (payload.sector) fd.set("sector", payload.sector);
+    if (payload.wilaya) fd.set("wilaya", payload.wilaya);
+    if (payload.city) fd.set("city", payload.city);
+    const r = await createInstitution(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "L'ajout a été refusé." };
+    return { ok: true, message: `Établissement « ${name} » ajouté à l'annuaire médical.`, link: "/medical", revalidate: ["/medical"] };
+  }
+
+  if (payload?.kind === "update_hospital") {
+    const current = await prisma.medicalInstitution.findUnique({
+      where: { id: payload.institutionId },
+      select: { id: true, name: true, type: true, sector: true, wilaya: true, city: true, region: true, address: true, phone: true, email: true, notes: true, isActive: true },
+    });
+    if (!current) return { ok: false, error: "Cet établissement n'existe plus." };
+    const u = payload.updates;
+    // `updateInstitution` remplace tout : l'état complet, overrides compris.
+    const fd = new FormData();
+    fd.set("id", current.id);
+    fd.set("name", u.newName ?? current.name);
+    fd.set("type", u.type ?? current.type);
+    fd.set("sector", u.sector ?? current.sector);
+    fd.set("wilaya", u.wilaya ?? current.wilaya ?? "");
+    fd.set("city", u.city ?? current.city ?? "");
+    fd.set("region", current.region ?? "");
+    fd.set("address", current.address ?? "");
+    fd.set("phone", u.phone ?? current.phone ?? "");
+    fd.set("email", u.email ?? current.email ?? "");
+    fd.set("notes", u.notes ?? current.notes ?? "");
+    if (u.isActive != null) fd.set("isActive", u.isActive ? "on" : "off");
+    const r = await updateInstitution(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La modification a été refusée." };
+    await recordAudit({ actorId: user.id, action: "UPDATE", module: "Assistant IA", summary: `Établissement « ${current.name} » modifié via l'assistant (${payload.changes.join(", ")})` }).catch(() => undefined);
+    return { ok: true, message: `Établissement « ${u.newName ?? current.name} » modifié (${payload.changes.join(", ")}).`, link: "/medical", revalidate: ["/medical"] };
+  }
+
+  if (payload?.kind === "update_salary") {
+    // NIVEAU CRITIQUE. Trois verrous, dans l'ordre : le DROIT (paie RH), la FRAÎCHEUR (les
+    // montants « avant » montrés sur la carte doivent être ENCORE vrais — sinon on signerait
+    // sur une photo périmée), puis l'écriture, champ par champ confirmé, avec audit détaillé.
+    if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "La modification des salaires est réservée aux détenteurs du droit RH (modification)." };
+    if (!Array.isArray(payload.fields) || payload.fields.length === 0) return { ok: false, error: "Aucun montant à modifier." };
+    const emp = await prisma.employee.findFirst({
+      where: { id: payload.employeeId, isActive: true },
+      select: { id: true, fullName: true, baseSalary: true, netToPay: true, grossSalary: true, employerCost: true },
+    });
+    if (!emp) return { ok: false, error: "Cet employé n'est plus actif au registre RH." };
+
+    const currentOf: Record<string, number | null> = {
+      baseSalary: toNumber(emp.baseSalary),
+      netToPay: emp.netToPay != null ? toNumber(emp.netToPay) : null,
+      grossSalary: emp.grossSalary != null ? toNumber(emp.grossSalary) : null,
+      employerCost: emp.employerCost != null ? toNumber(emp.employerCost) : null,
+    };
+    const data: Record<string, number> = {};
+    const summary: string[] = [];
+    for (const f of payload.fields) {
+      if (!(f.field in currentOf)) return { ok: false, error: "Champ de salaire inconnu." };
+      const now = currentOf[f.field] != null ? Math.round(currentOf[f.field] as number) : null;
+      if (now !== f.before) {
+        return { ok: false, error: `${f.label} a changé depuis la proposition (${now?.toLocaleString("fr-FR") ?? "vide"} DZD désormais). Relire read_payroll et reproposer.` };
+      }
+      if (typeof f.after !== "number" || !Number.isFinite(f.after) || f.after <= 0) return { ok: false, error: `${f.label} : montant invalide.` };
+      data[f.field] = Math.round(f.after);
+      summary.push(`${f.label} : ${f.before != null ? f.before.toLocaleString("fr-FR") : "(vide)"} → ${Math.round(f.after).toLocaleString("fr-FR")} DZD`);
+    }
+    await prisma.employee.update({ where: { id: emp.id }, data });
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Assistant IA", entityType: "EMPLOYEE", entityId: emp.id,
+      oldValue: payload.fields.map((f) => `${f.label}=${f.before ?? "∅"}`).join(" · "),
+      newValue: payload.fields.map((f) => `${f.label}=${f.after}`).join(" · "),
+      summary: `SALAIRE de ${emp.fullName} modifié via l'assistant — ${summary.join(" ; ")}${payload.note ? ` (${payload.note})` : ""}`,
+    });
+    return {
+      ok: true,
+      message: `Salaire de ${emp.fullName} mis à jour — ${summary.join(" ; ")}. La paie mensuelle se saisit toujours dans RH → Paie.`,
+      link: "/rh",
+      revalidate: ["/rh"],
+    };
   }
 
   return { ok: false, error: "Action non reconnue." };
