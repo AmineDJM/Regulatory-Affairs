@@ -1487,7 +1487,14 @@ export const NAVIGATION: NavItem[] = [
   // geste de tout employé — un délégué qui a besoin de cartouches n'a pas à connaître le
   // circuit ni à écrire à l'assistante. Le BUDGET, lui, reste gardé par `GENERAL_MEANS` DANS
   // la page : qui ne l'a pas voit son catalogue et ses demandes, et rien de l'enveloppe.
-  { module: "WORKSPACE", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket", group: "Pôles", pole: "ADMINISTRATION" },
+  {
+    module: "WORKSPACE", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket",
+    group: "Pôles", pole: "ADMINISTRATION",
+    // L'ANNUAIRE DE L'ENTREPRISE s'atteint depuis les Moyens généraux — c'est le service qui
+    // traite avec l'imprimeur, le transitaire et l'agence de voyage. Il reste dans le PÉRIMÈTRE
+    // de cette entrée (`match`) pour que le menu ne se désélectionne pas en y entrant.
+    match: ["/moyens-generaux/annuaire"],
+  },
   // FINANCES porte ses écrans DEDANS, pas en sous-entrées de menu : « Règlements à effectuer » et
   // « Factures » s'atteignent depuis la page Finances, qui reste la porte unique du module.
   {

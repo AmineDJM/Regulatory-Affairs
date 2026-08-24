@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Wallet, ExternalLink, FileText, Download } from "lucide-react";
+import { Wallet, ExternalLink, FileText, Download, BookUser } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
@@ -137,6 +137,11 @@ export default async function MoyensGenerauxPage({
       >
         {departments.length > 1 && <DepartmentSwitcher departments={departments} current={view.department.id} year={year} />}
         {canManageCatalog && <SuppliesManager articles={catalogRows} />}
+        {/* L'ANNUAIRE DE L'ENTREPRISE — l'imprimeur, le transitaire, l'agence de voyage. C'est ce
+            service qui traite avec eux : sa porte est ici. */}
+        <Link href="/moyens-generaux/annuaire" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">
+          <BookUser className="h-4 w-4" /> Annuaire de l&apos;entreprise
+        </Link>
         {/* Un lien vers un écran qu'on ne peut pas ouvrir est pire qu'une absence de lien. */}
         {userCan(user, "BUDGETS", "VIEW") && (
           <Link href="/budgets/departements" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">

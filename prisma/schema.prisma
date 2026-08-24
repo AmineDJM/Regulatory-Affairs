@@ -1197,6 +1197,8 @@ model Company {
   letterheads             OfficeLetterhead[]
   legalFolders            LegalFolder[]
   mailEntryFolders        MailEntryFolder[]
+  medicalDirectories      MedicalDirectory[]
+  companyContacts         CompanyContact[]
 
   @@index([isActive])
 }
@@ -3116,6 +3118,12 @@ model MedicalDoctor {
   nextVisit             DateTime?
   comments              String?
 
+  /// L'ANNUAIRE auquel ce praticien appartient. Nul = l'annuaire général (historique).
+  /// Une entreprise tient plusieurs listes — « Cardiologues Centre », « Prescripteurs Oncologie »,
+  /// « Congrès 2026 » — et les mélanger rend chacune inutilisable.
+  directoryId String?
+  directory   MedicalDirectory? @relation(fields: [directoryId], references: [id], onDelete: SetNull)
+
   // Row-level access: a delegate only sees their own doctors.
   delegateId String?
   delegate   User?   @relation(fields: [delegateId], references: [id])
@@ -3134,6 +3142,66 @@ model MedicalDoctor {
   @@index([sector])
   @@index([region])
   @@index([city])
+  @@index([directoryId])
+}
+
+/// UN ANNUAIRE DE PRATICIENS — une liste nommée, pas LA liste.
+/// Une entreprise en tient plusieurs (« Cardiologues Centre », « Prescripteurs Oncologie »,
+/// « Congrès 2026 ») : les fondre en une seule rend chacune inutilisable, et un import destiné à
+/// une campagne pollue l'annuaire de tout le monde.
+/// Supprimer un annuaire NE SUPPRIME PAS ses praticiens : ils repassent dans l'annuaire général.
+model MedicalDirectory {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  /// Entité de rattachement. Nul = annuaire commun au groupe.
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  doctors MedicalDoctor[]
+
+  @@index([companyId])
+}
+
+/// L'ANNUAIRE DE L'ENTREPRISE — tout ce qui n'est ni un praticien, ni un salarié.
+/// Agence de voyage, livreur, agence marketing, imprimeur, hôtel, traiteur, transitaire : ces
+/// numéros vivent dans les téléphones de trois personnes, et le jour où l'une est absente,
+/// on cherche l'imprimeur sur Internet. La `kind` est libre — la réalité invente des métiers plus
+/// vite qu'une liste fermée ne les prévoit.
+model CompanyContact {
+  id        String   @id @default(cuid())
+  name      String
+  /// Nature libre : « Agence de voyage », « Livreur », « Imprimeur », « Agence marketing »…
+  kind      String?
+  contactName String? // la personne qu'on demande
+  phone     String?
+  phoneAlt  String?
+  email     String?
+  website   String?
+  address   String?
+  city      String?
+  wilaya    String?
+  /// Identifiants utiles pour un dossier de paiement ou un contrat.
+  rc        String?
+  nif       String?
+  rib       String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  /// Entité de rattachement. Nul = contact commun au groupe.
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([isActive])
+  @@index([kind])
 }
 
 // Établissement médical (hôpital, clinique, cabinet, pharmacie…) — référentiel structuré.

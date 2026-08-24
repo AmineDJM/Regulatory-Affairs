@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { DocumentUpload } from "@/components/documents/document-upload";
+import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { COMPANY_DOC_CATEGORIES } from "@/lib/legal/company-docs";
 import { cn } from "@/lib/utils";
 
 export interface IdentityCompany {
@@ -16,6 +18,8 @@ export interface IdentityCompany {
   label: string;
   color: string | null;
   values: Record<string, string>;
+  /** Les pièces déjà déposées sur CETTE entité — statuts, extrait du RC, attestation, RIB scanné. */
+  documents: DocItem[];
 }
 
 /**
@@ -117,8 +121,20 @@ export function IdentityBoard({
         <p className="text-xs text-muted-foreground">
           Extrait du registre de commerce, attestation fiscale, statuts, RIB scanné — les pièces
           qu&apos;on joint au dossier en même temps qu&apos;on en recopie les numéros.
+          {canEdit && " Chaque pièce se renomme d'un clic : c'est son nom qu'on lira, pas celui du fichier."}
         </p>
-        {canEdit && <DocumentUpload entityType="COMPANY" entityId={company.id} />}
+        {/* Les natures proposées sont CELLES D'UNE SOCIÉTÉ. Le référentiel complet (CTD, Module 3,
+            certificat GMP, réserves ANPP…) n'a rien à faire sur des statuts : trente-cinq entrées
+            hors sujet à écarter avant de trouver la bonne, et l'on finit par tout mettre « Autre ». */}
+        {canEdit && (
+          <DocumentUpload entityType="COMPANY" entityId={company.id} categories={[...COMPANY_DOC_CATEGORIES]} />
+        )}
+        {/* LA LISTE MANQUAIT : on pouvait déposer une pièce et ne jamais la revoir. */}
+        <DocumentList
+          documents={company.documents}
+          canDelete={canEdit} canEdit={canEdit} canRename={canEdit}
+          path="/legal/identites"
+        />
       </section>
 
       {editing && (

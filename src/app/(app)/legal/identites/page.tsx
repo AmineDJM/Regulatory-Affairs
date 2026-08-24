@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { getMyCompanies, companyLabel } from "@/lib/company";
 import { IDENTITY_SECTIONS, identityFieldKeys } from "@/lib/legal/identity";
 import { IdentityBoard, type IdentityCompany } from "./identity-board";
+import type { DocItem } from "@/components/documents/document-list";
 
 export const dynamic = "force-dynamic";
 
@@ -40,10 +41,28 @@ export default async function LegalIdentitiesPage({ searchParams }: { searchPara
     );
   }
 
-  const identities = await prisma.companyLegalIdentity.findMany({
-    where: { companyId: { in: mine.map((c) => c.id) } },
-  });
+  // Les coordonnées ET les pièces des entités du périmètre, en deux requêtes — pas une par
+  // société. Les pièces manquaient à l'écran : on pouvait en déposer, on ne les revoyait jamais.
+  const [identities, docs] = await Promise.all([
+    prisma.companyLegalIdentity.findMany({ where: { companyId: { in: mine.map((c) => c.id) } } }),
+    prisma.document.findMany({
+      where: { entityType: "COMPANY", entityId: { in: mine.map((c) => c.id) } },
+      include: { uploadedBy: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
   const byCompany = new Map(identities.map((i) => [i.companyId, i]));
+
+  const docsByCompany = new Map<string, DocItem[]>();
+  for (const d of docs) {
+    const item: DocItem = {
+      id: d.id, name: d.name, category: d.category, version: d.version,
+      sizeBytes: d.sizeBytes, confidentiality: d.confidentiality,
+      uploadedBy: d.uploadedBy?.name ?? null,
+      createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
+    };
+    docsByCompany.set(d.entityId, [...(docsByCompany.get(d.entityId) ?? []), item]);
+  }
 
   const companies: IdentityCompany[] = mine.map((c) => {
     const row = byCompany.get(c.id) as Record<string, unknown> | undefined;
@@ -52,7 +71,7 @@ export default async function LegalIdentitiesPage({ searchParams }: { searchPara
       const v = row?.[key];
       values[key] = typeof v === "string" ? v : "";
     }
-    return { id: c.id, label: companyLabel(c), color: c.color, values };
+    return { id: c.id, label: companyLabel(c), color: c.color, values, documents: docsByCompany.get(c.id) ?? [] };
   });
 
   const initial = searchParams?.entite && companies.some((c) => c.id === searchParams.entite)

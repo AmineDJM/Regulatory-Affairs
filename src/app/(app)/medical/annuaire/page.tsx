@@ -2,11 +2,12 @@ import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, scopeMedicalDoctors } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhereFor } from "@/lib/company";
+import { currentCompanyWhereFor, getMyCompanies, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { BackLink } from "@/components/shared/back-link";
 import type { AnnuaireRow } from "@/lib/medical/directory-grid";
 import { AnnuaireGrid } from "./annuaire-grid";
+import { DirectoryBar, type DirectoryRow } from "./directory-bar";
 
 export const dynamic = "force-dynamic";
 
@@ -22,20 +23,42 @@ export const dynamic = "force-dynamic";
  * tout. C'est `scopeMedicalDoctors` qui décide, la même fonction que partout ailleurs — et chaque
  * écriture est revérifiée au niveau de la ligne côté serveur.
  */
-export default async function AnnuairePage() {
+export default async function AnnuairePage({ searchParams }: { searchParams?: { annuaire?: string } }) {
   const user = await requireModule("MEDICAL");
   const canImport = userCan(user, "MEDICAL", "CREATE");
   const canEdit = userCan(user, "MEDICAL", "UPDATE");
   const canDelete = userCan(user, "MEDICAL", "DELETE");
 
-  const [doctors, specialtyRefs] = await Promise.all([
+  // L'annuaire ouvert : « general » = ceux qui ne sont rangés nulle part, un identifiant = cet
+  // annuaire, absent = tous les praticiens du périmètre.
+  const generalOnly = searchParams?.annuaire === "general";
+  const openDirectoryId = searchParams?.annuaire && searchParams.annuaire !== "general" ? searchParams.annuaire : null;
+  const directoryWhere = generalOnly ? { directoryId: null } : openDirectoryId ? { directoryId: openDirectoryId } : {};
+
+  const scope = { ...scopeMedicalDoctors(user), ...await currentCompanyWhereFor(user.id) };
+  const [doctors, specialtyRefs, directoryRows, directoryCounts, generalCount, myCompanies] = await Promise.all([
     prisma.medicalDoctor.findMany({
-      where: { ...scopeMedicalDoctors(user), ...await currentCompanyWhereFor(user.id) },
+      where: { ...scope, ...directoryWhere },
       orderBy: [{ name: "asc" }],
       include: { specialtyRef: { select: { name: true } } },
     }),
     prisma.medicalSpecialty.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
+    prisma.medicalDirectory.findMany({
+      select: { id: true, name: true, companyId: true, company: { select: { name: true, shortName: true } } },
+      orderBy: { name: "asc" },
+    }),
+    // Les comptes se calculent DANS LA PORTÉE de la personne : afficher « 300 » à un délégué qui
+    // n'en voit que douze donnerait un chiffre faux et ferait croire à un problème d'accès.
+    prisma.medicalDoctor.groupBy({ by: ["directoryId"], where: { ...scope, directoryId: { not: null } }, _count: { _all: true } }),
+    prisma.medicalDoctor.count({ where: { ...scope, directoryId: null } }),
+    getMyCompanies(user.id),
   ]);
+  const countByDirectory = new Map(directoryCounts.map((c) => [c.directoryId as string, c._count._all]));
+  const directories: DirectoryRow[] = directoryRows.map((d) => ({
+    id: d.id, name: d.name, companyId: d.companyId,
+    companyLabel: d.company ? d.company.shortName ?? d.company.name : null,
+    doctorCount: countByDirectory.get(d.id) ?? 0,
+  }));
 
   const rows: AnnuaireRow[] = doctors.map((d) => ({
     id: d.id,
@@ -68,6 +91,13 @@ export default async function AnnuairePage() {
       <PageHeader
         title="Annuaire"
         description="Tous les praticiens avec qui nous travaillons — médecins, pharmaciens, hospitaliers — en feuille modifiable, exportable, avec vue par spécialité."
+      />
+      <DirectoryBar
+        directories={directories}
+        current={searchParams?.annuaire ?? null}
+        companies={myCompanies.map((c) => ({ id: c.id, label: companyLabel(c) }))}
+        generalCount={generalCount}
+        canManage={canEdit}
       />
       <AnnuaireGrid rows={rows} canEdit={canEdit} canImport={canImport} canDelete={canDelete} specialties={specialties} />
     </div>
