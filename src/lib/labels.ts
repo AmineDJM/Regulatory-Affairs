@@ -941,7 +941,9 @@ export const ALGERIA_WILAYAS: string[] = [
 /** LEGAL — nature d'un engagement. Les bons de commande vivent ici avec les contrats. */
 export const LEGAL_DOC_KIND: Record<string, string> = {
   CONTRACT: "Contrat",
+  QUOTE: "Devis",
   PURCHASE_ORDER: "Bon de commande",
+  INVOICE: "Facture",
   AGREEMENT: "Convention / accord-cadre",
   NDA: "Accord de confidentialité",
   INSURANCE: "Assurance",

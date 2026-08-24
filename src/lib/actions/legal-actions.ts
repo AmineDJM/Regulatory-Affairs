@@ -10,6 +10,7 @@ import { companyIdForNew } from "@/lib/company";
 import { canRenew, canCancel, validateDates, proposeRenewalDates } from "@/lib/legal/lifecycle";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFormFiles } from "@/lib/documents";
+import { createExpenseOrder } from "@/lib/expense-orders";
 import { normalizeReaderIds } from "@/lib/legal/readers";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 
@@ -26,7 +27,7 @@ import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
  *     chercher dans un module Legal.
  */
 
-const KINDS: LegalDocKind[] = ["CONTRACT", "PURCHASE_ORDER", "AGREEMENT", "NDA", "INSURANCE", "LICENSE", "LEASE", "OTHER"];
+const KINDS: LegalDocKind[] = ["CONTRACT", "QUOTE", "PURCHASE_ORDER", "INVOICE", "AGREEMENT", "NDA", "INSURANCE", "LICENSE", "LEASE", "OTHER"];
 const parseKind = (v: string | null): LegalDocKind =>
   v && KINDS.includes(v as LegalDocKind) ? (v as LegalDocKind) : "CONTRACT";
 
@@ -44,7 +45,18 @@ function readFields(formData: FormData) {
     // DOSSIER DE CLASSEMENT. Vide = « non classé », et c'est un état normal : un engagement se
     // dépose vite, il se range ensuite. Le dossier ne change RIEN à qui peut le lire.
     folderId: fdStr(formData, "folderId"),
+    // LA CHAÎNE : la pièce dont CELLE-CI découle (le BC de son devis, la facture de son BC).
+    // Vide = pièce isolée — un bail ne suit rien.
+    chainFromId: fdStr(formData, "chainFromId"),
   };
+}
+
+/** Le maillon amont existe-t-il ? Un identifiant de formulaire ne se croit pas sur parole. */
+async function checkChainFrom(chainFromId: string | null, selfId?: string): Promise<string | null> {
+  if (!chainFromId) return null;
+  if (selfId && chainFromId === selfId) return "Une pièce ne peut pas se suivre elle-même.";
+  const prev = await prisma.legalDocument.findUnique({ where: { id: chainFromId }, select: { id: true } });
+  return prev ? null : "La pièce amont (devis / bon de commande) n'existe plus.";
 }
 
 export async function createLegalDocument(
@@ -58,6 +70,8 @@ export async function createLegalDocument(
   if (!title) return { ok: false, error: "Le titre exact du document est obligatoire." };
   const dates = validateDates(f.startDate, f.endDate);
   if (!dates.ok) return { ok: false, error: dates.error };
+  const chainErr = await checkChainFrom(f.chainFromId);
+  if (chainErr) return { ok: false, error: chainErr };
 
   // LE NŒUD DU DRIVE EST VÉRIFIÉ AVANT D'ÊTRE ÉCRIT. L'identifiant vient d'un champ de
   // formulaire : sans contrôle, on référencerait un fichier corbeillé, inexistant, ou qu'on n'a
@@ -130,6 +144,8 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   if (!title) return { ok: false, error: "Le titre exact du document est obligatoire." };
   const dates = validateDates(f.startDate, f.endDate);
   if (!dates.ok) return { ok: false, error: dates.error };
+  const chainErr = await checkChainFrom(f.chainFromId, id);
+  if (chainErr) return { ok: false, error: chainErr };
 
   await prisma.legalDocument.update({
     where: { id },
@@ -399,4 +415,51 @@ export async function setLegalReaders(formData: FormData): Promise<ActionResult>
   revalidatePath("/legal");
   revalidatePath(`/legal/${id}`);
   return { ok: true, message: known.length ? `${known.length} lecteur(s) autorisé(s).` : "Restriction levée." };
+}
+
+/**
+ * ENVOYER UNE FACTURE AU RÈGLEMENT — le dernier maillon de la chaîne d'achat.
+ *
+ * La facture de Legal devient un ordre de dépense par la porte commune (`createExpenseOrder`),
+ * qui applique la règle du CENTRE DE PAIEMENT : dès 50 000 DZD, autorisation du PDG ou du Super
+ * Admin avant que les Finances ne voient l'ordre. La fiche garde le lien (`expenseOrderId`) —
+ * c'est lui qui permet d'afficher l'état du règlement au bout de la chaîne, et il empêche
+ * d'envoyer deux fois la même facture au paiement.
+ */
+export async function sendLegalInvoiceToSettlement(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "LEGAL", "UPDATE") && !userCan(user, "FINANCES", "CREATE")) {
+    return { ok: false, error: "Non autorisé." };
+  }
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Document introuvable." };
+
+  const doc = await prisma.legalDocument.findUnique({
+    where: { id },
+    select: { id: true, title: true, reference: true, kind: true, amount: true, counterparty: true, endDate: true, expenseOrderId: true },
+  });
+  if (!doc) return { ok: false, error: "Document introuvable." };
+  if (doc.kind !== "INVOICE") return { ok: false, error: "Seule une facture s'envoie au règlement." };
+  if (doc.expenseOrderId) return { ok: false, error: "Cette facture est déjà partie au règlement." };
+  const amount = doc.amount ? Number(doc.amount) : 0;
+  if (!amount || amount <= 0) return { ok: false, error: "Renseignez d'abord le montant de la facture." };
+
+  const order = await createExpenseOrder({
+    label: `${doc.reference ? `${doc.reference} — ` : ""}${doc.title}`,
+    amount,
+    category: "FOURNISSEUR",
+    beneficiary: doc.counterparty,
+    sourceType: "LEGAL_DOCUMENT",
+    sourceId: doc.id,
+    requestedById: user.id,
+    dueDate: doc.endDate,
+  });
+  await prisma.legalDocument.update({ where: { id }, data: { expenseOrderId: order.id, updatedById: user.id } });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: id,
+    summary: `Facture « ${doc.title} » envoyée au règlement (${amount.toLocaleString("fr-FR")} DZD)`,
+  });
+  revalidatePath(`/legal/${id}`);
+  return { ok: true, message: "Facture envoyée au règlement — elle suit désormais le circuit du centre de paiement." };
 }

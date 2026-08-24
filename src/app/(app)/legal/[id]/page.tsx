@@ -20,6 +20,8 @@ import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/fold
 import { EditLegalButton } from "./edit-legal";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { legalReaderWhere, readersCaption } from "@/lib/legal/readers";
+import { loadLegalChain } from "@/lib/queries/legal-chain";
+import { LegalChainCard } from "./chain-card";
 
 export const dynamic = "force-dynamic";
 
@@ -95,8 +97,27 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
 
   // Le classement se corrige depuis la fiche : constater qu'un engagement est au mauvais endroit
   // et devoir revenir à la liste pour le déplacer, c'est ne jamais le déplacer.
-  const folderRows = await prisma.legalFolder.findMany({ select: { id: true, name: true, parentId: true } });
+  const [folderRows, chainDocs, chain] = await Promise.all([
+    prisma.legalFolder.findMany({ select: { id: true, name: true, parentId: true } }),
+    // Les pièces amont possibles pour rattacher CE document à sa chaîne d'achat.
+    prisma.legalDocument.findMany({
+      where: {
+        AND: [await platformScope(user.id), ...(readerScope ? [readerScope] : [])],
+        kind: { in: ["QUOTE", "PURCHASE_ORDER"] },
+        id: { not: doc.id },
+      },
+      select: { id: true, kind: true, reference: true, title: true },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    }),
+    // La chaîne complète : maillons, validateurs de chacun, règlement au bout.
+    loadLegalChain(doc.id),
+  ]);
   const folderOptions = flattenFolders(buildFolderTree(folderRows)).map((n) => ({ value: n.id, label: indentedLabel(n) }));
+  const chainCandidates = chainDocs.map((r) => ({
+    value: r.id,
+    label: `${LEGAL_DOC_KIND[r.kind] ?? r.kind} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`,
+  }));
 
   const fields = legalFields({
     title: doc.title,
@@ -108,7 +129,8 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     amount: doc.amount !== null ? String(toNumber(doc.amount)) : undefined,
     notes: doc.notes ?? undefined,
     folderId: doc.folderId ?? undefined,
-  }, "edit", [], folderOptions);
+    chainFromId: doc.chainFromId ?? undefined,
+  }, "edit", [], folderOptions, chainCandidates);
 
   return (
     <div className="space-y-5">
@@ -209,6 +231,10 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
               </div>
             </CardContent>
           </Card>
+
+          {/* LA CHAÎNE D'ACHAT : devis → BC → facture → règlement, avec les validateurs et les
+              délais de chaque maillon. Elle ne s'affiche que si la pièce en fait partie. */}
+          <LegalChainCard links={chain.links} settlement={chain.settlement} canSettle={canEdit} />
 
           {(doc.renewedFrom || doc.renewals.length > 0) && (
             <Card>

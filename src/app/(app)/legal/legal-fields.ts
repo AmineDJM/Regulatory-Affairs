@@ -15,6 +15,8 @@ export function legalFields(
   people: { value: string; label: string }[] = [],
   /** Dossiers de classement. Vide → le champ n'apparaît pas (aucune armoire à ranger). */
   folders: { value: string; label: string }[] = [],
+  /** Pièces amont possibles (devis, BC…) pour la CHAÎNE. Vide → le champ n'apparaît pas. */
+  chainCandidates: { value: string; label: string }[] = [],
 ): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
   return [
@@ -26,6 +28,15 @@ export function legalFields(
     { type: "date", name: "endDate", label: "Date de fin — vide = sans échéance", defaultValue: v("endDate") },
     { type: "number", name: "amount", label: "Montant (DZD)", defaultValue: v("amount") },
     { type: "textarea", name: "notes", label: "Notes", full: true, defaultValue: v("notes") },
+    // LA CHAÎNE DU DOSSIER D'ACHAT : la pièce dont celle-ci DÉCOULE. C'est ce lien qui permet de
+    // lire devis → BC → facture → règlement d'un seul écran, avec les validateurs et les délais.
+    ...(chainCandidates.length > 0
+      ? ([{
+          type: "select", name: "chainFromId", label: "Fait suite à (devis, bon de commande…)",
+          options: chainCandidates, placeholder: "— Pièce isolée —", defaultValue: v("chainFromId"), full: true,
+          hint: "Un bon de commande suit son devis ; une facture suit son bon de commande. La fiche montrera la chaîne entière.",
+        }] as FieldDef[])
+      : []),
     // OÙ ON LE RANGE. Facultatif, et ça compte : un engagement se dépose vite, il se classe
     // ensuite. Le dossier RANGE, il n'autorise pas — la restriction reste sur le document.
     ...(folders.length > 0

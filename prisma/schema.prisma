@@ -8107,7 +8107,9 @@ model PaymentRequestEvent {
 /// engagements de la société, ils se relisent et s'opposent de la même façon.
 enum LegalDocKind {
   CONTRACT // contrat (prestation, distribution…)
+  QUOTE // devis — le premier maillon de la chaîne d'achat
   PURCHASE_ORDER // bon de commande
+  INVOICE // facture — le dernier maillon avant le règlement
   AGREEMENT // convention / accord-cadre
   NDA // accord de confidentialité
   INSURANCE // police d'assurance
@@ -8164,6 +8166,17 @@ model LegalDocument {
   /// un engagement se dépose vite, il se range ensuite.
   folderId       String?
   folder         LegalFolder?          @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  /// LA CHAÎNE DU DOSSIER D'ACHAT : chaque pièce pointe vers celle dont elle DÉCOULE — le bon
+  /// de commande vers son devis, la facture vers son bon de commande. C'est ce lien qui permet
+  /// de lire un achat d'un bout à l'autre (avec les validateurs et les délais de chaque maillon)
+  /// au lieu de rapprocher trois lignes de tableau de tête. `SetNull` : supprimer un maillon ne
+  /// détruit pas les suivants — il casse le fil, il n'efface pas les pièces.
+  chainFromId    String?
+  chainFrom      LegalDocument?        @relation("LegalChain", fields: [chainFromId], references: [id], onDelete: SetNull)
+  chainNext      LegalDocument[]       @relation("LegalChain")
+  /// LE RÈGLEMENT d'une facture : l'ordre de dépense créé pour la payer — qui passe par le
+  /// centre de paiement comme toute dépense. Nul = pas encore envoyée au règlement.
+  expenseOrderId String?
   /// LES LECTEURS AUTORISÉS — qui, en plus du déposant, a le droit d'ouvrir ce document.
   ///
   /// Un engagement de la société n'est pas une pièce d'équipe : un bail, un contrat de travail
@@ -8188,6 +8201,7 @@ model LegalDocument {
   @@index([endDate])
   @@index([sourceType, sourceId])
   @@index([driveNodeId])
+  @@index([chainFromId])
 }
 
 /// UN LECTEUR AUTORISÉ d'un document légal. Le déposant les désigne à la création, et peut les

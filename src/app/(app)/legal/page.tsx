@@ -13,7 +13,7 @@ import { LegalTable, type LegalRow } from "./legal-table";
 import { LegalFolderBar, type FolderRow } from "./folder-bar";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { legalReaderWhere } from "@/lib/legal/readers";
-import { ROLE_LABELS } from "@/lib/labels";
+import { ROLE_LABELS, LEGAL_DOC_KIND } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Legal — AMD Internal OS" };
@@ -117,6 +117,26 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   // Le menu de classement montre l'ARBRE, indenté : « 2026 » seul ne dit pas de quoi.
   const folderOptions = flattenFolders(buildFolderTree(folders)).map((n) => ({ value: n.id, label: indentedLabel(n) }));
 
+  // Les pièces AMONT possibles pour la chaîne d'achat (un BC suit son devis, une facture son BC).
+  // Requête à part, SANS le filtre de dossier ouvert : le devis peut être rangé ailleurs que là où
+  // l'on crée la facture. Même cloisonnement (entité + lecteurs) que la liste.
+  const chainDocs = canCreate
+    ? await prisma.legalDocument.findMany({
+        where: {
+          ...await currentCompanyWhereFor(user.id),
+          ...(readerScope ? { AND: [readerScope] } : {}),
+          kind: { in: ["QUOTE", "PURCHASE_ORDER"] },
+        },
+        select: { id: true, kind: true, reference: true, title: true },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      })
+    : [];
+  const chainCandidates = chainDocs.map((r) => ({
+    value: r.id,
+    label: `${LEGAL_DOC_KIND[r.kind] ?? r.kind} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`,
+  }));
+
   const watch = rows.filter((r) => r.expiry === "SOON" || r.expiry === "IMMINENT").length;
   const overdue = rows.filter((r) => r.expiry === "OVERDUE").length;
   const purchaseOrders = rows.filter((r) => r.kind === "PURCHASE_ORDER").length;
@@ -125,13 +145,13 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
     <div className="space-y-5">
       <PageHeader
         title="Legal"
-        description="Les engagements de la société : contrats, bons de commande, conventions, assurances, baux. Le fichier reste dans le Drive — Legal porte les dates, l'échéance et ce qu'il advient du document."
+        description="Les engagements de la société : contrats, devis, bons de commande, factures, conventions, assurances, baux. Le fichier reste dans le Drive — Legal porte les dates, l'échéance et ce qu'il advient du document."
       >
         {canCreate && (
           <CreateRecordButton
             label="Nouveau document" title="Déclarer un document légal" width="lg"
             description="Un document peut n'avoir aucune date : laissez les dates vides, il ne se périmera jamais et ne déclenchera aucun rappel."
-            action={createLegalDocument} fields={legalFields({ folderId: openFolderId ?? undefined }, "create", people, folderOptions)} redirectBase="/legal"
+            action={createLegalDocument} fields={legalFields({ folderId: openFolderId ?? undefined }, "create", people, folderOptions, chainCandidates)} redirectBase="/legal"
           />
         )}
       </PageHeader>
