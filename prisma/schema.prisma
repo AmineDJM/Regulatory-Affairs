@@ -4328,6 +4328,7 @@ model DriveNode {
   /// Messages qui RÉFÉRENCENT ce nœud (partage dans la messagerie, sans recopie).
   messageRefs MessageAttachment[] @relation("MessageDriveRef")
   mailPieces  MailEntryPiece[]    @relation("MailPieceDriveNode")
+  textIndex   DriveTextIndex?
   createdById String?
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
@@ -4404,6 +4405,29 @@ model FileVersion {
 
   @@unique([nodeId, version])
   @@index([nodeId])
+}
+
+/// INDEX TEXTUEL PROGRESSIF du Drive — le texte extrait d'un fichier, mémorisé à la première
+/// lecture (read_document, find_documents). C'est lui qui rend la DÉCOUVERTE possible quand le
+/// nom ne dit rien (« scan_0234.pdf ») : on cherche dans le CONTENU déjà lu. Il grandit à
+/// l'usage — jamais de balayage massif. Ce n'est PAS un cache d'autorisation : le droit Drive
+/// se revérifie nœud par nœud à chaque requête qui s'en sert.
+model DriveTextIndex {
+  id        String    @id @default(cuid())
+  nodeId    String    @unique
+  node      DriveNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  /// Version du fichier dont ce texte provient — une nouvelle version invalide l'entrée.
+  versionId String
+  /// Premiers ~20 000 caractères du texte extrait (assez pour retrouver et citer).
+  text      String
+  /// Le même texte REPLIÉ (minuscules sans accents) — la colonne de RECHERCHE :
+  /// « reglement » doit trouver « Règlement ».
+  textFold  String
+  note      String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([updatedAt])
 }
 
 /// Partage d'un nœud avec un utilisateur précis (droits VIEW/EDIT).

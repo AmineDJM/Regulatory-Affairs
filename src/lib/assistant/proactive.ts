@@ -41,7 +41,7 @@ export async function detectExecutiveAlerts(user: CurrentUser, now: Date = new D
   const [
     centreAwaiting, centreStalled, validationsStuck, tasksLate, invoicesUnchained,
     posWithoutInvoice, contractsExpiring, regStale, stockSnaps, paymentsUndecided,
-    commitmentsOverdue,
+    commitmentsOverdue, invoicesRecent, ordersUnpaid,
   ] = await Promise.all([
     // 1) Paiements EN ATTENTE au centre — chaque jour d'attente est un fournisseur qui patiente.
     prisma.expenseOrder.findMany({
@@ -112,6 +112,21 @@ export async function detectExecutiveAlerts(user: CurrentUser, now: Date = new D
       where: { ownerId: user.id, status: "OPEN", dueAt: { lt: now } },
       select: { who: true, what: true, toWhom: true, dueAt: true, relatedRef: true },
       orderBy: { dueAt: "asc" }, take: 10,
+    }),
+    // 12) ANOMALIE : factures candidates au DOUBLON — même contrepartie, même montant, à
+    //     moins de 45 jours d'écart. Le backend DÉTECTE (règle simple et dite) ; conclure
+    //     au doublon réel appartient au lecteur, pièce en main.
+    prisma.legalDocument.findMany({
+      where: { AND: [entity, { kind: "INVOICE", createdAt: { gte: new Date(now.getTime() - 180 * DAY) } }] },
+      select: { id: true, reference: true, title: true, counterparty: true, amount: true, createdAt: true },
+      orderBy: { createdAt: "desc" }, take: 200,
+    }),
+    // 13) ANOMALIE : règlement en attente d'un montant INHABITUEL pour son bénéficiaire
+    //     (≥ 4× la médiane de son historique payé, avec au moins 3 paiements de référence).
+    prisma.expenseOrder.findMany({
+      where: { AND: [entity, { paidDate: null, status: { not: "CANCELLED" }, beneficiary: { not: null } }] },
+      select: { reference: true, label: true, beneficiary: true, amount: true },
+      orderBy: { createdAt: "desc" }, take: 12,
     }),
   ]);
 
@@ -226,6 +241,68 @@ export async function detectExecutiveAlerts(user: CurrentUser, now: Date = new D
       detail: `${c.who} devait « ${c.what} »${c.toWhom ? ` (envers ${c.toWhom})` : ""}${c.relatedRef ? ` — réf. ${c.relatedRef}` : ""} — à vous de décider la suite (aucune relance automatique)`,
       reference: c.relatedRef, lien: "/chief-of-staff",
     });
+  }
+
+  // ANOMALIE — factures candidates au doublon : même contrepartie (repliée), même montant
+  // arrondi, moins de 45 jours d'écart. Deux pièces au plus par paire, jamais de conclusion.
+  const invKey = (s: string | null): string => (s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  const byPair = new Map<string, typeof invoicesRecent>();
+  for (const inv of invoicesRecent) {
+    if (!inv.counterparty || inv.amount == null) continue;
+    const key = `${invKey(inv.counterparty)}|${Math.round(toNumber(inv.amount))}`;
+    byPair.set(key, [...(byPair.get(key) ?? []), inv]);
+  }
+  let duplicatePairs = 0;
+  for (const group of byPair.values()) {
+    if (group.length < 2 || duplicatePairs >= 4) continue;
+    const sorted = [...group].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    for (let i = 1; i < sorted.length && duplicatePairs < 4; i += 1) {
+      const gap = Math.abs(days(sorted[i - 1].createdAt, sorted[i].createdAt));
+      if (gap > 45) continue;
+      duplicatePairs += 1;
+      alerts.push({
+        code: "invoice_duplicate_candidate",
+        criticite: "IMPORTANT",
+        titre: "Facture candidate au DOUBLON (à vérifier pièce en main)",
+        detail: `${sorted[i - 1].reference ?? sorted[i - 1].title} et ${sorted[i].reference ?? sorted[i].title} — ${sorted[i].counterparty}, même montant (${Math.round(toNumber(sorted[i].amount)).toLocaleString("fr-FR")} DZD), à ${gap} j d'écart. Règle : même contrepartie + même montant sous 45 j.`,
+        reference: sorted[i].reference,
+        lien: `/legal/${sorted[i].id}`,
+      });
+    }
+  }
+
+  // ANOMALIE — montant inhabituel : règlement en attente ≥ 4× la médiane payée à ce
+  // bénéficiaire (au moins 3 paiements de référence). Le seuil est DIT — pas de score opaque.
+  const beneficiaries = [...new Set(ordersUnpaid.map((o) => o.beneficiary).filter((b): b is string => Boolean(b)))].slice(0, 12);
+  if (beneficiaries.length > 0) {
+    const history = await prisma.expenseOrder.findMany({
+      where: { AND: [entity, { paidDate: { not: null }, beneficiary: { in: beneficiaries } }] },
+      select: { beneficiary: true, amount: true },
+      orderBy: { paidDate: "desc" }, take: 300,
+    });
+    const paidBy = new Map<string, number[]>();
+    for (const h of history) {
+      if (!h.beneficiary) continue;
+      paidBy.set(h.beneficiary, [...(paidBy.get(h.beneficiary) ?? []), toNumber(h.amount)]);
+    }
+    for (const o of ordersUnpaid) {
+      if (!o.beneficiary) continue;
+      const prior = paidBy.get(o.beneficiary) ?? [];
+      if (prior.length < 3) continue; // trop peu d'historique : pas de fausse précision
+      const sorted = [...prior].sort((a, b) => a - b);
+      const med = sorted.length % 2 ? sorted[Math.floor(sorted.length / 2)] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+      const amount = toNumber(o.amount);
+      if (med > 0 && amount >= 4 * med) {
+        alerts.push({
+          code: "payment_amount_outlier",
+          criticite: "IMPORTANT",
+          titre: "Montant INHABITUEL pour ce bénéficiaire (à vérifier avant paiement)",
+          detail: `${o.reference} — ${o.label} : ${Math.round(amount).toLocaleString("fr-FR")} DZD pour ${o.beneficiary}, contre une médiane payée de ${Math.round(med).toLocaleString("fr-FR")} DZD sur ${prior.length} paiement(s). Règle : ≥ 4× la médiane.`,
+          reference: o.reference,
+          lien: "/centre-de-paiement",
+        });
+      }
+    }
   }
 
   return alerts.sort((a, b) => RANK[a.criticite] - RANK[b.criticite]).slice(0, 40);

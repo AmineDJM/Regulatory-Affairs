@@ -7,6 +7,7 @@ import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { getBlob } from "@/lib/drive-storage";
 import { readFileByKey } from "@/lib/storage";
 import { extractAttachmentText } from "@/lib/assistant-files";
+import { indexDriveNodeText } from "@/lib/assistant/document-discovery";
 import { toNumber } from "@/lib/utils";
 import { chainOf, type ChainDoc } from "@/lib/legal/chain";
 import {
@@ -159,11 +160,14 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         const node = await prisma.driveNode.findUnique({ where: { id: nodeId }, select: { name: true, type: true, isTrashed: true } });
         if (!node || node.isTrashed || node.type !== "FILE") return "Fichier introuvable dans le Drive.";
         const version = await prisma.fileVersion.findFirst({
-          where: { nodeId }, orderBy: { version: "desc" }, select: { blobId: true },
+          where: { nodeId }, orderBy: { version: "desc" }, select: { id: true, blobId: true },
         });
         const bytes = version ? await getBlob(version.blobId) : null;
         if (!bytes) return "Le contenu de ce fichier est indisponible.";
         const t = await extractAttachmentText(node.name, bytes);
+        // Chaque lecture NOURRIT l'index textuel progressif : la prochaine découverte
+        // (find_documents) retrouvera ce fichier par son CONTENU, même mal nommé.
+        if (version) await indexDriveNodeText(nodeId, version.id, t.text ?? "", t.note ?? null);
         if (!t.text) return `« ${node.name} » n'est pas extractible (${t.note ?? "scan sans OCR ou format non textuel"}).`;
         return JSON.stringify({ nom: node.name, lien: `/drive/${nodeId}`, texte: t.text.slice(0, DOC_TEXT_CAP), tronque: t.text.length > DOC_TEXT_CAP });
       }
@@ -754,6 +758,22 @@ Vos gestes de chef de cabinet :
   « toute l'histoire de… », « qui a validé ? », « est-ce qu'on a payé ? », « où en est ce dossier ? ».
 - \`search_drive\` puis \`read_document\` — retrouver un fichier n'importe où et LIRE son contenu
   (PDF, Word, Excel, PowerPoint). Ne JAMAIS résumer ou chiffrer un document sans l'avoir lu.
+- \`find_documents\` — quand le NOM ne suffit pas (« retrouve le contrat de Khaled », Drive mal
+  rangé) : nom + index textuel des fichiers déjà lus + lecture bornée de vérification, chaque
+  résultat avec sa CONFIANCE (HAUTE/MOYENNE/FAIBLE) et sa preuve citée. Le nom d'un fichier est
+  un indice, pas une preuve.
+- \`employee_360\` — LA vue complète d'un collaborateur (« parle-moi de Khaled ») : identité,
+  âge et ancienneté CALCULÉS avec leur source, contrat et période d'essai, congés, salaire
+  (seulement si vous détenez le module RH), activité OBSERVÉE 90 j (l'absence de trace ERP
+  n'est pas l'absence de travail), indicateurs de dépendance (personne-clé), documents RH.
+- \`product_360\` — la vue complète d'un produit (fiche, étapes réglementaires et retards,
+  chargé du dossier, stock par lieu, activité). \`supplier_360\` — un fournisseur : dépenses
+  payées par année (calculées en base), en attente, contrats actifs et échéances, derniers
+  paiements.
+- \`organization_insights\` — étendues de contrôle, départements sans responsable/adjoint,
+  concentration des validations. \`process_insights\` — les DÉLAIS RÉELS des circuits sur 180 j
+  (validations, règlements, étapes réglementaires), moyennes/médianes et pires cas AVEC leurs
+  références. Décrire n'est pas expliquer : vérifier le pourquoi avant de proposer un changement.
 - \`person_report\` / \`read_employee\` / \`read_payroll\` — bilan factuel d'une personne, sa fiche RH
   (N+1, contrat, congés), sa paie (avant toute modification de salaire). FAITS d'abord, marquer
   la différence entre faits et interprétation.

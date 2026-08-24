@@ -9,6 +9,8 @@ import { EXECUTIVE_TOOLS } from "@/lib/assistant/executive-tools";
 import { EXECUTIVE_READ_TOOLS } from "@/lib/assistant/executive-read-tools";
 import { EXECUTIVE_BRIEF_TOOLS } from "@/lib/assistant/executive-brief-tools";
 import { MEMORY_TOOLS } from "@/lib/assistant/memory-tools";
+import { THREE_SIXTY_TOOLS } from "@/lib/assistant/three-sixty";
+import { DOCUMENT_DISCOVERY_TOOLS } from "@/lib/assistant/document-discovery";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -212,6 +214,12 @@ export const POWER_TOOLS: PowerTool[] = [
   // décisions et d'engagements au siège exécutif). Écriture directe : rien ici ne touche
   // le monde extérieur — c'est la frontière avec ACTION_POLICY.
   ...MEMORY_TOOLS,
+  // Les VUES 360° (collaborateur, produit, fournisseur) et les INSIGHTS (organisation,
+  // délais réels des circuits) — le backend calcule, chaque chiffre porte sa provenance.
+  ...THREE_SIXTY_TOOLS,
+  // La DÉCOUVERTE DOCUMENTAIRE en Drive « sale » : nom + index textuel progressif + lecture
+  // bornée de vérification — le nom d'un fichier est un indice, pas une preuve.
+  ...DOCUMENT_DISCOVERY_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */
