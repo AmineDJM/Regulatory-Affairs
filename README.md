@@ -3091,6 +3091,47 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **VOIX TEMPS RÉEL — le Chief of Staff au téléphone (speech-to-speech).** L'ancienne chaîne
+  « VAD maison → Whisper → prompt texte → attente → TTS phrase par phrase » est REMPLACÉE par une
+  vraie session **`gpt-realtime-2.1`** (API Realtime OpenAI, **WebRTC direct navigateur ↔ OpenAI**
+  — le média ne transite pas par notre backend) : on parle, il répond à voix haute immédiatement
+  (audio streamé), on l'**interrompt en parlant** (détection de tour sémantique côté serveur +
+  purge du tampon local — aucun buffer périmé rejoué), on enchaîne les sujets. **Clé jamais
+  exposée** : `/api/assistant/voice/session` (authentification + siège exécutif + module
+  CHIEF_OF_STAFF) configure la session CÔTÉ SERVEUR et ne rend qu'un **secret éphémère** (10 min).
+  **Une seule conversation** : l'appel continue le fil texte (derniers échanges injectés bornés —
+  « et son salaire ? » comprend le Khaled du mode texte), chaque tour vocal est **persisté dans le
+  même fil** (`rememberExchange`, distillation de mémoire comprise), le texte tapé pendant l'appel
+  entre dans la session (réponse parlée). **Mêmes outils, mêmes permissions** : adaptateur
+  PowerTool → Realtime (~25 fast paths — employee_360, read_payroll, search_everything,
+  find_documents, plan_reminder… — filtrés par les droits, RE-vérifiés serveur à chaque appel via
+  `/api/assistant/voice/tool`) + **`delegate_to_chief_of_staff`** pour les actions et analyses
+  profondes : l'orchestrateur texte existant tourne, les ACTIONS reviennent en **cartes de
+  confirmation à l'écran** (rien ne s'exécute à la voix seule, CRITIQUE = re-saisie), le détail
+  s'AFFICHE pendant que la voix résume (compagnon visuel). Le moteur vocal est **encapsulé**
+  (`VoiceRealtimeProvider` → `OpenAIGptRealtime21Provider`) : un futur moteur type gpt-live se
+  branche sans toucher au Chief of Staff. **UI mode appel** : orbe à états, mute, raccrocher,
+  transcript secondaire, **réductible en barre** (consulter un document sans raccrocher),
+  reconnexion propre (nouveau secret, même fil), échec → message clair + dictée en repli explicite
+  (jamais déguisée en temps réel). Observabilité : logs structurés (session/outils/interruptions/
+  reconnexions, sans contenu audio) + `AiUsageLog` (fonction `voice_realtime` : durée, premier
+  audio, outils) + carte d'état Administration → IA. L'ancienne route TTS (`/api/assistant/speak`)
+  et `synthesizeSpeech` sont SUPPRIMÉES ; la dictée (`/api/assistant/transcribe`) reste le repli.
+  **Recette en conditions déployées** (le code ne peut pas s'auto-entendre — à dérouler sur
+  l'environnement Render, micro réel) : 1. « Est-ce que tu m'entends ? » → réponse À VOIX HAUTE +
+  transcript ; 2. interruption en pleine réponse → silence immédiat + nouvelle consigne traitée ;
+  3. « Quelle est ma masse salariale ? » → fast path réel, chiffre exact ; 4. « Trouve-moi le
+  contrat de Khaled » puis « montre-le » → document à l'écran, conversation continue ; 5. « Quel
+  âge a-t-il ? » → contexte conservé ; 6. texte « Parle-moi de Pembro » puis voix « et le
+  paiement ? » puis texte « qui le bloque ? » → même contexte cross-modal ; 7. « Relance Khaled »
+  → carte de confirmation, rien d'exécuté ; 8. « Rappelle-moi dimanche matin » → vrai rappel ;
+  9. « Analyse toute l'organisation Regulatory » → accusé oral immédiat, moteur profond au
+  travail, session vivante ; 10. pendant l'analyse : « combien me coûte Regulatory ? » → réponse
+  sans attendre ; 11. conversation ≥ 15 min ; 12. coupure réseau → reconnexion, même fil ;
+  13. micro refusé → erreur propre + dictée ; 14. iPhone/Safari ; 15. OpenAI bloqué → PAS de
+  bascule silencieuse vers un faux temps réel ; 16-17. permissions et action critique identiques
+  au texte ; 18. latences (bouton→connexion, fin de parole→premier audio, barge-in→silence) ;
+  19. logs `model = gpt-realtime-2.1` ; 20. le tout sur l'environnement DÉPLOYÉ.
 - **Executive AI Operating System (6 lots A–F).** My Chief of Staff devient le cerveau exécutif
   de l'entreprise — très autonome dans la RECHERCHE et le RAISONNEMENT, conservateur dans
   l'EXÉCUTION. **Gouvernance** : registre `ACTION_POLICY` typé (toute action confirmée est

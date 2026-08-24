@@ -3,6 +3,7 @@ import { Crown, Gavel, HandCoins, AlarmClock, RotateCcw } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { aiConfigured, sttConfigured } from "@/lib/ai";
+import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import { getDailyBrief } from "@/lib/daily-brief";
 import { getActionCenter } from "@/lib/queries/action-center";
@@ -97,6 +98,7 @@ export default async function ChiefOfStaffPage({
         userName={user.name}
         configured={aiConfigured()}
         voiceConfigured={sttConfigured()}
+        realtimeVoice={realtimeVoiceConfigured() && canUseRealtimeVoice(user)}
         memoryEnabled={memoryEnabled}
         executive
         initialPrompt={initialPrompt}

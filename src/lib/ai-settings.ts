@@ -14,7 +14,9 @@ export type AiFeature =
   | "briefing"
   | "process_intel"
   | "field_report"
-  | "voice";
+  | "voice"
+  /** Session vocale speech-to-speech temps réel (API Realtime) — journalisée par session. */
+  | "voice_realtime";
 
 export interface AiSettingsView {
   masterEnabled: boolean;
@@ -45,6 +47,8 @@ const FEATURE_KEY: Record<AiFeature, keyof AiSettingsView> = {
   process_intel: "processIntelEnabled",
   field_report: "fieldReportAiEnabled",
   voice: "voiceTranscriptEnabled",
+  // La session temps réel suit la MÊME bascule que l'assistant : couper l'assistant coupe la voix.
+  voice_realtime: "assistantEnabled",
 };
 
 /**

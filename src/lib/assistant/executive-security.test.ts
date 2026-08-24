@@ -5,7 +5,6 @@ import { prisma } from "@/lib/prisma";
 import { POWER_TOOLS, powerToolsFor, executePowerTool } from "./power-tools";
 import { buildProposal, performAction, extractSources, ACTION_POLICY, type AssistantActionPayload } from "@/lib/assistant";
 import { watchState } from "./reminders";
-import { sentencesOf } from "@/app/(app)/assistant/voice-mode";
 
 /**
  * L'IA NE DOIT JAMAIS DEVENIR UNE PORTE DÉROBÉE CONTOURNANT LE RBAC.
@@ -189,17 +188,5 @@ describe("surveillance conditionnelle — relire la source, ne prévenir que le 
   });
 });
 
-describe("la voix — découpage en phrases pour une lecture qui démarre tôt", () => {
-  it("découpe aux fins de phrases et REGROUPE les courtes sous la longueur maximale", () => {
-    // Deux phrases courtes voyagent ensemble (moins d'appels TTS) ; la coupure tombe toujours
-    // sur une fin de phrase, jamais au milieu d'un mot.
-    const chunks = sentencesOf("Première phrase. Deuxième phrase ! Troisième ?", 30);
-    expect(chunks).toEqual(["Première phrase.", "Deuxième phrase ! Troisième ?"]);
-  });
-
-  it("ne perd jamais de texte et ignore le vide", () => {
-    expect(sentencesOf("")).toEqual([]);
-    const chunks = sentencesOf("Un texte sans ponctuation finale qui continue longtemps", 20);
-    expect(chunks.join(" ")).toContain("Un texte sans ponctuation");
-  });
-});
+// (Le découpage en phrases pour la synthèse TTS a disparu avec l'ancienne chaîne vocale :
+// la voix est désormais une session speech-to-speech temps réel — voir voice-realtime.test.ts.)

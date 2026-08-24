@@ -93,14 +93,72 @@ semaine, repli sur la dernière occurrence des mois courts). Balayage dans `lib/
 (état d'abord, notifications ensuite ; rattrapage borné d'un serveur éteint). Heure d'Alger
 (UTC+1 sans été). Pop-up au propriétaire + relance du rôle et/ou de la personne.
 
-### Voix
-- **Conversation vocale continue** (`voice-mode.tsx`) : VAD client (RMS + hystérésis), capture à
-  la prise de parole, transcription Whisper, MÊME flux SSE que le chat (le texte s'écrit en
-  parallèle), réponse PARLÉE phrase par phrase (`/api/assistant/speak`, OpenAI TTS — la voix
-  démarre à la première phrase), **barge-in** : parler pendant la réponse coupe la voix, parler
-  pendant la réflexion interrompt la génération ; multi-tours. Les actions restent confirmées À
-  LA MAIN dans le chat — jamais à la voix.
-- **Dictée** (repli) : enregistrer → transcrire → texte éditable avant envoi.
+### REALTIME VOICE — PRODUCTION (speech-to-speech)
+
+**Modèle & provider.** `gpt-realtime-2.1` (surclassable par `OPENAI_REALTIME_MODEL`), via
+l'API Realtime OpenAI. L'implémentation est encapsulée derrière l'interface
+`VoiceRealtimeProvider` (`app/(app)/assistant/realtime-voice.ts` — implémentation actuelle
+`OpenAIGptRealtime21Provider`) : AUCUNE logique métier n'est couplée au modèle — un futur
+moteur (type gpt-live) se branche en réimplémentant cette interface, rien d'autre.
+
+**Transport.** WebRTC, navigateur ↔ OpenAI EN DIRECT : le média ne transite pas par notre
+backend. Micro capturé UNE fois par session (`getUserMedia` : echo cancellation, noise
+suppression, auto gain) ; la réponse arrive en piste audio distante, jouée en continu
+(streaming — on entend le début avant la fin de la génération). Les événements (transcriptions,
+tours, outils, erreurs) passent par le data channel « oai-events ».
+
+**Auth.** `OPENAI_API_KEY` ne quitte JAMAIS le serveur. `POST /api/assistant/voice/session`
+vérifie authentification + siège exécutif + module CHIEF_OF_STAFF + assistant activé
+(`canUseRealtimeVoice`), configure la session CÔTÉ SERVEUR (modèle, instructions, outils,
+transcription, détection de tour) via l'endpoint officiel `/v1/realtime/client_secrets`, et ne
+rend au client qu'un SECRET ÉPHÉMÈRE (10 min) — le client ne peut ni élargir les outils ni
+réécrire les instructions.
+
+**Une seule conversation.** L'appel CONTINUE le fil texte : la session s'ouvre sur le fil
+courant (ou le fil principal), les derniers échanges sont injectés BORNÉS dans les
+instructions (« et son salaire ? » comprend Khaled du mode texte), chaque tour vocal
+(transcriptions) est persisté dans le MÊME fil par la MÊME porte (`rememberExchange` →
+distillation de mémoire comprise) via `POST /api/assistant/voice/turn`. Le texte tapé PENDANT
+l'appel entre dans la session vocale (réponse parlée). Instructions : `buildChiefOfStaffContext`
+(la MÊME fonction que le texte, variante compacte — identité, contexte, règles de fond
+anti-injection) + contexte personnel/mémoire + consignes vocales (réponse d'abord, 5-20 s,
+pas de tableau lu, jamais « c'est fait » sans confirmation, pas de re-salutation).
+
+**Outils.** Adaptateur PowerTool → schéma Realtime (`realtimeToolsFor`) : ~25 FAST PATHS
+(search_everything, employee_360, read_payroll, inspect_record, find_documents, plan_reminder,
+company_state…) — LE MÊME outil que le texte, filtré par les droits du compte — plus
+`delegate_to_chief_of_staff` pour tout le reste : ACTIONS (l'orchestrateur texte `runAssistant`
+rend des PROPOSITIONS → cartes de confirmation À L'ÉCRAN, rien d'exécuté à la voix seule ;
+CRITIQUE = re-saisie, comme en texte) et ANALYSES PROFONDES (le raisonnement lourd reste dans
+le moteur existant — le modèle vocal est le système nerveux conversationnel, pas le cerveau).
+Chaque appel d'outil revient sur `POST /api/assistant/voice/tool` (authentifié) où
+`executePowerTool` RE-VÉRIFIE le droit ; résultats bornés (~8 K) pour le budget de session ;
+liens internes extraits vers le panneau CONTEXTE (compagnon visuel : la voix résume, l'écran
+affiche).
+
+**Interruptions.** Détection de tour SÉMANTIQUE côté serveur (`semantic_vad`,
+`interrupt_response: true`) — silences et hésitations gérés par l'API, pas un VAD maison ; à la
+prise de parole le client vide EN PLUS le tampon local (`output_audio_buffer.clear`) : le son
+s'arrête net, aucun buffer périmé n'est rejoué, la nouvelle consigne prime.
+
+**UI — mode appel** (`voice-mode.tsx`) : orbe à états (écoute / réflexion / parole), mute,
+raccrocher, transcript SECONDAIRE (dernière réplique + fil sur demande), RÉDUCTIBLE en barre
+discrète (consulter un document sans raccrocher). États machine :
+IDLE/CONNECTING/LISTENING/USER_SPEAKING/THINKING/ASSISTANT_SPEAKING/RECONNECTING/ERROR/ENDED.
+Reconnexion : chute WebRTC → nouveau secret éphémère, MÊME fil (2 tentatives), jamais une
+nouvelle conversation. Échec d'ouverture → message clair + la DICTÉE proposée en repli
+explicite (jamais présentée comme du temps réel).
+
+**Observabilité.** Logs structurés serveur (`voice_session_created/connected/error`,
+`voice_tool_called/completed`, `voice_reconnect`, `voice_session_closed` — reasonCode, latences,
+jamais de contenu audio) + `AiUsageLog` (fonction `voice_realtime`, provider openai : durée de
+session, premier audio entendu = ttftMs, tours, outils, erreurs) + carte d'état dans
+Administration → IA (modèle affiché).
+
+- **Dictée** (repli explicite, distinct du temps réel) : enregistrer → transcrire
+  (`/api/assistant/transcribe`) → texte éditable avant envoi. L'ancienne chaîne
+  « VAD maison → Whisper → SSE → TTS phrase par phrase » est SUPPRIMÉE
+  (route `/api/assistant/speak` et `synthesizeSpeech` retirées).
 
 ### UI
 - Deux volets sur grand écran : conversation + **panneau CONTEXTE** (sources consultées — chaque
@@ -223,9 +281,12 @@ Justification des ✗ (des choix, pas des oublis) :
 ## 4. Architecture (couches)
 
 ```
-NAVIGATEUR  /chief-of-staff (module RBAC) — chat SSE + panneau CONTEXTE + voix (VAD, barge-in)
+NAVIGATEUR  /chief-of-staff (module RBAC) — chat SSE + panneau CONTEXTE + MODE APPEL
    │  POST /api/assistant/stream   (SSE : trace, delta, source, reset, done)
-   │  POST /api/assistant/transcribe (Whisper)   POST /api/assistant/speak (TTS, phrases)
+   │  VOIX : POST /api/assistant/voice/session (secret éphémère) → WebRTC DIRECT ↔ OpenAI
+   │         Realtime (gpt-realtime-2.1) ; outils → POST /api/assistant/voice/tool (RBAC) ;
+   │         tours → POST /api/assistant/voice/turn (même fil) ; métriques → …/voice/log
+   │  POST /api/assistant/transcribe (dictée — repli explicite)
    ▼
 BOUCLE AGENT  runAssistantStream (lib/assistant.ts) — MAX 16 tours, métriques (TTFT, outils)
    │  systemPrompt = persona + contexte + powerToolsBriefing + executiveBriefing (PAR LE RÔLE)
@@ -277,9 +338,11 @@ bloquants. Les latences réelles se lisent dans `AiUsageLog` (latencyMs, ttftMs,
 
 ## 7. Limites connues (dites, pas cachées)
 
-- **Voix** : VAD à seuil d'énergie (pas un modèle neuronal) — un environnement très bruyant peut
-  déclencher/gêner l'écoute ; la réponse vocale démarre après la fin de la génération du texte
-  (le flux SSE nourrit l'écran en continu, la voix suit par phrases). Nécessite `OPENAI_API_KEY`.
+- **Voix** : nécessite `OPENAI_API_KEY` et la joignabilité WebRTC d'api.openai.com depuis le
+  navigateur (un réseau d'entreprise qui bloque UDP/WebRTC peut dégrader — le mode le dit et
+  propose la dictée). Le comportement audio réel (latence perçue, barge-in, bruit de fond,
+  iOS/Safari) se VALIDE en conditions déployées : la checklist de recette est dans le README
+  (tests 1–20 de la mission vocale) — le code ne peut pas s'auto-entendre.
 - **Recherche documentaire** : `find_documents` cherche noms + INDEX TEXTUEL des fichiers déjà
   lus + lecture bornée — l'index est PROGRESSIF : un document jamais ouvert par l'assistant ET
   mal nommé peut lui échapper (l'outil le dit, avec le volume indexé). Pas de balayage massif :
@@ -305,6 +368,9 @@ bloquants. Les latences réelles se lisent dans `AiUsageLog` (latencyMs, ttftMs,
       `ai_usage_metrics`, `ai_governance`, `executive_memory`, `drive_text_index`,
       `assistant_artifacts`, `corpus_categories`) — rejouables, jamais bloquantes.
 - [x] Aucun TODO/FIXME/MOCK/PLACEHOLDER bloquant dans le code du module.
-- [x] Variables d'environnement : `ANTHROPIC_API_KEY` (agent), `OPENAI_API_KEY` (voix — Whisper
-      + TTS ; sans elle, la voix disparaît proprement, le reste vit).
+- [x] Variables d'environnement : `ANTHROPIC_API_KEY` (agent), `OPENAI_API_KEY` (voix temps
+      réel + dictée ; sans elle, la voix disparaît proprement, le reste vit),
+      `OPENAI_REALTIME_MODEL` (optionnelle — défaut `gpt-realtime-2.1`),
+      `OPENAI_TRANSCRIBE_MODEL` (optionnelle — transcription de session, défaut
+      `gpt-4o-mini-transcribe`).
 - [x] Extensions Postgres facultatives (`unaccent`, `pg_trgm`) — sondées à l'exécution.

@@ -3,6 +3,7 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { aiConfigured, sttConfigured, aiModel } from "@/lib/ai";
+import { realtimeVoiceConfigured, REALTIME_VOICE_MODEL } from "@/lib/assistant/voice-realtime";
 import { getLatestAiHealth } from "@/lib/ai-health";
 import { getAiSettings } from "@/lib/ai-settings";
 import { ModuleTabs } from "@/components/shared/module-tabs";
@@ -89,9 +90,17 @@ export default async function AiControlCenterPage() {
           />
           <KeyStatus
             icon={<Mic className="h-4 w-4" />}
-            label="Whisper (OpenAI)"
+            label="Dictée — transcription (OpenAI)"
             ok={sttConfigured()}
             detail={sttConfigured() ? `Modèle : ${process.env.STT_MODEL ?? "whisper-1"}` : "OPENAI_API_KEY absente"}
+          />
+          <KeyStatus
+            icon={<Mic className="h-4 w-4" />}
+            label="Voix temps réel — Chief of Staff"
+            ok={realtimeVoiceConfigured()}
+            detail={realtimeVoiceConfigured()
+              ? `Modèle : ${REALTIME_VOICE_MODEL} (WebRTC, secret éphémère — sessions journalisées dans l'usage, fonction « voice_realtime »)`
+              : "OPENAI_API_KEY absente"}
           />
           <p className="text-xs text-muted-foreground sm:col-span-2">
             Les clés sont des secrets serveur (jamais exposés au client) et se définissent dans les variables

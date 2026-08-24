@@ -8,6 +8,7 @@ import {
   History, Plus, Trash2, Lock, AudioLines, Link2, ShieldAlert,
 } from "lucide-react";
 import { VoiceMode } from "./voice-mode";
+import type { VoiceToolUi } from "./realtime-voice";
 import { Button } from "@/components/ui/button";
 import {
   assistantChat, executeAssistantAction, listAssistantFiles,
@@ -77,10 +78,15 @@ export function cleanReply(text: string): string {
 }
 
 export function AssistantChat({
-  userName, configured, voiceConfigured = false, memoryEnabled = false,
+  userName, configured, voiceConfigured = false, realtimeVoice = false, memoryEnabled = false,
   executive = false, initialPrompt = null, initialThreadId = null,
 }: {
-  userName: string; configured: boolean; voiceConfigured?: boolean; memoryEnabled?: boolean;
+  userName: string; configured: boolean;
+  /** Dictée disponible (transcription simple, texte éditable avant envoi). */
+  voiceConfigured?: boolean;
+  /** APPEL temps réel (speech-to-speech) disponible — siège exécutif + clé Realtime. */
+  realtimeVoice?: boolean;
+  memoryEnabled?: boolean;
   /** Mode Chief of Staff : panneau CONTEXTE (sources, actions) sur grand écran. */
   executive?: boolean;
   /** Entrée contextuelle (?q=…) : la question est pré-remplie, prête à partir. */
@@ -232,11 +238,62 @@ export function AssistantChat({
     }
   };
 
+  // ── APPEL VOCAL : le pont avec la session temps réel.
+  //    Pendant un appel, le texte tapé entre DANS la session (réponse parlée) ; les tours
+  //    vocaux (transcriptions) et les cartes d'outils reviennent s'afficher ICI — voix et
+  //    texte sont deux modalités de la même conversation.
+  const voiceTextSenderRef = React.useRef<((text: string) => void) | null>(null);
+  const registerVoiceTextSender = React.useCallback((fn: ((text: string) => void) | null) => {
+    voiceTextSenderRef.current = fn;
+  }, []);
+  const onVoiceTurn = React.useCallback((userText: string, assistantText: string) => {
+    setMessages((m) => [
+      ...m,
+      { id: nextId(), role: "user", content: userText },
+      { id: nextId(), role: "assistant", content: assistantText },
+    ]);
+    void refreshThreads();
+  }, [refreshThreads]);
+  const onVoiceToolUi = React.useCallback((ui: VoiceToolUi) => {
+    if (ui.sources?.length) {
+      setSources((prev) => {
+        const merged = [...prev];
+        for (const s of ui.sources ?? []) if (!merged.some((x) => x.href === s.href)) merged.unshift(s);
+        return merged.slice(0, 30);
+      });
+    }
+    const proposals = (ui.proposals ?? null) as ProposedAction[] | null;
+    // Le COMPAGNON VISUEL : les actions à confirmer et les analyses détaillées s'affichent
+    // dans le fil pendant que la voix résume — la carte de confirmation reste LA porte.
+    if (proposals?.length) {
+      setMessages((m) => [...m, {
+        id: nextId(), role: "assistant",
+        content: ui.reply || (proposals.length === 1 ? "Action proposée — à confirmer ci-dessous." : `${proposals.length} actions proposées — à confirmer ci-dessous.`),
+        trace: ui.trace,
+        proposals,
+        actionStates: proposals.map(() => "pending" as ActionState),
+        actionResults: proposals.map(() => undefined),
+        actionLinks: proposals.map(() => undefined),
+      }]);
+    } else if (ui.reply && ui.reply.length > 400) {
+      // Une analyse déléguée détaillée mérite l'écran ; la voix n'en dit que la synthèse.
+      setMessages((m) => [...m, { id: nextId(), role: "assistant", content: ui.reply as string, trace: ui.trace }]);
+    }
+  }, []);
+
   /** Envoie un tour et REND la réponse finale — la voix en a besoin pour parler. */
   const send = async (text: string): Promise<string | null> => {
     const content = text.trim();
     const pending = attachments;
     if ((!content && pending.length === 0) || sending || !configured) return null;
+
+    // Pendant un APPEL : le message tapé entre dans la session vocale (sans pièces jointes —
+    // elles passent par le circuit texte habituel). La réponse arrive parlée ET transcrite.
+    if (voiceTextSenderRef.current && pending.length === 0 && content) {
+      voiceTextSenderRef.current(content);
+      setInput("");
+      return null;
+    }
     const userMsg: Msg = { id: nextId(), role: "user", content: content || "(pièces jointes)", attachmentNames: pending.map((a) => a.name) };
     const next = [...messages, userMsg];
     setMessages(next);
@@ -273,9 +330,6 @@ export function AssistantChat({
       if (!voiceOpen) taRef.current?.focus();
     }
   };
-  const sendRef = React.useRef(send);
-  sendRef.current = send;
-
   /** Ajoute le résultat d'un tour non diffusé (pièces jointes) à la conversation. */
   const appendResult = (res: AssistantResult): string | null => {
     if (!res.configured) {
@@ -546,12 +600,15 @@ export function AssistantChat({
           </div>
         )}
 
-        {/* CONVERSATION VOCALE continue : écoute → transcription → réponse parlée → écoute,
-            interruptible à la voix (barge-in). Le texte continue de s'écrire dans le fil. */}
+        {/* MODE APPEL — conversation speech-to-speech temps réel (WebRTC ↔ API Realtime) :
+            barge-in natif, mêmes outils, même fil, cartes de confirmation à l'écran. */}
         {voiceOpen && (
           <VoiceMode
-            onUtterance={(text) => sendRef.current(text)}
-            onInterrupt={stopStreaming}
+            threadId={threadId}
+            onThreadId={(tid) => setThreadId(tid)}
+            onTurn={onVoiceTurn}
+            onToolUi={onVoiceToolUi}
+            registerTextSender={registerVoiceTextSender}
             onClose={() => setVoiceOpen(false)}
           />
         )}
@@ -565,9 +622,9 @@ export function AssistantChat({
         >
           <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
           <div className="flex items-center gap-1">
-            {voiceConfigured && (
+            {realtimeVoice && (
               <button type="button"
-                title={voiceOpen ? "Quitter la conversation vocale" : "Conversation vocale — parlez, il répond à voix haute (interruptible)"}
+                title={voiceOpen ? "Raccrocher" : "Parler au Chief of Staff — conversation vocale temps réel (interruptible)"}
                 onClick={() => setVoiceOpen((o) => !o)} disabled={!configured}
                 className={`flex h-[2.75rem] w-9 items-center justify-center rounded-xl transition disabled:opacity-50 ${voiceOpen ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
                 <AudioLines className="h-4 w-4" />
