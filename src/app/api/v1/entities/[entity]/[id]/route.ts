@@ -18,7 +18,6 @@ export const GET = handle<{ entity: string; id: string }>(
     if (!canReadEntity(ctx.user, def)) throw errors.forbidden(`Le module ${def.module} n'est pas accessible à cette identité.`);
     mark({ operationId: `get_${def.name}`, entityType: def.entityType ?? def.model, entityId: params.id });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const model = (prisma as any)[def.model.charAt(0).toLowerCase() + def.model.slice(1)];
     const row = await model.findFirst({
       where: { id: params.id, ...entityScopeWhere(ctx.user, def) },

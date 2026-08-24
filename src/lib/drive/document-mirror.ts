@@ -32,7 +32,6 @@ async function resolveReference(entityType: string, entityId: string): Promise<s
   const target = referenceFieldFor(entityType);
   if (!target) return null;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const delegate = (prisma as any)[target.model];
     if (!delegate?.findUnique) return null;
     const row = await delegate.findUnique({ where: { id: entityId }, select: { [target.field]: true } });

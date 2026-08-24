@@ -61,6 +61,12 @@ export async function POST(req: Request) {
         await logAiUsage({
           feature: "assistant", userId: user.id, model: aiModel(),
           ok: result.ok, latencyMs: Date.now() - t0, errorCode: result.ok ? null : result.error ?? "error",
+          // Le détail de la boucle : ressenti (1er mot), tours, outils, erreurs, temps outils.
+          ttftMs: result.metrics?.ttftMs ?? null,
+          turns: result.metrics?.turns ?? null,
+          toolCalls: result.metrics?.toolCalls ?? null,
+          toolErrors: result.metrics?.toolErrors ?? null,
+          toolLatencyMs: result.metrics?.toolLatencyMs ?? null,
         });
 
         // Mémorisation du fil (helpers scopés par userId) — jamais bloquante.

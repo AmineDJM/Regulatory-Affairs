@@ -192,7 +192,7 @@ jamais identique.
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense** (« Règlements à effectuer »), **Factures**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). Les **demandes de paiement** se déposent depuis les **Demandes de validations** ; un paiement n'arrive aux Finances qu'une fois **autorisé par le centre de paiement** (dès 50 000 DZD). |
 | **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. Dès **50 000 DZD**, aucun paiement n'atteint les Finances sans autorisation — BV Regulatory compris ; **moyens généraux exceptés**. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-au-dessus-du-seuil-sans-le-pdg) |
-| **My Chief of Staff** | `/chief-of-staff` | **L'interface exécutive du PDG et du Super Admin** (module `CHIEF_OF_STAFF`) : le même moteur que l'assistant, servi avec les **outils d'un chef de cabinet** — histoire complète d'un dossier par sa référence (timeline, validateurs, chaîne devis→BC→facture→règlement), fouille et **lecture** des documents du Drive, bilan factuel d'une personne, **rappels planifiés** (« tous les dimanches relance Regulatory »), **décisions du centre de paiement** sous confirmation. → [architecture](docs/CHIEF_OF_STAFF_ARCHITECTURE.md) |
+| **My Chief of Staff** | `/chief-of-staff` | **L'interface exécutive du PDG et du Super Admin** (module `CHIEF_OF_STAFF`) : piloter l'entreprise en langage naturel, **au clavier ou à la voix** (conversation vocale avec interruption). Recherche fédérée `search_everything` (~30 familles, tolérante aux accents/fautes), histoire complète d'un dossier (`inspect_record` : timeline, validateurs, chaîne devis→BC→facture→règlement — paiements, Legal, Regulatory, factures, courriers, projets, tâches), lecture des documents du Drive, calendrier + disponibilités, stocks, hôpitaux, paie, agrégats financiers, **signaux d'alerte proactifs**, **point exécutif**, **rapport consolidé .docx**, rappels récurrents (rôle ou personne nommée), et les **actions** — trancher un paiement, réassigner une tâche, chaîner une facture, **modifier un salaire (confirmation renforcée)** — toujours confirmées et auditées. → [architecture](docs/CHIEF_OF_STAFF_ARCHITECTURE.md) |
 | **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
 | **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) : l'administration remet une somme chaque mois, la personne qui la détient **confirme l'avoir reçue** — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**, jusqu'à épuisement. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/moyens-generaux/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
 | **Formations** | `/formations` | Demande individuelle (montant, organisme, dates, devis) validée **N+1 → RH → DG**, et formations **organisées par les RH** (qui partent directement au DG) avec **participants convoqués ou volontaires** (les volontaires acceptent ou déclinent) et **postes** (salle, traiteur, intervenant) validés un par un par la Direction. Budget **FORMATION** parmi les budgets départementaux. |
@@ -679,16 +679,44 @@ serveur à chaque appel** (la liste d'outils envoyée au modèle n'est qu'une su
 affirmation importante cite **référence, date et lien interne** ; quand la donnée n'existe pas,
 l'outil le **dit** — il n'infère pas.
 
-Les gestes : `inspect_record` (l'histoire complète d'un dossier par sa référence — timeline du
-journal d'audit, validateurs nommés et datés, pièces, chaîne d'achat, état au centre de
-paiement) ; `search_drive` + `read_document` (fouiller le Drive puis LIRE la pièce — PDF, Word,
-Excel, PowerPoint — le droit du Drive vérifié nœud par nœud) ; `person_report` (bilan factuel
-d'une personne — jamais de jugement) ; `plan_reminder`/`list_reminders`/`cancel_reminder`
-(« rappelle-moi mardi 10 h », « tous les dimanches relance Regulatory » — modèle
-`AssistantReminder`, balayage dans `lib/scheduled.ts`, pop-up au propriétaire + relance du rôle
-cible) ; `decide_payment` (trancher au centre de paiement — toujours derrière la carte de
-confirmation, l'exécution repassant par l'action du centre). Architecture cible, capability
-matrix et phases suivantes : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`.
+**Chercher et comprendre** : `search_everything` (recherche fédérée RBAC-aware sur ~30 familles —
+paiements, Legal avec restriction lecteurs, courriers, factures, produits, personnes, Drive,
+hôpitaux, projets… — tolérante aux accents et aux fautes via `unaccent`/`pg_trgm` quand
+disponibles, repli LIKE sinon ; `lib/queries/search-everything.ts`) ; `inspect_record` (l'histoire
+complète d'un dossier par sa référence — paiement, règlement, Legal avec chaîne
+devis→BC→facture→règlement et validateurs datés, promo, secrétariat, **dossier Regulatory,
+facture, courrier, projet, tâche** — timeline d'audit, pièces, liens) ; `search_drive` +
+`read_document` (fouiller puis LIRE — droit du Drive nœud par nœud) ; les lectures transverses
+ouvertes par le DROIT de l'écran : `read_calendar`, `find_free_slot` (créneau commun),
+`read_stock`, `search_hospitals`, `read_employee`, `read_payroll` (RH), `search_courriers`,
+`finance_totals` (agrégats côté base, période vs période) ; `person_report`.
+
+**Piloter** : `executive_alerts` (détecteurs proactifs avec criticité — paiement bloqué au
+centre, validation qui dort, facture sans BC, contrat expirant, stock épuisé… ;
+`lib/assistant/proactive.ts`) ; `executive_brief` (« fais-moi mon point » — à décider, risques,
+finance, RH, réunions, en un appel) ; `create_report` (« regroupe-moi tout sur le contrat X » →
+.docx consolidé déposé au Drive « Rapports IA ») ; `plan_reminder`/`list_reminders`/
+`cancel_reminder` (« mardi 10 h », « dans 3 heures », « tous les dimanches relance Regulatory »
+— rôle — ou « relance Nesrine » — personne nommée —, « chaque premier lundi du mois » ; modèle
+`AssistantReminder`, balayage `lib/scheduled.ts`, heure d'Alger).
+
+**Agir (toujours confirmé + audité)** : `decide_payment` (centre, SENSITIVE) ; `update_task`
+(réassigner, échéance, statut, commentaire) ; `update_request` (secrétariat, via les actions du
+module) ; `create_legal_document`/`update_legal_document` (déclarer un devis/BC/facture et le
+CHAÎNER) ; `update_calendar_event` (déplacer/annuler) ; `create_hospital`/`update_hospital` ;
+**`update_salary` (niveau CRITIQUE)** — carte avant/après/écart %, **re-saisie du montant**
+(`confirmText`), verrou de fraîcheur à l'exécution. Le LLM ne décide JAMAIS d'un droit : garde à
+la proposition, à l'exécution ET dans la fonction métier (tests adversariaux :
+`lib/assistant/executive-security.test.ts`).
+
+**Voix** : conversation vocale continue (`voice-mode.tsx`) — VAD client, Whisper, réponse PARLÉE
+phrase par phrase (`/api/assistant/speak`, OpenAI TTS), **barge-in** (parler coupe la voix ou
+interrompt la génération), multi-tours, texte affiché en parallèle ; la dictée reste le repli.
+**UI** : panneau CONTEXTE sur grand écran (sources consultées poussées par les événements SSE
+`source`, actions du fil, raccourcis) ; entrée contextuelle `/chief-of-staff?ref=…`/`?q=…` +
+bouton « Demander au Chief of Staff » (fiches Legal et demande de paiement).
+**Observabilité** : `AiUsageLog` enrichi (TTFT, tours, appels/erreurs/temps des outils).
+Capacités de production, matrice finale et limites : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`.
 
 ### Matériel promotionnel — cinq marches, puis trois chantiers en parallèle
 
@@ -2471,8 +2499,10 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Annuaires (praticiens & entreprise)** | Praticiens : `app/(app)/medical/annuaire/directory-bar.tsx` + `lib/actions/medical-directory-crud-actions.ts` (créer / renommer / supprimer — la suppression **déplace** les praticiens ; à ne pas confondre avec `medical-directory-actions.ts`, qui porte l'import et l'édition de la grille). Entreprise : module PUR `lib/contacts/kinds.ts` (+ tests) ; `lib/actions/company-contact-actions.ts` ; `app/(app)/moyens-generaux/annuaire/{page,contacts-board}.tsx`. |
 | **Coordonnées d'entité — documents nommés** | Module PUR `lib/legal/company-docs.ts` (+ tests) : la liste de noms **empruntée au CTD** a été retirée, le document se nomme librement. |
 | **Chaîne du dossier d'achat (Legal)** | `LegalDocKind` + `QUOTE`/`INVOICE` ; `LegalDocument.chainFromId` (auto-relation « fait suite à », `SET NULL`) + `expenseOrderId` (le règlement) ; module PUR `lib/legal/chain.ts` (`CHAIN_KINDS`, `chainOf` — le fil de LA pièce regardée, jamais un graphe mélangé —, `missingKinds`, `delayDays`/`delayLabel`, `amountDrift`) + `chain.test.ts` (10 tests) ; chargement borné `lib/queries/legal-chain.ts` (`loadLegalChain` : maillons + validateurs + règlement) ; `app/(app)/legal/[id]/{chain-card,send-to-settlement}.tsx` ; `sendLegalInvoiceToSettlement` dans `legal-actions.ts` (→ `createExpenseOrder`, centre de paiement). |
-| **My Chief of Staff (module exécutif)** | Module RBAC `CHIEF_OF_STAFF` (PDG + Super Admin) ; page `app/(app)/chief-of-staff/page.tsx` (réutilise `AssistantChat`) ; outils `lib/assistant/executive-tools.ts` (`EXEC` en garde, `search_drive`, `read_document` — droit du Drive nœud par nœud —, **`inspect_record`** — timeline d'audit + validateurs + chaîne d'achat + liens —, `person_report`, `plan_reminder`/`list_reminders`/`cancel_reminder`, `executiveBriefing`) fondus dans `POWER_TOOLS` ; action confirmée **`decide_payment`** (propose + perform dans `lib/assistant.ts`, exécution via `decidePayment` du centre) ; architecture : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`. |
-| **Rappels planifiés du Chief of Staff** | Modèle `AssistantReminder` (dueAt, `recurrence` NONE/DAILY/WEEKLY/MONTHLY, `targetRole` à relancer, `active`) ; module `lib/assistant/reminders.ts` (`nextOccurrence` — retombe le même jour/heure même tiré en retard, rattrape un serveur éteint sans notifier N fois —, `algiersToUtc`, `runAssistantReminders`) + `reminders.test.ts` (9 tests) ; balayage branché dans `lib/scheduled.ts` ; pop-up via `broadcastNotification`, relance du rôle via `notifyRoles`. |
+| **My Chief of Staff (module exécutif)** | Module RBAC `CHIEF_OF_STAFF` (PDG + Super Admin) ; page `app/(app)/chief-of-staff/page.tsx` (réutilise `AssistantChat` avec `executive` + entrée contextuelle `?ref=`/`?q=`) ; outils `lib/assistant/executive-tools.ts` (`search_drive`, `read_document` — droit du Drive nœud par nœud —, **`inspect_record`** universel — paiements, règlements, Legal + chaîne, promo, secrétariat, Regulatory, factures, courriers, projets, tâches —, `person_report`, rappels, `executiveBriefing`) + `executive-read-tools.ts` (**`search_everything`**, `read_calendar`, `find_free_slot`, `read_stock`, `search_hospitals`, `read_employee`, `read_payroll`, `search_courriers`, `finance_totals` — chacun ouvert par le DROIT de l'écran) + `executive-brief-tools.ts` (**`executive_alerts`** ← `lib/assistant/proactive.ts`, **`executive_brief`**, **`create_report`** .docx → Drive) fondus dans `POWER_TOOLS` ; actions confirmées dans `lib/assistant.ts` : `decide_payment` (SENSITIVE), `update_task`, `update_request`, `create_legal_document`/`update_legal_document`, `update_calendar_event`, `create_hospital`/`update_hospital`, **`update_salary` (CRITICAL : `level` + `confirmText`, re-saisie du montant, verrou de fraîcheur)** ; tests adversariaux `lib/assistant/executive-security.test.ts` ; recherche fédérée `lib/queries/search-everything.ts` (unaccent/pg_trgm sondés, repli LIKE) ; architecture : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`. |
+| **Voix du Chief of Staff (conversation)** | `app/(app)/assistant/voice-mode.tsx` — VAD client (RMS + hystérésis), capture → `/api/assistant/transcribe` (Whisper) → même flux SSE (texte affiché en parallèle) → réponse PARLÉE phrase par phrase via `/api/assistant/speak` (`synthesizeSpeech`/`ttsConfigured` dans `lib/ai.ts`, OpenAI TTS) ; **barge-in** : parler coupe la voix / interrompt la génération ; la dictée reste le repli ; les actions se confirment toujours À LA MAIN. Panneau CONTEXTE : événements SSE `source` (extraits par `extractSources` — liens INTERNES uniquement) collectés par `assistant-chat.tsx`. |
+| **Rappels planifiés du Chief of Staff** | Modèle `AssistantReminder` (dueAt, `recurrence` NONE/DAILY/WEEKLY/MONTHLY/**MONTHLY_WEEKDAY** — « chaque premier lundi du mois », repli dernière occurrence —, `targetRole` ET/OU **`targetUserId`** — personne nommée, résolue à la création —, `active`) ; module `lib/assistant/reminders.ts` (`nextOccurrence` — retombe le même jour/heure même tiré en retard, rattrape un serveur éteint sans notifier N fois —, `algiersToUtc`, `runAssistantReminders`) + `reminders.test.ts` (13 tests) ; balayage branché dans `lib/scheduled.ts` ; pop-up via `broadcastNotification`, relances via `notifyRoles`/`notifyUser`. |
+| **Observabilité IA (boucle agent)** | `AiUsageLog` + `ttftMs` (délai avant le 1er mot), `turns`, `toolCalls`, `toolErrors`, `toolLatencyMs` — mesurés dans `runAssistantStream` (`AssistantMetrics`), journalisés par `/api/assistant/stream` via `logAiUsage` (`lib/ai-settings.ts`). Migration `20260824230000_ai_usage_metrics`. |
 | **Drive → « Classer en courrier »** | `attachDriveNodeToMail` (`mail-register-actions.ts` — référence sans copie, refus du doublon) ; `app/(app)/drive/send-to-mail.tsx` (panneau rendu PAR LA LIGNE, hors menu-portail) ; entrée dans `node-actions.tsx`. |
 | **Accès par annuaire de praticiens** | Modèle `MedicalDirectoryAccess` (liste vide = ouvert à tout le module) ; `setDirectoryAccess` (`medical-directory-crud-actions.ts` — celui qui restreint reste dedans d'office) ; filtrage dans `app/(app)/medical/annuaire/page.tsx` (pastille masquée, adresse directe en 404, praticiens exclus de la vue « Tous ») ; panneau d'accès dans `directory-bar.tsx`. |
 | **RH — contrats : visibilité et miroir Drive** | Module PUR `lib/hr/document-visibility.ts` (`defaultVisibleToEmployee`, `resolveVisibility`, `shouldMirrorToDrive`) + tests ; `lib/hr-drive-mirror.ts` écrit dans une **catégorie de Drive** « RH — Contrats » ouverte aux seuls rôles RH (`rolesWithModule("RH")`), plus dans un Drive personnel. |
@@ -3060,6 +3090,28 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **My Chief of Staff passe en PRODUCTION (4 lots).** Le module exécutif n'est plus une v1 :
+  **recherche fédérée `search_everything`** (~30 familles RBAC-aware, tolérante aux accents et
+  aux fautes — extensions `unaccent`/`pg_trgm` sondées, repli LIKE, index trigrammes),
+  **`inspect_record` universel** (paiements, règlements, Legal + chaîne d'achat, promo,
+  secrétariat, **Regulatory, factures, courriers, projets, tâches**), **lectures transverses
+  ouvertes par le DROIT de l'écran** (calendrier + `find_free_slot`, stocks, hôpitaux, fiche
+  employé, paie RH, courriers, `finance_totals` — agrégats côté base, période vs période),
+  **8 actions d'écriture confirmées** (`update_task`, `update_request`, `create/
+  update_legal_document` avec chaînage, `update_calendar_event`, `create/update_hospital`,
+  **`update_salary` niveau CRITIQUE** — carte avant/après/écart %, **re-saisie du montant**,
+  verrou de fraîcheur), **proactivité** (`executive_alerts` : paiement bloqué au centre,
+  validation qui dort, facture sans BC, contrat expirant, stock épuisé… ; `executive_brief` =
+  « fais-moi mon point » ; `create_report` = rapport consolidé .docx déposé au Drive), **rappels
+  2.0** (« chaque premier lundi du mois », relance d'une **personne nommée** en plus du rôle),
+  **conversation vocale** (VAD, Whisper, réponse parlée phrase par phrase, **barge-in**, texte en
+  parallèle — dictée en repli), **panneau CONTEXTE** (sources consultées poussées en SSE, actions
+  du fil), **entrée contextuelle** (`?ref=`/`?q=` + bouton « Demander au Chief of Staff » sur les
+  fiches Legal et paiement), **observabilité** (`AiUsageLog` : TTFT, tours, outils, erreurs,
+  temps outils), **tests adversariaux** (l'IA n'est pas une porte dérobée : outils exécutifs et
+  charges utiles forgées refusés côté serveur ; le contenu récupéré est de la DONNÉE, jamais une
+  instruction) et **lint** posé (`next/core-web-vitals`, zéro erreur). Doc de production :
+  `docs/CHIEF_OF_STAFF_ARCHITECTURE.md` (capacités, matrice finale, limites dites).
 - **« My Chief of Staff » : le PDG parle à son entreprise.** Nouveau module exécutif
   (`/chief-of-staff`, PDG + Super Admin) — le même moteur que l'assistant, mais servi avec les
   gestes d'un chef de cabinet : l'**histoire complète d'un dossier** par sa référence (timeline du

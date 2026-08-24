@@ -10,7 +10,6 @@ import { BackLink } from "@/components/shared/back-link";
 // L'API du Document Server est injectée globalement par api.js.
 declare global {
   interface Window {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     DocsAPI?: { DocEditor: new (el: string, config: unknown) => { destroyEditor?: () => void } };
   }
 }

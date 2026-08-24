@@ -32,7 +32,6 @@ export const GET = handle<{ entity: string }>(
     };
     const orderBy = parseSort(sp.get("sort"), def, allowed);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const model = (prisma as any)[def.model.charAt(0).toLowerCase() + def.model.slice(1)];
     const [rows, total] = await Promise.all([
       model.findMany({ where, orderBy, take: page.limit, skip: page.offset, select: selectOf(def.listFields) }),

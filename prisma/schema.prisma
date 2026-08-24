@@ -5721,6 +5721,15 @@ model AiUsageLog {
   ok        Boolean
   latencyMs Int?
   errorCode String? // ex. "HTTP 429", "disabled", "not_configured"
+  /// Observabilité de la BOUCLE AGENT (assistant / Chief of Staff) — nuls hors boucle :
+  /// délai avant le PREMIER mot (ressenti), nombre de tours modèle↔outils, appels d'outils,
+  /// erreurs d'outils, temps total passé DANS les outils. C'est ce qui distingue « le modèle
+  /// est lent » de « une requête SQL est lente » quand on dépanne une réponse à 12 s.
+  ttftMs        Int?
+  turns         Int?
+  toolCalls     Int?
+  toolErrors    Int?
+  toolLatencyMs Int?
   createdAt DateTime @default(now())
 
   @@index([feature])

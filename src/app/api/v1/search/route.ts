@@ -41,7 +41,6 @@ export const GET = handle(
 
     const perEntity = Math.max(1, Math.floor(page.limit / Math.max(1, targets.length)));
     const groups = await Promise.all(targets.map(async (def) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const model = (prisma as any)[def.model.charAt(0).toLowerCase() + def.model.slice(1)];
       const where = { ...entityScopeWhere(ctx.user, def), ...textSearchWhere(def, q), ...dateWhere };
       const [rows, total] = await Promise.all([

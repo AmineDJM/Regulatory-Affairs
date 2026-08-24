@@ -26,7 +26,6 @@ export const GET = handle<{ id: string }>(
     const def = ENTITIES.find((e) => e.entityType && e.entityType === doc.entityType);
     if (def) {
       if (!canReadEntity(ctx.user, def)) throw errors.notFound("Document");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const model = (prisma as any)[def.model.charAt(0).toLowerCase() + def.model.slice(1)];
       const owner = await model.findFirst({ where: { id: doc.entityId ?? "", ...entityScopeWhere(ctx.user, def) }, select: { id: true } });
       if (!owner) throw errors.notFound("Document");

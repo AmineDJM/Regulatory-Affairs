@@ -17,7 +17,6 @@ import { toFolder, toSummary, toMessage, skipToken, deltaToken, isRemoved } from
  * pour dessiner une ligne de liste, ce qui multiplie le temps de chargement d'une boîte par dix.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 type Raw = Record<string, any>;
 
 const LIST_FIELDS = "id,conversationId,subject,from,toRecipients,bodyPreview,receivedDateTime,isRead,hasAttachments,isDraft,parentFolderId";

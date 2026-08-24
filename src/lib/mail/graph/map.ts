@@ -16,7 +16,6 @@ import { sanitizeMailHtml, htmlToText } from "../sanitize";
  * Module PUR — testé.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 type Raw = Record<string, any>;
 
 export function toAddress(raw: Raw | null | undefined): MailAddress | null {

@@ -85,6 +85,12 @@ export interface AiUsageInput {
   ok: boolean;
   latencyMs?: number | null;
   errorCode?: string | null;
+  /** Boucle agent uniquement : ressenti (1er mot), tours, outils appelés / en erreur, temps outils. */
+  ttftMs?: number | null;
+  turns?: number | null;
+  toolCalls?: number | null;
+  toolErrors?: number | null;
+  toolLatencyMs?: number | null;
 }
 
 /** Journalise un appel IA (best-effort, ne lève jamais). */
@@ -99,6 +105,11 @@ export async function logAiUsage(input: AiUsageInput): Promise<void> {
         ok: input.ok,
         latencyMs: input.latencyMs ?? null,
         errorCode: input.errorCode ?? null,
+        ttftMs: input.ttftMs ?? null,
+        turns: input.turns ?? null,
+        toolCalls: input.toolCalls ?? null,
+        toolErrors: input.toolErrors ?? null,
+        toolLatencyMs: input.toolLatencyMs ?? null,
       },
     });
   } catch {
