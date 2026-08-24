@@ -32,6 +32,9 @@ RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Cale
 - [Rôles](#-rôles)
 - [Workflows critiques](#-workflows-critiques)
 - [**Référence détaillée des circuits & mécanismes transverses**](#-référence-détaillée-des-circuits--mécanismes-transverses)
+  - [**Centre de paiement — l'autorisation du PDG**](#centre-de-paiement--rien-ne-sort-au-dessus-du-seuil-sans-le-pdg)
+  - [Matériel promotionnel — circuit court](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle)
+  - [Rejeu de session — support technique](#rejeu-de-session--rembobiner-ce-quune-personne-a-fait)
   - [Recrutement — de la demande à l'intégration](#recrutement--de-la-demande-dun-directeur-jusquà-lintégration)
   - [Congés — l'intérimaire qui tient la place](#congés--lintérimaire-qui-tient-la-place)
   - [Dimension multi-entités (cloisonnement)](#dimension-multi-entités-sociétés-du-groupe)
@@ -120,9 +123,9 @@ Comprendre l'OS, c'est comprendre le métier qu'il digitalise. Termes récurrent
 
 | | |
 |---|---|
-| **~40** modules de navigation · **94** pages applicatives | **17** rôles métier |
-| **93** modèles Prisma · **86** enums | **69** migrations SQL |
-| **54** fichiers de *server actions* · **27** fichiers de requêtes | **32** routes API |
+| **38** modules RBAC · **166** pages applicatives | **19** rôles métier |
+| **236** modèles Prisma · **167** enums | **236** migrations SQL |
+| **108** fichiers de *server actions* · **51** fichiers de requêtes | **80** routes API |
 | RBAC **module × action × ligne** appliqué **côté serveur** | Drive & mots de passe **chiffrés AES-256-GCM** |
 | Assistant IA (boucle agent Claude) partout | Rapports terrain **vocaux** (Whisper → Claude) |
 | Messagerie interne temps réel **+ notification sonore** (même en arrière-plan) | Webmail Infomaniak intégré (recherche, répondre à tous, transfert) |
@@ -183,18 +186,18 @@ jamais identique.
 | Module | Route | Description |
 |---|---|---|
 | **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
-| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le chef de produit**), **analyse confidentielle du chef de produit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. → [workflows](#-workflows-critiques) |
+| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le chef de produit**), **analyse confidentielle du chef de produit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** a son circuit **court** : devis → demandeur → N+1 → PDG **ou** Super Admin → information médicale, puis **trois chantiers en parallèle** (bon de commande, paiement, visa publicitaire) ; chacun ne voit que **sa** marche, seuls l'administrateur et le PDG voient tout. → [workflows](#-workflows-critiques) · [détails](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
-| **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). |
+| **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). **Centre de paiement** (`/finances/centre-de-paiement`) : au-dessus de **50 000 DZD**, aucun paiement n'atteint les Finances sans l'autorisation du **PDG ou du Super Admin** — BV Regulatory compris ; les **moyens généraux** en sont exceptés. → [détails](#centre-de-paiement--rien-ne-sort-au-dessus-du-seuil-sans-le-pdg) |
 | **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
-| **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) : l'administration remet une somme chaque mois, la personne qui la détient **confirme l'avoir reçue** — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**, jusqu'à épuisement. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
+| **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) : l'administration remet une somme chaque mois, la personne qui la détient **confirme l'avoir reçue** — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**, jusqu'à épuisement. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/moyens-generaux/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
 | **Formations** | `/formations` | Demande individuelle (montant, organisme, dates, devis) validée **N+1 → RH → DG**, et formations **organisées par les RH** (qui partent directement au DG) avec **participants convoqués ou volontaires** (les volontaires acceptent ou déclinent) et **postes** (salle, traiteur, intervenant) validés un par un par la Direction. Budget **FORMATION** parmi les budgets départementaux. |
 | **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
 | **Logistique PCH** | `/logistics` | Module autonome : import / expéditions fournisseurs, dates estimées vs réelles, dédouanement. |
 | **PCH — Marchés** | `/pch` | **Marchés publics gagnés** : appels d'offres → **bons de commande** + **caution** (alertes d'expiration). → [détails](#pch--marchés-publics) |
 | **Stocks** | `/stocks` | Refonte en **états datés** (« à cette date, il reste X ») — **sans** entrées/sorties : 3 onglets **Stock PCH · Stock hôpitaux · Annexes PCH** (hôpitaux **et** annexes PCH = lieux nommés, créés/supprimés **uniquement par le Super Admin**), **vue par produit** (catalogue Regulatory) en **graphique** (courbe date → quantité) ou **tableau** (avec évolution entre relevés), un état par jour (ressaisie = correction). Le détecteur « Stock PCH bas » du Brain lit en priorité le dernier état. |
 | **Rapports terrain** | `/field-reports` | **Rapports vocaux IA** des délégués : parler → transcription → analyse → relecture → validation. Onglet **« Overview »** (`/field-reports/overview`) : **graphes d'analyse** (visites par médecin / hôpital / délégué / spécialité, tendance 12 mois, statut, produits) — accès **par autorisation du Super Admin** (`fieldReportsOverviewRoles`). La fiche d'un rapport est gardée par le module **Rapports terrain** (et non plus « Promotion médicale »). → [détails](#-intelligence-artificielle-claude--whisper) |
-| **Annuaire** *(ex-« Promotion médicale »)* | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. Onglet **Annuaire** (`/medical/annuaire`) = **feuille modifiable en place** (12 colonnes exactes, 58 wilayas, potentiel, export). **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué**, plans de tournées **duplicables**. |
+| **Annuaire** *(ex-« Promotion médicale »)* | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. Onglet **Annuaire** (`/medical/annuaire`) = **feuille modifiable en place** (12 colonnes exactes, 58 wilayas, potentiel, export), en **plusieurs annuaires nommés** (« Cardiologues Centre », « Pédiatres Ouest »…) qu'on crée, renomme et supprime — la suppression d'un annuaire **déplace ses praticiens** vers un autre plutôt que de les détruire. **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué**, plans de tournées **duplicables**. |
 | **Information médicale** | `/information-medicale` | Module du **pharmacien responsable de l'information médicale (PRIM)** : déclaration réglementaire **intercalée** entre la validation de la Direction et l'ordre de dépense ; **consultation des pièces de l'événement source**, upload de la déclaration, affichage du demandeur. → [workflow](#information-médicale--déclaration-réglementaire-prim) |
 | **Business Development** | `/business-development` | **Grand tableau stratégique Projet → Gamme → Produit** (~20 colonnes), colonnes gelées, export CSV. **Intègre Pharmatool** : pipeline de données concurrentielles, **Vue d'ensemble**, **moteur de matching DCI**, **Opportunités**, **Pricing** (ville / hôpital), **Analyse produit / concurrence** (HHI, parts de marché, radar), **Explorateur produits** (recherche **en temps réel** + filtres classe/labo, sélection multi-produits, comparaison volume/prix/valeur). |
 
@@ -222,7 +225,7 @@ jamais identique.
 | Module | Route | Description |
 |---|---|---|
 | **Adventum Brain** 🧠 | `/adventum-brain` | **Super Admin uniquement — le cockpit qui voit ce que les autres ne voient pas.** War Room, Risk Radar, Root Cause, Knowledge Graph, Autopilot, Intelligence Feed + **Process Intelligence** en onglet. → [détails](#-adventum-brain-cockpit-super-admin) |
-| **Administration** | `/admin` | Comptes (création, **modification e-mail/profil/rôle**), **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit** (paginé), **champs personnalisés**, règles de validation, feedback, **Départements & sous-départements** (`/admin/departments` — structure hiérarchique à 2 niveaux « comme une vraie boîte », employés rattachés depuis leur fiche RH), comptes portail fournisseur, **Vue exacte** (impersonation), **Contrôle IA** + **Score d'adoption** en onglets, **limites d'upload** configurables, **Corbeille des suppressions définitives** (`/admin/corbeille` — chaque suppression définitive est **restaurable** jusqu'à destruction réelle), carte **Stockage Drive** (consommation exacte globale dédupliquée + par utilisateur, **capacité et quota modifiables et appliqués à l'envoi**), colonne **« Dernière activité (dernier clic) »** précise à la minute. |
+| **Administration** | `/admin` | Comptes (création, **modification e-mail/profil/rôle**), **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit** (paginé), **champs personnalisés**, règles de validation, feedback, **Départements & sous-départements** (`/admin/departments` — structure hiérarchique à 2 niveaux « comme une vraie boîte », employés rattachés depuis leur fiche RH), comptes portail fournisseur, **Vue exacte** (impersonation), **Contrôle IA** + **Score d'adoption** en onglets, **limites d'upload** configurables, **Corbeille des suppressions définitives** (`/admin/corbeille` — chaque suppression définitive est **restaurable** jusqu'à destruction réelle), carte **Stockage Drive** (consommation exacte globale dédupliquée + par utilisateur, **capacité et quota modifiables et appliqués à l'envoi**), colonne **« Dernière activité (dernier clic) »** précise à la minute, **Rejeu de session** (`/admin/replay` — **Super Admin uniquement** : la suite exacte des actions d'une personne, pour reproduire un bug sans le faire raconter ; **aucune valeur de champ n'est enregistrée**). → [détails](#rejeu-de-session--rembobiner-ce-quune-personne-a-fait) |
 | **Recherche globale** | `/search` | RBAC-aware + **palette ⌘K**. |
 
 ### Externe
@@ -591,6 +594,111 @@ ensuite). C'est une **dimension transverse** appliquée à tout le logiciel :
 - ⚠ **Ne pas confondre** avec l'enum polymorphe `EntityType` (type d'objet pour Documents/Commentaires/accès) : la
   société est le modèle **`Company`** (libellé UI « Entité »).
 
+### Centre de paiement — rien ne sort, au-dessus du seuil, sans le PDG
+
+**La règle** : **tout paiement de la société**, quel que soit le module qui l'a produit — Ad & Pro,
+secrétariat, formations, recrutement, **BV Regulatory compris** —, passe par le **centre de
+paiement** avant d'atteindre les Finances. **Les moyens généraux en sont exceptés** (`GENERAL_MEANS`
+dans `EXEMPT_MODULES`) : c'est l'argent du quotidien, déjà encadré par une caisse et un budget de
+département, et le faire remonter au PDG paralyserait l'achat d'une rame de papier. La **paie RH**
+n'y entre pas non plus : elle a son propre circuit.
+
+**Le seuil : 50 000 DZD.** En dessous, un paiement validé par les circuits existants part
+**directement** aux Finances — le centre n'est pas un péage, il ne doit pas faire la queue pour de
+petits montants. À partir du seuil, il attend une autorisation. Le montant **inconnu ou illisible**
+est traité comme au-dessus du seuil : dans le doute, on demande, on ne laisse pas passer.
+
+**Qui siège** : le **PDG** (`DIRECTION`) et le **Super Admin**, et personne d'autre — le Directeur
+Général n'y est délibérément pas. **Un centre par entité** : autoriser un paiement d'Adventum et un
+paiement de Pharmagène sont deux gestes comptablement distincts, et une file unique ferait perdre de
+vue ce que chaque société engage.
+
+**Quatre issues, pas deux.** Un refus sec oblige à tout refaire et perd la discussion. Le centre
+peut **autoriser**, **refuser**, **demander une révision du montant** (avec le montant qu'il
+propose — une proposition, jamais une réécriture : c'est au demandeur de corriger) ou **demander une
+argumentation**. Le demandeur répond **dans le même fil** et resoumet ; autant d'allers-retours
+qu'il en faut, tous horodatés et nominatifs.
+
+**Ce que voient les Finances** : rien, tant que le centre n'a pas tranché. Un paiement `AWAITING`,
+`CHANGES_REQUESTED` ou `INFO_REQUESTED` **n'apparaît pas** dans leur file — sinon le comptable
+paierait de bonne foi ce qui n'est pas autorisé. Un paiement **refusé**, lui, s'affiche : ils doivent
+savoir qu'il ne viendra pas. Et **l'accès à la demande complète** leur reste ouvert : le financier
+qui paie doit pouvoir lire ce qu'il paie.
+
+**Où le verrou est réellement posé** : au **décaissement** (`markExpenseOrderPaid`), pas à
+l'affichage. Masquer une ligne est du confort ; `canDisburse(centralStatus)` est la règle. Toute
+autre porte vers le paiement devra passer par cette même fonction.
+
+- **Module PUR** : `src/lib/payments/authorization.ts` (`needsCentralAuthorization`,
+  `initialCentralStatus`, `canDisburse`, `visibleToFinance`, `sitsOnPaymentCentre`, `applyDecision`,
+  `applyResubmission`, `blockedReason`) + `authorization.test.ts` (**19 tests**).
+- **Modèles** : `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` +
+  `PaymentCentreMessage` (le fil). Migration `20260824150000_payment_centre`.
+- **Écrans** : `app/(app)/finances/centre-de-paiement/{page,centre-board}.tsx` ;
+  **actions** `lib/actions/payment-centre-actions.ts` (`decidePayment`, `respondToPaymentCentre`).
+
+### Matériel promotionnel — cinq marches, puis trois chantiers en parallèle
+
+Le circuit d'avant comptait seize marches en file indienne : une brochure attendait trois semaines,
+et personne ne savait sur quelle marche elle dormait. Il en reste **cinq** :
+
+1. **Demande de devis** — sautée si le demandeur a **déjà** son devis et le téléverse. Demander un
+   devis qu'on a en main est une marche pour rien.
+2. **Validation du devis par le demandeur** (il confirme le devis reçu).
+3. **Validation par le N+1** — le responsable hiérarchique réel (`Employee.managerId`, à défaut le
+   responsable du département), pas un rôle générique.
+4. **Validation par le PDG *ou* le Super Admin** — **l'un des deux suffit** : exiger les deux
+   ajouterait une attente sans ajouter de contrôle.
+5. **Validation de l'information médicale**, qui déclenche la **demande de visa publicitaire**.
+
+Ensuite, **trois chantiers en parallèle** — et non l'un après l'autre : le **bon de commande**
+(téléversé), la **demande de paiement** (enclenchée par le demandeur, qui repart dans le circuit
+normal, centre de paiement compris) et le **visa publicitaire**. Le dossier n'est **terminé** que
+lorsque les trois le sont ; c'est `allTracksDone` qui le dit, pas quelqu'un qui coche.
+
+**La visibilité** : `seesFullCircuit(user)` → **Super Admin et PDG uniquement**. Les autres voient
+**leur** marche et l'état d'avancement, pas l'enchaînement complet ni qui a validé quoi.
+
+- **Module PUR** : `src/lib/promo-material/circuit.ts` (`PROMO_STEPS`, `PROMO_TRACKS`,
+  `initialStep`, `canValidate`, `seesFullCircuit`, `tracksOpen`, `allTracksDone`, `pendingTracks`,
+  `progress`, `waitingOn`) + `circuit.test.ts` (**23 tests**).
+- **Actions** : `lib/actions/promo-circuit-actions.ts`. Migration `20260824160000_promo_short_circuit`.
+
+### Rejeu de session — rembobiner ce qu'une personne a fait
+
+Le support reçoit « ça ne marche pas » : sans page, sans heure, sans manipulation. Le rejeu répond à
+la seule question utile — **qu'est-ce qui s'est passé, dans l'ordre, juste avant l'erreur**. On ouvre
+la session, le **curseur est déjà posé sur la première erreur**, et la lecture automatique respecte
+le **rythme réel** (accéléré ×4, silences plafonnés) : on voit l'hésitation, les allers-retours, les
+trois clics sur le bouton qui ne répond pas.
+
+⚠️ **Ce n'est pas une vidéo.** Un navigateur ne peut pas filmer l'écran sans autorisation explicite
+ni indicateur visible — c'est une garantie du navigateur lui-même, pas un réglage qu'on désactive.
+Ce sont les **ACTIONS** qui sont enregistrées (pages, clics, champs remplis, envois, erreurs), comme
+le font LogRocket ou FullStory, et cela suffit à reproduire un bug.
+
+⚠️ **Aucune valeur de champ n'est lue**, nulle part : ni dans le navigateur, ni à l'envoi, ni côté
+serveur — on ne touche jamais à `.value`. Les champs **mot de passe, secret, jeton, IBAN, RIB, CVV,
+carte** et les champs **cachés** sont écartés **entièrement**, avant même leur libellé : savoir
+qu'une personne a tapé dans « mot de passe » est déjà de trop. Les libellés sensibles (montant,
+salaire, compte, NIF) sont conservés **sans leur valeur** : on sait QU'elle a rempli « Montant »,
+jamais COMBIEN. Les messages d'erreur passent par un filet qui retire **adresses e-mail, numéros
+longs et jetons**. Le masquage est **refait côté serveur** par la même fonction : un client modifié
+ne peut pas faire entrer ce qu'il veut dans un journal que le support relira.
+
+**Réservé au Super Admin** — pas au PDG, pas aux RH. C'est un outil de diagnostic technique ;
+l'élargir en ferait un outil de surveillance. L'existence de l'enregistrement se déclare par le
+**règlement intérieur**, pas par un voyant à l'écran.
+
+- **Module PUR** : `src/lib/replay/capture.ts` (`fieldIsRecordable`, `isSensitiveLabel`,
+  `cleanLabel`, `scrubDetail`, **`makeEvent` — la porte d'entrée unique**, `coalesce`,
+  `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (**20 tests**, dont le masquage).
+- **Capture** : `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, envoi
+  par `sendBeacon` — il survit à la fermeture de l'onglet et ne retarde jamais une page ; un échec
+  est silencieux). **Réception** : `app/api/replay/route.ts` (répond **204 quoi qu'il arrive**).
+- **Console** : `app/(app)/admin/replay/{page,replay-viewer}.tsx`. Modèle `SessionEvent`, migration
+  `20260824170000_session_replay`.
+
 ### Recrutement — de la demande d'un directeur jusqu'à l'intégration
 
 **Modèles** : `RecruitmentRequest` (référence `REC-AAAA-NNN`, entité, département, demandeur, poste, effectif,
@@ -818,6 +926,61 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
 - **Fichiers** : `src/lib/archive.ts` (`archiveProcessedRequest` — testé sur base réelle dans `archive.test.ts`),
   appels dans `hr-document-actions.ts`, `admin-request-actions.ts`, `medical-info-actions.ts`.
 
+### Courriers — dossiers de classement, et autant de pièces qu'il en faut
+
+**Des dossiers**, comme dans Legal : un registre plat devient illisible au bout de deux cents plis.
+Modèle `MailFolder` (arbre, `MailEntry.folderId` en `ON DELETE SET NULL` — supprimer un dossier
+**déclasse** les courriers, il ne les détruit pas), barre de dossiers `app/(app)/courriers/mail-folder-bar.tsx`,
+actions `lib/actions/mail-folder-actions.ts`. Migration `20260824120000_mail_entry_folder`.
+
+**Autant de pièces qu'on veut, chacune avec SON destinataire.** Un pli sortant part rarement à une
+seule personne : le même courrier porte l'original pour l'ANPP, la copie pour le partenaire,
+l'annexe pour l'avocat. Chaque **pièce** (`MailEntryPiece`) a donc son intitulé, **son
+destinataire** et son fichier — téléversé, ou **pris dans le Drive sans le recopier** (on référence
+le nœud existant : un contrat dupliqué se met à diverger de son original). `app/(app)/courriers/[id]/mail-pieces.tsx`,
+`lib/actions/mail-piece-actions.ts`, migration `20260824140000_mail_entry_piece`.
+
+**Créer un courrier depuis le Drive** : le fichier est déjà là, le retéléverser en ferait un doublon
+qui vieillit à part.
+
+### Supprimer ce qu'on a créé — et un lien Drive qui ouvre le fichier
+
+**La suppression par le créateur.** Un courrier ou un document légal créé par erreur restait là
+faute de bouton, et l'on créait le bon **à côté** — le registre finissait par contenir deux vérités.
+Le **créateur** peut désormais supprimer le sien (`deleteOwnRecord`), à condition d'avoir le droit
+`DELETE` sur le module concerné : `CREATOR_DELETABLE` = `MAIL_ENTRY`, `LEGAL_DOCUMENT`. La
+suppression est **traçable et réversible** — instantané complet dans la **corbeille** du Super
+Admin, comme toute suppression définitive. `lib/actions/admin-delete-actions.ts`,
+`components/shared/record-delete-button.tsx`.
+
+**Un lien Drive ouvre le FICHIER, pas le dossier.** Rattacher un fichier du Drive à un courrier, à
+un document légal ou à une demande renvoyait vers l'explorateur, à charge pour le lecteur de
+retrouver la pièce parmi trente. Le lien pointe maintenant sur le **nœud exact** et l'ouvre
+directement dans la visionneuse.
+
+### Coordonnées d'entité — des documents nommés, et plus de noms « CTD »
+
+Les pièces déposées sur la fiche d'une entité (registre de commerce, NIF, statuts, RIB…) héritaient
+d'une liste de noms **empruntée au dossier CTD** — « Module 3.2.P », « 1.0 Lettre de couverture » —
+qui n'a rien à voir avec des coordonnées légales. La liste a été retirée : **on nomme le document
+soi-même**, en français, comme on le nommerait sur une étagère. Module PUR `lib/legal/company-docs.ts`
+(+ tests).
+
+### Annuaires — praticiens et contacts de l'entreprise
+
+**Plusieurs annuaires de praticiens**, nommés (« Cardiologues Centre », « Pédiatres Ouest »…),
+créés, renommés et supprimés depuis la barre d'annuaires. Supprimer un annuaire **déplace ses
+praticiens** vers un autre : détruire des centaines de fiches parce qu'on renomme un classeur serait
+une perte sèche. `app/(app)/medical/annuaire/directory-bar.tsx`,
+`lib/actions/medical-directory-crud-actions.ts` (à ne pas confondre avec
+`medical-directory-actions.ts`, qui porte l'import et l'édition de la grille).
+
+**L'annuaire d'entreprise** (`/moyens-generaux/annuaire`) : tous les contacts extérieurs de la
+société au même endroit — **agence de voyage, livreurs, agence marketing, imprimeur, transitaire,
+assurance…** — par **catégorie** (module PUR `lib/contacts/kinds.ts` + tests), cherchables,
+téléphone et e-mail **cliquables**. Le numéro du livreur vivait dans le téléphone d'une personne ;
+le jour où elle est en congé, plus personne ne l'a.
+
 ### Drive — l'explorateur de fichiers, et le miroir automatique de tout ce qui est importé
 
 **L'écran est un explorateur.** Personne n'a appris à se servir de l'explorateur Windows : on le
@@ -959,6 +1122,19 @@ sur un détail. La page **Bureautique** utilise la même liste, pour la même ra
   s'y conformer signifierait déplacer les dossiers réglementaires et les contrats RH chez un tiers.
   L'éditeur intégré lit et écrit les **vrais formats**, ouvrables ensuite dans Microsoft Office sur
   un poste, et l'édition en ligne s'active dès que le serveur d'édition est configuré.
+- **La co-édition existe déjà — c'était sa DÉCOUVRABILITÉ qui manquait.** Deux personnes qui ouvrent
+  le même document l'éditent **ensemble**, curseurs visibles, sans « version finale v3 (2).docx » :
+  tous les clients partagent la même `document.key` (`${nodeId}_${version}`), et c'est cette clé
+  seule qui décide qu'ils sont dans la même session — se tromper de clé fabrique deux documents
+  jumeaux qui s'écrasent l'un l'autre. Ce qui manquait n'était pas la capacité mais le **panneau de
+  partage** : on ne devine pas qu'un fichier est co-éditable, on partage donc une pièce jointe par
+  e-mail. Bureautique le **dit** désormais, en une phrase, et **liste les documents déjà partagés en
+  modification** avec les personnes concernées — voir que cela existe et que cela marche vaut mieux
+  que l'expliquer. Le partage lui-même reste celui du Drive (accès par personne : voir / modifier).
+  → `docs/ONLYOFFICE_SETUP.md` : les quatre étapes du serveur auto-hébergé, ce qui est garanti (les
+  fichiers ne quittent pas notre stockage, le secret JWT ne va jamais au navigateur) et le tableau
+  des pannes — dont la plus silencieuse : un `APP_URL` que le Document Server n'atteint pas, où
+  l'éditeur s'ouvre mais n'enregistre rien.
 - **Fichiers** : `src/lib/office/apps.ts` (pur, testé), `app/(app)/office/{page,office-launcher}.tsx`,
   `components/layout/office-pins.tsx`.
 
@@ -2234,6 +2410,13 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Catalogue d'articles — écriture uniforme** | Module PUR `lib/general-means/catalog-normalize.ts` (`normalizeArticleName`, `articleKey`, `normalizeReference`, `normalizeToCode`, `normalizeArticle`, `needsRewrite`, `describeRewrite`, `CATEGORY_ALIASES`, `UNIT_ALIASES`) + `catalog-normalize.test.ts` (23 tests) ; normalisation + **refus du doublon** dans `lib/actions/office-supply-actions.ts` ; `previewCatalogNormalization` / `applyCatalogNormalization` (on montre avant d'appliquer) ; `NormalizePanel` dans `app/(app)/demandes/supplies-manager.tsx`. |
 | **Legal — dossiers de classement** | Modèle `LegalFolder` + `LegalDocument.folderId` (`ON DELETE SET NULL` : on déclasse, on ne détruit pas) ; module PUR `lib/legal/folders.ts` (`buildFolderTree`, `flattenFolders`, `folderPath`, `subtreeIds`, `canReparent`, `deletionSummary`) + `folders.test.ts` (17 tests) ; `lib/actions/legal-folder-actions.ts` ; `app/(app)/legal/folder-bar.tsx` ; champ `folderId` dans `legal-fields.ts`. |
 | **Legal — coordonnées légales & fiscales** | Modèle `CompanyLegalIdentity` + `EntityType.COMPANY` ; module PUR `lib/legal/identity.ts` (`IDENTITY_SECTIONS`, `identityBlock`, `filledCount`) + tests ; `lib/actions/company-identity-actions.ts` ; `app/(app)/legal/identites/`. |
+| **Centre de paiement (autorisation du PDG)** | Module PUR `lib/payments/authorization.ts` (`CENTRAL_AUTH_THRESHOLD_DZD` = 50 000, `EXEMPT_MODULES` = `GENERAL_MEANS`, `needsCentralAuthorization`, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `sitsOnPaymentCentre` (**`SUPER_ADMIN` ou `DIRECTION`**, pas le DG), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (19 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; garde dans `markExpenseOrderPaid` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/finances/centre-de-paiement/`. |
+| **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
+| **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
+| **Courriers — dossiers & pièces multiples** | Modèles `MailFolder` (arbre, `MailEntry.folderId` en `ON DELETE SET NULL`) et `MailEntryPiece` (intitulé + **destinataire propre** + fichier téléversé **ou** nœud Drive référencé) ; `lib/actions/mail-folder-actions.ts`, `lib/actions/mail-piece-actions.ts` ; `app/(app)/courriers/mail-folder-bar.tsx`, `app/(app)/courriers/[id]/mail-pieces.tsx`. |
+| **Suppression par le créateur** | `CREATOR_DELETABLE` = `MAIL_ENTRY`, `LEGAL_DOCUMENT` ; `CREATOR_DELETE_PERMISSION` (le droit `DELETE` du module reste exigé) ; `snapshotAndSoftDelete` (instantané dans la **corbeille** avant destruction) et `deleteOwnRecord` dans `lib/actions/admin-delete-actions.ts` ; `components/shared/record-delete-button.tsx`. |
+| **Annuaires (praticiens & entreprise)** | Praticiens : `app/(app)/medical/annuaire/directory-bar.tsx` + `lib/actions/medical-directory-crud-actions.ts` (créer / renommer / supprimer — la suppression **déplace** les praticiens ; à ne pas confondre avec `medical-directory-actions.ts`, qui porte l'import et l'édition de la grille). Entreprise : module PUR `lib/contacts/kinds.ts` (+ tests) ; `lib/actions/company-contact-actions.ts` ; `app/(app)/moyens-generaux/annuaire/{page,contacts-board}.tsx`. |
+| **Coordonnées d'entité — documents nommés** | Module PUR `lib/legal/company-docs.ts` (+ tests) : la liste de noms **empruntée au CTD** a été retirée, le document se nomme librement. |
 | **RH — contrats : visibilité et miroir Drive** | Module PUR `lib/hr/document-visibility.ts` (`defaultVisibleToEmployee`, `resolveVisibility`, `shouldMirrorToDrive`) + tests ; `lib/hr-drive-mirror.ts` écrit dans une **catégorie de Drive** « RH — Contrats » ouverte aux seuls rôles RH (`rolesWithModule("RH")`), plus dans un Drive personnel. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
@@ -2510,18 +2693,18 @@ comme sur **toutes les pièces jointes des modules**.
 
 ## 🗃️ Modèle de données — entités clés
 
-**102 modèles** Prisma (dont `Company`), **87 enums** (dont `MaterialType`). Quelques entités structurantes (référence `prisma/schema.prisma`) :
+**236 modèles** Prisma (dont `Company`), **167 enums** (dont `MaterialType`). Quelques entités structurantes (référence `prisma/schema.prisma`) :
 
 | Domaine | Modèles clés |
 |---|---|
 | **Identité & accès** | `User` (`role` + `secondaryRole`, `lastSeenAt`), `UserAccess` (overrides), `RowGrant` (grants par ligne), `UserSession` (révocable, `lastSeenAt` = dernier clic), `LoginAttempt`, `AppSetting` (limites d'upload + `driveCapacityGb`/`driveUserQuotaGb` + mode budget total). |
 | **Ad & Pro** | `SponsoringRequest`, `CongressInternational`, `CongressNational`, `Event` (+ `EventRegistration`), `PromoMaterial`, `MissionAssignment`. |
-| **Budgets & Finances** | `BudgetEnvelope` (`accessRoles`, `accessUserIds` = visualisation ; `managerRoles`, `managerUserIds` = gestion déléguée ; `modules[]`), `BudgetCategoryLine` (auto-relation `parentId` = sous-catégories), `ExpenseOrder`, `FinanceTransaction` (`budgetCategoryId` = imputation), `PayrollEntry` (`payslipDocumentId`, `employeeNotifyAt/NotifiedAt`, `budgetTransferredAt`, `budgetCategoryId`), `SalaryAdvance`. |
+| **Budgets & Finances** | `BudgetEnvelope` (`accessRoles`, `accessUserIds` = visualisation ; `managerRoles`, `managerUserIds` = gestion déléguée ; `modules[]`), `BudgetCategoryLine` (auto-relation `parentId` = sous-catégories), `ExpenseOrder`, `FinanceTransaction` (`budgetCategoryId` = imputation), `PayrollEntry` (`payslipDocumentId`, `employeeNotifyAt/NotifiedAt`, `budgetTransferredAt`, `budgetCategoryId`), `SalaryAdvance`. **Centre de paiement** : `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` (le fil des allers-retours). |
 | **Regulatory & PCH** | `RegulatoryProduct` (+ étapes/documents, `deHolder`, `manufacturingVariation`, `manufacturer`, `variationDate`), `Supplier`, `PchTender` + bons de commande + caution, `StockAnnex` + `StockSnapshot` (états datés — le suivi actif), `StockMovement` (legacy, encore lu par le Brain en repli). |
 | **Information médicale** | `MedicalInfoDeclaration` (`sourceType`/`sourceId` polymorphe → événement source, clé unique). |
 | **Promotion médicale** | `MedicalDoctor`, `MedicalVisit`, `DelegatePlan`, segmentation par spécialité/produit. |
-| **Transverse** | `AdministrativeRequest` (+ cellules/approbations, `archivedNodeId`), `DriverMission` + `DriverMissionStop` (courses multi-points), `OfficeSupplyArticle`, `ValidationRequest` (+ steps + rules), `Dossier` (+ `DossierMessage`), `Directive`, `SupportRequest`, `Document` + `FileBlob` (chiffré), `Comment`, `AuditLog`, `Notification`, `DeletedRecord` (corbeille des suppressions définitives), `WorkflowDefinition/Step/Instance/StepEvent` (moteur Ad & Pro). |
-| **Messagerie & Courrier** | `Conversation`, `ConversationMember`, `Message` (+ réactions), `MessageAttachment` (**deux natures** : `blobId` = fichier téléversé, `driveNodeId` = référence au Drive sans recopie), `MailAccount` (chiffré). |
+| **Transverse** | `AdministrativeRequest` (+ cellules/approbations, `archivedNodeId`), `DriverMission` + `DriverMissionStop` (courses multi-points), `OfficeSupplyArticle`, `ValidationRequest` (+ steps + rules), `Dossier` (+ `DossierMessage`), `Directive`, `SupportRequest`, `Document` + `FileBlob` (chiffré), `Comment`, `AuditLog`, `Notification`, `DeletedRecord` (corbeille des suppressions définitives), `WorkflowDefinition/Step/Instance/StepEvent` (moteur Ad & Pro), `SessionEvent` (rejeu de session — **actions seules, aucune valeur de champ**). |
+| **Messagerie & Courrier** | `Conversation`, `ConversationMember`, `Message` (+ réactions), `MessageAttachment` (**deux natures** : `blobId` = fichier téléversé, `driveNodeId` = référence au Drive sans recopie), `MailAccount` (chiffré), `MailFolder` (dossiers de classement du registre), `MailEntryPiece` (une pièce = un intitulé + **son** destinataire + un fichier téléversé **ou** un nœud Drive référencé). |
 | **IA & Brain** | `AiUsageLog`, `RiskSetting`, `AdoptionSetting`, `FieldReport`. |
 | **RH & structure** | `Employee` (contrat, périodes d'essai `trial*`, salaires `baseSalary`/`retSS9`/`retSS35`/`tfp`/`retIrg`/`expenseRefund`/`netToPay`/`grossSalary`, **`departmentId`** = rattachement structuré, `managerId` = N+1 explicite), **`Department`** (auto-relation `parentId` = sous-départements sur **N niveaux**, `headId` = responsable, `deputyId` = adjoint), `EmployeeDocument` (blob Drive + `period`), `HrDocumentRequest` (types + `expenseMonth`/`approvedMonth`/`originalsAck*`, `meeting*`, `archivedNodeId`), `LeaveRequest`, `PayrollEntry`. |
 | **Externe** | `Supplier`, `SupplierUser` (auth séparée). |
@@ -2758,7 +2941,8 @@ npx prisma migrate deploy
 - **Vitest** : tests RBAC (purs, CI-safe) + **tests d'intégration** des workflows critiques contre une vraie base
   Postgres (mock de session) — information médicale, dossiers, directives, support, OnlyOffice (JWT), stockage
   durable, validation des imports Drive, score d'adoption anti-gaming, atterrissage sûr, matériel promotionnel,
-  assistant IA, courrier, réunions. **110 passés · 23 skip propres** (sans base, CI verte partout).
+  assistant IA, courrier, réunions. **2 491 passés · 23 skip propres** sur **229 fichiers** (sans base,
+  CI verte partout).
 - **Porte de vérification** avant chaque push (jamais contournée) :
 
 ```bash
@@ -2766,7 +2950,7 @@ npx tsc --noEmit && npm run build && npx vitest run
 ```
 
 > Les tests d'intégration **skippent proprement** si aucune base n'est disponible (CI verte) et **s'exécutent
-> tous** dès que Postgres est présent — on retombe alors sur le référentiel **110 passés / 23 skip**.
+> tous** dès que Postgres est présent — on retombe alors sur le référentiel **2 491 passés / 23 skip**.
 
 ---
 
@@ -2817,6 +3001,98 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **Le centre de paiement : au-dessus de 50 000 DZD, l'argent ne sort pas sans le PDG.** Les
+  paiements naissaient dans huit modules et se rejoignaient aux Finances — chacun validé quelque
+  part, aucun validé **au même endroit**. Personne ne pouvait dire, un mardi matin, ce que la société
+  s'apprêtait à décaisser cette semaine. Tout paiement passe désormais par un **centre tenu par le
+  PDG et le Super Admin**, **BV Regulatory compris** ; les **moyens généraux** en sont exceptés
+  (c'est l'argent du quotidien, déjà tenu par une caisse et un budget de département — y faire
+  remonter une rame de papier paralyserait le service). Le seuil est à **50 000 DZD** : en dessous,
+  un paiement validé part **directement**, parce qu'un centre qui fait la queue pour de petits
+  montants devient un goulot que l'on contourne. Un montant illisible est traité **comme
+  au-dessus** : dans le doute, on demande. Quatre issues, et non deux — **autoriser**, **refuser**,
+  **demander une révision du montant** (le centre propose, il ne réécrit pas : c'est au demandeur de
+  corriger) ou **demander une argumentation** —, avec autant d'allers-retours qu'il en faut dans un
+  seul fil horodaté ; un refus sec obligeait à tout refaire et perdait la discussion. **Un centre par
+  entité** : autoriser un paiement d'Adventum et un de Pharmagène sont deux gestes comptablement
+  distincts. Les **Finances ne voient rien** tant que le centre n'a pas tranché — sinon le comptable
+  paie de bonne foi ce qui n'est pas autorisé — mais elles voient les **refus** (elles doivent savoir
+  que l'argent ne viendra pas) et gardent l'accès à la **demande complète** : qui paie doit pouvoir
+  lire ce qu'il paie. Le verrou n'est pas dans l'affichage, il est au **décaissement** : masquer une
+  ligne est du confort, `canDisburse` est la règle.
+
+- **Le matériel promotionnel : cinq marches au lieu de seize, puis trois chantiers en parallèle.**
+  Une brochure attendait trois semaines dans une file indienne, et personne ne savait sur quelle
+  marche elle dormait. Il reste : **devis** (sauté si le demandeur a déjà le sien — demander un devis
+  qu'on a en main est une marche pour rien), **validation du demandeur**, **N+1** (le responsable
+  réel de l'organigramme, pas un rôle générique), **PDG *ou* Super Admin — l'un des deux suffit**
+  (en exiger deux ajouterait une attente sans ajouter de contrôle), puis l'**information médicale**,
+  qui déclenche la demande de **visa publicitaire**. Ensuite trois chantiers **en parallèle** et non
+  en file : bon de commande, demande de paiement (qui repart dans le circuit normal, centre de
+  paiement compris) et visa. Le dossier n'est terminé que lorsque les trois le sont — c'est le code
+  qui le dit, pas quelqu'un qui coche. Et la **visibilité est restreinte** : chacun voit **sa**
+  marche et l'avancement, **seuls le PDG et l'administrateur voient tout le circuit**.
+
+- **Le rejeu de session : rembobiner ce qu'une personne a fait, au lieu de le lui faire raconter.**
+  Le support recevait « ça ne marche pas » — sans page, sans heure, sans manipulation ; on demandait
+  une capture d'écran, elle arrivait deux jours plus tard, floue, et le bug n'y était pas. On ouvre
+  maintenant la session et l'on voit la suite exacte des gestes, **le curseur déjà posé sur la
+  première erreur** — c'est ce qu'on vient chercher, faire dérouler à la main ferait perdre le temps
+  qu'on veut rendre. La lecture automatique respecte le **rythme réel** (×4, silences plafonnés) :
+  l'hésitation, les allers-retours, les trois clics sur le bouton qui ne répond pas. ⚠️ **Ce n'est
+  pas une vidéo** : un navigateur ne peut pas filmer l'écran sans autorisation explicite ni
+  indicateur visible — c'est une garantie du navigateur, pas un réglage qu'on désactive. Ce sont les
+  **actions** qui sont enregistrées, comme le font LogRocket ou FullStory, et cela suffit à
+  reproduire un bug. **Aucune valeur de champ n'est lue**, nulle part : les champs mot de passe,
+  secret, jeton, IBAN, RIB, CVV, carte et les champs cachés sont écartés **entièrement, avant même
+  leur libellé** (savoir qu'une personne a tapé dans « mot de passe » est déjà de trop) ; d'un champ
+  sensible on garde le **nom**, jamais le contenu — on sait QU'elle a rempli « Montant », jamais
+  COMBIEN. Les messages d'erreur passent par un filet qui retire adresses, numéros longs et jetons,
+  et **le masquage est refait côté serveur** : un client modifié ne doit pas pouvoir faire entrer ce
+  qu'il veut dans un journal que le support relira. **Super Admin uniquement** — pas le PDG, pas les
+  RH : c'est un outil de diagnostic, l'élargir en ferait un outil de surveillance.
+
+- **La messagerie Microsoft 365 : d'abord voir ce qui se passe, ensuite corriger.** Un message
+  partait sans arriver et « les logs ne montrent presque rien » — parce que la couche Graph
+  **jetait le code d'erreur** de Microsoft pour n'en garder qu'un texte générique. On a donc rendu
+  l'envoi **traçable** avant de toucher à quoi que ce soit : chaque appel Graph journalise son
+  opération (identifiants masqués), son statut, son code et l'**identifiant de corrélation** — celui
+  qu'un administrateur Exchange peut rechercher. Deux règles au passage : on ne **rejoue jamais** une
+  écriture (POST/PATCH/DELETE) sur une erreur serveur, sous peine d'envoyer le message deux fois ; et
+  l'échec de l'**étape d'envoi** dit désormais que « le message est resté dans vos brouillons »,
+  parce que c'est vrai et que c'est ce que la personne doit savoir. Le chargement des dossiers, lui,
+  échouait en **400** sur une seule cause : `wellKnownName`, qui n'existe **pas** en v1.0. Le retirer
+  sèchement aurait cassé les boîtes en français (« Éléments envoyés » ne se reconnaît pas par son
+  nom) : les dossiers système sont donc résolus **par leur nom bien connu**, langue indépendante, et
+  les dossiers techniques (`outbox`, historique de conversation) masqués avec leurs enfants.
+
+- **Les courriers : des dossiers, autant de pièces qu'il en faut, et le droit de se tromper.** Un
+  registre plat devient illisible au bout de deux cents plis — il a maintenant ses **dossiers de
+  classement**, comme Legal (les supprimer **déclasse** les courriers, il ne les détruit pas). Un pli
+  sortant part rarement à une seule personne : chaque **pièce** porte donc son intitulé, **son
+  destinataire** et son fichier — téléversé, ou **pris dans le Drive sans être recopié**, parce qu'un
+  contrat dupliqué se met à diverger de son original. Un courrier peut aussi se créer **depuis le
+  Drive**, le fichier étant déjà là. Et l'on peut enfin **supprimer** ce qu'on a créé par erreur :
+  faute de bouton, on créait le bon **à côté** et le registre finissait par contenir deux vérités —
+  la suppression reste **traçable et réversible** (instantané dans la corbeille du Super Admin).
+  Dernier détail qui coûtait cher : un lien Drive rattaché à un courrier ou à un document légal ouvre
+  désormais **le fichier exact**, et non l'explorateur à charge du lecteur de retrouver la pièce.
+
+- **Trois annuaires, et des documents qu'on nomme soi-même.** Les praticiens tiennent maintenant dans
+  **plusieurs annuaires nommés** — « Cardiologues Centre », « Pédiatres Ouest » — qu'on crée, renomme
+  et supprime ; supprimer un annuaire **déplace** ses praticiens vers un autre, parce que détruire
+  des centaines de fiches en renommant un classeur serait une perte sèche. L'**annuaire
+  d'entreprise** rassemble les contacts extérieurs — agence de voyage, livreurs, agence marketing,
+  imprimeur, transitaire — que chacun gardait dans son téléphone : le jour où la personne est en
+  congé, plus personne n'a le numéro. Et les pièces déposées sur une **entité** héritaient d'une
+  liste de noms **empruntée au dossier CTD** (« Module 3.2.P »…), qui n'a rien à voir avec des
+  coordonnées légales : la liste a été retirée, on nomme le document comme on le nommerait sur une
+  étagère. Côté **Bureautique**, la co-édition existait déjà et fonctionnait — ce qui manquait était
+  qu'on le **sache** : le module le dit maintenant et montre les documents déjà partagés en
+  modification, et `docs/ONLYOFFICE_SETUP.md` donne les quatre étapes du serveur, ce qui est garanti,
+  et la panne la plus silencieuse (un `APP_URL` injoignable : l'éditeur s'ouvre, mais n'enregistre
+  rien).
 
 - **Regulatory : trois champs passent au Super Admin, et le porteur du dossier est prévenu.** Le
   **statut de fabrication** (Importation → packaging secondaire → primaire → full process), le
