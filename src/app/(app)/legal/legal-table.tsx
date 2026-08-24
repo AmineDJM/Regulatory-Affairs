@@ -56,7 +56,7 @@ export function LegalTable({
   currentFolderId?: string | null;
 }) {
   const router = useRouter();
-  const [f, setF] = React.useState({ title: "", kind: "", counterparty: "", status: "", reference: "" });
+  const [f, setF] = React.useState({ title: "", kind: "", counterparty: "", status: "", reference: "", startMonth: "", endMonth: "" });
   // Arrivée depuis un rappel d'échéance (`/legal?echeances=1`) : le filtre est déjà posé, sinon
   // la notification renverrait sur une liste de trois cents lignes où retrouver la bonne.
   const [watchOnly, setWatchOnly] = React.useState(watchByDefault);
@@ -65,6 +65,9 @@ export function LegalTable({
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }));
   const has = (hay: string | null, needle: string) => (hay ?? "").toLowerCase().includes(needle.toLowerCase());
+  // Début et Échéance se filtrent AU MOIS, comme au carnet de courriers : « le bail qui expire en
+  // décembre » est la question réelle — un jour exact serait trop fin.
+  const inMonth = (iso: string | null, month: string) => Boolean(iso && iso.startsWith(month));
 
   const shown = rows.filter((r) => {
     if (f.title && !has(r.title, f.title)) return false;
@@ -72,6 +75,8 @@ export function LegalTable({
     if (f.kind && r.kind !== f.kind) return false;
     if (f.counterparty && !has(r.counterparty, f.counterparty)) return false;
     if (f.status && r.status !== f.status) return false;
+    if (f.startMonth && !inMonth(r.startDate, f.startMonth)) return false;
+    if (f.endMonth && !inMonth(r.endDate, f.endMonth)) return false;
     if (watchOnly && !URGENT.has(r.expiry)) return false;
     return true;
   });
@@ -101,7 +106,7 @@ export function LegalTable({
         {active && (
           <button
             type="button"
-            onClick={() => { setF({ title: "", kind: "", counterparty: "", status: "", reference: "" }); setWatchOnly(false); }}
+            onClick={() => { setF({ title: "", kind: "", counterparty: "", status: "", reference: "", startMonth: "", endMonth: "" }); setWatchOnly(false); }}
             className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 font-medium hover:bg-secondary"
           >
             <FilterX className="h-3.5 w-3.5" /> Réinitialiser
@@ -162,8 +167,8 @@ export function LegalTable({
                 </select>
               </th>
               <th className="px-2 pb-2 pt-1"><input value={f.counterparty} onChange={set("counterparty")} placeholder="Filtrer" className={cellInput} /></th>
-              <th className="px-2 pb-2 pt-1" />
-              <th className="px-2 pb-2 pt-1" />
+              <th className="px-2 pb-2 pt-1"><input type="month" value={f.startMonth} onChange={set("startMonth")} title="Mois de début" className={cellInput} /></th>
+              <th className="px-2 pb-2 pt-1"><input type="month" value={f.endMonth} onChange={set("endMonth")} title="Mois d'échéance" className={cellInput} /></th>
               <th className="px-2 pb-2 pt-1" />
               <th className="px-2 pb-2 pt-1">
                 <select value={f.status} onChange={set("status")} className={cellInput}>

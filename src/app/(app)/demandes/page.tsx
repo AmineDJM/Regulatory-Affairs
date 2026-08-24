@@ -1,23 +1,26 @@
-import Link from "next/link";
-import { Users, ClipboardCheck, Car, Route, Trash2 } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getRequestList } from "@/lib/queries/admin-requests";
 import { PageHeader } from "@/components/shared/page-header";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, PRIORITY } from "@/lib/labels";
-import { formatDate, cn } from "@/lib/utils";
 import { toNumber } from "@/lib/utils";
 import { NewRequestButton } from "./new-request";
 import { MultiRequestButton } from "./multi-request";
 import { SuppliesManager } from "./supplies-manager";
 import { ExpenseAckList, type ExpenseAckItem } from "./expense-ack";
+import { RequestsTable, type RequestRow } from "./requests-table";
 
+/**
+ * LE BUREAU DU SECRÉTARIAT — les demandes, et rien qu'elles.
+ *
+ * L'en-tête portait six boutons (Bureau de Donna, Validations, Courses, Missions, Corbeille…) et
+ * une rangée d'onglets de statut : la page ressemblait à un standard téléphonique, et la liste —
+ * la seule chose qu'on vient chercher — commençait sous deux étages de navigation. Les écrans
+ * annexes restent servis à leurs adresses (`/demandes/courses`, `/demandes/driver`,
+ * `/demandes/approvals`…) : on y arrive par les liens des demandes et les notifications, pas par
+ * une barre de boutons permanente. Le tri se fait maintenant DANS les colonnes du tableau.
+ */
 export default async function DemandesPage({ searchParams }: { searchParams: { status?: string; type?: string } }) {
   const user = await requireModule("ADMIN_REQUESTS");
   const isManager = hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE");
@@ -47,71 +50,33 @@ export default async function DemandesPage({ searchParams }: { searchParams: { s
 
   const catalogRows = supplyCatalog.map((a) => ({ ...a, estimatedPrice: a.estimatedPrice != null ? toNumber(a.estimatedPrice) : null }));
 
+  const rows: RequestRow[] = list.map((r) => ({
+    id: r.id,
+    reference: r.reference,
+    title: r.title,
+    type: r.type,
+    priority: r.priority,
+    status: r.status,
+    deadline: r.deadline ? r.deadline.toISOString() : null,
+    assignedTo: r.assignedTo?.name ?? null,
+    batch: Boolean(r.batchId),
+  }));
+
   return (
     <div className="space-y-5">
-      <PageHeader title="Bureau du secrétariat" description="Centre de traitement des demandes transverses de l'entreprise.">
-        {isManager && <Link href="/demandes/assistant"><Button variant="outline"><Users className="h-4 w-4" /> Bureau de Donna</Button></Link>}
+      <PageHeader title="Bureau du secrétariat" description="Centre de traitement des demandes transverses de l'entreprise. Filtrez directement dans les colonnes du tableau.">
         {isManager && <SuppliesManager articles={catalogRows} />}
-        <Link href="/demandes/approvals"><Button variant="outline"><ClipboardCheck className="h-4 w-4" /> Validations</Button></Link>
-        {isManager && <Link href="/demandes/courses"><Button variant="outline"><Route className="h-4 w-4" /> Courses</Button></Link>}
-        <Link href="/demandes/driver"><Button variant="outline"><Car className="h-4 w-4" /> Missions</Button></Link>
-        {isManager && <Link href="/demandes/corbeille"><Button variant="outline"><Trash2 className="h-4 w-4" /> Corbeille</Button></Link>}
         <MultiRequestButton users={users} departments={departments} articles={activeArticles} />
         <NewRequestButton users={users} departments={departments} articles={activeArticles} />
       </PageHeader>
 
       {isManager && <ExpenseAckList items={ackItems} />}
 
-      <div className="flex flex-wrap gap-1.5">
-        <Chip label="Toutes" href="/demandes" active={!searchParams.status} />
-        {Object.entries(ADMIN_REQUEST_STATUS).map(([k, v]) => (
-          <Chip key={k} label={v.label} href={`/demandes?status=${k}`} active={searchParams.status === k} />
-        ))}
-      </div>
-
-      {list.length === 0 ? (
+      {rows.length === 0 ? (
         <EmptyState icon="ClipboardList" title="Aucune demande" description="Créez une nouvelle demande administrative." />
       ) : (
-        <div className="surface overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Référence</TableHead>
-                <TableHead>Titre</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Priorité</TableHead>
-                <TableHead>Statut</TableHead>
-                <TableHead>Échéance</TableHead>
-                <TableHead>Responsable</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {list.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell className="font-mono text-xs">{r.reference}</TableCell>
-                  <TableCell className="font-medium">
-                    <Link href={`/demandes/${r.id}`} className="hover:underline">{r.title}</Link>
-                    {r.batchId && <Badge tone="info" dot={false} className="ml-2 align-middle">Lot</Badge>}
-                  </TableCell>
-                  <TableCell>{ADMIN_REQUEST_TYPE[r.type] ?? r.type}</TableCell>
-                  <TableCell><StatusBadge map={PRIORITY} value={r.priority} dot={false} /></TableCell>
-                  <TableCell><StatusBadge map={ADMIN_REQUEST_STATUS} value={r.status} /></TableCell>
-                  <TableCell className="text-muted-foreground">{r.deadline ? formatDate(r.deadline) : "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{r.assignedTo?.name ?? "—"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <RequestsTable rows={rows} />
       )}
     </div>
-  );
-}
-
-function Chip({ label, href, active }: { label: string; href: string; active: boolean }) {
-  return (
-    <Link href={href} className={cn("rounded-full border px-3 py-1 text-xs font-medium transition-colors", active ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary")}>
-      {label}
-    </Link>
   );
 }

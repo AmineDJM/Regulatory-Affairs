@@ -76,11 +76,16 @@ function DateCell({ id, field, value, canEdit }: {
   );
 }
 
+const EMPTY_FILTERS = { title: "", reference: "", direction: "", party: "", concerns: "", sentMonth: "", receivedMonth: "", ack: "" };
+
 export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean }) {
-  const [f, setF] = React.useState({ title: "", reference: "", direction: "", party: "", concerns: "", pending: false });
+  const [f, setF] = React.useState({ ...EMPTY_FILTERS });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }));
   const has = (hay: string | null, needle: string) => (hay ?? "").toLowerCase().includes(needle.toLowerCase());
+  // Les dates se filtrent AU MOIS : c'est ainsi qu'on cherche un pli (« le courrier à la CNAS de
+  // mars ») — un jour exact serait trop fin, une plage à deux bornes trop lourde pour un carnet.
+  const inMonth = (iso: string | null, month: string) => Boolean(iso && iso.startsWith(month));
 
   const shown = rows.filter((r) => {
     if (f.title && !has(r.title, f.title)) return false;
@@ -90,12 +95,15 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
     // « Concerne » cherche dans la direction ET dans la personne : on tape « finances » ou un nom
     // propre sans avoir à savoir lequel des deux champs avait été rempli.
     if (f.concerns && !has(r.departmentName, f.concerns) && !has(r.concernedName, f.concerns)) return false;
+    if (f.sentMonth && !inMonth(r.sentAt, f.sentMonth)) return false;
+    if (f.receivedMonth && !inMonth(r.receivedAt, f.receivedMonth)) return false;
     // « Sans accusé » : la seule question qui fasse rouvrir le carnet.
-    if (f.pending && r.acknowledgedAt) return false;
+    if (f.ack === "without" && r.acknowledgedAt) return false;
+    if (f.ack === "with" && !r.acknowledgedAt) return false;
     return true;
   });
 
-  const active = f.pending || Boolean(f.title || f.reference || f.direction || f.party || f.concerns);
+  const active = Object.values(f).some(Boolean);
   const noAck = rows.filter((r) => !r.acknowledgedAt).length;
 
   return (
@@ -103,14 +111,14 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>{shown.length} / {rows.length} courrier{rows.length > 1 ? "s" : ""}</span>
         <button
-          type="button" onClick={() => setF((p) => ({ ...p, pending: !p.pending }))}
+          type="button" onClick={() => setF((p) => ({ ...p, ack: p.ack === "without" ? "" : "without" }))}
           className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 font-medium",
-            f.pending ? "border-warning/60 bg-warning/10 text-warning" : "border-input hover:bg-secondary")}
+            f.ack === "without" ? "border-warning/60 bg-warning/10 text-warning" : "border-input hover:bg-secondary")}
         >
           Sans accusé de réception ({noAck})
         </button>
         {active && (
-          <button type="button" onClick={() => setF({ title: "", reference: "", direction: "", party: "", concerns: "", pending: false })}
+          <button type="button" onClick={() => setF({ ...EMPTY_FILTERS })}
             className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 font-medium hover:bg-secondary">
             <FilterX className="h-3.5 w-3.5" /> Réinitialiser
           </button>
@@ -145,10 +153,17 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
               </th>
               <th className="px-2 pb-2 pt-1"><input value={f.title} onChange={set("title")} placeholder="Filtrer" className={cellInput} /></th>
               <th className="px-2 pb-2 pt-1" colSpan={2}><input value={f.party} onChange={set("party")} placeholder="Expéditeur ou destinataire" className={cellInput} /></th>
-              {/* Départ · Arrivée · Accusé — trois colonnes sans filtre propre : la ligne doit les
-                  compter, sinon les cellules de filtre se décalent d'une colonne et ne filtrent
-                  plus ce qu'elles annoncent. */}
-              <th className="px-2 pb-2 pt-1" colSpan={3} />
+              {/* Départ et Arrivée se filtrent AU MOIS ; l'Accusé par présence — les trois
+                  questions qu'on pose vraiment au carnet. */}
+              <th className="px-2 pb-2 pt-1"><input type="month" value={f.sentMonth} onChange={set("sentMonth")} title="Mois de départ" className={cellInput} /></th>
+              <th className="px-2 pb-2 pt-1"><input type="month" value={f.receivedMonth} onChange={set("receivedMonth")} title="Mois d'arrivée" className={cellInput} /></th>
+              <th className="px-2 pb-2 pt-1">
+                <select value={f.ack} onChange={set("ack")} className={cellInput}>
+                  <option value="">Tous</option>
+                  <option value="with">Avec accusé</option>
+                  <option value="without">Sans accusé</option>
+                </select>
+              </th>
               <th className="px-2 pb-2 pt-1"><input value={f.concerns} onChange={set("concerns")} placeholder="Direction ou personne" className={cellInput} /></th>
               {/* Entité · Partenaire · Porteur · Pièces — quatre colonnes sans filtre propre. */}
               <th className="px-2 pb-2 pt-1" colSpan={4} />
