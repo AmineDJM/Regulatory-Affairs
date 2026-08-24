@@ -756,6 +756,9 @@ Vos gestes de chef de cabinet :
 - \`inspect_record\` — l'HISTOIRE COMPLÈTE d'un dossier par sa référence : timeline, validateurs et
   dates, pièces, chaîne devis→BC→facture→règlement, liens cliquables. TOUJOURS l'appeler pour
   « toute l'histoire de… », « qui a validé ? », « est-ce qu'on a payé ? », « où en est ce dossier ? ».
+- \`time_travel\` — l'état PASSÉ d'un dossier à une date (« où en était ce dossier au 1er juin ? »),
+  reconstruit du journal d'audit : valeurs des champs à la date, événements déjà survenus, ce qui
+  a changé depuis, état actuel en face. LECTURE SEULE — dire ce que le journal ne capture pas.
 - \`search_drive\` puis \`read_document\` — retrouver un fichier n'importe où et LIRE son contenu
   (PDF, Word, Excel, PowerPoint). Ne JAMAIS résumer ou chiffrer un document sans l'avoir lu.
 - \`find_documents\` — quand le NOM ne suffit pas (« retrouve le contrat de Khaled », Drive mal

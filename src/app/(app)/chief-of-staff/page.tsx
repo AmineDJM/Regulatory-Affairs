@@ -32,7 +32,7 @@ export const metadata = { title: "My Chief of Staff — AMD Internal OS" };
 export default async function ChiefOfStaffPage({
   searchParams,
 }: {
-  searchParams?: { q?: string; ref?: string };
+  searchParams?: { q?: string; ref?: string; call?: string };
 }) {
   const user = await requireModule("CHIEF_OF_STAFF");
   const [memoryEnabled, proactive] = await Promise.all([
@@ -67,7 +67,10 @@ export default async function ChiefOfStaffPage({
   // question (?q=…) ou la référence du dossier (?ref=…) — pré-remplie, jamais envoyée seule.
   const q = typeof searchParams?.q === "string" ? searchParams.q.slice(0, 500) : "";
   const ref = typeof searchParams?.ref === "string" ? searchParams.ref.slice(0, 120) : "";
-  const initialPrompt = q || (ref ? `Donne-moi toute l'histoire de ${ref} : statut, validateurs, blocages, prochaine étape.` : null);
+  // APPEL DEPUIS UNE FICHE (?call=1[&ref=…]) : on démarre l'appel vocal avec le dossier en
+  // contexte au lieu de pré-remplir une question — « Où ça bloque ? » se résout tout seul.
+  const startCall = searchParams?.call === "1" && realtimeVoiceConfigured() && canUseRealtimeVoice(user);
+  const initialPrompt = startCall ? null : q || (ref ? `Donne-moi toute l'histoire de ${ref} : statut, validateurs, blocages, prochaine étape.` : null);
 
   return (
     <div className="app-viewport-flush -mx-3 -mt-3 flex flex-col gap-3 px-2 pt-2 sm:-mx-4 sm:-mt-6 sm:px-3 sm:pt-4 lg:-mx-8 lg:px-6">
@@ -103,6 +106,7 @@ export default async function ChiefOfStaffPage({
         executive
         initialPrompt={initialPrompt}
         initialThreadId={primaryThreadId}
+        initialCallRef={startCall ? ref || "" : null}
       />
     </div>
   );

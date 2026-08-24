@@ -14,6 +14,7 @@ import { DOCUMENT_DISCOVERY_TOOLS } from "@/lib/assistant/document-discovery";
 import { WHAT_IF_TOOLS } from "@/lib/assistant/what-if";
 import { DELIVERABLE_TOOLS } from "@/lib/assistant/deliverables";
 import { CORPUS_TOOLS } from "@/lib/assistant/corpus-tools";
+import { TIME_TRAVEL_TOOLS } from "@/lib/assistant/time-travel";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -231,6 +232,9 @@ export const POWER_TOOLS: PowerTool[] = [
   // Le CORPUS DE CONNAISSANCE (textes juridiques vérifiés) : recherche sourcée, lecture
   // d'article, inventaire — et l'honnêteté du corpus vide (« pas assez de sources vérifiées »).
   ...CORPUS_TOOLS,
+  // TIME TRAVEL : l'état PASSÉ d'un dossier à une date, reconstruit du journal d'audit —
+  // strictement lecture seule, avec le « avant / maintenant » dans la même réponse.
+  ...TIME_TRAVEL_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */

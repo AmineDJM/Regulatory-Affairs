@@ -21,10 +21,13 @@ export async function POST(req: Request) {
     return Response.json({ error: "L'assistant IA est actuellement désactivé par l'administrateur.", reasonCode: "ASSISTANT_DISABLED" }, { status: 403 });
   }
 
-  let body: { threadId?: string | null; voice?: string | null } = {};
+  let body: { threadId?: string | null; voice?: string | null; screenContext?: string | null } = {};
   try { body = (await req.json()) as typeof body; } catch { /* corps vide accepté */ }
 
-  const grant = await createVoiceSessionGrant(user, { threadId: body.threadId ?? null, voice: body.voice ?? null });
+  // CONTEXTE D'ÉCRAN : d'où l'appel démarre (route / référence de fiche) — jamais une capture.
+  // Borné ici ET dans buildVoiceInstructions : un client trafiqué ne gonfle pas les instructions.
+  const screenContext = typeof body.screenContext === "string" ? body.screenContext.slice(0, 300) : null;
+  const grant = await createVoiceSessionGrant(user, { threadId: body.threadId ?? null, voice: body.voice ?? null, screenContext });
   if (!grant.ok) {
     return Response.json({ error: grant.error, reasonCode: grant.reasonCode }, { status: grant.status });
   }

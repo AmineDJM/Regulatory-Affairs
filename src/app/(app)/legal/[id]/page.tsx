@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { BackLink } from "@/components/shared/back-link";
 import { AskChief } from "@/components/shared/ask-chief";
+import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL, AUDIT_ACTION } from "@/lib/labels";
@@ -146,7 +147,9 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
             <span className="text-xs text-muted-foreground">{LEGAL_DOC_KIND[doc.kind] ?? doc.kind}</span>
             {doc.reference && <span className="font-mono text-xs text-muted-foreground">{doc.reference}</span>}
             {doc.company && <span className="text-xs text-muted-foreground">{doc.company.shortName || doc.company.name}</span>}
-            {userCan(user, "CHIEF_OF_STAFF", "VIEW") && <AskChief reference={doc.reference || doc.title} />}
+            {userCan(user, "CHIEF_OF_STAFF", "VIEW") && (
+              <AskChief reference={doc.reference || doc.title} call={realtimeVoiceConfigured() && canUseRealtimeVoice(user)} />
+            )}
           </div>
           <h1 className="mt-1 text-xl font-semibold sm:text-2xl">{doc.title}</h1>
           <p className="text-sm text-muted-foreground">

@@ -1,30 +1,31 @@
 "use client";
 
 import * as React from "react";
-import { Mic, MicOff, PhoneOff, Loader2, ChevronDown, ChevronUp, Minimize2, Maximize2, AudioLines } from "lucide-react";
 import {
-  OpenAIGptRealtime21Provider,
-  type VoiceCallState, type VoiceToolUi, type VoiceSessionGrant,
-} from "./realtime-voice";
+  Mic, MicOff, PhoneOff, Loader2, ChevronDown, ChevronUp, Minimize2, Maximize2,
+  AudioLines, Keyboard, Send, ArrowUpRight,
+} from "lucide-react";
+import type { VoiceCallState } from "./realtime-voice";
 
 /**
- * MODE APPEL — la conversation SPEECH-TO-SPEECH temps réel avec My Chief of Staff.
+ * L'ÉCRAN D'APPEL — la peau du mode Live, entièrement pilotée par le CallProvider global
+ * (components/layout/call-provider.tsx) : ce fichier ne contient AUCUNE logique de session.
  *
- * Plus de chaîne « enregistrer → transcrire → prompt → attendre → TTS » : une session
- * Realtime (WebRTC direct navigateur ↔ OpenAI, secret éphémère fourni par notre serveur).
- * On parle, il répond à voix haute IMMÉDIATEMENT, on l'interrompt en parlant (barge-in
- * serveur + purge locale du tampon), on enchaîne les sujets — et tout reste LA MÊME
- * conversation que le texte : chaque tour est persisté dans le même fil, chaque outil est
- * exécuté par le même backend avec les mêmes droits, chaque action passe par les mêmes
- * cartes de confirmation À L'ÉCRAN (jamais exécutée à la voix seule).
+ * Deux formes :
+ *   • IMMERSIF — plein écran sur mobile (safe areas, gros contrôles : marcher et parler),
+ *     grande carte centrée sur desktop. En-tête « MY CHIEF OF STAFF · ● LIVE · 06:42 »,
+ *     orbe à états, dernière réplique, CARTES LIVE cliquables (la voix résume, l'écran
+ *     montre — ouvrir une carte RÉDUIT l'appel, il ne le coupe pas), TYPE (vrai champ de
+ *     saisie dans l'appel), Mute, Raccrocher.
+ *   • RÉDUIT — carte flottante discrète : l'appel continue pendant la navigation ERP.
  *
- * L'écran est un COMPAGNON : la voix résume, l'interface affiche (cartes, sources, détail).
- * L'appel se réduit en barre discrète pour consulter un document sans raccrocher.
+ * Sobre volontairement : pas de néons, pas de faux hologrammes — le « wow » vient de la
+ * vitesse, du contexte et des cartes, pas des effets.
  */
 
 const STATE_LABEL: Record<VoiceCallState, string> = {
   IDLE: "Prêt.",
-  CONNECTING: "Connexion à la session vocale…",
+  CONNECTING: "Connexion…",
   LISTENING: "Je vous écoute.",
   USER_SPEAKING: "Je vous entends…",
   THINKING: "Un instant…",
@@ -34,198 +35,64 @@ const STATE_LABEL: Record<VoiceCallState, string> = {
   ENDED: "Appel terminé.",
 };
 
-interface TranscriptLine { role: "user" | "assistant"; text: string; final: boolean }
+const fmt = (s: number): string =>
+  s >= 3600
+    ? `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`
+    : `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
-export function VoiceMode({
-  threadId, onThreadId, onTurn, onToolUi, registerTextSender, onClose,
-}: {
-  /** Le fil de conversation COURANT — l'appel le continue (le serveur retombe sur le fil principal sinon). */
-  threadId: string | null;
-  onThreadId: (tid: string) => void;
-  /** Un tour vocal complet (transcriptions) — le parent l'ajoute au fil affiché. */
-  onTurn: (user: string, assistant: string) => void;
-  /** Charge utile visuelle d'un outil (cartes d'action, sources, réponse détaillée). */
-  onToolUi: (ui: VoiceToolUi) => void;
-  /** Pendant l'appel, le texte tapé dans le chat entre DANS la session vocale. */
-  registerTextSender: (fn: ((text: string) => void) | null) => void;
-  onClose: () => void;
-}) {
-  const [state, setState] = React.useState<VoiceCallState>("CONNECTING");
-  const [error, setError] = React.useState<string | null>(null);
-  const [muted, setMuted] = React.useState(false);
-  const [minimized, setMinimized] = React.useState(false);
+export interface CallScreenProps {
+  status: VoiceCallState;
+  elapsed: number;
+  muted: boolean;
+  minimized: boolean;
+  error: string | null;
+  lines: { role: "user" | "assistant"; text: string; final: boolean }[];
+  cards: { label: string; href: string }[];
+  onMute: () => void;
+  onMinimize: () => void;
+  onRestore: () => void;
+  onEnd: () => void;
+  onSendText: (text: string) => void;
+  onOpenCard: (href: string) => void;
+}
+
+export function CallScreen({
+  status, elapsed, muted, minimized, error, lines, cards,
+  onMute, onMinimize, onRestore, onEnd, onSendText, onOpenCard,
+}: CallScreenProps) {
   const [showTranscript, setShowTranscript] = React.useState(false);
-  const [lines, setLines] = React.useState<TranscriptLine[]>([]);
+  const [typing, setTyping] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const inputRef = React.useRef<HTMLInputElement>(null);
 
-  const providerRef = React.useRef<OpenAIGptRealtime21Provider | null>(null);
-  const threadRef = React.useRef<string | null>(threadId);
-  const aliveRef = React.useRef(true);
-  const reconnectsRef = React.useRef(0);
-  const metricsRef = React.useRef({ startedAt: 0, connectMs: 0, firstAudioMs: 0, toolCalls: 0, toolErrors: 0, interruptions: 0, turns: 0 });
-
-  /** La dernière ligne (partielle) par rôle est REMPLACÉE, pas empilée — un transcript lisible. */
-  const upsertLine = React.useCallback((role: "user" | "assistant", text: string, final: boolean) => {
-    if (!text.trim()) return;
-    setLines((prev) => {
-      const next = [...prev];
-      const last = next[next.length - 1];
-      if (last && last.role === role && !last.final) next[next.length - 1] = { role, text, final };
-      else next.push({ role, text, final });
-      return next.slice(-30);
-    });
-  }, []);
-
-  const logEvent = React.useCallback((event: string, extra: Record<string, unknown> = {}) => {
-    void fetch("/api/assistant/voice/log", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ event, ...extra }),
-    }).catch(() => undefined);
-  }, []);
-
-  const buildProvider = React.useCallback(() => {
-    const m = metricsRef.current;
-    return new OpenAIGptRealtime21Provider({
-      getGrant: async (): Promise<VoiceSessionGrant> => {
-        const res = await fetch("/api/assistant/voice/session", {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ threadId: threadRef.current }),
-        });
-        const data = (await res.json().catch(() => ({}))) as Partial<VoiceSessionGrant> & { error?: string; reasonCode?: string };
-        if (!res.ok || !data.clientSecret) {
-          throw new Error(data.error ?? "Le mode vocal temps réel est momentanément indisponible.");
-        }
-        if (data.threadId) { threadRef.current = data.threadId; onThreadId(data.threadId); }
-        return data as VoiceSessionGrant;
-      },
-      callTool: async (name, input) => {
-        const res = await fetch("/api/assistant/voice/tool", {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name, input, threadId: threadRef.current }),
-        });
-        if (!res.ok) throw new Error("tool");
-        return (await res.json()) as { output: string; ui?: VoiceToolUi | null };
-      },
-      callbacks: {
-        onState: (s) => { if (aliveRef.current) setState(s); },
-        onUserTranscript: (text, final) => upsertLine("user", text, final),
-        onAssistantTranscript: (text, final) => upsertLine("assistant", text, final),
-        onTurnComplete: ({ user, assistant }) => {
-          m.turns += 1;
-          onTurn(user, assistant);
-          // Persistance : le tour vocal rejoint LE MÊME fil que le texte, côté serveur.
-          void fetch("/api/assistant/voice/turn", {
-            method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ threadId: threadRef.current, user, assistant }),
-          }).then(async (r) => {
-            const d = (await r.json().catch(() => ({}))) as { threadId?: string | null };
-            if (d.threadId && d.threadId !== threadRef.current) { threadRef.current = d.threadId; onThreadId(d.threadId); }
-          }).catch(() => undefined);
-        },
-        onToolUi: (ui) => onToolUi(ui),
-        onError: (message) => { if (aliveRef.current) setError(message); },
-        onMetric: (name) => {
-          if (name === "first_audio_out" && !m.firstAudioMs) { m.firstAudioMs = Math.round(performance.now() - m.startedAt); logEvent("voice_first_audio_out", { firstAudioMs: m.firstAudioMs }); }
-          if (name === "interruption") m.interruptions += 1;
-          if (name === "tool_call") m.toolCalls += 1;
-          if (name === "tool_error") m.toolErrors += 1;
-        },
-        onConnectionChange: (cs) => {
-          // La session est tombée (réseau) : une reconnexion PROPRE — nouveau secret éphémère,
-          // MÊME fil de conversation (le serveur réinjecte le contexte récent), jamais un
-          // nouveau Chief of Staff. Deux tentatives, puis on le dit.
-          if (!aliveRef.current) return;
-          if ((cs === "disconnected" || cs === "failed") && reconnectsRef.current < 2) {
-            reconnectsRef.current += 1;
-            setState("RECONNECTING");
-            logEvent("voice_reconnect", { detail: cs });
-            providerRef.current?.disconnect();
-            const p = buildProvider();
-            providerRef.current = p;
-            p.connect().catch(() => {
-              if (aliveRef.current) { setState("ERROR"); setError("La connexion vocale n'a pas pu être rétablie."); }
-            });
-          } else if (cs === "failed") {
-            setState("ERROR");
-            setError("La connexion vocale est perdue.");
-          }
-        },
-      },
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onThreadId, onTurn, onToolUi, upsertLine, logEvent]);
-
-  // ── Cycle de vie : connexion au montage, raccrochage propre au démontage.
-  React.useEffect(() => {
-    aliveRef.current = true;
-    const m = metricsRef.current;
-    m.startedAt = performance.now();
-    const p = buildProvider();
-    providerRef.current = p;
-    p.connect()
-      .then(() => {
-        m.connectMs = Math.round(performance.now() - m.startedAt);
-        logEvent("voice_session_connected", { connectMs: m.connectMs });
-      })
-      .catch((err: unknown) => {
-        if (!aliveRef.current) return;
-        setState("ERROR");
-        const msg = err instanceof Error ? err.message : "";
-        setError(
-          msg === "MIC_UNSUPPORTED" ? "Le micro nécessite une connexion sécurisée (HTTPS) et un navigateur récent."
-          : msg.startsWith("SDP_") ? "Le mode vocal temps réel est momentanément indisponible (connexion refusée)."
-          : /NotAllowedError|Permission/i.test(String(err)) ? "Micro refusé — autorisez-le dans le navigateur, ou utilisez la dictée."
-          : msg || "Impossible de démarrer la conversation vocale.",
-        );
-        logEvent("voice_session_error", { reasonCode: msg || "CONNECT_FAILED" });
-      });
-
-    return () => {
-      aliveRef.current = false;
-      registerTextSender(null);
-      providerRef.current?.disconnect();
-      providerRef.current = null;
-      logEvent("voice_session_closed", {
-        sessionMs: Math.round(performance.now() - m.startedAt),
-        connectMs: m.connectMs || null, firstAudioMs: m.firstAudioMs || null,
-        toolCalls: m.toolCalls, toolErrors: m.toolErrors, interruptions: m.interruptions, turns: m.turns,
-      });
-    };
-    // Montage UNIQUE — la reconnexion vit dans onConnectionChange.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Le texte tapé pendant l'appel entre dans LA session vocale (réponse parlée).
-  React.useEffect(() => {
-    const ready = state === "LISTENING" || state === "USER_SPEAKING" || state === "THINKING" || state === "ASSISTANT_SPEAKING";
-    registerTextSender(ready ? (t: string) => providerRef.current?.sendText(t) : null);
-    return () => registerTextSender(null);
-  }, [state, registerTextSender]);
-
-  const toggleMute = () => {
-    const next = !muted;
-    setMuted(next);
-    providerRef.current?.setMuted(next);
-  };
-
-  const busy = state === "CONNECTING" || state === "RECONNECTING";
-  const label = error ?? STATE_LABEL[state];
+  const connected = status === "LISTENING" || status === "USER_SPEAKING" || status === "THINKING" || status === "ASSISTANT_SPEAKING";
+  const busy = status === "CONNECTING" || status === "RECONNECTING";
+  const label = error ?? (muted && connected ? "Micro coupé — il ne vous entend pas." : STATE_LABEL[status]);
   const lastLine = lines[lines.length - 1];
 
-  // ── L'ORBE : un seul élément, des états visuels sobres (écoute / réflexion / parole).
+  const submitDraft = () => {
+    const t = draft.trim();
+    if (!t) return;
+    onSendText(t);
+    setDraft("");
+  };
+
+  // ── L'ORBE : sobre, un état à la fois.
   const orb = (
-    <div className="relative flex h-24 w-24 items-center justify-center">
+    <div className="relative flex h-28 w-28 items-center justify-center sm:h-24 sm:w-24">
       <div
         className={`absolute inset-0 rounded-full bg-gradient-to-br from-primary to-purple-500 transition-all duration-500 ${
-          state === "ASSISTANT_SPEAKING" ? "opacity-90 scale-100"
-          : state === "USER_SPEAKING" ? "opacity-80 scale-95"
-          : state === "THINKING" ? "opacity-60 scale-90"
+          muted && connected ? "opacity-35 scale-90"
+          : status === "ASSISTANT_SPEAKING" ? "opacity-90 scale-100"
+          : status === "USER_SPEAKING" ? "opacity-80 scale-95"
+          : status === "THINKING" ? "opacity-60 scale-90"
           : "opacity-70 scale-90"
         }`}
       />
-      {(state === "LISTENING" || state === "USER_SPEAKING") && (
+      {(status === "LISTENING" || status === "USER_SPEAKING") && !muted && (
         <span aria-hidden className="absolute inset-0 animate-ping rounded-full border-2 border-primary/40" style={{ animationDuration: "2.2s" }} />
       )}
-      {state === "ASSISTANT_SPEAKING" && (
+      {status === "ASSISTANT_SPEAKING" && (
         <span className="relative z-10 flex items-end gap-1" aria-hidden>
           {[0, 1, 2, 3].map((i) => (
             <span key={i} className="w-1.5 animate-pulse rounded-full bg-white/90" style={{ height: `${14 + (i % 2) * 10}px`, animationDelay: `${i * 140}ms`, animationDuration: "700ms" }} />
@@ -233,92 +100,156 @@ export function VoiceMode({
         </span>
       )}
       {busy && <Loader2 className="relative z-10 h-8 w-8 animate-spin text-white" />}
-      {(state === "LISTENING" || state === "USER_SPEAKING" || state === "THINKING") && !busy && (
-        <AudioLines className="relative z-10 h-8 w-8 text-white/95" />
+      {connected && status !== "ASSISTANT_SPEAKING" && (
+        muted ? <MicOff className="relative z-10 h-8 w-8 text-white/90" /> : <AudioLines className="relative z-10 h-8 w-8 text-white/95" />
       )}
     </div>
   );
 
-  // ── RÉDUIT : une barre discrète — l'appel continue, l'écran reste libre (documents, cartes).
+  // ── RÉDUIT : carte flottante — l'appel continue partout dans l'ERP.
   if (minimized) {
     return (
-      <div className="mb-2 flex items-center gap-3 rounded-xl border border-primary/40 bg-accent/40 px-3 py-2">
-        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${state === "ASSISTANT_SPEAKING" ? "bg-primary animate-pulse" : state === "ERROR" ? "bg-destructive" : "bg-primary/70"}`} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium">Appel en cours — My Chief of Staff</p>
-          <p className="truncate text-[0.6875rem] text-muted-foreground">{label}</p>
+      <div className="fixed inset-x-2 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-[60] sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-80">
+        <div className="flex items-center gap-3 rounded-2xl border border-primary/40 bg-card px-3 py-2.5 shadow-xl">
+          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${status === "ASSISTANT_SPEAKING" ? "bg-primary animate-pulse" : status === "ERROR" ? "bg-destructive" : busy ? "bg-warning" : "bg-primary/70"}`} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-semibold">Chief of Staff · {connected ? fmt(elapsed) : busy ? "…" : "—"}</p>
+            <p className="truncate text-[0.6875rem] text-muted-foreground">{label}</p>
+          </div>
+          <button type="button" onClick={onMute} title={muted ? "Réactiver le micro" : "Couper le micro"}
+            className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${muted ? "bg-destructive/15 text-destructive" : "text-muted-foreground hover:bg-secondary"}`}>
+            {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          </button>
+          <button type="button" onClick={onRestore} title="Reprendre l'appel en grand"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary">
+            <Maximize2 className="h-4 w-4" />
+          </button>
+          <button type="button" onClick={onEnd} title="Raccrocher"
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-destructive/10 text-destructive transition hover:bg-destructive/20">
+            <PhoneOff className="h-4 w-4" />
+          </button>
         </div>
-        <button type="button" onClick={toggleMute} title={muted ? "Réactiver le micro" : "Couper le micro"}
-          className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${muted ? "bg-destructive/15 text-destructive" : "text-muted-foreground hover:bg-secondary"}`}>
-          {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-        </button>
-        <button type="button" onClick={() => setMinimized(false)} title="Agrandir l'appel"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary">
-          <Maximize2 className="h-4 w-4" />
-        </button>
-        <button type="button" onClick={onClose} title="Raccrocher"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-destructive/10 text-destructive transition hover:bg-destructive/20">
-          <PhoneOff className="h-4 w-4" />
-        </button>
       </div>
     );
   }
 
+  // ── IMMERSIF : plein écran mobile, carte premium desktop.
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Conversation vocale avec My Chief of Staff">
-      <button type="button" aria-label="Réduire l'appel" className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setMinimized(true)} />
-      <div className="relative z-10 flex w-full max-w-sm flex-col items-center gap-5 rounded-3xl border border-border bg-card px-6 pb-6 pt-8 shadow-2xl">
-        <div className="flex w-full items-center justify-between">
-          <p className="text-sm font-semibold">My Chief of Staff</p>
-          <button type="button" onClick={() => setMinimized(true)} title="Réduire — l'appel continue"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground">
+    <div className="fixed inset-0 z-[60] flex sm:items-center sm:justify-center sm:p-4" role="dialog" aria-modal="true" aria-label="Appel avec My Chief of Staff">
+      <button type="button" aria-label="Réduire l'appel" className="absolute inset-0 hidden bg-black/50 backdrop-blur-sm sm:block" onClick={onMinimize} />
+      <div className="relative z-10 flex h-full w-full flex-col bg-card pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))] sm:h-auto sm:max-h-[92vh] sm:w-full sm:max-w-md sm:rounded-3xl sm:border sm:border-border sm:pb-6 sm:pt-6 sm:shadow-2xl">
+
+        {/* En-tête : identité, ● LIVE réel (jamais affiché sans connexion), timer. */}
+        <div className="flex items-center justify-between px-5">
+          <div>
+            <p className="text-sm font-semibold tracking-wide">MY CHIEF OF STAFF</p>
+            <p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+              {connected ? (
+                <>
+                  <span className="flex items-center gap-1 font-medium text-primary"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" /> LIVE</span>
+                  <span className="tabular-nums">{fmt(elapsed)}</span>
+                </>
+              ) : (
+                <span>{status === "CONNECTING" ? "Connexion…" : status === "RECONNECTING" ? "Reconnexion…" : status === "ERROR" ? "Hors ligne" : "—"}</span>
+              )}
+            </p>
+          </div>
+          <button type="button" onClick={onMinimize} title="Réduire — l'appel continue (Échap)"
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-secondary hover:text-foreground">
             <Minimize2 className="h-4 w-4" />
           </button>
         </div>
 
-        {orb}
+        {/* Corps : orbe, état, dernière réplique — de l'air, pas de surcharge. */}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 px-6 py-6">
+          {orb}
+          <p className={`text-center text-sm ${error ? "text-destructive" : "text-muted-foreground"}`}>{label}</p>
+          {!showTranscript && lastLine && !error && (
+            <p className="line-clamp-2 w-full max-w-sm text-center text-xs text-muted-foreground/80">
+              {lastLine.role === "user" ? "Vous : " : ""}{lastLine.text}
+            </p>
+          )}
+          {showTranscript && (
+            <div className="max-h-44 w-full space-y-1.5 overflow-y-auto rounded-xl bg-secondary/50 p-3">
+              {lines.length === 0 && <p className="text-xs text-muted-foreground">La conversation s&apos;affichera ici.</p>}
+              {lines.map((l, i) => (
+                <p key={i} className={`text-xs ${l.role === "user" ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                  {l.role === "user" ? "Vous — " : ""}{l.text}
+                </p>
+              ))}
+            </div>
+          )}
+          <button type="button" onClick={() => setShowTranscript((s) => !s)}
+            className="flex items-center gap-1 text-[0.6875rem] text-muted-foreground transition hover:text-foreground">
+            {showTranscript ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+            {showTranscript ? "Masquer le transcript" : "Voir le transcript"}
+          </button>
+          {error && (
+            <p className="w-full max-w-sm rounded-xl bg-secondary/60 px-3 py-2 text-center text-xs text-muted-foreground">
+              La dictée reste disponible (icône micro du chat) — transcription simple, sans temps réel.
+            </p>
+          )}
+        </div>
 
-        <p className={`text-center text-sm ${error ? "text-destructive" : "text-muted-foreground"}`}>{label}</p>
-
-        {/* Le transcript est SECONDAIRE : la dernière réplique en un coup d'œil, le fil sur demande. */}
-        {state !== "ERROR" && lastLine && !showTranscript && (
-          <p className="line-clamp-2 w-full text-center text-xs text-muted-foreground/80">
-            {lastLine.role === "user" ? "Vous : " : ""}{lastLine.text}
-          </p>
-        )}
-        {showTranscript && (
-          <div className="max-h-40 w-full space-y-1.5 overflow-y-auto rounded-xl bg-secondary/50 p-3">
-            {lines.length === 0 && <p className="text-xs text-muted-foreground">La conversation s&apos;affichera ici.</p>}
-            {lines.map((l, i) => (
-              <p key={i} className={`text-xs ${l.role === "user" ? "font-medium text-foreground" : "text-muted-foreground"}`}>
-                {l.role === "user" ? "Vous — " : ""}{l.text}
-              </p>
+        {/* CARTES LIVE : ce dont on parle s'affiche — toucher ouvre la fiche, l'appel se réduit. */}
+        {cards.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto px-5 pb-3 [scrollbar-width:none]">
+            {cards.map((c) => (
+              <button
+                key={c.href}
+                type="button"
+                onClick={() => onOpenCard(c.href)}
+                className="flex shrink-0 items-center gap-1.5 rounded-xl border border-border bg-secondary/50 px-3 py-2 text-xs font-medium transition hover:border-primary/50 hover:text-primary"
+                title="Ouvrir — l'appel continue en réduit"
+              >
+                <span className="max-w-[11rem] truncate">{c.label}</span>
+                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </button>
             ))}
           </div>
         )}
-        <button type="button" onClick={() => setShowTranscript((s) => !s)}
-          className="flex items-center gap-1 text-[0.6875rem] text-muted-foreground transition hover:text-foreground">
-          {showTranscript ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
-          {showTranscript ? "Masquer le transcript" : "Voir le transcript"}
-        </button>
 
-        {error && (
-          <p className="w-full rounded-xl bg-secondary/60 px-3 py-2 text-center text-xs text-muted-foreground">
-            La dictée reste disponible (icône micro du chat) — elle transcrit sans conversation temps réel.
-          </p>
+        {/* TYPE : un vrai champ de saisie DANS l'appel — même conversation, réponse parlée. */}
+        {typing && (
+          <form
+            onSubmit={(e) => { e.preventDefault(); submitDraft(); }}
+            className="flex items-center gap-2 px-5 pb-3"
+          >
+            <input
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Écrire au Chief of Staff…"
+              className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-background px-3.5 text-sm outline-none transition placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
+            />
+            <button type="submit" disabled={!draft.trim() || !connected}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition disabled:opacity-40">
+              <Send className="h-4 w-4" />
+            </button>
+          </form>
         )}
 
-        <div className="flex items-center gap-4">
-          <button type="button" onClick={toggleMute} disabled={busy || state === "ERROR"}
+        {/* Contrôles : gros, peu nombreux — mute / type / raccrocher. */}
+        <div className="flex items-center justify-center gap-5 px-6">
+          <button type="button" onClick={onMute} disabled={!connected}
             title={muted ? "Réactiver le micro" : "Couper le micro"}
-            className={`flex h-12 w-12 items-center justify-center rounded-full border transition disabled:opacity-40 ${
+            className={`flex h-14 w-14 items-center justify-center rounded-full border transition disabled:opacity-40 ${
               muted ? "border-destructive/50 bg-destructive/10 text-destructive" : "border-border text-foreground hover:bg-secondary"
             }`}>
             {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
           </button>
-          <button type="button" onClick={onClose} title="Raccrocher"
-            className="flex h-14 w-14 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-lg transition hover:opacity-90">
+          <button type="button" onClick={onEnd} title="Raccrocher"
+            className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-lg transition hover:opacity-90">
             <PhoneOff className="h-6 w-6" />
+          </button>
+          <button type="button"
+            onClick={() => { setTyping((t) => !t); setTimeout(() => inputRef.current?.focus(), 50); }}
+            disabled={!connected}
+            title="Écrire pendant l'appel"
+            className={`flex h-14 w-14 items-center justify-center rounded-full border transition disabled:opacity-40 ${
+              typing ? "border-primary/60 bg-primary/10 text-primary" : "border-border text-foreground hover:bg-secondary"
+            }`}>
+            <Keyboard className="h-5 w-5" />
           </button>
         </div>
       </div>

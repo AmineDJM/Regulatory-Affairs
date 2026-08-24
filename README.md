@@ -709,12 +709,19 @@ CHAÎNER) ; `update_calendar_event` (déplacer/annuler) ; `create_hospital`/`upd
 la proposition, à l'exécution ET dans la fonction métier (tests adversariaux :
 `lib/assistant/executive-security.test.ts`).
 
-**Voix** : conversation vocale continue (`voice-mode.tsx`) — VAD client, Whisper, réponse PARLÉE
-phrase par phrase (`/api/assistant/speak`, OpenAI TTS), **barge-in** (parler coupe la voix ou
-interrompt la génération), multi-tours, texte affiché en parallèle ; la dictée reste le repli.
+**Voix — l'APPEL temps réel (speech-to-speech)** : session `gpt-realtime-2.1` en WebRTC direct
+navigateur ↔ OpenAI (secret éphémère serveur, clé jamais exposée), mêmes outils/permissions/
+conversation que le texte (~25 fast paths + `delegate_to_chief_of_staff` → cartes de
+confirmation), interruption sémantique (barge-in), tours persistés dans le même fil. L'appel
+est **GLOBAL** (`components/layout/call-provider.tsx`, monté dans le layout) : il survit à la
+navigation, se réduit en carte flottante, minuterie à la connexion réelle, champ TYPE dans
+l'appel, cartes live, contexte d'écran (route + référence, jamais de capture), résumé d'appel
+factuel au raccrochage. Écran d'appel présentationnel : `voice-mode.tsx` (`CallScreen`).
+La dictée (`/api/assistant/transcribe`) reste le repli explicite.
 **UI** : panneau CONTEXTE sur grand écran (sources consultées poussées par les événements SSE
-`source`, actions du fil, raccourcis) ; entrée contextuelle `/chief-of-staff?ref=…`/`?q=…` +
-bouton « Demander au Chief of Staff » (fiches Legal et demande de paiement).
+`source`, actions du fil, raccourcis) ; entrée contextuelle `/chief-of-staff?ref=…`/`?q=…`/
+`?call=1&ref=…` + boutons « Demander au Chief of Staff » / « Appeler » (fiches Legal et
+demande de paiement).
 **Observabilité** : `AiUsageLog` enrichi (TTFT, tours, appels/erreurs/temps des outils).
 Capacités de production, matrice finale et limites : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`.
 
@@ -2501,7 +2508,8 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Chaîne du dossier d'achat (Legal)** | `LegalDocKind` + `QUOTE`/`INVOICE` ; `LegalDocument.chainFromId` (auto-relation « fait suite à », `SET NULL`) + `expenseOrderId` (le règlement) ; module PUR `lib/legal/chain.ts` (`CHAIN_KINDS`, `chainOf` — le fil de LA pièce regardée, jamais un graphe mélangé —, `missingKinds`, `delayDays`/`delayLabel`, `amountDrift`) + `chain.test.ts` (10 tests) ; chargement borné `lib/queries/legal-chain.ts` (`loadLegalChain` : maillons + validateurs + règlement) ; `app/(app)/legal/[id]/{chain-card,send-to-settlement}.tsx` ; `sendLegalInvoiceToSettlement` dans `legal-actions.ts` (→ `createExpenseOrder`, centre de paiement). |
 | **My Chief of Staff (module exécutif)** | Module RBAC `CHIEF_OF_STAFF` (PDG + Super Admin) ; page `app/(app)/chief-of-staff/page.tsx` (réutilise `AssistantChat` avec `executive` + entrée contextuelle `?ref=`/`?q=`) ; outils `lib/assistant/executive-tools.ts` (`search_drive`, `read_document` — droit du Drive nœud par nœud —, **`inspect_record`** universel — paiements, règlements, Legal + chaîne, promo, secrétariat, Regulatory, factures, courriers, projets, tâches —, `person_report`, rappels, `executiveBriefing`) + `executive-read-tools.ts` (**`search_everything`**, `read_calendar`, `find_free_slot`, `read_stock`, `search_hospitals`, `read_employee`, `read_payroll`, `search_courriers`, `finance_totals` — chacun ouvert par le DROIT de l'écran) + `executive-brief-tools.ts` (**`executive_alerts`** ← `lib/assistant/proactive.ts`, **`executive_brief`**, **`create_report`** .docx → Drive) fondus dans `POWER_TOOLS` ; actions confirmées dans `lib/assistant.ts` : `decide_payment` (SENSITIVE), `update_task`, `update_request`, `create_legal_document`/`update_legal_document`, `update_calendar_event`, `create_hospital`/`update_hospital`, **`update_salary` (CRITICAL : `level` + `confirmText`, re-saisie du montant, verrou de fraîcheur)** ; tests adversariaux `lib/assistant/executive-security.test.ts` ; recherche fédérée `lib/queries/search-everything.ts` (unaccent/pg_trgm sondés, repli LIKE) ; architecture : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`. |
 | **Executive AI Operating System (CdS lots A–F)** | Gouvernance : `ACTION_POLICY` + arrêt d'urgence `aiExternalActionsDisabled` dans `lib/assistant.ts` (+ `lib/settings.ts`, `lib/assistant/admin-write.ts`), relances suspendues dans `lib/assistant/reminders.ts` (`watchState` = surveillance conditionnelle, propriétaire seul), cartes groupées `AssistantResult.proposals` (+ « Tout confirmer » dans `assistant-chat.tsx`, CRITIQUES exclues) ; mémoire typée `lib/assistant/memory-context.ts` (`typedMemoryContext`, `expandQueryWithAliases`) + `memory-tools.ts` (remember/list/forget, recall_conversation, décisions `ExecutiveDecision`, engagements `ExecutiveCommitment`) + fil principal `ensurePrimaryThread`/plafond dans `lib/assistant-memory.ts` ; vues 360° `lib/assistant/three-sixty.ts` (employee/product/supplier_360, organization/process_insights — âge calculé backend avec source, salaire derrière le module RH) ; découverte Drive sale `lib/assistant/document-discovery.ts` (`find_documents`, index progressif `DriveTextIndex` nourri par `read_document`) ; simulation/état `lib/assistant/what-if.ts` (`simulate_scenario` jamais mutatif, `company_state`, `ceo_attention`) + bandeau « Aujourd'hui » dans `chief-of-staff/page.tsx` ; livrables `lib/assistant/deliverables.ts` (DOCX/XLSX/PPTX d'une même spec, registre `AssistantArtifact`, Drive « Livrables IA ») ; corpus généralisé `lib/assistant/corpus-tools.ts` (catégories + arabe المادة dans `regulatory/intelligence/corpus/{import,ingest-file,rag}.ts`) ; anomalies dans `lib/assistant/proactive.ts` (doublon facture, montant outlier). Tests : `memory-tools.test.ts`, `three-sixty.test.ts`, `deliverables.test.ts`, `corpus-tools.test.ts`, `executive-security.test.ts` (kill-switch). |
-| **Voix du Chief of Staff (conversation)** | `app/(app)/assistant/voice-mode.tsx` — VAD client (RMS + hystérésis), capture → `/api/assistant/transcribe` (Whisper) → même flux SSE (texte affiché en parallèle) → réponse PARLÉE phrase par phrase via `/api/assistant/speak` (`synthesizeSpeech`/`ttsConfigured` dans `lib/ai.ts`, OpenAI TTS) ; **barge-in** : parler coupe la voix / interrompt la génération ; la dictée reste le repli ; les actions se confirment toujours À LA MAIN. Panneau CONTEXTE : événements SSE `source` (extraits par `extractSources` — liens INTERNES uniquement) collectés par `assistant-chat.tsx`. |
+| **Voix du Chief of Staff — appel temps réel (speech-to-speech)** | Serveur : `lib/assistant/voice-realtime.ts` (`canUseRealtimeVoice`, `realtimeToolsFor` — adaptateur PowerTool→Realtime, ~25 fast paths + délégation —, `buildVoiceInstructions` — contexte commun compact + fil récent borné + **contexte d'écran borné 300 c.** + consignes vocales —, `createVoiceSessionGrant` — secret éphémère via `/v1/realtime/client_secrets`, clé jamais exposée) + routes `app/api/assistant/voice/{session,tool,turn,log}/route.ts` (droit RE-vérifié à chaque appel d'outil ; tours persistés par `rememberExchange`). Client : `app/(app)/assistant/realtime-voice.ts` (`VoiceRealtimeProvider` → `OpenAIGptRealtime21Provider` : WebRTC, barge-in + purge tampon, **outils en parallèle** + discipline une-réponse-active, `sendContext`) ; **appel GLOBAL** `components/layout/call-provider.tsx` (monté dans `app/(app)/layout.tsx` : survit à la navigation, minuterie à la connexion réelle, carte flottante réduite, Échap = réduire, cartes live, contexte d'écran par `usePathname`, **résumé d'appel factuel** au raccrochage, pont tamponné vers le chat) ; écran présentationnel `voice-mode.tsx` (`CallScreen` : plein écran mobile / modal desktop, ● LIVE honnête, TYPE dans l'appel, Mute/Raccrocher/Clavier). Entrée `?call=1&ref=` (`chief-of-staff/page.tsx` → `initialCallRef`) + bouton « Appeler » (`components/shared/ask-chief.tsx`). La dictée (`/api/assistant/transcribe`) reste le repli. Tests : `voice-realtime.test.ts`. |
+| **Time Travel (état passé d'un dossier)** | `lib/assistant/time-travel.ts` — outil **`time_travel`** (EXEC, fast path vocal) : résolution de référence (paiement → règlement → Legal → Regulatory → tâche), reconstruction depuis `AuditLog` (dernière écriture ≤ date / `oldValue` de la première écriture > date), événements avant + **changements depuis + état actuel en face**, étapes ANPP à la date pour un dossier Regulatory, « n'existait pas encore » si créé après. **STRICTEMENT lecture seule** (prouvé par `time-travel.test.ts` : le journal ne bouge pas d'une ligne). |
 | **Rappels planifiés du Chief of Staff** | Modèle `AssistantReminder` (dueAt, `recurrence` NONE/DAILY/WEEKLY/MONTHLY/**MONTHLY_WEEKDAY** — « chaque premier lundi du mois », repli dernière occurrence —, `targetRole` ET/OU **`targetUserId`** — personne nommée, résolue à la création —, `active`) ; module `lib/assistant/reminders.ts` (`nextOccurrence` — retombe le même jour/heure même tiré en retard, rattrape un serveur éteint sans notifier N fois —, `algiersToUtc`, `runAssistantReminders`) + `reminders.test.ts` (13 tests) ; balayage branché dans `lib/scheduled.ts` ; pop-up via `broadcastNotification`, relances via `notifyRoles`/`notifyUser`. |
 | **Observabilité IA (boucle agent)** | `AiUsageLog` + `ttftMs` (délai avant le 1er mot), `turns`, `toolCalls`, `toolErrors`, `toolLatencyMs` — mesurés dans `runAssistantStream` (`AssistantMetrics`), journalisés par `/api/assistant/stream` via `logAiUsage` (`lib/ai-settings.ts`). Migration `20260824230000_ai_usage_metrics`. |
 | **Drive → « Classer en courrier »** | `attachDriveNodeToMail` (`mail-register-actions.ts` — référence sans copie, refus du doublon) ; `app/(app)/drive/send-to-mail.tsx` (panneau rendu PAR LA LIGNE, hors menu-portail) ; entrée dans `node-actions.tsx`. |
@@ -3091,6 +3099,56 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **PREMIUM LIVE EXPERIENCE — « je suis au téléphone avec mon Chief of Staff ».** Une couche
+  d'expérience d'appel + des capacités exécutives À LA DEMANDE, sans rien reconstruire — le
+  principe qui gouverne tout : **CAPABLE ≠ EXÉCUTÉ** (l'IA peut suggérer, elle attend
+  « fais-le »). **Bouton TÉLÉPHONE** distinct du micro (dictée) sur `/chief-of-staff`.
+  **Vraie interface d'appel** : plein écran mobile (safe areas, gros boutons Mute / Raccrocher /
+  Clavier), modal immersif desktop ; en-tête « MY CHIEF OF STAFF · ● LIVE · 06:42 » — la
+  **minuterie démarre à la connexion RÉELLE** et jamais de « Live » si la session ne l'est pas
+  (Connexion… / Reconnexion… affichés honnêtement). **L'appel est GLOBAL**
+  (`components/layout/call-provider.tsx`, monté dans le layout) : il **survit à la navigation**
+  dans l'ERP — réduit, il devient une carte flottante (état, durée, mute, restaurer,
+  raccrocher) ; **Échap réduit, ne raccroche jamais** ; raccrocher coupe le média mais
+  **préserve** conversation, transcript et actions ; Mute coupe le micro sans fermer la
+  connexion. **TYPE** : un vrai champ de saisie DANS l'appel — le texte entre dans la même
+  session, l'IA peut répondre à l'oral ; le champ de la page fait pareil pendant un appel actif.
+  **Cartes live** : pendant que la voix résume, chaque dossier lu pousse sa carte (libellé +
+  lien) dans le bandeau — toucher = réduire l'appel + ouvrir la page, la conversation continue ;
+  de retour au chat, sources et propositions réinjectées (tamponnées si le chat était démonté).
+  **Contexte d'écran SANS espionnage** (route + référence, jamais de capture) : envoyé à
+  l'ouverture (borné 300 caractères côté serveur → bloc « CONTEXTE D'ÉCRAN » dans les
+  instructions) puis à chaque navigation (item système compact) — « ça », « ce dossier » se
+  résolvent. **« Appeler » depuis une fiche** (Legal, demande de paiement) :
+  `/chief-of-staff?call=1&ref=…` — l'appel démarre avec le dossier en contexte, « où ça
+  bloque ? » se résout dès la première seconde. **Travail parallèle** : les outils ne se
+  sérialisent plus — une délégation lourde tourne en fond pendant que les questions rapides
+  reçoivent leurs réponses (une seule réponse vocale active : discipline `response.create` sur
+  `response.done`). **Résumé d'appel** au raccrochage (durée, sujets, cartes affichées, outils
+  consultés, actions PROPOSÉES — « rien d'exécuté sans confirmation ») : des faits, aucune
+  action créée, persisté dans le fil ; reprendre l'appel ne re-salue pas. **TIME TRAVEL**
+  (`lib/assistant/time-travel.ts`, outil `time_travel`, fast path vocal) : « où en était ce
+  dossier au 1ᵉʳ juin ? » → reconstruction **STRICTEMENT LECTURE SEULE** depuis le journal
+  d'audit — champs à la date (dernière écriture avant / valeur remplacée juste après),
+  événements déjà survenus, **ce qui a changé depuis + état actuel en face**, étapes ANPP à la
+  date ; dossier créé après la date → « n'existait pas encore » ; l'outil DIT ce que le journal
+  ne capture pas. Familles d'intentions documentées : ASK/SHOW/EXPLAIN/COMPARE/ANALYZE/
+  SIMULATE/TIME_TRAVEL/BRIEF = lectures à la demande ; PREPARE/GENERATE = brouillons jamais
+  auto-envoyés ; REMIND/MONITOR = demande explicite ; ACT = politique d'actions complète.
+  Tests : `time-travel.test.ts` (reconstruction exacte, lecture seule prouvée — le journal ne
+  bouge pas d'une ligne —, honnêteté), `voice-realtime.test.ts` étendu (contexte d'écran borné,
+  time_travel fast path). **Recette en conditions déployées** (à dérouler sur Render, micro
+  réel) : 1. bouton téléphone → appel, ● LIVE + minuterie à la connexion réelle ; 2. réduire
+  puis naviguer 3 pages → l'audio ne coupe jamais, restaurer remet l'écran d'appel ;
+  3. depuis `/legal/[id]` → « Appeler » → « où ça bloque ? » sans nommer le dossier → bonne
+  réponse ; 4. « montre-moi le paiement Hikma » → carte à l'écran, toucher = fiche ouverte,
+  conversation continue ; 5. bouton Clavier → question écrite → réponse orale, même contexte ;
+  6. « analyse l'organisation » puis DANS LA FOULÉE deux questions rapides → réponses sans
+  attendre la fin de l'analyse ; 7. « où en était REG-… au 1ᵉʳ juin ? » → état passé + « ce qui
+  a changé depuis », AUCUNE écriture ; 8. « qu'est-ce que je rate ? » → ceo_attention à la
+  demande ; 9. raccrocher → résumé d'appel dans le fil (faits seulement), rouvrir l'appel → pas
+  de re-salutation ; 10. Échap → réduit (jamais raccroché) ; 11. suggestion (« je peux aussi
+  te… ») → RIEN ne part sans « fais-le » ; 12. mobile plein écran (safe areas) + desktop modal.
 - **VOIX TEMPS RÉEL — le Chief of Staff au téléphone (speech-to-speech).** L'ancienne chaîne
   « VAD maison → Whisper → prompt texte → attente → TTS phrase par phrase » est REMPLACÉE par une
   vraie session **`gpt-realtime-2.1`** (API Realtime OpenAI, **WebRTC direct navigateur ↔ OpenAI**

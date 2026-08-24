@@ -5,9 +5,9 @@ import Link from "next/link";
 import {
   Sparkles, Send, Loader2, Bot, CheckCircle2, AlertTriangle, KeyRound,
   Search, ArrowRight, X, Wand2, Paperclip, FolderOpen, FileText, Mic, Square,
-  History, Plus, Trash2, Lock, AudioLines, Link2, ShieldAlert,
+  History, Plus, Trash2, Lock, Phone, Link2, ShieldAlert,
 } from "lucide-react";
-import { VoiceMode } from "./voice-mode";
+import { useCall } from "@/components/layout/call-provider";
 import type { VoiceToolUi } from "./realtime-voice";
 import { Button } from "@/components/ui/button";
 import {
@@ -79,7 +79,7 @@ export function cleanReply(text: string): string {
 
 export function AssistantChat({
   userName, configured, voiceConfigured = false, realtimeVoice = false, memoryEnabled = false,
-  executive = false, initialPrompt = null, initialThreadId = null,
+  executive = false, initialPrompt = null, initialThreadId = null, initialCallRef = null,
 }: {
   userName: string; configured: boolean;
   /** Dictée disponible (transcription simple, texte éditable avant envoi). */
@@ -93,14 +93,14 @@ export function AssistantChat({
   initialPrompt?: string | null;
   /** LE FIL PRINCIPAL : la conversation continue qui s'ouvre d'office (Chief of Staff). */
   initialThreadId?: string | null;
+  /** APPEL DEPUIS UNE FICHE (?call=1&ref=…) : l'appel démarre avec ce dossier en contexte. */
+  initialCallRef?: string | null;
 }) {
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
   const [sending, setSending] = React.useState(false);
   /** Les SOURCES consultées pendant la conversation (liens internes), les plus récentes d'abord. */
   const [sources, setSources] = React.useState<{ label: string; href: string }[]>([]);
-  /** Conversation vocale continue (VAD + barge-in) — distincte de la dictée. */
-  const [voiceOpen, setVoiceOpen] = React.useState(false);
   const [attachments, setAttachments] = React.useState<PendingAttach[]>([]);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
@@ -238,14 +238,11 @@ export function AssistantChat({
     }
   };
 
-  // ── APPEL VOCAL : le pont avec la session temps réel.
-  //    Pendant un appel, le texte tapé entre DANS la session (réponse parlée) ; les tours
-  //    vocaux (transcriptions) et les cartes d'outils reviennent s'afficher ICI — voix et
-  //    texte sont deux modalités de la même conversation.
-  const voiceTextSenderRef = React.useRef<((text: string) => void) | null>(null);
-  const registerVoiceTextSender = React.useCallback((fn: ((text: string) => void) | null) => {
-    voiceTextSenderRef.current = fn;
-  }, []);
+  // ── APPEL VOCAL : le pont avec l'APPEL GLOBAL (CallProvider, monté au layout — l'appel
+  //    survit à la navigation ERP). Pendant un appel, le texte tapé entre DANS la session
+  //    (réponse parlée) ; les tours vocaux et les cartes d'outils reviennent s'afficher ICI —
+  //    voix et texte sont deux modalités de la même conversation.
+  const call = useCall();
   const onVoiceTurn = React.useCallback((userText: string, assistantText: string) => {
     setMessages((m) => [
       ...m,
@@ -281,6 +278,29 @@ export function AssistantChat({
     }
   }, []);
 
+  // Le chat se BRANCHE sur l'appel global tant qu'il est monté (les tours et cartes arrivés
+  // pendant une navigation ailleurs sont bufferisés par le provider et rattrapés ici).
+  const setBridge = call.setBridge;
+  React.useEffect(() => {
+    setBridge({ onTurn: onVoiceTurn, onToolUi: onVoiceToolUi, onThreadId: (tid) => setThreadId(tid) });
+    return () => setBridge(null);
+  }, [setBridge, onVoiceTurn, onVoiceToolUi]);
+
+  // APPEL DEPUIS UNE FICHE : ?call=1&ref=… — l'appel démarre AVEC le dossier en contexte
+  // (« Où ça bloque ? » se comprend tout seul). Un seul démarrage, jamais en boucle.
+  const callStartedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (initialCallRef === null || callStartedRef.current || !realtimeVoice) return;
+    callStartedRef.current = true;
+    call.start({
+      threadId,
+      screenContext: initialCallRef
+        ? `L'utilisateur appelle DEPUIS la fiche « ${initialCallRef} » — « ça », « ce dossier » s'y réfèrent sauf indication contraire.`
+        : null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCallRef, realtimeVoice]);
+
   /** Envoie un tour et REND la réponse finale — la voix en a besoin pour parler. */
   const send = async (text: string): Promise<string | null> => {
     const content = text.trim();
@@ -289,8 +309,7 @@ export function AssistantChat({
 
     // Pendant un APPEL : le message tapé entre dans la session vocale (sans pièces jointes —
     // elles passent par le circuit texte habituel). La réponse arrive parlée ET transcrite.
-    if (voiceTextSenderRef.current && pending.length === 0 && content) {
-      voiceTextSenderRef.current(content);
+    if (call.active && pending.length === 0 && content && call.sendText(content)) {
       setInput("");
       return null;
     }
@@ -327,7 +346,7 @@ export function AssistantChat({
     } finally {
       setSending(false);
       setStreaming(null);
-      if (!voiceOpen) taRef.current?.focus();
+      if (!call.active) taRef.current?.focus();
     }
   };
   /** Ajoute le résultat d'un tour non diffusé (pièces jointes) à la conversation. */
@@ -600,19 +619,6 @@ export function AssistantChat({
           </div>
         )}
 
-        {/* MODE APPEL — conversation speech-to-speech temps réel (WebRTC ↔ API Realtime) :
-            barge-in natif, mêmes outils, même fil, cartes de confirmation à l'écran. */}
-        {voiceOpen && (
-          <VoiceMode
-            threadId={threadId}
-            onThreadId={(tid) => setThreadId(tid)}
-            onTurn={onVoiceTurn}
-            onToolUi={onVoiceToolUi}
-            registerTextSender={registerVoiceTextSender}
-            onClose={() => setVoiceOpen(false)}
-          />
-        )}
-
         <form
           onSubmit={(e) => { e.preventDefault(); send(input); }}
           onDragOver={(e) => { if (configured) { e.preventDefault(); setDragOver(true); } }}
@@ -622,12 +628,15 @@ export function AssistantChat({
         >
           <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
           <div className="flex items-center gap-1">
+            {/* LE TÉLÉPHONE — « Appeler My Chief of Staff » (conversation temps réel). Distinct
+                de la dictée (icône micro) : appeler ≠ dicter. */}
             {realtimeVoice && (
               <button type="button"
-                title={voiceOpen ? "Raccrocher" : "Parler au Chief of Staff — conversation vocale temps réel (interruptible)"}
-                onClick={() => setVoiceOpen((o) => !o)} disabled={!configured}
-                className={`flex h-[2.75rem] w-9 items-center justify-center rounded-xl transition disabled:opacity-50 ${voiceOpen ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
-                <AudioLines className="h-4 w-4" />
+                title={call.active ? "Reprendre l'appel en cours" : "Appeler My Chief of Staff — conversation vocale temps réel"}
+                onClick={() => (call.active ? call.setMinimized(false) : call.start({ threadId }))}
+                disabled={!configured}
+                className={`flex h-[2.75rem] w-9 items-center justify-center rounded-xl transition disabled:opacity-50 ${call.active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
+                <Phone className="h-4 w-4" />
               </button>
             )}
             {voiceConfigured && (recording ? (

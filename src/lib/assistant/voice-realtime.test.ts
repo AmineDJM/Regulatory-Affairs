@@ -91,6 +91,12 @@ describe("voix temps réel — adaptateur d'outils (les MÊMES outils, jamais du
   it("le modèle est configurable, jamais codé en dur ailleurs : gpt-realtime-2.1 par défaut", () => {
     expect(REALTIME_VOICE_MODEL).toBe(process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-2.1");
   });
+
+  it("time_travel est un fast path vocal — « où en était ce dossier au 1er juin ? » sans délégation", () => {
+    expect(VOICE_FAST_TOOL_NAMES).toContain("time_travel");
+    const exec = userWith({ CHIEF_OF_STAFF: ["VIEW"] }, "DIRECTION");
+    expect(realtimeToolsFor(exec).map((t) => t.name)).toContain("time_travel");
+  });
 });
 
 let dbOk = false;
@@ -141,5 +147,19 @@ suite("voix temps réel — instructions de session (même conversation, budget 
     const stranger = userWith({ CHIEF_OF_STAFF: ["VIEW"] }, "DIRECTION", other.id);
     const foreign = await buildVoiceInstructions(stranger, tid);
     expect(foreign).not.toContain("Khaled Benali");
+  });
+
+  it("le CONTEXTE D'ÉCRAN s'injecte quand l'appel part d'une fiche — borné, jamais obligatoire", async () => {
+    const exec = userWith({ CHIEF_OF_STAFF: ["VIEW"] }, "DIRECTION", ceoId);
+    const withScreen = await buildVoiceInstructions(exec, null, `L'utilisateur appelle depuis la fiche « PAY-2026-014 ».`);
+    expect(withScreen).toContain("CONTEXTE D'ÉCRAN");
+    expect(withScreen).toContain("PAY-2026-014");
+    expect(withScreen).toContain("« ça », « ce dossier »");
+    // Sans contexte : pas de bloc fantôme.
+    const without = await buildVoiceInstructions(exec, null);
+    expect(without).not.toContain("CONTEXTE D'ÉCRAN");
+    // BORNÉ : un client trafiqué qui envoie 50 000 caractères ne gonfle pas les instructions.
+    const flooded = await buildVoiceInstructions(exec, null, "Z".repeat(50_000));
+    expect(flooded.length - without.length).toBeLessThan(500);
   });
 });

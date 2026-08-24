@@ -21,6 +21,8 @@ import { NotificationChime } from "@/components/layout/notification-chime";
 import { NotificationPopup } from "@/components/layout/notification-popup";
 import { UploadProvider } from "@/components/layout/upload-manager";
 import { BackgroundUploadProvider } from "@/components/layout/background-upload";
+import { CallProvider } from "@/components/layout/call-provider";
+import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
 import { getTotalUnread } from "@/lib/queries/messaging";
 import { getAdoptionBadge } from "@/lib/adoption";
 import { aiConfigured, sttConfigured } from "@/lib/ai";
@@ -126,6 +128,9 @@ export default async function AppLayout({
   return (
     <UploadProvider>
     <BackgroundUploadProvider>
+    {/* L'APPEL VIT AU NIVEAU DU LAYOUT, pas de la page Chief of Staff : naviguer dans l'ERP
+        pendant un appel ne démonte pas la session WebRTC — la conversation continue. */}
+    <CallProvider enabled={realtimeVoiceConfigured() && canUseRealtimeVoice(user)}>
     <div className="flex h-screen overflow-hidden bg-background">
       <ActivityTracker />
       {/* LE REJEU DE SESSION — pour le support technique : rembobiner la suite des actions et
@@ -189,6 +194,7 @@ export default async function AppLayout({
       {/* Notifications pop-up plein écran (grande fenêtre centrée) diffusées depuis l'Administration. */}
       <NotificationPopup />
     </div>
+    </CallProvider>
     </BackgroundUploadProvider>
     </UploadProvider>
   );

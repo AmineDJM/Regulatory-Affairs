@@ -141,13 +141,79 @@ affiche).
 prise de parole le client vide EN PLUS le tampon local (`output_audio_buffer.clear`) : le son
 s'arrête net, aucun buffer périmé n'est rejoué, la nouvelle consigne prime.
 
-**UI — mode appel** (`voice-mode.tsx`) : orbe à états (écoute / réflexion / parole), mute,
-raccrocher, transcript SECONDAIRE (dernière réplique + fil sur demande), RÉDUCTIBLE en barre
-discrète (consulter un document sans raccrocher). États machine :
+**UI — mode appel** : la session vocale vit dans un provider GLOBAL du layout
+(`components/layout/call-provider.tsx` — contexte React, cycle de vie, minuterie, transcript,
+cartes, pont vers le chat) ; l'écran d'appel (`voice-mode.tsx` → `CallScreen`) est purement
+présentationnel : orbe à états (écoute / réflexion / parole / muet), mute, raccrocher,
+transcript SECONDAIRE (dernière réplique + fil sur demande). États machine :
 IDLE/CONNECTING/LISTENING/USER_SPEAKING/THINKING/ASSISTANT_SPEAKING/RECONNECTING/ERROR/ENDED.
 Reconnexion : chute WebRTC → nouveau secret éphémère, MÊME fil (2 tentatives), jamais une
 nouvelle conversation. Échec d'ouverture → message clair + la DICTÉE proposée en repli
 explicite (jamais présentée comme du temps réel).
+
+### PREMIUM LIVE EXPERIENCE — « je suis au téléphone avec mon Chief of Staff »
+
+**Le bouton téléphone.** Sur `/chief-of-staff`, l'icône TÉLÉPHONE ouvre l'appel temps réel
+(« Appeler My Chief of Staff ») ; le micro reste la DICTÉE — deux gestes, deux intentions,
+jamais confondus. Le bouton n'apparaît qu'aux détenteurs de la voix temps réel.
+
+**Interface d'appel.** Mobile : PLEIN ÉCRAN (safe areas, gros boutons — Mute / Raccrocher /
+Clavier). Desktop : modal immersif, clic hors carte = réduire. En-tête « MY CHIEF OF STAFF »,
+pastille « ● LIVE » et MINUTERIE : le chrono démarre à la CONNEXION RÉELLE (premier état
+d'écoute) et s'arrête au raccrochage — jamais de « Live » si la session n'est pas réellement
+connectée (CONNECTING affiche « Connexion… », RECONNECTING « Reconnexion… »).
+
+**L'appel est GLOBAL.** Monté dans le layout (`CallProvider`), il SURVIT à la navigation :
+ouvrir une fiche, le Drive, un tableau — la conversation continue. Réduit = carte flottante
+(état, durée, mute, restaurer, raccrocher) au-dessus de la barre mobile. Échap RÉDUIT (jamais
+raccrocher accidentel) ; raccrocher coupe le média mais PRÉSERVE conversation, transcript et
+actions ; Mute coupe le micro sans fermer la connexion, l'état est affiché.
+
+**TYPE — écrire dans l'appel.** Le bouton Clavier ouvre un VRAI champ de saisie DANS l'appel :
+le texte entre dans la MÊME session (l'IA peut répondre à l'oral). Le champ de la page fait
+pareil pendant un appel actif : tout est UNE conversation, quel que soit le canal.
+
+**Cartes live.** Pendant que la voix RÉSUME, l'écran AFFICHE : chaque outil qui lit un dossier
+pousse sa carte (libellé + lien) dans le bandeau de l'appel — toucher une carte réduit l'appel
+et ouvre la page (la conversation continue). De retour dans le chat, sources et propositions
+sont réinjectées dans le panneau CONTEXTE (tamponnées si le chat était démonté).
+
+**Contexte d'écran — sans espionnage.** JAMAIS de capture d'écran : uniquement la ROUTE et la
+RÉFÉRENCE de la fiche. À l'ouverture, le client envoie le contexte (`screenContext`, borné à
+300 caractères côté serveur) → bloc « CONTEXTE D'ÉCRAN » dans les instructions ; en cours
+d'appel, chaque navigation pousse un item système compact (« l'utilisateur consulte /legal/… »)
+— « ça », « ce dossier » se résolvent sans répéter la référence. **Appel depuis une fiche** :
+« Appeler » (fiche Legal, demande de paiement) → `/chief-of-staff?call=1&ref=…` — l'appel
+démarre avec le dossier en contexte, « où ça bloque ? » se résout dès la première seconde.
+
+**Travail parallèle.** Les appels d'outils ne se sérialisent plus : une délégation lourde
+(analyse, livrable) part en tâche de fond pendant que les questions rapides continuent de
+recevoir leurs réponses — une seule réponse vocale active à la fois (discipline
+`response.create` sur `response.done`), mais plusieurs outils en vol.
+
+**Résumé d'appel.** Au raccrochage : durée, sujets abordés, cartes/documents affichés, outils
+consultés, nombre d'actions PROPOSÉES (« rien d'exécuté sans confirmation ») — des FAITS,
+aucune action créée — persisté dans le fil par la même porte que tout tour
+(`rememberExchange`). Reprendre l'appel plus tard ne re-salue pas : la conversation continue.
+
+**TIME TRAVEL** (`lib/assistant/time-travel.ts`, outil `time_travel`) — « où en était ce
+dossier au 1ᵉʳ juin ? » : reconstruction de l'état PASSÉ depuis le journal d'audit — valeur des
+champs à la date (dernière écriture avant / valeur remplacée juste après), événements déjà
+survenus, ce qui a changé DEPUIS, état actuel en face (le « avant / maintenant » d'un coup
+d'œil), étapes ANPP à la date pour un dossier Regulatory. STRICTEMENT LECTURE SEULE, à la
+demande seulement ; l'outil DIT ce que le journal ne capture pas. Dossier créé après la date →
+« n'existait pas encore », jamais un état inventé.
+
+**CAPABLE ≠ EXÉCUTÉ — les familles d'intentions.** Le principe qui gouverne tout :
+- **ASK / FIND / SHOW / EXPLAIN / COMPARE / ANALYZE / SIMULATE / TIME_TRAVEL / BRIEF** —
+  lectures immédiates, aucune écriture, exécutées à la demande ;
+- **PREPARE / GENERATE** (brouillons, livrables) — à la demande explicite, jamais envoyés
+  automatiquement ;
+- **REMIND / MONITOR / SCHEDULE** — uniquement sur demande explicite (« rappelle-moi… ») ;
+- **ACT** — la politique d'actions complète (cartes de confirmation, niveaux, re-saisie).
+La voix peut SUGGÉRER (« je peux aussi te préparer le comparatif ») — une suggestion, puis
+elle ATTEND « fais-le ». Rien ne se déclenche seul : « it does nothing operationally unless
+the CEO asks or confirms ».
 
 **Observabilité.** Logs structurés serveur (`voice_session_created/connected/error`,
 `voice_tool_called/completed`, `voice_reconnect`, `voice_session_closed` — reasonCode, latences,

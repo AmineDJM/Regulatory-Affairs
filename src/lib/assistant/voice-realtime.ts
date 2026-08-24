@@ -77,6 +77,7 @@ export const VOICE_FAST_TOOL_NAMES: readonly string[] = [
   "executive_alerts",
   "list_pending_decisions",
   "search_knowledge_corpus",
+  "time_travel",
   "plan_reminder",
   "list_commitments",
   "list_decisions",
@@ -154,6 +155,15 @@ CONSIGNES VOCALES — tu es EN LIGNE, à l'oral, avec ton interlocuteur :
 - Un MONTANT dans une action se répète clairement avant confirmation (« 14 millions 800 mille
   dinars »). Un nom ambigu se lève en une question courte (« Nesrine B. ou Nesrine K. ? ») —
   seulement si le doute est réel.
+- « Donne-moi juste la réponse » (ou tout signe d'impatience) : raccourcis IMMÉDIATEMENT — le
+  chiffre ou le fait, une phrase, rien d'autre, et garde ce registre pour la suite de l'appel.
+- CAPACITÉ ≠ EXÉCUTION : tu PEUX suggérer une suite utile (« je peux aussi te préparer le
+  comparatif en Excel ») — UNE suggestion, courte, puis tu ATTENDS « fais-le ». Tu ne lances
+  jamais une analyse lourde, un livrable, un rappel ou une action de ta propre initiative.
+- « Qu'est-ce que je rate ? » / « où en est la boîte ? » : ceo_attention ou company_state en
+  lecture directe ; si le PDG demande une VRAIE investigation, délègue — à sa demande, jamais avant.
+- « Où en était ce dossier au… ? » : l'outil time_travel reconstruit l'état PASSÉ depuis le
+  journal d'audit — lecture seule, dis ce que le journal montre et ce qu'il ne capture pas.
 - Ton : professionnel, calme, naturel — jamais robotique, jamais surjoué.`;
 
 const ymdhm = (iso: string): string => iso.slice(0, 16).replace("T", " ");
@@ -163,8 +173,16 @@ const ymdhm = (iso: string): string => iso.slice(0, 16).replace("T", " ");
  * fonction que le texte, en variante compacte), contexte personnel et mémoire (les mêmes
  * qu'en texte), les derniers échanges du fil (BORNÉS — jamais tout l'historique), et les
  * consignes vocales. Le reste du passé se retrouve par recall_conversation.
+ *
+ * `screenContext` (optionnel) : D'OÙ l'appel démarre — la fiche ou la page que l'utilisateur
+ * regarde (« Appeler » depuis un paiement, un contrat…). Route + référence, JAMAIS une capture
+ * d'écran : c'est ce qui rend « où ça bloque ? » résoluble dès la première seconde.
  */
-export async function buildVoiceInstructions(user: CurrentUser, threadId: string | null): Promise<string> {
+export async function buildVoiceInstructions(
+  user: CurrentUser,
+  threadId: string | null,
+  screenContext?: string | null,
+): Promise<string> {
   const parts: string[] = [buildChiefOfStaffContext(user, { voice: true })];
 
   const personal = await personalContext(user.id).catch(() => null);
@@ -180,6 +198,13 @@ export async function buildVoiceInstructions(user: CurrentUser, threadId: string
         `\nCONVERSATION RÉCENTE (le même fil continue — résoudre « il », « ce paiement »… avec ceci) :\n${lines.join("\n")}`,
       );
     }
+  }
+
+  const screen = typeof screenContext === "string" ? screenContext.replace(/\s+/g, " ").trim().slice(0, 300) : "";
+  if (screen) {
+    parts.push(
+      `\nCONTEXTE D'ÉCRAN (au moment de l'appel) : ${screen}\n« ça », « ce dossier », « cette fiche » s'y réfèrent, sauf indication contraire.`,
+    );
   }
 
   parts.push(VOICE_ADDENDUM);
@@ -207,7 +232,7 @@ export interface VoiceSessionRefusal { ok: false; error: string; reasonCode: str
  */
 export async function createVoiceSessionGrant(
   user: CurrentUser,
-  opts: { threadId?: string | null; voice?: string | null } = {},
+  opts: { threadId?: string | null; voice?: string | null; screenContext?: string | null } = {},
 ): Promise<VoiceSessionGrant | VoiceSessionRefusal> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return { ok: false, error: "Le mode vocal temps réel n'est pas configuré (clé OPENAI_API_KEY absente).", reasonCode: "OPENAI_KEY_MISSING", status: 503 };
@@ -218,7 +243,7 @@ export async function createVoiceSessionGrant(
   if (!threadId) threadId = await ensurePrimaryThread(user.id).catch(() => null);
 
   const voice = (REALTIME_VOICES as readonly string[]).includes(opts.voice ?? "") ? (opts.voice as string) : REALTIME_VOICES[0];
-  const instructions = await buildVoiceInstructions(user, threadId);
+  const instructions = await buildVoiceInstructions(user, threadId, opts.screenContext ?? null);
   const tools = realtimeToolsFor(user);
 
   const body = {

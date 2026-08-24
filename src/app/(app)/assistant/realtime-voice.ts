@@ -64,6 +64,11 @@ export interface VoiceRealtimeProvider {
   disconnect(): void;
   /** Message TEXTE dans la session vocale (« l'utilisateur tape pendant l'appel »). */
   sendText(text: string): void;
+  /**
+   * CONTEXTE D'ÉCRAN : informe la session de ce que l'utilisateur consulte (route/fiche) —
+   * SANS déclencher de réponse. « Explique-moi ça » se résout alors tout seul.
+   */
+  sendContext(text: string): void;
   /** Coupe la réponse en cours (bouton, ou ceinture-bretelles du barge-in). */
   interrupt(): void;
   setMuted(muted: boolean): void;
@@ -107,7 +112,12 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
   private assistantText = "";
   private turnTimer: ReturnType<typeof setTimeout> | null = null;
   private firstAudioAt: number | null = null;
-  private toolQueue: Promise<void> = Promise.resolve();
+  // TRAVAIL PARALLÈLE : les outils s'exécutent SANS se bloquer mutuellement — une délégation
+  // longue (analyse profonde) ne met pas en file la question rapide posée pendant qu'elle
+  // tourne. Seul `response.create` se discipline : une seule réponse active à la fois — un
+  // résultat qui arrive pendant que le modèle parle attend la fin de la réponse en cours.
+  private activeResponse = false;
+  private pendingResponseCreate = false;
 
   constructor(opts: ProviderOptions) { this.opts = opts; }
 
@@ -217,6 +227,7 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
 
       // ── La réponse de l'assistant ──
       case "response.created":
+        this.activeResponse = true;
         this.setState("THINKING");
         break;
       // Transcript de l'audio de sortie — noms GA et hérité, pour survivre aux renommages.
@@ -246,17 +257,18 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
         if (this._state === "ASSISTANT_SPEAKING") this.setState("LISTENING");
         break;
 
-      // ── Appels d'outils : exécutés par NOTRE backend, jamais ici ──
+      // ── Appels d'outils : exécutés par NOTRE backend, jamais ici — et EN PARALLÈLE ──
       case "response.function_call_arguments.done": {
         const name = e.name;
         const callId = e.call_id;
         if (!name || !callId) break;
         let args: Record<string, unknown> = {};
         try { args = e.arguments ? (JSON.parse(e.arguments) as Record<string, unknown>) : {}; } catch { /* args illisibles */ }
-        // File SÉQUENTIELLE : deux outils demandés en même temps s'exécutent l'un après l'autre
-        // (les résultats reviennent dans l'ordre, la session reste cohérente).
-        this.toolQueue = this.toolQueue.then(async () => {
-          cb.onMetric?.("tool_call");
+        cb.onMetric?.("tool_call");
+        // PAS de file : chaque outil vit sa vie (call_id l'apparie). Une analyse déléguée de
+        // deux minutes n'empêche pas « quelle est la masse salariale ? » de répondre tout de
+        // suite — c'est le « travail parallèle » de l'appel.
+        void (async () => {
           try {
             const r = await this.opts.callTool(name, args);
             if (r.ui) cb.onToolUi(r.ui);
@@ -268,16 +280,22 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
               item: { type: "function_call_output", call_id: callId, output: "L'outil a échoué (réseau) — le dire simplement, ne rien inventer." },
             });
           }
-          this.send({ type: "response.create" });
-        });
+          this.requestResponse();
+        })();
         break;
       }
 
       case "response.done":
+        this.activeResponse = false;
         // Fin de réponse : si elle portait du texte parlé, le tour se clôt (la transcription
         // utilisateur peut être en retard de quelques centaines de ms — on lui laisse 3 s).
         if (this._state === "THINKING") this.setState("LISTENING");
         this.maybeEmitTurn(true);
+        // Un résultat d'outil arrivé PENDANT cette réponse attendait son tour : maintenant.
+        if (this.pendingResponseCreate) {
+          this.pendingResponseCreate = false;
+          this.requestResponse();
+        }
         break;
 
       case "error":
@@ -302,13 +320,30 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
     this.turnTimer = setTimeout(emit, 3_000);
   }
 
+  /** `response.create` DISCIPLINÉ : jamais deux réponses actives — sinon on file l'intention. */
+  private requestResponse(): void {
+    if (this.activeResponse) { this.pendingResponseCreate = true; return; }
+    this.send({ type: "response.create" });
+  }
+
   sendText(text: string): void {
     const t = text.trim();
     if (!t) return;
     this.userText = t; // le texte tapé EST la moitié utilisateur du tour
     this.send({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: t }] } });
-    this.send({ type: "response.create" });
+    this.requestResponse();
     this.setState("THINKING");
+  }
+
+  sendContext(text: string): void {
+    const t = text.trim();
+    if (!t) return;
+    // Un item SYSTÈME, sans response.create : le contexte informe, il ne déclenche rien —
+    // « explique-moi ça » se résoudra à la prochaine prise de parole.
+    this.send({
+      type: "conversation.item.create",
+      item: { type: "message", role: "system", content: [{ type: "input_text", text: t.slice(0, 400) }] },
+    });
   }
 
   interrupt(): void {
