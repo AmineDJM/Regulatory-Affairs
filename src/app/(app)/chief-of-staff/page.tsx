@@ -1,8 +1,11 @@
-import { Crown } from "lucide-react";
+import Link from "next/link";
+import { Crown, Gavel, HandCoins, AlarmClock, RotateCcw } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
 import { aiConfigured, sttConfigured } from "@/lib/ai";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import { getDailyBrief } from "@/lib/daily-brief";
+import { getActionCenter } from "@/lib/queries/action-center";
 import { ensurePrimaryThread } from "@/lib/assistant-memory";
 import { MorningBrief } from "@/components/shared/morning-brief";
 import { AssistantChat } from "../assistant/assistant-chat";
@@ -41,6 +44,24 @@ export default async function ChiefOfStaffPage({
   // de repartir de « chat n°47 ». Créée au premier passage, retrouvée ensuite.
   const primaryThreadId = memoryEnabled ? await ensurePrimaryThread(user.id).catch(() => null) : null;
 
+  // LE BANDEAU « AUJOURD'HUI » — peu de chiffres, bien choisis : ce qui attend une DÉCISION,
+  // les paiements au centre, les engagements en retard, les décisions à relire. Quatre
+  // compteurs BON MARCHÉ (le détail vit dans les outils ceo_attention / executive_alerts) ;
+  // un compteur à zéro disparaît, et le bandeau entier avec.
+  const now = new Date();
+  const [toDecide, centreAwaiting, commitmentsLate, decisionsToReview] = await Promise.all([
+    getActionCenter(user).then((c) => c.items.length).catch(() => 0),
+    prisma.expenseOrder.count({ where: { centralStatus: "AWAITING" } }).catch(() => 0),
+    prisma.executiveCommitment.count({ where: { ownerId: user.id, status: "OPEN", dueAt: { lt: now } } }).catch(() => 0),
+    prisma.executiveDecision.count({ where: { ownerId: user.id, status: { in: ["PROPOSED", "DECIDED"] }, reviewDate: { lte: now } } }).catch(() => 0),
+  ]);
+  const todayChips = [
+    { count: toDecide, label: "à décider", href: "/chief-of-staff?q=Sur quoi dois-je me concentrer ce matin ?", Icon: Gavel },
+    { count: centreAwaiting, label: "paiement(s) au centre", href: "/centre-de-paiement", Icon: HandCoins },
+    { count: commitmentsLate, label: "engagement(s) en retard", href: "/chief-of-staff?q=Quels engagements sont en retard ?", Icon: AlarmClock },
+    { count: decisionsToReview, label: "décision(s) à revoir", href: "/chief-of-staff?q=Quelles décisions sont à revoir ?", Icon: RotateCcw },
+  ].filter((c) => c.count > 0);
+
   // ENTRÉE CONTEXTUELLE : « Demander au Chief of Staff » depuis une fiche arrive ici avec la
   // question (?q=…) ou la référence du dossier (?ref=…) — pré-remplie, jamais envoyée seule.
   const q = typeof searchParams?.q === "string" ? searchParams.q.slice(0, 500) : "";
@@ -56,6 +77,21 @@ export default async function ChiefOfStaffPage({
           — cherchez tout, lisez tout, agissez (sous confirmation) — au clavier ou à la voix.
         </span>
       </div>
+      {todayChips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Aujourd&apos;hui</span>
+          {todayChips.map(({ count, label, href, Icon }) => (
+            <Link
+              key={label}
+              href={href}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-foreground transition hover:border-primary/50 hover:text-primary"
+            >
+              <Icon className="h-3.5 w-3.5 text-primary" />
+              <span className="font-semibold">{count}</span> {label}
+            </Link>
+          ))}
+        </div>
+      )}
       {brief?.text && <MorningBrief initial={brief.text} />}
       <AssistantChat
         userName={user.name}

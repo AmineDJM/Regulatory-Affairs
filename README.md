@@ -2500,6 +2500,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Coordonnées d'entité — documents nommés** | Module PUR `lib/legal/company-docs.ts` (+ tests) : la liste de noms **empruntée au CTD** a été retirée, le document se nomme librement. |
 | **Chaîne du dossier d'achat (Legal)** | `LegalDocKind` + `QUOTE`/`INVOICE` ; `LegalDocument.chainFromId` (auto-relation « fait suite à », `SET NULL`) + `expenseOrderId` (le règlement) ; module PUR `lib/legal/chain.ts` (`CHAIN_KINDS`, `chainOf` — le fil de LA pièce regardée, jamais un graphe mélangé —, `missingKinds`, `delayDays`/`delayLabel`, `amountDrift`) + `chain.test.ts` (10 tests) ; chargement borné `lib/queries/legal-chain.ts` (`loadLegalChain` : maillons + validateurs + règlement) ; `app/(app)/legal/[id]/{chain-card,send-to-settlement}.tsx` ; `sendLegalInvoiceToSettlement` dans `legal-actions.ts` (→ `createExpenseOrder`, centre de paiement). |
 | **My Chief of Staff (module exécutif)** | Module RBAC `CHIEF_OF_STAFF` (PDG + Super Admin) ; page `app/(app)/chief-of-staff/page.tsx` (réutilise `AssistantChat` avec `executive` + entrée contextuelle `?ref=`/`?q=`) ; outils `lib/assistant/executive-tools.ts` (`search_drive`, `read_document` — droit du Drive nœud par nœud —, **`inspect_record`** universel — paiements, règlements, Legal + chaîne, promo, secrétariat, Regulatory, factures, courriers, projets, tâches —, `person_report`, rappels, `executiveBriefing`) + `executive-read-tools.ts` (**`search_everything`**, `read_calendar`, `find_free_slot`, `read_stock`, `search_hospitals`, `read_employee`, `read_payroll`, `search_courriers`, `finance_totals` — chacun ouvert par le DROIT de l'écran) + `executive-brief-tools.ts` (**`executive_alerts`** ← `lib/assistant/proactive.ts`, **`executive_brief`**, **`create_report`** .docx → Drive) fondus dans `POWER_TOOLS` ; actions confirmées dans `lib/assistant.ts` : `decide_payment` (SENSITIVE), `update_task`, `update_request`, `create_legal_document`/`update_legal_document`, `update_calendar_event`, `create_hospital`/`update_hospital`, **`update_salary` (CRITICAL : `level` + `confirmText`, re-saisie du montant, verrou de fraîcheur)** ; tests adversariaux `lib/assistant/executive-security.test.ts` ; recherche fédérée `lib/queries/search-everything.ts` (unaccent/pg_trgm sondés, repli LIKE) ; architecture : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`. |
+| **Executive AI Operating System (CdS lots A–F)** | Gouvernance : `ACTION_POLICY` + arrêt d'urgence `aiExternalActionsDisabled` dans `lib/assistant.ts` (+ `lib/settings.ts`, `lib/assistant/admin-write.ts`), relances suspendues dans `lib/assistant/reminders.ts` (`watchState` = surveillance conditionnelle, propriétaire seul), cartes groupées `AssistantResult.proposals` (+ « Tout confirmer » dans `assistant-chat.tsx`, CRITIQUES exclues) ; mémoire typée `lib/assistant/memory-context.ts` (`typedMemoryContext`, `expandQueryWithAliases`) + `memory-tools.ts` (remember/list/forget, recall_conversation, décisions `ExecutiveDecision`, engagements `ExecutiveCommitment`) + fil principal `ensurePrimaryThread`/plafond dans `lib/assistant-memory.ts` ; vues 360° `lib/assistant/three-sixty.ts` (employee/product/supplier_360, organization/process_insights — âge calculé backend avec source, salaire derrière le module RH) ; découverte Drive sale `lib/assistant/document-discovery.ts` (`find_documents`, index progressif `DriveTextIndex` nourri par `read_document`) ; simulation/état `lib/assistant/what-if.ts` (`simulate_scenario` jamais mutatif, `company_state`, `ceo_attention`) + bandeau « Aujourd'hui » dans `chief-of-staff/page.tsx` ; livrables `lib/assistant/deliverables.ts` (DOCX/XLSX/PPTX d'une même spec, registre `AssistantArtifact`, Drive « Livrables IA ») ; corpus généralisé `lib/assistant/corpus-tools.ts` (catégories + arabe المادة dans `regulatory/intelligence/corpus/{import,ingest-file,rag}.ts`) ; anomalies dans `lib/assistant/proactive.ts` (doublon facture, montant outlier). Tests : `memory-tools.test.ts`, `three-sixty.test.ts`, `deliverables.test.ts`, `corpus-tools.test.ts`, `executive-security.test.ts` (kill-switch). |
 | **Voix du Chief of Staff (conversation)** | `app/(app)/assistant/voice-mode.tsx` — VAD client (RMS + hystérésis), capture → `/api/assistant/transcribe` (Whisper) → même flux SSE (texte affiché en parallèle) → réponse PARLÉE phrase par phrase via `/api/assistant/speak` (`synthesizeSpeech`/`ttsConfigured` dans `lib/ai.ts`, OpenAI TTS) ; **barge-in** : parler coupe la voix / interrompt la génération ; la dictée reste le repli ; les actions se confirment toujours À LA MAIN. Panneau CONTEXTE : événements SSE `source` (extraits par `extractSources` — liens INTERNES uniquement) collectés par `assistant-chat.tsx`. |
 | **Rappels planifiés du Chief of Staff** | Modèle `AssistantReminder` (dueAt, `recurrence` NONE/DAILY/WEEKLY/MONTHLY/**MONTHLY_WEEKDAY** — « chaque premier lundi du mois », repli dernière occurrence —, `targetRole` ET/OU **`targetUserId`** — personne nommée, résolue à la création —, `active`) ; module `lib/assistant/reminders.ts` (`nextOccurrence` — retombe le même jour/heure même tiré en retard, rattrape un serveur éteint sans notifier N fois —, `algiersToUtc`, `runAssistantReminders`) + `reminders.test.ts` (13 tests) ; balayage branché dans `lib/scheduled.ts` ; pop-up via `broadcastNotification`, relances via `notifyRoles`/`notifyUser`. |
 | **Observabilité IA (boucle agent)** | `AiUsageLog` + `ttftMs` (délai avant le 1er mot), `turns`, `toolCalls`, `toolErrors`, `toolLatencyMs` — mesurés dans `runAssistantStream` (`AssistantMetrics`), journalisés par `/api/assistant/stream` via `logAiUsage` (`lib/ai-settings.ts`). Migration `20260824230000_ai_usage_metrics`. |
@@ -3090,6 +3091,38 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **Executive AI Operating System (6 lots A–F).** My Chief of Staff devient le cerveau exécutif
+  de l'entreprise — très autonome dans la RECHERCHE et le RAISONNEMENT, conservateur dans
+  l'EXÉCUTION. **Gouvernance** : registre `ACTION_POLICY` typé (toute action confirmée est
+  déclarée EXTERNE, une non déclarée ne compile pas), **ARRÊT D'URGENCE**
+  (`aiExternalActionsDisabled` — coupe toutes les actions externes et les relances, les lectures
+  continuent), **confirmation groupée** (« crée les trois tâches » = une carte par action + un
+  « Tout confirmer » — les CRITIQUES restent individuelles), **surveillance conditionnelle**
+  (« si pas validé sous 48 h, préviens-moi » : relit l'entité à l'échéance, ne prévient QUE le
+  propriétaire — surveiller ≠ relancer). **Mémoire typée** (`AssistantMemoryItem` :
+  « retiens que pembro = Pembrolizumab » — alias appliqués à la recherche fédérée, injection
+  bornée, « la mémoire n'est JAMAIS la source de vérité d'un chiffre »), **fil principal**
+  (une conversation continue par personne, plafonnée, `recall_conversation` sur ses archives),
+  **registre des DÉCISIONS** (options écartées, attendu, relecture, résultat RÉEL — enregistrer
+  n'exécute rien) et **ENGAGEMENTS** (retard visible en alerte, aucune relance automatique).
+  **Vues 360°** : `employee_360` (âge CALCULÉ avec sa source, salaire si module RH, activité
+  OBSERVÉE cadrée, dépendance personne-clé), `product_360`, `supplier_360`,
+  `organization_insights`, `process_insights` (délais réels 180 j, pires cas référencés).
+  **Découverte documentaire en Drive « sale »** : `find_documents` (nom + **index textuel
+  progressif** `DriveTextIndex` nourri à chaque lecture + vérification bornée — confiance
+  HAUTE/MOYENNE/FAIBLE, preuve citée, « le nom d'un fichier est un indice, pas une preuve »).
+  **Simulation jamais mutative** (`simulate_scenario` : salaire, départ, recrutement,
+  trésorerie — hypothèses DITES, zéro écriture), `company_state`, `ceo_attention`
+  (DOIT DÉCIDER / DEVRAIT SAVOIR / SURVEILLER) + bandeau « Aujourd'hui » sur `/chief-of-staff`.
+  **Livrables universels** : `draft_deliverable` — de VRAIS .docx/.xlsx/.pptx depuis UNE spec
+  (format ALL = trois fichiers aux chiffres identiques par construction), Sources obligatoires,
+  registre versionné `AssistantArtifact`, dépôt Drive « Livrables IA ». **Corpus de connaissance
+  généralisé** : catégories (Droit du travail, fiscal, ANPP, MIPH, marchés…), textes ARABES
+  découpés par المادة, `search_knowledge_corpus`/`read_corpus_document`/`list_corpus_sources` —
+  et l'honnêteté du corpus muet (« pas encore assez de sources vérifiées », jamais un article
+  inventé). **Anomalies** à règle dite (doublon de facture, montant ≥ 4× la médiane du
+  bénéficiaire). Migrations idempotentes ×5, ~35 tests réels ajoutés (kill-switch, mémoire,
+  Drive sale, livrables rouverts, simulation zéro-écriture, arabe/catégories).
 - **My Chief of Staff passe en PRODUCTION (4 lots).** Le module exécutif n'est plus une v1 :
   **recherche fédérée `search_everything`** (~30 familles RBAC-aware, tolérante aux accents et
   aux fautes — extensions `unaccent`/`pg_trgm` sondées, repli LIKE, index trigrammes),

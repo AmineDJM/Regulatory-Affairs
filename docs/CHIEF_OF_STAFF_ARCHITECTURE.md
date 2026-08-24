@@ -119,6 +119,69 @@ premier mot), tours modèle↔outils, appels d'outils, erreurs d'outils, temps t
 outils — ce qui distingue « le modèle est lent » de « une requête SQL est lente ». Routage de
 modèles existant (palier qualité / palier éco, `AI_MODEL` / `AI_MODEL_CHEAP`).
 
+### Executive AI Operating System (lots A–F)
+
+**Gouvernance des actions** (`lib/assistant.ts`, `lib/assistant/admin-write.ts`) —
+`ACTION_POLICY` : registre typé `Record<AssistantActionKind, {external, level}>` (une action non
+déclarée ne compile pas) ; **ARRÊT D'URGENCE** `aiExternalActionsDisabled` (AppSetting, réglable
+par `update_platform_setting`) : coupe TOUTES les actions externes ET les relances de rappels —
+les lectures et le pop-up au propriétaire continuent. **Confirmation groupée** : plusieurs
+écritures dans le même tour = une carte par action + « Tout confirmer » (les CRITIQUES restent à
+confirmer une à une, re-saisie comprise). **Surveillance conditionnelle** : `plan_reminder`
++ `watch_reference` relit l'entité à l'échéance — réglée : le dit et s'éteint ; en attente :
+prévient LE PROPRIÉTAIRE SEUL (surveiller ≠ relancer).
+
+**Mémoire & registres exécutifs** (`memory-context.ts`, `memory-tools.ts`,
+`assistant-memory.ts`) — mémoire TYPÉE (`AssistantMemoryItem` : préférences, style, terminologie,
+ALIAS, priorités, principes) : `remember`/`list_memories`/`forget_memory`, alias re-retenu = mis
+à jour, injection BORNÉE dans le contexte, expansion d'alias dans `search_everything`
+(« pembro » → Pembrolizumab), garde-fou « la mémoire n'est JAMAIS la source de vérité d'une
+donnée métier ». **Fil principal** (`AssistantThread.isPrimary`) : une conversation continue par
+personne, ouverte d'office, plafonnée aux 300 derniers messages ; `recall_conversation` fouille
+SES archives. **Registre des décisions** (`ExecutiveDecision`) : contexte, options écartées,
+attendu, relecture, puis résultat RÉEL et leçons — enregistrer n'exécute rien.
+**Engagements** (`ExecutiveCommitment`) : qui a promis quoi pour quand, preuve ; un retard
+remonte en alerte (`commitment_overdue`) — AUCUNE relance automatique.
+
+**Vues 360° & insights** (`three-sixty.ts`) — `employee_360` (âge/ancienneté CALCULÉS au backend
+avec leur source, contrat, salaire si module RH seulement, activité OBSERVÉE cadrée « absence de
+trace ERP ≠ absence de travail », indicateurs de dépendance), `product_360`, `supplier_360`
+(dépenses payées PAR ANNÉE calculées en base), `organization_insights` (étendues de contrôle,
+départements sans responsable/adjoint, concentration des validations), `process_insights`
+(délais RÉELS 180 j, cas clos seulement : moyennes/médianes + pires cas référencés).
+
+**Découverte documentaire** (`document-discovery.ts`, `DriveTextIndex`) — `find_documents` pour
+le Drive « sale » : métadonnées + INDEX TEXTUEL PROGRESSIF (le texte extrait à chaque lecture,
+replié sans accents) + lecture bornée de vérification. Confiance HAUTE/MOYENNE/FAIBLE, preuve
+citée, droits Drive revérifiés nœud par nœud. « Le nom d'un fichier est un indice, pas une
+preuve. »
+
+**Simulation & état d'entreprise** (`what-if.ts`) — `simulate_scenario` (SALARY_CHANGE,
+DEPARTURE, HEADCOUNT_CHANGE, CASH_TREND) : JAMAIS MUTATIF, hypothèses DITES, confiance
+FAIBLE/MODÉRÉE, « DONNÉES INSUFFISANTES » plutôt qu'une courbe inventée. `company_state` :
+l'état consolidé par DROIT (une section fermée est dite fermée). `ceo_attention` : DOIT DÉCIDER /
+DEVRAIT SAVOIR / SURVEILLER — peu d'éléments, bien choisis. Bandeau « Aujourd'hui » sur
+`/chief-of-staff` : quatre compteurs bon marché, cliquables, disparaissent à zéro.
+
+**Livrables universels** (`deliverables.ts`, `AssistantArtifact`) — `draft_deliverable` : de
+VRAIS .docx/.xlsx/.pptx (style maison) depuis UNE spec structurée ; format ALL = les trois
+fichiers de la même spec (chiffres identiques par construction) ; cellules numériques réelles
+dans Excel ; PPT sans mur de texte (puces bornées, diapos « suite ») ; section Sources
+obligatoire ; dépôt Drive « Livrables IA » ; registre versionné (`artifact_id` → v2) ;
+`list_artifacts`.
+
+**Corpus de connaissance** (`corpus-tools.ts` sur l'infra `regulatory/intelligence/corpus`) —
+catégories (Droit du travail, Droit fiscal, ANPP, MIPH, Marchés publics/PCH…), textes ARABES
+découpés par المادة comme les français par Article, langue à l'ingestion.
+`search_knowledge_corpus` (hybride FTS+trigrammes+sémantique, citations texte/article/version),
+`read_corpus_document` (l'article exact), `list_corpus_sources` (l'inventaire ET le manque).
+Corpus muet sur un sujet → « pas encore suffisamment de sources vérifiées » — jamais un article
+inventé.
+
+**Anomalies** (`proactive.ts`) — le backend DÉTECTE à règle DITE, le modèle explique : facture
+candidate au doublon (même contrepartie + même montant sous 45 j), montant inhabituel (≥ 4× la
+médiane payée au bénéficiaire, min. 3 paiements de référence).
+
 ## 3. Matrice de capacités finale
 
 R = lecture outillée · S = recherche · C = création · U = modification · A = approbation ·
@@ -217,12 +280,13 @@ bloquants. Les latences réelles se lisent dans `AiUsageLog` (latencyMs, ttftMs,
 - **Voix** : VAD à seuil d'énergie (pas un modèle neuronal) — un environnement très bruyant peut
   déclencher/gêner l'écoute ; la réponse vocale démarre après la fin de la génération du texte
   (le flux SSE nourrit l'écran en continu, la voix suit par phrases). Nécessite `OPENAI_API_KEY`.
-- **Recherche documentaire** : la recherche Drive porte sur les NOMS/chemins + lecture à la
-  demande ; les embeddings couvrent le corpus Regulatory (pipeline existant), pas encore tout le
-  Drive — l'extension de l'ingestion est le prochain investissement utile si le besoin « retrouve
-  par le contenu » se confirme à l'usage.
-- **Multi-action** : plusieurs écritures s'enchaînent en plusieurs cartes (une par action) — pas
-  encore une carte groupée unique.
+- **Recherche documentaire** : `find_documents` cherche noms + INDEX TEXTUEL des fichiers déjà
+  lus + lecture bornée — l'index est PROGRESSIF : un document jamais ouvert par l'assistant ET
+  mal nommé peut lui échapper (l'outil le dit, avec le volume indexé). Pas de balayage massif :
+  choix assumé, l'index grandit à l'usage.
+- **Simulations** : projections NAÏVES et dites telles (moyenne prolongée, ratio de charges
+  conservé) — des ordres de grandeur pour raisonner, pas des prévisions ; la confiance est
+  affichée, « DONNÉES INSUFFISANTES » plutôt qu'une courbe sur trois points.
 - **`update_salary`** modifie la FICHE (base, net, brut, coût employeur) ; la ligne de paie du
   mois se corrige dans RH → Paie (`updatePayrollEntry`, avec bulletin) — voulu : le bulletin est
   une pièce.
@@ -233,10 +297,13 @@ bloquants. Les latences réelles se lisent dans `AiUsageLog` (latencyMs, ttftMs,
 
 - [x] `npx tsc --noEmit` — zéro erreur.
 - [x] `npm run lint` — zéro erreur (config `next/core-web-vitals`, motifs maison assumés).
-- [x] `npx vitest run` — 2 533+ tests verts (dont sécurité/adversariaux, rappels, recherche).
+- [x] `npx vitest run` — 2 565+ tests verts (dont sécurité/adversariaux, kill-switch, mémoire,
+      360°, découverte documentaire, livrables rouverts et relus, simulation zéro-écriture,
+      corpus arabe/catégories).
 - [x] `rm -rf .next && npm run build` — build de production propre (cache vidé).
 - [x] Migrations idempotentes appliquées (`search_extensions`, `reminder_target_user`,
-      `ai_usage_metrics`) — rejouables, jamais bloquantes, compatibles avec l'existant.
+      `ai_usage_metrics`, `ai_governance`, `executive_memory`, `drive_text_index`,
+      `assistant_artifacts`, `corpus_categories`) — rejouables, jamais bloquantes.
 - [x] Aucun TODO/FIXME/MOCK/PLACEHOLDER bloquant dans le code du module.
 - [x] Variables d'environnement : `ANTHROPIC_API_KEY` (agent), `OPENAI_API_KEY` (voix — Whisper
       + TTS ; sans elle, la voix disparaît proprement, le reste vit).
