@@ -18,6 +18,7 @@ import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { legalFields, dateInput } from "../legal-fields";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { EditLegalButton } from "./edit-legal";
+import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { legalReaderWhere, readersCaption } from "@/lib/legal/readers";
 
 export const dynamic = "force-dynamic";
@@ -128,7 +129,15 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
             Enregistré par {doc.createdBy?.name ?? "—"} le {formatDate(doc.createdAt)}
           </p>
         </div>
-        {canEdit && <EditLegalButton id={doc.id} fields={fields} />}
+        <div className="flex shrink-0 flex-wrap items-start gap-2">
+          {canEdit && <EditLegalButton id={doc.id} fields={fields} />}
+          {/* Le déposant peut retirer son document — suppression réversible (corbeille admin).
+              Un contrat effacé par erreur reste récupérable par un administrateur. */}
+          <RecordDeleteButton
+            kind="LEGAL_DOCUMENT" id={doc.id} name={doc.title} typeLabel="ce document"
+            enabled={userCan(user, "LEGAL", "DELETE") || doc.createdById === user.id}
+          />
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -181,7 +190,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
                 <div className="col-span-2 sm:col-span-3">
                   <p className="text-xs text-muted-foreground">Pièce de référence (dans le Drive)</p>
                   {/* Le fichier vit dans le DRIVE : on y renvoie, on n'en sert pas une copie. */}
-                  <Link href={`/drive?node=${doc.driveNode.id}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                  <Link href={`/drive/${doc.driveNode.id}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
                     <Paperclip className="h-3.5 w-3.5" /> {doc.driveNode.name} <ExternalLink className="h-3 w-3" />
                   </Link>
                 </div>

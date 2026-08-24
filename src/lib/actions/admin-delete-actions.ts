@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { EntityType, Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
+import { userCan, type Module, type Action } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { deleteFileByKey } from "@/lib/storage";
@@ -43,7 +44,9 @@ type DeletableKind =
   | "PROMO_MATERIAL"
   | "CONGRESS_INTERNATIONAL"
   | "CONGRESS_NATIONAL"
-  | "VALIDATION_REQUEST";
+  | "VALIDATION_REQUEST"
+  | "MAIL_ENTRY"
+  | "LEGAL_DOCUMENT";
 
 interface KindSpec {
   label: string; // libellé du type (« dossier réglementaire »)
@@ -54,6 +57,11 @@ interface KindSpec {
   model: string;
   describe: (id: string) => Promise<string | null>; // nom lisible, ou null si introuvable
   remove: (id: string) => Promise<void>; // suppression de la ligne principale
+  /**
+   * L'identifiant du créateur, quand ce type peut être supprimé par SON créateur (et pas
+   * seulement par le Super Admin). Absent = suppression réservée au Super Admin.
+   */
+  creatorOf?: (id: string) => Promise<string | null>;
 }
 
 const REGISTRY: Record<DeletableKind, KindSpec> = {
@@ -382,6 +390,64 @@ const REGISTRY: Record<DeletableKind, KindSpec> = {
       await prisma.validationRequest.delete({ where: { id } });
     },
   },
+  MAIL_ENTRY: {
+    label: "courrier",
+    module: "Courriers",
+    redirect: "/courriers",
+    model: "mailEntry",
+    entityType: "MAIL_ENTRY",
+    async describe(id) {
+      const r = await prisma.mailEntry.findUnique({ where: { id }, select: { reference: true, title: true } });
+      return r ? (r.reference ? `${r.reference} — ${r.title}` : r.title) : null;
+    },
+    async creatorOf(id) {
+      const r = await prisma.mailEntry.findUnique({ where: { id }, select: { createdById: true } });
+      return r?.createdById ?? null;
+    },
+    async remove(id) {
+      await prisma.mailEntry.delete({ where: { id } });
+    },
+  },
+  LEGAL_DOCUMENT: {
+    label: "document légal",
+    module: "Legal",
+    redirect: "/legal",
+    model: "legalDocument",
+    entityType: "LEGAL_DOCUMENT",
+    async describe(id) {
+      const r = await prisma.legalDocument.findUnique({ where: { id }, select: { reference: true, title: true } });
+      return r ? (r.reference ? `${r.reference} — ${r.title}` : r.title) : null;
+    },
+    async creatorOf(id) {
+      const r = await prisma.legalDocument.findUnique({ where: { id }, select: { createdById: true } });
+      return r?.createdById ?? null;
+    },
+    async remove(id) {
+      await prisma.legalDocument.delete({ where: { id } });
+    },
+  },
+};
+
+/**
+ * Ce que le CRÉATEUR d'un objet peut supprimer lui-même — pas seulement le Super Admin.
+ *
+ * Un courrier saisi par erreur, un document légal en double : la personne qui l'a créé doit
+ * pouvoir le retirer sans passer par l'administrateur. La suppression reste RÉVERSIBLE (elle
+ * dépose l'instantané dans la même corbeille) : ce n'est donc pas un pouvoir de destruction, c'est
+ * un pouvoir de rangement, que le Super Admin peut toujours défaire.
+ */
+const CREATOR_DELETABLE = new Set<DeletableKind>(["MAIL_ENTRY", "LEGAL_DOCUMENT"]);
+
+/**
+ * Le droit MODULE qui, à défaut d'être le créateur, autorise aussi la suppression réversible.
+ *
+ * Une assistante qui gère le registre du courrier doit pouvoir retirer un pli qu'un collègue a
+ * saisi de travers, sans en être l'auteur — c'est son métier. On honore donc le droit `DELETE` du
+ * module, en plus du créateur, sans pour autant confier ce pouvoir à tout le monde.
+ */
+const CREATOR_DELETE_PERMISSION: Partial<Record<DeletableKind, [Module, Action]>> = {
+  MAIL_ENTRY: ["MAIL_REGISTER", "DELETE"],
+  LEGAL_DOCUMENT: ["LEGAL", "DELETE"],
 };
 
 function isKind(v: string): v is DeletableKind {
@@ -394,22 +460,15 @@ function delegateOf(spec: KindSpec) {
 }
 
 /**
- * Suppression « définitive » d'un enregistrement par le Super Admin (et lui seul).
- * RÉVERSIBLE : un instantané complet (ligne principale + pièces jointes + commentaires)
- * est déposé dans la corbeille du Super Admin (Administration → Corbeille), d'où il peut
- * être restauré — ou détruit pour de bon (là seulement, les fichiers sont effacés).
- * Les enfants supprimés en cascade par le schéma ne sont pas restaurables.
+ * LE CŒUR de la suppression réversible — partagé par le Super Admin et le créateur.
+ *
+ * Instantané complet (ligne principale + pièces jointes + commentaires) déposé dans la corbeille
+ * (Administration → Corbeille), puis suppression. Restaurable — ou détruit pour de bon (là
+ * seulement, les fichiers sont effacés). Les enfants supprimés en cascade ne sont pas restaurables.
+ * `summary` distingue, dans le journal, une suppression par l'administrateur d'une suppression par
+ * le créateur.
  */
-export async function superAdminDelete(formData: FormData): Promise<DeleteResult> {
-  const user = await requireUser();
-  if (user.role !== "SUPER_ADMIN") {
-    return { ok: false, error: "Réservé au Super Admin." };
-  }
-
-  const kind = String(formData.get("kind") ?? "");
-  const id = String(formData.get("id") ?? "");
-  if (!id || !isKind(kind)) return { ok: false, error: "Élément invalide." };
-
+async function snapshotAndSoftDelete(kind: DeletableKind, id: string, actorId: string, summary: string): Promise<DeleteResult> {
   const spec = REGISTRY[kind];
   const name = await spec.describe(id);
   if (name === null) return { ok: false, error: "Élément introuvable (déjà supprimé ?)." };
@@ -433,7 +492,7 @@ export async function superAdminDelete(formData: FormData): Promise<DeleteResult
   try {
     await spec.remove(id);
   } catch (err) {
-    console.error("[superAdminDelete] échec suppression", kind, id, err);
+    console.error("[softDelete] échec suppression", kind, id, err);
     // Remet les documents/commentaires retirés à l'étape 1 (la ligne principale existe encore).
     if (spec.entityType) {
       if (docsSnapshot.length) await prisma.document.createMany({ data: docsSnapshot as never[] }).catch(() => {});
@@ -442,28 +501,69 @@ export async function superAdminDelete(formData: FormData): Promise<DeleteResult
     return { ok: false, error: "Suppression impossible (des éléments liés bloquent). Détachez-les puis réessayez." };
   }
 
-  // 3) Dépôt dans la corbeille du Super Admin (restaurable).
+  // 3) Dépôt dans la corbeille (restaurable par le Super Admin).
   await prisma.deletedRecord.create({
     data: {
       kind, label: spec.label, name, sourceId: id,
       payload: payload as Prisma.InputJsonValue,
       documents: docsSnapshot.length ? (docsSnapshot as Prisma.InputJsonValue) : undefined,
       comments: commentsSnapshot.length ? (commentsSnapshot as Prisma.InputJsonValue) : undefined,
-      deletedById: user.id,
+      deletedById: actorId,
     },
   });
 
   await recordAudit({
-    actorId: user.id,
-    action: "DELETE",
-    module: spec.module,
-    entityType: spec.entityType,
-    entityId: id,
-    summary: `Suppression définitive (Super Admin) — ${spec.label} « ${name} » (restaurable depuis la corbeille)`,
+    actorId, action: "DELETE", module: spec.module, entityType: spec.entityType, entityId: id, summary,
   });
 
   revalidatePath(spec.redirect);
   return { ok: true, redirect: spec.redirect };
+}
+
+/**
+ * Suppression « définitive » d'un enregistrement par le Super Admin (et lui seul).
+ * RÉVERSIBLE : voir `snapshotAndSoftDelete`.
+ */
+export async function superAdminDelete(formData: FormData): Promise<DeleteResult> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") {
+    return { ok: false, error: "Réservé au Super Admin." };
+  }
+
+  const kind = String(formData.get("kind") ?? "");
+  const id = String(formData.get("id") ?? "");
+  if (!id || !isKind(kind)) return { ok: false, error: "Élément invalide." };
+
+  const name = await REGISTRY[kind].describe(id);
+  return snapshotAndSoftDelete(kind, id, user.id, `Suppression définitive (Super Admin) — ${REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
+}
+
+/**
+ * Suppression par LE CRÉATEUR de son propre objet (courrier, document légal).
+ *
+ * Le serveur revérifie tout : le type doit être dans `CREATOR_DELETABLE`, et l'appelant doit en
+ * être le créateur — ou le Super Admin, qui peut toujours. La suppression reste réversible (même
+ * corbeille) : un administrateur peut la défaire. On ne délègue donc pas un pouvoir de destruction,
+ * seulement de rangement.
+ */
+export async function deleteOwnRecord(formData: FormData): Promise<DeleteResult> {
+  const user = await requireUser();
+  const kind = String(formData.get("kind") ?? "");
+  const id = String(formData.get("id") ?? "");
+  if (!id || !isKind(kind)) return { ok: false, error: "Élément invalide." };
+  if (!CREATOR_DELETABLE.has(kind)) return { ok: false, error: "Ce type d'élément ne peut pas être supprimé ainsi." };
+
+  const spec = REGISTRY[kind];
+  const creatorId = spec.creatorOf ? await spec.creatorOf(id) : null;
+  const isCreator = creatorId !== null && creatorId === user.id;
+  const perm = CREATOR_DELETE_PERMISSION[kind];
+  const hasModuleDelete = perm ? userCan(user, perm[0], perm[1]) : false;
+  if (!isCreator && !hasModuleDelete && user.role !== "SUPER_ADMIN") {
+    return { ok: false, error: "Seul le créateur (ou un administrateur) peut supprimer cet élément." };
+  }
+
+  const name = await spec.describe(id);
+  return snapshotAndSoftDelete(kind, id, user.id, `Suppression par ${isCreator ? "le créateur" : "un administrateur"} — ${spec.label} « ${name ?? id} » (restaurable depuis la corbeille)`);
 }
 
 /**

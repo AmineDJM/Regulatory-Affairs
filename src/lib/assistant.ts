@@ -1094,7 +1094,7 @@ export async function executeReadTool(name: string, input: Record<string, unknow
       return JSON.stringify({
         fichier: r.filename, lignes: r.count,
         emplacement: "Drive personnel, dossier « Exports IA »",
-        lien: `/drive?node=${r.nodeId}`,
+        lien: `/drive/${r.nodeId}`,
       });
     }
     default:

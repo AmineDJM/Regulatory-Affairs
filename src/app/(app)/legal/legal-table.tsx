@@ -216,7 +216,7 @@ export function LegalTable({
                   <td className="px-3 py-2">
                     {r.driveNodeId ? (
                       // Le fichier vit dans le DRIVE : on y renvoie, on n'en sert pas une copie.
-                      <Link href={`/drive?node=${r.driveNodeId}`} title={r.driveName ?? undefined}
+                      <Link href={`/drive/${r.driveNodeId}`} title={r.driveName ?? undefined}
                         className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
                         <Paperclip className="h-3 w-3" /> Drive <ExternalLink className="h-3 w-3" />
                       </Link>

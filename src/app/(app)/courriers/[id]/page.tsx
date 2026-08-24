@@ -16,7 +16,8 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 import { renderTraceValue } from "@/lib/mail-register/trace";
 import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { mailFields, dateInput, dateTimeInput } from "../mail-fields";
-import { EditMailButton, DeleteMailButton } from "./edit-mail";
+import { EditMailButton } from "./edit-mail";
+import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { getMyCompanies, companyLabel } from "@/lib/company";
 import { mailRoutingOptions } from "@/lib/queries/mail-routing";
 
@@ -133,7 +134,13 @@ export default async function MailEntryPage({ params }: { params: { id: string }
         </div>
         <div className="flex shrink-0 flex-wrap items-start gap-2">
           {canEdit && <EditMailButton id={entry.id} fields={fields} />}
-          {canDelete && <DeleteMailButton id={entry.id} title={entry.title} attachments={documents.length} />}
+          {/* Le CRÉATEUR d'un pli peut le retirer, même sans le droit `DELETE` du registre —
+              suppression réversible (corbeille de l'administrateur). Ceux qui ont le droit
+              `DELETE` l'ont aussi, pour ranger les plis d'autrui. */}
+          <RecordDeleteButton
+            kind="MAIL_ENTRY" id={entry.id} name={entry.title} typeLabel="ce courrier"
+            enabled={canDelete || entry.createdById === user.id}
+          />
         </div>
       </div>
 
@@ -173,7 +180,7 @@ export default async function MailEntryPage({ params }: { params: { id: string }
               {entry.driveNode && (
                 <div className="col-span-2 min-w-0 sm:col-span-3">
                   <p className="text-xs text-muted-foreground">Pièce de référence (dans le Drive)</p>
-                  <Link href={`/drive?node=${entry.driveNode.id}`} className="inline-flex min-w-0 items-center gap-1 font-medium text-primary hover:underline">
+                  <Link href={`/drive/${entry.driveNode.id}`} className="inline-flex min-w-0 items-center gap-1 font-medium text-primary hover:underline">
                     <Paperclip className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{entry.driveNode.name}</span> <ExternalLink className="h-3 w-3 shrink-0" />
                   </Link>
                 </div>
