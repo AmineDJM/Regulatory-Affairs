@@ -21,12 +21,18 @@ import { ItemReview } from "./validation-item-review";
 import { ValidationAttachments } from "./validation-attachments";
 import { SupervisionBoard } from "./supervision-board";
 import { supervisionCounters } from "@/lib/validation-supervision";
+import { financeRecipients } from "@/lib/queries/finance-people";
+import { NewPaymentButton } from "./paiements/new-payment-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { DocumentList } from "@/components/documents/document-list";
 
 export default async function ValidationsPage() {
   const user = await requireModule("VALIDATIONS");
-  const { toValidate, myRequests, crossModule, supervised } = await getMyValidations(user);
+  const [{ toValidate, myRequests, crossModule, supervised }, financePeople] = await Promise.all([
+    getMyValidations(user),
+    // Les destinataires possibles d'une demande de paiement : les personnes du module Finances.
+    financeRecipients(),
+  ]);
   // À traiter maintenant (mon tour) vs assignées mais en attente du validateur précédent.
   const actionable = toValidate.filter((v) => v.actionable);
   const upcoming = toValidate.filter((v) => !v.actionable);
@@ -82,21 +88,23 @@ export default async function ValidationsPage() {
           action={createValidationRequest}
           fields={requestFields}
         />
+        {/* LA DEMANDE DE PAIEMENT SE FAIT D'ICI — c'est sa seule porte d'entrée, le module à
+            part a disparu. Une fois le bon à payer donné, le dossier passe OBLIGATOIREMENT par
+            le centre de paiement (dès 50 000 DZD), puis atterrit dans les Règlements à effectuer. */}
+        <NewPaymentButton people={financePeople} />
       </PageHeader>
 
-      {/* LES PAIEMENTS NE SONT PLUS ICI. Un paiement n'est pas une validation professionnelle :
-          il a un montant, un bénéficiaire, une échéance, et il s'instruit aux Finances, pièce
-          par pièce. Le garder dans ce bureau obligeait à chercher un dossier de paiement à deux
-          endroits — et à se demander lequel faisait foi. Le renvoi reste, le dossier a déménagé. */}
+      {/* Le suivi des demandes de paiement (les miennes, et la file à instruire pour les
+          Finances) vit sur son écran dédié — accessible d'ici, plus par le menu. */}
       <Link
         href="/validations/paiements"
         className="surface flex flex-wrap items-center justify-between gap-3 p-3 text-sm transition-colors hover:bg-secondary/40"
       >
         <span className="flex items-center gap-2 font-medium">
-          <Banknote className="h-4 w-4 text-primary" /> Les demandes de paiement sont aux Finances
+          <Banknote className="h-4 w-4 text-primary" /> Suivi des demandes de paiement
         </span>
         <span className="text-xs text-muted-foreground">
-          Demander un paiement, suivre le vôtre, l&apos;instruire : tout se passe désormais dans « Demandes de paiement ».
+          Vos dossiers de paiement, et la file à instruire pour les Finances. Autorisation au centre de paiement dès 50 000 DZD, puis Règlements.
         </span>
       </Link>
 

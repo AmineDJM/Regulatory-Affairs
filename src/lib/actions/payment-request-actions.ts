@@ -11,6 +11,7 @@ import { buildRef, createWithRetry } from "@/lib/refs";
 import { companyIdForNew } from "@/lib/company";
 import { persistUploadedDocument } from "@/lib/documents";
 import { createDirectValidation } from "@/lib/validation";
+import { createExpenseOrder } from "@/lib/expense-orders";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import {
@@ -411,6 +412,26 @@ export async function decidePaymentRequest(formData: FormData): Promise<ActionRe
       },
     });
     await trace(id, user.id, move, note);
+
+    // LE BON À PAYER OUVRE UN RÈGLEMENT — et le règlement passe par le CENTRE DE PAIEMENT.
+    // C'est `createExpenseOrder` qui applique la règle (dès 50 000 DZD : autorisation du PDG ou
+    // du Super Admin avant que les Finances ne voient l'ordre) : la demande de paiement ne
+    // contourne donc jamais le centre — elle y entre par la même porte que toutes les dépenses.
+    // La transition APPROVED est terminale, ce qui garantit qu'on ne crée pas l'ordre deux fois.
+    if (move === "APPROVE" && !req.expenseOrderId) {
+      const order = await createExpenseOrder({
+        label: `${req.reference} — ${req.title}`,
+        amount: toNumber(req.amount),
+        category: "FOURNISSEUR",
+        beneficiary: req.payee,
+        sourceType: "PAYMENT_REQUEST",
+        sourceId: req.id,
+        requestedById: req.requesterId,
+        dueDate: req.dueDate,
+        notes: note ?? null,
+      });
+      await prisma.paymentRequest.update({ where: { id }, data: { expenseOrderId: order.id } });
+    }
 
     if (move !== "REVIEW") {
       const titles: Record<string, string> = {

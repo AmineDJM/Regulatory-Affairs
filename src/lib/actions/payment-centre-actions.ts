@@ -24,7 +24,7 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
  * que vérifier QUI agit, écrire, et prévenir.
  */
 
-const PATH = "/finances/centre-de-paiement";
+const PATH = "/centre-de-paiement";
 
 function isDecision(v: string): v is CentralDecision {
   return v === "APPROVE" || v === "REFUSE" || v === "REQUEST_CHANGES" || v === "REQUEST_INFO";

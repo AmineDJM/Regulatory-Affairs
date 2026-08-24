@@ -101,7 +101,7 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
       type: "VALIDATION_REQUIRED",
       title: "Autorisation de paiement demandée",
       body: `${order.reference} — ${input.label} (${money}, au-dessus de ${CENTRAL_AUTH_THRESHOLD_DZD.toLocaleString("fr-FR")} DZD)`,
-      link: "/finances/centre-de-paiement",
+      link: "/centre-de-paiement",
     });
   } else {
     await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {

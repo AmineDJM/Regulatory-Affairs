@@ -34,6 +34,10 @@ export const MODULES = [
   // Module À PART de RH, et pas un écran de plus dedans : le DEMANDEUR est un directeur
   // opérationnel qui n'a rien à faire dans la paie ni dans les dossiers du personnel.
   "LEGAL", "MAIL_REGISTER", "RECRUITMENT",
+  // PAYMENT_CENTRE : le centre d'autorisation des paiements — un module À PART, hors Finances.
+  // Il n'appartient qu'au PDG et au Super Admin : celui qui autorise l'argent ne doit pas être
+  // dans le même écran que celui qui le décaisse, sinon la séparation des rôles n'est qu'un onglet.
+  "PAYMENT_CENTRE",
   "PROCESS_INTELLIGENCE", "ADVENTUM_BRAIN", "ADMIN",
 ] as const;
 export type Module = (typeof MODULES)[number];
@@ -93,6 +97,9 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     LOGISTICS: MANAGE, PCH: MANAGE, STOCKS: MANAGE, MEDICAL: MANAGE, FIELD_REPORTS: MANAGE, SALES_PLANNING: MANAGE, BUSINESS_DEVELOPMENT: MANAGE,
     MEDICAL_INFO: MANAGE, PROMO_MATERIAL: MANAGE, CONSULTING: MANAGE, AD_PRO_OTHER: MANAGE, DOCUMENTS: MANAGE, ADMIN_REQUESTS: MANAGE,
     GENERAL_MEANS: MANAGE, LEGAL: MANAGE, MAIL_REGISTER: MANAGE, RECRUITMENT: MANAGE,
+    // Le CENTRE DE PAIEMENT : le PDG y siège avec le Super Admin — et personne d'autre,
+    // pas même le Directeur Général (règle sitsOnPaymentCentre, lib/payments/authorization.ts).
+    PAYMENT_CENTRE: MANAGE,
     VALIDATIONS: [...VALIDATION_USER, "VALIDATE"], DIRECTIVES: MANAGE, SUPPORT: MANAGE, DOSSIERS: MANAGE,
     NOTIFICATIONS: ["VIEW"],
     // NB : Administration et Adventum Brain (+ Process Intelligence) sont réservés au

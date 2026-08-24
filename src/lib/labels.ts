@@ -1433,6 +1433,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   DOCUMENTS: "Documents",
   DRIVE: "Drive",
   ADMIN_REQUESTS: "Bureau du secrétariat",
+  PAYMENT_CENTRE: "Centre de paiement",
   NOTIFICATIONS: "Notifications",
   PROCESS_INTELLIGENCE: "Process Intelligence",
   ADVENTUM_BRAIN: "Adventum Brain",
@@ -1511,24 +1512,17 @@ export const NAVIGATION: NavItem[] = [
   // « Factures » s'atteignent depuis la page Finances, qui reste la porte unique du module.
   {
     module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION",
-    // Le CENTRE DE PAIEMENT est dans le périmètre de Finances (le menu ne se désélectionne pas en
-    // y entrant), mais il n'a PAS d'entrée à lui : sa porte est sur la page Finances, et seulement
-    // pour qui y siège.
-    match: ["/finances/ordres-de-depense", "/finances/factures", "/finances/centre-de-paiement"],
+    match: ["/finances/ordres-de-depense", "/finances/factures"],
   },
-  // DEMANDES DE PAIEMENT — chez les Finances, mais ouvertes à TOUT LE MONDE.
-  //
-  // Le module retenu est WORKSPACE, et ce n'est pas un raccourci : n'importe qui peut avoir à
-  // faire payer une facture — un chef de produit, une assistante, un délégué — sans avoir la
-  // moindre raison de voir le grand livre ou la trésorerie. Rattacher l'entrée à FINANCES
-  // l'aurait rendue invisible à ceux-là mêmes qui doivent y déposer leurs dossiers. L'écran,
-  // lui, est gardé par le cercle de chaque demande : on n'y voit que les siennes, et les
-  // Finances y voient la file à instruire.
-  // LA DEMANDE DE PAIEMENT EST UNE DEMANDE : elle vit avec les autres, dans les Demandes de
-  // validations. Module WORKSPACE, donc ouverte à tous — n'importe qui peut avoir à faire payer
-  // une facture sans avoir la moindre raison de voir le grand livre. Les Finances, elles, la
-  // retrouvent depuis LEUR module, où elles instruisent.
-  { module: "WORKSPACE", label: "Demandes de paiement", href: "/validations/paiements", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
+  // LE CENTRE DE PAIEMENT — un module À PART, HORS Finances : celui qui autorise l'argent ne
+  // doit pas être dans l'écran de celui qui le décaisse. L'entrée n'apparaît qu'à qui a le
+  // module (PDG + Super Admin) ; un demandeur à qui le centre rend la main y arrive par le LIEN
+  // de sa notification — pas par le menu.
+  { module: "PAYMENT_CENTRE", label: "Centre de paiement", href: "/centre-de-paiement", icon: "ShieldCheck", group: "Pôles", pole: "ADMINISTRATION" },
+  // LES DEMANDES DE PAIEMENT n'ont PLUS d'entrée de menu : la demande se fait depuis les
+  // Demandes de validations (bouton « Demande de paiement »), et une fois le bon à payer donné,
+  // le dossier passe par le centre de paiement puis atterrit dans les Règlements à effectuer.
+  // Les écrans /validations/paiements restent servis — on y arrive par le bouton et les liens.
   { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", pole: "ADMINISTRATION", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie", "/formations"] },
   // LEGAL — les engagements de la société : contrats, bons de commande, assurances, baux. Le
   // fichier reste dans le Drive ; Legal porte ce que le Drive ne sait pas dire (dates, échéance,
