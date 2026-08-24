@@ -13,6 +13,7 @@ import { THREE_SIXTY_TOOLS } from "@/lib/assistant/three-sixty";
 import { DOCUMENT_DISCOVERY_TOOLS } from "@/lib/assistant/document-discovery";
 import { WHAT_IF_TOOLS } from "@/lib/assistant/what-if";
 import { DELIVERABLE_TOOLS } from "@/lib/assistant/deliverables";
+import { CORPUS_TOOLS } from "@/lib/assistant/corpus-tools";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -227,6 +228,9 @@ export const POWER_TOOLS: PowerTool[] = [
   // LIVRABLES UNIVERSELS : vrais .docx/.xlsx/.pptx depuis UNE spec (cohérence par construction),
   // registre versionné, dépôt au Drive.
   ...DELIVERABLE_TOOLS,
+  // Le CORPUS DE CONNAISSANCE (textes juridiques vérifiés) : recherche sourcée, lecture
+  // d'article, inventaire — et l'honnêteté du corpus vide (« pas assez de sources vérifiées »).
+  ...CORPUS_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */

@@ -45,11 +45,19 @@ const CONCURRENCY = 2;
 
 const AUTHORITIES = ["ANPP", "ICH", "EMA", "WHO", "EDQM", "FDA", "INTERNE"] as const;
 
+/** Le corpus dépasse la pharma : chaque texte se range dans une catégorie de connaissance. */
+const CATEGORIES = [
+  "Enregistrement", "ANPP", "MIPH", "Droit du travail", "Droit fiscal", "Droit des sociétés",
+  "Marchés publics / PCH", "Douanes & importation", "Pharmacovigilance", "Interne",
+] as const;
+
 export function CorpusImport() {
   const router = useRouter();
   const [rows, setRows] = React.useState<Row[]>([]);
   const [authority, setAuthority] = React.useState<string>("ANPP");
   const [jurisdiction, setJurisdiction] = React.useState("DZ");
+  const [category, setCategory] = React.useState<string>("Enregistrement");
+  const [language, setLanguage] = React.useState<string>("fr");
   const [running, setRunning] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -74,6 +82,8 @@ export function CorpusImport() {
           fd.set("file", row.file);
           fd.set("authority", authority);
           fd.set("jurisdiction", jurisdiction);
+          fd.set("category", category);
+          fd.set("language", language);
           const res = await importCorpusFileAction(fd);
           setRows((prev) => prev.map((r) => (r.id === row.id
             ? { ...r, state: res.status, message: res.error, sections: res.sections }
@@ -164,6 +174,22 @@ export function CorpusImport() {
           <Label>Juridiction</Label>
           <Input value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} disabled={running} placeholder="DZ, EU, INT…" />
           <p className="text-[0.6875rem] text-muted-foreground">DZ pour l&apos;Algérie, EU pour l&apos;Union européenne, INT pour l&apos;ICH/OMS.</p>
+        </div>
+        <div className="space-y-1">
+          <Label>Catégorie de connaissance</Label>
+          <Select value={category} onChange={(e) => setCategory(e.target.value)} disabled={running}>
+            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+          <p className="text-[0.6875rem] text-muted-foreground">Le corpus dépasse la pharma : droit du travail, fiscal, marchés… Sert au filtrage des recherches.</p>
+        </div>
+        <div className="space-y-1">
+          <Label>Langue du texte</Label>
+          <Select value={language} onChange={(e) => setLanguage(e.target.value)} disabled={running}>
+            <option value="fr">Français</option>
+            <option value="ar">العربية (arabe)</option>
+            <option value="en">Anglais</option>
+          </Select>
+          <p className="text-[0.6875rem] text-muted-foreground">Les articles « المادة 12 » des textes arabes sont découpés comme les « Article 12 » français.</p>
         </div>
       </div>
 

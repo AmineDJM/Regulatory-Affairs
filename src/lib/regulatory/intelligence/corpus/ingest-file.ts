@@ -45,6 +45,13 @@ export interface ImportFileInput {
   /** Autorité émettrice (ANPP, ICH, EMA, EDQM…) — sert au filtrage du RAG. */
   authority?: string | null;
   jurisdiction?: string | null;
+  /**
+   * CATÉGORIE de connaissance — le corpus dépasse la pharma : « Droit du travail »,
+   * « Droit fiscal », « ANPP », « MIPH », « Enregistrement », « Marchés publics / PCH »…
+   */
+  category?: string | null;
+  /** Langue du texte (« fr » par défaut, « ar » pour les textes arabes du Journal officiel). */
+  language?: string | null;
   /** Titre imposé ; à défaut, déduit du nom de fichier. */
   title?: string | null;
   userId?: string | null;
@@ -88,14 +95,21 @@ export async function ingestCorpusFile(input: ImportFileInput): Promise<FileInge
     const source = existing
       ? await prisma.regulatorySource.update({
           where: { id: existing.id },
-          data: { title, ...(input.authority ? { authority: input.authority } : {}), ...(input.jurisdiction ? { jurisdiction: input.jurisdiction } : {}) },
+          data: {
+            title,
+            ...(input.authority ? { authority: input.authority } : {}),
+            ...(input.jurisdiction ? { jurisdiction: input.jurisdiction } : {}),
+            ...(input.category ? { category: input.category } : {}),
+            ...(input.language ? { language: input.language } : {}),
+          },
           select: { id: true },
         })
       : await prisma.regulatorySource.create({
           data: {
             authority: input.authority || "INTERNE",
             jurisdiction: input.jurisdiction || "DZ",
-            code, title, language: "fr",
+            code, title, language: input.language || "fr",
+            category: input.category || null,
             sourceUrl: null, createdById: input.userId ?? null,
           },
           select: { id: true },

@@ -6510,6 +6510,10 @@ model RegulatorySource {
   code         String // ex. "Arrêté 2021-05-10"
   title        String
   language     String   @default("fr")
+  /// CATÉGORIE du corpus de connaissance — le corpus n'est pas que réglementaire pharma :
+  /// « Droit du travail » | « Droit fiscal » | « Droit des sociétés » | « ANPP » | « MIPH » |
+  /// « Enregistrement » | « Marchés publics / PCH » | « Interne »… Libre mais filtrable.
+  category     String?
   sourceUrl    String? // référence officielle
   createdById  String?
   createdAt    DateTime @default(now())
@@ -6519,6 +6523,7 @@ model RegulatorySource {
 
   @@index([authority])
   @@index([jurisdiction])
+  @@index([category])
 }
 
 /// Version datée d'une source : texte original + hash, statut (ACTIVE = fait foi), approbation.

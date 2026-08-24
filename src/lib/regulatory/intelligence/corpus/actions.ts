@@ -84,6 +84,8 @@ export async function importCorpusFileAction(formData: FormData): Promise<FileIn
     buffer: Buffer.from(await file.arrayBuffer()),
     authority: str(formData, "authority"),
     jurisdiction: str(formData, "jurisdiction"),
+    category: str(formData, "category"),
+    language: str(formData, "language"),
     userId: user.id,
   });
 

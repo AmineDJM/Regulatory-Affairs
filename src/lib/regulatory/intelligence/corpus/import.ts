@@ -9,7 +9,10 @@ export interface ImportedSection {
   ordinal: number;
 }
 
-const HEADING_RE = /^\s*((?:article|art\.?)\s+\d+[a-z]?|chapitre\s+[\wéè]+|annexe\s+[\wéè]+|titre\s+[\wéè]+|section\s+\d+|\d+(?:\.\d+){1,4})\b[.:)\s-]*(.*)$/i;
+// Titres reconnus en FRANÇAIS et en ARABE — les textes algériens (Journal officiel, code du
+// travail) existent dans les deux langues : « المادة 12 » est l'exact équivalent d'« Article 12 »
+// (الباب = titre, الفصل = chapitre, القسم = section ; chiffres arabes ٠-٩ acceptés).
+const HEADING_RE = /^\s*((?:(?:article|art\.?)\s+\d+[a-z]?|chapitre\s+[\wéè]+|annexe\s+[\wéè]+|titre\s+[\wéè]+|section\s+\d+|\d+(?:\.\d+){1,4})\b|(?:المادة|الماده)\s*[\d٠-٩]+(?:\s*مكرر)?|(?:الباب|الفصل|القسم)\s+[؀-ۿ\d٠-٩]+)[.:)\s-]*(.*)$/i;
 
 export function splitIntoSections(raw: string, maxSections = 800): ImportedSection[] {
   const text = (raw ?? "").replace(/\r\n/g, "\n").trim();

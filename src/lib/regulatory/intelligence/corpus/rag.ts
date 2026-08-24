@@ -34,6 +34,8 @@ interface Row {
 export interface CorpusFilters {
   jurisdiction?: string;
   authority?: string;
+  /** Catégorie de connaissance (« Droit du travail », « ANPP », « MIPH »…). */
+  category?: string;
   limit?: number;
 }
 
@@ -76,6 +78,7 @@ async function searchCorpusLexical(query: string, filters: CorpusFilters = {}): 
   let p = 2;
   if (filters.jurisdiction) { conds.push(`src."jurisdiction" = $${p++}`); params.push(filters.jurisdiction); }
   if (filters.authority) { conds.push(`src."authority" = $${p++}`); params.push(filters.authority); }
+  if (filters.category) { conds.push(`src."category" = $${p++}`); params.push(filters.category); }
   const limIdx = p;
   params.push(limit);
 
@@ -143,6 +146,7 @@ async function citationsByIds(sectionIds: string[], filters: CorpusFilters): Pro
           source: {
             ...(filters.jurisdiction ? { jurisdiction: filters.jurisdiction } : {}),
             ...(filters.authority ? { authority: filters.authority } : {}),
+            ...(filters.category ? { category: filters.category } : {}),
           },
         },
       },
