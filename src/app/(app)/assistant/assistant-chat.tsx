@@ -5,8 +5,9 @@ import Link from "next/link";
 import {
   Sparkles, Send, Loader2, Bot, CheckCircle2, AlertTriangle, KeyRound,
   Search, ArrowRight, X, Wand2, Paperclip, FolderOpen, FileText, Mic, Square,
-  History, Plus, Trash2, Lock,
+  History, Plus, Trash2, Lock, AudioLines, Link2, ShieldAlert,
 } from "lucide-react";
+import { VoiceMode } from "./voice-mode";
 import { Button } from "@/components/ui/button";
 import {
   assistantChat, executeAssistantAction, listAssistantFiles,
@@ -75,10 +76,21 @@ export function cleanReply(text: string): string {
 
 export function AssistantChat({
   userName, configured, voiceConfigured = false, memoryEnabled = false,
-}: { userName: string; configured: boolean; voiceConfigured?: boolean; memoryEnabled?: boolean }) {
+  executive = false, initialPrompt = null,
+}: {
+  userName: string; configured: boolean; voiceConfigured?: boolean; memoryEnabled?: boolean;
+  /** Mode Chief of Staff : panneau CONTEXTE (sources, actions) sur grand écran. */
+  executive?: boolean;
+  /** Entrée contextuelle (?q=…) : la question est pré-remplie, prête à partir. */
+  initialPrompt?: string | null;
+}) {
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
   const [sending, setSending] = React.useState(false);
+  /** Les SOURCES consultées pendant la conversation (liens internes), les plus récentes d'abord. */
+  const [sources, setSources] = React.useState<{ label: string; href: string }[]>([]);
+  /** Conversation vocale continue (VAD + barge-in) — distincte de la dictée. */
+  const [voiceOpen, setVoiceOpen] = React.useState(false);
   const [attachments, setAttachments] = React.useState<PendingAttach[]>([]);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
@@ -103,6 +115,16 @@ export function AssistantChat({
   }, [memoryEnabled]);
 
   React.useEffect(() => { void refreshThreads(); }, [refreshThreads]);
+
+  // Entrée contextuelle (« Demander au Chief of Staff » depuis une fiche) : la question arrive
+  // PRÉ-REMPLIE, jamais envoyée toute seule — on relit avant d'envoyer, même une question.
+  React.useEffect(() => {
+    if (initialPrompt && initialPrompt.trim()) {
+      setInput(initialPrompt.trim());
+      taRef.current?.focus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt]);
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -198,10 +220,11 @@ export function AssistantChat({
     }
   };
 
-  const send = async (text: string) => {
+  /** Envoie un tour et REND la réponse finale — la voix en a besoin pour parler. */
+  const send = async (text: string): Promise<string | null> => {
     const content = text.trim();
     const pending = attachments;
-    if ((!content && pending.length === 0) || sending || !configured) return;
+    if ((!content && pending.length === 0) || sending || !configured) return null;
     const userMsg: Msg = { id: nextId(), role: "user", content: content || "(pièces jointes)", attachmentNames: pending.map((a) => a.name) };
     const next = [...messages, userMsg];
     setMessages(next);
@@ -226,32 +249,37 @@ export function AssistantChat({
           ),
         );
         const res = await assistantChat(history, payload, threadId);
-        appendResult(res);
-        return;
+        return appendResult(res);
       }
-      await streamAnswer(history);
+      return await streamAnswer(history);
     } catch {
       setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "Appel à l'assistant impossible." }]);
+      return null;
     } finally {
       setSending(false);
       setStreaming(null);
-      taRef.current?.focus();
+      if (!voiceOpen) taRef.current?.focus();
     }
   };
+  const sendRef = React.useRef(send);
+  sendRef.current = send;
 
   /** Ajoute le résultat d'un tour non diffusé (pièces jointes) à la conversation. */
-  const appendResult = (res: AssistantResult) => {
+  const appendResult = (res: AssistantResult): string | null => {
     if (!res.configured) {
       setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "IA non configurée." }]);
-    } else if (res.ok) {
+      return null;
+    }
+    if (res.ok) {
       setMessages((m) => [...m, {
         id: nextId(), role: "assistant", content: res.reply, trace: res.trace,
         proposal: res.proposal, actionState: res.proposal ? "pending" : undefined,
       }]);
       if (res.threadId) { setThreadId(res.threadId); void refreshThreads(); }
-    } else {
-      setMessages((m) => [...m, { id: nextId(), role: "assistant", content: res.error ?? "Une erreur est survenue." }]);
+      return res.reply || null;
     }
+    setMessages((m) => [...m, { id: nextId(), role: "assistant", content: res.error ?? "Une erreur est survenue." }]);
+    return null;
   };
 
   /**
@@ -259,7 +287,7 @@ export function AssistantChat({
    * arrivent : les étapes de lecture, puis le texte mot à mot. La réponse n'apparaît plus
    * d'un bloc après un long silence.
    */
-  const streamAnswer = async (history: ChatTurn[]) => {
+  const streamAnswer = async (history: ChatTurn[]): Promise<string | null> => {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setStreaming({ text: "", trace: [] });
@@ -272,13 +300,14 @@ export function AssistantChat({
     });
     if (!res.ok || !res.body) {
       setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "L'assistant est momentanément indisponible." }]);
-      return;
+      return null;
     }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let finished = false;
+    let reply: string | null = null;
 
     for (;;) {
       const { done, value } = await reader.read();
@@ -296,12 +325,15 @@ export function AssistantChat({
           setStreaming((s) => ({ text: (s?.text ?? "") + evt.text, trace: s?.trace ?? [] }));
         } else if (evt.type === "trace") {
           setStreaming((s) => ({ text: s?.text ?? "", trace: s?.trace.includes(evt.label) ? s.trace : [...(s?.trace ?? []), evt.label] }));
+        } else if (evt.type === "source") {
+          // Le panneau CONTEXTE se remplit au moment même où l'assistant consulte.
+          setSources((prev) => (prev.some((s) => s.href === evt.href) ? prev : [{ label: evt.label, href: evt.href }, ...prev].slice(0, 30)));
         } else if (evt.type === "reset") {
           // Le texte affiché n'était qu'un préambule à un appel d'outil.
           setStreaming((s) => ({ text: "", trace: s?.trace ?? [] }));
         } else if (evt.type === "done") {
           finished = true;
-          appendResult(evt.result);
+          reply = appendResult(evt.result);
         }
       }
     }
@@ -312,6 +344,7 @@ export function AssistantChat({
         return null;
       });
     }
+    return reply;
   };
 
   /** Interrompt la génération en cours (le texte déjà écrit est conservé). */
@@ -466,6 +499,16 @@ export function AssistantChat({
           </div>
         )}
 
+        {/* CONVERSATION VOCALE continue : écoute → transcription → réponse parlée → écoute,
+            interruptible à la voix (barge-in). Le texte continue de s'écrire dans le fil. */}
+        {voiceOpen && (
+          <VoiceMode
+            onUtterance={(text) => sendRef.current(text)}
+            onInterrupt={stopStreaming}
+            onClose={() => setVoiceOpen(false)}
+          />
+        )}
+
         <form
           onSubmit={(e) => { e.preventDefault(); send(input); }}
           onDragOver={(e) => { if (configured) { e.preventDefault(); setDragOver(true); } }}
@@ -475,6 +518,14 @@ export function AssistantChat({
         >
           <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
           <div className="flex items-center gap-1">
+            {voiceConfigured && (
+              <button type="button"
+                title={voiceOpen ? "Quitter la conversation vocale" : "Conversation vocale — parlez, il répond à voix haute (interruptible)"}
+                onClick={() => setVoiceOpen((o) => !o)} disabled={!configured}
+                className={`flex h-[2.75rem] w-9 items-center justify-center rounded-xl transition disabled:opacity-50 ${voiceOpen ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
+                <AudioLines className="h-4 w-4" />
+              </button>
+            )}
             {voiceConfigured && (recording ? (
               <button type="button" title="Arrêter et transcrire" onClick={stopRec}
                 className="flex h-[2.75rem] w-9 items-center justify-center rounded-xl text-destructive transition hover:bg-destructive/10">
@@ -521,7 +572,78 @@ export function AssistantChat({
         </div>
       </div>
     </div>
+
+    {/* PANNEAU CONTEXTE (Chief of Staff, grand écran) : les sources consultées et les actions
+        du fil — chaque dossier lu devient un lien, sans refaire la recherche. */}
+    {executive && <ExecutivePanel sources={sources} messages={messages} />}
     </div>
+  );
+}
+
+/** Le volet CONTEXTE du Chief of Staff : sources consultées + actions proposées du fil. */
+function ExecutivePanel({ sources, messages }: { sources: { label: string; href: string }[]; messages: Msg[] }) {
+  const actions = messages.filter((m) => m.proposal).slice(-6).reverse();
+  return (
+    <aside className="hidden w-72 shrink-0 xl:block">
+      <div className="flex h-full flex-col gap-3 overflow-y-auto rounded-2xl border border-border bg-card p-3">
+        <div>
+          <p className="flex items-center gap-1.5 px-1 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
+            <Link2 className="h-3 w-3" /> Sources consultées
+          </p>
+          {sources.length === 0 ? (
+            <p className="px-1 py-2 text-xs leading-relaxed text-muted-foreground">
+              Les dossiers, documents et fiches que l&apos;assistant consulte apparaîtront ici, en liens cliquables.
+            </p>
+          ) : (
+            <div className="mt-1 space-y-0.5">
+              {sources.map((s) => (
+                <Link key={s.href + s.label} href={s.href}
+                  className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition hover:bg-secondary">
+                  <ArrowRight className="h-3 w-3 shrink-0 text-primary" />
+                  <span className="min-w-0 flex-1 truncate" title={s.label}>{s.label}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {actions.length > 0 && (
+          <div>
+            <p className="flex items-center gap-1.5 px-1 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
+              <Sparkles className="h-3 w-3" /> Actions du fil
+            </p>
+            <div className="mt-1 space-y-1">
+              {actions.map((m) => (
+                <div key={m.id} className="rounded-lg border border-border/60 px-2 py-1.5 text-xs">
+                  <p className="truncate font-medium" title={m.proposal!.title}>{m.proposal!.title}</p>
+                  <p className="mt-0.5 text-muted-foreground">
+                    {m.actionState === "done" ? "✔ Exécutée" : m.actionState === "cancelled" ? "Annulée"
+                      : m.actionState === "error" ? "En échec" : m.actionState === "running" ? "En cours…" : "À confirmer"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-auto border-t border-border pt-2">
+          <p className="px-1 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Raccourcis</p>
+          <div className="mt-1 space-y-0.5">
+            {[
+              { href: "/centre-de-paiement", label: "Centre de paiement" },
+              { href: "/validations", label: "Demandes de validations" },
+              { href: "/legal", label: "Legal" },
+              { href: "/rh", label: "Ressources humaines" },
+              { href: "/calendar", label: "Calendrier" },
+            ].map((l) => (
+              <Link key={l.href} href={l.href} className="block rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition hover:bg-secondary hover:text-foreground">
+                {l.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -744,12 +866,25 @@ export function ActionCard({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  // CONFIRMATION FORTE (niveau CRITIQUE — paie, salaires) : la carte fait RESSAISIR la valeur
+  // exacte avant d'armer le bouton. Un clic réflexe ne suffit pas pour changer un salaire.
+  const critical = proposal.level === "CRITICAL" && Boolean(proposal.confirmText);
+  const [typed, setTyped] = React.useState("");
+  const norm = (s: string) => s.replace(/[\s ]/g, "").replace(",", ".");
+  const armed = !critical || norm(typed) === norm(proposal.confirmText ?? "");
+
   return (
-    <div className="overflow-hidden rounded-xl border border-primary/30 bg-gradient-to-br from-accent/40 to-card shadow-sm">
+    <div className={`overflow-hidden rounded-xl border shadow-sm ${critical ? "border-destructive/50 bg-gradient-to-br from-destructive/5 to-card" : proposal.level === "SENSITIVE" ? "border-warning/50 bg-gradient-to-br from-warning/5 to-card" : "border-primary/30 bg-gradient-to-br from-accent/40 to-card"}`}>
       <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5">
-        <Sparkles className="h-4 w-4 text-primary" />
+        {critical ? <ShieldAlert className="h-4 w-4 text-destructive" /> : <Sparkles className="h-4 w-4 text-primary" />}
         <span className="text-sm font-semibold">{proposal.title}</span>
-        <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[0.6875rem] font-medium text-primary">À confirmer</span>
+        {critical ? (
+          <span className="ml-auto rounded-full bg-destructive/10 px-2 py-0.5 text-[0.6875rem] font-medium text-destructive">Critique</span>
+        ) : proposal.level === "SENSITIVE" ? (
+          <span className="ml-auto rounded-full bg-warning/10 px-2 py-0.5 text-[0.6875rem] font-medium text-warning">Sensible — à confirmer</span>
+        ) : (
+          <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[0.6875rem] font-medium text-primary">À confirmer</span>
+        )}
       </div>
 
       <dl className="divide-y divide-border/50">
@@ -771,10 +906,27 @@ export function ActionCard({
         </div>
       )}
 
+      {critical && state === "pending" && (
+        <div className="border-t border-border/60 bg-destructive/5 px-4 py-2.5">
+          <label className="text-xs font-medium text-destructive">
+            Confirmation renforcée : ressaisissez le nouveau montant ({Number(proposal.confirmText).toLocaleString("fr-FR")} DZD)
+          </label>
+          <input
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            inputMode="numeric"
+            placeholder={proposal.confirmText}
+            className="mt-1 w-48 rounded-lg border border-destructive/40 bg-background px-3 py-1.5 text-sm outline-none focus:border-destructive focus:ring-2 focus:ring-destructive/20"
+          />
+        </div>
+      )}
+
       <div className="flex items-center gap-2 border-t border-border/60 px-4 py-2.5">
         {state === "pending" && (
           <>
-            <Button size="sm" onClick={onConfirm}><CheckCircle2 className="h-4 w-4" /> Confirmer</Button>
+            <Button size="sm" onClick={onConfirm} disabled={!armed} variant={critical ? "destructive" : "primary"}>
+              <CheckCircle2 className="h-4 w-4" /> Confirmer
+            </Button>
             <Button size="sm" variant="ghost" onClick={onCancel}><X className="h-4 w-4" /> Annuler</Button>
           </>
         )}

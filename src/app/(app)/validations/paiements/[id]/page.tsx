@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY, ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { canApprove, canResubmit, isOverdue, deadlineLabel } from "@/lib/finance/payment-request";
 import { PaymentDossier, type PieceView, type EventView } from "./dossier";
+import { AskChief } from "@/components/shared/ask-chief";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,7 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
       <PageHeader title={req.title} description={`Réf. ${req.reference} · ${req.payee}`}>
         <StatusBadge map={PAYMENT_REQUEST_STATUS} value={req.status} />
         {isOverdue(req) && <Badge tone="danger" dot={false}>en retard</Badge>}
+        {userCan(user, "CHIEF_OF_STAFF", "VIEW") && <AskChief reference={req.reference} />}
       </PageHeader>
 
       <Card>

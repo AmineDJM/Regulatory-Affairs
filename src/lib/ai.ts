@@ -492,6 +492,54 @@ export async function transcribeAudio(buffer: Buffer, filename: string, mime: st
   return { ok: false, configured: true, error: lastError };
 }
 
+// ─────────────────────────── Text-to-speech (OpenAI) ───────────────────────────
+
+/** La synthèse vocale partage la clé Whisper : présente = conversation vocale possible. */
+export function ttsConfigured(): boolean {
+  return Boolean(process.env.OPENAI_API_KEY);
+}
+
+export interface SpeechResult {
+  ok: boolean;
+  configured: boolean;
+  /** Audio MP3 prêt à jouer. */
+  audio?: Buffer;
+  error?: string;
+}
+
+/**
+ * SYNTHÉTISE une phrase en audio (MP3) — la voix du Chief of Staff. Textes COURTS uniquement :
+ * le client découpe la réponse en phrases et les demande au fil de l'eau, pour que la voix
+ * démarre avant la fin de la génération. Serveur uniquement.
+ */
+export async function synthesizeSpeech(text: string): Promise<SpeechResult> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return { ok: false, configured: false, error: "Clé OPENAI_API_KEY non configurée." };
+  const base = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
+  const model = process.env.TTS_MODEL ?? "tts-1";
+  const voice = process.env.TTS_VOICE ?? "alloy";
+  const clean = text.trim().slice(0, 800);
+  if (!clean) return { ok: false, configured: true, error: "Texte vide." };
+
+  try {
+    const res = await fetch(`${base.replace(/\/$/, "")}/audio/speech`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({ model, voice, input: clean, response_format: "mp3", speed: 1.05 }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error("[ai] tts error", res.status, body.slice(0, 200));
+      return { ok: false, configured: true, error: `Synthèse vocale indisponible (HTTP ${res.status}).` };
+    }
+    return { ok: true, configured: true, audio: Buffer.from(await res.arrayBuffer()) };
+  } catch (err) {
+    console.error("[ai] tts call failed", err);
+    return { ok: false, configured: true, error: "Synthèse vocale impossible (réseau ou délai dépassé)." };
+  }
+}
+
 // ─────────────────────────── Analyse IA d'un rapport terrain ───────────────────────────
 
 export interface FieldReportExtraction {

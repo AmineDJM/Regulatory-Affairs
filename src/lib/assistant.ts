@@ -2602,7 +2602,58 @@ export type AssistantStreamEvent =
   | { type: "delta"; text: string }
   /** Le texte déjà affiché n'était qu'un préambule à un appel d'outil : le client l'efface. */
   | { type: "reset" }
+  /** Une SOURCE consultée (lien interne) — alimente le panneau CONTEXTE du Chief of Staff. */
+  | { type: "source"; label: string; href: string }
   | { type: "done"; result: AssistantResult };
+
+/**
+ * Extrait les LIENS INTERNES d'un résultat d'outil, avec un libellé lisible — la matière du
+ * panneau CONTEXTE (« Sources ») : chaque dossier consulté devient un lien cliquable, sans que
+ * l'utilisateur ait à refaire la recherche. Parcours superficiel et borné : un résultat d'outil
+ * est petit, mais on ne parie jamais dessus.
+ */
+export function extractSources(raw: string): { label: string; href: string }[] {
+  const out: { label: string; href: string }[] = [];
+  const seen = new Set<string>();
+  let data: unknown;
+  try { data = JSON.parse(raw); } catch { return out; }
+
+  const labelOf = (o: Record<string, unknown>): string => {
+    for (const k of ["reference", "nom", "titre", "objet", "rappel", "fichier", "dossier", "type", "famille"]) {
+      const v = o[k];
+      if (typeof v === "string" && v.trim()) return v.trim().slice(0, 60);
+    }
+    return "Source";
+  };
+
+  const walk = (node: unknown, depth: number): void => {
+    if (out.length >= 8 || depth > 3 || node == null) return;
+    if (Array.isArray(node)) {
+      for (const item of node.slice(0, 30)) walk(item, depth + 1);
+      return;
+    }
+    if (typeof node !== "object") return;
+    const o = node as Record<string, unknown>;
+    const lien = o.lien;
+    if (typeof lien === "string" && lien.startsWith("/") && !seen.has(lien)) {
+      seen.add(lien);
+      out.push({ label: labelOf(o), href: lien });
+    }
+    if (Array.isArray(o.liens)) {
+      for (const l of o.liens) {
+        if (typeof l === "string" && l.startsWith("/") && !seen.has(l)) {
+          seen.add(l);
+          out.push({ label: labelOf(o), href: l });
+        }
+      }
+    }
+    for (const v of Object.values(o)) {
+      if (v && typeof v === "object") walk(v, depth + 1);
+    }
+  };
+  walk(data, 0);
+  return out;
+}
 
 /**
  * VARIANTE STREAMING de `runAssistant` — même boucle agent, même garde-fous, mais la réponse
@@ -2698,6 +2749,9 @@ export async function runAssistantStream(
         });
         const label = READ_LABEL[tu.name];
         if (label && !trace.includes(label)) { trace.push(label); emit({ type: "trace", label }); }
+        // Les SOURCES consultées alimentent le panneau CONTEXTE : chaque dossier lu devient un
+        // lien cliquable, au moment même où l'assistant le lit.
+        for (const s of extractSources(out)) emit({ type: "source", label: s.label, href: s.href });
         results.push({ type: "tool_result", tool_use_id: tu.id, content: out });
       }
       messages.push({ role: "assistant", content: blocks });

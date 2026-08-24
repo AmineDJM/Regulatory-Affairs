@@ -24,7 +24,11 @@ export const metadata = { title: "My Chief of Staff — AMD Internal OS" };
  * mardi », « tous les dimanches relance Regulatory ») et les DÉCISIONS du centre de paiement —
  * toujours derrière une carte de confirmation.
  */
-export default async function ChiefOfStaffPage() {
+export default async function ChiefOfStaffPage({
+  searchParams,
+}: {
+  searchParams?: { q?: string; ref?: string };
+}) {
   const user = await requireModule("CHIEF_OF_STAFF");
   const [memoryEnabled, proactive] = await Promise.all([
     user.impersonatedBy ? Promise.resolve(false) : featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id),
@@ -32,13 +36,19 @@ export default async function ChiefOfStaffPage() {
   ]);
   const brief = proactive ? await getDailyBrief(user).catch(() => null) : null;
 
+  // ENTRÉE CONTEXTUELLE : « Demander au Chief of Staff » depuis une fiche arrive ici avec la
+  // question (?q=…) ou la référence du dossier (?ref=…) — pré-remplie, jamais envoyée seule.
+  const q = typeof searchParams?.q === "string" ? searchParams.q.slice(0, 500) : "";
+  const ref = typeof searchParams?.ref === "string" ? searchParams.ref.slice(0, 120) : "";
+  const initialPrompt = q || (ref ? `Donne-moi toute l'histoire de ${ref} : statut, validateurs, blocages, prochaine étape.` : null);
+
   return (
     <div className="app-viewport-flush -mx-3 -mt-3 flex flex-col gap-3 px-2 pt-2 sm:-mx-4 sm:-mt-6 sm:px-3 sm:pt-4 lg:-mx-8 lg:px-6">
       <div className="flex items-center gap-2 pt-1 text-sm text-muted-foreground">
         <Crown className="h-4 w-4 text-primary" />
         <span className="font-semibold text-foreground">My Chief of Staff</span>
         <span className="hidden sm:inline">
-          — l&apos;histoire d&apos;un dossier, un document du Drive, le bilan d&apos;une personne, un rappel, une décision de paiement : demandez.
+          — cherchez tout, lisez tout, agissez (sous confirmation) — au clavier ou à la voix.
         </span>
       </div>
       {brief?.text && <MorningBrief initial={brief.text} />}
@@ -47,6 +57,8 @@ export default async function ChiefOfStaffPage() {
         configured={aiConfigured()}
         voiceConfigured={sttConfigured()}
         memoryEnabled={memoryEnabled}
+        executive
+        initialPrompt={initialPrompt}
       />
     </div>
   );
