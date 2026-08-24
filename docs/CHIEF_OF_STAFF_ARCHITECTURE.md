@@ -278,6 +278,68 @@ travaille ; la réponse se complète quand le résultat arrive. Jamais de silenc
 jamais une invention pour meubler : tout ce qui est dit avant la fin d'une analyse est sûr,
 qualifié, révisable.
 
+### HARDENING — analyse des pannes réelles (root cause → fix → test)
+
+Quatre défauts observés lors d'un appel réel de production sont devenus des invariants testés.
+
+**FAILURE A — mémoire des demandes** (« je t'avais demandé quelque chose à Redouane ? » →
+« aucune trace », minutes après la préparation d'une notification).
+*Cause racine* : la proposition d'action ne vivait que dans l'UI — aucun objet structuré ; la
+recherche sémantique du transcript ne suffisait pas.
+*Correctif* : **AssistantActionIntent** — CHAQUE proposition (texte, voix via délégation,
+nudge) est persistée avec un état canonique ; le bloc « ACTIONS RÉCENTES » est injecté dans le
+prompt texte ET les instructions vocales ; l'outil **`action_history`** (fast path vocal) est
+LA source de vérité pour « déjà demandé ? / c'est envoyé ? / qu'est-ce que je t'ai demandé
+aujourd'hui ? » — et l'absence de trace y est FIABLE (rien proposé sur la période).
+*Tests* : `action-intents.test.ts` (« FAILURE A »), `voice-realtime.test.ts` (« FAILURE A/B »).
+
+**FAILURE B — état des actions** (« Message envoyé à Khaled » puis « je ne peux pas confirmer
+l'envoi »). *Cause racine* : le modèle RACONTAIT l'exécution ; aucun état serveur unique.
+*Correctif* : machine d'état SERVEUR unique — PROPOSED → CONFIRMED → EXECUTING → EXECUTED
+(ou FAILED / CANCELLED / EXPIRED), transitions journalisées (`events` = historique
+d'autorisation). Le serveur est l'AUTORITÉ : l'exécution passe par une **réclamation
+atomique** (`updateMany` gardé par statut — un retry / double-clic / reconnexion ne renvoie
+JAMAIS deux messages : l'action déjà EXÉCUTÉE rend son reçu d'origine) ; le payload exécuté
+est celui STOCKÉ à la proposition, pas celui renvoyé par le client ; l'annulation UI transite
+aussi par le serveur (`cancelAssistantAction`). Reçu canonique : ACTION EXECUTED (message,
+lien, horodatage) vs ACTION PREPARED — NOT EXECUTED. Règle de fond (texte + voix) : ne JAMAIS
+dire « envoyé » sans un état EXÉCUTÉE ; ne jamais dire « aucune trace » sans avoir consulté
+l'état.
+*Tests* : `action-intents.test.ts` (idempotence, concurrence, annulation, cloisonnement).
+
+**FAILURE C — sémantique métier** (« les événements » compris uniquement calendrier).
+*Cause racine* : résolution mot à mot, sans le vocabulaire interne.
+*Correctif* : bloc **VOCABULAIRE MÉTIER** partagé texte + voix — résolution PAR LE CONTEXTE
+(« en attente de règlement » → sponsoring / prises en charge / congrès ; « demain » →
+calendrier), polysémies internes (fiche, BC, DE, le centre, règlement), alias appris par la
+mémoire (`remember`), rapprochement PHONÉTIQUE des noms transcrits (« Radia Kebir » ↔ « Radio
+Kibir ») contre le personnel RÉEL — jamais une nouvelle entité inventée d'un mot déformé.
+Principe général (« contextual intent resolution »), pas une table mot → module.
+*Tests* : `voice-realtime.test.ts` (« FAILURE C »).
+
+**FAILURE D — faux barge-in** (la réponse se coupait sur clavier / toux / porte ; cascades de
+« (intervention vocale) », préambules répétés, contexte pollué).
+*Cause racine* : `interrupt_response: true` + purge du tampon au PREMIER `speech_started` —
+le moindre faux positif du VAD annulait la réponse. Corrigé au niveau AUDIO/VAD, pas au prompt.
+*Correctif* : **barge-in CONFIRMÉ** (`voice-tuning.ts` + provider) — `interrupt_response:
+false` par défaut ; un début de signal pendant que l'assistant parle ouvre une fenêtre
+d'évaluation : des MOTS transcrits confirment immédiatement (un vrai « Stop. » reste rapide),
+une parole SOUTENUE (≥ 400 ms) confirme, un signal bref sans mots est IGNORÉ (la réponse
+continue). Confirmation → `response.cancel` + `output_audio_buffer.clear` +
+`conversation.item.truncate` (le contexte serveur ne compte pas comme « entendu » ce qui n'a
+jamais été joué). Le transcript n'est PAS la vérité terrain : un artefact sans lettres n'entre
+ni dans le fil, ni dans la mémoire, ni dans les entités (`isNoiseTranscript`). VAD pilotée par
+l'environnement pour le benchmark réel (`OPENAI_VOICE_VAD_MODE` semantic_vad|server_vad,
+`OPENAI_VOICE_VAD_EAGERNESS`, `OPENAI_VOICE_VAD_THRESHOLD`/`PREFIX_MS`/`SILENCE_MS`,
+`OPENAI_VOICE_INTERRUPT=server` pour l'A/B). Métriques jumelles tracées :
+`voice_false_barge_in_ignored` (compteur) et `voice_barge_in_confirmed` (latence) — LOW FALSE
+INTERRUPTION + FAST TRUE INTERRUPTION s'optimisent ENSEMBLE. Consignes voix : pas de préambule
+répété après interruption, recherche EN SILENCE, terminer par la réponse (pas de
+« veux-tu que je… » systématique).
+*Tests* : `voice-tuning.test.ts` (golden faux/vrai barge-in, filtre de bruit, config VAD).
+*Limite honnête* : le comportement au micro réel (clavier, toux, voiture, Bluetooth) se valide
+sur l'environnement déployé — la matrice de tests est dans la recette README.
+
 **Benchmark qualité × latence** — ne jamais optimiser le seul TTFT. Deux étages :
 1. **Golden queries déterministes** (`lib/assistant/golden-queries.test.ts`, CI) : sur les
    vraies questions du PDG (« où en est Pembro ? », « pourquoi est-il bloqué ? », « qui est

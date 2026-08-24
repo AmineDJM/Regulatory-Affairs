@@ -15,6 +15,7 @@ import { WHAT_IF_TOOLS } from "@/lib/assistant/what-if";
 import { DELIVERABLE_TOOLS } from "@/lib/assistant/deliverables";
 import { CORPUS_TOOLS } from "@/lib/assistant/corpus-tools";
 import { TIME_TRAVEL_TOOLS } from "@/lib/assistant/time-travel";
+import { ACTION_INTENT_TOOLS } from "@/lib/assistant/action-intents";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -235,6 +236,9 @@ export const POWER_TOOLS: PowerTool[] = [
   // TIME TRAVEL : l'état PASSÉ d'un dossier à une date, reconstruit du journal d'audit —
   // strictement lecture seule, avec le « avant / maintenant » dans la même réponse.
   ...TIME_TRAVEL_TOOLS,
+  // L'HISTORIQUE CANONIQUE des actions de l'assistant (machine d'état serveur) — la seule
+  // source de vérité pour « déjà demandé ? » / « c'est envoyé ? ». Cloisonné par compte.
+  ...ACTION_INTENT_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */

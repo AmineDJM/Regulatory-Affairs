@@ -14,6 +14,8 @@ export const runtime = "nodejs";
 const EVENTS = new Set([
   "voice_session_connected", "voice_first_audio_out", "voice_interruption",
   "voice_reconnect", "voice_session_error", "voice_session_closed",
+  // Politique de barge-in confirmé : bruit ignoré (la réponse continue) / vraie coupure (latence).
+  "voice_false_barge_in_ignored", "voice_barge_in_confirmed",
 ]);
 
 export async function POST(req: Request) {

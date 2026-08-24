@@ -701,6 +701,41 @@ model AssistantMemory {
 /// travail, terminologie, ALIAS d'entités, principes exécutifs. Strictement personnelle.
 /// ⚠️ La mémoire n'est JAMAIS la source de vérité d'une donnée métier (salaire, stock, statut…) :
 /// elle oriente la recherche et le ton, les chiffres se relisent toujours à la source.
+/// ACTION INTENT — l'état CANONIQUE d'une action proposée par l'assistant, machine d'état
+/// SERVEUR unique : PROPOSED → CONFIRMED → EXECUTING → EXECUTED (ou FAILED / CANCELLED /
+/// EXPIRED). Ni l'UI ni le modèle n'inventent un statut : « est-ce que c'est envoyé ? » et
+/// « est-ce que je te l'avais déjà demandé ? » se répondent ICI, pas depuis le transcript.
+model AssistantActionIntent {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation("AssistantActionIntents", fields: [userId], references: [id], onDelete: Cascade)
+  /// AssistantActionKind (registre ACTION_POLICY) — le type d'action.
+  kind    String
+  module  String
+  /// Titre de la carte (« Envoyer un message à Khaled »).
+  title   String
+  /// Résumé mémorisable : cible + objet (« Notification à Redouane — rattacher les contrats »).
+  summary String
+  /// La charge utile exacte, revérifiée côté serveur à l'exécution.
+  payload Json
+  /// PROPOSED | CONFIRMED | EXECUTING | EXECUTED | FAILED | CANCELLED | EXPIRED
+  status  String @default("PROPOSED")
+  /// D'où l'intention vient : text | voice | nudge.
+  origin  String @default("text")
+  level   String? // SENSITIVE | CRITICAL
+  resultMessage String?
+  resultLink    String?
+  error         String?
+  /// Journal des transitions [{ status, at }] — l'historique d'autorisation, traçable.
+  events     Json      @default("[]")
+  proposedAt DateTime  @default(now())
+  decidedAt  DateTime?
+  executedAt DateTime?
+
+  @@index([userId, proposedAt])
+  @@index([userId, status])
+}
+
 model AssistantMemoryItem {
   id       String  @id @default(cuid())
   userId   String
@@ -1092,6 +1127,7 @@ model User {
   executiveDecisions    ExecutiveDecision[]      @relation("ExecutiveDecisions")
   executiveCommitments  ExecutiveCommitment[]    @relation("ExecutiveCommitments")
   assistantArtifacts    AssistantArtifact[]      @relation("AssistantArtifacts")
+  assistantActionIntents AssistantActionIntent[] @relation("AssistantActionIntents")
   adProItemDecisions    AdProItemDecision[]    @relation("AdProItemDecider")
   apiClients            ApiClient[]            @relation("ApiClientActAs")
   docRequestsAsked      DocumentRequest[]      @relation("DocRequestAsker")

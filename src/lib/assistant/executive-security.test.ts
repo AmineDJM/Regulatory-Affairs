@@ -58,12 +58,15 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
 
   it("chaque outil de pouvoir déclare un garde `allowed` — aucun outil « toujours ouvert » par accident", () => {
     // Outils VOLONTAIREMENT ouverts à tous : la recherche fédérée et la file de décisions
-    // (contenu cloisonné par requête), et la mémoire personnelle (remember/list/forget/recall —
-    // strictement bornée à `user.id`, il n'existe aucun chemin vers la mémoire d'autrui).
+    // (contenu cloisonné par requête), la mémoire personnelle (remember/list/forget/recall —
+    // strictement bornée à `user.id`, il n'existe aucun chemin vers la mémoire d'autrui), et
+    // l'historique CANONIQUE des actions de l'assistant (action_history — même cloisonnement
+    // strict par `user.id` : chacun ne lit que SES intentions et leurs reçus).
     // Tout le reste doit refuser un compte sans aucun droit.
     const openByDesign = new Set([
       "search_everything", "list_pending_decisions",
       "remember", "list_memories", "forget_memory", "recall_conversation",
+      "action_history",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

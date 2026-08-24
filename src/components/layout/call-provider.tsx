@@ -95,7 +95,12 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const connectedAtRef = React.useRef<number | null>(null);
   const lastContextRef = React.useRef<string | null>(null);
-  const metricsRef = React.useRef({ startedAt: 0, connectMs: 0, firstAudioMs: 0, toolCalls: 0, toolErrors: 0, interruptions: 0, turns: 0 });
+  const metricsRef = React.useRef({
+    startedAt: 0, connectMs: 0, firstAudioMs: 0, toolCalls: 0, toolErrors: 0, interruptions: 0, turns: 0,
+    // Politique de barge-in confirmé : les DEUX métriques se lisent ensemble (peu de fausses
+    // coupures ET une vraie interruption rapide).
+    falseBargeInsIgnored: 0, bargeInLatencyMs: 0,
+  });
   // Matière du RÉSUMÉ D'APPEL : uniquement ce qui s'est réellement produit.
   const summaryRef = React.useRef({ topics: [] as string[], cardLabels: [] as string[], proposals: 0, toolCalls: 0 });
 
@@ -203,7 +208,7 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
         },
         onToolUi: forwardUi,
         onError: (message) => { if (statusRef.current !== "IDLE") setError(message); },
-        onMetric: (name) => {
+        onMetric: (name, value) => {
           if (name === "first_audio_out" && !m.firstAudioMs) {
             m.firstAudioMs = Math.round(performance.now() - m.startedAt);
             logEvent("voice_first_audio_out", { firstAudioMs: m.firstAudioMs });
@@ -211,6 +216,15 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
           if (name === "interruption") m.interruptions += 1;
           if (name === "tool_call") m.toolCalls += 1;
           if (name === "tool_error") m.toolErrors += 1;
+          // Barge-in confirmé : bruit ignoré (la réponse a continué) vs vraie coupure (latence).
+          if (name === "false_barge_in_ignored") {
+            m.falseBargeInsIgnored += 1;
+            logEvent("voice_false_barge_in_ignored", { count: m.falseBargeInsIgnored });
+          }
+          if (name === "barge_in_confirmed") {
+            m.bargeInLatencyMs = Math.round(value ?? 0);
+            logEvent("voice_barge_in_confirmed", { latencyMs: m.bargeInLatencyMs });
+          }
         },
         onConnectionChange: (cs) => {
           if (statusRef.current === "IDLE") return;
@@ -241,7 +255,7 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
     reconnectsRef.current = 0;
     connectedAtRef.current = null;
     lastContextRef.current = pathname;
-    metricsRef.current = { startedAt: performance.now(), connectMs: 0, firstAudioMs: 0, toolCalls: 0, toolErrors: 0, interruptions: 0, turns: 0 };
+    metricsRef.current = { startedAt: performance.now(), connectMs: 0, firstAudioMs: 0, toolCalls: 0, toolErrors: 0, interruptions: 0, turns: 0, falseBargeInsIgnored: 0, bargeInLatencyMs: 0 };
     summaryRef.current = { topics: [], cardLabels: [], proposals: 0, toolCalls: 0 };
     setStatusBoth("CONNECTING");
 
@@ -291,6 +305,7 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
       sessionMs: durationS * 1000 || Math.round(performance.now() - m.startedAt),
       connectMs: m.connectMs || null, firstAudioMs: m.firstAudioMs || null,
       toolCalls: m.toolCalls, toolErrors: m.toolErrors, interruptions: m.interruptions, turns: m.turns,
+      falseBargeInsIgnored: m.falseBargeInsIgnored, bargeInLatencyMs: m.bargeInLatencyMs,
     });
 
     providerRef.current?.disconnect();

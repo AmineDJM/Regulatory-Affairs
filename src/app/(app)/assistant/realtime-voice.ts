@@ -23,6 +23,8 @@
  * durée n'existe côté navigateur.
  */
 
+import { bargeInDecision, isNoiseTranscript, BARGE_IN_SUSTAIN_MS } from "@/lib/assistant/voice-tuning";
+
 export type VoiceCallState =
   | "IDLE" | "CONNECTING" | "LISTENING" | "USER_SPEAKING" | "THINKING"
   | "ASSISTANT_SPEAKING" | "RECONNECTING" | "ERROR" | "ENDED";
@@ -56,7 +58,14 @@ export interface VoiceProviderCallbacks {
   /** État de la connexion WebRTC — le composant décide de la reconnexion. */
   onConnectionChange?: (state: RTCPeerConnectionState) => void;
   /** Métriques (premier audio, interruptions…) — à remonter au journal. */
-  onMetric?: (name: "first_audio_out" | "interruption" | "tool_call" | "tool_error", value?: number) => void;
+  onMetric?: (
+    name:
+      | "first_audio_out" | "interruption" | "tool_call" | "tool_error"
+      // Politique de barge-in CONFIRMÉ : signal possible → confirmé (latence en valeur) /
+      // ignoré comme bruit — les DEUX métriques s'optimisent ensemble.
+      | "possible_barge_in" | "barge_in_confirmed" | "false_barge_in_ignored",
+    value?: number,
+  ) => void;
 }
 
 export interface VoiceRealtimeProvider {
@@ -91,6 +100,7 @@ interface RealtimeEvent {
   name?: string;
   call_id?: string;
   arguments?: string;
+  item?: { id?: string; type?: string };
   error?: { message?: string; code?: string };
   response?: { status?: string; output?: { type: string; name?: string; call_id?: string; arguments?: string }[] };
 }
@@ -118,6 +128,15 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
   // résultat qui arrive pendant que le modèle parle attend la fin de la réponse en cours.
   private activeResponse = false;
   private pendingResponseCreate = false;
+  // BARGE-IN CONFIRMÉ : un début de signal pendant que l'assistant parle n'interrompt RIEN —
+  // il ouvre une fenêtre d'évaluation (mots transcrits ? parole soutenue ? arrêt précoce ?).
+  private pendingBargeInAt: number | null = null;
+  private bargeInTimer: ReturnType<typeof setTimeout> | null = null;
+  // Synchronisation du contexte serveur au barge-in : l'item assistant en cours et le début
+  // de son audio — pour `conversation.item.truncate` (ne pas considérer « entendu » ce qui
+  // n'a jamais été joué).
+  private currentItemId: string | null = null;
+  private audioStartedAt: number | null = null;
 
   constructor(opts: ProviderOptions) { this.opts = opts; }
 
@@ -200,26 +219,51 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
 
     switch (e.type) {
       // ── Tour de parole de l'utilisateur ──
-      case "input_audio_buffer.speech_started":
-        // PRIORITÉ À LA PAROLE HUMAINE : le serveur interrompt la réponse (semantic_vad) ; on
-        // vide EN PLUS le tampon de sortie pour que le son s'arrête net côté haut-parleur.
-        if (this._state === "ASSISTANT_SPEAKING" || this._state === "THINKING") {
-          this.send({ type: "output_audio_buffer.clear" });
-          cb.onMetric?.("interruption");
-        }
-        this.setState("USER_SPEAKING");
+      case "input_audio_buffer.speech_started": {
+        const busy = this._state === "ASSISTANT_SPEAKING" || this._state === "THINKING";
+        if (!busy) { this.setState("USER_SPEAKING"); break; }
+        // BARGE-IN À CONFIRMER : un début de signal pendant que l'assistant parle ne coupe
+        // RIEN (toux, clavier, porte, choc = faux positifs observés en production). La parole
+        // se confirme par des MOTS transcrits ou une durée soutenue — alors seulement on
+        // annule. Un vrai « Stop. » reste rapide (mots ou ≥ BARGE_IN_SUSTAIN_MS).
+        this.pendingBargeInAt = performance.now();
+        cb.onMetric?.("possible_barge_in");
+        if (this.bargeInTimer) clearTimeout(this.bargeInTimer);
+        this.bargeInTimer = setTimeout(() => {
+          if (this.pendingBargeInAt !== null) this.confirmBargeIn();
+        }, BARGE_IN_SUSTAIN_MS);
         break;
-      case "input_audio_buffer.speech_stopped":
+      }
+      case "input_audio_buffer.speech_stopped": {
+        if (this.pendingBargeInAt !== null) {
+          const sustained = performance.now() - this.pendingBargeInAt;
+          const verdict = bargeInDecision({ assistantBusy: true, sustainedMs: sustained, hasTranscriptEvidence: false, speechStopped: true });
+          this.clearBargeInPending();
+          if (verdict === "ignore") {
+            // FAUX BARGE-IN (bruit bref) : la réponse CONTINUE, rien n'est coupé — tracé.
+            cb.onMetric?.("false_barge_in_ignored");
+            break;
+          }
+          // Signal soutenu qui se termine : vraie prise de parole — couper, puis traiter.
+          this.confirmBargeIn(sustained);
+        }
         this.setState("THINKING");
         break;
+      }
 
       // ── Transcription de l'utilisateur (parallèle à l'audio) ──
       case "conversation.item.input_audio_transcription.delta":
+        // Des MOTS pendant la fenêtre d'évaluation = parole humaine → barge-in confirmé.
+        if (this.pendingBargeInAt !== null && e.delta && /\p{L}/u.test(e.delta)) this.confirmBargeIn();
         if (e.delta) cb.onUserTranscript(e.delta, false);
         break;
       case "conversation.item.input_audio_transcription.completed":
         if (typeof e.transcript === "string") {
-          this.userText = e.transcript.trim();
+          const t = e.transcript.trim();
+          // LE TRANSCRIPT N'EST PAS LA VÉRITÉ TERRAIN : une toux transcrite « … », un artefact
+          // sans lettres n'entre ni dans le fil, ni dans la mémoire, ni dans les entités.
+          if (isNoiseTranscript(t)) break;
+          this.userText = t;
           cb.onUserTranscript(this.userText, true);
           this.maybeEmitTurn();
         }
@@ -244,8 +288,15 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
         cb.onAssistantTranscript(this.assistantText, true);
         break;
 
+      // L'item de sortie en cours : son id sert au `truncate` du barge-in (synchroniser le
+      // contexte serveur avec ce que l'utilisateur a RÉELLEMENT entendu).
+      case "response.output_item.added":
+        if (e.item?.type === "message" && typeof e.item.id === "string") this.currentItemId = e.item.id;
+        break;
+
       // Le son : événements du tampon de sortie WebRTC — l'état SPEAKING suit le haut-parleur.
       case "output_audio_buffer.started":
+        this.audioStartedAt = performance.now();
         if (this.firstAudioAt === null) {
           this.firstAudioAt = performance.now();
           cb.onMetric?.("first_audio_out", this.firstAudioAt);
@@ -254,6 +305,7 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
         break;
       case "output_audio_buffer.stopped":
       case "output_audio_buffer.cleared":
+        this.audioStartedAt = null;
         if (this._state === "ASSISTANT_SPEAKING") this.setState("LISTENING");
         break;
 
@@ -326,6 +378,33 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
     this.send({ type: "response.create" });
   }
 
+  private clearBargeInPending(): void {
+    this.pendingBargeInAt = null;
+    if (this.bargeInTimer) { clearTimeout(this.bargeInTimer); this.bargeInTimer = null; }
+  }
+
+  /**
+   * VRAIE interruption confirmée : annuler la réponse (`response.cancel`), vider le tampon
+   * audio (`output_audio_buffer.clear` — le son s'arrête net), et SYNCHRONISER le contexte
+   * serveur (`conversation.item.truncate`) sur ce qui a réellement été joué — la partie jamais
+   * entendue ne doit pas compter comme dite. Puis la parole de l'utilisateur prime.
+   */
+  private confirmBargeIn(sustainedMs?: number): void {
+    const started = this.pendingBargeInAt;
+    this.clearBargeInPending();
+    if (started === null) return;
+    this.send({ type: "response.cancel" });
+    this.send({ type: "output_audio_buffer.clear" });
+    if (this.currentItemId && this.audioStartedAt !== null) {
+      const heardMs = Math.max(0, Math.round(performance.now() - this.audioStartedAt));
+      this.send({ type: "conversation.item.truncate", item_id: this.currentItemId, content_index: 0, audio_end_ms: heardMs });
+    }
+    const latency = sustainedMs ?? performance.now() - started;
+    this.opts.callbacks.onMetric?.("barge_in_confirmed", Math.round(latency));
+    this.opts.callbacks.onMetric?.("interruption");
+    this.setState("USER_SPEAKING");
+  }
+
   sendText(text: string): void {
     const t = text.trim();
     if (!t) return;
@@ -360,6 +439,7 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
   disconnect(): void {
     this.alive = false;
     if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
+    this.clearBargeInPending();
     try { this.dc?.close(); } catch { /* déjà fermé */ }
     try { this.pc?.close(); } catch { /* déjà fermé */ }
     for (const t of this.mic?.getTracks() ?? []) t.stop();

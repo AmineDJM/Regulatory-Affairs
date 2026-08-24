@@ -53,7 +53,7 @@ export async function POST(req: Request) {
         { role: "user" as const, content: request },
       ];
       const personal = await personalContext(user.id).catch(() => null);
-      const result = await runAssistant(user, history, { personalContext: personal });
+      const result = await runAssistant(user, history, { personalContext: personal, origin: "voice" });
 
       const proposals: ProposedAction[] = result.proposals ?? (result.proposal ? [result.proposal] : []);
       const output = JSON.stringify({

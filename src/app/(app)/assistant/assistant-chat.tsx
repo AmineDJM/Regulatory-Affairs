@@ -11,7 +11,7 @@ import { useCall } from "@/components/layout/call-provider";
 import type { VoiceToolUi } from "./realtime-voice";
 import { Button } from "@/components/ui/button";
 import {
-  assistantChat, executeAssistantAction, listAssistantFiles,
+  assistantChat, executeAssistantAction, cancelAssistantAction, listAssistantFiles,
   myAssistantThreads, myAssistantThread, deleteMyAssistantThread, forgetMyAssistantMemory,
 } from "@/lib/actions/assistant-actions";
 import type { ProposedAction, AssistantActionPayload, ChatTurn, AssistantResult, AssistantStreamEvent } from "@/lib/assistant";
@@ -456,10 +456,12 @@ export function AssistantChat({
     }));
   };
 
-  const confirm = async (msgId: number, index: number, payload: AssistantActionPayload): Promise<boolean> => {
+  const confirm = async (msgId: number, index: number, payload: AssistantActionPayload, intentId?: string): Promise<boolean> => {
     patchAction(msgId, index, { state: "running" });
     try {
-      const r = await executeAssistantAction(payload);
+      // L'INTENT accompagne la confirmation : l'exécution est idempotente côté serveur (un
+      // double-clic ou une reconnexion renvoie le reçu d'origine, jamais un second envoi).
+      const r = await executeAssistantAction(payload, intentId);
       patchAction(msgId, index, { state: r.ok ? "done" : "error", result: r.ok ? r.message : r.error, link: r.link });
       return r.ok;
     } catch {
@@ -480,15 +482,17 @@ export function AssistantChat({
         if (msg.actionStates[i] !== "pending") continue;
         // Une action CRITIQUE (re-saisie du montant) ne s'enchaîne pas : elle se confirme seule.
         if (msg.proposals[i].level === "CRITICAL") continue;
-        await confirm(msg.id, i, msg.proposals[i].payload);
+        await confirm(msg.id, i, msg.proposals[i].payload, msg.proposals[i].intentId);
       }
     } finally {
       confirmingAllRef.current.delete(msg.id);
     }
   };
 
-  const cancel = (msgId: number, index: number) => {
+  const cancel = (msgId: number, index: number, intentId?: string) => {
     patchAction(msgId, index, { state: "cancelled" });
+    // L'état CANONIQUE serveur suit : « annulée — jamais exécutée » restera vrai partout.
+    if (intentId) void cancelAssistantAction(intentId).catch(() => {});
   };
 
   const rail = memoryEnabled ? (
@@ -917,8 +921,8 @@ function MessageBubble({
   msg, onConfirm, onCancel, onConfirmAll,
 }: {
   msg: Msg;
-  onConfirm: (id: number, index: number, payload: AssistantActionPayload) => void;
-  onCancel: (id: number, index: number) => void;
+  onConfirm: (id: number, index: number, payload: AssistantActionPayload, intentId?: string) => void;
+  onCancel: (id: number, index: number, intentId?: string) => void;
   onConfirmAll: (msg: Msg) => void;
 }) {
   if (msg.role === "user") {
@@ -974,8 +978,8 @@ function MessageBubble({
             state={msg.actionStates?.[i] ?? "pending"}
             result={msg.actionResults?.[i]}
             link={msg.actionLinks?.[i]}
-            onConfirm={() => onConfirm(msg.id, i, p.payload)}
-            onCancel={() => onCancel(msg.id, i)}
+            onConfirm={() => onConfirm(msg.id, i, p.payload, p.intentId)}
+            onCancel={() => onCancel(msg.id, i, p.intentId)}
           />
         ))}
       </div>

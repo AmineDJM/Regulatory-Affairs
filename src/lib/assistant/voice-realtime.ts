@@ -4,6 +4,8 @@ import { buildChiefOfStaffContext } from "@/lib/assistant";
 import { POWER_TOOLS } from "@/lib/assistant/power-tools";
 import { personalContext, getThreadMessages, ensurePrimaryThread } from "@/lib/assistant-memory";
 import { conversationWorkingSet } from "@/lib/assistant/reasoning";
+import { recentActionIntentsContext } from "@/lib/assistant/action-intents";
+import { buildTurnDetection } from "@/lib/assistant/voice-tuning";
 
 /**
  * VOIX TEMPS RÉEL — la couche SERVEUR de la conversation speech-to-speech.
@@ -79,6 +81,7 @@ export const VOICE_FAST_TOOL_NAMES: readonly string[] = [
   "list_pending_decisions",
   "search_knowledge_corpus",
   "time_travel",
+  "action_history",
   "plan_reminder",
   "list_commitments",
   "list_decisions",
@@ -152,6 +155,14 @@ CONSIGNES VOCALES — tu es EN LIGNE, à l'oral, avec ton interlocuteur :
   dit avant la fin d'une analyse est SÛR, qualifié, et se révise si une preuve nouvelle arrive.
 - Ne dis JAMAIS qu'une action est faite tant que l'outil ne l'a pas confirmé. Une action passe
   par une carte de confirmation À L'ÉCRAN : dis « je te la propose à l'écran », jamais « c'est fait ».
+- « C'est envoyé ? », « tu l'as fait ? », « je te l'avais déjà demandé ? » : appelle action_history
+  (l'état CANONIQUE serveur) — PROPOSÉE = jamais exécutée ; seule EXÉCUTÉE avec son reçu vaut envoi
+  réel. Ne réponds JAMAIS de mémoire à ces questions, ni « envoyé » ni « aucune trace ».
+- Après une interruption, ne REDÉMARRE JAMAIS le même préambule (« d'accord, je regarde… ») :
+  reprends directement au résultat, ou demande ce que veut l'utilisateur si l'intention a changé.
+- Cherche EN SILENCE : pour une lecture rapide, aucun « je vais vérifier » — la réponse suffit.
+  Termine par la RÉPONSE, pas par « veux-tu que je… » : ne propose une suite que si elle est
+  réellement utile, puis attends.
 - Si l'utilisateur t'interrompt : tais-toi et suis la nouvelle consigne, sans re-dérouler.
 - Garde les références conversationnelles (« il », « elle », « ce paiement », « l'autre ») — la
   conversation est CONTINUE, y compris ce qui s'est dit en mode texte avant l'appel.
@@ -212,6 +223,11 @@ export async function buildVoiceInstructions(
     if (ws) parts.push(`\n${ws}`);
   }
 
+  // ACTIONS RÉCENTES — l'état CANONIQUE serveur : « je te l'avais déjà demandé ? » et
+  // « c'est envoyé ? » se répondent d'ici (ou d'action_history), jamais de mémoire.
+  const intents = await recentActionIntentsContext(user.id).catch(() => null);
+  if (intents) parts.push(`\n${intents}`);
+
   const screen = typeof screenContext === "string" ? screenContext.replace(/\s+/g, " ").trim().slice(0, 300) : "";
   if (screen) {
     parts.push(
@@ -270,9 +286,11 @@ export async function createVoiceSessionGrant(
         input: {
           // Transcription PARALLÈLE de ce que dit l'utilisateur — l'UI et l'historique en vivent.
           transcription: { model: process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe" },
-          // Détection de tour SÉMANTIQUE : l'API gère silences, hésitations (« euh… attends »)
-          // et interruptions — on ne recrée pas un VAD fragile côté client.
-          turn_detection: { type: "semantic_vad", create_response: true, interrupt_response: true },
+          // Détection de tour PILOTÉE PAR L'ENVIRONNEMENT (semantic_vad par défaut, server_vad
+          // tunable pour le benchmark). `interrupt_response` est FAUX par défaut : le premier
+          // speech-start bruité ne tue plus la réponse — le client CONFIRME le barge-in
+          // (mots transcrits ou parole soutenue) puis annule proprement. Voir voice-tuning.ts.
+          turn_detection: buildTurnDetection(),
         },
         output: { voice },
       },

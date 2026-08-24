@@ -149,6 +149,33 @@ suite("voix temps réel — instructions de session (même conversation, budget 
     expect(foreign).not.toContain("Khaled Benali");
   });
 
+  it("FAILURE C — le vocabulaire MÉTIER contextuel est enseigné (« événements » ≠ calendrier seul)", async () => {
+    const exec = userWith({ CHIEF_OF_STAFF: ["VIEW"] }, "DIRECTION", ceoId);
+    const instructions = await buildVoiceInstructions(exec, null);
+    expect(instructions).toContain("VOCABULAIRE MÉTIER");
+    expect(instructions).toContain("sponsoring");
+    expect(instructions).toMatch(/règlement|paiement/);
+    expect(instructions).toContain("calendrier");
+    // Et la résolution phonétique des noms : jamais inventer une personne d'un mot déformé.
+    expect(instructions).toMatch(/Radia Kebir/);
+  });
+
+  it("FAILURE A/B — l'état CANONIQUE des actions s'injecte : « déjà demandé ? » se lit, ne se devine pas", async () => {
+    const { persistActionIntents } = await import("./action-intents");
+    await persistActionIntents(ceoId, [{
+      kind: "send_message", module: "MESSAGING", title: `${TAG} Notification à Redouane`,
+      fields: [{ label: "Objet", value: "Rattacher les contrats" }], payload: {},
+    }], "voice");
+    const exec = userWith({ CHIEF_OF_STAFF: ["VIEW"] }, "DIRECTION", ceoId);
+    const instructions = await buildVoiceInstructions(exec, null);
+    expect(instructions).toContain("ACTIONS RÉCENTES");
+    expect(instructions).toContain("Redouane");
+    expect(instructions).toContain("PROPOSÉE");
+    // Et la consigne : l'état canonique, jamais la mémoire.
+    expect(instructions).toContain("action_history");
+    await prisma.assistantActionIntent.deleteMany({ where: { userId: ceoId } }).catch(() => {});
+  });
+
   it("le CONTEXTE D'ÉCRAN s'injecte quand l'appel part d'une fiche — borné, jamais obligatoire", async () => {
     const exec = userWith({ CHIEF_OF_STAFF: ["VIEW"] }, "DIRECTION", ceoId);
     const withScreen = await buildVoiceInstructions(exec, null, `L'utilisateur appelle depuis la fiche « PAY-2026-014 ».`);

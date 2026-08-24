@@ -9,6 +9,7 @@ import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { aiConfigured, aiModel, aiModelCheap, askClaudeCheap } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { getUnreadDigest } from "@/lib/assistant-nudge";
+import { executeIntentGuarded, cancelActionIntent } from "@/lib/assistant/action-intents";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import {
   personalContext, createThread, appendExchange, listThreads, getThreadMessages,
@@ -243,7 +244,7 @@ export async function assistantNudge(prevSignature: string): Promise<NudgeResult
     // Suggestion proactive = enjeu faible, fort volume → palier ÉCO (le nudge ne fait que
     // PROPOSER ; toute action d'écriture reste interceptée et confirmée par l'humain).
     const t0 = Date.now();
-    const res = await runAssistant(user, [{ role: "user", content: prompt }], { model: aiModelCheap() });
+    const res = await runAssistant(user, [{ role: "user", content: prompt }], { model: aiModelCheap(), origin: "nudge" });
     await logAiUsage({
       feature: "nudge", userId: user.id, model: aiModelCheap(),
       ok: res.ok, latencyMs: Date.now() - t0, errorCode: res.ok ? null : res.error ?? "error",
@@ -258,9 +259,24 @@ export async function assistantNudge(prevSignature: string): Promise<NudgeResult
   }
 }
 
-export async function executeAssistantAction(payload: AssistantActionPayload): Promise<ExecuteResult> {
+export async function executeAssistantAction(payload: AssistantActionPayload, intentId?: string): Promise<ExecuteResult> {
   try {
     const user = await requireUser();
+
+    // CHEMIN CANONIQUE : l'action vit sous son INTENT (machine d'état serveur). Réclamation
+    // atomique — un retry / double-clic / reconnexion ne relance JAMAIS l'exécution : une
+    // action déjà EXÉCUTÉE renvoie son reçu d'origine. Le payload exécuté est celui STOCKÉ à
+    // la proposition (le serveur est l'autorité, pas le client).
+    if (intentId) {
+      const guarded = await executeIntentGuarded(user, intentId, async (stored) => {
+        const r = await performAction(user, stored as AssistantActionPayload);
+        if (r.ok && r.revalidate) for (const path of r.revalidate) revalidatePath(path);
+        return r;
+      });
+      if (guarded) return { ok: guarded.ok, message: guarded.message, link: guarded.link, error: guarded.error };
+      // Intent introuvable (ou pas à ce compte) → chemin historique ci-dessous, sans reçu.
+    }
+
     const result = await performAction(user, payload);
     if (result.ok && result.revalidate) {
       for (const path of result.revalidate) revalidatePath(path);
@@ -269,6 +285,17 @@ export async function executeAssistantAction(payload: AssistantActionPayload): P
   } catch (err) {
     console.error("[assistant] executeAssistantAction failed", err);
     return { ok: false, error: "L'action n'a pas pu être exécutée. Réessayez dans un instant." };
+  }
+}
+
+/** Annule une action PROPOSÉE (état canonique → CANCELLED) — « jamais exécutée » restera vrai. */
+export async function cancelAssistantAction(intentId: string): Promise<boolean> {
+  try {
+    const user = await requireUser();
+    return await cancelActionIntent(user.id, intentId);
+  } catch (err) {
+    console.error("[assistant] cancelAssistantAction failed", err);
+    return false;
   }
 }
 

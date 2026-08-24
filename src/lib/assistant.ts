@@ -49,6 +49,7 @@ import {
 } from "@/lib/assistant/power-tools";
 import { executiveBriefing } from "@/lib/assistant/executive-tools";
 import { conversationWorkingSet, isHighStakesQuestion } from "@/lib/assistant/reasoning";
+import { persistActionIntents, recentActionIntentsContext } from "@/lib/assistant/action-intents";
 import { toNumber } from "@/lib/utils";
 import {
   sitsOnPaymentCentre, applyDecision, CENTRAL_STATUS_LABEL, CENTRAL_DECISION_LABEL,
@@ -457,6 +458,13 @@ export interface ProposedAction {
   confirmText?: string;
   /** Charge utile revérifiée et exécutée côté serveur après confirmation. */
   payload: AssistantActionPayload;
+  /**
+   * L'INTENT persistant (AssistantActionIntent) créé à la proposition — l'état CANONIQUE
+   * serveur de cette action (PROPOSED → … → EXECUTED). L'UI le renvoie à la confirmation :
+   * exécution idempotente + reçu. Absent seulement si la persistance a échoué (l'action
+   * reste exécutable, sans reçu canonique).
+   */
+  intentId?: string;
 }
 
 /** Mesures de la boucle agent — pour le journal `AiUsageLog`, jamais montrées telles quelles. */
@@ -1165,7 +1173,35 @@ const CORE_CONDUCT_RULES = `RÈGLES IMPÉRATIVES :
   dernier la mémoire conversationnelle. La mémoire ne remplace JAMAIS la source métier.
 - CONTRADICTION entre sources (ERP ≠ document ≠ avenant) : ne choisis JAMAIS l'une en silence. Regarde
   la CHRONOLOGIE (un avenant explique souvent l'écart) ; si l'écart reste inexpliqué, dis « j'ai une
-  incohérence à signaler » avec les deux valeurs et leurs sources.`;
+  incohérence à signaler » avec les deux valeurs et leurs sources.
+- ÉTAT DES ACTIONS : l'état CANONIQUE serveur (bloc ACTIONS RÉCENTES, outil action_history) est LA
+  seule vérité. Une action PROPOSÉE n'a JAMAIS été exécutée ; ne dis JAMAIS « envoyé » / « fait »
+  sans un état EXÉCUTÉE avec son reçu — et ne réponds jamais « aucune trace » sans avoir consulté
+  cet état : demander de préparer une action LAISSE une trace, même jamais confirmée.`;
+
+/**
+ * VOCABULAIRE MÉTIER CONTEXTUEL — le même mot n'a pas le même sens selon le contexte, et le
+ * système doit résoudre comme un membre de l'entreprise, pas comme un dictionnaire. Règle
+ * GÉNÉRALE (pas une table mot → module) : résoudre avec le sujet courant, les entités actives,
+ * les mots voisins et le module concerné ; en cas de vraie ambiguïté, une mini-question — mais
+ * jamais de clarification inutile quand une interprétation domine.
+ */
+const BUSINESS_SEMANTICS = `VOCABULAIRE MÉTIER (résolution PAR LE CONTEXTE, jamais mot à mot) :
+- « événements » : selon le contexte = sponsoring / prise en charge / congrès / manifestation
+  scientifique / événement Ad&Pro — OU le calendrier. Les mots voisins tranchent : « en attente
+  de règlement / paiement / validation » → événements MÉTIER (sponsoring, prises en charge,
+  congrès) ; « demain / cette semaine / mon agenda » → calendrier.
+- « fiche » : fiche EMPLOYÉ (RH) ou fiche de POSTE selon le sujet ; « BC » = bon de commande ;
+  « DE » = décision d'enregistrement ; « le centre » = centre de paiement ; « règlement » =
+  paiement (ordre de dépense), pas un texte juridique — sauf contexte réglementaire explicite.
+- Noms courts et surnoms (« Pembro » → Pembrolizumab) : la mémoire d'alias (remember) les
+  apprend — l'utiliser, et proposer de retenir un alias récurrent.
+- Un même prénom peut désigner plusieurs personnes, et une transcription vocale peut déformer un
+  nom (« Radia Kebir » ↔ « Radio Kibir », « Yassine » ↔ « Yacine ») : rapprocher du personnel
+  RÉEL (search_people / entités actives) avant de créer ou viser qui que ce soit ; ne JAMAIS
+  inventer une nouvelle personne à partir d'un mot déformé.
+- En cas d'ambiguïté RÉELLE entre deux lectures plausibles : une question courte. Sinon :
+  la lecture dominante, en le disant si utile.`;
 
 /**
  * CONTEXTE COMMUN DU CHIEF OF STAFF — la fonction que TOUTES les modalités appellent.
@@ -1186,7 +1222,9 @@ outils et les mêmes permissions que le mode texte — au téléphone.
 CONTEXTE :
 ${buildContext(user)}
 
-${CORE_CONDUCT_RULES}`;
+${CORE_CONDUCT_RULES}
+
+${BUSINESS_SEMANTICS}`;
 }
 
 function systemPrompt(user: CurrentUser): string {
@@ -1247,6 +1285,8 @@ CE QUE TU PEUX FAIRE :
   Tu ne dis JAMAIS « je ne peux pas générer de fichier » : tu le peux.
 
 ${CORE_CONDUCT_RULES}
+
+${BUSINESS_SEMANTICS}
 
 PROFONDEUR & VITESSE (fast + smart — jamais l'un contre l'autre) :
 - DÉCOMPOSE une question complexe en sous-lectures INDÉPENDANTES et appelle ces outils ENSEMBLE dans
@@ -2675,7 +2715,7 @@ async function reviseHighStakes(
 export async function runAssistant(
   user: CurrentUser,
   history: ChatTurn[],
-  opts: { model?: string; personalContext?: string | null } = {},
+  opts: { model?: string; personalContext?: string | null; origin?: "text" | "voice" | "nudge" } = {},
 ): Promise<AssistantResult> {
   if (!aiConfigured()) return { configured: false, ok: false, reply: "", trace: [] };
 
@@ -2688,11 +2728,15 @@ export async function runAssistant(
   // par l'appelant, qui l'a résolu pour CE compte uniquement. Voir lib/assistant-memory.ts.
   // + ENTITÉS ACTIVES : les références et termes cités récemment (« et le fournisseur ? »,
   // « fais pareil pour Nivo » se résolvent sans relancer toute la compréhension).
+  // + ACTIONS RÉCENTES : l'état CANONIQUE serveur des dernières intentions — « est-ce que je
+  // te l'avais déjà demandé ? » se répond depuis cet état, jamais de mémoire.
   const workingSet = conversationWorkingSet(history);
+  const intentsCtx = await recentActionIntentsContext(user.id).catch(() => null);
   const system = [
     systemPrompt(user),
     opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
     workingSet,
+    intentsCtx,
   ].filter(Boolean).join("\n\n");
   // La question d'ORIGINE (avant que la boucle n'empile les résultats d'outils) — elle décide
   // de la PROFONDEUR : une décision demandée mérite la seconde passe critique.
@@ -2756,6 +2800,10 @@ export async function runAssistant(
         continue;
       }
       for (const f of failures) okProposals[0].warnings.push(`Autre action non préparée : ${f.error}`);
+      // CHAQUE proposition devient un INTENT persistant (état canonique PROPOSED) : la mémoire
+      // (« déjà demandé ? ») et la cohérence UI/voix (« envoyé ? ») se lisent LÀ, pas au transcript.
+      const intentIds = await persistActionIntents(user.id, okProposals, opts.origin ?? "text");
+      okProposals.forEach((p, i) => { const id = intentIds[i]; if (id) p.intentId = id; });
       const reply = textOf(blocks)
         || (okProposals.length === 1
           ? `Je propose de ${okProposals[0].title.toLowerCase()}. Confirmez-vous ?`
@@ -2864,7 +2912,7 @@ export async function runAssistantStream(
   user: CurrentUser,
   history: ChatTurn[],
   emit: (e: AssistantStreamEvent) => void,
-  opts: { model?: string; personalContext?: string | null } = {},
+  opts: { model?: string; personalContext?: string | null; origin?: "text" | "voice" | "nudge" } = {},
 ): Promise<AssistantResult> {
   if (!aiConfigured()) return { configured: false, ok: false, reply: "", trace: [] };
 
@@ -2873,12 +2921,15 @@ export async function runAssistantStream(
     return { configured: true, ok: false, reply: "", trace: [], error: "Message utilisateur manquant." };
   }
 
-  // Mêmes injections que la variante simple : contexte personnel + ENTITÉS ACTIVES du fil.
+  // Mêmes injections que la variante simple : contexte personnel + ENTITÉS ACTIVES du fil
+  // + ACTIONS RÉCENTES (état canonique serveur).
   const workingSet = conversationWorkingSet(history);
+  const intentsCtx = await recentActionIntentsContext(user.id).catch(() => null);
   const system = [
     systemPrompt(user),
     opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
     workingSet,
+    intentsCtx,
   ].filter(Boolean).join("\n\n");
   const question = String(messages[messages.length - 1]?.content ?? "");
   const highStakes = isHighStakesQuestion(question);
@@ -2966,6 +3017,9 @@ export async function runAssistantStream(
         // Des réussites ET des échecs : les échecs se DISENT sur la première carte — proposer
         // deux actions sur trois en taisant la troisième ferait croire qu'elle est prête.
         for (const f of failures) okProposals[0].warnings.push(`Autre action non préparée : ${f.error}`);
+        // Chaque proposition devient un INTENT persistant (état canonique PROPOSED).
+        const intentIds = await persistActionIntents(user.id, okProposals, opts.origin ?? "text");
+        okProposals.forEach((p, i) => { const id = intentIds[i]; if (id) p.intentId = id; });
         const reply = textOf(blocks)
           || (okProposals.length === 1
             ? `Je propose de ${okProposals[0].title.toLowerCase()}. Confirmez-vous ?`
