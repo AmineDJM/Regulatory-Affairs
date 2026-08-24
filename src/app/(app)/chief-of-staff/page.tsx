@@ -3,6 +3,7 @@ import { requireModule } from "@/lib/session";
 import { aiConfigured, sttConfigured } from "@/lib/ai";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import { getDailyBrief } from "@/lib/daily-brief";
+import { ensurePrimaryThread } from "@/lib/assistant-memory";
 import { MorningBrief } from "@/components/shared/morning-brief";
 import { AssistantChat } from "../assistant/assistant-chat";
 
@@ -36,6 +37,10 @@ export default async function ChiefOfStaffPage({
   ]);
   const brief = proactive ? await getDailyBrief(user).catch(() => null) : null;
 
+  // LE FIL PRINCIPAL : une conversation CONTINUE par personne — elle s'ouvre d'office au lieu
+  // de repartir de « chat n°47 ». Créée au premier passage, retrouvée ensuite.
+  const primaryThreadId = memoryEnabled ? await ensurePrimaryThread(user.id).catch(() => null) : null;
+
   // ENTRÉE CONTEXTUELLE : « Demander au Chief of Staff » depuis une fiche arrive ici avec la
   // question (?q=…) ou la référence du dossier (?ref=…) — pré-remplie, jamais envoyée seule.
   const q = typeof searchParams?.q === "string" ? searchParams.q.slice(0, 500) : "";
@@ -59,6 +64,7 @@ export default async function ChiefOfStaffPage({
         memoryEnabled={memoryEnabled}
         executive
         initialPrompt={initialPrompt}
+        initialThreadId={primaryThreadId}
       />
     </div>
   );

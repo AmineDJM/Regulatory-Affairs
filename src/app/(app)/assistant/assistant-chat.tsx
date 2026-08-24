@@ -78,13 +78,15 @@ export function cleanReply(text: string): string {
 
 export function AssistantChat({
   userName, configured, voiceConfigured = false, memoryEnabled = false,
-  executive = false, initialPrompt = null,
+  executive = false, initialPrompt = null, initialThreadId = null,
 }: {
   userName: string; configured: boolean; voiceConfigured?: boolean; memoryEnabled?: boolean;
   /** Mode Chief of Staff : panneau CONTEXTE (sources, actions) sur grand écran. */
   executive?: boolean;
   /** Entrée contextuelle (?q=…) : la question est pré-remplie, prête à partir. */
   initialPrompt?: string | null;
+  /** LE FIL PRINCIPAL : la conversation continue qui s'ouvre d'office (Chief of Staff). */
+  initialThreadId?: string | null;
 }) {
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
@@ -150,6 +152,14 @@ export function AssistantChat({
       setLoadingThread(false);
     }
   };
+
+  // LE FIL PRINCIPAL s'ouvre d'office : la conversation avec le Chief of Staff CONTINUE dans le
+  // temps au lieu de repartir de zéro. Seuls les derniers échanges sont rechargés (plafond côté
+  // serveur) — le passé lointain se retrouve par recall_conversation.
+  React.useEffect(() => {
+    if (initialThreadId && memoryEnabled) void openThread(initialThreadId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialThreadId, memoryEnabled]);
 
   const removeThread = async (id: string) => {
     const r = await deleteMyAssistantThread(id);

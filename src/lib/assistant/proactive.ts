@@ -41,6 +41,7 @@ export async function detectExecutiveAlerts(user: CurrentUser, now: Date = new D
   const [
     centreAwaiting, centreStalled, validationsStuck, tasksLate, invoicesUnchained,
     posWithoutInvoice, contractsExpiring, regStale, stockSnaps, paymentsUndecided,
+    commitmentsOverdue,
   ] = await Promise.all([
     // 1) Paiements EN ATTENTE au centre — chaque jour d'attente est un fournisseur qui patiente.
     prisma.expenseOrder.findMany({
@@ -104,6 +105,13 @@ export async function detectExecutiveAlerts(user: CurrentUser, now: Date = new D
       where: { AND: [entity, { status: { in: ["SUBMITTED", "UNDER_REVIEW"] }, createdAt: { lt: new Date(now.getTime() - 5 * DAY) } }] },
       select: { id: true, reference: true, title: true, payee: true, amount: true, createdAt: true },
       orderBy: { createdAt: "asc" }, take: 10,
+    }),
+    // 11) ENGAGEMENTS suivis en retard — ceux de CETTE personne uniquement (registre personnel).
+    //     Un retard se VOIT ici ; il ne déclenche JAMAIS de relance automatique.
+    prisma.executiveCommitment.findMany({
+      where: { ownerId: user.id, status: "OPEN", dueAt: { lt: now } },
+      select: { who: true, what: true, toWhom: true, dueAt: true, relatedRef: true },
+      orderBy: { dueAt: "asc" }, take: 10,
     }),
   ]);
 
@@ -206,6 +214,17 @@ export async function detectExecutiveAlerts(user: CurrentUser, now: Date = new D
       titre: `Demande de paiement sans décision depuis ${days(p.createdAt, now)} j`,
       detail: `${p.reference} — ${p.title} (${p.payee}, ${Math.round(toNumber(p.amount)).toLocaleString("fr-FR")} DZD)`,
       reference: p.reference, lien: `/validations/paiements/${p.id}`,
+    });
+  }
+
+  for (const c of commitmentsOverdue) {
+    const late = c.dueAt ? days(c.dueAt, now) : 0;
+    alerts.push({
+      code: "commitment_overdue",
+      criticite: late >= 7 ? "IMPORTANT" : "WATCH",
+      titre: `Engagement en retard de ${late} j`,
+      detail: `${c.who} devait « ${c.what} »${c.toWhom ? ` (envers ${c.toWhom})` : ""}${c.relatedRef ? ` — réf. ${c.relatedRef}` : ""} — à vous de décider la suite (aucune relance automatique)`,
+      reference: c.relatedRef, lien: "/chief-of-staff",
     });
   }
 

@@ -8,6 +8,7 @@ import { getActionCenter } from "@/lib/queries/action-center";
 import { EXECUTIVE_TOOLS } from "@/lib/assistant/executive-tools";
 import { EXECUTIVE_READ_TOOLS } from "@/lib/assistant/executive-read-tools";
 import { EXECUTIVE_BRIEF_TOOLS } from "@/lib/assistant/executive-brief-tools";
+import { MEMORY_TOOLS } from "@/lib/assistant/memory-tools";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -206,6 +207,11 @@ export const POWER_TOOLS: PowerTool[] = [
   ...EXECUTIVE_READ_TOOLS,
   // Le PILOTAGE PROACTIF : signaux d'alerte, point exécutif, rapport consolidé (.docx → Drive).
   ...EXECUTIVE_BRIEF_TOOLS,
+  // MÉMOIRE, DÉCISIONS, ENGAGEMENTS : les registres PERSONNELS (mémoire typée, archives de
+  // conversation ouvertes à tous car strictement cloisonnées par user.id ; registres de
+  // décisions et d'engagements au siège exécutif). Écriture directe : rien ici ne touche
+  // le monde extérieur — c'est la frontière avec ACTION_POLICY.
+  ...MEMORY_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */

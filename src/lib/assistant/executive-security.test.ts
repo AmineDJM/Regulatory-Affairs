@@ -58,9 +58,14 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
   });
 
   it("chaque outil de pouvoir déclare un garde `allowed` — aucun outil « toujours ouvert » par accident", () => {
-    // `search_everything` et `list_pending_decisions` sont VOLONTAIREMENT ouverts (contenu
-    // cloisonné par requête) ; tout le reste doit refuser un compte sans aucun droit.
-    const openByDesign = new Set(["search_everything", "list_pending_decisions"]);
+    // Outils VOLONTAIREMENT ouverts à tous : la recherche fédérée et la file de décisions
+    // (contenu cloisonné par requête), et la mémoire personnelle (remember/list/forget/recall —
+    // strictement bornée à `user.id`, il n'existe aucun chemin vers la mémoire d'autrui).
+    // Tout le reste doit refuser un compte sans aucun droit.
+    const openByDesign = new Set([
+      "search_everything", "list_pending_decisions",
+      "remember", "list_memories", "forget_memory", "recall_conversation",
+    ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);
     for (const n of names) expect(openByDesign.has(n), n).toBe(true);

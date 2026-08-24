@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { platformScope } from "@/lib/company";
 import { searchEverything } from "@/lib/queries/search-everything";
+import { expandQueryWithAliases } from "@/lib/assistant/memory-context";
 import { getCalendarEvents, getUpcomingEvents, algiersInputToUtc, algiersYmd, algiersTime } from "@/lib/calendar";
 import { toNumber } from "@/lib/utils";
 import { ROLE_LABELS } from "@/lib/labels";
@@ -57,8 +58,15 @@ export const EXECUTIVE_READ_TOOLS: PowerTool[] = [
     run: async (input, user) => {
       const q = str(input, "query");
       if (q.length < 2) return "Donnez au moins deux caractères.";
-      const out = await searchEverything(user, q);
-      return JSON.stringify(out);
+      // La MÉMOIRE TYPÉE éclaire la recherche : « où en est pembro ? » cherche aussi
+      // « Pembrolizumab » si la personne a fait retenir cet alias. Meilleur-effort.
+      const { query: expanded, expansions } = await expandQueryWithAliases(user.id, q);
+      const out = await searchEverything(user, expanded);
+      if (expansions.length === 0) return JSON.stringify(out);
+      return JSON.stringify({
+        aliasAppliques: expansions.map((e) => `${e.alias} → ${e.target}`),
+        ...out,
+      });
     },
   },
 

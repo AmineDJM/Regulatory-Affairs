@@ -654,11 +654,16 @@ model AssistantThread {
   userId    String
   user      User               @relation("AssistantThreads", fields: [userId], references: [id], onDelete: Cascade)
   title     String?
+  /// LE FIL PRINCIPAL du Chief of Staff — un par personne : la conversation continue dans le
+  /// temps au lieu de s'éparpiller en « chat 1, chat 2, chat 99 ». Les autres fils restent
+  /// possibles (sujets à part) ; celui-ci est celui qui s'ouvre par défaut.
+  isPrimary Boolean            @default(false)
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
   messages  AssistantMessage[]
 
   @@index([userId, updatedAt])
+  @@index([userId, isPrimary])
 }
 
 /// Message d'un fil. `userId` est VOLONTAIREMENT redondant avec `thread.userId` :
@@ -689,6 +694,92 @@ model AssistantMemory {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+}
+
+/// UNE MÉMOIRE TYPÉE ET DURABLE du Chief of Staff — ce qu'une personne lui a demandé de retenir
+/// (« retiens que Pembro = Pembrolizumab »), ou ce qui mérite de l'être : préférences, style de
+/// travail, terminologie, ALIAS d'entités, principes exécutifs. Strictement personnelle.
+/// ⚠️ La mémoire n'est JAMAIS la source de vérité d'une donnée métier (salaire, stock, statut…) :
+/// elle oriente la recherche et le ton, les chiffres se relisent toujours à la source.
+model AssistantMemoryItem {
+  id       String  @id @default(cuid())
+  userId   String
+  user     User    @relation("AssistantMemoryItems", fields: [userId], references: [id], onDelete: Cascade)
+  /// USER_PREFERENCE | WORKING_STYLE | TERMINOLOGY | ENTITY_ALIAS | STRATEGIC_PRIORITY |
+  /// RECURRING_INTEREST | REPORTING_PREFERENCE | ORGANIZATIONAL_CONTEXT | EXECUTIVE_PRINCIPLE
+  type     String
+  /// La mémoire, en une phrase lisible (c'est elle qui est réinjectée au modèle).
+  content  String
+  /// Détail structuré quand il existe — ex. { alias: "pembro", target: "Pembrolizumab" }.
+  structuredData Json?
+  confidence     Float     @default(0.8)
+  sourceThreadId String?
+  active         Boolean   @default(true)
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId, active])
+  @@index([userId, type])
+}
+
+/// LE REGISTRE DES DÉCISIONS EXÉCUTIVES — « on choisit le fournisseur B » mérite d'être retrouvable
+/// six mois plus tard avec son contexte, ses options, son attendu… et son RÉSULTAT RÉEL.
+/// Enregistrer une décision n'exécute JAMAIS ses conséquences. Une bonne décision peut produire
+/// un mauvais résultat : les deux se jugent séparément (qualité au moment T vs outcome).
+model ExecutiveDecision {
+  id              String    @id @default(cuid())
+  ownerId         String
+  owner           User      @relation("ExecutiveDecisions", fields: [ownerId], references: [id], onDelete: Cascade)
+  title           String
+  context         String?
+  problem         String?
+  options         Json?
+  recommendation  String?
+  decision        String?
+  /// PROPOSED | DECIDED | REVIEWED | ABANDONED
+  status          String    @default("DECIDED")
+  decidedAt       DateTime?
+  expectedOutcome String?
+  reviewDate      DateTime?
+  actualOutcome   String?
+  lessonsLearned  String?
+  /// Entités concernées (références lisibles : PAY-…, fournisseur, produit…).
+  entities        Json?
+  sourceThreadId  String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([ownerId, status])
+  @@index([reviewDate])
+}
+
+/// UN ENGAGEMENT — « le fournisseur X livrera le 15 », « Nesrine rend le rapport vendredi ».
+/// Détecté dans la conversation (CR, e-mail lu, réunion) et ENREGISTRÉ par l'assistant sur
+/// proposition — jamais suivi d'une relance automatique sans autorisation : un engagement en
+/// retard se VOIT (alerte au propriétaire), il ne déclenche rien tout seul.
+model ExecutiveCommitment {
+  id            String    @id @default(cuid())
+  ownerId       String
+  owner         User      @relation("ExecutiveCommitments", fields: [ownerId], references: [id], onDelete: Cascade)
+  /// QUI a promis (personne, fournisseur, équipe) — libre : beaucoup d'engageants n'ont pas de compte.
+  who           String
+  toWhom        String?
+  what          String
+  relatedEntity String?
+  relatedRef    String?
+  promisedAt    DateTime?
+  dueAt         DateTime?
+  /// D'où vient l'engagement (e-mail du …, CR de réunion, conversation) — la preuve.
+  source        String?
+  /// OPEN | DONE | BROKEN | CANCELLED
+  status        String    @default("OPEN")
+  evidence      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([ownerId, status])
+  @@index([dueAt])
 }
 
 /// Point du matin de l'assistant : un texte par personne et par jour (fuseau d'Alger).
@@ -974,6 +1065,9 @@ model User {
   directoryAccess       MedicalDirectoryAccess[] @relation("MedicalDirectoryAccessUser")
   assistantReminders    AssistantReminder[]      @relation("AssistantReminderUser")
   assistantRemindersTargeted AssistantReminder[] @relation("AssistantReminderTarget")
+  assistantMemoryItems  AssistantMemoryItem[]    @relation("AssistantMemoryItems")
+  executiveDecisions    ExecutiveDecision[]      @relation("ExecutiveDecisions")
+  executiveCommitments  ExecutiveCommitment[]    @relation("ExecutiveCommitments")
   adProItemDecisions    AdProItemDecision[]    @relation("AdProItemDecider")
   apiClients            ApiClient[]            @relation("ApiClientActAs")
   docRequestsAsked      DocumentRequest[]      @relation("DocRequestAsker")

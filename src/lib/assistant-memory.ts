@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getManagerOfUser, getDepartmentPath } from "@/lib/departments";
+import { typedMemoryContext } from "@/lib/assistant/memory-context";
 
 /**
  * MÉMOIRE DE L'ASSISTANT — strictement personnelle.
@@ -50,8 +51,12 @@ export interface StoredMessage { role: "user" | "assistant"; content: string; cr
  * Messages d'un fil — **uniquement si ce fil appartient au demandeur**.
  * Renvoie `null` si le fil n'existe pas OU ne lui appartient pas : de l'extérieur, les
  * deux cas sont indiscernables (on ne révèle pas l'existence du fil d'autrui).
+ *
+ * PLAFONNÉ aux `limit` derniers messages : le fil principal vit des mois — on ne recharge
+ * JAMAIS tout l'historique, le passé lointain se retrouve par `searchOwnMessages` et par la
+ * mémoire distillée/typée.
  */
-export async function getThreadMessages(userId: string, threadId: string): Promise<StoredMessage[] | null> {
+export async function getThreadMessages(userId: string, threadId: string, limit = 300): Promise<StoredMessage[] | null> {
   const thread = await prisma.assistantThread.findFirst({
     where: { id: threadId, userId }, // ← les DEUX conditions, toujours
     select: { id: true },
@@ -59,10 +64,75 @@ export async function getThreadMessages(userId: string, threadId: string): Promi
   if (!thread) return null;
   const rows = await prisma.assistantMessage.findMany({
     where: { threadId, userId }, // ← ceinture ET bretelles
-    orderBy: { createdAt: "asc" },
+    // L'id (cuid, monotone) départage les messages écrits dans la même milliseconde
+    // (question + réponse arrivent ensemble) : l'ordre reste strictement chronologique.
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: Math.max(1, limit),
     select: { role: true, content: true, createdAt: true },
   });
-  return rows.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content, createdAt: m.createdAt.toISOString() }));
+  return rows
+    .reverse()
+    .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content, createdAt: m.createdAt.toISOString() }));
+}
+
+/**
+ * LE FIL PRINCIPAL — la conversation continue du Chief of Staff, une par personne.
+ * La retrouve ou la crée ; si plusieurs existent (course), la plus ancienne fait foi.
+ */
+export async function ensurePrimaryThread(userId: string): Promise<string> {
+  const existing = await prisma.assistantThread.findFirst({
+    where: { userId, isPrimary: true },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+  const t = await prisma.assistantThread.create({
+    data: { userId, isPrimary: true, title: "Fil principal" },
+    select: { id: true },
+  });
+  return t.id;
+}
+
+export interface OwnMessageHit {
+  threadId: string;
+  threadTitle: string;
+  role: "user" | "assistant";
+  when: string;
+  snippet: string;
+}
+
+/**
+ * RECHERCHE dans SES PROPRES archives de conversation (« de quoi avait-on parlé au sujet
+ * de… ? »). Jamais celles d'autrui : le `userId` borne les deux requêtes.
+ */
+export async function searchOwnMessages(userId: string, query: string, limit = 12): Promise<OwnMessageHit[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const rows = await prisma.assistantMessage.findMany({
+    where: { userId, content: { contains: q, mode: "insensitive" } },
+    orderBy: { createdAt: "desc" },
+    take: Math.min(Math.max(limit, 1), 30),
+    select: { threadId: true, role: true, content: true, createdAt: true },
+  });
+  if (rows.length === 0) return [];
+  const threads = await prisma.assistantThread.findMany({
+    where: { id: { in: [...new Set(rows.map((r) => r.threadId))] }, userId },
+    select: { id: true, title: true },
+  });
+  const titles = new Map(threads.map((t) => [t.id, t.title?.trim() || "Conversation"]));
+  const needle = q.toLowerCase();
+  return rows.map((r) => {
+    const at = r.content.toLowerCase().indexOf(needle);
+    const start = Math.max(0, (at < 0 ? 0 : at) - 120);
+    const end = Math.min(r.content.length, (at < 0 ? 0 : at) + needle.length + 160);
+    return {
+      threadId: r.threadId,
+      threadTitle: titles.get(r.threadId) ?? "Conversation",
+      role: r.role === "assistant" ? "assistant" as const : "user" as const,
+      when: r.createdAt.toISOString().slice(0, 10),
+      snippet: `${start > 0 ? "…" : ""}${r.content.slice(start, end)}${end < r.content.length ? "…" : ""}`,
+    };
+  });
 }
 
 /** Crée un fil pour cette personne. Le titre est dérivé de sa première question. */
@@ -100,11 +170,16 @@ export async function deleteThread(userId: string, threadId: string): Promise<bo
   return count > 0;
 }
 
-/** Efface TOUTE la mémoire d'une personne (droit à l'oubli, à sa main). */
+/**
+ * Efface TOUTE la mémoire d'une personne (droit à l'oubli, à sa main) : fils, messages,
+ * mémoire distillée ET mémoire typée. Les registres de décisions/engagements restent —
+ * ce sont des registres métier tenus volontairement, pas des souvenirs de conversation.
+ */
 export async function forgetEverything(userId: string): Promise<void> {
   await prisma.assistantThread.deleteMany({ where: { userId } });
   await prisma.assistantMessage.deleteMany({ where: { userId } });
   await prisma.assistantMemory.deleteMany({ where: { userId } });
+  await prisma.assistantMemoryItem.deleteMany({ where: { userId } });
 }
 
 // ───────────────────────────── Mémoire distillée ─────────────────────────────
@@ -160,7 +235,7 @@ export async function recentMessages(userId: string, limit = 60): Promise<Stored
  * a retenu d'elle. Uniquement des données que la personne peut déjà voir sur son profil.
  */
 export async function personalContext(userId: string): Promise<string> {
-  const [user, memory] = await Promise.all([
+  const [user, memory, typed] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -170,6 +245,7 @@ export async function personalContext(userId: string): Promise<string> {
       },
     }),
     getMemory(userId),
+    typedMemoryContext(userId).catch(() => ""),
   ]);
   if (!user) return "";
 
@@ -190,6 +266,7 @@ export async function personalContext(userId: string): Promise<string> {
   if (mgr) lines.push(`Son responsable hiérarchique (N+1) est ${mgr.fullName} — c'est lui qui valide ses demandes.`);
 
   if (memory) lines.push(`\nCE QUE TU AS RETENU DE CETTE PERSONNE (mémoire de vos échanges précédents) :\n${memory}`);
+  if (typed) lines.push(typed);
 
   lines.push(
     "\nCette mémoire et ces conversations sont STRICTEMENT PERSONNELLES : tu n'as jamais accès " +
