@@ -11,6 +11,8 @@ import { MailTable, type MailRow } from "./mail-table";
 import { getMyCompanies, companyLabel } from "@/lib/company";
 import { MailPartnersManager } from "./mail-partners";
 import { mailRoutingOptions } from "@/lib/queries/mail-routing";
+import { MailFolderBar, type MailFolderRow } from "./mail-folder-bar";
+import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Courriers — AMD Internal OS" };
@@ -31,10 +33,15 @@ export const metadata = { title: "Courriers — AMD Internal OS" };
  * corrigé quoi. Enregistrer un courrier ouvre donc directement sa fiche — on vient presque
  * toujours d'un scan à joindre.
  */
-export default async function CourriersPage() {
+export default async function CourriersPage({ searchParams }: { searchParams?: { dossier?: string } }) {
   const user = await requireModule("MAIL_REGISTER");
   const canCreate = userCan(user, "MAIL_REGISTER", "CREATE");
   const canEdit = userCan(user, "MAIL_REGISTER", "UPDATE");
+
+  // Le dossier ouvert : « none » = les plis non classés, un identifiant = ce dossier, absent = tout.
+  const unfiledOnly = searchParams?.dossier === "none";
+  const openFolderId = searchParams?.dossier && searchParams.dossier !== "none" ? searchParams.dossier : null;
+  const folderWhere = unfiledOnly ? { folderId: null } : openFolderId ? { folderId: openFolderId } : {};
 
   // Les entités que CETTE personne peut choisir, les partenaires actifs du registre, et à qui
   // le pli s'adresse en interne (direction de l'organigramme, personne nommément visée).
@@ -52,7 +59,7 @@ export default async function CourriersPage() {
   const partnerOpts = partners.map((p) => ({ value: p.id, label: p.kind ? `${p.name} — ${p.kind}` : p.name }));
 
   const entries = await prisma.mailEntry.findMany({
-    where: { ...await currentCompanyWhereFor(user.id) },
+    where: { ...await currentCompanyWhereFor(user.id), ...folderWhere },
     orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
     take: 500,
     include: {
@@ -71,6 +78,23 @@ export default async function CourriersPage() {
     _count: { _all: true },
   });
   const attachmentCount = new Map(attachments.map((a) => [a.entityId, a._count._all]));
+
+  // Les dossiers de classement et le nombre de plis rangés dans chacun — en deux requêtes, pas
+  // une par dossier. L'armoire du registre : on classe cinq cents plis, on ne les filtre pas un
+  // par un.
+  const [folderRows, folderCounts] = await Promise.all([
+    prisma.mailEntryFolder.findMany({
+      select: { id: true, name: true, parentId: true, companyId: true, company: { select: { name: true, shortName: true } } },
+    }),
+    prisma.mailEntry.groupBy({ by: ["folderId"], where: { folderId: { not: null } }, _count: { _all: true } }),
+  ]);
+  const countByFolder = new Map(folderCounts.map((c) => [c.folderId as string, c._count._all]));
+  const folders: MailFolderRow[] = folderRows.map((f) => ({
+    id: f.id, name: f.name, parentId: f.parentId, companyId: f.companyId,
+    companyLabel: f.company ? f.company.shortName ?? f.company.name : null,
+    entryCount: countByFolder.get(f.id) ?? 0,
+  }));
+  const folderOptions = flattenFolders(buildFolderTree(folders)).map((n) => ({ value: n.id, label: indentedLabel(n) }));
 
   const rows: MailRow[] = entries.map((m) => ({
     id: m.id,
@@ -109,7 +133,7 @@ export default async function CourriersPage() {
             label="Nouveau courrier" title="Enregistrer un courrier" width="lg"
             description="Seul l'objet est obligatoire : l'arrivée et l'accusé se posent plus tard, en un clic depuis le tableau."
             action={createMailEntry}
-            fields={mailFields({}, "create", companyOpts, partnerOpts, routing.departments, routing.people)}
+            fields={mailFields(openFolderId ? { folderId: openFolderId } : {}, "create", companyOpts, partnerOpts, routing.departments, routing.people, folderOptions)}
             redirectBase="/courriers"
           />
         )}
@@ -121,6 +145,13 @@ export default async function CourriersPage() {
         <KpiCard label="Sortants" value={outgoing} icon="Send" tone="info" />
         <KpiCard label="Sans accusé" value={noAck} icon="Hourglass" tone={noAck > 0 ? "warning" : "default"} />
       </div>
+
+      <MailFolderBar
+        folders={folders}
+        current={searchParams?.dossier ?? null}
+        companies={myCompanies.map((c) => ({ id: c.id, label: companyLabel(c) }))}
+        canManage={canEdit}
+      />
 
       <MailTable rows={rows} canEdit={canEdit} />
     </div>

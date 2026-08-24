@@ -57,6 +57,8 @@ function readFields(formData: FormData): MailFields {
     // enregistrement fait depuis un formulaire qui ne les propose pas.
     ...(formData.has("departmentId") ? { departmentId: fdStr(formData, "departmentId") } : {}),
     ...(formData.has("concernedUserId") ? { concernedUserId: fdStr(formData, "concernedUserId") } : {}),
+    // Le dossier de classement, même précaution : présent seulement si le formulaire l'a proposé.
+    ...(formData.has("folderId") ? { folderId: fdStr(formData, "folderId") } : {}),
   };
 }
 

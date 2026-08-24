@@ -16,6 +16,7 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 import { renderTraceValue } from "@/lib/mail-register/trace";
 import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { mailFields, dateInput, dateTimeInput } from "../mail-fields";
+import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { EditMailButton } from "./edit-mail";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { getMyCompanies, companyLabel } from "@/lib/company";
@@ -83,11 +84,13 @@ export default async function MailEntryPage({ params }: { params: { id: string }
 
   // Les mêmes menus qu'à la création : une entité ou un partenaire qu'on ne peut pas corriger
   // sur la fiche, c'est une erreur de saisie qui reste au registre pour toujours.
-  const [myCompanies, partners, routing] = await Promise.all([
+  const [myCompanies, partners, routing, folderRows] = await Promise.all([
     getMyCompanies(user.id),
     prisma.mailPartner.findMany({ where: { isActive: true }, select: { id: true, name: true, kind: true }, orderBy: { name: "asc" } }),
     mailRoutingOptions(),
+    prisma.mailEntryFolder.findMany({ select: { id: true, name: true, parentId: true, companyId: true } }),
   ]);
+  const folderOptions = flattenFolders(buildFolderTree(folderRows)).map((n) => ({ value: n.id, label: indentedLabel(n) }));
 
   const dir = MAIL_DIRECTION[entry.direction];
   const fields = mailFields({
@@ -105,11 +108,13 @@ export default async function MailEntryPage({ params }: { params: { id: string }
     partnerId: entry.partnerId ?? undefined,
     departmentId: entry.departmentId ?? undefined,
     concernedUserId: entry.concernedUserId ?? undefined,
+    folderId: entry.folderId ?? undefined,
   }, "edit",
     myCompanies.map((c) => ({ value: c.id, label: companyLabel(c) })),
     partners.map((x) => ({ value: x.id, label: x.kind ? `${x.name} — ${x.kind}` : x.name })),
     routing.departments,
     routing.people,
+    folderOptions,
   );
 
   return (

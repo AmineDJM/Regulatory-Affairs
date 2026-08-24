@@ -1,0 +1,160 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { requireUser } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+import { recordAudit } from "@/lib/audit";
+import { getMyCompanies } from "@/lib/company";
+import { canReparent, type FolderLite } from "@/lib/legal/folders";
+import { fdStr, type ActionResult } from "@/lib/actions/types";
+
+/**
+ * LES DOSSIERS DE CLASSEMENT DU COURRIER — le pendant exact de Legal.
+ *
+ * Un dossier RANGE, il n'AUTORISE pas : le cloisonnement par entité reste la seule règle d'accès,
+ * exactement comme pour les engagements de Legal. Ces actions ne touchent donc jamais à qui voit
+ * un pli — y ranger un courrier n'ouvre rien à personne. La logique d'arbre (boucles interdites,
+ * chemin, sous-arbre) est mutualisée avec Legal : c'est le même problème, résolu une fois.
+ */
+
+const PATH = "/courriers";
+
+/** Tous les dossiers, en forme légère — ce dont les règles pures ont besoin. */
+async function allFolders(): Promise<FolderLite[]> {
+  return prisma.mailEntryFolder.findMany({ select: { id: true, name: true, parentId: true, companyId: true } });
+}
+
+/** L'entité demandée est-elle dans le périmètre ? On ne classe pas dans une société qu'on ne voit pas. */
+async function companyAllowed(userId: string, companyId: string | null): Promise<boolean> {
+  if (!companyId) return true;
+  const mine = await getMyCompanies(userId);
+  return mine.some((c) => c.id === companyId);
+}
+
+export async function createMailFolder(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MAIL_REGISTER", "CREATE")) return { ok: false, error: "Non autorisé." };
+  const name = fdStr(formData, "name");
+  if (!name) return { ok: false, error: "Donnez un nom au dossier." };
+
+  const companyId = fdStr(formData, "companyId");
+  if (!(await companyAllowed(user.id, companyId))) return { ok: false, error: "Cette entité n'est pas dans votre périmètre." };
+
+  const parentId = fdStr(formData, "parentId");
+  if (parentId) {
+    const parent = await prisma.mailEntryFolder.findUnique({ where: { id: parentId }, select: { id: true } });
+    if (!parent) return { ok: false, error: "Dossier parent introuvable." };
+  }
+
+  const created = await prisma.mailEntryFolder.create({
+    data: { name, companyId: companyId || null, parentId: parentId || null, description: fdStr(formData, "description"), createdById: user.id },
+    select: { id: true },
+  });
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Courriers", entityType: "MAIL_ENTRY", entityId: created.id,
+    summary: `Dossier de classement « ${name} » créé`,
+  });
+  revalidatePath(PATH);
+  return { ok: true, id: created.id };
+}
+
+/** Renomme un dossier, ou le déplace sous un autre. */
+export async function updateMailFolder(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MAIL_REGISTER", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  const existing = await prisma.mailEntryFolder.findUnique({ where: { id }, select: { name: true } });
+  if (!existing) return { ok: false, error: "Dossier introuvable." };
+
+  const parentRaw = formData.get("parentId");
+  const nextParent = parentRaw != null ? (String(parentRaw) || null) : undefined;
+  if (nextParent !== undefined && !canReparent(await allFolders(), id, nextParent)) {
+    // Créer une boucle ferait disparaître le dossier — et tout ce qu'il contient — de l'arbre.
+    return { ok: false, error: "Un dossier ne peut pas être rangé dans lui-même ni dans l'un de ses sous-dossiers." };
+  }
+
+  const companyRaw = formData.get("companyId");
+  if (companyRaw != null && !(await companyAllowed(user.id, String(companyRaw) || null))) {
+    return { ok: false, error: "Cette entité n'est pas dans votre périmètre." };
+  }
+
+  const name = fdStr(formData, "name") || existing.name;
+  await prisma.mailEntryFolder.update({
+    where: { id },
+    data: {
+      name,
+      description: formData.has("description") ? fdStr(formData, "description") : undefined,
+      ...(nextParent !== undefined ? { parentId: nextParent } : {}),
+      ...(companyRaw != null ? { companyId: String(companyRaw) || null } : {}),
+    },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Courriers", entityType: "MAIL_ENTRY", entityId: id,
+    summary: `Dossier de classement modifié : ${existing.name}${name !== existing.name ? ` → ${name}` : ""}`,
+  });
+  revalidatePath(PATH);
+  return { ok: true };
+}
+
+/**
+ * Supprime un dossier. Ses SOUS-DOSSIERS partent avec lui (ils n'ont pas de sens sans leur
+ * parent) ; ses COURRIERS repassent « non classés » — jamais supprimés. C'est la contrainte
+ * `ON DELETE SET NULL` qui le garantit, pas une précaution d'écran.
+ */
+export async function deleteMailFolder(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MAIL_REGISTER", "DELETE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  const existing = await prisma.mailEntryFolder.findUnique({ where: { id }, select: { name: true } });
+  if (!existing) return { ok: false, error: "Dossier introuvable." };
+
+  await prisma.mailEntryFolder.delete({ where: { id } });
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Courriers", entityType: "MAIL_ENTRY", entityId: id,
+    summary: `Dossier de classement « ${existing.name} » supprimé (courriers déclassés, non supprimés)`,
+  });
+  revalidatePath(PATH);
+  return { ok: true };
+}
+
+/**
+ * Range un ou plusieurs courriers dans un dossier — ou les en sort (`folderId` vide).
+ *
+ * Le contrôle porte sur chaque pli : on ne range que ce qui est dans son périmètre d'entité, et
+ * le classement ne change RIEN à qui peut le lire.
+ */
+export async function moveMailEntries(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MAIL_REGISTER", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const ids = [...new Set(formData.getAll("entryId").map(String).filter(Boolean))];
+  if (ids.length === 0) return { ok: false, error: "Aucun courrier sélectionné." };
+
+  const folderId = fdStr(formData, "folderId");
+  let folderName = "Non classés";
+  if (folderId) {
+    const folder = await prisma.mailEntryFolder.findUnique({ where: { id: folderId }, select: { name: true } });
+    if (!folder) return { ok: false, error: "Dossier introuvable." };
+    folderName = folder.name;
+  }
+
+  const mine = await getMyCompanies(user.id);
+  const movable = await prisma.mailEntry.findMany({
+    where: { id: { in: ids }, OR: [{ companyId: null }, { companyId: { in: mine.map((c) => c.id) } }] },
+    select: { id: true },
+  });
+  if (movable.length === 0) return { ok: false, error: "Ces courriers ne sont pas dans votre périmètre." };
+
+  await prisma.mailEntry.updateMany({
+    where: { id: { in: movable.map((d) => d.id) } },
+    data: { folderId: folderId || null },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Courriers",
+    summary: `${movable.length} courrier(s) rangé(s) dans « ${folderName} »`,
+  });
+  revalidatePath(PATH);
+  return { ok: true, message: `${movable.length} courrier(s) rangé(s) dans « ${folderName} ».` };
+}

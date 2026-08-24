@@ -60,6 +60,12 @@ export interface MailFields {
    */
   departmentId?: string | null;
   concernedUserId?: string | null;
+  /**
+   * LE DOSSIER DE CLASSEMENT. `undefined` = l'écriture n'en parle pas (elle ne déclasse donc
+   * pas) ; `null` = on sort explicitement le pli de son dossier. Un dossier RANGE, il n'autorise
+   * pas — il ne change rien au cloisonnement par entité.
+   */
+  folderId?: string | null;
 }
 
 /** Les colonnes suivies, lues telles quelles pour la comparaison avant/après. */
@@ -165,6 +171,7 @@ export async function createMailEntryFor(user: SessionUser, f: MailFields): Prom
       partnerId: f.partnerId ?? null,
       departmentId: f.departmentId ?? null,
       concernedUserId: f.concernedUserId ?? null,
+      folderId: f.folderId ?? null,
       companyId: f.companyId !== undefined ? f.companyId : await companyIdForNew(user.id),
       sourceType: f.sourceType ?? null,
       sourceId: f.sourceId ?? null,
@@ -229,6 +236,9 @@ export async function updateMailEntryFor(user: SessionUser, id: string, f: MailF
     ...(f.partnerId !== undefined ? { partnerId: f.partnerId ?? null } : {}),
     ...(f.departmentId !== undefined ? { departmentId: f.departmentId ?? null } : {}),
     ...(f.concernedUserId !== undefined ? { concernedUserId: f.concernedUserId ?? null } : {}),
+    // Le classement se corrige comme le reste ; il ne se journalise pas par son nom (un dossier
+    // n'est pas une donnée métier du pli, c'est un rangement).
+    ...(f.folderId !== undefined ? { folderId: f.folderId ?? null } : {}),
   };
   // LA DIRECTION ET LA PERSONNE, ELLES, SE JOURNALISENT — mais par leur nom. Réorienter un pli de
   // la Direction Commerciale vers les Finances est exactement ce qu'on vient chercher dans ce

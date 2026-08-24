@@ -23,6 +23,8 @@ export function mailFields(
   departments: { value: string; label: string }[] = [],
   /** Comptes actifs — la personne nommément visée par le pli. */
   people: { value: string; label: string }[] = [],
+  /** Dossiers de classement du registre, indentés selon leur profondeur. */
+  folders: { value: string; label: string }[] = [],
 ): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
   return [
@@ -75,6 +77,14 @@ export function mailFields(
     { type: "date", name: "receivedAt", label: "Arrivée", defaultValue: v("receivedAt") },
     { type: "date", name: "acknowledgedAt", label: "Accusé de réception", defaultValue: v("acknowledgedAt") },
     { type: "text", name: "carrier", label: "Porteur (poste, coursier, e-mail…)", defaultValue: v("carrier") },
+    // LE DOSSIER DE CLASSEMENT, s'il y en a un. Facultatif : un pli s'enregistre vite et se range
+    // ensuite. Un dossier RANGE, il n'autorise pas — le cloisonnement par entité ne change pas.
+    ...(folders.length > 0
+      ? ([{
+          type: "select", name: "folderId", label: "Dossier de classement", options: folders,
+          placeholder: "— Non classé —", defaultValue: v("folderId"),
+        }] as FieldDef[])
+      : []),
     { type: "textarea", name: "notes", label: "Notes", full: true, defaultValue: v("notes") },
     // LE PLI SCANNÉ, DÈS L'ENREGISTREMENT — c'est le moment où on l'a en main. Ou bien on
     // téléverse le scan, ou bien on désigne le fichier qui est DÉJÀ dans le Drive, qui n'est

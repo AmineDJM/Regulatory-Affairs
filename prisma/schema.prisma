@@ -1196,6 +1196,7 @@ model Company {
   legalIdentity           CompanyLegalIdentity?
   letterheads             OfficeLetterhead[]
   legalFolders            LegalFolder[]
+  mailEntryFolders        MailEntryFolder[]
 
   @@index([isActive])
 }
@@ -8187,6 +8188,11 @@ model MailEntry {
   /// auraient divergé dès la première correction, et plus personne n'aurait su laquelle fait foi.
   driveNodeId    String?
   driveNode      DriveNode?    @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
+  /// LE DOSSIER DE CLASSEMENT, s'il y en a un. Un dossier RANGE, il n'autorise pas : le
+  /// cloisonnement par entité reste la seule règle d'accès. `SET NULL` : supprimer un dossier
+  /// déclasse ses plis, il ne les efface jamais.
+  folderId       String?
+  folder         MailEntryFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   sourceType     EntityType?
   sourceId       String?
   createdById    String?
@@ -8203,6 +8209,31 @@ model MailEntry {
   @@index([partnerId])
   @@index([departmentId])
   @@index([concernedUserId])
+  @@index([folderId])
+}
+
+/// LES DOSSIERS DE CLASSEMENT DU COURRIER — l'armoire du registre, pendant exact de LegalFolder.
+/// Cinq cents plis dans une liste se cherchent au filtre, jamais au regard ; les dossiers rendent
+/// au registre la structure d'une vraie armoire (« Fournisseurs », « ANPP », « Baux 2026 »).
+/// ⚠️ UN DOSSIER NE PORTE AUCUN DROIT : le cloisonnement par entité reste la seule règle d'accès.
+model MailEntryFolder {
+  id          String            @id @default(cuid())
+  name        String
+  /// Entité de rattachement. Nul = dossier commun au groupe.
+  companyId   String?
+  company     Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  parentId    String?
+  parent      MailEntryFolder?  @relation("MailEntryFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    MailEntryFolder[] @relation("MailEntryFolderTree")
+  description String?
+  createdById String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  entries MailEntry[]
+
+  @@index([companyId])
+  @@index([parentId])
 }
 
 // ───────────────────────────── FACTURES ─────────────────────────────
