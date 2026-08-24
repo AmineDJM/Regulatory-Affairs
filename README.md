@@ -33,6 +33,8 @@ RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Cale
 - [Workflows critiques](#-workflows-critiques)
 - [**Référence détaillée des circuits & mécanismes transverses**](#-référence-détaillée-des-circuits--mécanismes-transverses)
   - [**Centre de paiement — l'autorisation du PDG**](#centre-de-paiement--rien-ne-sort-au-dessus-du-seuil-sans-le-pdg)
+  - [Chaîne du dossier d'achat (Legal)](#la-chaîne-du-dossier-dachat--devis--bc--facture--règlement-dun-seul-écran)
+  - [My Chief of Staff — interface exécutive](#my-chief-of-staff--linterface-exécutive-pdg--super-admin)
   - [Matériel promotionnel — circuit court](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle)
   - [Rejeu de session — support technique](#rejeu-de-session--rembobiner-ce-quune-personne-a-fait)
   - [Recrutement — de la demande à l'intégration](#recrutement--de-la-demande-dun-directeur-jusquà-lintégration)
@@ -123,8 +125,8 @@ Comprendre l'OS, c'est comprendre le métier qu'il digitalise. Termes récurrent
 
 | | |
 |---|---|
-| **38** modules RBAC · **166** pages applicatives | **19** rôles métier |
-| **236** modèles Prisma · **167** enums | **236** migrations SQL |
+| **40** modules RBAC · **168** pages applicatives | **19** rôles métier |
+| **238** modèles Prisma · **167** enums | **239** migrations SQL |
 | **108** fichiers de *server actions* · **51** fichiers de requêtes | **80** routes API |
 | RBAC **module × action × ligne** appliqué **côté serveur** | Drive & mots de passe **chiffrés AES-256-GCM** |
 | Assistant IA (boucle agent Claude) partout | Rapports terrain **vocaux** (Whisper → Claude) |
@@ -188,7 +190,9 @@ jamais identique.
 | **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
 | **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le chef de produit**), **analyse confidentielle du chef de produit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** a son circuit **court** : devis → demandeur → N+1 → PDG **ou** Super Admin → information médicale, puis **trois chantiers en parallèle** (bon de commande, paiement, visa publicitaire) ; chacun ne voit que **sa** marche, seuls l'administrateur et le PDG voient tout. → [workflows](#-workflows-critiques) · [détails](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
-| **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). **Centre de paiement** (`/finances/centre-de-paiement`) : au-dessus de **50 000 DZD**, aucun paiement n'atteint les Finances sans l'autorisation du **PDG ou du Super Admin** — BV Regulatory compris ; les **moyens généraux** en sont exceptés. → [détails](#centre-de-paiement--rien-ne-sort-au-dessus-du-seuil-sans-le-pdg) |
+| **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense** (« Règlements à effectuer »), **Factures**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). Les **demandes de paiement** se déposent depuis les **Demandes de validations** ; un paiement n'arrive aux Finances qu'une fois **autorisé par le centre de paiement** (dès 50 000 DZD). |
+| **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. Dès **50 000 DZD**, aucun paiement n'atteint les Finances sans autorisation — BV Regulatory compris ; **moyens généraux exceptés**. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-au-dessus-du-seuil-sans-le-pdg) |
+| **My Chief of Staff** | `/chief-of-staff` | **L'interface exécutive du PDG et du Super Admin** (module `CHIEF_OF_STAFF`) : le même moteur que l'assistant, servi avec les **outils d'un chef de cabinet** — histoire complète d'un dossier par sa référence (timeline, validateurs, chaîne devis→BC→facture→règlement), fouille et **lecture** des documents du Drive, bilan factuel d'une personne, **rappels planifiés** (« tous les dimanches relance Regulatory »), **décisions du centre de paiement** sous confirmation. → [architecture](docs/CHIEF_OF_STAFF_ARCHITECTURE.md) |
 | **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
 | **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) : l'administration remet une somme chaque mois, la personne qui la détient **confirme l'avoir reçue** — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**, jusqu'à épuisement. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/moyens-generaux/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
 | **Formations** | `/formations` | Demande individuelle (montant, organisme, dates, devis) validée **N+1 → RH → DG**, et formations **organisées par les RH** (qui partent directement au DG) avec **participants convoqués ou volontaires** (les volontaires acceptent ou déclinent) et **postes** (salle, traiteur, intervenant) validés un par un par la Direction. Budget **FORMATION** parmi les budgets départementaux. |
@@ -596,12 +600,23 @@ ensuite). C'est une **dimension transverse** appliquée à tout le logiciel :
 
 ### Centre de paiement — rien ne sort, au-dessus du seuil, sans le PDG
 
+**Un module À PART, hors Finances** (`/centre-de-paiement`, RBAC `PAYMENT_CENTRE` — PDG + Super
+Admin) : celui qui autorise l'argent ne doit pas être dans l'écran de celui qui le décaisse, sinon
+la séparation des rôles n'est qu'un onglet. L'ancienne adresse `/finances/centre-de-paiement`
+redirige.
+
 **La règle** : **tout paiement de la société**, quel que soit le module qui l'a produit — Ad & Pro,
 secrétariat, formations, recrutement, **BV Regulatory compris** —, passe par le **centre de
 paiement** avant d'atteindre les Finances. **Les moyens généraux en sont exceptés** (`GENERAL_MEANS`
 dans `EXEMPT_MODULES`) : c'est l'argent du quotidien, déjà encadré par une caisse et un budget de
 département, et le faire remonter au PDG paralyserait l'achat d'une rame de papier. La **paie RH**
 n'y entre pas non plus : elle a son propre circuit.
+
+**Les demandes de paiement** n'ont plus de module à part : la demande se dépose depuis les
+**Demandes de validations** (bouton « Demande de paiement »), les Finances instruisent pièce par
+pièce, et le **bon à payer crée l'ordre de dépense par la porte commune** (`createExpenseOrder`) —
+qui applique la règle du centre. `PaymentRequest.expenseOrderId` porte le lien ; la transition
+APPROVED étant terminale, l'ordre ne peut pas être créé deux fois.
 
 **Le seuil : 50 000 DZD.** En dessous, un paiement validé par les circuits existants part
 **directement** aux Finances — le centre n'est pas un péage, il ne doit pas faire la queue pour de
@@ -636,6 +651,44 @@ autre porte vers le paiement devra passer par cette même fonction.
   `PaymentCentreMessage` (le fil). Migration `20260824150000_payment_centre`.
 - **Écrans** : `app/(app)/finances/centre-de-paiement/{page,centre-board}.tsx` ;
   **actions** `lib/actions/payment-centre-actions.ts` (`decidePayment`, `respondToPaymentCentre`).
+
+### La chaîne du dossier d'achat — devis → BC → facture → règlement, d'un seul écran
+
+Deux natures ont rejoint Legal : le **DEVIS** et la **FACTURE**. Chaque pièce pointe vers celle
+dont elle découle (`chainFromId` — « Fait suite à » : le BC vers son devis, la facture vers son
+BC), et la fiche lit l'achat d'un bout à l'autre : chaque maillon avec sa date, son montant et
+**ses validateurs** (les étapes de validation qui le visent, nominatives et horodatées), le
+**délai en jours** entre deux maillons, l'**écart devis → facture** quand il existe (il doit se
+voir AVANT que l'argent parte), et au bout le **règlement** avec son état — au centre de paiement,
+aux Finances, réglé, refusé. « Envoyer au règlement » sur une facture crée l'ordre de dépense par
+la porte commune (centre de paiement dès 50 000 DZD) ; `LegalDocument.expenseOrderId` empêche
+d'envoyer deux fois la même facture au paiement.
+
+Un devis à **deux** bons de commande (deux lots) : chaque BC remonte au même devis, et l'on lit
+toujours **le fil de la pièce qu'on regarde** — jamais un graphe qui mélangerait deux commandes.
+Module pur `lib/legal/chain.ts` (10 tests) ; chargement borné `lib/queries/legal-chain.ts` ;
+carte `app/(app)/legal/[id]/chain-card.tsx`.
+
+### My Chief of Staff — l'interface exécutive (PDG + Super Admin)
+
+Le module `/chief-of-staff` (RBAC `CHIEF_OF_STAFF`) est le MÊME moteur que l'assistant — agent
+loop, actions confirmées, mémoire, dictée vocale — servi avec les **outils d'un chef de cabinet**,
+et un persona exécutif injecté **par le rôle, côté serveur** (ton direct, chiffré, preuves et
+liens à chaque affirmation). Trois règles non négociables : la **permission se vérifie côté
+serveur à chaque appel** (la liste d'outils envoyée au modèle n'est qu'une suggestion) ; chaque
+affirmation importante cite **référence, date et lien interne** ; quand la donnée n'existe pas,
+l'outil le **dit** — il n'infère pas.
+
+Les gestes : `inspect_record` (l'histoire complète d'un dossier par sa référence — timeline du
+journal d'audit, validateurs nommés et datés, pièces, chaîne d'achat, état au centre de
+paiement) ; `search_drive` + `read_document` (fouiller le Drive puis LIRE la pièce — PDF, Word,
+Excel, PowerPoint — le droit du Drive vérifié nœud par nœud) ; `person_report` (bilan factuel
+d'une personne — jamais de jugement) ; `plan_reminder`/`list_reminders`/`cancel_reminder`
+(« rappelle-moi mardi 10 h », « tous les dimanches relance Regulatory » — modèle
+`AssistantReminder`, balayage dans `lib/scheduled.ts`, pop-up au propriétaire + relance du rôle
+cible) ; `decide_payment` (trancher au centre de paiement — toujours derrière la carte de
+confirmation, l'exécution repassant par l'action du centre). Architecture cible, capability
+matrix et phases suivantes : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`.
 
 ### Matériel promotionnel — cinq marches, puis trois chantiers en parallèle
 
@@ -2417,6 +2470,11 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Suppression par le créateur** | `CREATOR_DELETABLE` = `MAIL_ENTRY`, `LEGAL_DOCUMENT` ; `CREATOR_DELETE_PERMISSION` (le droit `DELETE` du module reste exigé) ; `snapshotAndSoftDelete` (instantané dans la **corbeille** avant destruction) et `deleteOwnRecord` dans `lib/actions/admin-delete-actions.ts` ; `components/shared/record-delete-button.tsx`. |
 | **Annuaires (praticiens & entreprise)** | Praticiens : `app/(app)/medical/annuaire/directory-bar.tsx` + `lib/actions/medical-directory-crud-actions.ts` (créer / renommer / supprimer — la suppression **déplace** les praticiens ; à ne pas confondre avec `medical-directory-actions.ts`, qui porte l'import et l'édition de la grille). Entreprise : module PUR `lib/contacts/kinds.ts` (+ tests) ; `lib/actions/company-contact-actions.ts` ; `app/(app)/moyens-generaux/annuaire/{page,contacts-board}.tsx`. |
 | **Coordonnées d'entité — documents nommés** | Module PUR `lib/legal/company-docs.ts` (+ tests) : la liste de noms **empruntée au CTD** a été retirée, le document se nomme librement. |
+| **Chaîne du dossier d'achat (Legal)** | `LegalDocKind` + `QUOTE`/`INVOICE` ; `LegalDocument.chainFromId` (auto-relation « fait suite à », `SET NULL`) + `expenseOrderId` (le règlement) ; module PUR `lib/legal/chain.ts` (`CHAIN_KINDS`, `chainOf` — le fil de LA pièce regardée, jamais un graphe mélangé —, `missingKinds`, `delayDays`/`delayLabel`, `amountDrift`) + `chain.test.ts` (10 tests) ; chargement borné `lib/queries/legal-chain.ts` (`loadLegalChain` : maillons + validateurs + règlement) ; `app/(app)/legal/[id]/{chain-card,send-to-settlement}.tsx` ; `sendLegalInvoiceToSettlement` dans `legal-actions.ts` (→ `createExpenseOrder`, centre de paiement). |
+| **My Chief of Staff (module exécutif)** | Module RBAC `CHIEF_OF_STAFF` (PDG + Super Admin) ; page `app/(app)/chief-of-staff/page.tsx` (réutilise `AssistantChat`) ; outils `lib/assistant/executive-tools.ts` (`EXEC` en garde, `search_drive`, `read_document` — droit du Drive nœud par nœud —, **`inspect_record`** — timeline d'audit + validateurs + chaîne d'achat + liens —, `person_report`, `plan_reminder`/`list_reminders`/`cancel_reminder`, `executiveBriefing`) fondus dans `POWER_TOOLS` ; action confirmée **`decide_payment`** (propose + perform dans `lib/assistant.ts`, exécution via `decidePayment` du centre) ; architecture : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`. |
+| **Rappels planifiés du Chief of Staff** | Modèle `AssistantReminder` (dueAt, `recurrence` NONE/DAILY/WEEKLY/MONTHLY, `targetRole` à relancer, `active`) ; module `lib/assistant/reminders.ts` (`nextOccurrence` — retombe le même jour/heure même tiré en retard, rattrape un serveur éteint sans notifier N fois —, `algiersToUtc`, `runAssistantReminders`) + `reminders.test.ts` (9 tests) ; balayage branché dans `lib/scheduled.ts` ; pop-up via `broadcastNotification`, relance du rôle via `notifyRoles`. |
+| **Drive → « Classer en courrier »** | `attachDriveNodeToMail` (`mail-register-actions.ts` — référence sans copie, refus du doublon) ; `app/(app)/drive/send-to-mail.tsx` (panneau rendu PAR LA LIGNE, hors menu-portail) ; entrée dans `node-actions.tsx`. |
+| **Accès par annuaire de praticiens** | Modèle `MedicalDirectoryAccess` (liste vide = ouvert à tout le module) ; `setDirectoryAccess` (`medical-directory-crud-actions.ts` — celui qui restreint reste dedans d'office) ; filtrage dans `app/(app)/medical/annuaire/page.tsx` (pastille masquée, adresse directe en 404, praticiens exclus de la vue « Tous ») ; panneau d'accès dans `directory-bar.tsx`. |
 | **RH — contrats : visibilité et miroir Drive** | Module PUR `lib/hr/document-visibility.ts` (`defaultVisibleToEmployee`, `resolveVisibility`, `shouldMirrorToDrive`) + tests ; `lib/hr-drive-mirror.ts` écrit dans une **catégorie de Drive** « RH — Contrats » ouverte aux seuls rôles RH (`rolesWithModule("RH")`), plus dans un Drive personnel. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
@@ -2693,7 +2751,7 @@ comme sur **toutes les pièces jointes des modules**.
 
 ## 🗃️ Modèle de données — entités clés
 
-**236 modèles** Prisma (dont `Company`), **167 enums** (dont `MaterialType`). Quelques entités structurantes (référence `prisma/schema.prisma`) :
+**238 modèles** Prisma (dont `Company`), **167 enums** (dont `MaterialType`). Quelques entités structurantes (référence `prisma/schema.prisma`) :
 
 | Domaine | Modèles clés |
 |---|---|
@@ -3001,6 +3059,58 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **« My Chief of Staff » : le PDG parle à son entreprise.** Nouveau module exécutif
+  (`/chief-of-staff`, PDG + Super Admin) — le même moteur que l'assistant, mais servi avec les
+  gestes d'un chef de cabinet : l'**histoire complète d'un dossier** par sa référence (timeline du
+  journal d'audit, validateurs nommés et datés, pièces, chaîne d'achat, état au centre de
+  paiement, liens cliquables), la **fouille et la lecture** des documents du Drive (PDF, Word,
+  Excel, PowerPoint — le droit vérifié nœud par nœud), le **bilan factuel** d'une personne (faits
+  et métriques, jamais de jugement), les **rappels planifiés** (« rappelle-moi mardi 10 h »,
+  « tous les dimanches relance Regulatory » — un vrai job dans le planificateur de la plateforme,
+  qui retombe le bon jour à la bonne heure même tiré en retard), et les **décisions du centre de
+  paiement** — toujours derrière la carte de confirmation, l'exécution repassant par l'action du
+  centre. Trois règles gravées : la permission se vérifie côté serveur à chaque appel ; chaque
+  affirmation cite sa référence, sa date et son lien ; quand la donnée n'existe pas, l'outil le
+  DIT. L'architecture cible (capability matrix, entity map, phases voix temps réel / recherche
+  hybride / proactivité) : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`.
+
+- **Le centre de paiement devient un module à part, et la demande de paiement y passe VRAIMENT.**
+  Celui qui autorise l'argent ne doit pas être dans l'écran de celui qui le décaisse : le centre
+  quitte les Finances (`/centre-de-paiement`, module RBAC propre, ancienne adresse redirigée). Les
+  demandes de paiement perdent leur module : elles se déposent depuis les **Demandes de
+  validations**, et le chaînon manquant est posé — le **bon à payer crée enfin l'ordre de
+  dépense** par la porte commune, qui applique la règle du centre (dès 50 000 DZD, autorisation du
+  PDG ou du Super Admin AVANT que les Finances ne voient l'ordre). `expenseOrderId`, prévu au
+  schéma mais jamais rempli, porte enfin le lien — et la transition APPROVED étant terminale,
+  l'ordre ne peut pas naître deux fois.
+
+- **Legal lit un achat d'un bout à l'autre.** Le devis et la facture rejoignent Legal, et chaque
+  pièce pointe vers celle dont elle découle : la fiche montre la **chaîne entière** — dates,
+  montants, **validateurs de chaque maillon**, **délai en jours** entre deux maillons, **écart
+  devis → facture** (il doit se voir AVANT que l'argent parte), et le **règlement** au bout avec
+  son état. « Envoyer au règlement » sur une facture passe par le centre de paiement, et une
+  facture ne part jamais deux fois. Un devis à deux BC : chaque BC remonte au même devis, et l'on
+  lit toujours le fil de LA pièce qu'on regarde — jamais un graphe qui mélangerait deux commandes.
+
+- **Le circuit court du matériel promo prend l'écran.** Le moteur existait, la fiche montrait
+  encore la frise des quinze marches. Toute nouvelle demande démarre sur le circuit court (case
+  « j'ai déjà un devis » qui saute la demande de devis, N+1 figé par l'organigramme) ; PDG et
+  Super Admin voient la chaîne entière, les autres l'étape en cours et « on attend qui » ; les
+  trois chantiers (BC, paiement, visa) se clôturent indépendamment ; les dossiers d'avant la
+  réforme basculent d'un clic.
+
+- **Des tableaux qui se filtrent par leurs colonnes, et un secrétariat qui respire.** Courriers :
+  Départ et Arrivée se filtrent **au mois** (« le courrier à la CNAS de mars »), l'Accusé par
+  présence. Legal : Début et Échéance au mois. Bureau du secrétariat : les six boutons d'en-tête
+  (Bureau de Donna, Validations, Courses, Missions…) et la rangée d'onglets de statut disparaissent
+  — chaque colonne porte le filtre qui lui va (texte, menu, mois). Ad & Pro gagne sa **vue par
+  catégorie** (pastilles avec compte, même règle que le filtre de colonne). Depuis les trois
+  petits points du Drive, un fichier se **classe en courrier** comme il se déclarait dans Legal —
+  référence sans copie, doublon refusé. Et chaque **annuaire de praticiens** règle désormais **qui
+  peut l'ouvrir** : des noms cochés ferment l'annuaire aux autres, pastille masquée, adresse en
+  404, praticiens exclus de la vue « Tous » — sans quoi la restriction ne serait qu'une pastille
+  masquée.
 
 - **Le centre de paiement : au-dessus de 50 000 DZD, l'argent ne sort pas sans le PDG.** Les
   paiements naissaient dans huit modules et se rejoignaient aux Finances — chacun validé quelque
