@@ -170,6 +170,16 @@ suite("ops de domaine & lots — goldens (fixtures partagées)", () => {
       data: { title: `${TAG} Facture imprimeur`, kind: "INVOICE", amount: 45000, counterparty: "Imprimerie", createdById: ownerId },
     });
     await prisma.supplier.create({ data: { name: `${TAG} LabPartner GmbH` } });
+    // ── Fixtures C2d : Ad & Pro + BD ──
+    await prisma.sponsoringRequest.create({
+      data: {
+        reference: `${TAG}-SPO-1`, institution: `${TAG} Association cardio`, type: "Table ronde",
+        items: { create: { label: `${TAG} Location de salle`, status: "PENDING", amountEstimated: 180000, submittedAt: new Date(), supplier: "Hôtel El Aurassi" } },
+      },
+    });
+    await prisma.businessDevelopmentOpportunity.create({
+      data: { name: `${TAG} Biosimilaire X`, status: "RESEARCH" },
+    });
   });
 
   afterAll(async () => {
@@ -191,6 +201,8 @@ suite("ops de domaine & lots — goldens (fixtures partagées)", () => {
     await prisma.mailEntryFolder.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.legalDocument.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
     await prisma.supplier.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
+    await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
+    await prisma.businessDevelopmentOpportunity.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   });
 
@@ -605,6 +617,57 @@ suite("ops de domaine & lots — goldens (fixtures partagées)", () => {
       expect("error" in p).toBe(false);
       if ("error" in p) return;
       expect(p.title).toContain("Désactiver");
+    });
+  });
+
+  describe("ops Ad & Pro / BD / Stocks", () => {
+    it("decide_item : le poste SOUMIS se résout par libellé, montant accordé ajustable (Direction)", async () => {
+      const direction = userWith({}, "DIRECTION", ownerId, `${TAG} Karim`);
+      const p = await buildProposal("adpro_operation", {
+        op: "decide_item", decision: "accorde", label: `${TAG} Location`, amount: "150000",
+      }, direction);
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.level).toBe("SENSITIVE");
+      expect(JSON.stringify(p.fields)).toContain(`${TAG}-SPO-1`);
+      expect(JSON.stringify(p.fields)).toMatch(/180.000.DZD/); // estimation montrée
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.decision).toBe("APPROVED");
+      expect(payload.args.amountGranted).toBe("150000");
+    });
+
+    it("transfer : source résolue (référence sponsoring), destination comprise, effets annoncés", async () => {
+      const sa = userWith({}, "SUPER_ADMIN", ownerId, `${TAG} Karim`);
+      const p = await buildProposal("adpro_operation", {
+        op: "transfer", reference: `${TAG}-SPO-1`, to: "prise en charge nationale",
+      }, sa);
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.warnings.join(" ")).toMatch(/repart du DÉBUT/);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.from).toBe("SPONSORING");
+      expect(payload.args.to).toBe("CONGRESS_NATIONAL");
+    });
+
+    it("bd update_status : stade normalisé en FR, sans-changement refusé", async () => {
+      const bd = userWith({ BUSINESS_DEVELOPMENT: ["VIEW", "CREATE", "UPDATE"] }, "BUSINESS_DEVELOPMENT_MANAGER", ownerId, `${TAG} Karim`);
+      const same = await buildProposal("bd_operation", { op: "update_status", name: `${TAG} Biosimilaire X`, status: "recherche" }, bd);
+      expect("error" in same && same.error).toMatch(/déjà au stade/);
+      const p = await buildProposal("bd_operation", { op: "update_status", name: `${TAG} Biosimilaire X`, status: "négociation" }, bd);
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.status).toBe("NEGOTIATION");
+    });
+
+    it("stock request_state : destinataire résolu, circuit demande de tâche annoncé", async () => {
+      const sa = userWith({}, "SUPER_ADMIN", ownerId, `${TAG} Karim`);
+      const p = await buildProposal("stock_operation", { op: "request_state", assigneeName: `${TAG} Lina` }, sa);
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.warnings.join(" ")).toMatch(/DEMANDE DE TÂCHE/);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.assigneeId).toBe(colleagueId);
     });
   });
 

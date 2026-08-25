@@ -11,6 +11,7 @@ import { MEETING_OPS_IMPL } from "./impl-meeting";
 import { MAIL_OPS_IMPL } from "./impl-mail";
 import { LEGAL_OPS_IMPL } from "./impl-legal";
 import { ORG_OPS_IMPL } from "./impl-org";
+import { ADPRO_OPS_IMPL, BD_OPS_IMPL, STOCK_OPS_IMPL } from "./impl-commercial";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -311,6 +312,71 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           notes: { type: "string", description: "Notes." },
         },
         required: ["op"],
+      },
+    },
+  },
+  adpro_operation: {
+    module: "SPONSORING",
+    ops: zipOps("adpro_operation", ADPRO_OPS_IMPL),
+    def: {
+      name: "adpro_operation",
+      description:
+        "AD & PRO — trancher un poste de dépense (Direction : accordé/refusé/budget à revoir, montant ajustable), transférer une demande entre Sponsoring et Prises en charge, valider/refuser l'étape courante du circuit du matériel promotionnel, par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("adpro_operation")}. `
+        + "Les cibles se donnent par libellé de poste ou référence (SPO-…, PCN-…, PCI-…, dossier promo).",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("adpro_operation"), description: "Le geste à faire." },
+          label: { type: "string", description: "decide_item / circuit promo : libellé du poste ou titre du dossier." },
+          reference: { type: "string", description: "transfer / circuit promo : référence exacte de la demande ou du dossier." },
+          decision: { type: "string", description: "decide_item : accorder, refuser, ou budget à revoir." },
+          amount: { type: "string", description: "decide_item : montant accordé en DZD (défaut : l'estimation)." },
+          to: { type: "string", description: "transfer : module de destination (sponsoring / prise en charge nationale / internationale)." },
+          note: { type: "string", description: "Motif / note (obligatoire pour refuser une étape promo)." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  bd_operation: {
+    module: "BUSINESS_DEVELOPMENT",
+    ops: zipOps("bd_operation", BD_OPS_IMPL),
+    def: {
+      name: "bd_operation",
+      description:
+        "PIPELINE BUSINESS DEVELOPMENT — créer une opportunité et faire avancer son stade (idée → recherche → contacté → NDA → offre reçue → négociation → validée / abandonnée), par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("bd_operation")}.`,
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("bd_operation"), description: "Le geste à faire." },
+          name: { type: "string", description: "Nom de l'opportunité (création ou cible)." },
+          status: { type: "string", description: "update_status : le stade visé." },
+          dci: { type: "string", description: "create : DCI du produit." },
+          therapeuticClass: { type: "string", description: "create : classe thérapeutique." },
+        },
+        required: ["op", "name"],
+      },
+    },
+  },
+  stock_operation: {
+    module: "STOCKS",
+    ops: zipOps("stock_operation", STOCK_OPS_IMPL),
+    def: {
+      name: "stock_operation",
+      description:
+        "STOCKS PCH — demander un état de stock à une personne (hôpitaux ciblés en option, validés dans les lieux de stock) : une DEMANDE DE TÂCHE part par le circuit normal. "
+        + `Champ « op » : ${opsSummary("stock_operation")}.`,
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("stock_operation"), description: "Le geste à faire." },
+          assigneeName: { type: "string", description: "À qui demander l'état de stock." },
+          hospitals: { type: "string", description: "Hôpitaux ciblés, séparés par des virgules (optionnel)." },
+          note: { type: "string", description: "Précision de la demande." },
+        },
+        required: ["op", "assigneeName"],
       },
     },
   },
