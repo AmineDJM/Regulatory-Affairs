@@ -571,6 +571,33 @@ primitive GÉNÉRALE (aucun exemple codé en dur — §42) + un test golden.
    « Demande à X de faire Y » = CRÉER UNE TÂCHE par défaut (règle métier texte + voix) ;
    « envoie-lui un message » explicite = message.
 
+   EXTENSION « le Chief fait tout » (lot suivant, même discipline) :
+   • DEMANDE DE TÂCHE canonique : l'exécution de `create_task` contournait le circuit de l'écran
+     (tâche déposée directement, cloche silencieuse) — DEUXIÈME LOGIQUE éliminée en extrayant le
+     cœur (`lib/tasks/create-core.ts`, règles dans `lib/tasks/request-flow.ts` pur) partagé par
+     l'action écran et le Chief : pour un collègue → REQUESTED + `requestedAt` + POP-UP +
+     accepter/refuser + fil d'échange ; pour soi → to-do. Se PLANIFIE (dueDate + priorité) ; la
+     carte annonce le mode (« Demander une tâche à X ») avant la confirmation.
+   • RELANCE Regulatory : `request_regulatory_status_update` (même bouton que la fiche, porte
+     supervision = Super Admin + rôles configurés, action canonique `requestRegulatoryStatusUpdate`) —
+     les DESTINATAIRES (responsable/assistant/participants) sont montrés AVANT la confirmation ;
+     dossier sans personne à relancer = refus explicite qui oriente vers l'assignation.
+   • CORBEILLE complète : `restore_record` (recréation à l'identique via `restoreDeletedRecord`)
+     et `purge_record` (destruction RÉELLE via `destroyDeletedRecord` — fichiers effacés, CRITIQUE
+     avec ressaisie ; une entrée déjà restaurée reste purgeable, l'avertissement le dit).
+     Résolution par le nom affiché dans la corbeille (`resolveTrashEntry` — exact/unique/ambigu).
+   • COMPTES : `set_account_active` (interrupteur de l'écran Administration — jamais sur son
+     propre compte, exécution IDEMPOTENTE : l'état réel est relu avant `toggleUserActive` qui
+     bascule aveuglément) et `set_account_role` (rôle + « autre rôle » via `updateUserRole` /
+     `setSecondaryRole` — anti-escalade : jamais Super Admin en secondaire, dit dès la
+     proposition). SENSITIVE tous les deux.
+   • LIMITE ASSUMÉE (sécurité > complétude) : la CRÉATION de compte (`createUser`) reste sur
+     l'écran — un mot de passe ne transite jamais par une conversation (le chat est un
+     historique ; le champ de l'écran est masqué). Pas encore couverts côté écriture :
+     matrice d'accès fine (/admin/access), gestion des départements, écritures Drive
+     (création/déplacement de nœuds), dépenses budgétaires, lignes de paie — chacun suivra le
+     même patron (cœur canonique → proposition → confirmation) lot par lot.
+
 7. *« Je veux un Excel téléchargeable ICI » → « disponible dans le Drive ».*
    → chaque fichier de livrable porte `telechargement: /api/drive/<id>/raw` (mêmes ACL Drive,
    Content-Disposition attachment) en plus du lien Drive ; le rendu du chat LINKIFIE les

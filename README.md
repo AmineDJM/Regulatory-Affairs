@@ -2491,7 +2491,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Cloisonnement d'entité (portée validée)** | `lib/company.ts` → `currentCompanyWhereFor(userId)` (**remplace** `currentCompanyWhere()`, qui posait le cookie tel quel), `myCompanyScope`, `myCompanyWhere`, `platformScope`, `getMyCompanies` ; règles pures dans `lib/company-access.ts` (`allowedCompanyIds`, `resolveScope`, `platformScopeWhere`) ; `setCompanyScope` refuse une entité hors droits (`lib/actions/company-actions.ts`) ; `components/layout/company-switcher.tsx` (pas de menu quand on n'a qu'une entité). |
 | **Explorateur Drive dans un formulaire** | `lib/actions/drive-browse-actions.ts` (`browseDrive`, lecture seule via `getDriveListing`) ; `components/drive/drive-picker.tsx` (`DrivePickerField`) ; type de champ `drivepicker` dans `components/shared/create-record-button.tsx` ; pièces jointes de création via `attachFormFiles` (`lib/documents.ts`). |
 | **Bureautique — papier en-tête** | Modèle `OfficeLetterhead` ; module PUR `lib/office/letterhead.ts` (`canManageLetterheads` — **assistante de direction + Super Admin, et personne d'autre** : la Direction et le DG en ont été retirés, ils signent les courriers, ils ne tiennent pas la papeterie ; CHOISIR un en-tête à la création reste ouvert à tous —, `validateLetterheadFile`, `letterheadsFor`, `documentName`) + `letterhead.test.ts` (15 tests) ; `lib/actions/letterhead-actions.ts` (téléverser / renommer / retirer / supprimer) ; `lib/queries/letterheads.ts` (`letterheadContextFor`) ; `components/office/letterhead-choice.tsx` (Vierge / Avec en-tête) ; `app/(app)/office/letterhead-manager.tsx`. `createOfficeNode` recopie les OCTETS du modèle (voir circuit). |
-| **Tâches demandées (accepter / faire / valider)** | `Task.requestedAt|respondedAt|declineReason|completionNote` + `TaskComment` (le fil) ; module PUR `lib/tasks/request-flow.ts` (**`taskCreationMode`**, **`creationNotices`**, `canRespond`, `canDoWork`, `canSee`, `canAttach`, **`canComment`**, **`taskActions`**, `requestStage`, `declineSummary`) + `request-flow.test.ts` (43 tests) ; `lib/actions/task-actions.ts` (`createTask` — porte UNIQUE, `respondTaskRequest`, `submitTaskWork`, `reopenTaskWork`, `addTaskComment`) ; dossier `app/(app)/mon-espace/taches/[id]/` (+ `work-panel.tsx`, `comments.tsx`) ; cas `TASK` dans `lib/entity-access.ts`. |
+| **Tâches demandées (accepter / faire / valider)** | `Task.requestedAt|respondedAt|declineReason|completionNote` + `TaskComment` (le fil) ; module PUR `lib/tasks/request-flow.ts` (**`taskCreationMode`**, **`creationNotices`**, `canRespond`, `canDoWork`, `canSee`, `canAttach`, **`canComment`**, **`taskActions`**, `requestStage`, `declineSummary`) + `request-flow.test.ts` (43 tests) ; **cœur partagé `lib/tasks/create-core.ts`** (`createTaskRecord` : statut/`requestedAt` selon le mode + notifications pop-up/cloche + audit — consommé par l'action écran ET par l'assistant, une seule logique du circuit) ; `lib/actions/task-actions.ts` (`createTask` — porte UNIQUE, `respondTaskRequest`, `submitTaskWork`, `reopenTaskWork`, `addTaskComment`) ; dossier `app/(app)/mon-espace/taches/[id]/` (+ `work-panel.tsx`, `comments.tsx`) ; cas `TASK` dans `lib/entity-access.ts`. |
 | **Demandes de paiement** | Les écrans vivent sous `app/(app)/validations/paiements/` (`page.tsx`, `[id]/page.tsx` + `dossier.tsx`, `new-payment-button.tsx`) ; `app/(app)/finances/paiements/**` sont des **redirections**. Pas de bouton « retour aux Finances » : la page est **ouverte à tout le monde** (n'importe qui peut avoir une facture à faire payer) alors que le module Finances ne l'est pas — le bouton menait donc la plupart des gens vers un refus. Les Finances les voient depuis **leur propre module**. `lib/queries/finance-people.ts` (`financeRecipients`) ; garde **nominative** `PAYMENT_REQUEST` dans `lib/entity-access.ts` (demandeur / destinataire / Finances — elle tranche avant la porte du module, donc elle a survécu aux deux déménagements sans changer) ; règles pures dans `lib/finance/payment-request.ts`. |
 | **Moyens généraux — caisse ou hors caisse** | Module PUR `lib/general-means/payment-source.ts` (`sourceOf`, `cashAvailable`, `resolveSource`, `sourceChange`, `defaultSource`) + `payment-source.test.ts` (15 tests) ; `addDepartmentExpense` / `updateDepartmentExpense` acceptent `paymentSource` (`lib/actions/department-budget-actions.ts`) ; `app/(app)/moyens-generaux/{expense-panel,expense-row-actions}.tsx`. Le volet « dépense » de `cash-panel.tsx` a été **retiré** : un seul bouton. |
 | **Moyens généraux — demande d'achat (tous)** | Module PUR `lib/general-means/purchase-request.ts` (`cleanLines`, `estimatedTotal`, `summarize`, `purchaseStage`, `canWithdraw`) + `purchase-request.test.ts` (20 tests) ; `lib/actions/purchase-request-actions.ts` (validateur = **N+1 résolu par `getManagerOfUser`**) ; `app/(app)/moyens-generaux/{purchase-section,purchase-request-form,my-purchase-requests}.tsx`. La demande est une `AdministrativeRequest` de type `PURCHASE`. |
@@ -3113,6 +3113,28 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **LE CHIEF FAIT TOUT — demandes de tâches canoniques, relance Regulatory, corbeille, comptes.**
+  Suite du principe « la parité écran est un PLANCHER », après le correctif `delete_record`.
+  **Demande de tâche** : l'exécution `create_task` de l'assistant contournait le circuit de
+  l'écran (tâche déposée directement, cloche silencieuse) — le cœur est extrait dans
+  `lib/tasks/create-core.ts` (`createTaskRecord`, règles dans `request-flow.ts` pur) et partagé
+  par l'action écran et l'assistant : pour un collègue → **REQUESTED + `requestedAt` + POP-UP +
+  accepter/refuser**, pour soi → to-do ; se **planifie** (échéance + priorité) et la carte
+  annonce le mode (« Demander une tâche à X ») avant confirmation. **Relance Regulatory** :
+  `request_regulatory_status_update` (porte supervision, action canonique de la fiche,
+  destinataires affichés AVANT confirmation, refus explicite si personne à relancer).
+  **Corbeille complète** : `restore_record` (recréation à l'identique) et `purge_record`
+  (destruction réelle, fichiers effacés — CRITIQUE avec ressaisie ; entrée déjà restaurée
+  purgeable avec avertissement), résolution par le nom affiché (`resolveTrashEntry`).
+  **Comptes** : `set_account_active` (interrupteur de l'écran, jamais soi-même, exécution
+  idempotente — l'état réel est relu avant le `toggleUserActive` qui bascule aveuglément) et
+  `set_account_role` (rôle + autre rôle via `updateUserRole`/`setSecondaryRole`, anti-escalade
+  Super Admin dit dès la proposition) — SENSITIVE. **Limite assumée** : la création de compte
+  reste sur l'écran (un mot de passe ne transite jamais par une conversation) ; matrice d'accès,
+  départements, écritures Drive, dépenses budgétaires et paie suivront le même patron.
+  Tests : `superadmin-write` (10 — dont l'EXÉCUTION réelle du circuit demande de tâche :
+  REQUESTED + pop-up + audit). Prompt Super Admin enrichi (corbeille + comptes).
 
 - **WORLD-CLASS EXECUTIVE AI — connaître l'entreprise, pas chercher dedans.** Audit complet du
   moteur puis huit causes racines corrigées par des primitives GÉNÉRALES (jamais un exemple

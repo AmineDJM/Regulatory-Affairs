@@ -36,16 +36,18 @@ import {
   type ClaudeMessage, type ClaudeContentBlock, type ClaudeToolDef,
 } from "@/lib/ai";
 import {
-  userCan, accessibleModules, hasGlobalView, type Module,
+  userCan, accessibleModules, hasGlobalView, isRegulatorySupervisor, type Module,
   scopeMedicalDoctors, scopeRegulatory, scopeAdminRequests,
 } from "@/lib/rbac";
 import { updateRequestStatus, assignRequest, addRequestComment } from "@/lib/actions/admin-request-actions";
 import { createLegalDocument, updateLegalDocument } from "@/lib/actions/legal-actions";
 import { updateCalendarEvent, deleteCalendarEvent } from "@/lib/actions/calendar-actions";
-import { setRegulatoryResponsible, setRegulatoryStepState, setRegulatoryPresubOutcome } from "@/lib/actions/regulatory-actions";
-import { superAdminDelete } from "@/lib/actions/admin-delete-actions";
+import { setRegulatoryResponsible, setRegulatoryStepState, setRegulatoryPresubOutcome, requestRegulatoryStatusUpdate } from "@/lib/actions/regulatory-actions";
+import { superAdminDelete, restoreDeletedRecord, destroyDeletedRecord } from "@/lib/actions/admin-delete-actions";
+import { toggleUserActive, updateUserRole, setSecondaryRole } from "@/lib/actions/admin-actions";
+import { createTaskRecord } from "@/lib/tasks/create-core";
 import { DELETE_REGISTRY, DELETABLE_KINDS, isDeletableKind, type DeletableKind } from "@/lib/admin-delete-registry";
-import { resolveDeletableTarget } from "@/lib/assistant/delete-resolve";
+import { resolveDeletableTarget, resolveTrashEntry } from "@/lib/assistant/delete-resolve";
 import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { isRegStepKey, isRegStepState, isRegPresubOutcome, REG_STEPS, PRESUB_ANSWER_STEP } from "@/lib/regulatory-workflow";
 import { createInstitution, updateInstitution } from "@/lib/actions/medical-actions";
@@ -157,6 +159,51 @@ export type AssistantActionPayload =
       /** Libellé du type (« dossier réglementaire ») + liste de retour, copiés du registre. */
       label: string;
       redirect: string;
+    }
+  | {
+      /** RESTAURER un élément de la corbeille — action canonique `restoreDeletedRecord`
+       *  (recréation à l'identique + pièces + commentaires, mêmes id/référence). */
+      kind: "restore_record";
+      recordId: string;
+      name: string;
+      label: string;
+    }
+  | {
+      /** DÉTRUIRE RÉELLEMENT une entrée de la corbeille (fichiers effacés) — action canonique
+       *  `destroyDeletedRecord`. Contrairement à `delete_record`, il n'y a AUCUN retour. */
+      kind: "purge_record";
+      recordId: string;
+      name: string;
+      label: string;
+    }
+  | {
+      /** RELANCE Regulatory : demander une mise à jour de statut au responsable/assistant/
+       *  participants — action canonique `requestRegulatoryStatusUpdate` (notifications). */
+      kind: "request_regulatory_status_update";
+      productId: string;
+      reference: string;
+      dci: string;
+      note: string | null;
+      recipients: string[];
+    }
+  | {
+      /** ACTIVER / DÉSACTIVER un compte — action canonique `toggleUserActive`. L'état CIBLE est
+       *  mémorisé pour rendre l'exécution idempotente (le toggle brut ne l'est pas). */
+      kind: "set_account_active";
+      userId: string;
+      userName: string;
+      active: boolean;
+    }
+  | {
+      /** RÔLE (et rôle secondaire) d'un compte — actions canoniques `updateUserRole` /
+       *  `setSecondaryRole`. Un champ absent (null) = inchangé ; secondaryRole "" = retirer. */
+      kind: "set_account_role";
+      userId: string;
+      userName: string;
+      role: string | null;
+      roleBefore: string;
+      secondaryRole: string | null;
+      secondaryBefore: string;
     }
   | {
       /**
@@ -463,6 +510,11 @@ export const ACTION_POLICY: Record<AssistantActionKind, { external: boolean; lev
   set_regulatory_step: { external: true },
   update_platform_setting: { external: true, level: "SENSITIVE" },
   delete_record: { external: true, level: "CRITICAL" },
+  restore_record: { external: true },
+  purge_record: { external: true, level: "CRITICAL" },
+  request_regulatory_status_update: { external: true },
+  set_account_active: { external: true, level: "SENSITIVE" },
+  set_account_role: { external: true, level: "SENSITIVE" },
   set_products_company: { external: true },
   create_task: { external: true },
   create_admin_request: { external: true },
@@ -785,6 +837,71 @@ const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
       required: ["kind", "reference"],
     },
   },
+  {
+    name: "restore_record",
+    description:
+      "RÉSERVÉ AU SUPER ADMIN : PROPOSE la RESTAURATION d'un élément de la corbeille (Administration → "
+      + "Corbeille) — recréé à l'identique (mêmes id/référence) avec ses pièces jointes et commentaires. "
+      + "Les enfants perdus en cascade ne reviennent pas. N'exécute rien : confirmation requise. "
+      + "Désigner l'élément par son nom/référence tel qu'affiché dans la corbeille (et préciser kind si ambigu).",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Nom/référence de l'élément supprimé, tel qu'affiché dans la corbeille." },
+        kind: { type: "string", enum: [...DELETABLE_KINDS], description: "Type, pour lever une ambiguïté (optionnel)." },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "purge_record",
+    description:
+      "RÉSERVÉ AU SUPER ADMIN : PROPOSE la DESTRUCTION RÉELLE d'une entrée de la corbeille — les fichiers "
+      + "stockés sont EFFACÉS, il n'y a AUCUN retour possible (contrairement à delete_record qui reste "
+      + "restaurable). Confirmation FORTE requise (ressaisie). N'exécute rien. "
+      + "Désigner l'entrée par son nom/référence tel qu'affiché dans la corbeille (kind si ambigu).",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Nom/référence de l'entrée de corbeille à détruire." },
+        kind: { type: "string", enum: [...DELETABLE_KINDS], description: "Type, pour lever une ambiguïté (optionnel)." },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "set_account_active",
+    description:
+      "RÉSERVÉ AU SUPER ADMIN : PROPOSE l'ACTIVATION ou la DÉSACTIVATION d'un compte utilisateur — même "
+      + "interrupteur que l'écran Administration. Un compte désactivé ne peut plus se connecter (réversible "
+      + "à tout moment). Impossible sur son propre compte. N'exécute rien : confirmation requise.",
+    input_schema: {
+      type: "object",
+      properties: {
+        personName: { type: "string", description: "Nom du compte (les comptes INACTIFS sont aussi cherchés — pour réactiver)." },
+        active: { type: "boolean", description: "true = activer ; false = désactiver." },
+      },
+      required: ["personName", "active"],
+    },
+  },
+  {
+    name: "set_account_role",
+    description:
+      "RÉSERVÉ AU SUPER ADMIN : PROPOSE le changement de RÔLE d'un compte (et/ou de son AUTRE RÔLE "
+      + "secondaire cumulé) — mêmes règles que l'écran Administration : les droits changent immédiatement, "
+      + "le rôle secondaire ne peut jamais être Super Admin (anti-escalade). Donner le rôle par son libellé "
+      + "français (ex. « Délégué médical ») ou son code. secondaryRole vide = retirer l'autre rôle. "
+      + "N'exécute rien : confirmation requise.",
+    input_schema: {
+      type: "object",
+      properties: {
+        personName: { type: "string", description: "Nom du compte." },
+        role: { type: "string", description: "Nouveau rôle principal (libellé FR ou code) — omettre pour ne pas changer." },
+        secondaryRole: { type: "string", description: "Nouvel « autre rôle » (libellé FR ou code) ; chaîne vide pour le retirer ; omettre pour ne pas changer." },
+      },
+      required: ["personName"],
+    },
+  },
 ];
 
 const WRITE_TOOLS: ClaudeToolDef[] = [
@@ -867,17 +984,36 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "create_task",
     description:
-      "PROPOSE la création d'une tâche (pour soi ou pour un collègue). N'exécute rien : l'action sera confirmée par l'utilisateur. Résoudre d'abord le collègue avec search_people si besoin.",
+      "PROPOSE la création d'une tâche — LE MÊME CIRCUIT QUE L'ÉCRAN : pour soi c'est une to-do ; "
+      + "pour un COLLÈGUE c'est une DEMANDE DE TÂCHE (il la reçoit en pop-up et l'ACCEPTE ou la REFUSE, "
+      + "avec fil d'échange et dépôt du travail). Se PLANIFIE avec dueDate (échéance AAAA-MM-JJ) et une "
+      + "priorité. N'exécute rien : confirmation requise. Résoudre d'abord le collègue avec search_people si besoin.",
     input_schema: {
       type: "object",
       properties: {
         title: { type: "string", description: "Intitulé clair de la tâche." },
         description: { type: "string", description: "Détails utiles." },
-        assigneeName: { type: "string", description: "Nom du collègue à qui assigner (sinon soi-même)." },
-        dueDate: { type: "string", description: "Échéance au format AAAA-MM-JJ." },
+        assigneeName: { type: "string", description: "Nom du collègue à qui la demander (sinon soi-même)." },
+        dueDate: { type: "string", description: "Échéance au format AAAA-MM-JJ (planification)." },
         priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
       },
       required: ["title"],
+    },
+  },
+  {
+    name: "request_regulatory_status_update",
+    description:
+      "PROPOSE d'envoyer une RELANCE « mise à jour de statut demandée » sur UN dossier Regulatory "
+      + "(même bouton que la fiche, réservé à la supervision Regulatory : Super Admin + rôles configurés). "
+      + "Le responsable, l'assistant et les participants du dossier sont NOTIFIÉS avec un lien vers la fiche "
+      + "— c'est une relance traçable, le statut n'est PAS modifié. N'exécute rien : confirmation requise.",
+    input_schema: {
+      type: "object",
+      properties: {
+        reference: { type: "string", description: "Référence du dossier (REG-AAAA-NNN)." },
+        note: { type: "string", description: "Précision jointe à la relance (optionnel)." },
+      },
+      required: ["reference"],
     },
   },
   {
@@ -1386,6 +1522,14 @@ la carte affiche l'élément, l'impact et la réversibilité (instantané en cor
 confirmation exige de RESSAISIR la référence. Ne dis JAMAIS « je ne peux pas supprimer » — tu PROPOSES,
 l'utilisateur confirme. Désigne l'élément par sa référence exacte ; en cas d'homonymes, l'outil te
 listera les candidats.
+
+TU PILOTES AUSSI LA CORBEILLE ET LES COMPTES. restore_record RESTAURE un élément supprimé
+(recréé à l'identique avec pièces et commentaires) ; purge_record le DÉTRUIT pour de bon (fichiers
+effacés — CRITIQUE, ressaisie exigée). set_account_active ACTIVE ou DÉSACTIVE un compte (jamais le
+tien) ; set_account_role change le RÔLE d'un compte et son AUTRE RÔLE cumulé (jamais Super Admin en
+secondaire). La CRÉATION de compte reste sur l'écran Administration : un mot de passe ne transite
+JAMAIS par cette conversation. Ne dis jamais « je ne peux pas » pour ces gestes — tu PROPOSES,
+l'utilisateur confirme.
 ` : ""}
 CONTEXTE :
 ${buildContext(user)}${powers}
@@ -2115,15 +2259,23 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     const assignee = await resolve("Destinataire", asStr(input, "assigneeName"));
     const due = asStr(input, "dueDate") ? isoDate(asStr(input, "dueDate")) : null;
     const priority = asStr(input, "priority") ? normPriority(asStr(input, "priority")) : null;
+    // LE MÊME CIRCUIT QUE L'ÉCRAN : pour un collègue, c'est une DEMANDE qui s'accepte ou se
+    // refuse — la carte le dit avant la confirmation, pas après.
+    const isRequest = Boolean(assignee.id) && assignee.id !== user.id;
     const fields = [
       { label: "Tâche", value: title },
-      { label: "Assignée à", value: assignee.name ?? `${user.name} (vous)` },
+      { label: isRequest ? "Demandée à" : "Assignée à", value: assignee.name ?? `${user.name} (vous)` },
     ];
     if (asStr(input, "description")) fields.push({ label: "Détails", value: asStr(input, "description") });
     if (due) fields.push({ label: "Échéance", value: due });
     if (priority) fields.push({ label: "Priorité", value: PRIORITY[priority]?.label ?? priority });
+    if (isRequest) {
+      warnings.push(`${assignee.name} recevra la demande en POP-UP et pourra l'ACCEPTER ou la REFUSER — même circuit que l'écran.`);
+    }
     return {
-      kind: "create_task", module: "WORKSPACE", title: "Créer une tâche", fields, warnings,
+      kind: "create_task", module: "WORKSPACE",
+      title: isRequest ? `Demander une tâche à ${assignee.name}` : "Créer une tâche",
+      fields, warnings,
       payload: {
         kind: "create_task", title, description: asStr(input, "description") || null,
         assigneeId: assignee.id, assigneeName: assignee.name, dueDate: due, priority,
@@ -2917,6 +3069,210 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  if (toolName === "restore_record" || toolName === "purge_record") {
+    // LA MÊME PORTE QUE L'ÉCRAN Administration → Corbeille : Super Admin uniquement — et les
+    // actions canoniques re-refuseront de toute façon à l'exécution.
+    if (user.role !== "SUPER_ADMIN") {
+      return { error: "La corbeille (restauration / destruction) est réservée au Super Admin." };
+    }
+    const query = asStr(input, "name");
+    if (!query) return { error: "Précisez le nom de l'élément tel qu'affiché dans la corbeille." };
+    const rawKind = asStr(input, "kind");
+    if (rawKind && !isDeletableKind(rawKind)) {
+      return { error: `Type « ${rawKind} » inconnu. Types possibles : ${DELETABLE_KINDS.join(", ")}.` };
+    }
+    const forRestore = toolName === "restore_record";
+    const entry = await resolveTrashEntry(query, rawKind && isDeletableKind(rawKind) ? rawKind : null, { forRestore });
+    if (entry.status === "none") {
+      return { error: `Aucune entrée de corbeille ${forRestore ? "restaurable" : ""} trouvée pour « ${query} »${rawKind ? ` (type ${rawKind})` : ""}.` };
+    }
+    if (entry.status === "ambiguous") {
+      return { error: `Plusieurs entrées de corbeille correspondent à « ${query} » : ${entry.candidates.map((c) => `${c.name} (${c.label})`).join(" ; ")} — préciser le nom exact ou le type (kind).` };
+    }
+
+    if (forRestore) {
+      return {
+        kind: "restore_record",
+        module: "ADMIN",
+        title: `Restaurer « ${entry.name} » depuis la corbeille`,
+        fields: [
+          { label: "Élément", value: entry.name },
+          { label: "Type", value: entry.label },
+          { label: "Effet", value: "Recréé à l'identique (mêmes id/référence) avec ses pièces jointes et commentaires." },
+        ],
+        warnings: ["Les éléments liés qui avaient été supprimés en cascade ne reviennent pas."],
+        payload: { kind: "restore_record", recordId: entry.recordId, name: entry.name, label: entry.label },
+      };
+    }
+
+    const confirmText = entry.name.includes(" — ") ? entry.name.split(" — ")[0] : entry.name;
+    return {
+      kind: "purge_record",
+      module: "ADMIN",
+      level: "CRITICAL",
+      confirmText,
+      title: `DÉTRUIRE définitivement « ${entry.name} » (corbeille)`,
+      fields: [
+        { label: "Élément", value: entry.name },
+        { label: "Type", value: entry.label },
+        { label: "Impact", value: "Les fichiers stockés sont EFFACÉS. Aucun retour possible — contrairement à la suppression simple, rien ne reste restaurable." },
+      ],
+      warnings: [
+        `NIVEAU CRITIQUE : destruction RÉELLE — la confirmation exige de RESSAISIR « ${confirmText} ».`,
+        ...(entry.restored ? ["Cette entrée a déjà été RESTAURÉE : la destruction n'efface que l'entrée d'historique, les fichiers restaurés restent en place."] : []),
+      ],
+      payload: { kind: "purge_record", recordId: entry.recordId, name: entry.name, label: entry.label },
+    };
+  }
+
+  if (toolName === "request_regulatory_status_update") {
+    // LA MÊME PORTE QUE LE BOUTON de la fiche : la supervision Regulatory (Super Admin + rôles
+    // configurés en Administration) — revérifiée par l'action canonique à l'exécution.
+    const settings = await getAppSettings();
+    if (!isRegulatorySupervisor(user, settings.regulatorySupervisorRoles)) {
+      return { error: "La relance de mise à jour est réservée à la supervision Regulatory (Super Admin + rôles configurés)." };
+    }
+    const reference = asStr(input, "reference");
+    if (!reference) return { error: "Précisez la référence du dossier (REG-AAAA-NNN)." };
+    const product = await prisma.regulatoryProduct.findFirst({
+      where: { AND: [{ reference }, scopeRegulatory(user), await currentCompanyWhereFor(user.id)] },
+      select: {
+        id: true, reference: true, dci: true,
+        responsible: { select: { id: true, name: true } },
+        assistant: { select: { id: true, name: true } },
+        assignedUsers: { select: { id: true, name: true } },
+      },
+    });
+    if (!product) return { error: `Dossier « ${reference} » introuvable dans votre périmètre.` };
+
+    // Les destinataires sont montrés AVANT la confirmation — une relance est un geste de
+    // management, on dit à qui elle part.
+    const seen = new Set<string>([user.id]);
+    const recipients: string[] = [];
+    for (const p of [product.responsible, product.assistant, ...product.assignedUsers]) {
+      if (p && !seen.has(p.id)) { seen.add(p.id); recipients.push(p.name); }
+    }
+    if (recipients.length === 0) {
+      return { error: `Le dossier ${reference} n'a ni responsable, ni assistant, ni participant à relancer — désigner d'abord un chargé du dossier (assign_regulatory_responsible).` };
+    }
+    const note = asStr(input, "note") || null;
+    const fields = [
+      { label: "Dossier", value: `${product.reference} — ${product.dci}` },
+      { label: "Destinataires", value: recipients.join(", ") },
+    ];
+    if (note) fields.push({ label: "Précision", value: note });
+    return {
+      kind: "request_regulatory_status_update",
+      module: "REGULATORY",
+      title: `Demander une mise à jour de statut sur ${product.reference}`,
+      fields,
+      warnings: ["Chaque destinataire est NOTIFIÉ avec un lien vers la fiche (relance traçable) — le statut du dossier n'est PAS modifié.", ...warnings],
+      payload: {
+        kind: "request_regulatory_status_update",
+        productId: product.id, reference: product.reference, dci: product.dci, note, recipients,
+      },
+    };
+  }
+
+  if (toolName === "set_account_active") {
+    // LA MÊME PORTE QUE L'ÉCRAN Administration (interrupteur des comptes) : Super Admin.
+    if (user.role !== "SUPER_ADMIN") {
+      return { error: "L'activation / désactivation des comptes est réservée au Super Admin." };
+    }
+    const personName = asStr(input, "personName");
+    if (personName.length < 2) return { error: "Donnez le nom du compte." };
+    if (typeof input.active !== "boolean") return { error: "Précisez active=true (activer) ou active=false (désactiver)." };
+    // Les comptes INACTIFS sont cherchés aussi — c'est justement eux qu'on réactive.
+    const people = await prisma.user.findMany({
+      where: { name: { contains: personName, mode: "insensitive" } },
+      select: { id: true, name: true, isActive: true, role: true },
+      take: 5,
+    });
+    if (!people.length) return { error: `Aucun compte « ${personName} » — vérifier avec search_people (les comptes inactifs existent aussi).` };
+    if (people.length > 1) {
+      return { error: `Plusieurs comptes correspondent à « ${personName} » : ${people.map((p) => `${p.name} (${p.isActive ? "actif" : "inactif"})`).join(", ")} — préciser le nom.` };
+    }
+    const target = people[0];
+    if (target.id === user.id) return { error: "Impossible sur son propre compte — la même règle que l'écran." };
+    if (target.isActive === input.active) {
+      return { error: `Le compte de ${target.name} est déjà ${input.active ? "actif" : "inactif"}.` };
+    }
+    return {
+      kind: "set_account_active",
+      module: "ADMIN",
+      level: "SENSITIVE",
+      title: input.active ? `Réactiver le compte de ${target.name}` : `Désactiver le compte de ${target.name}`,
+      fields: [
+        { label: "Compte", value: `${target.name} (${ROLE_LABELS[target.role as keyof typeof ROLE_LABELS] ?? target.role})` },
+        { label: "État", value: `${target.isActive ? "actif" : "inactif"} → ${input.active ? "actif" : "inactif"}` },
+      ],
+      warnings: input.active
+        ? ["La personne pourra se reconnecter immédiatement.", ...warnings]
+        : ["La personne ne pourra PLUS se connecter dès la confirmation (réversible à tout moment).", ...warnings],
+      payload: { kind: "set_account_active", userId: target.id, userName: target.name, active: input.active },
+    };
+  }
+
+  if (toolName === "set_account_role") {
+    // LA MÊME PORTE QUE L'ÉCRAN Administration (rôles des comptes) : Super Admin.
+    if (user.role !== "SUPER_ADMIN") {
+      return { error: "Le changement de rôle des comptes est réservé au Super Admin." };
+    }
+    const personName = asStr(input, "personName");
+    if (personName.length < 2) return { error: "Donnez le nom du compte." };
+    const people = await prisma.user.findMany({
+      where: { name: { contains: personName, mode: "insensitive" } },
+      select: { id: true, name: true, role: true, secondaryRole: true },
+      take: 5,
+    });
+    if (!people.length) return { error: `Aucun compte « ${personName} ».` };
+    if (people.length > 1) {
+      return { error: `Plusieurs comptes correspondent à « ${personName} » : ${people.map((p) => p.name).join(", ")} — préciser le nom.` };
+    }
+    const target = people[0];
+
+    const wantsRole = asStr(input, "role");
+    const hasSecondary = typeof input.secondaryRole === "string"; // "" = retirer, absent = inchangé
+    const wantsSecondary = hasSecondary ? String(input.secondaryRole).trim() : null;
+    if (!wantsRole && !hasSecondary) return { error: "Précisez le nouveau rôle (role) et/ou l'autre rôle (secondaryRole — vide pour le retirer)." };
+
+    const labelOf = (code: string | null): string => (code ? (ROLE_LABELS[code as keyof typeof ROLE_LABELS] ?? code) : "aucun");
+    const fields = [{ label: "Compte", value: target.name }];
+    let role: string | null = null;
+    if (wantsRole) {
+      role = normalizeRole(wantsRole);
+      if (!role) return { error: `Rôle « ${wantsRole} » inconnu — donner un libellé exact (ex. « Délégué médical »).` };
+      if (role === target.role) return { error: `${target.name} a déjà le rôle ${labelOf(role)}.` };
+      fields.push({ label: "Rôle", value: `${labelOf(target.role)} → ${labelOf(role)}` });
+    }
+    let secondaryRole: string | null = null;
+    if (hasSecondary) {
+      if (wantsSecondary) {
+        secondaryRole = normalizeRole(wantsSecondary);
+        if (!secondaryRole) return { error: `Rôle secondaire « ${wantsSecondary} » inconnu.` };
+        // L'anti-escalade de l'écran, dit dès la proposition (l'action re-refusera aussi).
+        if (secondaryRole === "SUPER_ADMIN") return { error: "Le rôle secondaire ne peut pas être Super Admin (anti-escalade) — la même règle que l'écran." };
+      } else {
+        secondaryRole = ""; // retirer
+      }
+      fields.push({ label: "Autre rôle", value: `${labelOf(target.secondaryRole)} → ${secondaryRole ? labelOf(secondaryRole) : "aucun"}` });
+    }
+    return {
+      kind: "set_account_role",
+      module: "ADMIN",
+      level: "SENSITIVE",
+      title: `Changer le rôle de ${target.name}`,
+      fields,
+      warnings: ["Les droits du compte changent IMMÉDIATEMENT à la confirmation (menus, modules, périmètre).", ...warnings],
+      payload: {
+        kind: "set_account_role",
+        userId: target.id, userName: target.name,
+        role, roleBefore: target.role,
+        secondaryRole, secondaryBefore: target.secondaryRole ?? "",
+      },
+    };
+  }
+
   return { error: `Action non prise en charge : ${toolName}.` };
 }
 
@@ -3557,6 +3913,101 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     };
   }
 
+  if (payload?.kind === "restore_record") {
+    // ACTION CANONIQUE de la corbeille : même porte (Super Admin revérifié), même recréation à
+    // l'identique (ligne + pièces + commentaires), même audit.
+    if (user.role !== "SUPER_ADMIN") return { ok: false, error: "La restauration est réservée au Super Admin." };
+    const fd = new FormData();
+    fd.set("id", payload.recordId);
+    const r = await restoreDeletedRecord(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La restauration a été refusée." };
+    return {
+      ok: true,
+      message: `« ${payload.name} » (${payload.label}) restauré — l'élément est de retour à sa place.`,
+      link: r.redirect ?? "/admin/corbeille",
+      revalidate: ["/admin/corbeille", ...(r.redirect ? [r.redirect] : [])],
+    };
+  }
+
+  if (payload?.kind === "purge_record") {
+    // ACTION CANONIQUE de la destruction réelle : fichiers effacés, entrée marquée purgée.
+    if (user.role !== "SUPER_ADMIN") return { ok: false, error: "La destruction définitive est réservée au Super Admin." };
+    const fd = new FormData();
+    fd.set("id", payload.recordId);
+    const r = await destroyDeletedRecord(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La destruction a été refusée." };
+    return {
+      ok: true,
+      message: `« ${payload.name} » (${payload.label}) détruit définitivement — fichiers effacés, aucun retour possible.`,
+      link: "/admin/corbeille",
+      revalidate: ["/admin/corbeille"],
+    };
+  }
+
+  if (payload?.kind === "request_regulatory_status_update") {
+    // ACTION CANONIQUE du bouton de la fiche : porte supervision revérifiée, notifications aux
+    // mêmes destinataires, audit identique.
+    const fd = new FormData();
+    fd.set("id", payload.productId);
+    if (payload.note) fd.set("note", payload.note);
+    const r = await requestRegulatoryStatusUpdate(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La relance a été refusée." };
+    return {
+      ok: true,
+      message: `Relance envoyée sur ${payload.reference} — ${payload.recipients.length} destinataire(s) notifié(s) (${payload.recipients.join(", ")}).`,
+      link: `/regulatory/${payload.productId}`,
+      revalidate: [`/regulatory/${payload.productId}`],
+    };
+  }
+
+  if (payload?.kind === "set_account_active") {
+    if (user.role !== "SUPER_ADMIN") return { ok: false, error: "L'activation / désactivation des comptes est réservée au Super Admin." };
+    // `toggleUserActive` BASCULE l'état : on relit d'abord l'état réel pour rendre l'exécution
+    // idempotente — si quelqu'un a déjà fait le geste entre l'aperçu et le clic, on ne défait pas.
+    const current = await prisma.user.findUnique({ where: { id: payload.userId }, select: { isActive: true, name: true } });
+    if (!current) return { ok: false, error: "Compte introuvable." };
+    if (current.isActive === payload.active) {
+      return { ok: true, message: `Le compte de ${payload.userName} est déjà ${payload.active ? "actif" : "inactif"}.`, link: "/admin", revalidate: ["/admin"] };
+    }
+    const fd = new FormData();
+    fd.set("id", payload.userId);
+    const r = await toggleUserActive(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "Le changement d'état du compte a été refusé." };
+    return {
+      ok: true,
+      message: payload.active ? `Compte de ${payload.userName} réactivé — connexion à nouveau possible.` : `Compte de ${payload.userName} désactivé — connexion bloquée (réversible à tout moment).`,
+      link: "/admin",
+      revalidate: ["/admin"],
+    };
+  }
+
+  if (payload?.kind === "set_account_role") {
+    if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Le changement de rôle des comptes est réservé au Super Admin." };
+    const done: string[] = [];
+    if (payload.role) {
+      const fd = new FormData();
+      fd.set("id", payload.userId);
+      fd.set("role", payload.role);
+      const r = await updateUserRole(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "Le changement de rôle a été refusé." };
+      done.push(`rôle → ${ROLE_LABELS[payload.role as keyof typeof ROLE_LABELS] ?? payload.role}`);
+    }
+    if (payload.secondaryRole !== null) {
+      const fd = new FormData();
+      fd.set("id", payload.userId);
+      fd.set("secondaryRole", payload.secondaryRole);
+      const r = await setSecondaryRole(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "Le changement de l'autre rôle a été refusé." };
+      done.push(payload.secondaryRole ? `autre rôle → ${ROLE_LABELS[payload.secondaryRole as keyof typeof ROLE_LABELS] ?? payload.secondaryRole}` : "autre rôle retiré");
+    }
+    return {
+      ok: true,
+      message: `Compte de ${payload.userName} : ${done.join(" ; ")}. Les droits sont effectifs immédiatement.`,
+      link: "/admin",
+      revalidate: ["/admin"],
+    };
+  }
+
   if (payload?.kind === "set_products_company") {
     if (!userCan(user, "REGULATORY", "UPDATE")) return { ok: false, error: "Vous n'avez pas le droit de modifier les dossiers Regulatory." };
     const company = await prisma.company.findFirst({
@@ -3604,23 +4055,23 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     const title = (payload.title ?? "").trim();
     if (!title) return { ok: false, error: "Intitulé de tâche manquant." };
 
+    // LE MÊME CIRCUIT QUE L'ÉCRAN, par le CŒUR canonique (`lib/tasks/create-core.ts`) : pour un
+    // collègue c'est une DEMANDE (REQUESTED + pop-up + accepter/refuser), pour soi une to-do —
+    // plus jamais une tâche déposée en douce dans la liste de quelqu'un.
     const assignedToId = (await activeUserId(payload.assigneeId)) ?? user.id;
-    const created = await prisma.task.create({
-      data: {
-        title, description: payload.description?.trim() || null,
-        assignedToId, createdById: user.id,
-        dueDate: dateValue(payload.dueDate), priority: priorityOf(payload.priority),
-      },
-      select: { id: true },
-    });
-    if (assignedToId !== user.id) {
-      await notifyUser({ userId: assignedToId, type: "ASSIGNMENT", title: "Nouvelle tâche assignée", body: title, link: "/mon-espace" });
-    }
-    await recordAudit({
-      actorId: user.id, action: "CREATE", module: "Assistant IA", entityType: "TASK",
-      entityId: created.id, summary: `Tâche « ${title} » créée via l'assistant`,
-    });
-    return { ok: true, message: `Tâche « ${title} » créée.`, link: "/mon-espace", revalidate: ["/mon-espace", "/mon-travail"] };
+    const created = await createTaskRecord(user.id, {
+      title, description: payload.description?.trim() || null,
+      assignedToId,
+      dueDate: dateValue(payload.dueDate), priority: priorityOf(payload.priority),
+    }, { module: "Assistant IA", suffix: " (via l'assistant)" });
+    return {
+      ok: true,
+      message: created.mode === "request"
+        ? `Demande de tâche envoyée à ${payload.assigneeName ?? "la personne"} — elle l'acceptera ou la refusera.`
+        : `Tâche « ${title} » créée.`,
+      link: `/mon-espace/taches/${created.id}`,
+      revalidate: ["/mon-espace", "/mon-travail"],
+    };
   }
 
   if (payload?.kind === "create_dossier") {

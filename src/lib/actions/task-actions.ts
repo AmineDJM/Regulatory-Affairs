@@ -7,9 +7,10 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import {
-  canRespond, canDoWork, canComment, declineSummary, taskCreationMode, creationNotices,
-  CREATION_STATUS, ACCEPTED_STATUS, DECLINED_STATUS,
+  canRespond, canDoWork, canComment, declineSummary,
+  ACCEPTED_STATUS, DECLINED_STATUS,
 } from "@/lib/tasks/request-flow";
+import { createTaskRecord } from "@/lib/tasks/create-core";
 import { attachFiles, validateAttachments } from "@/lib/attach-files";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
@@ -38,7 +39,6 @@ export async function createTask(
   if (!title) return { ok: false, error: "L'intitulé est obligatoire." };
 
   const assignedToId = fdStr(formData, "assignedToId") ?? user.id;
-  const mode = taskCreationMode(assignedToId, user.id);
 
   // Les pièces sont contrôlées AVANT toute écriture : créer la tâche puis refuser le fichier
   // laisserait une demande incomplète et un formulaire perdu.
@@ -55,50 +55,26 @@ export async function createTask(
   const participantIds = clean("participantIds");
   const readerIds = clean("readerIds").filter((id) => !participantIds.includes(id));
 
-  const created = await prisma.task.create({
-    data: {
-      title,
-      description: fdStr(formData, "description"),
-      assignedToId,
-      participantIds,
-      readerIds,
-      createdById: user.id,
-      status: CREATION_STATUS[mode] as TaskStatus,
-      // `requestedAt` MARQUE LE PARCOURS : c'est lui, et non le statut du moment, qui dit qu'une
-      // tâche est née d'une demande — une fois acceptée, elle n'aura pas d'étape intermédiaire.
-      requestedAt: mode === "request" ? new Date() : null,
-      dueDate: fdDate(formData, "dueDate"),
-      priority: (fdStr(formData, "priority") as Priority) ?? "MEDIUM",
-      module: fdStr(formData, "module"),
-      // Course / livraison : adresse (lien Maps) + durée estimée (détection de retard).
-      address: fdStr(formData, "address"),
-      expectedMinutes: fdNum(formData, "expectedMinutes"),
-    },
+  // Le CŒUR canonique (statut/`requestedAt` selon le mode, notifications pop-up/cloche, audit)
+  // est partagé avec l'assistant : `lib/tasks/create-core.ts` — une seule logique du circuit.
+  const created = await createTaskRecord(user.id, {
+    title,
+    description: fdStr(formData, "description"),
+    assignedToId,
+    participantIds,
+    readerIds,
+    dueDate: fdDate(formData, "dueDate"),
+    priority: (fdStr(formData, "priority") as Priority) ?? "MEDIUM",
+    module: fdStr(formData, "module"),
+    // Course / livraison : adresse (lien Maps) + durée estimée (détection de retard).
+    address: fdStr(formData, "address"),
+    expectedMinutes: fdNum(formData, "expectedMinutes"),
   });
 
   if (files.length > 0) {
     await attachFiles({ files, entityType: "TASK", entityId: created.id, uploadedById: user.id });
   }
 
-  // Prévenir chacun selon son rôle. Le destinataire d'une DEMANDE reçoit une pop-up ; les
-  // participants et lecteurs, la cloche — les interrompre pour une information qui n'attend rien
-  // d'eux apprendrait à fermer les pop-up sans les lire, et la prochaine, celle qui compte,
-  // partirait avec.
-  const notices = creationNotices({ creatorId: user.id, assignedToId, participantIds, readerIds, mode });
-  const link = `/mon-espace/taches/${created.id}`;
-  if (notices.length) {
-    await prisma.notification.createMany({
-      data: notices.map((n) => ({
-        userId: n.userId, type: "ASSIGNMENT" as const, title: n.title, body: title, link, popup: n.popup,
-      })),
-    }).catch(() => undefined);
-  }
-
-  await recordAudit({
-    actorId: user.id, action: "CREATE", module: "Espace de travail",
-    entityType: "TASK", entityId: created.id,
-    summary: mode === "request" ? `Demande de tâche « ${title} »` : `Tâche « ${title} »`,
-  });
   revalidatePath("/mon-espace");
   return { ok: true, id: created.id };
 }
