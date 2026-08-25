@@ -75,6 +75,8 @@ let outsiderId = "";
 let folderId = "";
 let fileId = "";
 let requestedTaskId = "";
+let companyId = "";
+let regProductId = "";
 
 const owner = () => userWith({ DRIVE: ["VIEW", "CREATE"], WORKSPACE: ["VIEW", "CREATE", "UPDATE"] }, "DIRECTION", ownerId, `${TAG} Karim`);
 const outsider = () => userWith({ DRIVE: ["VIEW"], WORKSPACE: ["VIEW", "UPDATE"] }, "MEDICAL_DELEGATE", outsiderId, `${TAG} Walid`);
@@ -108,6 +110,66 @@ suite("ops de domaine & lots — goldens (fixtures partagées)", () => {
     await prisma.task.create({
       data: { title: `${TAG} Relire le contrat`, assignedToId: colleagueId, createdById: ownerId, status: "REQUESTED", requestedAt: new Date() },
     });
+    // ── Fixtures C2 : Finances / Budgets / Regulatory ──
+    const company = await prisma.company.create({ data: { name: `${TAG} Adventum Pharma` } });
+    companyId = company.id;
+    const product = await prisma.regulatoryProduct.create({
+      data: {
+        reference: `${TAG}-REG-1`, dci: `${TAG} FOSFOMYCINE`, status: "SUBMITTED",
+        steps: { create: [{ type: "DOSSIER_SUBMISSION", order: 4, status: "IN_PROGRESS" }] },
+      },
+    });
+    regProductId = product.id;
+    await prisma.regulatoryVariation.create({
+      data: { productId: regProductId, toStatus: "SECONDARY_PACKAGING", status: "EN_ATTENTE" },
+    });
+    await prisma.expenseOrder.createMany({
+      data: [
+        { reference: `${TAG}-OD-1`, label: `${TAG} Impression brochures`, amount: 250000, status: "PENDING" },
+        { reference: `${TAG}-OD-2`, label: `${TAG} Impression affiches`, amount: 90000, status: "PENDING" },
+      ],
+    });
+    const dept = await prisma.department.create({ data: { name: `${TAG} Marketing`, code: `${TAG}-MKT` } });
+    const allot = await prisma.pettyCashAllotment.create({
+      data: { departmentId: dept.id, period: "2026-08", amount: 50000, holderId: colleagueId },
+    });
+    await prisma.pettyCashTopUpRequest.create({
+      data: { allotmentId: allot.id, amountRequested: 20000, status: "PENDING", requestedById: colleagueId },
+    });
+    await prisma.departmentBudgetRequest.create({
+      data: { departmentId: dept.id, year: 2026, kind: "OPERATING", amount: 300000, status: "PENDING", requestedById: colleagueId },
+    });
+    // ── Fixtures C2b : RH + Réunions ──
+    const emp = await prisma.employee.create({ data: { fullName: `${TAG} Samir Hadjout` } });
+    await prisma.leaveRequest.create({
+      data: {
+        employeeId: emp.id, type: "ANNUAL", status: "PENDING",
+        startDate: new Date("2026-09-07"), endDate: new Date("2026-09-11"), days: 5,
+      },
+    });
+    await prisma.salaryAdvance.create({ data: { employeeId: emp.id, amount: 80000, status: "PENDING", reason: "Rentrée scolaire" } });
+    await prisma.hrDocumentRequest.create({
+      data: { employeeId: emp.id, type: "EXPENSE_REPORT", status: "PENDING", expenseMonth: "2026-08" },
+    });
+    await prisma.meeting.create({
+      data: {
+        title: `${TAG} Point mensuel Regulatory`, slug: `${TAG}-meet`, publicToken: `${TAG}-tok`,
+        organizerId: colleagueId, scheduledAt: new Date("2026-09-02T09:00:00Z"),
+        participants: { create: { userId: ownerId } },
+      },
+    });
+    // ── Fixtures C2c : Courriers + Legal + Fournisseur ──
+    await prisma.mailEntry.create({
+      data: { title: `${TAG} Convocation ANPP`, reference: `${TAG}-CHR-7`, direction: "INCOMING", sender: "ANPP" },
+    });
+    await prisma.mailEntryFolder.create({ data: { name: `${TAG} Officiel` } });
+    await prisma.legalDocument.create({
+      data: { title: `${TAG} Contrat de maintenance`, reference: `${TAG}-LEG-1`, kind: "CONTRACT", endDate: new Date("2026-12-31"), createdById: ownerId },
+    });
+    await prisma.legalDocument.create({
+      data: { title: `${TAG} Facture imprimeur`, kind: "INVOICE", amount: 45000, counterparty: "Imprimerie", createdById: ownerId },
+    });
+    await prisma.supplier.create({ data: { name: `${TAG} LabPartner GmbH` } });
   });
 
   afterAll(async () => {
@@ -116,6 +178,19 @@ suite("ops de domaine & lots — goldens (fixtures partagées)", () => {
     await prisma.task.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
     await prisma.notification.deleteMany({ where: { body: { startsWith: TAG } } }).catch(() => {});
     await prisma.driveNode.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
+    await prisma.pettyCashTopUpRequest.deleteMany({ where: { allotment: { department: { name: { startsWith: TAG } } } } }).catch(() => {});
+    await prisma.pettyCashAllotment.deleteMany({ where: { department: { name: { startsWith: TAG } } } }).catch(() => {});
+    await prisma.departmentBudgetRequest.deleteMany({ where: { department: { name: { startsWith: TAG } } } }).catch(() => {});
+    await prisma.department.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
+    await prisma.expenseOrder.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
+    await prisma.regulatoryProduct.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
+    await prisma.company.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
+    await prisma.meeting.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
+    await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } }).catch(() => {});
+    await prisma.mailEntry.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
+    await prisma.mailEntryFolder.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
+    await prisma.legalDocument.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
+    await prisma.supplier.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   });
 
@@ -231,6 +306,306 @@ suite("ops de domaine & lots — goldens (fixtures partagées)", () => {
     const p = await buildProposal("task_operation", { op: "comment", title: `${TAG} Préparer la synthèse`, comment: "Vu — je regarde demain." }, owner());
     expect("error" in p).toBe(false);
   });
+  });
+
+  describe("ops Finances — écritures, règlements, décisions", () => {
+    const finUser = () => userWith({ FINANCES: ["VIEW", "CREATE", "UPDATE"] }, "DIRECTION", ownerId, `${TAG} Karim`);
+
+    it("create_transaction : normalisation FR (sens, catégorie, statut) + avertissement trésorerie", async () => {
+      const p = await buildProposal("finance_operation", {
+        op: "create_transaction", label: `${TAG} Loyer siège`, amount: "1 500 000", category: "loyer", direction: "décaissement",
+      }, finUser());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.level).toBe("SENSITIVE");
+      expect(JSON.stringify(p.fields)).toMatch(/1.500.000.DZD/);
+      expect(p.warnings.join(" ")).toMatch(/trésorerie/);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.category).toBe("LOYER");
+      expect(payload.args.direction).toBe("OUT");
+      expect(payload.args.status).toBe("SETTLED");
+    });
+
+    it("settle_expense_order : ambigu LISTÉ, exact proposé avec le verrou du Centre de paiement annoncé", async () => {
+      const ambiguous = await buildProposal("finance_operation", { op: "settle_expense_order", label: `${TAG} Impression` }, finUser());
+      expect("error" in ambiguous).toBe(true);
+      if ("error" in ambiguous) {
+        expect(ambiguous.error).toContain(`${TAG}-OD-1`);
+        expect(ambiguous.error).toContain(`${TAG}-OD-2`);
+      }
+      const p = await buildProposal("finance_operation", { op: "settle_expense_order", reference: `${TAG}-OD-1` }, finUser());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.level).toBe("SENSITIVE");
+      expect(JSON.stringify(p.fields)).toMatch(/250.000.DZD/);
+      expect(p.warnings.join(" ")).toMatch(/Centre de paiement/);
+    });
+
+    it("decide_petty_topup : résolution par département, montant accordé ajustable", async () => {
+      const p = await buildProposal("finance_operation", {
+        op: "decide_petty_topup", decision: "accorde", department: `${TAG} Marketing`, amount: "15000",
+      }, finUser());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(JSON.stringify(p.fields)).toMatch(/20.000.DZD/);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.decision).toBe("APPROVED");
+      expect(payload.args.amountGranted).toBe("15000");
+    });
+
+    it("decide_department_budget : la demande EN ATTENTE du département se propose avec son montant", async () => {
+      const p = await buildProposal("finance_operation", {
+        op: "decide_department_budget", decision: "approuve", department: `${TAG} Marketing`,
+      }, finUser());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(JSON.stringify(p.fields)).toMatch(/300.000.DZD/);
+      expect(p.warnings.join(" ")).toMatch(/AJOUTE au budget/);
+    });
+
+    it("porte : sans droit Finances, l'op est refusée à la proposition", async () => {
+      const noFin = userWith({ WORKSPACE: ["VIEW"] }, "MEDICAL_DELEGATE", outsiderId, `${TAG} Walid`);
+      const p = await buildProposal("finance_operation", { op: "create_transaction", label: "x", amount: "10" }, noFin);
+      expect("error" in p).toBe(true);
+      if ("error" in p) expect(p.error).toMatch(/pas le droit/);
+    });
+  });
+
+  describe("ops Regulatory — le dossier complet", () => {
+    const regSA = () => userWith({ REGULATORY: ["VIEW", "CREATE", "UPDATE"] }, "SUPER_ADMIN", ownerId, `${TAG} Karim`);
+
+    it("create_product : l'ENTITÉ est obligatoire et se résout par nom", async () => {
+      const missing = await buildProposal("regulatory_operation", { op: "create_product", dci: `${TAG} AMOXICILLINE` }, regSA());
+      expect("error" in missing && missing.error).toMatch(/ENTITÉ/i);
+      const p = await buildProposal("regulatory_operation", {
+        op: "create_product", dci: `${TAG} AMOXICILLINE`, entity: `${TAG} Adventum`,
+      }, regSA());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(JSON.stringify(p.fields)).toContain(`${TAG} Adventum Pharma`);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.companyId).toBe(companyId);
+    });
+
+    it("set_participants : liste REMPLACÉE, personnes résolues par nom", async () => {
+      const p = await buildProposal("regulatory_operation", {
+        op: "set_participants", reference: `${TAG}-REG-1`, people: `${TAG} Lina`,
+      }, regSA());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.warnings.join(" ")).toMatch(/REMPLACÉE/);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.userIds).toBe(colleagueId);
+    });
+
+    it("update_step_details : l'étape se donne par LIBELLÉ et la fusion préserve l'existant", async () => {
+      const p = await buildProposal("regulatory_operation", {
+        op: "update_step_details", reference: `${TAG}-REG-1`, step: "Dépôt dossier", note: "En attente de l'accusé ANPP",
+      }, regSA());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(JSON.stringify(p.fields)).toContain("Dépôt dossier");
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      // La fusion rejoue le statut EXISTANT (IN_PROGRESS) : une note ne coûte jamais un statut.
+      expect(payload.args.status).toBe("IN_PROGRESS");
+      expect(payload.args.comment).toBe("En attente de l'accusé ANPP");
+      const unknown = await buildProposal("regulatory_operation", {
+        op: "update_step_details", reference: `${TAG}-REG-1`, step: "Étape imaginaire", note: "x",
+      }, regSA());
+      expect("error" in unknown && unknown.error).toMatch(/Valeurs possibles|introuvable/);
+    });
+
+    it("set_checklist_item : le libellé humain se résout vers la clé du référentiel", async () => {
+      const p = await buildProposal("regulatory_operation", {
+        op: "set_checklist_item", reference: `${TAG}-REG-1`, item: "CPP",
+      }, regSA());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.itemKey).toBe("cpp");
+      expect(payload.args.checked).toBe("true");
+    });
+
+    it("request_bv : montant DZD obligatoire, l'ordre de dépense est annoncé (SENSIBLE)", async () => {
+      const missing = await buildProposal("regulatory_operation", { op: "request_bv", reference: `${TAG}-REG-1` }, regSA());
+      expect("error" in missing && missing.error).toMatch(/montant/i);
+      const p = await buildProposal("regulatory_operation", {
+        op: "request_bv", reference: `${TAG}-REG-1`, amount: "120000", bvType: "BV1",
+      }, regSA());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.level).toBe("SENSITIVE");
+      expect(p.warnings.join(" ")).toMatch(/ORDRE DE DÉPENSE/);
+      expect(JSON.stringify(p.fields)).toMatch(/120.000.DZD/);
+    });
+
+    it("set_variation_status : la variation EN ATTENTE unique est choisie, « obtenue » annonce le verrou Super Admin", async () => {
+      const p = await buildProposal("regulatory_operation", {
+        op: "set_variation_status", reference: `${TAG}-REG-1`, status: "obtenue",
+      }, regSA());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.warnings.join(" ")).toMatch(/Super Admin/);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.status).toBe("OBTENUE");
+    });
+  });
+
+  describe("ops RH — décisions de circuits, fiche employé", () => {
+    const rh = () => userWith({ RH: ["VIEW", "CREATE", "UPDATE", "VALIDATE"] }, "DIRECTION", ownerId, `${TAG} Karim`);
+
+    it("decide_leave : le congé EN ATTENTE de l'employé se propose, le circuit est annoncé", async () => {
+      const p = await buildProposal("hr_operation", { op: "decide_leave", decision: "approuve", employee: `${TAG} Samir` }, rh());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.level).toBe("SENSITIVE");
+      expect(JSON.stringify(p.fields)).toContain("2026-09-07");
+      expect(p.warnings.join(" ")).toMatch(/CIRCUIT/);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.decision).toBe("APPROVED");
+    });
+
+    it("decide_advance : montant montré en DZD, refus possible", async () => {
+      const p = await buildProposal("hr_operation", { op: "decide_advance", decision: "refuse", employee: `${TAG} Samir`, note: "Budget serré" }, rh());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(JSON.stringify(p.fields)).toMatch(/80.000.DZD/);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.decision).toBe("REJECTED");
+      expect(payload.args.note).toBe("Budget serré");
+    });
+
+    it("decide_expense_report : « mois suivant » se comprend (APPROVE_NEXT)", async () => {
+      const p = await buildProposal("hr_operation", { op: "decide_expense_report", decision: "approuve sur le mois suivant", employee: `${TAG} Samir` }, rh());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(JSON.stringify(p.fields)).toContain("2026-08");
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.decision).toBe("APPROVE_NEXT");
+    });
+
+    it("set_employee_active : fiche résolue par nom, sens du geste compris", async () => {
+      const p = await buildProposal("hr_operation", { op: "set_employee_active", employee: `${TAG} Samir`, status: "désactive" }, rh());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.title).toContain("Désactiver");
+      expect(p.warnings.join(" ")).toMatch(/rien n'est effacé/);
+    });
+
+    it("porte : décider une avance exige RH VALIDATE", async () => {
+      const noValidate = userWith({ RH: ["VIEW"] }, "MEDICAL_DELEGATE", outsiderId, `${TAG} Walid`);
+      const p = await buildProposal("hr_operation", { op: "decide_advance", decision: "accorde", employee: `${TAG} Samir` }, noValidate);
+      expect("error" in p).toBe(true);
+      if ("error" in p) expect(p.error).toMatch(/pas le droit/);
+    });
+  });
+
+  describe("ops Réunions — planifier, répondre, gérer", () => {
+    const me = () => userWith({ MESSAGING: ["VIEW", "CREATE"] }, "DIRECTION", ownerId, `${TAG} Karim`);
+
+    it("create : créneau heure d'Alger + invités résolus par nom", async () => {
+      const p = await buildProposal("meeting_operation", {
+        op: "create", title: `${TAG} Comité budget`, date: "2026-09-10", time: "14:30", people: `${TAG} Lina`,
+      }, me());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(JSON.stringify(p.fields)).toContain("2026-09-10 à 14:30");
+      expect(JSON.stringify(p.fields)).toContain(`${TAG} Lina`);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.userIds).toBe(colleagueId);
+    });
+
+    it("respond_invite : seule une réunion où JE suis invité se propose ; la réponse est normalisée", async () => {
+      const p = await buildProposal("meeting_operation", { op: "respond_invite", title: `${TAG} Point mensuel`, response: "j'accepte" }, me());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.response).toBe("ACCEPTED");
+      expect(JSON.stringify(p.fields)).toContain(`${TAG} Lina`); // l'organisatrice
+    });
+
+    it("end/delete : réservé à l'ORGANISATEUR — la réunion d'un collègue reste introuvable pour moi", async () => {
+      const p = await buildProposal("meeting_operation", { op: "end", title: `${TAG} Point mensuel` }, me());
+      expect("error" in p).toBe(true);
+      if ("error" in p) expect(p.error).toMatch(/organisez/);
+    });
+  });
+
+  describe("ops Courriers / Legal / Structurel", () => {
+    const clerk = () => userWith({ MAIL_REGISTER: ["VIEW", "CREATE", "UPDATE"], LEGAL: ["VIEW", "CREATE", "UPDATE"], GENERAL_MEANS: ["VIEW", "CREATE"], RH: ["VIEW", "UPDATE"] }, "DIRECTION_ASSISTANT", ownerId, `${TAG} Karim`);
+
+    it("mail edit_entry : FUSION — corriger l'objet ne coûte jamais l'expéditeur", async () => {
+      const p = await buildProposal("mail_operation", {
+        op: "edit_entry", reference: `${TAG}-CHR-7`, newLabel: `${TAG} Convocation ANPP — commission`,
+      }, clerk());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.sender).toBe("ANPP"); // rejoué, pas effacé
+      expect(payload.args.title).toContain("commission");
+    });
+
+    it("mail move_entries : dossier résolu par nom, plusieurs plis d'un coup", async () => {
+      const p = await buildProposal("mail_operation", {
+        op: "move_entries", reference: `${TAG}-CHR-7`, folder: `${TAG} Officiel`,
+      }, clerk());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(JSON.stringify(p.fields)).toContain(`${TAG} Officiel`);
+    });
+
+    it("mail attach_drive : le fichier Drive se résout et la non-copie est dite", async () => {
+      const p = await buildProposal("mail_operation", {
+        op: "attach_drive", name: `${TAG} Rapport ANPP.docx`, direction: "entrant",
+      }, clerk());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.warnings.join(" ")).toMatch(/jamais copié/);
+    });
+
+    it("legal set_readers : liste REMPLACÉE annoncée, lecteurs résolus", async () => {
+      const p = await buildProposal("legal_operation", {
+        op: "set_readers", reference: `${TAG}-LEG-1`, people: `${TAG} Lina`,
+      }, clerk());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.warnings.join(" ")).toMatch(/REMPLACÉE/);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>;
+      expect(payload.args.userIds).toBe(colleagueId);
+    });
+
+    it("legal send_invoice_settlement : seule une FACTURE à montant se propose (SENSIBLE)", async () => {
+      const notInvoice = await buildProposal("legal_operation", { op: "send_invoice_settlement", reference: `${TAG}-LEG-1` }, clerk());
+      expect("error" in notInvoice).toBe(true);
+      const p = await buildProposal("legal_operation", { op: "send_invoice_settlement", label: `${TAG} Facture imprimeur` }, clerk());
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.level).toBe("SENSITIVE");
+      expect(JSON.stringify(p.fields)).toMatch(/45.000.DZD/);
+      expect(p.warnings.join(" ")).toMatch(/ORDRE DE DÉPENSE/);
+    });
+
+    it("org assign_manager : employé et N+1 résolus au registre RH ; jamais son propre N+1", async () => {
+      const p = await buildProposal("org_operation", { op: "assign_manager", employee: `${TAG} Samir`, manager: `${TAG} Samir` }, clerk());
+      expect("error" in p && p.error).toMatch(/propre N\+1/);
+    });
+
+    it("org create_company : réservé au Super Admin (porte du catalogue)", async () => {
+      const p = await buildProposal("org_operation", { op: "create_company", name: "X" }, clerk());
+      expect("error" in p).toBe(true);
+      const sa = userWith({}, "SUPER_ADMIN", ownerId, `${TAG} Karim`);
+      const ok = await buildProposal("org_operation", { op: "create_company", name: `${TAG} Nouvelle Filiale` }, sa);
+      expect("error" in ok).toBe(false);
+      if (!("error" in ok)) expect(ok.warnings.join(" ")).toMatch(/CLOISONNEMENT/);
+    });
+
+    it("org toggle_supplier : fournisseur résolu par nom, sens du geste dit", async () => {
+      const sa = userWith({}, "SUPER_ADMIN", ownerId, `${TAG} Karim`);
+      const p = await buildProposal("org_operation", { op: "toggle_supplier", name: `${TAG} LabPartner` }, sa);
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.title).toContain("Désactiver");
+    });
   });
 
   describe("bulk_action — une carte pour N cibles, reçus par cible", () => {

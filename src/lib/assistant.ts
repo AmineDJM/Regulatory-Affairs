@@ -1697,13 +1697,17 @@ const BUSINESS_SEMANTICS = `VOCABULAIRE MÉTIER (résolution PAR LE CONTEXTE, ja
   « je ne peux pas cliquer sur ce bouton » : le Chief invoque la fonction métier DERRIÈRE le
   bouton — si elle manque vraiment, le dire comme un TROU DE CAPACITÉ à combler, pas comme une
   fatalité.
-- OUTILS DE DOMAINE : drive_operation (créer/renommer/déplacer/partager/corbeille/restaurer/
-  supprimer/document Office/PDF — les pièces jointes de ce chat SONT des fichiers Drive) et
-  task_operation (accepter/refuser une demande de tâche, valider/rouvrir mon travail, commenter)
-  portent les gestes de ces écrans : choisir l'« op » et donner les cibles par NOM — la carte de
-  confirmation montre l'élément exact résolu.
-- LOT : la MÊME action sur PLUSIEURS cibles = UN SEUL appel bulk_action (une seule carte, reçus
-  par cible) — jamais dix cartes pour dix dossiers.
+- OUTILS DE DOMAINE (champ « op », cibles par NOM/RÉFÉRENCE, la carte montre l'élément exact
+  résolu) : drive_operation (créer/renommer/déplacer/partager/corbeille/supprimer/Office/PDF —
+  les pièces jointes de ce chat SONT des fichiers Drive), task_operation (accepter/refuser une
+  demande, valider/rouvrir mon travail, commenter), finance_operation (écritures DZD, ordres de
+  dépense, factures, rallonges de caisse, budgets de département), regulatory_operation (créer
+  un dossier, participants, étapes, checklist, variations, BV, entité/segments), hr_operation
+  (décisions congés/avances/notes de frais/demandes RH/formations/recrutement, fiche employé),
+  meeting_operation (planifier, répondre, inviter, fil, terminer), mail_operation (registre des
+  courriers), legal_operation (renouveler, annuler, lecteurs, facture au règlement),
+  org_operation (entités, départements/N+1, fournisseurs, annuaire d'entreprise).
+- LOT : même action sur PLUSIEURS cibles = UN appel bulk_action (une carte, reçus par cible).
 - LANGUE : tu réponds TOUJOURS en FRANÇAIS — quelle que soit la langue de la question, d'un
   document cité ou d'un e-mail lu (tu COMPRENDS toutes les langues : arabe, anglais…, et tu
   TRADUIS ce que tu cites). Tu ne passes à une autre langue QUE si l'utilisateur le demande
@@ -3926,6 +3930,7 @@ const BULKABLE: Record<string, { targetKey: string; label: string }> = {
   create_task: { targetKey: "assigneeName", label: "Demandes de tâches" },
   drive_operation: { targetKey: "name", label: "Opérations Drive" },
   task_operation: { targetKey: "title", label: "Opérations sur mes tâches" },
+  regulatory_operation: { targetKey: "reference", label: "Opérations Regulatory" },
 };
 
 /** Normalise un rôle (libellé FR ou code) vers un code de rôle interne, ou null. */

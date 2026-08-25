@@ -63,8 +63,8 @@ describe("ZERO-GAP — chaque action serveur de l'ERP est classée, aucun trou s
     const stats = parityStats();
     // Cliquet : combler un trou ABAISSE ce plafond ; en ouvrir un nouveau exige de le relever
     // ICI, consciemment, dans la même revue de code que la nouvelle action.
-    expect(stats.gap).toBeLessThanOrEqual(516);
-    expect(stats.native + stats.covered).toBeGreaterThanOrEqual(78);
+    expect(stats.gap).toBeLessThanOrEqual(467);
+    expect(stats.native + stats.covered).toBeGreaterThanOrEqual(127);
 
     console.info(`[UI_ACTION_PARITY] natives=${stats.native} couvertes=${stats.covered} trous=${stats.gap} exclues=${stats.excluded} — parité=${stats.parityPct}% (sur ${stats.total} actions classées)`);
   });
@@ -134,8 +134,13 @@ describe("ZERO-GAP — résolution d'intention vers l'action NATIVE (priorité a
     expect(ACTION_CLASSIFICATION["drive-actions:shareNodeWithMany"]?.status).toBe("NATIVE");
     expect(ACTION_CLASSIFICATION["task-actions:respondTaskRequest"]).toEqual({ status: "NATIVE", via: "task_operation:accept" });
     expect(ACTION_CLASSIFICATION["task-actions:submitTaskWork"]?.status).toBe("NATIVE");
+    expect(ACTION_CLASSIFICATION["expense-actions:settleExpenseOrder"]).toEqual({ status: "NATIVE", via: "finance_operation:settle_expense_order" });
+    expect(ACTION_CLASSIFICATION["petty-cash-actions:decidePettyCashTopUp"]?.status).toBe("NATIVE");
+    expect(ACTION_CLASSIFICATION["regulatory-actions:createRegulatoryProduct"]).toEqual({ status: "NATIVE", via: "regulatory_operation:create_product" });
+    expect(ACTION_CLASSIFICATION["regulatory-actions:requestBV"]?.status).toBe("NATIVE");
     // Une action NON couverte par le catalogue reste un GAP assumé — pas de sur-déclaration.
     expect(ACTION_CLASSIFICATION["drive-space-actions:createDriveSpace"]?.status).toBe("GAP");
+    expect(ACTION_CLASSIFICATION["finance-actions:importTransactions"]?.status).toBe("GAP");
   });
 });
 
