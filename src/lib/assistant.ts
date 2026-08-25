@@ -49,6 +49,7 @@ import { createTaskRecord } from "@/lib/tasks/create-core";
 import { DELETE_REGISTRY, DELETABLE_KINDS, isDeletableKind, type DeletableKind } from "@/lib/admin-delete-registry";
 import { resolveDeletableTarget, resolveTrashEntry } from "@/lib/assistant/delete-resolve";
 import { nativeActionHint, actionsForUser } from "@/lib/assistant/action-registry";
+import { DOMAIN_TOOLS, DOMAIN_TOOL_DEFS } from "@/lib/assistant/ops";
 import { requestTreasuryUpdate } from "@/lib/actions/finance-actions";
 import { advanceWorkflow, saveWorkflowDefinition, resetWorkflowDefinition } from "@/lib/actions/workflow-actions";
 import { upsertCustomFieldDef, deleteCustomFieldDef } from "@/lib/actions/custom-field-actions";
@@ -538,6 +539,33 @@ export type AssistantActionPayload =
         after: number;
       }[];
       note?: string | null;
+    }
+  | {
+      /**
+       * OP DE DOMAINE générique (drive_operation, task_operation…) — le mécanisme SYSTÉMIQUE :
+       * la proposition a résolu les entrées humaines (noms → ids) via l'implémentation du
+       * catalogue (`assistant/ops`), l'exécution rejoue les `args` sur l'ACTION CANONIQUE de
+       * l'écran, qui revalide tout (droits, existence, invariants).
+       */
+      kind: "domain_op";
+      tool: string;
+      op: string;
+      opLabel: string;
+      args: Record<string, string | null>;
+      successMessage: string;
+      link?: string;
+      revalidate?: string[];
+    }
+  | {
+      /**
+       * LOT — la même action native répétée sur PLUSIEURS cibles : UNE carte de confirmation,
+       * exécution séquentielle best-effort avec REÇU PAR CIBLE (un refus n'annule pas le reste).
+       * Chaque item porte le payload COMPLET déjà résolu par `buildProposal` (récursif).
+       */
+      kind: "bulk_action";
+      innerTool: string;
+      summary: string;
+      items: { payload: AssistantActionPayload; display: string }[];
     };
 
 export type AssistantActionKind = AssistantActionPayload["kind"];
@@ -591,6 +619,10 @@ export const ACTION_POLICY: Record<AssistantActionKind, { external: boolean; lev
   create_hospital: { external: true },
   update_hospital: { external: true },
   update_salary: { external: true, level: "CRITICAL" },
+  // Le niveau réel d'une op de domaine vient de son entrée au CATALOGUE (risk) — porté par la
+  // carte ; idem pour un lot (niveau = max des items). `external` suffit ici (kill-switch).
+  domain_op: { external: true },
+  bulk_action: { external: true },
 };
 
 export interface ProposedAction {
@@ -1545,6 +1577,27 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
       required: ["employee_name"],
     },
   },
+  // OUTILS DE DOMAINE (drive_operation, task_operation…) : définitions GÉNÉRÉES du catalogue
+  // d'ops (`assistant/ops`) — ajouter une op au catalogue suffit, rien à recopier ici.
+  ...DOMAIN_TOOL_DEFS,
+  {
+    name: "bulk_action",
+    description:
+      "LOT : la MÊME action d'écriture répétée sur PLUSIEURS cibles, en UNE carte de confirmation (reçus par cible à l'exécution). " +
+      "À utiliser dès que la demande porte sur 2+ cibles du même geste (« supprime ces trois dossiers », « demande une tâche à Ali et Sara »). " +
+      "tool = l'outil d'écriture à répéter (delete_record, update_regulatory_product, set_regulatory_step, assign_regulatory_responsible, " +
+      "request_regulatory_status_update, create_task, drive_operation, task_operation) ; targets = les cibles (le champ qui varie : références, " +
+      "noms d'éléments Drive, intitulés, destinataires selon l'outil) ; params = les AUTRES champs de l'outil, communs à toutes les cibles.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tool: { type: "string", description: "L'outil d'écriture à répéter." },
+        targets: { type: "array", items: { type: "string" }, description: "Les cibles (2 à 20)." },
+        params: { type: "object", description: "Champs communs passés à chaque cible (ex. { kind: \"REGULATORY_PRODUCT\" }, { title: \"…\" }, { op: \"trash\" })." },
+      },
+      required: ["tool", "targets"],
+    },
+  },
 ];
 
 const WRITE_TOOL_NAMES = new Set([...WRITE_TOOLS, ...SUPERADMIN_WRITE_TOOLS].map((t) => t.name));
@@ -1644,6 +1697,13 @@ const BUSINESS_SEMANTICS = `VOCABULAIRE MÉTIER (résolution PAR LE CONTEXTE, ja
   « je ne peux pas cliquer sur ce bouton » : le Chief invoque la fonction métier DERRIÈRE le
   bouton — si elle manque vraiment, le dire comme un TROU DE CAPACITÉ à combler, pas comme une
   fatalité.
+- OUTILS DE DOMAINE : drive_operation (créer/renommer/déplacer/partager/corbeille/restaurer/
+  supprimer/document Office/PDF — les pièces jointes de ce chat SONT des fichiers Drive) et
+  task_operation (accepter/refuser une demande de tâche, valider/rouvrir mon travail, commenter)
+  portent les gestes de ces écrans : choisir l'« op » et donner les cibles par NOM — la carte de
+  confirmation montre l'élément exact résolu.
+- LOT : la MÊME action sur PLUSIEURS cibles = UN SEUL appel bulk_action (une seule carte, reçus
+  par cible) — jamais dix cartes pour dix dossiers.
 - LANGUE : tu réponds TOUJOURS en FRANÇAIS — quelle que soit la langue de la question, d'un
   document cité ou d'un e-mail lu (tu COMPRENDS toutes les langues : arabe, anglais…, et tu
   TRADUIS ce que tu cites). Tu ne passes à une autre langue QUE si l'utilisateur le demande
@@ -1902,7 +1962,9 @@ export async function executeReadTool(name: string, input: Record<string, unknow
       }
       return JSON.stringify({
         actionsNatives: actions.map((a) => ({
-          bouton: a.uiLabel, module: a.module, outil: a.toolName, risque: a.risk,
+          bouton: a.uiLabel, module: a.module,
+          outil: a.toolOp ? `${a.toolName} (op « ${a.toolOp} »)` : a.toolName,
+          risque: a.risk,
           semantique: a.summary, ...(a.gateNote ? { ouverture: a.gateNote } : {}),
         })),
         regle: "Si l'une de ces actions correspond à l'intention, l'utiliser — JAMAIS une demande générique à la place d'un bouton métier existant.",
@@ -3753,8 +3815,118 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  // ── OUTILS DE DOMAINE (drive_operation, task_operation…) — mécanisme GÉNÉRIQUE. ──
+  // La porte du catalogue se vérifie ICI (refus dit à la proposition) ; l'implémentation
+  // résout les entrées humaines ; l'action canonique revalidera tout à l'exécution.
+  if (DOMAIN_TOOLS[toolName]) {
+    const domain = DOMAIN_TOOLS[toolName];
+    const opName = asStr(input, "op");
+    const entry = domain.ops[opName];
+    if (!entry) {
+      return { error: `Op « ${opName || "(vide)"} » inconnue pour ${toolName}. Ops disponibles : ${Object.keys(domain.ops).join(", ")}.` };
+    }
+    if (!entry.meta.gate(user)) {
+      return { error: `Vous n'avez pas le droit de faire « ${entry.meta.uiLabel} »${entry.meta.gateNote ? ` (${entry.meta.gateNote})` : ""} — la même règle que l'écran.` };
+    }
+    const draft = await entry.impl.propose(input, user);
+    if ("error" in draft) return { error: draft.error };
+    const level = entry.meta.risk === "CRITICAL" ? "CRITICAL" as const : entry.meta.risk === "SENSITIVE" ? "SENSITIVE" as const : undefined;
+    return {
+      kind: "domain_op",
+      module: domain.module,
+      title: draft.title,
+      fields: draft.fields,
+      warnings: [...(draft.warnings ?? []), ...warnings],
+      ...(level ? { level } : {}),
+      ...(draft.confirmText ? { confirmText: draft.confirmText } : {}),
+      payload: {
+        kind: "domain_op",
+        tool: toolName,
+        op: opName,
+        opLabel: entry.meta.uiLabel,
+        args: draft.args,
+        successMessage: draft.successMessage,
+        ...(draft.link ? { link: draft.link } : {}),
+        ...(draft.revalidate ? { revalidate: draft.revalidate } : {}),
+      },
+    };
+  }
+
+  if (toolName === "bulk_action") {
+    const innerTool = asStr(input, "tool");
+    const spec = BULKABLE[innerTool];
+    if (!spec) {
+      return { error: `bulk_action ne prend pas en charge « ${innerTool || "(vide)"} ». Outils groupables : ${Object.keys(BULKABLE).join(", ")}.` };
+    }
+    const rawTargets = input.targets;
+    const targets = Array.isArray(rawTargets)
+      ? rawTargets.map((t) => String(t).trim()).filter(Boolean)
+      : typeof rawTargets === "string"
+        ? rawTargets.split(/[;,\n]/).map((t) => t.trim()).filter(Boolean)
+        : [];
+    if (targets.length < 2) return { error: "Donnez au moins DEUX cibles (targets) — pour une seule, utiliser l'outil directement." };
+    if (targets.length > 20) return { error: "Lot limité à 20 cibles à la fois — découper la demande." };
+    const params = input.params && typeof input.params === "object" && !Array.isArray(input.params)
+      ? (input.params as Record<string, unknown>)
+      : {};
+
+    // RÉCURSION : chaque cible passe par buildProposal de l'outil interne — MÊME résolution,
+    // MÊMES portes, MÊMES validations que l'action unitaire. Zéro deuxième logique.
+    const prepared: ProposedAction[] = [];
+    const failures: string[] = [];
+    for (const target of targets) {
+      const p = await buildProposal(innerTool, { ...params, [spec.targetKey]: target }, user);
+      if ("error" in p) failures.push(`${target} : ${p.error}`);
+      else prepared.push(p);
+    }
+    if (prepared.length === 0) {
+      return { error: `Aucune cible du lot n'a pu être préparée.\n${failures.join("\n")}` };
+    }
+
+    const maxLevel = prepared.some((p) => p.level === "CRITICAL") ? "CRITICAL" as const
+      : prepared.some((p) => p.level === "SENSITIVE") ? "SENSITIVE" as const : undefined;
+    const itemWarnings = [...new Set(prepared.flatMap((p) => p.warnings))];
+    const summary = `${spec.label} — ${prepared.length} cible(s)`;
+    return {
+      kind: "bulk_action",
+      module: prepared[0].module,
+      title: `LOT : ${spec.label} sur ${prepared.length} cible(s)`,
+      fields: prepared.map((p, i) => ({ label: `${i + 1}.`, value: p.title })),
+      warnings: [
+        "Exécution cible par cible : un refus n'annule pas le reste — le reçu détaille chaque cible.",
+        ...(maxLevel === "CRITICAL" ? [`NIVEAU CRITIQUE : la confirmation exige de RESSAISIR « LOT ${prepared.length} ».`] : []),
+        ...itemWarnings,
+        ...failures.map((f) => `Non préparé : ${f}`),
+        ...warnings,
+      ],
+      ...(maxLevel ? { level: maxLevel } : {}),
+      ...(maxLevel === "CRITICAL" ? { confirmText: `LOT ${prepared.length}` } : {}),
+      payload: {
+        kind: "bulk_action",
+        innerTool,
+        summary,
+        items: prepared.map((p) => ({ payload: p.payload, display: p.title })),
+      },
+    };
+  }
+
   return { error: `Action non prise en charge : ${toolName}.` };
 }
+
+/**
+ * OUTILS GROUPABLES par `bulk_action` : l'outil interne + le CHAMP QUI VARIE d'une cible à
+ * l'autre. Liste blanche volontaire — un outil s'y ajoute quand son champ-cible est net.
+ */
+const BULKABLE: Record<string, { targetKey: string; label: string }> = {
+  delete_record: { targetKey: "reference", label: "Suppression définitive" },
+  update_regulatory_product: { targetKey: "reference", label: "Modification de dossiers Regulatory" },
+  assign_regulatory_responsible: { targetKey: "reference", label: "Assignation de dossiers Regulatory" },
+  set_regulatory_step: { targetKey: "reference", label: "Étapes ANPP" },
+  request_regulatory_status_update: { targetKey: "reference", label: "Relances Regulatory" },
+  create_task: { targetKey: "assigneeName", label: "Demandes de tâches" },
+  drive_operation: { targetKey: "name", label: "Opérations Drive" },
+  task_operation: { targetKey: "title", label: "Opérations sur mes tâches" },
+};
 
 /** Normalise un rôle (libellé FR ou code) vers un code de rôle interne, ou null. */
 function normalizeRole(raw: string): string | null {
@@ -4278,6 +4450,48 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
         error: "Les actions externes de l'assistant sont DÉSACTIVÉES (arrêt d'urgence, réglé par le Super Admin). Les lectures et analyses restent disponibles.",
       };
     }
+  }
+
+  if (payload?.kind === "domain_op") {
+    // MÉCANISME GÉNÉRIQUE : porte du catalogue revérifiée, puis l'implémentation rejoue les
+    // args sur l'ACTION CANONIQUE de l'écran — qui revalide elle-même droits et existence.
+    const entry = DOMAIN_TOOLS[payload.tool]?.ops[payload.op];
+    if (!entry) return { ok: false, error: `Opération inconnue : ${payload.tool}/${payload.op}.` };
+    if (!entry.meta.gate(user)) return { ok: false, error: "Non autorisé." };
+    const r = await entry.impl.execute(payload.args, user);
+    if (!r.ok) return { ok: false, error: r.error ?? `« ${payload.opLabel} » a été refusé.` };
+    return {
+      ok: true,
+      message: r.message ?? payload.successMessage,
+      link: r.link ?? payload.link,
+      revalidate: r.revalidate ?? payload.revalidate,
+    };
+  }
+
+  if (payload?.kind === "bulk_action") {
+    // EXÉCUTION SÉQUENTIELLE BEST-EFFORT : chaque item repasse par performAction (mêmes portes,
+    // même kill-switch, mêmes actions canoniques) — un refus n'annule pas le reste, le reçu
+    // dit cible par cible ce qui est passé et ce qui a été refusé.
+    const receipts: string[] = [];
+    const revalidate = new Set<string>();
+    let done = 0;
+    for (const item of payload.items) {
+      const r = await performAction(user, item.payload);
+      if (r.ok) {
+        done += 1;
+        receipts.push(`✓ ${item.display}`);
+        for (const path of r.revalidate ?? []) revalidate.add(path);
+      } else {
+        receipts.push(`✗ ${item.display} — ${r.error ?? "refusé"}`);
+      }
+    }
+    const detail = receipts.join("\n");
+    if (done === 0) return { ok: false, error: `Aucune action du lot n'a abouti.\n${detail}` };
+    return {
+      ok: true,
+      message: `Lot « ${payload.summary} » : ${done}/${payload.items.length} exécuté(s).\n${detail}`,
+      revalidate: [...revalidate],
+    };
   }
 
   if (payload?.kind === "update_regulatory_product") {

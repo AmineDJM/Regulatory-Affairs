@@ -63,8 +63,8 @@ describe("ZERO-GAP — chaque action serveur de l'ERP est classée, aucun trou s
     const stats = parityStats();
     // Cliquet : combler un trou ABAISSE ce plafond ; en ouvrir un nouveau exige de le relever
     // ICI, consciemment, dans la même revue de code que la nouvelle action.
-    expect(stats.gap).toBeLessThanOrEqual(535);
-    expect(stats.native + stats.covered).toBeGreaterThanOrEqual(60);
+    expect(stats.gap).toBeLessThanOrEqual(516);
+    expect(stats.native + stats.covered).toBeGreaterThanOrEqual(78);
 
     console.info(`[UI_ACTION_PARITY] natives=${stats.native} couvertes=${stats.covered} trous=${stats.gap} exclues=${stats.excluded} — parité=${stats.parityPct}% (sur ${stats.total} actions classées)`);
   });
@@ -114,6 +114,28 @@ describe("ZERO-GAP — résolution d'intention vers l'action NATIVE (priorité a
   it("phrase sans intention d'action → aucun indice (pas de faux positif qui pousse le modèle)", () => {
     expect(matchNativeAction("Quel est l'état du dossier REG-2026-041 ?")).toEqual([]);
     expect(nativeActionHint("Bonjour, comment vas-tu ?")).toBeNull();
+  });
+
+  it("OPS DE DOMAINE — les gestes Drive/Tâches se résolvent vers l'outil de domaine, op affichée dans l'indice", () => {
+    expect(matchNativeAction("Range ce fichier dans le dossier Campagne").map((a) => a.id))
+      .toContain("OP_DRIVE_OPERATION_MOVE");
+    expect(matchNativeAction("Partage le dossier avec Yasmine").map((a) => a.id))
+      .toContain("OP_DRIVE_OPERATION_SHARE");
+    expect(matchNativeAction("J'accepte la demande de tâche").map((a) => a.id))
+      .toContain("OP_TASK_OPERATION_ACCEPT");
+    const hint = nativeActionHint("range ce fichier dans le dossier campagne");
+    expect(hint).toContain("drive_operation");
+    expect(hint).toContain("op « move »");
+  });
+
+  it("OPS DE DOMAINE — la reclassification AUTOMATIQUE : les actions couvertes par le catalogue sont NATIVE, via tool:op", () => {
+    expect(ACTION_CLASSIFICATION["drive-actions:createFolder"]).toEqual({ status: "NATIVE", via: "drive_operation:create_folder" });
+    expect(ACTION_CLASSIFICATION["drive-actions:deleteNode"]).toEqual({ status: "NATIVE", via: "drive_operation:delete" });
+    expect(ACTION_CLASSIFICATION["drive-actions:shareNodeWithMany"]?.status).toBe("NATIVE");
+    expect(ACTION_CLASSIFICATION["task-actions:respondTaskRequest"]).toEqual({ status: "NATIVE", via: "task_operation:accept" });
+    expect(ACTION_CLASSIFICATION["task-actions:submitTaskWork"]?.status).toBe("NATIVE");
+    // Une action NON couverte par le catalogue reste un GAP assumé — pas de sur-déclaration.
+    expect(ACTION_CLASSIFICATION["drive-space-actions:createDriveSpace"]?.status).toBe("GAP");
   });
 });
 

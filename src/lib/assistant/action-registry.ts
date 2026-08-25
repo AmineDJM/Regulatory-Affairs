@@ -1,6 +1,7 @@
 import type { CurrentUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { canSetStructural } from "@/lib/regulatory/structural-fields";
+import { OPS_CATALOG, catalogCoveredKeys } from "@/lib/assistant/ops/catalog";
 
 /**
  * ERP ACTION REGISTRY — le Chief of Staff est le PLAN DE CONTRÔLE en langage naturel de l'ERP.
@@ -38,6 +39,8 @@ export interface NativeAction {
   uiLabel: string;
   /** L'outil du Chief qui PROPOSE cette action (confirmation obligatoire ensuite). */
   toolName: string;
+  /** Outil de DOMAINE : la valeur du champ `op` à passer (ex. `drive_operation` op `move`). */
+  toolOp?: string;
   /** Formulations naturelles (français) qui désignent cette action. */
   aliases: string[];
   risk: ActionRisk;
@@ -51,7 +54,7 @@ export interface NativeAction {
 
 const isSA = (u: CurrentUser) => u.role === "SUPER_ADMIN";
 
-export const ERP_ACTIONS: NativeAction[] = [
+const CORE_ERP_ACTIONS: NativeAction[] = [
   {
     id: "FINANCE_REQUEST_BALANCE_REFRESH",
     module: "Finances",
@@ -435,6 +438,26 @@ export const ERP_ACTIONS: NativeAction[] = [
   },
 ];
 
+/**
+ * Les OPS DE DOMAINE (`ops/catalog.ts`) entrent dans le MÊME registre : mêmes alias, même
+ * matching, même découverte (`find_available_actions`) — une op ajoutée au catalogue devient
+ * découvrable ici sans rien recopier. `toolOp` porte la valeur du champ `op` à passer.
+ */
+const CATALOG_ERP_ACTIONS: NativeAction[] = OPS_CATALOG.map((m) => ({
+  id: `OP_${m.tool.toUpperCase()}_${m.op.toUpperCase()}`,
+  module: m.module,
+  uiLabel: m.uiLabel,
+  toolName: m.tool,
+  toolOp: m.op,
+  aliases: m.aliases,
+  risk: m.risk,
+  summary: m.summary,
+  gate: m.gate,
+  ...(m.gateNote ? { gateNote: m.gateNote } : {}),
+}));
+
+export const ERP_ACTIONS: NativeAction[] = [...CORE_ERP_ACTIONS, ...CATALOG_ERP_ACTIONS];
+
 // ───────────────────────── Résolution intention → action native ─────────────────────────
 
 /** Mots-outils français écartés du matching (sinon « demande rh » se réduirait à « demande »). */
@@ -495,7 +518,7 @@ export function nativeActionHint(question: string): string | null {
   const matches = matchNativeAction(question);
   if (matches.length === 0) return null;
   const lines = matches.map((a) =>
-    `• « ${a.uiLabel} » (${a.module}) → outil ${a.toolName}${a.risk !== "NORMAL" ? ` [${a.risk}]` : ""}`,
+    `• « ${a.uiLabel} » (${a.module}) → outil ${a.toolName}${a.toolOp ? ` (op « ${a.toolOp} »)` : ""}${a.risk !== "NORMAL" ? ` [${a.risk}]` : ""}`,
   );
   return `ACTION NATIVE DE L'ERP DÉTECTÉE pour cette demande :\n${lines.join("\n")}\n`
     + "RÈGLE : utiliser CET outil natif — jamais une demande administrative générique, une tâche ou un "
@@ -920,6 +943,14 @@ X("outillage de TEST interne de la plateforme (centre de tests), pas une action 
 G("suppression par le CRÉATEUR de son propre courrier / document légal (proposable pour l'auteur)", [
   "admin-delete-actions:deleteOwnRecord",
 ]);
+
+// ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──
+// Chaque op de domaine déclare les server actions qu'elle rend NATIVE (`covers`) : leurs clés
+// passent de GAP à NATIVE ici, sans retoucher les blocs à la main. Ajouter une op = fermer ses
+// trous — c'est le mécanisme SYSTÉMIQUE anti « capability whack-a-mole ».
+for (const [key, via] of catalogCoveredKeys()) {
+  CLASSIFICATION[key] = { status: "NATIVE", via };
+}
 
 export const ACTION_CLASSIFICATION: Readonly<Record<string, ActionClassification>> = CLASSIFICATION;
 
