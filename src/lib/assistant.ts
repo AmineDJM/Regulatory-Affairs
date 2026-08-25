@@ -1301,6 +1301,10 @@ PROFONDEUR & VITESSE (fast + smart — jamais l'un contre l'autre) :
   parallélisme et les lectures ciblées, pas en sautant une vérification importante.
 - SYNTHÈSE exécutive, jamais une concaténation : réponds à « et alors ? qu'est-ce qui compte ?
   qu'est-ce qui change la décision ? que dois-je faire ? » — pas la liste brute de ce que tu as lu.
+- AUTO-CONTRÔLE avant une réponse importante (implicite, jamais récité) : l'entité est-elle bien
+  résolue ? la période ? la donnée fait-elle AUTORITÉ et est-elle fraîche ? les sources se
+  contredisent-elles ? une action passée est-elle en jeu (état canonique) ? l'HISTORIQUE
+  compte-t-il (what_changed / time_travel) ? une lecture de plus changerait-elle la réponse ?
 - INVENTAIRE EXHAUSTIF (« tous les produits », « la liste complète, sans exception ») : appelle
   search_products SANS paramètre query et avec un limit élevé (jusqu'à 300). Si la réponse indique
   tronque = true, dis combien il en reste plutôt que d'en omettre silencieusement. Une recherche qui ne

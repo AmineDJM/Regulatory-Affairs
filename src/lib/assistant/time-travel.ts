@@ -47,7 +47,7 @@ export function parseTimeTravelDate(raw: string): Date | null {
 }
 
 /** Le dossier résolu : de quoi lire son journal et montrer son état ACTUEL en face du passé. */
-interface ResolvedRecord {
+export interface ResolvedRecord {
   entityType: string;
   id: string;
   type: string;
@@ -61,8 +61,9 @@ interface ResolvedRecord {
 /**
  * Résout la référence sur les mêmes pistes qu'`inspect_record` (paiement → règlement → Legal →
  * Regulatory → tâche) — bornées, insensibles à la casse, le titre en repli de la référence.
+ * Exportée : `what_changed` (« qu'est-ce qui a changé depuis lundi ? ») résout par le MÊME chemin.
  */
-async function resolveRecord(ref: string): Promise<ResolvedRecord | null> {
+export async function resolveRecord(ref: string): Promise<ResolvedRecord | null> {
   const refOrTitle = (titleField: string) => ({
     OR: [{ reference: { equals: ref, mode: "insensitive" as const } }, { [titleField]: { contains: ref, mode: "insensitive" as const } }],
   });

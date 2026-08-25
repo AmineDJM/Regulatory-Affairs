@@ -6,6 +6,7 @@ import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { getBlob } from "@/lib/drive-storage";
 import { extractAttachmentText } from "@/lib/assistant-files";
 import { foldText } from "@/lib/assistant/memory-context";
+import { classifyDocument, DOC_KIND_LABEL, type DocKind } from "@/lib/assistant/drive-classify";
 
 /**
  * DÉCOUVERTE DOCUMENTAIRE EN DRIVE « SALE » — retrouver un document que son NOM ne trahit pas.
@@ -35,16 +36,18 @@ const INDEX_TEXT_CAP = 20_000;
 const ON_THE_FLY_SIZE_CAP = 8 * 1024 * 1024;
 
 /**
- * Mémorise le texte extrait d'un fichier du Drive — appelé après CHAQUE lecture réussie.
+ * Mémorise le texte extrait d'un fichier du Drive — appelé après CHAQUE lecture réussie ET par
+ * l'ingestion planifiée. Classifie au passage (le nom est un indice, le contenu la preuve).
  * Meilleur-effort : l'échec d'indexation ne casse jamais la lecture.
  */
-export async function indexDriveNodeText(nodeId: string, versionId: string, text: string, note?: string | null): Promise<void> {
+export async function indexDriveNodeText(nodeId: string, versionId: string, text: string, note?: string | null, name?: string | null): Promise<void> {
   try {
     const capped = text.slice(0, INDEX_TEXT_CAP);
+    const docKind = classifyDocument(name ?? "", capped);
     await prisma.driveTextIndex.upsert({
       where: { nodeId },
-      create: { nodeId, versionId, text: capped, textFold: foldText(capped), note: note ?? null },
-      update: { versionId, text: capped, textFold: foldText(capped), note: note ?? null },
+      create: { nodeId, versionId, text: capped, textFold: foldText(capped), note: note ?? null, docKind },
+      update: { versionId, text: capped, textFold: foldText(capped), note: note ?? null, docKind },
     });
   } catch (err) {
     console.error("[assistant] indexDriveNodeText failed", err);
@@ -88,8 +91,25 @@ async function nodeText(nodeId: string): Promise<NodeText | null> {
   if (!bytes) return { name: node.name, text: null, note: "contenu indisponible", fromIndex: false };
   const t = await extractAttachmentText(node.name, bytes);
   // On indexe MÊME l'échec (texte vide) : inutile de re-tenter un scan illisible à chaque fois.
-  await indexDriveNodeText(nodeId, version.id, t.text ?? "", t.note ?? (t.text ? null : "illisible (scan sans OCR ?)"));
+  await indexDriveNodeText(nodeId, version.id, t.text ?? "", t.note ?? (t.text ? null : "illisible (scan sans OCR ?)"), node.name);
   return { name: node.name, text: t.text || null, note: t.note ?? null, fromIndex: false };
+}
+
+/**
+ * INGESTION : garantit qu'un nœud est indexé (extraction + classification si nécessaire).
+ * Utilisée par la tâche planifiée d'ingestion du Drive — même chemin que la lecture à la volée.
+ * Renvoie true si un index existe à l'issue de l'appel (même un index « illisible »).
+ */
+export async function ensureNodeIndexed(nodeId: string): Promise<boolean> {
+  const t = await nodeText(nodeId).catch(() => null);
+  if (!t) return false;
+  const row = await prisma.driveTextIndex.findUnique({ where: { nodeId }, select: { id: true } }).catch(() => null);
+  if (row) return true;
+  // Le contenu n'a pas pu être lu (blob indisponible, trop volumineux, pas de version) : un
+  // index-témoin garde la RAISON — l'ingestion ne re-tente pas le même nœud à chaque passage.
+  const version = await prisma.fileVersion.findFirst({ where: { nodeId }, orderBy: { version: "desc" }, select: { id: true } });
+  await indexDriveNodeText(nodeId, version?.id ?? "-", "", t.note ?? "contenu non lisible", t.name);
+  return true;
 }
 
 interface Finding {
@@ -100,6 +120,7 @@ interface Finding {
   matchedInContent: number;
   excerpt?: string;
   note?: string | null;
+  docKind?: string | null;
   contentChecked: boolean;
 }
 
@@ -130,14 +151,19 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
       name: "find_documents",
       description:
         "RETROUVE des documents dans le Drive même MAL NOMMÉS ou MAL RANGÉS (« retrouve le contrat de Khaled », « la facture " +
-        "du fournisseur X de mars ») : cherche dans les NOMS, dans le TEXTE des fichiers déjà lus (index progressif), puis LIT " +
+        "du fournisseur X de mars ») : cherche dans les NOMS, dans le TEXTE INDEXÉ des fichiers (une ingestion planifiée indexe " +
+        "progressivement TOUT le Drive — un document jamais ouvert et mal nommé devient trouvable par son CONTENU), puis LIT " +
         "les meilleurs candidats pour VÉRIFIER. Chaque résultat porte sa CONFIANCE (HAUTE = termes trouvés dans le contenu lu ; " +
-        "MOYENNE = partiel ; FAIBLE = nom seul, contenu non vérifiable) et sa PREUVE (extrait). Le nom d'un fichier est un indice, " +
-        "pas une preuve. Plus lent que search_drive : à utiliser quand la recherche par nom ne suffit pas.",
+        "MOYENNE = partiel ; FAIBLE = nom seul, contenu non vérifiable), sa PREUVE (extrait) et sa NATURE détectée (contrat de " +
+        "travail, facture, devis, BC…). Le nom d'un fichier est un indice, pas une preuve. Plus lent que search_drive.",
       input_schema: {
         type: "object",
         properties: {
           query: { type: "string", description: "Ce que l'on cherche : nature du document + entité (« contrat Khaled Benali », « facture Sarl Imprimerie mars »)." },
+          kind: {
+            type: "string",
+            description: "Filtre optionnel par NATURE détectée : employment_contract | amendment | job_description | invoice | quote | purchase_order | contract | identity_document | regulatory_document | correspondence | corporate_document.",
+          },
           max_reads: { type: "number", description: "Nombre maximum de fichiers lus à la volée pour vérification (défaut 6, max 10)." },
         },
         required: ["query"],
@@ -149,6 +175,7 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
       const query = str(input, "query");
       if (query.length < 3) return "Donnez ce que vous cherchez (nature du document + nom/entité).";
       const maxReads = Math.min(Math.max(Math.round(Number(input.max_reads) || 6), 1), 10);
+      const kindFilter = str(input, "kind") in DOC_KIND_LABEL ? (str(input, "kind") as DocKind) : null;
       const tokens = tokensOf(query);
       if (tokens.length === 0) return "Termes trop courts — donnez au moins un mot de 3 caractères.";
 
@@ -172,15 +199,16 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
       // 2) INDEX TEXTUEL — les fichiers déjà lus dont le CONTENU porte tous les termes
       //    (repli : au moins un terme si la conjonction ne donne rien). Droit revérifié nœud
       //    par nœud AVANT toute exploitation.
+      const kindWhere = kindFilter ? { docKind: kindFilter } : {};
       const indexed = await prisma.driveTextIndex.findMany({
-        where: { AND: tokens.map((t) => ({ textFold: { contains: t } })) },
-        select: { nodeId: true, text: true, note: true },
+        where: { AND: tokens.map((t) => ({ textFold: { contains: t } })), ...kindWhere },
+        select: { nodeId: true, text: true, note: true, docKind: true },
         orderBy: { updatedAt: "desc" },
         take: 15,
       });
       const indexedFallback = indexed.length > 0 ? [] : await prisma.driveTextIndex.findMany({
-        where: { OR: tokens.map((t) => ({ textFold: { contains: t } })) },
-        select: { nodeId: true, text: true, note: true },
+        where: { OR: tokens.map((t) => ({ textFold: { contains: t } })), ...kindWhere },
+        select: { nodeId: true, text: true, note: true, docKind: true },
         orderBy: { updatedAt: "desc" },
         take: 10,
       });
@@ -194,6 +222,7 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
         f.excerpt = f.excerpt ?? excerptAround(hit.text, tokens);
         f.contentChecked = true;
         f.note = hit.note;
+        f.docKind = hit.docKind;
         findings.set(hit.nodeId, f);
       }
 
@@ -242,6 +271,7 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
           lien: `/drive/${f.nodeId}`,
           driveNodeId: f.nodeId,
           confiance: f.confiance,
+          typeDetecte: f.docKind && f.docKind !== "unknown" ? DOC_KIND_LABEL[f.docKind as DocKind] ?? f.docKind : undefined,
           preuve: f.excerpt ?? (f.confiance === "FAIBLE" ? "correspondance sur le NOM seulement — contenu non vérifiable" : undefined),
           termesDansContenu: `${f.matchedInContent}/${tokens.length}`,
           note: f.note ?? undefined,

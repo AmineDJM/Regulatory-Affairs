@@ -16,6 +16,7 @@ import { DELIVERABLE_TOOLS } from "@/lib/assistant/deliverables";
 import { CORPUS_TOOLS } from "@/lib/assistant/corpus-tools";
 import { TIME_TRAVEL_TOOLS } from "@/lib/assistant/time-travel";
 import { ACTION_INTENT_TOOLS } from "@/lib/assistant/action-intents";
+import { WHAT_CHANGED_TOOLS } from "@/lib/assistant/what-changed";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -239,6 +240,9 @@ export const POWER_TOOLS: PowerTool[] = [
   // L'HISTORIQUE CANONIQUE des actions de l'assistant (machine d'état serveur) — la seule
   // source de vérité pour « déjà demandé ? » / « c'est envoyé ? ». Cloisonné par compte.
   ...ACTION_INTENT_TOOLS,
+  // WHAT CHANGED / CATCH ME UP : les changements significatifs d'un dossier depuis une date,
+  // qui a agi, et l'état actuel en face — lecture seule.
+  ...WHAT_CHANGED_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */

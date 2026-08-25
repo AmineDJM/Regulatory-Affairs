@@ -4484,10 +4484,14 @@ model DriveTextIndex {
   /// « reglement » doit trouver « Règlement ».
   textFold  String
   note      String?
+  /// Classification DÉTERMINISTE du document (contrat de travail, facture, devis, BC, fiche de
+  /// poste…) — le nom est un indice, le CONTENU est la preuve. Null = non classé / unknown.
+  docKind   String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
   @@index([updatedAt])
+  @@index([docKind])
 }
 
 /// Partage d'un nœud avec un utilisateur précis (droits VIEW/EDIT).

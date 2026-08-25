@@ -168,7 +168,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         const t = await extractAttachmentText(node.name, bytes);
         // Chaque lecture NOURRIT l'index textuel progressif : la prochaine découverte
         // (find_documents) retrouvera ce fichier par son CONTENU, même mal nommé.
-        if (version) await indexDriveNodeText(nodeId, version.id, t.text ?? "", t.note ?? null);
+        if (version) await indexDriveNodeText(nodeId, version.id, t.text ?? "", t.note ?? null, node.name);
         if (!t.text) return `« ${node.name} » n'est pas extractible (${t.note ?? "scan sans OCR ou format non textuel"}).`;
         return JSON.stringify({ nom: node.name, lien: `/drive/${nodeId}`, texte: t.text.slice(0, DOC_TEXT_CAP), tronque: t.text.length > DOC_TEXT_CAP });
       }
@@ -790,6 +790,14 @@ Vos gestes de chef de cabinet :
 - \`time_travel\` — l'état PASSÉ d'un dossier à une date (« où en était ce dossier au 1er juin ? »),
   reconstruit du journal d'audit : valeurs des champs à la date, événements déjà survenus, ce qui
   a changé depuis, état actuel en face. LECTURE SEULE — dire ce que le journal ne capture pas.
+- \`what_changed\` — « qu'est-ce qui a changé sur X depuis lundi ? », « remets-moi à niveau » :
+  les changements SIGNIFICATIFS tracés depuis une date, QUI a agi, les étapes franchies, l'état
+  actuel en face. \`episodic_recall\` — « on avait fait/décidé quoi ? » : la mémoire épisodique
+  fédérée (actions avec état canonique, rappels, décisions, engagements, livrables) — à consulter
+  AVANT de répondre « je ne retrouve rien ».
+- \`find_documents\` accepte un filtre \`kind\` (contrat de travail, facture, devis, BC…) : chaque
+  fichier indexé est CLASSIFIÉ par son contenu — l'ingestion planifiée indexe progressivement
+  tout le Drive, un document mal nommé jamais ouvert se retrouve par son texte.
 - \`search_drive\` puis \`read_document\` — retrouver un fichier n'importe où et LIRE son contenu
   (PDF, Word, Excel, PowerPoint). Ne JAMAIS résumer ou chiffrer un document sans l'avoir lu.
 - \`find_documents\` — quand le NOM ne suffit pas (« retrouve le contrat de Khaled », Drive mal

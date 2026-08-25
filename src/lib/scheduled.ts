@@ -11,6 +11,7 @@ import { runIntelligencePulse } from "@/lib/adventum/pulse";
 import { runPettyCashRechargeReminders } from "@/lib/actions/petty-cash-actions";
 import { runLegalExpirySweep } from "@/lib/legal/expiry-sweep";
 import { runAssistantReminders } from "@/lib/assistant/reminders";
+import { runDriveIngestionSweep } from "@/lib/assistant/drive-ingestion";
 
 /**
  * Tâches périodiques **sans cron externe** : déclenchées (au plus une fois par minute,
@@ -96,6 +97,10 @@ export async function runScheduledJobs(): Promise<void> {
     // Rappels du Chief of Staff : « rappelle-moi mardi à 10 h », « tous les dimanches relance
     // Regulatory » — pop-up au propriétaire, relance du rôle cible s'il y en a un.
     await runAssistantReminders().catch(() => undefined);
+    // Ingestion Drive : un paquet de fichiers indexés (texte + classification) par passage —
+    // un document mal nommé jamais ouvert devient trouvable par son CONTENU. L'ACL se
+    // revérifie à la recherche, nœud par nœud. Débrayage : ASSISTANT_DRIVE_INGESTION=off.
+    await runDriveIngestionSweep().catch(() => undefined);
 
   } catch (err) {
     console.error("[scheduled] run failed", err);

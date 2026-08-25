@@ -152,4 +152,26 @@ suite("action intents — mémoire et cohérence canoniques (Redouane / Khaled)"
       { label: "Objet", value: "Contrats salariés" },
     ]))).toBe("Envoyer une notification à Redouane — Objet : Contrats salariés");
   });
+
+  it("episodic_recall — « qu'est-ce qu'on a fait sur X ? » fédère actions, rappels, décisions, engagements", async () => {
+    await Promise.all([
+      prisma.assistantReminder.create({ data: { userId: ceoId, title: `${TAG} relancer Redouane sur les contrats`, dueAt: new Date(Date.now() + 86_400_000) } }),
+      prisma.executiveDecision.create({ data: { ownerId: ceoId, title: `${TAG} centraliser les contrats salariés`, status: "DECIDED" } }),
+      prisma.executiveCommitment.create({ data: { ownerId: ceoId, who: "Redouane", what: `${TAG} rattacher les contrats aux fiches`, status: "OPEN" } }),
+    ]);
+    const tool2 = POWER_TOOLS.find((t) => t.def.name === "episodic_recall")!;
+    expect(tool2.allowed(exec(ceoId))).toBe(true);
+    const out = JSON.parse(await tool2.run({ query: "contrats" }, exec(ceoId)));
+    // Les QUATRE registres touchés par « contrats » répondent d'un coup — sans transcript.
+    expect(JSON.stringify(out.actions ?? [])).toContain("Redouane"); // l'intent du test FAILURE A
+    expect(JSON.stringify(out.rappels)).toContain("relancer Redouane");
+    expect(JSON.stringify(out.decisions)).toContain("centraliser");
+    expect(JSON.stringify(out.engagements)).toContain("rattacher les contrats");
+    // Et l'absence honnête sur un sujet jamais abordé.
+    const empty = await tool2.run({ query: "zeppelin-quantique" }, exec(ceoId));
+    expect(empty).toMatch(/Aucune trace ÉPISODIQUE/);
+    await prisma.assistantReminder.deleteMany({ where: { userId: ceoId } }).catch(() => {});
+    await prisma.executiveDecision.deleteMany({ where: { ownerId: ceoId } }).catch(() => {});
+    await prisma.executiveCommitment.deleteMany({ where: { ownerId: ceoId } }).catch(() => {});
+  });
 });

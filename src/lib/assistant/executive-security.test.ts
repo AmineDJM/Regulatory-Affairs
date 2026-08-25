@@ -66,7 +66,7 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
     const openByDesign = new Set([
       "search_everything", "list_pending_decisions",
       "remember", "list_memories", "forget_memory", "recall_conversation",
-      "action_history",
+      "action_history", "episodic_recall",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

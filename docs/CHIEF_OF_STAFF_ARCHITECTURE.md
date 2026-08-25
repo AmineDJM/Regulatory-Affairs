@@ -340,6 +340,44 @@ répété après interruption, recherche EN SILENCE, terminer par la réponse (p
 *Limite honnête* : le comportement au micro réel (clavier, toux, voiture, Bluetooth) se valide
 sur l'environnement déployé — la matrice de tests est dans la recette README.
 
+### GOD MODE — la couche cognitive finale (primitives générales, pas de question codée en dur)
+
+Le test n'est pas « les exemples du prompt marchent-ils ? » mais « une question NOUVELLE
+peut-elle être résolue avec les primitives disponibles ? ». Les primitives, et où elles vivent :
+
+- **Comprendre / résoudre le contexte** — vocabulaire métier contextuel, working set (entités
+  actives), alias mémorisés, résolution phonétique (prompts + `reasoning.ts`) ;
+- **Planifier / paralléliser / approfondir** — bloc PROFONDEUR & VITESSE + AUTO-CONTRÔLE
+  implicite (entité résolue ? donnée fraîche ? sources en conflit ? historique en jeu ?),
+  outils en `Promise.all`, seconde passe critique sur fort enjeu ;
+- **Chercher / lire partout** — `search_everything`, `search_drive`, `find_documents` avec
+  **ingestion Drive planifiée** (`drive-ingestion.ts` : un paquet par passage, extraction +
+  **classification déterministe** `drive-classify.ts` — contrat de travail, facture, devis,
+  BC… ; filtre `kind` ; index-témoin pour l'illisible ; ACL revérifiée à la recherche nœud
+  par nœud ; débrayage `ASSISTANT_DRIVE_INGESTION=off`) — un document MAL NOMMÉ jamais ouvert
+  se retrouve par son CONTENU ;
+- **Relier / reconstruire** — `inspect_record` (chaînes devis→BC→facture→règlement),
+  `product/supplier/employee_360`, `organization/process_insights` ;
+- **Temporel** — `time_travel` (état passé), **`what_changed`** (« qu'est-ce qui a changé
+  depuis lundi ? » / « remets-moi à niveau » : changements SIGNIFICATIFS tracés + QUI a agi +
+  étapes franchies + état actuel en face — `what-changed.ts`) ;
+- **Mémoire** — conversation persistée, mémoire typée (alias, préférences — jamais source de
+  vérité métier), ActionIntents canoniques, **`episodic_recall`** (fédéré : actions + rappels
+  + décisions + engagements + livrables — « qu'est-ce qu'on a fait/décidé ? » sans transcript) ;
+- **Vérifier / réconcilier** — hiérarchie d'autorité des sources, règle de contradiction +
+  écart devis→facture calculé, taxonomie FAIT VÉRIFIÉ/DÉRIVÉ/ESTIMATION/HYPOTHÈSE/INCONNU ;
+- **Simuler / challenger / recommander** — `simulate_scenario` (jamais mutatif), critique
+  adversariale, `ceo_attention`, briefing sur demande ;
+- **Agir si autorisé seulement** — ACTION_POLICY, cartes de confirmation, machine d'état
+  ActionIntent, kill-switch, RBAC revérifié à chaque appel, contenu = donnée jamais instruction.
+
+*Limites restantes, dites* : pas de couche SQL sémantique arbitraire (les agrégats passent par
+les outils validés — une question analytique hors outils reçoit un refus honnête) ; pas d'index
+vectoriel du Drive (lexical replié + classification — l'infra embeddings existe côté corpus et
+pourra s'étendre) ; le graphe d'entités est LOGIQUE (FK + chaînes + 360), pas un graphe
+matérialisé ; « depuis notre dernière discussion » exige que le modèle fournisse la date (le
+fil récent la donne).
+
 **Benchmark qualité × latence** — ne jamais optimiser le seul TTFT. Deux étages :
 1. **Golden queries déterministes** (`lib/assistant/golden-queries.test.ts`, CI) : sur les
    vraies questions du PDG (« où en est Pembro ? », « pourquoi est-il bloqué ? », « qui est

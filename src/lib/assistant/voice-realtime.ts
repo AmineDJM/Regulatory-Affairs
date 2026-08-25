@@ -82,6 +82,8 @@ export const VOICE_FAST_TOOL_NAMES: readonly string[] = [
   "search_knowledge_corpus",
   "time_travel",
   "action_history",
+  "what_changed",
+  "episodic_recall",
   "plan_reminder",
   "list_commitments",
   "list_decisions",
@@ -181,6 +183,9 @@ CONSIGNES VOCALES — tu es EN LIGNE, à l'oral, avec ton interlocuteur :
   lecture directe ; si le PDG demande une VRAIE investigation, délègue — à sa demande, jamais avant.
 - « Où en était ce dossier au… ? » : l'outil time_travel reconstruit l'état PASSÉ depuis le
   journal d'audit — lecture seule, dis ce que le journal montre et ce qu'il ne capture pas.
+- « Qu'est-ce qui a changé depuis… ? » / « remets-moi à niveau » : what_changed (changements
+  tracés + qui a agi + état actuel). « On avait parlé de quoi / fait quoi cette semaine ? » :
+  episodic_recall (actions, rappels, décisions, engagements, livrables — objets structurés).
 - Ton : professionnel, calme, naturel — jamais robotique, jamais surjoué.`;
 
 const ymdhm = (iso: string): string => iso.slice(0, 16).replace("T", " ");

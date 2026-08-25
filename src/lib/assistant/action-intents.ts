@@ -263,4 +263,92 @@ export const ACTION_INTENT_TOOLS: PowerTool[] = [
       });
     },
   },
+
+  {
+    def: {
+      name: "episodic_recall",
+      description:
+        "LA MÉMOIRE ÉPISODIQUE FÉDÉRÉE : tout ce qui s'est PASSÉ entre l'utilisateur et l'assistant — actions (avec leur état " +
+        "canonique), rappels planifiés, décisions enregistrées, engagements suivis, livrables générés — en UNE recherche. " +
+        "Pour « on avait parlé de quoi ? », « qu'est-ce qu'on a fait / décidé cette semaine ? », « on avait prévu quelque chose " +
+        "sur X ? ». À consulter AVANT de répondre « je ne retrouve rien » : l'absence de trace ici est fiable, un souvenir ne l'est pas.",
+      input_schema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Filtre optionnel (sujet, nom, référence)." },
+          days: { type: "number", description: "Fenêtre en jours (défaut 30)." },
+        },
+      },
+    },
+    allowed: () => true, // chaque registre est strictement cloisonné par user.id / ownerId
+    label: "Mémoire épisodique consultée",
+    run: async (input, user) => {
+      const q = str(input, "query");
+      const days = typeof input.days === "number" && input.days > 0 ? Math.min(input.days, 365) : 30;
+      const since = new Date(Date.now() - days * 86_400_000);
+      const tokens = q.toLowerCase().split(/\s+/).filter((t) => t.length >= 2).slice(0, 6);
+      const textWhere = (fields: string[]) =>
+        tokens.length > 0
+          ? { AND: tokens.map((t) => ({ OR: fields.map((f) => ({ [f]: { contains: t, mode: "insensitive" as const } })) })) }
+          : {};
+
+      // Les CINQ registres, en parallèle — chacun déjà cloisonné à CE compte.
+      const [intents, reminders, decisions, commitments, artifacts] = await Promise.all([
+        prisma.assistantActionIntent.findMany({
+          where: { userId: user.id, proposedAt: { gte: since }, ...textWhere(["title", "summary"]) },
+          orderBy: { proposedAt: "desc" }, take: 10,
+          select: { title: true, summary: true, status: true, proposedAt: true, executedAt: true },
+        }).catch(() => []),
+        prisma.assistantReminder.findMany({
+          where: { userId: user.id, createdAt: { gte: since }, ...textWhere(["title", "note"]) },
+          orderBy: { createdAt: "desc" }, take: 10,
+          select: { title: true, dueAt: true, recurrence: true, active: true },
+        }).catch(() => []),
+        prisma.executiveDecision.findMany({
+          where: { ownerId: user.id, createdAt: { gte: since }, ...textWhere(["title", "context"]) },
+          orderBy: { createdAt: "desc" }, take: 10,
+          select: { title: true, status: true, createdAt: true },
+        }).catch(() => []),
+        prisma.executiveCommitment.findMany({
+          where: { ownerId: user.id, createdAt: { gte: since }, ...textWhere(["who", "what"]) },
+          orderBy: { createdAt: "desc" }, take: 10,
+          select: { who: true, what: true, status: true, dueAt: true },
+        }).catch(() => []),
+        prisma.assistantArtifact.findMany({
+          where: { ownerId: user.id, createdAt: { gte: since }, ...textWhere(["title"]) },
+          orderBy: { createdAt: "desc" }, take: 10,
+          select: { title: true, formats: true, createdAt: true },
+        }).catch(() => []),
+      ]);
+
+      const total = intents.length + reminders.length + decisions.length + commitments.length + artifacts.length;
+      if (total === 0) {
+        return q
+          ? `Aucune trace ÉPISODIQUE contenant « ${q} » sur ${days} j — ni action, ni rappel, ni décision, ni engagement, ni livrable. Cette absence est fiable pour ce qui passe par l'assistant ; un échange purement oral hors outil ne laisse pas de trace ici.`
+          : `Aucune trace épisodique sur ${days} j.`;
+      }
+      return JSON.stringify({
+        periode: `${days} derniers jours`,
+        ...(intents.length > 0 ? {
+          actions: intents.map((r) => ({
+            resume: r.summary, statut: INTENT_STATUS_LABEL[r.status as ActionIntentStatus] ?? r.status,
+            proposeeLe: frDate(r.proposedAt), ...(r.executedAt ? { executeeLe: frDate(r.executedAt) } : {}),
+          })),
+        } : {}),
+        ...(reminders.length > 0 ? {
+          rappels: reminders.map((r) => ({ titre: r.title, echeance: frDate(r.dueAt), recurrence: r.recurrence, actif: r.active })),
+        } : {}),
+        ...(decisions.length > 0 ? {
+          decisions: decisions.map((d) => ({ titre: d.title, statut: d.status, le: frDate(d.createdAt) })),
+        } : {}),
+        ...(commitments.length > 0 ? {
+          engagements: commitments.map((c) => ({ qui: c.who, quoi: c.what, statut: c.status, echeance: c.dueAt ? frDate(c.dueAt) : null })),
+        } : {}),
+        ...(artifacts.length > 0 ? {
+          livrables: artifacts.map((a) => ({ titre: a.title, formats: a.formats, le: frDate(a.createdAt) })),
+        } : {}),
+        rappel: "Objets STRUCTURÉS de ce compte — la vérité sur ce qui s'est passé avec l'assistant, sans dépendre du transcript.",
+      });
+    },
+  },
 ];
