@@ -17,6 +17,7 @@ import { MAIL_OPS_IMPL } from "./impl-mail";
 import { LEGAL_OPS_IMPL } from "./impl-legal";
 import { ORG_OPS_IMPL } from "./impl-org";
 import { ADPRO_OPS_IMPL, BD_OPS_IMPL, STOCK_OPS_IMPL } from "./impl-commercial";
+import { REG4_OPS_IMPL, PCH_OPS_IMPL, STOCK4_OPS_IMPL, SALES_OPS_IMPL, LOGISTICS_OPS_IMPL } from "./impl-wave4";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -189,7 +190,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   regulatory_operation: {
     module: "REGULATORY",
-    ops: zipOps("regulatory_operation", REGULATORY_OPS_IMPL),
+    ops: zipOps("regulatory_operation", { ...REGULATORY_OPS_IMPL, ...REG4_OPS_IMPL }),
     def: {
       name: "regulatory_operation",
       description:
@@ -205,7 +206,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           entity: { type: "string", description: "Nom de l'entité (create_product : obligatoire ; set_classification : changement, Super Admin)." },
           people: { type: "string", description: "set_participants : noms séparés par des virgules (liste REMPLACÉE)." },
           comment: { type: "string", description: "add_comment : le commentaire." },
-          step: { type: "string", description: "update_step_details : libellé de l'étape (ex. « Dépôt dossier », « Paiement 1er BV »)." },
+          step: { type: "string", description: "update_step_details / set_step_note : libellé OU numéro (1–22) de l'étape (ex. « Dépôt du dossier », « 5 »)." },
           status: { type: "string", description: "Statut visé (étape : fait/en cours/bloqué/en retard ; variation : obtenue/en attente/annulée)." },
           item: { type: "string", description: "set_checklist_item : libellé du document de la checklist." },
           checked: { type: "string", description: "set_checklist_item : « décocher » pour retirer (défaut : cocher)." },
@@ -226,8 +227,12 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           responsible: { type: "string", description: "update_step_details : responsable de l'étape (texte)." },
           date: { type: "string", description: "Date libre (dépôt de variation, décision…) AAAA-MM-JJ." },
           dueDate: { type: "string", description: "request_bv : échéance (AAAA-MM-JJ)." },
-          note: { type: "string", description: "Note libre." },
-          notes: { type: "string", description: "create_product : commentaires du dossier." },
+          note: { type: "string", description: "Note libre (set_step_note : « aucune » pour l'effacer)." },
+          notes: { type: "string", description: "create_product / create_supplier : commentaires." },
+          name: { type: "string", description: "create_supplier : nom du fournisseur ; link/unlink_catalog_product : produit du catalogue (DCI BD ou nom promo)." },
+          country: { type: "string", description: "create_supplier : pays." },
+          contact: { type: "string", description: "create_supplier : e-mail de contact." },
+          kind: { type: "string", description: "link/unlink_catalog_product : catalogue visé (BD ou promotion) si le nom est ambigu." },
         },
         required: ["op"],
       },
@@ -514,21 +519,127 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   stock_operation: {
     module: "STOCKS",
-    ops: zipOps("stock_operation", STOCK_OPS_IMPL),
+    ops: zipOps("stock_operation", { ...STOCK_OPS_IMPL, ...STOCK4_OPS_IMPL }),
     def: {
       name: "stock_operation",
       description:
-        "STOCKS PCH — demander un état de stock à une personne (hôpitaux ciblés en option, validés dans les lieux de stock) : une DEMANDE DE TÂCHE part par le circuit normal. "
+        "STOCKS PCH — demander un état de stock à une personne, gérer les LIEUX (hôpitaux / annexes PCH, Super Admin) et enregistrer les ÉTATS DATÉS (« à cette date il reste X unités »), par les actions canoniques. "
         + `Champ « op » : ${opsSummary("stock_operation")}.`,
       input_schema: {
         type: "object",
         properties: {
           op: { type: "string", enum: opEnum("stock_operation"), description: "Le geste à faire." },
-          assigneeName: { type: "string", description: "À qui demander l'état de stock." },
-          hospitals: { type: "string", description: "Hôpitaux ciblés, séparés par des virgules (optionnel)." },
+          assigneeName: { type: "string", description: "request_state : à qui demander l'état de stock." },
+          hospitals: { type: "string", description: "request_state : hôpitaux ciblés, séparés par des virgules (optionnel)." },
           note: { type: "string", description: "Précision de la demande." },
+          location: { type: "string", description: "Nom de l'hôpital / annexe visé(e) (création, suppression, état)." },
+          product: { type: "string", description: "États : le produit (DCI ou nom commercial)." },
+          kind: { type: "string", description: "record_snapshot : lieu de l'état — PCH (défaut), hôpital, ou annexe." },
+          date: { type: "string", description: "États : la date de la mesure (AAAA-MM-JJ)." },
+          quantity: { type: "string", description: "record_snapshot : quantité restante (unités, ≥ 0)." },
         },
-        required: ["op", "assigneeName"],
+        required: ["op"],
+      },
+    },
+  },
+  pch_operation: {
+    module: "PCH",
+    ops: zipOps("pch_operation", PCH_OPS_IMPL),
+    def: {
+      name: "pch_operation",
+      description:
+        "PCH — MARCHÉS : appels d'offres (fiche, caution rejouée), bons de commande, lignes-produits (statut Gagné/Perdu, prix), analyse IA d'un TEXTE d'AO collé, enrichissement par l'intelligence marché, suivi d'arrivée — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("pch_operation")}. `
+        + "Le marché se donne par référence AO-AAAA-NNN, titre ou produits ; la ligne par sa désignation ; le bon de commande par son n°.",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("pch_operation"), description: "Le geste à faire." },
+          reference: { type: "string", description: "L'appel d'offres visé (AO-AAAA-NNN, titre ou produits)." },
+          name: { type: "string", description: "create_tender : titre du marché." },
+          products: { type: "string", description: "Produits concernés (texte)." },
+          supplier: { type: "string", description: "Fournisseur." },
+          country: { type: "string", description: "Pays du fournisseur." },
+          quantity: { type: "string", description: "Quantité (marché / bon / ligne / vente depuis ligne)." },
+          amount: { type: "string", description: "Valeur en DZD (marché, bon) ou prix unitaire (ligne)." },
+          status: { type: "string", description: "Statut : marché (non commencé/en cours/terminé/annulé), bon (en attente/validé/livré/payé/annulé), ligne (en attente/chiffré/soumis/gagné/perdu)." },
+          date: { type: "string", description: "Date (attribution du marché, réception du bon, arrivée prévue) AAAA-MM-JJ." },
+          order: { type: "string", description: "Le bon de commande visé (n° ou produits) — ou le n° à donner à un nouveau bon." },
+          line: { type: "string", description: "La ligne-produit visée (désignation ou DCI)." },
+          newName: { type: "string", description: "update_order / update_line : nouveau n° / nouvelle désignation." },
+          dci: { type: "string", description: "update_line : DCI." },
+          dosage: { type: "string", description: "update_line : dosage." },
+          form: { type: "string", description: "update_line : forme galénique." },
+          awardedPrice: { type: "string", description: "update_line : prix unitaire ATTRIBUÉ (DZD)." },
+          paymentDate: { type: "string", description: "update_order : date de paiement (AAAA-MM-JJ)." },
+          arrivedDate: { type: "string", description: "set_order_arrival : date d'arrivée RÉELLE (AAAA-MM-JJ)." },
+          text: { type: "string", description: "analyze_tender_text : le texte du document d'AO, collé." },
+          notes: { type: "string", description: "Notes libres." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  sales_operation: {
+    module: "SALES",
+    ops: zipOps("sales_operation", SALES_OPS_IMPL),
+    def: {
+      name: "sales_operation",
+      description:
+        "VENTES — enregistrer une vente réelle (produit ou service, quantité × prix DZD) ou importer un CSV COLLÉ de ventes, par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("sales_operation")}.`,
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("sales_operation"), description: "Le geste à faire." },
+          product: { type: "string", description: "create_sale : le produit (ou l'intitulé du service)." },
+          client: { type: "string", description: "create_sale : le client (obligatoire)." },
+          quantity: { type: "string", description: "create_sale : quantité vendue." },
+          amount: { type: "string", description: "create_sale : prix unitaire en DZD." },
+          date: { type: "string", description: "create_sale : date de la vente (AAAA-MM-JJ, défaut aujourd'hui)." },
+          kind: { type: "string", description: "create_sale : « service » si ce n'est pas un produit." },
+          dci: { type: "string", description: "create_sale : DCI du produit." },
+          dosage: { type: "string", description: "create_sale : dosage." },
+          institution: { type: "string", description: "create_sale : établissement du client." },
+          isPch: { type: "string", description: "create_sale : « oui » si vente PCH." },
+          csv: { type: "string", description: "import_sales : le CSV collé (en-tête : date,produit,dci,dosage,forme,client,institution,pch,quantité,prix unitaire)." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  logistics_operation: {
+    module: "LOGISTICS",
+    ops: zipOps("logistics_operation", LOGISTICS_OPS_IMPL),
+    def: {
+      name: "logistics_operation",
+      description:
+        "LOGISTIQUE — créer une commande d'acheminement (fournisseur → PCH) et faire avancer son suivi (expédié, terminal, dédouanement, livré) en datant les jalons, par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("logistics_operation")}. `
+        + "La commande se donne par référence CMD-AAAA-NNN ou produit.",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("logistics_operation"), description: "Le geste à faire." },
+          reference: { type: "string", description: "update_shipment_status : la commande (CMD-AAAA-NNN ou produit)." },
+          product: { type: "string", description: "create_shipment : le produit commandé (obligatoire)." },
+          dci: { type: "string", description: "create_shipment : DCI." },
+          dosage: { type: "string", description: "create_shipment : dosage." },
+          supplier: { type: "string", description: "create_shipment : fournisseur." },
+          country: { type: "string", description: "create_shipment : pays d'origine." },
+          quantity: { type: "string", description: "Quantité commandée / reçue." },
+          amount: { type: "string", description: "create_shipment : valeur de la commande." },
+          currency: { type: "string", description: "create_shipment : devise (défaut EUR)." },
+          status: { type: "string", description: "Statut : commandé, production, expédié, arrivé au terminal, dédouanement, livré, bloqué." },
+          date: { type: "string", description: "create_shipment : date de commande (AAAA-MM-JJ)." },
+          departureDate: { type: "string", description: "Départ (estimé à la création ; réel au suivi) AAAA-MM-JJ." },
+          arrivalDate: { type: "string", description: "Arrivée (estimée à la création ; réelle au suivi) AAAA-MM-JJ." },
+          customsDate: { type: "string", description: "update_shipment_status : date de dédouanement." },
+          deliveryDate: { type: "string", description: "update_shipment_status : date de livraison à la PCH." },
+          carrier: { type: "string", description: "create_shipment : transporteur." },
+          incoterm: { type: "string", description: "create_shipment : incoterm (CIF, FOB…)." },
+        },
+        required: ["op"],
       },
     },
   },

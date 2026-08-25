@@ -21,9 +21,9 @@ import { resolvePeopleList } from "./impl-drive";
  * canoniques de `regulatory-actions.ts` — verrous structurels (Super Admin) inclus.
  */
 
-interface ProductHit { id: string; reference: string; dci: string }
+export interface ProductHit { id: string; reference: string; dci: string }
 
-async function resolveRegProduct(user: CurrentUser, raw: string): Promise<ProductHit | { error: string }> {
+export async function resolveRegProduct(user: CurrentUser, raw: string): Promise<ProductHit | { error: string }> {
   const q = raw.trim();
   if (!q) return { error: "Précisez la référence (REG-AAAA-NNN) ou la DCI du dossier (champ « reference »)." };
   const scope = { AND: [scopeRegulatory(user), await currentCompanyWhereFor(user.id)] };
@@ -44,9 +44,9 @@ async function resolveRegProduct(user: CurrentUser, raw: string): Promise<Produc
 }
 
 /** Repli accents/casse pour matcher un LIBELLÉ humain contre un référentiel. */
-const fold = (s: string): string => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+export const fold = (s: string): string => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 
-function matchLabel<T extends string>(raw: string, entries: [T, string][]): T | { error: string } {
+export function matchLabel<T extends string>(raw: string, entries: [T, string][]): T | { error: string } {
   const q = fold(raw);
   if (!q) return { error: "Libellé manquant." };
   const direct = entries.find(([code]) => fold(code) === q);

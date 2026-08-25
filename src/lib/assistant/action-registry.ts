@@ -844,8 +844,7 @@ G("BD / marché / PCH / ventes & prévisions (CRUD des modules commerciaux)", [
   "bd-project-actions:updateBdProject", "bd-project-actions:deleteBdProject", "bd-project-actions:createBdRange",
   "bd-project-actions:updateBdRange", "bd-project-actions:deleteBdRange", "bd-project-actions:createBdProduct",
   "bd-project-actions:updateBdProduct", "bd-project-actions:deleteBdProduct", "bd-project-actions:updateBdCell",
-  "bd-project-actions:addBdProjectComment", "market-actions:searchMarketProducts",
-  "market-actions:analyzeMarketMolecule", "market-actions:marketSuggestions",
+  "bd-project-actions:addBdProjectComment",
   "market-presentation-actions:generatePresentation", "market-presentation-actions:regeneratePresentation",
   "market-presentation-actions:renamePresentation", "market-presentation-actions:deletePresentation",
   "market-research-actions:createMarketResearch", "market-research-actions:updateMarketResearch",
@@ -976,6 +975,9 @@ X("helpers de LECTURE et tâches PLANIFIÉES internes (pas des gestes métier qu
 ]);
 X("analyse IA de PRÉ-REMPLISSAGE (extrait les champs d'un contrat scanné, ne persiste RIEN — les RH relisent et enregistrent eux-mêmes)", [
   "hr-actions:analyzeEmployeeContract",
+]);
+X("lectures pures de l'explorateur Intelligence marché (recherche IQVIA/PCH, analyse de molécule, suggestions de frappe) — rien n'est écrit ; côté Chief, l'analyse marché sert déjà l'enrichissement des lignes d'AO (pch_operation:enrich_line)", [
+  "market-actions:searchMarketProducts", "market-actions:analyzeMarketMolecule", "market-actions:marketSuggestions",
 ]);
 X("liste de choix d'un formulaire (les personnes qu'on peut solliciter) — une lecture, pas un geste", [
   "document-request-actions:askablePeople",
