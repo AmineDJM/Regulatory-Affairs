@@ -26,6 +26,7 @@ const TYPES = [
   { value: "DATE", label: "Date" },
   { value: "BOOLEAN", label: "Oui / Non" },
   { value: "SELECT", label: "Liste de choix" },
+  { value: "FILE", label: "Fichier (document du Drive)" },
 ];
 
 export function FieldsManager({

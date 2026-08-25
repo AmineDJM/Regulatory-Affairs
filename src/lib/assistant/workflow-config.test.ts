@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import type { EffectiveAccess } from "@/lib/rbac";
 import { buildProposal } from "@/lib/assistant";
-import { missingRequiredValues } from "@/lib/custom-fields";
+import { missingRequiredValues, fileCustomValue, formatCustomValue } from "@/lib/custom-fields";
 
 /**
  * GOLDEN RÉGRESSION — le Chief ADMINISTRE les circuits et les formulaires (mission « il doit
@@ -192,5 +192,28 @@ describe("missingRequiredValues — la règle serveur du champ obligatoire (pure
   });
   it("un Oui/Non n'est jamais « manquant » : décoché est une réponse", () => {
     expect(missingRequiredValues(defs, { motif: "ok", urgent: false })).toEqual([]);
+  });
+
+  it("champ FICHIER obligatoire : rempli = une référence Drive VALIDE, pas n'importe quel objet", () => {
+    const fileDefs = [{ key: "piece", label: "Pièce justificative", type: "FILE", required: true }];
+    expect(missingRequiredValues(fileDefs, {})).toEqual(["Pièce justificative"]);
+    expect(missingRequiredValues(fileDefs, { piece: "abc" })).toEqual(["Pièce justificative"]); // un id nu n'est pas une référence stockée
+    expect(missingRequiredValues(fileDefs, { piece: { nodeId: "", name: "x" } })).toEqual(["Pièce justificative"]);
+    expect(missingRequiredValues(fileDefs, { piece: { nodeId: "n1", name: "Contrat.pdf" } })).toEqual([]);
+  });
+});
+
+describe("fileCustomValue / formatCustomValue — la valeur FICHIER (pure, partagée client/serveur)", () => {
+  it("lit une référence stockée, tolère le nom manquant, refuse le malformé sans jamais lever", () => {
+    expect(fileCustomValue({ nodeId: "n1", name: "Contrat.pdf" })).toEqual({ nodeId: "n1", name: "Contrat.pdf" });
+    expect(fileCustomValue({ nodeId: "n1" })).toEqual({ nodeId: "n1", name: "document" });
+    expect(fileCustomValue(null)).toBeNull();
+    expect(fileCustomValue("n1")).toBeNull();
+    expect(fileCustomValue({ name: "sans-id.pdf" })).toBeNull();
+  });
+  it("l'affichage montre le NOM du document (jamais un id brut ni « [object Object] »)", () => {
+    expect(formatCustomValue("FILE", { nodeId: "n1", name: "Contrat.pdf" })).toBe("Contrat.pdf");
+    expect(formatCustomValue("FILE", null)).toBe("—");
+    expect(formatCustomValue("FILE", "n1")).toBe("—");
   });
 });

@@ -893,7 +893,9 @@ G("matrice d'accès fine & profils (droits par module, périmètres de lignes, p
   "access-actions:updateUserProfile", "access-actions:setUserActive", "access-actions:revokeSession",
   "access-actions:requestOnboarding", "access-actions:revokeAllSessions",
 ]);
-classify("NATIVE", "configure_workflow", ["workflow-actions:saveWorkflowDefinition", "workflow-actions:resetWorkflowDefinition"]);
+// Le rollback rejoue un instantané PAR saveWorkflowDefinition : le Chief couvre le besoin en
+// refournissant les étapes via configure_workflow — le bouton natif est le raccourci d'écran.
+classify("NATIVE", "configure_workflow", ["workflow-actions:saveWorkflowDefinition", "workflow-actions:resetWorkflowDefinition", "workflow-actions:rollbackWorkflowDefinition"]);
 classify("NATIVE", "advance_workflow", ["workflow-actions:advanceWorkflow"]);
 classify("NATIVE", "manage_custom_field", ["custom-field-actions:upsertCustomFieldDef", "custom-field-actions:deleteCustomFieldDef"]);
 G("saisie des VALEURS de champs personnalisés sur une fiche (l'écran de la fiche le fait déjà)", [

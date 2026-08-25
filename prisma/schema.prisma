@@ -3821,6 +3821,23 @@ enum CustomFieldType {
   DATE
   BOOLEAN
   SELECT
+  /// Référence un document du Drive (jamais copié) — valeur stockée : { nodeId, name }.
+  FILE
+}
+
+/// INSTANTANÉ d'un circuit de validation à chaque enregistrement du builder : l'historique
+/// se liste et se RESTAURE (le rollback rejoue l'instantané par le même chemin validé).
+model WorkflowDefinitionVersion {
+  id        String   @id @default(cuid())
+  category  String
+  version   Int
+  name      String
+  snapshot  Json
+  savedById String?
+  createdAt DateTime @default(now())
+
+  @@unique([category, version])
+  @@index([category])
 }
 
 /// Admin-defined extra field for a module. Values are stored in each record's

@@ -10,6 +10,11 @@ export const CUSTOM_ENTITY_TYPES: EntityType[] = [
 
 export type CustomValues = Record<string, unknown>;
 
+// La lecture des valeurs FILE est PURE et partagée avec les composants client — elle vit dans
+// `custom-field-values.ts` (aucun import) et se RÉEXPORTE ici pour le code serveur.
+export { fileCustomValue, type FileFieldValue } from "./custom-field-values";
+import { fileCustomValue } from "./custom-field-values";
+
 export function getFieldDefs(entityType: EntityType) {
   return prisma.customFieldDef.findMany({
     where: { entityType, active: true },
@@ -30,6 +35,11 @@ export function missingRequiredValues(
   for (const def of defs) {
     if (!def.required || def.type === "BOOLEAN") continue;
     const v = values[def.key];
+    // FICHIER : rempli = une référence Drive valide, pas n'importe quel objet.
+    if (def.type === "FILE") {
+      if (!fileCustomValue(v)) missing.push(def.label);
+      continue;
+    }
     if (v === null || v === undefined || String(v).trim() === "") missing.push(def.label);
   }
   return missing;
@@ -91,6 +101,7 @@ export async function writeCustomValues(entityType: EntityType, id: string, cust
 /** Render a stored value for display. */
 export function formatCustomValue(type: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
+  if (type === "FILE") return fileCustomValue(value)?.name ?? "—";
   if (type === "BOOLEAN") return value ? "Oui" : "Non";
   if (type === "DATE") {
     const d = new Date(String(value));

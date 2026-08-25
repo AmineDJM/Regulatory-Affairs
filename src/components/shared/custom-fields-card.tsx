@@ -6,12 +6,15 @@ import { Loader2, Check } from "lucide-react";
 import { saveCustomValues } from "@/lib/actions/custom-field-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
+import Link from "next/link";
+import { DrivePickerField } from "@/components/drive/drive-picker";
+import { fileCustomValue } from "@/lib/custom-field-values";
 
 export interface CustomFieldDefDTO {
   id: string;
   key: string;
   label: string;
-  type: string; // TEXT | NUMBER | DATE | BOOLEAN | SELECT
+  type: string; // TEXT | NUMBER | DATE | BOOLEAN | SELECT | FILE
   options: string | null;
   /** Champ à remplir obligatoirement (décidé par l'administrateur ; le serveur fait foi). */
   required?: boolean;
@@ -52,7 +55,13 @@ export function CustomFieldsCard({ entityType, entityId, defs, values, canEdit }
           <div key={d.id}>
             <p className="text-xs text-muted-foreground">{d.label}</p>
             <p className="font-medium">
-              {d.type === "BOOLEAN" ? (values[d.key] ? "Oui" : "Non") : String(values[d.key] ?? "—") || "—"}
+              {d.type === "FILE" ? (
+                fileCustomValue(values[d.key]) ? (
+                  <Link href={`/drive/${fileCustomValue(values[d.key])!.nodeId}`} className="text-primary underline underline-offset-2 hover:opacity-80">
+                    {fileCustomValue(values[d.key])!.name}
+                  </Link>
+                ) : "—"
+              ) : d.type === "BOOLEAN" ? (values[d.key] ? "Oui" : "Non") : String(values[d.key] ?? "—") || "—"}
             </p>
           </div>
         ))}
@@ -83,6 +92,19 @@ export function CustomFieldsCard({ entityType, entityId, defs, values, canEdit }
         {defs.map((d) => {
           const v = values[d.key];
           const name = `cf_${d.key}`;
+          if (d.type === "FILE") {
+            const picked = fileCustomValue(v);
+            return (
+              <div key={d.id} className="col-span-2">
+                <DrivePickerField
+                  name={name}
+                  label={d.required ? `${d.label} *` : d.label}
+                  hint="Référence un document du Drive — jamais copié, toujours la version courante."
+                  defaultValue={picked ? { id: picked.nodeId, name: picked.name, isFolder: false } : null}
+                />
+              </div>
+            );
+          }
           if (d.type === "BOOLEAN") {
             return (
               <label key={d.id} className="col-span-2 flex items-center gap-2 text-sm">

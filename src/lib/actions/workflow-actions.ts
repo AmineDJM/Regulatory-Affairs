@@ -194,9 +194,57 @@ export async function saveWorkflowDefinition(formData: FormData): Promise<Action
     }),
   ]);
 
+  // VERSION : chaque enregistrement laisse un INSTANTANÉ rejouable (le rollback repasse par ce
+  // même chemin validé). L'échec du snapshot ne bloque pas l'enregistrement — il se journalise.
+  const lastVersion = await prisma.workflowDefinitionVersion
+    .findFirst({ where: { category: payload.category }, orderBy: { version: "desc" }, select: { version: true } })
+    .catch(() => null);
+  await prisma.workflowDefinitionVersion.create({
+    data: {
+      category: payload.category,
+      version: (lastVersion?.version ?? 0) + 1,
+      name,
+      snapshot: {
+        category: payload.category, name, description: payload.description?.trim() || null,
+        isActive: payload.isActive !== false, steps,
+      } as object,
+      savedById: user.id,
+    },
+  }).catch((err) => console.error("[workflow] snapshot de version impossible", err));
+
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Administration", entityType: "BUDGET", entityId: def.id, summary: `Circuit workflow « ${name} » (${payload.category}) reconfiguré — ${steps.length} étape·s` });
   for (const c of WORKFLOW_CATEGORIES) revalidatePath(CATEGORY_PATH[c]);
   revalidatePath("/admin/workflows");
+  return { ok: true };
+}
+
+/**
+ * RESTAURE un circuit à une version antérieure : l'instantané repasse INTÉGRALEMENT par
+ * `saveWorkflowDefinition` (mêmes validations, mêmes invariants — au moins une étape APPROVE…),
+ * et laisse À SON TOUR une nouvelle version : l'historique avance, il ne se réécrit jamais.
+ */
+export async function rollbackWorkflowDefinition(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const category = fdStr(formData, "category");
+  const version = fdNum(formData, "version");
+  if (!category || !isWorkflowCategory(category) || !version || version < 1) {
+    return { ok: false, error: "Version introuvable." };
+  }
+  const row = await prisma.workflowDefinitionVersion.findUnique({
+    where: { category_version: { category, version } },
+    select: { snapshot: true, name: true },
+  });
+  if (!row) return { ok: false, error: `Aucune version ${version} pour ce circuit.` };
+
+  const fd = new FormData();
+  fd.set("payload", JSON.stringify(row.snapshot));
+  const r = await saveWorkflowDefinition(fd);
+  if (!r.ok) return r;
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Administration", entityType: "BUDGET", entityId: category,
+    summary: `Circuit ${category} RESTAURÉ à la version ${version} (« ${row.name} »)`,
+  });
   return { ok: true };
 }
 

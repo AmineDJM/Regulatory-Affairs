@@ -5,6 +5,7 @@ import type { CustomFieldType, EntityType } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
+import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { readCustomValues, writeCustomValues, getFieldDefs, missingRequiredValues } from "@/lib/custom-fields";
@@ -80,6 +81,20 @@ export async function saveCustomValues(formData: FormData): Promise<ActionResult
     } else if (def.type === "NUMBER") {
       const n = raw ? Number(String(raw)) : null;
       next[def.key] = n === null || Number.isNaN(n) ? null : n;
+    } else if (def.type === "FILE") {
+      // FICHIER : une RÉFÉRENCE Drive (jamais une copie). Le nœud doit exister et être
+      // accessible au demandeur — un id forgé ou hors de ses droits ne se stocke pas.
+      const nodeId = raw ? String(raw) : "";
+      if (!nodeId) {
+        next[def.key] = null;
+      } else {
+        const node = await prisma.driveNode.findUnique({ where: { id: nodeId }, select: { id: true, name: true, isTrashed: true } });
+        if (!node || node.isTrashed) return { ok: false, error: `${def.label} : document du Drive introuvable.` };
+        if (!canViewDrive(await resolveDriveAccess(user, nodeId))) {
+          return { ok: false, error: `${def.label} : vous n'avez pas accès à ce document du Drive.` };
+        }
+        next[def.key] = { nodeId: node.id, name: node.name };
+      }
     } else {
       next[def.key] = raw ? String(raw) : null;
     }

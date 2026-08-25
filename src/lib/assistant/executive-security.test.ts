@@ -67,6 +67,9 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       "search_everything", "list_pending_decisions",
       "remember", "list_memories", "forget_memory", "recall_conversation",
       "action_history", "episodic_recall",
+      // pre_meeting_brief : cloisonné PAR REQUÊTE (seules les réunions organisées par soi ou
+      // sur invitation) — même design qu'action_history, aucun droit de module requis.
+      "pre_meeting_brief",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

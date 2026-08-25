@@ -64,7 +64,7 @@ describe("ZERO-GAP — chaque action serveur de l'ERP est classée, aucun trou s
     // Cliquet : combler un trou ABAISSE ce plafond ; en ouvrir un nouveau exige de le relever
     // ICI, consciemment, dans la même revue de code que la nouvelle action.
     expect(stats.gap).toBeLessThanOrEqual(460);
-    expect(stats.native + stats.covered).toBeGreaterThanOrEqual(135);
+    expect(stats.native + stats.covered).toBeGreaterThanOrEqual(136);
 
     console.info(`[UI_ACTION_PARITY] natives=${stats.native} couvertes=${stats.covered} trous=${stats.gap} exclues=${stats.excluded} — parité=${stats.parityPct}% (sur ${stats.total} actions classées)`);
   });
