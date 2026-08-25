@@ -10,6 +10,7 @@ import { aiConfigured, aiModel, aiModelCheap, askClaudeCheap } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { getUnreadDigest } from "@/lib/assistant-nudge";
 import { executeIntentGuarded, cancelActionIntent } from "@/lib/assistant/action-intents";
+import { matchesConfirmText } from "@/lib/assistant/confirm";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import {
   personalContext, createThread, appendExchange, listThreads, getThreadMessages,
@@ -21,7 +22,7 @@ import { getDailyBrief } from "@/lib/daily-brief";
 import { extractAttachmentText, buildAttachmentContext, type AttachmentText } from "@/lib/assistant-files";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import {
-  runAssistant, performAction,
+  runAssistant, performAction, payloadRequiresStrongConfirm,
   type AssistantActionPayload, type AssistantResult, type ChatTurn, type ExecuteResult, type ProposedAction,
 } from "@/lib/assistant";
 
@@ -259,7 +260,7 @@ export async function assistantNudge(prevSignature: string): Promise<NudgeResult
   }
 }
 
-export async function executeAssistantAction(payload: AssistantActionPayload, intentId?: string): Promise<ExecuteResult> {
+export async function executeAssistantAction(payload: AssistantActionPayload, intentId?: string, confirmTyped?: string): Promise<ExecuteResult> {
   try {
     const user = await requireUser();
 
@@ -268,6 +269,23 @@ export async function executeAssistantAction(payload: AssistantActionPayload, in
     // action déjà EXÉCUTÉE renvoie son reçu d'origine. Le payload exécuté est celui STOCKÉ à
     // la proposition (le serveur est l'autorité, pas le client).
     if (intentId) {
+      // CONFIRMATION FORTE — vérifiée PAR LE SERVEUR : pour une action CRITIQUE, la valeur
+      // ressaisie doit correspondre au confirmText STOCKÉ à la proposition. La carte arme son
+      // bouton avec la même règle, mais l'autorité est ICI : appeler cette action serveur
+      // directement (console, script) sans la bonne ressaisie n'exécute rien. Un intent déjà
+      // EXÉCUTÉ reste idempotent : le reçu d'origine se renvoie sans nouvelle ressaisie.
+      const meta = await prisma.assistantActionIntent.findFirst({
+        where: { id: intentId, userId: user.id },
+        select: { status: true, level: true, confirmText: true },
+      });
+      if (meta && meta.status !== "EXECUTED" && meta.level === "CRITICAL") {
+        if (!meta.confirmText) {
+          return { ok: false, error: "Cette carte CRITIQUE date d'avant le durcissement de la confirmation : redemandez la proposition à l'assistant, puis confirmez en ressaisissant la valeur demandée. Rien n'a été exécuté." };
+        }
+        if (!matchesConfirmText(confirmTyped ?? "", meta.confirmText)) {
+          return { ok: false, error: `Confirmation renforcée : la valeur ressaisie ne correspond pas à « ${meta.confirmText} ». Rien n'a été exécuté.` };
+        }
+      }
       const guarded = await executeIntentGuarded(user, intentId, async (stored) => {
         const r = await performAction(user, stored as AssistantActionPayload);
         if (r.ok && r.revalidate) for (const path of r.revalidate) revalidatePath(path);
@@ -275,6 +293,13 @@ export async function executeAssistantAction(payload: AssistantActionPayload, in
       });
       if (guarded) return { ok: guarded.ok, message: guarded.message, link: guarded.link, error: guarded.error };
       // Intent introuvable (ou pas à ce compte) → chemin historique ci-dessous, sans reçu.
+    }
+
+    // CHEMIN SANS INTENT (historique) : une action CRITIQUE n'y passe JAMAIS — sans intent, le
+    // serveur n'a aucun confirmText de référence à vérifier, donc il refuse au lieu de faire
+    // confiance au client. Le niveau se recalcule depuis le payload lui-même.
+    if (payloadRequiresStrongConfirm(payload)) {
+      return { ok: false, error: "Action CRITIQUE sans carte canonique (proposition expirée ou introuvable) : redemandez la proposition à l'assistant, puis confirmez en ressaisissant la valeur demandée. Rien n'a été exécuté." };
     }
 
     const result = await performAction(user, payload);

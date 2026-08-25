@@ -15,6 +15,7 @@ import {
   myAssistantThreads, myAssistantThread, deleteMyAssistantThread, forgetMyAssistantMemory,
 } from "@/lib/actions/assistant-actions";
 import type { ProposedAction, AssistantActionPayload, ChatTurn, AssistantResult, AssistantStreamEvent } from "@/lib/assistant";
+import { matchesConfirmText } from "@/lib/assistant/confirm";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import type { ThreadSummary } from "@/lib/assistant-memory";
 import { useScrollLock } from "@/lib/use-scroll-lock";
@@ -494,12 +495,13 @@ export function AssistantChat({
     }));
   };
 
-  const confirm = async (msgId: number, index: number, payload: AssistantActionPayload, intentId?: string): Promise<boolean> => {
+  const confirm = async (msgId: number, index: number, payload: AssistantActionPayload, intentId?: string, confirmTyped?: string): Promise<boolean> => {
     patchAction(msgId, index, { state: "running" });
     try {
       // L'INTENT accompagne la confirmation : l'exécution est idempotente côté serveur (un
       // double-clic ou une reconnexion renvoie le reçu d'origine, jamais un second envoi).
-      const r = await executeAssistantAction(payload, intentId);
+      // La valeur RESSAISIE (action CRITIQUE) part avec : c'est le SERVEUR qui la vérifie.
+      const r = await executeAssistantAction(payload, intentId, confirmTyped);
       patchAction(msgId, index, { state: r.ok ? "done" : "error", result: r.ok ? r.message : r.error, link: r.link });
       return r.ok;
     } catch {
@@ -959,7 +961,7 @@ function MessageBubble({
   msg, onConfirm, onCancel, onConfirmAll,
 }: {
   msg: Msg;
-  onConfirm: (id: number, index: number, payload: AssistantActionPayload, intentId?: string) => void;
+  onConfirm: (id: number, index: number, payload: AssistantActionPayload, intentId?: string, confirmTyped?: string) => void;
   onCancel: (id: number, index: number, intentId?: string) => void;
   onConfirmAll: (msg: Msg) => void;
 }) {
@@ -1016,7 +1018,7 @@ function MessageBubble({
             state={msg.actionStates?.[i] ?? "pending"}
             result={msg.actionResults?.[i]}
             link={msg.actionLinks?.[i]}
-            onConfirm={() => onConfirm(msg.id, i, p.payload, p.intentId)}
+            onConfirm={(confirmTyped) => onConfirm(msg.id, i, p.payload, p.intentId, confirmTyped)}
             onCancel={() => onCancel(msg.id, i, p.intentId)}
           />
         ))}
@@ -1032,15 +1034,19 @@ export function ActionCard({
   state: ActionState;
   result?: string;
   link?: string;
-  onConfirm: () => void;
+  onConfirm: (confirmTyped?: string) => void;
   onCancel: () => void;
 }) {
-  // CONFIRMATION FORTE (niveau CRITIQUE — paie, salaires) : la carte fait RESSAISIR la valeur
-  // exacte avant d'armer le bouton. Un clic réflexe ne suffit pas pour changer un salaire.
+  // CONFIRMATION FORTE (niveau CRITIQUE — salaires, suppressions, lots) : la carte fait
+  // RESSAISIR la valeur exacte avant d'armer le bouton, et la valeur ressaisie PART AU
+  // SERVEUR, qui la revérifie avec la même règle (matchesConfirmText) — l'UI n'est pas l'autorité.
   const critical = proposal.level === "CRITICAL" && Boolean(proposal.confirmText);
   const [typed, setTyped] = React.useState("");
-  const norm = (s: string) => s.replace(/[\s ]/g, "").replace(",", ".");
-  const armed = !critical || norm(typed) === norm(proposal.confirmText ?? "");
+  const armed = !critical || matchesConfirmText(typed, proposal.confirmText ?? "");
+  // Un confirmText purement numérique est un MONTANT (affiché en DZD) ; sinon c'est un texte
+  // à recopier tel quel (nom de dossier, « LOT 3 », « PLAN 4 », référence…).
+  const cleanedAmount = (proposal.confirmText ?? "").replace(/[^0-9.,]/g, "").replace(",", ".");
+  const confirmIsAmount = critical && /^[0-9\s\u00a0\u202f.,]+$/.test(proposal.confirmText ?? "") && cleanedAmount !== "" && Number.isFinite(Number(cleanedAmount));
 
   return (
     <div className={`overflow-hidden rounded-xl border shadow-sm ${critical ? "border-destructive/50 bg-gradient-to-br from-destructive/5 to-card" : proposal.level === "SENSITIVE" ? "border-warning/50 bg-gradient-to-br from-warning/5 to-card" : "border-primary/30 bg-gradient-to-br from-accent/40 to-card"}`}>
@@ -1078,14 +1084,16 @@ export function ActionCard({
       {critical && state === "pending" && (
         <div className="border-t border-border/60 bg-destructive/5 px-4 py-2.5">
           <label className="text-xs font-medium text-destructive">
-            Confirmation renforcée : ressaisissez le nouveau montant ({Number(proposal.confirmText).toLocaleString("fr-FR")} DZD)
+            {confirmIsAmount
+              ? `Confirmation renforcée : ressaisissez le montant (${Number(cleanedAmount).toLocaleString("fr-FR")} DZD)`
+              : `Confirmation renforcée : ressaisissez « ${proposal.confirmText} » pour confirmer`}
           </label>
           <input
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
-            inputMode="numeric"
+            inputMode={confirmIsAmount ? "numeric" : "text"}
             placeholder={proposal.confirmText}
-            className="mt-1 w-48 rounded-lg border border-destructive/40 bg-background px-3 py-1.5 text-sm outline-none focus:border-destructive focus:ring-2 focus:ring-destructive/20"
+            className={`mt-1 ${confirmIsAmount ? "w-48" : "w-full max-w-md"} rounded-lg border border-destructive/40 bg-background px-3 py-1.5 text-sm outline-none focus:border-destructive focus:ring-2 focus:ring-destructive/20`}
           />
         </div>
       )}
@@ -1093,7 +1101,7 @@ export function ActionCard({
       <div className="flex items-center gap-2 border-t border-border/60 px-4 py-2.5">
         {state === "pending" && (
           <>
-            <Button size="sm" onClick={onConfirm} disabled={!armed} variant={critical ? "destructive" : "primary"}>
+            <Button size="sm" onClick={() => onConfirm(critical ? typed : undefined)} disabled={!armed} variant={critical ? "destructive" : "primary"}>
               <CheckCircle2 className="h-4 w-4" /> Confirmer
             </Button>
             <Button size="sm" variant="ghost" onClick={onCancel}><X className="h-4 w-4" /> Annuler</Button>

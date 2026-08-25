@@ -723,6 +723,8 @@ model AssistantActionIntent {
   /// D'où l'intention vient : text | voice | nudge.
   origin  String @default("text")
   level   String? // SENSITIVE | CRITICAL
+  /// CRITICAL uniquement : la valeur exacte que l'utilisateur doit RESSAISIR — vérifiée PAR LE SERVEUR à l'exécution.
+  confirmText String?
   resultMessage String?
   resultLink    String?
   error         String?

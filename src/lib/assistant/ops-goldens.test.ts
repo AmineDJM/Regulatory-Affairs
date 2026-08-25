@@ -671,6 +671,85 @@ suite("ops de domaine & lots — goldens (fixtures partagées)", () => {
     });
   });
 
+  describe("action_plan — chaînes d'étapes dépendantes ($prev)", () => {
+    it("PROPOSITION : les étapes sans dépendance sont résolues, celles en $prev sont différées et dites", async () => {
+      const me = userWith({ DRIVE: ["VIEW", "CREATE"], WORKSPACE: ["VIEW", "CREATE"] }, "DIRECTION", ownerId, `${TAG} Karim`);
+      const p = await buildProposal("action_plan", {
+        summary: "Créer le dossier puis y ranger le rapport",
+        steps: [
+          { tool: "drive_operation", input: { op: "create_folder", name: `${TAG} Rapports 2026` } },
+          { tool: "drive_operation", input: { op: "move", name: `${TAG} Rapport ANPP.docx`, folder: "$prev.name" } },
+        ],
+      }, me);
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      expect(p.kind).toBe("action_plan");
+      expect(p.warnings.join(" ")).toMatch(/ARRÊTE la chaîne/);
+      const payload = p.payload as Extract<AssistantActionPayload, { kind: "action_plan" }>;
+      expect(payload.steps[0].kind).toBe("resolved");
+      expect(payload.steps[1].kind).toBe("deferred");
+      expect(JSON.stringify(p.fields)).toContain("dépend de l'étape 1");
+    });
+
+    it("$prev interdit en 1re étape ; une étape invalide refuse tout le plan avec son numéro", async () => {
+      const me = userWith({ WORKSPACE: ["VIEW", "CREATE"] }, "DIRECTION", ownerId, `${TAG} Karim`);
+      const bad = await buildProposal("action_plan", {
+        steps: [
+          { tool: "create_task", input: { title: "$prev.title" } },
+          { tool: "create_task", input: { title: "x" } },
+        ],
+      }, me);
+      expect("error" in bad && bad.error).toMatch(/1re étape/);
+      const unknown = await buildProposal("action_plan", {
+        steps: [
+          { tool: "create_task", input: { title: "a" } },
+          { tool: "outil_fantome", input: { x: "1" } },
+        ],
+      }, me);
+      expect("error" in unknown && unknown.error).toMatch(/Étape 2/);
+    });
+
+    it("EXÉCUTION réelle : create_task puis create_task « Suite de $prev.title » — la substitution nourrit la 2e étape", async () => {
+      const me = userWith({ WORKSPACE: ["VIEW", "CREATE"] }, "DIRECTION", ownerId, `${TAG} Karim`);
+      const p = await buildProposal("action_plan", {
+        summary: "Deux tâches chaînées",
+        steps: [
+          { tool: "create_task", input: { title: `${TAG} Préparer le brief` } },
+          { tool: "create_task", input: { title: `Relire : $prev.title` } },
+        ],
+      }, me);
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      const r = await performAction(me, p.payload);
+      expect(r.ok).toBe(true);
+      expect(r.message).toContain("2/2");
+      const follow = await prisma.task.findFirst({ where: { title: `Relire : ${TAG} Préparer le brief` } });
+      expect(follow).not.toBeNull();
+      await prisma.task.deleteMany({ where: { title: { contains: `${TAG} Préparer le brief` } } });
+    });
+
+    it("MAILLON CASSÉ : la chaîne s'arrête, le reçu dit où, rien n'est tenté après", async () => {
+      const me = userWith({ WORKSPACE: ["VIEW", "CREATE"] }, "DIRECTION", ownerId, `${TAG} Karim`);
+      const p = await buildProposal("action_plan", {
+        summary: "Chaîne fragile",
+        steps: [
+          { tool: "create_task", input: { title: `${TAG} Maillon 1` } },
+          { tool: "create_task", input: { title: "$prev.champInexistant" } },
+          { tool: "create_task", input: { title: `${TAG} Jamais atteint`, description: "$prev.title" } },
+        ],
+      }, me);
+      expect("error" in p).toBe(false);
+      if ("error" in p) return;
+      const r = await performAction(me, p.payload);
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/interrompu à l'étape 2/);
+      expect(r.error).toContain("non tentée");
+      const never = await prisma.task.findFirst({ where: { title: `${TAG} Jamais atteint` } });
+      expect(never).toBeNull();
+      await prisma.task.deleteMany({ where: { title: `${TAG} Maillon 1` } });
+    });
+  });
+
   describe("bulk_action — une carte pour N cibles, reçus par cible", () => {
   it("LOT CRITIQUE : 2 suppressions définitives → UNE carte, niveau CRITICAL, ressaisie « LOT 2 », 2 items résolus", async () => {
     await prisma.regulatoryProduct.createMany({

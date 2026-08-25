@@ -73,6 +73,23 @@ suite("action intents — mémoire et cohérence canoniques (Redouane / Khaled)"
     expect(ctx).toContain("état CANONIQUE serveur");
   });
 
+  it("CONFIRMATION FORTE — le confirmText d'une proposition CRITIQUE est STOCKÉ sur l'intent (référence serveur)", async () => {
+    const [id] = await persistActionIntents(ceoId, [{
+      ...seed("SUPPRIMER définitivement « Campagne 2024 »"),
+      level: "CRITICAL" as const,
+      confirmText: "Campagne 2024",
+    }], "text");
+    expect(id).toBeTruthy();
+    const row = await prisma.assistantActionIntent.findUnique({ where: { id: id! }, select: { level: true, confirmText: true } });
+    expect(row?.level).toBe("CRITICAL");
+    expect(row?.confirmText).toBe("Campagne 2024");
+    // Une proposition SANS niveau ne stocke rien — pas de bruit sur les actions ordinaires.
+    const [id2] = await persistActionIntents(ceoId, [seed("Message ordinaire")], "text");
+    const row2 = await prisma.assistantActionIntent.findUnique({ where: { id: id2! }, select: { level: true, confirmText: true } });
+    expect(row2?.level).toBeNull();
+    expect(row2?.confirmText).toBeNull();
+  });
+
   it("FAILURE B — PROPOSÉE ≠ EXÉCUTÉE : exécution réclamée atomiquement, reçu canonique, IDEMPOTENCE", async () => {
     const [id] = await persistActionIntents(ceoId, [seed("Envoyer un message à Khaled")], "text");
     let runs = 0;

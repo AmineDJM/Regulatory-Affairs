@@ -38,6 +38,8 @@ export interface IntentSeed {
   title: string;
   fields: { label: string; value: string }[];
   level?: "SENSITIVE" | "CRITICAL";
+  /** CRITICAL : la valeur à RESSAISIR — stockée pour que le SERVEUR la vérifie à l'exécution. */
+  confirmText?: string;
   payload: unknown;
 }
 
@@ -76,6 +78,7 @@ export async function persistActionIntents(
           status: "PROPOSED",
           origin,
           level: seed.level ?? null,
+          confirmText: seed.confirmText ?? null,
           events: pushEvent([], "PROPOSED") as object,
         },
         select: { id: true },

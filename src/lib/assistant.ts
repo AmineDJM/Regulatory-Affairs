@@ -566,6 +566,22 @@ export type AssistantActionPayload =
       innerTool: string;
       summary: string;
       items: { payload: AssistantActionPayload; display: string }[];
+    }
+  | {
+      /**
+       * PLAN D'ACTIONS ENCHAÎNÉES — une séquence d'écritures DÉPENDANTES en UNE carte.
+       * Les étapes sans dépendance sont RÉSOLUES à la proposition (payload complet) ; une
+       * étape qui référence « $prev.<champ> » est DIFFÉRÉE : à l'exécution, la valeur du champ
+       * de l'étape précédente (ou son id créé) est substituée, puis l'étape repasse par
+       * `buildProposal` (mêmes portes, même résolution) avant d'être exécutée. Un maillon qui
+       * casse ARRÊTE la chaîne — le reçu dit où.
+       */
+      kind: "action_plan";
+      summary: string;
+      steps: (
+        | { kind: "resolved"; payload: AssistantActionPayload; display: string }
+        | { kind: "deferred"; tool: string; input: Record<string, string>; display: string }
+      )[];
     };
 
 export type AssistantActionKind = AssistantActionPayload["kind"];
@@ -623,7 +639,41 @@ export const ACTION_POLICY: Record<AssistantActionKind, { external: boolean; lev
   // carte ; idem pour un lot (niveau = max des items). `external` suffit ici (kill-switch).
   domain_op: { external: true },
   bulk_action: { external: true },
+  action_plan: { external: true },
 };
+
+/**
+ * Niveau d'une étape DIFFÉRÉE d'un plan, déterminé AVANT résolution : l'outil (et l'op, pour un
+ * outil de domaine) suffisent — le niveau ne dépend jamais des valeurs, seulement du geste.
+ * C'est ce qui permet à une étape « delete sur $prev.name » de rendre le plan CRITIQUE dès la carte.
+ */
+function deferredStepLevel(tool: string, op: string | undefined): "SENSITIVE" | "CRITICAL" | undefined {
+  const policy = (ACTION_POLICY as Record<string, { external: boolean; level?: "SENSITIVE" | "CRITICAL" }>)[tool];
+  if (policy?.level) return policy.level;
+  const risk = op ? DOMAIN_TOOLS[tool]?.ops[op]?.meta.risk : undefined;
+  return risk === "CRITICAL" ? "CRITICAL" : risk === "SENSITIVE" ? "SENSITIVE" : undefined;
+}
+
+/**
+ * Ce payload exige-t-il la CONFIRMATION FORTE (ressaisie) ? Utilisé par le SERVEUR pour refuser
+ * d'exécuter une action CRITIQUE qui arriverait sans son intent (carte périmée, appel forgé) :
+ * le niveau se recalcule depuis le payload lui-même — jamais depuis ce que le client prétend.
+ * Pour une op de domaine, le niveau vit au CATALOGUE (risk) ; un lot ou un plan est critique
+ * dès qu'UN de ses éléments l'est (même règle que le niveau affiché sur la carte).
+ */
+export function payloadRequiresStrongConfirm(p: AssistantActionPayload): boolean {
+  if (ACTION_POLICY[p.kind]?.level === "CRITICAL") return true;
+  if (p.kind === "domain_op") return DOMAIN_TOOLS[p.tool]?.ops[p.op]?.meta.risk === "CRITICAL";
+  if (p.kind === "bulk_action") return p.items.some((it) => payloadRequiresStrongConfirm(it.payload));
+  if (p.kind === "action_plan") {
+    return p.steps.some((s) =>
+      s.kind === "resolved"
+        ? payloadRequiresStrongConfirm(s.payload)
+        : deferredStepLevel(s.tool, s.input.op) === "CRITICAL",
+    );
+  }
+  return false;
+}
 
 export interface ProposedAction {
   kind: AssistantActionKind;
@@ -1596,6 +1646,34 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
         params: { type: "object", description: "Champs communs passés à chaque cible (ex. { kind: \"REGULATORY_PRODUCT\" }, { title: \"…\" }, { op: \"trash\" })." },
       },
       required: ["tool", "targets"],
+    },
+  },
+  {
+    name: "action_plan",
+    description:
+      "PLAN D'ACTIONS ENCHAÎNÉES — une séquence d'écritures DÉPENDANTES en UNE carte de confirmation " +
+      "(ex. « crée le dossier Rapports 2026, mets-y le fichier Bilan, partage-le avec Lina »). " +
+      "steps = [{tool, input}] dans l'ordre. Un champ d'un step peut valoir « $prev.<champ> » (la valeur de ce champ au step précédent : $prev.name, $prev.title, $prev.reference…) " +
+      "ou « $prev.id » (l'id créé) — ce step est alors RÉSOLU À L'EXÉCUTION, après le précédent. La 1re étape ne peut pas dépendre. " +
+      "Un maillon refusé ARRÊTE la chaîne (reçu par étape). Pour la MÊME action sur des cibles indépendantes : bulk_action.",
+    input_schema: {
+      type: "object",
+      properties: {
+        summary: { type: "string", description: "Le plan en une phrase (affiché sur la carte)." },
+        steps: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              tool: { type: "string", description: "Outil d'écriture de l'étape (drive_operation, create_task, regulatory_operation…)." },
+              input: { type: "object", description: "Les champs de l'outil (valeurs « $prev.x » autorisées dès la 2e étape)." },
+            },
+            required: ["tool", "input"],
+          },
+          description: "Les étapes, dans l'ordre (2 à 8).",
+        },
+      },
+      required: ["steps"],
     },
   },
 ];
@@ -3914,6 +3992,76 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  if (toolName === "action_plan") {
+    const rawSteps = Array.isArray(input.steps) ? input.steps : [];
+    if (rawSteps.length < 2) return { error: "Un plan enchaîne au moins DEUX étapes — pour une seule, utiliser l'outil directement." };
+    if (rawSteps.length > 8) return { error: "Plan limité à 8 étapes — découper la demande." };
+
+    const steps: Extract<AssistantActionPayload, { kind: "action_plan" }>["steps"] = [];
+    const fields: { label: string; value: string }[] = [];
+    let maxLevel: "SENSITIVE" | "CRITICAL" | undefined;
+    let module: Module | null = null;
+
+    for (let i = 0; i < rawSteps.length; i++) {
+      const raw = rawSteps[i] as { tool?: unknown; input?: unknown };
+      const stepTool = typeof raw?.tool === "string" ? raw.tool : "";
+      const stepInput = raw?.input && typeof raw.input === "object" && !Array.isArray(raw.input)
+        ? (raw.input as Record<string, unknown>) : {};
+      if (!stepTool || stepTool === "action_plan" || stepTool === "bulk_action") {
+        return { error: `Étape ${i + 1} : outil « ${stepTool || "(vide)"} » invalide dans un plan.` };
+      }
+      if (!WRITE_TOOL_NAMES.has(stepTool)) {
+        return { error: `Étape ${i + 1} : « ${stepTool} » n'est pas un outil d'écriture connu.` };
+      }
+      const deferred = Object.values(stepInput).some((v) => typeof v === "string" && v.includes("$prev"));
+      if (deferred && i === 0) return { error: "La 1re étape d'un plan ne peut pas dépendre de « $prev »." };
+
+      if (deferred) {
+        // RÉSOLUE À L'EXÉCUTION : après l'étape précédente, « $prev.x » est substitué puis
+        // l'étape repasse par buildProposal (mêmes portes, même résolution) avant d'agir.
+        const inputStr: Record<string, string> = {};
+        for (const [k, v] of Object.entries(stepInput)) if (typeof v === "string") inputStr[k] = v;
+        // Le NIVEAU d'une étape différée se connaît dès la carte (outil + op) : une suppression
+        // sur « $prev » rend le plan CRITIQUE maintenant, pas au moment où il s'exécute.
+        const stepLevel = deferredStepLevel(stepTool, inputStr.op);
+        if (stepLevel === "CRITICAL") maxLevel = "CRITICAL";
+        else if (stepLevel === "SENSITIVE" && maxLevel !== "CRITICAL") maxLevel = "SENSITIVE";
+        const display = `${stepTool}${inputStr.op ? ` (${inputStr.op})` : ""} — dépend de l'étape ${i}`;
+        steps.push({ kind: "deferred", tool: stepTool, input: inputStr, display });
+        fields.push({ label: `${i + 1}.`, value: `${display} : ${Object.entries(inputStr).filter(([k]) => k !== "op").map(([k, v]) => `${k}=${v}`).join(", ").slice(0, 140)}` });
+        continue;
+      }
+
+      const p = await buildProposal(stepTool, stepInput, user);
+      if ("error" in p) return { error: `Étape ${i + 1} (${stepTool}) : ${p.error}` };
+      if (p.level === "CRITICAL") maxLevel = "CRITICAL";
+      else if (p.level === "SENSITIVE" && maxLevel !== "CRITICAL") maxLevel = "SENSITIVE";
+      if (!module) module = p.module;
+      for (const w of p.warnings) if (!warnings.includes(w)) warnings.push(w);
+      steps.push({ kind: "resolved", payload: p.payload, display: p.title });
+      fields.push({ label: `${i + 1}.`, value: p.title });
+    }
+
+    const summary = asStr(input, "summary") || `${steps.length} étapes enchaînées`;
+    return {
+      kind: "action_plan",
+      module: module ?? "WORKSPACE",
+      title: `PLAN : ${summary}`,
+      fields,
+      warnings: [
+        "Exécution DANS L'ORDRE : un maillon refusé ARRÊTE la chaîne (le reçu dit où).",
+        ...(steps.some((s) => s.kind === "deferred")
+          ? ["Les étapes « dépend de » sont résolues À L'EXÉCUTION, après l'étape dont elles dépendent — mêmes portes, même résolution."]
+          : []),
+        ...(maxLevel === "CRITICAL" ? [`NIVEAU CRITIQUE : la confirmation exige de RESSAISIR « PLAN ${steps.length} ».`] : []),
+        ...warnings,
+      ],
+      ...(maxLevel ? { level: maxLevel } : {}),
+      ...(maxLevel === "CRITICAL" ? { confirmText: `PLAN ${steps.length}` } : {}),
+      payload: { kind: "action_plan", summary, steps },
+    };
+  }
+
   return { error: `Action non prise en charge : ${toolName}.` };
 }
 
@@ -4408,6 +4556,8 @@ export interface ExecuteResult {
   error?: string;
   /** Chemins à revalider — appliqués par le wrapper « use server ». */
   revalidate?: string[];
+  /** Id de l'entité créée — le maillon du chaînage `$prev.id` des plans d'action. */
+  createdId?: string;
 }
 
 async function activeUserId(id: string | null | undefined): Promise<string | null> {
@@ -4470,6 +4620,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
       message: r.message ?? payload.successMessage,
       link: r.link ?? payload.link,
       revalidate: r.revalidate ?? payload.revalidate,
+      ...(r.createdId ? { createdId: r.createdId } : {}),
     };
   }
 
@@ -4495,6 +4646,74 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     return {
       ok: true,
       message: `Lot « ${payload.summary} » : ${done}/${payload.items.length} exécuté(s).\n${detail}`,
+      revalidate: [...revalidate],
+    };
+  }
+
+  if (payload?.kind === "action_plan") {
+    // CHAÎNE : chaque étape passe par performAction ; une étape « différée » substitue d'abord
+    // « $prev.x » (champs du payload précédent + id créé) puis repasse par buildProposal —
+    // mêmes portes, même résolution que si elle avait été demandée seule. Un maillon refusé
+    // ARRÊTE la chaîne : enchaîner sur un socle manquant fabriquerait du faux.
+    const receipts: string[] = [];
+    const revalidate = new Set<string>();
+    let prevValues: Record<string, string> = {};
+    let done = 0;
+    let broke = false;
+
+    const valuesOf = (p: AssistantActionPayload, createdId?: string): Record<string, string> => {
+      const out: Record<string, string> = {};
+      if (p.kind === "domain_op") {
+        for (const [k, v] of Object.entries(p.args)) if (typeof v === "string" && v) out[k] = v;
+      } else {
+        for (const [k, v] of Object.entries(p as unknown as Record<string, unknown>)) {
+          if (typeof v === "string" && v && k !== "kind") out[k] = v;
+        }
+      }
+      if (createdId) out.id = createdId;
+      return out;
+    };
+
+    for (let i = 0; i < payload.steps.length; i++) {
+      const step = payload.steps[i];
+      let stepPayload: AssistantActionPayload;
+      let display = step.display;
+      if (step.kind === "resolved") {
+        stepPayload = step.payload;
+      } else {
+        const substituted: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(step.input)) {
+          substituted[k] = v.replace(/\$prev\.([A-Za-z]+)/g, (_, key: string) => prevValues[key] ?? "");
+        }
+        const p = await buildProposal(step.tool, substituted, user);
+        if ("error" in p) {
+          receipts.push(`✗ Étape ${i + 1} — ${step.display} : ${p.error}`);
+          broke = true;
+          break;
+        }
+        stepPayload = p.payload;
+        display = p.title;
+      }
+      const r = await performAction(user, stepPayload);
+      if (!r.ok) {
+        receipts.push(`✗ Étape ${i + 1} — ${display} : ${r.error ?? "refusée"}`);
+        broke = true;
+        break;
+      }
+      done += 1;
+      receipts.push(`✓ Étape ${i + 1} — ${display}`);
+      for (const path of r.revalidate ?? []) revalidate.add(path);
+      prevValues = valuesOf(stepPayload, r.createdId);
+    }
+    if (broke && done + 1 < payload.steps.length) {
+      receipts.push(`… ${payload.steps.length - done - 1} étape(s) non tentée(s) — la chaîne s'est arrêtée.`);
+    }
+    const detail = receipts.join("\n");
+    if (done === 0) return { ok: false, error: `Le plan n'a pas démarré.\n${detail}` };
+    return {
+      ok: !broke,
+      ...(broke ? { error: `Plan « ${payload.summary} » interrompu à l'étape ${done + 1} (${done}/${payload.steps.length} faites).\n${detail}` } : {}),
+      message: broke ? undefined : `Plan « ${payload.summary} » exécuté (${done}/${payload.steps.length}).\n${detail}`,
       revalidate: [...revalidate],
     };
   }
@@ -4859,6 +5078,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
         : `Tâche « ${title} » créée.`,
       link: `/mon-espace/taches/${created.id}`,
       revalidate: ["/mon-espace", "/mon-travail"],
+      createdId: created.id,
     };
   }
 
