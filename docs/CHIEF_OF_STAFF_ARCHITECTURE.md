@@ -770,6 +770,72 @@ inventé.
 candidate au doublon (même contrepartie + même montant sous 45 j), montant inhabituel (≥ 4× la
 médiane payée au bénéficiaire, min. 3 paiements de référence).
 
+### Plan de contrôle ZERO-GAP (2026-08) — ops de domaine, lots, plans, confirmation serveur
+
+**Ops de domaine** (`src/lib/assistant/ops/`) — 71 opérations sur 12 outils (`drive_operation`,
+`task_operation`, `finance_operation`, `regulatory_operation`, `hr_operation`, `meeting_operation`,
+`mail_operation`, `legal_operation`, `org_operation`, `adpro_operation`, `bd_operation`,
+`stock_operation`). Chaque op = une entrée de CATALOGUE (`catalog.ts` : alias FR, risque
+NORMAL/SENSITIVE/CRITICAL, porte RBAC, `covers[]` — les actions d'écran qu'elle couvre) + une
+IMPLÉMENTATION (`impl-*.ts`) qui RÉSOUT les entrées humaines (nom → id ; ambiguïté LISTÉE, jamais
+tranchée en silence ; FUSION pour les updates partiels) puis REJOUE l'action canonique de l'écran
+(FormData au champ près — jamais une deuxième logique métier). La porte du catalogue est revérifiée
+à l'EXÉCUTION (`performAction`), et la reclassification du registre de parité est AUTOMATIQUE :
+ajouter une op ferme ses clés d'inventaire (`catalogCoveredKeys()` → `CLASSIFICATION`).
+
+**Lots** (`bulk_action`) — la même action native sur 2–20 cibles en UNE carte, par RÉCURSION de
+`buildProposal` (mêmes portes, même résolution). Niveau = max des items ; CRITIQUE ⇒ ressaisir
+« LOT n » ; exécution séquentielle best-effort avec REÇU PAR CIBLE (un refus n'annule pas le reste).
+
+**Plans enchaînés** (`action_plan`) — 2 à 8 écritures DÉPENDANTES en une carte. « $prev.champ »
+référence l'étape précédente (interdit à la première) ; une étape différée est re-résolue À
+L'EXÉCUTION par le même `buildProposal` (mêmes portes) après substitution (valeurs + id créé) ;
+un maillon refusé ARRÊTE la chaîne — le reçu dit où, et liste les étapes « non tentée(s) ».
+Le niveau du plan compte AUSSI les étapes différées (delete sur `$prev` ⇒ CRITIQUE dès la carte).
+
+**Confirmation CRITIQUE côté SERVEUR** — la ressaisie n'est plus seulement l'armement du bouton :
+`AssistantActionIntent.confirmText` stocke la valeur exigée à la proposition, et
+`executeAssistantAction` la compare lui-même (`assistant/confirm.ts`, normalisation partagée
+client/serveur : NFD sans accents, minuscules, seuls lettres+chiffres — l'épellation vocale
+« R E G-2026 041 » vaut « REG-2026-041 », un contenu différent ne passe jamais). Une action
+CRITIQUE arrivée SANS intent est refusée (`payloadRequiresStrongConfirm` recalcule le niveau
+depuis le payload : politique, catalogue, lots/plans récursifs).
+
+**Création de comptes par LIEN D'INVITATION** (`src/lib/user-invites.ts`, page publique
+`/invite/[token]`, op `org_operation:create_account_invite`, Super Admin) — le compte naît
+INCONNECTABLE (hash d'un secret aléatoire jamais communiqué) ; la personne définit SON mot de
+passe via un lien 72 h à usage unique ATOMIQUE ; réémettre invalide l'ancien lien. AUCUN mot de
+passe ne transite jamais par une conversation — c'est ce chemin qui a sorti `createUser` des
+exclusions sécurité du registre de parité.
+
+**Contexte d'écran → actions natives** (`screenActionsContext`, registre) — l'appel vocal parti
+d'une page annonce d'emblée les boutons natifs disponibles LÀ (tokens de la route pliés sur les
+modules du registre ; borné à 12 ; silencieux hors module reconnu).
+
+**Champ FICHIER + versions de circuits** — `CustomFieldType.FILE` : la valeur est une RÉFÉRENCE
+Drive `{nodeId, name}` (existence + accès vérifiés à la sauvegarde, jamais de copie) ; la part
+pure (`custom-field-values.ts`) est chargée par la carte client sans tirer Prisma.
+`WorkflowDefinitionVersion` : chaque enregistrement du builder laisse un instantané rejouable —
+l'écran `/admin/workflows` liste l'historique et RESTAURE par le même chemin validé (l'historique
+avance, il ne se réécrit jamais) ; le Chief en bénéficie d'office via `configure_workflow`.
+
+**Brief avant réunion** (`pre_meeting_brief`) — la réunion (ou la prochaine) + POUR CHAQUE
+participant les points OUVERTS entre vous (tâches vivantes dans les deux sens, engagements
+suivis) — cloisonné par requête à VOS réunions, déclaré dans le garde-fou `openByDesign` des
+tests de sécurité. Les analyses de fond existaient déjà et n'ont PAS été dupliquées :
+`process_insights` (délais réels des circuits), `organization_insights` (étendues de contrôle,
+goulots), scénarios what-if, `executive_brief`/`executive_alerts`.
+
+**E2E Playwright** (`e2e/`, `npm run test:e2e`) — parcours DÉTERMINISTES (zéro appel IA) contre
+le build de production : connexion réelle, mauvais identifiants refusés, circuit d'invitation de
+bout en bout (invalide / expiré / valide → définir son mot de passe → usage unique → connexion).
+Seed préfixé `__e2e__`, retiré au teardown. La logique du Chief reste verrouillée par les goldens
+vitest ; l'E2E vérifie que les ÉCRANS tiennent debout.
+
+**Observabilité** (`/admin/ai`) — parité UI↔Chief (registre pur), latences p50/p95 par fonction
+(`percentile_cont` en base), intentions 7 j par état canonique. La parité vit AUSSI en CI :
+`action-parity.test.ts` (cliquet gap ≤ 460, natives+couvertes ≥ 136).
+
 ## 3. Matrice de capacités finale
 
 R = lecture outillée · S = recherche · C = création · U = modification · A = approbation ·
@@ -890,13 +956,14 @@ bloquants. Les latences réelles se lisent dans `AiUsageLog` (latencyMs, ttftMs,
 
 - [x] `npx tsc --noEmit` — zéro erreur.
 - [x] `npm run lint` — zéro erreur (config `next/core-web-vitals`, motifs maison assumés).
-- [x] `npx vitest run` — 2 565+ tests verts (dont sécurité/adversariaux, kill-switch, mémoire,
+- [x] `npx vitest run` — 2 812 tests verts (+ 5 E2E Playwright déterministes) (dont sécurité/adversariaux, kill-switch, mémoire,
       360°, découverte documentaire, livrables rouverts et relus, simulation zéro-écriture,
       corpus arabe/catégories).
 - [x] `rm -rf .next && npm run build` — build de production propre (cache vidé).
 - [x] Migrations idempotentes appliquées (`search_extensions`, `reminder_target_user`,
       `ai_usage_metrics`, `ai_governance`, `executive_memory`, `drive_text_index`,
-      `assistant_artifacts`, `corpus_categories`) — rejouables, jamais bloquantes.
+      `assistant_artifacts`, `corpus_categories`, `assistant_intent_confirm_text`,
+      `user_invites`, `file_field_and_workflow_versions`) — rejouables, jamais bloquantes.
 - [x] Aucun TODO/FIXME/MOCK/PLACEHOLDER bloquant dans le code du module.
 - [x] Variables d'environnement : `ANTHROPIC_API_KEY` (agent), `OPENAI_API_KEY` (voix temps
       réel + dictée ; sans elle, la voix disparaît proprement, le reste vit),

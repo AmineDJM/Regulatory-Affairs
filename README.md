@@ -3114,6 +3114,25 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### Plan de contrôle exécutif ZERO-GAP — ops de domaine, lots, plans, confirmation serveur, invitations, versions de circuits (2026-08)
+
+Le Chief of Staff passe d'un catalogue d'actions ponctuelles à un **plan de contrôle systématique** de l'ERP :
+
+- **71 ops de domaine sur 12 outils** (`src/lib/assistant/ops/`) : Drive (10), Tâches (5), Finances (10), Regulatory (9), RH (8), Réunions (6), Courriers (4), Legal (4), Structurel (9 dont création de compte), Ad&Pro (4), BD (2), Stocks (1). Chaque op est une entrée de CATALOGUE (`catalog.ts` : alias FR, risque, porte RBAC, actions d'écran couvertes) + une IMPLÉMENTATION (`impl-*.ts` : résolution nom→id avec ambiguïtés LISTÉES, puis rejeu de l'ACTION CANONIQUE de l'écran — FormData au champ près, jamais une deuxième logique métier). La reclassification est AUTOMATIQUE : ajouter une op ferme ses clés d'inventaire dans le registre de parité.
+- **Lots (`bulk_action`)** : la même action native sur 2–20 cibles en UNE carte — récursion de `buildProposal` (mêmes portes), niveau = max des items, CRITIQUE ⇒ ressaisir « LOT n », exécution séquentielle best-effort avec reçu PAR cible.
+- **Plans enchaînés (`action_plan`)** : 2–8 écritures DÉPENDANTES en une carte ; « $prev.champ » référence l'étape précédente ; les étapes différées sont re-résolues À L'EXÉCUTION par le même `buildProposal` ; un maillon refusé ARRÊTE la chaîne (reçus + « non tentée(s) ») ; le niveau compte AUSSI les étapes différées.
+- **Confirmation CRITIQUE vérifiée PAR LE SERVEUR** (`assistant/confirm.ts` + `AssistantActionIntent.confirmText`) : la valeur à ressaisir est stockée à la proposition ; `executeAssistantAction` la compare lui-même (normalisation partagée client/serveur, compatible épellation vocale — « R E G-2026 041 » ≡ « REG-2026-041 ») ; une action CRITIQUE sans intent est refusée (`payloadRequiresStrongConfirm` recalcule le niveau depuis le payload).
+- **Création de comptes par LIEN D'INVITATION** (`user-invites.ts`, `/invite/[token]`, op `create_account_invite`) : le compte naît INCONNECTABLE, la personne définit SON mot de passe via un lien 72 h à usage unique atomique — AUCUN mot de passe ne transite jamais par une conversation.
+- **Contexte d'écran → actions natives** (`screenActionsContext`) : un appel vocal depuis une page annonce d'emblée les boutons natifs disponibles LÀ (matching route→modules du registre, borné, silencieux hors module).
+- **Champ personnalisé FICHIER** (`CustomFieldType.FILE`) : référence Drive `{nodeId, name}` vérifiée (existence + accès), jamais copiée ; « obligatoire » exige une référence valide ; saisie par l'explorateur Drive, lecture en lien.
+- **Versions des circuits** (`WorkflowDefinitionVersion`) : chaque enregistrement du builder laisse un instantané ; l'écran `/admin/workflows` les liste et RESTAURE (rejeu par le même chemin validé — l'historique avance, ne se réécrit pas).
+- **Brief avant réunion** (`pre_meeting_brief`) : la réunion + les points OUVERTS avec chaque participant (tâches entre vous, engagements) — cloisonné à VOS réunions.
+- **Palette ⌘K → Chief** : le texte tapé se route en un geste vers `/chief-of-staff?q=…` (si le module est ouvert à la personne).
+- **Observabilité** (`/admin/ai`) : parité UI↔Chief (registre pur, zéro appel IA), latences p50/p95 par fonction (percentile_cont en base), états des intentions 7 j (proposé ≠ exécuté).
+- **E2E Playwright** (`e2e/`, `npm run test:e2e`) : parcours DÉTERMINISTES sans IA contre le build de production — connexion réelle, mauvais identifiants refusés, circuit d'invitation de bout en bout (invalide/expiré/valide → définir son mot de passe → usage unique → se connecter).
+
+Parité UI↔Chief : **10,1 % → 22,8 %** (natives 106, couvertes 30, trous assumés 460, exclues 36 sur 632 classées) — cliquet CI (`action-parity.test.ts`) contre tout recul silencieux. Suite : **2 812 tests verts**.
+
 - **OOM du déploiement Render corrigé — mesuré, pas masqué.** Le build crashait pendant
   « Linting and checking validity of types » (« Ineffective mark-compacts near heap limit »,
   ~2042/2084 Mo). **Cause mesurée** : dans `next build`, ESLint et le typecheck TypeScript
