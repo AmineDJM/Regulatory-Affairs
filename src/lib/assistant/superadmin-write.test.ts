@@ -198,6 +198,22 @@ suite("le Chief fait tout — demandes de tâches, relance, corbeille, comptes",
     expect("error" in inconnu && inconnu.error).toMatch(/inconnu/);
   });
 
+  it("ACTION NATIVE FINANCES (échec réel corrigé) : « Demander l'actualisation des soldes » se propose telle quelle", async () => {
+    const admin = userWith({}, "SUPER_ADMIN", adminId, `${TAG} Admin`);
+    const p = await buildProposal("request_treasury_update", { note: "Avant le conseil de lundi" }, admin);
+    expect("error" in p).toBe(false);
+    if ("error" in p) return;
+    expect(p.kind).toBe("request_treasury_update");
+    expect(p.title).toBe("Demander l'actualisation des soldes");
+    expect(JSON.stringify(p.fields)).toContain("Responsables Finances");
+    expect(JSON.stringify(p.fields)).toContain("Avant le conseil de lundi");
+    expect(p.warnings.join(" ")).toMatch(/PAS modifiés/);
+    // La même porte que le bouton : un délégué sans vision globale est refusé.
+    const delegate = userWith({}, "MEDICAL_DELEGATE", yasmineId, `${TAG} Yasmine`);
+    const refused = await buildProposal("request_treasury_update", {}, delegate);
+    expect("error" in refused && refused.error).toMatch(/administration/);
+  });
+
   it("COMPTES : réservés au Super Admin — un directeur n'y touche pas", async () => {
     const direction = userWith({ RH: ["VIEW", "UPDATE"] }, "DIRECTION", yasmineId);
     const p = await buildProposal("set_account_active", { personName: `${TAG} Dormant`, active: true }, direction);

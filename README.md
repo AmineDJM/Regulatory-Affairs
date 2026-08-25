@@ -2532,7 +2532,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **RH — contrats : visibilité et miroir Drive** | Module PUR `lib/hr/document-visibility.ts` (`defaultVisibleToEmployee`, `resolveVisibility`, `shouldMirrorToDrive`) + tests ; `lib/hr-drive-mirror.ts` écrit dans une **catégorie de Drive** « RH — Contrats » ouverte aux seuls rôles RH (`rolesWithModule("RH")`), plus dans un Drive personnel. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
-| **Transverse** | `lib/archive.ts` (Dossier traité), `lib/admin-delete-registry.ts` (registre partagé des 25 types supprimables) + `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
+| **Transverse** | `lib/archive.ts` (Dossier traité), `lib/admin-delete-registry.ts` (registre partagé des 25 types supprimables) + `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/assistant/action-registry.ts` (registre ZERO-GAP des actions natives + classification des 631 server actions, gardé par `action-parity.test.ts`), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
 | **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès + `effectiveSpaceId`/`canCreateInSpace`), `lib/drive/explorer.ts` (pur : type lisible, taille, tri, volet), `lib/drive/search.ts` (**pur** : repli des accents, pertinence, chemin lisible — 29 tests) + `lib/queries/drive-search.ts` (périmètre étendu aux sous-arbres visibles, deux passes) + `app/(app)/drive/drive-search.tsx`, `lib/drive/{mirror,mirror-path,document-mirror}.ts` (miroir Drive de tout import), `lib/storage.ts` (Documents + `validateDocumentUpload`), `lib/documents.ts` (`persistUploadedDocument`), `lib/attach-files.ts`, `lib/actions/drive-actions.ts` + `document-actions.ts`, `app/api/drive/upload/route.ts` (quotas) + `app/api/documents/upload/route.ts` (lot/dossier, flux, parallèle), `app/(app)/drive/{drive-table,drive-canvas,explorer-nav,wide-toggle}.tsx`, `components/documents/`. |
 | **Catégories Drive (espaces partagés)** | Modèle `DriveSpace` + `DriveNode.spaceId` ; RBAC `canCreateDriveSpace`/`canViewDriveSpace`/`canManageDriveSpace` (`lib/rbac.ts`, accès implicite module Drive dans `getAccess`) ; `lib/queries/drive.ts` (`getDriveSpacesForUser`, `getDriveTabs`, `getDriveListing(…, spaceId)`) ; `lib/actions/drive-space-actions.ts` (créer/modifier/archiver/supprimer) ; page `app/(app)/drive/espace/[id]/` + `drive-space-manager.tsx` ; réglage `AppSetting.driveSpaceCreatorRoles` (`DriveSpaceCreatorForm` en Administration). Les catégories sont des **Emplacements du volet de navigation** (`ExplorerNav`), plus des onglets — `getDriveTabs` ne sert plus qu'à la page Documents. |
 | **Admin** | `app/(app)/admin/` (`page.tsx` comptes + stockage + activité, `corbeille/`, `drive-storage-settings.tsx`, `access/`, `settings/`…), `lib/actions/admin-actions.ts`, `settings-actions.ts`. |
@@ -3113,6 +3113,27 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+- **ZERO-GAP — le Chief est le plan de contrôle en langage naturel de l'ERP.** Cas réel : le
+  bouton Finances « Demander l'actualisation des soldes » existait, mais le Chief fabriquait une
+  demande administrative générique puis disait « je ne peux pas cliquer ». Réponse systémique
+  (`lib/assistant/action-registry.ts`) : **registre d'actions natives** (id stable, libellé du
+  bouton, ALIAS naturels, outil, risque, sémantique, porte identique à l'écran — le bouton
+  Finances devient l'outil `request_treasury_update`, exécuté par `requestTreasuryUpdate`
+  canonique) ; **priorité au natif** (`matchNativeAction` injecté dans le plan des deux boucles
+  + règle d'ordre : action native → tâche → demande générique en DERNIER recours → message ;
+  interdit de dire « je ne peux pas cliquer ») ; **découverte** (`find_available_actions` :
+  « qu'est-ce que je peux faire ici ? » = le registre réel filtré par les droits, jamais une
+  liste inventée) ; **inventaire exhaustif verrouillé par CI** : les 631 server actions de
+  `src/lib/actions/` sont TOUTES classées (NATIVE 20 / COVERED 35 / GAP 539 assumés avec note /
+  EXCLUDED 37 avec raison) et `action-parity.test.ts` re-scanne le dossier à chaque run — une
+  action ajoutée sans classification = test rouge avec son nom, GAP sous cliquet. Métrique
+  UI_ACTION_PARITY imprimée à chaque run (~9 % strict au départ — chiffre sévère et honnête,
+  la machinerie le fait monter sans plus jamais de trou muet). Goldens : résolution
+  « actualisation du solde du compte bancaire » → action Finances native (4 formulations),
+  « demande à Raihana de vérifier » → PAS d'action native (repli tâche), « supprime
+  définitivement » → delete_record, découverte filtrée par droits (11 tests parity + 11
+  superadmin-write).
 
 - **LE CHIEF FAIT TOUT — demandes de tâches canoniques, relance Regulatory, corbeille, comptes.**
   Suite du principe « la parité écran est un PLANCHER », après le correctif `delete_record`.

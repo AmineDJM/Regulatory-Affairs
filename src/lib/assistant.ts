@@ -48,6 +48,8 @@ import { toggleUserActive, updateUserRole, setSecondaryRole } from "@/lib/action
 import { createTaskRecord } from "@/lib/tasks/create-core";
 import { DELETE_REGISTRY, DELETABLE_KINDS, isDeletableKind, type DeletableKind } from "@/lib/admin-delete-registry";
 import { resolveDeletableTarget, resolveTrashEntry } from "@/lib/assistant/delete-resolve";
+import { nativeActionHint, actionsForUser } from "@/lib/assistant/action-registry";
+import { requestTreasuryUpdate } from "@/lib/actions/finance-actions";
 import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { isRegStepKey, isRegStepState, isRegPresubOutcome, REG_STEPS, PRESUB_ANSWER_STEP } from "@/lib/regulatory-workflow";
 import { createInstitution, updateInstitution } from "@/lib/actions/medical-actions";
@@ -185,6 +187,12 @@ export type AssistantActionPayload =
       dci: string;
       note: string | null;
       recipients: string[];
+    }
+  | {
+      /** ACTION NATIVE Finances « Demander l'actualisation des soldes » — exécutée par l'action
+       *  canonique `requestTreasuryUpdate` (notification des responsables Finances + audit). */
+      kind: "request_treasury_update";
+      note: string | null;
     }
   | {
       /** ACTIVER / DÉSACTIVER un compte — action canonique `toggleUserActive`. L'état CIBLE est
@@ -513,6 +521,7 @@ export const ACTION_POLICY: Record<AssistantActionKind, { external: boolean; lev
   restore_record: { external: true },
   purge_record: { external: true, level: "CRITICAL" },
   request_regulatory_status_update: { external: true },
+  request_treasury_update: { external: true },
   set_account_active: { external: true, level: "SENSITIVE" },
   set_account_role: { external: true, level: "SENSITIVE" },
   set_products_company: { external: true },
@@ -643,6 +652,21 @@ const READ_TOOLS: ClaudeToolDef[] = [
       type: "object",
       properties: { query: { type: "string", description: "Nom ou prénom recherché." } },
       required: ["query"],
+    },
+  },
+  {
+    name: "find_available_actions",
+    description:
+      "Liste les ACTIONS NATIVES de l'ERP que CETTE personne peut déclencher via l'assistant — le registre "
+      + "réel filtré par ses droits, PAS une liste inventée. À utiliser pour « qu'est-ce que je peux faire "
+      + "ici / sur ce module ? », ou AVANT de fabriquer une demande générique : si un bouton métier existe, "
+      + "c'est LUI qu'on propose. Renvoie par action : libellé du bouton, module, outil à appeler, risque, "
+      + "et sa sémantique (effet, réversibilité).",
+    input_schema: {
+      type: "object",
+      properties: {
+        module: { type: "string", description: "Filtre par module (ex. « Finances », « Regulatory », « Administration », « paiement »). Vide = toutes." },
+      },
     },
   },
   {
@@ -998,6 +1022,23 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
         priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
       },
       required: ["title"],
+    },
+  },
+  {
+    name: "request_treasury_update",
+    description:
+      "PROPOSE de déclencher l'action NATIVE Finances « Demander l'actualisation des soldes » — le même "
+      + "bouton que l'écran Finances : les responsables Finances (et le Super Admin) sont notifiés qu'une "
+      + "mise à jour des soldes de trésorerie est attendue, avec une précision optionnelle. Relance traçable "
+      + "(audit) — les montants ne sont PAS modifiés. Réservé à l'administration (Super Admin / vision "
+      + "globale). N'exécute rien : confirmation requise. À UTILISER pour « actualise les soldes », "
+      + "« demande les soldes bancaires », « mise à jour de la trésorerie » — JAMAIS une demande "
+      + "administrative générique à la place.",
+    input_schema: {
+      type: "object",
+      properties: {
+        note: { type: "string", description: "Précision jointe (ex. « avant le conseil de lundi — relevés au 10/08 »). Optionnel." },
+      },
     },
   },
   {
@@ -1461,7 +1502,16 @@ const BUSINESS_SEMANTICS = `VOCABULAIRE MÉTIER (résolution PAR LE CONTEXTE, ja
 - ARRÊT INTELLIGENT : source canonique trouvée + confiance haute + aucune contradiction →
   répondre, sans sur-chercher. Confiance basse, contradiction, ou source requise manquante →
   creuser AVANT de répondre. Une question qui implique une exploration (« combien de X dans ce
-  dossier ? ») s'explore D'OFFICE — ne pas demander la permission de faire son travail.`;
+  dossier ? ») s'explore D'OFFICE — ne pas demander la permission de faire son travail.
+- PRIORITÉ À L'ACTION NATIVE : quand l'ERP possède DÉJÀ un bouton métier pour ce que demande
+  l'utilisateur, c'est CETTE action qu'on propose — jamais un substitut plus faible. Ordre :
+  1) action native de module (l'indice « ACTION NATIVE » du plan, ou find_available_actions) ;
+  2) create_task (déléguer un travail à quelqu'un) ; 3) create_admin_request (DERNIER RECOURS) ;
+  4) send_message. Exemple : « demande l'actualisation des soldes » = request_treasury_update
+  (le bouton Finances), PAS une demande administrative assignée à quelqu'un. INTERDIT de dire
+  « je ne peux pas cliquer sur ce bouton » : le Chief invoque la fonction métier DERRIÈRE le
+  bouton — si elle manque vraiment, le dire comme un TROU DE CAPACITÉ à combler, pas comme une
+  fatalité.`;
 
 /**
  * CONTEXTE COMMUN DU CHIEF OF STAFF — la fonction que TOUTES les modalités appellent.
@@ -1672,6 +1722,25 @@ export async function executeReadTool(name: string, input: Record<string, unknow
       const people = await findPeople(asStr(input, "query"));
       if (people.length === 0) return "Aucun collègue trouvé pour cette recherche.";
       return JSON.stringify(people.map((p) => ({ id: p.id, nom: p.name, fonction: p.title, departement: p.department, role: ROLE_LABELS[p.role] ?? p.role })));
+    }
+    case "find_available_actions": {
+      // Le REGISTRE réel filtré par les droits — jamais une liste inventée. Chaque entrée dit
+      // le bouton d'écran, l'outil à appeler, le risque et la sémantique (effet, réversibilité).
+      const moduleQuery = asStr(input, "module");
+      const actions = actionsForUser(user, moduleQuery || undefined);
+      if (actions.length === 0) {
+        return JSON.stringify({
+          actionsNatives: [],
+          note: `Aucune action native ${moduleQuery ? `du module « ${moduleQuery} » ` : ""}ouverte à ce compte dans le registre. Les replis restent disponibles : create_task (déléguer un travail), create_admin_request (dernier recours), send_message.`,
+        });
+      }
+      return JSON.stringify({
+        actionsNatives: actions.map((a) => ({
+          bouton: a.uiLabel, module: a.module, outil: a.toolName, risque: a.risk,
+          semantique: a.summary, ...(a.gateNote ? { ouverture: a.gateNote } : {}),
+        })),
+        regle: "Si l'une de ces actions correspond à l'intention, l'utiliser — JAMAIS une demande générique à la place d'un bouton métier existant.",
+      });
     }
     case "my_overview": {
       const [openTasks, openRequests, unread] = await Promise.all([
@@ -3125,6 +3194,28 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  if (toolName === "request_treasury_update") {
+    // LA MÊME PORTE QUE LE BOUTON Finances « Demander l'actualisation des soldes » —
+    // revérifiée par l'action canonique à l'exécution.
+    if (user.role !== "SUPER_ADMIN" && !hasGlobalView(user)) {
+      return { error: "La demande d'actualisation des soldes est réservée à l'administration (même règle que le bouton Finances)." };
+    }
+    const note = asStr(input, "note") || null;
+    const fields = [
+      { label: "Action native", value: "Finances — « Demander l'actualisation des soldes »" },
+      { label: "Destinataires", value: "Responsables Finances (+ Super Admin) — notification avec lien vers Finances" },
+    ];
+    if (note) fields.push({ label: "Précision", value: note });
+    return {
+      kind: "request_treasury_update",
+      module: "FINANCES",
+      title: "Demander l'actualisation des soldes",
+      fields,
+      warnings: ["Relance traçable (auditée) : les soldes ne sont PAS modifiés — les Finances les mettent à jour depuis « Soldes d'ouverture ».", ...warnings],
+      payload: { kind: "request_treasury_update", note },
+    };
+  }
+
   if (toolName === "request_regulatory_status_update") {
     // LA MÊME PORTE QUE LE BOUTON de la fiche : la supervision Regulatory (Super Admin + rôles
     // configurés en Administration) — revérifiée par l'action canonique à l'exécution.
@@ -3400,6 +3491,9 @@ export async function runAssistant(
     opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
     workingSet,
     planCtx,
+    // PRIORITÉ AU NATIF : si la demande correspond à un bouton métier de l'ERP, l'indice le
+    // nomme (outil + libellé d'écran) — le modèle ne fabrique pas un substitut plus faible.
+    nativeActionHint(question),
     intentsCtx,
   ].filter(Boolean).join("\n\n");
   // Le Super Admin dispose d'outils exclusifs (vision globale de tous les comptes).
@@ -3602,6 +3696,9 @@ export async function runAssistantStream(
     opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
     workingSet,
     planCtx,
+    // PRIORITÉ AU NATIF : si la demande correspond à un bouton métier de l'ERP, l'indice le
+    // nomme (outil + libellé d'écran) — le modèle ne fabrique pas un substitut plus faible.
+    nativeActionHint(question),
     intentsCtx,
   ].filter(Boolean).join("\n\n");
   const tools = [
@@ -3941,6 +4038,21 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
       message: `« ${payload.name} » (${payload.label}) détruit définitivement — fichiers effacés, aucun retour possible.`,
       link: "/admin/corbeille",
       revalidate: ["/admin/corbeille"],
+    };
+  }
+
+  if (payload?.kind === "request_treasury_update") {
+    // L'ACTION NATIVE du bouton Finances — porte revérifiée dans l'action (Super Admin /
+    // vision globale), notification des responsables Finances, audit identique à l'écran.
+    const fd = new FormData();
+    if (payload.note) fd.set("note", payload.note);
+    const r = await requestTreasuryUpdate(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La demande d'actualisation a été refusée." };
+    return {
+      ok: true,
+      message: "Demande d'actualisation des soldes déclenchée — les responsables Finances sont notifiés.",
+      link: "/finances",
+      revalidate: ["/finances"],
     };
   }
 

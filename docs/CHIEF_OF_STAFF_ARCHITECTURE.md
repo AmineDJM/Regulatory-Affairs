@@ -598,6 +598,42 @@ primitive GÉNÉRALE (aucun exemple codé en dur — §42) + un test golden.
      (création/déplacement de nœuds), dépenses budgétaires, lignes de paie — chacun suivra le
      même patron (cœur canonique → proposition → confirmation) lot par lot.
 
+   ZERO-GAP — LE CHIEF EST LE PLAN DE CONTRÔLE EN LANGAGE NATUREL DE L'ERP :
+   Cas réel déclencheur : « Demande l'actualisation des soldes » — le module Finances possède
+   ce bouton natif (`requestTreasuryUpdate`), mais le Chief fabriquait une demande
+   administrative générique assignée à quelqu'un, puis disait « je ne peux pas cliquer sur le
+   bouton ». Réponse SYSTÉMIQUE (`lib/assistant/action-registry.ts` + `action-parity.test.ts`),
+   pas un rustine par bouton :
+   1. REGISTRE D'ACTIONS NATIVES (`ERP_ACTIONS`) — pour chaque action que le Chief sait
+      proposer : id stable, libellé du bouton d'écran, ALIAS en langage naturel, outil, risque,
+      SÉMANTIQUE (effet, qui est touché, réversibilité), porte identique à l'écran. Le bouton
+      Finances y est (`FINANCE_REQUEST_BALANCE_REFRESH` → outil `request_treasury_update`,
+      exécuté par l'action canonique — notification des responsables Finances + audit).
+   2. PRIORITÉ AU NATIF — `matchNativeAction(question)` (repli accents/pluriels, containment
+      des jetons d'alias, jamais un alias d'un seul mot banal) injecte dans le PLAN de la
+      question : « ACTION NATIVE DÉTECTÉE → utiliser CET outil, pas un substitut ». Ordre
+      imposé (BUSINESS_SEMANTICS) : action native de module → create_task (déléguer) →
+      create_admin_request (DERNIER RECOURS) → send_message. Interdit de dire « je ne peux pas
+      cliquer » : si la primitive manque, c'est un TROU DE CAPACITÉ à combler, dit comme tel.
+   3. DÉCOUVERTE — outil `find_available_actions` (« qu'est-ce que je peux faire ici ? ») :
+      le registre RÉEL filtré par les droits de la personne, par module — jamais une liste
+      inventée. Chaque entrée documente bouton, outil, risque, sémantique.
+   4. INVENTAIRE EXHAUSTIF + GARDE CI — les 631 `export async function` de `src/lib/actions/`
+      sont TOUTES classées (`ACTION_CLASSIFICATION`) : NATIVE (le Chief exécute cette action
+      même), COVERED (même résultat par un outil équivalent), GAP (trou RECONNU, note),
+      EXCLUDED (raison : sécurité/identifiants, plomberie du Chief, préférence d'affichage
+      personnelle, flux public à jeton, outillage de test). `action-parity.test.ts` RE-SCANNE
+      le dossier des actions à chaque exécution : une action nouvelle non classée = test rouge
+      avec son nom (« ERP ACTION WITHOUT ASSISTANT PARITY CLASSIFICATION ») ; une
+      classification fantôme = rouge aussi ; le nombre de GAP est sous CLIQUET (l'augmenter
+      exige de relever consciemment le plafond dans la même revue de code).
+   5. MÉTRIQUE HONNÊTE — UI_ACTION_PARITY au moment de ce lot : 55 actions NATIVE/COVERED,
+      539 GAP assumés, 37 EXCLUDED ⇒ ~9 % de parité stricte sur les actions serveur. Ce chiffre
+      est VOLONTAIREMENT sévère (il compte chaque fonction, y compris les micro-gestes de
+      circuits) ; la machinerie ci-dessus le fait monter lot par lot sans jamais laisser un
+      trou muet. NOT YET MEASURED : la parité E2E Playwright (comparer état DB/audit après
+      exécution UI vs Chief) — infrastructure E2E absente du repo à ce jour.
+
 7. *« Je veux un Excel téléchargeable ICI » → « disponible dans le Drive ».*
    → chaque fichier de livrable porte `telechargement: /api/drive/<id>/raw` (mêmes ACL Drive,
    Content-Disposition attachment) en plus du lien Drive ; le rendu du chat LINKIFIE les
