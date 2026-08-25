@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { bargeInDecision, isNoiseTranscript, buildTurnDetection, BARGE_IN_SUSTAIN_MS, BARGE_IN_NOISE_MS } from "./voice-tuning";
+import {
+  bargeInDecision, isNoiseTranscript, buildTurnDetection, deliveryWatchdogAction, deliveryFallbackText,
+  BARGE_IN_SUSTAIN_MS, BARGE_IN_NOISE_MS, DELIVERY_WATCHDOG_GRACE_MS, DELIVERY_MAX_ATTEMPTS,
+} from "./voice-tuning";
 
 /**
  * GOLDEN RÉGRESSION — FAILURE D (voix) : la réponse se coupait sur un clavier, une toux, une
@@ -33,6 +36,55 @@ describe("bargeInDecision — le bruit ne coupe pas, la parole coupe vite", () =
   it("les seuils gardent « Stop. » rapide : confirmation soutenue ≤ 400 ms", () => {
     expect(BARGE_IN_SUSTAIN_MS).toBeLessThanOrEqual(400);
     expect(BARGE_IN_NOISE_MS).toBeLessThanOrEqual(BARGE_IN_SUSTAIN_MS);
+  });
+
+  it("AUTO-PROTECTION ÉCHO : haut-parleur ACTIF → la durée seule ne confirme JAMAIS (fantômes persistants)", () => {
+    // L'écho de la propre voix de l'assistant est un « signal soutenu » parfait : 600, 2000 ms…
+    expect(bargeInDecision({ assistantBusy: true, sustainedMs: 600, hasTranscriptEvidence: false, speechStopped: false, audioPlaying: true })).toBe("wait");
+    expect(bargeInDecision({ assistantBusy: true, sustainedMs: 2_000, hasTranscriptEvidence: false, speechStopped: true, audioPlaying: true })).toBe("ignore");
+    // Des MOTS transcrits restent le témoignage recevable — la vraie interruption coupe.
+    expect(bargeInDecision({ assistantBusy: true, sustainedMs: 200, hasTranscriptEvidence: true, speechStopped: false, audioPlaying: true })).toBe("confirm");
+    // Haut-parleur MUET (réflexion) : aucune source d'écho — la durée seule confirme encore.
+    expect(bargeInDecision({ assistantBusy: true, sustainedMs: BARGE_IN_SUSTAIN_MS, hasTranscriptEvidence: false, speechStopped: false, audioPlaying: false })).toBe("confirm");
+  });
+});
+
+describe("deliveryWatchdogAction — la garde déterministe de restitution (jamais un setTimeout aveugle)", () => {
+  const base = { readyForMs: DELIVERY_WATCHDOG_GRACE_MS, activeResponse: false, createInFlightMs: null, userSpeaking: false, attempts: 0 };
+
+  it("dépendances complètes && rien en cours && grâce écoulée → CRÉER la réponse", () => {
+    expect(deliveryWatchdogAction(base)).toBe("create");
+  });
+
+  it("une réponse ACTIVE couvre déjà l'obligation → attendre (elle restituera ou sa fin replanifie)", () => {
+    expect(deliveryWatchdogAction({ ...base, activeResponse: true })).toBe("wait");
+  });
+
+  it("l'UTILISATEUR parle → RESULT_READY : jamais par-dessus, la fin de son tour déclenche", () => {
+    expect(deliveryWatchdogAction({ ...base, userSpeaking: true })).toBe("wait");
+  });
+
+  it("un create encore en vol (sous la grâce) → attendre sa réponse, pas le doubler", () => {
+    expect(deliveryWatchdogAction({ ...base, createInFlightMs: 300 })).toBe("wait");
+    expect(deliveryWatchdogAction({ ...base, createInFlightMs: DELIVERY_WATCHDOG_GRACE_MS })).toBe("create");
+  });
+
+  it("résultat frais (sous la grâce) → laisser le chemin nominal agir d'abord", () => {
+    expect(deliveryWatchdogAction({ ...base, readyForMs: 200 })).toBe("wait");
+  });
+
+  it("relances plafonnées → abandon HONNÊTE (dit + persisté), jamais une boucle infinie", () => {
+    expect(deliveryWatchdogAction({ ...base, attempts: DELIVERY_MAX_ATTEMPTS })).toBe("give_up");
+  });
+});
+
+describe("deliveryFallbackText — le texte persisté quand la voix ne peut plus restituer", () => {
+  it("préfère la réponse UI détaillée, sinon le champ `reponse` du JSON, sinon la sortie brute — borné", () => {
+    expect(deliveryFallbackText("{\"reponse\":\"Synthèse.\"}", "Analyse détaillée.")).toBe("Analyse détaillée.");
+    expect(deliveryFallbackText("{\"reponse\":\"Synthèse.\"}", null)).toBe("Synthèse.");
+    expect(deliveryFallbackText("Texte brut.", null)).toBe("Texte brut.");
+    expect(deliveryFallbackText("{pas du json", null)).toBe("{pas du json");
+    expect(deliveryFallbackText("x".repeat(10_000), null).length).toBeLessThan(6_100);
   });
 });
 

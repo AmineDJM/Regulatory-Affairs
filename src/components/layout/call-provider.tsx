@@ -100,6 +100,10 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
     // Politique de barge-in confirmé : les DEUX métriques se lisent ensemble (peu de fausses
     // coupures ET une vraie interruption rapide).
     falseBargeInsIgnored: 0, bargeInLatencyMs: 0,
+    // Propriété de la réponse : obligations prêtes vs RESTITUÉES (le SLO de fiabilité), les
+    // rattrapages (complétion muette, watchdog) et l'hygiène anti-fantôme.
+    deliveriesReady: 0, deliveriesDone: 0, deliveryLatencyMs: 0, silentCompletions: 0,
+    watchdogRecoveries: 0, deliveryFailures: 0, staleEventsIgnored: 0, phantomCancels: 0,
   });
   // Matière du RÉSUMÉ D'APPEL : uniquement ce qui s'est réellement produit.
   const summaryRef = React.useRef({ topics: [] as string[], cardLabels: [] as string[], proposals: 0, toolCalls: 0 });
@@ -175,6 +179,18 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
         if (!res.ok) throw new Error("tool");
         return (await res.json()) as { output: string; ui?: VoiceToolUi | null };
       },
+      // « PAS PERDU » : un résultat que la voix ne peut plus restituer (raccroché pendant
+      // l'analyse, restitution en échec terminal) rejoint le FIL de conversation — et le chat
+      // s'il est monté. keepalive : la requête survit à une navigation.
+      persistOrphanResult: (text) => {
+        const user = "(analyse terminée après l'appel)";
+        bridgeRef.current?.onTurn(user, text);
+        void fetch("/api/assistant/voice/turn", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ threadId: threadRef.current, user, assistant: text }),
+          keepalive: true,
+        }).catch(() => undefined);
+      },
       callbacks: {
         onState: (s) => {
           if (statusRef.current === "IDLE") return; // raccroché entre-temps
@@ -225,6 +241,32 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
             m.bargeInLatencyMs = Math.round(value ?? 0);
             logEvent("voice_barge_in_confirmed", { latencyMs: m.bargeInLatencyMs });
           }
+          // Propriété de la réponse : prêtes vs RESTITUÉES = le SLO « aucune analyse muette ».
+          if (name === "pending_turn_ready") m.deliveriesReady += 1;
+          if (name === "pending_turn_delivered") {
+            m.deliveriesDone += 1;
+            m.deliveryLatencyMs = Math.round(value ?? 0);
+            logEvent("voice_pending_turn_delivered", { latencyMs: m.deliveryLatencyMs });
+          }
+          if (name === "silent_completion_detected") {
+            m.silentCompletions += 1;
+            logEvent("voice_silent_completion", { count: m.silentCompletions });
+          }
+          if (name === "watchdog_recovered") {
+            m.watchdogRecoveries += 1;
+            logEvent("voice_watchdog_recovered", { count: m.watchdogRecoveries });
+          }
+          if (name === "delivery_failed") {
+            m.deliveryFailures += 1;
+            logEvent("voice_delivery_failed", { count: m.deliveryFailures });
+          }
+          // Hygiène anti-fantôme : événements périmés ignorés (comptés, journalisés à la fin),
+          // réponse auto au bruit annulée avant d'avoir parlé.
+          if (name === "stale_event_ignored") m.staleEventsIgnored += 1;
+          if (name === "phantom_response_cancelled") {
+            m.phantomCancels += 1;
+            logEvent("voice_phantom_response_cancelled", { count: m.phantomCancels });
+          }
         },
         onConnectionChange: (cs) => {
           if (statusRef.current === "IDLE") return;
@@ -255,7 +297,12 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
     reconnectsRef.current = 0;
     connectedAtRef.current = null;
     lastContextRef.current = pathname;
-    metricsRef.current = { startedAt: performance.now(), connectMs: 0, firstAudioMs: 0, toolCalls: 0, toolErrors: 0, interruptions: 0, turns: 0, falseBargeInsIgnored: 0, bargeInLatencyMs: 0 };
+    metricsRef.current = {
+      startedAt: performance.now(), connectMs: 0, firstAudioMs: 0, toolCalls: 0, toolErrors: 0,
+      interruptions: 0, turns: 0, falseBargeInsIgnored: 0, bargeInLatencyMs: 0,
+      deliveriesReady: 0, deliveriesDone: 0, deliveryLatencyMs: 0, silentCompletions: 0,
+      watchdogRecoveries: 0, deliveryFailures: 0, staleEventsIgnored: 0, phantomCancels: 0,
+    };
     summaryRef.current = { topics: [], cardLabels: [], proposals: 0, toolCalls: 0 };
     setStatusBoth("CONNECTING");
 
@@ -306,6 +353,12 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
       connectMs: m.connectMs || null, firstAudioMs: m.firstAudioMs || null,
       toolCalls: m.toolCalls, toolErrors: m.toolErrors, interruptions: m.interruptions, turns: m.turns,
       falseBargeInsIgnored: m.falseBargeInsIgnored, bargeInLatencyMs: m.bargeInLatencyMs,
+      // Les DEUX SLO de fiabilité se lisent ici : restitutions prêtes vs faites (BUG 1) et
+      // fausses coupures/fantômes vs vraies (BUG 2).
+      deliveriesReady: m.deliveriesReady, deliveriesDone: m.deliveriesDone,
+      deliveryLatencyMs: m.deliveryLatencyMs || null, silentCompletions: m.silentCompletions,
+      watchdogRecoveries: m.watchdogRecoveries, deliveryFailures: m.deliveryFailures,
+      staleEventsIgnored: m.staleEventsIgnored, phantomCancels: m.phantomCancels,
     });
 
     providerRef.current?.disconnect();

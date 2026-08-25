@@ -403,6 +403,101 @@ Administration → IA (modèle affiché).
   « VAD maison → Whisper → SSE → TTS phrase par phrase » est SUPPRIMÉE
   (route `/api/assistant/speak` et `synthesizeSpeech` retirées).
 
+### REALTIME VOICE RELIABILITY — les deux pannes bloquantes (root cause → fix → test)
+
+Deux comportements observés en appel réel, corrigés À LA RACINE dans le pipeline d'événements
+du provider (`app/(app)/assistant/realtime-voice.ts`) — pas dans les prompts, pas par des
+timeouts arbitraires. Les scénarios sont REJOUÉS sur le vrai `handleEvent` (canal stubbé,
+timers simulés) dans `lib/assistant/voice-pipeline.test.ts`.
+
+**BUG 1 — « Je vais analyser… » puis silence infini (le résultat existait, personne ne le
+disait ; « Alors ? » le faisait apparaître).**
+- *Root cause 1 — l'intention de réponse était un tir unique.* Le résultat d'outil posait le
+  `function_call_output` puis envoyait UN `response.create` et oubliait. Le suivi client
+  (`activeResponse` booléen) courait derrière les réponses AUTO-créées par la VAD serveur
+  (`create_response: true`) : quand notre create heurtait une réponse auto en cours de
+  création, le serveur répondait `conversation_already_has_active_response` — et le handler
+  d'erreur affichait un message SANS jamais replanifier. L'intention était perdue ; le
+  résultat restait dans la conversation jusqu'à ce qu'une parole du PDG (« Alors ? »)
+  auto-crée une réponse qui, elle, le voyait. → *Fix :* PROPRIÉTÉ DE LA RÉPONSE. Chaque
+  function call crée une **obligation de restitution** (`PendingDelivery` :
+  WAITING_TOOL → READY → DELIVERING) qui ne s'éteint que lorsqu'une réponse identifiée
+  (`response.created` → `response.done`, suivie PAR ID) s'est terminée en ayant réellement
+  PARLÉ. L'erreur codée replanifie (la réponse active couvrira, son `created` absorbe
+  l'attente) au lieu de perdre. → *Test :* « collision avec la réponse AUTO de la VAD ».
+- *Root cause 2 — aucun rattrapage si le create se perdait.* → *Fix :* **watchdog
+  déterministe** (`deliveryWatchdogAction`, module pur) : « dépendances complètes ET aucune
+  réponse en cours ET l'utilisateur ne parle pas ET grâce écoulée → relancer » — jamais un
+  `setTimeout(() => speakResult(), 2000)`. Relances plafonnées (3) puis abandon HONNÊTE :
+  l'échec est dit (onError) et le résultat est PERSISTÉ dans le fil. → *Tests :* « create
+  perdu », « échec terminal ».
+- *Root cause 3 — le piège de l'accusé muet.* Une réponse pouvait se « terminer » sans un mot
+  (status completed, zéro transcript, zéro audio) : rien ne le détectait. → *Fix :* une
+  réponse porteuse d'obligations qui se termine muette est détectée
+  (`silent_completion_detected`), un rappel système explicite est posé (UNE fois) et la
+  réponse est relancée. → *Test :* « le piège de l'accusé muet ».
+- *Root cause 4 — résultat pendant la parole de l'utilisateur.* Un `response.create` partait
+  en pleine phrase du PDG (parler par-dessus, ou collision avec la réponse auto de fin de
+  tour). → *Fix :* RESULT_READY — l'output est posé, la création est retenue tant que
+  l'utilisateur parle (`USER_SPEAKING` ou fenêtre de barge-in ouverte) ; la fin de SON tour
+  déclenche la réponse (VAD auto, absorbée par `created`), le watchdog rattrape un commit qui
+  n'arrive jamais. → *Test :* « RESULT_READY pendant que l'utilisateur parle ».
+- *Root cause 5 — session terminée pendant le job.* `send()` dans un canal mort ne fait rien :
+  le résultat s'évaporait. → *Fix :* tout résultat que la voix ne peut plus restituer
+  (raccroché pendant l'analyse, restitution en échec terminal, résultats prêts au moment du
+  raccrochage) est remis au FIL de conversation (`persistOrphanResult` → `/api/assistant/voice/turn`,
+  `keepalive`) et au chat s'il est monté. → *Tests :* « session terminée », « échec terminal ».
+  *Limite honnête :* si l'ONGLET est fermé pendant le job (pas seulement l'appel), le fetch
+  du délégué meurt avec lui — ce cas exigerait une persistance côté serveur du résultat de
+  délégation, non faite pour ne pas dupliquer chaque analyse dans le fil.
+- *Exactly-once :* une obligation est portée par UNE réponse identifiée ; livrée = éteinte
+  (metric `pending_turn_delivered` avec latence job→voix) ; une réponse annulée par le PDG
+  la remet DUE sans double restitution ; le tour restitué se nomme
+  « (restitution d'une analyse terminée) » — plus jamais « (intervention vocale) ».
+
+**BUG 2 — interruptions fantômes « (intervention vocale) » persistantes.**
+- *Root cause 1 — la durée seule confirmait un barge-in.* `sustained ≥ 400 ms` coupait la
+  réponse même sans un mot transcrit — or pendant que le HAUT-PARLEUR joue, l'écho de la
+  propre voix de l'assistant (AEC imparfaite, haut-parleur ouvert) est précisément un
+  « signal de parole soutenu ». → *Fix :* AUTO-PROTECTION ÉCHO dans `bargeInDecision`
+  (module pur) : haut-parleur ACTIF (`output_audio_buffer.started` sans stop) → seuls des
+  MOTS transcrits confirment, un signal sans mots est ignoré quelle que soit sa durée ;
+  haut-parleur MUET (réflexion — aucune source d'écho) → la durée soutenue confirme encore.
+  Un « Stop. » réel reste rapide (deltas de transcription en quelques centaines de ms), et
+  une transcription LENTE est rattrapée par la **confirmation tardive** : transcription
+  finale avec mots pendant la MÊME réponse → coupure immédiate. → *Tests :* « golden
+  fantôme », « vraie interruption », « haut-parleur muet », « confirmation tardive ».
+- *Root cause 2 — événements périmés.* Après un cancel, les deltas de transcript, le
+  transcript final et les événements de tampon audio de la réponse ANNULÉE continuaient
+  d'arriver : texte fantôme dans le tour suivant, état rebasculé en ASSISTANT_SPEAKING.
+  → *Fix :* chaque événement de contenu est LIÉ à sa réponse (`response_id`) — réponse
+  marquée annulée (marqueur qui SURVIT au done, borné à 8) ou différente de l'active →
+  ignoré (`stale_event_ignored`). → *Test :* « événements périmés ».
+- *Root cause 3 — segments non identifiés.* Un delta de l'ANCIEN segment de parole pouvait
+  confirmer la fenêtre d'un nouveau ; un même souffle pouvait produire deux confirmations.
+  → *Fix :* la fenêtre d'évaluation est liée au SEGMENT (`item_id` de `speech_started`) ;
+  un delta d'un autre segment ne confirme pas ; un segment déjà confirmé ne rouvre rien
+  (debounce, borné). → *Tests :* « ancien segment », « debounce » (dans « vraie
+  interruption »).
+- *Root cause 4 — la pièce silencieuse.* Un bruit committé par la VAD auto-créait une réponse
+  (« Oui ? ») et l'item de bruit restait dans la conversation (pollution de contexte, dérive
+  de langue). → *Fix :* transcription finale = bruit (`isNoiseTranscript`) → l'item est
+  SUPPRIMÉ (`conversation.item.delete`) et la réponse auto est annulée SI elle n'a encore
+  rien joué et ne porte aucune restitution (`phantom_response_cancelled`) — une restitution
+  en cours passe toujours avant l'hygiène du bruit. → *Tests :* « pièce silencieuse »,
+  « le bruit n'annule jamais une restitution ».
+
+**Observabilité & SLO** (journal `/api/assistant/voice/log`, résumé à `voice_session_closed`) :
+- *SLO 1 — fiabilité de restitution ≈ 100 %* : `deliveriesReady` vs `deliveriesDone`
+  (+ `voice_pending_turn_delivered` avec latence job→voix par restitution) ; les rattrapages
+  se lisent (`voice_silent_completion`, `voice_watchdog_recovered`) et l'échec terminal est
+  compté ET persisté (`voice_delivery_failed`).
+- *SLO 2 — taux de fausses coupures ≈ 0* : `interruptions`/`bargeInLatencyMs` (les vraies)
+  contre `falseBargeInsIgnored`, `phantomCancels`, `staleEventsIgnored`.
+- Recette terrain (micro réel, non simulable en CI) : pièce calme 60 s → 0 intervention ;
+  analyse déléguée puis silence → la voix restitue SEULE ; « Attends » en pleine phrase →
+  coupure immédiate ; clavier/toux pendant la réponse → la voix ne s'arrête pas.
+
 ### UI
 - Deux volets sur grand écran : conversation + **panneau CONTEXTE** (sources consultées — chaque
   dossier lu devient un lien au moment où l'outil le lit, via les événements SSE `source` —,

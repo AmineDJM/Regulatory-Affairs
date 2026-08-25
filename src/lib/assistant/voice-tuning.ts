@@ -28,21 +28,93 @@ export type BargeInVerdict = "confirm" | "ignore" | "wait";
  * La décision de barge-in — DÉTERMINISTE et testable :
  *   • des MOTS transcrits pendant le signal = parole humaine → confirmer immédiatement
  *     (c'est ce qui garde « Stop. » / « Attends. » rapides) ;
- *   • un signal SOUTENU (≥ BARGE_IN_SUSTAIN_MS) → confirmer ;
+ *   • AUTO-PROTECTION ÉCHO : pendant que le HAUT-PARLEUR joue (`audioPlaying`), l'écho de la
+ *     propre voix de l'assistant est un « signal de parole » parfaitement soutenu — la durée
+ *     seule ne prouve donc RIEN. Seuls des mots transcrits confirment ; un signal sans mots
+ *     qui s'arrête est ignoré, quelle que soit sa durée. (C'était LA source des interruptions
+ *     fantômes « (intervention vocale) » persistantes : sustained ≥ 400 ms sur de l'écho.)
+ *   • haut-parleur muet (réflexion en cours) : un signal SOUTENU (≥ BARGE_IN_SUSTAIN_MS)
+ *     confirme même sans transcription — il n'y a aucune source d'écho possible ;
  *   • un signal bref qui s'arrête sans mots → IGNORER (la réponse continue) ;
  *   • sinon → attendre la suite du signal.
+ * Le vrai « Stop. » pendant la voix reste rapide : la transcription temps réel livre ses
+ * premiers mots en quelques centaines de ms, et un retard est rattrapé par la CONFIRMATION
+ * TARDIVE (transcription finale avec mots pendant la même réponse → coupure immédiate).
  */
 export function bargeInDecision(s: {
   assistantBusy: boolean;
   sustainedMs: number;
   hasTranscriptEvidence: boolean;
   speechStopped: boolean;
+  /** Le haut-parleur émet RÉELLEMENT du son (fenêtre d'écho possible). Défaut : non. */
+  audioPlaying?: boolean;
 }): BargeInVerdict {
   if (!s.assistantBusy) return "confirm"; // rien à protéger : l'état de tour suit normalement
   if (s.hasTranscriptEvidence) return "confirm";
+  if (s.audioPlaying) return s.speechStopped ? "ignore" : "wait";
   if (s.sustainedMs >= BARGE_IN_SUSTAIN_MS) return "confirm";
   if (s.speechStopped && s.sustainedMs < BARGE_IN_NOISE_MS) return "ignore";
   return "wait";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROPRIÉTÉ DE LA RÉPONSE (BUG « analyse terminée, jamais restituée ») — chaque résultat
+// d'outil crée une OBLIGATION DE RESTITUTION qui ne s'éteint que lorsqu'une réponse a
+// réellement PARLÉ. Le watchdog ci-dessous est la garde déterministe de rattrapage : il ne
+// « rejoue au bout de N secondes » que si TOUTES les conditions d'une livraison possible sont
+// réunies et qu'aucune réponse n'est en cours — jamais un setTimeout aveugle.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Délai de grâce avant que le watchdog considère qu'un `response.create` s'est perdu. */
+export const DELIVERY_WATCHDOG_GRACE_MS = 1_500;
+/** Cadence de la vérification (uniquement quand des obligations existent). */
+export const DELIVERY_WATCHDOG_TICK_MS = 600;
+/** Au-delà : la restitution vocale a échoué — on le DIT et on persiste dans le fil. */
+export const DELIVERY_MAX_ATTEMPTS = 3;
+
+export type DeliveryWatchdogAction = "create" | "wait" | "give_up";
+
+/**
+ * La garde du watchdog — PURE et testable : « dépendances complètes && aucune réponse en
+ * cours && l'utilisateur ne parle pas && la grâce est écoulée → déclencher la réponse ».
+ */
+export function deliveryWatchdogAction(s: {
+  /** ms depuis que le résultat est prêt (function_call_output posé dans la conversation). */
+  readyForMs: number;
+  /** Une réponse est active (response.created vu, response.done pas encore). */
+  activeResponse: boolean;
+  /** Un response.create est parti sans response.created en face — ms depuis l'envoi, sinon null. */
+  createInFlightMs: number | null;
+  /** L'utilisateur parle (ou une fenêtre de barge-in est ouverte) : livrer en fin de tour. */
+  userSpeaking: boolean;
+  attempts: number;
+}): DeliveryWatchdogAction {
+  if (s.attempts >= DELIVERY_MAX_ATTEMPTS) return "give_up";
+  if (s.activeResponse) return "wait"; // elle couvrira l'obligation (ou sa fin la replanifie)
+  if (s.userSpeaking) return "wait"; // RESULT_READY : la fin du tour utilisateur déclenche
+  if (s.createInFlightMs !== null && s.createInFlightMs < DELIVERY_WATCHDOG_GRACE_MS) return "wait";
+  if (s.readyForMs < DELIVERY_WATCHDOG_GRACE_MS) return "wait";
+  return "create";
+}
+
+/**
+ * Le TEXTE de repli d'une restitution : ce qui est persisté dans le fil quand la session s'est
+ * terminée avant la restitution vocale (raccroché pendant l'analyse) ou quand la voix n'a pas
+ * pu parler. On préfère la réponse UI détaillée ; sinon le champ `reponse` du JSON d'outil ;
+ * sinon la sortie brute — bornée.
+ */
+export function deliveryFallbackText(output: string, uiReply?: string | null): string {
+  const cap = (s: string) => (s.length > 6_000 ? `${s.slice(0, 6_000)}\n[… tronqué]` : s);
+  const ui = (uiReply ?? "").trim();
+  if (ui) return cap(ui);
+  const raw = (output ?? "").trim();
+  if (raw.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(raw) as { reponse?: unknown };
+      if (typeof parsed.reponse === "string" && parsed.reponse.trim()) return cap(parsed.reponse.trim());
+    } catch { /* sortie non-JSON : brute */ }
+  }
+  return cap(raw);
 }
 
 /**

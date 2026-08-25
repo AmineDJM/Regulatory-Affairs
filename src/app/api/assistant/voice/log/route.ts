@@ -16,6 +16,12 @@ const EVENTS = new Set([
   "voice_reconnect", "voice_session_error", "voice_session_closed",
   // Politique de barge-in confirmé : bruit ignoré (la réponse continue) / vraie coupure (latence).
   "voice_false_barge_in_ignored", "voice_barge_in_confirmed",
+  // Propriété de la réponse (fiabilité de restitution) : résultat restitué (latence job→voix),
+  // complétion muette rattrapée, watchdog déclenché, échec terminal (persisté au fil).
+  "voice_pending_turn_delivered", "voice_silent_completion",
+  "voice_watchdog_recovered", "voice_delivery_failed",
+  // Hygiène anti-fantôme : réponse auto au bruit annulée avant d'avoir parlé.
+  "voice_phantom_response_cancelled",
 ]);
 
 export async function POST(req: Request) {
@@ -25,6 +31,13 @@ export async function POST(req: Request) {
   let body: {
     event?: string; connectMs?: number; firstAudioMs?: number; sessionMs?: number;
     toolCalls?: number; toolErrors?: number; interruptions?: number; turns?: number;
+    // Fiabilité de restitution (BUG « analyse muette ») et hygiène anti-fantôme — voir
+    // call-provider.tsx : les DEUX SLO se calculent depuis ces compteurs.
+    latencyMs?: number; count?: number;
+    deliveriesReady?: number; deliveriesDone?: number; deliveryLatencyMs?: number;
+    silentCompletions?: number; watchdogRecoveries?: number; deliveryFailures?: number;
+    staleEventsIgnored?: number; phantomCancels?: number;
+    falseBargeInsIgnored?: number; bargeInLatencyMs?: number;
     reasonCode?: string; detail?: string;
   };
   try { body = (await req.json()) as typeof body; } catch { return Response.json({ ok: false }, { status: 400 }); }
@@ -36,6 +49,12 @@ export async function POST(req: Request) {
     connectMs: num(body.connectMs), firstAudioMs: num(body.firstAudioMs), sessionMs: num(body.sessionMs),
     toolCalls: num(body.toolCalls), toolErrors: num(body.toolErrors),
     interruptions: num(body.interruptions), turns: num(body.turns),
+    latencyMs: num(body.latencyMs), count: num(body.count),
+    deliveriesReady: num(body.deliveriesReady), deliveriesDone: num(body.deliveriesDone),
+    deliveryLatencyMs: num(body.deliveryLatencyMs), silentCompletions: num(body.silentCompletions),
+    watchdogRecoveries: num(body.watchdogRecoveries), deliveryFailures: num(body.deliveryFailures),
+    staleEventsIgnored: num(body.staleEventsIgnored), phantomCancels: num(body.phantomCancels),
+    falseBargeInsIgnored: num(body.falseBargeInsIgnored), bargeInLatencyMs: num(body.bargeInLatencyMs),
     reasonCode: typeof body.reasonCode === "string" ? body.reasonCode.slice(0, 80) : undefined,
     detail: typeof body.detail === "string" ? body.detail.slice(0, 300) : undefined,
   };
