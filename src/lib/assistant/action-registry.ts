@@ -629,6 +629,8 @@ classify("COVERED", "set_account_active", ["access-actions:setUserActive"]);
 // Révoquer UNE session précise exige la liste d'écran (empreinte appareil/date) ; le geste de
 // sécurité demandé en conversation — « déconnecte X de partout » — est couvert intégralement.
 classify("COVERED", "org_operation:revoke_sessions", ["access-actions:revokeSession"]);
+// Wrapper d'écran du MÊME geste : editLegalDocument rejoue updateLegalDocument (couvert).
+classify("COVERED", "update_legal_document", ["legal-actions:editLegalDocument"]);
 
 // ── GAP : action d'écran RECONNUE, pas encore proposable par le Chief. ──
 const G = (note: string, keys: string[]) => classify("GAP", note, keys);
@@ -728,11 +730,8 @@ G("messagerie avancée (groupes, canaux, épingles, réactions, membres)", [
   "messaging-actions:removeMember", "messaging-actions:setMemberRole", "messaging-actions:leaveConversation",
   "messaging-actions:archiveConversation", "messaging-actions:joinChannel", "messaging-actions:setMessagingStatus",
 ]);
-G("boîte e-mail avancée (brouillons, déplacement, signature, pièces vers Drive, liage)", [
-  "microsoft-mail-actions:saveDraft", "microsoft-mail-actions:setMessageRead", "microsoft-mail-actions:moveMessage",
-  "microsoft-mail-actions:deleteMessage", "microsoft-mail-actions:saveMailSignature",
-  "microsoft-mail-actions:saveAttachmentToDrive", "microsoft-mail-actions:linkMessageToEntity",
-  "mail-actions:updateMailSignature",
+G("boîte e-mail avancée (signature — le reste est EXCLU plus bas)", [
+  "microsoft-mail-actions:saveMailSignature", "mail-actions:updateMailSignature",
 ]);
 G("registre des courriers (créer/classer/pièces/partenaires)", [
   "mail-register-actions:createMailEntry", "mail-register-actions:editMailEntry", "mail-register-actions:setMailDate",
@@ -742,8 +741,10 @@ G("registre des courriers (créer/classer/pièces/partenaires)", [
   "mail-partner-actions:updateMailPartner", "mail-partner-actions:deleteMailPartner",
   "mail-piece-actions:addMailPiece", "mail-piece-actions:updateMailPiece", "mail-piece-actions:deleteMailPiece",
 ]);
+// NB : editLegalDocument est classé COVERED plus haut — le mettre ici l'écraserait en GAP
+// (les blocs s'exécutent dans l'ordre du fichier ; seul le override catalogue est final).
 G("Legal avancé (édition, dossiers, rattachements Drive, règlement de facture, lecteurs)", [
-  "legal-actions:editLegalDocument", "legal-actions:attachDriveNodeToLegal", "legal-actions:renewLegalDocument",
+  "legal-actions:attachDriveNodeToLegal", "legal-actions:renewLegalDocument",
   "legal-actions:cancelLegalDocument", "legal-actions:deleteLegalDocument", "legal-actions:setLegalReaders",
   "legal-actions:sendLegalInvoiceToSettlement", "legal-folder-actions:createLegalFolder",
   "legal-folder-actions:updateLegalFolder", "legal-folder-actions:deleteLegalFolder",
@@ -818,7 +819,7 @@ G("demandes administratives avancées (approbations, missions, lots, corbeille p
   "purchase-request-actions:createPurchaseRequest", "purchase-request-actions:withdrawPurchaseRequest",
   "document-request-actions:requestDocument", "document-request-actions:submitDocumentRequest",
   "document-request-actions:decideDocumentRequest", "document-request-actions:cancelDocumentRequest",
-  "document-request-actions:askablePeople", "stand-in-actions:proposeStandIn", "stand-in-actions:decideStandIn",
+  "stand-in-actions:proposeStandIn", "stand-in-actions:decideStandIn",
 ]);
 G("médical & annuaires (médecins, visites, spécialités, annuaires praticiens, import)", [
   "medical-actions:deleteInstitution", "medical-actions:createSpecialty", "medical-actions:updateSpecialty",
@@ -975,6 +976,17 @@ X("helpers de LECTURE et tâches PLANIFIÉES internes (pas des gestes métier qu
 ]);
 X("analyse IA de PRÉ-REMPLISSAGE (extrait les champs d'un contrat scanné, ne persiste RIEN — les RH relisent et enregistrent eux-mêmes)", [
   "hr-actions:analyzeEmployeeContract",
+]);
+X("liste de choix d'un formulaire (les personnes qu'on peut solliciter) — une lecture, pas un geste", [
+  "document-request-actions:askablePeople",
+]);
+X("plomberie / lecture du Drive (initialisation de dossiers, liste des partages) — pas un geste métier", [
+  "drive-actions:ensureDriveFolders", "drive-actions:getDriveNodeShares",
+]);
+X("boîte Microsoft PERSONNELLE : ces gestes visent un messageId Graph opaque de l'écran — le Chief n'a pas de lecture de boîte (OAuth personnel) pour les résoudre en conversation", [
+  "microsoft-mail-actions:saveDraft", "microsoft-mail-actions:setMessageRead", "microsoft-mail-actions:moveMessage",
+  "microsoft-mail-actions:deleteMessage", "microsoft-mail-actions:saveAttachmentToDrive",
+  "microsoft-mail-actions:linkMessageToEntity",
 ]);
 G("suppression par le CRÉATEUR de son propre courrier / document légal (proposable pour l'auteur)", [
   "admin-delete-actions:deleteOwnRecord",

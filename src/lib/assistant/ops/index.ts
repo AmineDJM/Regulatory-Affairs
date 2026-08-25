@@ -10,6 +10,8 @@ import { FINANCE_FLOWS_OPS_IMPL } from "./impl-finance-flows";
 import { REGULATORY_OPS_IMPL } from "./impl-regulatory";
 import { HR_OPS_IMPL } from "./impl-hr";
 import { HR2_OPS_IMPL, ACCESS_OPS_IMPL } from "./impl-hr2";
+import { RECRUIT_TRAINING_OPS_IMPL, MISSION_OPS_IMPL, DOCREQ_OPS_IMPL, MEDINFO_OPS_IMPL } from "./impl-wave2b";
+import { DRIVE3_OPS_IMPL, LEGAL3_OPS_IMPL, MAIL3_OPS_IMPL } from "./impl-wave3";
 import { MEETING_OPS_IMPL } from "./impl-meeting";
 import { MAIL_OPS_IMPL } from "./impl-mail";
 import { LEGAL_OPS_IMPL } from "./impl-legal";
@@ -57,7 +59,7 @@ const opEnum = (tool: string): string[] => Object.keys(OPS_BY_TOOL[tool] ?? {});
 export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   drive_operation: {
     module: "DRIVE",
-    ops: zipOps("drive_operation", DRIVE_OPS_IMPL),
+    ops: zipOps("drive_operation", { ...DRIVE_OPS_IMPL, ...DRIVE3_OPS_IMPL }),
     def: {
       name: "drive_operation",
       description:
@@ -75,6 +77,10 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           people: { type: "string", description: "share/unshare : noms des personnes, séparés par des virgules." },
           access: { type: "string", description: "share : « lecture » (défaut) ou « modification »." },
           kind: { type: "string", description: "create_office : word, excel ou powerpoint." },
+          person: { type: "string", description: "update_space : la personne à qui donner/retirer la lecture." },
+          mode: { type: "string", description: "update_space : « retirer » (accès) ; archive_space : « désarchiver » ; update_letterhead : activer/désactiver." },
+          icon: { type: "string", description: "Catégories : icône (emoji)." },
+          comment: { type: "string", description: "comment/delete_comment : le commentaire (ou un extrait pour le retrouver)." },
         },
         required: ["op", "name"],
       },
@@ -82,7 +88,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   task_operation: {
     module: "WORKSPACE",
-    ops: zipOps("task_operation", TASK_OPS_IMPL),
+    ops: zipOps("task_operation", { ...TASK_OPS_IMPL, ...DOCREQ_OPS_IMPL }),
     def: {
       name: "task_operation",
       description:
@@ -98,8 +104,14 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           reason: { type: "string", description: "refuse : motif du refus (facultatif)." },
           note: { type: "string", description: "submit_work : compte rendu du travail (facultatif)." },
           comment: { type: "string", description: "comment : le message à poster dans le fil." },
+          person: { type: "string", description: "request_document : à qui demander la pièce (nom)." },
+          label: { type: "string", description: "Demandes de pièces : la pièce visée (« Devis signé »…)." },
+          target: { type: "string", description: "request_document : l'entité de rattachement (nom d'événement / congrès / sponsoring) — OBLIGATOIRE." },
+          kind: { type: "string", description: "request_document : type de l'entité (événement | sponsoring | congrès international | congrès national)." },
+          dueDate: { type: "string", description: "request_document : échéance (AAAA-MM-JJ)." },
+          decision: { type: "string", description: "decide_document_request : accepter ou refuser." },
         },
-        required: ["op", "title"],
+        required: ["op"],
       },
     },
   },
@@ -223,7 +235,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   hr_operation: {
     module: "RH",
-    ops: zipOps("hr_operation", { ...HR_OPS_IMPL, ...HR2_OPS_IMPL }),
+    ops: zipOps("hr_operation", { ...HR_OPS_IMPL, ...HR2_OPS_IMPL, ...RECRUIT_TRAINING_OPS_IMPL }),
     def: {
       name: "hr_operation",
       description:
@@ -271,7 +283,20 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           date: { type: "string", description: "propose_hr_meeting : date proposée (AAAA-MM-JJ)." },
           time: { type: "string", description: "propose_hr_meeting : heure d'Alger (HH:MM, défaut 09:00)." },
           standIn: { type: "string", description: "propose_stand_in : l'intérimaire (nom) — « aucun » pour retirer." },
-          mode: { type: "string", description: "set_employee_document_visibility : « masquer » pour cacher (défaut : rendre visible)." },
+          mode: { type: "string", description: "set_employee_document_visibility : « masquer » ; invite_training_participants : « convoquer » (présence requise)." },
+          headcount: { type: "string", description: "create_recruitment : nombre de postes (défaut 1)." },
+          salaryMin: { type: "string", description: "create_recruitment : bas de fourchette DZD." },
+          salaryMax: { type: "string", description: "create_recruitment : haut de fourchette DZD." },
+          missions: { type: "string", description: "create_recruitment : missions du poste." },
+          skills: { type: "string", description: "create_recruitment : compétences attendues." },
+          candidate: { type: "string", description: "Candidat visé (nom) — move_recruitment_candidate." },
+          question: { type: "string", description: "ask_recruitment_info : la question au demandeur." },
+          answer: { type: "string", description: "answer_recruitment_info : la réponse." },
+          provider: { type: "string", description: "Formations : organisme / formateur." },
+          location: { type: "string", description: "Formations : lieu." },
+          description: { type: "string", description: "Formations : descriptif." },
+          people: { type: "string", description: "invite_training_participants : noms séparés par des virgules." },
+          newLabel: { type: "string", description: "update_training : nouvel intitulé." },
         },
         required: ["op"],
       },
@@ -306,7 +331,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   mail_operation: {
     module: "MAIL_REGISTER",
-    ops: zipOps("mail_operation", MAIL_OPS_IMPL),
+    ops: zipOps("mail_operation", { ...MAIL_OPS_IMPL, ...MAIL3_OPS_IMPL }),
     def: {
       name: "mail_operation",
       description:
@@ -327,6 +352,13 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           newLabel: { type: "string", description: "edit_entry : nouvel objet." },
           newReference: { type: "string", description: "edit_entry : nouveau n° de chrono." },
           notes: { type: "string", description: "Notes." },
+          kind: { type: "string", description: "set_date : « reçu le » ou « accusé de réception » ; partenaires : nature." },
+          date: { type: "string", description: "set_date : la date (AAAA-MM-JJ) — « aucune » pour l'effacer." },
+          parent: { type: "string", description: "create_folder : dossier parent (sous-dossier)." },
+          piece: { type: "string", description: "Pièces : libellé de la pièce visée (update/delete_piece)." },
+          contact: { type: "string", description: "Partenaires : personne à demander / contact." },
+          message: { type: "string", description: "set_signature : la signature (« mode » = retirer pour l'effacer)." },
+          mode: { type: "string", description: "update_partner : activer/désactiver ; set_signature : « retirer »." },
         },
         required: ["op"],
       },
@@ -334,7 +366,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   legal_operation: {
     module: "LEGAL",
-    ops: zipOps("legal_operation", LEGAL_OPS_IMPL),
+    ops: zipOps("legal_operation", { ...LEGAL_OPS_IMPL, ...LEGAL3_OPS_IMPL }),
     def: {
       name: "legal_operation",
       description:
@@ -352,6 +384,12 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           people: { type: "string", description: "set_readers : lecteurs, noms séparés par des virgules (liste REMPLACÉE)." },
           note: { type: "string", description: "cancel : motif de l'annulation." },
           notes: { type: "string", description: "renew : notes du nouveau document." },
+          name: { type: "string", description: "attach_drive : nom du fichier Drive à déclarer." },
+          kind: { type: "string", description: "attach_drive : type (contrat, bon de commande, assurance…)." },
+          counterparty: { type: "string", description: "attach_drive : contrepartie." },
+          folder: { type: "string", description: "Dossiers Legal : le dossier visé (« aucun » pour déclasser)." },
+          newName: { type: "string", description: "rename_folder : nouveau nom." },
+          parent: { type: "string", description: "create_folder : dossier parent." },
         },
         required: ["op"],
       },
@@ -400,7 +438,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   adpro_operation: {
     module: "SPONSORING",
-    ops: zipOps("adpro_operation", ADPRO_OPS_IMPL),
+    ops: zipOps("adpro_operation", { ...ADPRO_OPS_IMPL, ...MISSION_OPS_IMPL }),
     def: {
       name: "adpro_operation",
       description:
@@ -417,6 +455,37 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           amount: { type: "string", description: "decide_item : montant accordé en DZD (défaut : l'estimation)." },
           to: { type: "string", description: "transfer : module de destination (sponsoring / prise en charge nationale / internationale)." },
           note: { type: "string", description: "Motif / note (obligatoire pour refuser une étape promo)." },
+          target: { type: "string", description: "Missions : l'événement / congrès / sponsoring visé (nom ou référence)." },
+          kind: { type: "string", description: "Missions : type de la cible (événement | sponsoring | congrès international | congrès national)." },
+          person: { type: "string", description: "Missions : la personne assignée (nom)." },
+          role: { type: "string", description: "assign_mission : accompagnant (défaut) ou délégué de référence." },
+          message: { type: "string", description: "comment_mission : le message." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  medical_info_operation: {
+    module: "MEDICAL_INFO",
+    ops: zipOps("medical_info_operation", MEDINFO_OPS_IMPL),
+    def: {
+      name: "medical_info_operation",
+      description:
+        "INFORMATION MÉDICALE — déclarations aux autorités de santé : demander/annuler une pièce, consigner la référence de l'autorité, valider (pharmacien puis Direction), messages — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("medical_info_operation")}. `
+        + "La déclaration se donne par référence ou libellé.",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("medical_info_operation"), description: "Le geste à faire." },
+          reference: { type: "string", description: "Référence ou libellé de la déclaration visée." },
+          label: { type: "string", description: "Alias de reference." },
+          piece: { type: "string", description: "La pièce demandée (libellé)." },
+          person: { type: "string", description: "request_declaration_document : à qui demander (nom)." },
+          authorityRef: { type: "string", description: "record_authority_declaration : la référence donnée par l'autorité." },
+          message: { type: "string", description: "comment_declaration : le message." },
+          note: { type: "string", description: "Note / commentaire (validation Direction)." },
+          notes: { type: "string", description: "record_authority_declaration : notes de l'autorité." },
         },
         required: ["op"],
       },

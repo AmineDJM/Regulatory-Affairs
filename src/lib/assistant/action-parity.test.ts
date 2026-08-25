@@ -63,8 +63,8 @@ describe("ZERO-GAP — chaque action serveur de l'ERP est classée, aucun trou s
     const stats = parityStats();
     // Cliquet : combler un trou ABAISSE ce plafond ; en ouvrir un nouveau exige de le relever
     // ICI, consciemment, dans la même revue de code que la nouvelle action.
-    expect(stats.gap).toBeLessThanOrEqual(387);
-    expect(stats.native + stats.covered).toBeGreaterThanOrEqual(205);
+    expect(stats.gap).toBeLessThanOrEqual(318);
+    expect(stats.native + stats.covered).toBeGreaterThanOrEqual(265);
 
     console.info(`[UI_ACTION_PARITY] natives=${stats.native} couvertes=${stats.covered} trous=${stats.gap} exclues=${stats.excluded} — parité=${stats.parityPct}% (sur ${stats.total} actions classées)`);
   });
@@ -141,7 +141,8 @@ describe("ZERO-GAP — résolution d'intention vers l'action NATIVE (priorité a
     // Création de compte : couverte par le chemin INVITATION (jamais de mot de passe en chat).
     expect(ACTION_CLASSIFICATION["admin-actions:createUser"]).toEqual({ status: "NATIVE", via: "org_operation:create_account_invite" });
     // Une action NON couverte par le catalogue reste un GAP assumé — pas de sur-déclaration.
-    expect(ACTION_CLASSIFICATION["drive-space-actions:createDriveSpace"]?.status).toBe("GAP");
+    // (uploadDocument / importTransactions : attendent la phase « fichiers first-class ».)
+    expect(ACTION_CLASSIFICATION["document-actions:uploadDocument"]?.status).toBe("GAP");
     expect(ACTION_CLASSIFICATION["finance-actions:importTransactions"]?.status).toBe("GAP");
   });
 });
