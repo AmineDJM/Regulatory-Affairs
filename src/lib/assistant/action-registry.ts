@@ -670,7 +670,6 @@ G("caisse d'avance (allouer/dépenser/recharger)", [
   "petty-cash-actions:allotPettyCash", "petty-cash-actions:confirmPettyCashReceipt", "petty-cash-actions:closePettyCash",
   "petty-cash-actions:spendFromPettyCash", "petty-cash-actions:requestPettyCashTopUp",
   "petty-cash-actions:decidePettyCashTopUp", "petty-cash-actions:setPettyCashPlan",
-  "petty-cash-actions:runPettyCashRechargeReminders", "petty-cash-actions:nextRechargeFor",
 ]);
 G("ordres de dépense (règlement, facture, révision budgétaire, annulation)", [
   "expense-actions:settleExpenseOrder", "expense-actions:requestInvoice", "expense-actions:requestBudgetRevision",
@@ -681,7 +680,7 @@ G("demandes de paiement (création/pièces/décisions du circuit)", [
   "payment-request-actions:commentPaymentPiece", "payment-request-actions:reviewPaymentPiece",
   "payment-request-actions:addPaymentComment", "payment-request-actions:submitPaymentRequest",
   "payment-request-actions:decidePaymentRequest", "payment-request-actions:cancelPaymentRequest",
-  "payment-request-actions:askPaymentValidation", "payment-request-actions:paymentPeople",
+  "payment-request-actions:askPaymentValidation",
   "payment-centre-actions:respondToPaymentCentre",
 ]);
 G("paie RH (marquer payé, transfert budget)", ["payroll-hr-actions:markSalaryPaid", "payroll-hr-actions:unmarkSalaryPaid", "payroll-hr-actions:transferPayrollToBudget"]);
@@ -961,6 +960,12 @@ X("flux PUBLIC à jeton (inscription/pointage d'invités externes, hors session 
 ]);
 X("outillage de TEST interne de la plateforme (centre de tests), pas une action métier", [
   "test-center-actions:runTestCenter", "test-center-actions:resumeTestCleanup",
+]);
+X("helpers de LECTURE et tâches PLANIFIÉES internes (pas des gestes métier qu'on demande)", [
+  // paymentPeople = liste de choix d'un formulaire ; les rappels de rechargement tournent
+  // seuls au planificateur ; nextRechargeFor = affichage d'une échéance calculée.
+  "payment-request-actions:paymentPeople",
+  "petty-cash-actions:runPettyCashRechargeReminders", "petty-cash-actions:nextRechargeFor",
 ]);
 G("suppression par le CRÉATEUR de son propre courrier / document légal (proposable pour l'auteur)", [
   "admin-delete-actions:deleteOwnRecord",

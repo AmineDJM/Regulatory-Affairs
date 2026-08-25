@@ -38,7 +38,7 @@ const iso = (raw: string): string | null => {
 
 // ── Normalisations FR → énumérations du schéma (liste blanche, jamais du texte libre). ──
 
-const CATEGORY_FR: Record<string, string> = {
+export const CATEGORY_FR: Record<string, string> = {
   RECETTE: "Recette / vente", CCA: "Compte courant associé", PRET: "Emprunt reçu",
   REMBOURSEMENT: "Remboursement d'emprunt", SALAIRE: "Salaires", AVANCE: "Avance sur salaire",
   LOYER: "Loyer", VOYAGE: "Déplacements / missions", EVENEMENT: "Événementiel",
@@ -46,7 +46,7 @@ const CATEGORY_FR: Record<string, string> = {
   IMPOT: "Impôts & taxes", BANQUE: "Frais bancaires", AUTRE: "Autre",
 };
 
-function categoryOf(raw: string): string {
+export function categoryOf(raw: string): string {
   const up = raw.trim().toUpperCase();
   if (CATEGORY_FR[up]) return up;
   const k = raw.toLowerCase();
@@ -69,14 +69,14 @@ function categoryOf(raw: string): string {
 
 const IN_CATEGORIES = new Set(["RECETTE", "CCA", "PRET"]);
 
-function directionOf(raw: string, category: string): "IN" | "OUT" {
+export function directionOf(raw: string, category: string): "IN" | "OUT" {
   const k = raw.toLowerCase();
   if (/encaiss|recette|entr[ée]e|\bin\b/.test(k)) return "IN";
   if (/d[ée]caiss|d[ée]pense|sortie|\bout\b/.test(k)) return "OUT";
   return IN_CATEGORIES.has(category) ? "IN" : "OUT";
 }
 
-function methodOf(raw: string): string {
+export function methodOf(raw: string): string {
   const k = raw.toLowerCase();
   if (/esp[èe]ce|cash|liquide/.test(k)) return "CASH";
   if (/ch[èe]que/.test(k)) return "CHEQUE";
@@ -85,9 +85,9 @@ function methodOf(raw: string): string {
   return "BANK_TRANSFER";
 }
 
-const TX_STATUS_FR: Record<string, string> = { PENDING: "Prévu (à régler)", SETTLED: "Réalisé", CANCELLED: "Annulé" };
+export const TX_STATUS_FR: Record<string, string> = { PENDING: "Prévu (à régler)", SETTLED: "Réalisé", CANCELLED: "Annulé" };
 
-function txStatusOf(raw: string): "PENDING" | "SETTLED" | "CANCELLED" | null {
+export function txStatusOf(raw: string): "PENDING" | "SETTLED" | "CANCELLED" | null {
   const k = raw.toLowerCase();
   if (!k) return null;
   if (/pr[ée]vu|attente|r[ée]gler|pending|planifi/.test(k)) return "PENDING";

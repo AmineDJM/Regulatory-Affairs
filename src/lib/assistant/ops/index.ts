@@ -5,6 +5,8 @@ import type { OpImpl } from "./types";
 import { DRIVE_OPS_IMPL } from "./impl-drive";
 import { TASK_OPS_IMPL } from "./impl-task";
 import { FINANCE_OPS_IMPL } from "./impl-finance";
+import { FINANCE_BUDGET_OPS_IMPL } from "./impl-finance-budget";
+import { FINANCE_FLOWS_OPS_IMPL } from "./impl-finance-flows";
 import { REGULATORY_OPS_IMPL } from "./impl-regulatory";
 import { HR_OPS_IMPL } from "./impl-hr";
 import { MEETING_OPS_IMPL } from "./impl-meeting";
@@ -102,32 +104,71 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   finance_operation: {
     module: "FINANCES",
-    ops: zipOps("finance_operation", FINANCE_OPS_IMPL),
+    ops: zipOps("finance_operation", { ...FINANCE_OPS_IMPL, ...FINANCE_BUDGET_OPS_IMPL, ...FINANCE_FLOWS_OPS_IMPL }),
     def: {
       name: "finance_operation",
       description:
-        "ÉCRITURES FINANCES & BUDGETS — livre comptable, règlements d'ordres de dépense, factures, rallonges de caisse, budgets de département, par les actions canoniques (verrou du Centre de paiement et facture obligatoire INCLUS). "
+        "ÉCRITURES FINANCES & BUDGETS — livre comptable (créer/modifier/supprimer), ordres de dépense (régler, facture, révision), factures, DEMANDES DE PAIEMENT (dossier + pièces + décisions), caisses d'avance, enveloppes/catégories/imputations budgétaires, budgets de département et leurs accès, paie (bulletins, paie RH, transfert budget), Centre de paiement — par les actions canoniques (verrou du Centre de paiement, facture obligatoire et chaînes de validation INCLUS). "
         + `Champ « op » : ${opsSummary("finance_operation")}. `
-        + "Montants en DZD. Les cibles se donnent par référence (FIN-…, OD-…) ou libellé ; les rallonges/budgets par nom de département.",
+        + "Montants en DZD. Les cibles se donnent par référence (FIN-…, OD-…, PAY-…, n° de facture) ou libellé ; caisses et budgets par nom de département ; enveloppes/catégories/dépenses par nom ; la paie par nom d'employé + mois. Les UPDATES sont des FUSIONS : seuls les champs cités changent.",
       input_schema: {
         type: "object",
         properties: {
           op: { type: "string", enum: opEnum("finance_operation"), description: "Le geste à faire." },
           label: { type: "string", description: "Libellé (création) ou libellé/titre de la cible (résolution)." },
-          reference: { type: "string", description: "Référence exacte de la cible (FIN-…, OD-…, n° de facture)." },
+          reference: { type: "string", description: "Référence exacte de la cible (FIN-…, OD-…, PAY-…, n° de facture)." },
           amount: { type: "string", description: "Montant en DZD (ex. « 1500000 » ou « 1 500 000,50 »)." },
           direction: { type: "string", description: "create_transaction/create_invoice : encaissement/décaissement, reçue/émise." },
-          category: { type: "string", description: "create_transaction : catégorie (loyer, salaires, fournisseurs, impôts…)." },
+          category: { type: "string", description: "Catégorie : de l'écriture (loyer, salaires…) ou budgétaire par NOM (imputations, transfert de paie)." },
           status: { type: "string", description: "Statut visé (prévu / réalisé / annulé ; payée / impayée)." },
           method: { type: "string", description: "create_transaction : espèces, virement, chèque, carte." },
           counterparty: { type: "string", description: "Contrepartie / client / destinataire." },
           date: { type: "string", description: "Date (AAAA-MM-JJ)." },
           dueDate: { type: "string", description: "Échéance (AAAA-MM-JJ)." },
-          department: { type: "string", description: "decide_petty_topup / decide_department_budget : nom du département." },
-          decision: { type: "string", description: "Décisions : accorder/approuver ou refuser." },
-          account: { type: "string", description: "set_opening_balance : nom du compte de trésorerie." },
-          note: { type: "string", description: "Note / motif de décision." },
-          notes: { type: "string", description: "Notes libres de l'écriture." },
+          department: { type: "string", description: "Nom du département (caisse, budget départemental, accès ; « tous » = règle générale)." },
+          decision: { type: "string", description: "Décisions : accorder/approuver/ajuster ou refuser ; decide_payment_request : instruire | attente | reprendre | renvoyer | bon à payer | refuser." },
+          account: { type: "string", description: "Nom du compte de trésorerie (set_opening_balance, delete_treasury_account)." },
+          note: { type: "string", description: "Note / motif de décision (obligatoire pour attente, refus, pièces mises en cause)." },
+          notes: { type: "string", description: "Notes libres." },
+          name: { type: "string", description: "Nom de la cible budgétaire (enveloppe, catégorie) — création ou résolution." },
+          newName: { type: "string", description: "update_envelope / update_budget_category : nouveau nom." },
+          newLabel: { type: "string", description: "update_* : nouveau libellé/objet." },
+          newReference: { type: "string", description: "update_budget_expense : nouvelle référence." },
+          envelope: { type: "string", description: "Nom de l'enveloppe budgétaire visée." },
+          expense: { type: "string", description: "Dépense visée (référence imputée ou libellé départemental)." },
+          parent: { type: "string", description: "create_budget_category : catégorie parente (sous-catégorie)." },
+          transaction: { type: "string", description: "attribute_transaction / update_transaction : libellé ou référence de l'écriture." },
+          person: { type: "string", description: "set_department_budget_access : la personne à ajouter/retirer." },
+          nature: { type: "string", description: "set_department_budget_access : accès | moyens généraux | masse salariale | activité." },
+          mode: { type: "string", description: "set_department_budget_access : « retirer » pour enlever (défaut : ajouter) ; create_payment_request : « brouillon » pour ne pas transmettre." },
+          kind: { type: "string", description: "Nature du budget départemental : moyens généraux (OPERATING) | masse salariale (HR) | activité (ACTIVITY)." },
+          reason: { type: "string", description: "Motif (demande de budget, rallonge de caisse, révision d'ordre)." },
+          holder: { type: "string", description: "Caisse d'avance : la personne détentrice (nom)." },
+          period: { type: "string", description: "Caisse d'avance : la période (« 2026-08 », « août 2026 » ; défaut mois courant)." },
+          day: { type: "string", description: "set_petty_cash_plan : jour de rechargement (1–28)." },
+          active: { type: "string", description: "set_petty_cash_plan : « inactif » pour désactiver le rechargement." },
+          payee: { type: "string", description: "create_payment_request : bénéficiaire du paiement (à qui l'argent va)." },
+          recipient: { type: "string", description: "create_payment_request : interlocuteur Finances (nom, facultatif)." },
+          urgency: { type: "string", description: "create_payment_request : urgent | cette semaine | ce mois | quand possible." },
+          description: { type: "string", description: "create_payment_request : description du dossier." },
+          message: { type: "string", description: "Message (fil du dossier de paiement, réponse au Centre de paiement)." },
+          validator: { type: "string", description: "ask_payment_validation : le validateur (nom)." },
+          validator2: { type: "string", description: "ask_payment_validation : second validateur (facultatif)." },
+          pieces: { type: "string", description: "ask_payment_validation : pièces visées par NOM, séparées par des virgules (défaut : dossier complet)." },
+          piece: { type: "string", description: "comment/review_payment_piece : la pièce visée (nom du fichier)." },
+          verdict: { type: "string", description: "review_payment_piece : accepter | à revoir | refuser." },
+          employee: { type: "string", description: "Paie : nom de l'employé (registre de paie)." },
+          month: { type: "string", description: "Paie : mois (« août », « 8 »)." },
+          year: { type: "string", description: "Année (défaut : en cours)." },
+          gross: { type: "string", description: "Paie : salaire brut DZD." },
+          bonuses: { type: "string", description: "create_payroll : primes DZD." },
+          deductions: { type: "string", description: "create_payroll : retenues DZD." },
+          employerCost: { type: "string", description: "mark_salary_paid : coût employeur DZD (brut + charges patronales — c'est lui qui pèse sur le budget)." },
+          net: { type: "string", description: "mark_salary_paid : salaire net DZD (affiché au salarié)." },
+          invoiceRef: { type: "string", description: "update_transaction : référence de facture liée." },
+          number: { type: "string", description: "update_invoice : numéro de la facture." },
+          total: { type: "string", description: "set_budget_total : total annuel DZD (mode fixe)." },
+          module: { type: "string", description: "create_budget_category : module rattaché (facultatif)." },
         },
         required: ["op"],
       },
