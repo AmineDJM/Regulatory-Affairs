@@ -1,8 +1,11 @@
+import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createCompany, toggleCompany } from "@/lib/actions/company-actions";
 import { createDepartment, assignEmployeeDepartment, assignEmployeeManager } from "@/lib/actions/department-actions";
 import { createSupplier, toggleSupplier } from "@/lib/actions/supplier-actions";
 import { createCompanyContact } from "@/lib/actions/company-contact-actions";
+import { createAccountWithInvite, INVITE_TTL_HOURS } from "@/lib/user-invites";
+import { ROLE_LABELS } from "@/lib/labels";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 
@@ -52,7 +55,67 @@ async function resolveEmployeeByName(raw: string, label: string): Promise<{ id: 
   return { error: `Plusieurs employés correspondent à « ${q} » : ${rows.map((r) => r.fullName).join(", ")} — préciser.` };
 }
 
+/** Rôle depuis un code (« SUPER_ADMIN ») ou un libellé FR (« assistante de direction ») — jamais deviné. */
+function roleOf(raw: string): UserRole | null {
+  const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  const q = fold(raw);
+  if (!q) return null;
+  const byCode = Object.keys(ROLE_LABELS).find((code) => fold(code.replace(/_/g, " ")) === q || code.toLowerCase() === q.replace(/[\s-]+/g, "_"));
+  if (byCode) return byCode as UserRole;
+  const byLabel = Object.entries(ROLE_LABELS).filter(([, label]) => fold(label) === q || fold(label).includes(q));
+  if (byLabel.length === 1) return byLabel[0][0] as UserRole;
+  return null;
+}
+
 export const ORG_OPS_IMPL: Record<string, OpImpl> = {
+  create_account_invite: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const name = opStr(input, "name");
+      const email = opStr(input, "email").toLowerCase();
+      const roleRaw = opStr(input, "role");
+      if (!name) return { error: "Précisez le nom complet de la personne (champ « name »)." };
+      if (!email || !email.includes("@")) return { error: "Précisez l'e-mail du compte (champ « email »)." };
+      const role = roleOf(roleRaw);
+      if (!role) {
+        return { error: `Rôle « ${roleRaw || "(vide)"} » inconnu. Rôles possibles : ${Object.entries(ROLE_LABELS).map(([c, l]) => `${l} (${c})`).join(", ")}.` };
+      }
+      const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+      if (existing) return { error: `Un compte existe déjà avec l'e-mail ${email}.` };
+      return {
+        title: `Créer le compte de ${name} (lien d'invitation)`,
+        fields: [
+          { label: "Nom", value: name },
+          { label: "E-mail", value: email },
+          { label: "Rôle", value: `${ROLE_LABELS[role] ?? role} (${role})` },
+          ...(opStr(input, "title") ? [{ label: "Fonction", value: opStr(input, "title") }] : []),
+          { label: "Lien", value: `valable ${INVITE_TTL_HOURS} h, à usage unique` },
+        ],
+        warnings: [
+          "AUCUN mot de passe ne transite : la personne définit le sien en ouvrant le lien. Transmettez-lui le lien affiché sur le reçu (le compte est inconnectable avant).",
+        ],
+        args: { name, email, role, title: opStr(input, "title") || null },
+        successMessage: `Compte de ${name} créé — transmettre le lien d'invitation.`,
+        revalidate: ["/admin"],
+      };
+    },
+    async execute(args, user) {
+      const r = await createAccountWithInvite(
+        { name: args.name ?? "", email: args.email ?? "", role: (args.role ?? "VIEWER") as UserRole, title: args.title },
+        user.id,
+      );
+      if ("error" in r) return { ok: false, error: r.error };
+      return {
+        ok: true,
+        createdId: r.userId,
+        message:
+          `Compte créé. Lien d'invitation (valable ${INVITE_TTL_HOURS} h, usage unique) : ${r.path} — ` +
+          `à transmettre à la personne, qui définira elle-même son mot de passe.`,
+        link: r.path,
+        revalidate: ["/admin"],
+      };
+    },
+  },
+
   create_company: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const name = opStr(input, "name");

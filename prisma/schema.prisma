@@ -705,6 +705,23 @@ model AssistantMemory {
 /// SERVEUR unique : PROPOSED → CONFIRMED → EXECUTING → EXECUTED (ou FAILED / CANCELLED /
 /// EXPIRED). Ni l'UI ni le modèle n'inventent un statut : « est-ce que c'est envoyé ? » et
 /// « est-ce que je te l'avais déjà demandé ? » se répondent ICI, pas depuis le transcript.
+/// Invitation de compte : la personne définit SON mot de passe via un lien à usage unique —
+/// aucun mot de passe ne transite (ni conversation, ni administrateur). Compte inconnectable
+/// (hash aléatoire) tant que le lien n'est pas consommé.
+model UserInvite {
+  id          String    @id @default(cuid())
+  token       String    @unique
+  userId      String
+  user        User      @relation("UserInvites", fields: [userId], references: [id], onDelete: Cascade)
+  /// Qui a émis l'invitation (traçabilité) — simple id, l'audit porte le détail.
+  createdById String?
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+}
+
 model AssistantActionIntent {
   id      String @id @default(cuid())
   userId  String
@@ -1130,6 +1147,7 @@ model User {
   executiveCommitments  ExecutiveCommitment[]    @relation("ExecutiveCommitments")
   assistantArtifacts    AssistantArtifact[]      @relation("AssistantArtifacts")
   assistantActionIntents AssistantActionIntent[] @relation("AssistantActionIntents")
+  userInvites            UserInvite[]            @relation("UserInvites")
   adProItemDecisions    AdProItemDecision[]    @relation("AdProItemDecider")
   apiClients            ApiClient[]            @relation("ApiClientActAs")
   docRequestsAsked      DocumentRequest[]      @relation("DocRequestAsker")

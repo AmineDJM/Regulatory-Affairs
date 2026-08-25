@@ -525,6 +525,23 @@ export function nativeActionHint(question: string): string | null {
     + "message à la place d'un bouton métier qui existe. (Si l'intention réelle est différente, ignorer l'indice.)";
 }
 
+/**
+ * LES ACTIONS DISPONIBLES SUR L'ÉCRAN d'où la conversation démarre (« Appeler » depuis une
+ * fiche, entrée contextuelle) : le contexte d'écran (route + référence) se plie en tokens et
+ * matche les modules du registre — l'assistant sait D'EMBLÉE quels boutons natifs existent LÀ,
+ * au lieu de le découvrir (ou pas) par find_available_actions. Null sans correspondance :
+ * jamais de bruit. Borné (12) : le budget d'instructions vocales se paie en latence.
+ */
+export function screenActionsContext(user: CurrentUser, screen: string): string | null {
+  const matched = actionsForUser(user, screen);
+  if (matched.length === 0) return null;
+  const lines = matched.slice(0, 12).map((a) =>
+    `• ${a.uiLabel} → ${a.toolName}${a.toolOp ? ` (op « ${a.toolOp} »)` : ""}${a.risk !== "NORMAL" ? ` [${a.risk}]` : ""}`,
+  );
+  const more = matched.length > 12 ? `\n(+${matched.length - 12} autres — find_available_actions pour la liste complète)` : "";
+  return `ACTIONS NATIVES DISPONIBLES SUR CET ÉCRAN (priorité au natif — jamais une demande générique à la place d'un bouton qui existe ici) :\n${lines.join("\n")}${more}`;
+}
+
 /** Les actions natives OUVERTES à cette personne (pré-filtre écran ; l'exécution revérifie). */
 export function actionsForUser(user: CurrentUser, moduleQuery?: string): NativeAction[] {
   const all = ERP_ACTIONS.filter((a) => {
@@ -914,9 +931,12 @@ G("cockpit Adventum (autopilote, brain, seuils de risque) & maintenance profonde
 
 // ── EXCLUDED : pas un travail d'assistant — raison donnée, pas un oubli. ──
 const X = (note: string, keys: string[]) => classify("EXCLUDED", note, keys);
+// NB : `admin-actions:createUser` a quitté cette liste — le besoin « créer un compte » est
+// couvert par `org_operation:create_account_invite` (lien d'invitation : la personne définit
+// SON mot de passe ; rien ne transite par la conversation) via la reclassification catalogue.
 X("SÉCURITÉ : identifiants et sessions appartiennent à la personne au clavier — jamais à une conversation", [
   "auth-actions:authenticate", "auth-actions:doSignOut", "auth-actions:changePassword",
-  "access-actions:adminResetPassword", "admin-actions:createUser",
+  "access-actions:adminResetPassword",
   "impersonation-actions:startImpersonation", "impersonation-actions:stopImpersonation",
   "supplier-portal-actions:supplierLogin", "supplier-portal-actions:supplierLogout",
   "mail-actions:connectMailbox", "mail-actions:disconnectMailbox", "microsoft-mail-actions:disconnectMicrosoftMail",

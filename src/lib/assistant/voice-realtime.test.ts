@@ -189,4 +189,16 @@ suite("voix temps réel — instructions de session (même conversation, budget 
     const flooded = await buildVoiceInstructions(exec, null, "Z".repeat(50_000));
     expect(flooded.length - without.length).toBeLessThan(500);
   });
+
+  it("ACTIONS DE L'ÉCRAN — l'appel depuis une page expose ses boutons natifs (priorité au natif, jamais de bruit)", async () => {
+    const sa = userWith({}, "SUPER_ADMIN", ceoId);
+    // Depuis le suivi Regulatory : les ops natives du module sont ANNONCÉES d'emblée.
+    const inst = await buildVoiceInstructions(sa, null, "Écran : /regulatory — Suivi des dossiers");
+    expect(inst).toContain("ACTIONS NATIVES DISPONIBLES SUR CET ÉCRAN");
+    expect(inst).toContain("regulatory_operation");
+    expect(inst).toMatch(/priorité au natif/i);
+    // Un écran sans module reconnu → AUCUN bloc (pas de liste hors sujet qui pousse le modèle).
+    const none = await buildVoiceInstructions(sa, null, "page Q-99 hors modules");
+    expect(none).not.toContain("ACTIONS NATIVES DISPONIBLES");
+  });
 });

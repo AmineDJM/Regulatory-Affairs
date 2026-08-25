@@ -618,6 +618,28 @@ suite("ops de domaine & lots — goldens (fixtures partagées)", () => {
       if ("error" in p) return;
       expect(p.title).toContain("Désactiver");
     });
+
+    it("org create_account_invite : compte par LIEN d'invitation — JAMAIS de mot de passe en conversation", async () => {
+      const sa = userWith({}, "SUPER_ADMIN", ownerId, `${TAG} Karim`);
+      // Porte : réservé au Super Admin.
+      const refused = await buildProposal("org_operation", { op: "create_account_invite", name: "X", email: "x@t.dz", role: "VIEWER" }, clerk());
+      expect("error" in refused).toBe(true);
+      // Rôle inconnu → la liste des rôles possibles est DONNÉE, rien n'est deviné.
+      const badRole = await buildProposal("org_operation", { op: "create_account_invite", name: "X", email: `${TAG}new@t.dz`, role: "grand manitou" }, sa);
+      expect("error" in badRole && badRole.error).toMatch(/Rôles possibles/);
+      // E-mail déjà pris → refus dès la PROPOSITION (pas à l'exécution).
+      const karim = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } });
+      const dup = await buildProposal("org_operation", { op: "create_account_invite", name: "X", email: karim!.email, role: "VIEWER" }, sa);
+      expect("error" in dup && dup.error).toMatch(/existe déjà/);
+      // Proposition valide : la carte DIT qu'aucun mot de passe ne transite, le rôle est normalisé.
+      const ok = await buildProposal("org_operation", { op: "create_account_invite", name: `${TAG} Nawel`, email: `${TAG}nawel@t.dz`, role: "viewer" }, sa);
+      expect("error" in ok).toBe(false);
+      if ("error" in ok) return;
+      expect(ok.level).toBe("SENSITIVE");
+      expect(ok.warnings.join(" ")).toMatch(/AUCUN mot de passe/);
+      expect(ok.payload.kind === "domain_op" && ok.payload.args.role).toBe("VIEWER");
+      expect(JSON.stringify(ok.fields)).toMatch(/usage unique/);
+    });
   });
 
   describe("ops Ad & Pro / BD / Stocks", () => {

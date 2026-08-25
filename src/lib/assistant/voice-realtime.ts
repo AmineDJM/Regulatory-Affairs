@@ -5,6 +5,7 @@ import { POWER_TOOLS } from "@/lib/assistant/power-tools";
 import { personalContext, getThreadMessages, ensurePrimaryThread } from "@/lib/assistant-memory";
 import { conversationWorkingSet } from "@/lib/assistant/reasoning";
 import { recentActionIntentsContext } from "@/lib/assistant/action-intents";
+import { screenActionsContext } from "@/lib/assistant/action-registry";
 import { buildTurnDetection } from "@/lib/assistant/voice-tuning";
 
 /**
@@ -244,6 +245,10 @@ export async function buildVoiceInstructions(
     parts.push(
       `\nCONTEXTE D'ÉCRAN (au moment de l'appel) : ${screen}\n« ça », « ce dossier », « cette fiche » s'y réfèrent, sauf indication contraire.`,
     );
+    // Les BOUTONS NATIFS de cet écran, connus d'emblée : « valide-le », « relance »… se
+    // résolvent vers l'action canonique du module sans détour par une demande générique.
+    const available = screenActionsContext(user, screen);
+    if (available) parts.push(`\n${available}`);
   }
 
   parts.push(VOICE_ADDENDUM);

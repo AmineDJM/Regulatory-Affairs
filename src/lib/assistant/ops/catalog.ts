@@ -576,6 +576,21 @@ export const OPS_CATALOG: OpMeta[] = [
 
   // ─────────────────────── ADMINISTRATION STRUCTURELLE (org) ───────────────────────
   {
+    tool: "org_operation", op: "create_account_invite", module: "Administration",
+    uiLabel: "Créer un compte (lien d'invitation)",
+    aliases: [
+      "crée un compte pour", "crée un utilisateur", "nouveau compte", "ajoute un utilisateur",
+      "donne un accès à", "invite", "crée-lui un accès",
+    ],
+    risk: "SENSITIVE",
+    summary:
+      "Crée le compte et un LIEN d'invitation à usage unique (72 h) : la personne définit ELLE-MÊME son mot de passe. " +
+      "Aucun mot de passe ne transite jamais par la conversation.",
+    gate: isSA,
+    gateNote: "création de comptes",
+    covers: ["admin-actions:createUser"],
+  },
+  {
     tool: "org_operation", op: "create_company", module: "Administration → Entités",
     uiLabel: "Nouvelle entité",
     aliases: ["crée une entité", "nouvelle société du groupe", "ajoute l'entité"],
