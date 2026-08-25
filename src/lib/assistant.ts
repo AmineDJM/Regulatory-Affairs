@@ -43,6 +43,9 @@ import { updateRequestStatus, assignRequest, addRequestComment } from "@/lib/act
 import { createLegalDocument, updateLegalDocument } from "@/lib/actions/legal-actions";
 import { updateCalendarEvent, deleteCalendarEvent } from "@/lib/actions/calendar-actions";
 import { setRegulatoryResponsible, setRegulatoryStepState, setRegulatoryPresubOutcome } from "@/lib/actions/regulatory-actions";
+import { superAdminDelete } from "@/lib/actions/admin-delete-actions";
+import { DELETE_REGISTRY, DELETABLE_KINDS, isDeletableKind, type DeletableKind } from "@/lib/admin-delete-registry";
+import { resolveDeletableTarget } from "@/lib/assistant/delete-resolve";
 import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { isRegStepKey, isRegStepState, isRegPresubOutcome, REG_STEPS, PRESUB_ANSWER_STEP } from "@/lib/regulatory-workflow";
 import { createInstitution, updateInstitution } from "@/lib/actions/medical-actions";
@@ -138,6 +141,22 @@ export type AssistantActionPayload =
       value: string | number | boolean | string[];
       before: string;
       after: string;
+    }
+  | {
+      /**
+       * SUPPRESSION DÉFINITIVE d'un enregistrement (Super Admin) — exécutée par l'ACTION
+       * CANONIQUE du bouton rouge des fiches (`superAdminDelete`) : même porte (rôle revérifié
+       * côté action), même instantané déposé en corbeille (restaurable), même audit. Jamais un
+       * `prisma.delete` improvisé.
+       */
+      kind: "delete_record";
+      deleteKind: DeletableKind;
+      targetId: string;
+      /** Nom affiché de l'élément (le `describe` du registre), pour la carte et le reçu. */
+      name: string;
+      /** Libellé du type (« dossier réglementaire ») + liste de retour, copiés du registre. */
+      label: string;
+      redirect: string;
     }
   | {
       /**
@@ -443,6 +462,7 @@ export const ACTION_POLICY: Record<AssistantActionKind, { external: boolean; lev
   assign_regulatory_responsible: { external: true },
   set_regulatory_step: { external: true },
   update_platform_setting: { external: true, level: "SENSITIVE" },
+  delete_record: { external: true, level: "CRITICAL" },
   set_products_company: { external: true },
   create_task: { external: true },
   create_admin_request: { external: true },
@@ -742,6 +762,27 @@ const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
         value: { type: "string", description: "Nouvelle valeur (nombre, oui/non, ou liste séparée par des virgules)." },
       },
       required: ["key", "value"],
+    },
+  },
+  {
+    name: "delete_record",
+    description:
+      "RÉSERVÉ AU SUPER ADMIN : PROPOSE la SUPPRESSION DÉFINITIVE d'un enregistrement — LA MÊME "
+      + "suppression que le bouton rouge « Supprimer définitivement » des fiches : l'élément, ses pièces "
+      + "jointes et ses commentaires disparaissent de tous les écrans, un instantané est déposé dans la "
+      + "corbeille (Administration → Corbeille) d'où le Super Admin peut restaurer. N'exécute rien : "
+      + "confirmation FORTE requise (la référence est à ressaisir). Désigner l'élément par sa référence "
+      + "(ex. REG-2026-041), son nom/titre, ou son id interne (visible dans les liens). "
+      + "Types supprimables (kind) : "
+      + DELETABLE_KINDS.map((k) => `${k} = ${DELETE_REGISTRY[k].label}`).join(" ; ")
+      + ". Les types sans référence humaine (ex. HR_REQUEST) se donnent par id interne.",
+    input_schema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: [...DELETABLE_KINDS], description: "Type d'enregistrement à supprimer." },
+        reference: { type: "string", description: "Référence, nom/titre, ou id interne de l'élément." },
+      },
+      required: ["kind", "reference"],
     },
   },
 ];
@@ -1337,6 +1378,14 @@ MODULES MASQUÉS). Deux règles à ne jamais oublier :
   lis d'abord la valeur actuelle et propose la liste COMPLÈTE, ancienne + X ;
 - masquer un module le retire pour TOUT LE MONDE, menu et adresse comprises. Dis-le avant de le proposer.
 Ne dis JAMAIS « je ne peux pas modifier les paramètres » — ces outils existent.
+
+TU PEUX AUSSI PROPOSER LA SUPPRESSION DÉFINITIVE d'un enregistrement (delete_record) — le même
+pouvoir que le bouton rouge « Supprimer définitivement » des fiches : dossier réglementaire, employé,
+événement, courrier, document légal… (la liste exacte est dans l'outil). C'est une action CRITIQUE :
+la carte affiche l'élément, l'impact et la réversibilité (instantané en corbeille, restaurable), et la
+confirmation exige de RESSAISIR la référence. Ne dis JAMAIS « je ne peux pas supprimer » — tu PROPOSES,
+l'utilisateur confirme. Désigne l'élément par sa référence exacte ; en cas d'homonymes, l'outil te
+listera les candidats.
 ` : ""}
 CONTEXTE :
 ${buildContext(user)}${powers}
@@ -2817,6 +2866,57 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  if (toolName === "delete_record") {
+    // LA MÊME PORTE QUE L'ÉCRAN : le bouton « Supprimer définitivement » n'existe que pour le
+    // Super Admin — le refus est dit à la proposition, et `superAdminDelete` re-refusera de
+    // toute façon à l'exécution.
+    if (user.role !== "SUPER_ADMIN") {
+      return { error: "La suppression définitive est réservée au Super Admin — la même règle que le bouton rouge des fiches." };
+    }
+    const rawKind = asStr(input, "kind");
+    if (!isDeletableKind(rawKind)) {
+      return { error: `Type « ${rawKind} » non supprimable. Types possibles : ${DELETABLE_KINDS.join(", ")}.` };
+    }
+    const query = asStr(input, "reference");
+    if (!query) return { error: "Précisez la référence, le nom ou l'id de l'élément à supprimer." };
+
+    const spec = DELETE_REGISTRY[rawKind];
+    const target = await resolveDeletableTarget(rawKind, query);
+    if (target.status === "none") {
+      return { error: `Aucun élément « ${spec.label} » trouvé pour « ${query} ». Vérifier la référence (ou donner l'id interne visible dans le lien de la fiche).` };
+    }
+    if (target.status === "ambiguous") {
+      return { error: `Plusieurs éléments « ${spec.label} » correspondent à « ${query} » : ${target.candidates.map((c) => c.name).join(" ; ")} — donner la référence exacte.` };
+    }
+
+    // La référence à RESSAISIR pour armer la confirmation : la partie référence du nom affiché
+    // (« REG-2026-041 — FOSFOMYCINE » → « REG-2026-041 »), ou le nom entier s'il n'y en a pas.
+    const confirmText = target.name.includes(" — ") ? target.name.split(" — ")[0] : target.name;
+    return {
+      kind: "delete_record",
+      module: "ADMIN",
+      level: "CRITICAL",
+      confirmText,
+      title: `SUPPRIMER définitivement « ${target.name} »`,
+      fields: [
+        { label: "Élément", value: target.name },
+        { label: "Type", value: `${spec.label} (module ${spec.module})` },
+        { label: "Impact", value: "L'élément, ses pièces jointes et ses commentaires disparaissent de tous les écrans." },
+      ],
+      warnings: [
+        `NIVEAU CRITIQUE : même suppression que le bouton rouge de la fiche — la confirmation exige de RESSAISIR « ${confirmText} ».`,
+        "Un instantané est déposé dans la corbeille (Administration → Corbeille) : le Super Admin peut restaurer l'élément, ses pièces jointes et ses commentaires.",
+        "Les lignes liées supprimées en cascade (enfants du schéma) ne sont PAS restaurables.",
+        ...warnings,
+      ],
+      payload: {
+        kind: "delete_record",
+        deleteKind: rawKind, targetId: target.id, name: target.name,
+        label: spec.label, redirect: spec.redirect,
+      },
+    };
+  }
+
   return { error: `Action non prise en charge : ${toolName}.` };
 }
 
@@ -3436,6 +3536,24 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
       // Un réglage touche la plateforme entière (menu compris quand il s'agit des modules
       // masqués) : on rafraîchit la mise en page, pas une page.
       revalidate: ["/", "/admin/settings"],
+    };
+  }
+
+  if (payload?.kind === "delete_record") {
+    // RÉUTILISATION DE L'ACTION CANONIQUE du bouton « Supprimer définitivement » : même porte
+    // (rôle revérifié dans l'action), même instantané en corbeille, même audit, même nettoyage
+    // des Documents/Commentaires polymorphes — jamais un `prisma.delete` improvisé.
+    if (user.role !== "SUPER_ADMIN") return { ok: false, error: "La suppression définitive est réservée au Super Admin." };
+    const fd = new FormData();
+    fd.set("kind", payload.deleteKind);
+    fd.set("id", payload.targetId);
+    const r = await superAdminDelete(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La suppression a été refusée." };
+    return {
+      ok: true,
+      message: `« ${payload.name} » (${payload.label}) supprimé — restaurable depuis la corbeille (Administration → Corbeille).`,
+      link: "/admin/corbeille",
+      revalidate: [payload.redirect, "/admin/corbeille"],
     };
   }
 

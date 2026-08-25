@@ -556,8 +556,18 @@ primitive GÉNÉRALE (aucun exemple codé en dur — §42) + un test golden.
    Super Admin, même audit, même notification) et `set_regulatory_step` (statut d'étape ANPP /
    avis de présoumission via `setRegulatoryStepState`/`setRegulatoryPresubOutcome`) — en
    PROPOSITION → CONFIRMATION → EXÉCUTION, jamais une deuxième logique métier.
-   AUDIT HONNÊTE : l'UI ne sait PAS supprimer un dossier Regulatory — la parité n'exige donc
-   aucun outil de suppression (aucun DELETE improvisé n'existe).
+   SUPPRESSION : le premier audit avait affirmé « l'UI ne supprime pas de dossier Regulatory » —
+   FAUX (l'utilisateur l'a prouvé par capture d'écran) : le bouton « Supprimer définitivement »
+   vit dans le composant PARTAGÉ `SuperAdminDeleteButton` (`components/shared/super-admin-delete.tsx`),
+   pas dans les pages Regulatory, d'où le grep raté. Corrigé par `delete_record` : le REGISTRE des
+   25 types supprimables est extrait en module PARTAGÉ (`lib/admin-delete-registry.ts` — une seule
+   source de vérité pour l'écran ET le Chief, avec `searchFields` par type), la cible se résout par
+   référence/nom/id sans fusion muette (`lib/assistant/delete-resolve.ts` — exact/unique/ambigu),
+   la proposition est CRITIQUE (référence à RESSAISIR, exclue du « Tout confirmer », carte disant
+   l'impact ET la réversibilité), et l'exécution passe par l'action canonique `superAdminDelete`
+   (même porte Super Admin revérifiée, même instantané en corbeille restaurable, même audit) —
+   aucun `prisma.delete` improvisé. La parité est un PLANCHER, pas un plafond : l'écran exige de
+   naviguer jusqu'à la fiche, le Chief résout « supprime REG-2026-041 » directement.
    « Demande à X de faire Y » = CRÉER UNE TÂCHE par défaut (règle métier texte + voix) ;
    « envoie-lui un message » explicite = message.
 

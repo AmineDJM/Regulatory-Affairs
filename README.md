@@ -1253,18 +1253,25 @@ pas.
 
 ### Corbeille des suppressions définitives (réversible, Super Admin)
 
-- `superAdminDelete` (bouton « Supprimer définitivement », ~23 types d'objets) ne détruit plus : il dépose un
+- `superAdminDelete` (bouton « Supprimer définitivement », 25 types d'objets) ne détruit plus : il dépose un
   **instantané** dans `DeletedRecord` (ligne principale complète en JSON + pièces jointes + commentaires — les
   **fichiers restent** dans le stockage) puis supprime. **Administration → Corbeille** (`/admin/corbeille`) :
   **Restaurer** (recrée à l'identique — mêmes id/référence — + pièces + commentaires) ou **Détruire** (destruction
   réelle : fichiers effacés, audio de rapport terrain libéré). ⚠ Les **enfants supprimés en cascade** (ex. congés
   d'un employé) ne sont **pas** restaurés — indiqué dans l'UI.
-- **Registre** : `REGISTRY` dans `src/lib/actions/admin-delete-actions.ts` — chaque kind déclare `label`, `module`,
+- **Registre** : `DELETE_REGISTRY` dans `src/lib/admin-delete-registry.ts` (module PARTAGÉ, hors `"use server"`,
+  consommé par `admin-delete-actions.ts` ET par l'assistant) — chaque kind déclare `label`, `module`,
   `redirect`, `entityType` (nettoyage Documents/Comments polymorphes), **`model`** (délégué Prisma pour
-  snapshot/restauration génériques), `describe`, `remove`. **Ajout d'un type supprimable = 1 entrée** dans ce
-  registre + un `SuperAdminDeleteButton` sur la page. Types notables : `HR_REQUEST` (la demande seule — jamais
+  snapshot/restauration génériques), `describe`, `remove`, et **`searchFields`** (champs texte sur lesquels le
+  Chief of Staff résout une référence humaine). **Ajout d'un type supprimable = 1 entrée** dans ce
+  registre + un `SuperAdminDeleteButton` sur la page — l'outil `delete_record` de l'assistant le couvre alors
+  automatiquement. Types notables : `HR_REQUEST` (la demande seule — jamais
   l'employé, bug corrigé), `VALIDATION_REQUEST`, `EMPLOYEE` (libellé « Supprimer la fiche employé » + avertissement
   rouge sur le périmètre).
+- **Assistant (Chief of Staff)** : outil `delete_record` (Super Admin uniquement) — propose LA MÊME suppression
+  (carte CRITIQUE : référence à ressaisir, impact + réversibilité affichés, exclue du « Tout confirmer »),
+  résout la cible par référence/nom/id (`lib/assistant/delete-resolve.ts` — jamais de choix silencieux entre
+  homonymes) et exécute via `superAdminDelete` (mêmes porte, corbeille, audit).
 - **UI** : `src/app/(app)/admin/corbeille/{page,trash-list}.tsx`, composant bouton
   `src/components/shared/super-admin-delete.tsx` (prop `warning`).
 
@@ -2525,7 +2532,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **RH — contrats : visibilité et miroir Drive** | Module PUR `lib/hr/document-visibility.ts` (`defaultVisibleToEmployee`, `resolveVisibility`, `shouldMirrorToDrive`) + tests ; `lib/hr-drive-mirror.ts` écrit dans une **catégorie de Drive** « RH — Contrats » ouverte aux seuls rôles RH (`rolesWithModule("RH")`), plus dans un Drive personnel. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
-| **Transverse** | `lib/archive.ts` (Dossier traité), `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
+| **Transverse** | `lib/archive.ts` (Dossier traité), `lib/admin-delete-registry.ts` (registre partagé des 25 types supprimables) + `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
 | **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès + `effectiveSpaceId`/`canCreateInSpace`), `lib/drive/explorer.ts` (pur : type lisible, taille, tri, volet), `lib/drive/search.ts` (**pur** : repli des accents, pertinence, chemin lisible — 29 tests) + `lib/queries/drive-search.ts` (périmètre étendu aux sous-arbres visibles, deux passes) + `app/(app)/drive/drive-search.tsx`, `lib/drive/{mirror,mirror-path,document-mirror}.ts` (miroir Drive de tout import), `lib/storage.ts` (Documents + `validateDocumentUpload`), `lib/documents.ts` (`persistUploadedDocument`), `lib/attach-files.ts`, `lib/actions/drive-actions.ts` + `document-actions.ts`, `app/api/drive/upload/route.ts` (quotas) + `app/api/documents/upload/route.ts` (lot/dossier, flux, parallèle), `app/(app)/drive/{drive-table,drive-canvas,explorer-nav,wide-toggle}.tsx`, `components/documents/`. |
 | **Catégories Drive (espaces partagés)** | Modèle `DriveSpace` + `DriveNode.spaceId` ; RBAC `canCreateDriveSpace`/`canViewDriveSpace`/`canManageDriveSpace` (`lib/rbac.ts`, accès implicite module Drive dans `getAccess`) ; `lib/queries/drive.ts` (`getDriveSpacesForUser`, `getDriveTabs`, `getDriveListing(…, spaceId)`) ; `lib/actions/drive-space-actions.ts` (créer/modifier/archiver/supprimer) ; page `app/(app)/drive/espace/[id]/` + `drive-space-manager.tsx` ; réglage `AppSetting.driveSpaceCreatorRoles` (`DriveSpaceCreatorForm` en Administration). Les catégories sont des **Emplacements du volet de navigation** (`ExplorerNav`), plus des onglets — `getDriveTabs` ne sert plus qu'à la page Documents. |
 | **Admin** | `app/(app)/admin/` (`page.tsx` comptes + stockage + activité, `corbeille/`, `drive-storage-settings.tsx`, `access/`, `settings/`…), `lib/actions/admin-actions.ts`, `settings-actions.ts`. |
@@ -3126,8 +3133,13 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   (récursif borné, déposants réels par version, BC STRICTS ≠ assimilés ≠ non-classés).
   **CRUD autorisé** : confier un dossier (action canonique `setRegulatoryResponsible` — même
   porte Super Admin, même audit, même notification) et étapes ANPP / avis de présoumission en
-  proposition → confirmation → exécution ; audit honnête : l'UI ne supprime pas de dossier
-  Regulatory, donc pas d'outil delete ; « demande à X de faire Y » = TÂCHE par défaut.
+  proposition → confirmation → exécution ; **suppression définitive** (`delete_record`, Super
+  Admin) : le premier audit disait « pas de delete dans l'UI » — faux, le bouton rouge vit dans
+  le composant partagé `SuperAdminDeleteButton` ; corrigé en extrayant le registre des 25 types
+  supprimables en module partagé (`lib/admin-delete-registry.ts`) et en proposant la MÊME
+  suppression via l'action canonique `superAdminDelete` (corbeille restaurable, audit) — carte
+  CRITIQUE avec référence à ressaisir, résolution par référence/nom sans fusion muette
+  (`delete-resolve.ts`) ; « demande à X de faire Y » = TÂCHE par défaut.
   **Livrables téléchargeables EN CONVERSATION** (`telechargement: /api/drive/…/raw`, ACL
   Drive), liens internes CLIQUABLES dans le chat (`LinkifiedText`), export Regulatory à
   17 colonnes avec cellules numériques et VRAIES dates Excel. **Sémantique Drive** en repli
@@ -3136,7 +3148,7 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
   conservation » retrouve un « shelf life » — confiance « SENS », couverture honnête ;
   migration `20260825200000_drive_semantic`. Banc Recall@5 sur fixtures : lexical 1/3 →
   hybride 3/3 (mécanisme prouvé ; recall production avec vrais vecteurs : NOT YET MEASURED).
-  Tests : `regulatory-read` (7), `regulatory-write` (7), `entity-normalize` (10),
+  Tests : `regulatory-read` (7), `regulatory-write` (11 — dont la suppression CRITIQUE), `entity-normalize` (10),
   `investigation` (5), `semantic-drive` (3), planner dans `reasoning` (15 au total),
   invariants `regulatory-workflow` (17), `deliverables` (+2). Doc : section « WORLD-CLASS
   EXECUTIVE AI » de `docs/CHIEF_OF_STAFF_ARCHITECTURE.md` (root causes avant/après + limites).
