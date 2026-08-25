@@ -23,7 +23,8 @@
     "graphify:report": "cat graphify-out/GRAPH_REPORT.md",
     "graphify:query": "bash scripts/graphify-query.sh",
     "autotest": "tsx scripts/auto-test/run.ts",
-    "autotest:live": "tsx scripts/auto-test/run.ts --live"
+    "autotest:live": "tsx scripts/auto-test/run.ts --live",
+    "test:e2e": "playwright test"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"
@@ -65,6 +66,7 @@
     "zod": "3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/bcryptjs": "2.4.6",
     "@types/mailparser": "^3.4.6",
     "@types/node": "20.16.10",

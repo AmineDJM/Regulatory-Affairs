@@ -6,6 +6,7 @@ import { aiConfigured, sttConfigured, aiModel } from "@/lib/ai";
 import { realtimeVoiceConfigured, REALTIME_VOICE_MODEL } from "@/lib/assistant/voice-realtime";
 import { getLatestAiHealth } from "@/lib/ai-health";
 import { getAiSettings } from "@/lib/ai-settings";
+import { parityStats } from "@/lib/assistant/action-registry";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { ADMIN_TABS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,6 +44,30 @@ export default async function AiControlCenterPage() {
     prisma.aiUsageLog.findMany({ where: { ok: false, createdAt: { gte: since30 } }, orderBy: { createdAt: "desc" }, take: 8 }),
   ]);
 
+  // LATENCES RÉELLES : p50/p95 par fonction (30 j) — la moyenne cache les queues, les
+  // percentiles les montrent. Calculées EN BASE (percentile_cont), jamais en mémoire.
+  const percentiles = await prisma.$queryRaw<{ feature: string; p50: number | null; p95: number | null }[]>`
+    SELECT "feature",
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY "latencyMs") AS "p50",
+           percentile_cont(0.95) WITHIN GROUP (ORDER BY "latencyMs") AS "p95"
+    FROM "AiUsageLog"
+    WHERE "createdAt" >= ${since30} AND "latencyMs" IS NOT NULL
+    GROUP BY "feature"
+  `.catch(() => [] as { feature: string; p50: number | null; p95: number | null }[]);
+  const pMap = new Map(percentiles.map((r) => [r.feature, { p50: r.p50 ? Math.round(Number(r.p50)) : null, p95: r.p95 ? Math.round(Number(r.p95)) : null }]));
+
+  // L'ÉTAT DES ACTIONS (7 j) : intentions proposées / exécutées / échouées / annulées —
+  // la machine d'état canonique vue d'en haut.
+  const intentCounts = await prisma.assistantActionIntent.groupBy({
+    by: ["status"],
+    where: { proposedAt: { gte: since7 } },
+    _count: { _all: true },
+  }).catch(() => [] as { status: string; _count: { _all: number } }[]);
+  const intentOf = (s: string) => intentCounts.find((r) => r.status === s)?._count._all ?? 0;
+
+  // LA PARITÉ UI ↔ CHIEF — la métrique du registre ZERO-GAP (calcul pur, aucun appel IA).
+  const parity = parityStats();
+
   const okMap = new Map(okByFeature.map((r) => [r.feature, r._count._all]));
   const features = byFeature
     .map((r) => ({
@@ -51,6 +76,8 @@ export default async function AiControlCenterPage() {
       total: r._count._all,
       ok: okMap.get(r.feature) ?? 0,
       avgMs: r._avg.latencyMs ? Math.round(r._avg.latencyMs) : null,
+      p50: pMap.get(r.feature)?.p50 ?? null,
+      p95: pMap.get(r.feature)?.p95 ?? null,
     }))
     .sort((a, b) => b.total - a.total);
 
@@ -160,6 +187,44 @@ export default async function AiControlCenterPage() {
         <Stat label="Taux de succès (30 j)" value={successRate === null ? "—" : `${successRate}%`} icon={<CheckCircle2 className="h-4 w-4" />} />
       </div>
 
+      {/* PARITÉ UI ↔ CHIEF — la métrique du registre ZERO-GAP : combien de boutons métier de
+          l'ERP le Chief sait faire nativement. Calcul PUR (registre versionné), zéro appel IA ;
+          le cliquet CI (action-parity.test) empêche tout recul silencieux. */}
+      <Card>
+        <CardHeader><CardTitle>Parité UI ↔ Chief of Staff</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div><p className="text-2xl font-semibold">{parity.parityPct}%</p><p className="text-xs text-muted-foreground">parité (couvert / pertinent)</p></div>
+            <div><p className="text-2xl font-semibold">{parity.native + parity.covered}</p><p className="text-xs text-muted-foreground">actions couvertes</p></div>
+            <div><p className="text-2xl font-semibold">{parity.gap}</p><p className="text-xs text-muted-foreground">trous assumés</p></div>
+            <div><p className="text-2xl font-semibold">{parity.excluded}</p><p className="text-xs text-muted-foreground">exclues (sécurité/technique)</p></div>
+            <div><p className="text-2xl font-semibold">{parity.total}</p><p className="text-xs text-muted-foreground">actions classées</p></div>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Chaque action serveur de l'ERP est classée (native / couverte / trou assumé / exclue) dans un registre versionné ;
+            un test CI (cliquet) refuse qu'un trou s'ouvre en silence.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* ACTIONS DU CHIEF (7 j) — la machine d'état canonique vue d'en haut : proposé n'est pas
+          exécuté, et chaque exécution a son reçu. */}
+      <Card>
+        <CardHeader><CardTitle>Actions du Chief (7 jours)</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div><p className="text-2xl font-semibold">{intentOf("PROPOSED")}</p><p className="text-xs text-muted-foreground">proposées (en attente)</p></div>
+            <div><p className="text-2xl font-semibold">{intentOf("EXECUTED")}</p><p className="text-xs text-muted-foreground">exécutées (avec reçu)</p></div>
+            <div><p className="text-2xl font-semibold">{intentOf("FAILED")}</p><p className="text-xs text-muted-foreground">échouées</p></div>
+            <div><p className="text-2xl font-semibold">{intentOf("CANCELLED")}</p><p className="text-xs text-muted-foreground">annulées</p></div>
+            <div><p className="text-2xl font-semibold">{intentOf("EXPIRED")}</p><p className="text-xs text-muted-foreground">expirées</p></div>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            États canoniques serveur (AssistantActionIntent) : une action PROPOSÉE n'a jamais été exécutée ; seule EXÉCUTÉE vaut envoi réel.
+          </p>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader><CardTitle>Usage par fonction (30 jours)</CardTitle></CardHeader>
         <CardContent>
@@ -176,7 +241,7 @@ export default async function AiControlCenterPage() {
                       <div className={rate >= 90 ? "h-full bg-success" : rate >= 60 ? "h-full bg-warning" : "h-full bg-destructive"} style={{ width: `${rate}%` }} />
                     </div>
                     <span className="w-32 shrink-0 text-right text-muted-foreground">
-                      {formatNumber(f.total)} appels · {rate}%{f.avgMs ? ` · ${f.avgMs}ms` : ""}
+                      {formatNumber(f.total)} appels · {rate}%{f.p50 ? ` · p50 ${f.p50}ms` : f.avgMs ? ` · ${f.avgMs}ms` : ""}{f.p95 ? ` · p95 ${f.p95}ms` : ""}
                     </span>
                   </div>
                 );

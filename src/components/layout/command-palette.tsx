@@ -58,10 +58,26 @@ export function CommandPalette({ navItems }: { navItems: NavItem[] }) {
     return items.slice(0, q ? 5 : 12);
   }, [query, navItems]);
 
+  // « DEMANDER AU CHIEF OF STAFF » : la palette route la QUESTION telle quelle vers /chief-of-staff
+  // (pré-remplie, jamais envoyée seule). Visible seulement si le module est ouvert à cette personne
+  // (présent dans SA navigation) — la palette n'accorde rien.
+  const chiefNav = React.useMemo(() => navItems.find((n) => n.href === "/chief-of-staff") ?? null, [navItems]);
+  const askChief: Item | null = React.useMemo(() => {
+    const q = query.trim();
+    if (!chiefNav || q.length < 3) return null;
+    return {
+      kind: "nav" as const,
+      label: `Demander au Chief of Staff : « ${q.slice(0, 80)} »`,
+      href: `/chief-of-staff?q=${encodeURIComponent(q.slice(0, 400))}`,
+      icon: chiefNav.icon,
+    };
+  }, [chiefNav, query]);
+
   const items: Item[] = React.useMemo(() => [
+    ...(askChief ? [askChief] : []),
     ...navMatches.map((n) => ({ kind: "nav" as const, label: n.label, href: n.href, icon: n.icon })),
     ...results.map((r) => ({ kind: "result" as const, ...r })),
-  ], [navMatches, results]);
+  ], [askChief, navMatches, results]);
 
   function go(item: Item) {
     setOpen(false);
