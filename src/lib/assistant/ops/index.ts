@@ -18,6 +18,7 @@ import { LEGAL_OPS_IMPL } from "./impl-legal";
 import { ORG_OPS_IMPL } from "./impl-org";
 import { ADPRO_OPS_IMPL, BD_OPS_IMPL, STOCK_OPS_IMPL } from "./impl-commercial";
 import { REG4_OPS_IMPL, PCH_OPS_IMPL, STOCK4_OPS_IMPL, SALES_OPS_IMPL, LOGISTICS_OPS_IMPL } from "./impl-wave4";
+import { MEDICAL_OPS_IMPL, RANGE_OPS_IMPL, BD4_OPS_IMPL } from "./impl-wave4b";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -402,7 +403,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   org_operation: {
     module: "ADMIN",
-    ops: zipOps("org_operation", { ...ORG_OPS_IMPL, ...ACCESS_OPS_IMPL }),
+    ops: zipOps("org_operation", { ...ORG_OPS_IMPL, ...ACCESS_OPS_IMPL, ...RANGE_OPS_IMPL }),
     def: {
       name: "org_operation",
       description:
@@ -433,9 +434,12 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           give: { type: "string", description: "set_module_access : droits à DONNER (CREATE, UPDATE, DELETE, VALIDATE, EXPORT, UPLOAD — séparés par des virgules)." },
           take: { type: "string", description: "set_module_access : droits à RETIRER (mêmes valeurs)." },
           scope: { type: "string", description: "set_module_access : portée « tout » ou « assigné »." },
-          newName: { type: "string", description: "update_user_profile : nouveau nom du compte." },
+          newName: { type: "string", description: "update_user_profile / update_range : nouveau nom." },
           title: { type: "string", description: "update_user_profile : fonction affichée." },
           region: { type: "string", description: "update_user_profile : région." },
+          range: { type: "string", description: "Gammes : la gamme visée (create/update/delete_range, set_products_range, set_user_ranges — plusieurs séparées par des virgules ; « aucune » détache/sort)." },
+          products: { type: "string", description: "set_products_range / remove_product_from_range : produits (références REG-… ou DCI, virgules)." },
+          color: { type: "string", description: "Gammes : couleur." },
         },
         required: ["op"],
       },
@@ -498,22 +502,86 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   bd_operation: {
     module: "BUSINESS_DEVELOPMENT",
-    ops: zipOps("bd_operation", BD_OPS_IMPL),
+    ops: zipOps("bd_operation", { ...BD_OPS_IMPL, ...BD4_OPS_IMPL }),
     def: {
       name: "bd_operation",
       description:
-        "PIPELINE BUSINESS DEVELOPMENT — créer une opportunité et faire avancer son stade (idée → recherche → contacté → NDA → offre reçue → négociation → validée / abandonnée), par les actions canoniques. "
-        + `Champ « op » : ${opsSummary("bd_operation")}.`,
+        "BUSINESS DEVELOPMENT — pipeline d'opportunités (stades idée → validée / abandonnée) ET études de marché : lignes-molécules, acteurs, pré-remplissage depuis l'intelligence marché, présentations IA versionnées — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("bd_operation")}. `
+        + "L'étude se donne par TITRE (« research »), la ligne par sa molécule (« row »), l'acteur par son nom (« player »).",
       input_schema: {
         type: "object",
         properties: {
           op: { type: "string", enum: opEnum("bd_operation"), description: "Le geste à faire." },
-          name: { type: "string", description: "Nom de l'opportunité (création ou cible)." },
-          status: { type: "string", description: "update_status : le stade visé." },
+          name: { type: "string", description: "Pipeline : nom de l'opportunité (création ou cible)." },
+          status: { type: "string", description: "update_status : le stade ; update_research : brouillon / finale." },
           dci: { type: "string", description: "create : DCI du produit." },
-          therapeuticClass: { type: "string", description: "create : classe thérapeutique." },
+          therapeuticClass: { type: "string", description: "create / update_research_row : classe thérapeutique." },
+          research: { type: "string", description: "Études : le TITRE de l'étude visée (ou à créer)." },
+          row: { type: "string", description: "Études : la ligne visée (molécule / produit)." },
+          player: { type: "string", description: "Études : l'acteur visé (laboratoire)." },
+          molecules: { type: "string", description: "create_research : molécules initiales, séparées par des virgules." },
+          people: { type: "string", description: "set_research_participants : noms, virgules (liste REMPLACÉE ; « aucun » vide)." },
+          newName: { type: "string", description: "Nouveau titre / nom (étude, ligne, acteur, présentation)." },
+          quantity: { type: "string", description: "update_research_row : volume marché (unités)." },
+          amount: { type: "string", description: "update_research_row : valeur marché USD ; update_research_player : part de marché." },
+          price: { type: "string", description: "update_research_row : prix moyen par boîte (USD)." },
+          mode: { type: "string", description: "update_research_player : importation ou fabrication locale." },
+          presentation: { type: "string", description: "Présentations : le titre visé (ou à donner à la nouvelle)." },
+          notes: { type: "string", description: "Notes / consigne IA (generate/regenerate_presentation : l'instruction)." },
+          sources: { type: "string", description: "update_research : sources de l'étude." },
         },
-        required: ["op", "name"],
+        required: ["op"],
+      },
+    },
+  },
+  medical_operation: {
+    module: "MEDICAL",
+    ops: zipOps("medical_operation", MEDICAL_OPS_IMPL),
+    def: {
+      name: "medical_operation",
+      description:
+        "ANNUAIRE MÉDICAL — praticiens (fiche complète ou cellule de la feuille, suppressions bornées par la portée), visites (planification et compte rendu champ-par-champ), établissements, spécialités, annuaires nommés (rangement + accès désignés), plans de tournée — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("medical_operation")}. `
+        + "Le praticien se donne par NOM (« doctor »), la visite par praticien + date, le plan par délégué + date de début.",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("medical_operation"), description: "Le geste à faire." },
+          doctor: { type: "string", description: "Le praticien visé (nom) — plusieurs noms séparés par des virgules pour les gestes en lot." },
+          newName: { type: "string", description: "update_doctor / update_directory : nouveau nom." },
+          title: { type: "string", description: "Grade : professeur, maître de conférences, maître assistant, praticien spécialiste, assistant, résident, généraliste, pharmacien, autre." },
+          specialty: { type: "string", description: "Spécialité (texte, ou cible des ops de spécialité)." },
+          sector: { type: "string", description: "Secteur : hospitalier, libéral, les deux." },
+          institution: { type: "string", description: "Établissement (texte, ou cible de delete_institution)." },
+          city: { type: "string", description: "Ville." },
+          region: { type: "string", description: "Wilaya / région (fiche, plan de tournée)." },
+          phone: { type: "string", description: "Téléphone." },
+          email: { type: "string", description: "E-mail." },
+          influence: { type: "string", description: "Influence : très élevé / élevé / moyen / faible / très faible." },
+          potential: { type: "string", description: "Potentiel (mêmes niveaux)." },
+          affinity: { type: "string", description: "Affinité (mêmes niveaux)." },
+          person: { type: "string", description: "Le délégué (visite, fiche, plan de tournée)." },
+          people: { type: "string", description: "set_directory_access : noms, virgules (« tous » = ouvrir)." },
+          field: { type: "string", description: "set_doctor_cell : la colonne (lastName, firstName, address, city, wilaya, postalCode, phone, email, title, sector, specialty, potential)." },
+          value: { type: "string", description: "set_doctor_cell : la valeur (vide = effacer)." },
+          lastName: { type: "string", description: "add_doctor_row : nom." },
+          firstName: { type: "string", description: "add_doctor_row : prénom." },
+          date: { type: "string", description: "Visites / plans : la date (AAAA-MM-JJ)." },
+          newDate: { type: "string", description: "duplicate_plan : début de la nouvelle période (défaut : mois suivant)." },
+          status: { type: "string", description: "update_visit : planifiée / réalisée / annulée / reportée." },
+          report: { type: "string", description: "update_visit : compte rendu." },
+          feedback: { type: "string", description: "update_visit : retour du médecin." },
+          followUp: { type: "string", description: "update_visit : actions de suivi." },
+          products: { type: "string", description: "Produits (cibles de la fiche, présentés en visite, cible du plan)." },
+          quantity: { type: "string", description: "create/update_plan : visites cibles." },
+          keyTargets: { type: "string", description: "create/update_plan : médecins clés cibles." },
+          achieved: { type: "string", description: "update_plan : visites réalisées." },
+          directory: { type: "string", description: "Annuaires nommés : l'annuaire visé (« général » pour en sortir)." },
+          color: { type: "string", description: "Spécialités : couleur." },
+          notes: { type: "string", description: "Notes / objectif / description / commentaire manager." },
+        },
+        required: ["op"],
       },
     },
   },
