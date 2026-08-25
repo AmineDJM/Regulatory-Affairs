@@ -242,14 +242,14 @@ export function RegulatoryTable({
       : c.dynamic === "segments" ? undefined
       : c.options
     ),
-    [peopleOpts],
+    [peopleOpts, companies],
   );
 
   const counts = React.useMemo(() => ({
     pipeline: pipelineCount,
     todo: rows.filter((r) => r.stage === "todo").length,
     done: rows.filter((r) => r.stage === "done").length,
-  }), [rows]);
+  }), [rows, pipelineCount]);
 
   const filtered = React.useMemo(() => rows.filter((r) => {
     // Sans onglets, aucune étape n'est sélectionnée : tout ce qu'on reçoit s'affiche.

@@ -98,7 +98,10 @@ export function MailWorkspace({ address, signature }: Props) {
   }, [call, cursor]);
 
   React.useEffect(() => { void loadFolders(); }, [loadFolders]);
-  React.useEffect(() => { if (folderId) void loadList(folderId, query.trim()); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [folderId]);
+  // Recharger UNIQUEMENT au changement de dossier — pas à chaque frappe (query a son bouton de
+  // recherche) ni à chaque page chargée (loadList change avec le curseur de pagination).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (folderId) void loadList(folderId, query.trim()); }, [folderId]);
 
   const open = async (s: MailSummary) => {
     setPane("read");

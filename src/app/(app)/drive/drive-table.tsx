@@ -68,11 +68,14 @@ export function DriveTable({
     else { setSortKey(k); setSortDir("asc"); }
   };
   const SortHead = ({ k, label, align, className }: { k: SortKey; label: string; align?: "right"; className?: string }) => (
-    <TableHead className={[align === "right" ? "text-right" : "", className ?? ""].filter(Boolean).join(" ") || undefined}>
+    // aria-sort vit sur le <th> (rôle columnheader) — pas sur le bouton, qui ne le supporte pas.
+    <TableHead
+      className={[align === "right" ? "text-right" : "", className ?? ""].filter(Boolean).join(" ") || undefined}
+      aria-sort={sortKey === k ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+    >
       <button
         type="button" onClick={() => clickSort(k)}
         className={`inline-flex items-center gap-1 hover:text-foreground ${sortKey === k ? "text-foreground" : ""}`}
-        aria-sort={sortKey === k ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
       >
         {label}
         {sortKey === k && (sortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}

@@ -3114,6 +3114,27 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **OOM du déploiement Render corrigé — mesuré, pas masqué.** Le build crashait pendant
+  « Linting and checking validity of types » (« Ineffective mark-compacts near heap limit »,
+  ~2042/2084 Mo). **Cause mesurée** : dans `next build`, ESLint et le typecheck TypeScript
+  tournent dans le MÊME processus Node — le typecheck seul consomme **1,38 Go**
+  (`tsc --extendedDiagnostics` : 73 439 types, 211 530 instantiations — sain ; le poids vient
+  des 752 K lignes de définitions dont **560 K pour le client Prisma**, `skipLibCheck` déjà
+  actif), ESLint a besoin de **≤ 1 Go** (vérifié : passe avec `--max-old-space-size=1024` ;
+  les pics de 3-7 Go observés = GC paresseux quand on lui laisse un grand heap, pas un besoin),
+  et la somme + résidus webpack dépasse la limite Node par défaut (~2 Go) de l'instance Render.
+  Aucun type pathologique côté Chief (registres = données ; instantiations basses). **Fix
+  structurel** : les deux contrôles tournent en DEUX processus — `npm run build:render` =
+  `next lint && next build` (le lint reste BLOQUANT, en phase séparée du `buildCommand`
+  render.yaml) ; `eslint.ignoreDuringBuilds` ne fait que dédupliquer cette exécution (commenté
+  comme tel dans `next.config.mjs`) ; `typescript.ignoreBuildErrors` n'est PAS touché — le
+  typecheck reste dans le build. Garde-fou `NODE_OPTIONS=--max-old-space-size=4096` sur la
+  phase build. **Warnings éteints (6 → 0)** : deps réelles ajoutées (`regulatory-table` :
+  `companies`, `pipelineCount`), rechargement au seul changement de dossier justifié et
+  correctement annoté (`mail-workspace`), `aria-sort` déplacé sur le `<th>` (`drive-table`),
+  les 2 `<img>` d'aperçus de pièces jointes gardés avec disable BIEN PLACÉ et motivé
+  (routes API authentifiées : l'optimiseur `next/image` refetche sans session).
+
 - **LE CHIEF ADMINISTRE LES CIRCUITS ET LES FORMULAIRES — et parle français.** Suite directe de
   ZERO-GAP (parité 9 % → 10,1 %, 60 couvertes / 534 trous assumés). **Circuits de validation** :
   `read_workflow` (état réel du builder + dictionnaires de codes) et `configure_workflow`

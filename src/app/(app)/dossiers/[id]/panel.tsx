@@ -18,8 +18,10 @@ function MessageAttachments({ attachments, onDark }: { attachments: MsgAttachmen
   return (
     <div className="mt-2 flex flex-wrap gap-2">
       {attachments.map((a) => a.mime.startsWith("image/") ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <a key={a.id} href={`/api/dossiers/message-attachment/${a.id}`} target="_blank" rel="noopener noreferrer" title={a.name}>
+          {/* Aperçu d'une pièce jointe servie par une route API AUTHENTIFIÉE : next/image est
+              contre-indiqué (son optimiseur refetche l'URL côté serveur, sans la session). */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={`/api/dossiers/message-attachment/${a.id}`} alt={a.name} className="max-h-40 rounded-lg border border-black/10 object-cover" />
         </a>
       ) : (

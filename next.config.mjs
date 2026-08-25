@@ -2,6 +2,15 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  eslint: {
+    // PAS un contournement : le lint tourne en PHASE SÉPARÉE et BLOQUANTE du build de
+    // déploiement (`npm run build:render` → `next lint && next build`). Le faire tourner une
+    // seconde fois DANS `next build` additionnait ~1 Go (ESLint) aux ~1,4 Go du typecheck
+    // (Prisma : 560 K lignes de définitions) dans le MÊME processus Node → OOM à la limite
+    // par défaut de 2 Go sur Render (« Ineffective mark-compacts near heap limit »). Le
+    // typecheck, lui, reste DANS le build (`typescript.ignoreBuildErrors` n'est PAS touché).
+    ignoreDuringBuilds: true,
+  },
   experimental: {
     // Libs Node serveur uniquement (jamais bundlées côté client) : auth, mail (IMAP/SMTP),
     // extraction/OCR (tesseract.js/mupdf/sharp = WASM/natif, à ne pas bundler).
