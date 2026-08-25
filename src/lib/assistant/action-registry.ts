@@ -623,6 +623,12 @@ classify("COVERED", "update_platform_setting", [
 ]);
 classify("COVERED", "find_documents / inspect_drive_folder (lecture)", ["drive-browse-actions:browseDrive"]);
 classify("COVERED", "update_salary", ["payroll-hr-actions:updatePayrollEntry"]);
+// La double implémentation d'écran (admin/users) du MÊME geste métier : l'outil de compte
+// existant produit l'effet identique (activation + sessions révoquées à la désactivation).
+classify("COVERED", "set_account_active", ["access-actions:setUserActive"]);
+// Révoquer UNE session précise exige la liste d'écran (empreinte appareil/date) ; le geste de
+// sécurité demandé en conversation — « déconnecte X de partout » — est couvert intégralement.
+classify("COVERED", "org_operation:revoke_sessions", ["access-actions:revokeSession"]);
 
 // ── GAP : action d'écran RECONNUE, pas encore proposable par le Chief. ──
 const G = (note: string, keys: string[]) => classify("GAP", note, keys);
@@ -685,7 +691,7 @@ G("demandes de paiement (création/pièces/décisions du circuit)", [
 ]);
 G("paie RH (marquer payé, transfert budget)", ["payroll-hr-actions:markSalaryPaid", "payroll-hr-actions:unmarkSalaryPaid", "payroll-hr-actions:transferPayrollToBudget"]);
 G("RH : fiche employé, congés/avances (décisions), documents employé", [
-  "hr-actions:createEmployee", "hr-actions:updateEmployee", "hr-actions:analyzeEmployeeContract",
+  "hr-actions:createEmployee", "hr-actions:updateEmployee",
   "hr-actions:setEmployeeActive", "hr-actions:requestLeave", "hr-actions:decideLeave", "hr-actions:cancelLeave",
   "hr-actions:updateLeaveRequest", "hr-actions:requestAdvance", "hr-actions:decideAdvance", "hr-actions:cancelAdvance",
   "hr-document-actions:addHrRequestComment", "hr-document-actions:processHrRequest",
@@ -889,7 +895,7 @@ G("administration structurelle (entités, gammes, départements, organigramme, c
 ]);
 G("matrice d'accès fine & profils (droits par module, périmètres de lignes, profil)", [
   "access-actions:saveAccessMatrix", "access-actions:saveModuleAccess", "access-actions:setRowGrants",
-  "access-actions:updateUserProfile", "access-actions:setUserActive", "access-actions:revokeSession",
+  "access-actions:updateUserProfile",
   "access-actions:requestOnboarding", "access-actions:revokeAllSessions",
 ]);
 // Le rollback rejoue un instantané PAR saveWorkflowDefinition : le Chief couvre le besoin en
@@ -966,6 +972,9 @@ X("helpers de LECTURE et tâches PLANIFIÉES internes (pas des gestes métier qu
   // seuls au planificateur ; nextRechargeFor = affichage d'une échéance calculée.
   "payment-request-actions:paymentPeople",
   "petty-cash-actions:runPettyCashRechargeReminders", "petty-cash-actions:nextRechargeFor",
+]);
+X("analyse IA de PRÉ-REMPLISSAGE (extrait les champs d'un contrat scanné, ne persiste RIEN — les RH relisent et enregistrent eux-mêmes)", [
+  "hr-actions:analyzeEmployeeContract",
 ]);
 G("suppression par le CRÉATEUR de son propre courrier / document légal (proposable pour l'auteur)", [
   "admin-delete-actions:deleteOwnRecord",

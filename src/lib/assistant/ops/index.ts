@@ -9,6 +9,7 @@ import { FINANCE_BUDGET_OPS_IMPL } from "./impl-finance-budget";
 import { FINANCE_FLOWS_OPS_IMPL } from "./impl-finance-flows";
 import { REGULATORY_OPS_IMPL } from "./impl-regulatory";
 import { HR_OPS_IMPL } from "./impl-hr";
+import { HR2_OPS_IMPL, ACCESS_OPS_IMPL } from "./impl-hr2";
 import { MEETING_OPS_IMPL } from "./impl-meeting";
 import { MAIL_OPS_IMPL } from "./impl-mail";
 import { LEGAL_OPS_IMPL } from "./impl-legal";
@@ -222,13 +223,13 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   hr_operation: {
     module: "RH",
-    ops: zipOps("hr_operation", HR_OPS_IMPL),
+    ops: zipOps("hr_operation", { ...HR_OPS_IMPL, ...HR2_OPS_IMPL }),
     def: {
       name: "hr_operation",
       description:
-        "DÉCISIONS RH & fiche employé — congés, avances, notes de frais, demandes RH (attestations…), formations, recrutement, fiche active/inactive, par les actions canoniques (les CHAÎNES de validateurs restent le moteur : si ce n'est pas votre tour, l'exécution refuse en le disant). "
+        "RH COMPLET — fiche employé (créer, PATCH hors salaire, rémunération dédiée), congés (déposer/corriger/décider, intérimaire), avances, notes de frais, demandes RH du dossier personnel (attestations, absences, entrevues, documents), formations, recrutement — par les actions canoniques (les CHAÎNES de validateurs restent le moteur : si ce n'est pas votre tour, l'exécution refuse en le disant). "
         + `Champ « op » : ${opsSummary("hr_operation")}. `
-        + "La cible se donne par NOM D'EMPLOYÉ (« employee ») — ou par intitulé/référence pour formations et recrutements.",
+        + "La cible se donne par NOM D'EMPLOYÉ (« employee »). Les MODIFICATIONS de fiche sont des PATCH : seuls les champs cités changent, le reste est rejoué à l'identique (garde de fraîcheur).",
       input_schema: {
         type: "object",
         properties: {
@@ -236,9 +237,41 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           employee: { type: "string", description: "Nom de l'employé concerné (registre RH)." },
           decision: { type: "string", description: "Décisions : approuver/accorder ou refuser (note de frais : « mois suivant » possible)." },
           status: { type: "string", description: "process_hr_request : en préparation, prête, remise, accordée, refusée ; set_employee_active : actif/inactif." },
-          label: { type: "string", description: "decide_training / decide_recruitment_step : intitulé de la formation ou poste du recrutement." },
+          label: { type: "string", description: "decide_training / decide_recruitment_step : intitulé ; documents du dossier : nom du fichier." },
           reference: { type: "string", description: "decide_recruitment_step : référence exacte de la demande." },
           note: { type: "string", description: "Note / motif de la décision." },
+          name: { type: "string", description: "create_employee : nom complet ; documents du dossier : nom du fichier." },
+          newName: { type: "string", description: "update_employee : nouveau nom complet." },
+          position: { type: "string", description: "Poste / fonction." },
+          email: { type: "string", description: "E-mail de l'employé." },
+          phone: { type: "string", description: "Téléphone." },
+          iban: { type: "string", description: "RIB / IBAN." },
+          address: { type: "string", description: "Adresse." },
+          nationalId: { type: "string", description: "N° pièce d'identité." },
+          cnasNumber: { type: "string", description: "N° CNAS." },
+          hireDate: { type: "string", description: "Date d'embauche (AAAA-MM-JJ)." },
+          birthDate: { type: "string", description: "Date de naissance (AAAA-MM-JJ)." },
+          contractType: { type: "string", description: "Contrat : CDI, CDD, intérim, stage, freelance, consulting." },
+          contractStart: { type: "string", description: "Début de contrat (AAAA-MM-JJ)." },
+          contractEnd: { type: "string", description: "Fin de contrat (AAAA-MM-JJ)." },
+          trialStart: { type: "string", description: "Début de période d'essai (AAAA-MM-JJ)." },
+          trialEnd: { type: "string", description: "Fin de période d'essai (AAAA-MM-JJ)." },
+          leaveBalance: { type: "string", description: "update_employee : solde de congés (jours)." },
+          baseSalary: { type: "string", description: "Salaire de base DZD (création ; modification par update_employee_salary)." },
+          gross: { type: "string", description: "update_employee_salary : brut DZD." },
+          net: { type: "string", description: "update_employee_salary : net à payer DZD." },
+          employerCost: { type: "string", description: "update_employee_salary : coût employeur DZD." },
+          amount: { type: "string", description: "request_advance : montant DZD." },
+          startDate: { type: "string", description: "Congé : début (AAAA-MM-JJ)." },
+          endDate: { type: "string", description: "Congé : fin (AAAA-MM-JJ)." },
+          days: { type: "string", description: "Congé : nombre de jours (défaut : calculé)." },
+          type: { type: "string", description: "Congé : annuel, maladie, sans solde, maternité, exceptionnel, récupération ; demandes RH : type (attestation, note de frais, entrevue…)." },
+          reason: { type: "string", description: "Motif (congé, avance)." },
+          message: { type: "string", description: "comment_hr_request : le message." },
+          date: { type: "string", description: "propose_hr_meeting : date proposée (AAAA-MM-JJ)." },
+          time: { type: "string", description: "propose_hr_meeting : heure d'Alger (HH:MM, défaut 09:00)." },
+          standIn: { type: "string", description: "propose_stand_in : l'intérimaire (nom) — « aucun » pour retirer." },
+          mode: { type: "string", description: "set_employee_document_visibility : « masquer » pour cacher (défaut : rendre visible)." },
         },
         required: ["op"],
       },
@@ -326,18 +359,18 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   org_operation: {
     module: "ADMIN",
-    ops: zipOps("org_operation", ORG_OPS_IMPL),
+    ops: zipOps("org_operation", { ...ORG_OPS_IMPL, ...ACCESS_OPS_IMPL }),
     def: {
       name: "org_operation",
       description:
-        "ADMINISTRATION STRUCTURELLE — entités du groupe (créer, activer/désactiver), départements & organigramme (créer, rattacher un employé, désigner le N+1), fournisseurs du portail, annuaire d'entreprise, par les actions canoniques. "
+        "ADMINISTRATION STRUCTURELLE & COMPTES — entités du groupe, départements & organigramme, fournisseurs, annuaire d'entreprise, invitation de compte, matrice d'ACCÈS par module (Super Admin), profil de compte (nom / e-mail de connexion), sessions, setup guidé — par les actions canoniques. "
         + `Champ « op » : ${opsSummary("org_operation")}. `
-        + "Les cibles se donnent par NOM (entité, département, employé du registre RH, fournisseur).",
+        + "Les cibles se donnent par NOM (entité, département, employé du registre RH, fournisseur, personne).",
       input_schema: {
         type: "object",
         properties: {
           op: { type: "string", enum: opEnum("org_operation"), description: "Le geste à faire." },
-          name: { type: "string", description: "Nom de l'entité / du département / du fournisseur / du contact (création ou cible)." },
+          name: { type: "string", description: "Nom de l'entité / du département / du fournisseur / du contact / de la personne (création ou cible)." },
           employee: { type: "string", description: "assign_department / assign_manager : nom de l'employé (registre RH)." },
           department: { type: "string", description: "assign_department : département de destination (« aucun » pour détacher)." },
           manager: { type: "string", description: "assign_manager : nom du N+1 (« aucun » pour retirer)." },
@@ -345,12 +378,21 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           entity: { type: "string", description: "create_department : entité de rattachement (département de tête)." },
           shortName: { type: "string", description: "create_company : nom court." },
           country: { type: "string", description: "create_supplier : pays." },
-          email: { type: "string", description: "create_supplier / create_contact : e-mail." },
+          email: { type: "string", description: "create_supplier / create_contact : e-mail ; update_user_profile : NOUVEL e-mail de connexion." },
           kind: { type: "string", description: "create_contact : nature (agence, livreur, imprimeur…)." },
           contactName: { type: "string", description: "create_contact : la personne qu'on demande." },
           phone: { type: "string", description: "create_contact : téléphone." },
           address: { type: "string", description: "create_contact : adresse." },
           notes: { type: "string", description: "Notes." },
+          person: { type: "string", description: "Comptes & accès : la personne visée (nom du compte)." },
+          module: { type: "string", description: "set_module_access : le module (« Finances », « Drive »…)." },
+          mode: { type: "string", description: "set_module_access : « défaut » (du rôle) | « bloqué » | personnalisé (via give/take)." },
+          give: { type: "string", description: "set_module_access : droits à DONNER (CREATE, UPDATE, DELETE, VALIDATE, EXPORT, UPLOAD — séparés par des virgules)." },
+          take: { type: "string", description: "set_module_access : droits à RETIRER (mêmes valeurs)." },
+          scope: { type: "string", description: "set_module_access : portée « tout » ou « assigné »." },
+          newName: { type: "string", description: "update_user_profile : nouveau nom du compte." },
+          title: { type: "string", description: "update_user_profile : fonction affichée." },
+          region: { type: "string", description: "update_user_profile : région." },
         },
         required: ["op"],
       },
