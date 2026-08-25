@@ -17,6 +17,24 @@ export function getFieldDefs(entityType: EntityType) {
   });
 }
 
+/**
+ * Les champs OBLIGATOIRES encore vides — la règle PURE, partagée par l'action serveur
+ * (refus avec la liste) et testable sans base. Un Oui/Non n'est jamais « manquant » :
+ * une case décochée est une réponse, pas une absence.
+ */
+export function missingRequiredValues(
+  defs: { key: string; label: string; type: string; required?: boolean }[],
+  values: CustomValues,
+): string[] {
+  const missing: string[] = [];
+  for (const def of defs) {
+    if (!def.required || def.type === "BOOLEAN") continue;
+    const v = values[def.key];
+    if (v === null || v === undefined || String(v).trim() === "") missing.push(def.label);
+  }
+  return missing;
+}
+
 /** Read the `custom` JSON blob for a record. */
 export async function readCustomValues(entityType: EntityType, id: string): Promise<CustomValues> {
   const select = { custom: true } as const;

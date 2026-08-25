@@ -298,7 +298,7 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
               <CustomFieldsCard
                 entityType="REGULATORY_PRODUCT"
                 entityId={product.id}
-                defs={fieldDefs.map((d) => ({ id: d.id, key: d.key, label: d.label, type: d.type, options: d.options }))}
+                defs={fieldDefs.map((d) => ({ id: d.id, key: d.key, label: d.label, type: d.type, options: d.options, required: d.required }))}
                 values={(product.custom as Record<string, unknown>) ?? {}}
                 canEdit={canUpdate}
               />

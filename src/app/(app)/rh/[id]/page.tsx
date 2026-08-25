@@ -227,7 +227,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
               <CustomFieldsCard
                 entityType="EMPLOYEE"
                 entityId={employee.id}
-                defs={fieldDefs.map((f) => ({ id: f.id, key: f.key, label: f.label, type: f.type, options: f.options }))}
+                defs={fieldDefs.map((f) => ({ id: f.id, key: f.key, label: f.label, type: f.type, options: f.options, required: f.required }))}
                 values={(employee.custom as Record<string, unknown>) ?? {}}
                 canEdit={canUpdate}
               />

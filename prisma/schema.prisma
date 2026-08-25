@@ -3813,6 +3813,7 @@ model CustomFieldDef {
   type       CustomFieldType @default(TEXT)
   options    String? // comma-separated choices for SELECT
   order      Int             @default(0)
+  required   Boolean         @default(false) // champ à remplir obligatoirement (hors Oui/Non)
   active     Boolean         @default(true)
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt

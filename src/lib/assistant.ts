@@ -50,6 +50,11 @@ import { DELETE_REGISTRY, DELETABLE_KINDS, isDeletableKind, type DeletableKind }
 import { resolveDeletableTarget, resolveTrashEntry } from "@/lib/assistant/delete-resolve";
 import { nativeActionHint, actionsForUser } from "@/lib/assistant/action-registry";
 import { requestTreasuryUpdate } from "@/lib/actions/finance-actions";
+import { advanceWorkflow, saveWorkflowDefinition, resetWorkflowDefinition } from "@/lib/actions/workflow-actions";
+import { upsertCustomFieldDef, deleteCustomFieldDef } from "@/lib/actions/custom-field-actions";
+import { readWorkflowState, resolveWorkflowRequest, resolveWorkflowCategory } from "@/lib/assistant/workflow-admin";
+import { WORKFLOW_CATEGORIES, CATEGORY_LABELS, SCOPE_LABELS, POWER_LABELS, ACTOR_SCOPES, WORKFLOW_POWERS } from "@/lib/workflow/types";
+import { CUSTOM_ENTITY_TYPES } from "@/lib/custom-fields";
 import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { isRegStepKey, isRegStepState, isRegPresubOutcome, REG_STEPS, PRESUB_ANSWER_STEP } from "@/lib/regulatory-workflow";
 import { createInstitution, updateInstitution } from "@/lib/actions/medical-actions";
@@ -70,7 +75,7 @@ import type { CurrentUser } from "@/lib/session";
 import {
   ROLE_LABELS, TASK_STATUS, PRIORITY, ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS,
   MEDICAL_SECTOR, INFLUENCE_LEVEL, REGULATORY_STATUS, EVENT_STATUS, EVENT_TYPE,
-  MODULE_LABELS, doctorDisplayName,
+  MODULE_LABELS, ENTITY_TYPE_LABELS, doctorDisplayName,
 } from "@/lib/labels";
 import { regulatoryKnowledgeDigest } from "@/lib/regulatory/anpp-knowledge";
 import { getAppSettings } from "@/lib/settings";
@@ -193,6 +198,43 @@ export type AssistantActionPayload =
        *  canonique `requestTreasuryUpdate` (notification des responsables Finances + audit). */
       kind: "request_treasury_update";
       note: string | null;
+    }
+  | {
+      /** RECONFIGURER (ou réinitialiser) un CIRCUIT DE VALIDATION Ad&Pro — exécuté par le
+       *  builder canonique `saveWorkflowDefinition` / `resetWorkflowDefinition` (Super Admin,
+       *  remplacement intégral validé côté action). `payloadJson` = le JSON exact du builder. */
+      kind: "configure_workflow";
+      category: string;
+      categoryLabel: string;
+      payloadJson: string | null;
+      reset: boolean;
+      stepTitles: string[];
+    }
+  | {
+      /** DÉCIDER une étape de circuit (approuver / refuser / SAUTER avec raison) — exécuté par
+       *  l'action canonique `advanceWorkflow` : le MOTEUR re-vérifie qui a le droit d'agir. */
+      kind: "advance_workflow";
+      category: string;
+      entityType: string;
+      entityId: string;
+      display: string;
+      action: "APPROVE" | "REJECT" | "SKIP";
+      note: string | null;
+      amount: number | null;
+    }
+  | {
+      /** CHAMP PERSONNALISÉ d'un module (créer / modifier — dont OBLIGATOIRE — / supprimer) —
+       *  exécuté par les actions canoniques `upsertCustomFieldDef` / `deleteCustomFieldDef`. */
+      kind: "manage_custom_field";
+      op: "CREATE" | "UPDATE" | "DELETE";
+      defId: string | null;
+      entityType: string;
+      entityTypeLabel: string;
+      label: string;
+      type: string;
+      options: string | null;
+      required: boolean;
+      order: number | null;
     }
   | {
       /** ACTIVER / DÉSACTIVER un compte — action canonique `toggleUserActive`. L'état CIBLE est
@@ -522,6 +564,9 @@ export const ACTION_POLICY: Record<AssistantActionKind, { external: boolean; lev
   purge_record: { external: true, level: "CRITICAL" },
   request_regulatory_status_update: { external: true },
   request_treasury_update: { external: true },
+  configure_workflow: { external: true, level: "SENSITIVE" },
+  advance_workflow: { external: true, level: "SENSITIVE" },
+  manage_custom_field: { external: true, level: "SENSITIVE" },
   set_account_active: { external: true, level: "SENSITIVE" },
   set_account_role: { external: true, level: "SENSITIVE" },
   set_products_company: { external: true },
@@ -667,6 +712,23 @@ const READ_TOOLS: ClaudeToolDef[] = [
       properties: {
         module: { type: "string", description: "Filtre par module (ex. « Finances », « Regulatory », « Administration », « paiement »). Vide = toutes." },
       },
+    },
+  },
+  {
+    name: "read_workflow",
+    description:
+      "Lit le CIRCUIT DE VALIDATION configurable d'une catégorie Ad&Pro (Sponsoring, Prise en charge "
+      + "Internationale, Prise en charge Nationale, Événements) : étapes ordonnées avec titre, slug, qui agit "
+      + "(portée + rôles, libellés ET codes), pouvoirs, options d'automatisme — plus les dictionnaires de codes "
+      + "valides. À APPELER AVANT toute modification de circuit (configure_workflow attend la liste COMPLÈTE "
+      + "recomposée). Les autres circuits de l'ERP (congés, recrutement, matériel promo…) sont codés en dur et "
+      + "ne se configurent pas ici.",
+    input_schema: {
+      type: "object",
+      properties: {
+        category: { type: "string", description: "Catégorie : SPONSORING, CONGRESS_INTERNATIONAL, CONGRESS_NATIONAL, EVENTS (ou son libellé français)." },
+      },
+      required: ["category"],
     },
   },
   {
@@ -909,6 +971,55 @@ const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
     },
   },
   {
+    name: "configure_workflow",
+    description:
+      "RÉSERVÉ AU SUPER ADMIN : PROPOSE la RECONFIGURATION d'un CIRCUIT DE VALIDATION Ad&Pro — le même "
+      + "builder no-code que l'écran Administration → Circuits. Catégories configurables : SPONSORING, "
+      + "CONGRESS_INTERNATIONAL, CONGRESS_NATIONAL, EVENTS (les autres circuits de l'ERP sont codés en dur). "
+      + "TOUJOURS appeler read_workflow d'abord, puis renvoyer la LISTE COMPLÈTE des étapes recomposée "
+      + "(remplacement intégral) dans `steps` : JSON d'un tableau d'étapes "
+      + "{title, slug? (garder les slugs existants pour les étapes conservées), actorScope, actorRoles (CODES "
+      + "exacts), powers (CODES : APPROVE/REJECT/ASSIGN/SET_AMOUNT/SET_CATEGORY/COMMENT), notifyRoles?, "
+      + "requireAmount?, requireNote?, optional?, autoSkipMaxAmount?, autoApproveIfRequester?}. "
+      + "Pour SUPPRIMER une étape : l'omettre. Pour SAUTER une personne durablement : retirer son étape ou son "
+      + "rôle. reset=true réinitialise la catégorie au circuit par défaut. N'exécute rien : confirmation requise.",
+    input_schema: {
+      type: "object",
+      properties: {
+        category: { type: "string", description: "SPONSORING, CONGRESS_INTERNATIONAL, CONGRESS_NATIONAL ou EVENTS (ou libellé français)." },
+        name: { type: "string", description: "Nom du circuit (repris de l'existant si omis)." },
+        steps: { type: "string", description: "JSON du tableau COMPLET des étapes (voir description). Ignoré si reset=true." },
+        reset: { type: "boolean", description: "true = réinitialiser la catégorie au circuit par défaut." },
+      },
+      required: ["category"],
+    },
+  },
+  {
+    name: "manage_custom_field",
+    description:
+      "RÉSERVÉ AU SUPER ADMIN : PROPOSE la gestion d'un CHAMP PERSONNALISÉ d'un module (Administration → "
+      + "Champs personnalisés) : CREATE (créer), UPDATE (modifier — dont rendre OBLIGATOIRE ou optionnel, "
+      + "renommer, changer les choix), DELETE (retirer — les valeurs déjà saisies restent dans les fiches mais "
+      + "ne s'affichent plus). Un champ OBLIGATOIRE doit être rempli pour enregistrer la fiche (appliqué par le "
+      + "serveur). Types : TEXT, NUMBER, DATE, BOOLEAN, SELECT (avec options). Modules : Regulatory, "
+      + "Sponsoring, Prises en charge, Ventes, Médecins, Visites, Finances, Employés, Congés, Tâches, "
+      + "Ordres de dépense, Drive, Demandes administratives… N'exécute rien : confirmation requise.",
+    input_schema: {
+      type: "object",
+      properties: {
+        op: { type: "string", enum: ["CREATE", "UPDATE", "DELETE"], description: "L'opération." },
+        module: { type: "string", description: "Module concerné (libellé français, ex. « Regulatory », « Demandes administratives »)." },
+        label: { type: "string", description: "Libellé du champ (existant pour UPDATE/DELETE ; nouveau pour CREATE)." },
+        newLabel: { type: "string", description: "UPDATE : nouveau libellé (renommage), optionnel." },
+        type: { type: "string", enum: ["TEXT", "NUMBER", "DATE", "BOOLEAN", "SELECT"], description: "Type du champ (CREATE ; UPDATE si changement)." },
+        options: { type: "string", description: "Choix séparés par des virgules (type SELECT)." },
+        required: { type: "boolean", description: "true = champ OBLIGATOIRE ; false = optionnel." },
+        order: { type: "number", description: "Ordre d'affichage (optionnel)." },
+      },
+      required: ["op", "module", "label"],
+    },
+  },
+  {
     name: "set_account_role",
     description:
       "RÉSERVÉ AU SUPER ADMIN : PROPOSE le changement de RÔLE d'un compte (et/ou de son AUTRE RÔLE "
@@ -1039,6 +1150,27 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
       properties: {
         note: { type: "string", description: "Précision jointe (ex. « avant le conseil de lundi — relevés au 10/08 »). Optionnel." },
       },
+    },
+  },
+  {
+    name: "advance_workflow",
+    description:
+      "PROPOSE une DÉCISION sur l'étape courante du circuit d'une demande Ad&Pro (Sponsoring / Prises en "
+      + "charge / Événements) : APPROVE (approuver, l'étape suivante s'ouvre), REJECT (refuser — motif "
+      + "recommandé), ou SKIP (SAUTER une étape intermédiaire — RAISON OBLIGATOIRE, tracée et notifiée à "
+      + "l'étape suivante ; interdit sur la dernière étape). Le MOTEUR revérifie qui a le droit d'agir à "
+      + "l'étape courante. Désigner la demande par sa référence (sponsoring) ou son nom (congrès, événement). "
+      + "N'exécute rien : confirmation requise.",
+    input_schema: {
+      type: "object",
+      properties: {
+        category: { type: "string", description: "SPONSORING, CONGRESS_INTERNATIONAL, CONGRESS_NATIONAL ou EVENTS (ou libellé français)." },
+        reference: { type: "string", description: "Référence ou nom de la demande." },
+        action: { type: "string", enum: ["APPROVE", "REJECT", "SKIP"], description: "La décision." },
+        note: { type: "string", description: "Motif / note. OBLIGATOIRE pour SKIP." },
+        amount: { type: "number", description: "Montant DZD, si l'étape courante l'exige." },
+      },
+      required: ["category", "reference", "action"],
     },
   },
   {
@@ -1511,7 +1643,12 @@ const BUSINESS_SEMANTICS = `VOCABULAIRE MÉTIER (résolution PAR LE CONTEXTE, ja
   (le bouton Finances), PAS une demande administrative assignée à quelqu'un. INTERDIT de dire
   « je ne peux pas cliquer sur ce bouton » : le Chief invoque la fonction métier DERRIÈRE le
   bouton — si elle manque vraiment, le dire comme un TROU DE CAPACITÉ à combler, pas comme une
-  fatalité.`;
+  fatalité.
+- LANGUE : tu réponds TOUJOURS en FRANÇAIS — quelle que soit la langue de la question, d'un
+  document cité ou d'un e-mail lu (tu COMPRENDS toutes les langues : arabe, anglais…, et tu
+  TRADUIS ce que tu cites). Tu ne passes à une autre langue QUE si l'utilisateur le demande
+  EXPLICITEMENT (« réponds-moi en anglais ») — et uniquement pour cette demande-là : dès qu'il
+  réécrit en français, tu reviens au français.`;
 
 /**
  * CONTEXTE COMMUN DU CHIEF OF STAFF — la fonction que TOUTES les modalités appellent.
@@ -1580,6 +1717,15 @@ tien) ; set_account_role change le RÔLE d'un compte et son AUTRE RÔLE cumulé 
 secondaire). La CRÉATION de compte reste sur l'écran Administration : un mot de passe ne transite
 JAMAIS par cette conversation. Ne dis jamais « je ne peux pas » pour ces gestes — tu PROPOSES,
 l'utilisateur confirme.
+
+TU ADMINISTRES AUSSI LES CIRCUITS ET LES FORMULAIRES. Les CIRCUITS DE VALIDATION Ad&Pro
+(Sponsoring, Prises en charge Internationale/Nationale, Événements) se lisent avec read_workflow et
+se reconfigurent avec configure_workflow (ajouter/retirer/réordonner des étapes, changer qui agit —
+même builder que l'écran ; les autres circuits de l'ERP sont codés en dur, dis-le honnêtement).
+advance_workflow APPROUVE, REFUSE ou SAUTE une étape courante (SKIP = raison obligatoire, tracée).
+manage_custom_field gère les CHAMPS PERSONNALISÉS des modules — y compris rendre un champ
+OBLIGATOIRE ou optionnel (« rends ce champ obligatoire » = UPDATE required=true). Les pièces
+jointes, elles, existent déjà nativement sur les demandes et fiches.
 ` : ""}
 CONTEXTE :
 ${buildContext(user)}${powers}
@@ -1722,6 +1868,26 @@ export async function executeReadTool(name: string, input: Record<string, unknow
       const people = await findPeople(asStr(input, "query"));
       if (people.length === 0) return "Aucun collègue trouvé pour cette recherche.";
       return JSON.stringify(people.map((p) => ({ id: p.id, nom: p.name, fonction: p.title, departement: p.department, role: ROLE_LABELS[p.role] ?? p.role })));
+    }
+    case "read_workflow": {
+      const cat = resolveWorkflowCategory(asStr(input, "category"));
+      if (!cat) {
+        return `Catégorie inconnue. Circuits configurables : ${WORKFLOW_CATEGORIES.map((c) => `${c} (${CATEGORY_LABELS[c]})`).join(", ")}. Les autres circuits de l'ERP sont codés en dur.`;
+      }
+      const state = await readWorkflowState(cat);
+      return JSON.stringify({
+        categorie: state.category,
+        libelle: state.categoryLabel,
+        nomDuCircuit: state.name,
+        actif: state.isActive,
+        etapes: state.steps ?? "Circuit PAR DÉFAUT (aucune personnalisation enregistrée) — la première sauvegarde via configure_workflow créera la définition.",
+        dictionnaires: {
+          portees: Object.fromEntries(ACTOR_SCOPES.map((s) => [s, SCOPE_LABELS[s]])),
+          pouvoirs: Object.fromEntries(WORKFLOW_POWERS.map((p) => [p, POWER_LABELS[p]])),
+          rolesValides: ROLE_LABELS,
+        },
+        regle: "Pour modifier : recomposer la LISTE COMPLÈTE des étapes (slugs existants conservés) et appeler configure_workflow — remplacement intégral, les demandes en cours gardent leur étape par slug.",
+      });
     }
     case "find_available_actions": {
       // Le REGISTRE réel filtré par les droits — jamais une liste inventée. Chaque entrée dit
@@ -3216,6 +3382,229 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     };
   }
 
+  if (toolName === "configure_workflow") {
+    // LA MÊME PORTE QUE LE BUILDER de l'écran Administration → Circuits : Super Admin.
+    if (user.role !== "SUPER_ADMIN") {
+      return { error: "La configuration des circuits de validation est réservée au Super Admin — la même règle que le builder de l'écran." };
+    }
+    const cat = resolveWorkflowCategory(asStr(input, "category"));
+    if (!cat) return { error: `Catégorie inconnue. Circuits configurables : ${WORKFLOW_CATEGORIES.join(", ")} — les autres circuits sont codés en dur.` };
+    const current = await readWorkflowState(cat);
+    const beforeTitles = current.steps?.map((s, i) => `${i + 1}. ${s.title}`) ?? ["(circuit par défaut, non personnalisé)"];
+
+    if (input.reset === true) {
+      return {
+        kind: "configure_workflow", module: "ADMIN", level: "SENSITIVE",
+        title: `Réinitialiser le circuit ${current.categoryLabel} au défaut`,
+        fields: [
+          { label: "Circuit", value: `${current.categoryLabel}${current.name ? ` — « ${current.name} »` : ""}` },
+          { label: "Étapes actuelles", value: beforeTitles.join(" · ") },
+          { label: "Après", value: "Circuit par défaut de la plateforme (re-créé à la première demande)" },
+        ],
+        warnings: ["Refusé par l'action si des demandes EN COURS utilisent ce circuit (modifier les étapes plutôt que réinitialiser).", ...warnings],
+        payload: { kind: "configure_workflow", category: cat, categoryLabel: current.categoryLabel, payloadJson: null, reset: true, stepTitles: [] },
+      };
+    }
+
+    const rawSteps = asStr(input, "steps");
+    if (!rawSteps) return { error: "Donner la LISTE COMPLÈTE des étapes recomposée (JSON) — lire d'abord read_workflow." };
+    let steps: Record<string, unknown>[];
+    try {
+      const parsed = JSON.parse(rawSteps);
+      if (!Array.isArray(parsed) || parsed.length === 0) return { error: "Le circuit doit comporter au moins une étape." };
+      steps = parsed as Record<string, unknown>[];
+    } catch {
+      return { error: "JSON des étapes invalide." };
+    }
+    // Pré-validation FIDÈLE aux règles de l'action canonique (qui re-validera de toute façon) :
+    // la carte de confirmation ne doit jamais montrer un circuit que l'action refusera.
+    const titles: string[] = [];
+    for (let i = 0; i < steps.length; i++) {
+      const t = typeof steps[i].title === "string" ? (steps[i].title as string).trim() : "";
+      if (!t) return { error: `Le titre de l'étape ${i + 1} est obligatoire.` };
+      titles.push(t);
+    }
+    const hasApprove = steps.some((s) => Array.isArray(s.powers) && (s.powers as unknown[]).includes("APPROVE"));
+    if (!hasApprove) return { error: "Au moins une étape doit permettre d'approuver (APPROVE) — sinon le circuit ne peut jamais aboutir." };
+    const name = asStr(input, "name") || current.name || current.categoryLabel;
+    const payloadJson = JSON.stringify({ category: cat, name, steps });
+
+    return {
+      kind: "configure_workflow", module: "ADMIN", level: "SENSITIVE",
+      title: `Reconfigurer le circuit ${current.categoryLabel} (${titles.length} étape·s)`,
+      fields: [
+        { label: "Circuit", value: `${current.categoryLabel} — « ${name} »` },
+        { label: "Avant", value: beforeTitles.join(" · ") },
+        { label: "Après", value: titles.map((t, i) => `${i + 1}. ${t}`).join(" · ") },
+      ],
+      warnings: [
+        "REMPLACEMENT INTÉGRAL des étapes — mêmes règles que le builder de l'écran (validation des rôles/pouvoirs par l'action).",
+        "Les demandes EN COURS conservent leur étape par slug : garder les slugs des étapes conservées pour ne perdre personne en route.",
+        ...warnings,
+      ],
+      payload: { kind: "configure_workflow", category: cat, categoryLabel: current.categoryLabel, payloadJson, reset: false, stepTitles: titles },
+    };
+  }
+
+  if (toolName === "advance_workflow") {
+    const cat = resolveWorkflowCategory(asStr(input, "category"));
+    if (!cat) return { error: `Catégorie inconnue. Circuits : ${WORKFLOW_CATEGORIES.join(", ")}.` };
+    const action = asStr(input, "action").toUpperCase();
+    if (action !== "APPROVE" && action !== "REJECT" && action !== "SKIP") {
+      return { error: "Action invalide — APPROVE, REJECT ou SKIP." };
+    }
+    const note = asStr(input, "note") || null;
+    // LA RÈGLE DE L'ÉCRAN, dite dès la proposition : sauter une étape exige une RAISON.
+    if (action === "SKIP" && !note) return { error: "Sauter une étape exige une RAISON (note) — elle est tracée et notifiée à l'étape suivante." };
+    const query = asStr(input, "reference");
+    if (!query) return { error: "Précisez la référence ou le nom de la demande." };
+
+    const target = await resolveWorkflowRequest(cat, query);
+    if (target.status === "none") return { error: `Aucune demande « ${query} » trouvée dans ${CATEGORY_LABELS[cat]}.` };
+    if (target.status === "ambiguous") {
+      return { error: `Plusieurs demandes correspondent à « ${query} » : ${target.candidates.join(" ; ")} — préciser.` };
+    }
+    if (target.instanceStatus !== "IN_PROGRESS") {
+      return { error: `La demande « ${target.display} » n'a pas de circuit en cours (état : ${target.instanceStatus}).` };
+    }
+    const amount = typeof input.amount === "number" && Number.isFinite(input.amount) ? input.amount : null;
+    const ACTION_FR = { APPROVE: "Approuver l'étape", REJECT: "Refuser la demande", SKIP: "SAUTER l'étape" } as const;
+    const fields = [
+      { label: "Demande", value: `${target.display} (${CATEGORY_LABELS[cat]})` },
+      { label: "Étape courante", value: `${target.currentStepTitle ?? target.currentSlug ?? "?"}${target.currentStepActors ? ` — acteurs : ${target.currentStepActors}` : ""}` },
+      { label: "Décision", value: ACTION_FR[action as keyof typeof ACTION_FR] },
+    ];
+    if (note) fields.push({ label: action === "SKIP" ? "Raison (obligatoire, tracée)" : "Note", value: note });
+    if (amount != null) fields.push({ label: "Montant", value: `${amount.toLocaleString("fr-FR")} DZD` });
+    return {
+      kind: "advance_workflow", module: "ADMIN", level: "SENSITIVE",
+      title: `${ACTION_FR[action as keyof typeof ACTION_FR]} — ${target.display}`,
+      fields,
+      warnings: [
+        action === "SKIP"
+          ? "Le saut est TRACÉ (audit + fil du circuit) et notifié à l'étape suivante — interdit sur la dernière étape (le moteur refusera)."
+          : action === "REJECT"
+            ? "Le refus clôt le circuit — le demandeur est notifié."
+            : "Le MOTEUR revérifie que vous avez autorité sur l'étape courante (mêmes règles que l'écran).",
+        ...warnings,
+      ],
+      payload: {
+        kind: "advance_workflow", category: cat, entityType: target.entityType, entityId: target.entityId,
+        display: target.display, action: action as "APPROVE" | "REJECT" | "SKIP", note, amount,
+      },
+    };
+  }
+
+  if (toolName === "manage_custom_field") {
+    // LA MÊME PORTE QUE L'ÉCRAN Administration → Champs personnalisés : Super Admin.
+    if (user.role !== "SUPER_ADMIN") {
+      return { error: "La gestion des champs personnalisés est réservée au Super Admin." };
+    }
+    const op = asStr(input, "op").toUpperCase();
+    if (op !== "CREATE" && op !== "UPDATE" && op !== "DELETE") return { error: "Opération invalide — CREATE, UPDATE ou DELETE." };
+    const moduleQuery = asStr(input, "module");
+    if (!moduleQuery) return { error: "Précisez le module (ex. « Regulatory », « Demandes administratives »)." };
+    // Résolution du module par son libellé français, contre la liste RÉELLE des modules à champs.
+    const fold = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    const fq = fold(moduleQuery);
+    const matches = CUSTOM_ENTITY_TYPES.filter((t) => {
+      const lbl = fold(ENTITY_TYPE_LABELS[t] ?? t);
+      return lbl.includes(fq) || fq.includes(lbl) || fold(t).includes(fq.replace(/\s+/g, "_"));
+    });
+    if (matches.length === 0) {
+      return { error: `Module « ${moduleQuery} » sans champs personnalisés. Modules possibles : ${CUSTOM_ENTITY_TYPES.map((t) => ENTITY_TYPE_LABELS[t] ?? t).join(", ")}.` };
+    }
+    if (matches.length > 1) {
+      return { error: `Plusieurs modules correspondent à « ${moduleQuery} » : ${matches.map((t) => ENTITY_TYPE_LABELS[t] ?? t).join(", ")} — préciser.` };
+    }
+    const entityType = matches[0];
+    const entityTypeLabel = ENTITY_TYPE_LABELS[entityType] ?? entityType;
+    const label = asStr(input, "label");
+    if (!label) return { error: "Précisez le libellé du champ." };
+
+    if (op === "CREATE") {
+      const type = (asStr(input, "type") || "TEXT").toUpperCase();
+      if (!["TEXT", "NUMBER", "DATE", "BOOLEAN", "SELECT"].includes(type)) return { error: `Type « ${type} » invalide.` };
+      const options = asStr(input, "options") || null;
+      if (type === "SELECT" && !options) return { error: "Un champ SELECT exige ses choix (options, séparés par des virgules)." };
+      const required = input.required === true;
+      const fields = [
+        { label: "Module", value: entityTypeLabel },
+        { label: "Champ", value: `${label} (${type})${options ? ` — choix : ${options}` : ""}` },
+        { label: "Obligatoire", value: required ? "OUI — la fiche ne s'enregistre plus sans ce champ" : "non" },
+      ];
+      return {
+        kind: "manage_custom_field", module: "ADMIN", level: "SENSITIVE",
+        title: `Ajouter le champ « ${label} » à ${entityTypeLabel}`,
+        fields,
+        warnings: ["Le champ apparaît immédiatement sur toutes les fiches du module.", ...warnings],
+        payload: {
+          kind: "manage_custom_field", op: "CREATE", defId: null, entityType, entityTypeLabel,
+          label, type, options, required, order: typeof input.order === "number" ? input.order : null,
+        },
+      };
+    }
+
+    // UPDATE / DELETE : résoudre le champ EXISTANT par son libellé sur ce module.
+    const defs = await prisma.customFieldDef.findMany({
+      where: { entityType, active: true, label: { contains: label, mode: "insensitive" } },
+      take: 5,
+    });
+    if (defs.length === 0) return { error: `Aucun champ « ${label} » sur ${entityTypeLabel}.` };
+    if (defs.length > 1) {
+      const exact = defs.filter((d) => d.label.toLowerCase() === label.toLowerCase());
+      if (exact.length !== 1) return { error: `Plusieurs champs correspondent à « ${label} » : ${defs.map((d) => d.label).join(", ")} — préciser.` };
+      defs.splice(0, defs.length, exact[0]);
+    }
+    const def = defs[0];
+
+    if (op === "DELETE") {
+      return {
+        kind: "manage_custom_field", module: "ADMIN", level: "SENSITIVE",
+        title: `Retirer le champ « ${def.label} » de ${entityTypeLabel}`,
+        fields: [
+          { label: "Module", value: entityTypeLabel },
+          { label: "Champ", value: `${def.label} (${def.type})${def.required ? " — obligatoire" : ""}` },
+        ],
+        warnings: ["Les valeurs déjà saisies RESTENT dans les fiches (JSON) mais ne s'affichent plus.", ...warnings],
+        payload: {
+          kind: "manage_custom_field", op: "DELETE", defId: def.id, entityType, entityTypeLabel,
+          label: def.label, type: def.type, options: def.options, required: def.required, order: def.order,
+        },
+      };
+    }
+
+    // UPDATE : fusion — ce que l'utilisateur ne précise pas reste tel quel.
+    const nextLabel = asStr(input, "newLabel") || def.label;
+    const nextType = (asStr(input, "type") || def.type).toUpperCase();
+    if (!["TEXT", "NUMBER", "DATE", "BOOLEAN", "SELECT"].includes(nextType)) return { error: `Type « ${nextType} » invalide.` };
+    const nextOptions = asStr(input, "options") || def.options;
+    const nextRequired = typeof input.required === "boolean" ? input.required : def.required;
+    const nextOrder = typeof input.order === "number" ? input.order : def.order;
+    const changes: string[] = [];
+    if (nextLabel !== def.label) changes.push(`libellé : ${def.label} → ${nextLabel}`);
+    if (nextType !== def.type) changes.push(`type : ${def.type} → ${nextType}`);
+    if ((nextOptions ?? "") !== (def.options ?? "")) changes.push("choix modifiés");
+    if (nextRequired !== def.required) changes.push(nextRequired ? "devient OBLIGATOIRE" : "devient optionnel");
+    if (nextOrder !== def.order) changes.push(`ordre : ${def.order} → ${nextOrder}`);
+    if (changes.length === 0) return { error: `Aucun changement demandé sur « ${def.label} ».` };
+    return {
+      kind: "manage_custom_field", module: "ADMIN", level: "SENSITIVE",
+      title: `Modifier le champ « ${def.label} » (${entityTypeLabel})`,
+      fields: [
+        { label: "Module", value: entityTypeLabel },
+        { label: "Changements", value: changes.join(" ; ") },
+      ],
+      warnings: nextRequired && !def.required
+        ? ["Dès la confirmation, les fiches du module ne s'enregistrent plus sans ce champ (le serveur fait foi).", ...warnings]
+        : warnings,
+      payload: {
+        kind: "manage_custom_field", op: "UPDATE", defId: def.id, entityType, entityTypeLabel,
+        label: nextLabel, type: nextType, options: nextOptions, required: nextRequired, order: nextOrder,
+      },
+    };
+  }
+
   if (toolName === "request_regulatory_status_update") {
     // LA MÊME PORTE QUE LE BOUTON de la fiche : la supervision Regulatory (Super Admin + rôles
     // configurés en Administration) — revérifiée par l'action canonique à l'exécution.
@@ -4053,6 +4442,74 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
       message: "Demande d'actualisation des soldes déclenchée — les responsables Finances sont notifiés.",
       link: "/finances",
       revalidate: ["/finances"],
+    };
+  }
+
+  if (payload?.kind === "configure_workflow") {
+    // LE BUILDER CANONIQUE de l'écran : porte Super Admin revérifiée, validation intégrale des
+    // étapes (rôles, pouvoirs, APPROVE obligatoire), audit — jamais une deuxième logique.
+    if (user.role !== "SUPER_ADMIN") return { ok: false, error: "La configuration des circuits est réservée au Super Admin." };
+    const fd = new FormData();
+    if (payload.reset) {
+      fd.set("category", payload.category);
+      const r = await resetWorkflowDefinition(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "La réinitialisation a été refusée." };
+      return { ok: true, message: `Circuit ${payload.categoryLabel} réinitialisé au défaut.`, link: "/admin/workflows", revalidate: ["/admin/workflows"] };
+    }
+    fd.set("payload", payload.payloadJson ?? "");
+    const r = await saveWorkflowDefinition(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La reconfiguration a été refusée." };
+    return {
+      ok: true,
+      message: `Circuit ${payload.categoryLabel} reconfiguré — ${payload.stepTitles.length} étape·s : ${payload.stepTitles.join(" → ")}.`,
+      link: "/admin/workflows",
+      revalidate: ["/admin/workflows"],
+    };
+  }
+
+  if (payload?.kind === "advance_workflow") {
+    // L'ACTION CANONIQUE du circuit : le MOTEUR décide qui peut agir (mêmes règles que l'écran),
+    // trace l'événement, notifie l'étape suivante — SKIP inclus (raison obligatoire).
+    const fd = new FormData();
+    fd.set("entityType", payload.entityType);
+    fd.set("entityId", payload.entityId);
+    fd.set("action", payload.action);
+    if (payload.note) fd.set("note", payload.note);
+    if (payload.amount != null) fd.set("amount", String(payload.amount));
+    const r = await advanceWorkflow(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "La décision a été refusée par le moteur du circuit." };
+    const verb = payload.action === "APPROVE" ? "approuvée" : payload.action === "REJECT" ? "refusée" : "étape sautée (raison tracée)";
+    return {
+      ok: true,
+      message: `« ${payload.display} » — ${verb}.`,
+      revalidate: ["/mon-espace"],
+    };
+  }
+
+  if (payload?.kind === "manage_custom_field") {
+    // LES ACTIONS CANONIQUES de l'écran Champs personnalisés — porte ADMIN revérifiée dedans.
+    if (user.role !== "SUPER_ADMIN") return { ok: false, error: "La gestion des champs personnalisés est réservée au Super Admin." };
+    const fd = new FormData();
+    if (payload.op === "DELETE") {
+      fd.set("id", payload.defId ?? "");
+      const r = await deleteCustomFieldDef(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "La suppression du champ a été refusée." };
+      return { ok: true, message: `Champ « ${payload.label} » retiré de ${payload.entityTypeLabel}.`, link: "/admin/fields", revalidate: ["/admin/fields"] };
+    }
+    if (payload.op === "UPDATE" && payload.defId) fd.set("id", payload.defId);
+    fd.set("entityType", payload.entityType);
+    fd.set("label", payload.label);
+    fd.set("type", payload.type);
+    if (payload.options) fd.set("options", payload.options);
+    if (payload.order != null) fd.set("order", String(payload.order));
+    fd.set("required", payload.required ? "true" : "false");
+    const r = await upsertCustomFieldDef(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "L'enregistrement du champ a été refusé." };
+    return {
+      ok: true,
+      message: `Champ « ${payload.label} » ${payload.op === "CREATE" ? "ajouté à" : "modifié sur"} ${payload.entityTypeLabel}${payload.required ? " — OBLIGATOIRE" : ""}.`,
+      link: "/admin/fields",
+      revalidate: ["/admin/fields"],
     };
   }
 

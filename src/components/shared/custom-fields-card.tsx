@@ -13,6 +13,8 @@ export interface CustomFieldDefDTO {
   label: string;
   type: string; // TEXT | NUMBER | DATE | BOOLEAN | SELECT
   options: string | null;
+  /** Champ à remplir obligatoirement (décidé par l'administrateur ; le serveur fait foi). */
+  required?: boolean;
 }
 
 interface Props {
@@ -33,6 +35,7 @@ export function CustomFieldsCard({ entityType, entityId, defs, values, canEdit }
   const pathname = usePathname();
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   if (defs.length === 0) {
     return (
@@ -61,10 +64,15 @@ export function CustomFieldsCard({ entityType, entityId, defs, values, canEdit }
     <form
       action={async (fd) => {
         setSaving(true);
-        await saveCustomValues(fd);
+        setError(null);
+        const r = await saveCustomValues(fd);
         setSaving(false);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 1500);
+        if (r.ok) {
+          setSaved(true);
+          setTimeout(() => setSaved(false), 1500);
+        } else {
+          setError(r.error ?? "Enregistrement impossible.");
+        }
       }}
       className="space-y-3"
     >
@@ -85,9 +93,12 @@ export function CustomFieldsCard({ entityType, entityId, defs, values, canEdit }
           }
           return (
             <div key={d.id} className="space-y-1">
-              <Label htmlFor={name}>{d.label}</Label>
+              <Label htmlFor={name}>
+                {d.label}
+                {d.required && <span className="text-destructive"> *</span>}
+              </Label>
               {d.type === "SELECT" ? (
-                <Select id={name} name={name} defaultValue={String(v ?? "")}>
+                <Select id={name} name={name} defaultValue={String(v ?? "")} required={d.required}>
                   <option value="">—</option>
                   {(d.options ?? "").split(",").map((o) => o.trim()).filter(Boolean).map((o) => (
                     <option key={o} value={o}>{o}</option>
@@ -100,12 +111,14 @@ export function CustomFieldsCard({ entityType, entityId, defs, values, canEdit }
                   type={d.type === "NUMBER" ? "number" : d.type === "DATE" ? "date" : "text"}
                   step={d.type === "NUMBER" ? "any" : undefined}
                   defaultValue={d.type === "DATE" ? toDateValue(v) : (v as string) ?? ""}
+                  required={d.required}
                 />
               )}
             </div>
           );
         })}
       </div>
+      {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
       <div className="flex justify-end">
         <Button type="submit" size="sm" disabled={saving}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}

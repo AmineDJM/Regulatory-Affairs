@@ -383,6 +383,47 @@ export const ERP_ACTIONS: NativeAction[] = [
     gate: (u) => userCan(u, "MEDICAL", "UPDATE"),
   },
   {
+    id: "WORKFLOW_CONFIGURE",
+    module: "Administration → Circuits",
+    uiLabel: "Builder des circuits de validation Ad&Pro",
+    toolName: "configure_workflow",
+    aliases: [
+      "circuit de validation", "modifie le circuit", "ajoute une étape au circuit",
+      "retire une étape du circuit", "réordonne le circuit", "réinitialise le circuit",
+      "change les validateurs du circuit",
+    ],
+    risk: "SENSITIVE",
+    summary: "Reconfigure un circuit de validation Ad&Pro (Sponsoring, Prises en charge, Événements) : étapes, qui agit, pouvoirs, automatismes — remplacement intégral validé par l'action ; les demandes en cours gardent leur étape par slug. Les autres circuits de l'ERP sont codés en dur.",
+    gate: isSA,
+  },
+  {
+    id: "WORKFLOW_ADVANCE",
+    module: "Circuits Ad&Pro",
+    uiLabel: "Approuver / Refuser / Sauter l'étape courante",
+    toolName: "advance_workflow",
+    aliases: [
+      "approuve la demande de sponsoring", "refuse la demande de sponsoring", "saute l'étape",
+      "sauter l'étape de validation", "valide l'étape du circuit", "fais avancer le circuit",
+    ],
+    risk: "SENSITIVE",
+    summary: "Décision sur l'étape courante d'une demande engagée dans un circuit : approuver (l'étape suivante s'ouvre), refuser (circuit clos, demandeur notifié) ou SAUTER une étape intermédiaire (raison obligatoire, tracée, notifiée). Le moteur revérifie l'autorité de l'acteur.",
+    gate: () => true,
+    gateNote: "l'autorité réelle est décidée par le moteur selon l'étape courante",
+  },
+  {
+    id: "CUSTOM_FIELD_MANAGE",
+    module: "Administration → Champs personnalisés",
+    uiLabel: "Champs personnalisés des modules (+ « obligatoire »)",
+    toolName: "manage_custom_field",
+    aliases: [
+      "champ personnalisé", "ajoute un champ", "rends le champ obligatoire", "champ obligatoire",
+      "rends le champ optionnel", "supprime le champ personnalisé", "ajoute une colonne au module",
+    ],
+    risk: "SENSITIVE",
+    summary: "Crée, modifie ou retire un champ personnalisé d'un module (texte, nombre, date, oui/non, liste) — y compris le rendre OBLIGATOIRE : la fiche ne s'enregistre plus sans lui (appliqué par le serveur). Retirer un champ n'efface pas les valeurs déjà saisies.",
+    gate: isSA,
+  },
+  {
     id: "SALARY_UPDATE",
     module: "RH",
     uiLabel: "Modifier la rémunération (fiche employé)",
@@ -812,15 +853,18 @@ G("matrice d'accès fine & profils (droits par module, périmètres de lignes, p
   "access-actions:updateUserProfile", "access-actions:setUserActive", "access-actions:revokeSession",
   "access-actions:requestOnboarding", "access-actions:revokeAllSessions",
 ]);
-G("administration des FORMULAIRES et CIRCUITS (champs personnalisés, règles de validation, définitions de workflow)", [
-  "custom-field-actions:upsertCustomFieldDef", "custom-field-actions:deleteCustomFieldDef",
-  "custom-field-actions:saveCustomValues", "validation-actions:createValidationRule",
-  "validation-actions:updateValidationRule", "validation-actions:toggleValidationRule",
-  "validation-actions:deleteValidationRule", "validation-actions:createValidationRequest",
-  "validation-actions:decideValidation", "validation-actions:reviewValidationItem",
-  "validation-actions:clearValidationItem", "validation-actions:remindValidator",
-  "workflow-actions:advanceWorkflow", "workflow-actions:saveWorkflowDefinition",
-  "workflow-actions:resetWorkflowDefinition",
+classify("NATIVE", "configure_workflow", ["workflow-actions:saveWorkflowDefinition", "workflow-actions:resetWorkflowDefinition"]);
+classify("NATIVE", "advance_workflow", ["workflow-actions:advanceWorkflow"]);
+classify("NATIVE", "manage_custom_field", ["custom-field-actions:upsertCustomFieldDef", "custom-field-actions:deleteCustomFieldDef"]);
+G("saisie des VALEURS de champs personnalisés sur une fiche (l'écran de la fiche le fait déjà)", [
+  "custom-field-actions:saveCustomValues",
+]);
+G("règles et demandes de VALIDATION (module Validations)", [
+  "validation-actions:createValidationRule", "validation-actions:updateValidationRule",
+  "validation-actions:toggleValidationRule", "validation-actions:deleteValidationRule",
+  "validation-actions:createValidationRequest", "validation-actions:decideValidation",
+  "validation-actions:reviewValidationItem", "validation-actions:clearValidationItem",
+  "validation-actions:remindValidator",
 ]);
 G("pièces jointes & documents polymorphes (upload/renommage), papiers en-tête, fournitures", [
   "document-actions:uploadDocument", "document-actions:renameDocument", "document-actions:deleteDocument",

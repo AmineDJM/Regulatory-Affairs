@@ -634,6 +634,32 @@ primitive GÉNÉRALE (aucun exemple codé en dur — §42) + un test golden.
       trou muet. NOT YET MEASURED : la parité E2E Playwright (comparer état DB/audit après
       exécution UI vs Chief) — infrastructure E2E absente du repo à ce jour.
 
+   ADMINISTRATION DES CIRCUITS ET DES FORMULAIRES (lot suivant — « il doit pouvoir tout
+   faire ») — parité 10,1 % (60 couvertes / 534 trous) :
+   • CIRCUITS : `read_workflow` (état réel du builder : étapes, acteurs, pouvoirs, dictionnaires
+     de codes) + `configure_workflow` (Super Admin — recomposition COMPLÈTE des étapes via le
+     builder canonique `saveWorkflowDefinition`, mêmes règles re-validées : titres, ≥1 APPROVE,
+     rôles/pouvoirs par codes ; carte AVANT → APRÈS ; slugs conservés = demandes en cours
+     jamais perdues ; `reset` renvoie au circuit par défaut). Golden : « Ajoute Finance après
+     Information Médicale ». HONNÊTETÉ MAINTENUE : seuls les 4 circuits Ad&Pro sont
+     configurables — les autres sont du code, le prompt l'impose au Chief.
+   • ÉTAPES : `advance_workflow` — approuver / refuser / SAUTER une étape courante par l'action
+     canonique (le MOTEUR décide qui a autorité) ; SKIP sans raison refusé DÈS la proposition
+     (raison tracée + notifiée, jamais sur la dernière étape) ; résolution de la demande par
+     référence/nom avec étape courante et acteurs affichés sur la carte.
+   • CHAMPS : `manage_custom_field` (Super Admin — créer/modifier/supprimer sur les 18 modules
+     à champs personnalisés) + ÉVOLUTION ERP livrée : flag `required` sur `CustomFieldDef`
+     (migration idempotente `20260826100000_custom_field_required`) appliqué DE BOUT EN BOUT —
+     case « Obligatoire » dans Administration → Champs personnalisés, astérisque + `required`
+     dans le rendu partagé (`custom-fields-card`, erreurs serveur désormais AFFICHÉES), et
+     refus serveur par `missingRequiredValues` (pur, testé — un Oui/Non n'est jamais
+     « manquant »). Golden : « Rends ce champ obligatoire » = UPDATE `required=true`.
+   • PIÈCES JOINTES : natives sur les demandes/fiches (système Document/attachFiles, y compris
+     sur les avis de circuit) — pas de type de champ « fichier » : évolution future si besoin.
+   • LANGUE : règle transverse (texte + voix, via le vocabulaire métier partagé) — le Chief
+     répond TOUJOURS en français, comprend toutes les langues et traduit ce qu'il cite ; il ne
+     change de langue que sur demande EXPLICITE, et revient au français ensuite.
+
 7. *« Je veux un Excel téléchargeable ICI » → « disponible dans le Drive ».*
    → chaque fichier de livrable porte `telechargement: /api/drive/<id>/raw` (mêmes ACL Drive,
    Content-Disposition attachment) en plus du lien Drive ; le rendu du chat LINKIFIE les

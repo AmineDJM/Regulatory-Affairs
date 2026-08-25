@@ -14,7 +14,7 @@ export default async function CustomFieldsPage() {
 
   const rows: FieldDefDTO[] = defs.map((d) => ({
     id: d.id, entityType: d.entityType, key: d.key, label: d.label,
-    type: d.type, options: d.options, order: d.order,
+    type: d.type, options: d.options, order: d.order, required: d.required,
   }));
   const entityTypes = CUSTOM_ENTITY_TYPES.map((t) => ({ value: t, label: ENTITY_TYPE_LABELS[t] ?? t }));
 

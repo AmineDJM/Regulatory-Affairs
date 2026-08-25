@@ -3114,6 +3114,25 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+- **LE CHIEF ADMINISTRE LES CIRCUITS ET LES FORMULAIRES — et parle français.** Suite directe de
+  ZERO-GAP (parité 9 % → 10,1 %, 60 couvertes / 534 trous assumés). **Circuits de validation** :
+  `read_workflow` (état réel du builder + dictionnaires de codes) et `configure_workflow`
+  (Super Admin — recomposition complète des étapes via `saveWorkflowDefinition` canonique,
+  carte AVANT → APRÈS, slugs conservés pour ne perdre aucune demande en cours, `reset` au
+  défaut) — golden « Ajoute Finance après Information Médicale » ; seuls les 4 circuits Ad&Pro
+  sont configurables, les autres sont du code (dit honnêtement par le prompt).
+  **Étapes** : `advance_workflow` — approuver / refuser / **sauter une personne** (SKIP) par
+  l'action canonique : le moteur décide l'autorité, la raison est OBLIGATOIRE dès la
+  proposition (tracée + notifiée), résolution par référence avec étape courante affichée.
+  **Champs personnalisés** : `manage_custom_field` (créer/modifier/supprimer, 18 modules) +
+  **évolution ERP livrée : le flag « obligatoire »** — migration `20260826100000`, case dans
+  Administration → Champs personnalisés, astérisque + `required` dans le rendu partagé (les
+  erreurs serveur s'affichent enfin), refus serveur par `missingRequiredValues` (pur, testé ;
+  un Oui/Non n'est jamais « manquant ») — golden « Rends ce champ obligatoire ».
+  **Langue** : le Chief répond TOUJOURS en français (texte + voix), comprend toutes les
+  langues, traduit ce qu'il cite, et ne change de langue que sur demande explicite.
+  Tests : `workflow-config` (7) ; registre reclassé (5 actions GAP→NATIVE), cliquet 534.
+
 - **ZERO-GAP — le Chief est le plan de contrôle en langage naturel de l'ERP.** Cas réel : le
   bouton Finances « Demander l'actualisation des soldes » existait, mais le Chief fabriquait une
   demande administrative générique puis disait « je ne peux pas cliquer ». Réponse systémique

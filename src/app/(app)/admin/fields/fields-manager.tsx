@@ -17,6 +17,7 @@ export interface FieldDefDTO {
   type: string;
   options: string | null;
   order: number;
+  required: boolean;
 }
 
 const TYPES = [
@@ -58,6 +59,7 @@ export function FieldsManager({
                 <TableHead>Clé</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Choix</TableHead>
+                <TableHead>Obligatoire</TableHead>
                 <TableHead>Ordre</TableHead>
                 <TableHead className="text-right"></TableHead>
               </TableRow>
@@ -69,6 +71,7 @@ export function FieldsManager({
                   <TableCell><code className="text-xs">{d.key}</code></TableCell>
                   <TableCell><Badge tone="neutral" dot={false}>{TYPES.find((t) => t.value === d.type)?.label ?? d.type}</Badge></TableCell>
                   <TableCell className="text-xs text-muted-foreground">{d.options || "—"}</TableCell>
+                  <TableCell>{d.required ? <Badge tone="warning" dot={false}>Obligatoire</Badge> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
                   <TableCell>{d.order}</TableCell>
                   <TableCell className="text-right">
                     <form action={async (fd) => { await deleteCustomFieldDef(fd); }} className="inline">
@@ -97,7 +100,11 @@ export function FieldsManager({
         </div>
         <div className="space-y-1"><Label htmlFor="options">Choix (si liste)</Label><Input id="options" name="options" placeholder="A, B, C" /></div>
         <div className="space-y-1"><Label htmlFor="order">Ordre</Label><Input id="order" name="order" type="number" defaultValue={fieldsForType.length} /></div>
-        <div className="col-span-2 flex items-end md:col-span-5 md:justify-end">
+        <label className="col-span-2 flex items-center gap-2 text-sm md:col-span-2">
+          <input type="checkbox" name="required" className="h-4 w-4 rounded border-input" />
+          Champ obligatoire (à remplir avant d&apos;enregistrer la fiche)
+        </label>
+        <div className="col-span-2 flex items-end md:col-span-3 md:justify-end">
           <Button type="submit" disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             Ajouter la colonne

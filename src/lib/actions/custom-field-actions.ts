@@ -7,7 +7,7 @@ import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { readCustomValues, writeCustomValues, getFieldDefs } from "@/lib/custom-fields";
+import { readCustomValues, writeCustomValues, getFieldDefs, missingRequiredValues } from "@/lib/custom-fields";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 function slug(s: string) {
@@ -28,14 +28,17 @@ export async function upsertCustomFieldDef(formData: FormData): Promise<ActionRe
   const type = (fdStr(formData, "type") as CustomFieldType) ?? "TEXT";
   const options = fdStr(formData, "options");
   const order = fdNum(formData, "order") ?? 0;
+  // « Obligatoire » : décidé par l'administrateur, appliqué par le serveur à la saisie.
+  const requiredRaw = formData.get("required");
+  const required = requiredRaw === "on" || requiredRaw === "true";
 
   if (id) {
-    await prisma.customFieldDef.update({ where: { id }, data: { label, type, options, order } });
+    await prisma.customFieldDef.update({ where: { id }, data: { label, type, options, order, required } });
   } else {
     const key = slug(label);
     const exists = await prisma.customFieldDef.findUnique({ where: { entityType_key: { entityType, key } } });
     await prisma.customFieldDef.create({
-      data: { entityType, key: exists ? `${key}_${Date.now().toString(36)}` : key, label, type, options, order },
+      data: { entityType, key: exists ? `${key}_${Date.now().toString(36)}` : key, label, type, options, order, required },
     });
   }
   await recordAudit({
@@ -80,6 +83,12 @@ export async function saveCustomValues(formData: FormData): Promise<ActionResult
     } else {
       next[def.key] = raw ? String(raw) : null;
     }
+  }
+  // Les champs marqués OBLIGATOIRES par l'administrateur doivent être remplis — le serveur
+  // fait foi (l'attribut `required` du navigateur n'est qu'un confort).
+  const missing = missingRequiredValues(defs, next);
+  if (missing.length > 0) {
+    return { ok: false, error: `Champ(s) obligatoire(s) à remplir : ${missing.join(", ")}.` };
   }
   await writeCustomValues(entityType, entityId, next);
   await recordAudit({

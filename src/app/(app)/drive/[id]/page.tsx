@@ -146,7 +146,7 @@ export default async function DriveFilePage({ params }: { params: { id: string }
               <CustomFieldsCard
                 entityType="DRIVE_NODE"
                 entityId={node.id}
-                defs={fieldDefs.map((f) => ({ id: f.id, key: f.key, label: f.label, type: f.type, options: f.options }))}
+                defs={fieldDefs.map((f) => ({ id: f.id, key: f.key, label: f.label, type: f.type, options: f.options, required: f.required }))}
                 values={(node.custom as Record<string, unknown>) ?? {}}
                 canEdit={canEdit}
               />
