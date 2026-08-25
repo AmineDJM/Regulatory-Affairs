@@ -1,5 +1,7 @@
 import type { PowerTool } from "@/lib/assistant/power-tools";
 import type { CurrentUser } from "@/lib/session";
+import { assigneeRegulatoryLoad } from "@/lib/assistant/regulatory-read";
+import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
 import { toNumber } from "@/lib/utils";
@@ -125,7 +127,10 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
       // ACTIVITÉ OBSERVÉE (90 j) + DÉPENDANCE — uniquement si un compte applicatif existe.
       const since = new Date(now.getTime() - 90 * DAY);
       const uid = emp.user?.id ?? null;
-      const [tasksOpen, tasksDone, tasksLate, validationsRendered, validationsWaiting, audits, lastAudit, fieldReports, regResponsible, docs] = uid
+      // Le décompte Regulatory passe par LA définition canonique (responsable DÉSIGNÉ) dans le
+      // PÉRIMÈTRE DE L'APPELANT : le Chief ne montre pas à quelqu'un plus que son propre écran.
+      const regVisible = uid && userCan(user, "REGULATORY", "VIEW") ? await regulatoryVisibleWhere(user) : null;
+      const [tasksOpen, tasksDone, tasksLate, validationsRendered, validationsWaiting, audits, lastAudit, fieldReports, regLoad, docs, tasksCritical, oldestOpenTask, topTasks, regAccessOnly] = uid
         ? await Promise.all([
             prisma.task.count({ where: { assignedToId: uid, status: { notIn: ["DONE", "CANCELLED"] } } }),
             prisma.task.count({ where: { assignedToId: uid, status: "DONE", updatedAt: { gte: since } } }),
@@ -135,11 +140,31 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
             prisma.auditLog.count({ where: { actorId: uid, createdAt: { gte: since } } }),
             prisma.auditLog.findFirst({ where: { actorId: uid }, orderBy: { createdAt: "desc" }, select: { createdAt: true, summary: true } }),
             prisma.fieldReport.count({ where: { delegateId: uid, createdAt: { gte: since } } }).catch(() => 0),
-            prisma.regulatoryProduct.count({ where: { responsibleId: uid } }),
+            regVisible ? assigneeRegulatoryLoad(uid, regVisible as Record<string, unknown>, 10) : null,
             prisma.document.findMany({ where: { entityType: "EMPLOYEE", entityId: emp.id }, select: { id: true, name: true, category: true, createdAt: true }, take: 10, orderBy: { createdAt: "desc" } }),
+            prisma.task.count({ where: { assignedToId: uid, status: { notIn: ["DONE", "CANCELLED"] }, priority: "CRITICAL" } }),
+            prisma.task.findFirst({ where: { assignedToId: uid, status: { notIn: ["DONE", "CANCELLED"] } }, orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
+            prisma.task.findMany({
+              where: { assignedToId: uid, status: { notIn: ["DONE", "CANCELLED"] } },
+              orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
+              take: 5,
+              select: { title: true, dueDate: true, priority: true, createdAt: true, createdBy: { select: { name: true } } },
+            }),
+            regVisible
+              ? prisma.regulatoryProduct.count({
+                  where: {
+                    AND: [
+                      regVisible as never,
+                      { assignedUsers: { some: { id: uid } } },
+                      { responsibleId: { not: uid } },
+                    ],
+                  },
+                })
+              : null,
           ])
         : [null, null, null, null, null, null, null, null, null,
-            await prisma.document.findMany({ where: { entityType: "EMPLOYEE", entityId: emp.id }, select: { id: true, name: true, category: true, createdAt: true }, take: 10, orderBy: { createdAt: "desc" } })];
+            await prisma.document.findMany({ where: { entityType: "EMPLOYEE", entityId: emp.id }, select: { id: true, name: true, category: true, createdAt: true }, take: 10, orderBy: { createdAt: "desc" } }),
+            null, null, null, null];
 
       // RÉMUNÉRATION : la porte est LE MODULE RH du compte APPELANT — même règle que l'écran
       // et que read_payroll. Un PDG sans le module RH ne la voit pas ici non plus.
@@ -171,10 +196,32 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
               source: "fiche RH (relue à l'instant — jamais de mémoire)",
             }
           : "réservée aux détenteurs du module RH — votre compte ne l'a pas",
+        // B. DOSSIERS DIRECTEMENT ASSIGNÉS — la définition CANONIQUE (« Chargé du dossier »),
+        // dans le périmètre de l'appelant. GÉRER ≠ AVOIR ACCÈS : les deux chiffres sont
+        // séparés et le second ne se présente JAMAIS comme une charge de travail.
+        dossiersRegulatoryDirects: regLoad
+          ? {
+              definition: "dossiers dont la personne est RESPONSABLE DÉSIGNÉE — jamais le simple accès",
+              total: regLoad.total, parStatut: regLoad.parStatut, enRetardSurCible: regLoad.enRetardCible,
+              liste: regLoad.liste,
+            }
+          : (uid ? "module Regulatory non ouvert à votre compte — non consulté" : null),
+        accesSansResponsabilite: regAccessOnly != null
+          ? { dossiersRegulatoryAccessibles: regAccessOnly, regle: "ACCÈS ≠ GESTION — ne jamais compter ces dossiers comme gérés" }
+          : null,
+        // C+D. TÂCHES ASSIGNÉES (signal PRIMAIRE de travail observé) + activité ERP globale.
         activiteObservee: uid
           ? {
               fenetre: "90 derniers jours",
               tachesOuvertes: tasksOpen, tachesTerminees: tasksDone, tachesEnRetard: tasksLate,
+              tachesCritiquesOuvertes: tasksCritical,
+              plusAncienneTacheOuverteJours: oldestOpenTask ? Math.floor((now.getTime() - oldestOpenTask.createdAt.getTime()) / DAY) : null,
+              velociteTachesParMois: tasksDone != null ? Math.round((tasksDone / 3) * 10) / 10 : null,
+              tachesEnCours: (topTasks ?? []).map((t) => ({
+                titre: t.title, echeance: ymd(t.dueDate), priorite: t.priority,
+                ageJours: Math.floor((now.getTime() - t.createdAt.getTime()) / DAY),
+                demandePar: t.createdBy?.name ?? null,
+              })),
               validationsRendues: validationsRendered,
               rapportsTerrain: fieldReports,
               actionsAuJournal: audits,
@@ -187,9 +234,15 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
           equipesDirigees: emp.headOf.map((d) => d.name),
           adjointDe: emp.deputyOf.map((d) => d.name),
           rapportsDirects: emp.reports.map((r) => r.fullName),
-          dossiersRegulatoryResponsable: regResponsible,
+          dossiersRegulatoryResponsable: regLoad?.total ?? null,
           lecture: "indicateurs FACTUELS de dépendance (personne-clé) — pas un jugement : les interpréter avec le contexte.",
         },
+        chargeDeTravail: uid
+          ? {
+              resume: `${regLoad ? `${regLoad.total} dossier(s) Regulatory en responsabilité directe` : "Regulatory non consulté"} · ${tasksOpen ?? 0} tâche(s) ouverte(s) dont ${tasksLate ?? 0} en retard · ${validationsWaiting ?? 0} validation(s) en attente chez la personne`,
+              lecture: "charge OBSERVÉE dans l'ERP — à recouper avec la réalité du terrain avant toute décision",
+            }
+          : null,
         documentsRH: docs.map((d) => ({ nom: d.name, categorie: d.category, depose: ymd(d.createdAt), documentId: d.id })),
         lien: `/rh/${emp.id}`,
       });

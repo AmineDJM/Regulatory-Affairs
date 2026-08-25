@@ -1,8 +1,10 @@
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
-import { userCan, scopeRegulatory, isTopManagement, type SessionUser } from "@/lib/rbac";
+import { userCan, isTopManagement, type SessionUser } from "@/lib/rbac";
 import { currentCompanyWhereFor } from "@/lib/company";
+import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
+import { dossierStageLabel } from "@/lib/assistant/regulatory-read";
 import { recruitmentScope } from "@/lib/recruitment/access";
 import {
   PHARMA_FORM, DOSAGE_UNIT, REGULATORY_STATUS, PRIORITY, DOCTOR_TITLE,
@@ -44,7 +46,7 @@ interface DatasetSpec {
 export const DATASETS: Record<ExportDataset, DatasetSpec> = {
   regulatory: {
     label: "Dossiers Regulatory", module: "REGULATORY", sheet: "Dossiers",
-    columns: ["Référence", "DCI", "Nom commercial", "Dosage", "Forme", "Conditionnement", "Classe thérapeutique", "Statut", "Priorité", "Chargé du dossier", "Entité", "Date cible"],
+    columns: ["Référence", "DCI", "Nom commercial", "Dosage", "Forme", "Conditionnement", "Classe thérapeutique", "Partenaire", "Statut", "Priorité", "Étape ANPP", "Avancement", "Chargé du dossier", "Entité", "Date cible dépôt", "Date cible enregistrement", "Lien ERP"],
     widths: [16, 28, 22, 14, 18, 18, 22, 22, 12, 22, 16, 14],
   },
   annuaire: {
@@ -94,8 +96,10 @@ async function fetchRows(user: SessionUser, dataset: ExportDataset, limit: numbe
   const take = Math.min(Math.max(limit, 1), 5000);
   switch (dataset) {
     case "regulatory": {
+      // LE MÊME PÉRIMÈTRE QUE L'ÉCRAN (`regulatoryVisibleWhere`) et le MÊME calcul d'étape
+      // (`dossierStageLabel` → regProgress) : l'export ne contredit ni le tableau ni le Chief.
       const rows = await prisma.regulatoryProduct.findMany({
-        where: { ...scopeRegulatory(user), ...await currentCompanyWhereFor(user.id) },
+        where: await regulatoryVisibleWhere(user),
         orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
         take,
         include: {
@@ -103,16 +107,22 @@ async function fetchRows(user: SessionUser, dataset: ExportDataset, limit: numbe
           company: { select: { name: true, shortName: true } },
         },
       });
-      return rows.map((p) => [
-        p.reference, p.dci, p.brandName ?? "",
-        [p.dosage, p.dosageUnit ? DOSAGE_UNIT[p.dosageUnit] ?? p.dosageUnit : null].filter(Boolean).join(" "),
-        p.pharmaceuticalForm ? PHARMA_FORM[p.pharmaceuticalForm] ?? p.pharmaceuticalForm : "",
-        p.packaging ?? "", p.therapeuticClass ?? "",
-        REGULATORY_STATUS[p.status]?.label ?? p.status,
-        PRIORITY[p.priority]?.label ?? p.priority,
-        p.responsible?.name ?? "", p.company?.shortName ?? p.company?.name ?? "",
-        fr(p.targetDate),
-      ]);
+      return rows.map((p) => {
+        const stage = dossierStageLabel(p.workflow);
+        return [
+          p.reference, p.dci, p.brandName ?? "",
+          [p.dosage, p.dosageUnit ? DOSAGE_UNIT[p.dosageUnit] ?? p.dosageUnit : null].filter(Boolean).join(" "),
+          p.pharmaceuticalForm ? PHARMA_FORM[p.pharmaceuticalForm] ?? p.pharmaceuticalForm : "",
+          p.packaging ?? "", p.therapeuticClass ?? "",
+          p.partnerLab ?? "",
+          REGULATORY_STATUS[p.status]?.label ?? p.status,
+          PRIORITY[p.priority]?.label ?? p.priority,
+          stage.etape, stage.avancement,
+          p.responsible?.name ?? "", p.company?.shortName ?? p.company?.name ?? "",
+          fr(p.targetSubmissionDate), fr(p.targetDate),
+          `/regulatory/${p.id}`,
+        ];
+      });
     }
     case "annuaire": {
       const rows = await prisma.medicalDoctor.findMany({ orderBy: { name: "asc" }, take });

@@ -25,30 +25,31 @@ const NAMED_ON_DOSSIER = (userId: string) => ({
   ],
 });
 
-export async function getRegulatoryRows(user: SessionUser) {
-  // LA GAMME AFFINE L'ENTITÉ, elle ne la remplace pas. Quelqu'un rattaché à une ou plusieurs
-  // gammes ne voit que leurs produits ; quelqu'un rattaché à une société entière la garde
-  // entière. `null` quand il n'y a rien à restreindre — la clause n'est alors même pas posée.
+/**
+ * LE PÉRIMÈTRE VISIBLE D'UNE PERSONNE SUR REGULATORY — la clause UNIQUE, partagée par l'écran
+ * ET par les outils du Chief of Staff : LE CHIEF NE DOIT JAMAIS CONTREDIRE L'ÉCRAN parce que
+ * son outil poserait un filtre plus faible.
+ *
+ * LA GAMME AFFINE L'ENTITÉ, elle ne la remplace pas ; et ÊTRE NOMMÉ SUR UN DOSSIER PASSE AVANT
+ * LE FILTRE DE GAMME : la gamme dit « voici votre périmètre habituel », désigner quelqu'un sur
+ * un dossier dit « celui-ci aussi, délibérément ». Le cloisonnement par ENTITÉ, lui, n'est
+ * jamais contourné par une assignation.
+ */
+export async function regulatoryVisibleWhere(user: SessionUser) {
   const rangeScope = await productRangeScope(user.id);
+  return {
+    ...scopeRegulatory(user),
+    ...await currentCompanyWhereFor(user.id),
+    ...(rangeScope
+      ? { AND: [{ OR: [rangeScope, NAMED_ON_DOSSIER(user.id)] }] }
+      : {}),
+  };
+}
+
+export async function getRegulatoryRows(user: SessionUser) {
   const [products, suppliers, companies, settings] = await Promise.all([
     prisma.regulatoryProduct.findMany({
-      where: {
-        ...scopeRegulatory(user),
-        ...await currentCompanyWhereFor(user.id),
-        // ÊTRE NOMMÉ SUR UN DOSSIER PASSE AVANT LE FILTRE DE GAMME.
-        //
-        // La gamme dit « voici votre périmètre habituel » ; désigner quelqu'un sur un dossier dit
-        // « celui-ci aussi, délibérément ». Sans cette exception, confier un dossier « Onco » à
-        // quelqu'un rattaché à la gamme « Cardio » le lui donnait sans le lui montrer : il
-        // recevait la notification, ouvrait la fiche par le lien… et ne retrouvait jamais la
-        // ligne dans son tableau.
-        //
-        // Le cloisonnement par ENTITÉ, lui, n'est pas touché : porter un dossier d'une autre
-        // société se décide en ouvrant cette société, pas par effet de bord d'une assignation.
-        ...(rangeScope
-          ? { AND: [{ OR: [rangeScope, NAMED_ON_DOSSIER(user.id)] }] }
-          : {}),
-      },
+      where: await regulatoryVisibleWhere(user),
       orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
       include: {
         responsible: { select: { name: true } },

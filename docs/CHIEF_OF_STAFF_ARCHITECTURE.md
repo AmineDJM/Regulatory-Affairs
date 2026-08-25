@@ -498,6 +498,99 @@ disait ; « Alors ? » le faisait apparaître).**
   analyse déléguée puis silence → la voix restitue SEULE ; « Attends » en pleine phrase →
   coupure immédiate ; clavier/toux pendant la réponse → la voix ne s'arrête pas.
 
+### WORLD-CLASS EXECUTIVE AI — connaître l'entreprise, pas chercher dedans
+
+Le principe : le Chief se comporte comme quelqu'un qui CONNAÎT l'entreprise — pas comme un
+moteur de recherche avec un LLM devant. MEMORY ≠ SOURCE OF TRUTH : toute donnée métier mutable
+se revérifie contre sa source canonique. Chaque panne réelle ci-dessous est devenue une
+primitive GÉNÉRALE (aucun exemple codé en dur — §42) + un test golden.
+
+**Root causes corrigées (avant → après) :**
+
+1. *« Combien de dossiers Amel gère ? » → « 141 »* (les produits ACCESSIBLES, pas les siens).
+   → GÉRER ≠ AVOIR ACCÈS. `regulatory_workload` / `regulatory_portfolio`
+   (`lib/assistant/regulatory-read.ts`) comptent le RESPONSABLE DÉSIGNÉ (`responsibleId` — la
+   colonne « Chargé du dossier » de l'écran), disent l'accès À PART avec l'interdiction de le
+   compter comme géré, et lisent LE MÊME périmètre que le tableau (`regulatoryVisibleWhere`,
+   factorisé dans `lib/queries/regulatory-rows.ts` — screen parity par construction).
+   `employee_360` sépare désormais : structurel / dossiers DIRECTS / accès sans responsabilité /
+   tâches détaillées (retard, critiques, ancienneté, vélocité, top 5) / activité observée /
+   validations / dépendance / résumé de charge.
+
+2. *« 22/22 étapes, 100 % — prochaine étape : 1. Réception du CTD complet »* (impossible).
+   → INVARIANT dans `regProgress` : toutes les étapes faites → `current = null`, jamais un
+   retour à l'étape 1 quel que soit le verrou de présoumission ; et `completeStepsThrough`
+   (jalon « Décision obtenue »/« Déposé ») dérive l'avis FAVORABLE de présoumission — on ne
+   dépose pas sans lui — sans jamais réécrire un avis explicite. UI, API et outils consomment
+   LA MÊME fonction : le fix corrige tout le monde.
+
+3. *« Les produits Kwality… » puis « Et les produits SD ? » → raisonnement reparti de zéro.*
+   → QUERY PLANNER pur (`queryPlan`/`queryPlanContext` dans `lib/assistant/reasoning.ts`) :
+   domaine + intention par motifs GÉNÉRAUX (texte replié, aucun nom d'entité), détection du
+   SUIVI ELLIPTIQUE (« et… ? » court) qui hérite domaine + intention et substitue l'entité —
+   injecté au prompt texte ET voix (via la délégation). Observabilité : `query_plan` au log
+   (domaine/intention/suivi — jamais le texte).
+   RÉSOLUTION D'ENTITÉS (`lib/assistant/entity-normalize.ts`, pur) : repli d'accents +
+   recollage des sigles pointés (« S.D. » → « sd ») + retrait du bruit corporate + ACRONYMES
+   par initiales (« SAI » ↔ « Société Algérienne d'Infectiologie ») + recouvrement de jetons →
+   candidats SCORÉS avec raison ; politique decisive/ambiguous/none — JAMAIS de fusion muette
+   de deux sociétés réellement différentes.
+
+4. *« Quand est la grande journée nationale de la SAI ? » → « aucune trace » après UNE table.*
+   → `investigate_event` (`lib/assistant/investigation.ts`) : 8 sources EN PARALLÈLE
+   (événements, sponsoring, calendrier, courriers, réunions, tâches, paiements, Drive-ACL),
+   acronymes résolus contre les organisations RÉELLEMENT présentes, COUVERTURE rendue.
+   RÈGLE DE CONDUITE (texte + voix) : « aucune trace » est une conclusion DE COUVERTURE —
+   interdite tant qu'une source raisonnablement pertinente n'a pas été interrogée ; les
+   outils de recherche rendent leur champ `couverture` (find_documents compris).
+
+5. *« Qui a uploadé Direction Générale ? Combien de BC dedans ? » → « veux-tu que j'explore ? »*
+   → `inspect_drive_folder` : traversée RÉCURSIVE bornée (≤ 6 niveaux, ≤ 400 nœuds), DÉPOSANTS
+   réels (`FileVersion.createdById`), classification par CONTENU avec BC STRICTS ≠ assimilés
+   (devis/proformas/factures) ≠ non-classés — trois chiffres honnêtes —, indexation à la volée
+   bornée, ACL nœud par nœud. Et la règle : une question qui implique une exploration
+   s'explore D'OFFICE, en un tour.
+
+6. *CRUD absent : l'écran sait confier un dossier, le Chief non.*
+   → `assign_regulatory_responsible` (réutilise `setRegulatoryResponsible` — MÊME porte
+   Super Admin, même audit, même notification) et `set_regulatory_step` (statut d'étape ANPP /
+   avis de présoumission via `setRegulatoryStepState`/`setRegulatoryPresubOutcome`) — en
+   PROPOSITION → CONFIRMATION → EXÉCUTION, jamais une deuxième logique métier.
+   AUDIT HONNÊTE : l'UI ne sait PAS supprimer un dossier Regulatory — la parité n'exige donc
+   aucun outil de suppression (aucun DELETE improvisé n'existe).
+   « Demande à X de faire Y » = CRÉER UNE TÂCHE par défaut (règle métier texte + voix) ;
+   « envoie-lui un message » explicite = message.
+
+7. *« Je veux un Excel téléchargeable ICI » → « disponible dans le Drive ».*
+   → chaque fichier de livrable porte `telechargement: /api/drive/<id>/raw` (mêmes ACL Drive,
+   Content-Disposition attachment) en plus du lien Drive ; le rendu du chat LINKIFIE les
+   chemins internes (`LinkifiedText` — /drive, /regulatory, /api/drive/…/raw en vrai
+   téléchargement) ; l'export Regulatory passe à 17 colonnes (partenaire, étape ANPP,
+   avancement, cibles dépôt/enregistrement, lien ERP), cellules NUMÉRIQUES et VRAIES dates
+   Excel, entête figée + autofiltre.
+
+8. *Un document pertinent disparaissait parce que mal nommé et sans terme commun.*
+   → NIVEAU SÉMANTIQUE de repli (`lib/assistant/semantic-drive.ts`) : vecteurs 512d en JSONB +
+   cosinus en mémoire avec cache estampillé — MÊME architecture assumée que le corpus
+   réglementaire, car pgvector est INDISPONIBLE sur cette infra (vérifié :
+   `pg_available_extensions`) et l'échelle (quelques milliers de fichiers indexés) ne justifie
+   aucune base vectorielle. Vectorisation à l'ingestion (phase 3 du sweep, bornée, jamais
+   bloquante — sans clé : lexical seul et la couverture le dit). `find_documents` replie sur le
+   SENS quand aucun candidat FORT par le contenu n'existe ; les résultats sémantiques portent
+   la confiance « SENS … vérifier par lecture » — jamais présentés comme des correspondances
+   exactes.
+
+**Benchmark Recall (honnête)** : `semantic-drive.test.ts` mesure Recall@5 sur des FIXTURES
+synthétiques avec un embedder-dictionnaire déterministe : lexical seul 1/3, hybride 3/3 — cela
+prouve le MÉCANISME (le synonyme trans-langue est retrouvé), pas la qualité des vecteurs OpenAI
+réels. Recall@5/@10 sur le Drive de production avec les vrais embeddings : NOT YET MEASURED
+(exige la clé et le corpus réel).
+
+**Latences (§35)** : TTFT et complétion bout-en-bout se mesurent en production (logs
+`voice_first_audio_out`, AiUsageLog.ttftMs déjà en place) — cibles affichées dans la mission,
+valeurs terrain : NOT YET MEASURED. Aucune vitesse n'a été achetée contre l'exactitude : les
+nouveaux outils sont des lectures bornées et parallélisables comme les autres.
+
 ### UI
 - Deux volets sur grand écran : conversation + **panneau CONTEXTE** (sources consultées — chaque
   dossier lu devient un lien au moment où l'outil le lit, via les événements SSE `source` —,

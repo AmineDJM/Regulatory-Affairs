@@ -51,6 +51,7 @@ describe("powerToolsFor — les pouvoirs suivent les DROITS, pas le rôle", () =
     const omni = userWith({
       BUDGETS: ["VIEW"], FINANCES: ["VIEW"], RH: ["VIEW"], WORKSPACE: ["VIEW"],
       STOCKS: ["VIEW"], MEDICAL: ["VIEW"], MAIL_REGISTER: ["VIEW"], REGULATORY: ["VIEW"],
+      DRIVE: ["VIEW"], CHIEF_OF_STAFF: ["VIEW"],
     }, "SUPER_ADMIN");
     const names = powerToolsFor(omni).map((t) => t.name);
     expect(new Set(names)).toEqual(new Set(POWER_TOOLS.map((t) => t.def.name)));

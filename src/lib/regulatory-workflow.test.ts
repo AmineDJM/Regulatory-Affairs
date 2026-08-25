@@ -146,4 +146,39 @@ describe("completeStepsThrough — un statut posé compte les étapes jusqu'à s
     expect(REG_STATUS_MILESTONE.PRE_SUBMISSION).toBeUndefined();
     expect(REG_STATUS_MILESTONE.BLOCKED).toBeUndefined();
   });
+
+  // ── GOLDEN RÉGRESSION — le bug réel « 22/22 terminé mais prochaine étape : 1. Réception
+  // du CTD complet ». Un processus COMPLET n'est à aucune étape, quel que soit l'état du
+  // verrou de présoumission ; et compléter par JALON (Décision obtenue) implique l'avis
+  // favorable — sans lui, le verrou renvoyait le dossier fini à l'étape 1.
+  it("INVARIANT : toutes les étapes faites → 100 %, AUCUNE étape courante — jamais un retour à l'étape 1", () => {
+    // Toutes DONE mais SANS avis de présoumission explicite (le cas du bug observé).
+    const all: RegWorkflowState = {};
+    for (const s of REG_STEPS) all[s.key] = { status: "DONE" };
+    const p = regProgress(all);
+    expect(p.done).toBe(p.total);
+    expect(p.pct).toBe(100);
+    expect(p.current).toBeNull(); // TERMINÉ — pas « Réception du CTD complet »
+  });
+
+  it("compléter par jalon AU-DELÀ de la présoumission pose l'avis FAVORABLE dérivé (on ne dépose pas sans lui)", () => {
+    const { state } = completeStepsThrough(null, "decision");
+    expect(state.presub_ans?.status).toBe("DONE");
+    expect(state.presub_ans?.outcome).toBe("FAVORABLE");
+    const p = regProgress(state);
+    expect(p.done).toBe(p.total);
+    expect(p.current).toBeNull();
+    // Et un jalon intermédiaire (dépôt) donne bien l'étape suivante, pas l'étape 1.
+    const depot = completeStepsThrough(null, "depot");
+    const pd = regProgress(depot.state);
+    expect(pd.current?.key).toBe("recevabilite"); // étape 13 — le verrou est levé par l'avis dérivé
+  });
+
+  it("un avis EXPLICITE déjà posé n'est JAMAIS réécrit par un jalon", () => {
+    const before: RegWorkflowState = { presub_ans: { status: "DONE", outcome: "EN_ATTENTE" } };
+    const { state } = completeStepsThrough(before, "depot");
+    expect(state.presub_ans?.outcome).toBe("EN_ATTENTE"); // l'humain a dit « en attente » — respecté
+    // Le verrou reste donc fermé : le dossier affiché reste à sa réception.
+    expect(regProgress(state).current?.key).toBe("ctd");
+  });
 });

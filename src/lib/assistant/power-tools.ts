@@ -15,6 +15,8 @@ import { WHAT_IF_TOOLS } from "@/lib/assistant/what-if";
 import { DELIVERABLE_TOOLS } from "@/lib/assistant/deliverables";
 import { CORPUS_TOOLS } from "@/lib/assistant/corpus-tools";
 import { TIME_TRAVEL_TOOLS } from "@/lib/assistant/time-travel";
+import { REGULATORY_READ_TOOLS } from "@/lib/assistant/regulatory-read";
+import { INVESTIGATION_TOOLS } from "@/lib/assistant/investigation";
 import { ACTION_INTENT_TOOLS } from "@/lib/assistant/action-intents";
 import { WHAT_CHANGED_TOOLS } from "@/lib/assistant/what-changed";
 
@@ -223,6 +225,14 @@ export const POWER_TOOLS: PowerTool[] = [
   // Les VUES 360° (collaborateur, produit, fournisseur) et les INSIGHTS (organisation,
   // délais réels des circuits) — le backend calcule, chaque chiffre porte sa provenance.
   ...THREE_SIXTY_TOOLS,
+  // Les LECTURES REGULATORY CANONIQUES : charge par personne (assignation DIRECTE ≠ accès),
+  // portefeuille par partenaire (résolution de graphies/acronymes) — le MÊME périmètre que
+  // l'écran (`regulatoryVisibleWhere`), pour que le Chief ne contredise jamais le tableau.
+  ...REGULATORY_READ_TOOLS,
+  // Les INVESTIGATIONS : événement reconstitué depuis TOUTES ses traces (8 sources en
+  // parallèle, acronymes résolus, couverture rendue) ; dossier Drive exploré RÉCURSIVEMENT
+  // en un tour (déposants réels, BC stricts ≠ assimilés, ACL nœud par nœud).
+  ...INVESTIGATION_TOOLS,
   // La DÉCOUVERTE DOCUMENTAIRE en Drive « sale » : nom + index textuel progressif + lecture
   // bornée de vérification — le nom d'un fichier est un indice, pas une preuve.
   ...DOCUMENT_DISCOVERY_TOOLS,

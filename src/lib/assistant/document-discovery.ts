@@ -6,6 +6,7 @@ import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { getBlob } from "@/lib/drive-storage";
 import { extractAttachmentText } from "@/lib/assistant-files";
 import { foldText } from "@/lib/assistant/memory-context";
+import { driveSemanticCandidates } from "@/lib/assistant/semantic-drive";
 import { classifyDocument, DOC_KIND_LABEL, type DocKind } from "@/lib/assistant/drive-classify";
 
 /**
@@ -118,6 +119,8 @@ interface Finding {
   chemin?: string;
   matchedInName: number;
   matchedInContent: number;
+  /** Similarité cosinus quand le candidat vient du niveau SÉMANTIQUE (repli). */
+  semScore?: number;
   excerpt?: string;
   note?: string | null;
   docKind?: string | null;
@@ -212,6 +215,7 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
         orderBy: { updatedAt: "desc" },
         take: 10,
       });
+      const semanticByNode = new Map<string, number>();
       for (const hit of [...indexed, ...indexedFallback]) {
         if (!canViewDrive(await resolveDriveAccess(user, hit.nodeId))) continue; // jamais le contenu d'autrui
         const node = await prisma.driveNode.findUnique({ where: { id: hit.nodeId }, select: { name: true, isTrashed: true } });
@@ -219,11 +223,47 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
         const matchedInContent = countMatches(foldText(hit.text), tokens);
         const f = findings.get(hit.nodeId) ?? { nodeId: hit.nodeId, nom: node.name, matchedInName: countMatches(foldText(node.name), tokens), matchedInContent: 0, contentChecked: false };
         f.matchedInContent = Math.max(f.matchedInContent, matchedInContent);
-        f.excerpt = f.excerpt ?? excerptAround(hit.text, tokens);
+        // Un candidat SÉMANTIQUE peut n'avoir AUCUN terme exact : son extrait est le début du
+        // texte (le sens ne se surligne pas), et son score de similarité est porté à part.
+        f.semScore = semanticByNode.get(hit.nodeId) ?? f.semScore;
+        f.excerpt = f.excerpt ?? excerptAround(hit.text, tokens) ?? (f.semScore ? hit.text.slice(0, 180).trim() : undefined);
         f.contentChecked = true;
         f.note = hit.note;
         f.docKind = hit.docKind;
         findings.set(hit.nodeId, f);
+      }
+
+      // 2-bis) NIVEAU SÉMANTIQUE (repli) — quand AUCUN candidat FORT par le contenu n'existe
+      //    (un OR faible sur un mot banal ne suffit pas), les vecteurs cherchent par le SENS
+      //    (« durée de conservation » ↔ « shelf life »). Jamais bloquant : sans clé / sans
+      //    vecteurs → [], le lexical reste seul et la couverture le dit. L'ACL est revérifiée
+      //    nœud par nœud, comme pour tout le reste.
+      let semanticUsed = false;
+      const needStrong = Math.min(tokens.length, 2);
+      const hasStrongContent = [...findings.values()].some((f) => f.matchedInContent >= needStrong);
+      if (!hasStrongContent) {
+        const semanticHits = await driveSemanticCandidates(query, 6);
+        if (semanticHits.length) {
+          semanticUsed = true;
+          for (const h of semanticHits) semanticByNode.set(h.nodeId, h.score);
+          const rows = await prisma.driveTextIndex.findMany({
+            where: { nodeId: { in: semanticHits.map((h) => h.nodeId) }, ...kindWhere },
+            select: { nodeId: true, text: true, note: true, docKind: true },
+          });
+          for (const hit of rows) {
+            if (!canViewDrive(await resolveDriveAccess(user, hit.nodeId))) continue;
+            const node = await prisma.driveNode.findUnique({ where: { id: hit.nodeId }, select: { name: true, isTrashed: true } });
+            if (!node || node.isTrashed) continue;
+            const f = findings.get(hit.nodeId) ?? { nodeId: hit.nodeId, nom: node.name, matchedInName: countMatches(foldText(node.name), tokens), matchedInContent: 0, contentChecked: false };
+            f.semScore = semanticByNode.get(hit.nodeId);
+            f.matchedInContent = Math.max(f.matchedInContent, countMatches(foldText(hit.text), tokens));
+            f.excerpt = f.excerpt ?? excerptAround(hit.text, tokens) ?? hit.text.slice(0, 180).trim();
+            f.contentChecked = true;
+            f.note = hit.note;
+            f.docKind = hit.docKind;
+            findings.set(hit.nodeId, f);
+          }
+        }
       }
 
       // 3) VÉRIFICATION par LECTURE des meilleurs candidats « nom seul » (bornée).
@@ -248,18 +288,42 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
 
       if (findings.size === 0) {
         const total = await prisma.driveTextIndex.count();
-        return `Aucun document trouvé pour « ${query} » — ni par le nom, ni dans le texte des ${total} fichier(s) déjà indexés. ` +
-          "L'index textuel grandit à chaque lecture : un document jamais ouvert par l'assistant et mal nommé peut lui échapper — préciser un dossier ou un autre terme peut aider.";
+        // COUVERTURE EXPLICITE : « aucune trace » n'est prononçable qu'avec elle — et jamais
+        // au-delà de ce qu'elle couvre réellement.
+        return JSON.stringify({
+          recherche: query,
+          resultats: [],
+          couverture: {
+            sourcesInterrogees: [
+              "noms de fichiers du Drive (périmètre ACL)",
+              `contenu des ${total} fichier(s) déjà indexés`,
+              ...(semanticUsed ? ["similarité SÉMANTIQUE sur les fichiers vectorisés"] : []),
+            ],
+            sourcesRestantes: [
+              "fichiers JAMAIS indexés (l'index grandit à chaque lecture et par l'ingestion planifiée)",
+              ...(semanticUsed ? [] : ["similarité sémantique (aucun candidat / vecteurs ou clé indisponibles)"]),
+              "recherche fédérée métier (search_everything)",
+              "investigation d'événement (investigate_event)",
+            ],
+          },
+          reponse: `Aucun document pour « ${query} » dans les sources couvertes ci-dessus. NE PAS conclure « aucune trace » tout court : dire ce qui a été couvert, et interroger une source restante si elle est pertinente.`,
+        });
       }
 
       // CONFIANCE : le CONTENU prime toujours sur le nom.
       const need = Math.min(tokens.length, 2);
       const ranked = [...findings.values()]
         .map((f) => {
-          const confiance = f.matchedInContent >= need ? "HAUTE" : f.matchedInContent >= 1 ? "MOYENNE" : "FAIBLE";
+          const confiance = f.matchedInContent >= need
+            ? "HAUTE"
+            : f.matchedInContent >= 1
+              ? "MOYENNE"
+              : f.semScore
+                ? "SENS (similarité sémantique — vérifier par lecture avant de citer)"
+                : "FAIBLE";
           return { ...f, confiance };
         })
-        .sort((a, b) => (b.matchedInContent - a.matchedInContent) || (b.matchedInName - a.matchedInName))
+        .sort((a, b) => (b.matchedInContent - a.matchedInContent) || ((b.semScore ?? 0) - (a.semScore ?? 0)) || (b.matchedInName - a.matchedInName))
         .slice(0, 12);
 
       const total = await prisma.driveTextIndex.count();
@@ -278,6 +342,14 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
         })),
         illisibles: unreadable || undefined,
         indexTextuel: `${total} fichier(s) du Drive indexés en texte — l'index s'enrichit à chaque lecture.`,
+        couverture: {
+          sourcesInterrogees: [
+            "noms de fichiers du Drive (périmètre ACL)",
+            "contenu des fichiers indexés",
+            ...(semanticUsed ? ["similarité SÉMANTIQUE (repli — le lexical n'avait rien par le contenu)"] : []),
+            "lecture de vérification bornée des meilleurs candidats",
+          ],
+        },
         rappel: "Le nom d'un fichier est un INDICE, pas une preuve : ne conclure qu'à partir des résultats HAUTE/MOYENNE (contenu vérifié), et lire le document (read_document) avant d'en citer un chiffre.",
       });
     },

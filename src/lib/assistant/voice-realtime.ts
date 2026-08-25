@@ -84,6 +84,12 @@ export const VOICE_FAST_TOOL_NAMES: readonly string[] = [
   "action_history",
   "what_changed",
   "episodic_recall",
+  // MÊME CERVEAU EN VOIX : charge directe / portefeuille partenaire / investigation
+  // d'événement / exploration Drive — les primitives des pannes réelles, en fast path.
+  "regulatory_workload",
+  "regulatory_portfolio",
+  "investigate_event",
+  "inspect_drive_folder",
   "plan_reminder",
   "list_commitments",
   "list_decisions",

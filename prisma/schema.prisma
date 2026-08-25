@@ -4487,6 +4487,9 @@ model DriveTextIndex {
   /// Classification DÉTERMINISTE du document (contrat de travail, facture, devis, BC, fiche de
   /// poste…) — le nom est un indice, le CONTENU est la preuve. Null = non classé / unknown.
   docKind   String?
+  /// Vecteur sémantique (512d, JSONB — pgvector indisponible sur cette infra) : la recherche
+  /// par le SENS quand le lexical ne trouve pas. Null = pas encore vectorisé.
+  embedding Json?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 

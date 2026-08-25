@@ -70,3 +70,73 @@ describe("conversationWorkingSet — les entités actives, les plus récentes d'
     expect(ws).not.toContain("BONJOUR");
   });
 });
+
+describe("queryPlan — comprendre la question métier avant les outils (déterministe, jamais un nom en dur)", () => {
+  it("GOLDEN A — « À qui est assigné <produit> ? » → REGULATORY / ASSIGNATION_DIRECTE", async () => {
+    const { queryPlan } = await import("./reasoning");
+    const p = queryPlan("À qui est assigné le dossier Nintedanib ?");
+    expect(p.intention).toBe("ASSIGNATION_DIRECTE");
+    expect(p.suiviElliptique).toBe(false);
+  });
+
+  it("GOLDEN B — « Combien de dossiers X gère ? » → CHARGE_PERSONNE", async () => {
+    const { queryPlan } = await import("./reasoning");
+    const p = queryPlan("Combien de dossiers Amel gère en ce moment ?");
+    expect(p.intention).toBe("CHARGE_PERSONNE");
+    expect(p.domaine).toBe("REGULATORY");
+  });
+
+  it("GOLDEN C — « les produits Kwality et leurs statuts » PUIS « Et les produits SD ? » : MÊME intention, entité substituée", async () => {
+    const { queryPlan, queryPlanContext } = await import("./reasoning");
+    const first = queryPlan("Donne-moi les produits Kwality et leurs statuts.");
+    expect(first.domaine).toBe("REGULATORY");
+    const followup = queryPlan("Et les produits SD ?", ["Donne-moi les produits Kwality et leurs statuts."]);
+    expect(followup.suiviElliptique).toBe(true);
+    expect(followup.domaine).toBe("REGULATORY");
+    expect(followup.entites).toContain("SD");
+    const ctx = queryPlanContext(followup)!;
+    expect(ctx).toContain("SUIVI ELLIPTIQUE");
+    expect(ctx).toContain("NE PAS repartir de zéro");
+  });
+
+  it("GOLDEN D — « qui a uploadé … et combien de BC dedans ? » → investigation EN UN TOUR, sans demander la permission", async () => {
+    const { queryPlan, queryPlanContext } = await import("./reasoning");
+    const p = queryPlan("Le dossier Direction Générale dans le Drive : qui a uploadé les fichiers et combien de BC dedans ?");
+    expect(p.besoinInvestigation).toBe(true);
+    expect(queryPlanContext(p)!).toContain("ne pas demander la permission");
+  });
+
+  it("GOLDEN E — « c'est quand la grande journée nationale … ? » → ÉVÉNEMENTS / DATE_ÉVÉNEMENT", async () => {
+    const { queryPlan } = await import("./reasoning");
+    const p = queryPlan("C'est quand la grande journée nationale de la SAI ?");
+    expect(p.domaine).toBe("ÉVÉNEMENTS");
+    expect(p.intention).toBe("DATE_ÉVÉNEMENT");
+    expect(p.entites).toContain("SAI");
+  });
+
+  it("GOLDEN G — « Demande à X de faire Y » → DEMANDE_TIERS (tâche par défaut)", async () => {
+    const { queryPlan } = await import("./reasoning");
+    const p = queryPlan("Demande à Raihana de vérifier le dossier Pembro.");
+    expect(p.intention).toBe("DEMANDE_TIERS");
+  });
+
+  it("« où en était Pembro le 1er juin ? » → besoin d'HISTORIQUE (time_travel), pas l'état actuel seul", async () => {
+    const { queryPlan, queryPlanContext } = await import("./reasoning");
+    const p = queryPlan("Où en était Pembro le 1er juin ?");
+    expect(p.besoinHistorique).toBe(true);
+    expect(queryPlanContext(p)!).toContain("time_travel");
+  });
+
+  it("une question banale sans domaine détectable → AUCUN bloc fantôme", async () => {
+    const { queryPlan, queryPlanContext } = await import("./reasoning");
+    expect(queryPlanContext(queryPlan("Bonjour, ça va ?"))).toBeNull();
+  });
+
+  it("une question COMPLÈTE qui commence par « Et » sans ellipse réelle n'hérite pas à tort d'une intention", async () => {
+    const { queryPlan } = await import("./reasoning");
+    const p = queryPlan("Et maintenant donne-moi la trésorerie complète de l'entité avec le détail des encaissements du mois", ["Donne-moi les produits Kwality et leurs statuts."]);
+    // Trop longue pour une ellipse : elle porte sa PROPRE intention (FINANCES).
+    expect(p.suiviElliptique).toBe(false);
+    expect(p.domaine).toBe("FINANCES");
+  });
+});

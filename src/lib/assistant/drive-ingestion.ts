@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { ensureNodeIndexed } from "@/lib/assistant/document-discovery";
+import { embedDriveBacklog } from "@/lib/assistant/semantic-drive";
 
 /**
  * INGESTION DRIVE EXHAUSTIVE — l'index textuel n'attend plus qu'un fichier soit LU.
@@ -71,8 +72,12 @@ export async function runDriveIngestionSweep(batch = SWEEP_BATCH): Promise<{ ind
       }
     }
 
-    if (indexed > 0 || refreshed > 0) {
-      console.info("[assistant] drive_ingestion_sweep", { indexed, refreshed });
+    // Phase 3 — VECTORISATION de rattrapage (bornée) : les entrées d'index sans vecteur
+    // gagnent leur embedding sémantique. Jamais bloquant : sans clé, zéro travail.
+    const embedded = await embedDriveBacklog().catch(() => 0);
+
+    if (indexed > 0 || refreshed > 0 || embedded > 0) {
+      console.info("[assistant] drive_ingestion_sweep", { indexed, refreshed, embedded });
     }
   } catch (err) {
     console.error("[assistant] drive ingestion sweep failed", err);

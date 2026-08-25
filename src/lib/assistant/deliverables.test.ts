@@ -101,6 +101,22 @@ suite("livrables universels + simulation — fichiers réels, zéro écriture si
     expect(table.getRow(2).getCell(2).value).toBe(1200000); // NOMBRE, pas texte : les formules marchent
   });
 
+  it("une cellule AAAA-MM-JJ devient une VRAIE date Excel (tri et filtres du lecteur fonctionnels)", async () => {
+    const spec = parseSpec({
+      title: "Dates réelles", sections: [{
+        heading: "Échéances", table: { columns: ["Dossier", "Cible"], rows: [["REG-2026-001", "2026-09-30"]] },
+      }], sources: ["test"],
+    });
+    if ("error" in spec) throw new Error(spec.error);
+    const buf = await renderXlsx(spec, { version: 1, generatedAt: new Date() });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    const ws = wb.worksheets.find((w) => w.name.startsWith("Échéances"))!;
+    const cell = ws.getRow(2).getCell(2);
+    expect(cell.value).toBeInstanceOf(Date); // une date, pas une chaîne
+    expect(cell.numFmt).toBe("yyyy-mm-dd");
+  });
+
   it("le .pptx est un vrai PowerPoint : diapos de titre, de section et de Sources", async () => {
     const buf = await renderPptx(SPEC, { version: 1, generatedAt: new Date() });
     const zip = new PizZip(buf);
@@ -119,10 +135,16 @@ suite("livrables universels + simulation — fichiers réels, zéro écriture si
       sections: SPEC.sections.map((s) => ({ heading: s.heading, paragraphs: s.paragraphs, bullets: s.bullets, ...(s.table ? { table: s.table } : {}) })),
       sources: SPEC.sources,
     }, ceo);
-    const out = JSON.parse(r!) as { version: number; fichiers: { format: string; lien: string }[]; coherence?: string };
+    const out = JSON.parse(r!) as { version: number; fichiers: { format: string; lien: string; telechargement: string }[]; coherence?: string };
     expect(out.version).toBe(1);
     expect(out.fichiers.map((f) => f.format).sort()).toEqual(["DOCX", "PPTX", "XLSX"]);
     expect(out.coherence).toMatch(/MÊME spec/i);
+    // GOLDEN I — « un Excel téléchargeable ICI » : chaque fichier porte son lien de
+    // TÉLÉCHARGEMENT DIRECT (mêmes ACL que le Drive), pas seulement le lien Drive.
+    for (const f of out.fichiers) {
+      expect(f.telechargement).toMatch(/^\/api\/drive\/.+\/raw$/);
+      expect(f.lien).toMatch(/^\/drive\//);
+    }
 
     const row = await prisma.assistantArtifact.findFirst({ where: { ownerId: ceoId, title: SPEC.title } });
     expect(row?.version).toBe(1);

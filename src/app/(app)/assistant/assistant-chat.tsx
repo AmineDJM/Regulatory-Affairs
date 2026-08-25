@@ -77,6 +77,44 @@ export function cleanReply(text: string): string {
     .trim();
 }
 
+/** Les chemins internes de l'ERP écrits DANS le texte d'une réponse — rendus cliquables. */
+const INTERNAL_PATH_RE =
+  /(\/(?:api\/drive|drive|regulatory|legal|rh|events|sponsoring|validations|centre-de-paiement|calendar|chief-of-staff|workspace|courriers|stocks|finances|messages|meetings)\/[A-Za-z0-9_\-/.?=&%]+)/g;
+
+/**
+ * Un lien écrit en clair (« Lien : /drive/xxx ») n'est un lien que s'il se CLIQUE.
+ * Les chemins `/api/drive/…/raw` deviennent de vrais téléchargements ; les autres, des
+ * navigations internes. La ponctuation finale (.,;:)»…) reste du texte.
+ */
+export function LinkifiedText({ text }: { text: string }) {
+  const parts = text.split(INTERNAL_PATH_RE);
+  if (parts.length === 1) return <>{text}</>;
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (i % 2 === 0) return <React.Fragment key={i}>{part}</React.Fragment>;
+        const clean = part.replace(/[).,;:!?»…]+$/, "");
+        const trail = part.slice(clean.length);
+        const isDownload = /^\/api\/drive\/[^/]+\/raw/.test(clean);
+        return (
+          <React.Fragment key={i}>
+            {isDownload ? (
+              <a href={clean} download className="font-medium text-primary underline underline-offset-2 hover:opacity-80">
+                {clean}
+              </a>
+            ) : (
+              <Link href={clean} className="font-medium text-primary underline underline-offset-2 hover:opacity-80">
+                {clean}
+              </Link>
+            )}
+            {trail}
+          </React.Fragment>
+        );
+      })}
+    </>
+  );
+}
+
 export function AssistantChat({
   userName, configured, voiceConfigured = false, realtimeVoice = false, memoryEnabled = false,
   executive = false, initialPrompt = null, initialThreadId = null, initialCallRef = null,
@@ -583,7 +621,7 @@ export function AssistantChat({
               )}
               {streaming?.text ? (
                 <p className="whitespace-pre-wrap text-[0.9375rem] leading-relaxed">
-                  {cleanReply(streaming.text)}
+                  <LinkifiedText text={cleanReply(streaming.text)} />
                   <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-foreground align-middle" aria-hidden />
                 </p>
               ) : (
@@ -959,7 +997,7 @@ function MessageBubble({
         )}
         {msg.content && (
           <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-secondary px-4 py-2.5 text-sm leading-relaxed">
-            {cleanReply(msg.content)}
+            <LinkifiedText text={cleanReply(msg.content)} />
           </div>
         )}
         {msg.proposals && msg.proposals.length > 1 && (msg.actionStates ?? []).filter((s) => s === "pending").length > 1 && (

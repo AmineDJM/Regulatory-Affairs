@@ -42,13 +42,16 @@ import {
 import { updateRequestStatus, assignRequest, addRequestComment } from "@/lib/actions/admin-request-actions";
 import { createLegalDocument, updateLegalDocument } from "@/lib/actions/legal-actions";
 import { updateCalendarEvent, deleteCalendarEvent } from "@/lib/actions/calendar-actions";
+import { setRegulatoryResponsible, setRegulatoryStepState, setRegulatoryPresubOutcome } from "@/lib/actions/regulatory-actions";
+import { canSetStructural } from "@/lib/regulatory/structural-fields";
+import { isRegStepKey, isRegStepState, isRegPresubOutcome, REG_STEPS, PRESUB_ANSWER_STEP } from "@/lib/regulatory-workflow";
 import { createInstitution, updateInstitution } from "@/lib/actions/medical-actions";
 import { createStockHospital, createStockAnnex } from "@/lib/actions/stock-snapshot-actions";
 import {
   powerToolsFor, executePowerTool, powerToolLabels, powerToolsBriefing,
 } from "@/lib/assistant/power-tools";
 import { executiveBriefing } from "@/lib/assistant/executive-tools";
-import { conversationWorkingSet, isHighStakesQuestion } from "@/lib/assistant/reasoning";
+import { conversationWorkingSet, isHighStakesQuestion, queryPlan, queryPlanContext } from "@/lib/assistant/reasoning";
 import { persistActionIntents, recentActionIntentsContext } from "@/lib/assistant/action-intents";
 import { toNumber } from "@/lib/utils";
 import {
@@ -96,6 +99,31 @@ export type AssistantActionPayload =
       /** Valeur actuelle, pour le journal et pour la carte de confirmation. */
       before: string;
       after: string;
+    }
+  | {
+      /** CONFIER un dossier (« Chargé du dossier ») — exécuté par l'ACTION CANONIQUE de
+       *  l'écran (`setRegulatoryResponsible`) : même règle (Super Admin), même audit, même
+       *  notification. Jamais une deuxième logique métier. */
+      kind: "assign_regulatory_responsible";
+      productId: string;
+      reference: string;
+      dci: string;
+      responsibleId: string | null;
+      responsibleName: string | null;
+      before: string;
+    }
+  | {
+      /** UNE étape ANPP (statut ou avis de présoumission) — exécutée par les actions
+       *  canoniques `setRegulatoryStepState` / `setRegulatoryPresubOutcome`. */
+      kind: "set_regulatory_step";
+      productId: string;
+      reference: string;
+      stepKey: string;
+      stepLabel: string;
+      status: string | null;
+      outcome: string | null;
+      note: string | null;
+      date: string | null;
     }
   | {
       /**
@@ -412,6 +440,8 @@ export type AssistantActionKind = AssistantActionPayload["kind"];
  */
 export const ACTION_POLICY: Record<AssistantActionKind, { external: boolean; level?: "SENSITIVE" | "CRITICAL" }> = {
   update_regulatory_product: { external: true },
+  assign_regulatory_responsible: { external: true },
+  set_regulatory_step: { external: true },
   update_platform_setting: { external: true, level: "SENSITIVE" },
   set_products_company: { external: true },
   create_task: { external: true },
@@ -736,6 +766,43 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
         value: { type: "string", description: "Nouvelle valeur." },
       },
       required: ["reference", "field", "value"],
+    },
+  },
+  {
+    name: "assign_regulatory_responsible",
+    description:
+      "PROPOSE de CONFIER un dossier Regulatory à une personne (colonne « Chargé du dossier ») — ou de le retirer. "
+      + "N'exécute rien : confirmation requise, et la MÊME règle que l'écran s'applique (champ structurel réservé au Super Admin). "
+      + "Identifier le dossier par sa RÉFÉRENCE (search_products avant si besoin) et la personne par son NOM (search_people avant si ambigu). "
+      + "Donner personName vide pour RETIRER le responsable actuel.",
+    input_schema: {
+      type: "object",
+      properties: {
+        reference: { type: "string", description: "Référence du dossier (ex. REG-2026-014)." },
+        personName: { type: "string", description: "Nom de la personne à qui confier le dossier — vide pour retirer." },
+      },
+      required: ["reference"],
+    },
+  },
+  {
+    name: "set_regulatory_step",
+    description:
+      "PROPOSE la mise à jour d'UNE étape du processus ANPP (22 étapes) d'un dossier Regulatory : statut TODO/DOING/DONE/BLOCKED, "
+      + "ou — pour l'étape « presub_ans » (réponse de présoumission) — l'AVIS (FAVORABLE / DEFAVORABLE / EN_ATTENTE, qui dérive le statut). "
+      + "N'exécute rien : confirmation requise. Étapes (clé → libellé) : ctd, sample, bv25_req, bv25_pay, presub_req, presub_ans, "
+      + "bv75_req, module1, docs_check, bv75_pay, rdv, depot, recevabilite, evaluation, reserves_recv, reserves_analyse, "
+      + "reserves_transmit, reponses_recv, reponses_check, reponses_depot, commission, decision.",
+    input_schema: {
+      type: "object",
+      properties: {
+        reference: { type: "string", description: "Référence du dossier (ex. REG-2026-014)." },
+        stepKey: { type: "string", description: "Clé de l'étape (ex. depot, presub_ans)." },
+        status: { type: "string", enum: ["TODO", "DOING", "DONE", "BLOCKED"], description: "Nouveau statut (hors avis de présoumission)." },
+        outcome: { type: "string", enum: ["FAVORABLE", "DEFAVORABLE", "EN_ATTENTE"], description: "AVIS de présoumission — uniquement pour presub_ans." },
+        note: { type: "string", description: "Commentaire d'étape (facultatif)." },
+        date: { type: "string", description: "Date de l'étape AAAA-MM-JJ (facultatif)." },
+      },
+      required: ["reference", "stepKey"],
     },
   },
   {
@@ -1201,7 +1268,23 @@ const BUSINESS_SEMANTICS = `VOCABULAIRE MÉTIER (résolution PAR LE CONTEXTE, ja
   RÉEL (search_people / entités actives) avant de créer ou viser qui que ce soit ; ne JAMAIS
   inventer une nouvelle personne à partir d'un mot déformé.
 - En cas d'ambiguïté RÉELLE entre deux lectures plausibles : une question courte. Sinon :
-  la lecture dominante, en le disant si utile.`;
+  la lecture dominante, en le disant si utile.
+- « Demande à X de faire Y » / « Dis à X de vérifier Z » = CRÉER UNE TÂCHE assignée à X
+  (create_task : titre, description, échéance si dite, lien au dossier concerné) — PAS une
+  simple notification ni un message informel. « Envoie-lui un message » explicite = message.
+  Comme toute écriture : proposition → confirmation → exécution.
+- GÉRER ≠ AVOIR ACCÈS : « combien de dossiers gère X » = les dossiers dont X est RESPONSABLE
+  DÉSIGNÉ (regulatory_workload / employee_360) — jamais les dossiers accessibles, jamais le
+  pipeline entier. « Les produits de <partenaire> » = regulatory_portfolio (graphies et sigles
+  résolus contre les partenaires réels).
+- « AUCUNE TRACE » EST UNE CONCLUSION DE COUVERTURE, pas une impression : interdite tant
+  qu'une source raisonnablement pertinente n'a pas été interrogée (les outils rendent leur
+  champ « couverture » — le citer). Un événement se cherche MULTI-SOURCES (investigate_event) ;
+  un document se cherche par le CONTENU (find_documents), pas seulement par le nom.
+- ARRÊT INTELLIGENT : source canonique trouvée + confiance haute + aucune contradiction →
+  répondre, sans sur-chercher. Confiance basse, contradiction, ou source requise manquante →
+  creuser AVANT de répondre. Une question qui implique une exploration (« combien de X dans ce
+  dossier ? ») s'explore D'OFFICE — ne pas demander la permission de faire son travail.`;
 
 /**
  * CONTEXTE COMMUN DU CHIEF OF STAFF — la fonction que TOUTES les modalités appellent.
@@ -1758,6 +1841,110 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
         productId: product.id, reference: product.reference,
         field, fieldLabel: spec.label,
         value: parsed.value, before, after,
+      },
+    };
+  }
+
+  if (toolName === "assign_regulatory_responsible") {
+    // LA MÊME PORTE QUE L'ÉCRAN : confier un dossier est un champ STRUCTUREL, réservé au
+    // Super Admin — le refus est dit à la proposition, et l'action canonique re-refusera de
+    // toute façon à l'exécution.
+    if (!canSetStructural(user)) {
+      return { error: "Seul le Super Admin désigne le chargé d'un dossier — la même règle que l'écran Regulatory." };
+    }
+    const reference = asStr(input, "reference");
+    if (!reference) return { error: "Précisez la référence du dossier (REG-AAAA-NNN)." };
+    const personName = asStr(input, "personName");
+
+    const product = await prisma.regulatoryProduct.findFirst({
+      where: { AND: [{ reference }, scopeRegulatory(user), await currentCompanyWhereFor(user.id)] },
+      select: { id: true, reference: true, dci: true, responsible: { select: { id: true, name: true } } },
+    });
+    if (!product) return { error: `Dossier « ${reference} » introuvable dans votre périmètre.` };
+
+    let responsibleId: string | null = null;
+    let responsibleName: string | null = null;
+    if (personName) {
+      const people = await prisma.user.findMany({
+        where: { isActive: true, name: { contains: personName, mode: "insensitive" } },
+        select: { id: true, name: true },
+        take: 5,
+      });
+      if (!people.length) return { error: `Aucune personne active « ${personName} » — vérifier avec search_people.` };
+      if (people.length > 1) {
+        return { error: `Plusieurs personnes correspondent à « ${personName} » : ${people.map((p) => p.name).join(", ")} — préciser le nom.` };
+      }
+      responsibleId = people[0].id;
+      responsibleName = people[0].name;
+    }
+    const before = product.responsible?.name ?? "(personne)";
+    if ((product.responsible?.id ?? null) === responsibleId) {
+      return { error: `Le dossier ${reference} est déjà ${responsibleId ? `confié à ${responsibleName}` : "sans personne chargée"}.` };
+    }
+
+    return {
+      kind: "assign_regulatory_responsible",
+      module: "REGULATORY",
+      title: responsibleName ? `confier ${reference} à ${responsibleName}` : `retirer le chargé du dossier ${reference}`,
+      fields: [
+        { label: "Dossier", value: `${product.reference} — ${product.dci}` },
+        { label: "Chargé du dossier", value: `${before} → ${responsibleName ?? "(personne)"}` },
+      ],
+      warnings: [
+        "La personne sera NOTIFIÉE (même circuit que l'écran) — c'est un engagement pris en son nom.",
+        ...warnings,
+      ],
+      payload: {
+        kind: "assign_regulatory_responsible",
+        productId: product.id, reference: product.reference, dci: product.dci,
+        responsibleId, responsibleName, before,
+      },
+    };
+  }
+
+  if (toolName === "set_regulatory_step") {
+    if (!userCan(user, "REGULATORY", "UPDATE")) {
+      return { error: "Vous n'avez pas le droit de modifier les dossiers Regulatory." };
+    }
+    const reference = asStr(input, "reference");
+    const stepKey = asStr(input, "stepKey");
+    if (!reference || !stepKey) return { error: "Précisez la référence du dossier et la clé de l'étape." };
+    if (!isRegStepKey(stepKey)) return { error: `Étape « ${stepKey} » inconnue — utiliser les clés listées par l'outil.` };
+    const status = asStr(input, "status") || null;
+    const outcome = asStr(input, "outcome") || null;
+    if (stepKey === PRESUB_ANSWER_STEP && !outcome && !status) {
+      return { error: "La réponse de présoumission se règle par son AVIS (outcome : FAVORABLE / DEFAVORABLE / EN_ATTENTE)." };
+    }
+    if (outcome && stepKey !== PRESUB_ANSWER_STEP) {
+      return { error: "L'avis (outcome) ne vaut que pour l'étape presub_ans — pour les autres, donner status." };
+    }
+    if (outcome && !isRegPresubOutcome(outcome)) return { error: "Avis invalide : FAVORABLE, DEFAVORABLE ou EN_ATTENTE." };
+    if (!outcome && (!status || !isRegStepState(status))) return { error: "Statut invalide : TODO, DOING, DONE ou BLOCKED." };
+
+    const product = await prisma.regulatoryProduct.findFirst({
+      where: { AND: [{ reference }, scopeRegulatory(user), await currentCompanyWhereFor(user.id)] },
+      select: { id: true, reference: true, dci: true },
+    });
+    if (!product) return { error: `Dossier « ${reference} » introuvable dans votre périmètre.` };
+
+    const stepLabel = REG_STEPS.find((s) => s.key === stepKey)?.label ?? stepKey;
+    return {
+      kind: "set_regulatory_step",
+      module: "REGULATORY",
+      title: `étape « ${stepLabel} » de ${reference} → ${outcome ?? status}`,
+      fields: [
+        { label: "Dossier", value: `${product.reference} — ${product.dci}` },
+        { label: "Étape", value: stepLabel },
+        { label: outcome ? "Avis de présoumission" : "Statut", value: outcome ?? status ?? "" },
+      ],
+      warnings,
+      payload: {
+        kind: "set_regulatory_step",
+        productId: product.id, reference: product.reference,
+        stepKey, stepLabel,
+        status, outcome,
+        note: asStr(input, "note") || null,
+        date: asStr(input, "date") || null,
       },
     };
   }
@@ -2736,16 +2923,29 @@ export async function runAssistant(
   // te l'avais déjà demandé ? » se répond depuis cet état, jamais de mémoire.
   const workingSet = conversationWorkingSet(history);
   const intentsCtx = await recentActionIntentsContext(user.id).catch(() => null);
-  const system = [
-    systemPrompt(user),
-    opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
-    workingSet,
-    intentsCtx,
-  ].filter(Boolean).join("\n\n");
   // La question d'ORIGINE (avant que la boucle n'empile les résultats d'outils) — elle décide
   // de la PROFONDEUR : une décision demandée mérite la seconde passe critique.
   const question = String(messages[messages.length - 1]?.content ?? "");
   const highStakes = isHighStakesQuestion(question);
+  // PLAN DE LA QUESTION (déterministe) : domaine, intention, SUIVI ELLIPTIQUE (« et SD ? » =
+  // même intention, entité substituée), investigation impliquée — la carte avant les outils.
+  const plan = queryPlan(question, history.filter((h) => h.role === "user").slice(0, -1).map((h) => h.content));
+  const planCtx = queryPlanContext(plan);
+  // OBSERVABILITÉ du planner — domaine/intention/suivi UNIQUEMENT (jamais le texte de la
+  // question) : le taux de résolution des suivis elliptiques se lit dans les logs.
+  if (plan.domaine || plan.intention || plan.suiviElliptique) {
+    console.info("[assistant] query_plan", {
+      userId: user.id, domaine: plan.domaine, intention: plan.intention,
+      suiviElliptique: plan.suiviElliptique, historique: plan.besoinHistorique, investigation: plan.besoinInvestigation,
+    });
+  }
+  const system = [
+    systemPrompt(user),
+    opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
+    workingSet,
+    planCtx,
+    intentsCtx,
+  ].filter(Boolean).join("\n\n");
   // Le Super Admin dispose d'outils exclusifs (vision globale de tous les comptes).
   const tools = [
     ...READ_TOOLS,
@@ -2926,17 +3126,28 @@ export async function runAssistantStream(
   }
 
   // Mêmes injections que la variante simple : contexte personnel + ENTITÉS ACTIVES du fil
-  // + ACTIONS RÉCENTES (état canonique serveur).
+  // + PLAN DE LA QUESTION (suivi elliptique compris) + ACTIONS RÉCENTES (état canonique).
   const workingSet = conversationWorkingSet(history);
   const intentsCtx = await recentActionIntentsContext(user.id).catch(() => null);
+  const question = String(messages[messages.length - 1]?.content ?? "");
+  const highStakes = isHighStakesQuestion(question);
+  const plan = queryPlan(question, history.filter((h) => h.role === "user").slice(0, -1).map((h) => h.content));
+  const planCtx = queryPlanContext(plan);
+  // OBSERVABILITÉ du planner — domaine/intention/suivi UNIQUEMENT (jamais le texte de la
+  // question) : le taux de résolution des suivis elliptiques se lit dans les logs.
+  if (plan.domaine || plan.intention || plan.suiviElliptique) {
+    console.info("[assistant] query_plan", {
+      userId: user.id, domaine: plan.domaine, intention: plan.intention,
+      suiviElliptique: plan.suiviElliptique, historique: plan.besoinHistorique, investigation: plan.besoinInvestigation,
+    });
+  }
   const system = [
     systemPrompt(user),
     opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
     workingSet,
+    planCtx,
     intentsCtx,
   ].filter(Boolean).join("\n\n");
-  const question = String(messages[messages.length - 1]?.content ?? "");
-  const highStakes = isHighStakesQuestion(question);
   const tools = [
     ...READ_TOOLS,
     // Lectures chiffrées (budget, finances, RH, file de décisions) ouvertes par les DROITS de
@@ -3155,6 +3366,50 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
       message: `${target.reference} — ${payload.fieldLabel} : ${payload.after || "(vide)"}.`,
       link: `/regulatory/${target.id}`,
       revalidate: ["/regulatory", `/regulatory/${target.id}`],
+    };
+  }
+
+  if (payload?.kind === "assign_regulatory_responsible") {
+    // RÉUTILISATION DE L'ACTION CANONIQUE de l'écran : même porte (Super Admin), même audit,
+    // même notification, même gestion du cadenas — jamais une deuxième logique métier.
+    const fd = new FormData();
+    fd.set("id", payload.productId);
+    fd.set("responsibleId", payload.responsibleId ?? "");
+    const r = await setRegulatoryResponsible(fd);
+    if (!r.ok) return { ok: false, error: r.error ?? "L'assignation a été refusée." };
+    return {
+      ok: true,
+      message: payload.responsibleName
+        ? `${payload.reference} confié à ${payload.responsibleName}${r.message ? ` — ${r.message}` : ""}.`
+        : `${payload.reference} — chargé du dossier retiré.`,
+      link: `/regulatory/${payload.productId}`,
+      revalidate: ["/regulatory", `/regulatory/${payload.productId}`],
+    };
+  }
+
+  if (payload?.kind === "set_regulatory_step") {
+    // Même principe : les actions canoniques des étapes ANPP font foi (validation des clés,
+    // avis de présoumission dérivant le statut, audit, revalidation d'écran).
+    const fd = new FormData();
+    fd.set("productId", payload.productId);
+    if (payload.outcome) {
+      fd.set("outcome", payload.outcome);
+      if (payload.note) fd.set("note", payload.note);
+      const r = await setRegulatoryPresubOutcome(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "La mise à jour de la présoumission a été refusée." };
+    } else {
+      fd.set("stepKey", payload.stepKey);
+      fd.set("status", payload.status ?? "");
+      if (payload.note) fd.set("note", payload.note);
+      if (payload.date) fd.set("date", payload.date);
+      const r = await setRegulatoryStepState(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "La mise à jour de l'étape a été refusée." };
+    }
+    return {
+      ok: true,
+      message: `${payload.reference} — étape « ${payload.stepLabel} » : ${payload.outcome ?? payload.status}.`,
+      link: `/regulatory/${payload.productId}`,
+      revalidate: ["/regulatory", `/regulatory/${payload.productId}`],
     };
   }
 

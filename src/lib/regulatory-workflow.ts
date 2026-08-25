@@ -179,6 +179,12 @@ export function regProgress(state: RegWorkflowState | null | undefined): RegProg
     else if (!current) current = step;
   }
 
+  // INVARIANT LOGIQUE : un processus TERMINÉ (toutes les étapes faites) n'est « à » aucune
+  // étape — jamais de « prochaine étape : 1. Réception du CTD » sur un dossier à 22/22. Le
+  // verrou de présoumission protège l'avancement AFFICHÉ d'un dossier en cours, pas la
+  // cohérence d'un dossier fini.
+  if (done === total) return { done, total, pct: 100, current: null };
+
   // VERROU DE PRÉSOUMISSION : sans avis favorable, le dossier EST ENCORE à sa réception, quoi
   // qu'on ait coché plus loin. On ne touche pas au décompte — le travail fait reste compté, ce
   // serait mentir dans l'autre sens — mais l'ÉTAPE OÙ SE TROUVE LE DOSSIER reste « Réception du
@@ -236,6 +242,14 @@ export function completeStepsThrough(
     const cur = base[step.key]?.status ?? "TODO";
     if (cur === "DONE" || cur === "BLOCKED") continue;
     base[step.key] = { ...base[step.key], status: "DONE", date: base[step.key]?.date ?? day };
+    // COHÉRENCE DU VERROU : un jalon au-delà de la réponse de présoumission (déposé, décision
+    // obtenue…) implique NÉCESSAIREMENT un avis favorable — on ne dépose pas sans lui. Sans
+    // cet avis dérivé, le dossier restait « verrouillé à l'étape 1 » alors que ses 22 étapes
+    // étaient faites (le bug « 22/22 mais prochaine étape : Réception du CTD »). Un avis
+    // explicite déjà posé (favorable ou non) n'est JAMAIS réécrit.
+    if (step.key === PRESUB_ANSWER_STEP && !base[step.key]?.outcome) {
+      base[step.key] = { ...base[step.key], outcome: "FAVORABLE" };
+    }
     changed++;
   }
   return { state: base, changed };

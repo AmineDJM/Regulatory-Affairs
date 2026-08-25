@@ -173,8 +173,15 @@ export async function renderXlsx(spec: DeliverableSpec, meta: { version: number;
     head.font = { bold: true, color: { argb: "FFFFFFFF" } };
     head.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${TEAL}` } };
     for (const r of s.table.rows) {
-      // Une cellule purement numérique devient un NOMBRE — pour que les formules du lecteur marchent.
-      ws.addRow(r.map((c) => (/^-?\d+(?:[.,]\d+)?$/.test(c.replace(/\s/g, "")) ? Number(c.replace(/\s/g, "").replace(",", ".")) : c)));
+      // Une cellule purement numérique devient un NOMBRE, une date AAAA-MM-JJ une VRAIE date
+      // Excel — pour que formules, tris et filtres du lecteur marchent sans retraitement.
+      const row = ws.addRow(r.map((c) => {
+        const compact = c.replace(/\s/g, "");
+        if (/^-?\d+(?:[.,]\d+)?$/.test(compact)) return Number(compact.replace(",", "."));
+        if (/^\d{4}-\d{2}-\d{2}$/.test(c.trim())) return new Date(`${c.trim()}T00:00:00Z`);
+        return c;
+      }));
+      row.eachCell((cell) => { if (cell.value instanceof Date) cell.numFmt = "yyyy-mm-dd"; });
     }
     ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: s.table.columns.length } };
   }
@@ -362,7 +369,14 @@ export const DELIVERABLE_TOOLS: PowerTool[] = [
       return JSON.stringify({
         livrable: parsed.title,
         version,
-        fichiers: files.map((f) => ({ format: f.format, nom: f.filename, lien: `/drive/${f.nodeId}` })),
+        // TÉLÉCHARGEABLE ICI : `telechargement` est le lien DIRECT du fichier (mêmes ACL que
+        // le Drive) — le donner dans la réponse quand le fichier est demandé « ici », en plus
+        // du lien Drive. Ne JAMAIS répondre « disponible dans le Drive » seul.
+        fichiers: files.map((f) => ({
+          format: f.format, nom: f.filename,
+          lien: `/drive/${f.nodeId}`,
+          telechargement: `/api/drive/${f.nodeId}/raw`,
+        })),
         coherence: formats.length > 1 ? "Les formats sortent de LA MÊME spec : chiffres identiques par construction." : undefined,
         sources: parsed.sources.length,
         note: parsed.sources.length === 0 ? "⚠️ Aucune source dans la spec — le fichier le signale ; compléter avant diffusion." : undefined,
@@ -396,7 +410,11 @@ export const DELIVERABLE_TOOLS: PowerTool[] = [
         livrables: rows.map((r) => ({
           artifact_id: r.id, titre: r.title, version: r.version, formats: r.formats,
           maj: r.updatedAt.toISOString().slice(0, 10),
-          fichiers: (r.files as { format: string; filename: string; nodeId: string }[]).map((f) => ({ format: f.format, nom: f.filename, lien: `/drive/${f.nodeId}` })),
+          fichiers: (r.files as { format: string; filename: string; nodeId: string }[]).map((f) => ({
+            format: f.format, nom: f.filename,
+            lien: `/drive/${f.nodeId}`,
+            telechargement: `/api/drive/${f.nodeId}/raw`,
+          })),
         })),
       });
     },
