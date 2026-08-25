@@ -19,6 +19,7 @@ import { ORG_OPS_IMPL } from "./impl-org";
 import { ADPRO_OPS_IMPL, BD_OPS_IMPL, STOCK_OPS_IMPL } from "./impl-commercial";
 import { REG4_OPS_IMPL, PCH_OPS_IMPL, STOCK4_OPS_IMPL, SALES_OPS_IMPL, LOGISTICS_OPS_IMPL } from "./impl-wave4";
 import { MEDICAL_OPS_IMPL, RANGE_OPS_IMPL, BD4_OPS_IMPL } from "./impl-wave4b";
+import { EVENT_OPS_IMPL, ADPRO5_OPS_IMPL, CONSULTING_OPS_IMPL } from "./impl-wave5";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -447,28 +448,109 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   adpro_operation: {
     module: "SPONSORING",
-    ops: zipOps("adpro_operation", { ...ADPRO_OPS_IMPL, ...MISSION_OPS_IMPL }),
+    ops: zipOps("adpro_operation", { ...ADPRO_OPS_IMPL, ...MISSION_OPS_IMPL, ...ADPRO5_OPS_IMPL }),
     def: {
       name: "adpro_operation",
       description:
-        "AD & PRO — trancher un poste de dépense (Direction : accordé/refusé/budget à revoir, montant ajustable), transférer une demande entre Sponsoring et Prises en charge, valider/refuser l'étape courante du circuit du matériel promotionnel, par les actions canoniques. "
+        "AD & PRO — LES CIRCUITS COMPLETS : sponsoring (préliminaire National Sales → analyse chef de produit → décision Direction → appel), congrès / événements (mêmes marches + budget accordé modifiable + personnes prises en charge), POSTES de dépense (ajout, soumission, décision, imputation budgétaire, BC visé puis émis), demandes « autres », correction de fiche par liste blanche, missions, matériel promo (étapes), par les actions canoniques. "
         + `Champ « op » : ${opsSummary("adpro_operation")}. `
-        + "Les cibles se donnent par libellé de poste ou référence (SPO-…, PCN-…, PCI-…, dossier promo).",
+        + "Le sponsoring se donne par SPO-… ou institution ; le congrès / événement par « target » (+ « kind » si ambigu) ; le poste par « label » dans son opération.",
       input_schema: {
         type: "object",
         properties: {
           op: { type: "string", enum: opEnum("adpro_operation"), description: "Le geste à faire." },
-          label: { type: "string", description: "decide_item / circuit promo : libellé du poste ou titre du dossier." },
-          reference: { type: "string", description: "transfer / circuit promo : référence exacte de la demande ou du dossier." },
-          decision: { type: "string", description: "decide_item : accorder, refuser, ou budget à revoir." },
-          amount: { type: "string", description: "decide_item : montant accordé en DZD (défaut : l'estimation)." },
+          label: { type: "string", description: "Postes / circuit promo : libellé du poste ou titre du dossier ; demandes « autres » : l'objet." },
+          reference: { type: "string", description: "Référence exacte (SPO-…, AUT-…, dossier promo) — ou alias de « target »." },
+          decision: { type: "string", description: "Décisions : approuver / accorder / valider, refuser, budget à revoir (decide_item)." },
+          amount: { type: "string", description: "Montants DZD : budget proposé (analyse), budget accordé (décision finale), estimation (add_item), montant demandé (correct_request)." },
+          grantedAmount: { type: "string", description: "update_item : montant AFFECTÉ par la Direction." },
           to: { type: "string", description: "transfer : module de destination (sponsoring / prise en charge nationale / internationale)." },
-          note: { type: "string", description: "Motif / note (obligatoire pour refuser une étape promo)." },
-          target: { type: "string", description: "Missions : l'événement / congrès / sponsoring visé (nom ou référence)." },
-          kind: { type: "string", description: "Missions : type de la cible (événement | sponsoring | congrès international | congrès national)." },
-          person: { type: "string", description: "Missions : la personne assignée (nom)." },
-          role: { type: "string", description: "assign_mission : accompagnant (défaut) ou délégué de référence." },
-          message: { type: "string", description: "comment_mission : le message." },
+          note: { type: "string", description: "Motif / note (obligatoire pour les refus)." },
+          target: { type: "string", description: "La cible : événement / congrès / sponsoring (nom ou référence)." },
+          kind: { type: "string", description: "Type de la cible (événement | sponsoring | congrès international | congrès national) — tranche l'ambiguïté." },
+          person: { type: "string", description: "La personne : chef de produit désigné, tierce personne, personne prise en charge, bénéficiaire d'une demande « autre »." },
+          role: { type: "string", description: "Missions : accompagnant / délégué de référence ; personnes prises en charge : rôle libre." },
+          message: { type: "string", description: "comment_mission : le message ; create_other_request : alias de notes." },
+          mode: { type: "string", description: "add_item : « rallonge » si le poste est EN PLUS du budget accordé ; close_other_request : « annuler »." },
+          category: { type: "string", description: "set_item_budget : la (sous-)catégorie budgétaire (nom ; « aucune » retire)." },
+          material: { type: "string", description: "link_item_promo_material : le matériel promo (MP-… ou titre ; « aucun » détache)." },
+          supplier: { type: "string", description: "add_item / update_item : le prestataire pressenti." },
+          notes: { type: "string", description: "Notes / description (create_other_request : OBLIGATOIRE ; correct_request : description)." },
+          city: { type: "string", description: "correct_request : ville." },
+          specialty: { type: "string", description: "correct_request : spécialité." },
+          products: { type: "string", description: "correct_request : produits." },
+          startDate: { type: "string", description: "correct_request : date de début (AAAA-MM-JJ)." },
+          endDate: { type: "string", description: "correct_request : date de fin (AAAA-MM-JJ)." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  event_operation: {
+    module: "EVENTS",
+    ops: zipOps("event_operation", EVENT_OPS_IMPL),
+    def: {
+      name: "event_operation",
+      description:
+        "EVENTS — la fiche d'un événement (modification en rejouant TOUT l'existant, suppression), sa soumission au circuit de prise en charge, et ses INSCRIPTIONS (ajout, statut présent/confirmé/annulé, retrait), par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("event_operation")}. `
+        + "L'événement se donne par NOM (« target »), le participant par son nom (« person »).",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("event_operation"), description: "Le geste à faire." },
+          target: { type: "string", description: "L'événement visé (nom)." },
+          newName: { type: "string", description: "update_event : nouveau nom." },
+          eventType: { type: "string", description: "update_event : congrès, séminaire, table ronde, staff hospitalier, symposium, webinaire, formation, journée scientifique, autre." },
+          scope: { type: "string", description: "update_event : national / international." },
+          format: { type: "string", description: "update_event : présentiel / webinaire / hybride." },
+          status: { type: "string", description: "Événement : brouillon, en attente de validation, validé, en préparation, inscriptions ouvertes, complet, terminé, annulé. Participant : inscrit, confirmé, liste d'attente, refusé, présent, absent, annulé." },
+          startDate: { type: "string", description: "update_event : date de début (AAAA-MM-JJ)." },
+          endDate: { type: "string", description: "update_event : date de fin (AAAA-MM-JJ)." },
+          location: { type: "string", description: "update_event : lieu." },
+          city: { type: "string", description: "Ville." },
+          country: { type: "string", description: "Pays." },
+          specialty: { type: "string", description: "Spécialité (événement ou participant)." },
+          institution: { type: "string", description: "add_registration : établissement du participant." },
+          products: { type: "string", description: "update_event : produits présentés." },
+          quantity: { type: "string", description: "update_event : capacité (places)." },
+          amount: { type: "string", description: "update_event : budget estimé (DZD)." },
+          person: { type: "string", description: "Participant (prénom + nom) — ou chef de produit pour submit_event_for_approval." },
+          role: { type: "string", description: "add_registration : médecin, professeur, chef de service, pharmacien, autre." },
+          email: { type: "string", description: "add_registration : e-mail." },
+          phone: { type: "string", description: "add_registration : téléphone." },
+          notes: { type: "string", description: "Description / commentaire." },
+        },
+        required: ["op", "target"],
+      },
+    },
+  },
+  consulting_operation: {
+    module: "CONSULTING",
+    ops: zipOps("consulting_operation", CONSULTING_OPS_IMPL),
+    def: {
+      name: "consulting_operation",
+      description:
+        "CONSULTING — le contrat entre deux parties : création (tâches attendues comprises), soumission au validateur désigné, validation (contrat ACTIF) ou refus, clôture / rupture, et les tâches attendues du prestataire (ajout, livrée, retrait), par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("consulting_operation")}. `
+        + "Le contrat se donne par référence CONS-…, intitulé ou consultant.",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("consulting_operation"), description: "Le geste à faire." },
+          reference: { type: "string", description: "Le contrat visé (CONS-…, intitulé ou consultant)." },
+          label: { type: "string", description: "create_contract : intitulé ; tâches : la tâche visée / à créer." },
+          counterparty: { type: "string", description: "create_contract : le consultant ou cabinet (OBLIGATOIRE)." },
+          person: { type: "string", description: "submit_contract : le validateur désigné (nom)." },
+          decision: { type: "string", description: "decide_contract : valider ou refuser ; close_contract : « rompre » pour une rupture en cours de contrat." },
+          amount: { type: "string", description: "create_contract : montant (DZD)." },
+          startDate: { type: "string", description: "create_contract : début (AAAA-MM-JJ)." },
+          endDate: { type: "string", description: "create_contract : fin (AAAA-MM-JJ)." },
+          dueDate: { type: "string", description: "add_contract_task : échéance de la tâche (AAAA-MM-JJ)." },
+          tasks: { type: "string", description: "create_contract : tâches attendues, séparées par des virgules." },
+          paymentTerms: { type: "string", description: "create_contract : modalités de paiement." },
+          note: { type: "string", description: "Décision / clôture : note ou motif." },
+          notes: { type: "string", description: "create_contract : périmètre de la mission." },
         },
         required: ["op"],
       },

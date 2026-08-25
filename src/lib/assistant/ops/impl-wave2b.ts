@@ -110,9 +110,9 @@ async function resolveTraining(raw: string, statuses?: string[]) {
 
 // ─────────────── Missions (entités porteuses) ───────────────
 
-interface MissionParent { entityType: string; entityId: string; label: string }
+export interface MissionParent { entityType: string; entityId: string; label: string }
 
-async function resolveMissionParent(kindRaw: string, labelRaw: string): Promise<MissionParent | { error: string }> {
+export async function resolveMissionParent(kindRaw: string, labelRaw: string): Promise<MissionParent | { error: string }> {
   const q = labelRaw.trim();
   if (!q) return { error: "Précisez l'événement / congrès / sponsoring visé (champ « target »)." };
   const k = kindRaw.toLowerCase();
