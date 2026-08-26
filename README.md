@@ -3240,6 +3240,62 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### LE CERVEAU D'ADAM CHANGE DE MAISON — passerelle par rôles, triage A/B/C, lot d'exécution (2026-08)
+
+Refonte du MOTEUR (l'UI est traitée à part). Trois choses qui n'existaient pas.
+
+**1. Une passerelle modèle par RÔLE** (`src/lib/models/`). `src/lib/ai.ts` n'était pas une
+abstraction : c'était l'API Anthropic, dont les noms (`ClaudeToolDef`, `tool_use`, `input_schema`)
+avaient fui dans 23 fichiers — donc changer de modèle voulait dire réécrire 23 fichiers, donc ne
+jamais en changer. La forme est désormais NEUTRE, et le code appelant demande un rôle :
+
+| rôle | modèle | ce qu'il fait |
+| --- | --- | --- |
+| `realtime` | `gpt-realtime-2.1` | écoute, comprend, converse, **décide** |
+| `orchestrator` | `gpt-5.6-terra` *medium* | investigue, planifie, synthétise |
+| `worker` | `gpt-5.6-terra` *none* | une sous-tâche qui demande de comprendre |
+| `bulk` | `gpt-5.6-luna` *none* | extraire, classer, normaliser, en volume |
+
+Chaque rôle se rebranche par variable d'environnement ; `ADAM_MODEL_PROVIDER=anthropic` rebascule
+les rôles textuels sur l'ancien cerveau (une migration sans marche arrière est un pari, pas une
+migration). **Le texte part directement sur l'orchestrateur** — il ne passe plus par le temps réel.
+`assistant.ts` a changé d'UN import : le pont `models/compat.ts` garde les signatures que la boucle
+manipule, et sa disparition sera un jour la preuve que la migration est finie.
+
+**2. Le triage A/B/C.** La délégation vocale existait, mais son critère était « mes outils rapides
+couvrent-ils ça ? ». Il devient **« est-ce que je sais déjà QUOI faire ? »** : A = une opération
+connue, B = plusieurs opérations connues (exécutées **sans** déléguer), C = le plan est à découvrir.
+Le nombre d'actions ne fait pas la complexité — trois gestes connus restent un B, et déléguer là
+c'est payer un modèle de raisonnement pour exécuter une liste qu'on avait déjà. L'outil de
+délégation demande désormais **ce qu'il faut découvrir** ; un motif creux est consigné, jamais
+bloqué.
+
+**3. Une mission = une confirmation.** « Tout confirmer » bouclait **dans le navigateur** : un
+aller-retour par action. Un onglet fermé au milieu laissait la moitié du lot partie sans qu'on
+sache laquelle. L'enchaînement est passé côté serveur (`assistant/execution/bundle.ts` +
+`executeAssistantBundle`), sans aucune sémantique d'exécution nouvelle : chaque étape repasse par
+`executeIntentGuarded` puis `performAction`. Une action CRITIQUE ne s'enchaîne jamais et son refus
+se **dit** ; un échec n'entraîne pas ce qui est indépendant mais **entraîne ce qui en dépend**
+(convention `$prev` déjà en place) ; **aucun réessai automatique** — une action manquée est un
+désagrément, une action faite deux fois ne se reprend pas.
+
+**La mesure** (§12) : chaque tour est nommé (texte / vocal direct / vocal délégué / worker / fond)
+et compte ses appels **par rôle**, ses outils, le temps jusqu'au premier signe de vie puis jusqu'au
+résultat. Un tour ne s'imbrique pas : quand la voix délègue, le tour texte **rejoint** le tour vocal
+— l'inverse cacherait la preuve qu'un C fait bien travailler l'orchestrateur.
+
+**Le coût ne ment pas.** Luna est tarifé et vérifié ; Terra ne l'est pas dans ce dépôt, donc son
+coût vaut `null` — jamais zéro, jamais une estimation plausible. Un seul tarif manquant rend le
+total du tour inconnu. Ils se renseignent sans redéploiement (`ADAM_PRICE_*`).
+
+**Deux gardes tenues plutôt que contournées** : la passerelle entre dans le périmètre d'Adam (c'est
+son cerveau, il l'emporte) et ne dépend de RIEN du métier — un test le gèle ; la dette de frontière
+**descend de 425 à 424**. Et la règle de triage dépassait le plafond de caractères des instructions
+vocales (un garde-fou de latence) : elle a été resserrée et la place reprise sur des consignes
+qu'elle rendait redondantes — le plafond n'a pas bougé.
+
+**Pas encore fait** : les workers parallèles pilotés par l'orchestrateur, et le scheduler persistant.
+
 ### LE FIL DEVIENT LE CANVAS — Adam parle peu, montre beaucoup, on agit sur place (2026-08)
 
 Suite directe du lot précédent, sur une direction visuelle validée : **un espace de conversation
