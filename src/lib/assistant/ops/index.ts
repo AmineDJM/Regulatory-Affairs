@@ -22,6 +22,7 @@ import { MEDICAL_OPS_IMPL, RANGE_OPS_IMPL, BD4_OPS_IMPL } from "./impl-wave4b";
 import { EVENT_OPS_IMPL, ADPRO5_OPS_IMPL, CONSULTING_OPS_IMPL } from "./impl-wave5";
 import { CARE_OPS_IMPL, PROMO_OPS_IMPL } from "./impl-wave5b";
 import { BD6_OPS_IMPL, DOSSIER_OPS_IMPL, DIRECTIVE_OPS_IMPL, SUPPORT_OPS_IMPL, REMINDER_OPS_IMPL } from "./impl-wave6";
+import { VALIDATION_OPS_IMPL, FIELD_REPORT_OPS_IMPL, SUPPLY_OPS_IMPL } from "./impl-wave6b";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -775,6 +776,94 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           kind: { type: "string", description: "create_support_request : question, support promotionnel, brochure, document, autre." },
           product: { type: "string", description: "create_support_request : produit concerné." },
           status: { type: "string", description: "set_support_status : ouverte, en cours, répondue, clôturée." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  validation_operation: {
+    module: "VALIDATIONS",
+    ops: zipOps("validation_operation", VALIDATION_OPS_IMPL),
+    def: {
+      name: "validation_operation",
+      description:
+        "VALIDATIONS — les règles de routage (Super Admin : 1-2 validateurs, séquentiel / parallèle, critères module / montants / rôle, FUSION à la modification), les demandes VAL- (validateurs désignés OU routage automatique), la DÉCISION d'étape (approuver / refuser / demander une modification — intérim de congé respecté, chacun son tour en séquentiel), le verdict PIÈCE PAR PIÈCE retirable, et la relance tracée du validateur qui bloque — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("validation_operation")}. `
+        + "La demande se donne par référence VAL-… ou objet (« target ») ; la règle par son nom ; l'élément revu par son nom de pièce (« label », ou « message »).",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("validation_operation"), description: "Le geste à faire." },
+          target: { type: "string", description: "La demande (VAL-… ou objet) ou la règle visée (nom)." },
+          name: { type: "string", description: "create_validation_rule : le nom de la règle." },
+          newName: { type: "string", description: "update_validation_rule : nouveau nom." },
+          label: { type: "string", description: "create_validation_request : l'objet à valider ; review_validation_item : la pièce visée (« message » pour le message)." },
+          person: { type: "string", description: "Validateur 1 (règle / demande directe) ; decide/remind : le validateur de l'étape visée (si plusieurs en attente)." },
+          person2: { type: "string", description: "Validateur 2 (« aucun » le retire à la modification)." },
+          decision: { type: "string", description: "Décision : approuver / refuser / demander une modification — review : aussi « retirer le verdict »." },
+          mode: { type: "string", description: "Règle : séquentiel (défaut) ou parallèle." },
+          module: { type: "string", description: "Module ciblé (règle) ou module de routage (demande sans validateur désigné)." },
+          priority: { type: "string", description: "Basse, moyenne, haute, critique." },
+          role: { type: "string", description: "create_validation_rule : rôle du demandeur ciblé." },
+          amount: { type: "string", description: "Montant (DZD) — règle : seuil minimum ; demande : montant de l'objet." },
+          maxAmount: { type: "string", description: "create/update_validation_rule : seuil maximum (DZD)." },
+          department: { type: "string", description: "Département ciblé / concerné." },
+          category: { type: "string", description: "Catégorie (règle / demande)." },
+          date: { type: "string", description: "create_validation_request : échéance (AAAA-MM-JJ)." },
+          note: { type: "string", description: "Commentaire de décision / mot de relance." },
+          notes: { type: "string", description: "Description (règle / demande)." },
+          message: { type: "string", description: "create_validation_request : description de l'objet." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  field_report_operation: {
+    module: "FIELD_REPORTS",
+    ops: zipOps("field_report_operation", FIELD_REPORT_OPS_IMPL),
+    def: {
+      name: "field_report_operation",
+      description:
+        "RAPPORTS TERRAIN — brouillon dicté qui appartient à son auteur, mise à jour de la fiche en FUSION (synthèse, médecins de l'annuaire, établissement, spécialité, date), analyse IA qui STRUCTURE et persiste sans jamais valider, envoi (VALIDÉ horodaté), validation, réouverture en brouillon, suppressions (rapport avec pièces comptées, ou une pièce par son nom) — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("field_report_operation")}. `
+        + "Le rapport se donne par « target » : médecin, extrait de synthèse, nom du délégué, ou « mon dernier ».",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("field_report_operation"), description: "Le geste à faire." },
+          target: { type: "string", description: "Le rapport visé (médecin, extrait, délégué, ou « mon dernier »)." },
+          message: { type: "string", description: "La synthèse / le compte rendu (update, submit)." },
+          doctor: { type: "string", description: "update : médecin(s) de l'annuaire (noms, virgules)." },
+          institution: { type: "string", description: "update : établissement." },
+          specialty: { type: "string", description: "update : spécialité." },
+          date: { type: "string", description: "Date de la visite (AAAA-MM-JJ)." },
+          label: { type: "string", description: "delete_field_report_attachment : la pièce visée (nom)." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  supply_operation: {
+    module: "GENERAL_MEANS",
+    ops: zipOps("supply_operation", SUPPLY_OPS_IMPL),
+    def: {
+      name: "supply_operation",
+      description:
+        "CATALOGUE D'ARTICLES (Bureau du secrétariat + Moyens généraux — le MÊME catalogue) — ajout à écriture uniformisée (doublon refusé sur la clé), modification en FUSION (renommage sur libellé pris refusé), activation / désactivation, et l'uniformisation de TOUT le catalogue montrée avant d'être appliquée — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("supply_operation")}. `
+        + "L'article se donne par son nom (« name »).",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("supply_operation"), description: "Le geste à faire." },
+          name: { type: "string", description: "L'article visé / à créer." },
+          newName: { type: "string", description: "update_supply_article : nouveau libellé." },
+          category: { type: "string", description: "Catégorie (papeterie, informatique…)." },
+          unit: { type: "string", description: "Unité de compte (pièce, boîte, lot de 50…)." },
+          reference: { type: "string", description: "Référence interne / fournisseur." },
+          amount: { type: "string", description: "Prix estimé (DZD)." },
+          supplier: { type: "string", description: "Fournisseur indicatif." },
+          notes: { type: "string", description: "Notes de la fiche." },
         },
         required: ["op"],
       },
