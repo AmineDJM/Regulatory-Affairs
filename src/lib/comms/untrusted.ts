@@ -33,7 +33,15 @@ const INJECTION_PATTERNS: { id: string; re: RegExp }[] = [
   // fréquents dans une vraie tentative que l'impératif « envoie ».
   { id: "exfiltration", re: /\b(envo(ie|yer|yez|y[ée]|ient)|transmet(s|tre|tez)|communiqu(e|er|ez)|partag(e|er|ez)|forward|send|share)\b[^.\n]{0,60}\b(mot de passe|password|token|jeton|cl[eé] api|api key|identifiants?|credentials?)\b/i },
   { id: "payment-order", re: /\b(vire|virement|transf[eè]re|transfer|paie|payment of)\b[^.\n]{0,40}(\d[\d\s.,]{2,}\s*(€|eur|dzd|usd|\$))/i },
-  { id: "policy-override", re: /\b(sans (demander|validation|approbation)|no approval needed|pas besoin d'accord|auto[- ]?send)\b/i },
+  // « envoi autonome » est le nom FRANÇAIS du mode qui retire l'approbation : un message qui le
+  // réclame demande littéralement à désarmer le dernier garde-fou. Idem pour la formulation
+  // anglaise « disable the approval policy », que le motif d'origine ne couvrait pas.
+  { id: "policy-override", re: /\b(sans (demander|validation|approbation)|no approval needed|pas besoin d'accord|auto[- ]?send|envoi autonome|envoyer sans (accord|approbation|validation))\b|\b(disable|desactive|turn off|remove)\b[^.\n]{0,30}\b(approval|approbation|policy|politique|validation)\b/i },
+  // FRAUDE AU PRÉSIDENT — le grand classique, et il ne ressemble pas à une injection technique.
+  // Un tiers écrit « nouvelle consigne du PDG », « le directeur demande », et l'assistant se
+  // retrouve à exécuter l'ordre d'un inconnu qui a simplement invoqué une autorité. Seule la
+  // personne CONNECTÉE donne des ordres : une autorité affirmée dans un courriel n'en est pas une.
+  { id: "authority-impersonation", re: /\b(consigne|instruction|ordre|demande|directive)s?\b[^.\n]{0,25}\b(du|de la|des)\b[^.\n]{0,5}\b(pdg|president|directeur|direction|dg|ceo|patron)\b|\b(le|la)\s+(pdg|president|directeur|direction|ceo)\b[^.\n]{0,20}\b(demande|exige|ordonne|veut que|a valid)/i },
   { id: "tool-injection", re: /\b(appelle l'outil|call the tool|execute|ex[eé]cute)\b[^.\n]{0,30}\b(tool|outil|function|fonction)\b/i },
 ];
 
@@ -44,7 +52,14 @@ export interface UntrustedScan {
 }
 
 export function scanForInjection(content: string): UntrustedScan {
-  const flags = INJECTION_PATTERNS.filter((p) => p.re.test(content)).map((p) => p.id);
+  // ON DÉ-ACCENTUE AVANT DE CHERCHER — sinon le détecteur ne voit que l'anglais.
+  //
+  // Les motifs sont écrits sans accents (« regles », « precedent », « consignes »). Testés tels
+  // quels sur du texte français réel, ils manquaient « oublie tes RÈGLES » et « ignore les
+  // instructions PRÉCÉDENTES » : exactement les formulations les plus naturelles, donc les plus
+  // probables. Trouvé par le banc adverse — l'anglais passait, le français non.
+  const flat = content.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const flags = INJECTION_PATTERNS.filter((p) => p.re.test(flat)).map((p) => p.id);
   return { flags, suspicious: flags.length > 0 };
 }
 

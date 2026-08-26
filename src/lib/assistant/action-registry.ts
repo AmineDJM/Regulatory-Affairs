@@ -466,9 +466,37 @@ const STOP = new Set([
   "ce", "ces", "cette", "se", "sa", "son", "ses", "ne", "pas", "par", "sur", "pour",
   "dans", "que", "qui", "est", "il", "elle", "je", "tu", "on", "nous", "vous", "ils",
   "me", "te", "mon", "ton", "ma", "ta", "mes", "tes", "avec", "plus", "faut",
+  // Démonstratifs et pronoms manquants — mesuré : leur absence rapprochait « supprime CET
+  // employé » de « modifie le département de CET employé ». Deux phrases n'ont rien en commun
+  // parce qu'elles partagent un démonstratif ; proposer une suppression définitive à qui
+  // demande une modification est le pire faux positif possible.
+  "cet", "celui", "celle", "ceux", "celles", "leur", "leurs", "lui", "eux", "y",
+  "ete", "etre", "soit", "tout", "tous", "toute", "toutes", "meme", "memes",
+  "comme", "quand", "dont", "donc", "alors", "aussi", "tres", "bien",
+  "vers", "chez", "sans", "sous", "entre", "apres", "avant", "depuis", "encore", "deja",
+  "ont", "ai", "as", "ont", "oui", "non", "merci", "stp", "svp",
 ]);
 
-/** Repli : accents, apostrophes, ponctuation — jetons ≥ 2 lettres hors mots-outils, dé-pluralisés. */
+/**
+ * RACINISATION LÉGÈRE DU FRANÇAIS — parce que le PDG ne parle pas à l'infinitif.
+ *
+ * L'alias du registre dit « assigner le dossier », le PDG dit « assigne le dossier ». Sans cette
+ * étape, ces deux mots sont étrangers l'un à l'autre et l'action native n'est jamais reconnue :
+ * mesuré sur 110 formulations réelles, c'était la première cause de silence du résolveur.
+ *
+ * On coupe les terminaisons verbales et le pluriel, en gardant un radical d'au moins 4 lettres —
+ * en dessous on rabote des mots courts et on fabrique des collisions. La même fonction s'applique
+ * AUX DEUX CÔTÉS : ce qui compte n'est pas la justesse linguistique du radical, c'est que
+ * « assigner » et « assigne » tombent sur le MÊME.
+ */
+function stem(word: string): string {
+  if (word.length <= 4) return word;
+  // Du plus long au plus court : « ations » avant « ons », sinon on coupe trop court.
+  const cut = word.replace(/(ations|ation|ements|ement|erait|eront|ions|iez|ons|ent|ez|er|es|ee|e|s|x)$/, "");
+  return cut.length >= 4 ? cut : word.replace(/[sx]$/, "");
+}
+
+/** Repli : accents, apostrophes, ponctuation — jetons ≥ 2 lettres hors mots-outils, racinisés. */
 function foldTokens(text: string): Set<string> {
   const folded = text
     .toLowerCase()
@@ -478,15 +506,50 @@ function foldTokens(text: string): Set<string> {
   const out = new Set<string>();
   for (const raw of folded.split(" ")) {
     if (raw.length < 2 || STOP.has(raw)) continue;
-    out.add(raw.replace(/[sx]$/, ""));
+    out.add(stem(raw));
   }
   return out;
 }
 
-interface AliasIndexEntry { action: NativeAction; tokens: string[] }
-const ALIAS_INDEX: AliasIndexEntry[] = ERP_ACTIONS.flatMap((action) =>
+interface AliasIndexEntry { action: NativeAction; tokens: string[]; pivot: string }
+const RAW_ALIASES: { action: NativeAction; tokens: string[] }[] = ERP_ACTIONS.flatMap((action) =>
   action.aliases.map((a) => ({ action, tokens: [...foldTokens(a)] })).filter((e) => e.tokens.length > 0),
 );
+
+/**
+ * LE JETON PIVOT — celui qui IDENTIFIE l'action, par opposition à ceux qui la décorent.
+ *
+ * « crée », « ajoute », « mets », « jour » traversent tout le registre : ils disent qu'on agit,
+ * jamais SUR QUOI. Le mot rare, lui, désigne l'objet métier — « enveloppe », « congé »,
+ * « en-tête ». On retient donc, pour chaque alias, son jeton le moins fréquent dans l'index.
+ *
+ * Sans ce garde-fou, la correspondance partielle rapprochait « mets à jour le prix du produit »
+ * de « modifie la fiche employé » : deux jetons de verbe communs suffisaient. Un indice faux
+ * pousse le modèle vers le MAUVAIS bouton — c'est pire qu'un silence, qui le laisse chercher.
+ */
+/**
+ * Les jetons qui disent L'ACTE, jamais L'OBJET. Ils ne peuvent pas servir de pivot : « mets à
+ * jour le prix du produit » et « mets à jour le contrat de l'employé » partagent le geste et
+ * rien d'autre — c'est l'objet (prix / contrat) qui distingue les deux boutons.
+ */
+const WEAK_PIVOT = new Set([
+  "met", "mets", "mettr", "mise", "jour", "cre", "creer", "ajout", "ajoute", "modifi",
+  "chang", "suppr", "supprim", "valid", "envoi", "nouveau", "nouvel", "fair", "fait",
+  "corrig", "retir", "enlev", "donn", "pass", "prend", "prepar", "lanc", "ouvr", "ferm",
+]);
+
+const TOKEN_DF = new Map<string, number>();
+for (const e of RAW_ALIASES) for (const t of new Set(e.tokens)) TOKEN_DF.set(t, (TOKEN_DF.get(t) ?? 0) + 1);
+
+const ALIAS_INDEX: AliasIndexEntry[] = RAW_ALIASES.map((e) => {
+  // Le pivot se cherche d'abord parmi les jetons d'OBJET ; on ne retombe sur un jeton d'acte
+  // que si l'alias n'en contient aucun autre (« valider », « archiver » seuls).
+  const strong = e.tokens.filter((t) => !WEAK_PIVOT.has(t));
+  const pool = strong.length > 0 ? strong : e.tokens;
+  let pivot = pool[0];
+  for (const t of pool) if ((TOKEN_DF.get(t) ?? 0) < (TOKEN_DF.get(pivot) ?? 0)) pivot = t;
+  return { action: e.action, tokens: e.tokens, pivot };
+});
 
 /**
  * « Y a-t-il DÉJÀ une action native de l'ERP qui correspond à cette intention ? »
@@ -499,12 +562,39 @@ const ALIAS_INDEX: AliasIndexEntry[] = ERP_ACTIONS.flatMap((action) =>
 export function matchNativeAction(question: string): NativeAction[] {
   const q = foldTokens(question);
   if (q.size === 0) return [];
-  const hits = ALIAS_INDEX
-    .filter((e) => e.tokens.every((t) => q.has(t)))
-    .sort((a, b) => b.tokens.length - a.tokens.length);
+
+  // Deux qualités de correspondance, et l'ordre entre elles compte.
+  //
+  // COMPLÈTE : tous les jetons de l'alias sont dans la question. C'est la certitude.
+  //
+  // PARTIELLE : l'alias en dit PLUS que le PDG. « ajoute un fournisseur regulatory » ne peut pas
+  // répondre à « ajoute un fournisseur » tant qu'on exige la totalité — or c'est exactement ainsi
+  // qu'on parle : on dit le geste, pas la fiche du bouton. On accepte donc un alias dont la
+  // question couvre au moins DEUX jetons et les deux tiers du total. Les deux seuils sont
+  // nécessaires : la proportion seule laisserait passer un alias d'un mot (1/1 = 100 %) et
+  // ferait entrer n'importe quel verbe courant.
+  //
+  // Un indice FAUX coûte plus cher qu'un silence — il pousse le modèle vers le mauvais bouton.
+  // D'où le classement : toute correspondance complète passe devant toute partielle, et à
+  // qualité égale l'alias le plus spécifique (le plus de jetons couverts) gagne.
+  interface Scored { action: NativeAction; full: boolean; covered: number }
+  const scored: Scored[] = [];
+  for (const e of ALIAS_INDEX) {
+    let covered = 0;
+    for (const t of e.tokens) if (q.has(t)) covered += 1;
+    if (covered === e.tokens.length) scored.push({ action: e.action, full: true, covered });
+    // Partielle : deux jetons au moins, les deux tiers de l'alias, ET son jeton pivot — sans
+    // quoi deux verbes passe-partout suffiraient à désigner n'importe quelle action.
+    else if (covered >= 2 && covered * 3 >= e.tokens.length * 2 && q.has(e.pivot)) {
+      scored.push({ action: e.action, full: false, covered });
+    }
+  }
+
+  scored.sort((a, b) => (a.full === b.full ? b.covered - a.covered : a.full ? -1 : 1));
+
   const seen = new Set<string>();
   const out: NativeAction[] = [];
-  for (const h of hits) {
+  for (const h of scored) {
     if (seen.has(h.action.id)) continue;
     seen.add(h.action.id);
     out.push(h.action);
