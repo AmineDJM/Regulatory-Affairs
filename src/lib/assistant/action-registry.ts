@@ -753,7 +753,7 @@ G("Legal avancé (édition, dossiers, rattachements Drive, règlement de facture
 G("Ad&Pro (postes, décisions, transferts, consulting)", [
   "ad-pro-edit-actions:updateAdProRequest", "ad-pro-item-actions:addAdProItem", "ad-pro-item-actions:updateAdProItem",
   "ad-pro-item-actions:deleteAdProItem", "ad-pro-item-actions:emitItemExpenseOrder",
-  "ad-pro-item-actions:linkPromoMaterial", "ad-pro-item-actions:promoMaterialOptions",
+  "ad-pro-item-actions:linkPromoMaterial",
   "ad-pro-item-actions:submitAdProItem", "ad-pro-item-actions:decideAdProItem", "ad-pro-item-actions:setAdProItemBudget",
   "ad-pro-item-actions:requestAdProItemQuote", "ad-pro-item-actions:requestAdProItemOrder",
   "ad-pro-item-actions:approveAdProItemOrder", "ad-pro-other-actions:createAdProOtherRequest",
@@ -785,13 +785,13 @@ G("sponsoring / congrès / prises en charge (décisions et étapes après créat
   "congress-request-actions:preliminaryDecision", "congress-request-actions:submitProductAnalysis",
   "congress-request-actions:finalDecision", "congress-request-actions:updateGrantedBudget",
   "congress-request-actions:requestThirdPartyInput", "congress-request-actions:cancelCongressRequest",
-  "congress-beneficiary-actions:addCongressBeneficiary", "congress-beneficiary-actions:listBeneficiaryRefs",
+  "congress-beneficiary-actions:addCongressBeneficiary",
   "congress-beneficiary-actions:removeCongressBeneficiary", "congress-beneficiary-actions:requestBeneficiaryIds",
   "care-actions:addCareBeneficiary", "care-actions:setCareOpinion", "care-actions:decideCareBeneficiary",
   "care-actions:removeCareBeneficiary", "care-actions:addCareCell", "care-actions:setCareCellStatus",
   "care-actions:removeCareCell", "care-actions:createCareQuote", "care-actions:decideCareQuote",
-  "care-actions:requestCareQuotes", "care-actions:sendCareToFinance", "care-actions:careDirectoryOptions",
-  "care-actions:linkCareCellPromoMaterial", "care-actions:carePromoOptions",
+  "care-actions:requestCareQuotes", "care-actions:sendCareToFinance",
+  "care-actions:linkCareCellPromoMaterial",
 ]);
 G("événements (inscriptions, validation) après création", [
   "event-actions:updateEvent", "event-actions:deleteEvent", "event-actions:submitEventForApproval",
@@ -981,6 +981,10 @@ X("lectures pures de l'explorateur Intelligence marché (recherche IQVIA/PCH, an
 ]);
 X("liste de choix d'un formulaire (les personnes qu'on peut solliciter) — une lecture, pas un geste", [
   "document-request-actions:askablePeople",
+]);
+X("sélecteurs de formulaires care / matériel promo (options d'annuaire, de matériels, de bénéficiaires à copier) — des lectures de listes de choix, pas des gestes métier (précédent : askablePeople) ; côté Chief, la résolution se fait par NOM dans care_operation / promo_operation / adpro_operation", [
+  "care-actions:careDirectoryOptions", "care-actions:carePromoOptions",
+  "congress-beneficiary-actions:listBeneficiaryRefs", "ad-pro-item-actions:promoMaterialOptions",
 ]);
 X("plomberie / lecture du Drive (initialisation de dossiers, liste des partages) — pas un geste métier", [
   "drive-actions:ensureDriveFolders", "drive-actions:getDriveNodeShares",

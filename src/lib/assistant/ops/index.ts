@@ -20,6 +20,7 @@ import { ADPRO_OPS_IMPL, BD_OPS_IMPL, STOCK_OPS_IMPL } from "./impl-commercial";
 import { REG4_OPS_IMPL, PCH_OPS_IMPL, STOCK4_OPS_IMPL, SALES_OPS_IMPL, LOGISTICS_OPS_IMPL } from "./impl-wave4";
 import { MEDICAL_OPS_IMPL, RANGE_OPS_IMPL, BD4_OPS_IMPL } from "./impl-wave4b";
 import { EVENT_OPS_IMPL, ADPRO5_OPS_IMPL, CONSULTING_OPS_IMPL } from "./impl-wave5";
+import { CARE_OPS_IMPL, PROMO_OPS_IMPL } from "./impl-wave5b";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -551,6 +552,76 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           paymentTerms: { type: "string", description: "create_contract : modalités de paiement." },
           note: { type: "string", description: "Décision / clôture : note ou motif." },
           notes: { type: "string", description: "create_contract : périmètre de la mission." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  care_operation: {
+    module: "CONGRESS_NATIONAL",
+    ops: zipOps("care_operation", CARE_OPS_IMPL),
+    def: {
+      name: "care_operation",
+      description:
+        "PRISES EN CHARGE d'un congrès (national ou international) — personnes (annuaire ou profil libre), avis du demandeur, DÉCISION PAR PERSONNE (Direction), besoins par personne (pièces / prestations et leurs états), devis qui couvrent N cases (garde anti double paiement), sollicitation des devis, envoi aux Finances bloqué tant qu'il manque quelque chose, rattachement d'une case au matériel promo — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("care_operation")}. `
+        + "Le congrès se donne par NOM (« target », « kind » national / international si ambigu), la personne par son nom (« person »), l'élément par son libellé (« label »).",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("care_operation"), description: "Le geste à faire." },
+          target: { type: "string", description: "Le congrès visé (nom)." },
+          kind: { type: "string", description: "Congrès national / congrès international (si le nom seul est ambigu)." },
+          person: { type: "string", description: "La personne prise en charge (praticien de l'annuaire ou nom libre)." },
+          label: { type: "string", description: "L'élément visé (pièce / prestation) — create_care_quote : les libellés couverts (virgules)." },
+          cells: { type: "string", description: "create_care_quote : synonyme de « label » (libellés couverts, virgules)." },
+          decision: { type: "string", description: "Avis : favorable / défavorable / pas d'avis. Personne : accorder / écarter. Devis : accepter / refuser." },
+          supplier: { type: "string", description: "Devis : le fournisseur." },
+          amount: { type: "string", description: "create_care_quote : montant du devis (DZD)." },
+          reference: { type: "string", description: "create_care_quote : référence du devis." },
+          status: { type: "string", description: "set_care_cell_status : demandée / reçue / réglée / sans objet." },
+          serviceKind: { type: "string", description: "add_care_cell : hôtel, transport, billet, restauration, inscription, matériel promotionnel, autre." },
+          mode: { type: "string", description: "add_care_cell : « prestation » force une prestation (sinon : pièce à fournir)." },
+          role: { type: "string", description: "add_care_person : fonction (« Professeur », « Chef de service »…)." },
+          institution: { type: "string", description: "add_care_person : établissement." },
+          material: { type: "string", description: "link_care_promo : le matériel promotionnel (MP-… ou titre ; « aucun » détache)." },
+          note: { type: "string", description: "Note / justification." },
+          notes: { type: "string", description: "add_care_cell : précisions sur l'élément." },
+        },
+        required: ["op", "target"],
+      },
+    },
+  },
+  promo_operation: {
+    module: "PROMO_MATERIAL",
+    ops: zipOps("promo_operation", PROMO_OPS_IMPL),
+    def: {
+      name: "promo_operation",
+      description:
+        "MATÉRIEL PROMOTIONNEL — le CIRCUIT COURT (lancement à N+1 figé, devis reçu sur pièce exigée, chantiers parallèles BC / paiement / visa), les marches du circuit long (devis déposés, agence retenue, BC aux Finances puis validé puis envoyé, bordereau de paiement, paiement, matériel réalisé, examen Direction, conformité + visa, BAT, livraison, facture, règlement-clôture), commentaires, annulation, et le STOCK à MOUVEMENTS (articles, entrées / distributions / pertes / corrections — jamais un champ quantité) — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("promo_operation")}. `
+        + "Le dossier se donne par référence MP-… ou titre (« reference ») ; l'article de stock par son nom (« name »).",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("promo_operation"), description: "Le geste à faire." },
+          reference: { type: "string", description: "Le dossier visé (MP-… ou titre)." },
+          label: { type: "string", description: "Synonyme de « reference » (ou de « name » pour le stock)." },
+          supplier: { type: "string", description: "choose_promo_agency : l'agence retenue." },
+          name: { type: "string", description: "Stock : l'article visé / à créer." },
+          newName: { type: "string", description: "update_stock_item : nouveau nom de l'article." },
+          amount: { type: "string", description: "Montant (DZD) — agence retenue, règlement final." },
+          quantity: { type: "string", description: "Stock : quantité (mouvement, ou stock initial à la création)." },
+          threshold: { type: "string", description: "Stock : seuil d'alerte." },
+          unit: { type: "string", description: "Stock : unité (boîte, pièce…)." },
+          location: { type: "string", description: "Stock : emplacement." },
+          person: { type: "string", description: "record_stock_movement : destinataire de la distribution." },
+          date: { type: "string", description: "Mouvement de stock : date (AAAA-MM-JJ)." },
+          mode: { type: "string", description: "start_promo_circuit : « devis en main » saute la demande ; record_stock_movement : entrée / distribution / perte / correction." },
+          track: { type: "string", description: "complete_promo_track : bon de commande / demande de paiement / visa publicitaire." },
+          message: { type: "string", description: "comment_promo : le commentaire ; confirm_promo_conformity : référence de l'autorité." },
+          note: { type: "string", description: "Commentaire d'étape / n° de BC / référence du visa / motif du mouvement." },
+          notes: { type: "string", description: "Stock : notes de la fiche article." },
         },
         required: ["op"],
       },
