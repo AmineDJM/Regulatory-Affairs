@@ -1,0 +1,221 @@
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   L'ESPACE DE TRAVAIL — sa feuille de style, autonome.
+
+   POURQUOI ELLE NE VIT PAS DANS `chief.css`. Ces blocs s'affichent à DEUX endroits : le bureau
+   d'Adam (`/chief-of-staff`) et la page Assistant de l'ERP (`/assistant`). Or `chief.css` n'est
+   chargée que par la première. Laissée là-bas, la même donnée serait tenue d'un côté et brute
+   de l'autre — un tableau sans bordures ni hiérarchie.
+
+   Chaque jeton porte donc une VALEUR DE REPLI (`var(--jeton, valeur)`). Dans le bureau d'Adam,
+   le jeton existe et gagne ; ailleurs, le repli s'applique. Une seule définition, deux hôtes,
+   aucune duplication à maintenir en parallèle.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+@keyframes chief-block-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.chief-workspace-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.chief-block {
+  border: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+  border-radius: var(--chief-radius-card, 18px);
+  background-color: hsl(var(--chief-surface, 0 0% 100%));
+  padding: 14px 16px;
+  animation: chief-block-rise var(--chief-duration-state, 220ms) var(--chief-ease, cubic-bezier(0.32, 0.72, 0, 1)) both;
+}
+
+.chief-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.chief-block-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: hsl(var(--chief-text, 220 40% 13%));
+  margin: 0;
+}
+.chief-block-meta,
+.chief-block-note,
+.chief-block-empty {
+  font-size: 12px;
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+}
+.chief-block-note { margin: 10px 0 0; line-height: 1.5; }
+.chief-block-empty { font-style: italic; }
+
+.chief-block-filter {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 7px 11px;
+  font-size: 13px;
+  color: hsl(var(--chief-text, 220 40% 13%));
+  background-color: hsl(var(--chief-surface-sunken, 220 30% 96.5%));
+  border: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+  border-radius: var(--chief-radius-control, 14px);
+  outline: none;
+}
+.chief-block-filter:focus { border-color: hsl(var(--chief-accent-border, 245 60% 90%)); }
+
+.chief-stack { display: flex; flex-direction: column; gap: 12px; }
+.chief-list { list-style: none; margin: 0; padding: 0; }
+
+.chief-link { color: hsl(var(--chief-accent, 245 72% 58%)); text-decoration: none; }
+.chief-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+.chief-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  border-radius: 999px;
+  background-color: hsl(var(--chief-surface-sunken, 220 30% 96.5%));
+  color: hsl(var(--chief-text-secondary, 220 12% 42%));
+  white-space: nowrap;
+}
+
+
+/* ── Deux formes pour une même donnée ─────────────────────────────────────────────────────
+   Un tableau à trois colonnes sur 390 px réduit la colonne des coordonnées à quelques
+   pixels : l'adresse s'y écrit alors une lettre par ligne. Le téléphone reçoit donc une
+   liste de fiches, et le tableau reste réservé aux écrans qui peuvent le tenir. */
+.chief-only-narrow { display: none; }
+
+/* Un tableau doit DÉFILER, jamais s'écraser : sans largeur minimale, les navigateurs
+   compriment les colonnes jusqu'à l'illisible plutôt que de déclencher le défilement. */
+.chief-table { min-width: 460px; }
+
+/* L'adresse en second, discrète : deux « Deepak » se distinguent par leur domaine. */
+.chief-mail-address {
+  margin-left: 7px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+  overflow-wrap: anywhere;
+}
+
+/* ── Personnes & coordonnées ───────────────────────────────────────────────────────────── */
+
+.chief-person { display: flex; flex-direction: column; gap: 6px; }
+.chief-person-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.chief-person-name { font-size: 14px; font-weight: 600; color: hsl(var(--chief-text, 220 40% 13%)); }
+.chief-person-role { font-size: 12.5px; color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
+
+.chief-endpoints { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Une adresse se COPIE plus souvent qu'elle ne se lit — d'où le bouton plutôt que le texte. */
+.chief-endpoint {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  max-width: 100%;
+  padding: 4px 9px;
+  font-size: 12.5px;
+  text-align: left;
+  color: hsl(var(--chief-text, 220 40% 13%));
+  background-color: hsl(var(--chief-surface-sunken, 220 30% 96.5%));
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color var(--chief-duration-micro, 140ms) var(--chief-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.chief-endpoint:hover { border-color: hsl(var(--chief-border, 218 22% 89%)); }
+.chief-endpoint-value { overflow-wrap: anywhere; }
+.chief-endpoint-source { font-size: 11px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); white-space: nowrap; }
+.chief-endpoint-copied { font-size: 11px; color: hsl(var(--chief-success, 152 55% 38%)); }
+
+/* ── Tableaux ──────────────────────────────────────────────────────────────────────────── */
+
+.chief-table-scroll { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
+.chief-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.chief-table th {
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+  padding: 0 12px 7px 0;
+  white-space: nowrap;
+}
+.chief-table td {
+  padding: 7px 12px 7px 0;
+  vertical-align: top;
+  color: hsl(var(--chief-text-secondary, 220 12% 42%));
+  border-top: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+}
+.chief-td-strong { color: hsl(var(--chief-text, 220 40% 13%)); font-weight: 500; white-space: nowrap; }
+.chief-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ── Messages ──────────────────────────────────────────────────────────────────────────── */
+
+.chief-mail { display: flex; flex-direction: column; gap: 3px; }
+.chief-mail-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.chief-mail-from { font-size: 13px; font-weight: 600; color: hsl(var(--chief-text, 220 40% 13%)); }
+.chief-mail-date { font-size: 11.5px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); white-space: nowrap; }
+.chief-mail-subject { margin: 0; font-size: 13.5px; color: hsl(var(--chief-text, 220 40% 13%)); }
+.chief-mail-snippet { margin: 2px 0 0; font-size: 12.5px; line-height: 1.5; color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
+.chief-mail-asks,
+.chief-mail-files { margin: 3px 0 0; font-size: 12px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); }
+.chief-mail-alert { margin: 4px 0 0; font-size: 12px; color: hsl(var(--chief-warning, 35 88% 45%)); }
+
+/* ── Agenda ────────────────────────────────────────────────────────────────────────────── */
+
+.chief-event { display: flex; gap: 14px; }
+.chief-event-when { display: flex; flex-direction: column; min-width: 76px; }
+.chief-event-hour { font-size: 13px; font-weight: 600; color: hsl(var(--chief-text, 220 40% 13%)); font-variant-numeric: tabular-nums; }
+.chief-event-day { font-size: 11.5px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); }
+.chief-event-body { flex: 1; min-width: 0; }
+.chief-event-title { margin: 0; font-size: 13.5px; color: hsl(var(--chief-text, 220 40% 13%)); }
+.chief-event-meta { margin: 2px 0 0; font-size: 12px; color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
+
+/* ── File de décisions ─────────────────────────────────────────────────────────────────── */
+
+.chief-queue-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.chief-queue-body { min-width: 0; }
+.chief-queue-title { margin: 0; font-size: 13.5px; color: hsl(var(--chief-text, 220 40% 13%)); }
+.chief-queue-detail { margin: 2px 0 0; font-size: 12.5px; color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
+.chief-queue-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.chief-queue-date { font-size: 11.5px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); white-space: nowrap; }
+
+/* ── Fiche ─────────────────────────────────────────────────────────────────────────────── */
+
+.chief-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; margin: 0; }
+.chief-field dt { font-size: 11.5px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); margin: 0; }
+.chief-field dd { margin: 1px 0 0; font-size: 13px; color: hsl(var(--chief-text, 220 40% 13%)); overflow-wrap: anywhere; }
+
+/* ── Chronologie ───────────────────────────────────────────────────────────────────────── */
+
+.chief-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.chief-timeline-step { display: flex; gap: 14px; }
+.chief-timeline-date { min-width: 84px; font-size: 12px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); font-variant-numeric: tabular-nums; }
+.chief-timeline-label { margin: 0; font-size: 13.5px; color: hsl(var(--chief-text, 220 40% 13%)); }
+.chief-timeline-detail { margin: 2px 0 0; font-size: 12.5px; color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
+
+/* ── Téléphone ─────────────────────────────────────────────────────────────────────────────
+   Sur 390 px, une grille de fiches à deux colonnes coupe les valeurs en deux, et un
+   rendez-vous en deux colonnes gaspille un tiers de la largeur en marge de gauche. */
+@media (max-width: 640px) {
+  .chief-only-wide { display: none; }
+  .chief-only-narrow { display: flex; }
+  .chief-block { padding: 12px 13px; border-radius: var(--chief-radius-control, 14px); }
+  .chief-fields { grid-template-columns: minmax(0, 1fr); }
+  .chief-event { flex-direction: column; gap: 3px; }
+  .chief-event-when { flex-direction: row; align-items: baseline; gap: 8px; min-width: 0; }
+  .chief-queue-item { flex-direction: column; gap: 5px; }
+  .chief-queue-side { flex-direction: row; align-items: baseline; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chief-block { animation: none; }
+  .chief-endpoint { transition: none; }
+}

@@ -2594,6 +2594,8 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 
 | Domaine | Fichiers clés |
 |---|---|
+| **Adam — aiguillage & liste courte d'outils** | `lib/assistant/context/router.ts` (`routeQuery` : 5 classes de route, 11 domaines, plancher de confiance) ; `tool-shortlist.ts` (`TOOL_DOMAINS` — les 77 outils classés —, `ALWAYS_ON` socle de 4, `shortlistTools`) ; **`rollout.ts`** (`decideRollout` : `FAST_READ` / `SHORTLIST` / `LEGACY`, `SAFE_READ_TOOLS` liste blanche, `bucketOf` FNV-1a, garde `recordOutcome`/`guardStatus`/`readyForNextStep`) ; `discovery.ts` (`runDiscovery` — l'échappatoire `list_more_tools`) ; `shadow.ts` (mesure) ; `bench.ts` + `golden-corpus.ts` (TRAIN) + `holdout-corpus.ts` (**jamais retouché**). Branché dans `lib/assistant.ts` sur **les deux** boucles (`runAssistant` et `runAssistantStream`), via `assistantToolsFor(user)`. |
+| **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`. |
 | **Sécurité / session** | `lib/rbac.ts` (PERMISSIONS, `userCan`, `anyRoleFilter`, `getAccess` cumul secondaire), `lib/session.ts` (`requireUser`/`requireModule`, maj `UserSession.lastSeenAt`), `lib/entity-access.ts` (accès par ligne + `ENTITY_MODULE`). |
 | **Workflow Ad & Pro** | `lib/workflow/engine.ts` · `defaults.ts` · `engine.test.ts`, `lib/queries/workflow.ts`, `components/workflow/workflow-panel.tsx`, `app/(app)/admin/workflows/`. |
 | **RH** | `lib/actions/hr-actions.ts` (fiche employé, salaires, essai, congés éditables par le DRH), `hr-document-actions.ts` (demandes, notes de frais, entrevues, archives), `payroll-hr-actions.ts` (paie), `lib/queries/hr-documents.ts` (DTO + confidentialité salaires), pages `app/(app)/rh/` (+ `paie/`, `departements/`), `app/(app)/mon-dossier/`. |
@@ -3235,6 +3237,53 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### ADAM — le routeur ACTIF (borné), et l'espace de travail génératif (2026-08)
+
+Deux changements, et une frontière entre eux qui est le sujet principal.
+
+**1. Le routeur passe en production, mais seulement où c'était autorisé.** Jusqu'ici il tournait
+en mode ombre : il notait ce qu'il *aurait* fait sans jamais l'appliquer. Trois chemins désormais,
+décidés dans `lib/assistant/context/rollout.ts` :
+
+- `FAST_READ` — annuaire, Gmail, agenda, fiche canonique, file de décisions. **Le code choisit
+  l'outil, l'exécute, et le modèle ne sert plus qu'à formuler** : un seul appel au lieu de deux,
+  et ZÉRO schéma d'outil envoyé.
+- `SHORTLIST` — le reste des lectures, en **canary 20 %** : liste d'outils réduite au domaine,
+  avec seau déterministe (FNV-1a) pour que tout incident se rejoue à l'identique.
+- `LEGACY` — **TOUTES les mutations** et le trafic hors canary. Chemin actuel, inchangé, avec
+  RBAC, approbation, audit et idempotence.
+
+Le doute ne va jamais vers un raccourci : confiance faible, domaine flou, outil hors liste blanche
+ou garde déclenchée → repli sur le généraliste. Le cas qui résume la règle : **« Envoie-le »** est
+classé rapide par le routeur mais EXPÉDIE UN MAIL — il est nommément renvoyé sur le chemin prouvé.
+
+Une **garde automatique** (mauvais outil > 1 % ou outil manquant > 1 %, sur 50 tours minimum)
+ramène tout sur l'ancien chemin sans intervention. Sa limite est écrite dans le fichier : la
+fenêtre est en mémoire du processus, elle devra devenir partagée avant d'autoriser une mutation.
+
+`list_more_tools` était **déclaré sans code derrière** — la liste courte aurait donc été une
+amputation. `context/discovery.ts` l'exécute enfin : il rouvre un domaine en cours de boucle,
+n'accorde aucun droit (chaque outil revérifie), ne révèle jamais un outil fermé, et compte chaque
+appel comme « outil manquant ». L'échappatoire répare le tour, le compteur répare le routeur.
+
+**Correction d'une mesure fausse** : le rapport publiait « 23 316 tokens de schémas, 60 % du
+contexte fixe ». Ce chiffre ne pesait que les 77 outils de POUVOIR ; la boucle en envoie **159**.
+La vraie mesure est **93 025 tokens, soit 85,7 %** du contexte fixe.
+
+**2. L'espace de travail génératif.** La conversation ne rend plus la donnée en texte seul : le
+serveur traduit la sortie d'une source canonique en **blocs typés** (`lib/assistant/workspace/`),
+et le client (`components/chief/workspace/`) ne sait rendre que ces blocs-là — fiche de contact,
+annuaire, messages, agenda, file de décisions, fiche, tableau, chronologie.
+
+**Le modèle n'écrit aucun balisage.** C'est la réponse directe à l'incident où « Bonsoir, ça va ? »
+avait produit vingt-sept résultats bruts à l'écran, dont six lignes de salaire : une forme non
+reconnue **ne compose rien**, et la réponse reste du texte. Sur téléphone, l'annuaire n'est pas un
+tableau rétréci mais une liste de fiches — un tableau à trois colonnes sur 390 px écrivait
+l'adresse une lettre par ligne.
+
+Jeu réservé **inchangé** : 85,0 % de route, 95,0 % de domaine, 0 confusion lire/agir, les six
+mêmes échecs. Détail complet et chiffres : `docs/ADAM_VOICE_CONTEXT_REPORT.md` (addendum).
 
 ### ADAM — les canaux Google du Chief of Staff, et la frontière d'envoi (2026-08)
 

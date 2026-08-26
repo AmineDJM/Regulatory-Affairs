@@ -19,6 +19,8 @@ import {
 // vidage de 27 résultats contenant six lignes de salaires, en réponse à « Bonsoir, ça va ? ».
 import { decideDisplay } from "@/lib/assistant/voice/transcript-hygiene";
 import type { ProposedAction, AssistantActionPayload, ChatTurn, AssistantResult, AssistantStreamEvent } from "@/lib/assistant";
+import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
+import { WorkspaceBlocks } from "@/components/chief/workspace/blocks";
 import { matchesConfirmText } from "@/lib/assistant/confirm";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import type { ThreadSummary } from "@/lib/assistant-memory";
@@ -57,6 +59,12 @@ interface Msg {
   actionStates?: ActionState[];
   actionResults?: (string | undefined)[];
   actionLinks?: (string | undefined)[];
+  /**
+   * L'ESPACE DE TRAVAIL de ce tour — des blocs TYPÉS bâtis par le serveur à partir d'une
+   * source canonique. Ils restent attachés au message : remonter dans la conversation
+   * redonne le tableau, il ne se volatilise pas au tour suivant.
+   */
+  workspace?: WorkspaceComposition[];
 }
 
 const SUGGESTIONS = [
@@ -177,7 +185,7 @@ export function AssistantChat({
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
   /** Réponse EN COURS d'écriture (texte partiel + étapes de lecture déjà annoncées). */
-  const [streaming, setStreaming] = React.useState<{ text: string; trace: string[] } | null>(null);
+  const [streaming, setStreaming] = React.useState<{ text: string; trace: string[]; workspace: WorkspaceComposition[] } | null>(null);
   const abortRef = React.useRef<AbortController | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const taRef = React.useRef<HTMLTextAreaElement>(null);
@@ -427,7 +435,7 @@ export function AssistantChat({
     }
   };
   /** Ajoute le résultat d'un tour non diffusé (pièces jointes) à la conversation. */
-  const appendResult = (res: AssistantResult): string | null => {
+  const appendResult = (res: AssistantResult, workspace: WorkspaceComposition[] = []): string | null => {
     if (!res.configured) {
       setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "IA non configurée." }]);
       return null;
@@ -436,6 +444,7 @@ export function AssistantChat({
       const proposals = res.proposals ?? (res.proposal ? [res.proposal] : []);
       setMessages((m) => [...m, {
         id: nextId(), role: "assistant", content: res.reply, trace: res.trace,
+        workspace: workspace.length ? workspace : undefined,
         proposals: proposals.length ? proposals : undefined,
         actionStates: proposals.length ? proposals.map(() => "pending" as ActionState) : undefined,
         actionResults: proposals.length ? proposals.map(() => undefined) : undefined,
@@ -456,7 +465,10 @@ export function AssistantChat({
   const streamAnswer = async (history: ChatTurn[]): Promise<string | null> => {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    setStreaming({ text: "", trace: [] });
+    setStreaming({ text: "", trace: [], workspace: [] });
+    // Accumulé LOCALEMENT au tour : c'est ce qui sera attaché au message final. L'état React
+    // sert l'aperçu pendant la diffusion ; cette liste-ci survit à la fin du flux.
+    const composed: WorkspaceComposition[] = [];
 
     const res = await fetch("/api/assistant/stream", {
       method: "POST",
@@ -488,25 +500,34 @@ export function AssistantChat({
         try { evt = JSON.parse(raw.slice(5).trim()) as StreamEvent; } catch { continue; }
 
         if (evt.type === "delta") {
-          setStreaming((s) => ({ text: (s?.text ?? "") + evt.text, trace: s?.trace ?? [] }));
+          setStreaming((s) => ({ text: (s?.text ?? "") + evt.text, trace: s?.trace ?? [], workspace: s?.workspace ?? [] }));
         } else if (evt.type === "trace") {
-          setStreaming((s) => ({ text: s?.text ?? "", trace: s?.trace.includes(evt.label) ? s.trace : [...(s?.trace ?? []), evt.label] }));
+          setStreaming((s) => ({ text: s?.text ?? "", trace: s?.trace.includes(evt.label) ? s.trace : [...(s?.trace ?? []), evt.label], workspace: s?.workspace ?? [] }));
         } else if (evt.type === "source") {
           // Le panneau CONTEXTE se remplit au moment même où l'assistant consulte.
           setSources((prev) => (prev.some((s) => s.href === evt.href) ? prev : [{ label: evt.label, href: evt.href }, ...prev].slice(0, 30)));
+        } else if (evt.type === "workspace") {
+          // La donnée est là AVANT la phrase : on l'affiche tout de suite, elle n'attend pas
+          // qu'Adam ait fini de la commenter.
+          composed.push(evt.composition);
+          setStreaming((s) => ({ text: s?.text ?? "", trace: s?.trace ?? [], workspace: [...(s?.workspace ?? []), evt.composition] }));
         } else if (evt.type === "reset") {
-          // Le texte affiché n'était qu'un préambule à un appel d'outil.
-          setStreaming((s) => ({ text: "", trace: s?.trace ?? [] }));
+          // Le texte affiché n'était qu'un préambule à un appel d'outil. Les blocs déjà rendus
+          // viennent de la base, eux : ils restent.
+          setStreaming((s) => ({ text: "", trace: s?.trace ?? [], workspace: s?.workspace ?? [] }));
         } else if (evt.type === "done") {
           finished = true;
-          reply = appendResult(evt.result);
+          reply = appendResult(evt.result, composed);
         }
       }
     }
     if (!finished) {
       // Flux interrompu : on conserve ce qui a été écrit plutôt que de tout perdre.
       setStreaming((s) => {
-        if (s?.text) setMessages((m) => [...m, { id: nextId(), role: "assistant", content: s.text, trace: s.trace }]);
+        if (s?.text) setMessages((m) => [...m, {
+          id: nextId(), role: "assistant", content: s.text, trace: s.trace,
+          workspace: s.workspace.length ? s.workspace : undefined,
+        }]);
         return null;
       });
     }
@@ -670,11 +691,16 @@ export function AssistantChat({
                   <LinkifiedText text={cleanReply(streaming.text)} />
                   <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-foreground align-middle" aria-hidden />
                 </p>
+              ) : streaming?.workspace.length ? (
+                // La donnée est déjà à l'écran : annoncer « l'assistant réfléchit » par-dessus
+                // un tableau rempli serait faux. On laisse lire.
+                null
               ) : (
                 <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> L&apos;assistant réfléchit…
                 </p>
               )}
+              {streaming?.workspace.map((c, i) => <WorkspaceBlocks key={`${c.source}-${i}`} composition={c} />)}
             </div>
           </div>
         )}
@@ -1070,6 +1096,9 @@ function MessageBubble({
             <LinkifiedText text={cleanReply(assistantDisplay.text)} />
           </div>
         )}
+        {/* L'ESPACE DE TRAVAIL DE CE TOUR. Il reste attaché au message : remonter dans la
+            conversation redonne le tableau au lieu d'un texte qui y fait référence. */}
+        {msg.workspace?.map((c, i) => <WorkspaceBlocks key={`${c.source}-${i}`} composition={c} />)}
         {msg.proposals && msg.proposals.length > 1 && (msg.actionStates ?? []).filter((s) => s === "pending").length > 1 && (
           <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-accent/30 px-3 py-2 text-sm">
             <Sparkles className="h-4 w-4 shrink-0 text-primary" />

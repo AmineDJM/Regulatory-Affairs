@@ -80,6 +80,10 @@ import { recordShadow } from "@/lib/assistant/context/shadow";
 // ne fait que l'appliquer.
 import { decideRollout, recordOutcome, type RolloutDecision } from "@/lib/assistant/context/rollout";
 import { shortlistTools, DISCOVERY_TOOL } from "@/lib/assistant/context/tool-shortlist";
+// L'ESPACE DE TRAVAIL GÉNÉRATIF : la sortie d'une source canonique traduite en blocs TYPÉS.
+// Le modèle n'écrit aucun balisage — c'est ce qui empêche l'écran de redevenir un vidage de JSON.
+import { composeWorkspace } from "@/lib/assistant/workspace/compose";
+import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
 import { runDiscovery, DISCOVERY_TOOL_NAME } from "@/lib/assistant/context/discovery";
 import {
   powerToolsFor, executePowerTool, powerToolLabels, powerToolsBriefing,
@@ -4721,6 +4725,14 @@ export type AssistantStreamEvent =
   | { type: "reset" }
   /** Une SOURCE consultée (lien interne) — alimente le panneau CONTEXTE du Chief of Staff. */
   | { type: "source"; label: string; href: string }
+  /**
+   * L'ESPACE DE TRAVAIL — des blocs TYPÉS construits à partir d'une source canonique.
+   *
+   * Le modèle n'en est pas l'auteur : le serveur traduit la sortie exacte d'un outil. C'est ce
+   * qui distingue cet affichage du vidage de JSON qui a un jour montré six lignes de salaire
+   * en réponse à « Bonsoir, ça va ? ».
+   */
+  | { type: "workspace"; composition: WorkspaceComposition }
   | { type: "done"; result: AssistantResult };
 
 /**
@@ -4901,6 +4913,11 @@ export async function runAssistantStream(
       if (out !== null) {
         usedTools.push(toolName);
         for (const s of extractSources(out)) emit({ type: "source", label: s.label, href: s.href });
+        // L'ESPACE DE TRAVAIL PART AVANT LE TEXTE. La donnée est déjà lue ; la faire attendre
+        // la rédaction du modèle ferait patienter le PDG devant un écran vide alors que la
+        // réponse est là. Il lit le tableau pendant qu'Adam formule.
+        const composed = composeWorkspace(toolName, out);
+        if (composed) emit({ type: "workspace", composition: composed });
         metrics.turns = 1;
         let streamed = false;
         const res = await callClaudeStream(
@@ -5044,6 +5061,11 @@ export async function runAssistantStream(
         // Les SOURCES consultées alimentent le panneau CONTEXTE : chaque dossier lu devient un
         // lien cliquable, au moment même où l'assistant le lit.
         for (const s of extractSources(out)) emit({ type: "source", label: s.label, href: s.href });
+        // Le même espace de travail sur le chemin complet : que l'annuaire ait été choisi par
+        // le code ou par le modèle, il s'affiche de la même façon. Une donnée canonique ne
+        // change pas de nature selon le chemin qui l'a atteinte.
+        const composed = composeWorkspace(tu.name, out);
+        if (composed) emit({ type: "workspace", composition: composed });
         usedTools.push(tu.name);
         results.push({ type: "tool_result", tool_use_id: tu.id, content: out });
       }

@@ -292,3 +292,142 @@ outils manquants nommés un par un.
 > et les ordres de dépense, dus à des collisions de `reference` unique sous exécution parallèle.
 > Instabilité préexistante sur une séquence partagée, sans rapport avec ces modules ; le passage
 > suivant, comme les précédents, est vert.
+
+---
+
+# ADDENDUM — ACTIVATION DU ROUTEUR (26 août 2026)
+
+Ce qui précède décrivait un routeur **en mode ombre**. L'autorisation de la mission a levé cette
+réserve, mais **partiellement**, et c'est le fond du sujet :
+
+> « I authorize the new router/tool-shortlist to become ACTIVE now for safe READ-ONLY operations.
+> I authorize a 20% canary for the remaining READ-ONLY traffic. I do NOT authorize migration of
+> sensitive mutation execution to the new path yet. »
+
+## 1. Ce qui est ACTIF, et ce qui ne l'est pas
+
+| Chemin | Trafic | Statut |
+|---|---|---|
+| `FAST_READ` — annuaire, Gmail, agenda, fiche canonique, file de décisions | 25,9 % du corpus | **ACTIF**, sans tirage au sort |
+| `SHORTLIST` — le reste des lectures | 8,9 % (canary 20 %) | **ACTIF**, borné |
+| `LEGACY` — mutations + lectures hors canary | 65,2 % | **INCHANGÉ** |
+
+Les mutations sensibles — envoi de mail, modification ERP, suppression, paiement, salaire, RH,
+permissions, comptes — restent sur le chemin prouvé, avec RBAC, approbation, audit et idempotence.
+`rollout.test.ts` le vérifie sur huit formulations, **canary ouvert à 100 %** pour prouver que le
+pourcentage n'y change rien.
+
+Le cas qui résume la règle : **« Envoie-le »** est classé `FAST_DETERMINISTIC` par le routeur, mais
+il EXPÉDIE UN MAIL. Il est nommément renvoyé sur `LEGACY`. C'est le seul endroit où « rapide » et
+« sûr » se contredisent, et la sécurité l'emporte.
+
+## 2. CORRECTION D'UNE MESURE FAUSSE
+
+Le rapport ci-dessus publiait : *« 23 316 tokens de schémas d'outils, soit 60 % du contexte fixe »*.
+
+**Ce chiffre était faux.** Il pesait `powerToolsFor(user)` — les 77 outils de POUVOIR — alors que la
+boucle envoie la liste ENTIÈRE : lectures + pouvoirs + export + super-admin + écritures, soit **159
+définitions**. La mesure corrigée, sur le même compte :
+
+| Bloc | Caractères | Tokens (est.) |
+|---|---|---|
+| Prompt système — texte | 43 430 | 15 542 |
+| **Schémas d'outils — texte** | **219 232** | **93 025** |
+| · dont outils de pouvoir (l'ancien chiffre) | 55 840 | 23 411 |
+| TOTAL fixe par tour | 262 662 | **108 567** |
+
+**Les schémas ne sont pas 60 % du contexte fixe : ils en sont 85,7 %.** L'ancienne mesure le
+sous-estimait d'un facteur quatre. La conclusion qualitative ne change pas — elle se renforce : le
+prompt système n'est pas le problème principal, et §13/§14 (« attaquer le prompt système »)
+travailleraient sur les 14,3 % restants.
+
+## 3. Le gain RÉELLEMENT branché
+
+Mesuré sur le corpus d'apprentissage (158 demandes), avec la décision d'aiguillage exacte et le
+canary à 20 % :
+
+- avant : **14 697 950** tokens de schémas (93 025 × 158)
+- après : **10 614 507** tokens (moyenne 67 180 / tour)
+- **écart : 27,8 % de schémas en moins**
+
+Ce n'est pas les 86 % de la projection : cette projection portait sur des **plafonds de budget**
+et supposait le routeur actif partout. Ici, 65 % du trafic reste délibérément sur l'ancien chemin.
+Le reste du gain est **autorisé mais pas encore pris** — il viendra de l'élargissement du canary,
+et seulement si la garde reste verte.
+
+⚠ La distribution du corpus d'apprentissage n'est pas celle de la production. Le chiffre qui
+comptera est celui du mode ombre en conditions réelles.
+
+## 4. Le jeu réservé, toujours honnête
+
+Après le travail sur l'annuaire (qui a ajouté deux formes rapides et corrigé un vrai bug) :
+
+| Corpus | Route | Domaine | Confusions lire/agir |
+|---|---|---|---|
+| TRAIN / GOLDEN (158) | 100,0 % | 100,0 % | 0 |
+| **HELD-OUT (40)** | **85,0 %** | **95,0 %** | **0** |
+
+**Le jeu réservé n'a pas bougé** — mêmes six échecs qu'avant ce lot (h-01, h-02, h-14, h-17, h-19,
+h-31). Il n'a pas été touché, et aucun seuil n'a été desserré. C'est ce qui rend son chiffre lisible.
+
+Corrigé au passage : le banc annonçait « 40 demandes, dont 29 verbatim et 129 construites » sur le
+jeu réservé — la provenance était empruntée au corpus d'apprentissage. Un en-tête faux au-dessus de
+chiffres justes. Elle est désormais comptée sur le corpus réellement passé, et un sous-score sans
+population affiche « — » au lieu de « 0,0 % ».
+
+## 5. Le repli automatique (§8)
+
+`guardStatus()` tient une fenêtre glissante de 500 tours. Au-delà de 50 échantillons : mauvais outil
+> 1 % ou outil manquant > 1 % → **tout repart sur `LEGACY`**, sans intervention.
+
+**Sa limite, dite franchement** : la fenêtre est **en mémoire du processus**. Avec plusieurs
+instances, chacune protège son propre trafic, pas le trafic global. C'est un compromis acceptable à
+20 % sur des lectures ; **elle devra devenir partagée avant d'autoriser la moindre mutation**.
+
+Le repli seul ne déclenche pas la garde : §4 exige qu'un raté devienne généraliste, et punir le
+repli reviendrait à punir la sécurité elle-même.
+
+## 6. L'échappatoire enfin exécutée
+
+`list_more_tools` était **déclaré sans code derrière** — une promesse non tenue. Sans lui, la liste
+courte aurait été une amputation : le jour où le routeur se trompe de domaine, une capacité
+disparaît en silence.
+
+`context/discovery.ts` l'exécute : il rouvre un domaine EN COURS de boucle, n'accorde aucun droit
+(chaque outil revérifie à l'exécution), ne révèle jamais un outil fermé à cette personne, et
+**compte chaque appel comme « outil manquant »**. L'échappatoire répare le tour ; le compteur
+répare le routeur.
+
+## 7. L'espace de travail génératif
+
+La conversation ne rend plus la donnée en texte seul. Le serveur traduit la sortie d'une source
+canonique en **blocs typés** (`workspace/protocol.ts`), et le client ne sait rendre que ces
+blocs-là : fiche de contact, annuaire, messages, agenda, file de décisions, fiche canonique,
+tableau, chronologie.
+
+**Le modèle n'écrit aucun balisage.** C'est la réponse directe à l'incident où « Bonsoir, ça va ? »
+a produit vingt-sept résultats bruts à l'écran, dont six lignes de salaire : une forme non reconnue
+**ne compose rien**, et la réponse reste du texte. `compose.test.ts` verrouille ce cas exact.
+
+Vérifié à l'écran (rendu réel, 900 px et 390 px) : aucun débordement horizontal. Sur téléphone,
+l'annuaire n'est **pas** un tableau rétréci — un tableau à trois colonnes sur 390 px écrivait
+l'adresse une lettre par ligne — mais une liste de fiches.
+
+## 8. Ce qui n'est PAS fait
+
+- **La garde est par instance** (cf. §5). À rendre partagée avant toute mutation.
+- **Le canary n'a pas bougé de 20 %.** §9 exige 200 tours réels, ≥ 99 % de couverture et 0 misroute
+  dangereux avant 50 %. `readyForNextStep()` refuse tant que les DEUX conditions ne sont pas tenues.
+- **§13/§14 (déplacer les règles du prompt système)** : non fait. La mesure corrigée montre que ce
+  chantier porte sur 14,3 % du contexte fixe, pas sur la majorité.
+- **Renderers restants** : composeur de mail, comparaison de documents, plan de mission, brief de
+  réunion. Le protocole les accueille ; ils n'ont pas de rendu.
+
+## 9. Vérification de ce lot
+
+- `npx tsc --noEmit` — propre
+- `npm run lint` — aucun avertissement
+- `npx vitest run` — **3 667 tests passés**, 23 ignorés, 0 échec
+- `rm -rf .next && npm run build` — build propre
+- `npx playwright test` — **13 passés**
+- Banc de routage rejoué sur les deux corpus (§4 ci-dessus)
