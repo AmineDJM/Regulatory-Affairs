@@ -10,6 +10,10 @@ import { aiConfigured, aiModel, aiModelCheap, askClaudeCheap } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { getUnreadDigest } from "@/lib/assistant-nudge";
 import { executeIntentGuarded, cancelActionIntent } from "@/lib/assistant/action-intents";
+import {
+  executeBundle, referencesPrevious,
+  type BundleItem, type BundleLevel, type BundleResult,
+} from "@/lib/assistant/execution/bundle";
 import { matchesConfirmText } from "@/lib/assistant/confirm";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import {
@@ -310,6 +314,77 @@ export async function executeAssistantAction(payload: AssistantActionPayload, in
   } catch (err) {
     console.error("[assistant] executeAssistantAction failed", err);
     return { ok: false, error: "L'action n'a pas pu être exécutée. Réessayez dans un instant." };
+  }
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE MISSION = UNE CONFIRMATION — l'enchaînement passe côté SERVEUR.
+ *
+ * Avant, « tout confirmer » bouclait dans le navigateur : un appel par action, piloté par la
+ * page. Un onglet fermé au milieu laissait la moitié du lot partie, sans que personne ne sache
+ * laquelle. Ici, un seul appel exécute tout et rend UN compte rendu.
+ *
+ * CE QUI NE CHANGE PAS : chaque étape repasse par `executeIntentGuarded` (réclamation atomique,
+ * reçu rejoué, jamais deux fois) puis `performAction` (RBAC ré-autorisé, arrêt d'urgence, audit).
+ * Cette fonction ordonnance ; elle n'écrit rien elle-même.
+ *
+ * LES INTENTS SONT RELUS EN BASE, jamais reçus du client : niveau, payload et propriété du
+ * compte viennent du serveur. Un client qui enverrait des identifiants d'un autre utilisateur
+ * n'obtiendrait rien — `executeIntentGuarded` filtre déjà sur `userId`, et la relecture ici
+ * refuse les inconnus avant même d'essayer.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function executeAssistantBundle(intentIds: string[]): Promise<BundleResult> {
+  const empty = (message: string): BundleResult =>
+    ({ ok: false, executed: 0, failed: 0, held: 0, outcomes: [], message });
+
+  try {
+    const user = await requireUser();
+    const ids = (Array.isArray(intentIds) ? intentIds : []).filter((v): v is string => typeof v === "string" && v.length > 0);
+    if (!ids.length) return empty("Rien à exécuter.");
+    // Un lot reste un lot : au-delà, c'est une mission de fond, pas une confirmation.
+    if (ids.length > 20) return empty("Trop d'actions dans un seul lot — confirmez-les par groupes.");
+
+    const stored = await prisma.assistantActionIntent.findMany({
+      where: { id: { in: ids }, userId: user.id },
+      select: { id: true, title: true, level: true, payload: true },
+    });
+    const byId = new Map(stored.map((i) => [i.id, i]));
+
+    // L'ORDRE DU CLIENT FAIT FOI — c'est celui des cartes affichées, donc celui que le modèle a
+    // proposé, donc celui qui porte le chaînage « $prev ». Le reclasser ici casserait la seule
+    // information de dépendance dont on dispose.
+    const items: BundleItem[] = ids.map((id) => {
+      const found = byId.get(id);
+      return {
+        intentId: id,
+        title: found?.title ?? "Action",
+        level: (found?.level as BundleLevel | undefined) ?? "NORMAL",
+        dependsOnPrevious: found ? referencesPrevious(found.payload) : false,
+      };
+    });
+
+    const revalidated = new Set<string>();
+    const result = await executeBundle(items, async (intentId) =>
+      executeIntentGuarded(user, intentId, async (payload) => {
+        const r = await performAction(user, payload as AssistantActionPayload);
+        // La revalidation est CUMULÉE puis appliquée une fois : rafraîchir la même page à
+        // chaque étape ferait payer le lot en latence pour rien.
+        if (r.ok) for (const path of r.revalidate ?? []) revalidated.add(path);
+        return r;
+      }),
+    );
+    for (const path of revalidated) revalidatePath(path);
+
+    console.info("[assistant] bundle_executed", {
+      userId: user.id, total: items.length, executed: result.executed, failed: result.failed, held: result.held,
+    });
+    return result;
+  } catch (err) {
+    console.error("[assistant] executeAssistantBundle failed", err);
+    // On ne peut pas savoir ici ce qui est parti : le dire est la seule réponse honnête.
+    return empty("Le lot n'a pas pu être mené à son terme. Vérifiez l'état de chaque action avant de relancer.");
   }
 }
 

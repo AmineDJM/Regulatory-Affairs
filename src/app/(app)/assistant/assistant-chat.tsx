@@ -11,7 +11,7 @@ import { useCall } from "@/components/layout/call-provider";
 import type { VoiceToolUi } from "./realtime-voice";
 import { Button } from "@/components/ui/button";
 import {
-  assistantChat, executeAssistantAction, cancelAssistantAction, listAssistantFiles,
+  assistantChat, executeAssistantAction, executeAssistantBundle, cancelAssistantAction, listAssistantFiles,
   myAssistantThreads, myAssistantThread, deleteMyAssistantThread, forgetMyAssistantMemory,
 } from "@/lib/actions/assistant-actions";
 // HYGIÈNE D'AFFICHAGE — le dernier filtre avant l'écran. Il existe parce que des marqueurs
@@ -581,19 +581,53 @@ export function AssistantChat({
     }
   };
 
-  /** « Tout confirmer » : les actions EN ATTENTE du message, l'une après l'autre — jamais en
-   *  parallèle (deux écritures concurrentes sur le même dossier se marcheraient dessus). */
+  /** Un lot à la fois par message : un double-clic ne lance pas deux exécutions. */
   const confirmingAllRef = React.useRef<Set<number>>(new Set());
+  /**
+   * TOUT CONFIRMER — UN SEUL APPEL SERVEUR.
+   *
+   * Cette fonction bouclait ici, dans le navigateur : un aller-retour par action. Un onglet
+   * fermé, un réseau qui coupe ou un téléphone qui se verrouille au milieu laissait la moitié
+   * du lot partie, sans que personne ne sache laquelle. L'enchaînement est passé côté serveur ;
+   * la page n'a plus qu'à afficher le compte rendu.
+   *
+   * Les actions CRITIQUES ne s'enchaînent toujours pas — mais c'est désormais le SERVEUR qui le
+   * refuse et le DIT, au lieu d'un `continue` silencieux ici. Une carte qu'on saute sans le dire
+   * laisse croire qu'elle est partie.
+   */
   const confirmAll = async (msg: Msg) => {
     if (!msg.proposals || !msg.actionStates) return;
     if (confirmingAllRef.current.has(msg.id)) return; // double-clic = un seul lot
     confirmingAllRef.current.add(msg.id);
+
+    // L'ordre des cartes fait foi : c'est celui que le modèle a proposé, donc celui qui porte
+    // le chaînage entre étapes.
+    const picked = msg.proposals
+      .map((p, i) => ({ p, i }))
+      .filter(({ i }) => msg.actionStates![i] === "pending")
+      .filter(({ p }) => Boolean(p.intentId));
+    if (!picked.length) { confirmingAllRef.current.delete(msg.id); return; }
+
+    for (const { i } of picked) patchAction(msg.id, i, { state: "running" });
+
     try {
-      for (let i = 0; i < msg.proposals.length; i += 1) {
-        if (msg.actionStates[i] !== "pending") continue;
-        // Une action CRITIQUE (re-saisie du montant) ne s'enchaîne pas : elle se confirme seule.
-        if (msg.proposals[i].level === "CRITICAL") continue;
-        await confirm(msg.id, i, msg.proposals[i].payload, msg.proposals[i].intentId);
+      const res = await executeAssistantBundle(picked.map(({ p }) => p.intentId!));
+      const byIntent = new Map(res.outcomes.map((o) => [o.intentId, o]));
+      for (const { p, i } of picked) {
+        const o = byIntent.get(p.intentId!);
+        if (!o) { patchAction(msg.id, i, { state: "error", result: "Résultat manquant — vérifiez l'état de cette action." }); continue; }
+        if (o.status === "executed" || o.status === "already") {
+          patchAction(msg.id, i, { state: "done", result: o.message ?? "Fait.", link: o.link });
+        } else if (o.status === "refused" || o.status === "skipped") {
+          // Elle n'est pas partie : elle redevient confirmable, avec la raison affichée.
+          patchAction(msg.id, i, { state: "pending", result: o.error });
+        } else {
+          patchAction(msg.id, i, { state: "error", result: o.error ?? "L'action n'a pas pu être exécutée." });
+        }
+      }
+    } catch {
+      for (const { i } of picked) {
+        patchAction(msg.id, i, { state: "error", result: "Le lot n'a pas pu être mené à son terme — vérifiez l'état de chaque action." });
       }
     } finally {
       confirmingAllRef.current.delete(msg.id);

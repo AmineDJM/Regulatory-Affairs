@@ -1006,6 +1006,11 @@ X("geste personnel sur SON PROPRE retour — la pièce jointe d'un feedback appa
 X("plomberie du Chief lui-même (chat, mémoire, fils) — pas une action métier à proposer", [
   "assistant-actions:rememberExchange", "assistant-actions:assistantChat", "assistant-actions:assistantNudge",
   "assistant-actions:executeAssistantAction", "assistant-actions:cancelAssistantAction",
+  // Le LOT est la même porte que `executeAssistantAction`, en une seule fois : il n'exécute rien
+  // lui-même, il enchaîne des intents déjà proposés en repassant par le garde d'idempotence et
+  // `performAction`. Ce n'est donc pas une action métier de plus à proposer au Chief — c'est le
+  // geste « je confirme tout » de l'utilisateur, exécuté côté serveur au lieu du navigateur.
+  "assistant-actions:executeAssistantBundle",
   "assistant-actions:listAssistantFiles", "assistant-actions:myAssistantThreads", "assistant-actions:myAssistantThread",
   "assistant-actions:deleteMyAssistantThread", "assistant-actions:refreshMyBrief",
   "assistant-actions:forgetMyAssistantMemory",
