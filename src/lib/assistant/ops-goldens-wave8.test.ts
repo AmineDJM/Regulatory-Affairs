@@ -143,14 +143,25 @@ suite("ops vague 8 — fichiers first-class", () => {
   });
 
   it("spend_from_petty_cash : MA caisse ouverte se résout, la pièce est OBLIGATOIRE et montrée", async () => {
+    // Le DÉTENTEUR de la caisse, sans vue globale : c'est le cas que le titre décrit (« MA
+    // caisse »), et c'est le seul qui soit DÉTERMINISTE. Avec une vue globale, l'op balaie
+    // TOUTES les caisses ouvertes de la base — y compris celles d'autres suites ou de vraies
+    // données — et demande alors, à juste titre, de préciser la période. Ce n'est pas un
+    // défaut de l'op : un Super Admin a normalement plusieurs caisses ouvertes. Le test ne
+    // doit donc pas parier sur une base vide ailleurs. Même id (donc bien le détenteur),
+    // rôle sans vue globale : la requête se borne à `holderId`.
+    const holder = () => userWith(
+      { FINANCES: ["VIEW", "CREATE"], DRIVE: ["VIEW"] }, "MEDICAL_DELEGATE", saId, `${TAG} Amine`,
+    );
+
     const noFile = await buildProposal("finance_operation", {
       op: "spend_from_petty_cash", label: "Cartouches d'encre", amount: "8000",
-    }, sa());
+    }, holder());
     expect("error" in noFile && noFile.error).toMatch(/Nommez le fichier/);
 
     const p = await buildProposal("finance_operation", {
       op: "spend_from_petty_cash", label: "Cartouches d'encre", amount: "8000", file: "facture-imprimeur",
-    }, sa());
+    }, holder());
     expect("error" in p).toBe(false);
     if (!("error" in p)) {
       expect(domainArgs(p).cashId).toBe(cashId);
