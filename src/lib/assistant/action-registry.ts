@@ -1,4 +1,5 @@
 import type { CurrentUser } from "@/lib/session";
+import { buildIndex, resolve, type ResolverContext } from "./nl/resolver";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { OPS_CATALOG, catalogCoveredKeys } from "@/lib/assistant/ops/catalog";
@@ -511,45 +512,20 @@ function foldTokens(text: string): Set<string> {
   return out;
 }
 
-interface AliasIndexEntry { action: NativeAction; tokens: string[]; pivot: string }
-const RAW_ALIASES: { action: NativeAction; tokens: string[] }[] = ERP_ACTIONS.flatMap((action) =>
-  action.aliases.map((a) => ({ action, tokens: [...foldTokens(a)] })).filter((e) => e.tokens.length > 0),
-);
-
 /**
- * LE JETON PIVOT — celui qui IDENTIFIE l'action, par opposition à ceux qui la décorent.
+ * L'INDEX DE RÉSOLUTION — construit une fois, à partir du registre lui-même.
  *
- * « crée », « ajoute », « mets », « jour » traversent tout le registre : ils disent qu'on agit,
- * jamais SUR QUOI. Le mot rare, lui, désigne l'objet métier — « enveloppe », « congé »,
- * « en-tête ». On retient donc, pour chaque alias, son jeton le moins fréquent dans l'index.
- *
- * Sans ce garde-fou, la correspondance partielle rapprochait « mets à jour le prix du produit »
- * de « modifie la fiche employé » : deux jetons de verbe communs suffisaient. Un indice faux
- * pousse le modèle vers le MAUVAIS bouton — c'est pire qu'un silence, qui le laisse chercher.
+ * La logique vit dans `nl/resolver.ts` : le registre déclare des actions, il ne sait pas
+ * comprendre le français. Séparer les deux permet de mesurer le résolveur sur un corpus fixe
+ * sans rien savoir de l'ERP, et d'améliorer la compréhension sans toucher aux 529 actions.
  */
-/**
- * Les jetons qui disent L'ACTE, jamais L'OBJET. Ils ne peuvent pas servir de pivot : « mets à
- * jour le prix du produit » et « mets à jour le contrat de l'employé » partagent le geste et
- * rien d'autre — c'est l'objet (prix / contrat) qui distingue les deux boutons.
- */
-const WEAK_PIVOT = new Set([
-  "met", "mets", "mettr", "mise", "jour", "cre", "creer", "ajout", "ajoute", "modifi",
-  "chang", "suppr", "supprim", "valid", "envoi", "nouveau", "nouvel", "fair", "fait",
-  "corrig", "retir", "enlev", "donn", "pass", "prend", "prepar", "lanc", "ouvr", "ferm",
-]);
-
-const TOKEN_DF = new Map<string, number>();
-for (const e of RAW_ALIASES) for (const t of new Set(e.tokens)) TOKEN_DF.set(t, (TOKEN_DF.get(t) ?? 0) + 1);
-
-const ALIAS_INDEX: AliasIndexEntry[] = RAW_ALIASES.map((e) => {
-  // Le pivot se cherche d'abord parmi les jetons d'OBJET ; on ne retombe sur un jeton d'acte
-  // que si l'alias n'en contient aucun autre (« valider », « archiver » seuls).
-  const strong = e.tokens.filter((t) => !WEAK_PIVOT.has(t));
-  const pool = strong.length > 0 ? strong : e.tokens;
-  let pivot = pool[0];
-  for (const t of pool) if ((TOKEN_DF.get(t) ?? 0) < (TOKEN_DF.get(pivot) ?? 0)) pivot = t;
-  return { action: e.action, tokens: e.tokens, pivot };
-});
+const NL_INDEX = buildIndex(ERP_ACTIONS, (a) => ({
+  id: a.id,
+  module: a.module,
+  aliases: a.aliases,
+  risk: a.risk,
+  uiLabel: a.uiLabel,
+}));
 
 /**
  * « Y a-t-il DÉJÀ une action native de l'ERP qui correspond à cette intention ? »
@@ -559,48 +535,18 @@ const ALIAS_INDEX: AliasIndexEntry[] = RAW_ALIASES.map((e) => {
  * candidats distincts : c'est un INDICE injecté dans le plan, le modèle garde le jugement
  * (et la confirmation humaine garde le dernier mot).
  */
-export function matchNativeAction(question: string): NativeAction[] {
-  const q = foldTokens(question);
-  if (q.size === 0) return [];
+export function matchNativeAction(question: string, ctx: ResolverContext = {}): NativeAction[] {
+  return resolve(NL_INDEX, question, ctx).candidates.map((c) => c.action);
+}
 
-  // Deux qualités de correspondance, et l'ordre entre elles compte.
-  //
-  // COMPLÈTE : tous les jetons de l'alias sont dans la question. C'est la certitude.
-  //
-  // PARTIELLE : l'alias en dit PLUS que le PDG. « ajoute un fournisseur regulatory » ne peut pas
-  // répondre à « ajoute un fournisseur » tant qu'on exige la totalité — or c'est exactement ainsi
-  // qu'on parle : on dit le geste, pas la fiche du bouton. On accepte donc un alias dont la
-  // question couvre au moins DEUX jetons et les deux tiers du total. Les deux seuils sont
-  // nécessaires : la proportion seule laisserait passer un alias d'un mot (1/1 = 100 %) et
-  // ferait entrer n'importe quel verbe courant.
-  //
-  // Un indice FAUX coûte plus cher qu'un silence — il pousse le modèle vers le mauvais bouton.
-  // D'où le classement : toute correspondance complète passe devant toute partielle, et à
-  // qualité égale l'alias le plus spécifique (le plus de jetons couverts) gagne.
-  interface Scored { action: NativeAction; full: boolean; covered: number }
-  const scored: Scored[] = [];
-  for (const e of ALIAS_INDEX) {
-    let covered = 0;
-    for (const t of e.tokens) if (q.has(t)) covered += 1;
-    if (covered === e.tokens.length) scored.push({ action: e.action, full: true, covered });
-    // Partielle : deux jetons au moins, les deux tiers de l'alias, ET son jeton pivot — sans
-    // quoi deux verbes passe-partout suffiraient à désigner n'importe quelle action.
-    else if (covered >= 2 && covered * 3 >= e.tokens.length * 2 && q.has(e.pivot)) {
-      scored.push({ action: e.action, full: false, covered });
-    }
-  }
-
-  scored.sort((a, b) => (a.full === b.full ? b.covered - a.covered : a.full ? -1 : 1));
-
-  const seen = new Set<string>();
-  const out: NativeAction[] = [];
-  for (const h of scored) {
-    if (seen.has(h.action.id)) continue;
-    seen.add(h.action.id);
-    out.push(h.action);
-    if (out.length === 2) break;
-  }
-  return out;
+/**
+ * La résolution COMPLÈTE — score, confiance, ambiguïté, motif de refus.
+ *
+ * `matchNativeAction` n'en garde que la liste, pour les appelants qui n'ont besoin que d'un
+ * indice. Ici on rend de quoi DÉCIDER : proposer, demander de préciser, ou se taire.
+ */
+export function resolveNativeAction(question: string, ctx: ResolverContext = {}) {
+  return resolve(NL_INDEX, question, ctx);
 }
 
 /** Le bloc de plan injecté quand une action native correspond — PRIORITÉ AU NATIF. */

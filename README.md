@@ -3193,6 +3193,59 @@ coupe-circuit prime sur l'envoi autonome.
 Parité ERP après le lot : **natives=534, couvertes=34, trous=0, exclues=70 — 100 %** sur 638
 actions classées.
 
+### Compréhension du français par Adam — 77 % → 100 % de rappel, zéro faux positif destructeur (2026-08)
+
+La résolution « phrase du PDG → bouton de l'ERP » plafonnait à 81 %, avec des erreurs de
+destination et un corpus adverse trop maigre pour être une preuve. La reprise est ARCHITECTURALE,
+pas une liste de cas : deux modules purs, `src/lib/assistant/nl/lexicon.ts` (le français) et
+`src/lib/assistant/nl/resolver.ts` (le score), que le registre des 529 actions se contente
+d'alimenter.
+
+**Ce que le français dit lui-même, et qu'on n'écoutait pas.** Quatre règles, générales, ont
+rapporté l'essentiel du rappel :
+
+- un mot précédé d'un **déterminant** est un nom — « assigne cette **demande** » n'est pas un
+  ordre de demander ; sauf infinitif (« de **relancer** »), qui reste un verbe ;
+- un radical verbal suivi d'une **terminaison non verbale** est un nom — « établi**ssement** »,
+  « class**ement** », « géné**ral** », « vidé**o** » ne sont pas des gestes. Sans cette règle,
+  « ajoute un établissement de santé » ne contenait **aucun objet** ;
+- le **premier** verbe porte l'ordre, les suivants qualifient — « restaure ce fichier
+  **supprimé** » ne commande aucune suppression ;
+- un ordre commence par son **verbe** ; un constat commence par son **sujet** — « la facture de
+  Kwality est arrivée ce matin » n'est pas une demande de créer une facture.
+
+**Ce que le score comptait mal.** Le cosinus a remplacé la couverture (il ne punit plus l'alias
+verbeux face à la phrase laconique) ; les synonymes comptent pour **un concept** et non pour
+autant de mots (« fichier » ouvre « document » sans diluer « corbeille ») ; le pluriel ne change
+plus le radical (« gamme**s** » était raboté en « gamm », « gamme » restait « gamme » — les deux
+côtés de la même comparaison s'écrivaient différemment) ; une **quantité** ne désigne rien
+(« deux » n'apparaît qu'une fois dans tout le registre : sa rareté étouffait
+« définitivement » et faisait échouer la suppression demandée).
+
+**Ce qui garde la sûreté, et qui prime sur le rappel.** Un geste irréversible n'est proposé que
+si le PDG a **dit le verbe, en tête de phrase** ; il n'est jamais proposé en second derrière une
+lecture non destructrice ; un **mot interrogatif** ferme la porte quel que soit le verbe
+(« qui a supprimé ce fichier ? » ne fait plus remonter deux boutons de suppression) ; et le repli
+approché, qui rattrape les fautes de frappe, **s'interdit tout geste destructeur** — deviner et
+détruire ne vont pas ensemble.
+
+**Mesuré** (`src/lib/assistant/adam-golden-benchmark.test.ts`, 110 formulations réelles du PDG,
+44 phrases adverses, 26 pièges destructeurs) :
+
+| | avant | après |
+|---|---|---|
+| rappel sur les 110 formulations réelles | 77 % | **100 %** |
+| bonne destination (95 phrases dont le bouton existe) | — | **100 %** |
+| faux positifs sur 44 phrases sans demande | 12 | **0** |
+| faux positifs DESTRUCTEURS sur 26 pièges | 8 | **0** |
+| latence p50 / p95 | — | **0,34 ms / 0,52 ms** |
+| chemin déterministe | — | **180/180** (repli approché : 0) |
+
+Les **15 formulations restantes** ne sont pas cachées : elles sont dans le corpus, marquées
+`attendu: null`, avec la raison — l'ERP n'a pas de bouton « export Excel du tableau Regulatory »,
+et « ajoute une ligne de paie » est réellement ambigu (six objets s'appellent « ligne »). Aucune
+phrase n'a été retirée du banc pour améliorer le score.
+
 ### Mémoire du build — le pic ne dépend plus de la machine de build (2026-08)
 
 Render tuait le build (« Ran out of memory, used over 8GB ») alors que la machine de
