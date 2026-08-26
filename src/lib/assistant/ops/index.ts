@@ -23,6 +23,7 @@ import { EVENT_OPS_IMPL, ADPRO5_OPS_IMPL, CONSULTING_OPS_IMPL } from "./impl-wav
 import { CARE_OPS_IMPL, PROMO_OPS_IMPL } from "./impl-wave5b";
 import { BD6_OPS_IMPL, DOSSIER_OPS_IMPL, DIRECTIVE_OPS_IMPL, SUPPORT_OPS_IMPL, REMINDER_OPS_IMPL } from "./impl-wave6";
 import { VALIDATION_OPS_IMPL, FIELD_REPORT_OPS_IMPL, SUPPLY_OPS_IMPL } from "./impl-wave6b";
+import { PLANNING_OPS_IMPL } from "./impl-wave6c";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -864,6 +865,49 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           amount: { type: "string", description: "Prix estimé (DZD)." },
           supplier: { type: "string", description: "Fournisseur indicatif." },
           notes: { type: "string", description: "Notes de la fiche." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  planning_operation: {
+    module: "SALES_PLANNING",
+    ops: zipOps("planning_operation", PLANNING_OPS_IMPL),
+    def: {
+      name: "planning_operation",
+      description:
+        "PLANNING FORCE DE VENTE (SFE) — business units, produits promus (canal ville / hôpital / les deux), équipes, profils KAM, prévisions produit × CYCLE MENSUEL, matrice d'affectations KAM × produit (0 visite sans note = retrait), report d'un cycle vers un autre, paramètres SFE globaux. Les « save » de l'écran écrasent avec des DÉFAUTS-PIÈGES : chaque op relit l'existant et le REJOUE (FUSION) — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("planning_operation")}. `
+        + "Le cycle se donne en français (« septembre 2026 » ou 2026-09, champ « date ») ; BU / équipe par « target », produit par « product », KAM par « person ».",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("planning_operation"), description: "Le geste à faire." },
+          target: { type: "string", description: "BU ou équipe visée (nom) — produits : la BU de rattachement." },
+          name: { type: "string", description: "Nom (création) ou cible (produit / BU / équipe)." },
+          newName: { type: "string", description: "Nouveau nom (BU, produit, équipe)." },
+          product: { type: "string", description: "Le produit promu visé (nom)." },
+          person: { type: "string", description: "Responsable de BU / superviseur / chef de produit / KAM (nom ; « aucun » retire)." },
+          label: { type: "string", description: "save_rep_profile : l'équipe du KAM (« aucune » détache) ; carry_forward : cycle cible." },
+          date: { type: "string", description: "Le cycle mensuel (« septembre 2026 » ou 2026-09) — carry_forward : cycle SOURCE." },
+          endDate: { type: "string", description: "carry_forward_assignments : cycle CIBLE." },
+          mode: { type: "string", description: "Produit : canal (ville / hôpital / les deux) ; affectation : position 1-3 ; profil KAM : séniorité." },
+          quantity: { type: "string", description: "Prévision : FTE cible ; profil KAM : FTE budget ; affectation : visites prévues." },
+          visits: { type: "string", description: "Visites (prévision produit, capacité/jour, affectation)." },
+          days: { type: "string", description: "Jours terrain par mois (paramètres / profil KAM)." },
+          threshold: { type: "string", description: "Pourcentage : couverture cible (prévision), % terrain (paramètres / profil)." },
+          amount: { type: "string", description: "save_forecast : budget (DZD)." },
+          location: { type: "string", description: "save_rep_profile : région." },
+          reference: { type: "string", description: "Code (BU, produit, équipe)." },
+          note: { type: "string", description: "Note (prévision, profil, affectation)." },
+          p1: { type: "string", description: "save_sfe_settings : poids position 1." },
+          p2: { type: "string", description: "save_sfe_settings : poids position 2." },
+          p3: { type: "string", description: "save_sfe_settings : poids position 3." },
+          freqVeryHigh: { type: "string", description: "save_sfe_settings : fréquence potentiel très haut." },
+          freqHigh: { type: "string", description: "save_sfe_settings : fréquence potentiel haut." },
+          freqMedium: { type: "string", description: "save_sfe_settings : fréquence potentiel moyen." },
+          freqLow: { type: "string", description: "save_sfe_settings : fréquence potentiel bas." },
+          freqVeryLow: { type: "string", description: "save_sfe_settings : fréquence potentiel très bas." },
         },
         required: ["op"],
       },

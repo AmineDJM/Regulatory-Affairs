@@ -859,7 +859,7 @@ G("BD / marché / PCH / ventes & prévisions (CRUD des modules commerciaux)", [
   "pch-tender-line-actions:analyzeTenderDocument", "pch-tender-line-actions:createOrderFromLine",
   "pch-tender-line-actions:enrichTenderLine", "pch-tender-line-actions:enrichAllTenderLines",
   "pch-tender-line-actions:setOrderArrival", "sales-actions:createSale", "sales-actions:importSales",
-  "sales-planning-actions:ensureCycle", "sales-planning-actions:createBusinessUnit",
+  "sales-planning-actions:createBusinessUnit",
   "sales-planning-actions:updateBusinessUnit", "sales-planning-actions:deleteBusinessUnit",
   "sales-planning-actions:createPromoProduct", "sales-planning-actions:updatePromoProduct",
   "sales-planning-actions:deletePromoProduct", "sales-planning-actions:saveForecast",
@@ -988,6 +988,9 @@ X("sélecteurs de formulaires care / matériel promo (options d'annuaire, de mat
 ]);
 X("liste des projets rattachables (sélecteur du Courrier) — une lecture ; côté Chief, dossier_operation:link_email_to_dossier résout le projet par NOM", [
   "dossier-actions:listLinkableDossiers",
+]);
+X("plomberie du planning SFE : get-or-create idempotent du cycle mensuel à l'ouverture de l'écran (précédent ensureDriveFolders) — les ops planning_operation l'assurent elles-mêmes à l'exécution", [
+  "sales-planning-actions:ensureCycle",
 ]);
 X("plomberie / lecture du Drive (initialisation de dossiers, liste des partages) — pas un geste métier", [
   "drive-actions:ensureDriveFolders", "drive-actions:getDriveNodeShares",
