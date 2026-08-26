@@ -50,6 +50,14 @@ export interface BenchReport {
   confusion: Record<string, number>;
   failures: CaseResult[];
   dangerousMisroutes: CaseResult[];
+  /**
+   * La provenance DU CORPUS EFFECTIVEMENT PASSÉ — comptée, pas empruntée.
+   *
+   * Elle valait auparavant `CORPUS_PROVENANCE`, la constante du corpus d'apprentissage. Le banc
+   * du jeu réservé annonçait donc « 40 demandes, dont 29 verbatim et 129 construites » : un
+   * en-tête faux au-dessus de chiffres justes, exactement le genre de détail qui décrédibilise
+   * une mesure honnête.
+   */
   provenance: typeof CORPUS_PROVENANCE;
 }
 
@@ -100,20 +108,27 @@ export function runRouterBench(corpus: GoldenCase[] = GOLDEN_CORPUS): BenchRepor
     confusion,
     failures: results.filter((r) => !r.routeOk),
     dangerousMisroutes: results.filter((r) => r.dangerous),
-    provenance: CORPUS_PROVENANCE,
+    provenance: {
+      total: results.length,
+      transcript: results.filter((r) => r.source === "transcript").length,
+      composed: results.filter((r) => r.source === "composed").length,
+    },
   };
 }
 
 /** Le rapport, tel qu'on le lit dans un terminal ou qu'on le colle dans un compte rendu. */
 export function formatBench(report: BenchReport): string {
   const pct = (n: number) => `${(n * 100).toFixed(1)} %`;
+  // « 0,0 % sur le verbatim » quand il n'y a AUCUN verbatim est un chiffre inventé : sur un
+  // corpus vide, il n'y a pas de score, il n'y a rien à dire.
+  const sub = (n: number, of: number) => (of === 0 ? "—" : `${pct(n)} (${of})`);
   const lines: string[] = [
     `BANC DE ROUTAGE — ${report.cases} demandes`,
     `  dont ${report.provenance.transcript} verbatim du PDG, ${report.provenance.composed} construites`,
     "",
     `Justesse de route     : ${pct(report.routeAccuracy)}`,
-    `  · sur le verbatim   : ${pct(report.transcriptRouteAccuracy)}`,
-    `  · sur le construit  : ${pct(report.composedRouteAccuracy)}`,
+    `  · sur le verbatim   : ${sub(report.transcriptRouteAccuracy, report.provenance.transcript)}`,
+    `  · sur le construit  : ${sub(report.composedRouteAccuracy, report.provenance.composed)}`,
     `Justesse de domaine   : ${pct(report.domainAccuracy)}`,
     `Confusions lire/agir  : ${report.dangerousMisroutes.length}`,
     "",

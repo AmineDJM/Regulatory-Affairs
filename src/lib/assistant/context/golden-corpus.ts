@@ -116,7 +116,7 @@ export const GOLDEN_CORPUS: GoldenCase[] = [
   { id: "hr-03", utterance: "Quel est le salaire de Raihana ?", expectedRoute: "STRUCTURED_QUERY", expectedDomain: "HR", source: C },
   { id: "hr-04", utterance: "Augmente le salaire de Raihana.", expectedRoute: "ACTION", expectedDomain: "HR", source: C, note: "Sensible : jamais un raccourci." },
   { id: "hr-05", utterance: "Où en est le recrutement du chargé de dossiers ?", expectedRoute: "FAST_DETERMINISTIC", expectedDomain: "HR", source: C },
-  { id: "hr-06", utterance: "Donne-moi les salariés et leurs e-mails.", expectedRoute: "STRUCTURED_QUERY", expectedDomain: "HR", source: T, note: "Impératif de LECTURE : rien n'est muté. Deux domaines cités — le premier nommé gagne." },
+  { id: "hr-06", utterance: "Donne-moi les salariés et leurs e-mails.", expectedRoute: "FAST_DETERMINISTIC", expectedDomain: "HR", source: T, note: "Impératif de LECTURE : rien n'est muté. Deux domaines cités — le premier nommé gagne." },
   { id: "hr-07", utterance: "Analyse la charge de l'équipe réglementaire.", expectedRoute: "DEEP_REASONING", expectedDomain: "HR", source: C, note: "« équipe » avant « réglementaire » : c'est une question de charge humaine." },
   { id: "hr-08", utterance: "Le contrat de travail de Khaled ?", expectedRoute: "HYBRID_RETRIEVAL", expectedDomain: "HR", source: C, note: "« contrat de travail » est RH, pas juridique — le mot composé tranche." },
   { id: "hr-09", utterance: "Combien de demandes de congés en attente ?", expectedRoute: "STRUCTURED_QUERY", expectedDomain: "HR", source: C },
@@ -162,12 +162,12 @@ export const GOLDEN_CORPUS: GoldenCase[] = [
   { id: "snd-12", utterance: "Prépare un mail pour l'ANPP.", expectedRoute: "ACTION", expectedDomain: "MAIL", source: C },
 
   // ── ANNUAIRE / IDENTITÉ — le bogue « je n'ai pas son adresse » ────────────────────────────
-  { id: "dir-01", utterance: "L'adresse de Raihana ?", expectedRoute: "STRUCTURED_QUERY", expectedDomain: "DIRECTORY", source: T },
-  { id: "dir-02", utterance: "Comment je joins Deepak ?", expectedRoute: "HYBRID_RETRIEVAL", expectedDomain: "DIRECTORY", source: C },
-  { id: "dir-03", utterance: "Le numéro de l'imprimeur ?", expectedRoute: "STRUCTURED_QUERY", expectedDomain: "DIRECTORY", source: T },
+  { id: "dir-01", utterance: "L'adresse de Raihana ?", expectedRoute: "FAST_DETERMINISTIC", expectedDomain: "DIRECTORY", source: T, note: "§1 : l'annuaire est une source canonique — chemin déterministe." },
+  { id: "dir-02", utterance: "Comment je joins Deepak ?", expectedRoute: "FAST_DETERMINISTIC", expectedDomain: "DIRECTORY", source: C },
+  { id: "dir-03", utterance: "Le numéro de l'imprimeur ?", expectedRoute: "FAST_DETERMINISTIC", expectedDomain: "DIRECTORY", source: T },
   { id: "dir-04", utterance: "Tu t'appelles comment ?", expectedRoute: "HYBRID_RETRIEVAL", expectedDomain: "GENERAL", source: T, note: "Adam a répondu « Assistant IA » en production — le défaut d'identité." },
   { id: "dir-05", utterance: "Tu as une adresse e-mail ?", expectedRoute: "HYBRID_RETRIEVAL", expectedDomain: "MAIL", source: T },
-  { id: "dir-06", utterance: "Qui travaille au service réglementaire ?", expectedRoute: "STRUCTURED_QUERY", expectedDomain: "REGULATORY", source: T },
+  { id: "dir-06", utterance: "Qui travaille au service réglementaire ?", expectedRoute: "FAST_DETERMINISTIC", expectedDomain: "REGULATORY", source: T, note: "Le registre, filtré par service." },
   { id: "dir-07", utterance: "Ajoute l'adresse personnelle de Raihana à l'annuaire.", expectedRoute: "ACTION", expectedDomain: "DIRECTORY", source: C },
 
   // ── ADMINISTRATION ───────────────────────────────────────────────────────────────────────

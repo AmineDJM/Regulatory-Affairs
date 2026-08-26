@@ -18,7 +18,9 @@
  */
 import { PrismaClient } from "@prisma/client";
 import { getAccess } from "@/lib/rbac";
-import { buildChiefOfStaffContext } from "@/lib/assistant";
+import { buildChiefOfStaffContext, assistantToolsFor } from "@/lib/assistant";
+import { decideRollout, configuredCanaryPercent } from "@/lib/assistant/context/rollout";
+import { shortlistTools } from "@/lib/assistant/context/tool-shortlist";
 import { powerToolsFor } from "@/lib/assistant/power-tools";
 import { realtimeToolsFor } from "@/lib/assistant/voice-realtime";
 import { measure, measureToolDefs } from "@/lib/assistant/context/tokens";
@@ -61,12 +63,21 @@ async function main() {
 
   const texte = measure(buildChiefOfStaffContext(user));
   const voix = measure(buildChiefOfStaffContext(user, { voice: true }));
-  const outilsTexte = measureToolDefs(powerToolsFor(user));
+
+  // ⚠ CORRECTION D'UNE MESURE FAUSSE. Cette ligne pesait `powerToolsFor(user)` — les 77 outils
+  // de POUVOIR seulement. Or la boucle envoie la liste ENTIÈRE (lectures + pouvoirs + export +
+  // super-admin + écritures), soit 159 définitions. Le chiffre publié auparavant (~23 400
+  // tokens de schémas) était donc une sous-estimation d'un facteur quatre : il décrivait un
+  // sous-ensemble, pas ce qui part sur le réseau. La vraie mesure est celle-ci.
+  const toutesLesDefs = assistantToolsFor(user);
+  const outilsTexte = measureToolDefs(toutesLesDefs);
+  const outilsPouvoir = measureToolDefs(powerToolsFor(user));
   const outilsVoix = measureToolDefs(realtimeToolsFor(user));
 
   const rows: [string, { chars: number; tokens: number }][] = [
     ["Prompt système — texte", texte],
     ["Schémas d'outils — texte", outilsTexte],
+    ["  · dont outils de pouvoir", outilsPouvoir],
     ["TOTAL fixe par tour — texte", { chars: texte.chars + outilsTexte.chars, tokens: texte.tokens + outilsTexte.tokens }],
     ["", { chars: 0, tokens: 0 }],
     ["Contexte — voix", voix],
@@ -80,7 +91,9 @@ async function main() {
     console.log(`${pad(label, 32)}${pad(num(m.chars), 14)}${num(m.tokens)}`);
   }
 
-  console.log(`\nNombre d'outils exposés — texte : ${powerToolsFor(user).length} · voix : ${realtimeToolsFor(user).length}`);
+  const partSchemas = outilsTexte.tokens / (texte.tokens + outilsTexte.tokens);
+  console.log(`\nNombre d'outils exposés — texte : ${toutesLesDefs.length} (dont ${powerToolsFor(user).length} de pouvoir) · voix : ${realtimeToolsFor(user).length}`);
+  console.log(`Part des schémas dans le contexte fixe — texte : ${(partSchemas * 100).toFixed(1)} %`);
 
   // ── CE QUE LE ROUTAGE CHANGERAIT (§7, §28) ────────────────────────────────────────────────
   // Aujourd'hui, CHAQUE demande paie le total fixe ci-dessus. Le routeur attribue à chacune un
@@ -105,6 +118,37 @@ async function main() {
   for (const [route, count] of [...parRoute.entries()].sort((a, b) => b[1] - a[1])) {
     console.log(`  ${pad(route, 20)} ${String(count).padStart(3)}  ${((100 * count) / n).toFixed(1)} %`);
   }
+
+  // ── CE QUI EST RÉELLEMENT BRANCHÉ ─────────────────────────────────────────────────────────
+  // La projection ci-dessus porte sur des PLAFONDS de budget. Ce bloc-ci ne projette rien : il
+  // pèse les schémas d'outils que `runAssistant` / `runAssistantStream` envoient VRAIMENT, en
+  // rejouant la décision d'aiguillage exacte, avec le canary réellement configuré.
+  const complet = assistantToolsFor(user);
+  const poidsComplet = measureToolDefs(complet);
+
+  let envoye = 0;
+  const parMode = new Map<string, number>();
+  for (const c of GOLDEN_CORPUS) {
+    const d = decideRollout(c.utterance, { userId: user.id, ctx: c.ctx });
+    parMode.set(d.mode, (parMode.get(d.mode) ?? 0) + 1);
+    // FAST_READ n'envoie AUCUN schéma (le code a choisi l'outil) ; SHORTLIST envoie la liste
+    // réduite du domaine ; LEGACY envoie tout, exactement comme avant.
+    if (d.mode === "FAST_READ") continue;
+    envoye += d.mode === "SHORTLIST"
+      ? measureToolDefs(shortlistTools(complet, d.route)).tokens
+      : poidsComplet.tokens;
+  }
+  const avant = poidsComplet.tokens * n;
+
+  console.log(`\nSCHÉMAS D'OUTILS RÉELLEMENT ENVOYÉS (${n} demandes, canary ${configuredCanaryPercent()} %) :`);
+  console.log(`  avant  : ${num(avant)} tokens (${num(poidsComplet.tokens)} × ${n}, ${complet.length} outils à chaque tour)`);
+  console.log(`  après  : ${num(envoye)} tokens (moyenne ${num(Math.round(envoye / n))} / tour)`);
+  console.log(`  écart  : ${(100 * (1 - envoye / avant)).toFixed(1)} % de schémas en moins`);
+  for (const [mode, count] of [...parMode.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${pad(mode, 20)} ${String(count).padStart(3)}  ${((100 * count) / n).toFixed(1)} %`);
+  }
+  console.log("\n  ⚠ Mesuré sur le CORPUS D'APPRENTISSAGE : sa distribution n'est pas celle de la");
+  console.log("    production. Le chiffre qui comptera est celui du mode ombre en conditions réelles.");
 }
 
 main()

@@ -36,6 +36,10 @@ export type VoiceRouteKind =
   | "RESUME_DELIVERY"
   /** « qu'est-ce qui m'attend ? » — la file de décisions. */
   | "PENDING_DECISIONS"
+  /** « l'adresse de Raihana ? » — UNE personne, ses coordonnées. */
+  | "DIRECTORY_LOOKUP"
+  /** « les salariés et leurs mails » — LE registre, en tableau. */
+  | "DIRECTORY_LIST"
   /** Tout le reste : le modèle décide. */
   | "DELEGATE";
 
@@ -120,6 +124,86 @@ const COMPLEX = /\b(pourquoi|comment ca se fait|comment se fait il|comment on en
  * de lecture : il se répond avec ce que le serveur sait de l'identité d'Adam.
  */
 const SELF = /\b(tu t appelles|tu es qui|qui es tu|comment tu t appelles|ton nom|ton adresse|tu as une adresse|ton e mail|ton email|tu es quoi)\b/;
+
+/**
+ * L'ANNUAIRE — ce qui a coûté deux tours au PDG, en production.
+ *
+ * « Est-ce que tu as les adresses mail des salariés ? » partait dans la recherche fédérée,
+ * rendait zéro, et Adam renonçait. Le mot « mail » suffisait à ouvrir la messagerie, alors que
+ * la phrase demandait un REGISTRE de personnes. Ces deux formes doivent atteindre l'annuaire
+ * directement, sans passer par le moindre choix de modèle.
+ *
+ * LA DISTINCTION EST NETTE, et c'est ce qui la rend fiable : un NOM PROPRE au singulier
+ * (« l'email de Raihana ») demande UNE fiche ; un pluriel de personnes (« les salariés »,
+ * « les contacts ») demande LA liste. Confondre les deux fait perdre un tour ; ne reconnaître
+ * ni l'un ni l'autre en fait perdre deux.
+ */
+/**
+ * LES MOTS QUI NE DÉSIGNENT QUE DES COORDONNÉES. « adresse », « numéro », « annuaire » n'ouvrent
+ * jamais une boîte mail : ils demandent une fiche.
+ */
+const CONTACT_ONLY = /\b(adresse|adresses|numero|numeros|telephone|telephones|coordonnees|joindre|joins|contacter|contacte|whatsapp|annuaire)\b/;
+
+/**
+ * « MAIL » EST AMBIGU, ET C'EST LE POSSESSIF QUI TRANCHE.
+ *
+ * « l'email DE Raihana » demande une fiche d'annuaire ; « DES mails DE Deepak » demande la
+ * boîte. Le mot est le même, la construction ne l'est pas : article défini singulier + « de »
+ * = la coordonnée d'une personne ; partitif ou pluriel = du courrier reçu.
+ *
+ * Sans cette distinction, la première version envoyait « Des mails de Deepak ? » vers l'annuaire
+ * — le test l'a montré du premier coup.
+ */
+const MAIL_AS_CONTACT = /\b(l email|l e mail|le mail|le courriel|son mail|son email|sa messagerie)\s+(de|du|des|d)\b/;
+const PEOPLE_PLURAL = /\b(salaries|employes|personnel|effectif|collaborateurs|contacts|equipes)\b/;
+/** Ce qui réclame un REGISTRE plutôt qu'une fiche. */
+const LIST_WORD = /\b(liste|lister|tous|toutes|annuaire|chacun|donne|donne moi|montre|montre moi|sors)\b/;
+/** « Qui travaille au service réglementaire ? » — le registre, filtré. */
+/**
+ * « Qui travaille au réglementaire ? » filtre le registre par service.
+ *
+ * La préposition « en » a été RETIRÉE de la liste, et ce n'est pas un détail : avec elle,
+ * « Qui est EN CONGÉ cette semaine ? » interrogeait l'annuaire sur un service imaginaire nommé
+ * « congé cette semaine ». Un congé n'est pas un département — c'est une question RH, et elle
+ * doit suivre le chemin structuré.
+ */
+const WORKS_AT = /\bqui (travaille|bosse|est) (au|a la|aux|dans|chez)\s+(.+)$/;
+
+/** Les mots qui occupent la place d'un nom sans en être un — cf. `personAfter`. */
+const NOT_A_NAME = new Set([
+  "moi", "toi", "lui", "elle", "nous", "vous", "eux", "ce", "cet", "cette", "ces",
+  "le", "la", "les", "un", "une", "des", "mon", "ma", "mes", "son", "sa", "ses",
+  "notre", "nos", "leur", "leurs", "qui", "quoi", "quel", "quelle", "tout", "tous",
+  "societe", "entreprise", "boite", "service", "equipe",
+]);
+
+/**
+ * LE NOM VISÉ PAR UNE DEMANDE DE COORDONNÉES.
+ *
+ * On lit le texte NORMALISÉ ici, contrairement au filtrage de la boîte mail : « l'email de
+ * raihana » dicté sans majuscule doit fonctionner. Le risque de faux positif est bien moindre —
+ * la phrase contient déjà un mot de coordonnées, donc ce qui suit « de » est presque toujours
+ * la personne cherchée.
+ */
+function contactTarget(text: string): string | null {
+  const words = text.split(" ").filter(Boolean);
+  // « joindre X » / « contacter X » : le nom suit directement le verbe.
+  for (const verb of ["joindre", "joins", "contacter", "contacte"]) {
+    const i = words.indexOf(verb);
+    if (i >= 0) {
+      const rest = words.slice(i + 1).filter((w) => w.length >= 3 && !NOT_A_NAME.has(w));
+      if (rest.length > 0) return rest.slice(0, 2).join(" ");
+    }
+  }
+  // Sinon : ce qui suit le DERNIER « de / du / des / d ».
+  for (let i = words.length - 1; i >= 0; i -= 1) {
+    if (["de", "du", "des", "d"].includes(words[i])) {
+      const rest = words.slice(i + 1).filter((w) => w.length >= 3 && !NOT_A_NAME.has(w));
+      if (rest.length > 0) return rest.slice(0, 2).join(" ");
+    }
+  }
+  return null;
+}
 
 /**
  * LES NOMS QUI DISENT « CE N'EST NI LA BOÎTE NI MA FILE DE DÉCISIONS ».
@@ -247,6 +331,41 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
         return { kind: "RECORD_STATUS", tool: "inspect_record", args: { query: who }, fast: true, reason: "suivi elliptique (dossier)" };
       }
     }
+  }
+
+  // ── 3 bis. L'ANNUAIRE — AVANT la boîte mail, et ce n'est pas négociable ─────────────────
+  // « Quel est l'email de Raihana ? » contient « email » : placée après, cette demande ouvrirait
+  // la messagerie du PDG au lieu de l'annuaire. C'est exactement le tour perdu observé en
+  // production, et l'ordre des portes est le seul remède.
+  const contactOnly = CONTACT_ONLY.test(text);
+  const mailAsContact = MAIL_AS_CONTACT.test(text);
+  const plural = PEOPLE_PLURAL.test(text);
+  // Trois entrées, et aucune n'est le simple mot « mail » : c'est ce qui empêche la boîte du PDG
+  // d'être confondue avec le registre des personnes.
+  if (contactOnly || mailAsContact || (plural && LIST_WORD.test(text)) || WORKS_AT.test(text)) {
+    const wantsList = /\bannuaire\b/.test(text)
+      || (plural && (contactOnly || mailAsContact || LIST_WORD.test(text)));
+
+    const worksAt = WORKS_AT.exec(text);
+    if (worksAt) {
+      const dept = worksAt[3].trim();
+      return {
+        kind: "DIRECTORY_LIST", tool: "directory_list",
+        args: dept.length >= 3 ? { department: dept } : {},
+        fast: true, reason: "registre filtré sur un service",
+      };
+    }
+    if (wantsList) {
+      return { kind: "DIRECTORY_LIST", tool: "directory_list", args: {}, fast: true, reason: "registre des personnes" };
+    }
+    if (!plural) {
+      const who = contactTarget(text) ?? (PRONOUN_PERSON.test(text) ? normalizeUtterance(ctx.lastPerson ?? "") : "");
+      if (who) {
+        return { kind: "DIRECTORY_LOOKUP", tool: "directory_lookup", args: { name: who }, fast: true, reason: "coordonnées d'une personne" };
+      }
+    }
+    // Un mot de coordonnées sans cible identifiable ne prend PAS de raccourci : mieux vaut le
+    // chemin complet qu'un annuaire interrogé sur rien.
   }
 
   // ── 4. LA BOÎTE MAIL ────────────────────────────────────────────────────────────────────

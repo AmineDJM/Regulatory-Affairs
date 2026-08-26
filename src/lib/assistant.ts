@@ -75,6 +75,12 @@ import { createStockHospital, createStockAnnex } from "@/lib/actions/stock-snaps
 // l'influencer : il note ce que la liste courte AURAIT exposé et le compare à ce que la boucle
 // a réellement appelé. C'est cette comparaison, et elle seule, qui autorisera la bascule.
 import { recordShadow } from "@/lib/assistant/context/shadow";
+// L'ACTIVATION BORNÉE (§1–§4, §26) : lectures canoniques sûres en direct, reste des lectures en
+// canary, TOUTES les mutations sur le chemin prouvé. La politique vit dans `rollout.ts` ; ici on
+// ne fait que l'appliquer.
+import { decideRollout, recordOutcome, type RolloutDecision } from "@/lib/assistant/context/rollout";
+import { shortlistTools, DISCOVERY_TOOL } from "@/lib/assistant/context/tool-shortlist";
+import { runDiscovery, DISCOVERY_TOOL_NAME } from "@/lib/assistant/context/discovery";
 import {
   powerToolsFor, executePowerTool, powerToolLabels, powerToolsBriefing,
 } from "@/lib/assistant/power-tools";
@@ -1733,6 +1739,27 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
 
 const WRITE_TOOL_NAMES = new Set([...WRITE_TOOLS, ...SUPERADMIN_WRITE_TOOLS].map((t) => t.name));
 
+/**
+ * LA LISTE COMPLÈTE DES OUTILS D'UNE PERSONNE — une seule définition, trois consommateurs.
+ *
+ * Les deux boucles (texte diffusé et non diffusé) la construisaient chacune de leur côté, à
+ * l'identique. Une divergence entre les deux aurait produit un Adam plus capable à l'écrit qu'à
+ * l'oral sans que rien ne le signale. Le script de mesure la lit désormais aussi : le chiffre
+ * publié porte sur ce qui est RÉELLEMENT envoyé, pas sur une reconstitution approchée.
+ *
+ * Les DROITS décident, pas le rôle : `powerToolsFor` et `EXPORT_TOOL` sont bornés par les accès
+ * effectifs, et chaque outil revérifie de toute façon à l'exécution.
+ */
+export function assistantToolsFor(user: CurrentUser): ClaudeToolDef[] {
+  return [
+    ...READ_TOOLS,
+    ...powerToolsFor(user),
+    EXPORT_TOOL,
+    ...(user.role === "SUPER_ADMIN" ? [...SUPERADMIN_TOOLS, ...SUPERADMIN_WRITE_TOOLS] : []),
+    ...WRITE_TOOLS,
+  ];
+}
+
 // ───────────────────────────── Contexte + system prompt ─────────────────────────────
 
 function buildContext(user: CurrentUser): string {
@@ -2116,6 +2143,77 @@ async function resolvePerson(query: string): Promise<{ id: string; name: string 
   if (exact.length === 1) return { id: exact[0].id, name: exact[0].name };
   if (matches.length === 1) return { id: matches[0].id, name: matches[0].name };
   return { ambiguous: matches };
+}
+
+/**
+ * CE QU'ON ENREGISTRE À CHAQUE TOUR (§7) — et ce qu'on n'enregistre pas.
+ *
+ * Jamais le TEXTE de la demande : ce journal sert à régler un aiguillage, pas à relire les
+ * conversations du PDG. Sa longueur et sa route suffisent à diagnostiquer.
+ *
+ * `missingTool` mérite un mot : il ne vaut que sur le chemin en liste courte. Sur LEGACY le
+ * modèle voit les 77 outils — un appel à la découverte y serait impossible, et compter un
+ * manque sur un chemin qui ne restreint rien fausserait la garde dans le sens dangereux
+ * (elle se déclencherait pour un problème qui n'existe pas).
+ */
+/**
+ * LE PROMPT DU CHEMIN RAPIDE — quelques centaines de tokens au lieu de trente-huit mille.
+ *
+ * Sur une lecture canonique, le modèle n'a plus à CHOISIR : le code a déjà appelé le bon outil
+ * et tient le résultat. Il ne lui reste qu'à le formuler. Tout ce qui servait à choisir — les
+ * soixante-dix-sept schémas d'outils, le mode d'emploi des écritures, le digest réglementaire —
+ * n'a plus aucune raison d'être envoyé.
+ *
+ * CE QU'ON GARDE, ET POURQUOI CHAQUE LIGNE EST LÀ :
+ *   • l'identité et le nom de la personne servie — sans quoi Adam redevient « Assistant IA » ;
+ *   • le style tac-au-tac — c'est une réponse d'une phrase qu'on attend, pas un rapport ;
+ *   • l'interdiction d'inventer — la seule règle de sécurité qui compte quand on lit.
+ */
+function fastReadSystem(user: CurrentUser): string {
+  return `Tu es Adam, le chef de cabinet de ${user.name}.
+
+On vient d'interroger la source CANONIQUE pour lui, et son résultat t'est donné ci-dessous.
+Ton seul travail : le DIRE, en français, aussi brièvement que possible.
+
+${CHIEF_STYLE_RULES}
+
+RÈGLES DE CE TOUR :
+- Réponds à partir du RÉSULTAT fourni, et de rien d'autre. Tu n'as pas d'autre source ici.
+- Si le résultat est vide, dis-le simplement — n'invente aucun nom, aucune adresse, aucun chiffre.
+- Ne mentionne jamais l'outil, la requête technique, ni le format des données.
+- Pas de préambule, pas de « voici », pas de question finale.`;
+}
+
+function observeRollout(
+  decision: RolloutDecision,
+  info: { user: CurrentUser; allToolCount: number; exposed: number; usedTools: string[]; discoveryCalls: number; startedAt: number },
+): void {
+  try {
+    const restricted = decision.mode === "SHORTLIST" || decision.mode === "FAST_READ";
+    const missingTool = restricted && info.discoveryCalls > 0;
+    // Le repli : la garde le compte pour surveiller la tendance, il n'est pas une faute en soi.
+    const fallback = decision.mode === "LEGACY" && !decision.isMutation;
+    if (restricted || fallback) recordOutcome({ missingTool, fallback });
+
+    console.info("[chief-rollout]", {
+      mode: decision.mode,
+      route: decision.route.route,
+      domain: decision.route.domain,
+      tier: decision.route.tier,
+      confidence: Number(decision.route.confidence.toFixed(2)),
+      isMutation: decision.isMutation,
+      bucket: decision.bucket,
+      canaryPercent: decision.canaryPercent,
+      reason: decision.reason,
+      toolsExposed: info.exposed,
+      toolsFull: info.allToolCount,
+      toolsUsed: info.usedTools.length,
+      discoveryCalls: info.discoveryCalls,
+      latencyMs: Date.now() - info.startedAt,
+    });
+  } catch {
+    // Observer ne doit jamais coûter une réponse.
+  }
 }
 
 export async function executeReadTool(name: string, input: Record<string, unknown>, user: CurrentUser): Promise<string> {
@@ -4471,23 +4569,52 @@ export async function runAssistant(
     intentsCtx,
   ].filter(Boolean).join("\n\n");
   // Le Super Admin dispose d'outils exclusifs (vision globale de tous les comptes).
-  const tools = [
-    ...READ_TOOLS,
-    // Lectures chiffrées (budget, finances, RH, file de décisions) ouvertes par les DROITS de
-    // cette personne — pas par son rôle. L'administrateur les a toutes ; un compte à qui l'on
-    // ouvre les Budgets gagne l'outil budget sans qu'on touche au code.
-    ...powerToolsFor(user),
-    // L'export est borné par les DROITS DE LECTURE, pas par le rôle : `canExport` refuse
-    // tout jeu de données que la personne ne pourrait pas ouvrir à l'écran.
-    EXPORT_TOOL,
-    ...(user.role === "SUPER_ADMIN" ? [...SUPERADMIN_TOOLS, ...SUPERADMIN_WRITE_TOOLS] : []),
-    ...WRITE_TOOLS,
-  ];
+  const allTools = assistantToolsFor(user);
+
+  // ── LA DÉCISION D'AIGUILLAGE ──────────────────────────────────────────────────────────────
+  // Elle ne décide QUE de la liste d'outils envoyée au modèle. Les droits, l'approbation,
+  // l'audit et l'idempotence sont ailleurs et ne bougent pas d'un pouce.
+  const turnStartedAt = Date.now();
+  const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" } });
+  // `tools` est MUTABLE : la découverte (`list_more_tools`) peut rouvrir un domaine en cours de
+  // boucle, et c'est ce qui rend la liste courte réversible plutôt qu'amputante.
+  let tools = rollout.mode === "SHORTLIST"
+    ? (shortlistTools(allTools, rollout.route) as typeof allTools)
+    : allTools;
   const trace: string[] = [];
   // Ce que la boucle appelle VRAIMENT — la seule vérité contre laquelle comparer la liste courte.
   const usedTools: string[] = [];
+  let discoveryCalls = 0;
 
   try {
+  // ── LE CHEMIN RAPIDE — la source canonique d'abord, le modèle ensuite ────────────────────
+  // Un seul appel de modèle au lieu de deux (choisir l'outil, puis formuler), et ZÉRO schéma
+  // d'outil envoyé. C'est là que se trouve l'essentiel du gain mesuré.
+  if (rollout.mode === "FAST_READ" && rollout.route.tool) {
+    const toolName = rollout.route.tool;
+    const out = await executeReadTool(toolName, rollout.route.args, user).catch((e) => {
+      console.error("[assistant] fast read failed", toolName, e);
+      return null;
+    });
+    if (out !== null) {
+      usedTools.push(toolName);
+      const label = READ_LABEL[toolName] ?? powerToolLabels()[toolName];
+      if (label) trace.push(label);
+      const res = await callClaude(
+        [{ role: "user", content: `DEMANDE : ${question}\n\nRÉSULTAT DE LA SOURCE CANONIQUE :\n${out}` }],
+        { system: fastReadSystem(user), tools: [], maxTokens: 700, temperature: 0.2, model: opts.model },
+      );
+      if (res.ok && res.content) {
+        const reply = textOf(res.content).trim();
+        if (reply) return { configured: true, ok: true, reply, trace };
+      }
+    }
+    // ÉCHEC DU RACCOURCI = REPLI, jamais une réponse fausse (§4). On retombe sur la boucle
+    // complète avec TOUS les outils : le tour coûte plus cher, il ne rate pas.
+    tools = allTools;
+    recordOutcome({ fallback: true });
+  }
+
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const res = await callClaude(messages, { system, tools, maxTokens: 1400, temperature: 0.2, model: opts.model });
     if (!res.ok || !res.content) {
@@ -4544,13 +4671,26 @@ export async function runAssistant(
     // Outils de lecture → exécutés EN PARALLÈLE (les sous-lectures d'une question complexe sont
     // indépendantes : trois lectures de 800 ms coûtent 800 ms, pas 2,4 s) puis réinjectés dans
     // l'ordre demandé par le modèle.
-    const settled = await Promise.all(toolUses.map(async (tu) => ({
-      tu,
-      out: await executeReadTool(tu.name, tu.input, user).catch((e) => {
-        console.error("[assistant] read tool failed", tu.name, e);
-        return "Erreur lors de la lecture des données.";
-      }),
-    })));
+    const settled = await Promise.all(toolUses.map(async (tu) => {
+      // LA DÉCOUVERTE — l'échappatoire qui empêche la liste courte d'être une amputation.
+      // Elle ROUVRE le domaine demandé pour la suite de la boucle, et se compte comme un
+      // « outil manquant » : l'échappatoire répare le tour, le compteur répare le routeur.
+      if (tu.name === DISCOVERY_TOOL_NAME) {
+        discoveryCalls += 1;
+        const found = runDiscovery(tu.input, allTools);
+        const unlock = new Set(found.unlock);
+        const known = new Set(tools.map((t) => t.name));
+        tools = [...tools, ...allTools.filter((t) => unlock.has(t.name) && !known.has(t.name))];
+        return { tu, out: found.text };
+      }
+      return {
+        tu,
+        out: await executeReadTool(tu.name, tu.input, user).catch((e) => {
+          console.error("[assistant] read tool failed", tu.name, e);
+          return "Erreur lors de la lecture des données.";
+        }),
+      };
+    }));
     const results: ClaudeContentBlock[] = [];
     for (const { tu, out } of settled) {
       if (READ_LABEL[tu.name] && !trace.includes(READ_LABEL[tu.name])) trace.push(READ_LABEL[tu.name]);
@@ -4568,7 +4708,8 @@ export async function runAssistant(
   } finally {
     // Dans le `finally` : le constat est déposé sur TOUS les chemins de sortie, y compris
     // l'erreur — un tour raté est justement celui qu'on veut pouvoir expliquer.
-    recordShadow(question, tools.length, usedTools);
+    recordShadow(question, allTools.length, usedTools);
+    observeRollout(rollout, { user, allToolCount: allTools.length, exposed: tools.length, usedTools, discoveryCalls, startedAt: turnStartedAt });
   }
 }
 
@@ -4723,24 +4864,72 @@ export async function runAssistantStream(
     nativeActionHint(question),
     intentsCtx,
   ].filter(Boolean).join("\n\n");
-  const tools = [
-    ...READ_TOOLS,
-    // Lectures chiffrées (budget, finances, RH, file de décisions) ouvertes par les DROITS de
-    // cette personne — pas par son rôle. L'administrateur les a toutes ; un compte à qui l'on
-    // ouvre les Budgets gagne l'outil budget sans qu'on touche au code.
-    ...powerToolsFor(user),
-    // L'export est borné par les DROITS DE LECTURE, pas par le rôle : `canExport` refuse
-    // tout jeu de données que la personne ne pourrait pas ouvrir à l'écran.
-    EXPORT_TOOL,
-    ...(user.role === "SUPER_ADMIN" ? [...SUPERADMIN_TOOLS, ...SUPERADMIN_WRITE_TOOLS] : []),
-    ...WRITE_TOOLS,
-  ];
+  const allTools = assistantToolsFor(user);
+
+  // ── LE MÊME AIGUILLAGE QU'EN VARIANTE NON DIFFUSÉE ────────────────────────────────────────
+  // C'est ICI que passe la quasi-totalité du trafic réel : l'interface et la voix appellent le
+  // flux, pas `runAssistant`. Un aiguillage branché d'un seul côté n'aurait rien activé du tout
+  // (§22 : « Voice est une modalité, pas un deuxième cerveau »).
+  const turnStartedAt = Date.now();
+  const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" } });
+  let tools = rollout.mode === "SHORTLIST"
+    ? (shortlistTools(allTools, rollout.route) as typeof allTools)
+    : allTools;
   const trace: string[] = [];
   const usedTools: string[] = [];
+  let discoveryCalls = 0;
   const started = Date.now();
   const metrics: AssistantMetrics = { ttftMs: null, turns: 0, toolCalls: 0, toolErrors: 0, toolLatencyMs: 0 };
 
   try {
+    // ── LE CHEMIN RAPIDE ────────────────────────────────────────────────────────────────────
+    // Source canonique d'abord, un seul appel de modèle ensuite, ZÉRO schéma d'outil envoyé.
+    // La trace est émise AVANT la lecture : l'utilisateur voit « Annuaire » pendant l'attente,
+    // pas après.
+    if (rollout.mode === "FAST_READ" && rollout.route.tool) {
+      const toolName = rollout.route.tool;
+      const label = READ_LABEL[toolName] ?? powerToolLabels()[toolName];
+      if (label) { trace.push(label); emit({ type: "trace", label }); }
+      const t0 = Date.now();
+      metrics.toolCalls += 1;
+      const out = await executeReadTool(toolName, rollout.route.args, user).catch((e) => {
+        console.error("[assistant] fast read failed", toolName, e);
+        metrics.toolErrors += 1;
+        return null;
+      });
+      metrics.toolLatencyMs += Date.now() - t0;
+      if (out !== null) {
+        usedTools.push(toolName);
+        for (const s of extractSources(out)) emit({ type: "source", label: s.label, href: s.href });
+        metrics.turns = 1;
+        let streamed = false;
+        const res = await callClaudeStream(
+          [{ role: "user", content: `DEMANDE : ${question}\n\nRÉSULTAT DE LA SOURCE CANONIQUE :\n${out}` }],
+          (chunk) => {
+            streamed = true;
+            if (metrics.ttftMs == null) metrics.ttftMs = Date.now() - started;
+            emit({ type: "delta", text: chunk });
+          },
+          { system: fastReadSystem(user), tools: [], maxTokens: 700, temperature: 0.2, model: opts.model },
+        );
+        if (res.ok && res.content) {
+          const reply = textOf(res.content).trim();
+          if (reply) {
+            if (!streamed) emit({ type: "delta", text: reply });
+            return { configured: true, ok: true, reply, trace, metrics };
+          }
+        }
+        // Le raccourci a parlé pour rien : ce qui a été diffusé n'est pas la réponse.
+        if (streamed) emit({ type: "reset" });
+      }
+      // ÉCHEC DU RACCOURCI = REPLI (§4), jamais une réponse fausse. La boucle complète reprend
+      // avec TOUS les outils : le tour coûte plus cher, il ne rate pas.
+      tools = allTools;
+      trace.length = 0;
+      metrics.ttftMs = null;
+      recordOutcome({ fallback: true });
+    }
+
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       metrics.turns = turn + 1;
       // Le texte part AU FIL DE L'EAU. Si le tour se révèle finalement être un appel d'outil,
@@ -4828,6 +5017,18 @@ export async function runAssistantStream(
       const settled = await Promise.all(toolUses.map(async (tu) => {
         const t0 = Date.now();
         metrics.toolCalls += 1;
+        // LA DÉCOUVERTE — l'échappatoire qui empêche la liste courte d'être une amputation.
+        // Elle rouvre le domaine demandé pour la suite de la boucle et se compte comme un
+        // « outil manquant » : l'échappatoire répare le tour, le compteur répare le routeur.
+        if (tu.name === DISCOVERY_TOOL_NAME) {
+          discoveryCalls += 1;
+          const found = runDiscovery(tu.input, allTools);
+          const unlock = new Set(found.unlock);
+          const known = new Set(tools.map((t) => t.name));
+          tools = [...tools, ...allTools.filter((t) => unlock.has(t.name) && !known.has(t.name))];
+          metrics.toolLatencyMs += Date.now() - t0;
+          return { tu, out: found.text };
+        }
         const label = READ_LABEL[tu.name];
         if (label && !trace.includes(label)) { trace.push(label); emit({ type: "trace", label }); }
         const out = await executeReadTool(tu.name, tu.input, user).catch((e) => {
@@ -4855,7 +5056,11 @@ export async function runAssistantStream(
     console.error("[assistant] runAssistantStream failed", err);
     return { configured: true, ok: false, reply: "", trace, metrics, error: "Une erreur est survenue côté assistant. Reformulez votre demande ou réessayez dans un instant." };
   } finally {
-    recordShadow(question, tools.length, usedTools);
+    // `allTools.length` et non `tools.length` : le mode ombre mesure ce que la liste COMPLÈTE
+    // aurait coûté face à ce qui a réellement servi. Lui passer la liste déjà réduite lui ferait
+    // mesurer sa propre sortie, et le gain se lirait comme nul.
+    recordShadow(question, allTools.length, usedTools);
+    observeRollout(rollout, { user, allToolCount: allTools.length, exposed: tools.length, usedTools, discoveryCalls, startedAt: turnStartedAt });
   }
 }
 

@@ -119,9 +119,20 @@ describe("les formes que la mission nomme", () => {
   });
 
   it("mais une lecture à l'impératif n'est PAS une écriture", () => {
-    // La distinction qui empêche de faire passer une consultation par les gardes d'écriture.
-    expect(routeQuery("Donne-moi les salariés et leurs e-mails.").route).toBe("STRUCTURED_QUERY");
-    expect(routeQuery("Liste les dossiers de Fatma Zahra.").route).toBe("STRUCTURED_QUERY");
+    // LA SEULE CHOSE QUI COMPTE ICI : ce n'est pas une ACTION. La distinction empêche de faire
+    // passer une consultation par les gardes d'écriture.
+    //
+    // Le premier cas attendait STRUCTURED_QUERY ; §11 exige désormais qu'il tombe sur l'annuaire
+    // par le chemin déterministe — c'est un RENFORCEMENT de la même intention (source canonique
+    // au lieu d'une recherche guidée par le modèle), pas un relâchement. L'assertion porte donc
+    // sur ce qui est réellement en jeu, et le cas exact est verrouillé dans
+    // `rollout-regression.test.ts`.
+    for (const q of ["Donne-moi les salariés et leurs e-mails.", "Liste les dossiers de Fatma Zahra."]) {
+      const r = routeQuery(q);
+      expect(r.route).not.toBe("ACTION");
+      expect(["STRUCTURED_QUERY", "FAST_DETERMINISTIC"]).toContain(r.route);
+    }
+    expect(routeQuery("Donne-moi les salariés et leurs e-mails.").tool).toBe("directory_list");
   });
 
   it("le décapage de politesse n'efface pas « et » ni « alors »", () => {
