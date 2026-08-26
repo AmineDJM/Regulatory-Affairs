@@ -27,6 +27,7 @@ import { PLANNING_OPS_IMPL } from "./impl-wave6c";
 import { ADMIN_REQUEST_OPS_IMPL } from "./impl-wave7";
 import { MEETING7_OPS_IMPL, WORKSPACE7_OPS_IMPL } from "./impl-wave7b";
 import { MESSAGING7_OPS_IMPL, REGREMINDER_OPS_IMPL } from "./impl-wave7c";
+import { ORG7D_OPS_IMPL, LEGAL7D_OPS_IMPL, WS7D_OPS_IMPL } from "./impl-wave7d";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -98,7 +99,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   task_operation: {
     module: "WORKSPACE",
-    ops: zipOps("task_operation", { ...TASK_OPS_IMPL, ...DOCREQ_OPS_IMPL, ...REMINDER_OPS_IMPL, ...WORKSPACE7_OPS_IMPL }),
+    ops: zipOps("task_operation", { ...TASK_OPS_IMPL, ...DOCREQ_OPS_IMPL, ...REMINDER_OPS_IMPL, ...WORKSPACE7_OPS_IMPL, ...WS7D_OPS_IMPL }),
     def: {
       name: "task_operation",
       description:
@@ -122,6 +123,11 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           date: { type: "string", description: "Rappels : la date du rappel (AAAA-MM-JJ, ou AAAA-MM-JJTHH:MM) — snooze : défaut +1 jour." },
           decision: { type: "string", description: "decide_document_request : accepter ou refuser ; respond_to_calendar_invite : accepter / refuser / peut-être." },
           message: { type: "string", description: "update_comment : le nouveau texte (synonyme de « note »)." },
+          module: { type: "string", description: "submit_feedback : module concerné (facultatif)." },
+          field: { type: "string", description: "set_custom_field : le champ personnalisé (libellé)." },
+          value: { type: "string", description: "set_custom_field : la valeur (« aucun » pour vider ; oui/non pour une case)." },
+          record: { type: "string", description: "set_custom_field : la fiche visée (référence, nom, ou id interne) — synonyme de target." },
+          reference: { type: "string", description: "delete_own_record : référence du courrier / document légal (synonyme de target)." },
         },
         required: ["op"],
       },
@@ -418,7 +424,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   legal_operation: {
     module: "LEGAL",
-    ops: zipOps("legal_operation", { ...LEGAL_OPS_IMPL, ...LEGAL3_OPS_IMPL }),
+    ops: zipOps("legal_operation", { ...LEGAL_OPS_IMPL, ...LEGAL3_OPS_IMPL, ...LEGAL7D_OPS_IMPL }),
     def: {
       name: "legal_operation",
       description:
@@ -442,6 +448,9 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           folder: { type: "string", description: "Dossiers Legal : le dossier visé (« aucun » pour déclasser)." },
           newName: { type: "string", description: "rename_folder : nouveau nom." },
           parent: { type: "string", description: "create_folder : dossier parent." },
+          company: { type: "string", description: "save_company_identity : l'entité (votre périmètre)." },
+          field: { type: "string", description: "save_company_identity : le champ de la carte (RC, NIF, NIS, RIB, siège social…)." },
+          value: { type: "string", description: "save_company_identity : la nouvelle valeur (« aucun » pour vider) — vérifier au caractère près." },
         },
         required: ["op"],
       },
@@ -449,7 +458,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   org_operation: {
     module: "ADMIN",
-    ops: zipOps("org_operation", { ...ORG_OPS_IMPL, ...ACCESS_OPS_IMPL, ...RANGE_OPS_IMPL }),
+    ops: zipOps("org_operation", { ...ORG_OPS_IMPL, ...ACCESS_OPS_IMPL, ...RANGE_OPS_IMPL, ...ORG7D_OPS_IMPL }),
     def: {
       name: "org_operation",
       description:
@@ -462,14 +471,14 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           op: { type: "string", enum: opEnum("org_operation"), description: "Le geste à faire." },
           name: { type: "string", description: "Nom de l'entité / du département / du fournisseur / du contact / de la personne (création ou cible)." },
           employee: { type: "string", description: "assign_department / assign_manager : nom de l'employé (registre RH)." },
-          department: { type: "string", description: "assign_department : département de destination (« aucun » pour détacher)." },
+          department: { type: "string", description: "assign_department : département de destination (« aucun » pour détacher) ; update/delete_department : le département visé." },
           manager: { type: "string", description: "assign_manager : nom du N+1 (« aucun » pour retirer)." },
           parent: { type: "string", description: "create_department : département parent (sous-département)." },
           entity: { type: "string", description: "create_department : entité de rattachement (département de tête)." },
           shortName: { type: "string", description: "create_company : nom court." },
           country: { type: "string", description: "create_supplier : pays." },
           email: { type: "string", description: "create_supplier / create_contact : e-mail ; update_user_profile : NOUVEL e-mail de connexion." },
-          kind: { type: "string", description: "create_contact : nature (agence, livreur, imprimeur…)." },
+          kind: { type: "string", description: "create_contact : nature (agence, livreur, imprimeur…) ; set_pipeline_access : « consultation » ou « cadenas »." },
           contactName: { type: "string", description: "create_contact : la personne qu'on demande." },
           phone: { type: "string", description: "create_contact : téléphone." },
           address: { type: "string", description: "create_contact : adresse." },
@@ -486,6 +495,24 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           range: { type: "string", description: "Gammes : la gamme visée (create/update/delete_range, set_products_range, set_user_ranges — plusieurs séparées par des virgules ; « aucune » détache/sort)." },
           products: { type: "string", description: "set_products_range / remove_product_from_range : produits (références REG-… ou DCI, virgules)." },
           color: { type: "string", description: "Gammes : couleur." },
+          company: { type: "string", description: "Entité visée (accès, orphelins, portée) — nom." },
+          head: { type: "string", description: "update_department : responsable (employé, « aucun » pour retirer)." },
+          deputy: { type: "string", description: "update_department : adjoint (employé, « aucun » pour retirer)." },
+          position: { type: "string", description: "save_org_node : poste affiché." },
+          active: { type: "string", description: "update_company / update_company_contact : « actif » ou « inactif »." },
+          contact: { type: "string", description: "Champs libres du contact d'entreprise (update_company_contact) : voir aussi kind/contactName/phone/email/address." },
+          city: { type: "string", description: "update_company_contact : ville." },
+          wilaya: { type: "string", description: "update_company_contact : wilaya." },
+          website: { type: "string", description: "update_company_contact : site web." },
+          status: { type: "string", description: "update_feedback_status : vu | en cours | traité." },
+          target: { type: "string", description: "update_feedback_status : extrait du feedback (« dernier » accepté) ; suppressions définitives : cible." },
+          note: { type: "string", description: "update_feedback_status : note de l'admin (notifiée à l'auteur si nouvelle)." },
+          type: { type: "string", description: "attach_orphans_to_company / set_row_grants : le TYPE d'enregistrement (libellé écran)." },
+          record: { type: "string", description: "set_row_grants : la ligne visée (référence, nom, ou id interne)." },
+          role: { type: "string", description: "set_pipeline_access : un rôle (au lieu d'une personne)." },
+          feature: { type: "string", description: "update_ai_settings : la fonction IA ; set_feature_stage : la nouveauté." },
+          field: { type: "string", description: "update_risk_thresholds : le seuil visé (libellé)." },
+          value: { type: "string", description: "Valeur : seuil (nombre), stade de nouveauté (production/test/coupée), bascule IA (activer/couper), portée d'entité." },
         },
         required: ["op"],
       },

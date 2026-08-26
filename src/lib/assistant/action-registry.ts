@@ -889,8 +889,8 @@ G("administration structurelle (entités, gammes, départements, organigramme, c
   "product-range-actions:setUserRanges", "product-range-actions:removeProductFromRange",
   "department-actions:createDepartment", "department-actions:updateDepartment", "department-actions:deleteDepartment",
   "department-actions:assignEmployeeDepartment", "department-actions:assignEmployeeManager",
-  "org-actions:saveOrgNode", "org-actions:saveOrgPosition", "entity-attach-actions:attachOrphansToCompany",
-  "supplier-actions:createSupplier", "supplier-actions:createSupplierUser", "supplier-actions:toggleSupplier",
+  "org-actions:saveOrgNode", "entity-attach-actions:attachOrphansToCompany",
+  "supplier-actions:createSupplier", "supplier-actions:toggleSupplier",
   "supplier-actions:toggleSupplierUser", "settings-actions:setPipelineAccess",
 ]);
 G("matrice d'accès fine & profils (droits par module, périmètres de lignes, profil)", [
@@ -928,12 +928,11 @@ G("directives, support, feedback, commentaires génériques, rappels d'écran", 
   "reminder-actions:createReminder", "reminder-actions:completeReminder", "reminder-actions:cancelReminder",
   "reminder-actions:snoozeReminder", "calendar-actions:respondToInvite",
 ]);
-G("cockpit Adventum (autopilote, brain, seuils de risque) & maintenance profonde de la base", [
-  "adventum-actions:runAutopilot", "adventum-actions:askBrain", "adventum-actions:generateBriefing",
-  "adventum-actions:searchRelations", "adventum-actions:updateRiskThresholds",
+G("cockpit Adventum (seuils de risque) & maintenance profonde de la base", [
+  "adventum-actions:updateRiskThresholds",
   "database-admin-actions:purgeOrphanStorage", "database-admin-actions:permanentlyDeleteDriveNode",
-  "database-admin-actions:permanentlyDeleteDocument", "platform-audit-actions:generatePlatformIdeas",
-  "ai-settings-actions:updateAiSettings", "feature-actions:setFeatureStage", "smart-mail-actions:smartMailStatus",
+  "database-admin-actions:permanentlyDeleteDocument",
+  "ai-settings-actions:updateAiSettings", "feature-actions:setFeatureStage",
 ]);
 
 // ── EXCLUDED : pas un travail d'assistant — raison donnée, pas un oubli. ──
@@ -994,6 +993,17 @@ X("plomberie du planning SFE : get-or-create idempotent du cycle mensuel à l'ou
 ]);
 X("plomberie / lecture du Drive (initialisation de dossiers, liste des partages) — pas un geste métier", [
   "drive-actions:ensureDriveFolders", "drive-actions:getDriveNodeShares",
+]);
+X("lectures / analyses IA du cockpit et de l'admin — RIEN n'est écrit : le Chief EST déjà cette capacité (il répond, analyse, brief, fiche 360 par ses outils de lecture) ; runAutopilot n'exécute que des propositions du panneau Brain, dont les gestes (tâche, relance) sont natifs via task_operation et les rappels", [
+  "adventum-actions:runAutopilot", "adventum-actions:askBrain", "adventum-actions:generateBriefing",
+  "adventum-actions:searchRelations", "platform-audit-actions:generatePlatformIdeas",
+  "smart-mail-actions:smartMailStatus",
+]);
+X("géométrie d'ÉCRAN : position x/y d'un nœud sur la carte de l'organigramme (glisser-déposer) — pas un geste métier, le Chief n'a pas de canevas", [
+  "org-actions:saveOrgPosition",
+]);
+X("SÉCURITÉ : exige un mot de passe EN CLAIR pour le compte portail fournisseur — un mot de passe ne transite jamais par une conversation (même règle que les comptes internes, résolus par lien d'invitation) ; geste réservé à l'écran Admin", [
+  "supplier-actions:createSupplierUser",
 ]);
 X("boîte Microsoft PERSONNELLE : ces gestes visent un messageId Graph opaque de l'écran — le Chief n'a pas de lecture de boîte (OAuth personnel) pour les résoudre en conversation", [
   "microsoft-mail-actions:saveDraft", "microsoft-mail-actions:setMessageRead", "microsoft-mail-actions:moveMessage",
