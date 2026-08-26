@@ -1,0 +1,375 @@
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   ADAM — LE SYSTÈME VISUEL DU BUREAU EXÉCUTIF
+
+   POURQUOI UN SYSTÈME À PART. `/chief-of-staff` n'est pas un module de l'ERP : c'est un produit
+   qui se trouve vivre dans le même dépôt. Il n'a ni menu latéral, ni barre d'onglets, ni fil
+   d'Ariane — et hériter automatiquement du style de l'ERP le ferait ressembler à un écran
+   d'administration avec une zone de chat. Les jetons ci-dessous sont donc SÉMANTIQUES et
+   autonomes : aucune valeur en dur ailleurs, aucun emprunt implicite.
+
+   LA RETENUE EST LA RÈGLE. Presque tout est blanc, blanc cassé et bleu nuit ; l'accent ne
+   couvre que quelques pour cent de l'écran. Une interface où chaque objet a bordure, ombre et
+   couleur n'est pas riche — elle est bruyante, et l'œil n'y trouve plus l'action principale.
+
+   MODE SOMBRE. L'ERP n'en a pas (aucun bloc `.dark` dans globals.css, malgré la configuration
+   Tailwind). On ne l'invente pas ici : un thème sombre pour une seule page donnerait deux
+   produits au lieu d'un. Les jetons sont prêts à en recevoir un le jour où l'ERP en aura un.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+.chief-root {
+  /* ── Surfaces ──────────────────────────────────────────────────────────────────────────
+     Le fond n'est pas blanc pur : sans ce demi-ton, les surfaces de travail s'y fondent et
+     l'écran perd sa structure — sans qu'on ait ajouté la moindre bordure. */
+  --chief-bg: 220 33% 98%;
+  --chief-surface: 0 0% 100%;
+  --chief-surface-elevated: 0 0% 100%;
+  --chief-surface-sunken: 220 30% 96.5%;
+
+  /* ── Bordures ─────────────────────────────────────────────────────────────────────────
+     Deux niveaux seulement. `subtle` sépare sans dessiner ; `border` délimite un objet. */
+  --chief-border: 218 22% 89%;
+  --chief-border-subtle: 218 25% 93.5%;
+  --chief-border-strong: 218 20% 82%;
+
+  /* ── Texte ────────────────────────────────────────────────────────────────────────────
+     Trois niveaux, et pas un de plus. Au-delà, la hiérarchie cesse d'être lisible. */
+  --chief-text: 220 40% 13%;
+  --chief-text-secondary: 220 12% 42%;
+  --chief-text-tertiary: 220 10% 58%;
+
+  /* ── L'accent d'Adam ──────────────────────────────────────────────────────────────────
+     UNE couleur, tirant vers l'indigo : elle distingue Adam du bleu ERP sans changer de
+     famille. Réservée à l'action principale, à la sélection et à l'identité. */
+  --chief-accent: 245 72% 58%;
+  --chief-accent-hover: 245 68% 52%;
+  --chief-accent-soft: 245 90% 97%;
+  --chief-accent-border: 245 60% 90%;
+  --chief-accent-fg: 0 0% 100%;
+
+  /* ── États sémantiques — JAMAIS décoratifs ────────────────────────────────────────────
+     Une couleur d'état signifie quelque chose : sain, en attente, bloqué. Utilisée pour
+     autre chose, elle cesse de vouloir dire quoi que ce soit. */
+  --chief-success: 152 58% 38%;
+  --chief-success-soft: 152 60% 96%;
+  --chief-warning: 32 88% 46%;
+  --chief-warning-soft: 34 92% 96%;
+  --chief-danger: 0 68% 52%;
+  --chief-danger-soft: 0 80% 97%;
+
+  /* ── Rayons ───────────────────────────────────────────────────────────────────────────
+     Une hiérarchie, pas une valeur unique : si tout a le même rayon, plus rien ne dit
+     « ceci est un champ » ou « ceci est une feuille ». */
+  --chief-radius-control: 14px;
+  --chief-radius-card: 18px;
+  --chief-radius-sheet: 24px;
+
+  /* ── Ombres ───────────────────────────────────────────────────────────────────────────
+     Presque invisibles. La profondeur se joue sur un ou deux objets flottants — le
+     composeur, une feuille — jamais sur toutes les cartes de l'écran. */
+  --chief-shadow-sm: 0 1px 2px hsl(220 40% 13% / 0.04);
+  --chief-shadow-md: 0 4px 16px -4px hsl(220 40% 13% / 0.08), 0 2px 4px -2px hsl(220 40% 13% / 0.04);
+  --chief-shadow-lg: 0 16px 48px -12px hsl(220 40% 13% / 0.16), 0 4px 12px -4px hsl(220 40% 13% / 0.06);
+
+  /* ── Mouvement ────────────────────────────────────────────────────────────────────────
+     Le mouvement sert à comprendre d'où vient une chose et où elle va. Il n'est jamais là
+     « parce que c'est de l'IA ». */
+  --chief-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --chief-duration-micro: 140ms;
+  --chief-duration-state: 220ms;
+  --chief-duration-surface: 320ms;
+
+  /* ── Mesures de mise en page ──────────────────────────────────────────────────────────
+     La conversation a une largeur de LECTURE (au-delà, l'œil perd le début de la ligne
+     suivante) ; le plan de travail, lui, prend la place qu'il mérite. */
+  --chief-conversation-max: 820px;
+  --chief-workspace-max: 1180px;
+  --chief-context-width: 340px;
+  --chief-header-h: 64px;
+
+  background-color: hsl(var(--chief-bg));
+  color: hsl(var(--chief-text));
+  font-feature-settings: "cv05" 1, "ss01" 1, "tnum" 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+@media (min-width: 1024px) {
+  .chief-root { --chief-header-h: 68px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   LA COQUE — plein écran, sans défilement de page.
+
+   C'est le conteneur qui défile, pas le document : c'est ce qui permet au composeur de rester
+   posé en bas sans « sauter » quand le clavier virtuel apparaît.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+.chief-shell {
+  display: flex;
+  flex-direction: column;
+  /* `100dvh` suit la barre d'adresse mobile ; le repli couvre les navigateurs anciens. */
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.chief-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--chief-header-h);
+  flex-shrink: 0;
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+  border-bottom: 1px solid hsl(var(--chief-border-subtle));
+  background-color: hsl(var(--chief-surface) / 0.86);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+}
+
+@media (min-width: 1024px) {
+  .chief-header { padding-left: 24px; padding-right: 24px; }
+}
+
+/* La zone défilante. `overscroll-contain` : le rebond de fin de liste ne remonte pas à la
+   page hôte — le geste natif qu'on attend d'une application. */
+.chief-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chief-scroll { scroll-behavior: auto; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   TYPOGRAPHIE — forte, mais sobre. Le gras est un signal ; en abuser l'annule.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+.chief-hero {
+  font-size: 28px;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: hsl(var(--chief-text));
+}
+
+.chief-hero-sub {
+  font-size: 17px;
+  line-height: 1.4;
+  color: hsl(var(--chief-text-secondary));
+  letter-spacing: -0.01em;
+}
+
+@media (min-width: 768px) {
+  .chief-hero { font-size: 34px; }
+  .chief-hero-sub { font-size: 19px; }
+}
+
+.chief-title { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; }
+.chief-section { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--chief-text-tertiary)); }
+.chief-body { font-size: 15px; line-height: 1.6; }
+.chief-meta { font-size: 12.5px; color: hsl(var(--chief-text-tertiary)); }
+
+@media (min-width: 768px) {
+  .chief-title { font-size: 24px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   SURFACES
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+.chief-card {
+  background-color: hsl(var(--chief-surface));
+  border: 1px solid hsl(var(--chief-border-subtle));
+  border-radius: var(--chief-radius-card);
+  /* Bordure SEULE par défaut. L'ombre se mérite : elle est réservée à ce qui flotte. */
+}
+
+.chief-card-elevated {
+  background-color: hsl(var(--chief-surface-elevated));
+  border: 1px solid hsl(var(--chief-border-subtle));
+  border-radius: var(--chief-radius-card);
+  box-shadow: var(--chief-shadow-md);
+}
+
+.chief-card-interactive {
+  transition: border-color var(--chief-duration-micro) var(--chief-ease),
+              background-color var(--chief-duration-micro) var(--chief-ease);
+}
+.chief-card-interactive:hover {
+  border-color: hsl(var(--chief-border-strong));
+  background-color: hsl(var(--chief-surface));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   LE COMPOSEUR — l'objet le plus important de l'écran.
+
+   Il flotte, donc il porte une ombre ; c'est l'un des rares endroits où elle est justifiée.
+   Sur téléphone il tient au-dessus de la zone sûre : aucune commande ne se glisse derrière
+   l'indicateur d'accueil de l'iPhone.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+.chief-composer-dock {
+  flex-shrink: 0;
+  padding: 10px max(16px, env(safe-area-inset-left)) calc(10px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-right));
+  background: linear-gradient(to top, hsl(var(--chief-bg)) 55%, hsl(var(--chief-bg) / 0));
+}
+
+@media (min-width: 768px) {
+  .chief-composer-dock { padding-bottom: 20px; padding-top: 16px; }
+}
+
+.chief-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  width: 100%;
+  max-width: var(--chief-conversation-max);
+  margin: 0 auto;
+  padding: 8px 8px 8px 12px;
+  background-color: hsl(var(--chief-surface));
+  border: 1px solid hsl(var(--chief-border));
+  border-radius: var(--chief-radius-control);
+  box-shadow: var(--chief-shadow-md);
+  transition: border-color var(--chief-duration-state) var(--chief-ease),
+              box-shadow var(--chief-duration-state) var(--chief-ease);
+}
+
+.chief-composer:focus-within {
+  border-color: hsl(var(--chief-accent) / 0.5);
+  box-shadow: var(--chief-shadow-md), 0 0 0 4px hsl(var(--chief-accent) / 0.08);
+}
+
+/* La zone de saisie grandit avec le texte, mais jamais au point d'avaler l'écran :
+   au-delà, c'est le champ qui défile, pas la conversation qui disparaît. */
+.chief-composer-input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: 16px; /* 16 px : en dessous, iOS zoome à la mise au point. */
+  line-height: 1.5;
+  padding: 6px 0;
+  max-height: 34vh;
+  color: hsl(var(--chief-text));
+}
+.chief-composer-input::placeholder { color: hsl(var(--chief-text-tertiary)); }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   COMMANDES — cibles tactiles d'au moins 44 px, sans exception.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+.chief-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: hsl(var(--chief-text-secondary));
+  transition: background-color var(--chief-duration-micro) var(--chief-ease),
+              color var(--chief-duration-micro) var(--chief-ease);
+}
+.chief-icon-btn:hover { background-color: hsl(var(--chief-surface-sunken)); color: hsl(var(--chief-text)); }
+.chief-icon-btn:focus-visible { outline: 2px solid hsl(var(--chief-accent)); outline-offset: 2px; }
+
+.chief-send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  background-color: hsl(var(--chief-accent));
+  color: hsl(var(--chief-accent-fg));
+  transition: background-color var(--chief-duration-micro) var(--chief-ease),
+              opacity var(--chief-duration-micro) var(--chief-ease);
+}
+.chief-send-btn:hover:not(:disabled) { background-color: hsl(var(--chief-accent-hover)); }
+.chief-send-btn:disabled { opacity: 0.35; cursor: default; }
+.chief-send-btn:focus-visible { outline: 2px solid hsl(var(--chief-accent)); outline-offset: 2px; }
+
+/* Les actions rapides de l'accueil : des aides discrètes, pas des tuiles de tableau de bord. */
+.chief-quick {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 15px;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--chief-border));
+  background-color: hsl(var(--chief-surface));
+  color: hsl(var(--chief-text-secondary));
+  font-size: 14px;
+  font-weight: 500;
+  transition: border-color var(--chief-duration-micro) var(--chief-ease),
+              color var(--chief-duration-micro) var(--chief-ease);
+}
+.chief-quick:hover { border-color: hsl(var(--chief-accent) / 0.45); color: hsl(var(--chief-accent)); }
+.chief-quick:focus-visible { outline: 2px solid hsl(var(--chief-accent)); outline-offset: 2px; }
+
+/* Défilement horizontal des actions rapides sur téléphone : une seule rangée, qu'on balaie.
+   Deux rangées de tuiles, c'est un tableau de bord — précisément ce qu'on ne veut pas. */
+.chief-quick-rail {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  padding-inline: max(20px, env(safe-area-inset-left));
+  margin-inline: calc(-1 * max(20px, env(safe-area-inset-left)));
+}
+.chief-quick-rail::-webkit-scrollbar { display: none; }
+.chief-quick-rail > * { scroll-snap-align: start; }
+
+@media (min-width: 768px) {
+  .chief-quick-rail { flex-wrap: wrap; overflow-x: visible; padding-inline: 0; margin-inline: 0; }
+}
+
+/* ── L'état de fraîcheur ─────────────────────────────────────────────────────────────────
+   Un point et deux mots. Pas une phrase de présentation : le PDG sait ce qu'est Adam. */
+.chief-freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: hsl(var(--chief-text-secondary));
+}
+.chief-dot { width: 7px; height: 7px; border-radius: 999px; background-color: hsl(var(--chief-success)); flex-shrink: 0; }
+.chief-dot-warn { background-color: hsl(var(--chief-warning)); }
+.chief-dot-off { background-color: hsl(var(--chief-text-tertiary)); }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   MOUVEMENT — l'entrée d'une surface explique d'où elle vient.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+@keyframes chief-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes chief-slide-left {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: none; }
+}
+
+.chief-enter { animation: chief-rise var(--chief-duration-state) var(--chief-ease) both; }
+.chief-panel-enter { animation: chief-slide-left var(--chief-duration-surface) var(--chief-ease) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chief-enter,
+  .chief-panel-enter { animation: none; }
+  .chief-composer,
+  .chief-icon-btn,
+  .chief-quick,
+  .chief-card-interactive { transition: none; }
+}

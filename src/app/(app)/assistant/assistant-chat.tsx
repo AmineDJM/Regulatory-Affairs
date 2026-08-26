@@ -14,6 +14,10 @@ import {
   assistantChat, executeAssistantAction, cancelAssistantAction, listAssistantFiles,
   myAssistantThreads, myAssistantThread, deleteMyAssistantThread, forgetMyAssistantMemory,
 } from "@/lib/actions/assistant-actions";
+// HYGIÈNE D'AFFICHAGE — le dernier filtre avant l'écran. Il existe parce que des marqueurs
+// internes et des sorties d'outils BRUTES ont été rendus au PDG en production, dont un
+// vidage de 27 résultats contenant six lignes de salaires, en réponse à « Bonsoir, ça va ? ».
+import { decideDisplay } from "@/lib/assistant/voice/transcript-hygiene";
 import type { ProposedAction, AssistantActionPayload, ChatTurn, AssistantResult, AssistantStreamEvent } from "@/lib/assistant";
 import { matchesConfirmText } from "@/lib/assistant/confirm";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
@@ -119,6 +123,8 @@ export function LinkifiedText({ text }: { text: string }) {
 export function AssistantChat({
   userName, configured, voiceConfigured = false, realtimeVoice = false, memoryEnabled = false,
   executive = false, initialPrompt = null, initialThreadId = null, initialCallRef = null,
+  emptyState = null, historyMode = "rail", surface = "card",
+  historyOpen, onHistoryOpenChange,
 }: {
   userName: string; configured: boolean;
   /** Dictée disponible (transcription simple, texte éditable avant envoi). */
@@ -134,6 +140,33 @@ export function AssistantChat({
   initialThreadId?: string | null;
   /** APPEL DEPUIS UNE FICHE (?call=1&ref=…) : l'appel démarre avec ce dossier en contexte. */
   initialCallRef?: string | null;
+  /**
+   * L'ÉCRAN VIDE, remplacé par l'hôte. Le bureau d'Adam y met sa salutation et ses quatre
+   * amorces ; la page Assistant de l'ERP garde le sien. Rien n'est supprimé : c'est l'hôte qui
+   * choisit ce qu'on voit avant le premier message.
+   */
+  emptyState?: React.ReactNode;
+  /**
+   * OÙ VIT L'HISTORIQUE. `rail` = colonne permanente de 256 px (la page Assistant historique).
+   * `drawer` = derrière un bouton, comme dans le bureau d'Adam : une liste de conversations
+   * affichée en continu prend un cinquième de la largeur pour une chose qu'on ouvre trois fois
+   * par jour.
+   */
+  historyMode?: "rail" | "drawer";
+  /**
+   * `card` = la conversation est une carte posée dans une page. `flush` = elle EST la page —
+   * pas de bordure ni de coins arrondis, parce qu'il n'y a rien autour dont il faille la
+   * distinguer.
+   */
+  surface?: "card" | "flush";
+  /**
+   * L'HISTORIQUE, PILOTÉ PAR L'HÔTE (optionnel). Sans ces deux props, la conversation garde son
+   * propre état — la page Assistant de l'ERP ne change pas. Avec elles, le bureau d'Adam peut
+   * mettre le bouton dans SON en-tête, et n'avoir qu'UNE barre au lieu de deux : sur un
+   * téléphone de 390 px, deux barres empilées, c'est 110 px de chrome avant le premier mot.
+   */
+  historyOpen?: boolean;
+  onHistoryOpenChange?: (open: boolean) => void;
 }) {
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
@@ -154,7 +187,12 @@ export function AssistantChat({
   //    Le serveur ne renvoie jamais que les fils du demandeur (cf. assistant-memory.ts).
   const [threadId, setThreadId] = React.useState<string | null>(null);
   const [threads, setThreads] = React.useState<ThreadSummary[]>([]);
-  const [histOpen, setHistOpen] = React.useState(false);
+  const [histOpenLocal, setHistOpenLocal] = React.useState(false);
+  const histOpen = historyOpen ?? histOpenLocal;
+  const setHistOpen = React.useCallback((v: boolean) => {
+    if (onHistoryOpenChange) onHistoryOpenChange(v);
+    else setHistOpenLocal(v);
+  }, [onHistoryOpenChange]);
   const [loadingThread, setLoadingThread] = React.useState(false);
   useScrollLock(histOpen); // sinon la conversation défile derrière le tiroir d'historique
 
@@ -535,6 +573,10 @@ export function AssistantChat({
     if (intentId) void cancelAssistantAction(intentId).catch(() => {});
   };
 
+  // Le panneau de droite a-t-il une raison d'exister à cet instant ?
+  const showContextPanel = sources.length > 0
+    || messages.some((m) => (m.proposals ?? []).length > 0);
+
   const rail = memoryEnabled ? (
     <ThreadRail
       threads={threads} current={threadId}
@@ -544,18 +586,18 @@ export function AssistantChat({
 
   return (
     <div className="flex min-h-0 flex-1 gap-0 lg:gap-4">
-      {memoryEnabled && <div className="hidden w-64 shrink-0 lg:block">{rail}</div>}
+      {memoryEnabled && historyMode === "rail" && <div className="hidden w-64 shrink-0 lg:block">{rail}</div>}
       {memoryEnabled && histOpen && (
-        <div className="fixed inset-0 z-50 flex lg:hidden" role="dialog" aria-modal="true">
+        <div className={`fixed inset-0 z-50 flex ${historyMode === "rail" ? "lg:hidden" : ""}`} role="dialog" aria-modal="true">
           <button type="button" aria-label="Fermer l'historique" className="absolute inset-0 bg-black/40" onClick={() => setHistOpen(false)} />
           <div className="relative z-10 h-full w-72 max-w-[85vw] p-2">{rail}</div>
         </div>
       )}
 
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card">
-      {memoryEnabled && (
+    <div className={surface === "flush" ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card"}>
+      {memoryEnabled && surface !== "flush" && (
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-          <button type="button" onClick={() => setHistOpen(true)} className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground lg:hidden">
+          <button type="button" onClick={() => setHistOpen(true)} className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground ${historyMode === "rail" ? "lg:hidden" : ""}`}>
             <History className="h-4 w-4" /> Historique
           </button>
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -576,7 +618,9 @@ export function AssistantChat({
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         <div className="mx-auto w-full max-w-3xl space-y-6">
-        {messages.length === 0 ? (
+        {messages.length === 0 && emptyState ? (
+          emptyState
+        ) : messages.length === 0 ? (
           <div className="mx-auto max-w-xl py-8 text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-purple-500 text-primary-foreground shadow-lg">
               <Sparkles className="h-6 w-6" />
@@ -732,13 +776,26 @@ export function AssistantChat({
 
     {/* PANNEAU CONTEXTE (Chief of Staff, grand écran) : les sources consultées et les actions
         du fil — chaque dossier lu devient un lien, sans refaire la recherche. */}
-    {executive && <ExecutivePanel sources={sources} messages={messages} />}
+    {/* LE PANNEAU CONTEXTUEL EST CONTEXTUEL — il n'apparaît que s'il a quelque chose à
+        montrer. Il était PERMANENT : 288 px réservés en continu pour afficher, la plupart du
+        temps, deux phrases expliquant que rien n'est encore consulté. §13 : « If nothing
+        meaningful: DO NOT render empty space. » */}
+    {executive && showContextPanel && <ExecutivePanel sources={sources} messages={messages} showShortcuts={historyMode === "rail"} />}
     </div>
   );
 }
 
 /** Le volet CONTEXTE du Chief of Staff : sources consultées + actions proposées du fil. */
-function ExecutivePanel({ sources, messages }: { sources: { label: string; href: string }[]; messages: Msg[] }) {
+function ExecutivePanel({ sources, messages, showShortcuts = true }: {
+  sources: { label: string; href: string }[];
+  messages: Msg[];
+  /**
+   * LES RACCOURCIS VERS LES MODULES DE L'ERP. Ils ont leur place sur la page Assistant, qui vit
+   * DANS l'ERP. Ils n'en ont aucune dans le bureau d'Adam : y remettre cinq liens de modules,
+   * c'est réintroduire par la fenêtre le menu qu'on a sorti par la porte.
+   */
+  showShortcuts?: boolean;
+}) {
   const actions = messages
     .flatMap((m) => (m.proposals ?? []).map((p, i) => ({ id: `${m.id}-${i}`, title: p.title, state: m.actionStates?.[i] ?? "pending" })))
     .slice(-6)
@@ -786,6 +843,7 @@ function ExecutivePanel({ sources, messages }: { sources: { label: string; href:
           </div>
         )}
 
+        {showShortcuts && (
         <div className="mt-auto border-t border-border pt-2">
           <p className="px-1 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Raccourcis</p>
           <div className="mt-1 space-y-0.5">
@@ -802,6 +860,7 @@ function ExecutivePanel({ sources, messages }: { sources: { label: string; href:
             ))}
           </div>
         </div>
+        )}
       </div>
     </aside>
   );
@@ -965,6 +1024,13 @@ function MessageBubble({
   onCancel: (id: number, index: number, intentId?: string) => void;
   onConfirmAll: (msg: Msg) => void;
 }) {
+  // LE DERNIER FILTRE AVANT L'ÉCRAN. Calculé une fois, pour les deux rôles : un tour dont le
+  // contenu est un marqueur interne ou une sortie d'outil brute n'affiche PAS de bulle vide —
+  // il ne s'affiche pas du tout.
+  const display = decideDisplay(msg.content);
+  const userDisplay = display;
+  const assistantDisplay = display;
+
   if (msg.role === "user") {
     return (
       <div className="flex flex-col items-end gap-1">
@@ -977,9 +1043,11 @@ function MessageBubble({
             ))}
           </div>
         )}
-        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm">
-          {msg.content}
-        </div>
+        {userDisplay.show && (
+          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm">
+            {userDisplay.text}
+          </div>
+        )}
       </div>
     );
   }
@@ -997,9 +1065,9 @@ function MessageBubble({
             ))}
           </div>
         )}
-        {msg.content && (
+        {assistantDisplay.show && (
           <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-secondary px-4 py-2.5 text-sm leading-relaxed">
-            <LinkifiedText text={cleanReply(msg.content)} />
+            <LinkifiedText text={cleanReply(assistantDisplay.text)} />
           </div>
         )}
         {msg.proposals && msg.proposals.length > 1 && (msg.actionStates ?? []).filter((s) => s === "pending").length > 1 && (

@@ -212,6 +212,8 @@ describe("mise en service ADAM — couche par couche, tout est BRANCHÉ", () => 
     // L'écran vers lequel le retour OAuth redirige doit exister, sinon la connexion tombe dans le vide.
     const cb = read("app/api/google/callback/route.ts");
     expect(cb).toContain("/chief-of-staff/reglages");
-    expect(() => read("app/(app)/chief-of-staff/reglages/page.tsx")).not.toThrow();
+    // Le bureau d'Adam a quitté la coque de l'ERP pour son propre groupe de routes `(chief)` :
+    // l'URL est inchangée (`/chief-of-staff/reglages`), le chemin de fichier a suivi.
+    expect(() => read("app/(chief)/chief-of-staff/reglages/page.tsx")).not.toThrow();
   });
 });

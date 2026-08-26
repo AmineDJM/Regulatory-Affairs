@@ -57,3 +57,4 @@ next-env.d.ts
 # Playwright (artefacts E2E locaux)
 /test-results/
 /playwright-report/
+e2e-screenshots/

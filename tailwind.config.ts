@@ -14,6 +14,11 @@ const config: Config = {
       screens: { "2xl": "1400px" },
     },
     extend: {
+      // `xs` — le petit téléphone (iPhone SE, 375 px et moins de largeur utile).
+      // AJOUT PUREMENT ADDITIF : aucune classe existante n'utilise ce préfixe, donc rien ne
+      // change ailleurs. Il existe parce qu'entre 360 et 480 px, une ligne d'en-tête ne tient
+      // plus : il faut pouvoir retirer un mot plutôt que rétrécir la police jusqu'à l'illisible.
+      screens: { xs: "480px" },
       colors: {
         // Semantic tokens driven by CSS variables (see globals.css)
         border: "hsl(var(--border))",
