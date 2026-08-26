@@ -12,6 +12,35 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   experimental: {
+    // ── MÉMOIRE DE BUILD : borner le PARALLÉLISME, pas la fonctionnalité ──────────────
+    //
+    // Mesuré sur un build propre (4 vCPU, échantillonnage RSS de l'arbre node) :
+    //   compilation webpack …… pic 4612 Mo (1 processus à 4491)
+    //   typecheck tsc ………………… pic 2692 Mo (phase distincte, jamais simultanée)
+    //   génération statique …… pic 3924 Mo = parent 2005 + 3 workers à ~550 Mo
+    //
+    // Le piège : Next dimensionne ses workers sur le NOMBRE DE CŒURS de la machine de
+    // build. Ici 4 cœurs → 3 workers → 3,9 Go. Sur un builder Render à 8 ou 16 vCPU, la
+    // même étape réclame 2005 + 7×550 ≈ 5,9 Go, voire ≈ 10 Go — d'où le « Ran out of
+    // memory (used over 8GB) » que la machine de développement ne reproduit jamais.
+    // Le pic ne dépendait donc pas du code mais du matériel : on le BORNE.
+    //
+    // `cpus` plafonne les workers de collecte/génération de pages. Deux workers gardent
+    // le parallélisme utile en rendant le pic INDÉPENDANT du builder.
+    cpus: 2,
+    // Chaque compilation (serveur, client, edge) tourne dans son propre processus, qui
+    // MEURT ensuite : la mémoire retourne à l'OS au lieu de s'accumuler dans un seul tas
+    // pour les trois. C'est ce qui plafonne le pic de la phase de compilation.
+    webpackBuildWorker: true,
+    // LE PLUS GROS LEVIER MESURÉ : −1034 Mo sur le pic (4548 → 3514) et −127 s de
+    // compilation. Le pic tombait en FIN de compilation — signature de la minification.
+    //
+    // Ce qu'on abandonne : les bundles SERVEUR (jamais téléchargés par le navigateur)
+    // restent non minifiés, donc plus gros sur le disque et un démarrage à froid
+    // marginalement plus lent. Ce qu'on garde intact : la minification CLIENT — les
+    // bundles réellement servis au navigateur — et tout le reste du comportement.
+    // Aucune vérification n'est désactivée, aucune fonctionnalité retirée.
+    serverMinification: false,
     // Libs Node serveur uniquement (jamais bundlées côté client) : auth, mail (IMAP/SMTP),
     // extraction/OCR (tesseract.js/mupdf/sharp = WASM/natif, à ne pas bundler).
     serverComponentsExternalPackages: ["bcryptjs", "imapflow", "nodemailer", "mailparser", "pdf-parse", "mammoth", "xlsx", "tesseract.js", "mupdf", "sharp", "docxtemplater", "pizzip"],

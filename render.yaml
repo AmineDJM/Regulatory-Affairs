@@ -27,8 +27,17 @@ services:
     # then LINTS (phase séparée, bloquante) and builds Next.js. Lint et typecheck vivent
     # dans DEUX processus : additionnés dans le même heap ils dépassaient la limite Node
     # par défaut (~2 Go) → OOM pendant « Linting and checking validity of types ».
-    # NODE_OPTIONS=4096 est un garde-fou ; le besoin mesuré est ≤ 1 Go (lint) et
-    # ~1,4 Go (typecheck, dominé par les définitions Prisma).
+    #
+    # MÉMOIRE DE BUILD — mesures (build propre, `npm run build:measure`, 4 vCPU) :
+    #   avant  4612 Mo   compilation webpack 4612 / typecheck 2692 / pages 3924
+    #   après  3514 Mo   compilation webpack 3514 / typecheck 2709 / pages 3410
+    # Deux causes, toutes deux dans next.config.mjs :
+    #   1. le PARALLÉLISME se dimensionnait sur le nombre de cœurs du builder — un
+    #      builder plus gros que la machine de dev faisait exploser le total (d'où un
+    #      « over 8GB » jamais reproductible en local). Borné par `experimental.cpus`.
+    #   2. la MINIFICATION DES BUNDLES SERVEUR coûtait ~1 Go de pic pour un gain nul
+    #      côté navigateur. Désactivée (`experimental.serverMinification`).
+    # NODE_OPTIONS=4096 reste un garde-fou : le plus gros processus mesuré fait 3366 Mo.
     buildCommand: npm install && npx prisma generate && npx prisma migrate deploy && npm run db:bootstrap && npm run build:render
     startCommand: npx next start -p $PORT
     envVars:

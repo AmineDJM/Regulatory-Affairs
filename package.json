@@ -7,6 +7,7 @@
     "dev": "next dev",
     "build": "prisma generate && next build",
     "build:render": "next lint && NODE_OPTIONS=--max-old-space-size=4096 next build",
+    "build:measure": "bash scripts/build-memory.sh",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
