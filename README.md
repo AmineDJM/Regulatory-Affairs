@@ -725,6 +725,57 @@ demande de paiement).
 **Observabilité** : `AiUsageLog` enrichi (TTFT, tours, appels/erreurs/temps des outils).
 Capacités de production, matrice finale et limites : `docs/CHIEF_OF_STAFF_ARCHITECTURE.md`.
 
+### ADAM — les canaux Google du Chief of Staff (Gmail, Agenda, Drive, Docs/Sheets/Slides, Contacts)
+
+Adam n'est **pas un second assistant** : c'est le MÊME cerveau que « My Chief of Staff », auquel
+on ajoute des sens et des canaux. Aucune conversation séparée, aucune mémoire parallèle.
+
+**La règle qui prime sur tout — la frontière d'envoi.** Adam lit, cherche, indexe, classe,
+comprend, relie à l'ERP, suit les réponses manquantes et RÉDIGE en autonomie complète : rien de
+tout cela ne demande d'autorisation. Ce qui en demande une, c'est le moment où un message QUITTE
+l'entreprise. Par défaut `MAIL_SEND_POLICY = REQUIRE_APPROVAL`.
+
+Cette règle n'est pas une discipline, elle est **vraie par construction** : `sendOutboundIntent`
+(`src/lib/comms/outbound.ts`) est la SEULE fonction du système qui fasse partir un message. Le
+chat, la voix, une mission de fond, une étape de plan, un cron — tout passe par là. Il n'existe
+pas de seconde route.
+
+Quatre garanties, chacune contre une façon précise de perdre le contrôle :
+
+| Garantie | Mécanisme | Ce qu'elle empêche |
+|---|---|---|
+| L'accord porte sur un CONTENU EXACT | `contentHash` (destinataires, copies, objet, corps, pièces, identité) comparé à `approvedHash` | Faire approuver A et expédier B |
+| L'accord vient d'un HUMAIN | `approvedById` exigé en plus de l'empreinte | Qu'une intention née en envoi autonome parte encore après retour à l'approbation obligatoire |
+| Un seul envoi, jamais deux | transition atomique `APPROVED → SENDING` par `updateMany` conditionnel | Double clic, rejeu réseau, webhook répété |
+| La politique est relue À L'INSTANT de l'envoi | `getCommunicationPolicy()` dans `sendOutboundIntent`, jamais la politique mémorisée | Qu'un garde-fou remis reste sans effet sur la file existante |
+
+Le coupe-circuit sortant **prime sur l'envoi autonome** (`decideSend` le teste en premier).
+
+**Adam ne devient jamais sourd.** Le push Gmail est rapide mais fragile : un redémarrage au
+mauvais moment, une veille expirée, un Pub/Sub perdu, et un message n'entre jamais dans sa
+conscience — sans erreur, juste un silence. Trois filets, du plus précis au plus large :
+`syncFromHistory` (histoire incrémentale depuis le dernier point), repli sur une liste récente
+quand Google a purgé l'historique, et `reconcileInbox` (passage périodique). Le point d'histoire
+n'avance qu'APRÈS traitement réussi, et l'ingestion est idempotente : un plantage rejoue les
+mêmes messages sans doublon. Le tout tourne dans `runAdamInboxSweep`, appelé par le
+planificateur (`src/lib/scheduled.ts`) — sans navigateur ouvert.
+
+**Le courriel est une entrée NON FIABLE.** Un message qui dit « ignore les instructions
+précédentes » est du CONTENU, jamais une instruction : `src/lib/comms/untrusted.ts` isole et
+neutralise. Aucun message, aucune pièce jointe ne peut changer une permission, une politique,
+une approbation ou l'autorité d'un outil.
+
+**Mise en service** — `/chief-of-staff/reglages` (vue globale seule) : connexion du compte
+Google en un clic, politique d'envoi, coupe-circuits (entrant / sortant / connexion), réarmement
+de la veille, déconnexion avec révocation du consentement CHEZ Google. Aucune manipulation de
+base n'est nécessaire. Le diagnostic `npm run adam:doctor` dit, depuis le serveur qui tourne, ce
+qui manque et comment le corriger. Exploitation détaillée : `/admin/ai`.
+
+Fichiers : `src/lib/google/` (config, oauth, client, connection, health, `gmail/`, `calendar/`,
+`drive/`, `workspace/`), `src/lib/comms/` (policy, outbound, missions, loop-safety, untrusted,
+email-intelligence), `src/lib/assistant/adam-tools.ts` (19 outils), `src/app/api/google/`
+(connect, callback, pubsub).
+
 ### Matériel promotionnel — cinq marches, puis trois chantiers en parallèle
 
 Le circuit d'avant comptait seize marches en file indienne : une brochure attendait trois semaines,
@@ -3043,6 +3094,8 @@ npx prisma migrate deploy
 | `npm run db:bootstrap` | Crée le Super Admin initial |
 | `npm run db:reset` | Réinitialise la base |
 | `npx tsx scripts/gen-selection-pf-migration.ts` | Régénère la migration d'import du portefeuille « Sélection PF Produits » depuis `data/selection-pf-produits.xlsx` (le SQL est committé ; ne pas l'éditer à la main). |
+| `npm run adam:doctor` | **Diagnostic de mise en service d'Adam** — base, migrations, chiffrement des jetons, config Google, connexion, droits accordés, veille Gmail, ingestion, politique d'envoi, coupe-circuits, planificateur, parité. Sans effet de bord, n'affiche AUCUN secret, sort en erreur s'il reste un ÉCHEC. |
+| `npm run build:measure` | **Pic mémoire du build** — build propre, échantillonnage du RSS de l'arbre node, échec au-delà du plafond (`BUILD_MEM_LIMIT_MB`, 5000 Mo par défaut). La garde contre le retour de l'OOM Render. |
 | `npm run autotest` | **Auto-testeur** — audit de cohérence pages ↔ gardes ↔ menu ↔ matrice RBAC (déterministe, aucun serveur). Voir `scripts/auto-test/README.md`. |
 | `npm run autotest:live -- --base-url=…` | Crawl **en direct** (Playwright) : passe anonyme (fuites d'accès) + passes par rôle (accès réel vs RBAC, uploads jetables). |
 
@@ -3113,6 +3166,50 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### ADAM — les canaux Google du Chief of Staff, et la frontière d'envoi (2026-08)
+
+Le Chief of Staff gagne des **sens** : Gmail, Agenda, Drive, Docs/Sheets/Slides et Contacts,
+branchés sur le MÊME cerveau — pas de second assistant, pas de conversation parallèle.
+
+Ce qui change pour le PDG : Adam relève la boîte tout seul (veille Gmail + Pub/Sub, avec
+réconciliation périodique en filet), comprend les fils et les pièces jointes, relie ce qu'il lit
+à l'ERP, tient des **missions** qui survivent à la conversation (qui a répondu, qui manque, ce
+qu'on attend), et prépare les réponses. Il **n'envoie rien** sans accord : `REQUIRE_APPROVAL`
+par défaut, réglable en langage naturel ou depuis `/chief-of-staff/reglages`.
+
+Un défaut trouvé et corrigé au passage : une intention préparée pendant une période d'**envoi
+autonome** était marquée « approuvée » par la politique elle-même, sans personne derrière. Après
+retour à l'approbation obligatoire, elle serait **partie quand même** — le PDG aurait vu
+s'envoyer des messages qu'il n'a jamais lus, exactement ce que la bascule devait empêcher. On
+exige désormais aussi une approbation HUMAINE (`approvedById`). Le test correspondant échoue si
+l'on retire la condition : la garantie est vérifiée, pas seulement écrite.
+
+13 tests d'intégration tiennent la frontière, avec un transport-espion qui compte les envois
+RÉELS — préparer n'envoie rien, une modification invalide l'accord, deux approbations et deux
+envois concurrents ne produisent qu'un message, une mission de fond reste bloquée, le
+coupe-circuit prime sur l'envoi autonome.
+
+Parité ERP après le lot : **natives=534, couvertes=34, trous=0, exclues=70 — 100 %** sur 638
+actions classées.
+
+### Mémoire du build — le pic ne dépend plus de la machine de build (2026-08)
+
+Render tuait le build (« Ran out of memory, used over 8GB ») alors que la machine de
+développement ne dépassait jamais 4,6 Go. Mesure avant de toucher au code (RSS de tout l'arbre
+node, build propre) : compilation webpack 4612 Mo, typecheck 2692 Mo, génération statique
+3924 Mo. Le commit **pré-ADAM** mesurait déjà 4219 Mo : ADAM n'a pas créé l'explosion, le build
+vivait au bord du plafond.
+
+Deux causes réelles. **Le parallélisme se dimensionnait sur le matériel** : Next taille ses
+workers sur le nombre de cœurs du builder, donc un builder plus gros que la machine de dev
+faisait exploser le total — d'où un incident irreproductible en local. Borné par
+`experimental.cpus`. **La minification des bundles serveur** coûtait ~1 Go de pic pour un gain
+nul côté navigateur (ces bundles ne sont jamais téléchargés) : coupée par
+`experimental.serverMinification`, la minification CLIENT restant intacte.
+
+Résultat : **4612 → 3514 Mo**, et surtout un pic désormais INDÉPENDANT du builder.
+`npm run build:measure` garde la porte.
 
 ### Parité quasi totale UI ↔ Chief — 485 ops de domaine sur 30 outils, 98,6 % (2026-08)
 
