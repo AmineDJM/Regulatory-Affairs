@@ -30,7 +30,7 @@ import { createSponsoring } from "@/lib/actions/sponsoring-actions";
 import { createEvent } from "@/lib/actions/event-actions";
 import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
 import { findDirectConversation } from "@/lib/messaging";
-import { getMailAccount, listMessages, getMessage, sendMail } from "@/lib/mail";
+import { getMailAccount, listMessages, getMessage } from "@/lib/mail";
 import {
   callClaude, callClaudeStream, aiConfigured,
   type ClaudeMessage, type ClaudeContentBlock, type ClaudeToolDef,
@@ -51,7 +51,9 @@ import { resolveDeletableTarget, resolveTrashEntry } from "@/lib/assistant/delet
 import { nativeActionHint, actionsForUser } from "@/lib/assistant/action-registry";
 import { DOMAIN_TOOLS, DOMAIN_TOOL_DEFS } from "@/lib/assistant/ops";
 import { getCommunicationPolicy, setMailSendPolicy, parseMailPolicyPhrase, POLICY_LABEL, POLICY_HELP } from "@/lib/comms/policy";
-import { approveOutboundIntent, sendOutboundIntent } from "@/lib/comms/outbound";
+import { approveOutboundIntent, sendOutboundIntent, createOutboundIntent } from "@/lib/comms/outbound";
+import { resolveOutboundIdentity, isIdentity, formatIdentity } from "@/lib/comms/identity";
+import { classifyReply } from "@/lib/comms/confirmation";
 import { gmailTransport } from "@/lib/google/gmail/transport";
 import { markMissionAsked } from "@/lib/comms/missions";
 import { MailSendPolicy } from "@prisma/client";
@@ -1737,6 +1739,60 @@ const IDENTITY_HEADER = `l'assistant interne d'AMD Internal OS, l'outil de gesti
 (laboratoire pharmaceutique algérien ; devise DZD ; principal client la PCH — Pharmacie Centrale des Hôpitaux).`;
 
 /**
+ * COMMENT IL S'APPELLE, ET DEPUIS QUELLE ADRESSE IL ÉCRIT — lu, jamais supposé.
+ *
+ * LE BOGUE QUE CE BLOC EXISTE POUR FERMER. Interrogé sur lui-même, l'assistant a répondu :
+ * « Je m'appelle Assistant IA », puis « je n'ai pas d'adresse e-mail propre, j'envoie depuis ta
+ * boîte : amine.djouamai@pharmagenedz.com », puis a inventé une explication sur le module
+ * Courrier. Trois affirmations fausses d'affilée, sur le sujet où il devait être le plus sûr :
+ * lui-même. Il ne mentait pas — personne ne lui avait dit.
+ *
+ * Un assistant qui se trompe sur sa PROPRE identité d'envoi ne peut pas être cru sur le reste :
+ * si « d'où part ce message » est une supposition, « à qui il part » en est une aussi. D'où la
+ * règle : le nom et l'adresse viennent de la CONNEXION canonique, relue à chaque conversation.
+ * Sans connexion, on le dit — on n'emprunte pas la boîte de quelqu'un d'autre pour meubler.
+ */
+export async function assistantIdentityContext(
+  user: CurrentUser,
+  opts: { compact?: boolean } = {},
+): Promise<string> {
+  const adamChannels = user.role === "SUPER_ADMIN" || user.role === "DIRECTION";
+  if (!adamChannels) {
+    return `QUI TU ES : « Assistant IA », ${IDENTITY_HEADER}
+Tu n'as pas d'adresse d'expédition à toi pour ce compte, et tu n'écris depuis la boîte de personne.`;
+  }
+  const identity = await resolveOutboundIdentity(user.id).catch(() => null);
+  const adresse = identity && isIdentity(identity)
+    ? `TON ADRESSE D'EXPÉDITION est ${formatIdentity(identity)}. C'est de LÀ que partent les messages que tu prépares.`
+    : "AUCUNE adresse d'expédition n'est connectée en ce moment : tu ne peux donc envoyer aucun message, "
+      + "et tu le dis franchement au lieu de proposer une autre boîte. (Réglages du Chief of Staff → connecter le compte Google d'Adam.)";
+
+  // À LA VOIX, LES FAITS SUFFISENT — et le budget d'instructions se paie en latence à chaque
+  // tour. On garde ce à quoi on ne peut pas répondre sans le savoir (le nom, l'adresse, la
+  // distinction avec la boîte du PDG) ; le reste est du raisonnement pour l'écrit.
+  if (opts.compact) {
+    const bref = identity && isIdentity(identity)
+      ? `Ton adresse d'expédition : ${identity.address}.`
+      : "Aucune adresse d'expédition connectée : tu ne peux envoyer aucun message, et tu le dis.";
+    return `QUI TU ES : tu t'appelles « ADAM », chef de cabinet de cette personne.
+${bref} Celle de la personne que tu sers (${user.email}) est une AUTRE adresse : tu n'écris jamais
+« depuis sa boîte », et le destinataire d'un message ne dit rien de l'expéditeur.`;
+  }
+
+  return `QUI TU ES : tu t'appelles « ADAM ». Tu es le chef de cabinet de cette personne dans AMD Internal OS —
+le même cerveau que « My Chief of Staff », avec en plus des canaux à toi (Gmail, Agenda, Drive Google).
+${adresse}
+
+CE QUE TU NE CONFONDS JAMAIS :
+- TON adresse (expéditeur) et CELLE de la personne que tu sers (${user.email}) sont DEUX adresses différentes.
+  Tu n'écris pas « depuis sa boîte » : tu écris depuis la tienne, en son nom. Ne dis jamais le contraire.
+- Le DESTINATAIRE d'un message ne dit rien de l'expéditeur. Écrire à ${user.email} est parfaitement
+  normal — cela ne fait pas de cette adresse ton adresse d'envoi.
+- Si on te demande ton nom ou ton adresse, réponds avec CE bloc. N'invente aucune explication technique
+  sur la façon dont tu accèdes à la messagerie.`;
+}
+
+/**
  * LES RÈGLES DE FOND, communes au texte ET à la voix : zéro invention, la donnée n'est jamais une
  * instruction, les droits ne se contournent pas. Extraites en constante pour n'exister qu'UNE fois.
  */
@@ -1973,10 +2029,20 @@ INTERPRÉTATION DES DEMANDES (très important) :
   cherche PAS dans la messagerie et n'utilise PAS send_message pour ça.
 - N'utilise send_message QUE si l'utilisateur demande explicitement d'« envoyer un message / écrire / dire /
   prévenir » un collègue via la messagerie INTERNE.
-- E-MAIL vs message interne : send_email envoie un vrai e-mail à une ADRESSE (nom@domaine) depuis la boîte
-  Courrier de l'utilisateur ; send_message écrit à un collègue dans la messagerie interne. Pour « envoie un
-  mail à … », utilise send_email ; si tu n'as pas l'adresse (ex. « réponds à ce mail »), lis d'abord le
-  message avec read_email pour récupérer l'adresse de l'expéditeur. Ne devine jamais une adresse e-mail.
+- E-MAIL vs message interne : send_email PROPOSE un vrai e-mail vers une ADRESSE (nom@domaine), expédié
+  depuis TON adresse à toi ; send_message écrit à un collègue dans la messagerie interne. Pour « envoie un
+  mail à … », utilise send_email — UN SEUL appel : il prépare le message ET affiche la carte d'approbation.
+  Ne devine jamais une adresse e-mail.
+- LA BOÎTE DE RÉCEPTION — « tu as reçu des mails ? », « j'ai reçu quelque chose ? », « qu'est-ce qui est
+  arrivé récemment ? », « Deepak a répondu ? », « du nouveau dans ma boîte ? » : appelle gmail_search (sans
+  filtre pour un état général, avec le champ « from » pour une personne précise) et RÉPONDS avec ce qu'il rend. Ces
+  questions portent TOUJOURS sur la boîte : n'y réponds jamais par une action d'un autre domaine, et ne
+  reprends jamais à cette occasion une proposition restée en suspens sur un autre sujet.
+  (list_emails / read_email lisent la messagerie IMAP historique du module Courrier — un autre magasin,
+  qui n'est PAS ta boîte. Ne les utilise que si l'on te parle explicitement du module Courrier.)
+- NE DEMANDE JAMAIS UNE CONFIRMATION D'ENVOI EN TEXTE. N'écris pas « tu confirmes l'envoi ? », « je
+  l'envoie ? », « veux-tu que je l'envoie ? » : la carte d'approbation EST la confirmation, et une
+  confirmation demandée deux fois n'en est plus une. Prépare, laisse la carte poser la question.
 - DATES — sois prudent : la date du jour est indiquée dans le contexte. Quand une date demandée est DÉJÀ
   PASSÉE (antérieure à aujourd'hui), SIGNALE-LE clairement dans ta réponse et demande à l'utilisateur de
   confirmer ou de corriger AVANT de proposer l'action. Renseigne toujours les dates au format AAAA-MM-JJ
@@ -2387,6 +2453,66 @@ async function findDoctor(query: string, user: CurrentUser): Promise<{ id: strin
   return d ? { id: d.id, name: doctorDisplayName(d) } : null;
 }
 
+/**
+ * LA CARTE D'APPROBATION D'UN COURRIEL — construite depuis l'INTENTION, jamais depuis ce que le
+ * modèle redit. C'est ce qui garantit que le PDG approuve exactement ce qui partira.
+ *
+ * ELLE EST UNIQUE, ET C'EST TOUT L'ENJEU. Il y avait deux façons d'arriver à un envoi : cette
+ * carte-là, et une carte « Envoyer un e-mail » qui parlait à la messagerie IMAP historique. La
+ * seconde affichait comme expéditeur la boîte du module Courrier — et c'est ainsi que le PDG
+ * s'est vu écrire à lui-même. Il n'y a plus qu'un chemin ; `send_email` passe par ici.
+ *
+ * Le champ « De » vient de la CONNEXION de l'intention. Pas de l'utilisateur, pas du
+ * destinataire, pas d'un argument d'outil : de la seule chose qui décide vraiment d'où le
+ * message partira.
+ */
+async function mailApprovalCard(
+  intentId: string,
+  user: CurrentUser,
+  warnings: string[],
+): Promise<ProposedAction | { error: string }> {
+  if (!intentId) return { error: "Aucune intention d'envoi à approuver (champ « intentId »)." };
+  const intent = await prisma.outboundMailIntent.findFirst({
+    where: { id: intentId, userId: user.id },
+    include: { mission: { select: { title: true } }, connection: { select: { address: true, displayName: true } } },
+  });
+  if (!intent) return { error: "Intention d'envoi introuvable (ou elle n'est pas à vous)." };
+  if (intent.status === "SENT") return { error: `Ce message est DÉJÀ parti${intent.sentAt ? ` (${intent.sentAt.toLocaleString("fr-FR")})` : ""} — il ne se renvoie pas.` };
+  if (intent.status === "CANCELLED") return { error: "Cette intention d'envoi a été annulée." };
+
+  const policyState = await getCommunicationPolicy();
+  const attachments = (intent.attachments as unknown as { filename: string }[]) ?? [];
+  const from = intent.connection.displayName
+    ? `${intent.connection.displayName} <${intent.connection.address}>`
+    : intent.connection.address;
+  const fields = [
+    { label: "De", value: from },
+    { label: "À", value: intent.recipients.join(", ") },
+    ...(intent.cc.length ? [{ label: "Copie", value: intent.cc.join(", ") }] : []),
+    ...(intent.bcc.length ? [{ label: "Copie cachée", value: intent.bcc.join(", ") }] : []),
+    { label: "Objet", value: intent.subject || "(sans objet)" },
+    { label: "Message", value: intent.bodyText.length > 1500 ? `${intent.bodyText.slice(0, 1500)}…` : intent.bodyText },
+    ...(attachments.length ? [{ label: "Pièces jointes", value: attachments.map((a) => a.filename).join(", ") }] : []),
+    { label: "Pourquoi", value: intent.reason ?? (intent.mission ? `Mission « ${intent.mission.title} »` : "Demandé par vous") },
+    ...(intent.threadId ? [{ label: "Fil", value: "Réponse DANS la conversation existante" }] : []),
+  ];
+  if (policyState.outboundPaused) {
+    warnings.push("COUPE-CIRCUIT SORTANT levé : même approuvé, rien ne partira tant qu'il n'est pas relevé.");
+  }
+  if (policyState.mailSendPolicy === "DRAFT_ONLY") {
+    warnings.push("Politique « brouillons seulement » : le message est prêt, mais l'envoi est bloqué.");
+  }
+  warnings.push(`En confirmant, ce message part RÉELLEMENT depuis ${intent.connection.address}. Toute modification du contenu invaliderait cette approbation.`);
+  return {
+    kind: "send_prepared_mail", module: "WORKSPACE", title: `Envoyer : ${intent.subject || "(sans objet)"}`,
+    fields, warnings, level: "SENSITIVE",
+    payload: {
+      kind: "send_prepared_mail", intentId: intent.id, subject: intent.subject,
+      recipients: intent.recipients, missionId: intent.missionId,
+    },
+  };
+}
+
 export async function buildProposal(toolName: string, input: Record<string, unknown>, user: CurrentUser): Promise<ProposedAction | { error: string }> {
   const warnings: string[] = [];
 
@@ -2773,45 +2899,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
   }
 
   if (toolName === "send_prepared_mail") {
-    // LA CARTE D'APPROBATION. Le contenu vient de l'INTENTION stockée, jamais de ce que le modèle
-    // redit : c'est ce qui garantit que le PDG approuve exactement ce qui partira.
-    const intentId = asStr(input, "intentId");
-    if (!intentId) return { error: "Aucune intention d'envoi à approuver (champ « intentId »)." };
-    const intent = await prisma.outboundMailIntent.findFirst({
-      where: { id: intentId, userId: user.id },
-      include: { mission: { select: { title: true } } },
-    });
-    if (!intent) return { error: "Intention d'envoi introuvable (ou elle n'est pas à vous)." };
-    if (intent.status === "SENT") return { error: `Ce message est DÉJÀ parti${intent.sentAt ? ` (${intent.sentAt.toLocaleString("fr-FR")})` : ""} — il ne se renvoie pas.` };
-    if (intent.status === "CANCELLED") return { error: "Cette intention d'envoi a été annulée." };
-
-    const policyState = await getCommunicationPolicy();
-    const attachments = (intent.attachments as unknown as { filename: string }[]) ?? [];
-    const fields = [
-      { label: "À", value: intent.recipients.join(", ") },
-      ...(intent.cc.length ? [{ label: "Copie", value: intent.cc.join(", ") }] : []),
-      ...(intent.bcc.length ? [{ label: "Copie cachée", value: intent.bcc.join(", ") }] : []),
-      { label: "Objet", value: intent.subject || "(sans objet)" },
-      { label: "Message", value: intent.bodyText.length > 1500 ? `${intent.bodyText.slice(0, 1500)}…` : intent.bodyText },
-      ...(attachments.length ? [{ label: "Pièces jointes", value: attachments.map((a) => a.filename).join(", ") }] : []),
-      { label: "Pourquoi", value: intent.reason ?? (intent.mission ? `Mission « ${intent.mission.title} »` : "Demandé par vous") },
-      ...(intent.threadId ? [{ label: "Fil", value: "Réponse DANS la conversation existante" }] : []),
-    ];
-    if (policyState.outboundPaused) {
-      warnings.push("COUPE-CIRCUIT SORTANT levé : même approuvé, rien ne partira tant qu'il n'est pas relevé.");
-    }
-    if (policyState.mailSendPolicy === "DRAFT_ONLY") {
-      warnings.push("Politique « brouillons seulement » : le message est prêt, mais l'envoi est bloqué.");
-    }
-    warnings.push("En confirmant, ce message part RÉELLEMENT depuis la boîte d'Adam. Toute modification du contenu invaliderait cette approbation.");
-    return {
-      kind: "send_prepared_mail", module: "WORKSPACE", title: `Envoyer : ${intent.subject || "(sans objet)"}`,
-      fields, warnings, level: "SENSITIVE",
-      payload: {
-        kind: "send_prepared_mail", intentId: intent.id, subject: intent.subject,
-        recipients: intent.recipients, missionId: intent.missionId,
-      },
-    };
+    return mailApprovalCard(asStr(input, "intentId"), user, warnings);
   }
 
   if (toolName === "set_mail_policy") {
@@ -2847,27 +2935,40 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
   }
 
   if (toolName === "send_email") {
+    // « ENVOIE UN MAIL À … » — UNE SEULE MARCHE, ET ELLE EST CANONIQUE.
+    //
+    // Cet outil PRÉPARE l'intention puis rend la carte d'approbation : la préparation ne demande
+    // aucune permission, donc rien ne justifie de la faire confirmer à part. Le circuit d'avant
+    // — préparer, ANNONCER, attendre un « je confirme » en français, PUIS afficher la carte —
+    // faisait confirmer deux fois le même envoi. Ici il n'y a qu'un accord possible : celui de
+    // la carte.
     const to = asStr(input, "to");
     const subject = asStr(input, "subject");
     const body = asStr(input, "body");
     const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
     if (!to || !isEmail(to)) return { error: "Adresse e-mail du destinataire manquante ou invalide." };
     if (!body) return { error: "Le corps de l'e-mail est vide." };
-    const cc = asStr(input, "cc");
+    const cc = asStr(input, "cc").trim();
     if (cc && !cc.split(",").every((p) => isEmail(p.trim()))) return { error: "Adresse(s) en copie invalide(s)." };
-    const account = await getMailAccount(user.id);
-    if (!account) warnings.push(`Aucune boîte mail n'est connectée pour ${user.name}. Ouvrez « Courrier » et connectez votre boîte (une seule fois) ; l'envoi se fera depuis votre propre adresse.`);
-    const fields = [
-      { label: "De", value: account?.email ?? `${user.name} — boîte à connecter dans Courrier` },
-      { label: "À", value: to },
-    ];
-    if (cc) fields.push({ label: "Cc", value: cc });
-    fields.push({ label: "Objet", value: subject || "(sans objet)" });
-    fields.push({ label: "Message", value: body });
-    return {
-      kind: "send_email", module: "WORKSPACE", title: "Envoyer un e-mail", fields, warnings,
-      payload: { kind: "send_email", to, cc: cc || null, subject, body },
-    };
+
+    // L'EXPÉDITEUR NE SE DEVINE PAS. Il vient de la connexion canonique, jamais du destinataire
+    // ni de l'adresse ERP de la personne. Sans identité autorisée, on n'envoie PAS.
+    const identity = await resolveOutboundIdentity(user.id);
+    if (!isIdentity(identity)) return { error: identity.message };
+
+    const intent = await createOutboundIntent({
+      connectionId: identity.connectionId,
+      userId: user.id,
+      recipients: [to],
+      cc: cc ? cc.split(",").map((p) => p.trim()).filter(Boolean) : [],
+      subject: subject || "(sans objet)",
+      bodyText: body,
+      reason: "Demandé par vous",
+      generatedBy: "chief",
+    }).catch((e: unknown) => (e instanceof Error ? e : new Error("Préparation impossible.")));
+    if (intent instanceof Error) return { error: intent.message };
+
+    return mailApprovalCard(intent.id, user, warnings);
   }
 
   if (toolName === "create_congress_request") {
@@ -4298,6 +4399,17 @@ export async function runAssistant(
   // La question d'ORIGINE (avant que la boucle n'empile les résultats d'outils) — elle décide
   // de la PROFONDEUR : une décision demandée mérite la seconde passe critique.
   const question = String(messages[messages.length - 1]?.content ?? "");
+
+  // UN ACCORD CONCLUT, IL NE RELANCE PAS. « Je confirme » sur un message qui attend rend LA
+  // carte de CE message — sans repasser par le modèle, donc sans risque d'en fabriquer un second.
+  const confirmed = await resolvePendingMailConfirmation(user, question).catch(() => null);
+  if (confirmed) {
+    const ids = await persistActionIntents(user.id, [confirmed], opts.origin ?? "text");
+    if (ids[0]) confirmed.intentId = ids[0];
+    const reply = `Voici le message prêt à partir. Confirmez l'envoi sur la carte — c'est la seule et dernière étape.`;
+    return { configured: true, ok: true, reply, trace: [], proposal: confirmed, proposals: [confirmed] };
+  }
+
   const highStakes = isHighStakesQuestion(question);
   // PLAN DE LA QUESTION (déterministe) : domaine, intention, SUIVI ELLIPTIQUE (« et SD ? » =
   // même intention, entité substituée), investigation impliquée — la carte avant les outils.
@@ -4313,6 +4425,8 @@ export async function runAssistant(
   }
   const system = [
     systemPrompt(user),
+    // QUI IL EST ET DEPUIS QUELLE ADRESSE IL ÉCRIT — lu dans la connexion, jamais supposé.
+    await assistantIdentityContext(user).catch(() => null),
     opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
     workingSet,
     planCtx,
@@ -4487,6 +4601,53 @@ export function extractSources(raw: string): { label: string; href: string }[] {
  * Les garanties de `runAssistant` sont inchangées : une action d'écriture est TOUJOURS
  * interceptée et proposée, jamais exécutée. Ne lève jamais.
  */
+/**
+ * Une confirmation en français ne doit pas relancer une préparation — elle doit CONCLURE celle
+ * qui attend. Fenêtre volontairement courte : « oui » dit demain matin ne porte plus sur le
+ * message d'hier soir.
+ */
+const MAIL_CONFIRMATION_WINDOW_MS = 2 * 3_600_000;
+
+/**
+ * « JE CONFIRME. » → LA CARTE DE L'INTENTION EXACTE QUI ATTEND. Rien d'autre.
+ *
+ * LE BOGUE QUE CETTE FONCTION FERME. Adam demandait « Tu confirmes l'envoi ? » en texte, le PDG
+ * répondait « Je confirme. » — et rien, côté serveur, ne reliait cette phrase à l'intention en
+ * attente. Le message repartait donc dans le modèle comme une demande ordinaire : Adam annonçait
+ * « je prépare le mail maintenant » et affichait une SECONDE carte. Le PDG confirmait deux fois.
+ *
+ * On tranche ici, avant le modèle, parce que c'est une question d'AUTORITÉ et non de formulation :
+ * l'accord porte sur une intention précise, déjà écrite, déjà hachée. La retrouver est un travail
+ * de serveur, pas de rédaction.
+ *
+ * TROIS CONDITIONS, ET LES TROIS SONT DES GARDE-FOUS :
+ *   • la phrase est un accord SANS RÉSERVE (`classifyReply`, volontairement strict) ;
+ *   • il n'y a qu'UNE SEULE intention en attente — deux, et « oui » redevient ambigu, donc c'est
+ *     au modèle (puis à la personne) de désigner laquelle ;
+ *   • elle est RÉCENTE — un accord ne rattrape pas un message oublié depuis des heures.
+ *
+ * Hors de ces conditions, on ne fait rien : la conversation suit son cours normal.
+ */
+export async function resolvePendingMailConfirmation(
+  user: CurrentUser,
+  lastUserMessage: string,
+): Promise<ProposedAction | null> {
+  if (classifyReply(lastUserMessage) !== "CONFIRM") return null;
+  const waiting = await prisma.outboundMailIntent.findMany({
+    where: {
+      userId: user.id,
+      status: "AWAITING_APPROVAL",
+      createdAt: { gte: new Date(Date.now() - MAIL_CONFIRMATION_WINDOW_MS) },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 2,
+    select: { id: true },
+  }).catch(() => []);
+  if (waiting.length !== 1) return null;
+  const card = await mailApprovalCard(waiting[0].id, user, []);
+  return "error" in card ? null : card;
+}
+
 export async function runAssistantStream(
   user: CurrentUser,
   history: ChatTurn[],
@@ -4505,6 +4666,18 @@ export async function runAssistantStream(
   const workingSet = conversationWorkingSet(history);
   const intentsCtx = await recentActionIntentsContext(user.id).catch(() => null);
   const question = String(messages[messages.length - 1]?.content ?? "");
+
+  // UN ACCORD CONCLUT, IL NE RELANCE PAS — même règle qu'en variante non diffusée, et pour la
+  // même raison : c'est le serveur qui sait quelle intention attend, pas la rédaction.
+  const confirmed = await resolvePendingMailConfirmation(user, question).catch(() => null);
+  if (confirmed) {
+    const ids = await persistActionIntents(user.id, [confirmed], opts.origin ?? "text");
+    if (ids[0]) confirmed.intentId = ids[0];
+    const reply = "Voici le message prêt à partir. Confirmez l'envoi sur la carte — c'est la seule et dernière étape.";
+    emit({ type: "delta", text: reply });
+    return { configured: true, ok: true, reply, trace: [], proposal: confirmed, proposals: [confirmed], metrics: { ttftMs: 0, turns: 0, toolCalls: 0, toolErrors: 0, toolLatencyMs: 0 } };
+  }
+
   const highStakes = isHighStakesQuestion(question);
   const plan = queryPlan(question, history.filter((h) => h.role === "user").slice(0, -1).map((h) => h.content));
   const planCtx = queryPlanContext(plan);
@@ -4518,6 +4691,8 @@ export async function runAssistantStream(
   }
   const system = [
     systemPrompt(user),
+    // QUI IL EST ET DEPUIS QUELLE ADRESSE IL ÉCRIT — lu dans la connexion, jamais supposé.
+    await assistantIdentityContext(user).catch(() => null),
     opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
     workingSet,
     planCtx,
@@ -5282,6 +5457,23 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     // LE SEUL CHEMIN DE SORTIE. `approveOutboundIntent` lie l'approbation au contenu EXACT, puis
     // `sendOutboundIntent` relit la politique COURANTE, revérifie l'empreinte et gagne (ou perd)
     // la transition atomique vers l'envoi. Un double clic perd la course et n'expédie rien.
+    //
+    // LE REJEU SE RÉPOND, IL NE S'ERREUR PAS. Une carte reconfirmée après coup — onglet resté
+    // ouvert, clic répété, réseau rejoué — décrit un envoi DÉJÀ fait. `sendOutboundIntent` sait
+    // le dire (`alreadySent`), mais l'approbation, elle, refusait d'abord : le PDG voyait une
+    // erreur rouge pour un message parti normalement. On rend donc le reçu du PREMIER envoi.
+    const already = await prisma.outboundMailIntent.findFirst({
+      where: { id: payload.intentId, userId: user.id, status: "SENT" },
+      select: { providerMessageId: true, sentAt: true },
+    });
+    if (already) {
+      return {
+        ok: true,
+        message: `Ce message était déjà parti${already.sentAt ? ` (${already.sentAt.toLocaleString("fr-FR")})` : ""} — rien n'a été renvoyé (référence ${already.providerMessageId || "—"}).`,
+        link: "/chief-of-staff",
+      };
+    }
+
     const approved = await approveOutboundIntent(payload.intentId, user.id);
     if ("error" in approved) return { ok: false, error: approved.error };
     const sent = await sendOutboundIntent(payload.intentId, gmailTransport);
@@ -5320,22 +5512,20 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
   }
 
   if (payload?.kind === "send_email") {
-    // L'autorisation est inhérente : on n'envoie que depuis la propre boîte connectée de l'utilisateur.
-    const account = await getMailAccount(user.id);
-    if (!account) return { ok: false, error: "Aucune boîte mail connectée. Connectez votre boîte dans Courrier." };
-    const to = (payload.to ?? "").trim();
-    const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
-    if (!isEmail(to)) return { ok: false, error: "Adresse destinataire invalide." };
-    const body = (payload.body ?? "").trim().slice(0, 50000);
-    if (!body) return { ok: false, error: "E-mail vide." };
-    const cc = (payload.cc ?? "").trim();
-    try {
-      await sendMail(account, { to, cc: cc || undefined, subject: (payload.subject ?? "").trim() || "(sans objet)", text: body });
-    } catch (e) {
-      return { ok: false, error: `Envoi impossible : ${(e as Error)?.message ?? "erreur SMTP"}.` };
-    }
-    await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", summary: `E-mail envoyé via l'assistant à ${to}` });
-    return { ok: true, message: `E-mail envoyé à ${to}.`, link: "/courrier", revalidate: ["/courrier"] };
+    // LA PORTE DÉROBÉE, CONDAMNÉE.
+    //
+    // Cette carte expédiait autrefois par SMTP, hors de l'intention canonique : ni empreinte de
+    // contenu approuvé, ni approbateur enregistré, ni transition atomique, ni relecture de
+    // `MAIL_SEND_POLICY`. Une carte laissée ouverte dans un navigateur pouvait donc encore faire
+    // partir un message qu'aucun garde-fou n'aurait vu passer.
+    //
+    // On ne la supprime pas — un onglet resté ouvert doit obtenir une explication, pas une
+    // erreur muette — mais elle n'envoie plus rien : elle renvoie vers le seul chemin d'envoi.
+    return {
+      ok: false,
+      error: "Cette carte vient d'une version antérieure de l'assistant et n'expédie plus rien. "
+        + "Redemandez-moi l'envoi : je prépare le message depuis l'adresse d'Adam et vous le présente à approuver.",
+    };
   }
 
   if (payload?.kind === "create_calendar_event") {

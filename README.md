@@ -740,14 +740,34 @@ Cette règle n'est pas une discipline, elle est **vraie par construction** : `se
 chat, la voix, une mission de fond, une étape de plan, un cron — tout passe par là. Il n'existe
 pas de seconde route.
 
-Quatre garanties, chacune contre une façon précise de perdre le contrôle :
+Six garanties, chacune contre une façon précise de perdre le contrôle :
 
 | Garantie | Mécanisme | Ce qu'elle empêche |
 |---|---|---|
+| L'EXPÉDITEUR est celui qu'on croit | `authorizeIdentity` (`comms/identity.ts`) à la création **et** à l'envoi : la connexion appartient au compte et elle est active | Écrire depuis la boîte de quelqu'un d'autre — y compris depuis celle du PDG lui-même |
 | L'accord porte sur un CONTENU EXACT | `contentHash` (destinataires, copies, objet, corps, pièces, identité) comparé à `approvedHash` | Faire approuver A et expédier B |
 | L'accord vient d'un HUMAIN | `approvedById` exigé en plus de l'empreinte | Qu'une intention née en envoi autonome parte encore après retour à l'approbation obligatoire |
 | Un seul envoi, jamais deux | transition atomique `APPROVED → SENDING` par `updateMany` conditionnel | Double clic, rejeu réseau, webhook répété |
+| Un seul MESSAGE par contenu | déduplication sur `contentHash` dans `createOutboundIntent` (fenêtre 24 h) | Qu'une préparation refaite fabrique une deuxième carte, une deuxième approbation, un doublon chez le destinataire |
 | La politique est relue À L'INSTANT de l'envoi | `getCommunicationPolicy()` dans `sendOutboundIntent`, jamais la politique mémorisée | Qu'un garde-fou remis reste sans effet sur la file existante |
+
+**Il n'y avait pas UNE route, il y en avait DEUX — et c'est corrigé.** L'outil `send_email` de
+l'assistant expédiait par le SMTP historique du module Courrier (`MailAccount`), hors de
+l'intention canonique : sans empreinte approuvée, sans approbateur, sans relecture de
+`MAIL_SEND_POLICY`. Il PRÉPARE désormais une `OutboundMailIntent` et rend la carte
+`send_prepared_mail` — un seul appel d'outil, une seule confirmation. L'ancienne carte
+(`payload.kind === "send_email"`) n'expédie plus rien et le dit. Le module `/courrier` garde son
+propre bouton d'envoi : c'est un humain devant un écran, pas l'assistant.
+
+**Une confirmation en français CONCLUT, elle ne relance pas.** « Je confirme », « oui », « envoie »
+sont résolus côté serveur (`resolvePendingMailConfirmation`) vers l'intention EXACTE qui attend —
+sans repasser par le modèle, donc sans risque d'en fabriquer une seconde. Trois conditions, toutes
+nécessaires : un accord sans réserve (`comms/confirmation.ts`, volontairement strict), UNE seule
+intention en attente, et moins de deux heures. Hors de là, la conversation suit son cours.
+
+**Adam sait qui il est.** Son nom et son adresse d'expédition viennent de la connexion canonique
+(`assistantIdentityContext`), injectés en texte comme à la voix. Interrogé, il ne répond plus
+« je m'appelle Assistant IA » ni « j'envoie depuis ta boîte » : ce sont des faits lus, pas devinés.
 
 Le coupe-circuit sortant **prime sur l'envoi autonome** (`decideSend` le teste en premier).
 
@@ -772,7 +792,7 @@ base n'est nécessaire. Le diagnostic `npm run adam:doctor` dit, depuis le serve
 qui manque et comment le corriger. Exploitation détaillée : `/admin/ai`.
 
 Fichiers : `src/lib/google/` (config, oauth, client, connection, health, `gmail/`, `calendar/`,
-`drive/`, `workspace/`), `src/lib/comms/` (policy, outbound, missions, loop-safety, untrusted,
+`drive/`, `workspace/`), `src/lib/comms/` (policy, outbound, **identity**, **confirmation**, missions, loop-safety, untrusted,
 email-intelligence), `src/lib/assistant/adam-tools.ts` (19 outils), `src/app/api/google/`
 (connect, callback, pubsub).
 

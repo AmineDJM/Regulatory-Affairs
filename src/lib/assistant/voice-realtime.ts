@@ -1,6 +1,6 @@
 import type { CurrentUser } from "@/lib/session";
 import { accessibleModules } from "@/lib/rbac";
-import { buildChiefOfStaffContext } from "@/lib/assistant";
+import { buildChiefOfStaffContext, assistantIdentityContext } from "@/lib/assistant";
 import { POWER_TOOLS } from "@/lib/assistant/power-tools";
 import { personalContext, getThreadMessages, ensurePrimaryThread } from "@/lib/assistant-memory";
 import { conversationWorkingSet } from "@/lib/assistant/reasoning";
@@ -234,6 +234,11 @@ export async function buildVoiceInstructions(
     const ws = wide ? conversationWorkingSet(wide) : null;
     if (ws) parts.push(`\n${ws}`);
   }
+
+  // QUI IL EST ET DEPUIS QUELLE ADRESSE IL ÉCRIT. À la voix plus encore qu'au texte : on
+  // demande son nom à quelqu'un qu'on entend, et une réponse inventée s'entend tout de suite.
+  const identity = await assistantIdentityContext(user, { compact: true }).catch(() => null);
+  if (identity) parts.push(`\n${identity}`);
 
   // ACTIONS RÉCENTES — l'état CANONIQUE serveur : « je te l'avais déjà demandé ? » et
   // « c'est envoyé ? » se répondent d'ici (ou d'action_history), jamais de mémoire.

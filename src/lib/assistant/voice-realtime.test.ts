@@ -130,9 +130,19 @@ suite("voix temps réel — instructions de session (même conversation, budget 
     expect(instructions).toContain("CONSIGNES VOCALES");
     expect(instructions).toMatch(/Ne salue pas à chaque tour/);
     expect(instructions).toMatch(/JAMAIS qu'une action est faite/);
-    // Le BUDGET : pas le digest réglementaire ni le mode d'emploi texte des écritures.
+    // L'IDENTITÉ : à la voix, on demande son nom à son interlocuteur — et il doit le savoir.
+    expect(instructions).toContain("ADAM");
+    expect(instructions).toMatch(/adresse d'expédition/i);
+    // Le BUDGET : pas le digest réglementaire ni le mode d'emploi texte des écritures. C'est CE
+    // que le plafond protège — des blocs de plusieurs milliers de caractères, pas la centaine
+    // qui dit à Adam qui il est.
+    //
+    // Le plafond est passé de 12 000 à 12 600 le jour où le bloc d'identité (≈ 240 caractères :
+    // nom, adresse d'expédition, distinction avec la boîte du PDG) a été ajouté — un compte rendu
+    // réel avait montré Adam répondant « je m'appelle Assistant IA » puis s'attribuant la boîte
+    // du PDG. La marge n'a pas été élargie « au cas où » : elle a été payée une fois, pour ça.
     expect(instructions).not.toContain("INTERPRÉTATION DES DEMANDES");
-    expect(instructions.length).toBeLessThan(12_000);
+    expect(instructions.length).toBeLessThan(12_600);
   });
 
   it("la CONVERSATION RÉCENTE du fil est injectée (bornée) — « et son salaire ? » a son contexte", async () => {

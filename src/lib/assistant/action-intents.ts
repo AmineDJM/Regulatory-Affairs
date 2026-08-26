@@ -184,10 +184,36 @@ const frDate = (d: Date | null): string => (d ? d.toISOString().slice(0, 16).rep
  * Le bloc « ACTIONS RÉCENTES » injecté dans le contexte (texte ET voix) : l'état canonique des
  * dernières intentions — c'est lui qui empêche « je ne retrouve aucune trace » quelques minutes
  * après avoir préparé une notification. Null quand il n'y a rien.
+ *
+ * CE BLOC A DÉJÀ DÉRAILLÉ UNE CONVERSATION, et la façon dont il l'a fait mérite d'être dite. Le
+ * PDG demandait « tu as reçu des e-mails ou pas ? » ; l'assistant répondait « laisse-moi vérifier
+ * ta boîte »… puis enchaînait sur une action Finances sans rapport. La proposition Finances datait
+ * d'une autre branche de la conversation, elle n'avait jamais été exécutée — et elle figurait ici,
+ * intacte, sous un titre qui la présentait comme « l'état CANONIQUE serveur ». Le modèle a fait
+ * ce que le contexte suggérait : reprendre un dossier ouvert.
+ *
+ * Deux corrections, et elles sont de nature différente :
+ *
+ *   • UNE PROPOSITION SE PÉRIME. Passé quelques heures sans décision, elle n'est plus un fil en
+ *     cours : c'est une trace. `action_history` la retrouvera si on la cherche ; elle n'a plus à
+ *     s'imposer à chaque tour. (Une action EXÉCUTÉE, elle, reste : « c'est fait » ne se périme
+ *     jamais, et c'est précisément ce qu'on interroge après coup.)
+ *
+ *   • UNE PROPOSITION NE SE REPREND PAS TOUTE SEULE. Le rappel est là pour répondre à « où en
+ *     est… ? », pas pour fournir un sujet quand la question porte sur autre chose. Le bloc le dit
+ *     maintenant explicitement, parce qu'un intitulé de section suffit à orienter un modèle.
  */
+const PROPOSAL_CONTEXT_WINDOW_MS = 6 * 3_600_000;
+
 export async function recentActionIntentsContext(userId: string, limit = 6): Promise<string | null> {
   const rows = await prisma.assistantActionIntent.findMany({
-    where: { userId },
+    where: {
+      userId,
+      OR: [
+        { status: { not: "PROPOSED" } },
+        { status: "PROPOSED", proposedAt: { gte: new Date(Date.now() - PROPOSAL_CONTEXT_WINDOW_MS) } },
+      ],
+    },
     orderBy: { proposedAt: "desc" },
     take: limit,
     select: { title: true, summary: true, status: true, proposedAt: true, executedAt: true, resultMessage: true },
@@ -201,7 +227,13 @@ export async function recentActionIntentsContext(userId: string, limit = 6): Pro
   return `ACTIONS RÉCENTES DE CETTE PERSONNE (état CANONIQUE serveur — LA vérité sur « déjà demandé ? » /
 « déjà envoyé ? » ; une action PROPOSÉE n'a JAMAIS été exécutée ; ne JAMAIS dire « envoyé » sans un
 état EXÉCUTÉE ici ou dans action_history) :
-${lines.join("\n")}`;
+${lines.join("\n")}
+
+CETTE LISTE EST UN RAPPEL, PAS UN ORDRE DU JOUR. Elle sert à répondre quand on t'interroge SUR elle
+(« où en est… ? », « c'est parti ? », « je te l'avais demandé ? »). Elle ne fournit JAMAIS le sujet
+d'une réponse : si la question porte sur autre chose, ignore-la entièrement. Une proposition restée
+en attente sur un domaine ne doit jamais s'inviter dans une question qui porte sur un autre domaine
+— et ne se relance pas d'elle-même : seule la personne la reprend, explicitement.`;
 }
 
 // ───────────────────────── L'outil de consultation ─────────────────────────

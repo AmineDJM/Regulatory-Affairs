@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { MailSendPolicy, OutboundMailStatus, type OutboundMailIntent } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCommunicationPolicy, decideSend, type SendDecision } from "./policy";
+import { authorizeIdentity, isIdentity } from "./identity";
 
 /**
  * L'INTENTION D'ENVOI — le SEUL chemin par lequel un message peut quitter l'entreprise.
@@ -10,7 +11,12 @@ import { getCommunicationPolicy, decideSend, type SendDecision } from "./policy"
  * passe ici. Il n'existe pas de seconde route : c'est ce qui rend la règle « aucun envoi sans
  * approbation » vraie par CONSTRUCTION, et pas par discipline.
  *
- * Trois garanties, et chacune répond à une façon précise de perdre le contrôle :
+ * Quatre garanties, et chacune répond à une façon précise de perdre le contrôle :
+ *
+ *   0. **L'EXPÉDITEUR est celui qu'on croit.** L'identité d'envoi est vérifiée ici — appartenance
+ *      au compte, connexion réellement active — à la création PUIS à l'envoi. Elle ne se déduit
+ *      jamais du destinataire ni de l'adresse ERP de l'utilisateur : ce sont deux notions sans
+ *      rapport, et les confondre a déjà fait écrire le PDG à lui-même depuis sa propre boîte.
  *
  *   1. **L'approbation porte sur un CONTENU EXACT.** `contentHash` couvre destinataires, copies,
  *      objet, corps, pièces et identité d'envoi. Modifier un seul de ces champs après validation
@@ -121,7 +127,40 @@ export async function createOutboundIntent(input: OutboundDraftInput): Promise<O
   const recipients = cleanList(input.recipients);
   if (recipients.length === 0) throw new Error("Aucun destinataire valide.");
 
+  // L'IDENTITÉ D'ENVOI EST VÉRIFIÉE ICI, AVANT LA PREMIÈRE ÉCRITURE.
+  //
+  // `connectionId` arrive d'un appelant — un outil, un plan, une mission. Un appelant se trompe,
+  // et un payload se trafique : sans ce contrôle, il suffirait de poser le `connectionId` de
+  // quelqu'un d'autre pour faire partir un message depuis SA boîte. Le contrôle porte donc sur
+  // l'appartenance ET sur l'état réel de la connexion, et il se REJOUE à l'envoi — une connexion
+  // suspendue entre-temps doit arrêter le message.
+  const identity = await authorizeIdentity(input.connectionId, input.userId);
+  if (!isIdentity(identity)) throw new Error(identity.message);
+
   const contentHash = computeContentHash({ ...input, recipients });
+
+  // UN SEUL MESSAGE PAR CONTENU. Deux passages identiques — le PDG répète « oui », le modèle
+  // reprépare ce qu'il avait déjà préparé — décrivent le MÊME envoi. En créer une seconde
+  // intention, c'est fabriquer une deuxième carte, une deuxième approbation, et un doublon chez
+  // le destinataire. On rend l'intention existante : elle porte déjà l'approbation éventuelle.
+  const twin = await prisma.outboundMailIntent.findFirst({
+    where: {
+      userId: input.userId,
+      contentHash,
+      status: {
+        in: [
+          OutboundMailStatus.DRAFT,
+          OutboundMailStatus.AWAITING_APPROVAL,
+          OutboundMailStatus.APPROVED,
+          OutboundMailStatus.SENDING,
+          OutboundMailStatus.SENT,
+        ],
+      },
+      createdAt: { gte: new Date(Date.now() - 24 * 3_600_000) },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (twin) return twin;
   const approvalRequired = state.mailSendPolicy === MailSendPolicy.REQUIRE_APPROVAL;
   const status =
     state.mailSendPolicy === MailSendPolicy.DRAFT_ONLY
@@ -308,6 +347,20 @@ export async function sendOutboundIntent(id: string, transport: MailTransport): 
   }
   if (cur.status === OutboundMailStatus.CANCELLED) return { ok: false, error: "Cette intention a été annulée." };
   if (cur.status === OutboundMailStatus.SENDING) return { ok: false, error: "Un envoi est déjà en cours pour ce message." };
+
+  // L'IDENTITÉ EST RELUE À L'INSTANT DE L'ENVOI, exactement comme la politique.
+  //
+  // Entre la préparation et le clic, le compte Google a pu être suspendu, révoqué, ou reconnecté
+  // sur une AUTRE adresse. Envoyer sur la foi de la vérification faite à la préparation ferait
+  // partir un message depuis une identité qui n'est plus celle qu'on a montrée au PDG.
+  const identity = await authorizeIdentity(cur.connectionId, cur.userId);
+  if (!isIdentity(identity)) {
+    await prisma.outboundMailIntent.update({
+      where: { id },
+      data: { events: pushEvent(cur.events, { status: "BLOCKED", note: `identité : ${identity.error}` }) as never },
+    });
+    return { ok: false, error: identity.message };
+  }
 
   const state = await getCommunicationPolicy();
   // « APPROUVÉ » VEUT DIRE : UN HUMAIN A DIT OUI À CE CONTENU-LÀ.
