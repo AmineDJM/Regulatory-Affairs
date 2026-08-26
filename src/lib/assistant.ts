@@ -50,6 +50,11 @@ import { DELETE_REGISTRY, DELETABLE_KINDS, isDeletableKind, type DeletableKind }
 import { resolveDeletableTarget, resolveTrashEntry } from "@/lib/assistant/delete-resolve";
 import { nativeActionHint, actionsForUser } from "@/lib/assistant/action-registry";
 import { DOMAIN_TOOLS, DOMAIN_TOOL_DEFS } from "@/lib/assistant/ops";
+import { getCommunicationPolicy, setMailSendPolicy, parseMailPolicyPhrase, POLICY_LABEL, POLICY_HELP } from "@/lib/comms/policy";
+import { approveOutboundIntent, sendOutboundIntent } from "@/lib/comms/outbound";
+import { gmailTransport } from "@/lib/google/gmail/transport";
+import { markMissionAsked } from "@/lib/comms/missions";
+import { MailSendPolicy } from "@prisma/client";
 import { requestTreasuryUpdate } from "@/lib/actions/finance-actions";
 import { advanceWorkflow, saveWorkflowDefinition, resetWorkflowDefinition } from "@/lib/actions/workflow-actions";
 import { upsertCustomFieldDef, deleteCustomFieldDef } from "@/lib/actions/custom-field-actions";
@@ -112,6 +117,33 @@ export type AssistantActionPayload =
       /** Valeur actuelle, pour le journal et pour la carte de confirmation. */
       before: string;
       after: string;
+    }
+  | {
+      /**
+       * ENVOYER un message DÉJÀ PRÉPARÉ (Adam) — approuve le contenu EXACT, puis expédie.
+       *
+       * Le corps du message ne voyage PAS dans ce payload : il vit dans l'intention canonique
+       * (`OutboundMailIntent`), et c'est elle que le serveur relit. Confirmer une carte ne peut
+       * donc pas expédier autre chose que ce qui a été montré — l'empreinte du contenu est
+       * revérifiée au moment de l'envoi.
+       */
+      kind: "send_prepared_mail";
+      intentId: string;
+      subject: string;
+      recipients: string[];
+      missionId: string | null;
+    }
+  | {
+      /**
+       * BASCULER LA POLITIQUE D'ENVOI — le réglage qui décide si Adam peut expédier seul.
+       *
+       * Passer en envoi autonome retire l'approbation du PDG sur TOUT ce qui sortira ensuite :
+       * c'est un changement de sécurité, il se ressaisit (confirmation renforcée). Revenir à
+       * l'approbation est immédiat — on ne freine jamais un retour à la prudence.
+       */
+      kind: "set_mail_policy";
+      policy: "REQUIRE_APPROVAL" | "AUTO_SEND" | "DRAFT_ONLY";
+      before: string;
     }
   | {
       /** CONFIER un dossier (« Chargé du dossier ») — exécuté par l'ACTION CANONIQUE de
@@ -637,6 +669,8 @@ export const ACTION_POLICY: Record<AssistantActionKind, { external: boolean; lev
   update_salary: { external: true, level: "CRITICAL" },
   // Le niveau réel d'une op de domaine vient de son entrée au CATALOGUE (risk) — porté par la
   // carte ; idem pour un lot (niveau = max des items). `external` suffit ici (kill-switch).
+  send_prepared_mail: { external: true, level: "SENSITIVE" },
+  set_mail_policy: { external: true, level: "SENSITIVE" },
   domain_op: { external: true },
   bulk_action: { external: true },
   action_plan: { external: true },
@@ -663,6 +697,9 @@ function deferredStepLevel(tool: string, op: string | undefined): "SENSITIVE" | 
  */
 export function payloadRequiresStrongConfirm(p: AssistantActionPayload): boolean {
   if (ACTION_POLICY[p.kind]?.level === "CRITICAL") return true;
+  // Passer en ENVOI AUTONOME retire l'approbation du PDG sur tout ce qui sortira ensuite : c'est
+  // le seul changement de réglage qui exige une RESSAISIE, dans les deux chemins d'exécution.
+  if (p.kind === "set_mail_policy") return p.policy === "AUTO_SEND";
   if (p.kind === "domain_op") return DOMAIN_TOOLS[p.tool]?.ops[p.op]?.meta.risk === "CRITICAL";
   if (p.kind === "bulk_action") return p.items.some((it) => payloadRequiresStrongConfirm(it.payload));
   if (p.kind === "action_plan") {
@@ -2732,6 +2769,80 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
         { label: "Message", value: body },
       ],
       payload: { kind: "send_message", recipientId: recipient.id, recipientName: recipient.name, body },
+    };
+  }
+
+  if (toolName === "send_prepared_mail") {
+    // LA CARTE D'APPROBATION. Le contenu vient de l'INTENTION stockée, jamais de ce que le modèle
+    // redit : c'est ce qui garantit que le PDG approuve exactement ce qui partira.
+    const intentId = asStr(input, "intentId");
+    if (!intentId) return { error: "Aucune intention d'envoi à approuver (champ « intentId »)." };
+    const intent = await prisma.outboundMailIntent.findFirst({
+      where: { id: intentId, userId: user.id },
+      include: { mission: { select: { title: true } } },
+    });
+    if (!intent) return { error: "Intention d'envoi introuvable (ou elle n'est pas à vous)." };
+    if (intent.status === "SENT") return { error: `Ce message est DÉJÀ parti${intent.sentAt ? ` (${intent.sentAt.toLocaleString("fr-FR")})` : ""} — il ne se renvoie pas.` };
+    if (intent.status === "CANCELLED") return { error: "Cette intention d'envoi a été annulée." };
+
+    const policyState = await getCommunicationPolicy();
+    const attachments = (intent.attachments as unknown as { filename: string }[]) ?? [];
+    const fields = [
+      { label: "À", value: intent.recipients.join(", ") },
+      ...(intent.cc.length ? [{ label: "Copie", value: intent.cc.join(", ") }] : []),
+      ...(intent.bcc.length ? [{ label: "Copie cachée", value: intent.bcc.join(", ") }] : []),
+      { label: "Objet", value: intent.subject || "(sans objet)" },
+      { label: "Message", value: intent.bodyText.length > 1500 ? `${intent.bodyText.slice(0, 1500)}…` : intent.bodyText },
+      ...(attachments.length ? [{ label: "Pièces jointes", value: attachments.map((a) => a.filename).join(", ") }] : []),
+      { label: "Pourquoi", value: intent.reason ?? (intent.mission ? `Mission « ${intent.mission.title} »` : "Demandé par vous") },
+      ...(intent.threadId ? [{ label: "Fil", value: "Réponse DANS la conversation existante" }] : []),
+    ];
+    if (policyState.outboundPaused) {
+      warnings.push("COUPE-CIRCUIT SORTANT levé : même approuvé, rien ne partira tant qu'il n'est pas relevé.");
+    }
+    if (policyState.mailSendPolicy === "DRAFT_ONLY") {
+      warnings.push("Politique « brouillons seulement » : le message est prêt, mais l'envoi est bloqué.");
+    }
+    warnings.push("En confirmant, ce message part RÉELLEMENT depuis la boîte d'Adam. Toute modification du contenu invaliderait cette approbation.");
+    return {
+      kind: "send_prepared_mail", module: "WORKSPACE", title: `Envoyer : ${intent.subject || "(sans objet)"}`,
+      fields, warnings, level: "SENSITIVE",
+      payload: {
+        kind: "send_prepared_mail", intentId: intent.id, subject: intent.subject,
+        recipients: intent.recipients, missionId: intent.missionId,
+      },
+    };
+  }
+
+  if (toolName === "set_mail_policy") {
+    if (!hasGlobalView(user)) return { error: "Seul le PDG (ou le Super Admin) règle la politique d'envoi." };
+    const raw = asStr(input, "policy") || asStr(input, "value");
+    const parsed = parseMailPolicyPhrase(raw)
+      ?? (["REQUIRE_APPROVAL", "AUTO_SEND", "DRAFT_ONLY"].includes(raw.toUpperCase()) ? (raw.toUpperCase() as "REQUIRE_APPROVAL" | "AUTO_SEND" | "DRAFT_ONLY") : null);
+    if (!parsed) {
+      return { error: "Politique d'envoi non comprise. Trois valeurs : « approbation requise », « envoi autonome », « brouillons seulement »." };
+    }
+    const current = await getCommunicationPolicy();
+    if (current.mailSendPolicy === parsed) {
+      return { error: `La politique est DÉJÀ « ${POLICY_LABEL[parsed]} » — rien à changer.` };
+    }
+    const fields = [
+      { label: "Politique actuelle", value: POLICY_LABEL[current.mailSendPolicy] },
+      { label: "Nouvelle politique", value: POLICY_LABEL[parsed] },
+      { label: "Ce que cela change", value: POLICY_HELP[parsed] },
+    ];
+    if (parsed === "AUTO_SEND") {
+      warnings.push("ENVOI AUTONOME : Adam pourra expédier des messages en votre nom SANS vous les montrer — y compris depuis une mission de fond, la nuit.");
+      warnings.push("Le coupe-circuit sortant et les freins anti-boucle continuent de s'appliquer.");
+    } else {
+      warnings.push("Retour à la prudence : effet immédiat, y compris sur les messages déjà préparés qui attendaient.");
+    }
+    return {
+      kind: "set_mail_policy", module: "WORKSPACE", title: `Politique d'envoi → ${POLICY_LABEL[parsed]}`,
+      fields, warnings, level: "SENSITIVE",
+      // Ressaisie exigée UNIQUEMENT pour ouvrir l'envoi autonome (cf. payloadRequiresStrongConfirm).
+      ...(parsed === "AUTO_SEND" ? { confirmText: "ENVOI AUTONOME" } : {}),
+      payload: { kind: "set_mail_policy", policy: parsed, before: POLICY_LABEL[current.mailSendPolicy] },
     };
   }
 
@@ -5165,6 +5276,47 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     await notifyUser({ userId: recipientId, type: "GENERIC", title: "Nouveau message", body: body.slice(0, 80), link: "/messages" });
     await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", entityId: convId, summary: `Message envoyé via l'assistant à ${payload.recipientName ?? "un collègue"}` });
     return { ok: true, message: `Message envoyé à ${payload.recipientName ?? "votre collègue"}.`, link: "/messages", revalidate: ["/messages"] };
+  }
+
+  if (payload?.kind === "send_prepared_mail") {
+    // LE SEUL CHEMIN DE SORTIE. `approveOutboundIntent` lie l'approbation au contenu EXACT, puis
+    // `sendOutboundIntent` relit la politique COURANTE, revérifie l'empreinte et gagne (ou perd)
+    // la transition atomique vers l'envoi. Un double clic perd la course et n'expédie rien.
+    const approved = await approveOutboundIntent(payload.intentId, user.id);
+    if ("error" in approved) return { ok: false, error: approved.error };
+    const sent = await sendOutboundIntent(payload.intentId, gmailTransport);
+    if (!sent.ok) {
+      return { ok: false, error: "blocked" in sent && sent.blocked ? sent.message : sent.error };
+    }
+    await recordAudit({
+      actorId: user.id, action: "CREATE", module: "Chief of Staff",
+      summary: `Courriel envoyé (Adam) — « ${payload.subject} » à ${payload.recipients.join(", ")}`,
+    });
+    if (payload.missionId) {
+      await markMissionAsked(payload.missionId).catch(() => undefined);
+    }
+    return {
+      ok: true,
+      message: sent.alreadySent
+        ? `Ce message était déjà parti — rien n'a été renvoyé (référence ${sent.providerMessageId || "—"}).`
+        : `Message envoyé à ${payload.recipients.join(", ")}.`,
+      link: "/chief-of-staff",
+    };
+  }
+
+  if (payload?.kind === "set_mail_policy") {
+    if (!hasGlobalView(user)) return { ok: false, error: "Seul le PDG (ou le Super Admin) règle la politique d'envoi." };
+    await setMailSendPolicy(payload.policy as MailSendPolicy, user.id);
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Chief of Staff",
+      field: "mailSendPolicy", newValue: payload.policy,
+      summary: `Politique d'envoi de courriel : ${payload.before} → ${POLICY_LABEL[payload.policy as MailSendPolicy]}`,
+    });
+    return {
+      ok: true,
+      message: `Politique d'envoi : ${POLICY_LABEL[payload.policy as MailSendPolicy]}.`,
+      link: "/chief-of-staff/reglages",
+    };
   }
 
   if (payload?.kind === "send_email") {
