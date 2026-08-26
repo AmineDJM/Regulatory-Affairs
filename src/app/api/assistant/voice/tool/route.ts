@@ -3,6 +3,8 @@ import { personalContext, getThreadMessages } from "@/lib/assistant-memory";
 import { runAssistant, extractSources, type ChatTurn, type ProposedAction } from "@/lib/assistant";
 import { executePowerTool } from "@/lib/assistant/power-tools";
 import { canUseRealtimeVoice, capToolOutput, DELEGATE_TOOL_NAME } from "@/lib/assistant/voice-realtime";
+import { delegationLooksReflexive } from "@/lib/assistant/triage";
+import { withTurn, markComplexity, markPreview, markFinal, logTurn } from "@/lib/models/telemetry";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -40,10 +42,24 @@ export async function POST(req: Request) {
   const t0 = Date.now();
   console.info("[voice] voice_tool_called", { userId: user.id, tool: name });
 
+  // LE TOUR EST MESURÉ, ET SA VOIE EST NOMMÉE. C'est ce qui permet de vérifier la règle du
+  // triage sur des faits : un fast path ne doit produire AUCUN appel à l'orchestrateur, une
+  // délégation en produit par construction. La ventilation par rôle le montre sans discussion.
+  const delegating = name === DELEGATE_TOOL_NAME;
+  return withTurn(delegating ? "voice-deep" : "voice-direct", async (trace) => {
   try {
     if (name === DELEGATE_TOOL_NAME) {
       const request = typeof input.request === "string" ? input.request.trim() : "";
       if (!request) return Response.json({ output: "Demande vide — reformuler.", ui: null });
+
+      // NIVEAU C ASSUMÉ. Le motif dit ce qu'il fallait DÉCOUVRIR ; un motif creux signale un
+      // réflexe plutôt qu'un jugement. On le CONSIGNE sans bloquer : transformer une mesure en
+      // panne ferait perdre une vraie demande pour une heuristique de texte.
+      markComplexity("C");
+      const reason = typeof input.reason === "string" ? input.reason : undefined;
+      if (delegationLooksReflexive(reason)) {
+        console.info("[voice] delegation_without_discovery", { userId: user.id, reason: (reason ?? "").slice(0, 160) });
+      }
 
       // L'orchestrateur reçoit le MÊME fil que le texte : les derniers échanges + la demande.
       const threadId = typeof body.threadId === "string" ? body.threadId : null;
@@ -77,6 +93,9 @@ export async function POST(req: Request) {
     }
 
     // FAST PATH — le même registre que le texte, le même garde, re-vérifié à chaque appel.
+    // Niveau A du point de vue de CET appel : la session temps réel enchaîne elle-même les
+    // lectures d'un niveau B, et chacune revient ici séparément.
+    markComplexity("A");
     const out = await executePowerTool(name, input, user);
     const output = out ?? "Outil inconnu — utiliser delegate_to_chief_of_staff pour cette demande.";
     console.info("[voice] voice_tool_completed", { userId: user.id, tool: name, latencyMs: Date.now() - t0, ok: out !== null });
@@ -94,5 +113,10 @@ export async function POST(req: Request) {
       latencyMs: Date.now() - t0,
       ui: null,
     });
+  } finally {
+    markPreview();
+    markFinal();
+    logTurn(trace);
   }
+  });
 }

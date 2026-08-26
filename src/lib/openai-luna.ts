@@ -17,6 +17,7 @@
  */
 
 import { sanitizeForModel } from "./ai-text";
+import { mentionsUnsupportedTemperature, providerErrorMessage } from "./models/errors";
 
 // Tarifs officiels (30 juillet 2026), en dollars par MILLION de jetons.
 const PRICE_INPUT_PER_M = 0.2;
@@ -152,34 +153,13 @@ export function readUsage(raw: ChatResponse["usage"], fallbackIn: number, fallba
 }
 
 /**
- * Le refus porte-t-il sur `temperature` ? (message d'erreur du fournisseur, formulations variées)
- * Isolée et PURE pour être testable sans réseau : c'est la porte de sortie d'une panne totale.
+ * CES DEUX FONCTIONS ONT DÉMÉNAGÉ dans `src/lib/models/errors.ts`, qui est leur vraie place :
+ * ce n'est pas une connaissance du module CTD, c'est une connaissance du FOURNISSEUR. Elles
+ * restent exportées d'ici — les appelants et les tests de ce module n'ont pas à savoir qu'un
+ * étage a été construit en dessous.
  */
-export function mentionsUnsupportedTemperature(body: string): boolean {
-  const b = body.toLowerCase();
-  if (!b.includes("temperature")) return false;
-  return b.includes("unsupported") || b.includes("not supported") || b.includes("unrecognized")
-    || b.includes("does not support") || b.includes("invalid_request_error") || b.includes("unknown parameter");
-}
-
-/**
- * RAISON EXACTE d'un refus de l'API, au lieu d'un code nu.
- *
- * « Erreur IA (HTTP 400) » n'apprend rien : un 400 peut être un texte trop long, un schéma refusé,
- * un contenu illisible. Le corps de la réponse porte toujours la raison — on la remonte jusqu'à la
- * notification, pour qu'une panne se NOMME au lieu de se deviner.
- */
-export function lunaErrorMessage(status: number, body: string): string {
-  try {
-    const parsed = JSON.parse(body) as { error?: { message?: string; code?: string } };
-    const msg = parsed.error?.message?.trim();
-    if (msg) return `Erreur IA (HTTP ${status}) : ${msg.slice(0, 300)}`;
-  } catch {
-    /* corps non JSON — extrait brut ci-dessous */
-  }
-  const raw = body.replace(/\s+/g, " ").trim().slice(0, 200);
-  return raw ? `Erreur IA (HTTP ${status}) : ${raw}` : `Erreur IA (HTTP ${status}).`;
-}
+export { mentionsUnsupportedTemperature } from "./models/errors";
+export { providerErrorMessage as lunaErrorMessage } from "./models/errors";
 
 /**
  * Appel synchrone. À réserver aux cas INTERACTIFS (l'utilisateur attend) ; pour l'analyse d'un
@@ -238,7 +218,7 @@ export async function callLuna<T = unknown>(input: LunaCallInput): Promise<LunaR
 
       const raw = await res.text().catch(() => "");
       console.error("[luna] erreur API", res.status, raw.slice(0, 300));
-      lastError = lunaErrorMessage(res.status, raw);
+      lastError = providerErrorMessage(res.status, raw);
 
       // PARAMÈTRE REFUSÉ PAR LE MODÈLE → on le retire et on rejoue, une fois.
       //

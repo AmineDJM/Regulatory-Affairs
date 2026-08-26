@@ -32,6 +32,12 @@ import path from "node:path";
  */
 export const ADAM_PATHS = [
   "src/platform/",
+  // LA PASSERELLE MODÈLE fait partie d'Adam, pas de l'ERP. C'est littéralement son cerveau : le
+  // jour où Adam part, il part AVEC. La ranger du côté ERP aurait compté une violation à chaque
+  // fichier d'Adam qui appelle un modèle — c'est-à-dire punir exactement le découplage qu'on
+  // cherche. En contrepartie, `src/lib/models/` doit rester sans dépendance métier ; c'est une
+  // propriété vérifiée par son propre test.
+  "src/lib/models/",
   "src/lib/assistant/",
   "src/lib/assistant.ts",
   "src/lib/assistant-",
@@ -61,7 +67,15 @@ const isBridge = (f: string) => BRIDGE_PATHS.some((p) => f.startsWith(p));
  * défendre. `utils` et `labels` sont du formatage ; `prisma-enums` n'existe pas, et c'est
  * volontaire — un énuméré généré EST une dépendance au schéma.
  */
-const NEUTRAL = new Set(["src/lib/utils", "src/lib/labels"]);
+const NEUTRAL = new Set([
+  "src/lib/utils",
+  "src/lib/labels",
+  // `ai-text` est un ASSAINISSEUR de trois expressions régulières, sans état, sans base et sans
+  // règle métier — sa propre en-tête dit qu'il est « à part, SANS dépendance » précisément pour
+  // que les deux fournisseurs puissent l'utiliser sans se tirer l'un l'autre. Il satisfait le
+  // critère ci-dessus mot pour mot ; il n'apprend rien à Adam sur l'ERP.
+  "src/lib/ai-text",
+]);
 
 export interface Violation {
   /** Le fichier d'Adam qui importe. */

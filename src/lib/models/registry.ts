@@ -1,0 +1,131 @@
+import {
+  type ModelBinding,
+  type ModelProvider,
+  type ModelRole,
+  type ReasoningEffort,
+  MODEL_ROLES,
+} from "./contract";
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * QUI TRAVAILLE POUR QUI — la table des rôles, et le seul endroit qui nomme un modèle.
+ *
+ * ── LA STACK CIBLE ───────────────────────────────────────────────────────────────────────
+ *
+ *   realtime      gpt-realtime-2.1     Adam écoute, comprend, converse, décide.
+ *   orchestrator  gpt-5.6-terra medium Adam travaille : investigue, planifie, synthétise.
+ *   worker        gpt-5.6-terra none   une sous-tâche qui demande de comprendre.
+ *   bulk          gpt-5.6-luna  none   extraire, classer, normaliser — en volume.
+ *
+ * ── POURQUOI UNE TABLE PLUTÔT QUE DES CONSTANTES DISPERSÉES ──────────────────────────────
+ *
+ * Parce qu'un modèle se remplace en exploitation, pas en revue de code. Chaque rôle est
+ * surchargeable par variable d'environnement : le jour où un modèle sort, où un autre devient
+ * moins cher, où l'un tombe en panne, on rebranche sans toucher à une boucle d'agent.
+ *
+ * ── LE RETOUR EN ARRIÈRE EST PRÉVU, ET C'EST VOULU ───────────────────────────────────────
+ *
+ * `ADAM_MODEL_PROVIDER=anthropic` rebascule les rôles textuels sur l'ancien chemin Claude, qui
+ * reste en place. Une migration de cerveau sans marche arrière n'est pas une migration, c'est un
+ * pari. Le rôle `realtime` ne bascule pas : il n'a pas d'équivalent chez l'autre fournisseur.
+ *
+ * ── LES TARIFS, ET CE QU'ON REFUSE D'INVENTER ────────────────────────────────────────────
+ *
+ * Le tarif de Luna est connu et vérifié (0,20 $ / 1,20 $ par million — voir `openai-luna.ts`).
+ * Ceux de Terra et du temps réel ne le sont PAS dans ce dépôt : ils valent donc `null`, et le
+ * coût rapporté vaut `null` plutôt qu'un chiffre plausible. Un tableau de bord de coût qui
+ * affiche une estimation inventée fait prendre de vraies décisions sur des faux chiffres.
+ * Ils se renseignent sans redéploiement : `ADAM_PRICE_ORCHESTRATOR_IN` / `_OUT`, etc.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Modèles par défaut. Le seul endroit du produit où ces chaînes sont écrites. */
+export const DEFAULT_MODELS: Record<ModelRole, string> = {
+  realtime: "gpt-realtime-2.1",
+  orchestrator: "gpt-5.6-terra",
+  worker: "gpt-5.6-terra",
+  bulk: "gpt-5.6-luna",
+};
+
+/** Effort de raisonnement par défaut, par rôle. */
+export const DEFAULT_REASONING: Record<ModelRole, ReasoningEffort> = {
+  realtime: "none",
+  orchestrator: "medium",
+  worker: "none",
+  bulk: "none",
+};
+
+/**
+ * Tarifs connus, en dollars par million de jetons. Une entrée absente vaut « inconnu », ce qui
+ * n'est pas la même chose que gratuit — voir l'en-tête.
+ */
+const KNOWN_PRICES: Record<string, { in: number; out: number }> = {
+  "gpt-5.6-luna": { in: 0.2, out: 1.2 },
+};
+
+/** Le repli Anthropic, rôle par rôle — l'ancien cerveau, gardé pour pouvoir revenir. */
+const ANTHROPIC_FALLBACK: Record<ModelRole, string> = {
+  realtime: "gpt-realtime-2.1", // pas d'équivalent : ce rôle ne bascule jamais
+  orchestrator: "claude-sonnet-4-6",
+  worker: "claude-sonnet-4-6",
+  bulk: "claude-haiku-4-5",
+};
+
+const env = (k: string): string => (process.env[k] ?? "").trim();
+
+const num = (k: string): number | null => {
+  const raw = env(k);
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+};
+
+const REASONINGS: ReasoningEffort[] = ["none", "low", "medium", "high"];
+
+function readReasoning(role: ModelRole): ReasoningEffort {
+  const raw = env(`ADAM_REASONING_${role.toUpperCase()}`).toLowerCase();
+  return (REASONINGS as string[]).includes(raw) ? (raw as ReasoningEffort) : DEFAULT_REASONING[role];
+}
+
+/**
+ * Le fournisseur en vigueur pour les rôles TEXTUELS. `realtime` est toujours OpenAI : la session
+ * temps réel n'existe que là, la basculer n'aurait aucun sens.
+ */
+export function activeProvider(): ModelProvider {
+  return env("ADAM_MODEL_PROVIDER").toLowerCase() === "anthropic" ? "anthropic" : "openai";
+}
+
+/**
+ * LA LIAISON EFFECTIVE d'un rôle, à cet instant, dans cet environnement.
+ *
+ * Lue à CHAQUE appel plutôt que figée au chargement du module : sans cela, changer une variable
+ * d'environnement demanderait un redémarrage, et les tests ne pourraient pas couvrir deux
+ * configurations dans le même processus.
+ */
+export function bindingFor(role: ModelRole): ModelBinding {
+  const provider: ModelProvider = role === "realtime" ? "openai" : activeProvider();
+
+  const override = env(`ADAM_MODEL_${role.toUpperCase()}`);
+  const model =
+    override || (provider === "anthropic" ? ANTHROPIC_FALLBACK[role] : DEFAULT_MODELS[role]);
+
+  const known = KNOWN_PRICES[model];
+  const priceInPerM = num(`ADAM_PRICE_${role.toUpperCase()}_IN`) ?? known?.in ?? null;
+  const priceOutPerM = num(`ADAM_PRICE_${role.toUpperCase()}_OUT`) ?? known?.out ?? null;
+
+  return { role, provider, model, reasoning: readReasoning(role), priceInPerM, priceOutPerM };
+}
+
+/** La table entière — pour l'écran d'administration et le rapport d'observabilité. */
+export function allBindings(): ModelBinding[] {
+  return MODEL_ROLES.map(bindingFor);
+}
+
+/**
+ * Ce rôle est-il utilisable ? Un rôle sans clé n'est pas une panne : c'est une configuration
+ * absente, et cela se dit autrement à l'écran.
+ */
+export function roleConfigured(role: ModelRole): boolean {
+  const { provider } = bindingFor(role);
+  return Boolean(env(provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"));
+}

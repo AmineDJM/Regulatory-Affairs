@@ -32,9 +32,21 @@ import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
 import { findDirectConversation } from "@/lib/messaging";
 import { getMailAccount, listMessages, getMessage } from "@/lib/mail";
 import {
-  callClaude, callClaudeStream, aiConfigured,
   type ClaudeMessage, type ClaudeContentBlock, type ClaudeToolDef,
-} from "@/lib/ai";
+} from "@/lib/models/compat";
+/**
+ * LE CERVEAU A CHANGÉ DE MAISON, PAS CE FICHIER.
+ *
+ * `callClaude` / `callClaudeStream` viennent désormais de la passerelle modèle : le texte part
+ * sur le rôle `orchestrator` (Terra, raisonnement medium) au lieu de l'API Anthropic. Le pont
+ * garde EXACTEMENT les signatures et la forme de blocs que la boucle ci-dessous manipule — c'est
+ * ce qui permet de changer de fournisseur sans toucher aux 6 200 lignes qui, elles, marchent.
+ *
+ * Le nom « Claude » subsiste ici comme mémoire de ce qui reste à migrer : le jour où cette
+ * boucle parlera la forme neutre, l'import et le pont disparaissent ensemble.
+ */
+import { callClaude, callClaudeStream, assistantConfigured as aiConfigured } from "@/lib/models/compat";
+import { withTurn, markPreview, markFinal, logTurn, type TurnRoute } from "@/lib/models/telemetry";
 import {
   userCan, accessibleModules, hasGlobalView, isRegulatorySupervisor, type Module,
   scopeMedicalDoctors, scopeRegulatory, scopeAdminRequests,
@@ -4530,7 +4542,7 @@ async function reviseHighStakes(
  * réinjectés), puis répond. Si Claude appelle un outil d'écriture, on intercepte
  * et on renvoie une action à confirmer (rien n'est exécuté).
  */
-export async function runAssistant(
+async function runAssistantImpl(
   user: CurrentUser,
   history: ChatTurn[],
   opts: { model?: string; personalContext?: string | null; origin?: "text" | "voice" | "nudge" } = {},
@@ -4841,7 +4853,7 @@ export async function resolveSpokenMailApproval(
   return approveAndExecuteIntent(user, pending.id);
 }
 
-export async function runAssistantStream(
+async function runAssistantStreamImpl(
   user: CurrentUser,
   history: ChatTurn[],
   emit: (e: AssistantStreamEvent) => void,
@@ -6216,4 +6228,60 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
   }
 
   return { ok: false, error: "Action non reconnue." };
+}
+
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES DEUX PORTES D'ENTRÉE DU MOTEUR — et le tour mesuré qu'elles ouvrent.
+ *
+ * Le corps du moteur n'a pas bougé : ces enveloppes ne font qu'ouvrir un TOUR autour de lui,
+ * pour que chaque appel de modèle, chaque outil et chaque milliseconde se rattachent à quelque
+ * chose de nommé. Sans cela, « Adam est lent » resterait une impression.
+ *
+ * LA VOIE VIENT DE L'ORIGINE, pas d'une devinette :
+ *   • `text`  — demande écrite : elle part DIRECTEMENT sur l'orchestrateur, sans passer par le
+ *               temps réel (c'est la règle §2, et la ventilation par rôle le prouve) ;
+ *   • `voice` — on est ici parce que la session temps réel a DÉLÉGUÉ (niveau C). Un tour vocal
+ *               est déjà ouvert : `withTurn` le REJOINT au lieu d'en créer un second, sinon les
+ *               appels de l'orchestrateur seraient invisibles depuis le tour vocal — c'est-à-dire
+ *               qu'on cacherait la preuve même qu'un C fait travailler l'orchestrateur ;
+ *   • `nudge` — proactif, personne n'attend devant l'écran.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const routeOf = (origin: "text" | "voice" | "nudge" | undefined): TurnRoute =>
+  origin === "voice" ? "voice-deep" : origin === "nudge" ? "background" : "text";
+
+export function runAssistant(
+  user: CurrentUser,
+  history: ChatTurn[],
+  opts: { model?: string; personalContext?: string | null; origin?: "text" | "voice" | "nudge" } = {},
+): Promise<AssistantResult> {
+  return withTurn(routeOf(opts.origin), async (trace) => {
+    try {
+      return await runAssistantImpl(user, history, opts);
+    } finally {
+      markFinal();
+      logTurn(trace);
+    }
+  });
+}
+
+export function runAssistantStream(
+  user: CurrentUser,
+  history: ChatTurn[],
+  emit: (e: AssistantStreamEvent) => void,
+  opts: { model?: string; personalContext?: string | null; origin?: "text" | "voice" | "nudge" } = {},
+): Promise<AssistantResult> {
+  return withTurn(routeOf(opts.origin), async (trace) => {
+    try {
+      // LE PREMIER SIGNE DE VIE est marqué au premier événement réellement diffusé — pas à
+      // l'entrée de la fonction. C'est la mesure qui compte : un tour qui met six secondes mais
+      // montre quelque chose à 400 ms est vécu comme rapide.
+      return await runAssistantStreamImpl(user, history, (e) => { markPreview(); emit(e); }, opts);
+    } finally {
+      markFinal();
+      logTurn(trace);
+    }
+  });
 }

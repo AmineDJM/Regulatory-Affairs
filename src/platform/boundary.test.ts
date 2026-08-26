@@ -36,7 +36,7 @@ import { scanBoundary, ADAM_PATHS, BRIDGE_PATHS } from "./boundary-scan";
  *
  * ⚠ NE JAMAIS L'AUGMENTER. Le baisser en migrant une tranche, oui — c'est le geste attendu.
  */
-const DEBT_CEILING = 425;
+const DEBT_CEILING = 424;
 
 describe("frontière Adam ↔ ERP", () => {
   const report = scanBoundary();
