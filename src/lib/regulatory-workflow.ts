@@ -266,3 +266,47 @@ export function regTreatmentStarted(state: RegWorkflowState | null | undefined):
   const startN = REG_STEPS.find((s) => s.key === REG_TREATMENT_START_STEP)?.n ?? 3;
   return REG_STEPS.some((s) => s.n >= startN && regStepStatus(state, s.key) === "DONE");
 }
+
+/**
+ * LE CIRCUIT ANPP, VU COMME UNE SUITE D'ÉTAPES DATÉES — pour que le Chief of Staff lise ce que
+ * l'écran affiche, et rien d'autre.
+ *
+ * LE BOGUE QUE CETTE FONCTION FERME. Le dossier Raltegravir montrait « Préparation 22/22 » à
+ * l'écran, et le Chief répondait « Étape courante : Préparation dossier CTD (non démarrée) ».
+ * Les deux disaient vrai — sur DEUX MAGASINS DIFFÉRENTS. L'écran écrit dans
+ * `RegulatoryProduct.workflow` (le JSON coché par l'équipe) ; le Chief lisait la table
+ * `RegulatoryStep`, un second registre que personne ne tient plus. Deux sources pour un même
+ * fait, et la question « où en est ce dossier ? » recevait deux réponses contradictoires — celle
+ * de l'écran, et celle qu'on répète en réunion.
+ *
+ * Il n'y a plus qu'une source : celle où le travail est réellement coché.
+ */
+export function workflowAsSteps(state: RegWorkflowState | null | undefined): {
+  type: string;
+  status: string;
+  plannedDate: Date | null;
+  actualDate: Date | null;
+  missingDocs: string | null;
+  responsible: string | null;
+}[] {
+  return REG_STEPS.map((s) => {
+    const entry = state?.[s.key];
+    const st = regStepStatus(state, s.key);
+    const actual = entry?.date ? new Date(entry.date) : null;
+    return {
+      type: s.key,
+      // Le vocabulaire de l'écran (`TODO`) et celui de l'état exécutif (`NOT_STARTED`) sont deux
+      // dialectes du même fait : on traduit ici, une fois, plutôt que partout.
+      status: st === "TODO" ? "NOT_STARTED" : st === "DOING" ? "IN_PROGRESS" : st,
+      plannedDate: null,
+      actualDate: actual && !Number.isNaN(actual.getTime()) ? actual : null,
+      missingDocs: null,
+      responsible: s.responsible,
+    };
+  });
+}
+
+/** Le circuit a-t-il seulement commencé à être tenu ? Un JSON vide = dossier jamais coché. */
+export function hasWorkflowState(state: RegWorkflowState | null | undefined): boolean {
+  return Boolean(state && Object.keys(state).length > 0);
+}

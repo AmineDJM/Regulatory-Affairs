@@ -20,6 +20,7 @@ import { INVESTIGATION_TOOLS } from "@/lib/assistant/investigation";
 import { ACTION_INTENT_TOOLS } from "@/lib/assistant/action-intents";
 import { WHAT_CHANGED_TOOLS } from "@/lib/assistant/what-changed";
 import { ADAM_TOOLS } from "@/lib/assistant/adam-tools";
+import { DIRECTORY_TOOLS } from "@/lib/assistant/directory-tools";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -257,6 +258,7 @@ export const POWER_TOOLS: PowerTool[] = [
   // ADAM — les sens et les mains du Chief sur ses canaux (Gmail, agenda, Drive Google,
   // bureautique, missions). Meme cerveau, memes portes : ce sont des PowerTools comme les autres.
   ...ADAM_TOOLS,
+  ...DIRECTORY_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */

@@ -8,6 +8,7 @@ import { toNumber } from "@/lib/utils";
 import { getDepartmentPath } from "@/lib/departments";
 import { ROLE_LABELS } from "@/lib/labels";
 import { regulatoryExecutiveState } from "@/lib/assistant/executive-state";
+import { regProgress, workflowAsSteps, hasWorkflowState, type RegWorkflowState } from "@/lib/regulatory-workflow";
 
 /**
  * LES VUES 360° ET LES INSIGHTS ORGANISATIONNELS — comprendre une personne, un produit, un
@@ -293,7 +294,7 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
           id: true, reference: true, dci: true, brandName: true, dosage: true, dosageUnit: true,
           pharmaceuticalForm: true, packaging: true, therapeuticClass: true, partnerLab: true,
           countryOfOrigin: true, status: true, priority: true, manufacturingStatus: true,
-          targetSubmissionDate: true, targetDate: true, comments: true,
+          targetSubmissionDate: true, targetDate: true, comments: true, workflow: true,
           responsible: { select: { name: true } }, assistant: { select: { name: true } },
           company: { select: { shortName: true, name: true } },
           steps: { orderBy: { order: "asc" }, select: { type: true, status: true, plannedDate: true, actualDate: true, comment: true, missingDocs: true, responsible: true } },
@@ -302,9 +303,24 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
       if (!p) return `Produit introuvable.`;
 
       const now = new Date();
-      const stepsDone = p.steps.filter((s) => s.status === "DONE");
-      const nextStep = p.steps.find((s) => s.status !== "DONE");
-      const lateSteps = p.steps.filter((s) => s.status !== "DONE" && s.plannedDate && s.plannedDate < now);
+
+      // LE CIRCUIT COCHÉ FAIT FOI — c'est celui que l'écran Regulatory affiche.
+      //
+      // Il existait deux registres pour un même fait : le JSON `workflow` (coché par l'équipe,
+      // affiché à l'écran) et la table `RegulatoryStep` (un second registre que plus personne ne
+      // tient). Le Chief lisait le second : d'où « Préparation dossier CTD (non démarrée) » sur un
+      // dossier que l'écran montrait à 22/22. On lit désormais le circuit coché dès qu'il existe,
+      // et la table ancienne seulement pour les dossiers qui n'ont jamais été cochés.
+      const workflow = (p.workflow ?? null) as RegWorkflowState | null;
+      const circuitTenu = hasWorkflowState(workflow);
+      const progress = circuitTenu ? regProgress(workflow) : null;
+      const steps = circuitTenu ? workflowAsSteps(workflow) : p.steps;
+
+      const stepsDone = steps.filter((s) => s.status === "DONE");
+      const nextStep = progress
+        ? (progress.current ? steps.find((s) => s.type === progress.current!.key) ?? null : null)
+        : steps.find((s) => s.status !== "DONE") ?? null;
+      const lateSteps = steps.filter((s) => s.status !== "DONE" && s.plannedDate && s.plannedDate < now);
 
       const [snaps, audit] = await Promise.all([
         prisma.stockSnapshot.findMany({
@@ -335,7 +351,10 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
           status: p.status, priority: p.priority,
           targetSubmissionDate: p.targetSubmissionDate, targetDate: p.targetDate,
           responsible: p.responsible?.name ?? null,
-          steps: p.steps,
+          steps,
+          // L'étape que l'écran affiche — verrou de présoumission compris. Absente pour un
+          // dossier jamais coché : la synthèse retombe alors sur son ancien calcul.
+          ...(progress ? { currentType: progress.current?.key ?? null } : {}),
           lastActivity: audit[0] ? { at: audit[0].createdAt, summary: audit[0].summary } : null,
         }),
         fiche: {
@@ -350,7 +369,7 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
           chargeDuDossier: p.responsible?.name ?? "non assigné",
           assistant: p.assistant?.name ?? null,
           cibleDepot: ymd(p.targetSubmissionDate), cibleEnregistrement: ymd(p.targetDate),
-          etapes: { faites: stepsDone.length, total: p.steps.length },
+          etapes: { faites: progress ? progress.done : stepsDone.length, total: progress ? progress.total : steps.length },
           prochaineEtape: nextStep ? { type: nextStep.type, statut: nextStep.status, prevueLe: ymd(nextStep.plannedDate), piecesManquantes: nextStep.missingDocs } : "toutes les étapes sont faites",
           etapesEnRetard: lateSteps.map((s) => ({ type: s.type, prevueLe: ymd(s.plannedDate) })),
         },

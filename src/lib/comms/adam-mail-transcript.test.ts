@@ -1,11 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { MailSendPolicy, OutboundMailStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import {
   buildProposal,
   performAction,
-  resolvePendingMailConfirmation,
+  resolveSpokenMailApproval,
   assistantIdentityContext,
 } from "@/lib/assistant";
 import { createOutboundIntent } from "./outbound";
@@ -64,6 +64,16 @@ suite("transcript réel — l'envoi, l'expéditeur et la confirmation unique", (
     await setMailSendPolicy(MailSendPolicy.REQUIRE_APPROVAL, userId);
   }, 30_000);
 
+  afterEach(async () => {
+    // Depuis que la parole EXÉCUTE, ces cas passent par le vrai transport Gmail : sans jeton
+    // valable, la connexion bascule légitimement en « à reconnecter » — la production fait son
+    // travail. On la relève entre les cas, sinon l'état de l'un déciderait du suivant.
+    await prisma.googleConnection.update({
+      where: { id: connectionId },
+      data: { status: "connected", paused: false, lastError: null },
+    });
+  });
+
   afterAll(async () => {
     await prisma.outboundMailIntent.deleteMany({ where: { connectionId } }).catch(() => {});
     await prisma.assistantActionIntent.deleteMany({ where: { userId } }).catch(() => {});
@@ -107,7 +117,11 @@ suite("transcript réel — l'envoi, l'expéditeur et la confirmation unique", (
     expect(intents[0].sentAt).toBeNull();
   });
 
-  it("« Je confirme. » rend LA carte de l'intention en attente — jamais une seconde proposition", async () => {
+  it("« Je confirme. » EXÉCUTE l'intention en attente — pas une carte de plus à cliquer", async () => {
+    // LE CONTRAT A CHANGÉ, ET C'EST LE CORRECTIF. Une première version faisait rendre à la
+    // confirmation la CARTE de l'intention : mieux que d'en préparer une seconde, mais le PDG
+    // devait encore cliquer ce qu'il venait d'approuver à voix haute. Désormais l'accord
+    // déclenche l'envoi par la MÊME fonction que le bouton.
     await prisma.outboundMailIntent.deleteMany({ where: { connectionId } });
     const prepare = await createOutboundIntent({
       connectionId, userId,
@@ -116,19 +130,25 @@ suite("transcript réel — l'envoi, l'expéditeur et la confirmation unique", (
       bodyText: "Je réussis dorénavant à envoyer des mails.",
     });
 
-    const resolved = await resolvePendingMailConfirmation(user, "Je confirme.");
-    expect(resolved).not.toBeNull();
-    expect(resolved?.kind).toBe("send_prepared_mail");
-    // C'est L'INTENTION EXACTE qui attendait, pas une nouvelle.
-    expect((resolved?.payload as { intentId: string }).intentId).toBe(prepare.id);
+    const done = await resolveSpokenMailApproval(user, "Je confirme.");
+    expect(done, "la confirmation doit être prise en charge").not.toBeNull();
 
-    // Et surtout : le nombre d'intentions n'a pas bougé. Confirmer ne prépare rien.
+    // L'APPROBATION HUMAINE est enregistrée sur l'intention EXACTE — c'est elle qui compte, et
+    // elle est portée par le compte réellement authentifié.
+    const apres = await prisma.outboundMailIntent.findUniqueOrThrow({ where: { id: prepare.id } });
+    expect(apres.approvedById).toBe(userId);
+    expect(apres.approvedHash).toBe(apres.contentHash);
+    // Une tentative d'envoi a bien eu lieu (le transport réel échoue faute de jeton en CI —
+    // ce qui compte ici est qu'on ait EXÉCUTÉ, pas rendu une carte).
+    expect(apres.attempts).toBe(1);
+
+    // Et aucune seconde intention n'a été fabriquée au passage.
     expect(await prisma.outboundMailIntent.count({ where: { connectionId } })).toBe(1);
   });
 
-  it("répéter « oui », puis « envoie » ne crée toujours qu'UNE intention", async () => {
+  it("répéter « oui », « envoie », « vas-y » ne crée jamais d'intention supplémentaire", async () => {
     await prisma.outboundMailIntent.deleteMany({ where: { connectionId } });
-    const prepare = await createOutboundIntent({
+    await createOutboundIntent({
       connectionId, userId,
       recipients: [PDG_MAIL],
       subject: "Test d'envoi de mail",
@@ -136,21 +156,27 @@ suite("transcript réel — l'envoi, l'expéditeur et la confirmation unique", (
     });
 
     for (const mot of ["Je confirme.", "oui", "envoie", "vas-y", "envoie-le"]) {
-      const r = await resolvePendingMailConfirmation(user, mot);
-      expect((r?.payload as { intentId: string })?.intentId, mot).toBe(prepare.id);
+      await resolveSpokenMailApproval(user, mot);
     }
+    // Le point du test : répéter son accord ne fabrique pas de messages. Une seule intention,
+    // et donc au plus un courriel.
     expect(await prisma.outboundMailIntent.count({ where: { connectionId } })).toBe(1);
   });
 
-  it("une RÉSERVE n'est pas un accord : la conversation repart au modèle", async () => {
+  it("une RÉSERVE n'est pas un accord : rien ne part, la conversation repart au modèle", async () => {
     await prisma.outboundMailIntent.deleteMany({ where: { connectionId } });
-    await createOutboundIntent({
+    const prepare = await createOutboundIntent({
       connectionId, userId, recipients: [PDG_MAIL], subject: "Objet", bodyText: "Corps",
     });
-    expect(await resolvePendingMailConfirmation(user, "oui mais change l'objet")).toBeNull();
-    expect(await resolvePendingMailConfirmation(user, "non, annule")).toBeNull();
+    expect(await resolveSpokenMailApproval(user, "oui mais change l'objet")).toBeNull();
+    expect(await resolveSpokenMailApproval(user, "non, annule")).toBeNull();
     // …et la question du transcript 2, qui ne doit surtout pas être prise pour un accord.
-    expect(await resolvePendingMailConfirmation(user, "Tu as reçu des e-mails ou pas ?")).toBeNull();
+    expect(await resolveSpokenMailApproval(user, "Tu as reçu des e-mails ou pas ?")).toBeNull();
+
+    // LA PREUVE : l'intention n'a même pas été approuvée.
+    const intact = await prisma.outboundMailIntent.findUniqueOrThrow({ where: { id: prepare.id } });
+    expect(intact.approvedById).toBeNull();
+    expect(intact.attempts).toBe(0);
   });
 
   it("DEUX messages en attente rendent « oui » ambigu — on ne devine pas", async () => {
@@ -158,12 +184,14 @@ suite("transcript réel — l'envoi, l'expéditeur et la confirmation unique", (
     await createOutboundIntent({ connectionId, userId, recipients: ["a@x.example"], subject: "A", bodyText: "Un" });
     await createOutboundIntent({ connectionId, userId, recipients: ["b@x.example"], subject: "B", bodyText: "Deux" });
     // Choisir au hasard entre deux messages à expédier serait la pire réponse possible.
-    expect(await resolvePendingMailConfirmation(user, "Je confirme.")).toBeNull();
+    expect(await resolveSpokenMailApproval(user, "Je confirme.")).toBeNull();
+    // Et rien n'a été approuvé au passage.
+    expect(await prisma.outboundMailIntent.count({ where: { connectionId, approvedById: { not: null } } })).toBe(0);
   });
 
-  it("sans rien en attente, « oui » ne fabrique aucune carte d'envoi", async () => {
+  it("sans rien en attente, « oui » ne déclenche aucun envoi", async () => {
     await prisma.outboundMailIntent.deleteMany({ where: { connectionId } });
-    expect(await resolvePendingMailConfirmation(user, "oui")).toBeNull();
+    expect(await resolveSpokenMailApproval(user, "oui")).toBeNull();
   });
 
   // ═════════════ LA PORTE DÉROBÉE ═════════════

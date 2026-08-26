@@ -2,7 +2,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { MailSendPolicy, OutboundMailStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
-import { buildProposal, performAction, resolvePendingMailConfirmation } from "@/lib/assistant";
+import { buildProposal, performAction, resolveSpokenMailApproval } from "@/lib/assistant";
+import { solePendingMailIntent } from "./approve-execute";
 import { approveOutboundIntent, sendOutboundIntent, type MailTransport } from "./outbound";
 import { buildMimeMessage } from "@/lib/google/gmail/mime";
 import { setMailSendPolicy } from "./policy";
@@ -21,7 +22,7 @@ import { setMailSendPolicy } from "./policy";
  * limites pour valoir quelque chose :
  *
  *   • Exercé : la chaîne serveur complète et RÉELLE — `buildProposal`, l'intention canonique,
- *     `resolvePendingMailConfirmation`, `performAction`, l'approbation liée à l'empreinte, la
+ *     `resolveSpokenMailApproval`, `performAction`, l'approbation liée à l'empreinte, la
  *     transition atomique, et jusqu'à l'en-tête `From:` du message MIME effectivement construit.
  *   • Non exercé : l'appel HTTP à Google. Il n'y a pas de jeton valable en intégration continue,
  *     et un test qui dépendrait d'un compte réel serait instable, lent et impossible à rejouer.
@@ -109,9 +110,11 @@ suite("scénario golden — préparer, confirmer une seule fois, partir une seul
     expect(intent.approvedById).toBeNull();
     expect(intent.sentAt).toBeNull();
 
-    // ── 2. « Je confirme. » — LA MÊME intention revient, pas une nouvelle ──
-    const reprise = await resolvePendingMailConfirmation(user, "Je confirme.");
-    expect((reprise?.payload as { intentId: string })?.intentId).toBe(intentId);
+    // ── 2. « Je confirme. » désigne CETTE intention, et pas une nouvelle ──
+    // (l'exécution par la parole est éprouvée dans son propre cas ci-dessous ; ici on isole la
+    // RÉSOLUTION, pour pouvoir observer l'envoi au travers d'un transport espion.)
+    const vise = await solePendingMailIntent(userId);
+    expect(vise?.id).toBe(intentId);
     expect(await prisma.outboundMailIntent.count({ where: { connectionId } })).toBe(1);
 
     // ── 3. L'APPROBATION porte le contenu exact, et l'humain est nommé ──
@@ -150,7 +153,7 @@ suite("scénario golden — préparer, confirmer une seule fois, partir une seul
       kind: "send_prepared_mail", intentId, subject: OBJET, recipients: [DEST], missionId: null,
     });
     expect(rejeu.ok).toBe(true);
-    expect(rejeu.message).toMatch(/déjà parti/i);
+    expect(rejeu.message).toMatch(/déjà envoyé/i);
     const final = await prisma.outboundMailIntent.findUniqueOrThrow({ where: { id: intentId } });
     expect(final.attempts).toBe(1);
     expect(final.providerMessageId).toBe("gmail-1");
@@ -214,7 +217,7 @@ suite("scénario golden — préparer, confirmer une seule fois, partir une seul
       "Qu'est-ce qui est arrivé récemment ?",
       "Deepak a répondu ?",
     ]) {
-      expect(await resolvePendingMailConfirmation(user, question), question).toBeNull();
+      expect(await resolveSpokenMailApproval(user, question), question).toBeNull();
     }
     // L'intention préparée n'a pas bougé d'un iota : elle attend toujours, sans être partie.
     const apres = await prisma.outboundMailIntent.findFirstOrThrow({ where: { connectionId } });

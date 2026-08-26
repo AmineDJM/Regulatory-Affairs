@@ -1,5 +1,6 @@
 import { REGULATORY_STEP_TYPE } from "@/lib/labels";
 import { FINISHED_REG_STATUSES } from "@/lib/regulatory/stage";
+import { REG_STEPS } from "@/lib/regulatory-workflow";
 
 /**
  * ÉTAT EXÉCUTIF PRÉCALCULÉ — « precompute intelligence, not only data ».
@@ -43,11 +44,21 @@ export interface RegulatoryStateInput {
   targetDate: Date | null;
   responsible: string | null;
   steps: RegStepInput[];
+  /**
+   * L'ÉTAPE OÙ L'ÉCRAN DIT QUE LE DOSSIER SE TROUVE — `null` quand le circuit est terminé.
+   *
+   * Fournie par l'appelant qui a lu le circuit coché (`regProgress`), verrou de présoumission
+   * compris. Absente (`undefined`) pour les dossiers d'avant le circuit : on retombe alors sur
+   * la première étape non terminée.
+   */
+  currentType?: string | null;
   /** Dernier mouvement tracé du dossier (journal d'audit), s'il existe. */
   lastActivity: { at: Date; summary: string | null } | null;
 }
 
-const stepLabel = (type: string): string => REGULATORY_STEP_TYPE[type] ?? type;
+/** Le libellé d'une étape — que la clé vienne du circuit coché ou de l'ancienne table. */
+const stepLabel = (type: string): string =>
+  REGULATORY_STEP_TYPE[type] ?? REG_STEPS.find((s) => s.key === type)?.label ?? type;
 
 /**
  * La synthèse exécutive d'un dossier Regulatory : étape courante, bloqueur DÉRIVÉ (étape
@@ -56,7 +67,17 @@ const stepLabel = (type: string): string => REGULATORY_STEP_TYPE[type] ?? type;
  */
 export function regulatoryExecutiveState(p: RegulatoryStateInput, now = new Date()): Record<string, unknown> {
   const done = p.steps.filter((s) => s.status === "DONE");
-  const currentIdx = p.steps.findIndex((s) => s.status !== "DONE");
+
+  // OÙ EN EST LE DOSSIER — la réponse vient de l'ÉCRAN quand l'écran l'a calculée.
+  //
+  // `currentType` est l'étape que le module Regulatory affiche réellement, verrou de
+  // présoumission compris. La recalculer ici donnerait une SECONDE réponse à la même question :
+  // c'est exactement ce qui a fait dire au Chief « Préparation dossier CTD (non démarrée) » sur
+  // un dossier que l'écran montrait à 22/22. Quand l'appelant la fournit, elle fait foi ; sinon
+  // on retombe sur la première étape non terminée, pour les dossiers d'avant le circuit coché.
+  const currentIdx = p.currentType !== undefined
+    ? (p.currentType === null ? -1 : p.steps.findIndex((s) => s.type === p.currentType))
+    : p.steps.findIndex((s) => s.status !== "DONE");
   const current = currentIdx >= 0 ? p.steps[currentIdx] : null;
   const next = currentIdx >= 0 ? p.steps[currentIdx + 1] ?? null : null;
 

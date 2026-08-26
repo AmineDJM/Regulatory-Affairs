@@ -769,6 +769,55 @@ intention en attente, et moins de deux heures. Hors de là, la conversation suit
 (`assistantIdentityContext`), injectés en texte comme à la voix. Interrogé, il ne répond plus
 « je m'appelle Assistant IA » ni « j'envoie depuis ta boîte » : ce sont des faits lus, pas devinés.
 
+**UNE AUTORITÉ, DEUX INTERFACES.** Cliquer « Envoyer » et dire « vas-y, envoie » appellent
+EXACTEMENT la même fonction — `approveAndExecuteIntent` (`src/lib/comms/approve-execute.ts`). Il y
+avait deux logiques : le clic exécutait, la parole… réaffichait la carte, et le PDG devait cliquer
+ce qu'il venait d'approuver à voix haute. Une carte n'est pas l'autorisation, c'est sa
+REPRÉSENTATION. Les garanties ne bougent pas d'un pouce (empreinte du contenu approuvé,
+approbateur humain, transition atomique, politique relue) : on a retiré un CLIC, pas un contrôle.
+
+**LE DÉBIT AVANT LA POLITESSE.** `src/lib/assistant/chief-style.ts` porte la règle de style —
+résultat d'abord, 1 à 3 phrases, aucune question en fin de réponse, et surtout : ne pas demander ce
+qui se déduit. « Envoie un mail à Amine » n'appelle plus « quel objet ? quel contenu ? » : l'objet
+(« Prise de nouvelles ») et le corps sont écrits, MONTRÉS sur la carte, et rectifiables d'un geste.
+Un défaut visible vaut mieux qu'un aller-retour. La seule question qui subsiste est celle où se
+tromper coûte cher : « Amine : Pharmagene ou Gmail ? »
+
+### L'ANNUAIRE INTERNE — l'identité des personnes, avec sa provenance
+
+Adam disait « je n'ai pas son adresse » à propos de collègues dont l'ERP connaissait l'adresse. La
+résolution ne regardait qu'une colonne (`User.email`), sans variantes, sans alias, sans savoir ce
+qu'elle valait. `DirectoryEntry` / `DirectoryEndpoint` ajoutent ce qu'aucune fiche ne portait — les
+MOYENS DE JOINDRE quelqu'un — sans jamais dupliquer le nom, le poste ni le département, qui restent
+aux RH : l'entrée POINTE vers `User` / `Employee` / `CompanyContact`.
+
+Chaque coordonnée porte sa PROVENANCE, et l'ordre décide où part le courrier :
+`VERIFIED_INTERNAL` (saisie et vérifiée en interne) > `VERIFIED_PROVIDER` (compte / fiche ERP) >
+`OBSERVED_HISTORY` (vue dans une correspondance) > `INFERRED`. Google n'est PAS le carnet
+d'adresses de l'entreprise : ce qu'on a vu passer dans une boîte est un indice, jamais un
+référentiel — il vient après tout ce que l'entreprise maintient.
+
+Deux adresses vérifiées à égalité → UNE question courte, jamais un tirage au sort. Un mot du PDG
+(« de Pharmagene », « sa Gmail ») suffit à trancher. L'assistante de direction enrichit l'annuaire
+sur `/moyens-generaux/annuaire` (RBAC : Direction, Super Admin, Moyens généraux ou RH en écriture ;
+chaque geste audité). Adam le LIT (`directory_lookup`, `directory_list`) et n'y écrit jamais :
+laisser une conversation changer une adresse ouvrirait un détournement de courrier trivial.
+
+Fichiers : `src/lib/directory/` (resolve, rank, normalize, access), `src/lib/actions/directory-actions.ts`,
+`src/lib/assistant/directory-tools.ts`, `src/app/(app)/moyens-generaux/annuaire/people-directory.tsx`.
+
+### Regulatory — l'avancement d'un dossier a UNE source
+
+Le dossier Raltegravir affichait « 22/22 » à l'écran pendant que le Chief annonçait « Étape
+courante : Préparation dossier CTD (non démarrée) ». Les deux disaient vrai sur deux magasins
+différents : l'écran écrit dans `RegulatoryProduct.workflow` (le JSON coché par l'équipe), le Chief
+lisait la table `RegulatoryStep`, un registre parallèle que plus personne ne tient. Un assistant
+qui contredit l'application n'est plus consultable — c'est pire qu'une erreur isolée.
+
+`workflowAsSteps` + `regProgress` font désormais foi partout, verrou de présoumission compris ; la
+table ancienne ne sert plus qu'aux dossiers jamais cochés. Verrouillé par
+`src/lib/assistant/regulatory-step-truth.test.ts`.
+
 Le coupe-circuit sortant **prime sur l'envoi autonome** (`decideSend` le teste en premier).
 
 **Adam ne devient jamais sourd.** Le push Gmail est rapide mais fragile : un redémarrage au

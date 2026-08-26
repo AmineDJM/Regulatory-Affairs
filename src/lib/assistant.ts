@@ -54,6 +54,10 @@ import { getCommunicationPolicy, setMailSendPolicy, parseMailPolicyPhrase, POLIC
 import { approveOutboundIntent, sendOutboundIntent, createOutboundIntent } from "@/lib/comms/outbound";
 import { resolveOutboundIdentity, isIdentity, formatIdentity } from "@/lib/comms/identity";
 import { classifyReply } from "@/lib/comms/confirmation";
+import { approveAndExecuteIntent, solePendingMailIntent, type MailExecutionResult } from "@/lib/comms/approve-execute";
+import { CHIEF_STYLE_RULES, inferMailSubject, defaultMailBody, firstNameOf } from "@/lib/assistant/chief-style";
+import { findPeople as findDirectoryPeople } from "@/lib/directory/resolve";
+import { decideAddress, askWhichAddress } from "@/lib/directory/rank";
 import { gmailTransport } from "@/lib/google/gmail/transport";
 import { markMissionAsked } from "@/lib/comms/missions";
 import { MailSendPolicy } from "@prisma/client";
@@ -1366,16 +1370,22 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "send_email",
     description:
-      "PROPOSE l'envoi d'un e-mail depuis la boîte mail de l'utilisateur (module Courrier). N'exécute rien : confirmation requise. Le destinataire `to` doit être une ADRESSE e-mail (ex. nom@domaine.dz). Pour écrire à un collègue en INTERNE, préférer send_message. Pour répondre à un mail reçu, le lire d'abord avec read_email pour récupérer l'adresse de l'expéditeur.",
+      "PRÉPARE un e-mail depuis TON adresse et affiche la carte d'approbation — UN SEUL appel suffit, il n'y a rien à préparer ensuite. "
+      + "`to` accepte une ADRESSE (nom@domaine.dz) ou un NOM : l'annuaire interne le résout, et rend l'adresse professionnelle vérifiée. "
+      + "`subject` et `body` sont FACULTATIFS : sans eux, un objet et un corps sensés sont écrits pour toi (« Prise de nouvelles »). "
+      + "Ne demande donc JAMAIS « quel objet ? » ni « quel contenu ? » avant d'appeler cet outil — appelle-le, la carte montre le texte et il se corrige d'un geste. "
+      + "`addressHint` sert quand la personne a plusieurs adresses et que le PDG a précisé laquelle (« de Pharmagene », « sa Gmail »). "
+      + "Pour écrire à un collègue dans la messagerie INTERNE, préférer send_message.",
     input_schema: {
       type: "object",
       properties: {
-        to: { type: "string", description: "Adresse e-mail du destinataire." },
+        to: { type: "string", description: "Adresse e-mail OU nom de la personne (résolu par l'annuaire)." },
+        addressHint: { type: "string", description: "Laquelle de ses adresses, si le PDG l'a précisé (« Pharmagene », « Gmail »)." },
         cc: { type: "string", description: "Adresse(s) en copie, séparées par des virgules (optionnel)." },
-        subject: { type: "string", description: "Objet du mail." },
-        body: { type: "string", description: "Corps du mail (texte)." },
+        subject: { type: "string", description: "Objet du mail. Facultatif — déduit si absent." },
+        body: { type: "string", description: "Corps du mail (texte). Facultatif — rédigé si absent." },
       },
-      required: ["to", "subject", "body"],
+      required: ["to"],
     },
   },
   {
@@ -2052,6 +2062,8 @@ INTERPRÉTATION DES DEMANDES (très important) :
 - Pour tout sujet qualité ou pharmacovigilance, reste prudent et demande confirmation renforcée à l'humain ;
   ne crée rien automatiquement.
 ${regExpertise}
+${CHIEF_STYLE_RULES}
+
 STYLE DE RÉPONSE — IMPÉRATIF :
 - Écris en TEXTE SIMPLE, lisible, SANS Markdown : PAS d'astérisques (** ou *), PAS de dièses (#), PAS de
   tableaux, PAS de balises de code. Pour mettre en avant, écris normalement ; pour une liste, utilise des
@@ -2942,12 +2954,32 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     // — préparer, ANNONCER, attendre un « je confirme » en français, PUIS afficher la carte —
     // faisait confirmer deux fois le même envoi. Ici il n'y a qu'un accord possible : celui de
     // la carte.
-    const to = asStr(input, "to");
-    const subject = asStr(input, "subject");
-    const body = asStr(input, "body");
     const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
-    if (!to || !isEmail(to)) return { error: "Adresse e-mail du destinataire manquante ou invalide." };
-    if (!body) return { error: "Le corps de l'e-mail est vide." };
+    const rawTo = asStr(input, "to");
+    if (!rawTo) return { error: "À qui ?" };
+
+    // LE DESTINATAIRE PEUT ÊTRE UN NOM. « Envoie un mail à Raihana » doit marcher : on interroge
+    // l'annuaire interne AVANT de renoncer. Deux adresses vérifiées et aucun indice pour
+    // trancher → UNE question courte, jamais un choix au hasard.
+    let to = rawTo.toLowerCase();
+    if (!isEmail(rawTo)) {
+      const people = await findDirectoryPeople(rawTo, 3);
+      if (people.length === 0) return { error: `Aucune trace de « ${rawTo} » dans l'annuaire — donnez-moi son adresse.` };
+      if (people.length > 1) {
+        return { error: `Plusieurs personnes portent ce nom : ${people.map((p) => p.name).join(", ")}. Laquelle ?` };
+      }
+      const decision = decideAddress(people[0].endpoints, asStr(input, "addressHint") || rawTo);
+      if (decision.kind === "none") return { error: `Je n'ai aucune adresse pour ${people[0].name}.` };
+      if (decision.kind === "ask") return { error: askWhichAddress(people[0].name, decision.options) };
+      to = decision.address.value;
+    }
+    if (!isEmail(to)) return { error: "Adresse e-mail du destinataire manquante ou invalide." };
+
+    // OBJET ET CORPS SE DÉDUISENT. Demander « quel objet ? » pour une prise de nouvelles fait
+    // perdre un tour et n'améliore rien : la carte montre le texte, et il se corrige d'un geste
+    // avant l'envoi. Un défaut VISIBLE et rectifiable vaut mieux qu'une question de plus.
+    const body = asStr(input, "body") || defaultMailBody(firstNameOf(to));
+    const subject = asStr(input, "subject") || inferMailSubject(body);
     const cc = asStr(input, "cc").trim();
     if (cc && !cc.split(",").every((p) => isEmail(p.trim()))) return { error: "Adresse(s) en copie invalide(s)." };
 
@@ -4400,14 +4432,13 @@ export async function runAssistant(
   // de la PROFONDEUR : une décision demandée mérite la seconde passe critique.
   const question = String(messages[messages.length - 1]?.content ?? "");
 
-  // UN ACCORD CONCLUT, IL NE RELANCE PAS. « Je confirme » sur un message qui attend rend LA
-  // carte de CE message — sans repasser par le modèle, donc sans risque d'en fabriquer un second.
-  const confirmed = await resolvePendingMailConfirmation(user, question).catch(() => null);
-  if (confirmed) {
-    const ids = await persistActionIntents(user.id, [confirmed], opts.origin ?? "text");
-    if (ids[0]) confirmed.intentId = ids[0];
-    const reply = `Voici le message prêt à partir. Confirmez l'envoi sur la carte — c'est la seule et dernière étape.`;
-    return { configured: true, ok: true, reply, trace: [], proposal: confirmed, proposals: [confirmed] };
+  // UN ACCORD CONCLUT. « Vas-y, envoie » sur un message qui attend l'EXPÉDIE — même fonction que
+  // le bouton de la carte, sans repasser par le modèle : pas de second message préparé, pas de
+  // carte de plus à cliquer.
+  const spoken = await resolveSpokenMailApproval(user, question).catch(() => null);
+  if (spoken) {
+    const reply = spoken.ok ? (spoken.message ?? "Envoyé.") : (spoken.error ?? "Envoi impossible.");
+    return { configured: true, ok: true, reply, trace: [] };
   }
 
   const highStakes = isHighStakesQuestion(question);
@@ -4602,50 +4633,32 @@ export function extractSources(raw: string): { label: string; href: string }[] {
  * interceptée et proposée, jamais exécutée. Ne lève jamais.
  */
 /**
- * Une confirmation en français ne doit pas relancer une préparation — elle doit CONCLURE celle
- * qui attend. Fenêtre volontairement courte : « oui » dit demain matin ne porte plus sur le
- * message d'hier soir.
- */
-const MAIL_CONFIRMATION_WINDOW_MS = 2 * 3_600_000;
-
-/**
- * « JE CONFIRME. » → LA CARTE DE L'INTENTION EXACTE QUI ATTEND. Rien d'autre.
+ * « VAS-Y, ENVOIE. » → LE MESSAGE PART. Pas une carte de plus.
  *
- * LE BOGUE QUE CETTE FONCTION FERME. Adam demandait « Tu confirmes l'envoi ? » en texte, le PDG
- * répondait « Je confirme. » — et rien, côté serveur, ne reliait cette phrase à l'intention en
- * attente. Le message repartait donc dans le modèle comme une demande ordinaire : Adam annonçait
- * « je prépare le mail maintenant » et affichait une SECONDE carte. Le PDG confirmait deux fois.
+ * LE BOGUE QUE CETTE FONCTION FERME — et il a eu deux vies. D'abord, « je confirme » repartait
+ * dans le modèle comme une demande ordinaire, qui préparait un SECOND message. Corrigé, la
+ * confirmation rendait alors la carte de l'intention exacte… que le PDG devait encore cliquer.
+ * Mieux, mais toujours faux : on lui demandait de confirmer par un geste ce qu'il venait
+ * d'approuver par une phrase. Une carte n'est pas l'autorisation, c'est sa REPRÉSENTATION.
  *
- * On tranche ici, avant le modèle, parce que c'est une question d'AUTORITÉ et non de formulation :
- * l'accord porte sur une intention précise, déjà écrite, déjà hachée. La retrouver est un travail
- * de serveur, pas de rédaction.
+ * Le serveur exécute donc directement, par la MÊME fonction que le bouton de la carte.
  *
  * TROIS CONDITIONS, ET LES TROIS SONT DES GARDE-FOUS :
- *   • la phrase est un accord SANS RÉSERVE (`classifyReply`, volontairement strict) ;
- *   • il n'y a qu'UNE SEULE intention en attente — deux, et « oui » redevient ambigu, donc c'est
- *     au modèle (puis à la personne) de désigner laquelle ;
+ *   • la phrase est un accord SANS RÉSERVE (`classifyReply`, volontairement strict — « oui mais
+ *     change l'objet » n'en est pas un) ;
+ *   • il n'y a qu'UNE SEULE intention en attente : deux, et « oui » redevient ambigu ;
  *   • elle est RÉCENTE — un accord ne rattrape pas un message oublié depuis des heures.
  *
  * Hors de ces conditions, on ne fait rien : la conversation suit son cours normal.
  */
-export async function resolvePendingMailConfirmation(
+export async function resolveSpokenMailApproval(
   user: CurrentUser,
   lastUserMessage: string,
-): Promise<ProposedAction | null> {
+): Promise<MailExecutionResult | null> {
   if (classifyReply(lastUserMessage) !== "CONFIRM") return null;
-  const waiting = await prisma.outboundMailIntent.findMany({
-    where: {
-      userId: user.id,
-      status: "AWAITING_APPROVAL",
-      createdAt: { gte: new Date(Date.now() - MAIL_CONFIRMATION_WINDOW_MS) },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 2,
-    select: { id: true },
-  }).catch(() => []);
-  if (waiting.length !== 1) return null;
-  const card = await mailApprovalCard(waiting[0].id, user, []);
-  return "error" in card ? null : card;
+  const pending = await solePendingMailIntent(user.id);
+  if (!pending) return null;
+  return approveAndExecuteIntent(user, pending.id);
 }
 
 export async function runAssistantStream(
@@ -4667,15 +4680,13 @@ export async function runAssistantStream(
   const intentsCtx = await recentActionIntentsContext(user.id).catch(() => null);
   const question = String(messages[messages.length - 1]?.content ?? "");
 
-  // UN ACCORD CONCLUT, IL NE RELANCE PAS — même règle qu'en variante non diffusée, et pour la
-  // même raison : c'est le serveur qui sait quelle intention attend, pas la rédaction.
-  const confirmed = await resolvePendingMailConfirmation(user, question).catch(() => null);
-  if (confirmed) {
-    const ids = await persistActionIntents(user.id, [confirmed], opts.origin ?? "text");
-    if (ids[0]) confirmed.intentId = ids[0];
-    const reply = "Voici le message prêt à partir. Confirmez l'envoi sur la carte — c'est la seule et dernière étape.";
+  // UN ACCORD CONCLUT — même règle qu'en variante non diffusée, et pour la même raison : c'est
+  // le serveur qui sait quelle intention attend, et c'est lui qui l'expédie.
+  const spoken = await resolveSpokenMailApproval(user, question).catch(() => null);
+  if (spoken) {
+    const reply = spoken.ok ? (spoken.message ?? "Envoyé.") : (spoken.error ?? "Envoi impossible.");
     emit({ type: "delta", text: reply });
-    return { configured: true, ok: true, reply, trace: [], proposal: confirmed, proposals: [confirmed], metrics: { ttftMs: 0, turns: 0, toolCalls: 0, toolErrors: 0, toolLatencyMs: 0 } };
+    return { configured: true, ok: true, reply, trace: [], metrics: { ttftMs: 0, turns: 0, toolCalls: 0, toolErrors: 0, toolLatencyMs: 0 } };
   }
 
   const highStakes = isHighStakesQuestion(question);
@@ -5454,46 +5465,10 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
   }
 
   if (payload?.kind === "send_prepared_mail") {
-    // LE SEUL CHEMIN DE SORTIE. `approveOutboundIntent` lie l'approbation au contenu EXACT, puis
-    // `sendOutboundIntent` relit la politique COURANTE, revérifie l'empreinte et gagne (ou perd)
-    // la transition atomique vers l'envoi. Un double clic perd la course et n'expédie rien.
-    //
-    // LE REJEU SE RÉPOND, IL NE S'ERREUR PAS. Une carte reconfirmée après coup — onglet resté
-    // ouvert, clic répété, réseau rejoué — décrit un envoi DÉJÀ fait. `sendOutboundIntent` sait
-    // le dire (`alreadySent`), mais l'approbation, elle, refusait d'abord : le PDG voyait une
-    // erreur rouge pour un message parti normalement. On rend donc le reçu du PREMIER envoi.
-    const already = await prisma.outboundMailIntent.findFirst({
-      where: { id: payload.intentId, userId: user.id, status: "SENT" },
-      select: { providerMessageId: true, sentAt: true },
-    });
-    if (already) {
-      return {
-        ok: true,
-        message: `Ce message était déjà parti${already.sentAt ? ` (${already.sentAt.toLocaleString("fr-FR")})` : ""} — rien n'a été renvoyé (référence ${already.providerMessageId || "—"}).`,
-        link: "/chief-of-staff",
-      };
-    }
-
-    const approved = await approveOutboundIntent(payload.intentId, user.id);
-    if ("error" in approved) return { ok: false, error: approved.error };
-    const sent = await sendOutboundIntent(payload.intentId, gmailTransport);
-    if (!sent.ok) {
-      return { ok: false, error: "blocked" in sent && sent.blocked ? sent.message : sent.error };
-    }
-    await recordAudit({
-      actorId: user.id, action: "CREATE", module: "Chief of Staff",
-      summary: `Courriel envoyé (Adam) — « ${payload.subject} » à ${payload.recipients.join(", ")}`,
-    });
-    if (payload.missionId) {
-      await markMissionAsked(payload.missionId).catch(() => undefined);
-    }
-    return {
-      ok: true,
-      message: sent.alreadySent
-        ? `Ce message était déjà parti — rien n'a été renvoyé (référence ${sent.providerMessageId || "—"}).`
-        : `Message envoyé à ${payload.recipients.join(", ")}.`,
-      link: "/chief-of-staff",
-    };
+    // LE CLIC SUR « ENVOYER » — l'une des DEUX interfaces de la même autorité. L'autre est la
+    // parole (« vas-y, envoie »). Toutes deux appellent cette fonction-là, pas une logique
+    // jumelle : c'est ce qui garantit qu'un durcissement profite aux deux sans qu'on y pense.
+    return approveAndExecuteIntent(user, payload.intentId);
   }
 
   if (payload?.kind === "set_mail_policy") {

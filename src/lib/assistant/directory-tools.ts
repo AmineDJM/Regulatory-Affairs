@@ -1,0 +1,155 @@
+import type { PowerTool } from "@/lib/assistant/power-tools";
+import type { CurrentUser } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
+import { DirectoryChannel } from "@prisma/client";
+import { findPeople } from "@/lib/directory/resolve";
+import { canReadDirectory } from "@/lib/directory/access";
+import { userCan } from "@/lib/rbac";
+
+/**
+ * L'ANNUAIRE, VU PAR ADAM — pour qu'il cesse de répondre « je n'ai pas son adresse ».
+ *
+ * Deux outils, et la frontière entre eux est celle de la question posée :
+ *
+ *   • `directory_lookup` — UNE personne. « L'adresse de Raihana ? » Il rend ses coordonnées avec
+ *     leur PROVENANCE, parce qu'une adresse vérifiée en interne et une adresse aperçue dans un
+ *     vieux fil ne se valent pas, et que le PDG a le droit de savoir laquelle il regarde.
+ *
+ *   • `directory_list` — LA LISTE. « Donne-moi les salariés et leurs e-mails » est une demande de
+ *     tableau, pas le début d'une conversation : demander « pour une personne ou toute la
+ *     liste ? » fait perdre un tour sur une question déjà tranchée par la phrase.
+ *
+ * Ils LISENT, ils n'écrivent pas : enrichir l'annuaire est le geste de l'assistante de direction,
+ * sur son écran, avec l'audit qui va avec.
+ */
+
+const str = (input: Record<string, unknown>, key: string): string =>
+  typeof input[key] === "string" ? (input[key] as string).trim() : "";
+
+const CONFIDENCE_LABEL: Record<string, string> = {
+  VERIFIED_INTERNAL: "vérifiée en interne",
+  VERIFIED_PROVIDER: "compte / fiche ERP",
+  OBSERVED_HISTORY: "vue en correspondance",
+  INFERRED: "déduite — à confirmer",
+};
+
+export const DIRECTORY_TOOLS: PowerTool[] = [
+  {
+    def: {
+      name: "directory_lookup",
+      description:
+        "L'ANNUAIRE INTERNE : retrouve une personne (salarié, compte ERP, contact d'entreprise) et TOUTES ses coordonnées — "
+        + "adresses professionnelles, personnelles, téléphone, WhatsApp — avec la PROVENANCE de chacune. "
+        + "À utiliser dès qu'il faut une adresse ou un numéro : « l'e-mail de Raihana », « le numéro de l'imprimeur », « comment joindre Deepak ». "
+        + "Ne JAMAIS répondre « je n'ai pas son adresse » sans avoir appelé cet outil.",
+      input_schema: {
+        type: "object",
+        properties: { name: { type: "string", description: "Nom, prénom ou alias de la personne cherchée." } },
+        required: ["name"],
+      },
+    },
+    allowed: canReadDirectory,
+    label: "Annuaire consulté",
+    run: async (input) => {
+      const name = str(input, "name");
+      if (name.length < 2) return "Donnez le nom de la personne.";
+      const people = await findPeople(name, 5);
+      if (people.length === 0) {
+        return JSON.stringify({
+          resultat: "personne introuvable",
+          precision: `Aucune entrée « ${name} » dans l'annuaire interne, les fiches RH, les comptes ERP ni les contacts d'entreprise.`,
+        });
+      }
+      return JSON.stringify({
+        personnes: people.map((p) => ({
+          nom: p.name,
+          poste: p.jobTitle,
+          entite: p.company,
+          coordonnees: p.endpoints.map((e) => ({
+            canal: e.channel === DirectoryChannel.EMAIL ? "e-mail" : e.channel === DirectoryChannel.PHONE ? "téléphone" : "WhatsApp",
+            valeur: e.value,
+            usage: e.label,
+            fiabilite: CONFIDENCE_LABEL[e.confidence] ?? e.confidence,
+            principale: e.isPrimary || undefined,
+          })),
+        })),
+        note: "Pour écrire, préférer une coordonnée vérifiée. Si deux adresses vérifiées coexistent, demander laquelle en UNE question courte.",
+      });
+    },
+  },
+
+  {
+    def: {
+      name: "directory_list",
+      description:
+        "LA LISTE des personnes de l'entreprise avec leurs coordonnées — répond directement à « donne-moi les salariés et leurs e-mails », "
+        + "« la liste des contacts », « qui travaille au service réglementaire ». Rend un tableau prêt à lire. "
+        + "Ne JAMAIS demander « pour une personne ou toute la liste ? » quand la demande porte déjà sur la liste.",
+      input_schema: {
+        type: "object",
+        properties: {
+          department: { type: "string", description: "Filtrer sur un département (optionnel)." },
+          limit: { type: "number", description: "Nombre maximum de lignes (défaut 100)." },
+        },
+      },
+    },
+    // CHERCHER QUELQU'UN ≠ EXTRAIRE TOUT LE MONDE. Retrouver l'adresse d'un collègue est un
+    // geste d'annuaire, ouvert. Sortir le registre COMPLET avec les coordonnées de chacun est
+    // une extraction : elle se réserve à ceux qui ont déjà accès au personnel (RH) ou la vue
+    // globale (PDG, Super Admin) — précisément ceux qui demandent « les salariés et leurs mails ».
+    allowed: (u) => u.role === "SUPER_ADMIN" || u.role === "DIRECTION" || userCan(u, "RH", "VIEW"),
+    label: "Liste de l'annuaire",
+    run: async (input) => {
+      const department = str(input, "department");
+      const limit = Math.min(typeof input.limit === "number" ? input.limit : 100, 300);
+
+      const employees = await prisma.employee.findMany({
+        where: {
+          isActive: true,
+          ...(department ? { department: { contains: department, mode: "insensitive" } } : {}),
+        },
+        orderBy: { fullName: "asc" },
+        take: limit,
+        select: {
+          id: true, fullName: true, position: true, department: true, email: true, phone: true,
+          company: { select: { shortName: true, name: true } },
+          user: { select: { email: true } },
+          directoryEntry: { select: { endpoints: { where: { isActive: true }, select: { channel: true, value: true, label: true, confidence: true, isPrimary: true } } } },
+        },
+      });
+
+      if (employees.length === 0) {
+        return JSON.stringify({ resultat: "aucun salarié", precision: department ? `Aucun salarié actif dans « ${department} ».` : "Le registre RH est vide." });
+      }
+
+      return JSON.stringify({
+        total: employees.length,
+        salaries: employees.map((e) => {
+          // L'annuaire d'abord (il porte les adresses vérifiées et les variantes), puis les
+          // fiches — mais sans jamais rendre deux fois la même adresse.
+          const fromDirectory = (e.directoryEntry?.endpoints ?? []).filter((p) => p.channel === DirectoryChannel.EMAIL);
+          const mails = new Map<string, { adresse: string; usage: string | null; fiabilite: string }>();
+          for (const p of fromDirectory) {
+            mails.set(p.value, { adresse: p.value, usage: p.label, fiabilite: CONFIDENCE_LABEL[p.confidence] ?? p.confidence });
+          }
+          for (const fallback of [e.email, e.user?.email]) {
+            if (fallback && !mails.has(fallback.toLowerCase())) {
+              mails.set(fallback.toLowerCase(), { adresse: fallback.toLowerCase(), usage: "fiche ERP", fiabilite: CONFIDENCE_LABEL.VERIFIED_PROVIDER });
+            }
+          }
+          const phones = (e.directoryEntry?.endpoints ?? []).filter((p) => p.channel !== DirectoryChannel.EMAIL).map((p) => p.value);
+          if (e.phone && !phones.includes(e.phone)) phones.push(e.phone);
+          return {
+            nom: e.fullName,
+            poste: e.position,
+            departement: e.department,
+            entite: e.company?.shortName ?? e.company?.name ?? null,
+            emails: [...mails.values()],
+            telephones: phones.length ? phones : undefined,
+          };
+        }),
+        note: "Source : registre RH + annuaire interne. Une adresse manquante veut dire qu'elle n'est renseignée nulle part — elle s'ajoute dans Moyens généraux → Annuaire.",
+      });
+    },
+  },
+];

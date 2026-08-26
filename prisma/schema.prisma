@@ -994,6 +994,9 @@ model User {
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
 
+  /// Ses moyens de contact vérifiés (annuaire interne) — jamais une copie de son nom ni de son poste.
+  directoryEntry DirectoryEntry? @relation("UserDirectory")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1381,6 +1384,7 @@ model Company {
   mailEntryFolders        MailEntryFolder[]
   medicalDirectories      MedicalDirectory[]
   companyContacts         CompanyContact[]
+  DirectoryEntry          DirectoryEntry[]
 
   @@index([isActive])
 }
@@ -3399,6 +3403,9 @@ model CompanyContact {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  /// Ses moyens de contact vérifiés (annuaire interne).
+  directoryEntry DirectoryEntry? @relation("ContactDirectory")
+
   @@index([companyId])
   @@index([isActive])
   @@index([kind])
@@ -4095,6 +4102,9 @@ model Employee {
   // Compte applicatif lié (un employé peut avoir un accès au logiciel)
   userId String? @unique
   user   User?   @relation("UserEmployee", fields: [userId], references: [id])
+
+  /// Ses moyens de contact vérifiés (annuaire interne).
+  directoryEntry DirectoryEntry? @relation("EmployeeDirectory")
 
   // Hiérarchie (manager / N+1) — manager EXPLICITE ; à défaut, le N+1 est déduit du
   // département (responsable, puis responsable du parent). Voir src/lib/departments.ts.
@@ -9128,4 +9138,112 @@ model MissionEvent {
   at        DateTime @default(now())
 
   @@index([missionId, at])
+}
+
+/// ───────────────────────── ANNUAIRE INTERNE — l'identité des personnes ─────────────────────────
+///
+/// POURQUOI CE MODÈLE EXISTE. Adam savait dire « je n'ai pas son adresse » à propos de quelqu'un
+/// qui travaille dans l'entreprise. L'ERP connaît pourtant `User.email` (le compte) et
+/// `Employee.email` (la fiche RH) — mais une seule adresse chacun, sans provenance, sans variante,
+/// sans alias. Or une personne réelle a une adresse Pharmagene ET une Gmail, un numéro et un
+/// WhatsApp, et on l'appelle « Amine » plutôt que « Mohamed Amine Djouamaii ».
+///
+/// LA RÈGLE : ON NE DUPLIQUE PAS LA VÉRITÉ MÉTIER. Une entrée d'annuaire ne recopie ni le nom, ni
+/// le poste, ni le département d'un salarié : elle POINTE vers son `User` / `Employee`, qui restent
+/// la source. L'annuaire n'ajoute que ce qu'aucune de ces tables ne porte : les MOYENS DE JOINDRE
+/// la personne, avec leur provenance.
+model DirectoryEntry {
+  id String @id @default(cuid())
+
+  /// LE SUJET CANONIQUE — au plus un lien par nature. C'est lui la vérité sur le nom, le poste et
+  /// le rattachement ; l'entrée ne fait que s'y accrocher.
+  userId     String?         @unique
+  user       User?           @relation("UserDirectory", fields: [userId], references: [id], onDelete: Cascade)
+  employeeId String?         @unique
+  employee   Employee?       @relation("EmployeeDirectory", fields: [employeeId], references: [id], onDelete: Cascade)
+  contactId  String?         @unique
+  contact    CompanyContact? @relation("ContactDirectory", fields: [contactId], references: [id], onDelete: Cascade)
+
+  /// Nom affiché — recopié pour la RECHERCHE uniquement (le sujet canonique fait foi quand il
+  /// existe). Seul cas où il fait autorité : une personne externe sans fiche ERP.
+  displayName String
+  /// Les façons dont on la nomme réellement : « Amine », « AD », « M. Djouamaii ».
+  aliases     String[] @default([])
+
+  /// Ce que l'ERP ne porte pas toujours — renseigné seulement si utile, jamais pour doubler.
+  jobTitle        String?
+  location        String?
+  companyId       String?
+  company         Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  /// Identifiant du contact Google correspondant, quand il a été rapproché.
+  googleContactId String?
+  notes           String?
+
+  isActive Boolean @default(true)
+
+  endpoints DirectoryEndpoint[]
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([displayName])
+  @@index([isActive])
+  @@index([companyId])
+}
+
+/// Le CANAL d'un moyen de contact — ce par quoi le message passe.
+enum DirectoryChannel {
+  EMAIL
+  PHONE
+  WHATSAPP
+}
+
+/// D'OÙ VIENT CETTE ADRESSE, et donc ce qu'elle vaut.
+///
+/// L'ordre n'est pas décoratif : il décide quelle adresse Adam retient pour écrire. Une adresse
+/// saisie et vérifiée par l'assistante de direction bat une adresse aperçue dans un vieux fil.
+enum EndpointConfidence {
+  /// Saisie et vérifiée en interne (assistante de direction, RH) — la meilleure.
+  VERIFIED_INTERNAL
+  /// Confirmée par un fournisseur d'identité (compte ERP, Google Contacts).
+  VERIFIED_PROVIDER
+  /// Observée dans une correspondance réelle — plausible, non vérifiée.
+  OBSERVED_HISTORY
+  /// Déduite (règle de nommage, homonymie) — à confirmer avant tout usage sortant.
+  INFERRED
+}
+
+/// UN MOYEN DE JOINDRE quelqu'un. Plusieurs par personne : c'est tout l'objet du modèle.
+model DirectoryEndpoint {
+  id      String         @id @default(cuid())
+  entryId String
+  entry   DirectoryEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  channel DirectoryChannel
+  /// Normalisée pour la comparaison (adresse en minuscules, numéro sans espaces).
+  value   String
+  /// À quoi elle sert, en clair : « Pharmagene », « Gmail », « perso », « mobile ».
+  label   String?
+
+  confidence EndpointConfidence @default(INFERRED)
+  /// L'adresse à privilégier pour ce canal. Une seule à la fois, tenue par la couche métier.
+  isPrimary  Boolean            @default(false)
+  isActive   Boolean            @default(true)
+
+  /// D'où elle vient concrètement (« saisie manuelle », « compte ERP », « Google Contacts »…).
+  source       String?
+  verifiedById String?
+  verifiedAt   DateTime?
+  /// Dernière fois qu'on l'a VUE servir — utile pour les adresses observées.
+  lastSeenAt   DateTime?
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([entryId, channel, value])
+  @@index([channel, value])
+  @@index([entryId, channel, isPrimary])
 }

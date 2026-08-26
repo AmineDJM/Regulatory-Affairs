@@ -1050,6 +1050,13 @@ X("plomberie du planning SFE : get-or-create idempotent du cycle mensuel à l'ou
 X("plomberie / lecture du Drive (initialisation de dossiers, liste des partages) — pas un geste métier", [
   "drive-actions:ensureDriveFolders", "drive-actions:getDriveNodeShares",
 ]);
+X("IDENTITÉ D'ENTREPRISE : l'annuaire décide À QUELLE ADRESSE part un message signé du PDG. Le tenir "
+  + "est un geste d'assistante de direction, posé à l'écran avec son audit — pas une capacité conversationnelle. "
+  + "Adam le LIT (directory_lookup / directory_list) ; le faire écrire ouvrirait un détournement de courrier trivial : "
+  + "il suffirait de lui faire changer une adresse pour rediriger la correspondance de la société", [
+  "directory-actions:ensureDirectoryEntry", "directory-actions:updateDirectoryEntry",
+  "directory-actions:addDirectoryEndpoint", "directory-actions:deactivateDirectoryEndpoint",
+]);
 X("lectures / analyses IA du cockpit et de l'admin — RIEN n'est écrit : le Chief EST déjà cette capacité (il répond, analyse, brief, fiche 360 par ses outils de lecture) ; runAutopilot n'exécute que des propositions du panneau Brain, dont les gestes (tâche, relance) sont natifs via task_operation et les rappels", [
   "adventum-actions:runAutopilot", "adventum-actions:askBrain", "adventum-actions:generateBriefing",
   "adventum-actions:searchRelations", "platform-audit-actions:generatePlatformIdeas",

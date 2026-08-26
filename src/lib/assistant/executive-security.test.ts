@@ -70,6 +70,12 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // pre_meeting_brief : cloisonné PAR REQUÊTE (seules les réunions organisées par soi ou
       // sur invitation) — même design qu'action_history, aucun droit de module requis.
       "pre_meeting_brief",
+      // directory_lookup : l'ANNUAIRE d'une personne — chercher le poste et l'adresse
+      // professionnelle d'un collègue est le geste le plus banal d'une entreprise, et le refuser
+      // ne protège rien (l'adresse figure sur chaque message qu'il envoie). L'EXTRACTION du
+      // registre complet, elle, reste gardée : c'est `directory_list`, réservé aux RH et à la
+      // vue globale.
+      "directory_lookup",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);
