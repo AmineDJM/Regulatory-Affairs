@@ -26,6 +26,7 @@ import { VALIDATION_OPS_IMPL, FIELD_REPORT_OPS_IMPL, SUPPLY_OPS_IMPL } from "./i
 import { PLANNING_OPS_IMPL } from "./impl-wave6c";
 import { ADMIN_REQUEST_OPS_IMPL } from "./impl-wave7";
 import { MEETING7_OPS_IMPL, WORKSPACE7_OPS_IMPL } from "./impl-wave7b";
+import { MESSAGING7_OPS_IMPL, REGREMINDER_OPS_IMPL } from "./impl-wave7c";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -200,7 +201,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   regulatory_operation: {
     module: "REGULATORY",
-    ops: zipOps("regulatory_operation", { ...REGULATORY_OPS_IMPL, ...REG4_OPS_IMPL }),
+    ops: zipOps("regulatory_operation", { ...REGULATORY_OPS_IMPL, ...REG4_OPS_IMPL, ...REGREMINDER_OPS_IMPL }),
     def: {
       name: "regulatory_operation",
       description:
@@ -312,6 +313,36 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           description: { type: "string", description: "Formations : descriptif." },
           people: { type: "string", description: "invite_training_participants : noms séparés par des virgules." },
           newLabel: { type: "string", description: "update_training : nouvel intitulé." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  messaging_operation: {
+    module: "MESSAGING",
+    ops: zipOps("messaging_operation", MESSAGING7_OPS_IMPL),
+    def: {
+      name: "messaging_operation",
+      description:
+        "MESSAGERIE interne — groupes et canaux (création, fiche en FUSION, membres, rôles, quitter, archiver, rejoindre), messages (modifier LE SIEN, supprimer / modérer, réactions, épingles visibles de tous, signets personnels — désignés par EXTRAIT, « dernier » accepté), réglages PERSONNELS par conversation (épingler dans MA liste, sourdine, niveau de notification), statut de présence façon Teams — par les actions canoniques. Pour ENVOYER un message : send_message. "
+        + `Champ « op » : ${opsSummary("messaging_operation")}. `
+        + "La conversation se donne par NOM de groupe / canal, ou par la personne (« target »).",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("messaging_operation"), description: "Le geste à faire." },
+          target: { type: "string", description: "La conversation visée (nom du groupe / canal, ou la personne du direct)." },
+          name: { type: "string", description: "create_group / create_channel : le nom ; join_channel : le canal." },
+          newName: { type: "string", description: "update_conversation : nouveau nom." },
+          people: { type: "string", description: "Membres (noms, virgules) — création, ajout." },
+          person: { type: "string", description: "remove_member / set_member_role : la personne visée." },
+          role: { type: "string", description: "set_member_role : admin ou membre." },
+          comment: { type: "string", description: "Messages : l'EXTRAIT qui désigne le message (« dernier » accepté)." },
+          note: { type: "string", description: "edit_message : le nouveau texte ; set_messaging_status : le message personnel." },
+          emoji: { type: "string", description: "toggle_reaction : l'émoji (défaut 👍)." },
+          mode: { type: "string", description: "set_notify_level : tout / mentions / rien ; archive_conversation : « désarchiver » pour rouvrir." },
+          status: { type: "string", description: "set_messaging_status : disponible, occupé, ne pas déranger, de retour bientôt, absent, hors ligne, ou « automatique »." },
+          notes: { type: "string", description: "create_channel / update_conversation : le sujet." },
         },
         required: ["op"],
       },

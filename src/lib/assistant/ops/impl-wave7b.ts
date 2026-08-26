@@ -26,7 +26,8 @@ import { resolveMeeting } from "./impl-meeting";
 const utcToAlgiersInput = (d: Date | null): string | null =>
   d ? new Date(d.getTime() + 3600_000).toISOString().slice(0, 16) : null;
 
-async function resolveConversation(user: CurrentUser, raw: string): Promise<{ id: string; label: string } | { error: string }> {
+// Exportée pour les ops messagerie (impl-wave7c) — même résolution des conversations.
+export async function resolveConversation(user: CurrentUser, raw: string): Promise<{ id: string; label: string } | { error: string }> {
   const q = raw.trim();
   if (!q) return { error: "Précisez la conversation (champ « target » — son nom, ou la personne)." };
   const mine = await prisma.conversation.findMany({
