@@ -71,6 +71,10 @@ import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { isRegStepKey, isRegStepState, isRegPresubOutcome, REG_STEPS, PRESUB_ANSWER_STEP } from "@/lib/regulatory-workflow";
 import { createInstitution, updateInstitution } from "@/lib/actions/medical-actions";
 import { createStockHospital, createStockAnnex } from "@/lib/actions/stock-snapshot-actions";
+// MODE OMBRE (§30) — le nouveau routeur tourne À CÔTÉ de la boucle actuelle, sans jamais
+// l'influencer : il note ce que la liste courte AURAIT exposé et le compare à ce que la boucle
+// a réellement appelé. C'est cette comparaison, et elle seule, qui autorisera la bascule.
+import { recordShadow } from "@/lib/assistant/context/shadow";
 import {
   powerToolsFor, executePowerTool, powerToolLabels, powerToolsBriefing,
 } from "@/lib/assistant/power-tools";
@@ -4480,6 +4484,8 @@ export async function runAssistant(
     ...WRITE_TOOLS,
   ];
   const trace: string[] = [];
+  // Ce que la boucle appelle VRAIMENT — la seule vérité contre laquelle comparer la liste courte.
+  const usedTools: string[] = [];
 
   try {
   for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -4548,6 +4554,7 @@ export async function runAssistant(
     const results: ClaudeContentBlock[] = [];
     for (const { tu, out } of settled) {
       if (READ_LABEL[tu.name] && !trace.includes(READ_LABEL[tu.name])) trace.push(READ_LABEL[tu.name]);
+      usedTools.push(tu.name);
       results.push({ type: "tool_result", tool_use_id: tu.id, content: out });
     }
     messages.push({ role: "assistant", content: blocks });
@@ -4558,6 +4565,10 @@ export async function runAssistant(
   } catch (err) {
     console.error("[assistant] runAssistant failed", err);
     return { configured: true, ok: false, reply: "", trace, error: "Une erreur est survenue côté assistant. Reformulez votre demande ou réessayez dans un instant." };
+  } finally {
+    // Dans le `finally` : le constat est déposé sur TOUS les chemins de sortie, y compris
+    // l'erreur — un tour raté est justement celui qu'on veut pouvoir expliquer.
+    recordShadow(question, tools.length, usedTools);
   }
 }
 
@@ -4725,6 +4736,7 @@ export async function runAssistantStream(
     ...WRITE_TOOLS,
   ];
   const trace: string[] = [];
+  const usedTools: string[] = [];
   const started = Date.now();
   const metrics: AssistantMetrics = { ttftMs: null, turns: 0, toolCalls: 0, toolErrors: 0, toolLatencyMs: 0 };
 
@@ -4831,6 +4843,7 @@ export async function runAssistantStream(
         // Les SOURCES consultées alimentent le panneau CONTEXTE : chaque dossier lu devient un
         // lien cliquable, au moment même où l'assistant le lit.
         for (const s of extractSources(out)) emit({ type: "source", label: s.label, href: s.href });
+        usedTools.push(tu.name);
         results.push({ type: "tool_result", tool_use_id: tu.id, content: out });
       }
       messages.push({ role: "assistant", content: blocks });
@@ -4841,6 +4854,8 @@ export async function runAssistantStream(
   } catch (err) {
     console.error("[assistant] runAssistantStream failed", err);
     return { configured: true, ok: false, reply: "", trace, metrics, error: "Une erreur est survenue côté assistant. Reformulez votre demande ou réessayez dans un instant." };
+  } finally {
+    recordShadow(question, tools.length, usedTools);
   }
 }
 
