@@ -723,47 +723,47 @@ model UserInvite {
 }
 
 model AssistantActionIntent {
-  id      String @id @default(cuid())
-  userId  String
-  user    User   @relation("AssistantActionIntents", fields: [userId], references: [id], onDelete: Cascade)
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation("AssistantActionIntents", fields: [userId], references: [id], onDelete: Cascade)
   /// AssistantActionKind (registre ACTION_POLICY) — le type d'action.
-  kind    String
-  module  String
+  kind          String
+  module        String
   /// Titre de la carte (« Envoyer un message à Khaled »).
-  title   String
+  title         String
   /// Résumé mémorisable : cible + objet (« Notification à Redouane — rattacher les contrats »).
-  summary String
+  summary       String
   /// La charge utile exacte, revérifiée côté serveur à l'exécution.
-  payload Json
+  payload       Json
   /// PROPOSED | CONFIRMED | EXECUTING | EXECUTED | FAILED | CANCELLED | EXPIRED
-  status  String @default("PROPOSED")
+  status        String    @default("PROPOSED")
   /// D'où l'intention vient : text | voice | nudge.
-  origin  String @default("text")
-  level   String? // SENSITIVE | CRITICAL
+  origin        String    @default("text")
+  level         String? // SENSITIVE | CRITICAL
   /// CRITICAL uniquement : la valeur exacte que l'utilisateur doit RESSAISIR — vérifiée PAR LE SERVEUR à l'exécution.
-  confirmText String?
+  confirmText   String?
   resultMessage String?
   resultLink    String?
   error         String?
   /// Journal des transitions [{ status, at }] — l'historique d'autorisation, traçable.
-  events     Json      @default("[]")
-  proposedAt DateTime  @default(now())
-  decidedAt  DateTime?
-  executedAt DateTime?
+  events        Json      @default("[]")
+  proposedAt    DateTime  @default(now())
+  decidedAt     DateTime?
+  executedAt    DateTime?
 
   @@index([userId, proposedAt])
   @@index([userId, status])
 }
 
 model AssistantMemoryItem {
-  id       String  @id @default(cuid())
-  userId   String
-  user     User    @relation("AssistantMemoryItems", fields: [userId], references: [id], onDelete: Cascade)
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation("AssistantMemoryItems", fields: [userId], references: [id], onDelete: Cascade)
   /// USER_PREFERENCE | WORKING_STYLE | TERMINOLOGY | ENTITY_ALIAS | STRATEGIC_PRIORITY |
   /// RECURRING_INTEREST | REPORTING_PREFERENCE | ORGANIZATIONAL_CONTEXT | EXECUTIVE_PRINCIPLE
-  type     String
+  type           String
   /// La mémoire, en une phrase lisible (c'est elle qui est réinjectée au modèle).
-  content  String
+  content        String
   /// Détail structuré quand il existe — ex. { alias: "pembro", target: "Pembrolizumab" }.
   structuredData Json?
   confidence     Float     @default(0.8)
@@ -1096,8 +1096,10 @@ model User {
   eventsResponsible Event[] @relation("EventResponsible")
 
   // Boîte mail personnelle connectée (Infomaniak IMAP/SMTP)
-  mailAccount    MailAccount?    @relation("UserMailAccount")
-  mailConnection MailConnection? @relation("UserMailConnection")
+  mailAccount      MailAccount?      @relation("UserMailAccount")
+  mailConnection   MailConnection?   @relation("UserMailConnection")
+  googleConnection GoogleConnection? @relation("UserGoogleConnection")
+  missions         Mission[]         @relation("UserMissions")
 
   // Information médicale (déclaration réglementaire)
   medicalInfoDeclarations MedicalInfoDeclaration[] @relation("MedicalInfoPharmacist")
@@ -1133,30 +1135,30 @@ model User {
   meetingTaskProposals  MeetingTaskProposal[] @relation("MeetingTaskAssignee")
   meetingMessages       MeetingMessage[]      @relation("MeetingMsgAuthor")
 
-  reminders             Reminder[]             @relation("UserReminders")
+  reminders                  Reminder[]               @relation("UserReminders")
   /// Entités auxquelles cette personne a accès (voir / modifier). Distinct de son entité
   /// d'appartenance, portée par sa fiche Employee.
-  companyAccess         UserCompanyAccess[]
-  rangeAccess           UserProductRange[]
-  legalDocReads         LegalDocumentReader[]
-  directoryAccess       MedicalDirectoryAccess[] @relation("MedicalDirectoryAccessUser")
-  assistantReminders    AssistantReminder[]      @relation("AssistantReminderUser")
-  assistantRemindersTargeted AssistantReminder[] @relation("AssistantReminderTarget")
-  assistantMemoryItems  AssistantMemoryItem[]    @relation("AssistantMemoryItems")
-  executiveDecisions    ExecutiveDecision[]      @relation("ExecutiveDecisions")
-  executiveCommitments  ExecutiveCommitment[]    @relation("ExecutiveCommitments")
-  assistantArtifacts    AssistantArtifact[]      @relation("AssistantArtifacts")
-  assistantActionIntents AssistantActionIntent[] @relation("AssistantActionIntents")
-  userInvites            UserInvite[]            @relation("UserInvites")
-  adProItemDecisions    AdProItemDecision[]    @relation("AdProItemDecider")
-  apiClients            ApiClient[]            @relation("ApiClientActAs")
-  docRequestsAsked      DocumentRequest[]      @relation("DocRequestAsker")
-  docRequestsToMe       DocumentRequest[]      @relation("DocRequestAsked")
-  paymentCentreMessages PaymentCentreMessage[]
+  companyAccess              UserCompanyAccess[]
+  rangeAccess                UserProductRange[]
+  legalDocReads              LegalDocumentReader[]
+  directoryAccess            MedicalDirectoryAccess[] @relation("MedicalDirectoryAccessUser")
+  assistantReminders         AssistantReminder[]      @relation("AssistantReminderUser")
+  assistantRemindersTargeted AssistantReminder[]      @relation("AssistantReminderTarget")
+  assistantMemoryItems       AssistantMemoryItem[]    @relation("AssistantMemoryItems")
+  executiveDecisions         ExecutiveDecision[]      @relation("ExecutiveDecisions")
+  executiveCommitments       ExecutiveCommitment[]    @relation("ExecutiveCommitments")
+  assistantArtifacts         AssistantArtifact[]      @relation("AssistantArtifacts")
+  assistantActionIntents     AssistantActionIntent[]  @relation("AssistantActionIntents")
+  userInvites                UserInvite[]             @relation("UserInvites")
+  adProItemDecisions         AdProItemDecision[]      @relation("AdProItemDecider")
+  apiClients                 ApiClient[]              @relation("ApiClientActAs")
+  docRequestsAsked           DocumentRequest[]        @relation("DocRequestAsker")
+  docRequestsToMe            DocumentRequest[]        @relation("DocRequestAsked")
+  paymentCentreMessages      PaymentCentreMessage[]
+  sessionEvents              SessionEvent[]
 
   @@index([role])
   @@index([departmentId])
-  sessionEvents SessionEvent[]
 }
 
 /// RAPPEL personnel « en un clic » posé sur n'importe quel sujet (dossier réglementaire, demande du
@@ -3344,7 +3346,7 @@ model MedicalDirectory {
   /// QUI PEUT OUVRIR CET ANNUAIRE. Liste VIDE = ouvert à tout le module — le cas normal, et le
   /// seul défaut sûr pour l'existant. Nommer quelqu'un FERME l'annuaire à tous les autres (hors
   /// vue globale) : même règle que les lecteurs désignés de Legal.
-  access MedicalDirectoryAccess[]
+  access  MedicalDirectoryAccess[]
 
   @@index([companyId])
 }
@@ -5158,13 +5160,13 @@ model PromoMaterial {
   /// L'ancien `status` (seize valeurs en file indienne) reste écrit pour les dossiers en cours et
   /// pour l'historique ; c'est `circuitState` qui pilote désormais. Voir
   /// `src/lib/promo-material/circuit.ts`.
-  circuitState      String?  // QUOTE_REQUESTED · REVIEW_* · IN_EXECUTION · COMPLETED · REFUSED
+  circuitState String? // QUOTE_REQUESTED · REVIEW_* · IN_EXECUTION · COMPLETED · REFUSED
   /// Le N+1 qui doit valider — figé à la création : un changement d'organigramme en cours de
   /// circuit ne doit pas transférer une validation en attente à quelqu'un qui n'a rien suivi.
-  managerId         String?
+  managerId    String?
   /// Les chantiers parallèles déjà clos (`PURCHASE_ORDER`, `PAYMENT`, `AD_VISA`), séparés par des
   /// virgules. Le dossier n'est terminé que lorsque les trois y figurent.
-  tracksDone        String?
+  tracksDone   String?
 
   createdById String?
   updatedById String?
@@ -5941,14 +5943,14 @@ model PushSubscription {
 /// (volume, taux de succès, latence, erreurs) par fonction et par utilisateur.
 /// Best-effort : la journalisation ne doit jamais casser un appel IA.
 model AiUsageLog {
-  id        String   @id @default(cuid())
-  feature   String // assistant | nudge | brain | briefing | process_intel | field_report | voice
-  provider  String   @default("anthropic") // anthropic | openai
-  model     String?
-  userId    String?
-  ok        Boolean
-  latencyMs Int?
-  errorCode String? // ex. "HTTP 429", "disabled", "not_configured"
+  id            String   @id @default(cuid())
+  feature       String // assistant | nudge | brain | briefing | process_intel | field_report | voice
+  provider      String   @default("anthropic") // anthropic | openai
+  model         String?
+  userId        String?
+  ok            Boolean
+  latencyMs     Int?
+  errorCode     String? // ex. "HTTP 429", "disabled", "not_configured"
   /// Observabilité de la BOUCLE AGENT (assistant / Chief of Staff) — nuls hors boucle :
   /// délai avant le PREMIER mot (ressenti), nombre de tours modèle↔outils, appels d'outils,
   /// erreurs d'outils, temps total passé DANS les outils. C'est ce qui distingue « le modèle
@@ -5958,7 +5960,7 @@ model AiUsageLog {
   toolCalls     Int?
   toolErrors    Int?
   toolLatencyMs Int?
-  createdAt DateTime @default(now())
+  createdAt     DateTime @default(now())
 
   @@index([feature])
   @@index([createdAt])
@@ -8724,33 +8726,33 @@ model Invoice {
 /// s'il porte un `targetRole`, il relance AUSSI ce rôle avec la note. `NONE` s'éteint après le
 /// premier tir ; les récurrences avancent leur échéance et restent actives.
 model AssistantReminder {
-  id          String    @id @default(cuid())
-  userId      String
-  user        User      @relation("AssistantReminderUser", fields: [userId], references: [id], onDelete: Cascade)
-  title       String
-  note        String?
-  link        String?
-  dueAt       DateTime
-  recurrence  String    @default("NONE") // NONE | DAILY | WEEKLY | MONTHLY
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation("AssistantReminderUser", fields: [userId], references: [id], onDelete: Cascade)
+  title        String
+  note         String?
+  link         String?
+  dueAt        DateTime
+  recurrence   String    @default("NONE") // NONE | DAILY | WEEKLY | MONTHLY
   /// Rôle à RELANCER à l'échéance (ex. HEAD_OF_REGULATORY) — le cœur du « tous les dimanches,
   /// demande à Regulatory où en sont les dossiers ». Nul = on ne prévient que soi.
-  targetRole  String?
+  targetRole   String?
   /// PERSONNE NOMMÉE à relancer à l'échéance — « tous les dimanches relance Nesrine ». Se cumule
   /// avec `targetRole` (l'un, l'autre, ou les deux). `SetNull` : un compte supprimé n'emporte pas
   /// le rappel, il cesse simplement d'être relancé.
   targetUserId String?
-  targetUser   User?   @relation("AssistantReminderTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetUser   User?     @relation("AssistantReminderTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
   /// SURVEILLANCE CONDITIONNELLE — « si ce paiement n'est pas validé sous 48 h, préviens-moi ».
   /// Le rappel regarde l'entité à l'échéance : encore en attente → il prévient le PROPRIÉTAIRE
   /// (jamais le responsable de l'entité — surveiller n'est pas relancer) ; réglée → il le dit et
   /// s'éteint. `watchType` ∈ EXPENSE_ORDER | PAYMENT_REQUEST | TASK | VALIDATION_REQUEST.
-  watchType  String?
-  watchId    String?
-  watchLabel String?
-  active      Boolean   @default(true)
-  lastFiredAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  watchType    String?
+  watchId      String?
+  watchLabel   String?
+  active       Boolean   @default(true)
+  lastFiredAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([active, dueAt])
   @@index([userId])
@@ -8762,7 +8764,7 @@ model SessionEvent {
   sessionId String
   userId    String?
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  kind      String   // PAGE | CLICK | INPUT | SUBMIT | ERROR | NAV
+  kind      String // PAGE | CLICK | INPUT | SUBMIT | ERROR | NAV
   /// Millisecondes depuis le début de la session : un horodatage relatif se rejoue tel quel.
   at        Int
   path      String
@@ -8774,4 +8776,326 @@ model SessionEvent {
   @@index([sessionId, at])
   @@index([userId, createdAt])
   @@index([kind])
+}
+
+// ═══════════════════════ ADAM — le Chief of Staff VIVANT ═══════════════════════
+// Google (Gmail, Agenda, Drive, Docs, Sheets, Slides, Contacts) n'est pas un second
+// assistant : ce sont des SENS et des CANAUX de plus pour le MÊME Chief. Ces modèles
+// portent donc trois choses, et rien d'autre : la CONNEXION (jetons chiffrés, santé),
+// ce qui est ENTRÉ (métadonnées + sémantique — Google reste la source des messages),
+// et ce qui doit SORTIR (intention d'envoi, sous autorité du PDG).
+
+/// LA POLITIQUE D'ENVOI — typée, persistante, réglable À CHAUD par le PDG.
+///
+/// Elle n'est pas dans le code : une règle de sécurité qu'on ne peut changer qu'en
+/// redéployant finit par être contournée autrement. `REQUIRE_APPROVAL` est le défaut, et
+/// c'est le seul état où personne — ni un plan, ni une mission de fond, ni un cron — ne
+/// peut faire partir un message sans que le PDG l'ait vu.
+enum MailSendPolicy {
+  REQUIRE_APPROVAL /// défaut : aucun envoi sans approbation explicite
+  AUTO_SEND /// envoi autonome (bascule SENSIBLE : confirmée, auditée)
+  DRAFT_ONLY /// brouillons seulement — rien ne part, même approuvé
+}
+
+/// La politique de communication. Une ligne « global » aujourd'hui ; le champ `scope`
+/// existe pour la granularité future (identité, domaine destinataire, mission) sans
+/// migration : `identity:<id>`, `domain:<x>`, `mission:<id>`.
+model CommunicationPolicy {
+  id             String         @id @default(cuid())
+  scope          String         @unique @default("global")
+  mailSendPolicy MailSendPolicy @default(REQUIRE_APPROVAL)
+  /// COUPE-CIRCUIT SORTANT — prime sur AUTO_SEND : levé, plus rien ne part.
+  outboundPaused Boolean        @default(false)
+  /// Traitement de la boîte suspendu (l'ingestion s'arrête, la connexion reste).
+  inboundPaused  Boolean        @default(false)
+  updatedById    String?
+  updatedAt      DateTime       @updatedAt
+  createdAt      DateTime       @default(now())
+}
+
+/// LA CONNEXION GOOGLE d'une identité de communication du Chief.
+///
+/// Isolation structurelle : tout part de `userId`. Les jetons dorment chiffrés
+/// (AES-256-GCM, `secret-box`) et ne sont déchiffrés qu'au moment d'appeler Google —
+/// jamais rendus au navigateur, jamais journalisés.
+model GoogleConnection {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation("UserGoogleConnection", fields: [userId], references: [id], onDelete: Cascade)
+  /// L'adresse réellement servie (minuscule) — contrôlée contre GOOGLE_ADAM_EMAIL.
+  address         String
+  displayName     String?
+  /// Identifiant stable du compte Google (`sub`) — détecte un changement de compte.
+  googleSub       String?
+  accessTokenEnc  String?   @db.Text
+  refreshTokenEnc String?   @db.Text
+  expiresAt       DateTime?
+  /// Droits réellement accordés — un consentement partiel doit se voir.
+  grantedScopes   String?   @db.Text
+  /// connected | needs-reconnect
+  status          String    @default("connected")
+  lastError       String?
+  lastSyncAt      DateTime?
+  /// COUPE-CIRCUIT d'intégration : suspend Google (lecture ET écriture) sans déconnecter.
+  paused          Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  gmail    GmailIngestionState?
+  emails   EmailRecord[]
+  outbound OutboundMailIntent[]
+}
+
+/// L'ÉTAT D'INGESTION GMAIL — la mémoire de ce qu'Adam a déjà vu.
+///
+/// Le push (watch + Pub/Sub) est un SIGNAL, jamais la charge utile : `lastHistoryId`
+/// permet de rejouer l'histoire depuis Google, seule source canonique. La réconciliation
+/// périodique existe parce qu'un push manqué (redémarrage, panne réseau, watch expiré)
+/// ne doit PAS faire disparaître un message de la conscience d'Adam.
+model GmailIngestionState {
+  id               String           @id @default(cuid())
+  connectionId     String           @unique
+  connection       GoogleConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  lastHistoryId    String?
+  watchExpiration  DateTime?
+  watchTopic       String?
+  lastNotifiedAt   DateTime?
+  lastReconciledAt DateTime?
+  lastWatchError   String?
+  ingestedCount    Int              @default(0)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+}
+
+/// UN MESSAGE INGÉRÉ — métadonnées + projection sémantique, pas la boîte recopiée.
+///
+/// Google reste la source de vérité du contenu : on garde ici de quoi CHERCHER, RELIER et
+/// SE SOUVENIR (expéditeur résolu, entités, engagements, questions), et l'extrait. Le corps
+/// complet se relit à la demande.
+model EmailRecord {
+  id                String           @id @default(cuid())
+  connectionId      String
+  connection        GoogleConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  providerMessageId String
+  threadId          String
+  /// Identifiants RFC — la conversation, pas des messages isolés.
+  rfcMessageId      String?
+  inReplyTo         String?
+  referencesHeader  String?          @db.Text
+  /// INBOUND | OUTBOUND
+  direction         String           @default("INBOUND")
+  fromAddress       String
+  fromName          String?
+  toAddresses       String[]         @default([])
+  ccAddresses       String[]         @default([])
+  subject           String?
+  snippet           String?          @db.Text
+  sentAt            DateTime?
+  labels            String[]         @default([])
+  hasAttachments    Boolean          @default(false)
+  /// L'expéditeur RÉSOLU vers l'ERP quand les preuves le permettent.
+  senderUserId      String?
+  senderCompanyId   String?
+  /// « EmailIntelligence » : sujets, entités, engagements, questions, échéances, actions.
+  semantics         Json?
+  /// HIGH | MEDIUM | LOW — sert au tri de l'attention, jamais à masquer un message.
+  importance        String?
+  /// Le message est-il pertinent pour le PDG (a-t-il été remonté) ?
+  surfacedAt        DateTime?
+  missionId         String?
+  mission           Mission?         @relation(fields: [missionId], references: [id], onDelete: SetNull)
+  processedAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  attachments EmailAttachmentRecord[]
+
+  @@unique([connectionId, providerMessageId])
+  @@index([connectionId, sentAt])
+  @@index([threadId])
+  @@index([fromAddress])
+  @@index([missionId])
+}
+
+/// UNE PIÈCE JOINTE ARRIVÉE PAR COURRIEL — objet multimodal de première classe.
+///
+/// Le PDG ne doit jamais avoir à télécharger puis re-téléverser : le texte extrait rend la
+/// pièce utilisable par le Chief, et `driveNodeId` / `documentId` la rattachent à l'ERP
+/// quand c'est utile.
+model EmailAttachmentRecord {
+  id                   String      @id @default(cuid())
+  emailRecordId        String
+  emailRecord          EmailRecord @relation(fields: [emailRecordId], references: [id], onDelete: Cascade)
+  /// Identifiant de la pièce chez Google (permet de la retélécharger à la demande).
+  providerAttachmentId String?
+  filename             String
+  mimeType             String?
+  sizeBytes            Int         @default(0)
+  /// Texte extrait (Excel, PDF, Word, image OCR…) — borné, pour la compréhension.
+  extractedText        String?     @db.Text
+  extractionNote       String?
+  driveNodeId          String?
+  documentId           String?
+  createdAt            DateTime    @default(now())
+
+  @@index([emailRecordId])
+}
+
+/// L'ÉTAT D'UNE INTENTION D'ENVOI — la machine qui rend l'approbation INCONTOURNABLE.
+enum OutboundMailStatus {
+  DRAFT
+  AWAITING_APPROVAL
+  APPROVED
+  SENDING
+  SENT
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+/// L'INTENTION D'ENVOI CANONIQUE — le SEUL chemin par lequel un message peut partir.
+///
+/// L'approbation porte sur un CONTENU EXACT (`contentHash` : destinataires, objet, corps,
+/// pièces, identité). Modifier un champ après approbation invalide l'approbation — on ne
+/// peut pas faire approuver A puis envoyer B. `idempotencyKey` garantit qu'un double clic,
+/// un rejeu réseau ou un webhook répété n'expédient jamais deux fois.
+model OutboundMailIntent {
+  id                String             @id @default(cuid())
+  connectionId      String
+  connection        GoogleConnection   @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  /// Le compte ERP au nom duquel l'intention existe (le PDG).
+  userId            String
+  threadId          String?
+  inReplyTo         String?
+  referencesHeader  String?            @db.Text
+  recipients        String[]           @default([])
+  cc                String[]           @default([])
+  bcc               String[]           @default([])
+  subject           String
+  bodyText          String             @db.Text
+  bodyHtml          String?            @db.Text
+  /// Pièces jointes RÉFÉRENCÉES (nœuds Drive / pièces reçues) — jamais des octets ici.
+  attachments       Json               @default("[]")
+  missionId         String?
+  mission           Mission?           @relation(fields: [missionId], references: [id], onDelete: SetNull)
+  /// Pourquoi ce message existe — « demandé par le PDG », « relance de la mission X ».
+  reason            String?
+  /// chief | mission | plan | manual — d'où vient l'intention.
+  generatedBy       String             @default("chief")
+  status            OutboundMailStatus @default(DRAFT)
+  /// L'approbation était-elle requise au moment de la préparation (photo de la politique) ?
+  approvalRequired  Boolean            @default(true)
+  policyAtCreation  MailSendPolicy     @default(REQUIRE_APPROVAL)
+  contentHash       String
+  /// Le hash EXACT approuvé — comparé au contentHash courant avant tout envoi.
+  approvedHash      String?
+  approvedById      String?
+  approvedAt        DateTime?
+  idempotencyKey    String             @unique
+  sendingStartedAt  DateTime?
+  sentAt            DateTime?
+  providerMessageId String?
+  providerThreadId  String?
+  failureReason     String?
+  attempts          Int                @default(0)
+  /// Journal des transitions [{ status, at, by }] — l'historique d'autorisation.
+  events            Json               @default("[]")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([userId, status])
+  @@index([missionId])
+  @@index([connectionId, createdAt])
+}
+
+/// L'ÉTAT D'UNE MISSION — une demande du PDG qui SURVIT à un tour de conversation.
+enum MissionStatus {
+  DRAFT
+  ACTIVE
+  WAITING
+  PARTIAL
+  BLOCKED
+  NEEDS_CEO
+  READY_TO_SEND
+  COMPLETED
+  CANCELLED
+}
+
+/// UNE MISSION — la coordination humaine, tenue dans le temps.
+///
+/// « Demande à Regulatory ce dont ils ont besoin de Deepak » n'est pas une réponse de chat :
+/// c'est une boucle DEMANDER → ATTENDRE → COLLECTER → RÉCONCILIER → RELANCER → CONSOLIDER →
+/// TRANSMETTRE, qui dure des jours. La mission porte cet état, et c'est elle qui permet de
+/// répondre « qui n'a pas encore répondu ? » sans rien redemander à personne.
+model Mission {
+  id          String        @id @default(cuid())
+  /// Le PDG propriétaire — l'isolation part d'ici.
+  ownerId     String
+  owner       User          @relation("UserMissions", fields: [ownerId], references: [id], onDelete: Cascade)
+  title       String
+  /// L'objectif en une phrase — ce qu'on cherche à obtenir, pas la manière.
+  objective   String        @db.Text
+  context     String?       @db.Text
+  status      MissionStatus @default(DRAFT)
+  /// Entités ERP concernées [{ type, id, label }] — le lien avec le reste de l'OS.
+  entities    Json          @default("[]")
+  /// Demandes extraites des réponses reçues, consolidées.
+  extracted   Json          @default("[]")
+  /// Engagements pris par les uns et les autres [{ who, what, dueAt }].
+  commitments Json          @default("[]")
+  /// La prochaine action suggérée par Adam (jamais exécutée seule si elle sort).
+  nextAction  String?       @db.Text
+  dueAt       DateTime?
+  /// Dernière relance envoyée — évite de relancer deux fois le même jour.
+  lastNudgeAt DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  participants MissionParticipant[]
+  events       MissionEvent[]
+  emails       EmailRecord[]
+  intents      OutboundMailIntent[]
+
+  @@index([ownerId, status])
+  @@index([status, updatedAt])
+}
+
+/// QUI est attendu dans une mission — interne (compte ERP) ou externe (adresse).
+model MissionParticipant {
+  id           String    @id @default(cuid())
+  missionId    String
+  mission      Mission   @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  userId       String?
+  email        String?
+  name         String?
+  /// ASKED | RESPONDED | DECLINED | NUDGED — l'état de CETTE personne.
+  state        String    @default("ASKED")
+  /// Ce que cette personne a répondu, résumé.
+  responseNote String?   @db.Text
+  askedAt      DateTime?
+  respondedAt  DateTime?
+  nudgedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([missionId])
+  @@index([userId])
+}
+
+/// LE JOURNAL D'UNE MISSION — ce qui s'est passé, dans l'ordre, avec sa provenance.
+model MissionEvent {
+  id        String   @id @default(cuid())
+  missionId String
+  mission   Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  /// CREATED | MAIL_PREPARED | MAIL_SENT | REPLY_RECEIVED | NUDGE_PREPARED |
+  /// CONSOLIDATED | STATE_CHANGED | NOTE | CLOSED
+  kind      String
+  summary   String   @db.Text
+  /// Détail structuré (identifiants de message, participant, ancien/nouvel état).
+  detail    Json?
+  actorId   String?
+  at        DateTime @default(now())
+
+  @@index([missionId, at])
 }
