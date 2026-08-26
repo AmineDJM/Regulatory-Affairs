@@ -50,6 +50,7 @@ import {
   bargeInDecision, isNoiseTranscript, deliveryWatchdogAction, deliveryFallbackText,
   BARGE_IN_SUSTAIN_MS, DELIVERY_WATCHDOG_TICK_MS, DELIVERY_WATCHDOG_GRACE_MS,
 } from "@/lib/assistant/voice-tuning";
+import { parseRetryAfter, isRateLimitStatus } from "@/lib/assistant/voice-cooldown";
 
 export type VoiceCallState =
   | "IDLE" | "CONNECTING" | "LISTENING" | "USER_SPEAKING" | "THINKING"
@@ -161,6 +162,38 @@ interface PendingDelivery {
   resultText: string;
   /** Le rappel « restituer maintenant » n'est envoyé qu'UNE fois (pas de boucle de nudges). */
   nudged: boolean;
+}
+
+/**
+ * LE REFUS DE L'ÉCHANGE SDP, AVEC CE QU'IL DIT.
+ *
+ * `message` reste `SDP_<statut>` : l'appelant historique teste `startsWith("SDP_")`, et on ne
+ * casse pas ce contrat au passage. Ce qui est NOUVEAU, c'est tout le reste — le corps de la
+ * réponse et l'en-tête `Retry-After`, qu'on jetait.
+ *
+ * POURQUOI LA DISTINCTION `rateLimited` COMPTE. Un 429 n'est pas une panne : c'est le serveur
+ * qui dit « ralentis ». Y répondre en reconnectant aussitôt — ce que faisait la reconnexion
+ * automatique — transforme un incident passager en incident qu'on entretient soi-même. Un 500,
+ * lui, mérite un nouvel essai. Les traiter pareil, c'est se tromper dans les deux sens.
+ */
+export class SdpRejection extends Error {
+  readonly status: number;
+  readonly detail: string;
+  /** Délai demandé par le serveur, en millisecondes. `null` s'il n'a rien précisé. */
+  readonly retryAfterMs: number | null;
+
+  constructor(status: number, body: string, retryAfterHeader: string | null) {
+    super(`SDP_${status}`);
+    this.name = "SdpRejection";
+    this.status = status;
+    this.detail = (body ?? "").slice(0, 500);
+    this.retryAfterMs = parseRetryAfter(retryAfterHeader);
+  }
+
+  /** 429 : quota atteint. 503 : capacité momentanément absente — même conduite à tenir. */
+  get rateLimited(): boolean {
+    return isRateLimitStatus(this.status);
+  }
 }
 
 export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
@@ -280,7 +313,19 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
       headers: { Authorization: `Bearer ${grant.clientSecret}`, "Content-Type": "application/sdp" },
       body: offer.sdp,
     });
-    if (!res.ok) throw new Error(`SDP_${res.status}`);
+    if (!res.ok) {
+      // ── CE QUE LE REFUS DIT, ON LE GARDE ──────────────────────────────────────────────
+      //
+      // Cette ligne jetait la réponse : `throw new Error("SDP_" + status)`, et rien d'autre.
+      // Résultat en production, un soir de 429 : `detail: undefined` dans tous les journaux —
+      // impossible de savoir si le compte avait atteint son plafond de sessions SIMULTANÉES ou
+      // son quota par minute, deux incidents qui ne se traitent pas pareil. Et surtout, le
+      // serveur DIT combien de temps attendre dans `Retry-After` : on l'ignorait pour
+      // reconnecter aussitôt, ce qui est exactement la mauvaise réponse à « ralentis ».
+      const body = await res.text().catch(() => "");
+      const err = new SdpRejection(res.status, body, res.headers.get("retry-after"));
+      throw err;
+    }
     await pc.setRemoteDescription({ type: "answer", sdp: await res.text() });
 
     await opened;

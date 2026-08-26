@@ -6,6 +6,7 @@ import {
   OpenAIGptRealtime21Provider,
   type VoiceCallState, type VoiceToolUi, type VoiceSessionGrant,
 } from "@/app/(app)/assistant/realtime-voice";
+import { cooldownFor, cooldownMessage, rateLimitFrom } from "@/lib/assistant/voice-cooldown";
 import { CallScreen } from "@/app/(app)/assistant/voice-mode";
 
 /**
@@ -92,6 +93,8 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
   const bridgeRef = React.useRef<CallBridge | null>(null);
   const uiBufferRef = React.useRef<VoiceToolUi[]>([]);
   const reconnectsRef = React.useRef(0);
+  /** Horodatage jusqu'auquel toute tentative est refusée localement (quota atteint). */
+  const rateLimitedUntilRef = React.useRef(0);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const connectedAtRef = React.useRef<number | null>(null);
   const lastContextRef = React.useRef<string | null>(null);
@@ -119,6 +122,28 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
       body: JSON.stringify({ event, ...extra }),
     }).catch(() => undefined);
   }, []);
+
+  /**
+   * ENTRE EN REFROIDISSEMENT — la seule réponse correcte à « ralentis ».
+   *
+   * On coupe la session en cours (inutile de garder un appel qui n'a jamais abouti), on note
+   * jusqu'à quand toute nouvelle tentative est refusée LOCALEMENT, et on dit au PDG une durée
+   * plutôt qu'un code. La reconnexion automatique lit la même borne : elle ne repartira pas.
+   */
+  const enterCooldown = React.useCallback((refus: { retryAfterMs: number | null; status: number; detail: string }) => {
+    const wait = cooldownFor(refus.retryAfterMs);
+    rateLimitedUntilRef.current = Date.now() + wait;
+    providerRef.current?.disconnect();
+    setStatusBoth("ERROR");
+    setError(cooldownMessage(wait));
+    logEvent("voice_session_rate_limited", {
+      reasonCode: `SDP_${refus.status}`,
+      detail: refus.detail || undefined,
+      // Ce que le serveur a demandé, et ce qu'on applique — les deux, pour pouvoir les comparer.
+      retryAfterMs: refus.retryAfterMs,
+      cooldownMs: wait,
+    });
+  }, [logEvent, setStatusBoth]);
 
   const upsertLine = React.useCallback((role: "user" | "assistant", text: string, final: boolean) => {
     if (!text.trim()) return;
@@ -270,16 +295,30 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
         },
         onConnectionChange: (cs) => {
           if (statusRef.current === "IDLE") return;
+          // QUOTA ATTEINT → ON NE RECONNECTE PAS. Reconnecter sur un « ralentis » est ce qui a
+          // transformé un 429 passager en série de 429 : chaque tentative reforge un secret
+          // (une session de plus au compteur) puis se fait refuser au même endroit.
+          if (rateLimitedUntilRef.current > Date.now()) return;
           if ((cs === "disconnected" || cs === "failed") && reconnectsRef.current < 2) {
             reconnectsRef.current += 1;
             setStatusBoth("RECONNECTING");
             logEvent("voice_reconnect", { detail: cs });
             providerRef.current?.disconnect();
-            const p = buildProvider(null);
-            providerRef.current = p;
-            p.connect().catch(() => {
-              if (statusRef.current !== "IDLE") { setStatusBoth("ERROR"); setError("La connexion vocale n'a pas pu être rétablie."); }
-            });
+            // ATTENTE CROISSANTE avant de réessayer (1 s puis 3 s). Se ruer sur un service qui
+            // vient de lâcher, c'est lui retirer la seconde dont il a besoin pour se remettre.
+            const wait = reconnectsRef.current === 1 ? 1_000 : 3_000;
+            window.setTimeout(() => {
+              if (statusRef.current === "IDLE" || rateLimitedUntilRef.current > Date.now()) return;
+              const p = buildProvider(null);
+              providerRef.current = p;
+              p.connect().catch((err: unknown) => {
+                if (statusRef.current === "IDLE") return;
+                const refus = rateLimitFrom(err);
+                if (refus) { enterCooldown(refus); return; }
+                setStatusBoth("ERROR");
+                setError("La connexion vocale n'a pas pu être rétablie.");
+              });
+            }, wait);
           } else if (cs === "failed") {
             setStatusBoth("ERROR");
             setError("La connexion vocale est perdue.");
@@ -288,10 +327,20 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [forwardUi, logEvent, setStatusBoth, upsertLine]);
+  }, [forwardUi, logEvent, setStatusBoth, upsertLine, enterCooldown]);
 
   const start = React.useCallback((opts: { threadId?: string | null; screenContext?: string | null } = {}) => {
     if (!enabled || statusRef.current !== "IDLE") return;
+    // LE REFROIDISSEMENT PASSE AVANT TOUT. Sans lui, le PDG qui reclique sur le téléphone
+    // rallume une tentative — et chaque tentative reforge un secret puis se fait refuser, ce
+    // qui entretient exactement le quota qu'on attend de voir retomber. On lui dit combien de
+    // temps attendre plutôt que de le laisser marteler un bouton qui ne peut pas marcher.
+    const reste = rateLimitedUntilRef.current - Date.now();
+    if (reste > 0) {
+      setStatusBoth("ERROR");
+      setError(cooldownMessage(reste));
+      return;
+    }
     threadRef.current = opts.threadId ?? threadRef.current;
     setError(null); setLines([]); setCards([]); setElapsed(0); setMuted(false); setMinimized(false);
     reconnectsRef.current = 0;
@@ -315,6 +364,9 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
       })
       .catch((err: unknown) => {
         if (statusRef.current === "IDLE") return;
+        const refus = rateLimitFrom(err);
+        if (refus) { enterCooldown(refus); return; }
+
         setStatusBoth("ERROR");
         const msg = err instanceof Error ? err.message : "";
         setError(
@@ -323,9 +375,18 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
           : /NotAllowedError|Permission/i.test(String(err)) ? "Micro refusé — autorisez-le dans le navigateur, ou utilisez la dictée."
           : msg || "Impossible de démarrer la conversation vocale.",
         );
-        logEvent("voice_session_error", { reasonCode: msg || "CONNECT_FAILED" });
+        // LE DÉTAIL EST REMONTÉ, désormais. Les journaux de production affichaient
+        // `detail: undefined` sur CHAQUE refus : on ne pouvait pas distinguer un plafond de
+        // sessions simultanées d'un quota par minute, alors que la réponse le disait. Ici on
+        // est déjà hors du cas « quota » (traité plus haut) : ce qui reste est un 4xx/5xx dont
+        // le corps explique généralement la cause en une phrase.
+        const detail = (err as { detail?: unknown })?.detail;
+        logEvent("voice_session_error", {
+          reasonCode: msg || "CONNECT_FAILED",
+          ...(typeof detail === "string" && detail ? { detail } : {}),
+        });
       });
-  }, [enabled, pathname, buildProvider, logEvent, setStatusBoth]);
+  }, [enabled, pathname, buildProvider, logEvent, setStatusBoth, enterCooldown]);
 
   const end = React.useCallback(() => {
     if (statusRef.current === "IDLE") return;
