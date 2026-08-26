@@ -2596,7 +2596,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 |---|---|
 | **Frontière Adam ↔ ERP** | `platform/contract.ts` (les 4 verbes, `Principal`, `PlatformQuery`, `PlatformCommand`, `DomainEvent` — **zéro import**) ; `platform/event-bus.ts` (`publish`/`subscribe`, abonnés isolés, mémoire bornée, rejeu) ; `platform/events.ts` (`emit` + catalogue fermé de 17 faits) ; `platform/in-process/adapter.ts` (**le seul pont** : `principalOf`, `query`, `command` → `performAction`, `authorize`) ; `platform/boundary-scan.ts` + `boundary.test.ts` (le **cliquet** : dette plafonnée à 425, `src/platform/` à zéro) ; `scripts/adam-boundary.ts` (`npm run adam:boundary`). Côté Adam : `lib/assistant/platform/change-feed.ts` (projection « quoi de neuf », branchée sur `what_changed`). ERP instrumenté : `hr-actions.ts`, `regulatory-actions.ts`, `comms/outbound.ts`. |
 | **Adam — aiguillage & liste courte d'outils** | `lib/assistant/context/router.ts` (`routeQuery` : 5 classes de route, 11 domaines, plancher de confiance) ; `tool-shortlist.ts` (`TOOL_DOMAINS` — les 77 outils classés —, `ALWAYS_ON` socle de 4, `shortlistTools`) ; **`rollout.ts`** (`decideRollout` : `FAST_READ` / `SHORTLIST` / `LEGACY`, `SAFE_READ_TOOLS` liste blanche, `bucketOf` FNV-1a, garde `recordOutcome`/`guardStatus`/`readyForNextStep`) ; `discovery.ts` (`runDiscovery` — l'échappatoire `list_more_tools`) ; `shadow.ts` (mesure) ; `bench.ts` + `golden-corpus.ts` (TRAIN) + `holdout-corpus.ts` (**jamais retouché**). Branché dans `lib/assistant.ts` sur **les deux** boucles (`runAssistant` et `runAssistantStream`), via `assistantToolsFor(user)`. |
-| **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte ; plus la porte `_blocs`, **revalidée champ par champ**, par laquelle une lecture déclare ce qu'elle montre) ; `sheet.ts` (classeur → lignes, ExcelJS, **sans dépendance ERP**) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`). Blocs : `people`, `directory`, `mail`, `agenda`, `queue` (**avec ses boutons Approuver / Refuser**), `record`, `table`, `timeline`, `progress` (jauges), `document` (PDF, image, feuille). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`, qui fournit `WorkspaceAskProvider` — un clic écrit une phrase dans la conversation, il n'exécute rien. |
+| **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte ; plus la porte `_blocs`, **revalidée champ par champ**, par laquelle une lecture déclare ce qu'elle montre) ; `sheet.ts` (classeur → lignes, ExcelJS, **sans dépendance ERP**) ; `emit.ts` (helpers **purs** de composition : gestes, retards, métriques de charge, étapes) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`) ; `preview-planche.tsx` (la planche de revue visuelle, servie par `/chief-of-staff?apercu=blocs` **uniquement** si `ADAM_BLOCK_PREVIEW=1` — elle n'a pas d'adresse en production). Blocs : `people` (fiche riche : statut, métriques, coordonnées avec provenance), `directory`, `mail`, `agenda`, `queue` (**avec ses boutons Approuver / Refuser**), `record`, `table` (**gestes par ligne**, cartes empilées sur mobile), `timeline`, `progress` (jauges), `document` (PDF, image, feuille), `dossier` (faits + frise de circuit + pièces + participants + activité), `email` (le message avant l'envoi). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`, qui fournit `WorkspaceAskProvider` — un clic écrit une phrase dans la conversation, il n'exécute rien. La prop `canvas` (défaut **faux**) rend le tour d'Adam **sans bulle** ; `/assistant` reste inchangé. |
 | **Adam — montrer (et non lire)** | `lib/assistant/show-tools.ts` : `show_document` (PDF/contrat en visionneuse, image, classeur rendu en tableau — passe par le **contrat** `document.show`, servi par `platform/in-process/adapter.ts`, seul autorisé à toucher Drive, stockage et droits) et `show_table` (colonnes et tri **à la demande** : le modèle choisit la vue, le serveur relit les lignes à la source canonique — sources fermées dans `TABLE_SOURCES`). À ne pas confondre avec `read_document`, qui extrait du TEXTE pour le modèle. |
 | **Sécurité / session** | `lib/rbac.ts` (PERMISSIONS, `userCan`, `anyRoleFilter`, `getAccess` cumul secondaire), `lib/session.ts` (`requireUser`/`requireModule`, maj `UserSession.lastSeenAt`), `lib/entity-access.ts` (accès par ligne + `ENTITY_MODULE`). |
 | **Workflow Ad & Pro** | `lib/workflow/engine.ts` · `defaults.ts` · `engine.test.ts`, `lib/queries/workflow.ts`, `components/workflow/workflow-panel.tsx`, `app/(app)/admin/workflows/`. |
@@ -3239,6 +3239,44 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### LE FIL DEVIENT LE CANVAS — Adam parle peu, montre beaucoup, on agit sur place (2026-08)
+
+Suite directe du lot précédent, sur une direction visuelle validée : **un espace de conversation
+riche**, pas un tableau de bord et pas un chatbot mieux habillé. Les objets métier arrivent dans le
+fil, à leur taille, avec leurs gestes dessous.
+
+**Ce qui n'a PAS été réécrit, et pourquoi.** `AssistantChat` porte la mémoire, les cartes d'action,
+l'approbation d'envoi, la dictée, l'appel vocal, les pièces jointes et les sources. Le refaire à
+neuf pour changer une apparence, c'était risquer la seule chose qui marche — l'exécution — au
+bénéfice de la seule qui se corrige facilement : le style. Il reçoit **une** prop, `canvas`, par
+défaut **fausse** : `/assistant` (la page de l'ERP) est intacte.
+
+**Le tour, en mode canvas.** La bulle grise d'Adam disparaît : avatar, nom, heure, texte, puis les
+blocs — la réponse EST la page. La question de l'utilisateur reste une pastille claire alignée à
+droite : il faut pouvoir retrouver ce qu'on a demandé sans relire toute la réponse.
+
+**Quatre objets de plus** dans `workspace/protocol.ts`, rendus par le registre exhaustif :
+`dossier` (faits à gauche, circuit + pièces à droite ; **une** étape courante ; le blocage est la
+seule surface colorée de la carte), `email` (le message tel qu'il partira — « Envoyer » écrit la
+phrase d'approbation, la politique d'envoi est atteinte par le chemin normal, jamais contournée),
+`progress` et `document`. Tableaux et fiches de personne portent des **gestes par ligne**.
+
+**La planche de rendu** (`components/chief/workspace/preview-planche.tsx`) : les blocs n'existent
+qu'au bout d'un vrai tour de conversation — donc d'un appel IA que l'E2E s'interdit. Elle est
+branchée **dans** le bureau d'Adam (`/chief-of-staff?apercu=blocs`, derrière `ADAM_BLOCK_PREVIEW`),
+pas sur une route à elle : une page séparée aurait dû refaire son propre contrôle de droits, donc
+franchir la frontière une fois de plus. Adossée au bureau, elle hérite de ses gardes.
+`personRegulatoryLoad` descend pour la même raison dans `regulatory-read.ts`. **425 imports,
+inchangé — aucun plafond relevé.**
+
+**Ce que la revue des captures a trouvé et que les tests laissaient passer** : la carte de dossier
+laissait la moitié droite de 1 440 px vide ; un nom de fichier se cassait au milieu d'un mot ; deux
+validations distinctes se lisaient comme une seule ; un « 2 » nu ne répétait que ce qu'on voyait ;
+« Envoyer » était indiscernable de « Modifier » ; la frise coupait « Enregistrement » à
+« Enregistr » sur 390 px **sans indice qu'il restait quelque chose** (elle bascule à la verticale
+sur mobile) ; une adresse e-mail se brisait en « …@exemple. / test » — et une adresse rompue est
+une adresse qu'on recopie faux.
 
 ### L'ESPACE D'ADAM MONTRE — tableaux, jauges, documents, et on tranche sur place (2026-08)
 

@@ -23,7 +23,7 @@ Après un gros lot fonctionnel : mettre à jour le README (panorama, circuits, j
 
 ## Graphify = couche de compréhension principale (OBLIGATOIRE)
 
-Le graphe de connaissance du code (`graphify-out/graph.json`, ~2 700 nœuds / 466 fichiers) est la **carte d'architecture** du projet. Objectif : réduire les tokens et garder la cohérence — on interroge la carte AVANT d'ouvrir le code.
+Le graphe de connaissance du code (`graphify-out/graph.json`, ~10 200 nœuds / ~1 590 fichiers) est la **carte d'architecture** du projet. Objectif : réduire les tokens et garder la cohérence — on interroge la carte AVANT d'ouvrir le code.
 
 Règles :
 1. **Avant toute tâche structurelle ou modification non triviale**, interroger d'abord Graphify :
