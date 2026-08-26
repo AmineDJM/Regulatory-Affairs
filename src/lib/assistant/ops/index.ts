@@ -25,6 +25,7 @@ import { BD6_OPS_IMPL, DOSSIER_OPS_IMPL, DIRECTIVE_OPS_IMPL, SUPPORT_OPS_IMPL, R
 import { VALIDATION_OPS_IMPL, FIELD_REPORT_OPS_IMPL, SUPPLY_OPS_IMPL } from "./impl-wave6b";
 import { PLANNING_OPS_IMPL } from "./impl-wave6c";
 import { ADMIN_REQUEST_OPS_IMPL } from "./impl-wave7";
+import { MEETING7_OPS_IMPL, WORKSPACE7_OPS_IMPL } from "./impl-wave7b";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -96,7 +97,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   task_operation: {
     module: "WORKSPACE",
-    ops: zipOps("task_operation", { ...TASK_OPS_IMPL, ...DOCREQ_OPS_IMPL, ...REMINDER_OPS_IMPL }),
+    ops: zipOps("task_operation", { ...TASK_OPS_IMPL, ...DOCREQ_OPS_IMPL, ...REMINDER_OPS_IMPL, ...WORKSPACE7_OPS_IMPL }),
     def: {
       name: "task_operation",
       description:
@@ -118,7 +119,8 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           kind: { type: "string", description: "request_document : type de l'entité (événement | sponsoring | congrès international | congrès national)." },
           dueDate: { type: "string", description: "request_document : échéance (AAAA-MM-JJ)." },
           date: { type: "string", description: "Rappels : la date du rappel (AAAA-MM-JJ, ou AAAA-MM-JJTHH:MM) — snooze : défaut +1 jour." },
-          decision: { type: "string", description: "decide_document_request : accepter ou refuser." },
+          decision: { type: "string", description: "decide_document_request : accepter ou refuser ; respond_to_calendar_invite : accepter / refuser / peut-être." },
+          message: { type: "string", description: "update_comment : le nouveau texte (synonyme de « note »)." },
         },
         required: ["op"],
       },
@@ -317,11 +319,11 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   meeting_operation: {
     module: "MESSAGING",
-    ops: zipOps("meeting_operation", MEETING_OPS_IMPL),
+    ops: zipOps("meeting_operation", { ...MEETING_OPS_IMPL, ...MEETING7_OPS_IMPL }),
     def: {
       name: "meeting_operation",
       description:
-        "RÉUNIONS — planifier (visio ou présentiel, heure d'Alger), répondre à une invitation, inviter des participants, écrire dans le fil, terminer, supprimer — par les actions canoniques (les gestes de gestion sont réservés à l'ORGANISATEUR). "
+        "RÉUNIONS — planifier (visio ou présentiel, heure d'Alger), répondre à une invitation, inviter / retirer des participants, écrire dans le fil (message supprimable par extrait), MODIFIER la fiche (FUSION, horaire d'Alger rejoué), poser le lien, démarrer, terminer, supprimer, lancer un APPEL depuis une conversation, coller la transcription puis générer le COMPTE RENDU IA et trancher ses tâches proposées une à une — par les actions canoniques (les gestes de gestion sont réservés à l'ORGANISATEUR). "
         + `Champ « op » : ${opsSummary("meeting_operation")}. `
         + "La réunion se donne par TITRE. Pour un simple rendez-vous d'agenda personnel : create_calendar_event.",
       input_schema: {
@@ -336,7 +338,13 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           location: { type: "string", description: "create : lieu (présentiel)." },
           description: { type: "string", description: "create : ordre du jour." },
           response: { type: "string", description: "respond_invite : accepter, décliner ou peut-être." },
-          comment: { type: "string", description: "post_message : le message à poster." },
+          comment: { type: "string", description: "post_message : le message à poster ; delete_meeting_message : l'EXTRAIT qui le désigne." },
+          newName: { type: "string", description: "update_meeting : nouveau titre." },
+          link: { type: "string", description: "Lien de réunion (set_meeting_link, update_meeting)." },
+          transcript: { type: "string", description: "save_meeting_transcript : la transcription collée." },
+          label: { type: "string", description: "accept/dismiss_meeting_proposal : la tâche proposée visée (intitulé)." },
+          person: { type: "string", description: "remove_meeting_participant : le participant (nom)." },
+          target: { type: "string", description: "start_call : la conversation (nom du groupe / canal, ou la personne)." },
         },
         required: ["op"],
       },

@@ -15,12 +15,13 @@ import { resolvePeopleList } from "./impl-drive";
  * le périmètre où le geste est réellement possible (mes invitations, mes réunions organisées…).
  */
 
-interface MeetingHit { id: string; title: string; scheduledAt: Date | null; organizer: string }
+export interface MeetingHit { id: string; title: string; scheduledAt: Date | null; organizer: string }
 
 const when = (d: Date | null): string =>
   d ? d.toLocaleString("fr-FR", { timeZone: "Africa/Algiers", dateStyle: "medium", timeStyle: "short" }) : "sans date";
 
-async function resolveMeeting(
+// Exporté pour les ops réunions avancées (impl-wave7b) — même résolution, mêmes périmètres.
+export async function resolveMeeting(
   user: CurrentUser,
   raw: string,
   mode: "organizer" | "invited" | "circle",
