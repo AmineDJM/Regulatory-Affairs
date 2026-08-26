@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { MissionStatus, OutboundMailStatus } from "@prisma/client";
 import { resolveGoogleConfig, missingGoogleVars, GOOGLE_SCOPES } from "./config";
+import { computeMissingScopes } from "./scopes";
 import { getCommunicationPolicy } from "@/lib/comms/policy";
 import { WATCH_RENEW_BEFORE_MS } from "./gmail/watch";
 
@@ -99,8 +100,10 @@ export async function adamHealth(now: Date = new Date()): Promise<AdamHealth> {
 
   const missionCount = (s: MissionStatus) => missionRows.find((r) => r.status === s)?._count._all ?? 0;
 
-  const granted = (conn?.grantedScopes ?? "").split(/\s+/).filter(Boolean);
-  const missingScopes = conn ? GOOGLE_SCOPES.filter((s) => !granted.includes(s)) : [...GOOGLE_SCOPES];
+  // Les droits se comparent SOUS LEUR FORME CANONIQUE : Google répond « …/userinfo.email » là
+  // où l'on demande « email ». Voir `scopes.ts` — c'est ce qui affichait deux droits manquants
+  // à vie, sur un compte où ils étaient accordés.
+  const missingScopes = conn ? computeMissingScopes(GOOGLE_SCOPES, conn.grantedScopes) : [...GOOGLE_SCOPES];
 
   const watchExpiration = conn?.gmail?.watchExpiration ?? null;
   const watchDueSoon = !watchExpiration || watchExpiration.getTime() - now.getTime() < WATCH_RENEW_BEFORE_MS;

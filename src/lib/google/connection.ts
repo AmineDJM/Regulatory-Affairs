@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sealSecret, openSecret } from "@/lib/crypto/secret-box";
 import { resolveGoogleConfig, GOOGLE_SCOPES } from "./config";
+import { computeMissingScopes, mergeGrantedScopes, normalizeScopes } from "./scopes";
 import { refreshTokens, revokeToken, type GoogleTokenSet } from "./oauth";
 import { GoogleApiError } from "./client";
 
@@ -50,7 +51,7 @@ export async function getGoogleStatus(userId: string): Promise<GoogleConnectionS
       expiresAt: null, hasRefreshToken: false,
     };
   }
-  const granted = (c.grantedScopes ?? "").split(/\s+/).filter(Boolean);
+  const granted = normalizeScopes(c.grantedScopes);
   return {
     connected: c.status === "connected" && !c.paused,
     address: c.address,
@@ -60,7 +61,7 @@ export async function getGoogleStatus(userId: string): Promise<GoogleConnectionS
     lastError: c.lastError,
     lastSyncAt: c.lastSyncAt,
     grantedScopes: granted,
-    missingScopes: GOOGLE_SCOPES.filter((s) => !granted.includes(s)),
+    missingScopes: computeMissingScopes(GOOGLE_SCOPES, c.grantedScopes),
     expiresAt: c.expiresAt,
     hasRefreshToken: Boolean(c.refreshTokenEnc),
   };
@@ -74,6 +75,13 @@ export async function saveGoogleConnection(opts: {
   googleSub: string | null;
   tokens: GoogleTokenSet;
 }): Promise<void> {
+  // RECONNEXION INCRÉMENTALE : on part de ce que le compte possédait déjà. Écraser la liste par
+  // celle du dernier échange ferait « perdre » un droit que Google n'a pas rappelé dans cette
+  // réponse — et l'écran réclamerait de reconnecter pour un droit toujours accordé.
+  const before = await prisma.googleConnection.findUnique({
+    where: { userId: opts.userId },
+    select: { grantedScopes: true },
+  });
   const data = {
     address: opts.address.toLowerCase(),
     displayName: opts.displayName,
@@ -81,7 +89,7 @@ export async function saveGoogleConnection(opts: {
     accessTokenEnc: sealSecret(opts.tokens.accessToken),
     refreshTokenEnc: opts.tokens.refreshToken ? sealSecret(opts.tokens.refreshToken) : null,
     expiresAt: opts.tokens.expiresAt,
-    grantedScopes: opts.tokens.scopes,
+    grantedScopes: mergeGrantedScopes(before?.grantedScopes, opts.tokens.scopes),
     status: "connected",
     lastError: null,
     paused: false,
@@ -165,7 +173,7 @@ export async function getActiveGoogleConnection(userId: string): Promise<ActiveG
         // rend un, ne pas l'enregistrer ferait tomber la connexion plus tard, sans explication.
         refreshTokenEnc: tokens.refreshToken ? sealSecret(tokens.refreshToken) : c.refreshTokenEnc,
         expiresAt: tokens.expiresAt,
-        grantedScopes: tokens.scopes || c.grantedScopes,
+        grantedScopes: mergeGrantedScopes(c.grantedScopes, tokens.scopes),
         status: "connected",
         lastError: null,
       },

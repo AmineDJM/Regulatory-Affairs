@@ -7,6 +7,10 @@ export default async function globalTeardown(): Promise<void> {
   });
   try {
     await prisma.userInvite.deleteMany({ where: { token: { startsWith: "__e2e__" } } });
+    await prisma.feedbackAttachment.deleteMany({ where: { feedback: { message: { startsWith: "__e2e__" } } } }).catch(() => {});
+    await prisma.feedback.deleteMany({ where: { message: { startsWith: "__e2e__" } } }).catch(() => {});
+    await prisma.legalDocument.deleteMany({ where: { title: { startsWith: "__e2e__" } } }).catch(() => {});
+    await prisma.legalFolder.deleteMany({ where: { name: { startsWith: "__e2e__" } } }).catch(() => {});
     await prisma.auditLog.deleteMany({ where: { actor: { email: { startsWith: "__e2e__" } } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: "__e2e__" } } });
   } finally {

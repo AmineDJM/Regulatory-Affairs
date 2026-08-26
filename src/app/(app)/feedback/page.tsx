@@ -10,6 +10,8 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { NAVIGATION, FEEDBACK_STATUS } from "@/lib/labels";
 import { formatDateTime } from "@/lib/utils";
+import { FeedbackAttachments } from "./attachment-list";
+import { ACCEPT_ATTRIBUTE, ALLOWED_EXTENSIONS, MAX_ATTACHMENTS_PER_FEEDBACK, MAX_ATTACHMENT_BYTES } from "@/lib/files/attachment-policy";
 
 export default async function FeedbackPage() {
   const user = await requireModule("WORKSPACE");
@@ -20,10 +22,19 @@ export default async function FeedbackPage() {
     .filter((n) => mods.includes(n.module) && !seen.has(n.module) && seen.add(n.module))
     .map((n) => ({ value: n.label, label: n.label }));
 
+  // Les pièces jointes sont LUES AVEC le retour, dans la même requête : une seconde requête
+  // cliente pourrait revenir après coup et remplacer un objet complet par un objet partiel —
+  // exactement le mécanisme qui faisait « disparaître » des documents ailleurs dans l'ERP.
   const myFeedbacks = await prisma.feedback.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },
     take: 50,
+    include: {
+      attachments: {
+        select: { id: true, name: true, mime: true, size: true },
+        orderBy: { createdAt: "asc" },
+      },
+    },
   });
   // Boîte de réception : les feedbacks auxquels l'administration a répondu.
   const replies = myFeedbacks.filter((f) => f.adminNote && f.adminNote.trim());
@@ -31,6 +42,11 @@ export default async function FeedbackPage() {
   const fields: FieldDef[] = [
     { type: "select", name: "module", label: "Module concerné (optionnel)", options: moduleOptions, placeholder: "—", full: true },
     { type: "textarea", name: "message", label: "Votre message", required: true, full: true, placeholder: "Un problème, une idée, une difficulté, une amélioration souhaitée…" },
+    {
+      type: "file", name: "files", label: "Pièces jointes (optionnel)", multiple: true, full: true,
+      accept: ACCEPT_ATTRIBUTE,
+      hint: `Une capture vaut dix explications. ${MAX_ATTACHMENTS_PER_FEEDBACK} fichiers au plus, ${Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024))} Mo chacun — ${ALLOWED_EXTENSIONS.join(", ")}.`,
+    },
   ];
 
   return (
@@ -66,6 +82,7 @@ export default async function FeedbackPage() {
                     <StatusBadge map={FEEDBACK_STATUS} value={f.status} />
                   </div>
                   <p className="whitespace-pre-wrap rounded-lg bg-secondary/40 px-3 py-2 text-sm text-muted-foreground">Vous : {f.message}</p>
+                  <FeedbackAttachments items={f.attachments.map((a) => ({ ...a, canRemove: true }))} />
                   <div className="flex items-start gap-2">
                     <Reply className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                     <p className="whitespace-pre-wrap text-sm font-medium">{f.adminNote}</p>
@@ -91,6 +108,8 @@ export default async function FeedbackPage() {
                     <p className="text-xs text-muted-foreground">
                       {f.module ? `${f.module} · ` : ""}{formatDateTime(f.createdAt)}
                     </p>
+                    {/* C'EST SON retour : il peut retirer ses propres pièces. */}
+                    <FeedbackAttachments items={f.attachments.map((a) => ({ ...a, canRemove: true }))} />
                   </div>
                   <StatusBadge map={FEEDBACK_STATUS} value={f.status} />
                 </CardContent>

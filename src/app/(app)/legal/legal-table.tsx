@@ -10,6 +10,11 @@ import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL } from "@/lib/labels";
 import { renewLegalDocument, cancelLegalDocument } from "@/lib/actions/legal-actions";
 import { moveLegalDocuments } from "@/lib/actions/legal-folder-actions";
+import {
+  EMPTY_FILTERS, URGENT_EXPIRY,
+  initialLegalListState, syncLegalListState, visibleLegalRows, hasActiveFilter, describeActiveFilters,
+  type LegalColumnFilters, type LegalListRow,
+} from "@/lib/legal/list-view";
 
 /**
  * LES ENGAGEMENTS DE LA SOCIÉTÉ, EN TABLEAU FILTRABLE.
@@ -20,33 +25,18 @@ import { moveLegalDocuments } from "@/lib/actions/legal-folder-actions";
  * ils n'expirent pas, et les faire clignoter apprendrait à ignorer les vrais.
  */
 
-export interface LegalRow {
-  id: string;
-  reference: string | null;
-  title: string;
-  kind: string;
-  counterparty: string | null;
-  startDate: string | null;
-  endDate: string | null;
-  /** Statut EFFECTIF (échéance comprise), calculé côté serveur par le module pur. */
-  status: string;
-  expiry: string;
-  daysLeft: number | null;
-  amount: number | null;
-  driveNodeId: string | null;
-  driveName: string | null;
-  renewedFromTitle: string | null;
-  /** Document réservé à des lecteurs désignés — signalé pour qu'on sache pourquoi un collègue
-   *  ne le voit pas, sans avoir à demander. */
-  restricted: boolean;
-}
+/**
+ * La ligne AFFICHÉE — définie une seule fois, dans `lib/legal/list-view`, avec la règle de
+ * filtrage qui la consomme. Deux définitions de la même ligne finissent toujours par diverger.
+ */
+export type LegalRow = LegalListRow;
 
 const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-xs font-normal normal-case tracking-normal outline-none focus:ring-1 focus:ring-ring";
 
-const URGENT = new Set(["SOON", "IMMINENT", "OVERDUE"]);
+const URGENT = URGENT_EXPIRY;
 
 export function LegalTable({
-  rows, canEdit, watchByDefault = false, folders = [], currentFolderId = null,
+  rows, canEdit, watchByDefault = false, folders = [], currentFolderId = null, scope,
 }: {
   rows: LegalRow[];
   canEdit: boolean;
@@ -54,34 +44,40 @@ export function LegalTable({
   /** Dossiers de classement disponibles — vide : le classement n'est pas proposé. */
   folders?: { id: string; name: string }[];
   currentFolderId?: string | null;
+  /**
+   * LE PÉRIMÈTRE de la liste servie — dossier ouvert, arrivée par un rappel d'échéance.
+   *
+   * C'est LUI qui ferme le bogue des documents « disparus » : la navigation par dossier passe
+   * par `<Link>`, donc le composant reste monté et son état de filtrage survivrait au
+   * changement de liste. Quand le périmètre change, les filtres de la liste précédente
+   * tombent — voir `lib/legal/list-view`.
+   */
+  scope: string;
 }) {
   const router = useRouter();
-  const [f, setF] = React.useState({ title: "", kind: "", counterparty: "", status: "", reference: "", startMonth: "", endMonth: "" });
-  // Arrivée depuis un rappel d'échéance (`/legal?echeances=1`) : le filtre est déjà posé, sinon
-  // la notification renverrait sur une liste de trois cents lignes où retrouver la bonne.
-  const [watchOnly, setWatchOnly] = React.useState(watchByDefault);
+  const [state, setState] = React.useState(() => initialLegalListState(scope, watchByDefault));
   const [busy, setBusy] = React.useState<string | null>(null);
 
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setF((p) => ({ ...p, [k]: e.target.value }));
-  const has = (hay: string | null, needle: string) => (hay ?? "").toLowerCase().includes(needle.toLowerCase());
-  // Début et Échéance se filtrent AU MOIS, comme au carnet de courriers : « le bail qui expire en
-  // décembre » est la question réelle — un jour exact serait trop fin.
-  const inMonth = (iso: string | null, month: string) => Boolean(iso && iso.startsWith(month));
+  // AJUSTEMENT PENDANT LE RENDU (motif recommandé par React pour un état dérivé d'une
+  // propriété) : pas d'effet, donc pas d'affichage intermédiaire où la liste apparaîtrait vide
+  // le temps d'un battement.
+  const synced = syncLegalListState(state, scope, watchByDefault);
+  if (synced !== state) setState(synced);
 
-  const shown = rows.filter((r) => {
-    if (f.title && !has(r.title, f.title)) return false;
-    if (f.reference && !has(r.reference, f.reference)) return false;
-    if (f.kind && r.kind !== f.kind) return false;
-    if (f.counterparty && !has(r.counterparty, f.counterparty)) return false;
-    if (f.status && r.status !== f.status) return false;
-    if (f.startMonth && !inMonth(r.startDate, f.startMonth)) return false;
-    if (f.endMonth && !inMonth(r.endDate, f.endMonth)) return false;
-    if (watchOnly && !URGENT.has(r.expiry)) return false;
-    return true;
-  });
+  const f = synced.filters;
+  const watchOnly = synced.watchOnly;
+  const setF = (next: (p: LegalColumnFilters) => LegalColumnFilters) =>
+    setState((p) => ({ ...p, filters: next(p.filters) }));
+  const setWatchOnly = (next: (v: boolean) => boolean) =>
+    setState((p) => ({ ...p, watchOnly: next(p.watchOnly) }));
 
-  const active = watchOnly || Object.values(f).some(Boolean);
+  const set = (k: keyof LegalColumnFilters) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const v = e.target.value;
+    setF((p) => ({ ...p, [k]: v }));
+  };
+
+  const shown = visibleLegalRows(rows, synced);
+  const active = hasActiveFilter(synced);
   const watchCount = rows.filter((r) => URGENT.has(r.expiry)).length;
 
   const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
@@ -106,7 +102,7 @@ export function LegalTable({
         {active && (
           <button
             type="button"
-            onClick={() => { setF({ title: "", kind: "", counterparty: "", status: "", reference: "", startMonth: "", endMonth: "" }); setWatchOnly(false); }}
+            onClick={() => setState((p) => ({ ...p, filters: { ...EMPTY_FILTERS }, watchOnly: false }))}
             className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 font-medium hover:bg-secondary"
           >
             <FilterX className="h-3.5 w-3.5" /> Réinitialiser
@@ -182,7 +178,30 @@ export function LegalTable({
           </thead>
           <tbody className="divide-y divide-border">
             {shown.length === 0 ? (
-              <tr><td colSpan={canEdit ? 10 : 9} className="px-3 py-8 text-center text-sm text-muted-foreground">Aucun document ne correspond à ces filtres.</td></tr>
+              <tr>
+                <td colSpan={canEdit ? 10 : 9} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                  {rows.length === 0 ? (
+                    "Aucun engagement dans cette vue."
+                  ) : (
+                    // Il Y A des documents : ce sont les filtres qui les masquent. On le DIT, et
+                    // on nomme lesquels — « aucun document » devant des colonnes visuellement
+                    // vides fait croire à une perte de données.
+                    <span className="flex flex-col items-center gap-2">
+                      <span>
+                        {rows.length} document{rows.length > 1 ? "s" : ""} dans cette vue, masqué
+                        {rows.length > 1 ? "s" : ""} par&nbsp;: {describeActiveFilters(synced).join(", ")}.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setState((p) => ({ ...p, filters: { ...EMPTY_FILTERS }, watchOnly: false }))}
+                        className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium hover:bg-secondary"
+                      >
+                        <FilterX className="h-3.5 w-3.5" /> Tout afficher
+                      </button>
+                    </span>
+                  )}
+                </td>
+              </tr>
             ) : shown.map((r) => {
               const exp = LEGAL_EXPIRY_LEVEL[r.expiry];
               const st = LEGAL_DOC_STATUS[r.status];

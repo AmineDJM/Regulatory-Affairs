@@ -996,6 +996,13 @@ X("SÉCURITÉ : identifiants et sessions appartiennent à la personne au clavier
   "adam-settings-actions:disconnectAdamGoogle", "adam-settings-actions:setAdamConnectionPaused",
   "adam-settings-actions:renewAdamWatch", "adam-settings-actions:setAdamInboundPaused",
 ]);
+X("geste personnel sur SON PROPRE retour — la pièce jointe d'un feedback appartient à qui l'a déposée", [
+  // Retirer une pièce d'un retour est une correction que la personne fait elle-même, depuis
+  // l'écran où elle l'a déposée. La confier au Chief ouvrirait la possibilité d'effacer, par
+  // une phrase, la CAPTURE qui documentait un bogue — c'est-à-dire la preuve. Le Super Admin
+  // garde le geste à l'écran ; il n'a pas besoin d'une action conversationnelle pour cela.
+  "feedback-actions:removeFeedbackAttachment",
+]);
 X("plomberie du Chief lui-même (chat, mémoire, fils) — pas une action métier à proposer", [
   "assistant-actions:rememberExchange", "assistant-actions:assistantChat", "assistant-actions:assistantNudge",
   "assistant-actions:executeAssistantAction", "assistant-actions:cancelAssistantAction",

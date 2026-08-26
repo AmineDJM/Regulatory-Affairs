@@ -59,6 +59,9 @@ export const GOOGLE_SCOPE_STRING = GOOGLE_SCOPES.join(" ");
 
 /** Ce que chaque droit sert — affiché à l'écran de connexion : un consentement se comprend. */
 export const SCOPE_PURPOSE: Record<string, string> = {
+  openid: "Établir l'identité du compte connecté",
+  email: "Connaître l'adresse du compte connecté (c'est elle qui vérifie que c'est bien Adam)",
+  profile: "Connaître le nom affiché du compte connecté",
   "https://www.googleapis.com/auth/gmail.modify": "Lire, classer, préparer et envoyer les messages (jamais de suppression définitive)",
   "https://www.googleapis.com/auth/calendar": "Lire l'agenda, proposer des créneaux, créer et décaler des réunions",
   "https://www.googleapis.com/auth/drive": "Chercher, lire, déposer et partager des fichiers",

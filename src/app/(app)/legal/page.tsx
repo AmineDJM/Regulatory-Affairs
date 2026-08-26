@@ -12,6 +12,7 @@ import { legalFields } from "./legal-fields";
 import { LegalTable, type LegalRow } from "./legal-table";
 import { LegalFolderBar, type FolderRow } from "./folder-bar";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
+import { legalListScope } from "@/lib/legal/list-view";
 import { legalReaderWhere } from "@/lib/legal/readers";
 import { ROLE_LABELS, LEGAL_DOC_KIND } from "@/lib/labels";
 
@@ -170,8 +171,17 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
         canManage={canCreate}
       />
 
+      {/* `scope` DÉCLARE à quel ensemble de documents ces filtres s'appliquent. La barre de
+          dossiers navigue par <Link> : sans lui, le filtre « à surveiller » posé par un rappel
+          d'échéance survivait au changement de dossier et masquait des documents pourtant
+          servis — les fameux bons de commande « disparus ». */}
       <LegalTable
         rows={rows} canEdit={canEdit} watchByDefault={searchParams?.echeances === "1"}
+        scope={legalListScope({
+          folderId: openFolderId,
+          unfiledOnly,
+          fromExpiryAlert: searchParams?.echeances === "1",
+        })}
         folders={folders.map((f) => ({ id: f.id, name: f.name }))}
         currentFolderId={openFolderId}
       />

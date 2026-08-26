@@ -1077,9 +1077,10 @@ model User {
   driverMissions          DriverMission[]         @relation("MissionDriver")
 
   // Validations transversales + feedback
-  validationRequests ValidationRequest[] @relation("ValidationRequester")
-  validationSteps    ValidationStep[]    @relation("ValidationStepValidator")
-  feedbacks          Feedback[]          @relation("UserFeedback")
+  validationRequests  ValidationRequest[]  @relation("ValidationRequester")
+  validationSteps     ValidationStep[]     @relation("ValidationStepValidator")
+  feedbacks           Feedback[]           @relation("UserFeedback")
+  feedbackAttachments FeedbackAttachment[] @relation("FeedbackAttachmentUploader")
 
   // Messagerie interne
   conversationsCreated Conversation[]       @relation("ConvCreator")
@@ -5240,19 +5241,48 @@ enum PromoMovementKind {
 // ─────────────── Feedback utilisateur ───────────────
 
 model Feedback {
-  id          String         @id @default(cuid())
+  id          String               @id @default(cuid())
   userId      String
-  user        User           @relation("UserFeedback", fields: [userId], references: [id])
+  user        User                 @relation("UserFeedback", fields: [userId], references: [id])
   module      String? // module concerné (optionnel)
   message     String
-  status      FeedbackStatus @default(NEW)
+  status      FeedbackStatus       @default(NEW)
   handledById String?
   adminNote   String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  attachments FeedbackAttachment[]
 
   @@index([status])
   @@index([userId])
+}
+
+/// PIÈCE JOINTE D'UN RETOUR — une capture, un PDF, un tableau : ce qui rend un bogue
+/// reproductible au lieu de racontable.
+///
+/// Le contenu vit dans le MÊME magasin que toutes les autres pièces de l'ERP (FileBlob :
+/// chiffré au repos, dédupliqué par sha256, compté par référence, en base ou en objet S3).
+/// C'est ce qui permet au Chief d'y accéder par le chemin habituel — aucune représentation
+/// de fichier propre au Feedback, qui lui serait invisible.
+///
+/// `onDelete: Cascade` : un retour supprimé emporte ses pièces. Le blob, lui, n'est libéré
+/// qu'après `releaseBlob` — c'est le compteur de références qui décide, pas cette table.
+model FeedbackAttachment {
+  id           String   @id @default(cuid())
+  feedbackId   String
+  feedback     Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  /// FileBlob chiffré — le contenu réel, partagé avec le reste de l'ERP.
+  blobId       String
+  /// Le nom ASSAINI (jamais celui reçu du navigateur) et le type déduit de l'extension.
+  name         String
+  mime         String
+  size         Int
+  uploadedById String
+  uploadedBy   User     @relation("FeedbackAttachmentUploader", fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([feedbackId])
+  @@index([blobId])
 }
 
 // ─────────────────────────── Messagerie interne ───────────────────────────

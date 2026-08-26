@@ -65,7 +65,7 @@ export type FieldDef =
   | { type: "hidden"; name: string; value: string }
   | { type: "checkbox"; name: string; label: string; full?: boolean }
   | { type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; hint?: string; full?: boolean }
-  | { type: "file"; name: string; label: string; multiple?: boolean; hint?: string; defaultValue?: string | number; full?: boolean }
+  | { type: "file"; name: string; label: string; multiple?: boolean; hint?: string; defaultValue?: string | number; full?: boolean; /** Formats proposés par le sélecteur (`.pdf,.png`…) — le serveur revérifie TOUJOURS. */ accept?: string }
   // L'EXPLORATEUR DU DRIVE, ouvert par-dessus le formulaire : on désigne un dossier ou un
   // fichier qui existe déjà plutôt que d'en téléverser une copie. Le champ ne transporte qu'un
   // identifiant de nœud — le fichier, lui, ne bouge pas.
@@ -232,6 +232,7 @@ export function RecordForm({
                     type="file"
                     name={field.name}
                     multiple={field.multiple}
+                    accept={field.accept}
                     className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
                   />
                   {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}

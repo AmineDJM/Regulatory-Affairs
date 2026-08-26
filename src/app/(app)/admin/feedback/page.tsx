@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Avatar } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/utils";
+import { FeedbackAttachments } from "../../feedback/attachment-list";
 import { FeedbackStatusSelect } from "./feedback-status";
 import { BackLink } from "@/components/shared/back-link";
 
@@ -18,7 +19,12 @@ export default async function AdminFeedbackPage() {
 
   const feedbacks = await prisma.feedback.findMany({
     orderBy: { createdAt: "desc" },
-    include: { user: { select: { name: true, email: true, avatarColor: true } } },
+    include: {
+      user: { select: { name: true, email: true, avatarColor: true } },
+      // Les pièces avec le retour, dans la MÊME requête : c'est ce qui rend un bogue
+      // reproductible plutôt que racontable.
+      attachments: { select: { id: true, name: true, mime: true, size: true }, orderBy: { createdAt: "asc" } },
+    },
     take: 300,
   });
 
@@ -59,6 +65,8 @@ export default async function AdminFeedbackPage() {
                     <p className="text-xs text-muted-foreground">
                       {f.module ? `${f.module} · ` : ""}{formatDateTime(f.createdAt)}
                     </p>
+                    {/* Le Super Admin voit et peut retirer — c'est lui qui traite le retour. */}
+                    <FeedbackAttachments items={f.attachments.map((a) => ({ ...a, canRemove: true }))} />
                   </div>
                 </div>
                 <div className="shrink-0">
