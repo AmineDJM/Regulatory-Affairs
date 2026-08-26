@@ -2532,7 +2532,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **RH — contrats : visibilité et miroir Drive** | Module PUR `lib/hr/document-visibility.ts` (`defaultVisibleToEmployee`, `resolveVisibility`, `shouldMirrorToDrive`) + tests ; `lib/hr-drive-mirror.ts` écrit dans une **catégorie de Drive** « RH — Contrats » ouverte aux seuls rôles RH (`rolesWithModule("RH")`), plus dans un Drive personnel. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
-| **Transverse** | `lib/archive.ts` (Dossier traité), `lib/admin-delete-registry.ts` (registre partagé des 25 types supprimables) + `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/assistant/action-registry.ts` (registre ZERO-GAP des actions natives + classification des 631 server actions, gardé par `action-parity.test.ts`), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
+| **Transverse** | `lib/archive.ts` (Dossier traité), `lib/admin-delete-registry.ts` (registre partagé des 25 types supprimables) + `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/assistant/action-registry.ts` (registre ZERO-GAP des actions natives + classification des 632 server actions — parité UI↔Chief 98,6 %, 485 ops de domaine sur 30 outils dans `lib/assistant/ops/` —, gardé par `action-parity.test.ts`), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
 | **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès + `effectiveSpaceId`/`canCreateInSpace`), `lib/drive/explorer.ts` (pur : type lisible, taille, tri, volet), `lib/drive/search.ts` (**pur** : repli des accents, pertinence, chemin lisible — 29 tests) + `lib/queries/drive-search.ts` (périmètre étendu aux sous-arbres visibles, deux passes) + `app/(app)/drive/drive-search.tsx`, `lib/drive/{mirror,mirror-path,document-mirror}.ts` (miroir Drive de tout import), `lib/storage.ts` (Documents + `validateDocumentUpload`), `lib/documents.ts` (`persistUploadedDocument`), `lib/attach-files.ts`, `lib/actions/drive-actions.ts` + `document-actions.ts`, `app/api/drive/upload/route.ts` (quotas) + `app/api/documents/upload/route.ts` (lot/dossier, flux, parallèle), `app/(app)/drive/{drive-table,drive-canvas,explorer-nav,wide-toggle}.tsx`, `components/documents/`. |
 | **Catégories Drive (espaces partagés)** | Modèle `DriveSpace` + `DriveNode.spaceId` ; RBAC `canCreateDriveSpace`/`canViewDriveSpace`/`canManageDriveSpace` (`lib/rbac.ts`, accès implicite module Drive dans `getAccess`) ; `lib/queries/drive.ts` (`getDriveSpacesForUser`, `getDriveTabs`, `getDriveListing(…, spaceId)`) ; `lib/actions/drive-space-actions.ts` (créer/modifier/archiver/supprimer) ; page `app/(app)/drive/espace/[id]/` + `drive-space-manager.tsx` ; réglage `AppSetting.driveSpaceCreatorRoles` (`DriveSpaceCreatorForm` en Administration). Les catégories sont des **Emplacements du volet de navigation** (`ExplorerNav`), plus des onglets — `getDriveTabs` ne sert plus qu'à la page Documents. |
 | **Admin** | `app/(app)/admin/` (`page.tsx` comptes + stockage + activité, `corbeille/`, `drive-storage-settings.tsx`, `access/`, `settings/`…), `lib/actions/admin-actions.ts`, `settings-actions.ts`. |
@@ -3113,6 +3113,55 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Parité quasi totale UI ↔ Chief — 485 ops de domaine sur 30 outils, 98,6 % (2026-08)
+
+Huit vagues industrielles (5a → 7d) ferment la quasi-totalité de l'inventaire des server actions :
+le Chief of Staff propose désormais **le même geste que l'écran** sur pratiquement tout l'ERP.
+
+- **485 ops de domaine sur 30 outils** (`src/lib/assistant/ops/`) — les plus fournis : Finances (55),
+  RH (39), Administration/`org_operation` (38), Ad&Pro (36), BD (28), Annuaire/promo (25), Médical (22),
+  Drive (21), Espace de travail (19), Demandes (18), **Messagerie (18, nouvel outil `messaging_operation`)**,
+  Regulatory (16), Planning SFE (16), Réunions (16), Courriers (16), PCH (14), Care (12), Legal (11)…
+  Toujours le même contrat : catalogue pur (alias FR, risque, porte RBAC, `covers`) + implémentation
+  (résolution nom→id, ambiguïtés LISTÉES, rejeu de l'ACTION CANONIQUE — FormData au champ près).
+- **Vagues 5a→6c** : care/congrès nationaux (12), matériel promo (25), BD complet (create/update/delete
+  projets CRITIQUES en cascade comptée, gammes, produits FUSION 19 champs, `set_bd_cell` sur liste blanche),
+  projets/dossiers (statut, assignation, messages avec mentions, liaison courrier), directives, support,
+  rappels d'écran, règles & demandes de VALIDATION (résolution du validateur dont c'est le tour),
+  rapports terrain, uniformisation du catalogue d'articles (préversion PURE inlinée dans la proposition),
+  planning SFE intégral (cycles « 2033-09 » lus sur le brut, upserts en FUSION, retrait de visites
+  sans note signalé).
+- **Vague 7/7b/7c** : demandes administratives (édition/retrait/restauration/suppression avec motif
+  obligatoire, validation finances/interne, imputation moyens généraux, achats « article xN »),
+  missions chauffeur, réunions avancées (FUSION avec horaire d'Alger rejoué UTC+1, appels sur
+  conversation résolue par nom, propositions de tâches du compte rendu tranchées par intitulé),
+  invitations d'agenda, commentaires transverses par extrait, **messagerie complète** (groupes,
+  canaux, édition de SES messages par extrait, modération, réactions, épingles, signets, sourdine,
+  niveaux de notification, fiche en FUSION, membres et rôles OWNER-only, archivage, statut de
+  présence façon Teams) + relance Regulatory (porte Super Admin / DG).
+- **Vague 7d — l'administration profonde** : entités (fiche FUSION + portée du sélecteur), annuaire
+  d'entreprise, départements (FUSION anti-cycle, suppression au remontage), organigramme (N+1),
+  accès aux entités (auto-modification interdite), comptes portail fournisseur, feedback (dépôt +
+  traitement), rattachement des orphelins, **accès pipeline et lignes accordées en FUSION de listes**,
+  Centre de contrôle IA (couper l'interrupteur général prévient qu'il éteint AUSSI l'assistant),
+  nouveautés TEST→PROD, seuils du Risk Radar bornés, **purge de stockage et suppressions DÉFINITIVES
+  Drive/document (CRITIQUES, ressaisie du nom)**, carte d'identité légale par libellé, champs
+  personnalisés par libellé (FILE renvoyé à l'écran), suppression de SON courrier/document légal.
+- **EXCLUDED motivés, jamais silencieux** : lectures/analyses IA du cockpit (le Chief EST cette
+  capacité), géométrie de la carte d'organigramme, `createSupplierUser` (un mot de passe ne transite
+  JAMAIS par une conversation — même règle que les comptes internes à invitation), sélecteurs de
+  formulaires, plomberie d'écrans.
+- **Sémantique FUSION généralisée** : toute action d'écran qui REMPLACE une fiche est rejouée champ
+  par champ depuis l'existant — renommer un groupe ne perd pas son sujet, changer un seuil du Risk
+  Radar réécrit la grille entière à l'identique, retirer une ligne accordée rejoue les autres.
+- **Goldens par vague** (`ops-goldens-wave*.test.ts`) : chaque vague est verrouillée par des tests
+  d'or sur ses mécanismes délicats (FUSION, portes, ambiguïtés, bornes, confirmations CRITIQUES).
+
+Parité UI↔Chief : **22,8 % → 98,6 %** (natives 525, couvertes 33, **trous 8** — tous des gestes à
+FICHIER (upload/import) qui attendent la phase « fichiers first-class » —, exclues 66 sur 632
+classées) — cliquet CI abaissé à chaque vague (`action-parity.test.ts` : trous ≤ 8,
+natif+couvert ≥ 558). Suite : **3 004 tests verts**.
 
 ### Plan de contrôle exécutif ZERO-GAP — ops de domaine, lots, plans, confirmation serveur, invitations, versions de circuits (2026-08)
 
