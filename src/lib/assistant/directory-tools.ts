@@ -83,8 +83,10 @@ export const DIRECTORY_TOOLS: PowerTool[] = [
       name: "directory_list",
       description:
         "LA LISTE des personnes de l'entreprise avec leurs coordonnées — répond directement à « donne-moi les salariés et leurs e-mails », "
-        + "« la liste des contacts », « qui travaille au service réglementaire ». Rend un tableau prêt à lire. "
-        + "Ne JAMAIS demander « pour une personne ou toute la liste ? » quand la demande porte déjà sur la liste.",
+        + "« la liste des contacts », « qui travaille au service réglementaire », « les adresses mail des salariés ». Rend un tableau prêt à lire. "
+        + "Ne JAMAIS demander « pour une personne ou toute la liste ? » quand la demande porte déjà sur la liste. "
+        + "Ne JAMAIS répondre « je ne peux pas confirmer la liste » ni « il faut passer par l'annuaire » : CET OUTIL EST L'ANNUAIRE. "
+        + "Ne pas passer par search_everything pour des coordonnées — la recherche fédérée n'indexe pas l'annuaire et rendra zéro résultat.",
       input_schema: {
         type: "object",
         properties: {

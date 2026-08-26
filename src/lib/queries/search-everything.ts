@@ -6,6 +6,7 @@ import { sitsOnPaymentCentre } from "@/lib/payments/authorization";
 import { platformScope } from "@/lib/company";
 import { globalSearch } from "@/lib/queries/search";
 import { toNumber } from "@/lib/utils";
+import { emptySearchNote } from "@/lib/queries/search-redirect";
 
 /**
  * RECHERCHE FÉDÉRÉE « search_everything » — le geste réflexe du Chief of Staff.
@@ -399,8 +400,10 @@ export async function searchEverything(user: SessionUser, q: string, take = 6): 
     total: hits.length,
     parFamille,
     resultats: hits,
-    note: hits.length === 0
-      ? "Aucun résultat. Essayer un synonyme (nom commercial ↔ DCI), un fragment plus court, ou une autre orthographe."
-      : undefined,
+    // ZÉRO RÉSULTAT N'EST PAS UN CUL-DE-SAC. L'ancienne note conseillait « essayer un synonyme
+    // (nom commercial ↔ DCI) » à TOUTES les requêtes — y compris « les adresses mail des
+    // salariés », où ce conseil sur les noms de molécules n'a aucun sens. Le modèle relançait
+    // alors le même outil, puis renonçait. La note nomme désormais l'outil qui SAIT répondre.
+    note: hits.length === 0 ? emptySearchNote(q) : undefined,
   };
 }
