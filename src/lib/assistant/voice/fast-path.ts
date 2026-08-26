@@ -94,7 +94,7 @@ const CALENDAR_STRONG = /\b(rendez vous|rdv|agenda|calendrier|planning)\b/;
 const CALENDAR_WEAK = /\b(reunion|reunions)\b/;
 const NEXT_WORDS = /\b(prochain|prochaine|suivant|suivante|aujourd hui|demain|apres)\b/;
 const STATUS_WORDS = /\b(ou en est|ou en sont|statut|avancement|point sur|etat de|ou ca en est)\b/;
-const DECISION_WORDS = /\b(attend|attendent|valider|validation|validations|decisions|en attente|arbitrer)\b/;
+const DECISION_WORDS = /\b(attend|attends|attendent|valider|validation|validations|decisions|en attente|arbitrer)\b/;
 /** « alors ? », « et donc ? », « ça donne quoi ? » — réclamer ce qui a été promis. */
 const NUDGE = /^(alors|et alors|et donc|donc|ca donne quoi|ca dit quoi|tu as trouve|tu as fini|resultat|et alors donc)$/;
 
@@ -104,6 +104,33 @@ const NUDGE = /^(alors|et alors|et donc|donc|ca donne quoi|ca dit quoi|tu as tro
  * raccourci — elle passe par le chemin complet, avec ses cartes et ses confirmations.
  */
 const RISKY = /\b(supprime|supprimer|efface|effacer|detruit|detruire|paie|payer|paiement|vire|virement|salaire|augmente|licencie|annule|annuler|desactive|droit|droits|permission|acces)\b/;
+
+/**
+ * CE QUI N'EST PAS UN FAIT SIMPLE. Une question causale ou comparative n'a pas de réponse en
+ * base : « Pourquoi Deepak ne répond pas ? » contient le mot « répond » et partait chercher sa
+ * boîte, alors qu'on demandait une explication. Un raccourci qui répond à côté est pire qu'une
+ * seconde d'attente.
+ */
+const COMPLEX = /\b(pourquoi|comment ca se fait|comment se fait il|comment on en est|analyse|analyser|compare|comparer|synthese|synthetise|contradiction|strategie|impact|consequences|scenario|arbitre|recommande|que penses tu|ton avis|bilan)\b/;
+
+/**
+ * LES QUESTIONS SUR ADAM LUI-MÊME. « Tu as une adresse e-mail ? » contient « e-mail » et partait
+ * lire la boîte du PDG. C'est le défaut d'identité constaté en production — Adam disait s'appeler
+ * « Assistant IA » et n'avoir « pas d'adresse propre » — et il n'a rien à faire dans un raccourci
+ * de lecture : il se répond avec ce que le serveur sait de l'identité d'Adam.
+ */
+const SELF = /\b(tu t appelles|tu es qui|qui es tu|comment tu t appelles|ton nom|ton adresse|tu as une adresse|ton e mail|ton email|tu es quoi)\b/;
+
+/**
+ * LES NOMS QUI DISENT « CE N'EST NI LA BOÎTE NI MA FILE DE DÉCISIONS ».
+ *
+ * « Combien de paiements en attente ? » ouvrait la file de décisions du PDG ; « Quels documents
+ * sont arrivés cette semaine ? » ouvrait sa boîte mail. Les deux raccourcis se déclenchaient sur
+ * un mot isolé (« attente », « arrivés ») alors que la phrase nommait explicitement un AUTRE
+ * objet. Quand un nom de domaine concurrent est présent, on rend la main : le chemin complet sait
+ * lire une facture, un congé ou un document ; le raccourci, non.
+ */
+const OTHER_DOMAIN = /\b(paiement|paiements|facture|factures|conge|conges|sponsoring|document|documents|fichier|fichiers|dossier|dossiers|contrat|contrats|salaire|salaires|salarie|salaries|employe|employes|commande|commandes|evenement|evenements|demande|demandes|stock|stocks|budget|engagement|engagements|recrutement|courrier|courriers)\b/;
 
 /**
  * QUI EST NOMMÉ DERRIÈRE « DE » — et pourquoi on exige la MAJUSCULE.
@@ -174,6 +201,15 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
     return { kind: "APPROVE_PENDING", tool: null, args: {}, fast: true, reason: "accord sur l'envoi en attente" };
   }
 
+  // ── 1 ter. NI UNE EXPLICATION, NI UNE QUESTION SUR ADAM ─────────────────────────────────
+  // Testées après l'accord (« envoie-le » reste une approbation) et avant toute lecture.
+  if (SELF.test(text)) {
+    return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "question sur Adam lui-même" };
+  }
+  if (COMPLEX.test(text)) {
+    return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "question causale ou comparative — pas un fait simple" };
+  }
+
   // ── 1 bis. UN ORDRE N'EST PAS UNE QUESTION ──────────────────────────────────────────────
   // Testé APRÈS l'accord (« envoie-le » reste une approbation quand une intention attend) et
   // AVANT toutes les lectures. On résout quand même le pronom au passage : « relance-la » part
@@ -234,7 +270,9 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
     }
     return { kind: "GMAIL_INBOX", tool: "gmail_search", args: {}, fast: true, reason: "réponse attendue, personne non résolue" };
   }
-  if (asksMail || (asksReceived && !asksCalendar)) {
+  // Le raccourci « boîte » ne vaut que si la phrase ne nomme pas explicitement un AUTRE objet :
+  // « Donne-moi les salariés et leurs e-mails » parle du registre RH, pas de la messagerie.
+  if ((asksMail || (asksReceived && !asksCalendar)) && !OTHER_DOMAIN.test(text)) {
     const who = namedSender(raw);
     if (who) return { kind: "GMAIL_FROM", tool: "gmail_search", args: { from: who }, fast: true, reason: "boîte filtrée sur une personne nommée" };
     return { kind: "GMAIL_INBOX", tool: "gmail_search", args: {}, fast: true, reason: "état de la boîte" };
@@ -259,7 +297,9 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
   }
 
   // ── 7. CE QUI ATTEND LE PDG ─────────────────────────────────────────────────────────────
-  if (DECISION_WORDS.test(text) && /\b(quoi|qu|combien|qui)\b/.test(text)) {
+  // Même garde : « Combien de paiements en attente ? » n'est pas ma file de décisions, c'est une
+  // question sur les paiements. Un nom de domaine concurrent ferme le raccourci.
+  if (DECISION_WORDS.test(text) && /\b(quoi|qu|combien|qui)\b/.test(text) && !OTHER_DOMAIN.test(text)) {
     return { kind: "PENDING_DECISIONS", tool: "list_pending_decisions", args: {}, fast: true, reason: "file de décisions" };
   }
 
