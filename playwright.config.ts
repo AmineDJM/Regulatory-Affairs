@@ -43,6 +43,11 @@ export default defineConfig({
       DATABASE_URL: DB_URL,
       NEXTAUTH_URL: "http://localhost:3100",
       NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET ?? "e2e-secret-local-only",
+      // LA PLANCHE DE RENDU, le temps d'une revue. Les blocs de l'espace de travail n'existent
+      // qu'au bout d'un vrai tour de conversation — donc d'un appel IA, que cette suite
+      // s'interdit. Cette variable ouvre une route de démonstration qui, sans elle, rend 404 :
+      // en production, elle n'a pas d'adresse.
+      ADAM_BLOCK_PREVIEW: "1",
     },
   },
 });

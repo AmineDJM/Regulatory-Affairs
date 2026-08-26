@@ -3,6 +3,7 @@ import {
   type WorkspaceAction, type WorkspaceBlock, type WorkspaceComposition, type WorkspaceDoc,
   type WorkspaceEndpoint, type WorkspaceEvent, type WorkspaceField, type WorkspaceGauge,
   type WorkspaceItem, type WorkspaceMail, type WorkspacePerson, type WorkspaceColumn,
+  type WorkspaceRow, type WorkspaceMetric, type WorkspaceStep,
 } from "./protocol";
 
 /**
@@ -194,7 +195,7 @@ function fromCalendar(list: unknown[]): WorkspaceBlock[] {
  * reste de ce fichier. Une action sans libellé ou sans phrase ne s'affiche pas — un bouton muet,
  * ou un bouton qui n'envoie rien, sont deux façons de trahir la confiance qu'on lui accorde.
  */
-function actionsOf(v: unknown): WorkspaceAction[] {
+function actionsOf(v: unknown, max: number = WORKSPACE_LIMITS.itemActions): WorkspaceAction[] {
   const out: WorkspaceAction[] = [];
   for (const a of arr(v)) {
     if (!isObj(a)) continue;
@@ -203,7 +204,7 @@ function actionsOf(v: unknown): WorkspaceAction[] {
     if (!libelle || !phrase) continue;
     const ton = s(a.ton);
     out.push({ libelle, phrase, ...(ton === "danger" || ton === "primaire" ? { ton } : {}) });
-    if (out.length >= WORKSPACE_LIMITS.itemActions) break;
+    if (out.length >= max) break;
   }
   return out;
 }
@@ -348,10 +349,14 @@ export function tableFromRows(title: string, list: unknown[]): WorkspaceBlock | 
     label: humanize(k),
     numeric: rows.every((r) => r[k] === undefined || typeof r[k] === "number"),
   }));
-  const out: Record<string, string>[] = rows.map((r) => {
-    const line: Record<string, string> = {};
-    for (const k of keys) line[k] = clip(s(r[k]), 80) ?? "—";
-    return line;
+  const out: WorkspaceRow[] = rows.map((r) => {
+    const cells: Record<string, string> = {};
+    for (const k of keys) cells[k] = clip(s(r[k]), 80) ?? "—";
+    // LE LIEN DE LA LIGNE SURVIT À LA DISPARITION DE SA COLONNE. `lien` est écarté des colonnes
+    // (c'est de la plomberie), mais c'est lui qui rend la ligne cliquable — le perdre
+    // renverrait le PDG à chercher lui-même la fiche qu'il a sous les yeux.
+    const href = s(r.lien) ?? s(r.href);
+    return { cells, ...(href ? { href } : {}) };
   });
   return { kind: "table", title, columns: out.length ? columns : [], rows: out, total: list.length };
 }
@@ -446,8 +451,45 @@ function readColumns(v: unknown): WorkspaceColumn[] {
     if (!isObj(c)) continue;
     const key = s(c.key);
     if (!key) continue;
-    out.push({ key, label: s(c.label) ?? humanize(key), ...(c.numeric === true ? { numeric: true } : {}) });
+    out.push({
+      key, label: s(c.label) ?? humanize(key),
+      ...(c.numeric === true ? { numeric: true } : {}),
+      ...(c.badge === true ? { badge: true } : {}),
+    });
     if (out.length >= 8) break;
+  }
+  return out;
+}
+
+/**
+ * LES LIGNES D'UN TABLEAU DÉCLARÉ — les DEUX formes acceptées, une seule rendue.
+ *
+ * Un outil peut écrire `{ reference: "REG-001" }` (le cas courant) ou
+ * `{ cells: {...}, actions: [...] }` quand il veut poser un geste sur la ligne. Exiger la
+ * seconde partout alourdirait chaque appelant pour une capacité que trois d'entre eux utilisent.
+ */
+function readRows(v: unknown, columns: WorkspaceColumn[]): WorkspaceRow[] {
+  const out: WorkspaceRow[] = [];
+  for (const r of arr(v)) {
+    if (!isObj(r)) continue;
+    const source = isObj(r.cells) ? r.cells : r;
+    const cells: Record<string, string> = {};
+    for (const c of columns) cells[c.key] = clip(s(source[c.key]), 120) ?? "—";
+    const actions = actionsOf(r.actions).slice(0, WORKSPACE_LIMITS.rowActions);
+    const href = s(r.href) ?? s(r.lien);
+    const tons: Record<string, "neutre" | "attention" | "alerte" | "succes"> = {};
+    if (isObj(r.tons)) {
+      for (const [k, t] of Object.entries(r.tons)) {
+        if (t === "neutre" || t === "attention" || t === "alerte" || t === "succes") tons[k] = t;
+      }
+    }
+    out.push({
+      cells,
+      ...(Object.keys(tons).length ? { tons } : {}),
+      ...(actions.length ? { actions } : {}),
+      ...(href ? { href } : {}),
+    });
+    if (out.length >= WORKSPACE_LIMITS.tableRows) break;
   }
   return out;
 }
@@ -466,6 +508,42 @@ function readSheet(v: unknown): WorkspaceDoc["feuille"] {
   }
   if (rows.length === 0) return null;
   return { columns, rows, total: num(v.total) ?? rows.length };
+}
+
+const TON = new Set(["neutre", "attention", "alerte", "succes"]);
+const tonOf = (v: unknown, fallback?: "neutre" | "succes" | "attention" | "alerte") => {
+  const t = s(v);
+  return t && TON.has(t) ? (t as "neutre" | "attention" | "alerte" | "succes") : fallback;
+};
+
+function readMetrics(v: unknown): WorkspaceMetric[] {
+  const out: WorkspaceMetric[] = [];
+  for (const m of arr(v)) {
+    if (!isObj(m)) continue;
+    const valeur = clip(s(m.valeur) ?? s(m.value), 12);
+    const label = clip(s(m.label) ?? s(m.libelle), 32);
+    if (!valeur || !label) continue;
+    out.push({ valeur, label, ...(tonOf(m.ton) ? { ton: tonOf(m.ton) } : {}) });
+    if (out.length >= WORKSPACE_LIMITS.metrics) break;
+  }
+  return out;
+}
+
+/** Une personne déclarée par un outil — nom obligatoire, tout le reste facultatif. */
+function readPerson(v: unknown): WorkspacePerson | null {
+  if (!isObj(v)) return null;
+  const nom = clip(s(v.nom) ?? s(v.name), 80);
+  if (!nom) return null;
+  const statutLabel = clip(s(isObj(v.statut) ? v.statut.label : v.statut), 24);
+  const metriques = readMetrics(v.metriques);
+  return {
+    nom,
+    poste: s(v.poste), departement: s(v.departement), entite: s(v.entite),
+    coordonnees: endpointsOf(v.coordonnees),
+    ...(statutLabel ? { statut: { label: statutLabel, ton: tonOf(isObj(v.statut) ? v.statut.ton : null, "neutre")! } } : {}),
+    ...(metriques.length ? { metriques } : {}),
+    ...(s(v.href) ?? s(v.lien) ? { href: (s(v.href) ?? s(v.lien)) as string } : {}),
+  };
 }
 
 /** Un bloc déclaré par un outil, relu champ par champ. Ce qui ne passe pas est ÉCARTÉ. */
@@ -521,16 +599,119 @@ function readBlock(v: unknown): WorkspaceBlock | null {
 
   if (v.kind === "table") {
     const columns = readColumns(v.columns);
-    const rows: Record<string, string>[] = [];
-    for (const r of arr(v.rows)) {
-      if (!isObj(r)) continue;
-      const line: Record<string, string> = {};
-      for (const c of columns) line[c.key] = clip(s(r[c.key]), 120) ?? "—";
-      rows.push(line);
-      if (rows.length >= WORKSPACE_LIMITS.tableRows) break;
-    }
+    const rows = readRows(v.rows, columns);
     if (columns.length === 0 || rows.length === 0) return null;
     return { kind: "table", title, columns, rows, total: num(v.total) ?? rows.length };
+  }
+
+  if (v.kind === "people") {
+    // Une fiche RICHE — la même forme que `fromDirectoryLookup`, mais déclarée par l'outil qui
+    // sait, lui, combien de dossiers cette personne porte et combien sont en retard.
+    const people: WorkspacePerson[] = [];
+    for (const p of arr(v.people ?? v.personnes)) {
+      const person = readPerson(p);
+      if (person) people.push(person);
+      if (people.length >= WORKSPACE_LIMITS.people) break;
+    }
+    if (people.length === 0) return null;
+    return {
+      kind: "people", title, people,
+      ...(s(v.note) ? { note: s(v.note) as string } : {}),
+      ...(actionsOf(v.actions).length ? { actions: actionsOf(v.actions) } : {}),
+    };
+  }
+
+  if (v.kind === "dossier") {
+    const fields: WorkspaceField[] = [];
+    for (const f of arr(v.fields ?? v.champs)) {
+      if (!isObj(f)) continue;
+      const label = clip(s(f.label) ?? s(f.libelle), 40);
+      const value = clip(s(f.value) ?? s(f.valeur), WORKSPACE_LIMITS.snippetChars);
+      if (!label || !value) continue;
+      fields.push({ label, value });
+      if (fields.length >= WORKSPACE_LIMITS.recordFields) break;
+    }
+
+    const steps: WorkspaceStep[] = [];
+    for (const st of arr(v.steps ?? v.etapes)) {
+      if (!isObj(st)) continue;
+      const label = clip(s(st.label) ?? s(st.libelle), 28);
+      const etat = s(st.etat);
+      if (!label) continue;
+      steps.push({ label, etat: etat === "fait" || etat === "courant" ? etat : "a-venir" });
+      if (steps.length >= WORKSPACE_LIMITS.steps) break;
+    }
+
+    const docs: WorkspaceDoc[] = [];
+    for (const d of arr(v.docs)) {
+      if (!isObj(d)) continue;
+      const nom = clip(s(d.nom) ?? s(d.name), 120);
+      const href = s(d.href) ?? s(d.lien);
+      if (!nom || !href || !isInternalHref(href)) continue;
+      const type = s(d.type);
+      docs.push({
+        nom, href,
+        type: (type && DOC_KINDS.has(type) ? type : "autre") as WorkspaceDoc["type"],
+        ...(s(d.taille) ? { taille: s(d.taille) } : {}),
+        ...(s(d.soustitre) ? { soustitre: clip(s(d.soustitre), 60) } : {}),
+      });
+      if (docs.length >= WORKSPACE_LIMITS.docs + 3) break;
+    }
+
+    const participants: WorkspacePerson[] = [];
+    for (const p of arr(v.participants)) {
+      const person = readPerson(p);
+      if (person) participants.push(person);
+      if (participants.length >= WORKSPACE_LIMITS.participants) break;
+    }
+
+    const activite: { date?: string | null; label: string }[] = [];
+    for (const a of arr(v.activite ?? v.activity)) {
+      if (!isObj(a)) continue;
+      const label = clip(s(a.label) ?? s(a.libelle), WORKSPACE_LIMITS.snippetChars);
+      if (!label) continue;
+      activite.push({ label, date: s(a.date) });
+      if (activite.length >= WORKSPACE_LIMITS.activity) break;
+    }
+
+    // UN DOSSIER SANS AUCUN CONTENU N'EST PAS UN DOSSIER. Une carte vide avec quatre boutons
+    // promet un objet qui n'existe pas.
+    if (fields.length === 0 && steps.length === 0) return null;
+
+    const alerteLabel = clip(s(isObj(v.alerte) ? v.alerte.label : v.alerte), WORKSPACE_LIMITS.snippetChars);
+    const badgeLabel = clip(s(isObj(v.badge) ? v.badge.label : v.badge), 24);
+    const href = s(v.href) ?? s(v.lien);
+    return {
+      kind: "dossier", title,
+      ...(s(v.subtitle) ?? s(v.soustitre) ? { subtitle: (s(v.subtitle) ?? s(v.soustitre)) as string } : {}),
+      ...(badgeLabel ? { badge: { label: badgeLabel, ton: tonOf(isObj(v.badge) ? v.badge.ton : null, "neutre")! } } : {}),
+      fields,
+      ...(steps.length ? { steps } : {}),
+      ...(alerteLabel ? { alerte: { label: alerteLabel, ton: tonOf(isObj(v.alerte) ? v.alerte.ton : null, "alerte") === "attention" ? "attention" : "alerte" } } : {}),
+      ...(docs.length ? { docs } : {}),
+      ...(participants.length ? { participants } : {}),
+      ...(activite.length ? { activite } : {}),
+      ...(href && isInternalHref(href) ? { href } : {}),
+      ...(actionsOf(v.actions, WORKSPACE_LIMITS.blockActions).length ? { actions: actionsOf(v.actions, WORKSPACE_LIMITS.blockActions) } : {}),
+    };
+  }
+
+  if (v.kind === "email") {
+    const a = strings(v.a ?? v.to, 8);
+    const corps = clip(s(v.corps) ?? s(v.body), 4000);
+    if (a.length === 0 || !corps) return null;
+    const statut = s(v.statut);
+    return {
+      kind: "email", title,
+      a,
+      ...(strings(v.cc, 8).length ? { cc: strings(v.cc, 8) } : {}),
+      objet: clip(s(v.objet) ?? s(v.subject), 200) ?? "(sans objet)",
+      corps,
+      ...(strings(v.piecesJointes, 5).length ? { piecesJointes: strings(v.piecesJointes, 5) } : {}),
+      statut: statut === "envoye" || statut === "annule" ? statut : "brouillon",
+      ...(s(v.envoyeLe) ? { envoyeLe: s(v.envoyeLe) } : {}),
+      ...(actionsOf(v.actions, WORKSPACE_LIMITS.blockActions).length ? { actions: actionsOf(v.actions, WORKSPACE_LIMITS.blockActions) } : {}),
+    };
   }
 
   if (v.kind === "timeline") {

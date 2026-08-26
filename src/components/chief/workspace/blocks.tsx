@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import type {
   WorkspaceAction, WorkspaceBlock, WorkspaceComposition, WorkspaceDoc,
-  WorkspaceEndpoint, WorkspaceGauge, WorkspacePerson,
+  WorkspaceEndpoint, WorkspaceGauge, WorkspacePerson, WorkspaceStep,
 } from "@/lib/assistant/workspace/protocol";
 // La feuille voyage AVEC le composant : les blocs s'affichent aussi dans la page Assistant de
 // l'ERP, qui ne charge pas `chief.css`. Elle porte ses propres valeurs de repli.
@@ -46,14 +46,16 @@ export function WorkspaceAskProvider(
   return <AskContext.Provider value={ask}>{children}</AskContext.Provider>;
 }
 
-function ActionRow({ actions }: { actions: WorkspaceAction[] }) {
+function ActionRow({ actions, footer = false }: { actions: WorkspaceAction[]; footer?: boolean }) {
   const ask = React.useContext(AskContext);
   // Un tour est en cours dès qu'on a cliqué : re-cliquer enverrait la phrase deux fois, et
   // « Approuve VAL-014 » posée deux fois est une seconde décision, pas un doublon inoffensif.
   const [sent, setSent] = React.useState<string | null>(null);
+  // SANS FOURNISSEUR, RIEN — pas même le filet de séparation. Un pied de carte vide sous un
+  // objet promet des gestes qui n'existent pas ; c'est le test de rendu qui l'a montré.
   if (!ask) return null;
   return (
-    <div className="chief-actions">
+    <div className={footer ? "chief-actions chief-block-actions" : "chief-actions"}>
       {actions.map((a) => (
         <button
           key={a.phrase}
@@ -72,16 +74,30 @@ function ActionRow({ actions }: { actions: WorkspaceAction[] }) {
 
 // ── Primitives partagées ──────────────────────────────────────────────────────────────────
 
-function Card({ title, meta, children }: { title: string; meta?: React.ReactNode; children: React.ReactNode }) {
+function Card(
+  { title, meta, children, actions, hideHead }:
+  { title: string; meta?: React.ReactNode; children: React.ReactNode; actions?: WorkspaceAction[]; hideHead?: boolean },
+) {
   return (
     <section className="chief-block">
-      <header className="chief-block-head">
-        <h3 className="chief-block-title">{title}</h3>
-        {meta ? <span className="chief-block-meta">{meta}</span> : null}
-      </header>
+      {hideHead ? null : (
+        <header className="chief-block-head">
+          <h3 className="chief-block-title">{title}</h3>
+          {meta ? <span className="chief-block-meta">{meta}</span> : null}
+        </header>
+      )}
       {children}
+      {/* LES ACTIONS APPARTIENNENT À L'OBJET, VISUELLEMENT. Posées en pied de carte, elles se
+          lisent comme « ce que je peux faire de CECI » — et non comme une barre d'outils
+          flottante dont on se demande sur quoi elle agit. */}
+      {actions?.length ? <ActionRow actions={actions} footer /> : null}
     </section>
   );
+}
+
+/** Une pastille sémantique : le ton porte l'information, pas la décoration. */
+function Chip({ label, ton }: { label: string; ton?: "neutre" | "succes" | "attention" | "alerte" }) {
+  return <span className={`chief-chip${ton && ton !== "neutre" ? ` chief-chip-${ton}` : ""}`}>{label}</span>;
 }
 
 /** Une adresse se copie plus souvent qu'elle ne se lit. Le clic la met dans le presse-papier. */
@@ -128,11 +144,66 @@ function PersonLines({ p, hideName = false }: { p: WorkspacePerson; hideName?: b
 
 // ── Un rendu par type de bloc ─────────────────────────────────────────────────────────────
 
-function PeopleBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "people" }> }) {
+/** Les initiales, quand il n'y a pas de photo — deux lettres valent mieux qu'une silhouette. */
+function Initials({ name }: { name: string }) {
+  const letters = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
+  return <span className="chief-avatar" aria-hidden>{letters || "?"}</span>;
+}
+
+/**
+ * LA FICHE D'UNE PERSONNE — ce qu'on demande vraiment quand on dit « montre-moi Raihana ».
+ *
+ * Pas la fiche RH. Trois choses : QUI c'est, comment la JOINDRE, et où elle en est de son
+ * travail. Les trois chiffres à droite ne sont pas décoratifs — « 3 en retard » est souvent la
+ * raison même de la question, et il doit se voir avant qu'on ait fini de lire le nom.
+ *
+ * Le reste (contrat, congés, historique) vit sur son écran : le lien y mène, et c'est le bon
+ * endroit pour lui. Une fiche qui montre tout ne montre rien.
+ */
+function PersonCard({ p, standalone }: { p: WorkspacePerson; standalone: boolean }) {
+  const sub = [p.poste, p.departement, p.entite].filter(Boolean).join(" · ");
   return (
-    <Card title={b.title}>
+    <div className={standalone ? "chief-profile" : "chief-profile chief-profile-compact"}>
+      <div className="chief-profile-id">
+        <Initials name={p.nom} />
+        <div className="chief-profile-head">
+          <p className="chief-profile-name">
+            {p.href ? <Link href={p.href} className="chief-link-plain">{p.nom}</Link> : p.nom}
+            {p.statut ? <Chip label={p.statut.label} ton={p.statut.ton} /> : null}
+          </p>
+          {sub ? <p className="chief-profile-role">{sub}</p> : null}
+          {p.coordonnees.length > 0 ? (
+            <div className="chief-endpoints">
+              {p.coordonnees.map((e, j) => <Endpoint key={`${e.valeur}-${j}`} e={e} />)}
+            </div>
+          ) : (
+            <p className="chief-block-empty">Aucune coordonnée enregistrée.</p>
+          )}
+        </div>
+      </div>
+
+      {p.metriques?.length ? (
+        <dl className="chief-metrics">
+          {p.metriques.map((m, i) => (
+            <div key={`${m.label}-${i}`} className="chief-metric">
+              <dt className={`chief-metric-value chief-tone-${m.ton ?? "neutre"}`}>{m.valeur}</dt>
+              <dd className="chief-metric-label">{m.label}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
+function PeopleBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "people" }> }) {
+  const single = b.people.length === 1;
+  return (
+    // UNE SEULE PERSONNE : son NOM est le titre de la carte, il ne se répète pas dessous. Le
+    // bandeau de titre disparaît donc, et la fiche occupe toute la carte.
+    <Card title={b.title} hideHead={single} actions={b.actions}>
       <div className="chief-stack">
-        {b.people.map((p, i) => <PersonLines key={`${p.nom}-${i}`} p={p} hideName={b.people.length === 1} />)}
+        {b.people.map((p, i) => <PersonCard key={`${p.nom}-${i}`} p={p} standalone={single} />)}
       </div>
       {b.note ? <p className="chief-block-note">{b.note}</p> : null}
     </Card>
@@ -299,8 +370,10 @@ function AgendaBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "agenda" }> }) 
 
 function QueueBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "queue" }> }) {
   const hidden = b.total - b.items.length;
+  // UN NOMBRE NU NE DIT RIEN. « 2 » posé en haut à droite d'une liste de deux lignes ne fait que
+  // répéter ce qu'on voit. Le compte n'apporte quelque chose QUE s'il annonce ce qui manque.
   return (
-    <Card title={b.title} meta={`${b.total}`}>
+    <Card title={b.title} meta={hidden > 0 ? `${b.items.length} sur ${b.total}` : undefined}>
       <ul className="chief-stack chief-list">
         {b.items.map((it, i) => (
           <li key={`${it.titre}-${i}`} className="chief-queue-item">
@@ -341,25 +414,238 @@ function RecordBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "record" }> }) 
   );
 }
 
+/**
+ * LE TABLEAU — et son geste par ligne.
+ *
+ * Ce qui change par rapport à un tableau de rapport : la dernière colonne n'est pas une donnée,
+ * c'est une SORTIE. Après avoir lu « NIN-2026-015 · 4 jours de retard », la question suivante
+ * porte sur cette ligne-là ; l'obliger à retaper la référence, c'est lui faire recopier ce
+ * qu'il a sous les yeux.
+ *
+ * Sur téléphone, la même donnée devient une LISTE. Un tableau à six colonnes comprimé sur
+ * 390 px n'est pas un tableau dense, c'est un tableau illisible.
+ */
 function TableBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "table" }> }) {
   const hidden = (b.total ?? b.rows.length) - b.rows.length;
+  const hasRowActions = b.rows.some((r) => r.actions?.length);
+  const cell = (r: (typeof b.rows)[number], key: string) => {
+    const value = r.cells[key] ?? "—";
+    const ton = r.tons?.[key];
+    return ton && ton !== "neutre" ? <Chip label={value} ton={ton} /> : value;
+  };
+
   return (
-    <Card title={b.title} meta={b.total ? `${b.total}` : undefined}>
-      <div className="chief-table-scroll">
+    <Card title={b.title} meta={hidden > 0 ? `${b.rows.length} sur ${b.total}` : undefined} actions={b.actions}>
+      <div className="chief-table-scroll chief-only-wide">
         <table className="chief-table">
           <thead>
-            <tr>{b.columns.map((c) => <th key={c.key} className={c.numeric ? "chief-num" : undefined}>{c.label}</th>)}</tr>
+            <tr>
+              {b.columns.map((c) => <th key={c.key} className={c.numeric ? "chief-num" : undefined}>{c.label}</th>)}
+              {hasRowActions ? <th aria-label="Actions" /> : null}
+            </tr>
           </thead>
           <tbody>
             {b.rows.map((r, i) => (
               <tr key={i}>
-                {b.columns.map((c) => <td key={c.key} className={c.numeric ? "chief-num" : undefined}>{r[c.key] ?? "—"}</td>)}
+                {b.columns.map((c, j) => (
+                  <td key={c.key} className={[c.numeric ? "chief-num" : "", j === 0 ? "chief-td-strong" : ""].filter(Boolean).join(" ") || undefined}>
+                    {j === 0 && r.href ? <Link href={r.href} className="chief-link-plain">{cell(r, c.key)}</Link> : cell(r, c.key)}
+                  </td>
+                ))}
+                {hasRowActions ? (
+                  <td className="chief-td-actions">{r.actions?.length ? <ActionRow actions={r.actions} /> : null}</td>
+                ) : null}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      <div className="chief-stack chief-only-narrow">
+        {b.rows.map((r, i) => (
+          <div key={i} className="chief-rowcard">
+            <p className="chief-rowcard-title">
+              {r.href ? <Link href={r.href} className="chief-link-plain">{r.cells[b.columns[0]?.key ?? ""] ?? "—"}</Link> : (r.cells[b.columns[0]?.key ?? ""] ?? "—")}
+            </p>
+            <dl className="chief-rowcard-fields">
+              {b.columns.slice(1).map((c) => (
+                <div key={c.key}>
+                  <dt>{c.label}</dt>
+                  <dd>{cell(r, c.key)}</dd>
+                </div>
+              ))}
+            </dl>
+            {r.actions?.length ? <ActionRow actions={r.actions} /> : null}
+          </div>
+        ))}
+      </div>
+
       {hidden > 0 ? <p className="chief-block-note">{hidden} ligne{hidden > 1 ? "s" : ""} de plus non affichée{hidden > 1 ? "s" : ""}.</p> : null}
+    </Card>
+  );
+}
+
+/**
+ * LE DOSSIER — l'objet montré en entier, dans l'ordre de la question.
+ *
+ * D'abord ce qui bloque (l'étape courante et l'alerte), puis les faits, puis seulement les
+ * pièces, les gens et l'histoire. Cet ordre n'est pas esthétique : quand le PDG ouvre un
+ * dossier en retard, sa question est « pourquoi ça n'avance pas ? », et la réponse doit être
+ * la première chose que l'œil rencontre.
+ */
+function DossierBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "dossier" }> }) {
+  return (
+    <Card title={b.title} hideHead actions={b.actions}>
+      <header className="chief-dossier-head">
+        <div className="chief-dossier-id">
+          <p className="chief-dossier-ref">
+            {b.href ? <Link href={b.href} className="chief-link-plain">{b.title}</Link> : b.title}
+            {b.badge ? <Chip label={b.badge.label} ton={b.badge.ton} /> : null}
+          </p>
+          {b.subtitle ? <p className="chief-dossier-sub">{b.subtitle}</p> : null}
+        </div>
+      </header>
+
+      {/* DEUX COLONNES SUR GRAND ÉCRAN, et ce n'est pas décoratif.
+          Les FAITS (qui, quand, combien de retard) tiennent à gauche, en lecture verticale ;
+          l'AVANCEMENT et ses pièces occupent la droite, qui est la zone large. Empilé sur une
+          seule colonne, ce même contenu laissait la moitié droite de la carte vide sur 1440 px
+          et poussait les actions à 750 px du titre — la capture de revue l'a montré. */}
+      <div className="chief-dossier-grid">
+        <div className="chief-dossier-facts">
+          {b.fields.length ? (
+            <dl className="chief-fields chief-fields-stacked">
+              {b.fields.map((f, i) => (
+                <div key={`${f.label}-${i}`} className="chief-field">
+                  <dt>{f.label}</dt>
+                  <dd>{f.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+        </div>
+
+        <div className="chief-dossier-body">
+        {b.steps?.length ? <Stepper steps={b.steps} /> : null}
+
+        {b.alerte ? (
+          <p className={`chief-alert chief-alert-${b.alerte.ton}`}>
+            <span className="chief-alert-label">Blocage</span> {b.alerte.label}
+          </p>
+        ) : null}
+
+        {b.docs?.length ? (
+          <div className="chief-dossier-section">
+            <p className="chief-dossier-section-title">Documents ({b.docs.length})</p>
+            <ul className="chief-doc-grid chief-list">
+              {b.docs.map((d, i) => (
+                <li key={`${d.href}-${i}`}>
+                  <Link href={d.href} className="chief-doc-tile">
+                    <span className={`chief-doc-badge chief-doc-${d.type}`}>{extLabel(d)}</span>
+                    <span className="chief-doc-tile-name">{d.nom}</span>
+                    {d.taille ? <span className="chief-doc-tile-meta">{d.taille}</span> : null}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {b.participants?.length ? (
+          <div className="chief-dossier-section">
+            <p className="chief-dossier-section-title">Participants ({b.participants.length})</p>
+            <ul className="chief-list chief-participants">
+              {b.participants.map((p, i) => (
+                <li key={`${p.nom}-${i}`} className="chief-participant">
+                  <Initials name={p.nom} />
+                  <span className="chief-participant-id">
+                    <span className="chief-participant-name">{p.nom}</span>
+                    {p.poste ? <span className="chief-participant-role">{p.poste}</span> : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {b.activite?.length ? (
+          <div className="chief-dossier-section">
+            <p className="chief-dossier-section-title">Dernières activités</p>
+            <ol className="chief-timeline chief-timeline-tight">
+              {b.activite.map((a, i) => (
+                <li key={i} className="chief-timeline-step">
+                  {a.date ? <span className="chief-timeline-date">{a.date}</span> : null}
+                  <p className="chief-timeline-label">{a.label}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+const DOC_LABEL: Record<WorkspaceDoc["type"], string> = {
+  pdf: "PDF", image: "IMG", feuille: "XLS", texte: "TXT", autre: "DOC",
+};
+const extLabel = (d: WorkspaceDoc): string => {
+  const ext = (d.nom.split(".").pop() ?? "").toUpperCase();
+  return ext.length >= 2 && ext.length <= 4 ? ext : DOC_LABEL[d.type];
+};
+
+/** La frise du circuit : où en est le dossier, et combien il reste d'étapes. */
+function Stepper({ steps }: { steps: WorkspaceStep[] }) {
+  return (
+    <ol className="chief-stepper" aria-label="Circuit du dossier">
+      {steps.map((st, i) => (
+        <li key={`${st.label}-${i}`} className={`chief-step chief-step-${st.etat}`}>
+          <span className="chief-step-dot" aria-hidden>{st.etat === "fait" ? "✓" : i + 1}</span>
+          <span className="chief-step-label">{st.label}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * LE MESSAGE PRÊT — montré comme un message.
+ *
+ * « De : / À : / Objet : / Corps : » recopié en prose oblige à relire pour vérifier une
+ * adresse. Ici les champs sont des champs, le corps est du corps, et le bouton d'envoi est à
+ * côté — pas au bout d'une phrase.
+ *
+ * LE CLIC N'ENVOIE PAS DEPUIS L'ÉCRAN. Il écrit « Envoie » dans la conversation, ce qui
+ * emprunte exactement le chemin de l'accord parlé : même approbation, même action canonique,
+ * même audit. C'est la règle qui a survécu au blocage des cinq « oui envoie ».
+ */
+function EmailBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "email" }> }) {
+  const sent = b.statut === "envoye";
+  return (
+    <Card title={b.title} hideHead actions={sent ? undefined : b.actions}>
+      <div className={`chief-email${sent ? " chief-email-sent" : ""}`}>
+        <div className="chief-email-main">
+          <dl className="chief-email-head">
+            <div><dt>À</dt><dd>{b.a.join(", ")}</dd></div>
+            {b.cc?.length ? <div><dt>Cc</dt><dd>{b.cc.join(", ")}</dd></div> : null}
+            <div><dt>Objet</dt><dd className="chief-email-subject">{b.objet}</dd></div>
+          </dl>
+          <p className="chief-email-body">{b.corps}</p>
+          {b.piecesJointes?.length ? (
+            <p className="chief-email-attachments">
+              {b.piecesJointes.map((f) => <span key={f} className="chief-chip">{f}</span>)}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      {sent ? (
+        <p className="chief-email-status">
+          <span className="chief-tone-succes" aria-hidden>✓</span> Envoyé à {b.a.join(", ")}
+          {b.envoyeLe ? ` · ${b.envoyeLe}` : ""}
+        </p>
+      ) : null}
+      {b.statut === "annule" ? <p className="chief-block-note">Annulé — ce message ne partira pas.</p> : null}
     </Card>
   );
 }
@@ -530,6 +816,8 @@ const RENDERERS: { [K in WorkspaceBlock["kind"]]: (p: { b: Extract<WorkspaceBloc
   timeline: TimelineBlock,
   progress: ProgressBlock,
   document: DocumentBlock,
+  dossier: DossierBlock,
+  email: EmailBlock,
 };
 
 export function WorkspaceBlocks({ composition }: { composition: WorkspaceComposition }) {
@@ -550,6 +838,8 @@ export function WorkspaceBlocks({ composition }: { composition: WorkspaceComposi
           case "timeline": return <TimelineBlock key={i} b={b} />;
           case "progress": return <ProgressBlock key={i} b={b} />;
           case "document": return <DocumentBlock key={i} b={b} />;
+          case "dossier": return <DossierBlock key={i} b={b} />;
+          case "email": return <EmailBlock key={i} b={b} />;
         }
       })}
     </div>

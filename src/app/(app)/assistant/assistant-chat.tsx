@@ -51,6 +51,8 @@ interface Msg {
   id: number;
   role: "user" | "assistant";
   content: string;
+  /** L'heure du tour, quand elle est connue. Un fil restauré n'en a pas — on n'en invente pas. */
+  at?: number;
   attachmentNames?: string[];
   trace?: string[];
   /** Les actions proposées dans CE tour (souvent une, parfois plusieurs — « crée les trois tâches »). */
@@ -131,7 +133,7 @@ export function LinkifiedText({ text }: { text: string }) {
 export function AssistantChat({
   userName, configured, voiceConfigured = false, realtimeVoice = false, memoryEnabled = false,
   executive = false, initialPrompt = null, initialThreadId = null, initialCallRef = null,
-  emptyState = null, historyMode = "rail", surface = "card",
+  emptyState = null, historyMode = "rail", surface = "card", canvas = false,
   historyOpen, onHistoryOpenChange,
 }: {
   userName: string; configured: boolean;
@@ -167,6 +169,16 @@ export function AssistantChat({
    * distinguer.
    */
   surface?: "card" | "flush";
+  /**
+   * LE FIL COMME CANVAS (bureau d'Adam).
+   *
+   * `false` — la page Assistant de l'ERP : bulles classiques, elle ne change pas d'un pixel.
+   * `true`  — la conversation d'Adam : le tour utilisateur devient une pastille claire, et la
+   * réponse d'Adam n'a plus de bulle du tout. Le texte s'écrit à même la page, sous son nom et
+   * son heure, et les objets métier viennent juste dessous. Une bulle grise autour d'une
+   * réponse qui contient déjà une carte encadre un cadre : deux boîtes pour une idée.
+   */
+  canvas?: boolean;
   /**
    * L'HISTORIQUE, PILOTÉ PAR L'HÔTE (optionnel). Sans ces deux props, la conversation garde son
    * propre état — la page Assistant de l'ERP ne change pas. Avec elles, le bureau d'Adam peut
@@ -332,7 +344,7 @@ export function AssistantChat({
     setMessages((m) => [
       ...m,
       { id: nextId(), role: "user", content: userText },
-      { id: nextId(), role: "assistant", content: assistantText },
+      { id: nextId(), role: "assistant", at: Date.now(), content: assistantText },
     ]);
     void refreshThreads();
   }, [refreshThreads]);
@@ -349,7 +361,7 @@ export function AssistantChat({
     // dans le fil pendant que la voix résume — la carte de confirmation reste LA porte.
     if (proposals?.length) {
       setMessages((m) => [...m, {
-        id: nextId(), role: "assistant",
+        id: nextId(), role: "assistant", at: Date.now(),
         content: ui.reply || (proposals.length === 1 ? "Action proposée — à confirmer ci-dessous." : `${proposals.length} actions proposées — à confirmer ci-dessous.`),
         trace: ui.trace,
         proposals,
@@ -359,7 +371,7 @@ export function AssistantChat({
       }]);
     } else if (ui.reply && ui.reply.length > 400) {
       // Une analyse déléguée détaillée mérite l'écran ; la voix n'en dit que la synthèse.
-      setMessages((m) => [...m, { id: nextId(), role: "assistant", content: ui.reply as string, trace: ui.trace }]);
+      setMessages((m) => [...m, { id: nextId(), role: "assistant", at: Date.now(), content: ui.reply as string, trace: ui.trace }]);
     }
   }, []);
 
@@ -398,7 +410,7 @@ export function AssistantChat({
       setInput("");
       return null;
     }
-    const userMsg: Msg = { id: nextId(), role: "user", content: content || "(pièces jointes)", attachmentNames: pending.map((a) => a.name) };
+    const userMsg: Msg = { id: nextId(), role: "user", content: content || "(pièces jointes)", at: Date.now(), attachmentNames: pending.map((a) => a.name) };
     const next = [...messages, userMsg];
     setMessages(next);
     setInput("");
@@ -426,7 +438,7 @@ export function AssistantChat({
       }
       return await streamAnswer(history);
     } catch {
-      setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "Appel à l'assistant impossible." }]);
+      setMessages((m) => [...m, { id: nextId(), role: "assistant", at: Date.now(), content: "Appel à l'assistant impossible." }]);
       return null;
     } finally {
       setSending(false);
@@ -437,7 +449,7 @@ export function AssistantChat({
   /** Ajoute le résultat d'un tour non diffusé (pièces jointes) à la conversation. */
   const appendResult = (res: AssistantResult, workspace: WorkspaceComposition[] = []): string | null => {
     if (!res.configured) {
-      setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "IA non configurée." }]);
+      setMessages((m) => [...m, { id: nextId(), role: "assistant", at: Date.now(), content: "IA non configurée." }]);
       return null;
     }
     if (res.ok) {
@@ -453,7 +465,7 @@ export function AssistantChat({
       if (res.threadId) { setThreadId(res.threadId); void refreshThreads(); }
       return res.reply || null;
     }
-    setMessages((m) => [...m, { id: nextId(), role: "assistant", content: res.error ?? "Une erreur est survenue." }]);
+    setMessages((m) => [...m, { id: nextId(), role: "assistant", at: Date.now(), content: res.error ?? "Une erreur est survenue." }]);
     return null;
   };
 
@@ -477,7 +489,7 @@ export function AssistantChat({
       signal: ctrl.signal,
     });
     if (!res.ok || !res.body) {
-      setMessages((m) => [...m, { id: nextId(), role: "assistant", content: "L'assistant est momentanément indisponible." }]);
+      setMessages((m) => [...m, { id: nextId(), role: "assistant", at: Date.now(), content: "L'assistant est momentanément indisponible." }]);
       return null;
     }
 
@@ -673,7 +685,7 @@ export function AssistantChat({
           </div>
         ) : (
           messages.map((m) => (
-            <MessageBubble key={m.id} msg={m} onConfirm={confirm} onCancel={cancel} onConfirmAll={confirmAll} />
+            <MessageBubble key={m.id} msg={m} onConfirm={confirm} onCancel={cancel} onConfirmAll={confirmAll} canvas={canvas} />
           ))
         )}
         {/* Réponse EN COURS : on montre ce que l'assistant fait, puis ce qu'il écrit — jamais
@@ -692,7 +704,7 @@ export function AssistantChat({
                 </ul>
               )}
               {streaming?.text ? (
-                <p className="whitespace-pre-wrap text-[0.9375rem] leading-relaxed">
+                <p className={`whitespace-pre-wrap leading-relaxed ${canvas ? "chief-turn-text" : "text-[0.9375rem]"}`}>
                   <LinkifiedText text={cleanReply(streaming.text)} />
                   <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-foreground align-middle" aria-hidden />
                 </p>
@@ -783,7 +795,17 @@ export function AssistantChat({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-            placeholder={configured ? (dragOver ? "Déposez vos fichiers ici…" : "Écrivez votre demande, ou glissez un fichier…  (Entrée pour envoyer)") : "Assistant indisponible — clé IA manquante."}
+            placeholder={
+              configured
+                ? dragOver
+                  ? "Déposez vos fichiers ici…"
+                  // Le bureau d'Adam s'adresse à quelqu'un qui DEMANDE ou qui ORDONNE. « Écrivez
+                  // votre demande » décrit le champ ; l'invite, elle, décrit ce qu'on peut y faire.
+                  : canvas
+                    ? "Pose-moi une question ou donne-moi une instruction…"
+                    : "Écrivez votre demande, ou glissez un fichier…  (Entrée pour envoyer)"
+                : "Assistant indisponible — clé IA manquante."
+            }
             disabled={!configured || sending}
             rows={1}
             className="max-h-40 min-h-[2.75rem] flex-1 resize-none rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none transition placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
@@ -1048,13 +1070,24 @@ function DriveFilePicker({ onPick, onClose }: { onPick: (f: AssistantFileOption)
   );
 }
 
+/** « 09:16 » — discret, et seulement quand l'heure est connue. */
+function turnTime(at?: number): string | null {
+  if (!at) return null;
+  try {
+    return new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" }).format(new Date(at));
+  } catch {
+    return null;
+  }
+}
+
 function MessageBubble({
-  msg, onConfirm, onCancel, onConfirmAll,
+  msg, onConfirm, onCancel, onConfirmAll, canvas = false,
 }: {
   msg: Msg;
   onConfirm: (id: number, index: number, payload: AssistantActionPayload, intentId?: string, confirmTyped?: string) => void;
   onCancel: (id: number, index: number, intentId?: string) => void;
   onConfirmAll: (msg: Msg) => void;
+  canvas?: boolean;
 }) {
   // LE DERNIER FILTRE AVANT L'ÉCRAN. Calculé une fois, pour les deux rôles : un tour dont le
   // contenu est un marqueur interne ou une sortie d'outil brute n'affiche PAS de bulle vide —
@@ -1076,10 +1109,71 @@ function MessageBubble({
           </div>
         )}
         {userDisplay.show && (
-          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm">
-            {userDisplay.text}
-          </div>
+          canvas ? (
+            // LA PASTILLE, PAS LE PAVÉ. Un aplat de couleur pleine sur 80 % de la largeur crie
+            // plus fort que la réponse qui suit — or c'est la réponse qui porte l'information.
+            <div className="flex max-w-[70%] items-baseline gap-2.5">
+              <div className="chief-user-turn whitespace-pre-wrap">{userDisplay.text}</div>
+              {turnTime(msg.at) ? <span className="chief-turn-time shrink-0">{turnTime(msg.at)}</span> : null}
+            </div>
+          ) : (
+            <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm">
+              {userDisplay.text}
+            </div>
+          )
         )}
+      </div>
+    );
+  }
+
+  if (canvas) {
+    // LE CANVAS. Pas de bulle : le nom, l'heure, puis le texte à même la page — et les objets
+    // métier dessous, pleine largeur. Encadrer une réponse qui contient déjà une carte revient
+    // à dessiner deux boîtes pour une seule idée.
+    return (
+      <div className="flex gap-3">
+        <Avatar />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex items-baseline gap-2">
+            <span className="chief-turn-author">Adam</span>
+            {turnTime(msg.at) ? <span className="chief-turn-time">{turnTime(msg.at)}</span> : null}
+          </div>
+          {msg.trace && msg.trace.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {msg.trace.map((t) => (
+                <span key={t} className="chief-trace-chip">
+                  <Search className="h-3 w-3" /> {t}
+                </span>
+              ))}
+            </div>
+          )}
+          {assistantDisplay.show && (
+            <p className="chief-turn-text whitespace-pre-wrap">
+              <LinkifiedText text={cleanReply(assistantDisplay.text)} />
+            </p>
+          )}
+          {msg.workspace?.map((c, i) => <WorkspaceBlocks key={`${c.source}-${i}`} composition={c} />)}
+          {msg.proposals && msg.proposals.length > 1 && (msg.actionStates ?? []).filter((st) => st === "pending").length > 1 && (
+            <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-accent/30 px-3 py-2 text-sm">
+              <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+              <span className="flex-1">{msg.proposals.length} actions proposées — chacune se confirme, ou toutes d&apos;un coup.</span>
+              <Button size="sm" onClick={() => onConfirmAll(msg)}>
+                <CheckCircle2 className="h-4 w-4" /> Tout confirmer
+              </Button>
+            </div>
+          )}
+          {msg.proposals?.map((p, i) => (
+            <ActionCard
+              key={i}
+              proposal={p}
+              state={msg.actionStates?.[i] ?? "pending"}
+              result={msg.actionResults?.[i]}
+              link={msg.actionLinks?.[i]}
+              onConfirm={(confirmTyped) => onConfirm(msg.id, i, p.payload, p.intentId, confirmTyped)}
+              onCancel={() => onCancel(msg.id, i, p.intentId)}
+            />
+          ))}
+        </div>
       </div>
     );
   }

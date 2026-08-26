@@ -101,6 +101,7 @@ export function ChiefWorkspace({
           emptyState={emptyState}
           historyMode="drawer"
           surface="flush"
+          canvas
           historyOpen={historyOpen}
           onHistoryOpenChange={setHistoryOpen}
         />

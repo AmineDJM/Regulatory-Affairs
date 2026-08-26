@@ -21,6 +21,7 @@ import {
 import { getBlob } from "@/lib/drive-storage";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { extractAttachmentText } from "@/lib/assistant-files";
+import { geste } from "@/lib/assistant/workspace/emit";
 
 /**
  * LES OUTILS D'ADAM — les sens et les mains du Chief sur ses canaux de communication.
@@ -420,9 +421,41 @@ export const ADAM_TOOLS: PowerTool[] = [
       });
 
       const policy = await getCommunicationPolicy();
+      /**
+       * LE MESSAGE MONTRÉ COMME UN MESSAGE.
+       *
+       * En production, un brouillon arrivait raconté en prose (« De : / À : / Objet : ») et le
+       * PDG devait relire une phrase pour vérifier une adresse. Ici les champs sont des champs.
+       *
+       * LE BOUTON N'ENVOIE PAS DEPUIS L'ÉCRAN : il écrit « Envoie » dans la conversation, ce
+       * qui emprunte EXACTEMENT le chemin de l'accord parlé — `APPROVE_PENDING`, approbation
+       * canonique, politique d'envoi, audit. C'est la règle qui a survécu au blocage des cinq
+       * « oui envoie » : une seule porte, quelle qu'en soit l'origine.
+       */
+      const blocEmail = {
+        kind: "email",
+        title: "Message prêt",
+        a: recipients,
+        ...(cc.length ? { cc } : {}),
+        objet: subject,
+        corps: body,
+        ...(attachments.length ? { piecesJointes: attachments.map((a) => a.filename) } : {}),
+        statut: "brouillon",
+        actions: intent.status === "DRAFT"
+          // Politique « brouillons seulement » : proposer « Envoyer » serait promettre un geste
+          // que la politique refuse. On propose ce qui reste possible.
+          ? [geste("Modifier", "Reprends ce message")]
+          : [
+              geste("Envoyer", "Envoie", "primaire"),
+              geste("Modifier", "Reprends ce message"),
+              geste("Annuler", "Annule ce message", "danger"),
+            ],
+      };
+
       return JSON.stringify({
         intentId: intent.id,
         etat: intent.status,
+        _blocs: [blocEmail],
         politique: POLICY_LABEL[policy.mailSendPolicy],
         destinataires: recipients,
         objet: subject,

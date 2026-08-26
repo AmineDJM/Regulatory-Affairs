@@ -335,7 +335,7 @@ describe("les lectures qui rendent des lignes composent un tableau", () => {
     expect(b?.kind).toBe("table");
     if (b?.kind !== "table") return;
     expect(b.title).toBe("Dossiers Regulatory");
-    expect(b.rows[0].produit).toBe("Raltegravir");
+    expect(b.rows[0].cells.produit).toBe("Raltegravir");
   });
 
   it("l'effectif par entité — la ventilation s'AFFICHE, elle ne se raconte pas", () => {
@@ -350,7 +350,7 @@ describe("les lectures qui rendent des lignes composent un tableau", () => {
     const b = c?.blocks[0];
     expect(b?.kind).toBe("table");
     if (b?.kind !== "table") return;
-    expect(b.rows.map((r) => r.entite)).toEqual(["Adventum", "Pharmagène"]);
+    expect(b.rows.map((r) => r.cells.entite)).toEqual(["Adventum", "Pharmagène"]);
   });
 
   it("une lecture autorisée mais SANS lignes exploitables ne compose rien", () => {
@@ -486,11 +486,44 @@ describe("ce que `_blocs` NE permet PAS", () => {
     }))).toBeNull();
   });
 
-  it("les formes qui ont DÉJÀ un traducteur ne se déclarent pas — un seul chemin par forme", () => {
-    // Autoriser `kind: "people"` par déclaration ouvrirait un chemin qui contourne
-    // `fromDirectoryLookup` et sa vérification des coordonnées.
+  it("un `kind` que le validateur ne connaît pas est écarté — la liste est FERMÉE", () => {
+    // La règle exacte : `readBlock` ne rend QUE les formes dont il sait vérifier chaque champ.
+    // `queue`, `mail`, `agenda`, `directory` et `record` ont leur traducteur dédié et une
+    // validation qui leur est propre ; les déclarer ici ouvrirait un chemin qui la contourne.
+    for (const kind of ["queue", "mail", "agenda", "directory", "record", "video", "iframe"]) {
+      expect(composeWorkspace("un_outil", J({
+        _blocs: [{ kind, title: "T", items: [{ titre: "x" }], rows: [{ a: "1" }], people: [{ nom: "X" }] }],
+      })), kind).toBeNull();
+    }
+  });
+
+  it("`people` EST déclarable — et c'est une décision, pas un oubli", () => {
+    // Les trois chiffres d'une fiche (dossiers portés, retards, part dans les délais) ne sont
+    // PAS inférables d'un JSON de coordonnées : seul l'outil qui a lu le portefeuille les
+    // connaît. La déclaration reste revalidée champ par champ par `readPerson`.
+    const c = composeWorkspace("directory_lookup", J({
+      _blocs: [{
+        kind: "people", title: "Raihana",
+        people: [{
+          nom: "Raihana", poste: "Affaires réglementaires",
+          statut: { label: "Active", ton: "succes" },
+          metriques: [{ valeur: "12", label: "Dossiers assignés" }, { valeur: "3", label: "En retard", ton: "alerte" }],
+          coordonnees: [{ canal: "e-mail", valeur: "r@adventum.dz" }],
+        }],
+        actions: [{ libelle: "Écrire", phrase: "Prépare un mail à Raihana" }],
+      }],
+    }));
+    const b = c?.blocks[0];
+    expect(b?.kind).toBe("people");
+    if (b?.kind !== "people") return;
+    expect(b.people[0].metriques).toHaveLength(2);
+    expect(b.people[0].statut?.ton).toBe("succes");
+    expect(b.actions).toHaveLength(1);
+  });
+
+  it("une personne sans nom n'est pas une personne", () => {
     expect(composeWorkspace("directory_lookup", J({
-      _blocs: [{ kind: "people", title: "T", people: [{ nom: "X", coordonnees: [] }] }],
+      _blocs: [{ kind: "people", title: "T", people: [{ poste: "Inconnu" }] }],
     }))).toBeNull();
   });
 

@@ -35,12 +35,31 @@ export interface WorkspaceEndpoint {
   principale?: boolean;
 }
 
+/**
+ * UN CHIFFRE QUI COMPTE — trois au maximum, sur une fiche.
+ *
+ * « 12 dossiers · 3 en retard · 98 % à jour » se lit d'un regard et dit l'essentiel d'une
+ * personne au travail. Douze indicateurs ne diraient rien de plus : ils feraient un tableau de
+ * bord, ce que ce produit refuse d'être.
+ */
+export interface WorkspaceMetric {
+  valeur: string;
+  label: string;
+  ton?: "neutre" | "attention" | "alerte" | "succes";
+}
+
 export interface WorkspacePerson {
   nom: string;
   poste?: string | null;
   departement?: string | null;
   entite?: string | null;
   coordonnees: WorkspaceEndpoint[];
+  /** « Active », « Congé », « Sortie » — l'état du compte, quand il est connu. */
+  statut?: { label: string; ton: "neutre" | "succes" | "attention" | "alerte" } | null;
+  /** Jusqu'à trois. Au-delà, on décrit un tableau de bord et non une personne. */
+  metriques?: WorkspaceMetric[];
+  /** L'écran canonique de la personne — le lien reste, il n'est plus la seule issue. */
+  href?: string | null;
 }
 
 export interface WorkspaceColumn {
@@ -48,6 +67,23 @@ export interface WorkspaceColumn {
   label: string;
   /** Un nombre s'aligne à droite ; un texte à gauche. Rien de plus subtil n'est nécessaire. */
   numeric?: boolean;
+  /** Une pastille colorée plutôt qu'un mot nu : « 4 jours » de retard doit se voir. */
+  badge?: boolean;
+}
+
+/**
+ * UNE LIGNE DE TABLEAU — et ce qu'on peut en faire.
+ *
+ * Le tableau ne se contente plus d'afficher : chaque ligne peut porter son geste (« Ouvrir »),
+ * parce que la question suivante du PDG porte presque toujours sur UNE des lignes qu'il vient
+ * de lire. L'obliger à la retaper, c'est lui faire recopier ce qui est déjà sous ses yeux.
+ */
+export interface WorkspaceRow {
+  cells: Record<string, string>;
+  /** Le ton d'une cellule, par clé de colonne — « alerte » pour un retard, rien sinon. */
+  tons?: Record<string, "neutre" | "attention" | "alerte" | "succes">;
+  actions?: WorkspaceAction[];
+  href?: string | null;
 }
 
 export interface WorkspaceMail {
@@ -167,27 +203,75 @@ export interface WorkspaceDoc {
   feuille?: { columns: WorkspaceColumn[]; rows: Record<string, string>[]; total: number } | null;
 }
 
+/** Une étape de circuit — le fil rouge visuel d'un dossier. */
+export interface WorkspaceStep {
+  label: string;
+  etat: "fait" | "courant" | "a-venir";
+}
+
 export type WorkspaceBlock =
   /** Une ou plusieurs fiches de contact — `directory_lookup`. */
-  | { kind: "people"; title: string; people: WorkspacePerson[]; note?: string }
+  | { kind: "people"; title: string; people: WorkspacePerson[]; note?: string; actions?: WorkspaceAction[] }
   /** Le registre du personnel — `directory_list`. Tableau, tri, recherche côté client. */
-  | { kind: "directory"; title: string; total: number; rows: WorkspacePerson[]; note?: string }
+  | { kind: "directory"; title: string; total: number; rows: WorkspacePerson[]; note?: string; actions?: WorkspaceAction[] }
   /** Des messages — `gmail_search`. */
-  | { kind: "mail"; title: string; messages: WorkspaceMail[] }
+  | { kind: "mail"; title: string; messages: WorkspaceMail[]; actions?: WorkspaceAction[] }
   /** Une journée d'agenda — `read_calendar`. */
-  | { kind: "agenda"; title: string; events: WorkspaceEvent[] }
+  | { kind: "agenda"; title: string; events: WorkspaceEvent[]; actions?: WorkspaceAction[] }
   /** Ce qui attend une décision — `list_pending_decisions`. */
-  | { kind: "queue"; title: string; total: number; items: WorkspaceItem[] }
+  | { kind: "queue"; title: string; total: number; items: WorkspaceItem[]; actions?: WorkspaceAction[] }
   /** Une fiche canonique — `inspect_record`. */
-  | { kind: "record"; title: string; subtitle?: string | null; fields: WorkspaceField[]; href?: string | null }
+  | { kind: "record"; title: string; subtitle?: string | null; fields: WorkspaceField[]; href?: string | null; actions?: WorkspaceAction[] }
   /** Le repli générique : une liste d'objets homogènes devient un tableau. */
-  | { kind: "table"; title: string; columns: WorkspaceColumn[]; rows: Record<string, string>[]; total?: number }
+  | { kind: "table"; title: string; columns: WorkspaceColumn[]; rows: WorkspaceRow[]; total?: number; actions?: WorkspaceAction[] }
   /** Une suite d'événements datés — histoire d'un dossier. */
-  | { kind: "timeline"; title: string; steps: { date?: string | null; label: string; detail?: string | null }[] }
+  | { kind: "timeline"; title: string; steps: { date?: string | null; label: string; detail?: string | null }[]; actions?: WorkspaceAction[] }
   /** Des jauges — consommation d'une enveloppe, avancement d'un dossier, charge d'une personne. */
-  | { kind: "progress"; title: string; gauges: WorkspaceGauge[]; note?: string | null }
+  | { kind: "progress"; title: string; gauges: WorkspaceGauge[]; note?: string | null; actions?: WorkspaceAction[] }
   /** Un ou plusieurs documents montrés SUR PLACE — PDF, image, feuille de calcul. */
-  | { kind: "document"; title: string; docs: WorkspaceDoc[]; note?: string | null };
+  | { kind: "document"; title: string; docs: WorkspaceDoc[]; note?: string | null; actions?: WorkspaceAction[] }
+  /**
+   * LE DOSSIER — l'objet métier montré en entier, et lisible en deux secondes.
+   *
+   * C'est le bloc le plus dense du protocole, et il l'est pour une raison : quand le PDG ouvre
+   * un dossier, il ne cherche pas une fiche, il cherche **où ça bloque**. L'ordre du rendu suit
+   * donc l'ordre de sa question — l'étape courante et l'alerte d'abord, les pièces et l'histoire
+   * ensuite, parce qu'elles ne servent qu'une fois la première question réglée.
+   */
+  | {
+      kind: "dossier";
+      title: string;
+      subtitle?: string | null;
+      badge?: { label: string; ton: "neutre" | "succes" | "attention" | "alerte" } | null;
+      fields: WorkspaceField[];
+      steps?: WorkspaceStep[];
+      /** Ce qui empêche d'avancer, dit en une phrase. Rien de plus visible sur la carte. */
+      alerte?: { label: string; ton: "attention" | "alerte" } | null;
+      docs?: WorkspaceDoc[];
+      participants?: WorkspacePerson[];
+      activite?: { date?: string | null; label: string }[];
+      href?: string | null;
+      actions?: WorkspaceAction[];
+    }
+  /**
+   * UN MESSAGE PRÊT — montré comme un message, pas raconté en prose.
+   *
+   * `statut` porte tout : un brouillon se relit et s'envoie, un message parti se compacte et
+   * affiche l'heure. La même carte traverse les deux états, elle ne se duplique pas — c'est ce
+   * qui évite la file de brouillons concurrents corrigée en amont.
+   */
+  | {
+      kind: "email";
+      title: string;
+      a: string[];
+      cc?: string[];
+      objet: string;
+      corps: string;
+      piecesJointes?: string[];
+      statut: "brouillon" | "envoye" | "annule";
+      envoyeLe?: string | null;
+      actions?: WorkspaceAction[];
+    };
 
 export type WorkspaceBlockKind = WorkspaceBlock["kind"];
 
@@ -217,6 +301,18 @@ export const WORKSPACE_LIMITS = {
   docs: 3,
   /** Un aperçu de feuille sert à RELIRE, pas à consulter : au-delà, on ouvre le fichier. */
   sheetRows: 30,
+  /** Cinq étapes de circuit tiennent sur une ligne ; au-delà, la frise devient illisible. */
+  steps: 7,
+  /** Trois chiffres se lisent d'un regard. Le quatrième fait un tableau de bord. */
+  metrics: 3,
+  /** Quatre participants nommés, le reste derrière « voir tout ». */
+  participants: 4,
+  /** Trois activités récentes : ce qui vient de se passer, pas l'historique complet. */
+  activity: 4,
+  /** Deux gestes par ligne de tableau, comme dans la file de décisions. */
+  rowActions: 2,
+  /** Quatre actions sous un objet : une primaire, deux secondaires, un débordement. */
+  blockActions: 4,
   timelineSteps: 20,
   /** Au-delà, un extrait n'aide plus à décider : il remplit l'écran. */
   snippetChars: 220,

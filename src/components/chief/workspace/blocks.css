@@ -11,6 +11,60 @@
    aucune duplication à maintenir en parallèle.
    ═══════════════════════════════════════════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   LE FIL COMME CANVAS.
+
+   Ce qui distingue le bureau d'Adam d'un chatbot n'est pas une couleur, c'est l'ABSENCE de
+   boîtes. La réponse s'écrit à même la page, sous un nom et une heure ; l'objet métier vient
+   juste dessous, dans sa propre carte. Mettre la réponse dans une bulle grise reviendrait à
+   dessiner deux cadres pour une seule idée — et à faire lire le texte comme un message plutôt
+   que comme une réponse.
+
+   Le tour de l'utilisateur, lui, garde une surface : c'est ce qui permet de retrouver ses
+   propres questions en remontant. Mais une PASTILLE claire, pas un aplat plein — un bloc de
+   couleur sur 80 % de la largeur crie plus fort que la réponse qui suit.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+.chief-user-turn {
+  padding: 8px 14px;
+  border-radius: 16px;
+  border-top-right-radius: 6px;
+  background-color: hsl(var(--chief-accent-soft, 245 90% 97%));
+  color: hsl(var(--chief-text, 220 40% 13%));
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.chief-turn-author {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: hsl(var(--chief-text, 220 40% 13%));
+}
+.chief-turn-time {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+}
+.chief-turn-text {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: hsl(var(--chief-text, 220 40% 13%));
+}
+
+/* Ce qu'Adam a consulté : une trace discrète, jamais un nom d'outil. */
+.chief-trace-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  background-color: hsl(var(--chief-surface-sunken, 220 30% 96.5%));
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+}
+
 @keyframes chief-block-rise {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
@@ -117,6 +171,8 @@
   display: inline-flex;
   align-items: baseline;
   gap: 7px;
+  /* C'est la PROVENANCE qui passe à la ligne quand la place manque, jamais l'adresse. */
+  flex-wrap: wrap;
   max-width: 100%;
   padding: 4px 9px;
   font-size: 12.5px;
@@ -129,7 +185,11 @@
   transition: border-color var(--chief-duration-micro, 140ms) var(--chief-ease, cubic-bezier(0.32, 0.72, 0, 1));
 }
 .chief-endpoint:hover { border-color: hsl(var(--chief-border, 218 22% 89%)); }
-.chief-endpoint-value { overflow-wrap: anywhere; }
+/* L'ADRESSE NE SE COUPE PAS. `overflow-wrap: anywhere` la brisait au milieu sur 390 px —
+   « demo.benkaci@exemple. / test » — et une adresse rompue est une adresse qu'on recopie faux.
+   Elle reste donc d'un seul tenant ; c'est le CHIP qui passe à la ligne pour lui faire de la
+   place (voir la règle mobile plus bas), pas le texte qui se plie. */
+.chief-endpoint-value { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .chief-endpoint-source { font-size: 11px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); white-space: nowrap; }
 .chief-endpoint-copied { font-size: 11px; color: hsl(var(--chief-success, 152 55% 38%)); }
 
@@ -180,7 +240,16 @@
 
 /* ── File de décisions ─────────────────────────────────────────────────────────────────── */
 
+/* LA SÉPARATION EST L'INFORMATION. Un élément qui porte des gestes devient haut ; sans trait,
+   la décision suivante paraît lui appartenir. La revue visuelle a montré exactement ça : deux
+   validations distinctes lues comme une seule. Le trait ne décore pas, il compte. */
 .chief-queue-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+/* Pas de `margin-top` : `.chief-stack` pose déjà 12 px d'écart entre les éléments. Le trait
+   se place donc à 12 px du précédent et à 12 px du suivant — symétrique sans le savoir. */
+.chief-queue-item + .chief-queue-item {
+  padding-top: 12px;
+  border-top: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+}
 .chief-queue-body { min-width: 0; }
 .chief-queue-title { margin: 0; font-size: 13.5px; color: hsl(var(--chief-text, 220 40% 13%)); }
 .chief-queue-detail { margin: 2px 0 0; font-size: 12.5px; color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
@@ -227,11 +296,16 @@
 .chief-action:hover { background-color: hsl(var(--chief-surface-hover, 220 30% 93%)); }
 .chief-action:disabled { opacity: 0.55; cursor: default; }
 
+/* PRIMAIRE = LISIBLE D'UN COUP D'ŒIL, PAS CRIARD. La revue a montré « Envoyer » indiscernable
+   de « Modifier » : la teinte seule ne suffit pas à 12 px. La graisse fait le travail que la
+   couleur ne fait pas — sans devenir le bouton plein qui promettrait une exécution immédiate. */
 .chief-action-primary {
-  border-color: hsl(var(--chief-accent-border, 245 60% 90%));
+  border-color: hsl(var(--chief-accent, 245 72% 58%) / 0.32);
   background-color: hsl(var(--chief-accent-surface, 245 100% 98%));
   color: hsl(var(--chief-accent, 245 72% 58%));
+  font-weight: 600;
 }
+.chief-action-primary:hover { background-color: hsl(var(--chief-accent, 245 72% 58%) / 0.1); }
 .chief-action-danger {
   border-color: hsl(var(--chief-danger-border, 0 70% 90%));
   background-color: hsl(var(--chief-danger-surface, 0 100% 98.5%));
@@ -307,6 +381,328 @@
 }
 .chief-doc .chief-table-scroll { margin-top: 10px; }
 
+/* ── Le pied d'actions d'une carte ─────────────────────────────────────────────────────────
+   Séparé par un filet, pour qu'on lise « voici l'objet » PUIS « voici ce que j'en fais ». */
+
+.chief-block-actions {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+}
+/* Le filet appartient au pied d'actions LUI-MÊME : sans gestes affichables, il n'y a ni pied
+   ni séparation — une carte ne se termine pas par une ligne qui n'annonce rien. */
+
+/* ── Pastilles sémantiques ─────────────────────────────────────────────────────────────── */
+
+.chief-chip-succes {
+  background-color: hsl(var(--chief-success-soft, 152 60% 96%));
+  color: hsl(var(--chief-success, 152 58% 38%));
+}
+.chief-chip-attention {
+  background-color: hsl(var(--chief-warning-soft, 34 92% 96%));
+  color: hsl(var(--chief-warning, 32 88% 46%));
+}
+.chief-chip-alerte {
+  background-color: hsl(var(--chief-danger-soft, 0 80% 97%));
+  color: hsl(var(--chief-danger, 0 68% 52%));
+}
+
+.chief-link-plain { color: inherit; text-decoration: none; }
+.chief-link-plain:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ── Fiche d'une personne ──────────────────────────────────────────────────────────────────
+   Identité à gauche, chiffres à droite. Les chiffres sont séparés par un filet vertical :
+   ils appartiennent à la personne mais répondent à une autre question qu'elle. */
+
+.chief-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background-color: hsl(var(--chief-accent-soft, 245 90% 97%));
+  color: hsl(var(--chief-accent, 245 72% 58%));
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.chief-profile { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.chief-profile-compact { gap: 14px; }
+.chief-profile-id { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.chief-profile-head { min-width: 0; }
+.chief-profile-name {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: hsl(var(--chief-text, 220 40% 13%));
+}
+.chief-profile-compact .chief-profile-name { font-size: 14px; }
+.chief-profile-role {
+  margin: 2px 0 8px;
+  font-size: 12.5px;
+  color: hsl(var(--chief-text-secondary, 220 12% 42%));
+}
+
+.chief-metrics {
+  display: flex;
+  gap: 22px;
+  margin: 0;
+  padding-left: 20px;
+  flex-shrink: 0;
+  border-left: 1px solid hsl(var(--chief-border, 218 22% 89%));
+}
+.chief-metric { text-align: left; }
+.chief-metric-value {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.chief-metric-label {
+  margin: 1px 0 0;
+  max-width: 88px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+}
+
+/* ── Tableau : la colonne d'actions et la variante téléphone ──────────────────────────── */
+
+.chief-td-actions { text-align: right; white-space: nowrap; width: 1%; }
+.chief-td-actions .chief-actions { justify-content: flex-end; }
+
+.chief-rowcard {
+  padding: 11px 12px;
+  border: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+  border-radius: var(--chief-radius-control, 14px);
+  background-color: hsl(var(--chief-surface-sunken, 220 30% 96.5%));
+}
+.chief-rowcard-title {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: hsl(var(--chief-text, 220 40% 13%));
+}
+.chief-rowcard-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; margin: 0 0 8px; }
+.chief-rowcard-fields dt { margin: 0; font-size: 11px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); }
+.chief-rowcard-fields dd { margin: 1px 0 0; font-size: 12.5px; color: hsl(var(--chief-text, 220 40% 13%)); overflow-wrap: anywhere; }
+
+/* ── Dossier ───────────────────────────────────────────────────────────────────────────── */
+
+.chief-dossier-head { margin-bottom: 12px; }
+.chief-dossier-ref {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: hsl(var(--chief-text, 220 40% 13%));
+}
+.chief-dossier-sub { margin: 2px 0 0; font-size: 12.5px; color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
+
+/* Les faits à gauche (colonne étroite, lecture verticale), l'avancement à droite (zone large).
+   La largeur de la colonne de gauche est fixe : elle porte des libellés courts et des valeurs
+   courtes, et la laisser s'étirer volerait la place aux pièces jointes. */
+.chief-dossier-grid { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 22px; align-items: start; }
+.chief-dossier-facts { min-width: 0; }
+.chief-fields-stacked { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.chief-dossier-body { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.chief-dossier-section { }
+.chief-dossier-section-title {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+}
+
+/* La frise : l'étape courante est la seule pleine, les précédentes sont cochées, les
+   suivantes restent en creux. On voit d'un coup où l'on est et ce qu'il reste. */
+.chief-stepper {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  overflow-x: auto;
+}
+.chief-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0;
+  min-width: 74px;
+  position: relative;
+  text-align: center;
+}
+.chief-step::before {
+  content: "";
+  position: absolute;
+  top: 11px;
+  left: calc(-50% + 13px);
+  width: calc(100% - 26px);
+  height: 2px;
+  background-color: hsl(var(--chief-border, 218 22% 89%));
+}
+.chief-step:first-child::before { display: none; }
+.chief-step-fait::before, .chief-step-courant::before { background-color: hsl(var(--chief-accent, 245 72% 58%)); }
+
+.chief-step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  position: relative;
+  z-index: 1;
+  border: 2px solid hsl(var(--chief-border, 218 22% 89%));
+  background-color: hsl(var(--chief-surface, 0 0% 100%));
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+}
+.chief-step-fait .chief-step-dot {
+  border-color: hsl(var(--chief-success, 152 58% 38%));
+  background-color: hsl(var(--chief-success, 152 58% 38%));
+  color: #fff;
+}
+.chief-step-courant .chief-step-dot {
+  border-color: hsl(var(--chief-accent, 245 72% 58%));
+  background-color: hsl(var(--chief-accent, 245 72% 58%));
+  color: #fff;
+}
+.chief-step-label { font-size: 11.5px; line-height: 1.3; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); }
+.chief-step-courant .chief-step-label { color: hsl(var(--chief-text, 220 40% 13%)); font-weight: 600; }
+.chief-step-fait .chief-step-label { color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
+
+/* Le blocage : la seule surface colorée de la carte, parce que c'est la seule chose qui
+   demande une décision. */
+.chief-alert {
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border-radius: var(--chief-radius-control, 14px);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.chief-alert-alerte {
+  background-color: hsl(var(--chief-danger-soft, 0 80% 97%));
+  color: hsl(var(--chief-danger, 0 68% 52%));
+}
+.chief-alert-attention {
+  background-color: hsl(var(--chief-warning-soft, 34 92% 96%));
+  color: hsl(var(--chief-warning, 32 88% 46%));
+}
+.chief-alert-label { font-weight: 600; }
+
+.chief-doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.chief-doc-tile {
+  display: block;
+  padding: 10px 11px;
+  border: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+  border-radius: var(--chief-radius-control, 14px);
+  background-color: hsl(var(--chief-surface, 0 0% 100%));
+  text-decoration: none;
+  transition: border-color var(--chief-duration-state, 220ms) var(--chief-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.chief-doc-tile:hover { border-color: hsl(var(--chief-border-strong, 218 20% 82%)); }
+.chief-doc-badge {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background-color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+}
+.chief-doc-pdf { background-color: hsl(0 68% 52%); }
+.chief-doc-feuille { background-color: hsl(152 58% 38%); }
+.chief-doc-image { background-color: hsl(268 60% 58%); }
+.chief-doc-texte { background-color: hsl(215 20% 50%); }
+.chief-doc-tile-name {
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+  color: hsl(var(--chief-text, 220 40% 13%));
+  /* UNE SEULE LIGNE, tronquée proprement. `overflow-wrap: anywhere` coupait
+     « Dossier_technique.pdf » entre le « d » et le « f » du .pdf — la capture de revue l'a
+     montré, et un nom de fichier coupé en plein mot ne se reconnaît plus. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chief-doc-tile-meta { display: block; margin-top: 2px; font-size: 11px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); }
+
+.chief-participants { display: flex; flex-direction: column; gap: 8px; }
+.chief-participant { display: flex; align-items: center; gap: 9px; }
+.chief-participant .chief-avatar { width: 28px; height: 28px; font-size: 10.5px; }
+.chief-participant-id { display: flex; flex-direction: column; min-width: 0; }
+.chief-participant-name { font-size: 12.5px; color: hsl(var(--chief-text, 220 40% 13%)); }
+.chief-participant-role { font-size: 11px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); }
+
+.chief-timeline-tight { gap: 6px; }
+.chief-timeline-tight .chief-timeline-date { min-width: 74px; font-size: 11px; }
+.chief-timeline-tight .chief-timeline-label { font-size: 12.5px; }
+
+/* ── Message prêt ──────────────────────────────────────────────────────────────────────── */
+
+.chief-email-main { min-width: 0; }
+.chief-email-head { display: flex; flex-direction: column; gap: 4px; margin: 0 0 10px; }
+.chief-email-head > div { display: flex; gap: 12px; align-items: baseline; }
+.chief-email-head dt {
+  margin: 0;
+  min-width: 44px;
+  font-size: 11.5px;
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+}
+.chief-email-head dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 12.5px;
+  color: hsl(var(--chief-text, 220 40% 13%));
+  overflow-wrap: anywhere;
+}
+.chief-email-subject { font-weight: 600; }
+.chief-email-body {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: hsl(var(--chief-text, 220 40% 13%));
+}
+.chief-email-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+/* Un message PARTI n'a plus besoin de sa surface : il se replie en deux lignes et laisse la
+   place à la suite de la conversation. */
+.chief-email-sent .chief-email-body {
+  max-height: 3.2em;
+  overflow: hidden;
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+}
+.chief-email-status {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: hsl(var(--chief-text-secondary, 220 12% 42%));
+}
+
 /* ── Téléphone ─────────────────────────────────────────────────────────────────────────────
    Sur 390 px, une grille de fiches à deux colonnes coupe les valeurs en deux, et un
    rendez-vous en deux colonnes gaspille un tiers de la largeur en marge de gauche. */
@@ -323,6 +719,56 @@
   .chief-queue-side { flex-direction: row; align-items: baseline; flex-wrap: wrap; align-self: stretch; justify-content: flex-start; }
   .chief-doc-head { flex-direction: column; gap: 6px; }
   .chief-doc-frame { height: 320px; }
+
+  /* La fiche passe en colonne : les chiffres descendent SOUS l'identité et s'étalent, plutôt
+     que de comprimer le nom à trois caractères pour leur faire de la place. */
+  .chief-profile { flex-direction: column; gap: 12px; }
+  .chief-metrics {
+    padding-left: 0;
+    padding-top: 11px;
+    border-left: none;
+    border-top: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .chief-metric-label { max-width: none; }
+
+  /* LA FRISE BASCULE À LA VERTICALE — et ce n'est pas un repli, c'est la seule version lisible.
+     Horizontale, cinq libellés sur 390 px ne tiennent pas : le défilement latéral coupait
+     « Enregistrement » à « Enregistr » sans le moindre indice qu'il restait quelque chose à
+     droite. La capture 390 l'a montré. Or la frise ne sert qu'à UNE chose — dire où en est le
+     dossier — et une frise qu'on ne peut pas lire jusqu'au bout ne la dit pas. Empilée, elle se
+     lit comme la liste d'étapes qu'elle est, sans coupure et sans césure au milieu d'un mot. */
+  .chief-stepper {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    overflow-x: visible;
+    padding-bottom: 0;
+  }
+  .chief-step {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    text-align: left;
+  }
+  /* Le trait de liaison pivote avec elle : il monte vers l'étape précédente, aligné sur le
+     centre de la pastille (22 px de large ⇒ axe à 11 px, trait de 2 px ⇒ 10 px). */
+  .chief-step::before {
+    top: -10px;
+    left: 10px;
+    width: 2px;
+    height: 10px;
+  }
+  .chief-step-label { font-size: 12.5px; }
+
+  .chief-doc-grid { grid-template-columns: minmax(0, 1fr); }
+  .chief-dossier-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .chief-fields-stacked { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+  .chief-rowcard-fields { grid-template-columns: minmax(0, 1fr); }
+  .chief-email-head > div { flex-direction: column; gap: 1px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

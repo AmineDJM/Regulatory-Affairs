@@ -15,7 +15,18 @@ import {
   REMINDER_RECURRENCES, RECURRENCE_LABEL, algiersToUtc, formatAlgiersDue,
   type ReminderRecurrence,
 } from "@/lib/assistant/reminders";
-import { ROLE_LABELS } from "@/lib/labels";
+import { ROLE_LABELS, REGULATORY_STEP_TYPE as REG_STEP_FR } from "@/lib/labels";
+import { geste, retardJours, retardLabel } from "@/lib/assistant/workspace/emit";
+
+/** Le pictogramme d'un document, déduit du nom — le protocole n'en connaît que cinq. */
+function docKindFromName(name: string): "pdf" | "image" | "feuille" | "texte" | "autre" {
+  const e = (name.split(".").pop() ?? "").toLowerCase();
+  if (e === "pdf") return "pdf";
+  if (["png", "jpg", "jpeg", "gif", "webp"].includes(e)) return "image";
+  if (["xlsx", "xlsm", "xls", "csv"].includes(e)) return "feuille";
+  if (["txt", "md"].includes(e)) return "texte";
+  return "autre";
+}
 
 /**
  * LES OUTILS EXÉCUTIFS — « My Chief of Staff », réservé au PDG et au Super Admin.
@@ -388,12 +399,81 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           therapeuticClass: true, partnerLab: true, targetSubmissionDate: true, targetDate: true,
           company: { select: { shortName: true, name: true } },
           responsible: { select: { name: true } },
-          steps: { select: { type: true, status: true, plannedDate: true, actualDate: true }, orderBy: { order: "asc" }, take: 30 },
+          steps: { select: { id: true, type: true, status: true, plannedDate: true, actualDate: true }, orderBy: { order: "asc" }, take: 30 },
         },
       });
       if (reg) {
         const [timeline, docs] = await Promise.all([auditOf("REGULATORY_PRODUCT", reg.id), documentsOf("REGULATORY_PRODUCT", reg.id)]);
         const lastMove = timeline.length ? timeline[timeline.length - 1] : null;
+        /**
+         * LA CARTE DU DOSSIER — l'objet montré en entier, dans l'ordre de la question.
+         *
+         * Le PDG qui ouvre un dossier en retard ne cherche pas une fiche : il cherche POURQUOI
+         * ça n'avance pas. La frise du circuit et le blocage passent donc devant tout le reste,
+         * et les quatre gestes du bas sont ceux qu'on pose vraiment sur un dossier bloqué.
+         */
+        const cible = reg.targetDate ?? reg.targetSubmissionDate;
+        const clos = reg.status === "DECISION_OBTAINED" || reg.status === "CLOSED";
+        const retard = clos ? null : retardJours(cible);
+        // L'ÉTAPE COURANTE : celle en cours, sinon la première qui bloque ou n'a pas démarré.
+        // « DONE » n'existe pas dans cet énuméré — l'avancement se lit à la position, pas à un
+        // état terminal, et c'est ce que la frise reproduit.
+        const etapeCourante = reg.steps.find((st) => st.status === "IN_PROGRESS")
+          ?? reg.steps.find((st) => st.status === "BLOCKED" || st.status === "LATE")
+          ?? reg.steps.find((st) => st.status === "NOT_STARTED");
+
+        const bloc = {
+          kind: "dossier",
+          title: reg.reference,
+          subtitle: reg.brandName ? `${reg.dci} (${reg.brandName})` : reg.dci,
+          ...(retard
+            ? { badge: { label: "En retard", ton: "alerte" } }
+            : clos
+              ? { badge: { label: "Clôturé", ton: "succes" } }
+              : {}),
+          fields: [
+            ...(reg.responsible?.name ? [{ label: "Chargé du dossier", value: reg.responsible.name }] : []),
+            ...(etapeCourante ? [{ label: "Étape courante", value: REG_STEP_FR[etapeCourante.type] ?? String(etapeCourante.type) }] : []),
+            ...(retard ? [{ label: "Retard", value: retardLabel(retard) }] : []),
+            ...(cible ? [{ label: "Échéance", value: fr(cible) }] : []),
+            ...(reg.partnerLab ? [{ label: "Laboratoire", value: reg.partnerLab }] : []),
+            ...(reg.company?.shortName || reg.company?.name ? [{ label: "Entité", value: (reg.company.shortName ?? reg.company.name) as string }] : []),
+          ],
+          ...(reg.steps.length
+            ? {
+                steps: (() => {
+                  const idx = etapeCourante ? reg.steps.findIndex((st) => st.id === etapeCourante.id) : -1;
+                  return reg.steps.slice(0, 7).map((st, i) => ({
+                    label: REG_STEP_FR[st.type] ?? String(st.type),
+                    etat: idx < 0 ? "a-venir" : i < idx ? "fait" : i === idx ? "courant" : "a-venir",
+                  }));
+                })(),
+              }
+            : {}),
+          ...(retard
+            ? { alerte: { label: `Échéance dépassée de ${retardLabel(retard)}${etapeCourante ? ` — bloqué à l'étape « ${REG_STEP_FR[etapeCourante.type] ?? String(etapeCourante.type)} »` : ""}.`, ton: "alerte" } }
+            : {}),
+          ...(docs.length
+            ? {
+                docs: docs.slice(0, 6).map((d) => ({
+                  nom: d.nom, href: `/api/documents/${d.documentId}`,
+                  type: docKindFromName(d.nom),
+                  ...(d.categorie ? { soustitre: d.categorie } : {}),
+                })),
+              }
+            : {}),
+          ...(reg.responsible?.name ? { participants: [{ nom: reg.responsible.name, poste: "Chargé du dossier" }] } : {}),
+          ...(timeline.length
+            ? { activite: renderTimeline(timeline).slice(-3).reverse().map((t) => ({ date: t.date, label: t.par ? `${t.par} — ${t.evenement}` : t.evenement })) }
+            : {}),
+          lien: `/regulatory/${reg.id}`,
+          actions: [
+            geste("Relancer", `Prépare un mail de relance pour ${reg.reference}`, "primaire"),
+            geste("Assigner", `Réassigne ${reg.reference}`),
+            geste("Faire avancer", `Avance l'étape de ${reg.reference}`),
+          ],
+        };
+
         return JSON.stringify({
           type: "Dossier Regulatory",
           reference: reg.reference, dci: reg.dci, nomCommercial: reg.brandName,
@@ -401,6 +481,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           classeTherapeutique: reg.therapeuticClass, laboratoire: reg.partnerLab,
           entite: reg.company?.shortName ?? reg.company?.name ?? null,
           chargeDuDossier: reg.responsible?.name ?? null,
+          ...(retard ? { retardJours: retard } : {}),
           datesCibles: {
             soumission: reg.targetSubmissionDate ? fr(reg.targetSubmissionDate) : null,
             objectif: reg.targetDate ? fr(reg.targetDate) : null,
@@ -414,6 +495,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           documentsJoints: docs,
           timeline: renderTimeline(timeline),
           lien: `/regulatory/${reg.id}`,
+          _blocs: [bloc],
         });
       }
 

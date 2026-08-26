@@ -5,6 +5,8 @@ import { DirectoryChannel } from "@prisma/client";
 import { findPeople } from "@/lib/directory/resolve";
 import { canReadDirectory } from "@/lib/directory/access";
 import { userCan } from "@/lib/rbac";
+import { chargeMetriques, geste } from "@/lib/assistant/workspace/emit";
+import { personRegulatoryLoad } from "@/lib/assistant/regulatory-read";
 
 /**
  * L'ANNUAIRE, VU PAR ADAM — pour qu'il cesse de répondre « je n'ai pas son adresse ».
@@ -50,7 +52,7 @@ export const DIRECTORY_TOOLS: PowerTool[] = [
     },
     allowed: canReadDirectory,
     label: "Annuaire consulté",
-    run: async (input) => {
+    run: async (input, user) => {
       const name = str(input, "name");
       if (name.length < 2) return "Donnez le nom de la personne.";
       const people = await findPeople(name, 5);
@@ -60,20 +62,61 @@ export const DIRECTORY_TOOLS: PowerTool[] = [
           precision: `Aucune entrée « ${name} » dans l'annuaire interne, les fiches RH, les comptes ERP ni les contacts d'entreprise.`,
         });
       }
-      return JSON.stringify({
-        personnes: people.map((p) => ({
-          nom: p.name,
-          poste: p.jobTitle,
-          entite: p.company,
-          coordonnees: p.endpoints.map((e) => ({
-            canal: e.channel === DirectoryChannel.EMAIL ? "e-mail" : e.channel === DirectoryChannel.PHONE ? "téléphone" : "WhatsApp",
-            valeur: e.value,
-            usage: e.label,
-            fiabilite: CONFIDENCE_LABEL[e.confidence] ?? e.confidence,
-            principale: e.isPrimary || undefined,
-          })),
+      const fiches = people.map((p) => ({
+        nom: p.name,
+        poste: p.jobTitle,
+        entite: p.company,
+        coordonnees: p.endpoints.map((e) => ({
+          canal: e.channel === DirectoryChannel.EMAIL ? "e-mail" : e.channel === DirectoryChannel.PHONE ? "téléphone" : "WhatsApp",
+          valeur: e.value,
+          usage: e.label,
+          fiabilite: CONFIDENCE_LABEL[e.confidence] ?? e.confidence,
+          principale: e.isPrimary || undefined,
         })),
+      }));
+
+      /**
+       * LA FICHE MONTRÉE — et les trois chiffres qui répondent à la vraie question.
+       *
+       * « Montre-moi Raihana » n'est presque jamais une demande de coordonnées : c'est le début
+       * d'une conversation sur son travail. La charge réglementaire est donc lue ICI, une seule
+       * fois, pour la SEULE personne trouvée — la calculer pour cinq homonymes coûterait cinq
+       * requêtes pour un écran qui n'en montrerait aucune en évidence.
+       *
+       * Si elle ne porte aucun dossier, aucun chiffre ne s'affiche : « 0 dossier · 100 % à jour »
+       * serait vrai et vide de sens.
+       */
+      const seule = people.length === 1 ? people[0] : null;
+      const charge = seule ? await personRegulatoryLoad(seule.name, user) : null;
+      const bloc = seule
+        ? {
+            kind: "people",
+            title: seule.name,
+            people: [{
+              ...fiches[0],
+              ...(charge?.actif ? { statut: { label: "Active", ton: "succes" } } : {}),
+              ...(charge && charge.total > 0 ? { metriques: chargeMetriques(charge.total, charge.enRetard) } : {}),
+              ...(charge?.href ? { href: charge.href } : {}),
+            }],
+            actions: [
+              ...(charge && charge.enRetard > 0
+                ? [geste("Ses dossiers en retard", `Montre les dossiers en retard de ${seule.name}, dans un tableau`, "primaire")]
+                : charge && charge.total > 0
+                  ? [geste("Ses dossiers", `Montre les dossiers de ${seule.name}, dans un tableau`, "primaire")]
+                  : []),
+              geste("Écrire", `Prépare un mail à ${seule.name}`),
+              geste("Assigner une tâche", `Demande une tâche à ${seule.name}`),
+            ],
+          }
+        : null;
+
+      return JSON.stringify({
+        personnes: fiches,
+        ...(charge && charge.total > 0
+          ? { charge: { dossiersGeres: charge.total, enRetard: charge.enRetard } }
+          : {}),
         note: "Pour écrire, préférer une coordonnée vérifiée. Si deux adresses vérifiées coexistent, demander laquelle en UNE question courte.",
+        ...(bloc ? { _blocs: [bloc] } : {}),
       });
     },
   },

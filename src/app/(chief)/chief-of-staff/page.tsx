@@ -7,6 +7,7 @@ import { featureEnabled, FEATURES } from "@/lib/features";
 import { getActionCenter } from "@/lib/queries/action-center";
 import { ensurePrimaryThread } from "@/lib/assistant-memory";
 import { ChiefWorkspace } from "@/components/chief/chief-workspace";
+import { BlockPreviewPlanche } from "@/components/chief/workspace/preview-planche";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Adam — Chief of Staff" };
@@ -39,9 +40,23 @@ export const metadata = { title: "Adam — Chief of Staff" };
 export default async function ChiefOfStaffPage({
   searchParams,
 }: {
-  searchParams?: { q?: string; ref?: string; call?: string };
+  searchParams?: { q?: string; ref?: string; call?: string; apercu?: string };
 }) {
   const user = await requireModule("CHIEF_OF_STAFF");
+
+  // LA PLANCHE DE RENDU, le temps d'une revue visuelle — et jamais en production.
+  //
+  // Les blocs de l'espace de travail n'apparaissent qu'au bout d'un vrai tour de conversation,
+  // donc d'un appel IA que la suite E2E s'interdit : sans planche, la revue exigée par la mission
+  // ne porterait que sur l'écran d'accueil vide. `ADAM_BLOCK_PREVIEW` n'est posée que par la
+  // configuration Playwright ; sans elle, ce paramètre ne fait rien du tout.
+  //
+  // Elle est branchée ICI, après la garde, plutôt que sur une route à elle : une page séparée
+  // aurait dû refaire son propre contrôle de droits — donc importer l'ERP une fois de plus, ce
+  // que le cliquet de frontière refuse. Adossée au bureau d'Adam, elle hérite de ses gardes.
+  if (process.env.ADAM_BLOCK_PREVIEW === "1" && searchParams?.apercu === "blocs") {
+    return <BlockPreviewPlanche />;
+  }
 
   const [memoryEnabled] = await Promise.all([
     user.impersonatedBy ? Promise.resolve(false) : featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id),

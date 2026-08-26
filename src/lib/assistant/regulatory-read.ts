@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
+import { geste, retardJours, retardLabel } from "@/lib/assistant/workspace/emit";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { REGULATORY_STATUS } from "@/lib/labels";
 import { resolveOrg, coreTokens } from "@/lib/assistant/entity-normalize";
@@ -28,6 +29,47 @@ const st = (input: Record<string, unknown>, key: string): string =>
 
 const statusLabel = (s: string): string => REGULATORY_STATUS[s]?.label ?? s;
 
+/**
+ * LA CHARGE RÉGLEMENTAIRE D'UNE PERSONNE — lue pour la fiche, pas pour la réponse.
+ *
+ * Deux comptes rapides dans le périmètre VISIBLE de celui qui demande : le cloisonnement de
+ * l'écran Regulatory s'applique tel quel, donc la fiche ne peut pas révéler l'existence de
+ * dossiers que cette personne n'aurait pas le droit de voir.
+ *
+ * POURQUOI ICI ET PAS DANS L'ANNUAIRE. C'est une lecture REGULATORY : elle appartient au
+ * module qui lit déjà la clause de visibilité de cet écran. L'annuaire l'appelle. Le mettre
+ * là-bas aurait fait traverser la frontière Adam ↔ ERP une fois de plus, pour une clause que
+ * ce fichier-ci connaît déjà — le cliquet de `src/platform/boundary.test.ts` l'a signalé.
+ */
+export async function personRegulatoryLoad(
+  name: string,
+  user: CurrentUser,
+): Promise<{ total: number; enRetard: number; actif: boolean; href: string | null } | null> {
+  const account = await prisma.user.findFirst({
+    where: { name: { contains: name, mode: "insensitive" }, isActive: true },
+    select: { id: true, isActive: true },
+  }).catch(() => null);
+  if (!account) return null;
+  if (!userCan(user, "REGULATORY", "VIEW")) return { total: 0, enRetard: 0, actif: account.isActive, href: null };
+
+  const visible = await regulatoryVisibleWhere(user);
+  const now = new Date();
+  const [total, enRetard] = await Promise.all([
+    prisma.regulatoryProduct.count({ where: { AND: [visible as never, { responsibleId: account.id }] } }),
+    prisma.regulatoryProduct.count({
+      where: {
+        AND: [
+          visible as never,
+          { responsibleId: account.id },
+          { status: { notIn: ["CLOSED", "DECISION_OBTAINED"] } },
+          { OR: [{ targetDate: { lt: now } }, { AND: [{ targetDate: null }, { targetSubmissionDate: { lt: now } }] }] },
+        ],
+      },
+    }),
+  ]).catch(() => [0, 0]);
+  return { total, enRetard, actif: account.isActive, href: null };
+}
+
 /** L'étape LOGIQUE d'un dossier depuis son workflow JSON — « TERMINÉ » quand tout est fait. */
 export function dossierStageLabel(workflow: unknown): { etape: string; avancement: string } {
   const p = regProgress((workflow ?? null) as RegWorkflowState | null);
@@ -42,8 +84,12 @@ export interface AssigneeLoad {
   parStatut: Record<string, number>;
   enRetardCible: number;
   liste: {
+    id: string;
     reference: string; produit: string; statut: string; etape: string;
     avancement: string; responsableDepuis?: string | null; cible: string | null;
+    /** Jours de retard sur la cible, `null` si à l'heure ou dossier clos. */
+    retardJours: number | null;
+    lien: string;
   }[];
 }
 
@@ -61,6 +107,7 @@ export async function assigneeRegulatoryLoad(
   const rows = await prisma.regulatoryProduct.findMany({
     where: { AND: [visibleWhere, { responsibleId }] },
     select: {
+      id: true,
       reference: true, dci: true, brandName: true, status: true, workflow: true,
       targetDate: true, targetSubmissionDate: true, updatedAt: true,
     },
@@ -80,13 +127,19 @@ export async function assigneeRegulatoryLoad(
     enRetardCible: late,
     liste: rows.slice(0, cap).map((r) => {
       const stage = dossierStageLabel(r.workflow);
+      const cible = r.targetDate ?? r.targetSubmissionDate;
+      const clos = r.status === "DECISION_OBTAINED" || r.status === "CLOSED";
       return {
+        id: r.id,
         reference: r.reference,
         produit: r.brandName ? `${r.dci} (${r.brandName})` : r.dci,
         statut: statusLabel(r.status),
         etape: stage.etape,
         avancement: stage.avancement,
-        cible: (r.targetDate ?? r.targetSubmissionDate)?.toISOString().slice(0, 10) ?? null,
+        cible: cible?.toISOString().slice(0, 10) ?? null,
+        // LE RETARD EN JOURS, pas la date cible : « 4 jours » se lit, « 22/08/2025 » se calcule.
+        retardJours: clos ? null : retardJours(cible ?? null, now),
+        lien: `/regulatory/${r.id}`,
       };
     }),
   };
@@ -193,6 +246,41 @@ export const REGULATORY_READ_TOOLS: PowerTool[] = [
         }),
       ]);
 
+      /**
+       * LE TABLEAU DE SES DOSSIERS — avec, sur chaque ligne, la sortie qui va avec.
+       *
+       * Quand la question portait sur les RETARDS, le tableau ne montre que ceux-là : afficher
+       * les douze dossiers quand on en a demandé trois oblige à chercher dans la réponse.
+       */
+      const veutRetards = /retard|en r[ée]tard|bloqu|urgent/i.test(person + " " + st(input, "focus"));
+      const lignes = load.liste.filter((d) => (veutRetards ? d.retardJours !== null : true));
+      const bloc = lignes.length >= 1
+        ? {
+            kind: "table",
+            title: veutRetards ? `Dossiers en retard — ${target.name}` : `Dossiers de ${target.name}`,
+            columns: [
+              { key: "reference", label: "Dossier" },
+              { key: "produit", label: "Produit" },
+              { key: "retard", label: "Retard", badge: true },
+              { key: "etape", label: "Étape actuelle" },
+            ],
+            rows: lignes.map((d) => ({
+              cells: {
+                reference: d.reference, produit: d.produit,
+                retard: d.retardJours ? retardLabel(d.retardJours) : "à l'heure",
+                etape: d.etape,
+              },
+              tons: d.retardJours ? { retard: "alerte" } : { retard: "succes" },
+              href: d.lien,
+              actions: [geste("Ouvrir", `Ouvre ${d.reference}`)],
+            })),
+            total: lignes.length,
+            ...(veutRetards && load.total > lignes.length
+              ? { actions: [geste(`Voir tous ses dossiers (${load.total})`, `Montre tous les dossiers de ${target.name}, dans un tableau`)] }
+              : {}),
+          }
+        : null;
+
       return JSON.stringify({
         personne: target.name,
         dossiersGeresDirectement: {
@@ -202,6 +290,7 @@ export const REGULATORY_READ_TOOLS: PowerTool[] = [
           enRetardSurCible: load.enRetardCible,
           liste: load.liste,
         },
+        ...(bloc ? { _blocs: [bloc] } : {}),
         assisteSur: assistantOn,
         accesSansResponsabilite: {
           total: accessOnly,
