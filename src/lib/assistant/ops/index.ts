@@ -28,6 +28,7 @@ import { ADMIN_REQUEST_OPS_IMPL } from "./impl-wave7";
 import { MEETING7_OPS_IMPL, WORKSPACE7_OPS_IMPL } from "./impl-wave7b";
 import { MESSAGING7_OPS_IMPL, REGREMINDER_OPS_IMPL } from "./impl-wave7c";
 import { ORG7D_OPS_IMPL, LEGAL7D_OPS_IMPL, WS7D_OPS_IMPL } from "./impl-wave7d";
+import { FILE_WS_OPS_IMPL, FILE_FINANCE_OPS_IMPL, FILE_MEDICAL_OPS_IMPL, FILE_MEDINFO_OPS_IMPL, FILE_PCH_OPS_IMPL, FILE_ORG_OPS_IMPL } from "./impl-wave8-files";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -99,7 +100,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   task_operation: {
     module: "WORKSPACE",
-    ops: zipOps("task_operation", { ...TASK_OPS_IMPL, ...DOCREQ_OPS_IMPL, ...REMINDER_OPS_IMPL, ...WORKSPACE7_OPS_IMPL, ...WS7D_OPS_IMPL }),
+    ops: zipOps("task_operation", { ...TASK_OPS_IMPL, ...DOCREQ_OPS_IMPL, ...REMINDER_OPS_IMPL, ...WORKSPACE7_OPS_IMPL, ...WS7D_OPS_IMPL, ...FILE_WS_OPS_IMPL }),
     def: {
       name: "task_operation",
       description:
@@ -128,6 +129,8 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           value: { type: "string", description: "set_custom_field : la valeur (« aucun » pour vider ; oui/non pour une case)." },
           record: { type: "string", description: "set_custom_field : la fiche visée (référence, nom, ou id interne) — synonyme de target." },
           reference: { type: "string", description: "delete_own_record : référence du courrier / document légal (synonyme de target)." },
+          file: { type: "string", description: "upload_document : Le FICHIER : nom d'un fichier de votre Drive (glissé dans la conversation ou déposé) — résolu par nom, droits Drive revérifiés à l'exécution." },
+          category: { type: "string", description: "upload_document : catégorie de la pièce (facultatif, « Autre » par défaut)." },
         },
         required: ["op"],
       },
@@ -135,7 +138,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   finance_operation: {
     module: "FINANCES",
-    ops: zipOps("finance_operation", { ...FINANCE_OPS_IMPL, ...FINANCE_BUDGET_OPS_IMPL, ...FINANCE_FLOWS_OPS_IMPL }),
+    ops: zipOps("finance_operation", { ...FINANCE_OPS_IMPL, ...FINANCE_BUDGET_OPS_IMPL, ...FINANCE_FLOWS_OPS_IMPL, ...FILE_FINANCE_OPS_IMPL }),
     def: {
       name: "finance_operation",
       description:
@@ -147,6 +150,8 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
         properties: {
           op: { type: "string", enum: opEnum("finance_operation"), description: "Le geste à faire." },
           label: { type: "string", description: "Libellé (création) ou libellé/titre de la cible (résolution)." },
+          file: { type: "string", description: "Ops a fichier (import_transactions, spend_from_petty_cash, add_payment_piece) : Le FICHIER : nom d'un fichier de votre Drive (glissé dans la conversation ou déposé) — résolu par nom, droits Drive revérifiés à l'exécution." },
+          target: { type: "string", description: "add_payment_piece : la demande de paiement (référence PAY-… ou titre)." },
           reference: { type: "string", description: "Référence exacte de la cible (FIN-…, OD-…, PAY-…, n° de facture)." },
           amount: { type: "string", description: "Montant en DZD (ex. « 1500000 » ou « 1 500 000,50 »)." },
           direction: { type: "string", description: "create_transaction/create_invoice : encaissement/décaissement, reçue/émise." },
@@ -458,7 +463,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   org_operation: {
     module: "ADMIN",
-    ops: zipOps("org_operation", { ...ORG_OPS_IMPL, ...ACCESS_OPS_IMPL, ...RANGE_OPS_IMPL, ...ORG7D_OPS_IMPL }),
+    ops: zipOps("org_operation", { ...ORG_OPS_IMPL, ...ACCESS_OPS_IMPL, ...RANGE_OPS_IMPL, ...ORG7D_OPS_IMPL, ...FILE_ORG_OPS_IMPL }),
     def: {
       name: "org_operation",
       description:
@@ -513,6 +518,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           feature: { type: "string", description: "update_ai_settings : la fonction IA ; set_feature_stage : la nouveauté." },
           field: { type: "string", description: "update_risk_thresholds : le seuil visé (libellé)." },
           value: { type: "string", description: "Valeur : seuil (nombre), stade de nouveauté (production/test/coupée), bascule IA (activer/couper), portée d'entité." },
+          file: { type: "string", description: "upload_letterhead : Le FICHIER : nom d'un fichier de votre Drive (glissé dans la conversation ou déposé) — résolu par nom, droits Drive revérifiés à l'exécution." },
         },
         required: ["op"],
       },
@@ -700,7 +706,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   medical_info_operation: {
     module: "MEDICAL_INFO",
-    ops: zipOps("medical_info_operation", MEDINFO_OPS_IMPL),
+    ops: zipOps("medical_info_operation", { ...MEDINFO_OPS_IMPL, ...FILE_MEDINFO_OPS_IMPL }),
     def: {
       name: "medical_info_operation",
       description:
@@ -711,6 +717,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
         type: "object",
         properties: {
           op: { type: "string", enum: opEnum("medical_info_operation"), description: "Le geste à faire." },
+          file: { type: "string", description: "fulfill_doc_request : Le FICHIER : nom d'un fichier de votre Drive (glissé dans la conversation ou déposé) — résolu par nom, droits Drive revérifiés à l'exécution." },
           reference: { type: "string", description: "Référence ou libellé de la déclaration visée." },
           label: { type: "string", description: "Alias de reference." },
           piece: { type: "string", description: "La pièce demandée (libellé)." },
@@ -1023,7 +1030,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   medical_operation: {
     module: "MEDICAL",
-    ops: zipOps("medical_operation", MEDICAL_OPS_IMPL),
+    ops: zipOps("medical_operation", { ...MEDICAL_OPS_IMPL, ...FILE_MEDICAL_OPS_IMPL }),
     def: {
       name: "medical_operation",
       description:
@@ -1034,6 +1041,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
         type: "object",
         properties: {
           op: { type: "string", enum: opEnum("medical_operation"), description: "Le geste à faire." },
+          file: { type: "string", description: "import_directory_sheet : classeur Excel / CSV — Le FICHIER : nom d'un fichier de votre Drive (glissé dans la conversation ou déposé) — résolu par nom, droits Drive revérifiés à l'exécution." },
           doctor: { type: "string", description: "Le praticien visé (nom) — plusieurs noms séparés par des virgules pour les gestes en lot." },
           newName: { type: "string", description: "update_doctor / update_directory : nouveau nom." },
           title: { type: "string", description: "Grade : professeur, maître de conférences, maître assistant, praticien spécialiste, assistant, résident, généraliste, pharmacien, autre." },
@@ -1098,7 +1106,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   pch_operation: {
     module: "PCH",
-    ops: zipOps("pch_operation", PCH_OPS_IMPL),
+    ops: zipOps("pch_operation", { ...PCH_OPS_IMPL, ...FILE_PCH_OPS_IMPL }),
     def: {
       name: "pch_operation",
       description:
@@ -1109,6 +1117,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
         type: "object",
         properties: {
           op: { type: "string", enum: opEnum("pch_operation"), description: "Le geste à faire." },
+          file: { type: "string", description: "analyze_tender_document : PDF / image de l'appel d'offres — Le FICHIER : nom d'un fichier de votre Drive (glissé dans la conversation ou déposé) — résolu par nom, droits Drive revérifiés à l'exécution." },
           reference: { type: "string", description: "L'appel d'offres visé (AO-AAAA-NNN, titre ou produits)." },
           name: { type: "string", description: "create_tender : titre du marché." },
           products: { type: "string", description: "Produits concernés (texte)." },

@@ -103,8 +103,9 @@ async function resolveDepartment(raw: string): Promise<{ id: string; name: strin
 const ROLE_PAIRS_7D: [string, string][] = Object.entries(ROLE_LABELS as Record<string, string>);
 const ENTITY_PAIRS_7D: [string, string][] = Object.entries(ENTITY_TYPE_LABELS as Record<string, string>);
 
-/** Une cible d'un type quelconque : par NOM via le registre de suppression, sinon par id interne. */
-async function resolveRecordOfType(entityType: string, raw: string): Promise<{ id: string; name: string } | { error: string }> {
+/** Une cible d'un type quelconque : par NOM via le registre de suppression, sinon par id interne.
+ *  (Exportée : la vague 8 « fichiers » résout les objets de rattachement par le même chemin.) */
+export async function resolveRecordOfType(entityType: string, raw: string): Promise<{ id: string; name: string } | { error: string }> {
   const q = raw.trim();
   if (!q) return { error: "Désignez l'enregistrement visé (champ « record » : référence, nom ou id interne)." };
   if (isDeletableKind(entityType)) {

@@ -63,8 +63,8 @@ describe("ZERO-GAP — chaque action serveur de l'ERP est classée, aucun trou s
     const stats = parityStats();
     // Cliquet : combler un trou ABAISSE ce plafond ; en ouvrir un nouveau exige de le relever
     // ICI, consciemment, dans la même revue de code que la nouvelle action.
-    expect(stats.gap).toBeLessThanOrEqual(8);
-    expect(stats.native + stats.covered).toBeGreaterThanOrEqual(558);
+    expect(stats.gap).toBe(0);
+    expect(stats.native + stats.covered).toBeGreaterThanOrEqual(566);
 
     console.info(`[UI_ACTION_PARITY] natives=${stats.native} couvertes=${stats.covered} trous=${stats.gap} exclues=${stats.excluded} — parité=${stats.parityPct}% (sur ${stats.total} actions classées)`);
   });
@@ -140,10 +140,10 @@ describe("ZERO-GAP — résolution d'intention vers l'action NATIVE (priorité a
     expect(ACTION_CLASSIFICATION["regulatory-actions:requestBV"]?.status).toBe("NATIVE");
     // Création de compte : couverte par le chemin INVITATION (jamais de mot de passe en chat).
     expect(ACTION_CLASSIFICATION["admin-actions:createUser"]).toEqual({ status: "NATIVE", via: "org_operation:create_account_invite" });
-    // Une action NON couverte par le catalogue reste un GAP assumé — pas de sur-déclaration.
-    // (uploadDocument / importTransactions : attendent la phase « fichiers first-class ».)
-    expect(ACTION_CLASSIFICATION["document-actions:uploadDocument"]?.status).toBe("GAP");
-    expect(ACTION_CLASSIFICATION["finance-actions:importTransactions"]?.status).toBe("GAP");
+    // FICHIERS FIRST-CLASS : les gestes à fichier passent par le Chief (fichier du Drive
+    // résolu par NOM, droits revérifiés à l'exécution) — plus AUCUN trou assumé.
+    expect(ACTION_CLASSIFICATION["document-actions:uploadDocument"]).toEqual({ status: "NATIVE", via: "task_operation:upload_document" });
+    expect(ACTION_CLASSIFICATION["finance-actions:importTransactions"]).toEqual({ status: "NATIVE", via: "finance_operation:import_transactions" });
   });
 });
 
