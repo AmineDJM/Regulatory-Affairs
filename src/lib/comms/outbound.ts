@@ -169,7 +169,7 @@ export async function createOutboundIntent(input: OutboundDraftInput): Promise<O
         ? OutboundMailStatus.AWAITING_APPROVAL
         : OutboundMailStatus.APPROVED;
 
-  return prisma.outboundMailIntent.create({
+  const created = await prisma.outboundMailIntent.create({
     data: {
       connectionId: input.connectionId,
       userId: input.userId,
@@ -196,6 +196,90 @@ export async function createOutboundIntent(input: OutboundDraftInput): Promise<O
       events: pushEvent([], { status, by: "system", note: "préparée" }) as never,
     },
   });
+
+  await supersedeOlderDrafts(created);
+  return created;
+}
+
+/**
+ * UN AFFINAGE REMPLACE LE BROUILLON PRÉCÉDENT — il ne se met pas en concurrence avec lui.
+ *
+ * ── LE BLOCAGE QUE CECI FERME (production, 26 août) ────────────────────────────────────────
+ *
+ *   PDG   « Envoie le fichier à Amine. »          → Adam prépare       — 1 en attente
+ *   PDG   « Envoie-le et mets en message hello »  → Adam RE-prépare    — 2 en attente
+ *   PDG   « Oui » · « Oui envoie » · « Oui envoie »  → rien ne part, jamais.
+ *
+ * `solePendingMailIntent` refuse d'agir dès qu'il y a DEUX messages en attente : « oui » y
+ * devient ambigu, et choisir au hasard serait la pire réponse possible. La règle est bonne.
+ * Elle s'appliquait juste au mauvais cas : ces deux intentions n'étaient pas deux CHOIX, mais
+ * une seule décision et sa révision.
+ *
+ * ET LE DÉFAUT S'AGGRAVAIT SEUL — c'est ce qui le rendait sérieux. Chaque « oui » non résolu
+ * repartait au modèle, qui préparait ENCORE : trois intentions, puis quatre. La conversation ne
+ * pouvait plus se rattraper, et le PDG n'avait aucun moyen d'en sortir en parlant.
+ *
+ * ── CE QU'ON REMPLACE, ET CE QU'ON NE TOUCHE JAMAIS ───────────────────────────────────────
+ *
+ * On ne remplace QUE ce qui décrit la même décision : même compte, MÊMES DESTINATAIRES, et un
+ * état encore négociable (brouillon ou en attente d'accord).
+ *
+ *   • DESTINATAIRES DIFFÉRENTS → on ne touche à rien. Deux messages à deux personnes sont deux
+ *     décisions, « oui » y reste ambigu, et il DOIT le rester : échanger un blocage contre un
+ *     envoi à la mauvaise personne serait infiniment pire que le blocage.
+ *   • APPROVED / SENDING / SENT → intouchables. Annuler un message que le PDG a déjà autorisé —
+ *     et qui est peut-être déjà chez le destinataire — serait défaire son accord dans son dos.
+ *   • Un autre compte → hors de portée. Le cloisonnement passe avant le confort.
+ *   • UN MESSAGE DE MISSION → jamais remplacé, et jamais remplaçant. Une mission qui prépare
+ *     plusieurs relances au même fournisseur produit des messages DISTINCTS voulus ensemble,
+ *     pas des révisions successives : les fondre serait perdre du travail commandé.
+ *   • Au-delà de la fenêtre d'approbation → laissé tranquille. On révise ce qu'on vient de voir ;
+ *     un brouillon d'il y a des heures n'est pas ce que le PDG est en train d'affiner. La borne
+ *     est la MÊME que celle de `solePendingMailIntent` : les deux règles doivent s'accorder,
+ *     sinon on recrée une zone où l'une remplace et l'autre trouve encore deux candidats.
+ *
+ * SUPERSÉDÉ, PAS SUPPRIMÉ : l'ancienne intention passe en `CANCELLED` avec la trace de ce qui
+ * l'a remplacée. On doit pouvoir expliquer plus tard pourquoi ce brouillon-là n'est jamais parti.
+ */
+/** La même fenêtre que `PENDING_MAIL_WINDOW_MS` — déclarée ici pour éviter un import circulaire. */
+const SUPERSEDE_WINDOW_MS = 2 * 3_600_000;
+
+async function supersedeOlderDrafts(fresh: OutboundMailIntent): Promise<void> {
+  const negotiable = [OutboundMailStatus.DRAFT, OutboundMailStatus.AWAITING_APPROVAL];
+  if (!negotiable.includes(fresh.status as (typeof negotiable)[number])) return;
+  if (fresh.missionId) return;
+
+  const older = await prisma.outboundMailIntent.findMany({
+    where: {
+      userId: fresh.userId,
+      id: { not: fresh.id },
+      status: { in: negotiable },
+      missionId: null,
+      createdAt: { lte: fresh.createdAt, gte: new Date(fresh.createdAt.getTime() - SUPERSEDE_WINDOW_MS) },
+    },
+    select: { id: true, recipients: true, events: true },
+  }).catch(() => []);
+
+  // La comparaison porte sur l'ENSEMBLE des destinataires, pas sur le premier : écrire à
+  // « Amine » puis à « Amine + Khaled » n'est pas la même décision.
+  const sameAudience = (a: string[], b: string[]) =>
+    a.length === b.length && [...a].sort().join("|") === [...b].sort().join("|");
+
+  for (const prev of older) {
+    if (!sameAudience(prev.recipients, fresh.recipients)) continue;
+    await prisma.outboundMailIntent.update({
+      where: { id: prev.id },
+      data: {
+        status: OutboundMailStatus.CANCELLED,
+        approvedHash: null,
+        events: pushEvent(prev.events, {
+          status: "CANCELLED",
+          by: "system",
+          note: `remplacé par une version plus récente (${fresh.id})`,
+        }) as never,
+      },
+    }).catch(() => undefined);
+  }
 }
 
 /**

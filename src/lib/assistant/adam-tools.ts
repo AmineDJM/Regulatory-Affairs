@@ -298,6 +298,9 @@ export const ADAM_TOOLS: PowerTool[] = [
       description:
         "PRÉPARE un message (nouveau, réponse, réponse à tous, transfert) SANS l'envoyer. Rend un `intentId`. "
         + "Préparer est AUTONOME : le faire ne demande aucune permission. Pour que le message parte, il faut ensuite proposer l'action « send_prepared_mail » avec cet `intentId` — c'est la carte que le PDG approuve. "
+        + "L'`intentId` est de la PLOMBERIE : il se passe à l'action, il ne s'écrit JAMAIS dans la réponse au PDG — "
+        + "ni en clair, ni entre parenthèses, ni pour dire qu'on l'a. Ne parle pas non plus de « boîte d'envoi » ni de « file d'attente » : "
+        + "dis simplement ce que le message contient et à qui il va. "
         + "Ne JAMAIS affirmer qu'un message est envoyé après cet outil : il ne l'est pas.",
       input_schema: {
         type: "object",
