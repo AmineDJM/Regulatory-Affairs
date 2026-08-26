@@ -597,6 +597,9 @@ classify("NATIVE", "update_calendar_event", ["calendar-actions:updateCalendarEve
 classify("NATIVE", "create_hospital", ["medical-actions:createInstitution"]);
 classify("NATIVE", "update_hospital", ["medical-actions:updateInstitution"]);
 classify("NATIVE", "decide_payment", ["payment-centre-actions:decidePayment"]);
+// « Adam, remets l'approbation obligatoire pour les mails. » — le Chief écrit la MÊME politique
+// que l'écran de réglages, derrière la même ressaisie pour armer l'envoi autonome.
+classify("NATIVE", "set_mail_policy", ["adam-settings-actions:setAdamMailPolicy"]);
 
 // ── COVERED : le même résultat métier, par un outil équivalent du Chief. ──
 classify("COVERED", "update_regulatory_product", [
@@ -631,6 +634,10 @@ classify("COVERED", "set_account_active", ["access-actions:setUserActive"]);
 classify("COVERED", "org_operation:revoke_sessions", ["access-actions:revokeSession"]);
 // Wrapper d'écran du MÊME geste : editLegalDocument rejoue updateLegalDocument (couvert).
 classify("COVERED", "update_legal_document", ["legal-actions:editLegalDocument"]);
+// « Adam, suspends les envois » : la politique « brouillons seulement » produit EXACTEMENT le
+// même résultat métier que le coupe-circuit sortant — plus rien ne quitte l'entreprise, même
+// approuvé. Le Chief atteint donc le service par un autre chemin, déjà confirmé et audité.
+classify("COVERED", "set_mail_policy", ["adam-settings-actions:setAdamOutboundPaused"]);
 
 // ── GAP : action d'écran RECONNUE, pas encore proposable par le Chief. ──
 const G = (note: string, keys: string[]) => classify("GAP", note, keys);
@@ -946,6 +953,12 @@ X("SÉCURITÉ : identifiants et sessions appartiennent à la personne au clavier
   "impersonation-actions:startImpersonation", "impersonation-actions:stopImpersonation",
   "supplier-portal-actions:supplierLogin", "supplier-portal-actions:supplierLogout",
   "mail-actions:connectMailbox", "mail-actions:disconnectMailbox", "microsoft-mail-actions:disconnectMicrosoftMail",
+  // Même raison pour l'identité Google d'Adam : brancher ou débrancher une boîte passe par un
+  // consentement OAuth dans le NAVIGATEUR de la personne (redirection, cookie PKCE) — une
+  // conversation ne peut pas le porter. Le réarmement de la veille et la mise en pause de la
+  // connexion sont de la plomberie du même ordre : un clic dans les réglages, jamais une phrase.
+  "adam-settings-actions:disconnectAdamGoogle", "adam-settings-actions:setAdamConnectionPaused",
+  "adam-settings-actions:renewAdamWatch", "adam-settings-actions:setAdamInboundPaused",
 ]);
 X("plomberie du Chief lui-même (chat, mémoire, fils) — pas une action métier à proposer", [
   "assistant-actions:rememberExchange", "assistant-actions:assistantChat", "assistant-actions:assistantNudge",

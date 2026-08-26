@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatNumber, formatDateTime } from "@/lib/utils";
 import { AiSettingsForm } from "./ai-settings-form";
 import { AiHealthCheckButton } from "./health-check-button";
+import { adamHealth, type HealthLevel } from "@/lib/google/health";
 
 export const metadata = { title: "Centre de contrôle IA — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -93,6 +94,11 @@ export default async function AiControlCenterPage() {
   // Santé de l'API IA — dernière sonde quotidienne (le chatbot en dépend directement).
   const health = await getLatestAiHealth();
 
+  // Santé des canaux Google d'Adam. Le calcul est partagé avec les réglages du PDG : deux
+  // sources donneraient tôt ou tard deux vérités. Ne lève jamais — cette page doit s'afficher
+  // même quand Google est en panne, sinon on perd l'écran qui sert justement à le diagnostiquer.
+  const adam = await adamHealth().catch(() => null);
+
   return (
     <div className="space-y-5">
       <ModuleTabs tabs={ADMIN_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
@@ -171,6 +177,46 @@ export default async function AiControlCenterPage() {
           <AiHealthCheckButton />
         </CardContent>
       </Card>
+
+      {/* ADAM — la vue d'EXPLOITATION : pourquoi ça ne marche pas, pas « est-ce que ça marche ».
+          Les réglages du PDG vivent dans /chief-of-staff/reglages ; ici on regarde la plomberie. */}
+      {adam && (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center gap-2">
+            Adam — canaux Google
+            <Badge tone={ADAM_TONE[adam.level]} dot>{ADAM_LABEL[adam.level]}</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {adam.issues.length > 0 && (
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              {adam.issues.map((i) => (
+                <li key={i}>• {i}</li>
+              ))}
+            </ul>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Metric label="Compte" value={adam.connection.address ?? "aucun"} />
+            <Metric label="Jeton de reprise" value={adam.connection.hasRefreshToken ? "présent" : "absent"} />
+            <Metric label="Droits manquants" value={String(adam.connection.missingScopes.length)} />
+            <Metric label="Sujet Pub/Sub" value={adam.config.pubsubTopic ? "configuré" : "absent"} />
+            <Metric label="Veille armée jusqu'au" value={adam.watch.expiresAt ? formatDateTime(adam.watch.expiresAt) : "—"} />
+            <Metric label="Dernier push reçu" value={adam.ingestion.lastNotifiedAt ? formatDateTime(adam.ingestion.lastNotifiedAt) : "jamais"} />
+            <Metric label="Dernière réconciliation" value={adam.ingestion.lastReconciledAt ? formatDateTime(adam.ingestion.lastReconciledAt) : "jamais"} />
+            <Metric label="Point d'histoire" value={adam.ingestion.hasHistoryMarker ? "posé" : "absent"} />
+            <Metric label="Messages reçus (24 h)" value={formatNumber(adam.ingestion.last24h)} />
+            <Metric label="Politique d'envoi" value={adam.outbound.policy} />
+            <Metric label="En attente d'accord" value={formatNumber(adam.outbound.awaitingApproval)} />
+            <Metric label="Approuvés non partis" value={formatNumber(adam.outbound.approvedNotSent)} />
+            <Metric label="Envoyés (24 h)" value={formatNumber(adam.outbound.sent24h)} />
+            <Metric label="Échecs d'envoi (24 h)" value={formatNumber(adam.outbound.failed24h)} />
+            <Metric label="Missions en attente" value={formatNumber(adam.missions.waiting)} />
+            <Metric label="Missions prêtes à envoyer" value={formatNumber(adam.missions.readyToSend)} />
+          </div>
+        </CardContent>
+      </Card>
+      )}
 
       {/* Bascules d'activation */}
       <Card>
@@ -303,5 +349,29 @@ function Stat({ label, value, icon }: { label: string; value: string; icon: Reac
         <span className="text-muted-foreground">{icon}</span>
       </CardContent>
     </Card>
+  );
+}
+
+const ADAM_TONE: Record<HealthLevel, "success" | "warning" | "danger" | "neutral"> = {
+  OPERATIONAL: "success",
+  DEGRADED: "warning",
+  DISCONNECTED: "neutral",
+  MISCONFIGURED: "danger",
+};
+
+const ADAM_LABEL: Record<HealthLevel, string> = {
+  OPERATIONAL: "Operationnel",
+  DEGRADED: "Degrade",
+  DISCONNECTED: "Non connecte",
+  MISCONFIGURED: "Mal configure",
+};
+
+/** Une mesure d'exploitation : un libelle discret, une valeur qui se lit d'un coup d'oeil. */
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 truncate text-sm font-medium" title={value}>{value}</p>
+    </div>
   );
 }

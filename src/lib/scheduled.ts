@@ -12,6 +12,7 @@ import { runPettyCashRechargeReminders } from "@/lib/actions/petty-cash-actions"
 import { runLegalExpirySweep } from "@/lib/legal/expiry-sweep";
 import { runAssistantReminders } from "@/lib/assistant/reminders";
 import { runDriveIngestionSweep } from "@/lib/assistant/drive-ingestion";
+import { runAdamInboxSweep } from "@/lib/google/gmail/reconcile";
 
 /**
  * Tâches périodiques **sans cron externe** : déclenchées (au plus une fois par minute,
@@ -101,6 +102,14 @@ export async function runScheduledJobs(): Promise<void> {
     // un document mal nommé jamais ouvert devient trouvable par son CONTENU. L'ACL se
     // revérifie à la recherche, nœud par nœud. Débrayage : ASSISTANT_DRIVE_INGESTION=off.
     await runDriveIngestionSweep().catch(() => undefined);
+    // LE BATTEMENT D'ADAM — sans navigateur ouvert, sans que le PDG demande quoi que ce soit.
+    // Trois gestes : garder l'oreille (renouveler la veille Gmail AVANT expiration), rattraper
+    // ce qui est arrivé (histoire incrémentale), et se rattraper soi-même (réconciliation
+    // complète toutes les 30 min). C'est ce qui rend « qu'est-ce que j'ai raté ? » possible :
+    // le push Pub/Sub est rapide mais fragile, et un message perdu est un SILENCE, pas une
+    // erreur — personne ne s'en apercevrait. Sans connexion Google, c'est un no-op.
+    // Débrayages : suspension du traitement entrant (réglages), ou connexion en pause.
+    await runAdamInboxSweep().catch((e) => console.error("[scheduled] balayage ADAM echoue", e));
 
   } catch (err) {
     console.error("[scheduled] run failed", err);

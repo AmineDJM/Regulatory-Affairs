@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { Crown, Gavel, HandCoins, AlarmClock, RotateCcw } from "lucide-react";
+import { Crown, Gavel, HandCoins, AlarmClock, RotateCcw, Settings2 } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { aiConfigured, sttConfigured } from "@/lib/ai";
 import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
@@ -80,6 +81,17 @@ export default async function ChiefOfStaffPage({
         <span className="hidden sm:inline">
           — cherchez tout, lisez tout, agissez (sous confirmation) — au clavier ou à la voix.
         </span>
+        {/* La mise en service d'Adam (compte Google, politique d'envoi, coupe-circuits) se fait
+            depuis l'écran, jamais en base. Réservée à la vue globale, comme la page elle-même. */}
+        {hasGlobalView(user) && (
+          <Link
+            href="/chief-of-staff/reglages"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs transition hover:border-primary/50 hover:text-primary"
+          >
+            <Settings2 className="h-3.5 w-3.5" aria-hidden />
+            Réglages d&apos;Adam
+          </Link>
+        )}
       </div>
       {todayChips.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">

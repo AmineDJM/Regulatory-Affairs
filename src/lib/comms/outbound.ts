@@ -310,7 +310,17 @@ export async function sendOutboundIntent(id: string, transport: MailTransport): 
   if (cur.status === OutboundMailStatus.SENDING) return { ok: false, error: "Un envoi est déjà en cours pour ce message." };
 
   const state = await getCommunicationPolicy();
-  const approved = Boolean(cur.approvedHash) && cur.approvedHash === cur.contentHash;
+  // « APPROUVÉ » VEUT DIRE : UN HUMAIN A DIT OUI À CE CONTENU-LÀ.
+  //
+  // Les deux moitiés comptent. L'empreinte prouve que le contenu n'a pas bougé depuis l'accord ;
+  // `approvedById` prouve qu'il y a bien eu un accord. Sans cette seconde moitié, une intention
+  // née en ENVOI AUTONOME (approuvée d'office par la politique, sans personne derrière) resterait
+  // « approuvée » après un retour à l'approbation obligatoire — et partirait. Le PDG qui remet le
+  // garde-fou verrait alors s'envoyer des messages qu'il n'a jamais lus : exactement ce que la
+  // bascule était censée empêcher. En envoi autonome, rien ne change : `decideSend` autorise sur
+  // la politique elle-même, sans consulter ce drapeau.
+  const approved =
+    Boolean(cur.approvedHash) && cur.approvedHash === cur.contentHash && Boolean(cur.approvedById);
   const decision = decideSend(state, approved);
   if (!decision.allowed) {
     // On REMET l'intention en attente d'approbation quand c'est la règle qui bloque : l'état

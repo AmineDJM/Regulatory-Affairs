@@ -4,6 +4,7 @@ import { getProfile, listMessageIds } from "./messages";
 import { listHistory, addedMessageIds, startWatch, WATCH_RENEW_BEFORE_MS } from "./watch";
 import { ingestMessages } from "./ingest";
 import { resolveGoogleConfig } from "../config";
+import { getCommunicationPolicy } from "@/lib/comms/policy";
 
 /**
  * ADAM NE DEVIENT JAMAIS SOURD — reprise, réconciliation, renouvellement de la veille.
@@ -178,6 +179,15 @@ export async function ensureWatch(connectionId: string, opts: { force?: boolean;
  * Google ne doit pas faire tomber le reste des tâches planifiées.
  */
 export async function runAdamInboxSweep(opts: { reconcileEveryMs?: number; now?: Date } = {}): Promise<SyncOutcome & { watch?: WatchOutcome }> {
+  // ARRÊT D'URGENCE ENTRANT — vérifié AVANT le moindre appel à Google. `ingestMessage` le
+  // revérifie de son côté (c'est lui la vraie barrière, y compris pour le push), mais s'arrêter
+  // seulement là consommerait quand même le quota Gmail à chaque battement. « Suspendre le
+  // traitement de la boîte » doit vraiment tout arrêter, trafic réseau compris.
+  const policy = await getCommunicationPolicy().catch(() => null);
+  if (policy?.inboundPaused) {
+    return { ingested: 0, duplicates: 0, failed: 0, via: "skipped", reason: "traitement de la boîte suspendu" };
+  }
+
   const conn = await adamConnection();
   if (!conn) return { ingested: 0, duplicates: 0, failed: 0, via: "skipped", reason: "aucune connexion Google" };
 
