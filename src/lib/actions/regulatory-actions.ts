@@ -28,6 +28,7 @@ import {
   REG_STATUS_MILESTONE, completeStepsThrough,
   type RegWorkflowState, type RegChecklistState,
 } from "@/lib/regulatory-workflow";
+import { emit } from "@/platform/events";
 
 export interface ActionResult {
   ok: boolean;
@@ -577,6 +578,13 @@ export async function setRegulatoryResponsible(formData: FormData): Promise<Acti
     actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT",
     entityId: id, field: "responsibleId", newValue: responsibleId ?? "",
     summary: named ? `Dossier confié à ${named}` : "Dossier sans personne chargée",
+  });
+  // Annoncé à la frontière : Adam apprend le changement sans relire le portefeuille.
+  emit({
+    type: "regulatory.owner-changed",
+    subject: { type: "regulatory_product", id },
+    actorId: user.id,
+    data: { ownerId: responsibleId ?? null, ownerName: named },
   });
 
   // LE CADENAS NE CÈDE PAS DEVANT UN RESPONSABLE NOMMÉ — mais on ne fait pas semblant. Désigner

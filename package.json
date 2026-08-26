@@ -26,7 +26,8 @@
     "graphify:query": "bash scripts/graphify-query.sh",
     "autotest": "tsx scripts/auto-test/run.ts",
     "autotest:live": "tsx scripts/auto-test/run.ts --live",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "adam:boundary": "tsx scripts/adam-boundary.ts"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"

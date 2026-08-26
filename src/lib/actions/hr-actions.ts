@@ -17,6 +17,8 @@ import {
   canDecideLeave, applyLeaveDecision, stageNotifyRoles, LEAVE_STAGE_LABELS, type LeaveStage,
 } from "@/lib/leave-workflow";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
+// LA FRONTIÈRE — l'ERP annonce ses faits ; il ne sait pas qui les écoute, et c'est le principe.
+import { emit } from "@/platform/events";
 
 /** Inclusive calendar-day count between two dates (min 1). */
 function daysBetween(start: Date, end: Date): number {
@@ -78,6 +80,14 @@ export async function createEmployee(
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Ressources humaines",
     entityType: "EMPLOYEE", entityId: created.id, summary: `Employé « ${fullName} »${created.department ? ` — ${created.department}` : ""}`,
+  });
+  // LE FAIT EST ANNONCÉ à la frontière, APRÈS que l'écriture soit acquise. `emit` ne lève
+  // jamais : instrumenter une action RH ne doit pas pouvoir la faire échouer.
+  emit({
+    type: "hr.employee-added",
+    subject: { type: "employee", id: created.id },
+    actorId: user.id,
+    data: { fullName, department: created.department ?? null },
   });
   revalidatePath("/rh");
   revalidatePath("/rh/departements");

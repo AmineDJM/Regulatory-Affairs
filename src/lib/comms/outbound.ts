@@ -3,6 +3,7 @@ import { MailSendPolicy, OutboundMailStatus, type OutboundMailIntent } from "@pr
 import { prisma } from "@/lib/prisma";
 import { getCommunicationPolicy, decideSend, type SendDecision } from "./policy";
 import { authorizeIdentity, isIdentity } from "./identity";
+import { emit } from "@/platform/events";
 
 /**
  * L'INTENTION D'ENVOI — le SEUL chemin par lequel un message peut quitter l'entreprise.
@@ -507,6 +508,14 @@ export async function sendOutboundIntent(id: string, transport: MailTransport): 
         failureReason: null,
         events: pushEvent(cur.events, { status: "SENT", note: decision.reason }) as never,
       },
+    });
+    // ANNONCÉ À LA FRONTIÈRE, une fois l'envoi acquis. C'est ce qui permettra à Adam de savoir
+    // « ce qui est parti » sans relire la table à chaque question.
+    emit({
+      type: "mail.sent",
+      subject: { type: "outbound_mail", id },
+      actorId: cur.approvedById ?? cur.userId,
+      data: { subject: cur.subject, recipients: cur.recipients },
     });
     return { ok: true, providerMessageId: res.providerMessageId, providerThreadId: res.providerThreadId };
   } catch (err) {

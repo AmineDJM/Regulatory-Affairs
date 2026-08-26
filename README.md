@@ -2594,6 +2594,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 
 | Domaine | Fichiers clés |
 |---|---|
+| **Frontière Adam ↔ ERP** | `platform/contract.ts` (les 4 verbes, `Principal`, `PlatformQuery`, `PlatformCommand`, `DomainEvent` — **zéro import**) ; `platform/event-bus.ts` (`publish`/`subscribe`, abonnés isolés, mémoire bornée, rejeu) ; `platform/events.ts` (`emit` + catalogue fermé de 17 faits) ; `platform/in-process/adapter.ts` (**le seul pont** : `principalOf`, `query`, `command` → `performAction`, `authorize`) ; `platform/boundary-scan.ts` + `boundary.test.ts` (le **cliquet** : dette plafonnée à 425, `src/platform/` à zéro) ; `scripts/adam-boundary.ts` (`npm run adam:boundary`). Côté Adam : `lib/assistant/platform/change-feed.ts` (projection « quoi de neuf », branchée sur `what_changed`). ERP instrumenté : `hr-actions.ts`, `regulatory-actions.ts`, `comms/outbound.ts`. |
 | **Adam — aiguillage & liste courte d'outils** | `lib/assistant/context/router.ts` (`routeQuery` : 5 classes de route, 11 domaines, plancher de confiance) ; `tool-shortlist.ts` (`TOOL_DOMAINS` — les 77 outils classés —, `ALWAYS_ON` socle de 4, `shortlistTools`) ; **`rollout.ts`** (`decideRollout` : `FAST_READ` / `SHORTLIST` / `LEGACY`, `SAFE_READ_TOOLS` liste blanche, `bucketOf` FNV-1a, garde `recordOutcome`/`guardStatus`/`readyForNextStep`) ; `discovery.ts` (`runDiscovery` — l'échappatoire `list_more_tools`) ; `shadow.ts` (mesure) ; `bench.ts` + `golden-corpus.ts` (TRAIN) + `holdout-corpus.ts` (**jamais retouché**). Branché dans `lib/assistant.ts` sur **les deux** boucles (`runAssistant` et `runAssistantStream`), via `assistantToolsFor(user)`. |
 | **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`. |
 | **Sécurité / session** | `lib/rbac.ts` (PERMISSIONS, `userCan`, `anyRoleFilter`, `getAccess` cumul secondaire), `lib/session.ts` (`requireUser`/`requireModule`, maj `UserSession.lastSeenAt`), `lib/entity-access.ts` (accès par ligne + `ENTITY_MODULE`). |
@@ -3237,6 +3238,45 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### LA FRONTIÈRE ADAM ↔ ERP — séparer le code sans séparer le déploiement (2026-08)
+
+Adam devient un produit qui **communique par contrats** avec l'ERP, tout en restant dans le même
+processus. Ce choix vient d'une consigne explicite (« il reste toujours là, partie intégrante »)
+et il est ce qui permet de tenir l'indépendance **sans payer la latence des microservices**.
+
+**Mesuré d'abord.** 123 fichiers Adam, **425 imports** vers **172 modules ERP**. Par nature :
+136 actions serveur, 84 sécurité/identité, 60 accès Prisma directs — et **9 seulement** côté UI,
+déjà quasi découplée. C'est ce classement qui a dicté l'architecture, pas une intuition.
+
+**`src/platform/` — la frontière, qui n'appartient à aucun des deux.** Quatre verbes :
+`query` · `command` · `authorize` · `subscribe`. `contract.ts` **n'importe rien** (vérifié par
+test) : le jour où Adam devient un service, ce fichier part avec lui sans modification. Un
+`Principal` (capacités résolues par la plateforme) remplace `CurrentUser` — Adam lit ses droits,
+il ne les calcule jamais.
+
+**Un seul pont.** `in-process/adapter.ts` est le seul fichier autorisé à connaître l'ERP. Il
+traduit, il ne décide de rien : `performAction` conserve l'arrêt d'urgence, les portes RBAC,
+l'audit et l'idempotence. L'identité est **relue à la source**, jamais reconstruite depuis le
+`Principal`.
+
+**Le bus d'événements** (qui n'existait pas). L'ERP annonce des FAITS au passé —
+`hr.employee-added`, `regulatory.owner-changed`, `mail.sent` — en une ligne. Règle absolue :
+**publier ne peut rien casser** (abonnés isolés, `emit` ne lève jamais), et la charge utile est
+minimale — un événement qui transporterait l'entité deviendrait la « seconde base ERP
+concurrente » à proscrire.
+
+**Ce qu'on n'a PAS construit, et pourquoi.** Les lectures canoniques coûtent **1,8 à 6,6 ms**
+quand un tour d'Adam coûte de l'ordre de la seconde : un cache de l'annuaire ferait gagner moins
+d'un demi pour cent, contre un risque de péremption sur des adresses et des salaires. La seule
+projection retenue est celle que la mesure justifie — **« quoi de neuf »**, sans équivalent
+rapide —, branchée sur l'outil `what_changed` existant plutôt que sur un 78ᵉ outil.
+
+**Le cliquet.** `boundary.test.ts` fige la dette à 425 : elle ne peut que baisser, `src/platform/`
+reste à zéro, et le plafond doit rester serré. C'est ce qui transforme « on devrait découpler
+Adam » en un travail qui finira. `npm run adam:boundary` affiche l'état et par quoi commencer.
+
+Détail, chiffres et dette restante : `docs/ADAM_PLATFORM_BOUNDARY.md`.
 
 ### ADAM — le routeur ACTIF (borné), et l'espace de travail génératif (2026-08)
 

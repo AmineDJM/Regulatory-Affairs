@@ -3,6 +3,7 @@ import type { CurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { resolveRecord } from "@/lib/assistant/time-travel";
 import { REGULATORY_STEP_TYPE } from "@/lib/labels";
+import { startChangeFeed, recentChanges, feedHealth } from "./platform/change-feed";
 
 /**
  * WHAT CHANGED / CATCH ME UP — « qu'est-ce qui a changé sur Pembro depuis lundi ? »,
@@ -41,6 +42,42 @@ export function parseSince(raw: string, now = new Date()): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * « QUOI DE NEUF ? » SANS RÉFÉRENCE — servi par le flux d'événements de la frontière.
+ *
+ * ATTENTION À CE QUE CETTE RÉPONSE DIT VRAIMENT. Le flux est en mémoire du processus : il voit
+ * ce qui s'est passé depuis le démarrage de CE serveur, pas l'histoire complète. La réponse le
+ * dit donc explicitement — un « rien n'a changé » qui signifierait en réalité « je viens de
+ * démarrer » serait un mensonge tranquille, du genre qui fait rater une validation urgente.
+ */
+function liveFeedAnswer(): string {
+  startChangeFeed();
+  const health = feedHealth();
+  const changes = recentChanges({ limit: 30 });
+
+  if (!health.started) {
+    return "Le flux de changements n'est pas actif sur ce serveur : je ne peux pas dire ce qui a bougé à l'instant. Donner une référence de dossier pour consulter son journal.";
+  }
+  if (changes.length === 0) {
+    return JSON.stringify({
+      changements: 0,
+      precision: "Aucun changement depuis le démarrage de ce serveur. Ce n'est pas l'histoire complète : pour un dossier précis, donner sa référence.",
+    });
+  }
+  return JSON.stringify({
+    changements: changes.length,
+    depuis: health.oldest,
+    portee: "Faits survenus depuis le démarrage de ce serveur — indice de fraîcheur, pas journal exhaustif.",
+    faits: changes.map((c) => ({
+      quoi: c.type,
+      sujet: `${c.subjectType}/${c.subjectId}`,
+      libelle: c.label,
+      quand: c.at,
+    })),
+    suite: "Pour le détail d'un de ces sujets, appeler inspect_record ou what_changed avec sa référence.",
+  });
+}
+
 export const WHAT_CHANGED_TOOLS: PowerTool[] = [
   {
     def: {
@@ -55,10 +92,10 @@ export const WHAT_CHANGED_TOOLS: PowerTool[] = [
       input_schema: {
         type: "object",
         properties: {
-          reference: { type: "string", description: "Référence (PAY-…, REG-…) ou fragment de titre du dossier." },
-          since: { type: "string", description: "La date de référence : AAAA-MM-JJ, ou un nombre de jours en arrière (ex. « 7 »)." },
+          reference: { type: "string", description: "Référence (PAY-…, REG-…) ou fragment de titre du dossier. OMETTRE pour « quoi de neuf dans l'entreprise, à l'instant ? »." },
+          since: { type: "string", description: "La date de référence : AAAA-MM-JJ, ou un nombre de jours en arrière (ex. « 7 »). Inutile sans référence." },
         },
-        required: ["reference", "since"],
+        required: [],
       },
     },
     allowed: EXEC,
@@ -67,7 +104,11 @@ export const WHAT_CHANGED_TOOLS: PowerTool[] = [
       void user;
       const ref = str(input, "reference");
       const rawSince = str(input, "since");
-      if (ref.length < 2) return "Donnez une référence ou un fragment de titre.";
+
+      // SANS RÉFÉRENCE : « quoi de neuf tout court ? ». Cette question-là n'avait aucune réponse
+      // rapide — il fallait balayer une dizaine de tables et comparer des horodatages. Le flux
+      // d'événements y répond en mémoire, sans base ni réseau.
+      if (ref.length < 2) return liveFeedAnswer();
       const since = parseSince(rawSince);
       if (!since) return `Date de référence illisible : « ${rawSince} ». Donnez AAAA-MM-JJ ou un nombre de jours (ex. « 7 »).`;
 
