@@ -147,7 +147,9 @@ export async function getRhData(userId: string) {
     ? await prisma.payrollEntry
         .findMany({
           where: { year: lastPayroll.year, month: lastPayroll.month },
-          select: { employerCost: true, gross: true, bonuses: true, deductions: true },
+          // L'ENTITÉ DE CHAQUE LIGNE — sans elle, la masse salariale ne se ventile pas, et un
+          // total « groupe » se retrouve présenté comme celui d'une société.
+          select: { employerCost: true, gross: true, bonuses: true, deductions: true, employee: { select: { companyId: true } } },
         })
         .catch(() => [])
     : [];
@@ -173,6 +175,46 @@ export async function getRhData(userId: string) {
   }
   const byDepartment = [...deptMap.entries()].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
 
+  // ── LA VENTILATION PAR ENTITÉ ─────────────────────────────────────────────────────────────
+  //
+  // POURQUOI ELLE EXISTE. En production, le PDG a demandé « il y a combien de salariés
+  // Adventum ? » et s'est vu répondre un nombre — celui de la PLATEFORME ENTIÈRE. Sa correction,
+  // mot pour mot : « Non faux, ça c'est tout ceux qui sont dans la plateforme toute entité
+  // confondu. » Le total n'était pas faux ; c'est son PÉRIMÈTRE qui était tu.
+  //
+  // Un agrégat sans sa portée est un piège : il est juste, il se dit avec aplomb, et il répond à
+  // une autre question que celle posée. On rend donc TOUJOURS la décomposition, à côté du total.
+  // Elle ne coûte aucune requête supplémentaire — les employés et les lignes de paie sont déjà là.
+  const payrollByCompany = new Map<string, typeof lastEntries>();
+  for (const e of lastEntries) {
+    const key = e.employee?.companyId ?? "";
+    const bucket = payrollByCompany.get(key);
+    if (bucket) bucket.push(e); else payrollByCompany.set(key, [e]);
+  }
+  const compMap = new Map<string, { id: string | null; label: string; fullName: string | null; total: number; active: number }>();
+  for (const e of employees) {
+    const id = e.company?.id ?? null;
+    const key = id ?? "";
+    const label = e.company ? (e.company.shortName || e.company.name) : "Non rattaché";
+    const row = compMap.get(key) ?? { id, label, fullName: e.company?.name ?? null, total: 0, active: 0 };
+    row.total += 1;
+    if (e.isActive) row.active += 1;
+    compMap.set(key, row);
+  }
+  const byCompany = [...compMap.values()]
+    .map((c) => {
+      const lines = payrollByCompany.get(c.id ?? "") ?? [];
+      const m = payrollMassOf(lines.map((e) => ({
+        employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
+        gross: toNumber(e.gross), bonuses: toNumber(e.bonuses), deductions: toNumber(e.deductions),
+      })));
+      const base = employees
+        .filter((e) => e.isActive && (e.company?.id ?? null) === c.id)
+        .reduce((a, e) => a + toNumber(e.baseSalary), 0);
+      return { ...c, masseSalariale: m.total > 0 ? m.total : base };
+    })
+    .sort((a, b) => b.active - a.active || a.label.localeCompare(b.label, "fr"));
+
   return {
     employees,
     pendingLeaves,
@@ -180,6 +222,7 @@ export async function getRhData(userId: string) {
     advances,
     contractsExpiring,
     byDepartment,
+    byCompany,
     stats: {
       total: employees.length,
       active: active.length,

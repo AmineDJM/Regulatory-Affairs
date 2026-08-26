@@ -74,17 +74,97 @@ export interface WorkspaceEvent {
   visio?: string | null;
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN GESTE PROPOSÉ — et pourquoi ce n'est PAS un bouton qui exécute.
+ *
+ * Demandé trois fois en production, sans jamais l'obtenir :
+ *
+ *   PDG  — Ok affiche moi les validations a faire s'il y'en a, je les valide depuis ici
+ *   PDG  — Non permets moi de les valider ici directement
+ *   PDG  — Bon tu veux pas me laisser valider ici, il reste combien du budget ad&pro ?
+ *
+ * La file de décisions n'affichait que des LIENS : « ouvre Validations et débrouille-toi ».
+ *
+ * CE QU'UNE ACTION PORTE ICI : une PHRASE, pas un ordre exécutable. Le clic l'envoie dans la
+ * conversation, exactement comme si le PDG l'avait tapée. Elle emprunte donc la porte unique
+ * des mutations — proposition, carte de confirmation, action canonique, RBAC revérifié, audit,
+ * idempotence — et pas une seconde porte que ce fichier aurait ouverte pour aller plus vite.
+ *
+ * Le gain n'est pas de sauter la confirmation : c'est de ne plus QUITTER la conversation, et de
+ * ne plus avoir à retrouver soi-même la référence exacte de la demande à trancher.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface WorkspaceAction {
+  /** Ce qui s'écrit sur le bouton — deux mots, à l'impératif. */
+  libelle: string;
+  /** La phrase envoyée dans la conversation. Rédigée par le SERVEUR, jamais par le modèle. */
+  phrase: string;
+  /** « danger » pour un refus ou une suppression : la couleur dit ce que le geste fait. */
+  ton?: "primaire" | "danger";
+}
+
 export interface WorkspaceItem {
   titre: string;
   detail?: string | null;
   statut?: string | null;
   echeance?: string | null;
   href?: string | null;
+  /** Les gestes possibles sur CETTE ligne. Absent quand la ligne n'est pas décidable par soi. */
+  actions?: WorkspaceAction[];
 }
 
 export interface WorkspaceField {
   label: string;
   value: string;
+}
+
+/**
+ * UNE JAUGE — « il reste combien ? » répondu par une longueur, pas par une soustraction.
+ *
+ * Un pourcentage écrit dans une phrase se relit ; une barre se voit. C'est tout l'intérêt :
+ * « 87 % de l'enveloppe Ad & Pro » demande un effort, une barre presque pleine n'en demande
+ * aucun. Le ton n'est pas décoratif — il porte le seuil franchi, et c'est souvent la seule
+ * chose qui compte.
+ */
+export interface WorkspaceGauge {
+  label: string;
+  /** Ce qui est atteint. */
+  valeur: number;
+  /** Le maximum. Absent ⇒ `valeur` est déjà un pourcentage (0–100). */
+  total?: number | null;
+  /** Ce que comptent `valeur` et `total` : « DZD », « dossiers », « jours ». */
+  unite?: string | null;
+  /** Ce qui s'écrit à droite quand « x / y » ne suffit pas (« reste 340 000 DZD »). */
+  detail?: string | null;
+  /** Un seuil franchi se VOIT. `alerte` = dépassement, `attention` = proche, `succes` = fini. */
+  ton?: "neutre" | "attention" | "alerte" | "succes";
+}
+
+/** Ce qu'on sait faire d'un fichier à l'écran. Le reste se télécharge, et on le dit. */
+export type WorkspaceDocKind = "pdf" | "image" | "feuille" | "texte" | "autre";
+
+/**
+ * UN DOCUMENT MONTRÉ SUR PLACE — contrat, PDF, feuille de calcul.
+ *
+ * `href` est une ROUTE DE L'ERP (`/api/documents/…`, `/api/drive/…/raw`), qui revérifie les
+ * droits à chaque requête. Jamais une URL signée, jamais un lien externe : le document reste
+ * derrière la même porte que sur son écran d'origine, et un lien recopié ailleurs n'ouvre rien.
+ *
+ * `feuille` porte le contenu D'UN TABLEUR déjà lu par le serveur : c'est ce qui permet de
+ * relire un export AVANT de l'envoyer, sans quitter la conversation ni ouvrir Excel.
+ */
+export interface WorkspaceDoc {
+  nom: string;
+  href: string;
+  type: WorkspaceDocKind;
+  mime?: string | null;
+  /** Ce que le document EST, en une ligne : « Contrat — Kwality, échéance 31/12/2026 ». */
+  soustitre?: string | null;
+  taille?: string | null;
+  pages?: number | null;
+  /** Le contenu d'un tableur, prêt à s'afficher. */
+  feuille?: { columns: WorkspaceColumn[]; rows: Record<string, string>[]; total: number } | null;
 }
 
 export type WorkspaceBlock =
@@ -103,7 +183,11 @@ export type WorkspaceBlock =
   /** Le repli générique : une liste d'objets homogènes devient un tableau. */
   | { kind: "table"; title: string; columns: WorkspaceColumn[]; rows: Record<string, string>[]; total?: number }
   /** Une suite d'événements datés — histoire d'un dossier. */
-  | { kind: "timeline"; title: string; steps: { date?: string | null; label: string; detail?: string | null }[] };
+  | { kind: "timeline"; title: string; steps: { date?: string | null; label: string; detail?: string | null }[] }
+  /** Des jauges — consommation d'une enveloppe, avancement d'un dossier, charge d'une personne. */
+  | { kind: "progress"; title: string; gauges: WorkspaceGauge[]; note?: string | null }
+  /** Un ou plusieurs documents montrés SUR PLACE — PDF, image, feuille de calcul. */
+  | { kind: "document"; title: string; docs: WorkspaceDoc[]; note?: string | null };
 
 export type WorkspaceBlockKind = WorkspaceBlock["kind"];
 
@@ -124,7 +208,15 @@ export const WORKSPACE_LIMITS = {
   mails: 12,
   events: 12,
   queueItems: 15,
+  /** Deux gestes par ligne : approuver / refuser. Au-delà, la file devient un formulaire. */
+  itemActions: 2,
   recordFields: 24,
+  /** Six jauges tiennent dans un regard ; au-delà, c'est un rapport, pas une réponse. */
+  gauges: 6,
+  /** Trois documents montrés d'un coup — le quatrième s'appelle « ouvre le Drive ». */
+  docs: 3,
+  /** Un aperçu de feuille sert à RELIRE, pas à consulter : au-delà, on ouvre le fichier. */
+  sheetRows: 30,
   timelineSteps: 20,
   /** Au-delà, un extrait n'aide plus à décider : il remplit l'écran. */
   snippetChars: 220,

@@ -124,13 +124,52 @@ export type PlatformQuery =
   | { kind: "person.list"; department?: string; limit?: number }
   | { kind: "record.get"; type: string; id: string }
   | { kind: "record.search"; text: string; types?: readonly string[]; limit?: number }
-  | { kind: "pending-decisions.list"; limit?: number };
+  | { kind: "pending-decisions.list"; limit?: number }
+  /**
+   * UN DOCUMENT À MONTRER — désigné par son nœud Drive, sa pièce jointe, ou son nom.
+   *
+   * Première lecture non-personne à passer par ce contrat, et elle y est pour une raison
+   * précise : afficher un fichier demande la base, le stockage, les droits du Drive ET ceux du
+   * dossier porteur. Laissée dans un outil d'Adam, elle aurait franchi la frontière sept fois.
+   * Ici, c'est l'ERP qui ouvre le fichier — Adam ne reçoit qu'une vue, et un lien qui revérifie.
+   */
+  | { kind: "document.show"; driveNodeId?: string; documentId?: string; name?: string };
 
 export type PlatformQueryResult =
   | { kind: "person.search" | "person.list"; people: readonly PersonView[]; total: number }
   | { kind: "record.get"; record: RecordView | null }
   | { kind: "record.search"; records: readonly RecordView[]; total: number }
-  | { kind: "pending-decisions.list"; items: readonly PendingDecision[]; total: number };
+  | { kind: "pending-decisions.list"; items: readonly PendingDecision[]; total: number }
+  /**
+   * `document` absent ⇒ `refusal` dit POURQUOI, en français, prêt à être lu tel quel.
+   *
+   * On distingue le refus de l'absence : « ce fichier ne vous est pas ouvert » et « aucun
+   * fichier de ce nom » appellent deux réactions différentes, et les confondre en un `null`
+   * ferait dire à Adam « je n'ai rien trouvé » là où il aurait fallu dire « je n'ai pas le droit ».
+   */
+  | { kind: "document.show"; document: DocumentView | null; refusal?: string };
+
+/** Le contenu d'un tableur, déjà lu — c'est ce qui permet de relire un export avant l'envoi. */
+export interface DocumentSheet {
+  columns: readonly { key: string; label: string; numeric?: boolean }[];
+  rows: readonly Record<string, string>[];
+  /** Le nombre de lignes DU FICHIER, pas de l'aperçu. */
+  total: number;
+}
+
+export interface DocumentView {
+  name: string;
+  /**
+   * Une ROUTE INTERNE de l'ERP, jamais une URL signée ni un lien externe : les droits sont
+   * revérifiés à chaque requête, et un lien recopié ailleurs n'ouvre rien.
+   */
+  href: string;
+  kind: "pdf" | "image" | "feuille" | "texte" | "autre";
+  /** Taille lisible (« 2,4 Mo »), `null` si inconnue. */
+  size: string | null;
+  subtitle: string | null;
+  sheet: DocumentSheet | null;
+}
 
 export interface PendingDecision {
   id: string;

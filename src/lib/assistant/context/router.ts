@@ -1,4 +1,4 @@
-import { routeVoiceUtterance, normalizeUtterance, type VoiceContext, type VoiceRouteKind } from "@/lib/assistant/voice/fast-path";
+import { routeVoiceUtterance, normalizeUtterance, isOutboundMail, type VoiceContext, type VoiceRouteKind } from "@/lib/assistant/voice/fast-path";
 import type { BudgetTier } from "./budget";
 
 /**
@@ -243,6 +243,14 @@ export function routeQuery(raw: string, ctx: RouterContext = {}): QueryRoute {
   // ── 3. L'ORDRE QUI MUTE — avant toute lecture ───────────────────────────────────────────
   if (ACTION.test(text)) {
     return build("ACTION", "verbe de mutation en tête — le moteur d'action prend la main", {
+      args: rawFast.args, confidence: 0.85,
+    });
+  }
+  // Un courrier ADRESSÉ est un ordre, même quand le verbe n'ouvre pas la phrase et même quand il
+  // est écrit au participe (« tu peux envoyé un mail à Khaled ? »). Sans cette ligne, la phrase
+  // atteignait le raccourci « état de la boîte » : Adam lisait la messagerie au lieu d'écrire.
+  if (isOutboundMail(text)) {
+    return build("ACTION", "courrier adressé à quelqu'un — le moteur d'action prend la main", {
       args: rawFast.args, confidence: 0.85,
     });
   }

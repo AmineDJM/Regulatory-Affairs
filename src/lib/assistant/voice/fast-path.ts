@@ -260,6 +260,55 @@ const SUBJECT_PRONOUN = new Set(["il", "elle", "ils", "elles", "on", "tu", "vous
 const ACTION_VERB = /^(demande|demandez|dis|dites|ecris|ecrivez|envoie|envoyez|transmets|transmet|transfere|relance|relances|appelle|appelez|assigne|assignes|attribue|confie|prepare|prepares|redige|ajoute|cree|creer|planifie|programme|invite|reponds|repondez|rappelle|note|marque|change|mets|met|deplace|reserve|commande|valide|valides|approuve|refuse|rejette)\b/;
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * ÉCRIRE N'EST PAS LIRE — le défaut d'une seule inflexion.
+ *
+ * En production : « tu peux envoyé un mail à Khaled ? ». Adam a cherché dans la messagerie, n'y a
+ * trouvé aucun Khaled, et répondu « je n'ai pas son adresse e-mail » — alors que l'annuaire, lui,
+ * l'avait, et que la description de `directory_lookup` interdit textuellement cette phrase.
+ *
+ * LA CAUSE TIENT EN UNE LETTRE. Le PDG a écrit le PARTICIPE (« envoyé »), pas l'impératif
+ * (« envoie »). Normalisé, cela donne `envoye` — absent de `ACTION_VERB` comme de la liste du
+ * routeur, parce que `envoyer` est le seul verbe de la famille dont le radical d'impératif
+ * (`envoi-`) diffère du radical d'infinitif (`envoy-`). Les deux gardes qui devaient arrêter la
+ * phrase l'ont donc laissée filer, et le raccourci « état de la boîte » l'a avalée : il lui
+ * suffisait du mot « mail ».
+ *
+ * CE QU'ON NE FAIT PAS. Ajouter `envoye` à la liste des impératifs corrigerait CE cas et ferait
+ * de « Envoyé ? » — question parfaitement légitime sur un courrier déjà parti — un ordre d'envoi.
+ * On ne rattrape pas une classification par une exception.
+ *
+ * CE QUI SÉPARE VRAIMENT LES DEUX : le DESTINATAIRE. Une boîte se lit ; elle ne se lit pas
+ * « à quelqu'un ». Dès qu'un verbe d'envoi, un nom de courrier et une adresse cohabitent, la
+ * phrase est SORTANTE, quelle que soit l'orthographe du verbe — et aucun raccourci de lecture
+ * n'a le droit de l'avaler.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const SEND_VERB = /\b(envoi|envoie|envoies|envoye|envoyes|envoyer|envoyez|renvoie|renvoye|renvoyer|transmet|transmets|transmettre|transmis|adresse|adresser|expedie|expedier|redige|rediger|ecris|ecrire|ecrivez)\b/;
+const MAIL_NOUN = /\b(mail|mails|email|emails|e mail|courriel|courriels|message|messages|courrier|mot|note)\b/;
+const ADDRESSEE = /\b(?:a|au|aux)\s+([a-z]{2,})\b/;
+
+/**
+ * Ce qui suit « à » sans être un destinataire. « Des mails à traiter » n'adresse rien à personne.
+ *
+ * La liste est FERMÉE et courte, et c'est volontaire : deviner qu'un mot est un infinitif à sa
+ * terminaison écarterait Nadir, Kader et Amir. Un infinitif absent d'ici fait perdre le
+ * raccourci de lecture — jamais une capacité : la phrase part au modèle, qui sait trancher.
+ */
+const NOT_AN_ADDRESSEE = new Set([
+  "traiter", "lire", "relire", "repondre", "envoyer", "faire", "voir", "classer", "archiver",
+  "valider", "signer", "verifier", "transmettre", "imprimer", "payer", "regler", "suivre",
+  "corriger", "completer", "preparer", "rediger", "trier", "supprimer", "relancer",
+]);
+
+/** Un courrier ADRESSÉ à quelqu'un — donc une écriture, jamais une lecture de boîte. */
+export function isOutboundMail(text: string): boolean {
+  if (!SEND_VERB.test(text) || !MAIL_NOUN.test(text)) return false;
+  const m = ADDRESSEE.exec(text);
+  return m !== null && !NOT_AN_ADDRESSEE.has(m[1]);
+}
+
+/**
  * LE PREMIER MOT DE LA PHRASE DÉCIDE SOUVENT — mais pas seul.
  *
  * L'ordre des tests n'est pas cosmétique : l'accord (« envoie-le ») se teste AVANT la boîte
@@ -299,7 +348,7 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
   // AVANT toutes les lectures. On résout quand même le pronom au passage : « relance-la » part
   // au modèle, mais avec « la » déjà traduit — c'est le seul travail que le routeur sait faire
   // ici sans risquer de se tromper de geste.
-  if (ACTION_VERB.test(text)) {
+  if (ACTION_VERB.test(text) || isOutboundMail(text)) {
     const who = PRONOUN_PERSON.test(text) ? ctx.lastPerson ?? null : null;
     return {
       kind: "DELEGATE", tool: null, fast: false,

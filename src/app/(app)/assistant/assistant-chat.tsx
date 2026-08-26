@@ -20,7 +20,7 @@ import {
 import { decideDisplay } from "@/lib/assistant/voice/transcript-hygiene";
 import type { ProposedAction, AssistantActionPayload, ChatTurn, AssistantResult, AssistantStreamEvent } from "@/lib/assistant";
 import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
-import { WorkspaceBlocks } from "@/components/chief/workspace/blocks";
+import { WorkspaceBlocks, WorkspaceAskProvider } from "@/components/chief/workspace/blocks";
 import { matchesConfirmText } from "@/lib/assistant/confirm";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import type { ThreadSummary } from "@/lib/assistant-memory";
@@ -606,6 +606,11 @@ export function AssistantChat({
   ) : null;
 
   return (
+    // LES GESTES DE L'ESPACE DE TRAVAIL entrent par la MÊME porte que le clavier. Un bouton
+    // « Approuver » posé sur une ligne de la file écrit la phrase exacte dans la conversation :
+    // la mutation repasse donc par la proposition, la carte de confirmation et l'action
+    // canonique — aucune seconde porte n'est ouverte pour aller plus vite.
+    <WorkspaceAskProvider ask={(phrase) => { void send(phrase); }}>
     <div className="flex min-h-0 flex-1 gap-0 lg:gap-4">
       {memoryEnabled && historyMode === "rail" && <div className="hidden w-64 shrink-0 lg:block">{rail}</div>}
       {memoryEnabled && histOpen && (
@@ -808,6 +813,7 @@ export function AssistantChat({
         meaningful: DO NOT render empty space. » */}
     {executive && showContextPanel && <ExecutivePanel sources={sources} messages={messages} showShortcuts={historyMode === "rail"} />}
     </div>
+    </WorkspaceAskProvider>
   );
 }
 

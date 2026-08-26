@@ -1,8 +1,8 @@
 import {
   WORKSPACE_LIMITS,
-  type WorkspaceBlock, type WorkspaceComposition, type WorkspaceEndpoint,
-  type WorkspaceEvent, type WorkspaceField, type WorkspaceItem, type WorkspaceMail,
-  type WorkspacePerson, type WorkspaceColumn,
+  type WorkspaceAction, type WorkspaceBlock, type WorkspaceComposition, type WorkspaceDoc,
+  type WorkspaceEndpoint, type WorkspaceEvent, type WorkspaceField, type WorkspaceGauge,
+  type WorkspaceItem, type WorkspaceMail, type WorkspacePerson, type WorkspaceColumn,
 } from "./protocol";
 
 /**
@@ -187,6 +187,27 @@ function fromCalendar(list: unknown[]): WorkspaceBlock[] {
   }];
 }
 
+/**
+ * LES GESTES D'UNE LIGNE — traduits, et VÉRIFIÉS.
+ *
+ * La phrase vient du serveur, mais elle traverse une sortie d'outil : on la relit comme tout le
+ * reste de ce fichier. Une action sans libellé ou sans phrase ne s'affiche pas — un bouton muet,
+ * ou un bouton qui n'envoie rien, sont deux façons de trahir la confiance qu'on lui accorde.
+ */
+function actionsOf(v: unknown): WorkspaceAction[] {
+  const out: WorkspaceAction[] = [];
+  for (const a of arr(v)) {
+    if (!isObj(a)) continue;
+    const libelle = clip(s(a.libelle) ?? s(a.label), 24);
+    const phrase = s(a.phrase) ?? s(a.prompt);
+    if (!libelle || !phrase) continue;
+    const ton = s(a.ton);
+    out.push({ libelle, phrase, ...(ton === "danger" || ton === "primaire" ? { ton } : {}) });
+    if (out.length >= WORKSPACE_LIMITS.itemActions) break;
+  }
+  return out;
+}
+
 /** `list_pending_decisions` — la file. Chaque élément porte au moins un intitulé. */
 function fromQueue(o: Json): WorkspaceBlock[] {
   const items: WorkspaceItem[] = [];
@@ -194,12 +215,14 @@ function fromQueue(o: Json): WorkspaceBlock[] {
     if (!isObj(it)) continue;
     const titre = s(it.titre) ?? s(it.libelle) ?? s(it.objet) ?? s(it.type);
     if (!titre) continue;
+    const actions = actionsOf(it.actions);
     items.push({
       titre,
       detail: clip(s(it.detail) ?? s(it.demandeur) ?? s(it.description), WORKSPACE_LIMITS.snippetChars),
       statut: s(it.statut) ?? s(it.etat),
       echeance: s(it.echeance) ?? s(it.date) ?? s(it.depuis),
       href: s(it.lien) ?? s(it.href),
+      ...(actions.length ? { actions } : {}),
     });
   }
   if (items.length === 0) return [];
@@ -295,6 +318,9 @@ function humanize(key: string): string {
   return byWord.join(" ");
 }
 
+/** Ce qui fait fonctionner l'application sans rien apprendre au PDG. */
+const STRUCTURAL_KEYS = new Set(["id", "lien", "href", "url", "cle", "key", "uuid"]);
+
 /**
  * LE REPLI GÉNÉRIQUE, ET SA LIMITE. Une liste d'objets HOMOGÈNES devient un tableau — mais
  * seulement si l'appelant l'a explicitement autorisé pour cet outil. Appliqué à n'importe
@@ -310,6 +336,9 @@ export function tableFromRows(title: string, list: unknown[]): WorkspaceBlock | 
   for (const r of rows) for (const k of Object.keys(r)) counts.set(k, (counts.get(k) ?? 0) + 1);
   const keys = [...counts.entries()]
     .filter(([, n]) => n >= rows.length * 0.6)
+    // Les clés de PLOMBERIE ne sont pas des colonnes : un identifiant technique occupe une
+    // pleine largeur et n'apprend rien au PDG.
+    .filter(([k]) => !STRUCTURAL_KEYS.has(k))
     .map(([k]) => k)
     .slice(0, 6);
   if (keys.length === 0) return null;
@@ -334,6 +363,204 @@ export function tableFromRows(title: string, list: unknown[]): WorkspaceBlock | 
  * reste du texte. Ajouter une entrée est une décision explicite, prise en connaissance de ce
  * que l'outil rend.
  */
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES LECTURES QUI RENDENT DES LIGNES — « Dans un tableau ».
+ *
+ * LE DÉFAUT QU'ON FERME. En production, le PDG a demandé les dossiers Regulatory les plus
+ * avancés, puis simplement : « Dans un tableau ». Réponse d'Adam : « Je ne peux pas afficher de
+ * tableaux Markdown ici. » Quelques tours plus loin, sur un export : « Je ne peux pas afficher un
+ * fichier Excel. » Les deux phrases sont FAUSSES. Le protocole a un bloc `table` depuis sa
+ * création ; ce qui manquait, c'était le chemin qui y mène.
+ *
+ * La règle de style interdit — à raison — d'ÉCRIRE du Markdown : la conversation rend du texte
+ * brut, et un tableau tapé à la main y arriverait en bouillie. Mais elle ne disait pas que
+ * l'écran, lui, sait en construire un à partir de la donnée canonique. Le modèle en a déduit une
+ * impossibilité là où il n'y avait qu'un partage des rôles.
+ *
+ * LA TABLE RESTE FERMÉE. Chaque entrée nomme l'outil ET l'endroit où lire ses lignes. On ne
+ * transforme pas « toute sortie contenant un tableau » en tableau : c'est exactement le vidage
+ * qui a mis six lignes de salaire à l'écran en réponse à « Bonsoir, ça va ? ».
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const TABLE_TOOLS: Record<string, { title: string; keys: readonly string[] }> = {
+  // Sortie en TABLEAU NU — la lecture rend directement ses lignes.
+  search_courriers: { title: "Courriers", keys: [] },
+  // Sortie en OBJET — les lignes sont sous l'une de ces clés, dans cet ordre de préférence.
+  regulatory_portfolio: { title: "Dossiers Regulatory", keys: ["dossiers"] },
+  regulatory_workload: { title: "Charge Regulatory", keys: ["repartition"] },
+  read_budget: { title: "Budget", keys: ["postes", "parEnveloppe"] },
+  read_hr_overview: { title: "Effectif par entité", keys: ["parEntite"] },
+};
+
+function fromTableTool(tool: string, data: Json | unknown[]): WorkspaceBlock[] {
+  const cfg = TABLE_TOOLS[tool];
+  if (!cfg) return [];
+  if (Array.isArray(data)) {
+    const b = tableFromRows(cfg.title, data);
+    return b ? [b] : [];
+  }
+  for (const k of cfg.keys) {
+    const rows = data[k];
+    if (!Array.isArray(rows)) continue;
+    const b = tableFromRows(cfg.title, rows);
+    if (b) return [b];
+  }
+  return [];
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * `_blocs` — QUAND UNE LECTURE DÉCLARE ELLE-MÊME CE QU'ELLE MONTRE.
+ *
+ * LE PROBLÈME QUE ÇA RÉSOUT. Les traducteurs ci-dessus DEVINENT une forme à partir d'un JSON.
+ * C'est le bon mécanisme pour l'annuaire ou la boîte mail, dont la forme est stable. Ça ne
+ * marche pas pour « montre-moi ce contrat », « où en est ce dossier », « fais-moi voir l'Excel
+ * avant de l'envoyer » : ce qu'il faut afficher — un PDF, une jauge, une feuille lue — n'est pas
+ * inférable d'un objet, il est CONNU de l'outil qui l'a produit.
+ *
+ * CE QUE ÇA NE ROUVRE PAS. Le modèle n'écrit toujours RIEN ici : `_blocs` est rempli par du code
+ * serveur, dans un outil canonique, et il est REVALIDÉ champ par champ ci-dessous — type de bloc
+ * inconnu écarté, champ manquant écarté, listes bornées, `href` restreint aux routes internes.
+ * Ce qui reste interdit, c'est ce qui a produit l'incident des six salaires : l'inférence
+ * automatique sur une forme inconnue. Une déclaration explicite d'un développeur n'en est pas une.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+const TONES = new Set(["neutre", "attention", "alerte", "succes"]);
+const DOC_KINDS = new Set(["pdf", "image", "feuille", "texte", "autre"]);
+
+/**
+ * UN DOCUMENT NE S'OUVRE QUE PAR UNE ROUTE DE L'ERP.
+ *
+ * Une URL absolue dans un cadre affiché sous la réponse du PDG, c'est une page tierce qui
+ * s'exécute dans son onglet. On n'accepte donc qu'un chemin interne — et la route, elle,
+ * revérifie les droits du document à chaque requête.
+ */
+const isInternalHref = (h: string): boolean => h.startsWith("/") && !h.startsWith("//");
+
+function readColumns(v: unknown): WorkspaceColumn[] {
+  const out: WorkspaceColumn[] = [];
+  for (const c of arr(v)) {
+    if (!isObj(c)) continue;
+    const key = s(c.key);
+    if (!key) continue;
+    out.push({ key, label: s(c.label) ?? humanize(key), ...(c.numeric === true ? { numeric: true } : {}) });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+function readSheet(v: unknown): WorkspaceDoc["feuille"] {
+  if (!isObj(v)) return null;
+  const columns = readColumns(v.columns);
+  if (columns.length === 0) return null;
+  const rows: Record<string, string>[] = [];
+  for (const r of arr(v.rows)) {
+    if (!isObj(r)) continue;
+    const line: Record<string, string> = {};
+    for (const c of columns) line[c.key] = clip(s(r[c.key]), 120) ?? "—";
+    rows.push(line);
+    if (rows.length >= WORKSPACE_LIMITS.sheetRows) break;
+  }
+  if (rows.length === 0) return null;
+  return { columns, rows, total: num(v.total) ?? rows.length };
+}
+
+/** Un bloc déclaré par un outil, relu champ par champ. Ce qui ne passe pas est ÉCARTÉ. */
+function readBlock(v: unknown): WorkspaceBlock | null {
+  if (!isObj(v)) return null;
+  const title = s(v.title) ?? s(v.titre);
+  if (!title) return null;
+
+  if (v.kind === "progress") {
+    const gauges: WorkspaceGauge[] = [];
+    for (const g of arr(v.gauges ?? v.jauges)) {
+      if (!isObj(g)) continue;
+      const label = clip(s(g.label) ?? s(g.libelle), 60);
+      const valeur = num(g.valeur) ?? num(g.value);
+      if (!label || valeur === null) continue;
+      const ton = s(g.ton);
+      gauges.push({
+        label, valeur,
+        ...(num(g.total) !== null ? { total: num(g.total) as number } : {}),
+        ...(s(g.unite) ? { unite: s(g.unite) } : {}),
+        ...(s(g.detail) ? { detail: clip(s(g.detail), 80) } : {}),
+        ...(ton && TONES.has(ton) ? { ton: ton as WorkspaceGauge["ton"] } : {}),
+      });
+      if (gauges.length >= WORKSPACE_LIMITS.gauges) break;
+    }
+    if (gauges.length === 0) return null;
+    return { kind: "progress", title, gauges, ...(s(v.note) ? { note: s(v.note) } : {}) };
+  }
+
+  if (v.kind === "document") {
+    const docs: WorkspaceDoc[] = [];
+    for (const d of arr(v.docs ?? v.documents)) {
+      if (!isObj(d)) continue;
+      const nom = clip(s(d.nom) ?? s(d.name), 120);
+      const href = s(d.href) ?? s(d.lien);
+      if (!nom || !href || !isInternalHref(href)) continue;
+      const type = s(d.type);
+      const feuille = readSheet(d.feuille);
+      docs.push({
+        nom, href,
+        type: (type && DOC_KINDS.has(type) ? type : "autre") as WorkspaceDoc["type"],
+        ...(s(d.mime) ? { mime: s(d.mime) } : {}),
+        ...(s(d.soustitre) ? { soustitre: clip(s(d.soustitre), 120) } : {}),
+        ...(s(d.taille) ? { taille: s(d.taille) } : {}),
+        ...(num(d.pages) !== null ? { pages: num(d.pages) as number } : {}),
+        ...(feuille ? { feuille } : {}),
+      });
+      if (docs.length >= WORKSPACE_LIMITS.docs) break;
+    }
+    if (docs.length === 0) return null;
+    return { kind: "document", title, docs, ...(s(v.note) ? { note: s(v.note) } : {}) };
+  }
+
+  if (v.kind === "table") {
+    const columns = readColumns(v.columns);
+    const rows: Record<string, string>[] = [];
+    for (const r of arr(v.rows)) {
+      if (!isObj(r)) continue;
+      const line: Record<string, string> = {};
+      for (const c of columns) line[c.key] = clip(s(r[c.key]), 120) ?? "—";
+      rows.push(line);
+      if (rows.length >= WORKSPACE_LIMITS.tableRows) break;
+    }
+    if (columns.length === 0 || rows.length === 0) return null;
+    return { kind: "table", title, columns, rows, total: num(v.total) ?? rows.length };
+  }
+
+  if (v.kind === "timeline") {
+    const steps: { date?: string | null; label: string; detail?: string | null }[] = [];
+    for (const st of arr(v.steps ?? v.etapes)) {
+      if (!isObj(st)) continue;
+      const label = clip(s(st.label) ?? s(st.libelle), 120);
+      if (!label) continue;
+      steps.push({ label, date: s(st.date), detail: clip(s(st.detail), WORKSPACE_LIMITS.snippetChars) });
+      if (steps.length >= WORKSPACE_LIMITS.timelineSteps) break;
+    }
+    if (steps.length === 0) return null;
+    return { kind: "timeline", title, steps };
+  }
+
+  // Tout autre `kind` — y compris ceux qui ont déjà un traducteur dédié : on ne veut pas deux
+  // chemins pour la même forme, et surtout pas un chemin qui contourne la validation.
+  return null;
+}
+
+function declaredBlocks(data: Json): WorkspaceBlock[] {
+  const out: WorkspaceBlock[] = [];
+  for (const b of arr(data._blocs)) {
+    const parsed = readBlock(b);
+    if (parsed) out.push(parsed);
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
 export function composeWorkspace(tool: string, raw: string): WorkspaceComposition | null {
   const data = parse(raw);
   if (data === null) return null;
@@ -341,15 +568,20 @@ export function composeWorkspace(tool: string, raw: string): WorkspaceCompositio
   let blocks: WorkspaceBlock[] = [];
   if (Array.isArray(data)) {
     if (tool === "read_calendar") blocks = fromCalendar(data);
+    else blocks = fromTableTool(tool, data);
   } else {
     if (isEmptyAnswer(data)) return null;
-    switch (tool) {
-      case "directory_lookup": blocks = fromDirectoryLookup(data); break;
-      case "directory_list": blocks = fromDirectoryList(data); break;
-      case "gmail_search": blocks = fromMail(data); break;
-      case "list_pending_decisions": blocks = fromQueue(data); break;
-      case "inspect_record": blocks = fromRecord(data); break;
-      default: blocks = [];
+    // Ce que l'outil DÉCLARE passe d'abord : il en sait plus que n'importe quelle inférence.
+    blocks = declaredBlocks(data);
+    if (blocks.length === 0) {
+      switch (tool) {
+        case "directory_lookup": blocks = fromDirectoryLookup(data); break;
+        case "directory_list": blocks = fromDirectoryList(data); break;
+        case "gmail_search": blocks = fromMail(data); break;
+        case "list_pending_decisions": blocks = fromQueue(data); break;
+        case "inspect_record": blocks = fromRecord(data); break;
+        default: blocks = fromTableTool(tool, data);
+      }
     }
   }
 
@@ -361,4 +593,5 @@ export function composeWorkspace(tool: string, raw: string): WorkspaceCompositio
 export const COMPOSABLE_TOOLS: readonly string[] = [
   "directory_lookup", "directory_list", "gmail_search",
   "read_calendar", "list_pending_decisions", "inspect_record",
+  ...Object.keys(TABLE_TOOLS),
 ];

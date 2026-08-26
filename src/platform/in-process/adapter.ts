@@ -6,7 +6,7 @@ import { DirectoryChannel } from "@prisma/client";
 import { subscribe as busSubscribe } from "../event-bus";
 import {
   PLATFORM_CONTRACT_VERSION,
-  type CommandOutcome, type ContactEndpoint, type EventHandler, type PendingDecision,
+  type CommandOutcome, type ContactEndpoint, type DocumentView, type EventHandler, type PendingDecision,
   type PersonView, type PlatformCommand, type PlatformPort, type PlatformQuery,
   type PlatformQueryResult, type Principal, type RecordView, type Unsubscribe,
 } from "../contract";
@@ -177,6 +177,9 @@ async function runQuery(principal: Principal, q: PlatformQuery): Promise<Platfor
       return { kind: "person.list", people, total: people.length };
     }
 
+    case "document.show":
+      return showDocument(q);
+
     case "record.get":
     case "record.search":
     case "pending-decisions.list":
@@ -185,6 +188,136 @@ async function runQuery(principal: Principal, q: PlatformQuery): Promise<Platfor
       // passent aujourd'hui par les outils historiques ; elles migreront ici avec leur tranche.
       throw new Error(`Lecture « ${q.kind} » pas encore servie par l'adaptateur en-processus.`);
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// DOCUMENTS — ouvrir un fichier, avec les droits de son écran d'origine
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+const extOf = (name: string): string => (name.split(".").pop() ?? "").toLowerCase();
+
+function docKindOf(name: string, mime?: string | null): DocumentView["kind"] {
+  const e = extOf(name);
+  if (e === "pdf" || mime === "application/pdf") return "pdf";
+  if (["png", "jpg", "jpeg", "gif", "webp", "avif", "svg"].includes(e)) return "image";
+  if ((mime ?? "").startsWith("image/")) return "image";
+  if (["xlsx", "xlsm", "xls", "csv"].includes(e)) return "feuille";
+  if (["txt", "md", "json", "log"].includes(e)) return "texte";
+  return "autre";
+}
+
+/** « 2,4 Mo » plutôt que « 2 517 291 » — une taille sert à décider, pas à compter. */
+function humanSize(bytes: number | null | undefined): string | null {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) return null;
+  const units = ["o", "ko", "Mo", "Go"];
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1).replace(".", ",")} ${units[i]}`;
+}
+
+/**
+ * LES DROITS NE BOUGENT PAS D'UN MILLIMÈTRE.
+ *
+ * Un fichier du Drive passe par `resolveDriveAccess` / `canViewDrive`, NŒUD PAR NŒUD : être PDG
+ * n'ouvre pas un fichier privé qu'aucun partage ne lui donne. Une pièce jointe passe par
+ * `canAccessEntity` sur son DOSSIER porteur — la même porte qu'à l'écran du module.
+ *
+ * Les imports sont PARESSEUX : le Drive traîne le stockage et l'extraction derrière lui, et
+ * l'adaptateur est chargé à chaque tour d'Adam, y compris quand aucun document n'est demandé.
+ */
+async function showDocument(
+  q: Extract<PlatformQuery, { kind: "document.show" }>,
+): Promise<Extract<PlatformQueryResult, { kind: "document.show" }>> {
+  const refuse = (refusal: string) => ({ kind: "document.show" as const, document: null, refusal });
+
+  const [{ getCurrentUser }, { resolveDriveAccess, canViewDrive }, { getBlob }, { readFileByKey }, { canAccessEntity }, { sheetPreview }] =
+    await Promise.all([
+      import("@/lib/session"),
+      import("@/lib/drive"),
+      import("@/lib/drive-storage"),
+      import("@/lib/storage"),
+      import("@/lib/entity-access"),
+      import("@/lib/assistant/workspace/sheet"),
+    ]);
+
+  // L'IDENTITÉ SE RELIT ICI, à la source. Le `Principal` sert à filtrer ; il n'ouvre aucun
+  // fichier. Les fonctions de droits du Drive attendent l'utilisateur canonique, et c'est
+  // exactement ce qu'on veut : aucune traduction ne s'interpose entre la demande et la porte.
+  const user = await getCurrentUser();
+  if (!user) return refuse("Session expirée — reconnectez-vous.");
+
+  let nodeId = q.driveNodeId?.trim() ?? "";
+  let subtitle: string | null = null;
+
+  if (!nodeId && !q.documentId && (q.name ?? "").trim().length >= 2) {
+    const { searchDrive } = await import("@/lib/queries/drive-search");
+    const found = await searchDrive(user, (q.name ?? "").trim());
+    const files = found.rows.filter((r) => r.href.startsWith("/drive/"));
+    if (files.length === 0) return refuse(`Aucun fichier « ${q.name} » dans le Drive qui vous est ouvert.`);
+    nodeId = files[0].id;
+    // PLUSIEURS CANDIDATS : on affiche le premier ET on nomme le chemin. Choisir en silence
+    // entre deux contrats homonymes est le genre d'erreur qui se remarque très tard.
+    if (files.length > 1) subtitle = `${files.length} fichiers correspondent — celui-ci : ${files[0].path}`;
+  }
+
+  if (nodeId) {
+    if (!canViewDrive(await resolveDriveAccess(user, nodeId))) return refuse("Ce fichier du Drive ne vous est pas ouvert.");
+    const node = await prisma.driveNode.findUnique({
+      where: { id: nodeId },
+      select: { name: true, type: true, isTrashed: true, mimeType: true },
+    });
+    if (!node || node.isTrashed) return refuse("Fichier introuvable dans le Drive.");
+    if (node.type !== "FILE") return refuse("C'est un dossier, pas un fichier.");
+
+    const version = await prisma.fileVersion.findFirst({
+      where: { nodeId }, orderBy: { version: "desc" },
+      select: { blobId: true, size: true, mimeType: true },
+    });
+    const kind = docKindOf(node.name, node.mimeType ?? version?.mimeType ?? null);
+    let sheet = null;
+    if (kind === "feuille" && version) {
+      const bytes = await getBlob(version.blobId).catch(() => null);
+      if (bytes) sheet = await sheetPreview(node.name, Buffer.from(bytes));
+    }
+    return {
+      kind: "document.show",
+      document: {
+        name: node.name, href: `/api/drive/${nodeId}/raw`, kind,
+        size: humanSize(version?.size ? Number(version.size) : null),
+        subtitle, sheet,
+      },
+    };
+  }
+
+  if (q.documentId) {
+    const doc = await prisma.document.findUnique({
+      where: { id: q.documentId },
+      select: { name: true, fileKey: true, mimeType: true, sizeBytes: true, entityType: true, entityId: true, category: true },
+    });
+    if (!doc) return refuse("Pièce introuvable.");
+    if (!(await canAccessEntity(user, doc.entityType, doc.entityId, "VIEW"))) {
+      return refuse("Cette pièce appartient à un dossier qui ne vous est pas ouvert.");
+    }
+    if (!doc.fileKey) return refuse("Cette pièce n'a pas de fichier (métadonnées seules).");
+
+    const kind = docKindOf(doc.name, doc.mimeType);
+    let sheet = null;
+    if (kind === "feuille") {
+      const bytes = await readFileByKey(doc.fileKey).catch(() => null);
+      if (bytes) sheet = await sheetPreview(doc.name, Buffer.from(bytes));
+    }
+    return {
+      kind: "document.show",
+      document: {
+        name: doc.name, href: `/api/documents/${q.documentId}`, kind,
+        size: humanSize(doc.sizeBytes ? Number(doc.sizeBytes) : null),
+        subtitle: doc.category ?? null, sheet,
+      },
+    };
+  }
+
+  return refuse("Précisez le fichier : son identifiant Drive, sa pièce jointe, ou son nom.");
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════

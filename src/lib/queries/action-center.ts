@@ -7,6 +7,23 @@ import {
   type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, PROMO_MATERIAL_STATUS, DIRECTIVE_STATUS, SUPPORT_STATUS, DOSSIER_STATUS,
 } from "@/lib/labels";
 
+/**
+ * UN GESTE QUE CETTE PERSONNE PEUT POSER SUR CETTE LIGNE, ICI ET MAINTENANT.
+ *
+ * `phrase` est rédigée PAR LE SERVEUR, avec la référence exacte : c'est ce qui permet de
+ * trancher depuis la conversation sans avoir à retrouver « VAL-2026-014 » à la main. Elle
+ * n'exécute rien — elle entre par la porte normale (proposition → carte → action canonique).
+ *
+ * On ne pose une action QUE si elle est décidable maintenant : proposer « Approuver » sur une
+ * étape séquentielle dont ce n'est pas encore le tour promettrait un geste que l'exécution
+ * refuserait — une déception, et une perte de confiance dans tous les autres boutons.
+ */
+export interface ActionSuggestion {
+  libelle: string;
+  phrase: string;
+  ton?: "primaire" | "danger";
+}
+
 export interface ActionItem {
   key: string;
   title: string;
@@ -19,6 +36,8 @@ export interface ActionItem {
   owner: string;
   statusLabel: string | null;
   statusTone: BadgeTone | null;
+  /** Ce qu'on peut faire sans quitter la conversation. Absent = seul le lien reste. */
+  actions?: ActionSuggestion[];
 }
 
 export interface ActionNotification {
@@ -61,7 +80,19 @@ export async function getActionCenter(user: SessionUser) {
         key: `val-${v.stepId}`, title: v.title,
         subtitle: v.amount !== null ? formatCurrency(v.amount) : v.objectType,
         module: "Validations", href: "/validations", kind: "validation", priority: v.priority,
-        deadline: v.deadline, owner: v.requester, statusLabel: "À valider", statusTone: "warning",
+        deadline: v.deadline, owner: v.requester,
+        statusLabel: v.actionable ? "À valider" : "En attente du validateur précédent",
+        statusTone: v.actionable ? "warning" : "neutral",
+        // L'étape SÉQUENTIELLE dont ce n'est pas le tour reste visible, sans bouton : l'action
+        // serait refusée à l'exécution, et un bouton qui refuse est pire que pas de bouton.
+        ...(v.actionable
+          ? {
+              actions: [
+                { libelle: "Approuver", phrase: `Approuve la validation ${v.reference}`, ton: "primaire" as const },
+                { libelle: "Refuser", phrase: `Refuse la validation ${v.reference}`, ton: "danger" as const },
+              ],
+            }
+          : {}),
       });
     }
   }

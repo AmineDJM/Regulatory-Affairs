@@ -21,6 +21,7 @@ import { ACTION_INTENT_TOOLS } from "@/lib/assistant/action-intents";
 import { WHAT_CHANGED_TOOLS } from "@/lib/assistant/what-changed";
 import { ADAM_TOOLS } from "@/lib/assistant/adam-tools";
 import { DIRECTORY_TOOLS } from "@/lib/assistant/directory-tools";
+import { SHOW_TOOLS } from "@/lib/assistant/show-tools";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -54,6 +55,32 @@ const str = (input: Record<string, unknown>, key: string): string =>
 
 /** Arrondi à l'unité : le modèle n'a que faire des centimes, et ça allège le contexte. */
 const dzd = (n: number): number => Math.round(n);
+
+/**
+ * UN BLOC DE JAUGES, prêt à traverser jusqu'à l'écran (`_blocs`, voir `workspace/compose.ts`).
+ *
+ * Les jauges à zéro sont ÉCARTÉES : une enveloppe non encore dotée produit une barre vide qui
+ * occupe une ligne sans rien dire. Le seuil, lui, est calculé ici plutôt qu'à l'écran — c'est
+ * une règle de gestion (85 % = attention, 100 % = dépassement), pas une décision de style.
+ */
+function gaugesBlock(
+  title: string,
+  rows: { label: string; valeur: number; total: number; unite?: string; detail?: string }[],
+): Record<string, unknown> {
+  return {
+    kind: "progress",
+    title,
+    gauges: rows
+      .filter((r) => r.total > 0)
+      .map((r) => {
+        const pct = (r.valeur / r.total) * 100;
+        return {
+          ...r,
+          ton: pct >= 100 ? "alerte" : pct >= 85 ? "attention" : "neutre",
+        };
+      }),
+  };
+}
 
 export const POWER_TOOLS: PowerTool[] = [
   {
@@ -89,6 +116,13 @@ export const POWER_TOOLS: PowerTool[] = [
           parEnveloppe: total.items.map((e) => ({
             nom: e.name, totalDzd: dzd(e.total), consommeDzd: dzd(e.consumed), restantDzd: dzd(e.remaining),
           })),
+          // « Il reste combien ? » se répond par une LONGUEUR. Un pourcentage écrit dans une
+          // phrase se relit ; une barre presque pleine se comprend sans effort — et la réponse
+          // en texte peut alors tenir en un montant, comme le PDG l'a demandé.
+          _blocs: [gaugesBlock("Consommation des enveloppes", total.items.map((e) => ({
+            label: e.name, valeur: dzd(e.consumed), total: dzd(e.total), unite: "DZD",
+            detail: `reste ${new Intl.NumberFormat("fr-DZ").format(dzd(e.remaining))} DZD`,
+          })))],
         });
       }
 
@@ -113,6 +147,14 @@ export const POWER_TOOLS: PowerTool[] = [
           nom: c.name, alloueDzd: dzd(c.allocated), consommeDzd: dzd(c.consumed), restantDzd: dzd(c.remaining),
         })),
         depensesNonImputees: { nombre: ov.unattributed.count, montantDzd: dzd(ov.unattributed.total) },
+        _blocs: [gaugesBlock(`${ov.envelope.name} — consommation`, [
+          { label: "Enveloppe entière", valeur: dzd(ov.totals.consumed), total: dzd(ov.totals.total), unite: "DZD",
+            detail: `reste ${new Intl.NumberFormat("fr-DZ").format(dzd(ov.totals.remaining))} DZD` },
+          ...ov.categories.map((c) => ({
+            label: c.name, valeur: dzd(c.consumed), total: dzd(c.allocated), unite: "DZD",
+            detail: `reste ${new Intl.NumberFormat("fr-DZ").format(dzd(c.remaining))} DZD`,
+          })),
+        ])],
       });
     },
   },
@@ -154,16 +196,65 @@ export const POWER_TOOLS: PowerTool[] = [
       name: "read_hr_overview",
       description:
         "Lit la situation RH : effectif total et actif, masse salariale du dernier mois de paie (avec sa source), congés en attente, avances sur salaire en attente, " +
-        "contrats arrivant à échéance sous 60 jours, répartition par département. À utiliser pour « combien sommes-nous ? », « quelle est la masse salariale ? », « quels contrats expirent ? ».",
-      input_schema: { type: "object", properties: {} },
+        "contrats arrivant à échéance sous 60 jours, répartition par département ET PAR ENTITÉ. À utiliser pour « combien sommes-nous ? », « combien de salariés chez Adventum ? », " +
+        "« quelle est la masse salariale ? », « quels contrats expirent ? ». " +
+        "⚠️ Le groupe compte PLUSIEURS sociétés. La réponse porte toujours un champ `perimetre` : citez-le. " +
+        "Sans `entite`, les totaux couvrent TOUTE la plateforme, sociétés confondues — ne les attribuez alors à AUCUNE société en particulier ; " +
+        "la ventilation `parEntite` donne le chiffre de chacune.",
+      input_schema: {
+        type: "object",
+        properties: {
+          entite: { type: "string", description: "Nom ou nom court de la société (« Adventum », « Pharmagène »). Omettre pour tout le groupe." },
+        },
+      },
     },
     allowed: (u) => userCan(u, "RH", "VIEW"),
     label: "Situation RH consultée",
-    run: async (_input, user) => {
+    run: async (input, user) => {
       const d = await getRhData(user.id);
+      const parEntite = d.byCompany.map((c) => ({
+        entite: c.label, effectifActif: c.active, effectifTotal: c.total, masseSalarialeDzd: dzd(c.masseSalariale),
+      }));
+
+      // LA PORTÉE DEMANDÉE, RÉSOLUE SUR CE QUI EXISTE VRAIMENT — nom court ou raison sociale.
+      // Un nom qu'on ne reconnaît pas ne produit PAS d'erreur : on rend le groupe entier en
+      // nommant les sociétés disponibles. Une réponse trop large se corrige d'un mot ; un
+      // chiffre attribué à la mauvaise société, non.
+      const want = str(input, "entite");
+      const fold = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const hit = want
+        ? d.byCompany.find((c) => fold(c.label) === fold(want) || (c.fullName != null && fold(c.fullName) === fold(want)))
+          ?? d.byCompany.find((c) => fold(c.label).includes(fold(want)) || (c.fullName != null && fold(c.fullName).includes(fold(want))))
+        : undefined;
+
+      if (hit) {
+        return JSON.stringify({
+          perimetre: `${hit.label} uniquement`,
+          entite: hit.label,
+          effectifTotal: hit.total,
+          effectifActif: hit.active,
+          masseSalarialeDzd: dzd(hit.masseSalariale),
+          masseSalarialeSource: d.stats.masseSalarialeSource,
+          parEntite,
+          // Ces trois-là ne se ventilent pas par société : on le DIT plutôt que de laisser croire
+          // qu'ils suivent le filtre.
+          congesEnAttente: d.stats.pending,
+          avancesEnAttente: d.stats.advances,
+          portéeDesCongesEtAvances: "toutes entités confondues",
+          contratsExpirantSous60j: d.contractsExpiring.map((e) => ({
+            nom: e.fullName, fin: e.contractEnd?.toISOString().slice(0, 10) ?? null,
+          })),
+        });
+      }
+
       return JSON.stringify({
+        perimetre: parEntite.length > 1
+          ? `TOUTE LA PLATEFORME — ${parEntite.length} entités confondues (${parEntite.map((c) => c.entite).join(", ")})`
+          : "toute la plateforme",
+        ...(want ? { entiteDemandeeIntrouvable: `« ${want} » ne correspond à aucune société : ${parEntite.map((c) => c.entite).join(", ")}.` } : {}),
         effectifTotal: d.stats.total,
         effectifActif: d.stats.active,
+        parEntite,
         masseSalarialeDzd: dzd(d.stats.masseSalariale),
         masseSalarialeSource: d.stats.masseSalarialeSource,
         congesEnAttente: d.stats.pending,
@@ -199,11 +290,20 @@ export const POWER_TOOLS: PowerTool[] = [
       const items = center.items.slice(0, limit).map((i) => ({
         titre: i.title, detail: i.subtitle, module: i.module, statut: i.statusLabel,
         echeance: i.deadline ? i.deadline.slice(0, 10) : null, lien: i.href,
+        // LES GESTES VOYAGENT AVEC LA LIGNE. Sans eux, la file ne sait dire que « ouvre l'autre
+        // écran » — ce que le PDG a refusé trois fois de suite.
+        ...(i.actions?.length ? { actions: i.actions } : {}),
       }));
       const conges = leaves.map((l) => ({
         titre: `Congé — ${l.employee}`, detail: `${l.days} j`, module: "Ressources humaines",
         statut: l.stage === "MANAGER" ? "À valider (vous, N+1)" : l.stage === "HR" ? "À valider (RH)" : "À valider (Direction)",
         echeance: l.startDate.slice(0, 10), lien: "/mon-espace",
+        // `getLeavesToDecide` ne rend QUE les demandes que cette personne peut trancher à cette
+        // marche du circuit (N+1 → RH → Direction) : elles sont donc toutes décidables.
+        actions: [
+          { libelle: "Accorder", phrase: `Approuve le congé de ${l.employee}`, ton: "primaire" as const },
+          { libelle: "Refuser", phrase: `Refuse le congé de ${l.employee}`, ton: "danger" as const },
+        ],
       }));
       if (items.length === 0 && conges.length === 0) return "Rien n'attend votre décision pour l'instant.";
       return JSON.stringify({ total: items.length + conges.length, elements: [...conges, ...items] });
@@ -259,6 +359,9 @@ export const POWER_TOOLS: PowerTool[] = [
   // bureautique, missions). Meme cerveau, memes portes : ce sont des PowerTools comme les autres.
   ...ADAM_TOOLS,
   ...DIRECTORY_TOOLS,
+  // MONTRER (et non lire) : un PDF, un contrat, un classeur mis sous les yeux, dans la
+  // conversation. Le droit se juge document par document — voir `show-tools.ts`.
+  ...SHOW_TOOLS,
 ];
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */

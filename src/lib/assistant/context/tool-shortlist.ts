@@ -75,6 +75,15 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   find_documents: ["DRIVE"],
   read_document: ["DRIVE"],
   gdoc_read_or_append: ["DRIVE"],
+  // MONTRER un fichier vaut dans plusieurs pôles : un contrat est juridique, un export est
+  // documentaire, une facture est financière. Le refus « je ne peux pas afficher ce fichier »
+  // est arrivé DEUX fois dans le même échange de production — l'outil doit être là quand on
+  // dit « montre-moi », pas une découverte plus tard.
+  show_document: ["DRIVE", "LEGAL", "REGULATORY", "FINANCE"],
+  // « Dans un tableau », « avec la date et le responsable », « trie par échéance » : la demande
+  // arrive APRÈS une lecture, dans n'importe quel domaine, et souvent en trois mots. Elle ne
+  // survivrait pas à un tour de découverte.
+  show_table: ["REGULATORY", "FINANCE", "HR", "LEGAL", "DIRECTORY", "GENERAL"],
   gworkspace_create: ["DRIVE"],
   list_artifacts: ["DRIVE"],
   draft_deliverable: ["DRIVE"],
@@ -95,7 +104,11 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   cancel_reminder: ["MISSION"],
 
   // ── Annuaire & personnes ────────────────────────────────────────────────────────────────
-  directory_lookup: ["DIRECTORY"],
+  // L'ANNUAIRE APPARTIENT AUSSI À LA MESSAGERIE. On n'écrit à personne sans son adresse : une
+  // liste « messagerie » qui n'offre que la boîte condamne Adam à chercher le destinataire DANS
+  // les messages reçus, puis à répondre « je n'ai pas son adresse » quand il n'y figure pas.
+  // C'est arrivé en production sur « envoie un mail à Khaled ».
+  directory_lookup: ["DIRECTORY", "MAIL"],
   directory_list: ["DIRECTORY"],
   person_report: ["DIRECTORY", "HR"],
   supplier_360: ["DIRECTORY"],

@@ -76,6 +76,18 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // registre complet, elle, reste gardée : c'est `directory_list`, réservé aux RH et à la
       // vue globale.
       "directory_lookup",
+      // show_document : le droit d'AFFICHER est celui du FICHIER, jugé pièce par pièce par la
+      // plateforme — `resolveDriveAccess`/`canViewDrive` nœud par nœud pour le Drive,
+      // `canAccessEntity` sur le dossier porteur pour une pièce jointe, et la recherche par nom
+      // ne balaie que le Drive VISIBLE. Un compte sans aucun droit de module n'ouvre donc rien
+      // qu'il n'aurait pu ouvrir sur son écran. Exiger EN PLUS un droit de module ici créerait un
+      // second cloisonnement, différent de celui des écrans : une règle de plus à maintenir, et
+      // une occasion de plus de diverger.
+      "show_document",
+      // show_table : ne lit RIEN par lui-même. Il rappelle une lecture canonique via
+      // `executePowerTool`, qui revérifie le droit de CETTE lecture à l'exécution. Poser un
+      // garde ici dupliquerait celui de la source, avec le risque de diverger d'elle.
+      "show_table",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

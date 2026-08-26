@@ -242,12 +242,18 @@ describe("LA RÈGLE DE SÛRETÉ — l'inconnu ne s'affiche pas", () => {
   });
 
   it("la table de correspondance est FERMÉE et connue", () => {
+    // CE QUI RESTE DEHORS EST LE POINT. `read_payroll` et `employee_360` rendent des lignes
+    // parfaitement tabulables — et c'est précisément pour cela qu'elles n'y sont pas : un
+    // affichage capable de tout montrer finit par tout montrer, y compris six salaires en
+    // réponse à « Bonsoir, ça va ? ». La recherche fédérée est exclue pour l'autre raison :
+    // ses résultats sont hétérogènes, et un tableau de choses différentes ment sur leur nature.
     for (const t of ["search_everything", "read_payroll", "employee_360", "gdrive_search"]) {
       expect(COMPOSABLE_TOOLS).not.toContain(t);
     }
     expect([...COMPOSABLE_TOOLS].sort()).toEqual([
       "directory_list", "directory_lookup", "gmail_search",
-      "inspect_record", "list_pending_decisions", "read_calendar",
+      "inspect_record", "list_pending_decisions", "read_budget", "read_calendar",
+      "read_hr_overview", "regulatory_portfolio", "regulatory_workload", "search_courriers",
     ]);
   });
 });
@@ -275,5 +281,271 @@ describe("le tableau générique — un outil, pas un comportement par défaut",
 
   it("une seule ligne ne fait pas un tableau", () => {
     expect(tableFromRows("Test", [{ a: 1 }])).toBeNull();
+  });
+
+  it("les clés de plomberie ne deviennent pas des colonnes", () => {
+    const b = tableFromRows("Test", [
+      { id: "ck1", lien: "/courriers", reference: "C-1", objet: "Devis" },
+      { id: "ck2", lien: "/courriers", reference: "C-2", objet: "Facture" },
+    ]);
+    expect(b?.kind).toBe("table");
+    if (b?.kind !== "table") return;
+    expect(b.columns.map((c) => c.key)).toEqual(["reference", "objet"]);
+  });
+});
+
+/**
+ * « DANS UN TABLEAU » — la demande que le produit refusait.
+ *
+ *   PDG   — Montre moi les dossiers les plus avancées de regulatory
+ *   PDG   — Dans un tableau
+ *   Adam  — Je ne peux pas afficher de tableaux Markdown ici.
+ *
+ * Puis, sur un export :
+ *
+ *   PDG   — Montre le moi ici
+ *   Adam  — Je ne peux pas afficher un fichier Excel.
+ *
+ * Les deux refus étaient faux. Ce qui manquait n'était pas le renderer — il existait — mais le
+ * CHEMIN entre une lecture canonique qui rend des lignes et le bloc qui sait les dessiner.
+ */
+describe("les lectures qui rendent des lignes composent un tableau", () => {
+  it("les courriers — un tableau nu (la dernière question du transcript)", () => {
+    const c = composeWorkspace("search_courriers", J([
+      { id: "a", reference: "C-2026-018", objet: "Dépôt ANPP", sens: "Départ", parti: "2026-08-24", lien: "/courriers" },
+      { id: "b", reference: "C-2026-019", objet: "Accusé PCH", sens: "Arrivée", parti: null, lien: "/courriers" },
+    ]));
+    expect(c?.blocks[0].kind).toBe("table");
+    const b = c?.blocks[0];
+    if (b?.kind !== "table") return;
+    expect(b.rows).toHaveLength(2);
+    expect(b.columns.map((x) => x.key)).not.toContain("id");
+  });
+
+  it("les dossiers Regulatory — les lignes sont sous leur clé", () => {
+    const c = composeWorkspace("regulatory_portfolio", J({
+      partenaire: { demande: "SD", resolu: "S.D. Pharmaceuticals" },
+      total: 2,
+      dossiers: [
+        { reference: "R-001", produit: "Raltegravir", statut: "En instruction", etape: "Recevabilité" },
+        { reference: "R-002", produit: "Nintedanib", statut: "Déposé", etape: "Dépôt" },
+      ],
+    }));
+    const b = c?.blocks[0];
+    expect(b?.kind).toBe("table");
+    if (b?.kind !== "table") return;
+    expect(b.title).toBe("Dossiers Regulatory");
+    expect(b.rows[0].produit).toBe("Raltegravir");
+  });
+
+  it("l'effectif par entité — la ventilation s'AFFICHE, elle ne se raconte pas", () => {
+    const c = composeWorkspace("read_hr_overview", J({
+      perimetre: "TOUTE LA PLATEFORME — 2 entités confondues (Adventum, Pharmagène)",
+      effectifActif: 18,
+      parEntite: [
+        { entite: "Adventum", effectifActif: 11, effectifTotal: 12 },
+        { entite: "Pharmagène", effectifActif: 7, effectifTotal: 7 },
+      ],
+    }));
+    const b = c?.blocks[0];
+    expect(b?.kind).toBe("table");
+    if (b?.kind !== "table") return;
+    expect(b.rows.map((r) => r.entite)).toEqual(["Adventum", "Pharmagène"]);
+  });
+
+  it("une lecture autorisée mais SANS lignes exploitables ne compose rien", () => {
+    // La réponse reste du texte : mieux vaut pas de tableau qu'un tableau d'une ligne.
+    expect(composeWorkspace("regulatory_portfolio", J({ total: 1, dossiers: [{ reference: "R-001" }] }))).toBeNull();
+    expect(composeWorkspace("search_courriers", J([]))).toBeNull();
+  });
+
+  it("les lectures les plus sensibles restent HORS de la table, même en forme de lignes", () => {
+    // `read_payroll` rend des lignes parfaitement tabulables. Elle n'est pas autorisée, donc
+    // elle ne compose rien — c'est la règle qui a fermé l'incident des six salaires.
+    expect(composeWorkspace("read_payroll", J([
+      { salarie: "A", net: 120000 }, { salarie: "B", net: 98000 },
+    ]))).toBeNull();
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * `_blocs` — CE QU'UNE LECTURE DÉCLARE ELLE-MÊME MONTRER.
+ *
+ * Ce qui suit vérifie la seule chose qui compte : la déclaration est REVALIDÉE. Un outil peut
+ * dire ce qu'il veut, ce fichier ne rend que ce qu'il a relu champ par champ. Sans cela,
+ * `_blocs` serait la porte dérobée que tout le reste du module s'emploie à fermer.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("les jauges — « il reste combien ? » répondu par une longueur", () => {
+  it("un bloc de progression déclaré arrive à l'écran", () => {
+    const c = composeWorkspace("read_budget", J({
+      restantDzd: 340_000,
+      _blocs: [{
+        kind: "progress", title: "Consommation des enveloppes",
+        gauges: [
+          { label: "Ad & Pro", valeur: 2_660_000, total: 3_000_000, unite: "DZD", detail: "reste 340 000 DZD", ton: "attention" },
+          { label: "Formation", valeur: 120_000, total: 900_000, unite: "DZD" },
+        ],
+      }],
+    }));
+    const b = c?.blocks[0];
+    expect(b?.kind).toBe("progress");
+    if (b?.kind !== "progress") return;
+    expect(b.gauges).toHaveLength(2);
+    expect(b.gauges[0].ton).toBe("attention");
+    expect(b.gauges[1].ton).toBeUndefined(); // non déclaré : l'écran déduira du seuil
+  });
+
+  it("une jauge sans valeur chiffrée est écartée — une barre sans nombre ne dit rien", () => {
+    expect(composeWorkspace("read_budget", J({
+      _blocs: [{ kind: "progress", title: "T", gauges: [{ label: "Sans valeur" }] }],
+    }))).toBeNull();
+  });
+
+  it("un ton inventé est ignoré, pas propagé", () => {
+    const c = composeWorkspace("read_budget", J({
+      _blocs: [{ kind: "progress", title: "T", gauges: [{ label: "A", valeur: 10, total: 20, ton: "arc-en-ciel" }] }],
+    }));
+    const b = c?.blocks[0];
+    if (b?.kind !== "progress") throw new Error("bloc attendu");
+    expect(b.gauges[0].ton).toBeUndefined();
+  });
+});
+
+describe("les documents montrés sur place", () => {
+  const doc = (over: Record<string, unknown> = {}) => J({
+    affiche: "Contrat Kwality.pdf",
+    _blocs: [{
+      kind: "document", title: "Document",
+      docs: [{ nom: "Contrat Kwality.pdf", href: "/api/drive/ck1/raw", type: "pdf", taille: "1,2 Mo", ...over }],
+    }],
+  });
+
+  it("un PDF interne s'affiche", () => {
+    const c = composeWorkspace("show_document", doc());
+    const b = c?.blocks[0];
+    expect(b?.kind).toBe("document");
+    if (b?.kind !== "document") return;
+    expect(b.docs[0].type).toBe("pdf");
+    expect(b.docs[0].href).toBe("/api/drive/ck1/raw");
+  });
+
+  it("UNE URL EXTERNE NE S'OUVRE PAS — jamais un site tiers dans un cadre sous la réponse", () => {
+    for (const href of ["https://exemple.test/x.pdf", "//exemple.test/x.pdf", "javascript:alert(1)"]) {
+      expect(composeWorkspace("show_document", doc({ href })), href).toBeNull();
+    }
+  });
+
+  it("un type inconnu retombe sur « autre » — on ne prétend pas savoir l'afficher", () => {
+    const c = composeWorkspace("show_document", doc({ type: "hologramme" }));
+    const b = c?.blocks[0];
+    if (b?.kind !== "document") throw new Error("bloc attendu");
+    expect(b.docs[0].type).toBe("autre");
+  });
+
+  it("une feuille arrive DÉJÀ LUE — c'est ce qui permet de relire un export avant de l'envoyer", () => {
+    const c = composeWorkspace("show_document", J({
+      _blocs: [{
+        kind: "document", title: "Aperçu du fichier",
+        docs: [{
+          nom: "Export Regulatory.xlsx", href: "/api/drive/ck9/raw", type: "feuille",
+          feuille: {
+            columns: [{ key: "c0", label: "Référence" }, { key: "c1", label: "Produit" }],
+            rows: [{ c0: "REG-001", c1: "Raltegravir" }, { c0: "REG-002", c1: "Nintedanib" }],
+            total: 69,
+          },
+        }],
+      }],
+    }));
+    const b = c?.blocks[0];
+    if (b?.kind !== "document") throw new Error("bloc attendu");
+    expect(b.docs[0].feuille?.rows).toHaveLength(2);
+    // Le total du FICHIER, pas celui de l'aperçu : « 69 lignes » se dit, on n'en montre que 2.
+    expect(b.docs[0].feuille?.total).toBe(69);
+  });
+
+  it("une feuille sans colonnes n'est pas une feuille", () => {
+    const c = composeWorkspace("show_document", doc({
+      type: "feuille", feuille: { columns: [], rows: [{ a: "1" }], total: 1 },
+    }));
+    const b = c?.blocks[0];
+    if (b?.kind !== "document") throw new Error("bloc attendu");
+    expect(b.docs[0].feuille).toBeUndefined();
+  });
+});
+
+describe("ce que `_blocs` NE permet PAS", () => {
+  it("un type de bloc inconnu est écarté en silence", () => {
+    expect(composeWorkspace("un_outil", J({ _blocs: [{ kind: "video", title: "T", src: "/x.mp4" }] }))).toBeNull();
+  });
+
+  it("un bloc sans titre est écarté", () => {
+    expect(composeWorkspace("read_budget", J({
+      _blocs: [{ kind: "progress", gauges: [{ label: "A", valeur: 1, total: 2 }] }],
+    }))).toBeNull();
+  });
+
+  it("les formes qui ont DÉJÀ un traducteur ne se déclarent pas — un seul chemin par forme", () => {
+    // Autoriser `kind: "people"` par déclaration ouvrirait un chemin qui contourne
+    // `fromDirectoryLookup` et sa vérification des coordonnées.
+    expect(composeWorkspace("directory_lookup", J({
+      _blocs: [{ kind: "people", title: "T", people: [{ nom: "X", coordonnees: [] }] }],
+    }))).toBeNull();
+  });
+
+  it("`_blocs` absent : le comportement d'avant, à l'identique", () => {
+    const c = composeWorkspace("directory_lookup", J({ personnes: [{ nom: "Raihana", coordonnees: [] }] }));
+    expect(c?.blocks[0].kind).toBe("people");
+  });
+});
+
+/**
+ * « Ok affiche moi les validations a faire s'il y'en a, je les valide depuis ici. »
+ * Demandé trois fois. La file ne rendait que des liens.
+ */
+describe("trancher depuis la conversation", () => {
+  const queue = (actions: unknown) => J({
+    total: 1,
+    elements: [{ titre: "VAL-2026-014 — Facture imprimeur", statut: "À valider", lien: "/validations", actions }],
+  });
+
+  it("les gestes traversent jusqu'au bloc", () => {
+    const c = composeWorkspace("list_pending_decisions", queue([
+      { libelle: "Approuver", phrase: "Approuve la validation VAL-2026-014", ton: "primaire" },
+      { libelle: "Refuser", phrase: "Refuse la validation VAL-2026-014", ton: "danger" },
+    ]));
+    const b = c?.blocks[0];
+    if (b?.kind !== "queue") throw new Error("file attendue");
+    expect(b.items[0].actions).toHaveLength(2);
+    expect(b.items[0].actions?.[0].phrase).toContain("VAL-2026-014");
+    // Le lien SURVIT : il mène à la demande complète avec ses pièces. Il n'est plus la seule issue.
+    expect(b.items[0].href).toBe("/validations");
+  });
+
+  it("un geste sans phrase ne s'affiche pas — un bouton qui n'envoie rien trahit sa promesse", () => {
+    const c = composeWorkspace("list_pending_decisions", queue([{ libelle: "Approuver" }]));
+    const b = c?.blocks[0];
+    if (b?.kind !== "queue") throw new Error("file attendue");
+    expect(b.items[0].actions).toBeUndefined();
+  });
+
+  it("une ligne NON décidable n'a pas de bouton", () => {
+    // L'étape séquentielle dont ce n'est pas encore le tour : l'exécution refuserait, et un
+    // bouton qui refuse est pire que pas de bouton.
+    const c = composeWorkspace("list_pending_decisions", queue(undefined));
+    const b = c?.blocks[0];
+    if (b?.kind !== "queue") throw new Error("file attendue");
+    expect(b.items[0].actions).toBeUndefined();
+  });
+
+  it("au plus deux gestes par ligne — au-delà, la file devient un formulaire", () => {
+    const c = composeWorkspace("list_pending_decisions", queue([
+      { libelle: "A", phrase: "a" }, { libelle: "B", phrase: "b" },
+      { libelle: "C", phrase: "c" }, { libelle: "D", phrase: "d" },
+    ]));
+    const b = c?.blocks[0];
+    if (b?.kind !== "queue") throw new Error("file attendue");
+    expect(b.items[0].actions).toHaveLength(2);
   });
 });

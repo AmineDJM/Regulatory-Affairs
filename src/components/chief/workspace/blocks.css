@@ -201,6 +201,112 @@
 .chief-timeline-label { margin: 0; font-size: 13.5px; color: hsl(var(--chief-text, 220 40% 13%)); }
 .chief-timeline-detail { margin: 2px 0 0; font-size: 12.5px; color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
 
+/* ── Les gestes ────────────────────────────────────────────────────────────────────────────
+   Un bouton de cet espace ÉCRIT une phrase dans la conversation ; il n'exécute rien. Sa
+   discrétion est donc voulue : il propose, la carte de confirmation décide. Un bouton criard
+   promettrait une exécution immédiate qui n'a pas lieu. */
+
+.chief-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+
+.chief-action {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+  background-color: hsl(var(--chief-surface-sunken, 220 30% 96.5%));
+  color: hsl(var(--chief-text-secondary, 220 12% 42%));
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--chief-duration-state, 220ms) var(--chief-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.chief-action:hover { background-color: hsl(var(--chief-surface-hover, 220 30% 93%)); }
+.chief-action:disabled { opacity: 0.55; cursor: default; }
+
+.chief-action-primary {
+  border-color: hsl(var(--chief-accent-border, 245 60% 90%));
+  background-color: hsl(var(--chief-accent-surface, 245 100% 98%));
+  color: hsl(var(--chief-accent, 245 72% 58%));
+}
+.chief-action-danger {
+  border-color: hsl(var(--chief-danger-border, 0 70% 90%));
+  background-color: hsl(var(--chief-danger-surface, 0 100% 98.5%));
+  color: hsl(var(--chief-danger, 0 65% 52%));
+}
+
+/* ── Jauges ────────────────────────────────────────────────────────────────────────────────
+   La barre est bornée à 100 % pour tenir dans la carte ; le CHIFFRE, lui, ne l'est pas — un
+   dépassement s'écrit « 112 % » et se colore, parce que c'est précisément l'information. */
+
+.chief-gauge { display: block; }
+.chief-gauge-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.chief-gauge-label { font-size: 13px; color: hsl(var(--chief-text, 220 40% 13%)); }
+.chief-gauge-pct { font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chief-gauge-track {
+  margin-top: 5px;
+  height: 7px;
+  border-radius: 999px;
+  background-color: hsl(var(--chief-surface-sunken, 220 30% 96.5%));
+  overflow: hidden;
+}
+.chief-gauge-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background-color: currentColor;
+  transition: width var(--chief-duration-state, 220ms) var(--chief-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.chief-gauge-detail {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+  font-variant-numeric: tabular-nums;
+}
+
+.chief-tone-neutre { color: hsl(var(--chief-accent, 245 72% 58%)); }
+.chief-tone-succes { color: hsl(var(--chief-success, 152 55% 38%)); }
+.chief-tone-attention { color: hsl(var(--chief-warning, 35 90% 45%)); }
+.chief-tone-alerte { color: hsl(var(--chief-danger, 0 65% 52%)); }
+
+/* ── Documents montrés sur place ───────────────────────────────────────────────────────── */
+
+.chief-doc { display: block; }
+.chief-doc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.chief-doc-id { min-width: 0; }
+.chief-doc-name {
+  margin: 0;
+  font-size: 13.5px;
+  color: hsl(var(--chief-text, 220 40% 13%));
+  overflow-wrap: anywhere;
+}
+.chief-doc-meta { margin: 2px 0 0; font-size: 11.5px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); }
+.chief-doc-tools { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* Un contrat de quarante pages ne doit pas pousser la conversation hors de l'écran : le cadre
+   a une hauteur FIXE et défile en lui-même. */
+.chief-doc-frame {
+  display: block;
+  width: 100%;
+  height: 460px;
+  margin-top: 10px;
+  border: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+  border-radius: var(--chief-radius-control, 14px);
+  background-color: hsl(var(--chief-surface-sunken, 220 30% 96.5%));
+}
+.chief-doc-image {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+  margin-top: 10px;
+  border-radius: var(--chief-radius-control, 14px);
+  border: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+}
+.chief-doc .chief-table-scroll { margin-top: 10px; }
+
 /* ── Téléphone ─────────────────────────────────────────────────────────────────────────────
    Sur 390 px, une grille de fiches à deux colonnes coupe les valeurs en deux, et un
    rendez-vous en deux colonnes gaspille un tiers de la largeur en marge de gauche. */
@@ -212,7 +318,11 @@
   .chief-event { flex-direction: column; gap: 3px; }
   .chief-event-when { flex-direction: row; align-items: baseline; gap: 8px; min-width: 0; }
   .chief-queue-item { flex-direction: column; gap: 5px; }
-  .chief-queue-side { flex-direction: row; align-items: baseline; }
+  /* Les gestes passent SOUS la ligne et s'alignent à gauche : coincés à droite d'un titre
+     tronqué, « Approuver » et « Refuser » se chevauchaient sur 390 px. */
+  .chief-queue-side { flex-direction: row; align-items: baseline; flex-wrap: wrap; align-self: stretch; justify-content: flex-start; }
+  .chief-doc-head { flex-direction: column; gap: 6px; }
+  .chief-doc-frame { height: 320px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

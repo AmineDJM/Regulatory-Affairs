@@ -3,7 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import type {
-  WorkspaceBlock, WorkspaceComposition, WorkspaceEndpoint, WorkspacePerson,
+  WorkspaceAction, WorkspaceBlock, WorkspaceComposition, WorkspaceDoc,
+  WorkspaceEndpoint, WorkspaceGauge, WorkspacePerson,
 } from "@/lib/assistant/workspace/protocol";
 // La feuille voyage AVEC le composant : les blocs s'affichent aussi dans la page Assistant de
 // l'ERP, qui ne charge pas `chief.css`. Elle porte ses propres valeurs de repli.
@@ -21,6 +22,53 @@ import "./blocks.css";
  * pas de bordures épaisses, pas de couleurs d'accent, pas de titres criards. On lit une
  * réponse, et la donnée est là, tenue.
  */
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * COMMENT UN BOUTON DE CET ESPACE AGIT — et pourquoi il ne fait qu'écrire.
+ *
+ * Un bloc peut proposer un geste (« Approuver », « Refuser »). Le clic n'exécute RIEN ici : il
+ * envoie dans la conversation la phrase que le SERVEUR a rédigée, avec la référence exacte,
+ * exactement comme si le PDG l'avait tapée. La mutation emprunte donc la porte unique —
+ * proposition, carte de confirmation, action canonique, RBAC revérifié, audit.
+ *
+ * Le contexte existe parce que ces blocs s'affichent à deux endroits (le bureau d'Adam et la
+ * page Assistant) : faire descendre un `onAsk` à travers chaque rendu polluerait huit signatures
+ * pour une capacité que deux blocs utilisent. Sans fournisseur, les gestes ne s'affichent pas —
+ * un bouton mort serait pire que pas de bouton.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const AskContext = React.createContext<((phrase: string) => void) | null>(null);
+
+export function WorkspaceAskProvider(
+  { ask, children }: { ask: (phrase: string) => void; children: React.ReactNode },
+) {
+  return <AskContext.Provider value={ask}>{children}</AskContext.Provider>;
+}
+
+function ActionRow({ actions }: { actions: WorkspaceAction[] }) {
+  const ask = React.useContext(AskContext);
+  // Un tour est en cours dès qu'on a cliqué : re-cliquer enverrait la phrase deux fois, et
+  // « Approuve VAL-014 » posée deux fois est une seconde décision, pas un doublon inoffensif.
+  const [sent, setSent] = React.useState<string | null>(null);
+  if (!ask) return null;
+  return (
+    <div className="chief-actions">
+      {actions.map((a) => (
+        <button
+          key={a.phrase}
+          type="button"
+          className={`chief-action${a.ton === "danger" ? " chief-action-danger" : a.ton === "primaire" ? " chief-action-primary" : ""}`}
+          disabled={sent !== null}
+          onClick={() => { setSent(a.phrase); ask(a.phrase); }}
+          title={a.phrase}
+        >
+          {sent === a.phrase ? "Envoyé…" : a.libelle}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // ── Primitives partagées ──────────────────────────────────────────────────────────────────
 
@@ -265,6 +313,9 @@ function QueueBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "queue" }> }) {
             <div className="chief-queue-side">
               {it.statut ? <span className="chief-chip">{it.statut}</span> : null}
               {it.echeance ? <span className="chief-queue-date">{it.echeance}</span> : null}
+              {/* TRANCHER SANS PARTIR. Le lien reste — il mène à la demande complète, avec ses
+                  pièces — mais il n'est plus la SEULE issue. */}
+              {it.actions?.length ? <ActionRow actions={it.actions} /> : null}
             </div>
           </li>
         ))}
@@ -332,6 +383,139 @@ function TimelineBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "timeline" }>
 }
 
 /**
+ * LES JAUGES — « il reste combien ? » répondu par une longueur.
+ *
+ * La barre est bornée à 100 % pour ne pas déborder de la carte, MAIS le chiffre, lui, ne l'est
+ * pas : un dépassement s'écrit « 112 % » et se colore. Rogner la valeur affichée pour faire
+ * joli reviendrait à cacher exactement l'information qui compte.
+ */
+function Gauge({ g }: { g: WorkspaceGauge }) {
+  const pct = g.total && g.total > 0 ? (g.valeur / g.total) * 100 : g.valeur;
+  const shown = Math.max(0, Math.min(100, pct));
+  const ton = g.ton ?? (pct >= 100 ? "alerte" : pct >= 85 ? "attention" : "neutre");
+  const fmt = (n: number) => new Intl.NumberFormat("fr-DZ").format(Math.round(n));
+  const right = g.detail
+    ?? (g.total && g.total > 0 ? `${fmt(g.valeur)} / ${fmt(g.total)}${g.unite ? ` ${g.unite}` : ""}` : null);
+  return (
+    <li className="chief-gauge">
+      <div className="chief-gauge-head">
+        <span className="chief-gauge-label">{g.label}</span>
+        <span className={`chief-gauge-pct chief-tone-${ton}`}>{Math.round(pct)} %</span>
+      </div>
+      <div
+        className="chief-gauge-track"
+        role="progressbar"
+        aria-label={g.label}
+        aria-valuenow={Math.round(pct)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        <span className={`chief-gauge-fill chief-tone-${ton}`} style={{ width: `${shown}%` }} />
+      </div>
+      {right ? <p className="chief-gauge-detail">{right}</p> : null}
+    </li>
+  );
+}
+
+function ProgressBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "progress" }> }) {
+  return (
+    <Card title={b.title}>
+      <ul className="chief-stack chief-list">
+        {b.gauges.map((g, i) => <Gauge key={`${g.label}-${i}`} g={g} />)}
+      </ul>
+      {b.note ? <p className="chief-block-note">{b.note}</p> : null}
+    </Card>
+  );
+}
+
+/**
+ * UN DOCUMENT MONTRÉ SUR PLACE.
+ *
+ * « Je ne peux pas afficher un fichier Excel », répondu en production, était faux — mais rien
+ * ne le démentait à l'écran. Ici, chaque type a son rendu :
+ *
+ *   • un PDF s'ouvre dans un cadre, replié par défaut : un contrat de quarante pages qui se
+ *     déroule sous la réponse pousse la conversation hors de l'écran ;
+ *   • une IMAGE s'affiche, bornée en hauteur ;
+ *   • une FEUILLE arrive déjà LUE par le serveur — c'est ce qui permet de relire un export
+ *     AVANT de l'envoyer, sans ouvrir Excel ;
+ *   • le reste se télécharge, et on le dit plutôt que de prétendre l'afficher.
+ *
+ * Le `src` est une route de l'ERP qui revérifie les droits : le cadre n'ouvre rien que la
+ * personne n'aurait pu ouvrir elle-même sur l'écran du module.
+ */
+function DocumentView({ d }: { d: WorkspaceDoc }) {
+  const [open, setOpen] = React.useState(d.type === "image" || d.type === "feuille");
+  const feuille = d.feuille;
+  return (
+    <li className="chief-doc">
+      <div className="chief-doc-head">
+        <div className="chief-doc-id">
+          <p className="chief-doc-name">{d.nom}</p>
+          <p className="chief-doc-meta">
+            {[d.soustitre, d.taille, d.pages ? `${d.pages} page${d.pages > 1 ? "s" : ""}` : null]
+              .filter(Boolean).join(" · ")}
+          </p>
+        </div>
+        <div className="chief-doc-tools">
+          {d.type === "pdf" || d.type === "image" ? (
+            <button type="button" className="chief-action" onClick={() => setOpen((v) => !v)}>
+              {open ? "Replier" : "Afficher"}
+            </button>
+          ) : null}
+          <a className="chief-action" href={`${d.href}${d.href.includes("?") ? "&" : "?"}dl=1`}>Télécharger</a>
+        </div>
+      </div>
+
+      {open && d.type === "pdf" ? (
+        <iframe className="chief-doc-frame" src={d.href} title={d.nom} loading="lazy" />
+      ) : null}
+      {open && d.type === "image" ? (
+        // eslint-disable-next-line @next/next/no-img-element -- route ERP dynamique, dimensions inconnues
+        <img className="chief-doc-image" src={d.href} alt={d.nom} loading="lazy" />
+      ) : null}
+      {feuille && feuille.rows.length > 0 ? (
+        <>
+          <div className="chief-table-scroll">
+            <table className="chief-table">
+              <thead>
+                <tr>{feuille.columns.map((c) => <th key={c.key} className={c.numeric ? "chief-num" : undefined}>{c.label}</th>)}</tr>
+              </thead>
+              <tbody>
+                {feuille.rows.map((r, i) => (
+                  <tr key={i}>
+                    {feuille.columns.map((c) => <td key={c.key} className={c.numeric ? "chief-num" : undefined}>{r[c.key] ?? "—"}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {feuille.total > feuille.rows.length ? (
+            <p className="chief-block-note">
+              {feuille.total - feuille.rows.length} ligne{feuille.total - feuille.rows.length > 1 ? "s" : ""} de plus dans le fichier.
+            </p>
+          ) : null}
+        </>
+      ) : null}
+      {d.type === "autre" || (d.type === "feuille" && !feuille) ? (
+        <p className="chief-block-note">Aperçu indisponible pour ce format — le fichier reste téléchargeable.</p>
+      ) : null}
+    </li>
+  );
+}
+
+function DocumentBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "document" }> }) {
+  return (
+    <Card title={b.title} meta={b.docs.length > 1 ? `${b.docs.length}` : undefined}>
+      <ul className="chief-stack chief-list">
+        {b.docs.map((d, i) => <DocumentView key={`${d.href}-${i}`} d={d} />)}
+      </ul>
+      {b.note ? <p className="chief-block-note">{b.note}</p> : null}
+    </Card>
+  );
+}
+
+/**
  * LE REGISTRE. Le type de retour force l'exhaustivité : si le protocole gagne un type de bloc
  * sans rendu, la compilation échoue ici — pas à l'exécution, et pas sur l'écran du PDG.
  */
@@ -344,6 +528,8 @@ const RENDERERS: { [K in WorkspaceBlock["kind"]]: (p: { b: Extract<WorkspaceBloc
   record: RecordBlock,
   table: TableBlock,
   timeline: TimelineBlock,
+  progress: ProgressBlock,
+  document: DocumentBlock,
 };
 
 export function WorkspaceBlocks({ composition }: { composition: WorkspaceComposition }) {
@@ -362,6 +548,8 @@ export function WorkspaceBlocks({ composition }: { composition: WorkspaceComposi
           case "record": return <RecordBlock key={i} b={b} />;
           case "table": return <TableBlock key={i} b={b} />;
           case "timeline": return <TimelineBlock key={i} b={b} />;
+          case "progress": return <ProgressBlock key={i} b={b} />;
+          case "document": return <DocumentBlock key={i} b={b} />;
         }
       })}
     </div>
