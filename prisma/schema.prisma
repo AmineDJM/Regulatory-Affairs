@@ -6007,6 +6007,85 @@ model AiUsageLog {
   @@index([userId])
 }
 
+/// LE TOUR DE PAROLE VOCAL, MESURÉ — un enregistrement PAR TOUR, pas par session.
+///
+/// AiUsageLog agrège une session entière : « 14 tours, 2 erreurs d'outil ». Utile pour la
+/// facture, inutile pour réparer. Quand le PDG dit « ça marche mal », la question est TOUJOURS
+/// « quel étage a cassé, sur quel tour ? » — et cette question demande la granularité du tour.
+///
+/// L'attribution (`failedStage`) est calculée par `src/lib/assistant/voice/turn-metrics.ts` au
+/// PREMIER étage cassé : audio → transcription → détection de tour → compréhension → outil →
+/// restitution. Elle est dénormalisée ici pour que la vue de débogage puisse grouper sans
+/// recalculer 10 000 tours.
+///
+/// CE QUI EST STOCKÉ ET CE QUI NE L'EST PAS. La transcription FINALE est conservée : la mission
+/// l'exige pour comparer « ce qui a été dit » à « ce qui a été transcrit » (§4), et sans elle il
+/// est impossible de savoir si un échec vient de l'oreille ou de la tête. AUCUN AUDIO n'est
+/// stocké ici — l'enregistrement de diagnostic (§18) est un dispositif distinct, explicitement
+/// activé pour un test, et jamais implicite.
+model VoiceTurnLog {
+  id        String @id @default(cuid())
+  sessionId String
+  turnId    String
+  userId    String
+
+  /// ── Audio ───────────────────────────────────────────────────────────────────────────────
+  speechMs   Int?
+  /// Crête du niveau d'entrée, 0..1 — millièmes pour rester en entier (420 = 0,42).
+  inputPeak  Int?
+  clipped    Boolean @default(false)
+  /// Le périphérique effectivement retenu. « default » n'est pas une réponse, c'est un symptôme.
+  inputDevice String?
+
+  /// ── Transcription ───────────────────────────────────────────────────────────────────────
+  transcript     String?
+  /// Confiance en millièmes (930 = 0,93). Null = non fournie, ce qui n'est PAS zéro.
+  confidence     Int?
+  partialCount   Int?
+  transcriptMs   Int?
+
+  /// ── Détection de tour ───────────────────────────────────────────────────────────────────
+  interruptions  Int @default(0)
+  falseBargeIns  Int @default(0)
+  cutShort       Boolean @default(false)
+
+  /// ── Compréhension & outil ───────────────────────────────────────────────────────────────
+  intentKind String?
+  fastPath   Boolean @default(false)
+  toolName   String?
+  toolOk     Boolean?
+  toolError  String?
+  intentMs   Int?
+  toolStartMs Int?
+  toolMs     Int?
+
+  /// ── Restitution ─────────────────────────────────────────────────────────────────────────
+  speakMs         Int?
+  /// LE chiffre : fin de parole → premier son de réponse.
+  firstResponseMs Int?
+  delivered       Boolean @default(false)
+  nudged          Boolean @default(false)
+  spokenChars     Int?
+
+  /// ── Verdict (§16 : le succès vu par le PDG, pas par les outils) ─────────────────────────
+  ok          Boolean @default(false)
+  failedStage String?
+  reasons     String?
+  slowLegs    String?
+
+  /// Conditions d'essai, pour comparer micro de bureau / casque / mobile / bruit (§15).
+  scenario String?
+  device   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([createdAt])
+  @@index([userId])
+  @@index([failedStage])
+  @@index([scenario])
+}
+
 // ───────────────────────── Appels & réunions (Jitsi) ─────────────────────────
 // Une « réunion » = une salle Jitsi (meet.jit.si, gratuit, zéro config). Un « appel »
 // dans la messagerie est une réunion instantanée lancée depuis une conversation.

@@ -1,0 +1,285 @@
+import { classifyReply } from "@/lib/comms/confirmation";
+
+/**
+ * LE ROUTEUR VOCAL — ce que le PDG vient de dire, traduit en UN geste canonique, sans modèle.
+ *
+ * POURQUOI IL EXISTE. À l'oral, dix questions sur douze sont les mêmes : « des mails ? », « mon
+ * prochain rendez-vous ? », « où en est Raltegravir ? », « envoie-le », « alors ? ». Les faire
+ * traverser une planification générique coûte une à trois secondes — le temps exact pendant
+ * lequel une conversation cesse d'être une conversation. Un aiguillage déterministe répond dans
+ * la même seconde, et il a un second mérite : il est TESTABLE. On mesure sa justesse sur un banc,
+ * ce qu'on ne peut pas faire d'une intuition de modèle.
+ *
+ * CE QU'IL N'EST PAS. Ce n'est pas un moteur de compréhension : il reconnaît des FORMES
+ * fréquentes et laisse tout le reste au modèle (`DELEGATE`). Un routeur qui essaie de tout
+ * attraper attrape surtout des choses qu'il comprend mal — et un mauvais aiguillage à l'oral est
+ * pire qu'une seconde d'attente, parce qu'il répond à côté avec assurance.
+ *
+ * LA PRUDENCE EST ASYMÉTRIQUE, comme partout dans ce système : douter renvoie au modèle
+ * (`DELEGATE`), jamais vers une action. Aucune route de ce fichier n'écrit quoi que ce soit —
+ * `APPROVE_PENDING` désigne une intention DÉJÀ préparée et déjà montrée, et c'est le serveur qui
+ * vérifie qu'elle existe.
+ */
+
+export type VoiceRouteKind =
+  /** « des mails ? », « j'ai reçu quelque chose ? » — état de la boîte. */
+  | "GMAIL_INBOX"
+  /** « Deepak a répondu ? » — la boîte, filtrée sur une personne. */
+  | "GMAIL_FROM"
+  /** « mon prochain rendez-vous ? », « c'est quoi mon agenda ? » */
+  | "CALENDAR_NEXT"
+  /** « où en est Raltegravir ? » — la fiche canonique d'un dossier ou produit. */
+  | "RECORD_STATUS"
+  /** « envoie-le », « vas-y » — approuver l'intention d'envoi qui attend. */
+  | "APPROVE_PENDING"
+  /** « alors ? », « et donc ? » — réclamer le résultat en cours. */
+  | "RESUME_DELIVERY"
+  /** « qu'est-ce qui m'attend ? » — la file de décisions. */
+  | "PENDING_DECISIONS"
+  /** Tout le reste : le modèle décide. */
+  | "DELEGATE";
+
+export interface VoiceRoute {
+  kind: VoiceRouteKind;
+  /** L'outil canonique à appeler — `null` pour APPROVE_PENDING / RESUME_DELIVERY (serveur). */
+  tool: string | null;
+  /** Les arguments déjà résolus. */
+  args: Record<string, string>;
+  /** Vrai quand la route évite la planification générique — c'est ce qu'on mesure. */
+  fast: boolean;
+  /** Ce qui a déclenché la route — lisible dans le journal de débogage vocal. */
+  reason: string;
+}
+
+/** Ce que la conversation sait déjà — indispensable pour résoudre « la », « lui », « et X ? ». */
+export interface VoiceContext {
+  /** La dernière personne nommée à voix haute (« Raihana », « Deepak »). */
+  lastPerson?: string | null;
+  /** Le dernier dossier / produit / référence évoqué (« Raltegravir », « ORD-2026-014 »). */
+  lastSubject?: string | null;
+  /** La dernière route empruntée — « et Raihana ? » reprend l'intention précédente. */
+  lastKind?: VoiceRouteKind | null;
+  /** Une intention d'envoi attend-elle vraiment ? (le serveur le sait, pas le modèle) */
+  hasPendingMail?: boolean;
+  /** Un résultat est-il en cours de production ? (« alors ? » n'a de sens que si oui) */
+  hasOpenDelivery?: boolean;
+}
+
+// La classe de diacritiques s'écrit ÉCHAPPÉE (\u0300-\u036f) et jamais avec les caractères
+// combinants littéraux : écrits tels quels, ils se recollent au crochet dans l'éditeur et la
+// classe cesse silencieusement de couvrir les accents. Le piège s'est déjà refermé deux fois
+// dans ce dépôt (comms/confirmation.ts, directory/rank.ts).
+const stripAccents = (s: string): string => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+/** Forme comparable : sans accents, sans casse, sans ponctuation, espaces normalisés. */
+export function normalizeUtterance(raw: string): string {
+  return stripAccents((raw ?? "").toLowerCase())
+    .replace(/['’]/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** Les mots qui disent « la boîte mail », quelle que soit la tournure. */
+const MAIL_WORDS = /\b(mail|mails|email|emails|e mail|courriel|courriels|boite|messagerie)\b/;
+const RECEIVED = /\b(recu|recus|recois|arrive|arrives|repondu|repond|ecrit|nouveau|nouveaux|neuf)\b/;
+/**
+ * L'AGENDA SE DIT DE DEUX FAÇONS, et une seule est sans ambiguïté.
+ *
+ * « rendez-vous », « agenda », « planning » ne désignent que le calendrier. « réunion » non :
+ * « Raconte-moi la réunion d'hier » demande un compte rendu, pas l'agenda — ouvrir le calendrier
+ * là-dessus, c'est répondre à côté avec assurance. Le mot faible n'ouvre donc la route que
+ * lorsqu'un repère de temps l'accompagne (« ma prochaine réunion », « mes réunions demain »).
+ */
+const CALENDAR_STRONG = /\b(rendez vous|rdv|agenda|calendrier|planning)\b/;
+const CALENDAR_WEAK = /\b(reunion|reunions)\b/;
+const NEXT_WORDS = /\b(prochain|prochaine|suivant|suivante|aujourd hui|demain|apres)\b/;
+const STATUS_WORDS = /\b(ou en est|ou en sont|statut|avancement|point sur|etat de|ou ca en est)\b/;
+const DECISION_WORDS = /\b(attend|attendent|valider|validation|validations|decisions|en attente|arbitrer)\b/;
+/** « alors ? », « et donc ? », « ça donne quoi ? » — réclamer ce qui a été promis. */
+const NUDGE = /^(alors|et alors|et donc|donc|ca donne quoi|ca dit quoi|tu as trouve|tu as fini|resultat|et alors donc)$/;
+
+/**
+ * Les mots qui portent un RISQUE. Leur seule présence suffit à interdire un aiguillage rapide :
+ * une phrase qui parle de supprimer, payer ou changer un salaire n'a rien à faire dans un
+ * raccourci — elle passe par le chemin complet, avec ses cartes et ses confirmations.
+ */
+const RISKY = /\b(supprime|supprimer|efface|effacer|detruit|detruire|paie|payer|paiement|vire|virement|salaire|augmente|licencie|annule|annuler|desactive|droit|droits|permission|acces)\b/;
+
+/**
+ * QUI EST NOMMÉ DERRIÈRE « DE » — et pourquoi on exige la MAJUSCULE.
+ *
+ * « Des mails de Deepak » nomme un expéditeur. « Quelque chose de nouveau dans la boîte » n'en
+ * nomme aucun : « de » y est une préposition ordinaire. Sur le texte normalisé (tout en bas de
+ * casse) les deux sont indiscernables, et le routeur filtrait la boîte sur « nouveau ».
+ *
+ * On lit donc l'énoncé BRUT, où la transcription a conservé la majuscule des noms propres. Et
+ * quand elle manque, on ne devine pas : on rend la boîte ENTIÈRE. L'asymétrie est la même que
+ * partout ici — une lecture trop large fait perdre une phrase de tri, un filtre erroné répond
+ * « rien de Nouveau » avec aplomb, ce qui est faux et se croit vrai.
+ */
+const NAMED_SENDER = /\b(?:de|d'|d’|chez|par)\s+([A-ZÀ-ÖØ-Þ][\p{L}'’-]{2,})/u;
+
+function namedSender(raw: string): string | null {
+  const m = NAMED_SENDER.exec(raw ?? "");
+  if (!m) return null;
+  const candidate = normalizeUtterance(m[1]);
+  return candidate.length >= 3 && !STOP_AFTER.has(candidate) ? candidate : null;
+}
+const STOP_AFTER = new Set(["moi", "toi", "lui", "elle", "nous", "vous", "ce", "cette", "la", "le", "les", "mon", "ma", "mes", "aujourd", "hui", "quoi", "qui"]);
+
+/** Un pronom qui renvoie à quelqu'un déjà nommé : « relance-la », « écris-lui ». */
+const PRONOUN_PERSON = /\b(la|le|lui|leur|les)\b$/;
+
+/**
+ * Ce qui occupe la place d'un nom sans en être un. « Elle a répondu ? » désigne quelqu'un — la
+ * personne du tour précédent ; « on a répondu ? » n'en désigne aucune. Dans les deux cas,
+ * filtrer la boîte sur ce mot ne rendrait rien : on résout, ou on rend la boîte entière.
+ */
+const SUBJECT_PRONOUN = new Set(["il", "elle", "ils", "elles", "on", "tu", "vous", "quelqu", "ca", "personne", "quelqu un"]);
+
+/**
+ * LES VERBES QUI ORDONNENT — et pourquoi ils ferment les raccourcis de LECTURE.
+ *
+ * « Demande à Regulatory ce qu'ils attendent » contient « attendent » : la file de décisions du
+ * PDG s'ouvrirait, alors qu'il demandait qu'on écrive à un service. C'est l'erreur la plus chère
+ * du routeur — pas une seconde perdue, une réponse à côté, dite avec aplomb. Une phrase qui
+ * COMMENCE par un ordre est une action : elle va au modèle, qui sait préparer, montrer et faire
+ * confirmer. Le raccourci sert à répondre vite, jamais à agir vite.
+ */
+const ACTION_VERB = /^(demande|demandez|dis|dites|ecris|ecrivez|envoie|envoyez|transmets|transmet|transfere|relance|relances|appelle|appelez|assigne|assignes|attribue|confie|prepare|prepares|redige|ajoute|cree|creer|planifie|programme|invite|reponds|repondez|rappelle|note|marque|change|mets|met|deplace|reserve|commande|valide|valides|approuve|refuse|rejette)\b/;
+
+/**
+ * LE PREMIER MOT DE LA PHRASE DÉCIDE SOUVENT — mais pas seul.
+ *
+ * L'ordre des tests n'est pas cosmétique : l'accord (« envoie-le ») se teste AVANT la boîte
+ * mail, sinon « envoie-le » partirait chercher des messages ; et le risque se teste avant tout,
+ * parce qu'aucune économie de latence ne vaut une action mal comprise.
+ */
+export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceRoute {
+  const text = normalizeUtterance(raw);
+  if (!text) return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "vide" };
+  const words = text.split(" ");
+
+  // ── 0. LE RISQUE FERME TOUS LES RACCOURCIS ──────────────────────────────────────────────
+  // Une phrase qui touche à l'argent, aux droits ou à une suppression traverse le chemin
+  // complet : cartes, confirmations, vérifications. On ne gagne pas une seconde là-dessus.
+  if (RISKY.test(text)) {
+    return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "vocabulaire sensible — pas de raccourci" };
+  }
+
+  // ── 1. L'ACCORD — « envoie-le », « vas-y », « je confirme » ─────────────────────────────
+  // Il ne vaut que si une intention attend RÉELLEMENT : sans cela, « envoie » est une demande
+  // neuve, pas une approbation, et la confondre expédierait le mauvais message.
+  if (ctx.hasPendingMail && classifyReply(raw) === "CONFIRM") {
+    return { kind: "APPROVE_PENDING", tool: null, args: {}, fast: true, reason: "accord sur l'envoi en attente" };
+  }
+
+  // ── 1 bis. UN ORDRE N'EST PAS UNE QUESTION ──────────────────────────────────────────────
+  // Testé APRÈS l'accord (« envoie-le » reste une approbation quand une intention attend) et
+  // AVANT toutes les lectures. On résout quand même le pronom au passage : « relance-la » part
+  // au modèle, mais avec « la » déjà traduit — c'est le seul travail que le routeur sait faire
+  // ici sans risquer de se tromper de geste.
+  if (ACTION_VERB.test(text)) {
+    const who = PRONOUN_PERSON.test(text) ? ctx.lastPerson ?? null : null;
+    return {
+      kind: "DELEGATE", tool: null, fast: false,
+      args: who ? { resolvedPerson: who } : {},
+      reason: who ? `ordre — pronom résolu vers ${who}` : "ordre — le modèle prépare l'action",
+    };
+  }
+
+  // ── 2. « ALORS ? » — réclamer ce qui a été promis ───────────────────────────────────────
+  // Le PDG ne devrait jamais avoir à le dire (c'est tout l'objet de l'obligation de
+  // restitution) ; quand il le dit quand même, la réponse est le résultat en cours, pas une
+  // nouvelle recherche.
+  if (NUDGE.test(text)) {
+    return ctx.hasOpenDelivery
+      ? { kind: "RESUME_DELIVERY", tool: null, args: {}, fast: true, reason: "relance d'un résultat en cours" }
+      : { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "relance sans travail en cours" };
+  }
+
+  // ── 3. LE SUIVI ELLIPTIQUE — « et Raihana ? » ───────────────────────────────────────────
+  // Même intention, entité substituée. Sans ça, la conversation redémarre à zéro à chaque nom.
+  const elliptic = /^et\s+(.+)$/.exec(text);
+  if (elliptic && ctx.lastKind && ctx.lastKind !== "DELEGATE") {
+    const who = elliptic[1].trim();
+    if (who.length >= 3) {
+      if (ctx.lastKind === "GMAIL_FROM" || ctx.lastKind === "GMAIL_INBOX") {
+        return { kind: "GMAIL_FROM", tool: "gmail_search", args: { from: who }, fast: true, reason: "suivi elliptique (boîte)" };
+      }
+      if (ctx.lastKind === "RECORD_STATUS") {
+        return { kind: "RECORD_STATUS", tool: "inspect_record", args: { query: who }, fast: true, reason: "suivi elliptique (dossier)" };
+      }
+    }
+  }
+
+  // ── 4. LA BOÎTE MAIL ────────────────────────────────────────────────────────────────────
+  const asksMail = MAIL_WORDS.test(text);
+  const asksReceived = RECEIVED.test(text);
+  // « réunion » seul ne suffit pas à ouvrir l'agenda — il lui faut un repère de temps.
+  const asksCalendar = CALENDAR_STRONG.test(text) || (CALENDAR_WEAK.test(text) && NEXT_WORDS.test(text));
+
+  // « Deepak a répondu ? » — une personne + un verbe de réception, sans qu'on parle de « mail ».
+  const namedReply = /^([a-z]{2,})\s+(a\s+)?(repondu|a ecrit|ecrit|repond)\b/.exec(text);
+  if (namedReply) {
+    // « Elle a répondu ? » ne nomme personne : le nom est dans le tour précédent. Sans contexte,
+    // filtrer la boîte sur le mot « elle » ne rendrait rien — mieux vaut la boîte entière.
+    const spoken = namedReply[1];
+    const who = SUBJECT_PRONOUN.has(spoken) ? ctx.lastPerson ?? null : spoken;
+    if (who) {
+      return {
+        kind: "GMAIL_FROM", tool: "gmail_search", args: { from: who }, fast: true,
+        reason: SUBJECT_PRONOUN.has(spoken) ? `réponse attendue — pronom résolu vers ${who}` : "réponse attendue d'une personne",
+      };
+    }
+    return { kind: "GMAIL_INBOX", tool: "gmail_search", args: {}, fast: true, reason: "réponse attendue, personne non résolue" };
+  }
+  if (asksMail || (asksReceived && !asksCalendar)) {
+    const who = namedSender(raw);
+    if (who) return { kind: "GMAIL_FROM", tool: "gmail_search", args: { from: who }, fast: true, reason: "boîte filtrée sur une personne nommée" };
+    return { kind: "GMAIL_INBOX", tool: "gmail_search", args: {}, fast: true, reason: "état de la boîte" };
+  }
+
+  // ── 5. L'AGENDA ─────────────────────────────────────────────────────────────────────────
+  if (asksCalendar) {
+    return {
+      kind: "CALENDAR_NEXT", tool: "read_calendar",
+      args: NEXT_WORDS.test(text) ? { horizon: "next" } : {},
+      fast: true, reason: "agenda",
+    };
+  }
+
+  // ── 6. L'ÉTAT D'UN DOSSIER — « où en est Raltegravir ? » ────────────────────────────────
+  if (STATUS_WORDS.test(text)) {
+    const subject = subjectAfterStatus(text) ?? ctx.lastSubject ?? null;
+    if (subject) {
+      return { kind: "RECORD_STATUS", tool: "inspect_record", args: { query: subject }, fast: true, reason: "état d'un dossier nommé" };
+    }
+    return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "état demandé sans sujet identifiable" };
+  }
+
+  // ── 7. CE QUI ATTEND LE PDG ─────────────────────────────────────────────────────────────
+  if (DECISION_WORDS.test(text) && /\b(quoi|qu|combien|qui)\b/.test(text)) {
+    return { kind: "PENDING_DECISIONS", tool: "list_pending_decisions", args: {}, fast: true, reason: "file de décisions" };
+  }
+
+  // ── 8. LE PRONOM SEUL — « relance-la » ──────────────────────────────────────────────────
+  // On NE devine PAS : on note simplement que la personne visée est celle du contexte, et on
+  // laisse le modèle formuler l'action. Le raccourci s'arrête où commence l'écriture.
+  if (PRONOUN_PERSON.test(text) && ctx.lastPerson) {
+    return {
+      kind: "DELEGATE", tool: null, args: { resolvedPerson: ctx.lastPerson },
+      fast: false, reason: `pronom résolu vers ${ctx.lastPerson}`,
+    };
+  }
+
+  return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "hors des formes rapides" };
+}
+
+/** Ce qui suit « où en est … » — le sujet, débarrassé des mots de liaison. */
+function subjectAfterStatus(text: string): string | null {
+  const m = /(?:ou en est|ou en sont|statut de|statut du|avancement de|avancement du|point sur|etat de|etat du)\s+(?:le |la |les |l |mon |ma |mes )?(.+)$/.exec(text);
+  if (!m) return null;
+  const subject = m[1].trim();
+  return subject.length >= 3 ? subject : null;
+}
