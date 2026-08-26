@@ -21,6 +21,7 @@ import { REG4_OPS_IMPL, PCH_OPS_IMPL, STOCK4_OPS_IMPL, SALES_OPS_IMPL, LOGISTICS
 import { MEDICAL_OPS_IMPL, RANGE_OPS_IMPL, BD4_OPS_IMPL } from "./impl-wave4b";
 import { EVENT_OPS_IMPL, ADPRO5_OPS_IMPL, CONSULTING_OPS_IMPL } from "./impl-wave5";
 import { CARE_OPS_IMPL, PROMO_OPS_IMPL } from "./impl-wave5b";
+import { BD6_OPS_IMPL, DOSSIER_OPS_IMPL, DIRECTIVE_OPS_IMPL, SUPPORT_OPS_IMPL, REMINDER_OPS_IMPL } from "./impl-wave6";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -92,13 +93,13 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   task_operation: {
     module: "WORKSPACE",
-    ops: zipOps("task_operation", { ...TASK_OPS_IMPL, ...DOCREQ_OPS_IMPL }),
+    ops: zipOps("task_operation", { ...TASK_OPS_IMPL, ...DOCREQ_OPS_IMPL, ...REMINDER_OPS_IMPL }),
     def: {
       name: "task_operation",
       description:
-        "MES TÂCHES — répondre à une demande de tâche et faire avancer les siennes, par les actions canoniques de l'écran (notifications au demandeur, audit). "
+        "MES TÂCHES & MES RAPPELS — répondre à une demande de tâche et faire avancer les siennes, et les RAPPELS personnels de Mon espace (poser un rappel daté, le terminer, le reporter — défaut +1 jour —, l'annuler), par les actions canoniques de l'écran (notifications au demandeur, audit). "
         + `Champ « op » : ${opsSummary("task_operation")}. `
-        + "La tâche se donne par INTITULÉ (« title ») — seules les tâches où le geste est réellement possible sont proposées. "
+        + "La tâche se donne par INTITULÉ (« title ») — seules les tâches où le geste est réellement possible sont proposées. Le rappel se donne par son objet (« label »). "
         + "Pour CRÉER ou demander une tâche : create_task.",
       input_schema: {
         type: "object",
@@ -109,10 +110,11 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           note: { type: "string", description: "submit_work : compte rendu du travail (facultatif)." },
           comment: { type: "string", description: "comment : le message à poster dans le fil." },
           person: { type: "string", description: "request_document : à qui demander la pièce (nom)." },
-          label: { type: "string", description: "Demandes de pièces : la pièce visée (« Devis signé »…)." },
+          label: { type: "string", description: "Demandes de pièces : la pièce visée (« Devis signé »…) ; rappels : l'objet du rappel." },
           target: { type: "string", description: "request_document : l'entité de rattachement (nom d'événement / congrès / sponsoring) — OBLIGATOIRE." },
           kind: { type: "string", description: "request_document : type de l'entité (événement | sponsoring | congrès international | congrès national)." },
           dueDate: { type: "string", description: "request_document : échéance (AAAA-MM-JJ)." },
+          date: { type: "string", description: "Rappels : la date du rappel (AAAA-MM-JJ, ou AAAA-MM-JJTHH:MM) — snooze : défaut +1 jour." },
           decision: { type: "string", description: "decide_document_request : accepter ou refuser." },
         },
         required: ["op"],
@@ -655,13 +657,13 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   bd_operation: {
     module: "BUSINESS_DEVELOPMENT",
-    ops: zipOps("bd_operation", { ...BD_OPS_IMPL, ...BD4_OPS_IMPL }),
+    ops: zipOps("bd_operation", { ...BD_OPS_IMPL, ...BD4_OPS_IMPL, ...BD6_OPS_IMPL }),
     def: {
       name: "bd_operation",
       description:
-        "BUSINESS DEVELOPMENT — pipeline d'opportunités (stades idée → validée / abandonnée) ET études de marché : lignes-molécules, acteurs, pré-remplissage depuis l'intelligence marché, présentations IA versionnées — par les actions canoniques. "
+        "BUSINESS DEVELOPMENT — pipeline d'opportunités (stades idée → validée / abandonnée), études de marché (lignes-molécules, acteurs, pré-remplissage, présentations IA), ET le TABLEAU STRATÉGIQUE projets → gammes → produits (fiches en FUSION, cellule par liste blanche via set_bd_cell, suppressions en cascade comptées, commentaires) — par les actions canoniques. "
         + `Champ « op » : ${opsSummary("bd_operation")}. `
-        + "L'étude se donne par TITRE (« research »), la ligne par sa molécule (« row »), l'acteur par son nom (« player »).",
+        + "L'étude se donne par TITRE (« research »), la ligne par sa molécule (« row »), l'acteur par son nom (« player ») ; le projet du tableau par NOM (« target »), la gamme par « range », le produit par « product » (DCI ou marque).",
       input_schema: {
         type: "object",
         properties: {
@@ -679,10 +681,100 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           quantity: { type: "string", description: "update_research_row : volume marché (unités)." },
           amount: { type: "string", description: "update_research_row : valeur marché USD ; update_research_player : part de marché." },
           price: { type: "string", description: "update_research_row : prix moyen par boîte (USD)." },
-          mode: { type: "string", description: "update_research_player : importation ou fabrication locale." },
+          mode: { type: "string", description: "update_research_player / produit BD (sourcing) : importation, fabrication locale, à étudier." },
           presentation: { type: "string", description: "Présentations : le titre visé (ou à donner à la nouvelle)." },
-          notes: { type: "string", description: "Notes / consigne IA (generate/regenerate_presentation : l'instruction)." },
+          notes: { type: "string", description: "Notes / consigne IA (generate/regenerate_presentation : l'instruction) ; tableau : description du projet." },
           sources: { type: "string", description: "update_research : sources de l'étude." },
+          target: { type: "string", description: "Tableau stratégique : le PROJET visé (nom)." },
+          range: { type: "string", description: "Tableau : la gamme visée (nom)." },
+          product: { type: "string", description: "Tableau : le produit visé (DCI ou nom de marque)." },
+          field: { type: "string", description: "set_bd_cell : la cellule (Nom, Statut, DCI, Dosage, Taille de marché DZD, Prix unitaire, Concurrents, Investissement A1…)." },
+          value: { type: "string", description: "set_bd_cell : la nouvelle valeur (vide pour effacer)." },
+          kind: { type: "string", description: "set_bd_cell : projet ou produit." },
+          dosage: { type: "string", description: "Produit BD : dosage." },
+          form: { type: "string", description: "Produit BD : forme galénique." },
+          label: { type: "string", description: "Produit BD : nom de marque." },
+          note: { type: "string", description: "Commentaire (projet, gamme, produit)." },
+          message: { type: "string", description: "comment_bd_project : le commentaire à poser." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  dossier_operation: {
+    module: "DOSSIERS",
+    ops: zipOps("dossier_operation", DOSSIER_OPS_IMPL),
+    def: {
+      name: "dossier_operation",
+      description:
+        "PROJETS DE SUIVI — statut (ouvert → terminé / archivé), équipe (responsable + participants REJOUÉS en FUSION, « aucun » vide), fil « Suivi & discussion » (messages, mentions de MEMBRES, modification / suppression par extrait), e-mail journalisé dans le fil (projet existant ou créé à la volée), ouverture d'un projet depuis une tâche — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("dossier_operation")}. `
+        + "Le projet se donne par référence ou intitulé (« target ») ; un message du fil par un extrait (« message », ou « dernier »).",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("dossier_operation"), description: "Le geste à faire." },
+          target: { type: "string", description: "Le projet visé (référence ou intitulé)." },
+          status: { type: "string", description: "set_dossier_status : ouvert, en cours, en attente, terminé, archivé." },
+          person: { type: "string", description: "assign_dossier : le responsable (nom ; « aucun » retire)." },
+          people: { type: "string", description: "assign_dossier : participants (noms, virgules — liste REMPLACÉE, absents rejoués, « aucun » vide) ; post_dossier_message : mentions." },
+          message: { type: "string", description: "Le message à poster — ou l'EXTRAIT qui désigne un message existant (edit/delete ; « dernier » accepté)." },
+          note: { type: "string", description: "edit_dossier_message : le NOUVEAU texte." },
+          name: { type: "string", description: "link_email_to_dossier : intitulé du projet à CRÉER (si « target » absent)." },
+          label: { type: "string", description: "link_email_to_dossier : l'OBJET de l'e-mail ; create_dossier_from_task : le titre de la tâche." },
+          date: { type: "string", description: "link_email_to_dossier : date de réception (AAAA-MM-JJ)." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  directive_operation: {
+    module: "DIRECTIVES",
+    ops: zipOps("directive_operation", DIRECTIVE_OPS_IMPL),
+    def: {
+      name: "directive_operation",
+      description:
+        "DIRECTIVES de la Direction — émission référencée DIR- vers UNE personne ou UN rôle (priorité, échéance), avancement (prise en compte horodatée, terminée, ARCHIVAGE réservé à la Direction), fil émetteur ↔ destinataire — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("directive_operation")}. `
+        + "La directive se donne par référence DIR-… ou titre (« target »).",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("directive_operation"), description: "Le geste à faire." },
+          target: { type: "string", description: "La directive visée (DIR-… ou titre)." },
+          label: { type: "string", description: "create_directive : le titre." },
+          message: { type: "string", description: "Le contenu de la directive, ou le message à poster sur le fil." },
+          person: { type: "string", description: "create_directive : destinataire nommé (prime sur le rôle)." },
+          role: { type: "string", description: "create_directive : rôle destinataire (« Délégués médicaux », « National Sales »…)." },
+          status: { type: "string", description: "set_directive_status : ouverte, prise en compte, en cours, terminée, archivée." },
+          priority: { type: "string", description: "create_directive : basse, moyenne, haute, critique." },
+          date: { type: "string", description: "create_directive : échéance (AAAA-MM-JJ)." },
+        },
+        required: ["op"],
+      },
+    },
+  },
+  support_operation: {
+    module: "SUPPORT",
+    ops: zipOps("support_operation", SUPPORT_OPS_IMPL),
+    def: {
+      name: "support_operation",
+      description:
+        "SUPPORT interne — demandes SUP- (question, support promotionnel, brochure, document) vers UNE personne ou UN rôle, prise en charge par le destinataire, fil de réponse (la réponse d'un destinataire passe la demande « répondue »), statut avec clôture ouverte au demandeur — par les actions canoniques. "
+        + `Champ « op » : ${opsSummary("support_operation")}. `
+        + "La demande se donne par référence SUP-… ou objet (« target »).",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("support_operation"), description: "Le geste à faire." },
+          target: { type: "string", description: "La demande visée (SUP-… ou objet)." },
+          label: { type: "string", description: "create_support_request : l'objet." },
+          message: { type: "string", description: "Le message / la réponse." },
+          person: { type: "string", description: "create_support_request : destinataire nommé (prime sur le rôle)." },
+          role: { type: "string", description: "create_support_request : rôle destinataire." },
+          kind: { type: "string", description: "create_support_request : question, support promotionnel, brochure, document, autre." },
+          product: { type: "string", description: "create_support_request : produit concerné." },
+          status: { type: "string", description: "set_support_status : ouverte, en cours, répondue, clôturée." },
         },
         required: ["op"],
       },

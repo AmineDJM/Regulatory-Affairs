@@ -799,7 +799,7 @@ G("événements (inscriptions, validation) après création", [
 ]);
 G("projets (statut, assignation, messages, archives, liens)", [
   "dossier-actions:updateDossierStatus", "dossier-actions:assignDossier", "dossier-actions:postDossierMessage",
-  "dossier-actions:listLinkableDossiers", "dossier-actions:linkEmailToDossier", "dossier-actions:createDossierFromTask",
+  "dossier-actions:linkEmailToDossier", "dossier-actions:createDossierFromTask",
   "dossier-actions:archiveDossier", "dossier-actions:deleteDossierMessage", "dossier-actions:editDossierMessage",
 ]);
 G("tâches : répondre/faire/valider POUR SOI (accepter la tâche, déposer le travail)", [
@@ -985,6 +985,9 @@ X("liste de choix d'un formulaire (les personnes qu'on peut solliciter) — une 
 X("sélecteurs de formulaires care / matériel promo (options d'annuaire, de matériels, de bénéficiaires à copier) — des lectures de listes de choix, pas des gestes métier (précédent : askablePeople) ; côté Chief, la résolution se fait par NOM dans care_operation / promo_operation / adpro_operation", [
   "care-actions:careDirectoryOptions", "care-actions:carePromoOptions",
   "congress-beneficiary-actions:listBeneficiaryRefs", "ad-pro-item-actions:promoMaterialOptions",
+]);
+X("liste des projets rattachables (sélecteur du Courrier) — une lecture ; côté Chief, dossier_operation:link_email_to_dossier résout le projet par NOM", [
+  "dossier-actions:listLinkableDossiers",
 ]);
 X("plomberie / lecture du Drive (initialisation de dossiers, liste des partages) — pas un geste métier", [
   "drive-actions:ensureDriveFolders", "drive-actions:getDriveNodeShares",
