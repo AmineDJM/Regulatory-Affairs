@@ -1163,6 +1163,7 @@ model User {
   sessionEvents              SessionEvent[]
   businessEvents             BusinessEvent[]          @relation("BusinessEventActor")
   productAliases             ProductAlias[]           @relation("ProductAliasAuthor")
+  productAssignments         ProductAssignment[]      @relation("ProductAssignmentUser")
 
   @@index([role])
   @@index([departmentId])
@@ -2009,11 +2010,12 @@ model AdProItem {
 
   decisions AdProItemDecision[]
 
-  position    Int      @default(0)
-  createdById String?
-  updatedById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  position           Int                      @default(0)
+  createdById        String?
+  updatedById        String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  productAllocations AdProProductAllocation[]
 
   @@index([sponsoringId])
   @@index([congressNationalId])
@@ -3197,15 +3199,25 @@ model Sale {
   salesUserId String?
   salesUser   User?   @relation(fields: [salesUserId], references: [id])
 
-  createdById String?
-  updatedById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  /// LE PRODUIT VENDU. Nullable : `saleType` peut valoir SERVICE, et `product` (texte) reste
+  /// la désignation libre — une prestation n'a pas de produit canonique.
+  productId        String?
+  canonicalProduct Product?       @relation("SaleProduct", fields: [productId], references: [id], onDelete: SetNull)
+  /// LA CHAÎNE PCH, quand la vente en relève : AO → ligne → commande. `isPch` disait DÉJÀ
+  /// qu'une vente venait de la PCH sans jamais dire DE QUEL marché.
+  tenderLineId     String?
+  tenderLine       PchTenderLine? @relation("SaleTenderLine", fields: [tenderLineId], references: [id], onDelete: SetNull)
 
   @@index([date])
   @@index([product])
   @@index([client])
   @@index([salesUserId])
+  @@index([productId])
+  @@index([tenderLineId])
 }
 
 // ───────────────────────────── Logistics PCH ─────────────────────────────
@@ -3510,10 +3522,11 @@ model MedicalVisit {
   doctorFeedback    String?
   followUpActions   String?
 
-  createdById String?
-  updatedById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdById  String?
+  updatedById  String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  productLinks MedicalVisitProduct[]
 
   @@index([delegateId])
   @@index([doctorId])
@@ -5040,52 +5053,61 @@ enum PchLineStatus {
 }
 
 model PchTenderLine {
-  id                     String        @id @default(cuid())
+  id                     String                   @id @default(cuid())
   tenderId               String
-  tender                 PchTender     @relation(fields: [tenderId], references: [id], onDelete: Cascade)
-  sortOrder              Int           @default(0)
+  tender                 PchTender                @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  sortOrder              Int                      @default(0)
   designation            String // produit demandé (libellé du marché)
   dci                    String?
   dosage                 String?
   form                   String? // forme galénique
   // Conditionnement : le marché demande des UNITÉS ; nos produits sont en BOÎTES de N unités.
-  quantityUnits          Int           @default(0) // quantité demandée (unités)
+  quantityUnits          Int                      @default(0) // quantité demandée (unités)
   unitsPerBox            Int? // « boîte de N » → nombre de boîtes = ceil(unités / N)
   /// Nature de l'unité demandée : « comprimé », « flacon », « seringue », « ampoule »…
   /// Un appel d'offres ne parle pas toujours de comprimés — le dire évite de comparer
   /// des flacons à des comprimés.
   unitLabel              String?
   // Avons-nous ce produit ? + rattachement au produit Regulatory (id + libellé dénormalisé).
-  haveProduct            Boolean       @default(false)
+  haveProduct            Boolean                  @default(false)
   ourProductId           String?
   ourProduct             String?
-  unitPriceDzd           Decimal?      @db.Decimal(14, 2) // notre prix unitaire (DZD)
+  unitPriceDzd           Decimal?                 @db.Decimal(14, 2) // notre prix unitaire (DZD)
   suppliersInfo          String? // nos fournisseurs + prix (texte)
   // Prix de RÉFÉRENCE verrouillé depuis les réceptions PCH 2025 (vérifié dosage + forme).
-  refPriceDzd            Decimal?      @db.Decimal(14, 2)
+  refPriceDzd            Decimal?                 @db.Decimal(14, 2)
   refPriceSource         String? // libellé/source de la ligne Réception 2025 rapprochée
   // Enrichissement intelligence marché.
   competitorCount        Int?
-  registeredNomenclature Boolean       @default(false) // présent à la nomenclature (marché) ?
-  registeredOurs         Boolean       @default(false) // NOUS avons un produit enregistré correspondant
+  registeredNomenclature Boolean                  @default(false) // présent à la nomenclature (marché) ?
+  registeredOurs         Boolean                  @default(false) // NOUS avons un produit enregistré correspondant
   nomLines               Int? // nombre de lignes nomenclature détectées
-  marketEstimateDzd      Decimal?      @db.Decimal(18, 2) // estimation de la taille de marché
+  marketEstimateDzd      Decimal?                 @db.Decimal(18, 2) // estimation de la taille de marché
   /// PAYSAGE CONCURRENTIEL, calculé par l'intelligence marché (`analyzeMolecule`) sur le
   /// triplet molécule + dosage + forme de la ligne. Dénormalisé ici pour rester lisible
   /// dans le tableau et dans l'export Excel, sans recalcul à chaque affichage.
   marketOrigin           String? // LOCAL | IMPORT | MIXTE — fabriqué en Algérie ou importé
-  marketVillePct         Decimal?      @db.Decimal(5, 2) // part du marché de ville (%)
-  marketHopitalPct       Decimal?      @db.Decimal(5, 2) // part du marché hospitalier (%)
+  marketVillePct         Decimal?                 @db.Decimal(5, 2) // part du marché de ville (%)
+  marketHopitalPct       Decimal?                 @db.Decimal(5, 2) // part du marché hospitalier (%)
   marketHhi              Int? // concentration (Herfindahl) : > 2500 = marché concentré
   competitorsTop         String? // « GSK 45 % · HIKMA 25 % · BIOCARE 14 % »
   // Suivi commercial de la ligne.
-  status                 PchLineStatus @default(PENDING)
-  awardedUnitPriceDzd    Decimal?      @db.Decimal(14, 2) // prix d'attribution si gagné
+  status                 PchLineStatus            @default(PENDING)
+  awardedUnitPriceDzd    Decimal?                 @db.Decimal(14, 2) // prix d'attribution si gagné
   note                   String?
-  createdAt              DateTime      @default(now())
-  updatedAt              DateTime      @updatedAt
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  /// LE PRODUIT CANONIQUE que cette ligne de marché désigne, quand nous le portons.
+  /// NULLABLE et le restera : un AO nomme des produits que nous ne vendons pas, et le libellé
+  /// du marché (`designation`) fait foi juridiquement même sans correspondance chez nous.
+  /// `ourProductId` (identifiant orphelin, sans relation) est CONSERVÉ le temps de la bascule.
+  productId              String?
+  product                Product?                 @relation("TenderLineProduct", fields: [productId], references: [id], onDelete: SetNull)
+  adProAllocations       AdProProductAllocation[]
+  sales                  Sale[]                   @relation("SaleTenderLine")
 
   @@index([tenderId])
+  @@index([productId])
 }
 
 model PchOrder {
@@ -9830,9 +9852,14 @@ model Product {
   updatedAt DateTime @updatedAt
 
   aliases            ProductAlias[]
-  regulatoryProfiles RegulatoryProduct[] @relation("ProductRegulatoryProfile")
-  promoProfiles      PromoProduct[]      @relation("ProductPromoProfile")
-  bdProfiles         BdProduct[]         @relation("ProductBdProfile")
+  regulatoryProfiles RegulatoryProduct[]      @relation("ProductRegulatoryProfile")
+  promoProfiles      PromoProduct[]           @relation("ProductPromoProfile")
+  bdProfiles         BdProduct[]              @relation("ProductBdProfile")
+  tenderLines        PchTenderLine[]          @relation("TenderLineProduct")
+  sales              Sale[]                   @relation("SaleProduct")
+  visitLinks         MedicalVisitProduct[]
+  adProAllocations   AdProProductAllocation[]
+  assignments        ProductAssignment[]
 
   @@index([dci])
   @@index([companyId])
@@ -9859,5 +9886,92 @@ model ProductAlias {
   createdBy   User?    @relation("ProductAliasAuthor", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
 
+  @@index([productId])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// QUI PORTE QUEL PRODUIT — la relation principale de la force de vente.
+///
+/// Un délégué porte PLUSIEURS produits ; un produit est porté par PLUSIEURS personnes. La
+/// relation est donc une table, avec ce qui la qualifie : depuis quand, sur quel territoire, et
+/// pour quelle PART de son temps.
+///
+/// `allocationPct` est ce qui rend calculable le coût RH analytique par produit — sans lui, la
+/// masse salariale reste un total qu'on ne sait pas ventiler, et « ce produit coûte-t-il plus
+/// qu'il ne rapporte ? » n'a pas de réponse chiffrée.
+///
+/// La PÉRIODE (`startedAt` / `endedAt`) est indispensable : un portefeuille change, et un calcul
+/// de coût sur l'année dernière doit utiliser l'affectation de l'année dernière, pas celle
+/// d'aujourd'hui. Sans elle, l'historique se réécrit à chaque réaffectation.
+model ProductAssignment {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation("ProductAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// DELEGATE · PRODUCT_MANAGER · NATIONAL_SALES · SUPERVISOR. Une chaîne et non un enum :
+  /// ajouter un rôle métier ne doit pas demander une migration de schéma.
+  role      String  @default("DELEGATE")
+  /// Wilaya, secteur, ou zone — le vocabulaire de la force de vente, pas une géographie imposée.
+  territory String?
+
+  startedAt     DateTime  @default(now())
+  endedAt       DateTime?
+  /// Part du temps de cette personne consacrée à ce produit (0–100). Facultatif : beaucoup
+  /// d'affectations n'ont pas de quotité, et en inventer une fausserait le coût analytique.
+  allocationPct Decimal?  @db.Decimal(5, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, userId, role, startedAt])
+  @@index([userId])
+  @@index([productId])
+}
+
+/// LES PRODUITS PRÉSENTÉS PENDANT UNE VISITE — plusieurs par visite, et c'est le cas normal.
+///
+/// `MedicalVisit.presentedProducts` (texte libre) est CONSERVÉ : il porte l'historique, et les
+/// écrans le lisent. Cette table le double en relations pour ce qui doit se compter.
+model MedicalVisitProduct {
+  id        String       @id @default(cuid())
+  visitId   String
+  visit     MedicalVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([visitId, productId])
+  @@index([productId])
+}
+
+/// LA PART D'UNE DÉPENSE AD&PRO IMPUTABLE À UN PRODUIT.
+///
+/// Un poste Ad&Pro sert souvent PLUSIEURS produits (un congrès, un stand). L'imputer entièrement
+/// au premier produit cité fausserait tout calcul de contribution ; ne l'imputer à aucun le
+/// rendrait impossible. D'où une répartition EXPLICITE, décidée par un humain.
+///
+/// `tenderLineId` rattache la dépense à une ligne d'AO quand elle en relève — c'est ce qui permet
+/// de rapprocher un investissement promotionnel du marché qu'il visait.
+model AdProProductAllocation {
+  id        String    @id @default(cuid())
+  itemId    String
+  item      AdProItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  /// La part, en pourcentage (0–100). La somme des parts d'un poste DEVRAIT valoir 100 — mais
+  /// la base ne l'impose pas : une saisie en cours doit pouvoir être incomplète sans être refusée.
+  /// Le contrôle se fait à la lecture, où il peut se DIRE plutôt que bloquer.
+  sharePct        Decimal? @db.Decimal(5, 2)
+  /// Le montant imputé, quand il est saisi directement plutôt qu'en pourcentage.
+  amountAllocated Decimal? @db.Decimal(14, 2)
+
+  tenderLineId String?
+  tenderLine   PchTenderLine? @relation(fields: [tenderLineId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([itemId, productId])
   @@index([productId])
 }
