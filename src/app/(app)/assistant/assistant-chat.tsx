@@ -22,7 +22,7 @@ import type { ProposedAction, AssistantActionPayload, ChatTurn, AssistantResult,
 import type { WorkspaceActionIntent, WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
 import { WorkspaceBlocks, WorkspaceAskProvider } from "@/components/chief/workspace/blocks";
 import { TurnWorkspaceView } from "@/components/chief/workspace/turn-workspace";
-import { composeTurn, isWorkspaceTurn, phasesOf } from "@/lib/assistant/workspace/turn";
+import { composeTurn, elaguerFil, isWorkspaceTurn, phasesOf } from "@/lib/assistant/workspace/turn";
 import { matchesConfirmText } from "@/lib/assistant/confirm";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import type { ThreadSummary } from "@/lib/assistant-memory";
@@ -679,6 +679,22 @@ export function AssistantChat({
     if (intentId) void cancelAssistantAction(intentId).catch(() => {});
   };
 
+  /**
+   * LE MÊME OBJET NE S'EMPILE PAS — il change (§21, §22).
+   *
+   * Un brouillon d'e-mail devient un envoi, une mission devient une mission exécutée. Sans cet
+   * élagage, chaque état poserait une carte de plus et le fil finirait avec trois versions du
+   * même message dont on ne saurait plus laquelle fait foi.
+   *
+   * L'élagage se fait à l'AFFICHAGE, pas dans `messages` : l'historique reste intact, ce qui
+   * importe pour la mémoire du fil et pour tout relire si besoin. Ce qu'on retire de l'écran,
+   * on ne l'efface pas de la conversation.
+   */
+  const messagesElagues = React.useMemo(() => {
+    const fil = elaguerFil(messages.map((m) => m.workspace ?? []));
+    return messages.map((m, i) => (m.workspace ? { ...m, workspace: fil[i] } : m));
+  }, [messages]);
+
   // Le panneau de droite a-t-il une raison d'exister à cet instant ?
   const showContextPanel = sources.length > 0
     || messages.some((m) => (m.proposals ?? []).length > 0);
@@ -760,7 +776,7 @@ export function AssistantChat({
             </div>
           </div>
         ) : (
-          messages.map((m) => (
+          messagesElagues.map((m) => (
             <MessageBubble key={m.id} msg={m} onConfirm={confirm} onCancel={cancel} onConfirmAll={confirmAll} canvas={canvas} />
           ))
         )}

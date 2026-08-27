@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composeTurn, phasesOf, isWorkspaceTurn, VISIBLE_BEFORE_FOLD, type TurnProposal } from "./turn";
+import { composeTurn, elaguerFil, phasesOf, isWorkspaceTurn, VISIBLE_BEFORE_FOLD, type TurnProposal } from "./turn";
 import type { WorkspaceBlock, WorkspaceComposition } from "./protocol";
 
 /**
@@ -266,5 +266,69 @@ describe("robustesse", () => {
     const t = composeTurn({ proposals: [proposal()] });
     expect(t.lead).toBeNull();
     expect(t.pending).toBe(1);
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE MÊME OBJET NE S'EMPILE PAS (§21, §22).
+ *
+ * Le défaut que ces tests empêchent ne se voit qu'à la relecture : trois versions du même
+ * brouillon dans le fil, et plus personne ne sait laquelle a été envoyée.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("l'élagage du fil — une identité, une seule carte", () => {
+  const email = (statut: "brouillon" | "envoye", id = "email:demo"): WorkspaceComposition => ({
+    source: "gmail_draft",
+    blocks: [{
+      kind: "email", title: "Message", a: ["x@y.dz"], objet: "Objet", corps: "Corps",
+      statut, blockId: id,
+    }],
+  });
+
+  it("seule la DERNIÈRE version d'une identité reste affichée", () => {
+    const fil = elaguerFil([[email("brouillon")], [email("envoye")]]);
+    expect(fil[0]).toHaveLength(0);
+    expect(fil[1][0].blocks).toHaveLength(1);
+    const b = fil[1][0].blocks[0];
+    expect(b.kind === "email" && b.statut).toBe("envoye");
+  });
+
+  it("un bloc SANS identité n'est jamais masqué", () => {
+    // Deux tableaux qui se ressemblent ne sont pas le même objet. Les confondre effacerait la
+    // réponse à une question qu'on a bel et bien posée deux fois.
+    const table = (): WorkspaceComposition => ({
+      source: "regulatory_workload",
+      blocks: [{ kind: "table", title: "Dossiers", columns: [{ key: "a", label: "A" }], rows: [{ cells: { a: "1" } }] }],
+    });
+    const fil = elaguerFil([[table()], [table()]]);
+    expect(fil[0][0].blocks).toHaveLength(1);
+    expect(fil[1][0].blocks).toHaveLength(1);
+  });
+
+  it("deux identités DIFFÉRENTES coexistent", () => {
+    const fil = elaguerFil([[email("brouillon", "email:a")], [email("brouillon", "email:b")]]);
+    expect(fil[0][0].blocks).toHaveLength(1);
+    expect(fil[1][0].blocks).toHaveLength(1);
+  });
+
+  it("une composition vidée de tous ses blocs disparaît, elle ne laisse pas un cadre vide", () => {
+    const fil = elaguerFil([[email("brouillon")], [email("envoye")]]);
+    expect(fil[0]).toEqual([]);
+  });
+
+  it("l'ordre du fil décide — jamais la version déclarée", () => {
+    // Une `version` qui recule serait un bug côté serveur ; on ne s'y fie donc pas. Ce dont on
+    // est sûr, c'est l'ordre dans lequel les cartes sont arrivées.
+    const v = (n: number): WorkspaceComposition => ({
+      source: "mission", blocks: [{
+        kind: "mission", title: "M", blockId: "mission:1", version: n,
+        etapes: [{ id: "1", label: `Étape v${n}`, etat: "a-faire" }],
+      }],
+    });
+    const fil = elaguerFil([[v(9)], [v(2)]]);
+    expect(fil[0]).toHaveLength(0);
+    const b = fil[1][0].blocks[0];
+    expect(b.kind === "mission" && b.etapes[0].label).toBe("Étape v2");
   });
 });

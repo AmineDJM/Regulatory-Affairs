@@ -3,6 +3,8 @@ import { assistantToolsFor } from "@/lib/assistant";
 import { routeQuery } from "@/lib/assistant/context/router";
 import { LEVEL_CAP, resolveTools } from "@/lib/assistant/context/tool-resolver";
 import { BUSINESS_CAPABILITIES } from "./business-capabilities";
+import { DIRECT_INTENTS } from "./workspace/direct-intents";
+import { stripDisplayPayload } from "./workspace/compose";
 import { METRICS } from "@/lib/metrics/catalog";
 import type { CurrentUser } from "@/lib/session";
 
@@ -173,6 +175,103 @@ describe("banc d'architecture — ce qui est DÉTERMINISTE et ne demande plus le
     for (const c of BUSINESS_CAPABILITIES) {
       expect(c.def.description, c.def.name).toMatch(/DÉFINITION|définition/);
     }
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE GESTE DÉTERMINISTE (§23) — les appels au modèle que le CLIC ne paie plus.
+ *
+ * C'est la seule économie d'APPEL MODÈLE qui se mesure ici sans clé, parce qu'elle ne dépend
+ * pas du modèle : un bouton porteur d'`intent` n'en appelle aucun, par construction. Le chiffre
+ * n'est donc pas une estimation — c'est le nombre d'allers-retours SUPPRIMÉS par clic.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("banc d'architecture — les gestes qui n'appellent plus le modèle", () => {
+  const user = superAdmin();
+  const jetons = (s: string): number => Math.ceil(s.length / 4);
+
+  it("chaque geste direct remplace UN tour complet de conversation", () => {
+    // Le tour évité n'est pas « un appel » : c'est le SCHÉMA des outils exposés pour la
+    // question, plus la question, plus la réponse rédigée. Le schéma seul se compte ici.
+    const tous = assistantToolsFor(user);
+    let economise = 0;
+
+    for (const [nom, def] of Object.entries(DIRECT_INTENTS)) {
+      // La phrase que le bouton aurait envoyée — celle-là même que le modèle aurait dû
+      // comprendre pour retrouver l'outil que le registre nomme déjà.
+      const phrase = def.phrase.replace("%s", "DEMO-REF-001");
+      const exposes = resolveTools(tous, phrase, routeQuery(phrase)).tools;
+      const cout = jetons(JSON.stringify(exposes));
+      expect(cout, `${nom} — le tour évité coûtait ${cout} jetons de schéma`).toBeGreaterThan(0);
+      economise += cout;
+    }
+
+    // Cinq gestes déclarés ⇒ cinq tours de moins par séquence de zoom complète. Le seuil est un
+    // CLIQUET : retirer un geste du registre le fait tomber, et c'est le but.
+    expect(Object.keys(DIRECT_INTENTS).length).toBeGreaterThanOrEqual(5);
+    expect(economise, `${economise} jetons de schéma évités par séquence complète`).toBeGreaterThan(2000);
+  });
+
+  it("l'outil de chaque geste EXISTE — un bouton mort ne s'attrape qu'ici", () => {
+    // Une capacité qui nomme un outil disparu produit un bouton qui échoue au clic, et le repli
+    // (la phrase) masquerait l'erreur en la faisant marcher quand même — donc personne ne le
+    // saurait jamais. C'est exactement le genre de panne que le banc existe pour trouver.
+    const noms = new Set(assistantToolsFor(user).map((x) => x.name));
+    for (const [cap, def] of Object.entries(DIRECT_INTENTS)) {
+      expect(noms.has(def.tool), `${cap} → ${def.tool} : outil introuvable dans le registre`).toBe(true);
+    }
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA CHARGE D'AFFICHAGE (§41) — les jetons que le modèle ne lit plus.
+ *
+ * `_blocs` porte ce que l'ÉCRAN rend : identifiants de jalons, chemins de pièces, libellés de
+ * boutons, couleurs. Le modèle la recevait mot pour mot sans jamais s'en servir — il répond à
+ * partir des faits, qui figurent ailleurs dans la même réponse.
+ *
+ * Sur une histoire d'affaire, cette charge dépasse le reste d'un ordre de grandeur. La mesure
+ * ci-dessous est faite sur une sortie de la MÊME FORME que celle de `business_story`.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("banc d'architecture — la charge d'affichage retirée du contexte", () => {
+  const jetons = (s: string): number => Math.ceil(s.length / 4);
+
+  it("le modèle ne lit plus la frise qu'il n'utilise pas", () => {
+    const events = Array.from({ length: 40 }, (_, i) => ({
+      id: `bc:${i}`, date: "2024-07-02", kind: "commande",
+      titre: `Bon de commande n° ${i + 1}`, etat: "fait",
+      detail: "Livré et facturé — règlement à 90 jours selon la convention annuelle.",
+      metriques: [{ valeur: "480 M", label: "commandé" }, { valeur: "480 M", label: "livré" }],
+      participants: [{ nom: "Démo Benkaci", role: "Responsable PCH" }],
+      docs: [{ nom: `BC-${i + 1}.pdf`, href: "/api/drive/file/x", type: "pdf", taille: "240 Ko" }],
+      fils: ["famille:commandes"], provenance: "PchOrder", certitude: "fait",
+    }));
+    const sortie = JSON.stringify({
+      affaire: "Marché DEMO-AO-2024",
+      jalons: events.length,
+      kpis: [{ valeur: "1,24 Md", label: "Attribué" }, { valeur: "612 M", label: "Encaissé" }],
+      limites: ["La date de soumission est déduite de la date de publication."],
+      _blocs: [{ kind: "story", title: "Marché DEMO-AO-2024", events }],
+    });
+
+    const avant = jetons(sortie);
+    const apres = jetons(stripDisplayPayload(sortie));
+    // La forme reste lisible : les KPI et les limites, dont le modèle a besoin pour commenter.
+    expect(stripDisplayPayload(sortie)).toContain("limites");
+    expect(stripDisplayPayload(sortie)).not.toContain("_blocs");
+    // Le rapport est ce qui se reporte dans le rapport final ; l'absolu bougera avec la donnée.
+    expect(apres, `${avant} → ${apres} jetons`).toBeLessThan(avant / 8);
+  });
+
+  it("une sortie SANS charge d'affichage n'est pas amputée", () => {
+    // Le repli doit être l'identité. Une réponse que le composeur n'a pas su lire ne doit
+    // surtout pas revenir tronquée au modèle — ce serait échanger des jetons contre des faits.
+    const nu = JSON.stringify({ effectif: 33, perimetre: "Adventum + Pharmagène" });
+    expect(stripDisplayPayload(nu)).toBe(nu);
+    expect(stripDisplayPayload("pas du JSON du tout")).toBe("pas du JSON du tout");
   });
 });
 

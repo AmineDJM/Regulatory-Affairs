@@ -325,3 +325,48 @@ export const isWorkspaceTurn = (t: TurnWorkspace): boolean => t.lead !== null;
  * reste accessible d'un geste, mais ne s'impose pas.
  */
 export const VISIBLE_BEFORE_FOLD = 3;
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE MÊME OBJET NE S'EMPILE PAS — il change (§21, §22).
+ *
+ * ── CE QUE ÇA CORRIGE ────────────────────────────────────────────────────────────────────
+ *
+ * Un brouillon d'e-mail, une mission, une vue 360 traversent plusieurs états. Sans règle, chaque
+ * changement pose une NOUVELLE carte dans le fil : à la fin, trois versions du même message y
+ * cohabitent et plus personne ne sait laquelle fait foi. C'est le défaut le plus coûteux d'une
+ * conversation qui sert d'interface, parce qu'il ne se voit qu'après coup — quand on relit.
+ *
+ * ── LA RÈGLE, ET SES DEUX LIMITES ────────────────────────────────────────────────────────
+ *
+ * Un bloc porteur d'un `blockId` déjà repris PLUS BAS dans le fil ne s'affiche plus : la
+ * dernière version fait foi, et c'est la seule qu'on lit.
+ *
+ * 1. Seul un `blockId` EXPLICITE compte. Un bloc sans identité n'est jamais masqué — deux
+ *    tableaux qui se ressemblent ne sont pas le même objet, et le supposer effacerait une
+ *    réponse à une question qu'on avait bel et bien posée deux fois.
+ * 2. On masque l'ANCIEN, jamais le nouveau. Une version qui recule serait un bug ; ici l'ordre
+ *    du fil décide, ce qui est la seule chose dont on soit sûr.
+ *
+ * ── POURQUOI C'EST UNE FONCTION PURE, ET PAS UNE RÈGLE DANS LE COMPOSANT ─────────────────
+ *
+ * Parce que la preuve doit tenir dans un test unitaire, pas dans une capture d'écran qu'il
+ * faudrait relire à chaque changement. Elle prend le fil ENTIER — un bloc ne peut pas savoir
+ * seul qu'il a été rejoué trois messages plus bas — et rend le même fil, élagué.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function elaguerFil(
+  parTour: readonly (readonly WorkspaceComposition[])[],
+): WorkspaceComposition[][] {
+  // Premier passage : le RANG de la dernière apparition de chaque identité.
+  const dernier = new Map<string, string>();
+  parTour.forEach((tour, i) => tour.forEach((c, j) => c.blocks.forEach((b, k) => {
+    if (b.blockId) dernier.set(b.blockId, `${i}.${j}.${k}`);
+  })));
+
+  // Second passage : on ne garde que la dernière. Les blocs SANS identité passent tous.
+  return parTour.map((tour, i) => tour.map((c, j) => ({
+    ...c,
+    blocks: c.blocks.filter((b, k) => !b.blockId || dernier.get(b.blockId) === `${i}.${j}.${k}`),
+  })).filter((c) => c.blocks.length > 0));
+}
