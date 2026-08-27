@@ -682,6 +682,49 @@ model AssistantMessage {
   @@index([userId])
 }
 
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// UN ÉPISODE — une TRANCHE de conversation, compressible par étapes (§92-94).
+///
+/// Trois objets de mémoire coexistent déjà et aucun ne fait ce travail : `AssistantMemory` est
+/// UN résumé par personne (il ne distingue pas mars d'hier), `AssistantMemoryItem` porte des
+/// faits DURABLES qui ne vieillissent pas, et `AssistantMessage` garde les tours bruts — les
+/// renvoyer tous à chaque fois est précisément ce que §90 proscrit.
+///
+/// L'épisode est daté, borné, et sa FIDÉLITÉ décroît avec l'âge sans jamais perdre ce qui
+/// compte. Un résumé qui a perdu l'identifiant d'un marché ou le montant d'une facture a
+/// détruit exactement ce qu'on voulait garder.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model AssistantEpisode {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation("AssistantEpisodes", fields: [userId], references: [id], onDelete: Cascade)
+  threadId      String?
+  /// RICH | STRUCTURED | FACTS — la fidélité actuelle, qui ne remonte jamais.
+  fidelity      String   @default("RICH")
+  summary       String   @db.Text
+  /// CE QUI SURVIT À TOUTES LES COMPRESSIONS (§94).
+  entities      Json     @default("[]")
+  decisions     Json     @default("[]")
+  commitments   Json     @default("[]")
+  openQuestions Json     @default("[]")
+  corrections   Json     @default("[]")
+  fromMessageId String?
+  toMessageId   String?
+  turns         Int      @default(0)
+  tokensBefore  Int      @default(0)
+  tokensAfter   Int      @default(0)
+  startedAt     DateTime
+  endedAt       DateTime
+  compactedAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, fromMessageId, toMessageId])
+  @@index([userId, endedAt])
+  @@index([threadId, endedAt])
+  @@index([userId, fidelity])
+}
+
 /// MÉMOIRE DISTILLÉE d'une personne : ce que l'assistant retient d'elle sur la durée
 /// (habitudes, dossiers récurrents, préférences), régénéré à partir de ses conversations.
 /// Une ligne par compte, jamais partagée.
@@ -1058,6 +1101,7 @@ model User {
   pettyCashCreated        PettyCashAllotment[]       @relation("PettyCashCreator")
   assistantThreads        AssistantThread[]          @relation("AssistantThreads")
   assistantMemory         AssistantMemory?           @relation("AssistantMemory")
+  assistantEpisodes       AssistantEpisode[]         @relation("AssistantEpisodes")
   dailyBriefs             DailyBrief[]               @relation("DailyBriefs")
   outboundEmails          OutboundEmail[]            @relation("OutboundEmails")
   tasksAssigned           Task[]                     @relation("TaskAssignee")
