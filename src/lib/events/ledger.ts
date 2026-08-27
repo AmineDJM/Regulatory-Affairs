@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma, EntityType } from "@prisma/client";
-import { matchEvent, type BusinessEventLike, type TaskLike } from "@/lib/tasks/evidence";
+import { EXPECTED_EVENTS, matchEvent, type BusinessEventLike, type TaskLike } from "@/lib/tasks/evidence";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -88,6 +88,20 @@ async function reconcileTasks(
   // l'écriture, elle, a besoin de l'enum réel.
   evt: Omit<BusinessEventLike, "entityType"> & { id: string; entityType: EntityType | null },
 ): Promise<void> {
+  // ─────────────────────────────────────────────────────────────────────────────────────
+  // LE PRÉ-FILTRE QUI ÉVITE 400 LIGNES LUES POUR RIEN.
+  //
+  // Depuis que l'audit alimente le registre, un fait est inscrit à chaque changement de statut
+  // de l'ERP. Or une tâche ne peut attendre qu'un des sept faits d'`EXPECTED_EVENTS` : pour
+  // tous les autres, la recherche ne pourrait RIEN trouver — elle lirait 400 tâches pour
+  // conclure à l'évidence. C'est exactement le coût invisible que l'en-tête ci-dessus décrit,
+  // et il fallait le fermer AVANT de brancher les cinq cents points d'émission, pas après.
+  //
+  // La liste vient d'`evidence.ts` : la garde ne peut donc pas se désynchroniser de la règle
+  // qu'elle protège.
+  // ─────────────────────────────────────────────────────────────────────────────────────
+  if (!(EXPECTED_EVENTS as readonly string[]).includes(evt.type)) return;
+
   const ouvertes = await prisma.task.findMany({
     where: { status: { notIn: ["DONE", "CANCELLED"] } },
     select: {
