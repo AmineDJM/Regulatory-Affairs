@@ -95,6 +95,11 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // `executePowerTool`, qui revérifie le droit de CETTE lecture à l'exécution. Poser un
       // garde ici dupliquerait celui de la source, avec le risque de diverger d'elle.
       "show_table",
+      // mission_status : cloisonné PAR REQUÊTE, comme action_history. La lecture filtre sur le
+      // PROPRIÉTAIRE de la mission — chacun ne voit que les siennes, et connaître l'identifiant
+      // d'une mission d'autrui n'ouvre rien. Exiger un droit de module fermerait à quelqu'un
+      // l'état d'une mission qu'Adam a pourtant menée pour lui.
+      "mission_status",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

@@ -236,4 +236,73 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
       });
     },
   },
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * « OÙ TU EN ES ? » — §46.
+   *
+   * ── POURQUOI CETTE CAPACITÉ NE RAISONNE PAS ─────────────────────────────────────────
+   *
+   * L'état d'une mission est EN BASE, exactement. Le faire décrire par un raisonnement long
+   * coûterait une seconde et demie et introduirait le risque qu'il se trompe sur un compte
+   * qu'un `SELECT` donne juste. Elle lit, elle compose, elle rend — et la carte se met à jour
+   * SUR PLACE grâce à un `blockId` stable (§43), au lieu d'empiler une carte par instant.
+   *
+   * ── LA PORTE ────────────────────────────────────────────────────────────────────────
+   *
+   * Une mission appartient à quelqu'un. La requête filtre par `ownerId` : ce n'est pas un
+   * contrôle de confort, c'est le cloisonnement — personne ne lit la mission d'un autre, même
+   * en connaissant son identifiant.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  {
+    def: {
+      name: "mission_status",
+      description:
+        "OÙ EN EST UNE MISSION EN COURS (« où tu en es ? », « ça avance ? », « quelles missions tournent ? »). "
+        + "Rend l'état RÉEL lu en base : chaque étape avec son état et son reçu, les éventails repliés avec leur "
+        + "compte (« 31/33 effectuées »), les sous-missions, et ce qui attend une action de votre part. "
+        + "DÉFINITION : l'avancement compte les étapes RÉELLEMENT exécutées — les itérations d'un éventail, pas leur "
+        + "modèle — de sorte que 31 envois sur 33 s'affichent 31/33 et jamais 1/1. Sans identifiant, rend les "
+        + "missions en cours. N'INVENTE RIEN : une étape sautée n'est jamais présentée comme faite.",
+      input_schema: {
+        type: "object",
+        properties: {
+          mission: { type: "string", description: "Identifiant de la mission. Omis : les missions en cours." },
+        },
+      },
+    },
+    // OUVERTE PAR DESSEIN, et cloisonnée PAR REQUÊTE — même design qu'`action_history` : la
+    // lecture filtre sur `ownerId`, donc chacun ne voit que SES missions. Exiger en plus un
+    // droit de module fermerait à quelqu'un l'accès à une mission qu'Adam a menée POUR LUI,
+    // ce qui ne protège rien et retire une capacité. Le test de sécurité l'exige déclarée.
+    allowed: () => true,
+    label: "État d'une mission",
+    run: async (input, user) => {
+      const id = str(input, "mission");
+      const r = await inProcessPlatform.query(principalOf(user), {
+        kind: "mission.status", ...(id ? { mission: id } : {}),
+      });
+      if (r.kind !== "mission.status") return "Réponse inattendue de la plateforme.";
+
+      if (!id) {
+        const liste = r.missions ?? [];
+        if (liste.length === 0) return JSON.stringify({ missions: [], message: "Aucune mission en cours." });
+        return JSON.stringify({ missions: liste });
+      }
+      if (!r.data) return "Mission introuvable, ou elle ne vous appartient pas.";
+
+      const v = r.data;
+      return JSON.stringify({
+        titre: v.titre,
+        etat: v.etat,
+        avancement: v.avancement,
+        enAttenteDeVous: v.enAttenteDeVous,
+        sousMissions: v.sousMissions,
+        // LE DÉTAIL DES ÉTAPES PART À L'ÉCRAN, pas au modèle : trente lignes d'état qu'il ne
+        // commenterait pas une par une, et dont il n'a pas besoin pour répondre.
+        _blocsDecoratifs: true,
+        _blocs: [v.bloc],
+      });
+    },
+  },
 ];

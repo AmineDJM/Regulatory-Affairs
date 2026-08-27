@@ -166,7 +166,15 @@ export type PlatformQuery =
    * référence et un produit à son nom canonique, et le lui faire deviner rouvrirait exactement
    * l'heuristique de ressemblance de libellé que la clé étrangère a remplacée.
    */
-  | { kind: "business.story"; ancre: string };
+  | { kind: "business.story"; ancre: string }
+  /**
+   * L'ÉTAT D'UNE MISSION D'EXÉCUTION. `mission` omis ⇒ les missions en cours du demandeur.
+   *
+   * Elle entre au contrat plutôt que d'être lue en direct : le Mission Runtime vit du côté ERP
+   * (c'est une façade transverse), et Adam ne doit pas le connaître. Le jour où le runtime
+   * devient un service à part, cette ligne ne bouge pas.
+   */
+  | { kind: "mission.status"; mission?: string };
 
 export type PlatformQueryResult =
   | { kind: "person.search" | "person.list"; people: readonly PersonView[]; total: number }
@@ -190,7 +198,8 @@ export type PlatformQueryResult =
    */
   | { kind: "product.economics"; data: BusinessSnapshot | null; question?: string }
   | { kind: "pch.market-status"; data: BusinessSnapshot | null; question?: string }
-  | { kind: "business.story"; data: BusinessStoryView | null; question?: string };
+  | { kind: "business.story"; data: BusinessStoryView | null; question?: string }
+  | { kind: "mission.status"; data: MissionStatusView | null; missions?: readonly MissionBrief[] };
 
 /**
  * UNE VUE MÉTIER DÉJÀ COMPOSÉE — l'ERP a fait le calcul, Adam n'a plus qu'à la restituer.
@@ -232,6 +241,31 @@ export interface BusinessSnapshot {
  * Qu'une frise ne se donne jamais pour complète. « La date de soumission est déduite » ou
  * « aucun contrat rattaché » sont ce qui empêche de lire un trou comme une absence de fait.
  */
+/**
+ * L'ÉTAT D'UNE MISSION, DÉJÀ COMPOSÉ — comme les vues métier, l'ERP a fait le travail.
+ *
+ * `bloc` est opaque pour la même raison que `BusinessSnapshot` : c'est de l'affichage, et y
+ * figer la forme obligerait à toucher le contrat — donc les deux côtés — à chaque colonne
+ * ajoutée. `avancement`, en revanche, est NOMMÉ : c'est le chiffre dont on répond, et il compte
+ * les étapes réellement exécutées, jamais les modèles d'éventail.
+ */
+export interface MissionStatusView {
+  titre: string;
+  etat: string;
+  avancement: { faites: number; total: number; echouees: number };
+  enAttenteDeVous: string | null;
+  sousMissions: number;
+  bloc: unknown;
+}
+
+/** Une mission en cours, en une ligne. */
+export interface MissionBrief {
+  id: string;
+  titre: string;
+  etat: string;
+  avancement: string;
+}
+
 export interface BusinessStoryView {
   ancre: { type: string; id: string; label: string };
   titre: string;

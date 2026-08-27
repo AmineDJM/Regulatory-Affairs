@@ -12,6 +12,7 @@ import { storyMarche, storyProduit } from "@/lib/queries/story";
 import { blocMarche360, blocProduit360 } from "@/lib/queries/e360-blocks";
 import { DirectoryChannel } from "@prisma/client";
 import { subscribe as busSubscribe } from "../event-bus";
+import { missionsEnCours, vueMission } from "@/lib/missions/view/workspace";
 import {
   PLATFORM_CONTRACT_VERSION,
   type CommandOutcome, type ContactEndpoint, type DocumentView, type EventHandler, type PendingDecision,
@@ -203,6 +204,9 @@ async function runQuery(principal: Principal, q: PlatformQuery): Promise<Platfor
 
     case "business.story":
       return histoireAffaire(q.ancre);
+
+    case "mission.status":
+      return etatMission(principal.id, q.mission);
 
     case "record.get":
     case "record.search":
@@ -636,6 +640,39 @@ async function etatMarche(reference: string): Promise<PlatformQueryResult> {
  * que c'est le mauvais.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+/**
+ * L'ÉTAT D'UNE MISSION D'EXÉCUTION — lu en base, sans un seul appel de modèle (§46).
+ *
+ * Le filtre par propriétaire vit dans `vueMission` : c'est le cloisonnement lui-même, pas une
+ * commodité. Personne ne lit la mission d'un autre, même en connaissant son identifiant.
+ */
+async function etatMission(userId: string, missionId?: string): Promise<PlatformQueryResult> {
+  if (!missionId) {
+    const liste = await missionsEnCours(userId);
+    return {
+      kind: "mission.status",
+      data: null,
+      missions: liste.map((m) => ({
+        id: m.id, titre: m.titre, etat: m.etat, avancement: `${m.faites}/${m.total}`,
+      })),
+    };
+  }
+
+  const v = await vueMission(missionId, userId);
+  if (!v) return { kind: "mission.status", data: null };
+  return {
+    kind: "mission.status",
+    data: {
+      titre: v.title,
+      etat: v.subtitle,
+      avancement: v.avancement,
+      enAttenteDeVous: v.enAttenteDeVous,
+      sousMissions: v.sousMissions.length,
+      bloc: v,
+    },
+  };
+}
+
 async function histoireAffaire(ancre: string): Promise<PlatformQueryResult> {
   const brut = (ancre ?? "").trim();
   if (brut.length < 2) {

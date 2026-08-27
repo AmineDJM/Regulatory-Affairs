@@ -142,7 +142,18 @@ describe("les capacités métier — la porte est la VUE GLOBALE, pas un module"
     },
   } as unknown as CurrentUser);
 
-  const noms = (u: CurrentUser) => BUSINESS_CAPABILITIES.filter((c) => c.allowed(u)).map((c) => c.def.name);
+  /**
+   * LE SUJET DE CE BLOC EST LA PORTE « VUE TRANSVERSE », pas l'inventaire du fichier.
+   *
+   * Trois capacités traversent les modules et sont gardées par la vue globale. `mission_status`
+   * n'en fait pas partie : elle est cloisonnée PAR REQUÊTE (chacun ne voit que ses propres
+   * missions), déclarée ouverte par dessein dans `executive-security.test.ts`, et l'inclure ici
+   * ferait échouer un test sur la vue globale pour une capacité qui ne la demande pas.
+   */
+  const TRANSVERSES = ["business_story", "pch_market_status", "product_economics"];
+  const noms = (u: CurrentUser) => BUSINESS_CAPABILITIES
+    .filter((c) => TRANSVERSES.includes(c.def.name) && c.allowed(u))
+    .map((c) => c.def.name);
 
   it("un assistant réglementaire N'ACCÈDE PAS à l'économie d'un produit", () => {
     const u = avecRole("REGULATORY_ASSISTANT", ["REGULATORY", "WORKSPACE"]);
@@ -157,5 +168,16 @@ describe("les capacités métier — la porte est la VUE GLOBALE, pas un module"
   it("le Super Admin accède aux trois", () => {
     const u = avecRole("SUPER_ADMIN", ["REGULATORY", "PCH", "FINANCES", "RH", "WORKSPACE"]);
     expect(noms(u).sort()).toEqual(["business_story", "pch_market_status", "product_economics"]);
+  });
+
+  it("les capacités transverses restent exactement CELLES-LÀ — en ajouter une se remarque", () => {
+    // Le jour où une quatrième capacité passe par la vue globale, ce test tombe et oblige à
+    // décider explicitement si elle appartient à cette famille. Sans lui, le filtre ci-dessus
+    // masquerait silencieusement toute capacité nouvelle.
+    const gardeesParVueGlobale = BUSINESS_CAPABILITIES
+      .filter((c) => !c.allowed(avecRole("SALES", ["PCH", "REGULATORY", "FINANCES", "RH", "WORKSPACE"])))
+      .map((c) => c.def.name)
+      .sort();
+    expect(gardeesParVueGlobale).toEqual(["business_story", "pch_market_status", "product_economics"]);
   });
 });

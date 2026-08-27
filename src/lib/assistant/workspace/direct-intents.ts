@@ -84,6 +84,20 @@ export const DIRECT_INTENTS = {
     phrase: "Fiche de %s",
     label: "Annuaire",
   },
+  /**
+   * §46 — « OÙ TU EN ES ? » PENDANT QUE ÇA TOURNE.
+   *
+   * C'est le cas où le raccourci compte le plus : une mission de trois jours se consulte dix
+   * fois, et dix raisonnements pour relire un compteur en base seraient dix secondes d'attente
+   * et dix occasions de se tromper sur un chiffre exact. La mission est identifiée par le bloc
+   * qui porte le bouton ; il n'y a rien à deviner.
+   */
+  "mission.status": {
+    tool: "mission_status",
+    args: ["mission"],
+    phrase: "Où en est la mission %s",
+    label: "État d'une mission",
+  },
   // `as const satisfies` et non une annotation : l'annotation aurait élargi les clés à `string`,
   // et `intentFor` aurait accepté n'importe quelle faute de frappe. Le premier essai le faisait —
   // c'est le `@ts-expect-error` INUTILISÉ de son test qui l'a montré, la garde ne gardait rien.
