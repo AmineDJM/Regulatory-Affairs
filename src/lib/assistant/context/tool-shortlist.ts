@@ -58,6 +58,12 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   product_360: ["REGULATORY"],
   search_hospitals: ["REGULATORY"],
   read_stock: ["REGULATORY"],
+  // LES CAPACITÉS MÉTIER touchent DEUX domaines à la fois, et c'est exactement pourquoi elles
+  // existent : elles remplacent la séquence que le modèle devait mener entre eux. Les déclarer
+  // sur les deux les rend joignables depuis « combien rapporte X ? » comme depuis
+  // « où en est le dossier X ? ». (Le PCH est classé REGULATORY, comme `pch_operation`.)
+  product_economics: ["REGULATORY", "FINANCE"],
+  pch_market_status: ["REGULATORY", "FINANCE"],
 
   // ── Finances ────────────────────────────────────────────────────────────────────────────
   read_budget: ["FINANCE"],

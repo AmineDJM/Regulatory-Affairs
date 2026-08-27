@@ -52,6 +52,12 @@ describe("powerToolsFor — les pouvoirs suivent les DROITS, pas le rôle", () =
       BUDGETS: ["VIEW"], FINANCES: ["VIEW"], RH: ["VIEW"], WORKSPACE: ["VIEW"],
       STOCKS: ["VIEW"], MEDICAL: ["VIEW"], MAIL_REGISTER: ["VIEW"], REGULATORY: ["VIEW"],
       DRIVE: ["VIEW"], CHIEF_OF_STAFF: ["VIEW"],
+      // PCH ajouté avec `pch_market_status`, premier outil de POUVOIR ouvert par ce module
+      // (`pch_operation` est une action canonique, registre distinct). Compléter le compte
+      // omniscient est le geste attendu — c'est ce que dit la note ci-dessus ; l'alternative
+      // aurait été de faire dépendre l'outil d'un module qui n'est pas le sien pour éviter
+      // de toucher le test, ce qui aurait ouvert la lecture PCH à qui n'y a pas droit.
+      PCH: ["VIEW"],
     }, "SUPER_ADMIN");
     const names = powerToolsFor(omni).map((t) => t.name);
     expect(new Set(names)).toEqual(new Set(POWER_TOOLS.map((t) => t.def.name)));

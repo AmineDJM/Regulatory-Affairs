@@ -11,6 +11,7 @@ import { EXECUTIVE_READ_TOOLS } from "@/lib/assistant/executive-read-tools";
 import { EXECUTIVE_BRIEF_TOOLS } from "@/lib/assistant/executive-brief-tools";
 import { MEMORY_TOOLS } from "@/lib/assistant/memory-tools";
 import { THREE_SIXTY_TOOLS } from "@/lib/assistant/three-sixty";
+import { BUSINESS_CAPABILITIES } from "@/lib/assistant/business-capabilities";
 import { DOCUMENT_DISCOVERY_TOOLS, KNOWLEDGE_TOOLS } from "@/lib/assistant/document-discovery";
 import { WHAT_IF_TOOLS } from "@/lib/assistant/what-if";
 import { DELIVERABLE_TOOLS } from "@/lib/assistant/deliverables";
@@ -329,6 +330,11 @@ export const POWER_TOOLS: PowerTool[] = [
   // Les VUES 360° (collaborateur, produit, fournisseur) et les INSIGHTS (organisation,
   // délais réels des circuits) — le backend calcule, chaque chiffre porte sa provenance.
   ...THREE_SIXTY_TOOLS,
+  // Les CAPACITÉS MÉTIER : une question d'affaires, un appel. Elles s'appuient sur les
+  // relations canoniques du produit (clés étrangères, pas correspondance de libellés) et sur
+  // la couche sémantique, si bien qu'elles remplacent une SÉQUENCE d'outils au lieu d'en
+  // ajouter à la liste.
+  ...BUSINESS_CAPABILITIES,
   // Les LECTURES REGULATORY CANONIQUES : charge par personne (assignation DIRECTE ≠ accès),
   // portefeuille par partenaire (résolution de graphies/acronymes) — le MÊME périmètre que
   // l'écran (`regulatoryVisibleWhere`), pour que le Chief ne contredise jamais le tableau.

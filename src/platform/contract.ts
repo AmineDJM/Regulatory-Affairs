@@ -142,7 +142,22 @@ export type PlatformQuery =
    * explicite ». Adam demande une recherche ; il ne sait pas qu'il existe un index, un routeur,
    * un reclassement — et il n'a pas à le savoir pour poser la question.
    */
-  | { kind: "document.search"; question: string; limit?: number };
+  | { kind: "document.search"; question: string; limit?: number }
+  /**
+   * L'ÉCONOMIE D'UN PRODUIT — ce qu'il rapporte, ce qu'il coûte, qui le porte.
+   *
+   * Ajoutée au CONTRAT et non branchée en direct, pour la raison que le test de frontière donne
+   * lui-même : « le besoin est vraiment nouveau → l'ajouter au contrat, ce qui est une décision
+   * explicite ». Elle traverse ventes, Ad&Pro, RH, marchés et réglementaire ; laissée dans un
+   * outil d'Adam, elle aurait franchi la frontière quatre fois de plus.
+   *
+   * Adam demande l'économie d'un produit. Il ne sait pas qu'il existe un produit canonique, une
+   * couche de métriques, ni cinq définitions du mot « chiffre d'affaires » — et il n'a pas à le
+   * savoir pour poser la question.
+   */
+  | { kind: "product.economics"; mention: string }
+  /** L'ÉTAT D'UN MARCHÉ PCH, de la soumission à l'encaissement. Même raison. */
+  | { kind: "pch.market-status"; reference: string };
 
 export type PlatformQueryResult =
   | { kind: "person.search" | "person.list"; people: readonly PersonView[]; total: number }
@@ -157,7 +172,35 @@ export type PlatformQueryResult =
    * ferait dire à Adam « je n'ai rien trouvé » là où il aurait fallu dire « je n'ai pas le droit ».
    */
   | { kind: "document.show"; document: DocumentView | null; refusal?: string }
-  | { kind: "document.search"; extracts: readonly DocumentExtract[]; examined: number };
+  | { kind: "document.search"; extracts: readonly DocumentExtract[]; examined: number }
+  /**
+   * `data` absent ⇒ `question` porte ce qu'il faut demander à l'humain : soit le produit est
+   * introuvable, soit la mention désigne PLUSIEURS produits. Rendre `null` sans la question
+   * ferait dire « je n'ai rien trouvé » là où il fallait dire « lequel des deux ? » — et
+   * trancher seul entre un 40 mg et un 100 mg met un chiffre d'affaires sous le mauvais nom.
+   */
+  | { kind: "product.economics"; data: BusinessSnapshot | null; question?: string }
+  | { kind: "pch.market-status"; data: BusinessSnapshot | null; question?: string };
+
+/**
+ * UNE VUE MÉTIER DÉJÀ COMPOSÉE — l'ERP a fait le calcul, Adam n'a plus qu'à la restituer.
+ *
+ * Volontairement opaque (`unknown` en valeurs) : le CONTRAT dit qu'une vue arrive, pas de quels
+ * champs elle est faite. Y figer la forme exacte obligerait à modifier le contrat — donc les
+ * deux côtés — à chaque colonne ajoutée dans un tableau de bord, ce qui est précisément le
+ * couplage qu'une frontière existe pour empêcher.
+ *
+ * `metriques` est en revanche NOMMÉE : c'est la promesse que chaque chiffre arrive avec sa
+ * définition, et c'est ce que la couche sémantique garantit. Elle ne se négocie pas.
+ */
+export interface BusinessSnapshot {
+  metriques: readonly {
+    nom: string; libelle: string; valeur: number | null; unite: string;
+    definition: string; pourquoi?: string; base?: string;
+  }[];
+  /** Le reste de la vue — structuré, mais non contraint par le contrat. */
+  [section: string]: unknown;
+}
 
 /** Un extrait de document, avec de quoi le CITER — sans quoi il ne vaut rien. */
 export interface DocumentExtract {

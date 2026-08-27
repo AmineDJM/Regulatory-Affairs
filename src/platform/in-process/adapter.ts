@@ -4,6 +4,9 @@ import { retrieve, type AccessFilter } from "@/lib/knowledge/retrieve";
 import { userCan, MODULES, ACTIONS, hasGlobalView, type Module, type Action, type SessionUser } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
 import { findPeople } from "@/lib/directory/resolve";
+import { estAmbigu, produit360 } from "@/lib/queries/product-360";
+import { pch360 } from "@/lib/queries/pch-360";
+import { metriquesMarche, metriquesProduit } from "@/lib/queries/metrics";
 import { DirectoryChannel } from "@prisma/client";
 import { subscribe as busSubscribe } from "../event-bus";
 import {
@@ -188,6 +191,12 @@ async function runQuery(principal: Principal, q: PlatformQuery): Promise<Platfor
 
     case "document.search":
       return searchDocuments(principal, q.question, q.limit ?? 5);
+
+    case "product.economics":
+      return economieProduit(q.mention);
+
+    case "pch.market-status":
+      return etatMarche(q.reference);
 
     case "record.get":
     case "record.search":
@@ -484,5 +493,103 @@ async function searchDocuments(principal: Principal, question: string, limit: nu
       text: h.snippet.slice(0, 600),
       because: h.because,
     })),
+  };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// VUES MÉTIER — l'ERP compose, Adam restitue
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * L'ÉCONOMIE D'UN PRODUIT. Tout le travail se fait ICI, côté ERP : résolution du produit,
+ * lecture des traversées, calcul des métriques. Adam reçoit une vue déjà composée.
+ *
+ * C'est le sens de la frontière : ce qui demande de connaître le schéma reste du côté qui le
+ * connaît. Câblée dans un outil d'Adam, cette seule capacité aurait franchi la frontière
+ * quatre fois de plus — et le test de dette l'a signalé avant même que ce soit écrit.
+ */
+async function economieProduit(mention: string): Promise<PlatformQueryResult> {
+  const brut = (mention ?? "").trim();
+  if (brut.length < 2) {
+    return { kind: "product.economics", data: null, question: "Donnez la référence, l'alias ou la DCI du produit." };
+  }
+
+  const vue = await produit360(brut);
+  if (!vue) {
+    return {
+      kind: "product.economics", data: null,
+      question: `Aucun produit « ${brut} » au catalogue canonique. Vérifier l'orthographe, ou le produit n'est pas encore rapproché.`,
+    };
+  }
+  // L'AMBIGUÏTÉ REMONTE COMME UNE QUESTION, jamais comme un choix fait à la place de l'humain.
+  if (estAmbigu(vue)) {
+    const liste = vue.candidats
+      .slice(0, 6)
+      .map((c) => `${c.code} — ${c.nom}${c.dosage ? ` (${c.dosage})` : ""}`)
+      .join(" · ");
+    return {
+      kind: "product.economics", data: null,
+      question: `« ${brut} » désigne plusieurs produits : ${liste}. Lequel ? (préciser le dosage ou la référence)`,
+    };
+  }
+
+  const mesures = await metriquesProduit(vue.produit.id);
+  return {
+    kind: "product.economics",
+    data: {
+      metriques: mesures?.metriques ?? [],
+      produit: vue.produit,
+      periode: mesures?.periode ?? null,
+      // Seules les affectations EN COURS : un portefeuille clos l'an dernier ne dit rien de qui
+      // porte le produit aujourd'hui, et l'afficher ferait relancer la mauvaise personne.
+      portefeuille: vue.portefeuille.filter((p) => p.enCours),
+      marches: vue.marches,
+      ventes: {
+        nombre: vue.ventes.nombre,
+        chiffreAffairesTotalDzd: vue.ventes.chiffreAffairesDzd,
+        parStatutDeReglement: vue.ventes.parStatutDeReglement,
+        premiere: vue.ventes.premiere, derniere: vue.ventes.derniere,
+      },
+      investissementAdPro: {
+        nombreDePostes: vue.investissementAdPro.nombreDePostes,
+        montantImputeDzd: vue.investissementAdPro.montantImputeDzd,
+        postesSansPart: vue.investissementAdPro.postesSansPart,
+      },
+      terrain: vue.terrain,
+      limites: [...vue.limites, ...(mesures?.limites ?? [])],
+    },
+  };
+}
+
+/** L'ÉTAT D'UN MARCHÉ PCH — les cinq montants et leur exécution, en une lecture. */
+async function etatMarche(reference: string): Promise<PlatformQueryResult> {
+  const ref = (reference ?? "").trim();
+  if (ref.length < 2) {
+    return { kind: "pch.market-status", data: null, question: "Donnez la référence du marché." };
+  }
+
+  const vue = await pch360(ref);
+  if (!vue) {
+    return {
+      kind: "pch.market-status", data: null,
+      question: `Aucun marché « ${ref} » (ni par référence, ni par identifiant).`,
+    };
+  }
+
+  const mesures = await metriquesMarche(vue.marche.id);
+  return {
+    kind: "pch.market-status",
+    data: {
+      metriques: mesures?.metriques ?? [],
+      marche: vue.marche,
+      montants: vue.montants,
+      caution: vue.caution,
+      execution: vue.execution,
+      lignes: vue.lignes,
+      // RENDUES À PART, JAMAIS ADDITIONNÉES aux bons de commande : les cumuler doublerait le
+      // chiffre d'affaires du marché.
+      ventesEnregistrees: vue.ventesEnregistrees,
+      limites: vue.limites,
+    },
   };
 }
