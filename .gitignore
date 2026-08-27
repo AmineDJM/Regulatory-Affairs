@@ -58,3 +58,6 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 e2e-screenshots/
+
+# Sorties du banc de connaissance (fichiers d'essai régénérables à la demande)
+scripts/bench/tmp/

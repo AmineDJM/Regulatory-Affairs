@@ -71,12 +71,6 @@ export interface DriveIngestDraft {
 }
 
 /**
- * PRÉPARE L'INGESTION D'UN NŒUD DRIVE.
- *
- * Rend `null` quand il n'y a rien à faire (nœud absent, corbeille, trop gros, blob illisible) —
- * ce n'est pas une erreur, c'est une absence, et l'appelant n'a rien à corriger.
- */
-/**
  * LES OCTETS D'UN FICHIER DU DRIVE — pour les étages qui doivent REGARDER, pas relire.
  *
  * L'ingestion rapide n'a besoin des octets qu'une fois ; l'étage vision, lui, arrive plus tard,
@@ -104,28 +98,41 @@ export async function driveBytes(nodeId: string): Promise<{ buffer: Buffer; mime
   return { buffer, mime, name: node.name };
 }
 
+/**
+ * PRÉPARE L'INGESTION D'UN NŒUD DRIVE.
+ *
+ * Rend `null` quand il n'y a rien à faire (nœud absent, corbeille, trop gros, blob illisible) —
+ * ce n'est pas une erreur, c'est une absence, et l'appelant n'a rien à corriger.
+ */
 export async function draftFromDriveNode(nodeId: string): Promise<DriveIngestDraft | null> {
-  const node = await prisma.driveNode
-    .findUnique({
-      where: { id: nodeId },
-      select: { id: true, name: true, type: true, isTrashed: true, size: true },
-    })
-    .catch(() => null);
-  if (!node || node.type !== "FILE" || node.isTrashed) return null;
-  if (node.size != null && node.size > MAX_INGEST_BYTES) return null;
+  const bytes = await driveBytes(nodeId);
+  if (!bytes) return null;
+  return draftFromBytes(bytes.buffer, bytes.name, "drive_file", nodeId);
+}
 
-  const version = await prisma.fileVersion
-    .findFirst({ where: { nodeId }, orderBy: { version: "desc" }, select: { id: true, blobId: true } })
-    .catch(() => null);
-  if (!version?.blobId) return null;
-
-  const buffer = await getBlob(version.blobId).catch(() => null);
-  if (!buffer) return null;
-
+/**
+ * LES OCTETS → UNE CONNAISSANCE PRÊTE À INGÉRER. Le cœur, séparé de l'endroit d'où le fichier
+ * vient.
+ *
+ * Sorti de `draftFromDriveNode` pour une raison qui s'est imposée en montant le banc : mesurer
+ * l'extraction imposait de créer un nœud Drive, un blob et une version pour CHAQUE fichier
+ * d'essai — donc d'écrire dans la base ce qu'on voulait seulement lire, et de mesurer au passage
+ * la vitesse du stockage plutôt que celle des parseurs.
+ *
+ * Le gain dépasse le banc : cette fonction est pure vis-à-vis de la base, donc testable telle
+ * quelle, et une seconde source de fichiers (une pièce jointe de courriel, un dépôt direct) s'y
+ * branche sans recopier quoi que ce soit.
+ */
+export async function draftFromBytes(
+  buffer: Buffer,
+  nom: string,
+  sourceType: IngestInput["sourceType"],
+  sourceId: string,
+): Promise<DriveIngestDraft> {
   // La détection par les OCTETS d'abord ; l'extension ne sert qu'à départager les archives ZIP,
   // qui portent toutes la même signature (`PK..`).
-  const guessed = detectMime(buffer, (node.name.split(".").pop() ?? "").toLowerCase());
-  const mime = guessed.family === "zip-office" ? (officeMimeOf(node.name) ?? guessed.mime) : guessed.mime;
+  const guessed = detectMime(buffer, (nom.split(".").pop() ?? "").toLowerCase());
+  const mime = guessed.family === "zip-office" ? (officeMimeOf(nom) ?? guessed.mime) : guessed.mime;
 
   let text = "";
   let chunks: KnowledgeChunkDraft[] = [];
@@ -168,9 +175,9 @@ export async function draftFromDriveNode(nodeId: string): Promise<DriveIngestDra
     if (kind) {
       text = await heavyText(kind, buffer).catch(() => "");
       parserFailed = !text;
-    } else if (isCsvName(node.name) && looksLikePlainText(buffer)) {
+    } else if (isCsvName(nom) && looksLikePlainText(buffer)) {
       // LE CSV EST UN TABLEAU, lui aussi — et il n'a pas plus de signature que le texte brut.
-      const table = parseCsv(buffer.toString("utf8"), node.name);
+      const table = parseCsv(buffer.toString("utf8"), nom);
       if (table) {
         text = tablesToText([table]);
         chunks = chunksFromTables([table]);
@@ -197,11 +204,11 @@ export async function draftFromDriveNode(nodeId: string): Promise<DriveIngestDra
   return {
     route,
     input: {
-      sourceType: "drive_file",
-      sourceId: nodeId,
+      sourceType,
+      sourceId,
       // L'empreinte porte sur le CONTENU : renommer ou déplacer le fichier ne relance rien.
       contentHash: contentHash(buffer),
-      title: node.name,
+      title: nom,
       // PAS DE `companyId` ICI, et c'est volontaire : un nœud Drive n'en porte pas. Le
       // cloisonnement d'un fichier se lit par son ESPACE et ses partages, nœud par nœud — c'est
       // la garde de lecture qui l'applique (`AccessFilter`). Recopier ici une entité devinée
