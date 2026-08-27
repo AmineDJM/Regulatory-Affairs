@@ -3,6 +3,7 @@ import { providerErrorMessage, isRetryableStatus } from "./errors";
 import { createHash } from "node:crypto";
 import { capTools } from "./openai";
 import { supportsParam, type ParamName } from "./capabilities";
+import { outputBudget, budgetDeSecours, BUDGET_POLICY } from "./budget";
 import {
   type ModelBinding,
   type ModelBlock,
@@ -77,6 +78,12 @@ interface RespUsage {
   input_tokens?: number;
   output_tokens?: number;
   input_tokens_details?: { cached_tokens?: number };
+  /**
+   * LA VENTILATION DE LA SORTIE. `output_tokens` compte la réflexion AVEC la réponse ; ce détail
+   * est le seul endroit où les deux se séparent. Sans lui, un appel qui a tout dépensé à penser et
+   * un appel qui a rédigé trois pages ont exactement le même compteur.
+   */
+  output_tokens_details?: { reasoning_tokens?: number };
 }
 
 interface RespPayload {
@@ -198,7 +205,21 @@ export function buildResponsesBody(
   };
 
   poser("reasoning", "reasoning", { effort: reasoning });
-  poser("maxOutputTokens", "max_output_tokens", opts.maxOutputTokens ?? budgetParDefaut(reasoning));
+  // La passerelle a normalement DÉJÀ calculé ce plafond (réponse visible + réserve de
+  // raisonnement) : il arrive donc ici tout fait. Le repli couvre l'usage direct de l'adaptateur —
+  // essais, bancs — et passe par la MÊME politique, pour qu'il n'existe jamais deux façons de
+  // choisir ce nombre.
+  poser(
+    "maxOutputTokens",
+    "max_output_tokens",
+    opts.maxOutputTokens
+      ?? outputBudget({
+        role: binding.role,
+        effort: reasoning,
+        toolCount: opts.tools?.length ?? 0,
+        requested: null,
+      }).maxOutputTokens,
+  );
   // Voir l'en-tête : on n'entrepose rien chez le fournisseur sans l'avoir demandé.
   poser("store", "store", chainage);
   if (chainage) poser("previousResponseId", "previous_response_id", opts.previousResponseId);
@@ -235,24 +256,15 @@ export function buildResponsesBody(
 }
 
 /**
- * LE BUDGET DE SORTIE PAR DÉFAUT — et pourquoi il dépend de l'effort.
+ * LE BUDGET COUPÉ — détecté et NOMMÉ, plutôt que subi.
  *
- * `max_output_tokens` couvre AUSSI les jetons de raisonnement. Un plafond calibré pour la seule
- * réponse est donc englouti par la réflexion : le modèle pense, épuise son budget, et rend une
- * réponse VIDE avec `status: "incomplete"`. Le symptôme n'est pas « réponse courte », c'est
- * « pas de réponse » — et il devient « JSON invalide » deux couches plus loin, sans que rien ne
- * nomme la cause.
- *
- * 2000 convenait à une réponse sans raisonnement ; il ne convient pas à un Terra medium. Le
- * budget suit donc l'effort demandé, et l'appelant peut toujours le fixer lui-même.
+ * `status: "incomplete"` avec `reason: "max_output_tokens"` ne veut pas dire « le modèle n'a pas
+ * su répondre ». Cela veut dire « NOTRE plafond a coupé le modèle en plein travail » — un appel
+ * payé pour rien, par une erreur de réglage de notre côté. Les deux se traitent à des endroits
+ * opposés, et les confondre fait chercher la panne dans le modèle.
  */
-function budgetParDefaut(effort: string): number {
-  switch (effort) {
-    case "none": return 2000;
-    case "low": return 4000;
-    case "medium": return 8000;
-    default: return 16000; // high, xhigh, max — la réflexion domine largement la réponse
-  }
+export function budgetEpuise(payload: Pick<RespPayload, "status" | "incomplete_details">): boolean {
+  return payload.status === "incomplete" && payload.incomplete_details?.reason === "max_output_tokens";
 }
 
 /**
@@ -364,11 +376,20 @@ function sansCle(binding: ModelBinding): ModelReply {
   };
 }
 
+/**
+ * L'USAGE D'UN APPEL — avec, désormais, DE QUOI JUGER LE BUDGET.
+ *
+ * Quatre nombres voyagent ensemble et n'ont de sens qu'ensemble : le plafond qu'on a fixé, ce qui
+ * en a été consommé, la part partie en réflexion, et la raison d'un arrêt prématuré. Isolés, ils
+ * ne répondent à rien ; réunis, ils répondent à la seule question qui compte ici — « la réserve de
+ * raisonnement est-elle bien calibrée ? » — sans qu'on ait à la deviner.
+ */
 function usageDe(
   binding: ModelBinding,
   u: RespUsage | undefined,
   started: number,
   attempts: number,
+  contexte: { maxOutputTokens?: number | null; incompleteReason?: string | null } = {},
 ): ModelReply["usage"] {
   const inputTokens = u?.input_tokens ?? 0;
   const outputTokens = u?.output_tokens ?? 0;
@@ -379,10 +400,47 @@ function usageDe(
     inputTokens,
     outputTokens,
     cachedInputTokens: u?.input_tokens_details?.cached_tokens ?? 0,
+    reasoningTokens: u?.output_tokens_details?.reasoning_tokens ?? 0,
+    maxOutputTokens: contexte.maxOutputTokens ?? null,
+    incompleteReason: contexte.incompleteReason ?? null,
     costUsd: costOf(binding, inputTokens, outputTokens),
     ms: Date.now() - started,
     attempts,
   };
+}
+
+/**
+ * LA LIGNE DE JOURNAL DU BUDGET. Expurgée par construction : elle ne porte QUE des nombres — pas
+ * un mot de la question, pas un mot de la réponse. C'est ce qui permet de la laisser allumée en
+ * production sans faire fuir le contenu d'un dossier réglementaire dans les journaux.
+ */
+function journaliserBudget(
+  binding: ModelBinding,
+  plafond: number | null,
+  u: RespUsage | undefined,
+  payload: Pick<RespPayload, "status" | "incomplete_details">,
+): void {
+  const sortie = u?.output_tokens ?? 0;
+  const raisonnement = u?.output_tokens_details?.reasoning_tokens ?? 0;
+  const ligne = {
+    role: binding.role,
+    model: binding.model,
+    max_output_tokens: plafond,
+    output_tokens: sortie,
+    reasoning_tokens: raisonnement,
+    // La part effectivement lisible — le reste a servi à penser.
+    visible_tokens: Math.max(0, sortie - raisonnement),
+    status: payload.status ?? null,
+    incomplete_details: payload.incomplete_details?.reason ?? null,
+  };
+
+  if (budgetEpuise(payload)) {
+    // PAS un `info`. Un plafond atteint est une erreur de NOTRE réglage, payée au prix fort ; la
+    // noyer dans le journal courant reviendrait à ne jamais la corriger.
+    console.warn(`[models] BUDGET DE SORTIE ÉPUISÉ — ${JSON.stringify(ligne)}`);
+    return;
+  }
+  if (process.env.ADAM_MODEL_DEBUG === "1") console.info("[models] budget", JSON.stringify(ligne));
 }
 
 /**
@@ -416,18 +474,29 @@ export async function callOpenAiResponses(
       if (res.ok) {
         const data = (await res.json()) as RespPayload;
         const blocks = fromResponsesOutput(data.output);
+        const plafond = Number(body.max_output_tokens ?? 0) || null;
 
-        // LE PIÈGE DE LA RÉPONSE VIDE, qui existe ici AUSSI et pour la même raison : le budget de
-        // sortie couvre la réflexion interne. Un Terra medium peut donc consommer tout son budget
-        // à réfléchir et ne rien dire. On rejoue UNE fois, budget triplé — au-delà, c'est le
-        // budget de l'appelant qui est mal calibré, et le masquer ne l'aiderait pas.
-        if (!blocks.length && data.status === "incomplete" && !grewBudget) {
+        // LES QUATRE NOMBRES, à chaque appel — c'est ce qui rend la politique de budget
+        // corrigeable sur des faits plutôt que sur une impression.
+        journaliserBudget(binding, plafond, data.usage, data);
+
+        // LE RATTRAPAGE, restreint à la SEULE cause qu'il sait traiter.
+        //
+        // Il rejouait auparavant toute réponse vide et incomplète — y compris un `content_filter`,
+        // où agrandir le budget ne peut rien changer et fait juste payer l'appel deux fois. Il ne
+        // se déclenche donc plus que sur `max_output_tokens`, et son déclenchement est désormais
+        // une ANOMALIE : la passerelle a calculé un budget exprès, s'il ne suffit pas c'est la
+        // politique qui est fausse. Le journal le dit dans ces termes.
+        if (!blocks.length && budgetEpuise(data) && !grewBudget) {
           grewBudget = true;
-          const courant = Number(body.max_output_tokens ?? 2000);
-          body.max_output_tokens = courant * 3;
+          const courant = Number(body.max_output_tokens ?? 0) || BUDGET_POLICY.RESERVE_RAISONNEMENT.medium;
+          const relance = budgetDeSecours(courant);
+          body.max_output_tokens = relance;
           console.warn(
-            `[models] ${binding.role}/${binding.model} — réponse vide (${data.incomplete_details?.reason ?? "incomplete"}), `
-            + `budget ${courant} → ${courant * 3}`,
+            `[models] ${binding.role}/${binding.model} — le budget calculé n'a PAS suffi `
+            + `(${courant} → ${relance}, raisonnement ${data.usage?.output_tokens_details?.reasoning_tokens ?? "?"} jetons). `
+            + "La réserve de raisonnement de src/lib/models/budget.ts est à revoir : ce rattrapage "
+            + "paie l'appel deux fois et ne doit pas devenir la normale.",
           );
           continue;
         }
@@ -438,7 +507,10 @@ export async function callOpenAiResponses(
             configured: true,
             stop: "error",
             blocks: [],
-            usage: usageDe(binding, data.usage, started, attempt),
+            usage: usageDe(binding, data.usage, started, attempt, {
+              maxOutputTokens: plafond,
+              incompleteReason: data.incomplete_details?.reason ?? null,
+            }),
             error: data.error?.message || "Le modèle a échoué sans message.",
           };
         }
@@ -448,7 +520,12 @@ export async function callOpenAiResponses(
           configured: true,
           stop: stopOfResponse(data, blocks.some((b) => b.type === "tool_call")),
           blocks,
-          usage: usageDe(binding, data.usage, started, attempt),
+          usage: usageDe(binding, data.usage, started, attempt, {
+            maxOutputTokens: plafond,
+            // Renseigné SEULEMENT quand la réponse est réellement incomplète : mettre la raison
+            // partout ferait passer un arrêt normal pour une coupure.
+            incompleteReason: data.status === "incomplete" ? (data.incomplete_details?.reason ?? "incomplete") : null,
+          }),
           ...(data.id ? { responseId: data.id } : {}),
         };
       }
@@ -661,13 +738,23 @@ export async function streamOpenAiResponses(
     // reste le filet quand l'événement final manque (flux coupé, proxy bavard).
     const blocks = sortieFinale ? fromResponsesOutput(sortieFinale) : asm.blocks();
     const hasCalls = blocks.some((b) => b.type === "tool_call");
+    const etat = { status: asm.statut, incomplete_details: { reason: asm.raison } };
+    const plafond = Number((body as { max_output_tokens?: number }).max_output_tokens ?? 0) || null;
+
+    // MÊME MESURE QU'EN APPEL SIMPLE. Le flux est le chemin de la conversation, donc celui où une
+    // coupure de budget se voit le plus (une phrase s'arrête au milieu) et se diagnostique le
+    // moins — il n'y a pas de `status` à lire à l'écran.
+    journaliserBudget(binding, plafond, usage, etat);
 
     return {
       ok: asm.statut !== "failed",
       configured: true,
-      stop: stopOfResponse({ status: asm.statut, incomplete_details: { reason: asm.raison } }, hasCalls),
+      stop: stopOfResponse(etat, hasCalls),
       blocks,
-      usage: usageDe(binding, usage, started, 1),
+      usage: usageDe(binding, usage, started, 1, {
+        maxOutputTokens: plafond,
+        incompleteReason: asm.statut === "incomplete" ? (asm.raison ?? "incomplete") : null,
+      }),
       ...(asm.responseId ? { responseId: asm.responseId } : {}),
     };
   } catch (err) {

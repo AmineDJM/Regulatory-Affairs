@@ -6,7 +6,8 @@ import { fitToolBudget } from "@/lib/assistant/context/tool-shortlist";
 import { callModel, streamModel } from "@/lib/models/gateway";
 import { bindingFor } from "@/lib/models/registry";
 import { describeRequest } from "@/lib/models/capabilities";
-import { textOf, toolCallsOf, type ModelToolDef, type ModelTurn } from "@/lib/models/contract";
+import { outputBudget } from "@/lib/models/budget";
+import { textOf, toolCallsOf, type ModelToolDef, type ModelTurn, type ModelUsage } from "@/lib/models/contract";
 import { MODULES, ACTIONS, type Module, type Action } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
 
@@ -28,13 +29,24 @@ import type { CurrentUser } from "@/lib/session";
  * réellement cette forme ? » — ne se vérifie qu'ici. Les confondre serait refaire l'erreur qui a
  * produit les deux HTTP 400 : croire vérifié ce qui n'a jamais été envoyé.
  *
- * ── LES CINQ ÉPREUVES ────────────────────────────────────────────────────────────────────
+ * ── LES SIX ÉPREUVES ─────────────────────────────────────────────────────────────────────
  *
  *   1. Terra medium, sans outil.
  *   2. Terra medium + un outil.
  *   3. Terra medium + plusieurs outils.
  *   4. Appel d'outil → `function_call_output` → réponse finale.
  *   5. Une vraie mission C d'Adam, avec le résolveur d'outils réel.
+ *   6. Un worker (Terra none) et le volume (Luna none) — l'autre moitié de la flotte.
+ *
+ * ── AUCUN BUDGET N'EST IMPOSÉ ICI, ET C'EST VOULU ────────────────────────────────────────
+ *
+ * Les épreuves ne fixent pas `maxOutputTokens` : elles laissent la POLITIQUE de `budget.ts`
+ * s'appliquer, exactement comme en production. Écrire un plafond confortable dans le script
+ * éprouverait un réglage que personne n'utilise et laisserait le vrai passer.
+ *
+ * Chaque verdict affiche donc `plafond → sortie (dont raisonnement)`. C'est là qu'on lit si la
+ * réserve de raisonnement est bien calibrée — et un `status: incomplete` par `max_output_tokens`
+ * fait ÉCHOUER l'épreuve, même si le modèle a répondu quelque chose.
  *
  * ── CE QUI EST INTERDIT ICI ──────────────────────────────────────────────────────────────
  *
@@ -61,18 +73,33 @@ function verdict(nom: string, ok: boolean, detail: string): void {
   console.log(`  ${ok ? "✔" : "✘"} ${nom} — ${detail}`);
 }
 
-/** L'usage, en une ligne — pour voir tout de suite si le budget de raisonnement suffit. */
-const usageOf = (u: { inputTokens: number; outputTokens: number; ms: number; costUsd: number | null }) =>
-  `${u.inputTokens}→${u.outputTokens} jetons · ${u.ms} ms · ${u.costUsd == null ? "coût inconnu" : `$${u.costUsd.toFixed(6)}`}`;
+/**
+ * L'USAGE, EN UNE LIGNE — et surtout la VENTILATION du budget de sortie.
+ *
+ * `plafond → sortie (dont N raisonnement)` est la seule forme qui répond à la question posée :
+ * un `1200/8000` dont 1 100 de raisonnement dit que la réserve travaille ; un `8000/8000` dont
+ * 8 000 de raisonnement dit qu'elle ne suffit pas. Le total seul ne distingue pas les deux.
+ */
+const usageOf = (u: ModelUsage) =>
+  `${u.inputTokens}→${u.outputTokens}/${u.maxOutputTokens ?? "?"} jetons `
+  + `(dont ${u.reasoningTokens ?? "?"} de raisonnement) · ${u.ms} ms · `
+  + `${u.costUsd == null ? "coût inconnu" : `$${u.costUsd.toFixed(6)}`}`
+  + (u.incompleteReason ? ` · ⚠ INCOMPLET : ${u.incompleteReason}` : "");
+
+/**
+ * UNE COUPURE PAR NOTRE PROPRE PLAFOND FAIT ÉCHOUER L'ÉPREUVE, même si du texte est revenu.
+ * Une réponse tronquée qui « passe » est exactement ce qu'on cherche à ne plus livrer.
+ */
+const budgetOk = (u: ModelUsage): boolean => u.incompleteReason !== "max_output_tokens";
 
 async function test1(): Promise<void> {
   const r = await callModel("orchestrator", [
     { role: "user", content: "Réponds en une phrase : quelle est la capitale de l'Algérie ?" },
-  ], { maxOutputTokens: 4000 });
+  ]);
 
   verdict(
     "1. Terra medium, sans outil",
-    r.ok && textOf(r.blocks).length > 0,
+    r.ok && textOf(r.blocks).length > 0 && budgetOk(r.usage),
     r.ok ? `« ${textOf(r.blocks).slice(0, 60)} » · ${usageOf(r.usage)}` : `ÉCHEC : ${r.error}`,
   );
 }
@@ -82,13 +109,12 @@ async function test2(): Promise<void> {
     { role: "user", content: "Cherche les dossiers réglementaires en retard. Utilise l'outil." },
   ], {
     tools: [OUTIL("read_regulatory", "Lit les dossiers réglementaires et leur statut.")],
-    maxOutputTokens: 4000,
   });
 
   const appels = toolCallsOf(r.blocks);
   verdict(
     "2. Terra medium + 1 outil",
-    r.ok && appels.length >= 1,
+    r.ok && appels.length >= 1 && budgetOk(r.usage),
     r.ok ? `${appels.length} appel(s) : ${appels.map((a) => a.name).join(", ")} · ${usageOf(r.usage)}` : `ÉCHEC : ${r.error}`,
   );
 }
@@ -107,13 +133,12 @@ async function test3(): Promise<void> {
       OUTIL("read_regulatory", "Lit les dossiers réglementaires et leur statut."),
       OUTIL("read_tasks", "Lit les tâches ouvertes."),
     ],
-    maxOutputTokens: 4000,
   });
 
   const appels = toolCallsOf(r.blocks);
   verdict(
     "3. Terra medium + plusieurs outils",
-    r.ok && appels.length >= 1,
+    r.ok && appels.length >= 1 && budgetOk(r.usage),
     r.ok
       ? `${appels.length} appel(s) dans UNE réponse : ${appels.map((a) => a.name).join(", ")}`
         + `${appels.length > 1 ? " → exécutables de front" : " (le modèle a choisi d'en appeler un seul)"} · ${usageOf(r.usage)}`
@@ -127,7 +152,7 @@ async function test4(): Promise<void> {
     { role: "user", content: "Combien de dossiers réglementaires sont en retard ? Utilise l'outil puis réponds." },
   ];
 
-  const premier = await callModel("orchestrator", turns, { tools, maxOutputTokens: 4000 });
+  const premier = await callModel("orchestrator", turns, { tools });
   const appels = toolCallsOf(premier.blocks);
   if (!premier.ok || appels.length === 0) {
     verdict("4. appel d'outil → résultat → réponse finale", false,
@@ -145,11 +170,11 @@ async function test4(): Promise<void> {
     })),
   });
 
-  const second = await callModel("orchestrator", turns, { tools, maxOutputTokens: 4000 });
+  const second = await callModel("orchestrator", turns, { tools });
   const dit = textOf(second.blocks);
   verdict(
     "4. appel d'outil → function_call_output → réponse finale",
-    second.ok && dit.length > 0,
+    second.ok && dit.length > 0 && budgetOk(second.usage),
     second.ok
       ? `call_id ${appels.map((a) => a.id).join(", ")} apparié · « ${dit.slice(0, 70)} » · ${usageOf(second.usage)}`
       : `ÉCHEC : ${second.error}`,
@@ -182,17 +207,14 @@ async function test5(): Promise<void> {
 
   console.log(`     (résolveur : ${tous.length} outils → ${defs.length} envoyés · niveau ${resolved.level} · ${resolved.domains.join("+")})`);
 
-  const r = await callModel("orchestrator", [{ role: "user", content: question }], {
-    tools: defs,
-    // LE BUDGET COUVRE AUSSI LE RAISONNEMENT : un plafond serré sur un Terra medium produit une
-    // réponse vide, pas une réponse courte.
-    maxOutputTokens: 8000,
-  });
+  // AUCUN PLAFOND IMPOSÉ : c'est la charge « découverte » de `budget.ts` qui doit tenir ici, et
+  // c'est le seul endroit où on peut le vérifier pour de bon.
+  const r = await callModel("orchestrator", [{ role: "user", content: question }], { tools: defs });
 
   const appels = toolCallsOf(r.blocks);
   verdict(
     "5. mission C réelle, avec le Tool Resolver",
-    r.ok,
+    r.ok && budgetOk(r.usage),
     r.ok
       ? `${defs.length} outils décrits · ${appels.length} appel(s) demandé(s)`
         + `${appels.length ? ` : ${appels.slice(0, 4).map((a) => a.name).join(", ")}` : ""} · ${usageOf(r.usage)}`
@@ -200,15 +222,46 @@ async function test5(): Promise<void> {
   );
 }
 
+/**
+ * L'AUTRE MOITIÉ DE LA FLOTTE — et la seule épreuve qui vérifie une NON-dépense.
+ *
+ * `worker` (Terra none) et `bulk` (Luna none) ne raisonnent pas. Leur budget doit donc rester
+ * celui de la réponse, au jeton près : c'est la garantie de non-régression de toute la politique,
+ * et elle se casserait en silence si la réserve de raisonnement débordait sur eux.
+ *
+ * On y vérifie aussi que `effort: none` est bien accepté par la porte Responses avec un modèle de
+ * raisonnement — l'exact symétrique du 400 qui a lancé ce chantier.
+ */
+async function test6(): Promise<void> {
+  for (const [role, titre] of [["worker", "worker Terra none"], ["bulk", "volume Luna none"]] as const) {
+    const r = await callModel(role, [{
+      role: "user",
+      content: "Extrais uniquement les dates de ce texte, une par ligne : « Réunion le 12/03/2026, "
+        + "dépôt ANPP le 04/05/2026, relance prévue le 30/06/2026. »",
+    }], { maxOutputTokens: 600 });
+
+    const b = bindingFor(role);
+    verdict(
+      `6. ${titre}`,
+      r.ok && textOf(r.blocks).length > 0 && budgetOk(r.usage) && r.usage.maxOutputTokens === 600,
+      r.ok
+        ? `${b.model} · effort ${b.reasoning} · plafond ${r.usage.maxOutputTokens} `
+          + `${r.usage.maxOutputTokens === 600 ? "(inchangé ✔)" : "(GONFLÉ — la réserve déborde sur un worker)"}`
+          + ` · ${usageOf(r.usage)}`
+        : `ÉCHEC : ${r.error}`,
+    );
+  }
+}
+
 async function testStream(): Promise<void> {
   let morceaux = 0;
   const r = await streamModel("orchestrator", [
     { role: "user", content: "Cite trois qualités d'un bon dossier réglementaire, en une phrase chacune." },
-  ], { maxOutputTokens: 4000 }, () => { morceaux++; });
+  ], {}, () => { morceaux++; });
 
   verdict(
-    "6. streaming (bonus)",
-    r.ok && textOf(r.blocks).length > 0,
+    "7. streaming (bonus)",
+    r.ok && textOf(r.blocks).length > 0 && budgetOk(r.usage),
     r.ok ? `${morceaux} fragment(s) reçu(s) · ${usageOf(r.usage)}` : `ÉCHEC : ${r.error}`,
   );
 }
@@ -225,12 +278,18 @@ async function main(): Promise<void> {
   }
 
   const b = bindingFor("orchestrator");
+  const budget = outputBudget({ role: b.role, effort: b.reasoning, toolCount: 0 });
+
   console.log("══ SMOKE OPENAI — VRAI RÉSEAU ══════════════════════════════════════════════\n");
   console.log(`  liaison : ${b.role} → ${b.model} · reasoning=${b.reasoning}`);
+  console.log(
+    `  budget  : charge « ${budget.workload} » — ${budget.visible} visibles `
+    + `+ ${budget.headroom} de réserve = ${budget.maxOutputTokens}`,
+  );
   console.log("  forme de l'appel (expurgée) :");
   console.log(`  ${JSON.stringify(describeRequest({
     model: b.model, protocol: "responses", reasoning: b.reasoning, toolCount: 0,
-    params: { maxOutputTokens: 4000, store: false, textVerbosity: "medium" },
+    params: { maxOutputTokens: budget.maxOutputTokens, store: false, textVerbosity: "medium" },
   }))}\n`);
 
   await test1();
@@ -238,6 +297,7 @@ async function main(): Promise<void> {
   await test3();
   await test4();
   await test5();
+  await test6();
   await testStream();
 
   console.log(`\n${reussis} réussi(s) · ${echoues} échec(s)`);
@@ -245,7 +305,11 @@ async function main(): Promise<void> {
     console.log(
       "\nUn échec « unsupported parameter » signifie qu'il MANQUE une contrainte dans\n"
       + "src/lib/models/capabilities.ts. Ne le corrigez pas en retirant le champ à la volée :\n"
-      + "la contrainte doit être connue AVANT le réseau, sinon la prochaine reviendra.",
+      + "la contrainte doit être connue AVANT le réseau, sinon la prochaine reviendra.\n\n"
+      + "Un échec « ⚠ INCOMPLET : max_output_tokens » est un problème DIFFÉRENT : la réserve de\n"
+      + "raisonnement de src/lib/models/budget.ts est trop courte pour cette charge. Les jetons de\n"
+      + "raisonnement affichés ci-dessus donnent le bon ordre de grandeur — corrigez la constante\n"
+      + "sur cette mesure, pas au jugé (ADAM_REASONING_HEADROOM_SCALE permet d'essayer d'abord).",
     );
     process.exitCode = 1;
   }

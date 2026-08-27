@@ -78,7 +78,10 @@ export function needsResponses(binding: ModelBinding, opts: ModelCallOptions): b
  * constructeur Responses.
  */
 export function defaultProtocolOf(model: string) {
-  return capabilityFor(model).protocols[0] ?? "responses";
+  // Les portes RETENUES, pas celles que le fournisseur expose : c'est la politique d'Adam qui
+  // choisit, et elle est plus étroite. `capabilities.ts` tient les deux listes séparément.
+  const cap = capabilityFor(model);
+  return cap.allowedProtocols[0] ?? cap.protocols[0] ?? "responses";
 }
 
 /** Le protocole demandé par l'environnement, quand il en demande un. */

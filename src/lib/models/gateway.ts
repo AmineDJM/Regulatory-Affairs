@@ -10,6 +10,7 @@ import { callOpenAi, streamOpenAi } from "./openai";
 import { callOpenAiResponses, streamOpenAiResponses } from "./openai-responses";
 import { protocolFor, protocolViolation } from "./protocol";
 import { validateModelRequest, describeRequest, type ModelRequestShape } from "./capabilities";
+import { outputBudget } from "./budget";
 import { DEFAULT_VERBOSITY } from "./registry";
 import { callAnthropic, streamAnthropic } from "./anthropic";
 import { recordModelCall } from "./telemetry";
@@ -92,19 +93,34 @@ function preparerOpenAi(
   // LES RÉGLAGES DU RÔLE, appliqués ici plutôt que dans l'adaptateur : c'est la passerelle qui
   // connaît les rôles. La concision remplace la température — et elle est réglée par rôle, pas
   // devinée appel par appel.
+  //
+  // LE BUDGET DE SORTIE SE CALCULE ICI, ET POUR LA MÊME RAISON. `maxOutputTokens` demandé par un
+  // appelant est un budget de RÉPONSE VISIBLE (voir `contract.ts`) ; ce qui part sur le réseau
+  // couvre aussi la réflexion. Aucun des ~40 appelants du produit n'a à connaître cette
+  // différence — et le fait qu'ils l'ignoraient tous est précisément ce qui faisait tourner la
+  // boucle d'agent avec 1 400 jetons TOTAUX sur un modèle qui raisonne.
+  const effort = opts.reasoning ?? binding.reasoning;
+  const budget = outputBudget({
+    role: binding.role,
+    effort,
+    toolCount: opts.tools?.length ?? 0,
+    requested: opts.maxOutputTokens ?? null,
+  });
+
   const enrichi: ModelCallOptions = {
     ...opts,
     verbosity: opts.verbosity ?? DEFAULT_VERBOSITY[binding.role],
+    maxOutputTokens: budget.maxOutputTokens,
   };
 
   const model = enrichi.modelOverride || binding.model;
   const forme: ModelRequestShape = {
     model,
     protocol,
-    reasoning: enrichi.reasoning ?? binding.reasoning,
+    reasoning: effort,
     toolCount: enrichi.tools?.length ?? 0,
     params: {
-      reasoning: { effort: enrichi.reasoning ?? binding.reasoning },
+      reasoning: { effort },
       textVerbosity: enrichi.verbosity,
       textFormat: enrichi.jsonSchema,
       maxOutputTokens: enrichi.maxOutputTokens ?? null,
@@ -127,7 +143,19 @@ function preparerOpenAi(
 
   if (process.env.ADAM_MODEL_DEBUG === "1") {
     // Journal EXPURGÉ : la forme de l'appel, jamais son contenu. Voir `describeRequest`.
-    console.info("[models] requête", JSON.stringify(describeRequest(forme)));
+    // La VENTILATION du budget en fait partie : un `max_output_tokens: 7400` seul ne dit pas si
+    // 1 400 sont pour la réponse et 6 000 pour la réflexion, ou l'inverse — et c'est la seule
+    // chose qu'on veut savoir en lisant ce journal.
+    console.info("[models] requête", JSON.stringify({
+      ...describeRequest(forme),
+      budget: {
+        workload: budget.workload,
+        visible: budget.visible,
+        reasoningHeadroom: budget.headroom,
+        maxOutputTokens: budget.maxOutputTokens,
+        requested: opts.maxOutputTokens ?? null,
+      },
+    }));
   }
 
   return { protocol, opts: enrichi };

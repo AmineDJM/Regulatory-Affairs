@@ -128,6 +128,18 @@ export interface TurnSummary {
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens: number;
+  /**
+   * La part des jetons de sortie partie en RÉFLEXION sur tout le tour. Compté ici parce que c'est
+   * au niveau du tour que la question se pose : « ce tour a-t-il payé plus à penser qu'à
+   * répondre ? » ne se lit sur aucun appel isolé.
+   */
+  reasoningTokens: number;
+  /**
+   * COMBIEN D'APPELS ONT ÉTÉ COUPÉS PAR NOTRE PROPRE PLAFOND. Zéro est la valeur normale ; tout
+   * autre chiffre est un défaut de calibrage de `budget.ts`, pas une limite du modèle. Le compter
+   * par tour est ce qui empêche le problème de redevenir invisible une fois le correctif oublié.
+   */
+  budgetTruncations: number;
   /** `null` dès qu'un seul appel a un tarif inconnu : un total partiel se lirait comme un total. */
   costUsd: number | null;
   firstPreviewMs: number | null;
@@ -140,6 +152,8 @@ export function summarize(trace: TurnTrace): TurnSummary {
   let inputTokens = 0;
   let outputTokens = 0;
   let cachedInputTokens = 0;
+  let reasoningTokens = 0;
+  let budgetTruncations = 0;
   // Un seul tarif manquant rend le TOTAL inconnu. Additionner ce qu'on connaît et présenter la
   // somme comme le coût du tour serait un chiffre faux avec l'air d'un chiffre juste.
   let costUsd: number | null = 0;
@@ -149,6 +163,8 @@ export function summarize(trace: TurnTrace): TurnSummary {
     inputTokens += c.inputTokens;
     outputTokens += c.outputTokens;
     cachedInputTokens += c.cachedInputTokens;
+    reasoningTokens += c.reasoningTokens ?? 0;
+    if (c.incompleteReason === "max_output_tokens") budgetTruncations++;
     if (c.costUsd == null) costUsd = null;
     else if (costUsd != null) costUsd += c.costUsd;
   }
@@ -163,6 +179,8 @@ export function summarize(trace: TurnTrace): TurnSummary {
     inputTokens,
     outputTokens,
     cachedInputTokens,
+    reasoningTokens,
+    budgetTruncations,
     costUsd: costUsd == null ? null : Math.round(costUsd * 1_000_000) / 1_000_000,
     firstPreviewMs: trace.firstPreviewMs,
     finalMs: trace.finalMs,

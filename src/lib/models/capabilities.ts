@@ -74,29 +74,77 @@ export const PARAM_NAMES = [
 
 export type ParamName = (typeof PARAM_NAMES)[number];
 
-export interface ModelCapability {
-  /** Par quelle(s) porte(s) ce modèle se parle. La première est la porte par défaut. */
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * DEUX QUESTIONS DIFFÉRENTES, DEUX TABLES DIFFÉRENTES.
+ *
+ * On les avait fondues, et c'était une faute de description : le registre annonçait que Terra
+ * « ne se parle qu'en Responses », comme s'il s'agissait d'une incapacité du modèle. C'est faux.
+ * OpenAI expose Terra sur les DEUX portes. Ce qui n'existe pas, c'est la COMBINAISON
+ * « raisonnement + outils » sur Chat Completions — une contrainte croisée, pas une porte fermée.
+ *
+ * Le reste — « Adam n'emprunte que Responses » — est une DÉCISION QUI NOUS APPARTIENT. La
+ * confondre avec une limite du fournisseur rend la décision irrévisable : personne n'ose
+ * toucher à ce qu'il croit être une contrainte externe.
+ *
+ *   PROVIDER_CAPABILITIES — ce que le fournisseur SAIT faire. Constaté (400 réels, doc).
+ *   ADAM_POLICY           — ce qu'Adam S'AUTORISE. Décidé, avec un motif écrit, révisable.
+ *
+ * `capabilityFor()` rend leur INTERSECTION, qui est ce que le constructeur doit respecter.
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ */
+
+/** CE QUE LE FOURNISSEUR SAIT FAIRE. Aucune préférence Adam ici — que du constaté. */
+export interface ProviderCapability {
+  /** Les portes sur lesquelles OpenAI expose ce modèle. */
   protocols: readonly WireProtocol[];
-  /** Les efforts acceptés. `null` = ce modèle ne raisonne pas (le champ n'est jamais envoyé). */
+  /** Les efforts acceptés. `null` = ce modèle ne raisonne pas. */
   reasoning: readonly ReasoningEffort[] | null;
   functionCalling: boolean;
   structuredOutputs: boolean;
   parallelToolCalls: boolean;
-  /** LISTE BLANCHE. Absent ou `false` = jamais construit, et refusé s'il arrive quand même. */
+  /** LISTE BLANCHE des paramètres. Absent = le modèle le refuse (ou nous ne le savons pas). */
   parameters: Partial<Record<ParamName, boolean>>;
+  /**
+   * LES COMBINAISONS QUI N'EXISTENT PAS, porte par porte.
+   *
+   * C'est ICI que vit « raisonnement + outils impossible sur Chat Completions » : ce n'est ni
+   * une porte fermée, ni un paramètre refusé, c'est un CROISEMENT. Le distinguer permet de dire
+   * la vérité — Terra existe bien sur Chat Completions, mais pas pour cet usage-là.
+   */
+  reasoningWithToolsOn?: readonly WireProtocol[];
+}
+
+/** CE QU'ADAM S'AUTORISE — plus strict que le fournisseur, et pour des raisons à nous. */
+export interface AdamPolicy {
+  /** Les portes qu'Adam emprunte, parmi celles que le fournisseur offre. */
+  allowedProtocols: readonly WireProtocol[];
+  /** POURQUOI. Une restriction sans motif écrit devient une superstition en six mois. */
+  reason: string;
+}
+
+/** La fiche EFFECTIVE : ce que le fournisseur permet ∩ ce qu'Adam s'autorise. */
+export interface ModelCapability extends ProviderCapability {
+  /** Les portes réellement empruntables. Peut être plus étroit que `protocols`. */
+  allowedProtocols: readonly WireProtocol[];
+  /** Le motif de la restriction, quand Adam en pose une. */
+  policyReason: string | null;
 }
 
 /**
- * LE SOCLE COMMUN AUX MODÈLES DE RAISONNEMENT GPT-5.6.
+ * LE SOCLE COMMUN AUX MODÈLES DE RAISONNEMENT GPT-5.6 — CÔTÉ FOURNISSEUR.
  *
- * Les quatre paramètres d'échantillonnage sont ABSENTS — pas mis à `false` par politesse :
- * absents. Un lecteur qui cherche `temperature` ici ne le trouve pas, et c'est le message.
+ * `protocols` porte les DEUX portes, parce que c'est la vérité. Les quatre paramètres
+ * d'échantillonnage, eux, sont ABSENTS — pas mis à `false` par politesse : absents. Un lecteur
+ * qui cherche `temperature` ici ne le trouve pas, et c'est le message.
  */
-const RAISONNEMENT_5_6: Omit<ModelCapability, "reasoning"> = {
-  protocols: ["responses"],
+const FOURNISSEUR_5_6: Omit<ProviderCapability, "reasoning"> = {
+  protocols: ["responses", "chat_completions"],
   functionCalling: true,
   structuredOutputs: true,
   parallelToolCalls: true,
+  // Raisonner ET outiller n'existe que sur Responses — c'est le HTTP 400 nº 1, mot pour mot.
+  reasoningWithToolsOn: ["responses"],
   parameters: {
     reasoning: true,
     textVerbosity: true,
@@ -119,19 +167,15 @@ const RAISONNEMENT_5_6: Omit<ModelCapability, "reasoning"> = {
 /** Les six efforts de GPT-5.6. */
 const EFFORTS_5_6: readonly ReasoningEffort[] = ["none", "low", "medium", "high", "xhigh", "max"];
 
-/**
- * LA TABLE. Un modèle absent est traité par `capabilityFor` avec le repli le plus PRUDENT :
- * Responses, aucun paramètre facultatif. Un modèle inconnu doit pouvoir parler, pas tout tenter.
- */
-export const MODEL_CAPABILITIES: Readonly<Record<string, ModelCapability>> = {
-  "gpt-5.6-terra": { ...RAISONNEMENT_5_6, reasoning: EFFORTS_5_6 },
-  "gpt-5.6-luna": { ...RAISONNEMENT_5_6, reasoning: EFFORTS_5_6 },
+/** CE QUE LE FOURNISSEUR OFFRE. */
+export const PROVIDER_CAPABILITIES: Readonly<Record<string, ProviderCapability>> = {
+  "gpt-5.6-terra": { ...FOURNISSEUR_5_6, reasoning: EFFORTS_5_6 },
+  "gpt-5.6-luna": { ...FOURNISSEUR_5_6, reasoning: EFFORTS_5_6 },
 
   /**
-   * LE TEMPS RÉEL N'A RIEN À VOIR. Sa session se négocie, sa configuration passe par un
-   * `session.update` sur le canal, et aucun des champs ci-dessus n'y a de sens. Il figure ici
-   * pour UNE raison : qu'un test puisse vérifier qu'il ne traverse jamais le constructeur
-   * Responses — l'oubli le plus facile à commettre le jour où l'on factorise « les modèles ».
+   * LE TEMPS RÉEL N'A RIEN À VOIR — et ce n'est pas une politique, c'est un fait. Sa session se
+   * négocie, sa configuration passe par un `session.update` sur le canal, et aucun des champs
+   * ci-dessus n'y a de sens. Il n'existe PAS sur les portes textuelles.
    */
   "gpt-realtime-2.1": {
     protocols: ["realtime"],
@@ -142,6 +186,40 @@ export const MODEL_CAPABILITIES: Readonly<Record<string, ModelCapability>> = {
     parameters: {},
   },
 };
+
+/**
+ * CE QU'ADAM S'AUTORISE — et pourquoi.
+ *
+ * Une seule règle, et elle n'a rien d'une limite technique : maintenir DEUX moteurs OpenAI, ce
+ * serait écrire deux fois chaque correctif et n'en vérifier qu'un. Le second diverge toujours,
+ * et c'est celui qui casse. Terra pourrait parler Chat Completions ; Adam préfère ne pas.
+ */
+export const ADAM_POLICY: Readonly<Record<string, AdamPolicy>> = {
+  "gpt-5.6-terra": {
+    allowedProtocols: ["responses"],
+    reason: "Adam n'entretient qu'un moteur OpenAI hors temps réel. Le fournisseur, lui, expose "
+      + "aussi Chat Completions — mais pas pour raisonnement + outils.",
+  },
+  "gpt-5.6-luna": {
+    allowedProtocols: ["responses"],
+    reason: "Même politique que Terra : une seule porte à maintenir, et les mêmes correctifs.",
+  },
+};
+
+/** La table effective, exposée pour les tests et l'écran d'administration. */
+export const MODEL_CAPABILITIES: Readonly<Record<string, ModelCapability>> = Object.fromEntries(
+  Object.entries(PROVIDER_CAPABILITIES).map(([nom, cap]) => [nom, fusionner(nom, cap)]),
+);
+
+/** Croise ce que le fournisseur offre avec ce qu'Adam s'autorise. */
+function fusionner(nom: string, cap: ProviderCapability): ModelCapability {
+  const politique = ADAM_POLICY[nom];
+  if (!politique) return { ...cap, allowedProtocols: cap.protocols, policyReason: null };
+  // L'intersection, jamais l'union : une politique ne peut qu'ÉTRANGLER, jamais élargir. Sans
+  // cela, on « autoriserait » un jour une porte que le fournisseur n'expose pas.
+  const permises = politique.allowedProtocols.filter((p) => cap.protocols.includes(p));
+  return { ...cap, allowedProtocols: permises, policyReason: politique.reason };
+}
 
 /**
  * LES FAMILLES, reconnues par préfixe — du plus précis au plus général.
@@ -174,6 +252,8 @@ const FAMILLES: [string, () => ModelCapability][] = [
  */
 const INCONNU: ModelCapability = {
   protocols: ["responses"],
+  allowedProtocols: ["responses"],
+  policyReason: null,
   reasoning: null,
   functionCalling: true,
   structuredOutputs: false,
@@ -213,7 +293,14 @@ export interface ModelRequestShape {
 }
 
 export interface RequestProblem {
-  kind: "protocole" | "parametre" | "effort" | "capacite";
+  /**
+   * `capacite`  — le FOURNISSEUR ne sait pas faire. On ne peut pas passer outre.
+   * `politique` — ADAM s'interdit. On pourrait, on a décidé que non — le motif est rendu.
+   *
+   * Les distinguer n'est pas cosmétique : lire « ce modèle ne le fait pas » quand c'est nous qui
+   * l'interdisons rend la décision irrévisable, parce que plus personne n'ose la rouvrir.
+   */
+  kind: "protocole" | "parametre" | "effort" | "capacite" | "politique";
   param?: ParamName;
   message: string;
 }
@@ -230,10 +317,31 @@ export function validateModelRequest(req: ModelRequestShape): RequestProblem[] {
   const cap = capabilityFor(req.model);
   const problemes: RequestProblem[] = [];
 
+  // 1) LE FOURNISSEUR l'expose-t-il ? C'est un fait, il n'y a rien à négocier.
   if (!cap.protocols.includes(req.protocol)) {
     problemes.push({
       kind: "protocole",
-      message: `${req.model} ne se parle pas via ${req.protocol} (attendu : ${cap.protocols.join(", ")}).`,
+      message: `${req.model} n'existe pas sur ${req.protocol} chez le fournisseur `
+        + `(portes réelles : ${cap.protocols.join(", ")}).`,
+    });
+  } else if (!cap.allowedProtocols.includes(req.protocol)) {
+    // 2) ADAM se l'autorise-t-il ? C'est une décision, et elle se dit comme telle.
+    problemes.push({
+      kind: "politique",
+      message: `${req.model} EXISTE sur ${req.protocol}, mais Adam ne l'emprunte pas. `
+        + `Motif : ${cap.policyReason ?? "non consigné"}. Portes retenues : ${cap.allowedProtocols.join(", ")}.`,
+    });
+  }
+
+  // 3) LA COMBINAISON existe-t-elle sur cette porte ? Ni une porte fermée, ni un paramètre
+  //    refusé : un croisement. C'est le HTTP 400 nº 1, et il mérite son propre message.
+  const raisonne = req.reasoning !== undefined && req.reasoning !== "none";
+  if (raisonne && (req.toolCount ?? 0) > 0 && cap.reasoningWithToolsOn
+      && !cap.reasoningWithToolsOn.includes(req.protocol)) {
+    problemes.push({
+      kind: "capacite",
+      message: `${req.model} accepte le raisonnement ET les outils, mais pas ensemble sur `
+        + `${req.protocol} — uniquement sur ${cap.reasoningWithToolsOn.join(", ")}.`,
     });
   }
 

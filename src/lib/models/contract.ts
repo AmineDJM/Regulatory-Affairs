@@ -149,6 +149,27 @@ export interface ModelUsage {
   ms: number;
   /** Nombre de tentatives réseau réellement consommées (1 = du premier coup). */
   attempts: number;
+  /**
+   * COMBIEN DES JETONS DE SORTIE ONT SERVI À RÉFLÉCHIR, et non à répondre.
+   *
+   * Le chiffre le plus important de tout ce contrat, et celui qui manquait. `outputTokens` seul ne
+   * dit pas si un appel a rendu 300 mots ou a passé son budget entier à penser pour ne rien dire :
+   * ces deux appels ont la même facture et le même compteur. Sans cette ventilation, la question
+   * « le budget de raisonnement est-il bien calibré ? » ne se répond qu'à l'intuition — et c'est
+   * ainsi que la boucle d'agent a tourné avec 1 400 jetons totaux sur un modèle qui raisonne.
+   *
+   * OPTIONNEL PARCE QUE TOUS LES PROTOCOLES NE LE RENDENT PAS. Absent = « ce protocole ne le
+   * rapporte pas », ce qui est un fait, pas une mesure ratée. À zéro = le modèle n'a pas réfléchi.
+   */
+  reasoningTokens?: number;
+  /** Le plafond de sortie réellement envoyé — sans lui, `reasoningTokens` ne se juge pas. */
+  maxOutputTokens?: number | null;
+  /**
+   * POURQUOI LA RÉPONSE S'EST ARRÊTÉE AVANT LA FIN (`incomplete_details.reason`), quand c'est le
+   * cas. `"max_output_tokens"` ici veut dire « nous avons payé un appel coupé par NOTRE plafond » :
+   * c'est notre erreur de réglage, pas une limite du modèle, et il faut pouvoir la compter.
+   */
+  incompleteReason?: string | null;
 }
 
 export interface ModelReply {
@@ -172,6 +193,18 @@ export interface ModelReply {
 export interface ModelCallOptions {
   system?: string;
   tools?: ModelToolDef[];
+  /**
+   * LE BUDGET DE LA RÉPONSE VISIBLE — pas le plafond envoyé au fournisseur.
+   *
+   * La distinction n'est pas un détail de vocabulaire. `max_output_tokens` couvre la réflexion
+   * INTERNE en plus de la réponse : un appelant qui demande 1 400 « pour une réponse de 1 400 »
+   * obtient, sur un modèle qui raisonne, une réponse VIDE. Tous les budgets du produit ayant été
+   * écrits quand le nombre voulait dire « longueur de la réponse », c'est ce sens-là qui est
+   * conservé ici — et la passerelle ajoute la réserve de raisonnement (voir `budget.ts`).
+   *
+   * Autrement dit : demandez ce que vous voulez LIRE. Combien le modèle doit penser pour y arriver
+   * n'est pas votre affaire, et dépend de l'effort, pas de la question.
+   */
   maxOutputTokens?: number;
   temperature?: number;
   /** Surcharge ponctuelle de l'effort du rôle. À n'utiliser que si le rôle ne suffit pas. */

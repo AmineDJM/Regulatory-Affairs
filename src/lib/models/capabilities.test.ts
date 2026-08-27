@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
-  MODEL_CAPABILITIES, PARAM_NAMES, capabilityFor, supportsParam, isReasoningModel,
+  MODEL_CAPABILITIES, PROVIDER_CAPABILITIES, ADAM_POLICY,
+  PARAM_NAMES, capabilityFor, supportsParam, isReasoningModel,
   validateModelRequest, describeRequest, type ModelRequestShape, type ParamName,
 } from "./capabilities";
 import { buildResponsesBody, safetyIdentifierFor } from "./openai-responses";
@@ -92,9 +93,51 @@ describe("le registre des capacités — une liste BLANCHE, pas une liste noire"
     expect(efforts).toEqual(["none", "low", "medium", "high", "xhigh", "max"]);
   });
 
-  it("le temps réel ne déclare QUE sa propre porte", () => {
+  it("CAPACITÉ FOURNISSEUR ≠ POLITIQUE ADAM — la table dit les deux, sans les confondre", () => {
+    // On avait fondu les deux, et le registre annonçait que Terra « ne se parle qu'en
+    // Responses » — comme s'il s'agissait d'une incapacité du modèle. C'est FAUX : OpenAI
+    // l'expose sur les deux portes. Ce qui n'existe pas, c'est raisonnement + outils sur Chat
+    // Completions. Présenter notre décision comme une limite externe la rend irrévisable.
+    expect(PROVIDER_CAPABILITIES["gpt-5.6-terra"].protocols).toEqual(["responses", "chat_completions"]);
+    expect(ADAM_POLICY["gpt-5.6-terra"].allowedProtocols).toEqual(["responses"]);
+    expect(ADAM_POLICY["gpt-5.6-terra"].reason.length).toBeGreaterThan(20);
+
+    // La fiche effective est l'INTERSECTION, et elle porte le motif.
+    const cap = capabilityFor("gpt-5.6-terra");
+    expect(cap.protocols).toContain("chat_completions");
+    expect(cap.allowedProtocols).toEqual(["responses"]);
+    expect(cap.policyReason).toBeTruthy();
+  });
+
+  it("une politique ne peut qu'ÉTRANGLER, jamais élargir", () => {
+    // Sans l'intersection, on « autoriserait » un jour une porte que le fournisseur n'expose
+    // pas — et la panne reviendrait par le chemin même qui devait la prévenir.
+    for (const [nom, cap] of Object.entries(MODEL_CAPABILITIES)) {
+      for (const p of cap.allowedProtocols) {
+        expect(cap.protocols, `${nom} autorise ${p} que le fournisseur n'expose pas`).toContain(p);
+      }
+    }
+  });
+
+  it("« raisonnement + outils » est un CROISEMENT, pas une porte fermée", () => {
+    const cap = capabilityFor("gpt-5.6-terra");
+    expect(cap.reasoningWithToolsOn).toEqual(["responses"]);
+
+    // Le message doit le dire ainsi : Terra EXISTE sur Chat Completions, mais pas pour cet usage.
+    const pbs = validateModelRequest({
+      model: "gpt-5.6-terra", protocol: "chat_completions", reasoning: "medium",
+      toolCount: 3, params: {},
+    });
+    const croisement = pbs.find((p) => p.kind === "capacite");
+    expect(croisement?.message).toContain("mais pas ensemble");
+    const politique = pbs.find((p) => p.kind === "politique");
+    expect(politique?.message).toContain("EXISTE");
+  });
+
+  it("le temps réel ne déclare QUE sa propre porte — et c'est un FAIT, pas une politique", () => {
     // C'est ce qui l'empêche structurellement de traverser le constructeur Responses.
     expect(capabilityFor("gpt-realtime-2.1").protocols).toEqual(["realtime"]);
+    expect(ADAM_POLICY["gpt-realtime-2.1"]).toBeUndefined(); // rien à restreindre
     expect(defaultProtocolOf("gpt-realtime-2.1")).toBe("realtime");
     expect(supportsParam("gpt-realtime-2.1", "reasoning")).toBe(false);
     expect(supportsParam("gpt-realtime-2.1", "tools")).toBe(false);
@@ -171,12 +214,17 @@ describe("Terra medium — le payload attendu, et surtout ce qu'il ne contient P
     // Le piège : `max_output_tokens` inclut la réflexion. Un plafond calibré pour la seule
     // réponse est englouti par le raisonnement, et le modèle rend une réponse VIDE — pas une
     // réponse courte. 2000 convenait à un worker ; pas à un Terra medium.
+    //
+    // La politique complète (charges de travail, réserve par effort, garanties de non-régression
+    // sur les workers) est éprouvée dans `budget.test.ts` ; ce qui se vérifie ICI est que le
+    // constructeur de requête en tient bien compte.
     const medium = buildResponsesBody(bindingFor("orchestrator"), [{ role: "user", content: "x" }], {});
     const none = buildResponsesBody(bindingFor("worker"), [{ role: "user", content: "x" }], {});
     expect(medium.max_output_tokens).toBeGreaterThan(none.max_output_tokens as number);
     expect(medium.max_output_tokens).toBeGreaterThanOrEqual(8000);
 
-    // …et l'appelant garde la main.
+    // …et un plafond déjà arrêté en amont traverse l'adaptateur intact. C'est la passerelle qui
+    // calcule ce nombre (réponse visible + réserve) ; le refaire ici l'appliquerait deux fois.
     const impose = buildResponsesBody(bindingFor("orchestrator"), [{ role: "user", content: "x" }], {
       maxOutputTokens: 1234,
     });
@@ -252,8 +300,17 @@ describe("le sanitizer — la faute est dite ICI, pas par OpenAI", () => {
     expect(pbs[0].message).toContain("none, low, medium, high, xhigh, max");
   });
 
-  it("Terra sur la mauvaise porte est refusé", () => {
+  it("Terra sur Chat Completions est refusé par POLITIQUE, pas par incapacité", () => {
+    // La nuance est tout l'objet de la séparation : le fournisseur l'expose, c'est Adam qui
+    // s'en abstient. Classer cela en « protocole » (= n'existe pas) était un mensonge utile
+    // qui aurait fini par empêcher quiconque de rouvrir la décision.
     const pbs = validateModelRequest(forme({ protocol: "chat_completions" }));
+    expect(pbs.some((x) => x.kind === "politique")).toBe(true);
+    expect(pbs.some((x) => x.kind === "protocole")).toBe(false);
+  });
+
+  it("une porte qui N'EXISTE PAS reste, elle, un refus de capacité", () => {
+    const pbs = validateModelRequest(forme({ model: "gpt-realtime-2.1", protocol: "responses" }));
     expect(pbs.some((x) => x.kind === "protocole")).toBe(true);
   });
 

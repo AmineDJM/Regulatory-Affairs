@@ -594,9 +594,15 @@ describe("la traduction de forme, vérifiée sans réseau", () => {
     expect(stopOfResponse({ status: "failed" }, false)).toBe("error");
   });
 
-  it("une réponse vide par budget épuisé est REJOUÉE une fois, budget triplé", async () => {
+  it("une réponse vide par budget épuisé est REJOUÉE une fois, plus large", async () => {
     // Le budget de sortie couvre AUSSI la réflexion interne : un Terra medium peut tout dépenser
     // à réfléchir et ne rien dire. Le symptôme, sinon, est « réponse vide » sans cause nommée.
+    //
+    // Le rattrapage reste un FILET, pas la politique : depuis `budget.ts`, la passerelle calcule
+    // déjà une réserve de raisonnement, et le premier envoi porte donc bien plus que les 500
+    // jetons demandés. Le voir se déclencher signifie que cette réserve est mal calibrée — c'est
+    // ce que dit désormais le journal, et c'est éprouvé dans `budget.test.ts`.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     serveur([
       { id: "r1", status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output: [{ type: "reasoning" }], usage: {} },
       reponse({ texte: "Enfin une réponse." }),
@@ -605,7 +611,10 @@ describe("la traduction de forme, vérifiée sans réseau", () => {
     const r = await callModel("orchestrator", [{ role: "user", content: "x" }], { maxOutputTokens: 500 });
     expect(textOf(r.blocks)).toBe("Enfin une réponse.");
     expect(captures).toHaveLength(2);
-    expect(captures[0].body.max_output_tokens).toBe(500);
-    expect(captures[1].body.max_output_tokens).toBe(1500);
+    // Le budget demandé est celui de la RÉPONSE VISIBLE : ce qui part sur le réseau le dépasse.
+    expect(Number(captures[0].body.max_output_tokens)).toBeGreaterThan(500);
+    expect(Number(captures[1].body.max_output_tokens))
+      .toBeGreaterThan(Number(captures[0].body.max_output_tokens));
+    warn.mockRestore();
   });
 });
