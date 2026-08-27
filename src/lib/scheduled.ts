@@ -12,6 +12,7 @@ import { runPettyCashRechargeReminders } from "@/lib/actions/petty-cash-actions"
 import { runLegalExpirySweep } from "@/lib/legal/expiry-sweep";
 import { runAssistantReminders } from "@/lib/assistant/reminders";
 import { runDriveIngestionSweep } from "@/lib/assistant/drive-ingestion";
+import { runKnowledgeSweep, enqueueDriveBacklog } from "@/lib/knowledge/worker";
 import { runAdamInboxSweep } from "@/lib/google/gmail/reconcile";
 
 /**
@@ -102,6 +103,15 @@ export async function runScheduledJobs(): Promise<void> {
     // un document mal nommé jamais ouvert devient trouvable par son CONTENU. L'ACL se
     // revérifie à la recherche, nœud par nœud. Débrayage : ASSISTANT_DRIVE_INGESTION=off.
     await runDriveIngestionSweep().catch(() => undefined);
+
+    // LA COUCHE DE CONNAISSANCE — elle avance à son rythme, derrière tout le reste.
+    //
+    // Placée APRÈS les balayages existants et volontairement modeste : indexer plus vite au
+    // prix du service rendu à ceux qui utilisent l'ERP serait un mauvais échange. Si un passage
+    // ne finit pas son lot, le suivant reprend là où il en était — rien n'est perdu, et
+    // personne n'attend.
+    await enqueueDriveBacklog().catch(() => 0);
+    await runKnowledgeSweep().catch(() => undefined);
     // LE BATTEMENT D'ADAM — sans navigateur ouvert, sans que le PDG demande quoi que ce soit.
     // Trois gestes : garder l'oreille (renouveler la veille Gmail AVANT expiration), rattraper
     // ce qui est arrivé (histoire incrémentale), et se rattraper soi-même (réconciliation

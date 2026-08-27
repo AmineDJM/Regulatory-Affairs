@@ -6030,34 +6030,34 @@ model VoiceTurnLog {
   userId    String
 
   /// ── Audio ───────────────────────────────────────────────────────────────────────────────
-  speechMs   Int?
+  speechMs    Int?
   /// Crête du niveau d'entrée, 0..1 — millièmes pour rester en entier (420 = 0,42).
-  inputPeak  Int?
-  clipped    Boolean @default(false)
+  inputPeak   Int?
+  clipped     Boolean @default(false)
   /// Le périphérique effectivement retenu. « default » n'est pas une réponse, c'est un symptôme.
   inputDevice String?
 
   /// ── Transcription ───────────────────────────────────────────────────────────────────────
-  transcript     String?
+  transcript   String?
   /// Confiance en millièmes (930 = 0,93). Null = non fournie, ce qui n'est PAS zéro.
-  confidence     Int?
-  partialCount   Int?
-  transcriptMs   Int?
+  confidence   Int?
+  partialCount Int?
+  transcriptMs Int?
 
   /// ── Détection de tour ───────────────────────────────────────────────────────────────────
-  interruptions  Int @default(0)
-  falseBargeIns  Int @default(0)
-  cutShort       Boolean @default(false)
+  interruptions Int     @default(0)
+  falseBargeIns Int     @default(0)
+  cutShort      Boolean @default(false)
 
   /// ── Compréhension & outil ───────────────────────────────────────────────────────────────
-  intentKind String?
-  fastPath   Boolean @default(false)
-  toolName   String?
-  toolOk     Boolean?
-  toolError  String?
-  intentMs   Int?
+  intentKind  String?
+  fastPath    Boolean  @default(false)
+  toolName    String?
+  toolOk      Boolean?
+  toolError   String?
+  intentMs    Int?
   toolStartMs Int?
-  toolMs     Int?
+  toolMs      Int?
 
   /// ── Restitution ─────────────────────────────────────────────────────────────────────────
   speakMs         Int?
@@ -9325,4 +9325,173 @@ model DirectoryEndpoint {
   @@unique([entryId, channel, value])
   @@index([channel, value])
   @@index([entryId, channel, isPrimary])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// LA COUCHE DE CONNAISSANCE — « ingérer une fois, comprendre une fois, retrouver tout de suite ».
+//
+// Elle appartient à l'ERP, pas à Adam : la recherche du Drive, un écran métier ou l'assistant y
+// puisent de la même façon. Quatre tables, et pas une de plus tant qu'une cinquième n'a pas fait
+// la preuve qu'elle porte une question qu'aucune des quatre ne sait poser.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/// UNE UNITÉ DE CONNAISSANCE — un document, un mail, un enregistrement ERP, vus comme du savoir.
+///
+/// La clé d'idempotence est `(sourceType, sourceId)` : réingérer la même chose ne crée jamais un
+/// second élément. Le `contentHash` tranche ensuite entre « rien n'a bougé » (on ne retraite pas)
+/// et « nouvelle version » (on ouvre un maillon de plus dans la chaîne).
+model KnowledgeItem {
+  id         String @id @default(cuid())
+  sourceType String
+  sourceId   String
+
+  /// SHA-256 du CONTENU (pas des métadonnées) : c'est lui qui dit si un retraitement est inutile.
+  contentHash String
+
+  title    String?
+  docType  String?
+  language String?
+
+  /// Cloisonnement — repris de la source, jamais deviné. Null = non rattaché à une entité.
+  companyId       String?
+  /// public | internal | restricted. Le retrieval filtre dessus AVANT de rendre quoi que ce soit.
+  confidentiality String?
+
+  /// Le texte principal, replié pour la recherche (minuscules sans accents) dans `textFold`.
+  text     String?
+  textFold String?
+
+  /// Métadonnées communes (voir `KnowledgeMeta`) — on ne stocke QUE ce qui est pertinent.
+  meta Json?
+
+  // ── Provenance (§23) : « d'où vient cette information ? » a toujours une réponse ────────
+  extractedBy String?
+  model       String?
+  confidence  Float?
+
+  // ── Temporalité (§16) : la situation d'aujourd'hui n'est pas celle de mars ──────────────
+  documentDate  DateTime?
+  effectiveDate DateTime?
+  validFrom     DateTime  @default(now())
+  validTo       DateTime?
+  isCurrent     Boolean   @default(true)
+
+  // ── Versions (§5) : V1 → V2 → V3, l'histoire reste lisible ──────────────────────────────
+  version      Int            @default(1)
+  supersedesId String?        @unique
+  supersedes   KnowledgeItem? @relation("KnowledgeVersion", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy KnowledgeItem? @relation("KnowledgeVersion")
+
+  /// RECEIVED | PARSED | CLASSIFIED | INDEXED | READY | ENRICHED | FAILED
+  stage String  @default("RECEIVED")
+  error String?
+
+  chunks KnowledgeChunk[]
+  jobs   KnowledgeJob[]
+  links  KnowledgeLink[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sourceType, sourceId])
+  @@index([contentHash])
+  @@index([stage])
+  @@index([companyId, isCurrent])
+  @@index([docType])
+  @@index([documentDate])
+  @@index([updatedAt])
+}
+
+/// UN MORCEAU STRUCTUREL — une section, une page, une diapositive, un tableau, un message.
+///
+/// Le découpage suit la STRUCTURE (§13), jamais « tous les 500 jetons » : un tableau coupé en
+/// deux ne veut plus rien dire, et une citation sans page n'est pas opposable.
+model KnowledgeChunk {
+  id     String        @id @default(cuid())
+  itemId String
+  item   KnowledgeItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  /// section | page | slide | table | sheet | message | whole
+  kind    String
+  ord     Int
+  label   String?
+  /// Page, diapositive, index de message — ce qui permet de CITER précisément.
+  locator String?
+
+  text     String
+  textFold String
+
+  /// Vecteur 512d en JSONB. pgvector n'est PAS disponible sur cette infrastructure (vérifié) :
+  /// le cosinus se fait en mémoire, comme pour le corpus CTD et l'index Drive. Le jour où
+  /// l'extension existe, seule cette colonne et la requête de rapprochement changent.
+  embedding Json?
+
+  meta Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([itemId, ord])
+  @@index([itemId, kind])
+}
+
+/// LA FILE DE TRAVAUX DE FOND — ce qui est lourd quitte le chemin de l'utilisateur.
+///
+/// Réclamation ATOMIQUE (QUEUED → RUNNING par `updateMany` conditionnel), réessai à attente
+/// croissante, et boîte morte au bout : un travail qui échoue pour une mauvaise raison cesse d'y
+/// revenir et se SIGNALE, au lieu de tourner indéfiniment.
+model KnowledgeJob {
+  id     String         @id @default(cuid())
+  itemId String?
+  item   KnowledgeItem? @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  /// parse | vision | classify | entities | embed | enrich
+  kind     String
+  /// Plus petit = plus urgent. Ce qui rend RETROUVABLE passe avant ce qui rend mieux compris.
+  priority Int    @default(50)
+
+  payload Json?
+
+  /// QUEUED | RUNNING | DONE | FAILED | DEAD
+  status      String    @default("QUEUED")
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(4)
+  /// Pas avant cette date — c'est l'attente croissante entre deux essais.
+  runAfter    DateTime  @default(now())
+  claimedAt   DateTime?
+  finishedAt  DateTime?
+  lastError   String?
+
+  /// Empêche deux jobs identiques de coexister (§20 : rejouable sans doublon).
+  dedupeKey String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, runAfter, priority])
+  @@index([itemId, kind])
+}
+
+/// LE GRAPHE — des relations claires en PostgreSQL, pas une base graphe.
+///
+/// Le vocabulaire des prédicats est FERMÉ (voir `RelationPredicate`) : un graphe dont les arêtes
+/// s'inventent au fil de l'eau devient impossible à interroger sans deviner. L'unicité empêche
+/// qu'un job rejoué double une arête.
+model KnowledgeLink {
+  id     String        @id @default(cuid())
+  itemId String
+  item   KnowledgeItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  predicate String
+  toType    String
+  toId      String
+
+  confidence Float   @default(1)
+  /// Le fragment de texte qui a produit l'arête — pour pouvoir la contester.
+  mention    String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([itemId, predicate, toType, toId])
+  @@index([toType, toId])
+  @@index([predicate])
 }

@@ -1,0 +1,217 @@
+import { prisma } from "@/lib/prisma";
+import {
+  type JobKind,
+  JOB_PRIORITY,
+  MAX_ATTEMPTS,
+  backoffMs,
+} from "./contract";
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA FILE DE TRAVAUX DE FOND — l'enrichissement ne fait jamais attendre personne.
+ *
+ * ── LA PROMESSE ──────────────────────────────────────────────────────────────────────────
+ *
+ * Un dépôt de fichier rend la main tout de suite. Ce qui est lourd — vision, vecteurs,
+ * relations, résumé — part ici et avance tranquillement. Si un enrichissement finit, tant mieux ;
+ * s'il échoue, l'ingestion normale continue et l'utilisateur n'en sait rien : le document reste
+ * retrouvable par son texte, qui est le service qu'il attendait.
+ *
+ * ── CE QUI REND CETTE FILE FIABLE ────────────────────────────────────────────────────────
+ *
+ *   • RÉCLAMATION ATOMIQUE — `QUEUED → RUNNING` par une mise à jour conditionnelle. Deux
+ *     processus qui tirent en même temps : un seul gagne. C'est le même geste que le garde
+ *     d'idempotence des actions, et pour la même raison — sans lui, deux workers font deux fois
+ *     le même travail, et paient deux fois le même modèle.
+ *   • CLÉ DE DÉDOUBLONNAGE — deux jobs identiques ne coexistent pas. Rejouer un balayage ne
+ *     remplit pas la file de copies.
+ *   • ATTENTE CROISSANTE — un service momentanément indisponible n'est pas martelé.
+ *   • BOÎTE MORTE — au bout de N essais, on arrête d'y revenir et on le SIGNALE. Un job qui
+ *     échoue pour une mauvaise raison tournerait sinon indéfiniment, en coûtant à chaque tour.
+ *
+ * ── CE QUE CETTE FILE N'EST PAS ──────────────────────────────────────────────────────────
+ *
+ * Un ordonnanceur distribué. C'est une table PostgreSQL lue par le planificateur déjà en place
+ * (`lib/scheduled.ts`). Introduire un courtier de messages pour ce volume ajouterait une pièce
+ * à exploiter sans rien résoudre — et la première panne serait la sienne.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+export interface EnqueueInput {
+  kind: JobKind;
+  itemId?: string | null;
+  payload?: Record<string, unknown> | null;
+  /** Surcharge la priorité du type — à réserver aux cas où l'urgence est réelle. */
+  priority?: number;
+  /** Retarde le premier essai (par exemple : attendre qu'une transaction soit visible). */
+  delayMs?: number;
+  /**
+   * Ce qui rend deux jobs « le même ». Par défaut `kind:itemId`, ce qui est presque toujours la
+   * bonne réponse : on ne veut pas deux vectorisations du même élément.
+   */
+  dedupeKey?: string | null;
+}
+
+/**
+ * MET UN TRAVAIL EN FILE. Ne lève jamais : une file qui casse l'appelant transformerait un
+ * enrichissement optionnel en panne de dépôt de fichier.
+ *
+ * Rend l'identifiant du job, ou `null` s'il existait déjà (ce n'est pas une erreur — c'est
+ * exactement le comportement voulu d'un balayage rejoué).
+ */
+export async function enqueue(input: EnqueueInput): Promise<string | null> {
+  const dedupeKey = input.dedupeKey === null
+    ? null
+    : (input.dedupeKey ?? (input.itemId ? `${input.kind}:${input.itemId}` : null));
+
+  try {
+    const job = await prisma.knowledgeJob.create({
+      data: {
+        kind: input.kind,
+        itemId: input.itemId ?? null,
+        payload: (input.payload ?? undefined) as object | undefined,
+        priority: input.priority ?? JOB_PRIORITY[input.kind],
+        maxAttempts: MAX_ATTEMPTS,
+        runAfter: new Date(Date.now() + (input.delayMs ?? 0)),
+        dedupeKey,
+      },
+      select: { id: true },
+    });
+    return job.id;
+  } catch {
+    // Collision sur `dedupeKey` : le travail est DÉJÀ prévu. Le dire par un `null` plutôt que
+    // par une exception — l'appelant n'a rien à corriger.
+    return null;
+  }
+}
+
+/** Plusieurs d'un coup, sans qu'un échec unitaire n'emporte les autres. */
+export async function enqueueAll(inputs: EnqueueInput[]): Promise<number> {
+  const ids = await Promise.all(inputs.map((i) => enqueue(i)));
+  return ids.filter((id): id is string => id !== null).length;
+}
+
+export interface ClaimedJob {
+  id: string;
+  kind: JobKind;
+  itemId: string | null;
+  payload: Record<string, unknown> | null;
+  attempts: number;
+}
+
+/**
+ * RÉCLAME UN TRAVAIL — la seule façon d'en obtenir un.
+ *
+ * L'ordre de service est celui de l'index (`status, runAfter, priority`) : ce qui est dû,
+ * puis ce qui est le plus urgent. La réclamation est CONDITIONNELLE (`status: "QUEUED"`) :
+ * si un autre processus a été plus rapide, la mise à jour ne touche aucune ligne et on passe
+ * au candidat suivant plutôt que de faire le travail deux fois.
+ */
+export async function claimNext(kinds?: JobKind[]): Promise<ClaimedJob | null> {
+  const now = new Date();
+  const candidates = await prisma.knowledgeJob.findMany({
+    where: {
+      status: "QUEUED",
+      runAfter: { lte: now },
+      ...(kinds?.length ? { kind: { in: kinds } } : {}),
+    },
+    orderBy: [{ priority: "asc" }, { runAfter: "asc" }],
+    take: 5, // quelques candidats : si l'un est pris, on tente le suivant sans nouvelle requête
+    select: { id: true, kind: true, itemId: true, payload: true, attempts: true },
+  });
+
+  for (const c of candidates) {
+    const claimed = await prisma.knowledgeJob.updateMany({
+      where: { id: c.id, status: "QUEUED" },
+      data: { status: "RUNNING", claimedAt: now, attempts: { increment: 1 } },
+    });
+    if (claimed.count === 1) {
+      return {
+        id: c.id,
+        kind: c.kind as JobKind,
+        itemId: c.itemId,
+        payload: (c.payload ?? null) as Record<string, unknown> | null,
+        attempts: c.attempts + 1,
+      };
+    }
+  }
+  return null;
+}
+
+export async function completeJob(id: string): Promise<void> {
+  await prisma.knowledgeJob
+    .update({ where: { id }, data: { status: "DONE", finishedAt: new Date(), lastError: null } })
+    .catch(() => undefined);
+}
+
+/**
+ * ÉCHEC. Deux issues, et la distinction compte :
+ *
+ *   • il reste des essais → retour en file, avec une attente croissante ;
+ *   • le budget est épuisé → BOÎTE MORTE (`DEAD`). Le job cesse d'être repris, et son dernier
+ *     motif est conservé. Un job mort qu'on relancerait indéfiniment coûterait à chaque tour
+ *     sans jamais aboutir — et masquerait le vrai problème derrière du bruit.
+ */
+export async function failJob(id: string, error: string): Promise<"retry" | "dead"> {
+  const job = await prisma.knowledgeJob
+    .findUnique({ where: { id }, select: { attempts: true, maxAttempts: true } })
+    .catch(() => null);
+  if (!job) return "dead";
+
+  const exhausted = job.attempts >= job.maxAttempts;
+  await prisma.knowledgeJob
+    .update({
+      where: { id },
+      data: exhausted
+        ? { status: "DEAD", finishedAt: new Date(), lastError: error.slice(0, 500) }
+        : { status: "QUEUED", runAfter: new Date(Date.now() + backoffMs(job.attempts)), lastError: error.slice(0, 500) },
+    })
+    .catch(() => undefined);
+  return exhausted ? "dead" : "retry";
+}
+
+/**
+ * LES TRAVAUX ABANDONNÉS. Un processus tué en plein travail laisse un job en `RUNNING` que plus
+ * personne ne réclamera — c'est la panne silencieuse classique d'une file. On les récupère au
+ * bout d'un délai généreux : mieux vaut refaire un travail que d'en perdre un pour toujours.
+ */
+export const STALE_RUNNING_MS = 20 * 60_000;
+
+export async function requeueStale(): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_RUNNING_MS);
+  const r = await prisma.knowledgeJob
+    .updateMany({
+      where: { status: "RUNNING", claimedAt: { lt: cutoff } },
+      data: { status: "QUEUED", runAfter: new Date(), lastError: "Reprise après interruption du worker." },
+    })
+    .catch(() => ({ count: 0 }));
+  return r.count;
+}
+
+export interface QueueHealth {
+  queued: number;
+  running: number;
+  dead: number;
+  /** Le plus vieux travail en attente, en minutes — le signe le plus lisible d'un engorgement. */
+  oldestQueuedMin: number | null;
+}
+
+/** L'état de la file, pour l'écran d'observabilité (§26). */
+export async function queueHealth(): Promise<QueueHealth> {
+  const [queued, running, dead, oldest] = await Promise.all([
+    prisma.knowledgeJob.count({ where: { status: "QUEUED" } }),
+    prisma.knowledgeJob.count({ where: { status: "RUNNING" } }),
+    prisma.knowledgeJob.count({ where: { status: "DEAD" } }),
+    prisma.knowledgeJob.findFirst({
+      where: { status: "QUEUED" },
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true },
+    }),
+  ]);
+  return {
+    queued,
+    running,
+    dead,
+    oldestQueuedMin: oldest ? Math.round((Date.now() - oldest.createdAt.getTime()) / 60_000) : null,
+  };
+}

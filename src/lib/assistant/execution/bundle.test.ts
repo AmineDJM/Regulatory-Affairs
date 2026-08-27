@@ -69,7 +69,7 @@ describe("le chemin nominal", () => {
 
 describe("règle 1 — une action CRITIQUE ne s'enchaîne jamais", () => {
   it("elle est refusée sans être exécutée", async () => {
-    const run = vi.fn<Parameters<RunOne>, ReturnType<RunOne>>(async () => ok());
+    const run = vi.fn<RunOne>(async () => ok());
     const r = await executeBundle([item({ intentId: "danger", level: "CRITICAL" })], run);
 
     expect(run).not.toHaveBeenCalled();
@@ -112,7 +112,7 @@ describe("règles 2 et 3 — l'échec s'arrête là où commence la dépendance"
 
   /** Exécuter une étape sur un état qui n'existe pas est pire que ne pas l'exécuter. */
   it("un échec entraîne CE QUI EN DÉPEND, sans le tenter", async () => {
-    const run = vi.fn<Parameters<RunOne>, ReturnType<RunOne>>(async (id) => (id === "creer" ? ko() : ok()));
+    const run = vi.fn<RunOne>(async (id: string) => (id === "creer" ? ko() : ok()));
     const r = await executeBundle(
       [item({ intentId: "creer" }), item({ intentId: "lier", dependsOnPrevious: true })],
       run,
