@@ -1,7 +1,7 @@
 import type { CurrentUser } from "@/lib/session";
 import { accessibleModules } from "@/lib/rbac";
-import { buildChiefOfStaffContext, assistantIdentityContext } from "@/lib/assistant";
-import { POWER_TOOLS } from "@/lib/assistant/power-tools";
+import { buildChiefOfStaffContext, assistantIdentityContext, assistantToolsFor } from "@/lib/assistant";
+import { capabilityDoctrine, voiceDirectNames } from "@/lib/assistant/capability-surface";
 import { TRIAGE_RULE } from "@/lib/assistant/triage";
 import { personalContext, getThreadMessages, ensurePrimaryThread } from "@/lib/assistant-memory";
 import { conversationWorkingSet } from "@/lib/assistant/reasoning";
@@ -54,50 +54,18 @@ export function canUseRealtimeVoice(user: CurrentUser): boolean {
 // ─────────────────────────── Outils exposés à la session ───────────────────────────
 
 /**
- * Les OUTILS DIRECTS de la session vocale — les fast paths : lectures instantanées que le
- * modèle appelle sans détour (« masse salariale ? », « quel âge a Khaled ? », « où est le
- * paiement ? »). Sous-ensemble CHOISI du registre : le budget de contexte temps réel se paie
- * en latence, on n'y verse pas les ~60 outils — le reste passe par la délégation.
- * Chaque nom DOIT exister dans POWER_TOOLS (un test le fige) ; le droit est re-vérifié par
- * `executePowerTool` à CHAQUE appel, la liste envoyée au modèle n'est qu'une suggestion.
+ * Les OUTILS DIRECTS de la session vocale.
+ *
+ * LA LISTE N'EST PLUS ÉCRITE ICI — elle est PROJETÉE depuis l'unique registre de capacités
+ * (`capability-surface.ts`). C'était une liste blanche recopiée à la main, et elle avait
+ * divergé : trente et un outils, tous en LECTURE, aucune écriture. Adam répondait donc, à
+ * l'oral et en toute bonne foi, « la fonction d'envoi d'e-mail n'est pas disponible » — alors
+ * que `send_email` existe et que le transport Gmail marche.
+ *
+ * Conservé comme ALIAS parce que des tests et le banc de mesure le nomment ; la vérité est
+ * ailleurs, et c'est le point.
  */
-export const VOICE_FAST_TOOL_NAMES: readonly string[] = [
-  "search_everything",
-  "inspect_record",
-  "employee_360",
-  "read_payroll",
-  "read_hr_overview",
-  "read_budget",
-  "read_finances",
-  "finance_totals",
-  "read_calendar",
-  "read_stock",
-  "search_drive",
-  "read_document",
-  "find_documents",
-  "product_360",
-  "supplier_360",
-  "company_state",
-  "ceo_attention",
-  "executive_alerts",
-  "list_pending_decisions",
-  "search_knowledge_corpus",
-  "time_travel",
-  "action_history",
-  "what_changed",
-  "episodic_recall",
-  // MÊME CERVEAU EN VOIX : charge directe / portefeuille partenaire / investigation
-  // d'événement / exploration Drive — les primitives des pannes réelles, en fast path.
-  "regulatory_workload",
-  "regulatory_portfolio",
-  "investigate_event",
-  "inspect_drive_folder",
-  "plan_reminder",
-  "list_commitments",
-  "list_decisions",
-  "remember",
-  "recall_conversation",
-] as const;
+export const VOICE_FAST_TOOL_NAMES: readonly string[] = voiceDirectNames();
 
 /** Le format d'outil attendu par la session Realtime (function calling). */
 export interface RealtimeToolDef {
@@ -137,18 +105,26 @@ const DELEGATE_TOOL: RealtimeToolDef = {
 };
 
 /**
- * Adaptateur PowerTool → outil Realtime : LE MÊME outil sert le texte et la voix — on ne
- * duplique ni la définition ni le garde. Seuls les outils ouverts à CE compte sont annoncés.
+ * LES OUTILS ANNONCÉS À LA SESSION — projetés depuis le registre unique.
+ *
+ * La source est `assistantToolsFor` : LE MÊME registre que le texte, borné par les MÊMES droits.
+ * On n'y puise plus dans `POWER_TOOLS` seul — c'était l'erreur, puisque les écritures
+ * (`send_email`, `create_task`…) n'y sont pas et disparaissaient donc de la voix sans que rien
+ * ne le signale.
+ *
+ * L'ordre est significatif pour le modèle : les outils sont émis dans l'ordre de la projection
+ * (lectures, puis écritures), la délégation en dernier — le recours, pas le réflexe.
  */
 export function realtimeToolsFor(user: CurrentUser): RealtimeToolDef[] {
-  const wanted = new Set(VOICE_FAST_TOOL_NAMES);
-  const direct = POWER_TOOLS
-    .filter((t) => wanted.has(t.def.name) && t.allowed(user))
+  const rang = new Map(voiceDirectNames().map((n, i) => [n, i]));
+  const direct = assistantToolsFor(user)
+    .filter((t) => rang.has(t.name))
+    .sort((a, b) => (rang.get(a.name) ?? 0) - (rang.get(b.name) ?? 0))
     .map((t) => ({
       type: "function" as const,
-      name: t.def.name,
-      description: t.def.description,
-      parameters: t.def.input_schema as unknown as Record<string, unknown>,
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema as unknown as Record<string, unknown>,
     }));
   return [...direct, DELEGATE_TOOL];
 }
@@ -262,6 +238,12 @@ export async function buildVoiceInstructions(
     const available = screenActionsContext(user, screen);
     if (available) parts.push(`\n${available}`);
   }
+
+  // CE QU'IL PEUT FAIRE, NOMMÉMENT. Placé APRÈS le contexte et AVANT le ton : c'est une règle
+  // dure, pas une nuance de style. Sans elle, un modèle prudent retombe sur le refus — et le
+  // refus qu'on vient de corriger n'était pas une hallucination mais une lecture honnête d'une
+  // liste d'outils incomplète.
+  parts.push(`\n${capabilityDoctrine(user)}`);
 
   parts.push(VOICE_ADDENDUM);
   return parts.join("\n");

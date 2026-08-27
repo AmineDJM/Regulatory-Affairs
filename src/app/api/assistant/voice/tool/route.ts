@@ -1,7 +1,10 @@
 import { requireUser } from "@/lib/session";
 import { personalContext, getThreadMessages } from "@/lib/assistant-memory";
-import { runAssistant, extractSources, type ChatTurn, type ProposedAction } from "@/lib/assistant";
-import { executePowerTool } from "@/lib/assistant/power-tools";
+import {
+  runAssistant, extractSources, executeReadTool, buildProposal, RESOLVER_WRITE_NAMES,
+  type ChatTurn, type ProposedAction,
+} from "@/lib/assistant";
+import { isDirectOn } from "@/lib/assistant/capability-surface";
 import { canUseRealtimeVoice, capToolOutput, DELEGATE_TOOL_NAME } from "@/lib/assistant/voice-realtime";
 import { delegationLooksReflexive } from "@/lib/assistant/triage";
 import { withTurn, markComplexity, markPreview, markFinal, logTurn } from "@/lib/models/telemetry";
@@ -92,13 +95,57 @@ export async function POST(req: Request) {
       });
     }
 
+    // ── ÉCRITURE EN FAST PATH — le correctif du « je ne peux pas envoyer d'e-mail » ────────
+    //
+    // La voix n'annonçait que des lectures. Elle pouvait donc TOUT lire et RIEN faire, alors que
+    // `send_email` et `create_task` existent et fonctionnent en texte depuis toujours. Pire, la
+    // consigne de délégation lui interdit (à raison) de déléguer un niveau B : « envoie un mail
+    // à Alla en disant… » n'avait donc AUCUN chemin, et sortait en incapacité inventée.
+    //
+    // Le chemin est ici, et il est COURT : capability → `buildProposal` → carte à l'écran. Pas
+    // d'orchestrateur, pas de Terra-medium, pas de second tour de modèle — la demande porte déjà
+    // tous les gestes. UNE carte, UNE confirmation, et l'exécution reste sur le circuit canonique
+    // (RBAC revérifié, intent persistant, reçu, idempotence) : c'est `buildProposal` qui la
+    // construit, exactement comme en texte.
+    if (isDirectOn(user, "voice", name) && RESOLVER_WRITE_NAMES.has(name)) {
+      markComplexity("B");
+      const proposal = await buildProposal(name, input, user);
+      if ("error" in proposal) {
+        console.info("[voice] voice_write_refused", { userId: user.id, tool: name, motif: proposal.error.slice(0, 120) });
+        return Response.json({
+          output: JSON.stringify({ refus: proposal.error, consigne: "Dire le motif tel quel, brièvement. Ne pas inventer une incapacité générale." }),
+          latencyMs: Date.now() - t0,
+          ui: null,
+        });
+      }
+      console.info("[voice] voice_tool_completed", { userId: user.id, tool: name, latencyMs: Date.now() - t0, proposals: 1 });
+      return Response.json({
+        // Ce que la voix reçoit : de quoi ANNONCER la carte, jamais de quoi prétendre l'avoir faite.
+        output: JSON.stringify({
+          carteAffichee: proposal.title,
+          champs: proposal.fields.map((f) => `${f.label} : ${f.value}`),
+          avertissements: proposal.warnings.length ? proposal.warnings : undefined,
+          consigne:
+            "La carte de confirmation est AFFICHÉE À L'ÉCRAN. Annonce-la en une phrase avec l'essentiel "
+            + "(destinataire, objet), puis attends la confirmation. Ne dis JAMAIS que c'est envoyé ni fait.",
+        }),
+        latencyMs: Date.now() - t0,
+        ui: { reply: null, proposals: [proposal], trace: [], sources: [] },
+      });
+    }
+
     // FAST PATH — le même registre que le texte, le même garde, re-vérifié à chaque appel.
     // Niveau A du point de vue de CET appel : la session temps réel enchaîne elle-même les
     // lectures d'un niveau B, et chacune revient ici séparément.
+    //
+    // `executeReadTool` PLUTÔT QUE `executePowerTool` : le premier englobe le second puis couvre
+    // les lectures du registre texte (`search_people`, `read_workflow`…). Passer par le second
+    // seul limitait la voix aux « outils de pouvoir » — encore une frontière qui n'existait que
+    // par accident d'implémentation, et qui aurait fait dire « outil inconnu » d'une capacité
+    // annoncée deux secondes plus tôt au même modèle.
     markComplexity("A");
-    const out = await executePowerTool(name, input, user);
-    const output = out ?? "Outil inconnu — utiliser delegate_to_chief_of_staff pour cette demande.";
-    console.info("[voice] voice_tool_completed", { userId: user.id, tool: name, latencyMs: Date.now() - t0, ok: out !== null });
+    const output = await executeReadTool(name, input, user);
+    console.info("[voice] voice_tool_completed", { userId: user.id, tool: name, latencyMs: Date.now() - t0, ok: output.length > 0 });
     return Response.json({
       output: capToolOutput(output),
       latencyMs: Date.now() - t0,

@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import type { EffectiveAccess, Module, Action } from "@/lib/rbac";
-import { POWER_TOOLS } from "./power-tools";
+import { MODULES, ACTIONS } from "@/lib/rbac";
+import { assistantToolsFor } from "@/lib/assistant";
 import {
   REALTIME_VOICE_MODEL, VOICE_FAST_TOOL_NAMES, DELEGATE_TOOL_NAME,
   canUseRealtimeVoice, realtimeToolsFor, buildVoiceInstructions, capToolOutput,
@@ -17,6 +18,12 @@ import { createThread, appendExchange } from "@/lib/assistant-memory";
  *   • les INSTRUCTIONS : identité vocale, règles de fond (anti-injection), conversation
  *     récente injectée BORNÉE — et PAS le digest réglementaire géant (budget temps réel).
  */
+
+/** Un compte à qui TOUT est ouvert — la référence de l'invariant « aucune capacité absente ». */
+function superAdmin(): CurrentUser {
+  const perms = Object.fromEntries(MODULES.map((m) => [m, [...ACTIONS]])) as Partial<Record<Module, Action[]>>;
+  return userWith(perms, "SUPER_ADMIN", "voice-sa");
+}
 
 function userWith(perms: Partial<Record<Module, Action[]>>, role: CurrentUser["role"], id = "voice-test"): CurrentUser {
   const modules = new Map(
@@ -48,11 +55,31 @@ describe("voix temps réel — porte d'accès", () => {
 });
 
 describe("voix temps réel — adaptateur d'outils (les MÊMES outils, jamais dupliqués)", () => {
-  it("chaque fast path déclaré EXISTE dans le registre PowerTools — aucun nom fantôme", () => {
-    const registry = new Set(POWER_TOOLS.map((t) => t.def.name));
+  it("chaque outil direct EXISTE dans le registre UNIFIÉ — aucun nom fantôme", () => {
+    // L'INVARIANT A CHANGÉ DE SOURCE, et c'est le correctif. Il gelait « ce nom est un
+    // PowerTool » — or `POWER_TOOLS` n'est qu'une PARTIE du registre : les écritures
+    // (`send_email`, `create_task`) et certaines lectures (`search_people`) vivent ailleurs.
+    // Vérifier contre le sous-ensemble revenait à garantir la cohérence d'une liste avec
+    // elle-même, pendant que la voix perdait en silence toute capacité d'écriture.
+    //
+    // La référence est désormais `assistantToolsFor` — le MÊME registre que le texte.
+    const registre = new Set(assistantToolsFor(superAdmin()).map((t) => t.name));
     for (const name of VOICE_FAST_TOOL_NAMES) {
-      expect(registry.has(name), name).toBe(true);
+      expect(registre.has(name), `${name} annoncé à la voix mais absent du registre unifié`).toBe(true);
     }
+  });
+
+  it("les écritures conversationnelles sont ANNONCÉES à la voix — la panne de production", () => {
+    // « Envoie un mail à Alla lui disant salut j'espère que tu vas bien » → « Je ne peux pas
+    // l'envoyer, il manque l'action d'envoi d'e-mail dans les fonctions disponibles. »
+    // Adam disait vrai : la liste vocale ne contenait que des lectures. Et il ne pouvait pas
+    // déléguer non plus, la consigne le lui interdisant pour un niveau B.
+    const names = realtimeToolsFor(superAdmin()).map((t) => t.name);
+    expect(names).toContain("send_email");
+    expect(names).toContain("create_task");
+    // La résolution de personne EN DIRECT : « c'est quoi le mail d'Alla ? » puis « envoie-lui un
+    // mail » est une intention en deux temps, pas deux missions.
+    expect(names).toContain("search_people");
   });
 
   it("un compte exécutif reçoit les fast paths ouverts par SES droits + la délégation", () => {
@@ -141,8 +168,22 @@ suite("voix temps réel — instructions de session (même conversation, budget 
     // nom, adresse d'expédition, distinction avec la boîte du PDG) a été ajouté — un compte rendu
     // réel avait montré Adam répondant « je m'appelle Assistant IA » puis s'attribuant la boîte
     // du PDG. La marge n'a pas été élargie « au cas où » : elle a été payée une fois, pour ça.
+    //
+    // Puis de 12 600 à 13 400 pour la DOCTRINE DE CAPACITÉ (≈ 600 caractères), et pour la même
+    // raison : un compte rendu réel montrait Adam répondant « je ne peux pas envoyer l'e-mail,
+    // cette fonction n'est pas disponible » — puis proposant au PDG de copier-coller le texte
+    // dans sa messagerie. La cause était structurelle (aucune écriture n'était annoncée à la
+    // voix) et elle est corrigée ailleurs ; ces six cents caractères sont ce qui empêche un
+    // modèle prudent de RETOMBER sur le refus quand il hésite. Coût réel : environ 150 jetons,
+    // payés UNE fois à l'ouverture de session, pas à chaque tour.
     expect(instructions).not.toContain("INTERPRÉTATION DES DEMANDES");
-    expect(instructions.length).toBeLessThan(12_600);
+
+    // Le budget ne peut donc pas être dépensé ailleurs sans qu'on le voie : ce qui l'a fait
+    // monter doit être PRÉSENT. Sans cette assertion, le plafond relevé financerait n'importe
+    // quel ajout futur, et la discipline se perdrait au premier oubli.
+    expect(instructions).toMatch(/n'existe pas/);
+    expect(instructions).toContain("send_email");
+    expect(instructions.length).toBeLessThan(13_400);
   });
 
   it("la CONVERSATION RÉCENTE du fil est injectée (bornée) — « et son salaire ? » a son contexte", async () => {
