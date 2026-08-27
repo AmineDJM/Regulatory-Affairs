@@ -2696,6 +2696,37 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 
 ---
 
+### Mission Runtime (`src/lib/missions/`) — façade L2
+
+| Fichier | Rôle |
+|---|---|
+| `ports.ts` | Le seul seam : catalogue de capacités, exécutant, horloge. Le runtime n'importe JAMAIS `assistant/` |
+| `runtime/state.ts` | Machine à états mission + étape, pure et exhaustivement testée |
+| `runtime/store.ts` | Persistance, matérialisation ré-entrante, journal (`MissionEvent`), clé d'idempotence |
+| `runtime/engine.ts` | Le moteur : réservation, reprise, retry, éventail, parallélisme borné, conclusion |
+| `runtime/interpolate.ts` | Injection d'un élément dans une entrée — pauvre par dessein, sans traversée de prototype |
+| `planner/contract.ts` | Ce que le planner a le droit de produire, et les limites opérationnelles |
+| `compiler/graph.ts` | Tri topologique, vagues, cycles, ancêtres |
+| `compiler/compile.ts` | Le refus : capacité inconnue/interdite, cycle, forme, **cardinalité** |
+| `registry/capability-meta.ts` | Effet, idempotence, groupabilité, latence, confirmation — défaut prudent |
+| `policy/guard.ts` | §29 : l'auto-escalade est un refus de compilation |
+| `approval/scope.ts` | L'empreinte immuable d'un périmètre (§33) |
+| `approval/gate.ts` | La porte fermée par défaut + la notification via le VAPID existant |
+| `events/match.ts` | « Ce fait est-il celui que j'attendais ? » — pur, strict par défaut |
+| `events/router.ts` | Réveil des missions, attente humaine, attentes échues, file de l'ordonnanceur |
+| `goal/evaluate.ts` | Contrôle qualité arithmétique + satisfaction de l'objectif (§20-22) |
+| `recovery/strategy.ts` | Douze causes, une échelle par cause, quatre niveaux de certitude |
+| `recovery/sources.ts` | Où chercher ensuite, par type de cible (§77) |
+| `commitments/satisfy.ts` | Une promesse se ferme quand le fait arrive ; relance sans harcèlement |
+| `commitments/proactivity.ts` | Cinq facteurs : agir / proposer / se taire |
+| `templates/registry.ts` | OBSERVED → CANDIDATE → APPROVED : pas d'apprentissage silencieux |
+| `memory/budget.ts` | Composition sous budget + trois couches incompressibles |
+| `memory/compact.ts` | Compression progressive avec refus si une valeur critique est perdue |
+| `memory/store.ts` | Épisodes en base + assemblage réel du contexte |
+| `view/workspace.ts` | L'écran d'une mission, sans modèle, avec un `blockId` stable |
+| `agent/principal.ts` | La double signature `initiatedBy` / `executedBy` (§30) |
+| `evals/bench.test.ts` | 17 scénarios, KPI mesurés, et ce qui n'est pas mesuré dit comme tel |
+
 ## 💰 Budgets, enveloppes & sous-catégories
 
 Le module **Budgets** est un vrai système de gestion budgétaire multi-niveaux, réparti sur **trois écrans, un par
@@ -3239,6 +3270,54 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### MISSION RUNTIME — exécuter une mission gigantesque devient une propriété codée (2026-09)
+
+**Le problème.** Adam savait mener une conversation, appeler cent soixante-cinq outils et
+proposer une action. Il ne savait pas EXÉCUTER : « souhaite la bonne année à tout le monde, puis
+range les courriers non classés, puis récupère le contrat de Redouane » demandait trente-trois
+envois individuels, une attente de cinq jours et une reprise après redémarrage — et rien dans
+l'architecture ne portait cela. Une mission de cette taille n'échouait pas : elle n'existait pas.
+
+**Ce qui n'a PAS été fait.** Aucun prompt système allongé, aucune liste de recettes, aucun agent
+spécial pour quelques cas, aucune fonctionnalité « missions longues ». Aucun fichier
+`newYearMission.ts` : une mission spécialisée aurait été l'échec du chantier, pas sa réussite.
+
+**Ce qui a été construit.** Une couche transverse, `src/lib/missions/`, déclarée **façade (L2)** :
+
+| Brique | Fichier | Ce qu'elle garantit |
+|---|---|---|
+| Machine à états | `runtime/state.ts` | 13 × 13 transitions testées. `COMPLETED`/`CANCELLED` sans sortie ; une étape `DONE` ne repart jamais ; §37 — une branche en attente ne gèle pas une branche exécutable |
+| Contrat de plan | `planner/contract.ts` | Deux axes **indépendants** : raisonnement A/B/C, échelle S→MASSIVE. Le nombre d'étapes ne route jamais seul vers le raisonnement le plus cher |
+| Registre de capacités | `registry/capability-meta.ts` | Effet, idempotence, groupabilité, latence, confirmation. Défaut **prudent** : une capacité non qualifiée est traitée comme une écriture externe |
+| Compilateur | `compiler/` | Refuse une capacité inventée, une capacité interdite, un cycle, une forme incohérente — et §26 : 33 destinataires dans une étape |
+| Moteur DAG | `runtime/engine.ts` | Réservation conditionnée en base, reprise des étapes orphelines, parallélisme borné, éventail déployé à l'exécution |
+| Persistance | `runtime/store.ts` | Une étape terminée avec son reçu EST le point de reprise. Pas de table de checkpoints |
+| Réveil par événement | `events/` | Une mission dort cinq jours sans consommer de modèle, puis repart quand le fait arrive — via `BusinessEvent`, sans second registre |
+| Politique & approbation | `policy/`, `approval/` | Auto-escalade **structurellement** impossible ; un accord couvre tout un périmètre, et une empreinte immuable rouvre la partie modifiée |
+| Récupération | `recovery/` | Douze causes, une échelle par cause, et l'interdiction de conclure tant qu'un recours reste |
+| Objectif & qualité | `goal/evaluate.ts` | 31 envois sur 33 se comptent 31/33 ; sans juge, la mission ne conclut pas |
+| Engagements & modèles | `commitments/`, `templates/` | Une promesse se ferme toute seule quand le fait arrive ; ce qu'Adam a observé n'est jamais ce qu'un humain a approuvé |
+| Mémoire | `memory/` | Le contexte se compose sous budget ; une compression qui perd un identifiant est REFUSÉE |
+| Écran | `view/workspace.ts` | « Où tu en es ? » sans un seul appel de modèle, et la carte se met à jour sur place |
+
+**Réutilisé plutôt que recréé** — `MissionEvent` (journal), `BusinessEvent` (registre canonique),
+`AssistantActionIntent` (idempotence + reçu), `src/lib/push.ts` (VAPID), `Reminder` et le
+`scheduler` existants, `ExecutiveCommitment`, `AssistantArtifact`, `notifyUser`. Aucun second
+registre d'événements, aucun second système de notifications, aucun ordonnanceur parallèle.
+
+**Ce que le chantier a coûté en gardes.** Trois tests d'architecture ont refusé une première
+écriture et ont été **suivis, pas contournés** : `boundary.test.ts` a refusé le 425ᵉ
+franchissement Adam → ERP (remède : `mission.status` entre au contrat de plateforme),
+`executive-security.test.ts` a refusé un `allowed: () => true` non déclaré, et la machine à
+états elle-même a refusé une mission qui ne sortait jamais de `PLANNING`.
+
+**Mesuré** (`src/lib/missions/evals/bench.test.ts`, 17 scénarios) : `prematureStopRate` 0 %,
+`knownMismatchStopRate` 0 %, étapes rejouées après reprise 0, `recoverySuccessRate` 100 %,
+compression à 52 % du volume d'origine. **Non mesuré et dit comme tel** : tout ce qui exige une
+clé de fournisseur (utilité des questions, rappel mémoire sur questions réelles, latence
+de bout en bout, coût réel en jetons).
+
 
 ### LA CONVERSATION DEVIENT L'INTERFACE — story, vues 360, gestes sans modèle (2026-08)
 
