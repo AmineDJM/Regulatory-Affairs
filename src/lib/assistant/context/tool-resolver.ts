@@ -1,6 +1,6 @@
 import { detectDomains, type Domain, type QueryRoute } from "./router";
 import { normalizeUtterance } from "@/lib/assistant/voice/fast-path";
-import { TOOL_DOMAINS_ALL, ALWAYS_ON, EXECUTIVE, DISCOVERY_TOOL } from "./tool-shortlist";
+import { TOOL_DOMAINS_ALL, ALWAYS_ON, EXECUTIVE, CAPABILITIES, DISCOVERY_TOOL } from "./tool-shortlist";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -217,6 +217,12 @@ export function resolveTools<T extends { name: string }>(
     if ((ALWAYS_ON as readonly string[]).includes(nom)) return 0;
     const ds = TOOL_DOMAINS_ALL[nom] ?? [];
     const i = effectifs.findIndex((d) => ds.includes(d));
+    // UNE CAPACITÉ QUI REMPLACE UNE SÉQUENCE PASSE DEVANT SON DOMAINE — pas devant le socle, et
+    // pas hors de son domaine (`i >= 0` l'exige). Au même rang que les outils qu'elle rend
+    // inutiles, elle tombait sous le plafond exactement quand le plafond mord, donc exactement
+    // quand elle sert le plus : le modèle refaisait la séquence longue sans savoir qu'un
+    // raccourci existait. Voir `CAPABILITIES` dans `tool-shortlist.ts`.
+    if (i >= 0 && (CAPABILITIES as readonly string[]).includes(nom)) return 0.5;
     if (i === 0) return 1;
     if (i > 0) return 1 + i;
     return EXECUTIVE.includes(nom) ? 90 : 99;

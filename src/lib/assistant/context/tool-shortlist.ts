@@ -318,6 +318,30 @@ export const EXECUTIVE = [
 ];
 
 /**
+ * LES CAPACITÉS MÉTIER — celles qui REMPLACENT une séquence, et qui passent donc AVANT les
+ * outils de leur propre domaine.
+ *
+ * ── LA PANNE QUI A PRODUIT CETTE LISTE ───────────────────────────────────────────────────
+ *
+ * `pch_market_status` était déclarée, ouverte par les droits, annoncée à la voix… et JAMAIS
+ * envoyée au modèle. Rang identique aux trente autres outils du domaine réglementaire, elle
+ * tombait sous le plafond de quinze du niveau A — c'est-à-dire exactement quand le plafond
+ * mord, donc exactement quand elle sert le plus.
+ *
+ * Le banc d'architecture l'a vu ; ni la lecture du code ni les tests d'unité ne l'auraient vu,
+ * parce que chaque pièce était correcte séparément.
+ *
+ * ── POURQUOI CE RANG EST JUSTE, ET PAS UN PASSE-DROIT ────────────────────────────────────
+ *
+ * Une capacité de ce genre rend inutiles les outils qu'elle remplace. Lui donner le même rang
+ * qu'eux, c'est décider à pile ou face entre « un appel » et « cinq » ; la couper en premier,
+ * c'est garantir les cinq. Elle passe donc devant SON DOMAINE — jamais devant le socle, et
+ * jamais hors de son domaine : une capacité produit n'a rien à faire dans une question de
+ * congés, et le rang ne la sort pas de son domaine.
+ */
+export const CAPABILITIES = ["product_economics", "pch_market_status"] as const;
+
+/**
  * L'ÉCHAPPATOIRE QUI PRÉSERVE LA PARITÉ. Sans elle, la liste courte serait une amputation ; avec
  * elle, ce n'est qu'un ordre de présentation. Le modèle qui ne trouve pas son compte demande, et
  * reçoit — au prix d'un tour, pas d'une capacité.

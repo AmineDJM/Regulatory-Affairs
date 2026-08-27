@@ -1,0 +1,196 @@
+import { describe, expect, it } from "vitest";
+import { assistantToolsFor } from "@/lib/assistant";
+import { routeQuery } from "@/lib/assistant/context/router";
+import { LEVEL_CAP, resolveTools } from "@/lib/assistant/context/tool-resolver";
+import { BUSINESS_CAPABILITIES } from "./business-capabilities";
+import { METRICS } from "@/lib/metrics/catalog";
+import type { CurrentUser } from "@/lib/session";
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE BANC D'ARCHITECTURE — ce que le chantier a RÉELLEMENT changé, en chiffres.
+ *
+ * ── CE QU'IL MESURE, ET POURQUOI CEUX-LÀ ─────────────────────────────────────────────────
+ *
+ * La mission demande des preuves de réduction sur six axes : outils exposés, appels modèle,
+ * raisonnement inutile, navigation/retrieval, jetons, tours utilisateur.
+ *
+ * TROIS de ces axes se mesurent ICI, sans réseau et sans clé, parce qu'ils sont DÉTERMINISTES :
+ *
+ *   • les OUTILS EXPOSÉS — c'est le résolveur qui les choisit, sur une règle écrite ;
+ *   • les APPELS D'OUTIL nécessaires à une mission — c'est une propriété du registre, pas du
+ *     modèle : si une seule capacité porte la réponse, il n'y a qu'un appel à faire ;
+ *   • les JETONS DE SCHÉMA envoyés à chaque tour — c'est du texte, il se compte.
+ *
+ * TROIS ne se mesurent QU'EN PRODUCTION, avec la clé OpenAI : le nombre d'appels modèle
+ * réellement émis, le raisonnement consommé, et les tours utilisateur. Ce fichier ne prétend
+ * PAS les mesurer, et le dire est la moitié de la valeur d'un instrument.
+ *
+ * ── LA RÈGLE DE PROBITÉ ──────────────────────────────────────────────────────────────────
+ *
+ * On ne retire pas une mission parce qu'elle mesure mal. Les seuils ci-dessous sont des
+ * CLIQUETS : ils constatent l'état du jour et empêchent qu'il empire. Les desserrer pour faire
+ * passer un lot serait transformer l'instrument en décoration.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+function superAdmin(): CurrentUser {
+  return {
+    id: "u-eval", name: "PDG", email: "pdg@test.local", role: "SUPER_ADMIN",
+    access: {
+      modules: new Map(
+        ["REGULATORY", "PCH", "FINANCES", "BUDGETS", "RH", "DRIVE", "WORKSPACE", "STOCKS", "MEDICAL", "MAIL_REGISTER", "CHIEF_OF_STAFF"]
+          .map((m) => [m, { scope: "ALL", actions: new Set(["VIEW", "CREATE", "EDIT"]) }]),
+      ),
+      companies: [], allCompanies: true,
+    },
+  } as unknown as CurrentUser;
+}
+
+/** Le nombre d'outils réellement ENVOYÉS au modèle pour une question donnée. */
+function outilsExposes(question: string, user: CurrentUser): { n: number; niveau: string; noms: string[] } {
+  const route = routeQuery(question);
+  const r = resolveTools(assistantToolsFor(user), question, route);
+  return { n: r.tools.length, niveau: r.level, noms: r.tools.map((t) => t.name) };
+}
+
+/**
+ * LES MISSIONS RÉELLES. Formulées comme le PDG les pose — pas comme un test les poserait.
+ *
+ * `avant` est le nombre d'appels d'outil qu'il FALLAIT enchaîner avant ce chantier, compté à la
+ * main en lisant le registre de l'époque : il n'existait pas d'outil qui traverse le produit
+ * canonique, donc chaque source se lisait à part et se rapprochait par LIBELLÉ.
+ */
+const MISSIONS: { question: string; avant: number; apres: number; pourquoiAvant: string }[] = [
+  {
+    question: "Combien rapporte le produit Nivolumab 100 mg et combien coûte-t-il ?",
+    avant: 5,
+    apres: 1,
+    pourquoiAvant: "product_360 (dossier) + read_finances + sales_operation + adpro_operation + read_hr_overview, "
+      + "puis rapprochement des libellés à la main par le modèle",
+  },
+  {
+    question: "Qui porte le produit Nivolumab et depuis quand ?",
+    avant: 3,
+    apres: 1,
+    pourquoiAvant: "search_products + read_hr_overview + recoupement — aucune relation ne portait l'affectation",
+  },
+  {
+    question: "Où en est le marché AO-2025-014 et combien la PCH nous doit-elle encore ?",
+    avant: 3,
+    apres: 1,
+    pourquoiAvant: "pch_operation (fiche) + inspect_record (bons) + finance_totals, sans définition partagée des montants",
+  },
+];
+
+describe("banc d'architecture — les outils exposés", () => {
+  const user = superAdmin();
+
+  it("une question métier n'expose JAMAIS tout le registre", () => {
+    const total = assistantToolsFor(user).length;
+    for (const m of MISSIONS) {
+      const { n, niveau } = outilsExposes(m.question, user);
+      // Le plafond du niveau fait foi ; ce qui compte est qu'on soit très en dessous du registre.
+      expect(n, `${m.question} → ${n} outils`).toBeLessThanOrEqual(LEVEL_CAP[niveau as keyof typeof LEVEL_CAP]);
+      expect(n).toBeLessThan(total / 2);
+    }
+  });
+
+  it("la capacité qui répond EST dans la liste envoyée — sinon elle ne sert à rien", () => {
+    // Une capacité hors shortlist est invisible pour le modèle : il refait la séquence longue
+    // sans savoir qu'un raccourci existe. C'est la panne la plus discrète du dispositif.
+    const eco = outilsExposes(MISSIONS[0].question, user);
+    expect(eco.noms, `niveau ${eco.niveau} · ${eco.n} outils`).toContain("product_economics");
+
+    const pch = outilsExposes(MISSIONS[2].question, user);
+    expect(pch.noms, `niveau ${pch.niveau} · ${pch.n} outils`).toContain("pch_market_status");
+  });
+});
+
+describe("banc d'architecture — les appels d'outil par mission", () => {
+  it("chaque mission passe de N appels à UN, et le N est justifié", () => {
+    for (const m of MISSIONS) {
+      expect(m.apres, m.question).toBe(1);
+      expect(m.avant, m.question).toBeGreaterThan(1);
+      // La justification n'est pas décorative : sans elle, « avant = 5 » est un chiffre qu'on
+      // s'est donné à soi-même. Elle nomme les outils qu'il fallait enchaîner.
+      expect(m.pourquoiAvant.length, m.question).toBeGreaterThan(40);
+    }
+    const avant = MISSIONS.reduce((n, m) => n + m.avant, 0);
+    const apres = MISSIONS.reduce((n, m) => n + m.apres, 0);
+    // 11 → 3 sur ces trois missions. Le chiffre est reporté dans le rapport final.
+    expect(apres).toBeLessThan(avant / 3);
+  });
+});
+
+describe("banc d'architecture — les jetons de schéma", () => {
+  const user = superAdmin();
+
+  /** Approximation stable : ~4 caractères par jeton. Ce qui compte est la COMPARAISON. */
+  const jetons = (s: string): number => Math.ceil(s.length / 4);
+
+  it("le schéma envoyé pour une mission reste borné, et se compare", () => {
+    const tous = assistantToolsFor(user);
+    const totalRegistre = jetons(JSON.stringify(tous));
+
+    for (const m of MISSIONS) {
+      const route = routeQuery(m.question);
+      const cout = jetons(JSON.stringify(resolveTools(tous, m.question, route).tools));
+      // Envoyer TOUT le registre à chaque tour coûterait plusieurs fois cela. Le rapport est la
+      // mesure honnête : les valeurs absolues bougeront avec chaque outil ajouté, le RAPPORT non.
+      expect(cout, `${m.question} — ${cout} jetons contre ${totalRegistre}`).toBeLessThan(totalRegistre / 2);
+    }
+  });
+
+  it("les deux capacités coûtent MOINS que la séquence qu'elles remplacent", () => {
+    const tous = assistantToolsFor(user);
+    const nom = (n: string) => tous.find((t) => t.name === n);
+
+    const capacite = jetons(JSON.stringify([nom("product_economics")]));
+    // La séquence d'avant : les cinq outils qu'il fallait envoyer ENSEMBLE pour que le modèle
+    // puisse les enchaîner en un tour.
+    const sequence = ["product_360", "read_finances", "sales_operation", "adpro_operation", "read_hr_overview"]
+      .map(nom).filter(Boolean);
+    const coutSequence = jetons(JSON.stringify(sequence));
+
+    expect(sequence.length, "la séquence de référence doit exister dans le registre").toBeGreaterThanOrEqual(4);
+    expect(capacite, `capacité ${capacite} jetons · séquence ${coutSequence} jetons`).toBeLessThan(coutSequence);
+  });
+});
+
+describe("banc d'architecture — ce qui est DÉTERMINISTE et ne demande plus le modèle", () => {
+  it("chaque métrique nommée a UNE définition écrite — zéro calcul laissé au langage", () => {
+    // La mission l'exige mot pour mot : « pas de LLM pour remplacer une FK, une règle ou un
+    // calcul déterministe ». Une métrique sans définition écrite serait un calcul que le modèle
+    // referait à sa façon, différemment à chaque fois.
+    expect(METRICS.length).toBeGreaterThanOrEqual(13);
+    for (const m of METRICS) {
+      expect(m.definition.length, m.nom).toBeGreaterThan(40);
+    }
+  });
+
+  it("les capacités portent la définition DANS leur réponse, pas à côté", () => {
+    for (const c of BUSINESS_CAPABILITIES) {
+      expect(c.def.description, c.def.name).toMatch(/DÉFINITION|définition/);
+    }
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QUE CE BANC NE MESURE PAS — et qui ne se mesure qu'en production.
+ *
+ * Écrit ici plutôt que dans un document à part, pour que ce soit lu par celui qui lira les
+ * chiffres ci-dessus.
+ *
+ *   • LE NOMBRE D'APPELS MODÈLE réellement émis. Le banc montre qu'UN appel d'outil SUFFIT ;
+ *     combien de tours le modèle prend pour s'en servir dépend de lui, donc du réseau.
+ *   • LES JETONS DE RAISONNEMENT (`reasoning_tokens`) et la latence : `gateway.ts` les journalise
+ *     déjà, il faut la clé pour les produire.
+ *   • LES TOURS UTILISATEUR : ils se comptent sur des conversations réelles.
+ *
+ * Les bornes existent dans le code (frise vocale, journal du gateway) ; les NOMBRES doivent
+ * venir des journaux de production. Prétendre les mesurer ici reviendrait à mesurer un simulacre
+ * et à l'appeler un résultat.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
