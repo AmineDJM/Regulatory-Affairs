@@ -14,6 +14,25 @@
  * réponses aux réserves) : ce fichier ne le remplace pas, il travaille à côté.
  *
  * Serveur uniquement. Ne lève jamais : tout échec revient en résultat structuré.
+ *
+ * ── CE QUE CE SOUS-SYSTÈME DOIT À ADAM V2 (dette nommée, pas corrigée ici) ────────────────
+ *
+ * Ce fichier est le chemin CTD — vision de pages rastérisées, Batch 24 h, embeddings. Il est
+ * INDÉPENDANT de la couche modèle d'Adam (`src/lib/models/`) et n'a pas été migré avec elle :
+ * son objet n'est pas une boucle d'agent, et le Batch a ses propres contraintes de format.
+ *
+ * Trois écarts sont CONNUS et mesurés, pour qu'on ne les redécouvre pas par une panne :
+ *
+ *   1. Il parle `/v1/chat/completions` alors que Luna est un modèle de raisonnement. Cela
+ *      fonctionne ici parce qu'il n'envoie AUCUN outil : c'est la combinaison « raisonnement
+ *      + outils » que cette porte refuse, pas le raisonnement seul.
+ *   2. Il pose `temperature`, que Luna refuse. Un rattrapage la retire et rejoue — donc un
+ *      aller-retour perdu à chaque appel qui en pose une (`review-ai.ts`, `library-extract.ts`).
+ *   3. Il utilise `response_format` et `max_completion_tokens`, les noms de l'ancienne porte.
+ *
+ * Adam, lui, ne peut plus rien émettre de tout cela : `src/lib/models/capabilities.ts` tient la
+ * liste blanche par modèle et le constructeur n'assemble que ce qu'elle autorise. Le jour où ce
+ * sous-système migrera, c'est ce registre qu'il devra interroger — pas une seconde table.
  */
 
 import { sanitizeForModel } from "./ai-text";
@@ -120,6 +139,10 @@ export function buildLunaBody(input: LunaCallInput, batch = false): Record<strin
     model: input.model ?? lunaModel(),
     messages,
     max_completion_tokens: input.maxOutputTokens ?? 2000,
+    // ⚠ DETTE CONNUE, MESURÉE, NON CORRIGÉE ICI — voir l'en-tête « Ce que ce sous-système doit
+    // à Adam V2 ». Luna EST un modèle de raisonnement et refuse `temperature` ; le rattrapage
+    // ligne ~231 le retire et rejoue, ce qui coûte UN ALLER-RETOUR PERDU par appel qui en pose
+    // une. Le correctif est de ne pas la poser du tout, comme Adam le fait désormais.
     ...(input.temperature != null ? { temperature: input.temperature } : {}),
     ...(input.jsonSchema
       ? {

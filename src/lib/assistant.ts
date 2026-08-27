@@ -4550,7 +4550,7 @@ async function reviseHighStakes(
 ): Promise<string | null> {
   const res = await callClaude(
     [{ role: "user", content: `QUESTION D'ORIGINE :\n${question.slice(0, 2_000)}\n\nBROUILLON DE RÉPONSE À RELIRE :\n${draft}` }],
-    { system: `${system}\n\n${CRITIQUE_ADDENDUM}`, maxTokens: 1400, temperature: 0.2, model },
+    { system: `${system}\n\n${CRITIQUE_ADDENDUM}`, maxTokens: 1400, model },
   );
   if (!res.ok || !res.content) return null;
   const text = textOf(res.content);
@@ -4661,7 +4661,7 @@ async function runAssistantImpl(
       if (label) trace.push(label);
       const res = await callClaude(
         [{ role: "user", content: `DEMANDE : ${question}\n\nRÉSULTAT DE LA SOURCE CANONIQUE :\n${out}` }],
-        { system: fastReadSystem(user), tools: [], maxTokens: 700, temperature: 0.2, model: opts.model },
+        { system: fastReadSystem(user), tools: [], maxTokens: 700, model: opts.model },
       );
       if (res.ok && res.content) {
         const reply = textOf(res.content).trim();
@@ -4675,7 +4675,7 @@ async function runAssistantImpl(
   }
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const res = await callClaude(messages, { system, tools, maxTokens: 1400, temperature: 0.2, model: opts.model });
+    const res = await callClaude(messages, { system, tools, maxTokens: 1400, model: opts.model });
     if (!res.ok || !res.content) {
       return { configured: res.configured, ok: false, reply: "", trace, error: res.error ?? "Réponse IA indisponible." };
     }
@@ -4989,7 +4989,7 @@ async function runAssistantStreamImpl(
             if (metrics.ttftMs == null) metrics.ttftMs = Date.now() - started;
             emit({ type: "delta", text: chunk });
           },
-          { system: fastReadSystem(user), tools: [], maxTokens: 700, temperature: 0.2, model: opts.model },
+          { system: fastReadSystem(user), tools: [], maxTokens: 700, model: opts.model },
         );
         if (res.ok && res.content) {
           const reply = textOf(res.content).trim();
@@ -5021,7 +5021,7 @@ async function runAssistantStreamImpl(
         streamed = true;
         if (metrics.ttftMs == null) metrics.ttftMs = Date.now() - started;
         emit({ type: "delta", text: chunk });
-      }, { system, tools, maxTokens: 1400, temperature: 0.2, model: opts.model });
+      }, { system, tools, maxTokens: 1400, model: opts.model });
       if (!res.ok || !res.content) {
         return { configured: res.configured, ok: false, reply: "", trace, metrics, error: res.error ?? "Réponse IA indisponible." };
       }
