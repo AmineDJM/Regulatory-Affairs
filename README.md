@@ -2656,7 +2656,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **RH — contrats : visibilité et miroir Drive** | Module PUR `lib/hr/document-visibility.ts` (`defaultVisibleToEmployee`, `resolveVisibility`, `shouldMirrorToDrive`) + tests ; `lib/hr-drive-mirror.ts` écrit dans une **catégorie de Drive** « RH — Contrats » ouverte aux seuls rôles RH (`rolesWithModule("RH")`), plus dans un Drive personnel. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
-| **Transverse** | `lib/archive.ts` (Dossier traité), `lib/admin-delete-registry.ts` (registre partagé des 25 types supprimables) + `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/assistant/action-registry.ts` (registre ZERO-GAP des actions natives + classification des 632 server actions — parité UI↔Chief 98,6 %, 485 ops de domaine sur 30 outils dans `lib/assistant/ops/` —, gardé par `action-parity.test.ts`), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
+| **Transverse** | `lib/archive.ts` (Dossier traité), `lib/admin-delete-registry.ts` (registre partagé des 25 types supprimables) + `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/assistant/action-registry.ts` (registre ZERO-GAP des actions natives + classification des 644 server actions — **534 NATIVE / 34 COVERED / 0 GAP / 76 EXCLUDED motivées**, soit 100 % de parité sur les 568 actions retenues ; 493 ops de domaine sur 30 outils dans `lib/assistant/ops/` —, gardé par `action-parity.test.ts` et audité par `assistant/capability-audit.test.ts`), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
 | **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès + `effectiveSpaceId`/`canCreateInSpace`), `lib/drive/explorer.ts` (pur : type lisible, taille, tri, volet), `lib/drive/search.ts` (**pur** : repli des accents, pertinence, chemin lisible — 29 tests) + `lib/queries/drive-search.ts` (périmètre étendu aux sous-arbres visibles, deux passes) + `app/(app)/drive/drive-search.tsx`, `lib/drive/{mirror,mirror-path,document-mirror}.ts` (miroir Drive de tout import), `lib/storage.ts` (Documents + `validateDocumentUpload`), `lib/documents.ts` (`persistUploadedDocument`), `lib/attach-files.ts`, `lib/actions/drive-actions.ts` + `document-actions.ts`, `app/api/drive/upload/route.ts` (quotas) + `app/api/documents/upload/route.ts` (lot/dossier, flux, parallèle), `app/(app)/drive/{drive-table,drive-canvas,explorer-nav,wide-toggle}.tsx`, `components/documents/`. |
 | **Catégories Drive (espaces partagés)** | Modèle `DriveSpace` + `DriveNode.spaceId` ; RBAC `canCreateDriveSpace`/`canViewDriveSpace`/`canManageDriveSpace` (`lib/rbac.ts`, accès implicite module Drive dans `getAccess`) ; `lib/queries/drive.ts` (`getDriveSpacesForUser`, `getDriveTabs`, `getDriveListing(…, spaceId)`) ; `lib/actions/drive-space-actions.ts` (créer/modifier/archiver/supprimer) ; page `app/(app)/drive/espace/[id]/` + `drive-space-manager.tsx` ; réglage `AppSetting.driveSpaceCreatorRoles` (`DriveSpaceCreatorForm` en Administration). Les catégories sont des **Emplacements du volet de navigation** (`ExplorerNav`), plus des onglets — `getDriveTabs` ne sert plus qu'à la page Documents. |
 | **Admin** | `app/(app)/admin/` (`page.tsx` comptes + stockage + activité, `corbeille/`, `drive-storage-settings.tsx`, `access/`, `settings/`…), `lib/actions/admin-actions.ts`, `settings-actions.ts`. |
@@ -3239,6 +3239,53 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### L'ARCHITECTURE DEVIENT MESURABLE — quatre couches, zéro cycle, et des chiffres qui ne mentent pas (2026-08)
+
+Le code était un monolithe, mais pas un monolithe MODULAIRE. Ce lot le rend
+vérifiable plutôt que déclaré.
+
+**Les deux cycles entre domaines sont supprimés.** `drive ↔ regulatory` : `mime.ts` et
+`object-storage.ts` sont de l'infrastructure de stockage (détection de type, présignature S3)
+rangée sous `regulatory/intelligence/` — le Drive devait donc fouiller dans le Regulatory pour
+lire un fichier. Les deux modules rejoignent `src/lib/storage/`. `google ↔ mail` : `comms/`
+détient la politique d'envoi, `google/` est l'adaptateur qui l'applique ; le sens correct est
+adaptateur → domaine, et neuf arêtes sur dix l'étaient déjà. La dixième —
+`comms/approve-execute.ts` qui allait chercher `gmailTransport` — est inversée : le transport
+devient un PARAMÈTRE. Choix délibéré face à un registre, parce que le typage rend alors l'oubli
+impossible, là où un registre mal initialisé aurait laissé un envoi échouer en production.
+
+**La carte des couches** (`src/platform/domains.ts`) : L0 socle → L1 les quinze domaines →
+L2 façades transverses (`queries/`, `api/`, `links/`) → L3 Adam. Une couche ne parle qu'à
+celles du dessous. `domains.test.ts` tient trois invariants à ZÉRO (cycles, propreté du socle,
+inversions de couche) et deux cliquets qui ne doivent jamais monter : **76 traversées
+inter-domaines, 42 fuites vers un fournisseur**.
+
+Le test du socle est celui qui rend les autres honnêtes : sans lui, il suffirait de déplacer un
+fichier gênant dans `utils/` pour voir le compteur baisser sans avoir rien assaini. Deux autres
+tricheries sont fermées de la même façon — passer par une façade, ou casser un chemin de la carte
+pour qu'un domaine disparaisse du compte. **Chaque garde a été vérifiée sur une arborescence
+témoin où la violation est plantée exprès** : un test qu'on n'a jamais vu échouer ne prouve rien.
+
+**L'audit de capacités (§12) est mesuré, plus déclaré** (`assistant/capability-audit.test.ts`).
+La classification NATIVE/COVERED/GAP/EXCLUDED est déclarative — une op dit ce qu'elle couvre —
+donc rien n'empêchait a priori une op de promettre dans le vide. Quatre contrôles ferment les
+quatre façons d'annoncer une capacité absente, dont un qui manquait : **une op absente de
+l'énumération de son outil existe dans le code et reste innommable par le modèle**. Mesure du
+jour : 644 server actions — **534 NATIVE, 34 COVERED, 0 GAP, 76 EXCLUDED motivées** ; 30 outils
+de domaine, 493 ops exécutables.
+
+**Le routage par rôle (§5–§8) est prouvé** (`models/routing.test.ts`). `models.test.ts`
+vérifiait la TABLE des rôles, jamais l'USAGE : rien n'empêchait qu'un chemin textuel demande le
+rôle `realtime`, ni qu'un ouvrier reçoive des outils — deux régressions qui ne cassent rien,
+coûtent cher et changent le comportement. Six invariants, dont les deux qui comptent vérifiés en
+plantant la violation. Mesuré : `routeKnowledge` = **0,0051 ms/appel** après chauffe — le routage
+de connaissance ne consulte aucun modèle.
+
+Fichiers : `src/platform/domains.ts` + `.test.ts`, `src/lib/storage/{mime,object-storage}.ts`,
+`src/lib/comms/approve-execute.ts`, `src/lib/general-means/budget-targets.ts`,
+`src/lib/assistant/capability-audit.test.ts`, `src/lib/models/routing.test.ts`.
+Vérifié : tsc, 4124 tests, lint, build propre, 25/25 E2E.
 
 ### LE CERVEAU D'ADAM CHANGE DE MAISON — passerelle par rôles, triage A/B/C, lot d'exécution (2026-08)
 
