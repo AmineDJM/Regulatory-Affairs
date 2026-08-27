@@ -157,7 +157,16 @@ export type PlatformQuery =
    */
   | { kind: "product.economics"; mention: string }
   /** L'ÉTAT D'UN MARCHÉ PCH, de la soumission à l'encaissement. Même raison. */
-  | { kind: "pch.market-status"; reference: string };
+  | { kind: "pch.market-status"; reference: string }
+  /**
+   * « RETRACE-MOI X » — l'histoire complète d'une affaire, reconstituée par l'ERP.
+   *
+   * `ancre` est ce que le PDG a dit : une référence de marché, un nom de produit. C'est l'ERP
+   * qui décide ce que ça désigne — Adam n'a pas à savoir qu'un marché se reconnaît à sa
+   * référence et un produit à son nom canonique, et le lui faire deviner rouvrirait exactement
+   * l'heuristique de ressemblance de libellé que la clé étrangère a remplacée.
+   */
+  | { kind: "business.story"; ancre: string };
 
 export type PlatformQueryResult =
   | { kind: "person.search" | "person.list"; people: readonly PersonView[]; total: number }
@@ -180,7 +189,8 @@ export type PlatformQueryResult =
    * trancher seul entre un 40 mg et un 100 mg met un chiffre d'affaires sous le mauvais nom.
    */
   | { kind: "product.economics"; data: BusinessSnapshot | null; question?: string }
-  | { kind: "pch.market-status"; data: BusinessSnapshot | null; question?: string };
+  | { kind: "pch.market-status"; data: BusinessSnapshot | null; question?: string }
+  | { kind: "business.story"; data: BusinessStoryView | null; question?: string };
 
 /**
  * UNE VUE MÉTIER DÉJÀ COMPOSÉE — l'ERP a fait le calcul, Adam n'a plus qu'à la restituer.
@@ -200,6 +210,36 @@ export interface BusinessSnapshot {
   }[];
   /** Le reste de la vue — structuré, mais non contraint par le contrat. */
   [section: string]: unknown;
+}
+
+/**
+ * L'HISTOIRE D'UNE AFFAIRE, TELLE QUE L'ERP LA RECONSTITUE.
+ *
+ * ── POURQUOI `events` N'EST PAS TYPÉ ICI ─────────────────────────────────────────────────
+ *
+ * Un jalon a quinze champs — genre, état, retard, provenance, certitude, participants, pièces,
+ * fils… — et ils sont ceux du PROTOCOLE D'AFFICHAGE, qui vit du côté d'Adam. Les recopier dans
+ * ce contrat créerait une seconde définition du même objet, et deux définitions du même objet
+ * divergent : le jour où un état s'ajoute d'un côté, l'autre le laisse tomber en silence.
+ *
+ * Le contrat promet donc ce qui compte et qui ne bouge pas : une ancre identifiée, un titre,
+ * des jalons, des fils de lecture, et les LIMITES de la reconstitution. La forme exacte de
+ * chaque jalon est revalidée champ par champ au moment de composer l'écran — une seule fois,
+ * au seul endroit qui sait ce qu'il sait rendre.
+ *
+ * ── CE QUE `limites` GARANTIT ────────────────────────────────────────────────────────────
+ *
+ * Qu'une frise ne se donne jamais pour complète. « La date de soumission est déduite » ou
+ * « aucun contrat rattaché » sont ce qui empêche de lire un trou comme une absence de fait.
+ */
+export interface BusinessStoryView {
+  ancre: { type: string; id: string; label: string };
+  titre: string;
+  sousTitre: string | null;
+  kpis: readonly unknown[];
+  events: readonly unknown[];
+  threads: readonly unknown[];
+  limites: readonly string[];
 }
 
 /** Un extrait de document, avec de quoi le CITER — sans quoi il ne vaut rien. */

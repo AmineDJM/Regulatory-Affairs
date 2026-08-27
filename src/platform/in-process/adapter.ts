@@ -8,6 +8,7 @@ import { estAmbigu, produit360 } from "@/lib/queries/product-360";
 import { pch360 } from "@/lib/queries/pch-360";
 import { metriquesMarche, metriquesProduit } from "@/lib/queries/metrics";
 import { voisinageMarche, voisinageProduit } from "@/lib/queries/graph";
+import { storyMarche, storyProduit } from "@/lib/queries/story";
 import { DirectoryChannel } from "@prisma/client";
 import { subscribe as busSubscribe } from "../event-bus";
 import {
@@ -198,6 +199,9 @@ async function runQuery(principal: Principal, q: PlatformQuery): Promise<Platfor
 
     case "pch.market-status":
       return etatMarche(q.reference);
+
+    case "business.story":
+      return histoireAffaire(q.ancre);
 
     case "record.get":
     case "record.search":
@@ -607,4 +611,56 @@ async function etatMarche(reference: string): Promise<PlatformQueryResult> {
       limites: vue.limites,
     },
   };
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * « RETRACE-MOI X » — et la RÉSOLUTION qui reste du côté de l'ERP.
+ *
+ * L'ancre est ce que le PDG a dit : « l'AONIO 2023 », « le Nivolumab ». Deux natures d'objet
+ * répondent au même verbe, et c'est ici qu'on tranche — pas chez Adam, qui ignore qu'un marché
+ * porte une référence et un produit un nom canonique.
+ *
+ * L'ORDRE COMPTE : le marché D'ABORD, par référence ou identifiant EXACTS. Un marché s'appelle
+ * « AONIO 2023 », un produit « Nivolumab » ; commencer par le produit ferait qu'une référence
+ * contenant un nom de molécule ramènerait le produit, et l'histoire du marché demandé serait
+ * silencieusement remplacée par une autre. L'exactitude passe donc avant l'approximation.
+ *
+ * L'AMBIGUÏTÉ SE POSE, ELLE NE SE TRANCHE PAS. Deux produits pour une mention ⇒ on rend la
+ * question. Choisir seul mettrait une frise sous le mauvais nom, et rien à l'écran ne dirait
+ * que c'est le mauvais.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+async function histoireAffaire(ancre: string): Promise<PlatformQueryResult> {
+  const brut = (ancre ?? "").trim();
+  if (brut.length < 2) {
+    return { kind: "business.story", data: null, question: "De quelle affaire — marché, produit ?" };
+  }
+
+  const marche = await storyMarche(brut);
+  if (marche) return { kind: "business.story", data: marche };
+
+  const vue = await produit360(brut);
+  if (!vue) {
+    return {
+      kind: "business.story", data: null,
+      question: `Aucun marché ni produit « ${brut} » : ni par référence, ni par nom canonique.`,
+    };
+  }
+  if (estAmbigu(vue)) {
+    const liste = vue.candidats.map((c) => `${c.nom}${c.dosage ? ` ${c.dosage}` : ""}`).join(", ");
+    return {
+      kind: "business.story", data: null,
+      question: `« ${brut} » désigne plusieurs produits : ${liste}. Lequel ? (préciser le dosage ou la référence)`,
+    };
+  }
+
+  const produit = await storyProduit(vue.produit.id);
+  if (!produit) {
+    return {
+      kind: "business.story", data: null,
+      question: `Le produit « ${vue.produit.nom} » existe, mais aucune histoire n'a pu être reconstituée.`,
+    };
+  }
+  return { kind: "business.story", data: produit };
 }

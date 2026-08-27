@@ -64,6 +64,7 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   // « où en est le dossier X ? ». (Le PCH est classé REGULATORY, comme `pch_operation`.)
   product_economics: ["REGULATORY", "FINANCE"],
   pch_market_status: ["REGULATORY", "FINANCE"],
+  business_story: ["REGULATORY", "FINANCE"],
 
   // ── Finances ────────────────────────────────────────────────────────────────────────────
   read_budget: ["FINANCE"],
@@ -339,7 +340,7 @@ export const EXECUTIVE = [
  * jamais hors de son domaine : une capacité produit n'a rien à faire dans une question de
  * congés, et le rang ne la sort pas de son domaine.
  */
-export const CAPABILITIES = ["product_economics", "pch_market_status"] as const;
+export const CAPABILITIES = ["product_economics", "pch_market_status", "business_story"] as const;
 
 /**
  * L'ÉCHAPPATOIRE QUI PRÉSERVE LA PARITÉ. Sans elle, la liste courte serait une amputation ; avec

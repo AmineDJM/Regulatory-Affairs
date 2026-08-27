@@ -95,7 +95,7 @@ import { shortlistTools, fitToolBudget, DISCOVERY_TOOL } from "@/lib/assistant/c
 import { resolveTools } from "@/lib/assistant/context/tool-resolver";
 // L'ESPACE DE TRAVAIL GÉNÉRATIF : la sortie d'une source canonique traduite en blocs TYPÉS.
 // Le modèle n'écrit aucun balisage — c'est ce qui empêche l'écran de redevenir un vidage de JSON.
-import { composeWorkspace } from "@/lib/assistant/workspace/compose";
+import { composeWorkspace, stripDisplayPayload } from "@/lib/assistant/workspace/compose";
 import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
 import { runDiscovery, DISCOVERY_TOOL_NAME } from "@/lib/assistant/context/discovery";
 import {
@@ -4983,7 +4983,9 @@ async function runAssistantStreamImpl(
         metrics.turns = 1;
         let streamed = false;
         const res = await callClaudeStream(
-          [{ role: "user", content: `DEMANDE : ${question}\n\nRÉSULTAT DE LA SOURCE CANONIQUE :\n${out}` }],
+          // LA CHARGE D'AFFICHAGE NE PART PAS AU MODÈLE. L'écran l'a déjà reçue ci-dessus ;
+          // la lui faire lire serait payer un texte dont il ne tire rien.
+          [{ role: "user", content: `DEMANDE : ${question}\n\nRÉSULTAT DE LA SOURCE CANONIQUE :\n${stripDisplayPayload(out)}` }],
           (chunk) => {
             streamed = true;
             if (metrics.ttftMs == null) metrics.ttftMs = Date.now() - started;
@@ -5129,7 +5131,9 @@ async function runAssistantStreamImpl(
         const composed = composeWorkspace(tu.name, out);
         if (composed) emit({ type: "workspace", composition: composed });
         usedTools.push(tu.name);
-        results.push({ type: "tool_result", tool_use_id: tu.id, content: out });
+        // Même règle sur le chemin outillé : l'espace de travail a la charge d'affichage, le
+        // modèle reçoit les faits. Deux destinataires, deux besoins.
+        results.push({ type: "tool_result", tool_use_id: tu.id, content: stripDisplayPayload(out) });
       }
       messages.push({ role: "assistant", content: blocks });
       messages.push({ role: "user", content: results });

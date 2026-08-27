@@ -118,4 +118,80 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
       return JSON.stringify(r.data);
     },
   },
+
+  // ───────────────────────── L'HISTOIRE D'UNE AFFAIRE ─────────────────────────
+  /**
+   * « RETRACE-MOI X » — et pourquoi le modèle NE CONSTRUIT PAS la frise.
+   *
+   * Une chronologie inventée est indétectable : elle a l'air d'une chronologie. Un jalon
+   * plausible mais absent de la base — « facture émise en mars » — se lit exactement comme un
+   * fait, et personne ne remonte à la source pour vérifier une frise qui semble cohérente.
+   *
+   * Les jalons viennent donc TOUS d'une lecture : un PchOrder est un bon de commande, un
+   * MailEntry est un courrier, un LegalDocument est un contrat. Ce qui est DÉDUIT (la date de
+   * soumission, inférée de la publication) le dit dans `certitude`, et ce qui MANQUE — la
+   * facture jamais émise — est affiché comme un trou, parce que c'est précisément ce qu'on
+   * cherche en retraçant une affaire.
+   *
+   * Le modèle reçoit les KPI et les limites ; il LIT l'histoire, il ne l'écrit pas.
+   */
+  {
+    def: {
+      name: "business_story",
+      description:
+        "RETRACE UNE AFFAIRE DE BOUT EN BOUT (« retrace-moi l'AONIO 2023 », « raconte-moi l'histoire du Nivolumab », "
+        + "« où ça a bloqué sur ce marché ? »). Reconstitue la CHRONOLOGIE RÉELLE depuis la base : publication, "
+        + "soumission, attribution et ses lots, contrat et avenants, chaque bon de commande avec sa livraison, sa facture "
+        + "et son paiement, les courriers, la clôture. Rend aussi les KPI de l'affaire (attribué, commandé, livré, encaissé, "
+        + "délai moyen de paiement, retards) et ce qui MANQUE — un paiement jamais reçu apparaît comme un jalon absent. "
+        + "N'INVENTE AUCUN JALON : chaque jalon porte sa PROVENANCE (l'enregistrement d'où il vient) et sa certitude — "
+        + "fait ou déduit — de sorte que la DÉFINITION de ce qu'on montre voyage avec la donnée au lieu d'être supposée. "
+        + "Accepte une référence de marché ou un nom de produit ; si la mention est ambiguë, rend la question à poser.",
+      input_schema: {
+        type: "object",
+        properties: {
+          affaire: { type: "string", description: "Référence de marché (« AO-2025-014 ») ou nom / DCI d'un produit." },
+        },
+        required: ["affaire"],
+      },
+    },
+    // Une histoire d'affaire traverse marchés, contrats et paiements : la voir suppose la vue
+    // PCH, qui est la porte d'entrée de ces objets. La plateforme revérifie de son côté.
+    allowed: (u) => principalOf(u).capabilities.has("PCH:VIEW"),
+    label: "Histoire d'une affaire",
+    run: async (input, user) => {
+      const ancre = str(input, "affaire");
+      if (ancre.length < 2) return "De quelle affaire — marché, produit ?";
+
+      const r = await inProcessPlatform.query(principalOf(user), { kind: "business.story", ancre });
+      if (r.kind !== "business.story") return "Réponse inattendue de la plateforme.";
+      if (!r.data) return r.question ?? "Affaire introuvable.";
+
+      const st = r.data;
+      // CE QUE LE MODÈLE LIT RESTE COURT — les chiffres et les manques, de quoi commenter. La
+      // frise elle-même part dans `_blocs`, vers l'écran, et n'est pas relue par le modèle.
+      return JSON.stringify({
+        affaire: st.titre,
+        precision: st.sousTitre,
+        jalons: st.events.length,
+        kpis: st.kpis,
+        limites: st.limites,
+        _blocs: [{
+          kind: "story",
+          title: st.titre,
+          subtitle: st.sousTitre,
+          kpis: st.kpis,
+          events: st.events,
+          threads: st.threads,
+          limites: st.limites,
+          // L'IDENTITÉ DU BLOC EST STABLE : redemander la même affaire remplace la carte au lieu
+          // d'en empiler une seconde dont on ne saurait plus laquelle fait foi.
+          blockId: `story:${st.ancre.type}:${st.ancre.id}`,
+          entityRef: st.ancre,
+          state: "complete",
+          certitude: "fait",
+        }],
+      });
+    },
+  },
 ];

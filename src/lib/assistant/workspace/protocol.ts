@@ -25,6 +25,72 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'IDENTITÉ D'UNE ENTITÉ — ce qui remplace la reconnaissance par le titre.
+ *
+ * Avant : pour savoir de quoi parlait un bloc, on relisait son titre à l'expression régulière,
+ * ou on regardait quel outil l'avait produit. Les deux se trompent — « Nivolumab » apparaît
+ * dans le titre d'un dossier, d'un marché et d'une facture, et le nom de l'outil ne dit rien
+ * de la LIGNE qu'on regarde.
+ *
+ * Avec `entityRef`, un bloc SAIT ce qu'il montre. C'est ce qui rend possibles, sans devinette :
+ * le zoom (« ouvre le BC #2 »), le suivi d'état (le même objet qui change), le contexte actif
+ * (« lui », « cette facture »), et l'action déterministe qui n'appelle aucun modèle.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface WorkspaceEntityRef {
+  /** Le type canonique : « PRODUCT », « PCH_TENDER », « PCH_ORDER », « USER », « INVOICE »… */
+  type: string;
+  id: string;
+  /** Ce qu'on écrit quand on la cite. Facultatif : l'identité, c'est le couple type+id. */
+  label?: string | null;
+}
+
+/**
+ * L'ÉTAT D'UN OBJET DANS LE FIL — pourquoi un message envoyé ne crée pas une seconde carte.
+ *
+ * Un brouillon d'e-mail, une mission, une décision traversent plusieurs états. Sans état porté
+ * par le bloc, chaque changement produisait une NOUVELLE carte, et le fil accumulait trois
+ * versions du même message dont on ne savait plus laquelle faisait foi.
+ *
+ * `executed` et `failed` sont des états TERMINAUX, et la distinction avec `sending` compte :
+ * « accepté par le fournisseur » n'est pas « reçu par le destinataire ».
+ */
+export type WorkspaceBlockState =
+  | "loading" | "partial" | "complete"
+  | "awaiting_confirmation" | "sending" | "executed" | "failed";
+
+/**
+ * CE QU'UNE VALEUR EST, ÉPISTÉMOLOGIQUEMENT.
+ *
+ * Un fait lu en base et une estimation ne se présentent pas pareil, et les confondre fait
+ * prendre une hypothèse pour un chiffre. La distinction est PORTÉE par la donnée, pas laissée
+ * au style de la phrase qui l'entoure.
+ */
+export type WorkspaceCertainty = "fait" | "deduit" | "estime" | "propose" | "attente";
+
+/**
+ * LES MÉTADONNÉES QUE TOUT BLOC PEUT PORTER.
+ *
+ * Facultatives partout : un bloc ancien reste valide, et l'ajout n'a cassé aucun composeur.
+ * C'est ce qui permet de les généraliser progressivement au lieu de réécrire les treize types.
+ */
+export interface WorkspaceBlockMeta {
+  /** L'identité du BLOC dans le fil. Stable : c'est la clé du morphing d'état. */
+  blockId?: string;
+  /** L'entité que ce bloc montre. */
+  entityRef?: WorkspaceEntityRef | null;
+  state?: WorkspaceBlockState;
+  /** Incrémentée à chaque mutation du même `blockId` — une version qui recule est un bug. */
+  version?: number;
+  /** « lu à 14 h 32 », « il y a 3 min ». Un chiffre sans fraîcheur vieillit en silence. */
+  freshness?: string | null;
+  /** D'où vient l'information — « Contrat signé », « FinanceTransaction ». Discret. */
+  provenance?: string | null;
+  certitude?: WorkspaceCertainty;
+}
+
 /** Une coordonnée : adresse, téléphone, WhatsApp — avec sa PROVENANCE, qui se dit toujours. */
 export interface WorkspaceEndpoint {
   canal: "e-mail" | "téléphone" | "WhatsApp";
@@ -268,7 +334,207 @@ export interface WorkspaceStep {
   etat: "fait" | "courant" | "a-venir";
 }
 
-export type WorkspaceBlock =
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA BUSINESS STORY — « retrace-moi l'AONIO 2023 ».
+ *
+ * ── CE QU'ELLE EST, ET CE QU'ELLE N'EST PAS ──────────────────────────────────────────────
+ *
+ * Ce n'est PAS une liste d'événements. Une liste répond « quoi » ; une story répond « comment
+ * on en est arrivé là » — ce qui suppose l'ordre, la HIÉRARCHIE (un bon de commande contient sa
+ * livraison, sa facture, son paiement), les FILS (le lot Nivolumab traverse toute l'histoire),
+ * les RETARDS chiffrés, et les pièces qui prouvent chaque jalon.
+ *
+ * ── LA RÈGLE QUI LA REND FIABLE ──────────────────────────────────────────────────────────
+ *
+ * ELLE EST CONSTRUITE PAR LE SERVEUR, à partir des relations et du registre d'événements. Le
+ * modèle de langage ne l'INVENTE jamais : il peut la commenter, l'analyser, en tirer une
+ * conclusion — il ne la fabrique pas. Une frise hallucinée serait la pire sortie possible de ce
+ * produit, parce qu'elle a exactement l'apparence d'une preuve.
+ *
+ * ── POURQUOI `parent` ET `fils` PLUTÔT QU'UN ARBRE ───────────────────────────────────────
+ *
+ * Un événement appartient à PLUSIEURS lectures : la facture #2 est sous le BC #2 (hiérarchie)
+ * ET dans le fil « Nivolumab » ET dans le fil « paiements en retard ». Un arbre unique
+ * obligerait à choisir ; `parent` porte la hiérarchie, `fils` porte les appartenances, et le
+ * zoom comme le filtre deviennent des opérations de LECTURE sur la même structure — c'est ce
+ * qui permet de filtrer sans reconstruire le composant (§49).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export type StoryEventKind =
+  | "publication" | "cahier-des-charges" | "soumission" | "attribution"
+  | "contrat" | "avenant" | "commande" | "livraison" | "facture" | "paiement"
+  | "courrier" | "decision" | "jalon" | "cloture" | "incident";
+
+export interface StoryParticipant {
+  nom: string;
+  photo?: string | null;
+  role?: string | null;
+}
+
+export interface StoryEvent {
+  /** Identité STABLE dans la story — c'est la clé du zoom, du filtre et de l'ancrage. */
+  id: string;
+  /** ISO court (`2023-03-28`). `null` quand le jalon est attendu sans date connue. */
+  date: string | null;
+  kind: StoryEventKind;
+  titre: string;
+  detail?: string | null;
+  /**
+   * `manque` est un état à part entière et le plus utile de tous : un jalon ATTENDU qui n'a
+   * jamais eu lieu (la facture jamais émise, le paiement jamais reçu) est précisément ce qu'on
+   * cherche en retraçant une affaire. Ne pas l'afficher reviendrait à raconter une histoire
+   * sans son trou.
+   */
+  etat: "fait" | "en-cours" | "a-venir" | "manque" | "echec";
+  entityRef?: WorkspaceEntityRef | null;
+  /** Les chiffres du jalon : « 8 produits · 1,24 Md DZD ». Trois au plus, comme partout. */
+  metriques?: WorkspaceMetric[];
+  participants?: StoryParticipant[];
+  docs?: WorkspaceDoc[];
+  /** Les fils auxquels ce jalon appartient (identifiants de `StoryBlock.filtres`). */
+  fils?: string[];
+  /** Le jalon parent, pour le sous-niveau. `null` ⇒ jalon de premier rang. */
+  parent?: string | null;
+  /** Jours d'écart avec l'attendu. Positif = retard. Le retard se VOIT plutôt qu'il se lit. */
+  retardJours?: number | null;
+  /** D'où vient ce jalon — « PchOrder », « BusinessEvent », « Contrat signé ». */
+  provenance?: string | null;
+  certitude?: WorkspaceCertainty;
+  actions?: WorkspaceAction[];
+}
+
+/** Un fil de lecture : un produit, un lot, une famille de jalons. */
+export interface StoryThread {
+  id: string;
+  label: string;
+  /** Combien de jalons il porte — un fil vide ne se propose pas. */
+  count: number;
+  /** « produit », « famille », « risque » — pour grouper les filtres sans les mélanger. */
+  genre?: "produit" | "famille" | "risque" | "acteur";
+}
+
+type WorkspaceBlockShape =
+  /**
+   * L'HISTOIRE D'UNE AFFAIRE — la primitive la plus riche du protocole.
+   *
+   * Elle porte tout ce qu'il faut pour se lire à trois niveaux de zoom sans nouvel appel :
+   * les jalons de premier rang (`parent === null`), leurs enfants, et les fils transversaux.
+   */
+  | {
+      kind: "story";
+      title: string;
+      subtitle?: string | null;
+      /** Les KPI de l'affaire entière (§50) : demandé, attribué, encaissé, délai moyen… */
+      kpis?: WorkspaceMetric[];
+      events: StoryEvent[];
+      threads?: StoryThread[];
+      /** Ce que la reconstitution N'A PAS vu. Une story sans limites dites se croit complète. */
+      limites?: string[];
+      actions?: WorkspaceAction[];
+    }
+  /**
+   * UNE VUE 360 D'ENTITÉ — produit, marché, contrat, personne.
+   *
+   * Un seul type pour les quatre, et c'est délibéré : ils ont la même FORME (en-tête, KPI,
+   * sections repliables, story éventuelle), et quatre types identiques auraient produit quatre
+   * renderers à maintenir en parallèle — donc trois qui divergent.
+   *
+   * La DIVULGATION PROGRESSIVE est portée par `sections[].ouvert` : deux sections ouvertes,
+   * le reste replié. Cinquante indicateurs affichés d'un coup ne sont pas une vue 360, c'est
+   * un tableau de bord — ce que ce produit refuse d'être.
+   */
+  | {
+      kind: "entity360";
+      title: string;
+      subtitle?: string | null;
+      badges?: { label: string; ton: "neutre" | "succes" | "attention" | "alerte" }[];
+      /** Le visage, quand l'entité est une personne. */
+      photo?: string | null;
+      kpis?: WorkspaceMetric[];
+      sections: {
+        id: string;
+        label: string;
+        /** Ouverte d'emblée ? Deux au plus, sinon la divulgation progressive ne sert à rien. */
+        ouvert?: boolean;
+        fields?: WorkspaceField[];
+        gauges?: WorkspaceGauge[];
+        items?: WorkspaceItem[];
+        table?: { columns: WorkspaceColumn[]; rows: WorkspaceRow[]; total?: number };
+        docs?: WorkspaceDoc[];
+        people?: WorkspacePerson[];
+        note?: string | null;
+        actions?: WorkspaceAction[];
+      }[];
+      /** Ce qui manque ou n'a pas pu être calculé — dit, jamais tu. */
+      limites?: string[];
+      href?: string | null;
+      actions?: WorkspaceAction[];
+    }
+  /**
+   * UNE COMPARAISON — deux affaires, deux produits, un contrat et son avenant.
+   *
+   * `delta` et `insight` sont SÉPARÉS parce qu'ils ne sont pas de même nature : le delta est
+   * arithmétique et vérifiable, l'insight est une lecture. Les mélanger dans une colonne ferait
+   * passer un commentaire pour un calcul.
+   */
+  | {
+      kind: "comparison";
+      title: string;
+      subtitle?: string | null;
+      /** Les deux (ou trois) colonnes comparées. */
+      sujets: { id: string; label: string; sousTitre?: string | null; entityRef?: WorkspaceEntityRef | null }[];
+      lignes: {
+        dimension: string;
+        /** Une valeur par sujet, dans l'ordre de `sujets`. */
+        valeurs: (string | null)[];
+        delta?: string | null;
+        deltaTon?: "neutre" | "attention" | "alerte" | "succes";
+        insight?: string | null;
+      }[];
+      note?: string | null;
+      actions?: WorkspaceAction[];
+    }
+  /**
+   * UNE MISSION — plusieurs gestes, UNE confirmation (§18).
+   *
+   * Le bloc porte les étapes ET leur état, si bien que la confirmation puis l'exécution se
+   * jouent sur le MÊME objet : « ✓ e-mail envoyé · ✓ tâche créée · ✓ rappel planifié » remplace
+   * les cases à cocher, sans qu'une seconde carte apparaisse dans le fil.
+   */
+  | {
+      kind: "mission";
+      title: string;
+      subtitle?: string | null;
+      etapes: {
+        id: string;
+        label: string;
+        detail?: string | null;
+        etat: "a-faire" | "en-cours" | "fait" | "echec" | "ignore";
+        /** Le message d'erreur, ACTIONNABLE — « adresse rejetée », pas « erreur 400 ». */
+        erreur?: string | null;
+      }[];
+      /** Le geste unique qui confirme l'ensemble. Absent une fois la mission exécutée. */
+      confirmation?: WorkspaceAction | null;
+      actions?: WorkspaceAction[];
+    }
+  /**
+   * UNE ALERTE PROACTIVE (§20) — Adam parle sans qu'on lui ait rien demandé.
+   *
+   * Elle vit dans le MÊME fil que le reste : une notification qui ouvre un autre écran oblige à
+   * reconstruire le contexte qu'on avait déjà. Le ton porte l'urgence, les actions portent la
+   * sortie — « corriger », « renvoyer » — parce qu'une alerte sans issue est une inquiétude.
+   */
+  | {
+      kind: "alerte";
+      title: string;
+      ton: "info" | "attention" | "alerte";
+      message: string;
+      detail?: string | null;
+      /** Ce qui a déclenché l'alerte — « NDR reçu de gmail.com ». */
+      origine?: string | null;
+      actions?: WorkspaceAction[];
+    }
   /** Une ou plusieurs fiches de contact — `directory_lookup`. */
   | { kind: "people"; title: string; people: WorkspacePerson[]; note?: string; actions?: WorkspaceAction[] }
   /** Le registre du personnel — `directory_list`. Tableau, tri, recherche côté client. */
@@ -354,7 +620,16 @@ export type WorkspaceBlock =
       actions?: WorkspaceAction[];
     };
 
-export type WorkspaceBlockKind = WorkspaceBlock["kind"];
+/**
+ * LE BLOC TEL QU'IL CIRCULE — sa forme, PLUS son identité et son état.
+ *
+ * L'intersection plutôt que dix-sept champs recopiés : ajouter une métadonnée se fait en un
+ * endroit, et TypeScript continue de vérifier l'exhaustivité du `switch` sur `kind` parce que
+ * `(A | B) & M` se distribue en `(A & M) | (B & M)`.
+ */
+export type WorkspaceBlock = WorkspaceBlockShape & WorkspaceBlockMeta;
+
+export type WorkspaceBlockKind = WorkspaceBlockShape["kind"];
 
 export interface WorkspaceComposition {
   /** L'outil canonique qui a produit ces blocs — tracé, et vérifiable. */

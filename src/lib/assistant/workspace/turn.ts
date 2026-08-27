@@ -85,9 +85,20 @@ export interface TurnWorkspace {
  * n'engage rien. Entre les deux, tout se classe par ce que le PDG risque en ne le voyant pas.
  */
 const KIND_WEIGHT: Record<WorkspaceBlockKind, number> = {
+  // UNE ALERTE PASSE DEVANT TOUT. Elle n'a pas été demandée : si elle ne prend pas la tête, elle
+  // se lit après la réponse à une autre question, c'est-à-dire trop tard. C'est la seule nature
+  // de bloc qui a le droit de dépasser un brouillon prêt à partir.
+  alerte: 95,
   email: 90,      // un message prêt à partir — le geste le plus engageant
+  mission: 85,    // plusieurs gestes, UNE confirmation : ce qui reste à trancher en un clic
   queue: 80,      // ce qui attend explicitement une décision
   dossier: 70,    // l'objet métier, avec son blocage
+  // LA STORY ET LA VUE 360 sont des RÉPONSES, pas des décisions : elles pèsent moins qu'un
+  // geste en attente, plus qu'un tableau. Les mettre au-dessus de l'e-mail ferait passer une
+  // lecture avant une action engagée.
+  story: 68,
+  entity360: 66,
+  comparison: 50,
   planification: 60, // un engagement récurrent : à vérifier une fois, pas à trancher chaque jour
   document: 55,   // une pièce à relire avant de valider
   progress: 45,   // des jauges : un constat, pas une décision

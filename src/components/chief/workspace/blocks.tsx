@@ -13,6 +13,12 @@ import type {
 // La feuille voyage AVEC le composant : les blocs s'affichent aussi dans la page Assistant de
 // l'ERP, qui ne charge pas `chief.css`. Elle porte ses propres valeurs de repli.
 import "./blocks.css";
+import { ActionRow, AskContext, Avatar, Card, Chip, WorkspaceAskProvider } from "./primitives";
+import { StoryBlock } from "./blocks/story";
+import { Entity360Block } from "./blocks/entity360";
+import { AlerteBlock, ComparisonBlock, MissionBlock } from "./blocks/decision";
+
+export { WorkspaceAskProvider };
 
 /**
  * LES RENDUS TYPÉS — un composant par forme, et rien qui sache tout afficher.
@@ -26,100 +32,6 @@ import "./blocks.css";
  * pas de bordures épaisses, pas de couleurs d'accent, pas de titres criards. On lit une
  * réponse, et la donnée est là, tenue.
  */
-
-/**
- * ═══════════════════════════════════════════════════════════════════════════════════════════
- * COMMENT UN BOUTON DE CET ESPACE AGIT — et pourquoi il ne fait qu'écrire.
- *
- * Un bloc peut proposer un geste (« Approuver », « Refuser »). Le clic n'exécute RIEN ici : il
- * envoie dans la conversation la phrase que le SERVEUR a rédigée, avec la référence exacte,
- * exactement comme si le PDG l'avait tapée. La mutation emprunte donc la porte unique —
- * proposition, carte de confirmation, action canonique, RBAC revérifié, audit.
- *
- * Le contexte existe parce que ces blocs s'affichent à deux endroits (le bureau d'Adam et la
- * page Assistant) : faire descendre un `onAsk` à travers chaque rendu polluerait huit signatures
- * pour une capacité que deux blocs utilisent. Sans fournisseur, les gestes ne s'affichent pas —
- * un bouton mort serait pire que pas de bouton.
- * ═══════════════════════════════════════════════════════════════════════════════════════════
- */
-const AskContext = React.createContext<((phrase: string) => void) | null>(null);
-
-export function WorkspaceAskProvider(
-  { ask, children }: { ask: (phrase: string) => void; children: React.ReactNode },
-) {
-  return <AskContext.Provider value={ask}>{children}</AskContext.Provider>;
-}
-
-/**
- * LE PICTOGRAMME D'UN GESTE. Une rangée de quatre boutons gris se relit mot à mot ; les mêmes
- * avec une forme se reconnaissent avant d'être lus. Le vocabulaire est fermé côté protocole,
- * donc ce tableau est exhaustif par construction — une icône inconnue n'existe pas.
- */
-const ACTION_ICON: Record<WorkspaceActionIcon, React.ComponentType<{ className?: string }>> = {
-  voir: Eye,
-  email: Mail,
-  tache: CheckSquare,
-  modifier: Pencil,
-  apercu: ScanLine,
-  envoyer: Send,
-  escalade: CircleAlert,
-  planifier: CalendarClock,
-  relancer: BellRing,
-  valider: Check,
-};
-
-function ActionRow({ actions, footer = false }: { actions: WorkspaceAction[]; footer?: boolean }) {
-  const ask = React.useContext(AskContext);
-  // Un tour est en cours dès qu'on a cliqué : re-cliquer enverrait la phrase deux fois, et
-  // « Approuve VAL-014 » posée deux fois est une seconde décision, pas un doublon inoffensif.
-  const [sent, setSent] = React.useState<string | null>(null);
-  // SANS FOURNISSEUR, RIEN — pas même le filet de séparation. Un pied de carte vide sous un
-  // objet promet des gestes qui n'existent pas ; c'est le test de rendu qui l'a montré.
-  if (!ask) return null;
-  return (
-    <div className={footer ? "chief-actions chief-block-actions" : "chief-actions"}>
-      {actions.map((a) => {
-        const Icon = a.icone ? ACTION_ICON[a.icone] : null;
-        return (
-          <button
-            key={a.phrase}
-            type="button"
-            className={`chief-action${a.ton === "danger" ? " chief-action-danger" : a.ton === "primaire" ? " chief-action-primary" : ""}`}
-            disabled={sent !== null}
-            onClick={() => { setSent(a.phrase); ask(a.phrase); }}
-            title={a.phrase}
-          >
-            {Icon ? <Icon className="chief-action-icon" /> : null}
-            {sent === a.phrase ? "Envoyé…" : a.libelle}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Primitives partagées ──────────────────────────────────────────────────────────────────
-
-function Card(
-  { title, meta, children, actions, hideHead }:
-  { title: string; meta?: React.ReactNode; children: React.ReactNode; actions?: WorkspaceAction[]; hideHead?: boolean },
-) {
-  return (
-    <section className="chief-block">
-      {hideHead ? null : (
-        <header className="chief-block-head">
-          <h3 className="chief-block-title">{title}</h3>
-          {meta ? <span className="chief-block-meta">{meta}</span> : null}
-        </header>
-      )}
-      {children}
-      {/* LES ACTIONS APPARTIENNENT À L'OBJET, VISUELLEMENT. Posées en pied de carte, elles se
-          lisent comme « ce que je peux faire de CECI » — et non comme une barre d'outils
-          flottante dont on se demande sur quoi elle agit. */}
-      {actions?.length ? <ActionRow actions={actions} footer /> : null}
-    </section>
-  );
-}
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -202,10 +114,6 @@ function EditableValue({ f, children }: { f: WorkspaceField; children: React.Rea
   );
 }
 
-/** Une pastille sémantique : le ton porte l'information, pas la décoration. */
-function Chip({ label, ton }: { label: string; ton?: "neutre" | "succes" | "attention" | "alerte" }) {
-  return <span className={`chief-chip${ton && ton !== "neutre" ? ` chief-chip-${ton}` : ""}`}>{label}</span>;
-}
 
 const CANAL_ICON = { "e-mail": Mail, "téléphone": Phone, WhatsApp: MessageCircle } as const;
 
@@ -273,34 +181,6 @@ function PersonLines({ p, hideName = false }: { p: WorkspacePerson; hideName?: b
  *
  * La photo est servie par une route de l'ERP qui revérifie les droits ; si elle échoue (droit
  * retiré, fichier disparu), on retombe sur les initiales SANS que la fiche change de forme.
- * C'est le point important : la mise en page ne doit pas sauter selon qu'un visage existe ou
- * non, sinon la même carte se lit différemment d'une personne à l'autre.
- *
- * `taille` porte l'échelle métier, pas des pixels : la fiche d'une personne mérite un grand
- * portrait, une ligne de participants n'en a pas besoin.
- */
-function Avatar(
-  { nom, photo, taille = "m" }: { nom: string; photo?: string | null; taille?: "s" | "m" | "l" },
-) {
-  const [ko, setKo] = React.useState(false);
-  const letters = nom.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
-  const cls = `chief-avatar chief-avatar-${taille}`;
-  if (photo && !ko) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element -- route ERP dynamique, pas un asset
-      <img
-        src={photo}
-        alt=""
-        aria-hidden
-        className={`${cls} chief-avatar-photo`}
-        onError={() => setKo(true)}
-        loading="lazy"
-      />
-    );
-  }
-  return <span className={cls} aria-hidden>{letters || "?"}</span>;
-}
-
 /**
  * LA FICHE D'UNE PERSONNE — ce qu'on demande vraiment quand on dit « montre-moi Raihana ».
  *
@@ -1036,6 +916,11 @@ function DocumentBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "document" }>
  * sans rendu, la compilation échoue ici — pas à l'exécution, et pas sur l'écran du PDG.
  */
 const RENDERERS: { [K in WorkspaceBlock["kind"]]: (p: { b: Extract<WorkspaceBlock, { kind: K }> }) => React.ReactElement } = {
+  story: StoryBlock,
+  entity360: Entity360Block,
+  comparison: ComparisonBlock,
+  mission: MissionBlock,
+  alerte: AlerteBlock,
   people: PeopleBlock,
   directory: DirectoryBlock,
   mail: MailBlock,
@@ -1060,48 +945,27 @@ const RENDERERS: { [K in WorkspaceBlock["kind"]]: (p: { b: Extract<WorkspaceBloc
  * objet : il finissait en bas de page, loin de la chose qu'il confirme.
  */
 export function WorkspaceOneBlock({ b }: { b: WorkspaceBlock }) {
-  switch (b.kind) {
-    case "people": return <PeopleBlock b={b} />;
-    case "directory": return <DirectoryBlock b={b} />;
-    case "mail": return <MailBlock b={b} />;
-    case "agenda": return <AgendaBlock b={b} />;
-    case "queue": return <QueueBlock b={b} />;
-    case "record": return <RecordBlock b={b} />;
-    case "table": return <TableBlock b={b} />;
-    case "timeline": return <TimelineBlock b={b} />;
-    case "progress": return <ProgressBlock b={b} />;
-    case "document": return <DocumentBlock b={b} />;
-    case "dossier": return <DossierBlock b={b} />;
-    case "planification": return <PlanificationBlock b={b} />;
-    case "email": return <EmailBlock b={b} />;
-  }
+  // LA RÉPARTITION PASSE PAR LE REGISTRE, PAS PAR UN `switch`.
+  //
+  // Il y en avait DEUX, identiques, de dix-huit cas chacun : un pour le bloc seul, un pour la
+  // composition. Ajouter un type de bloc demandait donc de penser aux deux — et le second a
+  // effectivement été oublié le jour où le protocole a gagné cinq types.
+  //
+  // Le `Renderer` ci-dessous est la SEULE conversion de type du fichier. Elle est sûre par
+  // construction : `RENDERERS` est typé `{ [K in kind]: (p: { b: Extract<…, K> }) => Element }`,
+  // donc TypeScript refuse déjà de compiler si un type de bloc n'a pas son rendu. La conversion
+  // ne fait que dire au compilateur ce que l'indexation par `b.kind` garantit déjà.
+  const Renderer = RENDERERS[b.kind] as (p: { b: WorkspaceBlock }) => React.ReactElement;
+  return <Renderer b={b} />;
 }
 
 export function WorkspaceBlocks({ composition }: { composition: WorkspaceComposition }) {
   if (composition.blocks.length === 0) return null;
   return (
     <div className="chief-workspace-blocks">
-      {composition.blocks.map((b, i) => {
-        // Le passage par le registre est volontairement typé bloc par bloc : le `switch` évite
-        // un `as never` sur l'union, et garde l'exhaustivité vérifiée par le compilateur.
-        switch (b.kind) {
-          case "people": return <PeopleBlock key={i} b={b} />;
-          case "directory": return <DirectoryBlock key={i} b={b} />;
-          case "mail": return <MailBlock key={i} b={b} />;
-          case "agenda": return <AgendaBlock key={i} b={b} />;
-          case "queue": return <QueueBlock key={i} b={b} />;
-          case "record": return <RecordBlock key={i} b={b} />;
-          case "table": return <TableBlock key={i} b={b} />;
-          case "timeline": return <TimelineBlock key={i} b={b} />;
-          case "progress": return <ProgressBlock key={i} b={b} />;
-          case "document": return <DocumentBlock key={i} b={b} />;
-          case "dossier": return <DossierBlock key={i} b={b} />;
-          case "planification": return <PlanificationBlock key={i} b={b} />;
-          case "email": return <EmailBlock key={i} b={b} />;
-        }
-      })}
+      {composition.blocks.map((b, i) => (
+        <WorkspaceOneBlock key={b.blockId ?? i} b={b} />
+      ))}
     </div>
   );
 }
-
-export { RENDERERS as WORKSPACE_RENDERERS };
