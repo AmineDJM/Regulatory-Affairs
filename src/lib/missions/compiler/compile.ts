@@ -12,6 +12,7 @@ import {
 import { EFFECT_RANK, Effect, effetMaximal } from "@/lib/missions/registry/capability-meta";
 import type { CapabilityCatalog, MissionActor } from "@/lib/missions/ports";
 import { layout } from "@/lib/missions/compiler/graph";
+import { messageRefus, refusPourActeur } from "@/lib/missions/policy/guard";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -217,6 +218,17 @@ export function compile(
           + `pas les droits : elle passe par les mêmes.`));
       } else {
         const m = catalog.meta(s.capability);
+
+        // ── §29 : L'INTERDIT STRUCTUREL, VÉRIFIÉ MÊME QUAND LE CATALOGUE DIT OUI ────────
+        //
+        // L'ordre compte. Si l'on ne regardait la politique qu'après le droit, il suffirait
+        // qu'un compte soit trop largement doté pour qu'Adam puisse modifier ses propres
+        // permissions. Ici, aucun droit ne lève l'interdit : le refus est de compilation.
+        const refus = refusPourActeur(s.capability, m.effect, actor);
+        if (refus) {
+          issues.push(issue("FORBIDDEN_CAPABILITY", s.key, messageRefus(refus)));
+        }
+
         effect = m.effect;
         idempotent = m.idempotent;
         batchable = m.batchable;

@@ -192,15 +192,31 @@ async function demarrer(etat: EtatMission): Promise<void> {
   }
 }
 
-/** Les étapes dont toutes les dépendances sont TERMINÉES. `SKIPPED` compte : voir `graph.ts`. */
+/**
+ * LES ÉTAPES QUI PEUVENT PARTIR.
+ *
+ * ── DEUX PORTES D'ENTRÉE, ET ELLES NE DISENT PAS LA MÊME CHOSE ──────────────────────────
+ *
+ * `PENDING` = « attend ses dépendances » ; le graphe décide.
+ * `READY`   = « quelqu'un l'a remise en file » ; une décision extérieure a eu lieu.
+ *
+ * La seconde existe pour l'approbation : une porte en attente que le PDG vient d'accorder doit
+ * être RÉÉVALUÉE, et une étape en attente ne l'est jamais. Sans ce chemin, une mission
+ * approuvée restait bloquée sur sa propre porte — l'accord était donné et rien ne repartait.
+ *
+ * `SKIPPED` compte comme terminée pour les dépendances : une branche écartée ne retient pas sa
+ * descendance en otage (le pendant d'exécution de §37).
+ */
 function etapesPretes(etat: EtatMission): EtatEtape[] {
   const parCle = new Map(etat.steps.map((s) => [s.key, s]));
-  return etat.steps.filter((s) =>
-    s.status === "PENDING"
-    && s.dependsOn.every((d) => {
+  return etat.steps.filter((s) => {
+    if (s.status === "READY") return true;
+    if (s.status !== "PENDING") return false;
+    return s.dependsOn.every((d) => {
       const dep = parCle.get(d);
       return dep ? estTerminal(dep.status) : true;
-    }));
+    });
+  });
 }
 
 /**
@@ -212,7 +228,7 @@ function etapesPretes(etat: EtatMission): EtatEtape[] {
  */
 async function reserver(step: EtatEtape, clock: Clock): Promise<boolean> {
   const r = await prisma.missionStep.updateMany({
-    where: { id: step.id, status: "PENDING" },
+    where: { id: step.id, status: { in: ["PENDING", "READY"] } },
     data: { status: "RUNNING", attempt: { increment: 1 }, startedAt: clock.now() },
   });
   return r.count === 1;
