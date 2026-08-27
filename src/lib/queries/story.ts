@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { intentFor } from "@/lib/assistant/workspace/direct-intents";
 import { toNumber } from "@/lib/utils";
 import type { StoryEvent, StoryThread, WorkspaceMetric } from "@/lib/assistant/workspace/protocol";
 
@@ -208,6 +209,19 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
         ...(fil ? { fils: [fil, l.status === "WON" ? "famille:gagnes" : "famille:perdus"] } : { fils: [l.status === "WON" ? "famille:gagnes" : "famille:perdus"] }),
         provenance: "PchTenderLine",
         certitude: "fait",
+        // ZOOM SANS MODÈLE (§23) : le produit du lot est identifié par clé étrangère. Faire
+        // redécouvrir « quel produit » par un modèle serait payer un aller-retour pour une
+        // information qu'on tient déjà.
+        ...(l.product ? {
+          actions: [{
+            libelle: "Économie",
+            phrase: `Économie du produit ${l.product.code}`,
+            icone: "voir" as const,
+            ...(intentFor("product.economics", { produit: l.product.code })
+              ? { intent: intentFor("product.economics", { produit: l.product.code })! }
+              : {}),
+          }],
+        } : {}),
       });
     }
   }
@@ -593,6 +607,14 @@ export async function storyProduit(productId: string): Promise<BusinessStory | n
       fils: ["famille:marches", l.status === "WON" ? "famille:gagnes" : "famille:perdus"],
       provenance: "PchTenderLine",
       certitude: "fait",
+      actions: [{
+        libelle: "Le marché",
+        phrase: `État du marché ${l.tender.reference}`,
+        icone: "voir" as const,
+        ...(intentFor("pch.status", { marche: l.tender.reference })
+          ? { intent: intentFor("pch.status", { marche: l.tender.reference })! }
+          : {}),
+      }],
     });
   }
 

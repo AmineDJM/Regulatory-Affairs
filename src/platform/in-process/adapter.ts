@@ -9,6 +9,7 @@ import { pch360 } from "@/lib/queries/pch-360";
 import { metriquesMarche, metriquesProduit } from "@/lib/queries/metrics";
 import { voisinageMarche, voisinageProduit } from "@/lib/queries/graph";
 import { storyMarche, storyProduit } from "@/lib/queries/story";
+import { blocMarche360, blocProduit360 } from "@/lib/queries/e360-blocks";
 import { DirectoryChannel } from "@prisma/client";
 import { subscribe as busSubscribe } from "../event-bus";
 import {
@@ -572,6 +573,9 @@ async function economieProduit(mention: string): Promise<PlatformQueryResult> {
       },
       terrain: vue.terrain,
       limites: [...vue.limites, ...(mesures?.limites ?? [])],
+      // LA VUE 360 EST COMPOSÉE ICI, où `Produit360` est typé. Composée chez Adam, elle
+      // exigerait de re-deviner chaque champ d'un objet que le contrat rend opaque à dessein.
+      _blocs: [blocProduit360(vue, mesures?.metriques ?? [], mesures?.limites ?? [])],
     },
   };
 }
@@ -609,6 +613,7 @@ async function etatMarche(reference: string): Promise<PlatformQueryResult> {
       // chiffre d'affaires du marché.
       ventesEnregistrees: vue.ventesEnregistrees,
       limites: vue.limites,
+      _blocs: [blocMarche360(vue, mesures?.metriques ?? [])],
     },
   };
 }

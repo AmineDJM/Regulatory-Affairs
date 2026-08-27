@@ -220,6 +220,23 @@ export type WorkspaceActionIcon =
   | "voir" | "email" | "tache" | "modifier" | "apercu"
   | "envoyer" | "escalade" | "planifier" | "relancer" | "valider";
 
+/**
+ * L'INTENTION EXACTE D'UN BOUTON — ce qui lui évite de repasser par le modèle (§23).
+ *
+ * Le serveur qui dessine « Ouvrir le marché AO-2025-014 » SAIT déjà quelle lecture il faudra
+ * faire et sur quel identifiant. Écrire la phrase, la renvoyer au modèle, lui faire redécouvrir
+ * l'intention et extraire l'argument n'ajoute rien : c'est un aller-retour complet pour
+ * retrouver ce qui était connu au départ.
+ *
+ * `capability` est vérifiée contre un registre FERMÉ de lectures, côté serveur. Un bouton ne
+ * peut donc pas déclencher une mutation par ce chemin — celles-là gardent la phrase, donc la
+ * proposition, la confirmation et l'audit.
+ */
+export interface WorkspaceActionIntent {
+  capability: string;
+  args: Record<string, string>;
+}
+
 export interface WorkspaceAction {
   /** Ce qui s'écrit sur le bouton — deux mots, à l'impératif. */
   libelle: string;
@@ -229,6 +246,11 @@ export interface WorkspaceAction {
   ton?: "primaire" | "danger";
   /** Le pictogramme, quand il aide. Absent ⇒ bouton texte, ce qui reste parfaitement lisible. */
   icone?: WorkspaceActionIcon;
+  /**
+   * L'appel DIRECT, quand il n'y a rien à comprendre. Absent ⇒ le geste écrit sa phrase, et
+   * la conversation reprend son cours normal. C'est le repli, et il reste correct.
+   */
+  intent?: WorkspaceActionIntent;
 }
 
 export interface WorkspaceItem {
@@ -513,6 +535,13 @@ type WorkspaceBlockShape =
         etat: "a-faire" | "en-cours" | "fait" | "echec" | "ignore";
         /** Le message d'erreur, ACTIONNABLE — « adresse rejetée », pas « erreur 400 ». */
         erreur?: string | null;
+        /**
+         * LE GESTE QUI RÉPARE. Un message qui dit « choisir une autre date » sans bouton pour
+         * la choisir laisse le lecteur devant un constat : il sait ce qu'il faudrait faire, et
+         * doit aller le faire ailleurs. §53 demande une erreur ACTIONNABLE, pas une erreur
+         * bien rédigée — la capture de la carte en échec a montré la différence.
+         */
+        actions?: WorkspaceAction[];
       }[];
       /** Le geste unique qui confirme l'ensemble. Absent une fois la mission exécutée. */
       confirmation?: WorkspaceAction | null;

@@ -108,6 +108,9 @@ export function MissionBlock({ b }: { b: Mission }) {
                     <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden /> {e.erreur}
                   </span>
                 ) : null}
+                {/* LE GESTE QUI RÉPARE, sous l'erreur qu'il répare. Ailleurs, il faudrait
+                    d'abord retrouver de quelle étape on parle. */}
+                {e.actions?.length && ask ? <ActionRow actions={e.actions} /> : null}
               </div>
             </li>
           );

@@ -26,9 +26,12 @@ import { getDailyBrief } from "@/lib/daily-brief";
 import { extractAttachmentText, buildAttachmentContext, type AttachmentText } from "@/lib/assistant-files";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import {
-  runAssistant, performAction, payloadRequiresStrongConfirm,
+  runAssistant, performAction, payloadRequiresStrongConfirm, executeReadTool,
   type AssistantActionPayload, type AssistantResult, type ChatTurn, type ExecuteResult, type ProposedAction,
 } from "@/lib/assistant";
+import { composeWorkspace } from "@/lib/assistant/workspace/compose";
+import { directIntent, intentArgs, intentPhrase } from "@/lib/assistant/workspace/direct-intents";
+import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
 
 const MAX_ATTACHMENTS = 6;
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20 Mo par pièce jointe
@@ -155,6 +158,62 @@ export async function rememberExchange(
     console.error("[assistant] mémorisation impossible (non bloquant)", e);
     return threadId;
   }
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE GESTE DÉTERMINISTE — un clic, une lecture, ZÉRO appel au modèle (§23).
+ *
+ * ── CE QU'ON ARRÊTE DE PAYER ─────────────────────────────────────────────────────────────
+ *
+ * Un bouton de l'espace de travail écrivait une PHRASE : « Économie du produit PRD-014 ». Elle
+ * repartait au modèle, qui devait comprendre l'intention, choisir l'outil et extraire
+ * l'argument — pour aboutir à l'appel que le serveur connaissait DÉJÀ quand il a dessiné le
+ * bouton. Un aller-retour complet, quelques milliers de jetons de schémas, une seconde et
+ * demie d'attente, et un maillon de plus où l'intention peut dériver : pour rien.
+ *
+ * ── POURQUOI ÇA NE ROUVRE RIEN ───────────────────────────────────────────────────────────
+ *
+ * Le registre `DIRECT_INTENTS` ne contient QUE des lectures, et une capacité absente est
+ * refusée avant d'atteindre quoi que ce soit. Les gestes qui MODIFIENT continuent d'écrire
+ * leur phrase dans la conversation — donc de passer par la proposition, la carte de
+ * confirmation, l'action canonique et l'audit. Le raccourci saute le RAISONNEMENT, pas les
+ * gardes : identité de session, `allowed()` de la capacité, droits ERP, cloisonnement.
+ *
+ * La PHRASE affichée vient du registre, jamais du client — sans quoi un appel forgé écrirait
+ * dans le fil une demande que personne n'a formulée.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function assistantDirectIntent(
+  capability: string,
+  args: Record<string, string>,
+): Promise<{ ok: boolean; phrase: string; label: string; composition: WorkspaceComposition | null; reply: string }> {
+  const vide = { ok: false, phrase: "", label: "", composition: null, reply: "" };
+  const def = directIntent(capability);
+  if (!def) return vide;
+
+  const user = await requireUser();
+  if (!userCan(user, "WORKSPACE", "VIEW")) return vide;
+
+  const clean = intentArgs(def, args);
+  if (Object.keys(clean).length === 0) return vide;
+
+  const out = await executeReadTool(def.tool, clean, user).catch((e) => {
+    console.error("[assistant] geste direct échoué", def.tool, e);
+    return null;
+  });
+  if (out === null) return vide;
+
+  const composition = composeWorkspace(def.tool, out);
+  return {
+    ok: true,
+    phrase: intentPhrase(def, clean),
+    label: def.label,
+    composition,
+    // SANS MODÈLE, ON NE COMMENTE PAS. Une phrase de synthèse écrite ici serait une opinion
+    // du code sur des chiffres qu'il n'a pas lus. Quand il n'y a rien à montrer, on le dit.
+    reply: composition ? "" : "Cette lecture n'a rien renvoyé d'affichable. Posez la question dans la conversation pour l'analyse.",
+  };
 }
 
 /**

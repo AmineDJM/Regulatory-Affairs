@@ -132,6 +132,13 @@
   background-color: hsl(var(--chief-accent-soft, 245 90% 97%));
   color: hsl(var(--chief-accent, 245 72% 58%));
 }
+/* AUCUN RÉSULTAT : le mot, pas le zéro — et la couleur d'attention, pas celle de l'accent,
+   qui se lirait comme un succès. */
+.chief-story-found[data-vide] {
+  background-color: hsl(var(--chief-warning-soft, 38 92% 95%));
+  color: hsl(var(--chief-warning, 32 80% 40%));
+  font-variant-numeric: normal;
+}
 .chief-story-expand {
   padding: 4px 9px;
   border: 1px solid hsl(var(--chief-line, 220 20% 91%));
@@ -776,7 +783,21 @@
   .chief-story-metrics { gap: 4px 10px; }
   .chief-story-doc { max-width: 100%; }
   /* La provenance ne se survole pas au doigt : elle reste visible, en très discret. */
-  .chief-story-source { opacity: 0.7; }
+  /* ── LA PROVENANCE SUR TÉLÉPHONE — ce que la capture 390 a montré. ────────────────
+     Il n'y a pas de survol sur un écran tactile. La première version rendait donc la
+     provenance PERMANENTE : « PchTenderLine », « MailEntry », « LegalDocument » affichés
+     sous chaque jalon, en toutes lettres, au PDG. Des noms de tables internes, présents
+     à demeure, sur la moitié de la hauteur de la frise.
+
+     La provenance doit rester VÉRIFIABLE, pas omniprésente. Elle est donc montrée là où
+     elle sert VRAIMENT : sur ce qui n'est pas un fait lu en base — une date déduite, un
+     montant estimé, un jalon attendu. Un fait n'a pas besoin d'annoncer sa table ; une
+     déduction, si, sinon on la lit comme un fait. */
+  .chief-story-source { display: none; }
+  .chief-story-event:not([data-certitude="fait"]) .chief-story-source {
+    display: block;
+    opacity: 0.85;
+  }
 
   .chief-e360-section-body { padding-left: 8px; }
   .chief-e360-fields { grid-template-columns: 1fr; }

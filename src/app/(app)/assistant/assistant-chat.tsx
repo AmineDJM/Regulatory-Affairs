@@ -11,7 +11,7 @@ import { useCall } from "@/components/layout/call-provider";
 import type { VoiceToolUi } from "./realtime-voice";
 import { Button } from "@/components/ui/button";
 import {
-  assistantChat, executeAssistantAction, executeAssistantBundle, cancelAssistantAction, listAssistantFiles,
+  assistantChat, assistantDirectIntent, executeAssistantAction, executeAssistantBundle, cancelAssistantAction, listAssistantFiles,
   myAssistantThreads, myAssistantThread, deleteMyAssistantThread, forgetMyAssistantMemory,
 } from "@/lib/actions/assistant-actions";
 // HYGIÈNE D'AFFICHAGE — le dernier filtre avant l'écran. Il existe parce que des marqueurs
@@ -19,7 +19,7 @@ import {
 // vidage de 27 résultats contenant six lignes de salaires, en réponse à « Bonsoir, ça va ? ».
 import { decideDisplay } from "@/lib/assistant/voice/transcript-hygiene";
 import type { ProposedAction, AssistantActionPayload, ChatTurn, AssistantResult, AssistantStreamEvent } from "@/lib/assistant";
-import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
+import type { WorkspaceActionIntent, WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
 import { WorkspaceBlocks, WorkspaceAskProvider } from "@/components/chief/workspace/blocks";
 import { TurnWorkspaceView } from "@/components/chief/workspace/turn-workspace";
 import { composeTurn, isWorkspaceTurn, phasesOf } from "@/lib/assistant/workspace/turn";
@@ -472,6 +472,43 @@ export function AssistantChat({
   };
 
   /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * LE GESTE DÉTERMINISTE — un clic, une lecture, ZÉRO appel au modèle (§23).
+   *
+   * Le bouton porte l'intention exacte que le serveur a écrite en le dessinant. Il n'y a donc
+   * rien à comprendre : on appelle la lecture, on affiche l'objet. Pas de flux, pas de
+   * rédaction — et pas de commentaire inventé sous la carte, puisque personne ne l'a rédigé.
+   *
+   * EN CAS D'ÉCHEC, ON RETOMBE SUR LA CONVERSATION. Un geste refusé (droit manquant, capacité
+   * retirée du registre) ne doit pas laisser un bouton mort : la phrase repart par la porte
+   * normale, qui sait quoi faire d'une demande en français.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  const runDirect = async (phrase: string, intent: WorkspaceActionIntent): Promise<void> => {
+    if (sending) return;
+    const userMsg: Msg = { id: nextId(), role: "user", content: phrase, at: Date.now() };
+    setMessages((m) => [...m, userMsg]);
+    setSending(true);
+    try {
+      const data = await assistantDirectIntent(intent.capability, intent.args);
+      if (!data.ok) throw new Error("geste refusé");
+      setMessages((m) => [...m, {
+        id: nextId(), role: "assistant", at: Date.now(),
+        content: data.reply,
+        trace: data.label ? [data.label] : undefined,
+        workspace: data.composition ? [data.composition] : undefined,
+      }]);
+    } catch {
+      // Le repli EST la conversation : elle a toujours su répondre à une phrase.
+      setSending(false);
+      void send(phrase);
+      return;
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /**
    * Tour de conversation EN FLUX (Server-Sent Events). On affiche, dans l'ordre où ils
    * arrivent : les étapes de lecture, puis le texte mot à mot. La réponse n'apparaît plus
    * d'un bloc après un long silence.
@@ -658,7 +695,10 @@ export function AssistantChat({
     // « Approuver » posé sur une ligne de la file écrit la phrase exacte dans la conversation :
     // la mutation repasse donc par la proposition, la carte de confirmation et l'action
     // canonique — aucune seconde porte n'est ouverte pour aller plus vite.
-    <WorkspaceAskProvider ask={(phrase) => { void send(phrase); }}>
+    <WorkspaceAskProvider ask={(phrase, intent) => {
+      if (intent) { void runDirect(phrase, intent); return; }
+      void send(phrase);
+    }}>
     <div className="flex min-h-0 flex-1 gap-0 lg:gap-4">
       {memoryEnabled && historyMode === "rail" && <div className="hidden w-64 shrink-0 lg:block">{rail}</div>}
       {memoryEnabled && histOpen && (

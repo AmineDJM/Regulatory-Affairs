@@ -2,8 +2,9 @@ import {
   WORKSPACE_LIMITS,
   type WorkspaceAction, type WorkspaceActionIcon, type WorkspaceColumn, type WorkspaceDoc,
   type WorkspaceEndpoint, type WorkspaceField, type WorkspaceMetric, type WorkspacePerson,
-  type WorkspaceRow,
+  type WorkspaceRow, type WorkspaceActionIntent,
 } from "./protocol";
+import { directIntent, intentArgs } from "./direct-intents";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -97,6 +98,25 @@ export function readEditable(v: unknown): WorkspaceField["editable"] | null {
   };
 }
 
+/**
+ * L'INTENTION D'UN BOUTON, RELUE CONTRE LE REGISTRE FERMÉ (§23).
+ *
+ * C'est le point de sûreté du raccourci : une capacité inconnue ne devient PAS un bouton
+ * inerte qu'on découvrirait au clic — elle disparaît ici, et le geste retombe sur sa phrase,
+ * qui marche. Les arguments sont filtrés à ceux que la capacité déclare : un argument surprise
+ * ferait faire à l'outil autre chose que ce que le libellé promet.
+ */
+function readIntent(v: unknown): WorkspaceActionIntent | null {
+  if (!isObj(v)) return null;
+  const capability = s(v.capability);
+  if (!capability) return null;
+  const def = directIntent(capability);
+  if (!def) return null;
+  const args = intentArgs(def, isObj(v.args) ? v.args : {});
+  if (Object.keys(args).length === 0) return null;
+  return { capability, args };
+}
+
 export const ACTION_ICONS = new Set<string>([
   "voir", "email", "tache", "modifier", "apercu", "envoyer", "escalade", "planifier", "relancer", "valider",
 ]);
@@ -116,6 +136,7 @@ export function actionsOf(v: unknown, max: number = WORKSPACE_LIMITS.itemActions
       libelle, phrase,
       ...(ton === "danger" || ton === "primaire" ? { ton } : {}),
       ...(icone && ACTION_ICONS.has(icone) ? { icone: icone as WorkspaceActionIcon } : {}),
+      ...(readIntent(a.intent) ? { intent: readIntent(a.intent) as WorkspaceActionIntent } : {}),
     });
     if (out.length >= max) break;
   }

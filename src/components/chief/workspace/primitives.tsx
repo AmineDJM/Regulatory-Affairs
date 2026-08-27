@@ -4,7 +4,7 @@ import * as React from "react";
 import {
   Eye, Mail, CheckSquare, Pencil, ScanLine, Send, CircleAlert, CalendarClock, BellRing, Check,
 } from "lucide-react";
-import type { WorkspaceAction, WorkspaceActionIcon } from "@/lib/assistant/workspace/protocol";
+import type { WorkspaceAction, WorkspaceActionIcon, WorkspaceActionIntent } from "@/lib/assistant/workspace/protocol";
 import "./blocks.css";
 
 /**
@@ -38,10 +38,12 @@ import "./blocks.css";
  * un bouton mort serait pire que pas de bouton.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-export const AskContext = React.createContext<((phrase: string) => void) | null>(null);
+export type AskFn = (phrase: string, intent?: WorkspaceActionIntent) => void;
+
+export const AskContext = React.createContext<AskFn | null>(null);
 
 export function WorkspaceAskProvider(
-  { ask, children }: { ask: (phrase: string) => void; children: React.ReactNode },
+  { ask, children }: { ask: AskFn; children: React.ReactNode },
 ) {
   return <AskContext.Provider value={ask}>{children}</AskContext.Provider>;
 }
@@ -82,7 +84,10 @@ export function ActionRow({ actions, footer = false }: { actions: WorkspaceActio
             type="button"
             className={`chief-action${a.ton === "danger" ? " chief-action-danger" : a.ton === "primaire" ? " chief-action-primary" : ""}`}
             disabled={sent !== null}
-            onClick={() => { setSent(a.phrase); ask(a.phrase); }}
+            // L'INTENTION D'ABORD, QUAND ELLE EXISTE (§23) : le serveur savait déjà quelle
+            // lecture faire, on ne la fait pas redécouvrir par un modèle. Sinon la phrase —
+            // qui reste le chemin de toutes les mutations.
+            onClick={() => { setSent(a.phrase); ask(a.phrase, a.intent); }}
             title={a.phrase}
           >
             {Icon ? <Icon className="chief-action-icon" /> : null}

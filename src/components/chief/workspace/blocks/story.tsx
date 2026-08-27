@@ -125,6 +125,7 @@ function Jalon({
       data-etat={e.etat}
       data-kind={e.kind}
       data-depth={profondeur}
+      data-certitude={e.certitude ?? "fait"}
       data-found={trouve || undefined}
       data-testid="story-event"
     >
@@ -225,7 +226,25 @@ export function StoryBlock({ b }: { b: StoryBlock }) {
   // LE FIL ACTIF. `null` = tout. Un seul à la fois : deux filtres combinés produisent des
   // intersections vides qu'on ne sait pas expliquer à l'écran.
   const [fil, setFil] = React.useState<string | null>(null);
-  const [ouverts, setOuverts] = React.useState<Set<string>>(() => new Set());
+  /**
+   * CE QUI EST OUVERT D'EMBLÉE — et la faute que la capture d'écran a révélée.
+   *
+   * Premier essai : tout replié. C'est propre, et c'est faux. Les deux jalons MANQUANTS de la
+   * frise — la facture jamais émise, le paiement jamais reçu — étaient des enfants du bon de
+   * commande, donc invisibles tant qu'on ne dépliait pas. La story annonçait « 2 jalons
+   * manquants » en tête et n'en montrait aucun : exactement l'histoire sans son trou que §46
+   * interdit. Le test de la planche l'a fait tomber ; la capture l'a rendu évident.
+   *
+   * La règle tenue depuis : un jalon dont un enfant MANQUE ou a ÉCHOUÉ s'ouvre tout seul. Ce
+   * qui va bien reste replié — c'est l'anomalie qui mérite la place, pas le nominal.
+   */
+  const [ouverts, setOuverts] = React.useState<Set<string>>(() => {
+    const n = new Set<string>();
+    for (const e of b.events) {
+      if ((e.etat === "manque" || e.etat === "echec") && e.parent) n.add(e.parent);
+    }
+    return n;
+  });
   const [q, setQ] = React.useState("");
 
   const parId = React.useMemo(() => new Map(b.events.map((e) => [e.id, e])), [b.events]);
@@ -327,7 +346,14 @@ export function StoryBlock({ b }: { b: StoryBlock }) {
                   aria-label="Chercher dans la frise"
                   data-testid="story-search"
                 />
-                {nTrouves !== null ? <span className="chief-story-found">{nTrouves}</span> : null}
+                {/* UNE RECHERCHE SANS RÉSULTAT DOIT LE DIRE (§54). La première version n'affichait
+                    qu'un « 0 » de la taille d'une pastille : on ne savait pas si le jalon
+                    n'existait pas ou si on avait raté le surlignage. */}
+                {nTrouves !== null ? (
+                  <span className="chief-story-found" data-vide={nTrouves === 0 || undefined}>
+                    {nTrouves === 0 ? "aucun" : nTrouves}
+                  </span>
+                ) : null}
               </label>
             ) : null}
             {racines.some((r) => (enfantsDe.get(r.id)?.length ?? 0) > 0) ? (

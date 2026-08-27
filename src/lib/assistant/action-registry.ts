@@ -1017,6 +1017,11 @@ X("plomberie du Chief lui-même (chat, mémoire, fils) — pas une action métie
   // `performAction`. Ce n'est donc pas une action métier de plus à proposer au Chief — c'est le
   // geste « je confirme tout » de l'utilisateur, exécuté côté serveur au lieu du navigateur.
   "assistant-actions:executeAssistantBundle",
+  // LE GESTE DÉTERMINISTE d'un bouton de l'espace de travail (§23). Il n'ouvre AUCUNE capacité
+  // nouvelle : il exécute une LECTURE déjà exposée au Chief comme outil, en sautant l'appel au
+  // modèle que le serveur n'avait aucune raison de payer — il connaissait l'intention exacte au
+  // moment où il a dessiné le bouton. Rien à proposer ici : ce qu'il appelle est déjà proposé.
+  "assistant-actions:assistantDirectIntent",
   "assistant-actions:listAssistantFiles", "assistant-actions:myAssistantThreads", "assistant-actions:myAssistantThread",
   "assistant-actions:deleteMyAssistantThread", "assistant-actions:refreshMyBrief",
   "assistant-actions:forgetMyAssistantMemory",

@@ -510,6 +510,9 @@ function readMission(v: Json, title: string): WorkspaceBlock | null {
       // rien ferait croire à une exécution qui n'a pas eu lieu.
       etat: (etat && ETAPE_ETATS.has(etat) ? etat : "a-faire") as Mission["etapes"][number]["etat"],
       ...(clip(s(e.erreur), WORKSPACE_LIMITS.snippetChars) ? { erreur: clip(s(e.erreur), WORKSPACE_LIMITS.snippetChars) } : {}),
+      ...(actionsOf(e.actions, WORKSPACE_LIMITS.itemActions).length
+        ? { actions: actionsOf(e.actions, WORKSPACE_LIMITS.itemActions) }
+        : {}),
     });
     if (etapes.length >= GODMODE_LIMITS.missionSteps) break;
   }
