@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma, EntityType } from "@prisma/client";
 import { EXPECTED_EVENTS, matchEvent, type BusinessEventLike, type TaskLike } from "@/lib/tasks/evidence";
+import { reveillerMissions } from "@/lib/missions/events/router";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -62,6 +63,24 @@ export async function recordEvent(input: RecordEventInput): Promise<string | nul
 
     await reconcileTasks(evt).catch((err) => {
       console.error("[events] réconciliation impossible", evt.type, err);
+    });
+
+    // LE RÉVEIL DES MISSIONS (§18) — la deuxième conséquence d'un fait, après la réconciliation
+    // des tâches. Elle passe par le MÊME registre : une mission qui attend « la réponse de
+    // Redouane » se règle quand le fait arrive, sans que personne ait à dire « il a répondu ».
+    //
+    // Le routeur ne fait PAS tourner la mission : il règle l'attente et rend la main. Sans quoi
+    // le dépôt d'un contrat attendrait la fin d'une mission de trente-trois envois.
+    await reveillerMissions({
+      type: evt.type,
+      actorId: evt.actorId,
+      entityType: evt.entityType,
+      entityId: evt.entityId,
+      relatedRefs: input.relatedRefs ?? [],
+      payload: input.payload,
+      missionId: input.missionId ?? null,
+    }).catch((err) => {
+      console.error("[events] réveil de mission impossible", evt.type, err);
     });
 
     return evt.id;
