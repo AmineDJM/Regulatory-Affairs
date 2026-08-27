@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { executePowerTool, powerToolsFor } from "@/lib/assistant/power-tools";
+import { executiveBriefing } from "@/lib/assistant/executive-tools";
 import { ensureProduct } from "@/lib/products/resolve";
 import type { CurrentUser } from "@/lib/session";
 import { BUSINESS_CAPABILITIES } from "./business-capabilities";
@@ -53,6 +54,21 @@ describe("les capacités métier — la forme", () => {
     // il continuerait la séquence en quatre appels qu'il connaît déjà.
     expect(eco.def.description).toContain("REMPLACE");
     expect(eco.def.description).toMatch(/en un appel/i);
+  });
+
+  it("LA DOCTRINE dit au modèle de PRÉFÉRER la capacité — sinon il refait la séquence longue", () => {
+    // Une capacité déclarée mais jamais préférée n'économise rien : le modèle continue la
+    // séquence qu'il connaît. La consigne d'outils est le seul endroit où il apprend qu'un
+    // raccourci existe, et ce test empêche qu'une réécriture de prompt la fasse disparaître
+    // sans que personne ne s'en aperçoive — la régression serait silencieuse et coûteuse.
+    const doctrine = executiveBriefing(lecteur());
+    expect(doctrine).toContain("product_economics");
+    expect(doctrine).toContain("pch_market_status");
+    // Elle doit nommer CE QU'ELLE REMPLACE, pas seulement exister.
+    expect(doctrine).toMatch(/PAS la\s+séquence/);
+    // Et rappeler la règle qui rend les chiffres utilisables.
+    expect(doctrine).toMatch(/CHACUN AVEC SA DÉFINITION/);
+    expect(doctrine).toMatch(/ne JAMAIS le remplacer par\s+zéro/);
   });
 
   it("les capacités sont dans le registre et suivent les DROITS", () => {

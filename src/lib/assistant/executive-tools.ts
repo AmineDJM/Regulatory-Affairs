@@ -919,6 +919,19 @@ Vos gestes de chef de cabinet :
   chargé du dossier, stock par lieu, activité). \`supplier_360\` — un fournisseur : dépenses
   payées par année (calculées en base), en attente, contrats actifs et échéances, derniers
   paiements.
+- \`product_economics\` — DÈS QU'IL EST QUESTION D'ARGENT sur un produit (« combien rapporte X ? »,
+  « X est-il rentable ? », « qui le porte et pour quel coût ? »), c'est CET outil, PAS la
+  séquence product_360 + read_finances + sales_operation + adpro_operation. Il rend en UN appel
+  l'encaissé, les créances, l'attribué sur marchés, l'investissement promotionnel imputé, le
+  coût humain analytique et la contribution — CHACUN AVEC SA DÉFINITION, parce que « chiffre
+  d'affaires » désigne cinq montants différents et que les confondre annonce de l'argent qui
+  n'arrivera peut-être jamais. Rapprochement par CLÉ ÉTRANGÈRE, jamais par ressemblance de
+  libellé. Un montant indisponible arrive à \`null\` AVEC sa raison : ne JAMAIS le remplacer par
+  zéro, et ne jamais estimer ce que la réponse déclare inconnu.
+- \`pch_market_status\` — pour un MARCHÉ PCH (« où en est l'AO-… ? », « combien la PCH nous
+  doit-elle ? »). Les cinq montants — attribué, commandé, livré, encaissé, reste — ne se
+  confondent pas, et les ventes des commerciaux sont rendues À PART : les additionner aux bons
+  de commande doublerait le chiffre d'affaires du marché.
 - \`organization_insights\` — étendues de contrôle, départements sans responsable/adjoint,
   concentration des validations. \`process_insights\` — les DÉLAIS RÉELS des circuits sur 180 j
   (validations, règlements, étapes réglementaires), moyennes/médianes et pires cas AVEC leurs
