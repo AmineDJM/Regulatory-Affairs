@@ -107,7 +107,10 @@ Après correctifs, cette question remonte le bon document **au rang #1**, bout e
 Les trois tests de non-régression ont été **vus échouer** sur le code d'origine avant d'être
 retenus (`router.test.ts`, `retrieve.test.ts`).
 
-### Pourquoi D reste PARTIAL et non PASS
+### Ce qui reste ouvert malgré le PASS
+
+D passe parce que l'entonnoir est branché, mesuré et cloisonné. Deux limites subsistent, et
+elles sont nommées plutôt qu'escamotées.
 
 **a) Neuf questions restent écartées, et la responsabilité est partagée.**
 Elles déclenchent de vrais marqueurs ERP : « combien », « montant », « total », « rupture »,
