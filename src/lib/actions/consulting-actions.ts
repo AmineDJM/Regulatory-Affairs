@@ -12,6 +12,7 @@ import { companyIdForNew } from "@/lib/company";
 import { attachFiles } from "@/lib/attach-files";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { nextConsultingStatus, isContractEditable } from "@/lib/ad-pro/consulting";
+import { recordEvent } from "@/lib/events/ledger";
 
 const PATH = "/consulting";
 
@@ -125,6 +126,25 @@ export async function createConsultingContract(_prev: ActionResult | undefined, 
     });
 
     await audit(user, contract.id, "CREATE", `Contrat de consulting créé — ${contract.reference} (${counterparty})${attached.saved > 0 ? ` (${attached.saved} pièce(s))` : ""}`);
+
+    // LE FAIT MÉTIER, inscrit au registre transverse — et c'est lui qui règle le défaut réel :
+    // une tâche « Déposer le contrat de la consultante dans Ad&Pro > Consulting » est restée
+    // « à faire » alors que Yacine AVAIT déposé le contrat, et Adam l'a annoncée en retard.
+    //
+    // On n'inscrit `CONTRACT_SIGNED` que si une PIÈCE a réellement été jointe : un contrat créé
+    // sans son exemplaire n'est qu'une intention, et satisfaire une demande de dépôt avec une
+    // intention rendrait le rapprochement faux dans l'autre sens.
+    if (attached.saved > 0) {
+      await recordEvent({
+        type: "CONTRACT_SIGNED",
+        sourceDomain: "ADPRO_CONSULTING",
+        actorId: user.id,
+        entityType: "CONSULTING_CONTRACT",
+        entityId: contract.id,
+        payload: { reference: contract.reference, counterparty, pieces: attached.saved },
+      });
+    }
+
     revalidate(contract.id);
     return { ok: true, id: contract.id };
   } catch (err) {

@@ -656,7 +656,12 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         prisma.task.count({ where: { assignedToId: person.id, status: "DONE", updatedAt: { gte: since } } }),
         prisma.task.findMany({
           where: { assignedToId: person.id, status: { notIn: ["DONE", "CANCELLED"] }, dueDate: { lt: now } },
-          select: { title: true, dueDate: true },
+          // LA PREUVE VOYAGE AVEC LE RETARD. Sans elle, « en retard » est vrai au sens du champ
+          // `status` et faux au sens de l'entreprise — le contrat de la consultante AVAIT été
+          // déposé, personne n'avait coché la tâche, et Adam a annoncé un retard qui n'en était
+          // pas un. Le rapprochement est fait en amont par le registre d'événements ; ici, on se
+          // contente de ne pas le perdre en route.
+          select: { title: true, dueDate: true, evidenceAt: true, evidenceNote: true },
           orderBy: { dueDate: "asc" }, take: 10,
         }),
         prisma.administrativeRequest.count({ where: { requesterId: person.id, createdAt: { gte: since } } }),
@@ -675,7 +680,23 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         faits: {
           tachesOuvertes: tasksOpen,
           tachesTermineesSurLaFenetre: tasksDone,
-          tachesEnRetard: tasksLate.map((t) => ({ titre: t.title, echeance: t.dueDate ? fr(t.dueDate) : null })),
+          tachesEnRetard: tasksLate.map((t) => ({
+            titre: t.title,
+            echeance: t.dueDate ? fr(t.dueDate) : null,
+            // Renseigné SEULEMENT quand une preuve existe : un champ à `null` partout habituerait
+            // le modèle à l'ignorer, et il ne le lirait plus le jour où il compte.
+            ...(t.evidenceAt
+              ? {
+                  geste_deja_accompli: {
+                    le: fr(t.evidenceAt),
+                    quoi: t.evidenceNote,
+                    aDire:
+                      "La tâche est encore marquée à faire, MAIS le geste attendu a été accompli. "
+                      + "Dire les DEUX : le statut n'a pas été mis à jour. Ne pas annoncer un retard sec.",
+                  },
+                }
+              : {}),
+          })),
           demandesDeposees: requests,
           validationsRendues: validationsDecided,
           actionsAuJournal: auditCount,

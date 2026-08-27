@@ -1161,6 +1161,7 @@ model User {
   docRequestsToMe            DocumentRequest[]        @relation("DocRequestAsked")
   paymentCentreMessages      PaymentCentreMessage[]
   sessionEvents              SessionEvent[]
+  businessEvents             BusinessEvent[]          @relation("BusinessEventActor")
 
   @@index([role])
   @@index([departmentId])
@@ -4299,46 +4300,64 @@ enum StandInStatus {
 
 /// Tâche assignable — cœur de l'espace de travail (to-do, délégation, suivi).
 model Task {
-  custom            Json?
-  id                String        @id @default(cuid())
-  title             String
-  description       String?
-  assignedToId      String?
-  assignedTo        User?         @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  custom             Json?
+  id                 String        @id @default(cuid())
+  title              String
+  description        String?
+  assignedToId       String?
+  assignedTo         User?         @relation("TaskAssignee", fields: [assignedToId], references: [id])
   // Personnes associées à la tâche, fixées à la création. Les PARTICIPANTS peuvent agir
   // (démarrer, terminer) comme le responsable ; les LECTEURS la voient sans pouvoir la changer.
   // Identifiants bruts (pas de relation) — même patron léger que `Dossier.participantIds`.
-  participantIds    String[]      @default([])
-  readerIds         String[]      @default([])
-  createdById       String?
-  createdBy         User?         @relation("TaskCreator", fields: [createdById], references: [id])
-  dueDate           DateTime?
-  priority          Priority      @default(MEDIUM)
-  status            TaskStatus    @default(TODO)
-  module            String? // module concerné (REGULATORY, FINANCES…)
-  relatedEntityType EntityType?
-  relatedEntityId   String?
-  completedAt       DateTime?
+  participantIds     String[]      @default([])
+  readerIds          String[]      @default([])
+  createdById        String?
+  createdBy          User?         @relation("TaskCreator", fields: [createdById], references: [id])
+  dueDate            DateTime?
+  priority           Priority      @default(MEDIUM)
+  status             TaskStatus    @default(TODO)
+  module             String? // module concerné (REGULATORY, FINANCES…)
+  relatedEntityType  EntityType?
+  relatedEntityId    String?
+  completedAt        DateTime?
   // Tâches « course / livraison » (coordinateur-coursier) : lieu à atteindre + suivi
   // de durée. `startedAt` = départ effectif ; durée = completedAt − startedAt ;
   // retard = durée > expectedMinutes (si défini).
-  address           String? // adresse / lieu (ouvre un lien Maps)
-  startedAt         DateTime? // départ effectif (« je pars »)
-  expectedMinutes   Int? // durée estimée en minutes (détection de retard)
+  address            String? // adresse / lieu (ouvre un lien Maps)
+  startedAt          DateTime? // départ effectif (« je pars »)
+  expectedMinutes    Int? // durée estimée en minutes (détection de retard)
   // ── Tâche née d'une DEMANDE faite à quelqu'un ───────────────────────────────────────────
   // `requestedAt` non nul = on a DEMANDÉ cette tâche à une personne, qui l'accepte ou la
   // refuse. Une fois acceptée, elle n'a plus d'étape intermédiaire : on entre dedans, on
   // dépose ce qu'il faut, on valide son travail. Le champ sert précisément à distinguer ce
   // parcours de celui d'une tâche ordinaire créée directement.
-  requestedAt       DateTime?
-  respondedAt       DateTime? // acceptation ou refus, horodatés
-  declineReason     String? // motif du refus — FACULTATIF : dire non ne se justifie pas
+  requestedAt        DateTime?
+  respondedAt        DateTime? // acceptation ou refus, horodatés
+  declineReason      String? // motif du refus — FACULTATIF : dire non ne se justifie pas
   /// Compte rendu de la personne qui a fait le travail, TOUJOURS modifiable après validation.
-  completionNote    String?
+  completionNote     String?
+  // ── CE QUE LA TÂCHE ATTEND, ET CE QUI PROUVE QUE C'EST FAIT ─────────────────────────────
+  //
+  // Cas réel : « Déposer le contrat de la consultante dans Ad&Pro > Consulting » — le contrat
+  // A ÉTÉ déposé, personne n'a coché la tâche, et Adam a annoncé « en retard ». Vrai au sens
+  // du champ `status`, faux au sens de l'entreprise.
+  //
+  // `expectedEvent` déclare l'événement métier qui satisfait la tâche (voir
+  // `src/lib/tasks/evidence.ts`). Quand il est posé À LA CRÉATION, le rapprochement est exact
+  // et la clôture peut être automatique. Sans lui, l'attente se DÉDUIT du titre — et l'on
+  // inscrit alors la preuve SANS clore : une déduction ne doit jamais effacer une vraie tâche.
+  expectedEvent      String?
+  /// La preuve : l'entité qui satisfait l'attente, quand, et par qui.
+  evidenceEntityType EntityType?
+  evidenceEntityId   String?
+  evidenceAt         DateTime?
+  evidenceActorId    String?
+  /// Ce qui a été reconnu — affiché à l'humain qui arbitre, jamais réinterprété.
+  evidenceNote       String?
   /// Le fil d'échange de la tâche — questions, précisions, comptes rendus intermédiaires.
-  comments          TaskComment[]
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  comments           TaskComment[]
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   @@index([assignedToId, status])
   @@index([createdById])
@@ -9590,7 +9609,7 @@ model KnowledgeAlias {
   /// « erp:<colonne> » = lu dans une vraie colonne ; « derived » = calculé ; « user » = saisi.
   source String
   /// Combien cette graphie identifie l'entité. Un acronyme dérivé pèse moins qu'un nom déposé.
-  weight Float @default(1)
+  weight Float  @default(1)
 
   createdAt DateTime @default(now())
 
@@ -9620,10 +9639,10 @@ model ScheduledWorkflow {
   id String @id @default(cuid())
 
   /// Ce que l'utilisateur lit dans la liste — « Point Regulatory du dimanche ».
-  name String
+  name    String
   /// LE TRAITEMENT à déclencher. Une clé du registre, jamais du code libre : une planification
   /// qui porterait son propre code serait une porte d'exécution arbitraire dans la base.
-  kind String
+  kind    String
   /// Les paramètres du traitement (destinataire du rapport, périmètre…).
   payload Json?
 
@@ -9680,4 +9699,56 @@ model WorkflowRun {
   ms         Int?
 
   @@index([workflowId, startedAt])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// LE REGISTRE D'ÉVÉNEMENTS MÉTIER — la mémoire factuelle de l'entreprise.
+///
+/// ── POURQUOI IL EXISTE ─────────────────────────────────────────────────────────────────────
+///
+/// L'ERP savait déjà journaliser : `AuditLog` (qui a modifié quoi), `WorkflowStepEvent`,
+/// `RegulatoryLifecycleEvent`, `PaymentRequestEvent`, `MissionEvent`… Chacun est juste, et
+/// chacun ne connaît que son domaine. Aucun ne permet de répondre à « le contrat demandé
+/// a-t-il été déposé ? » quand la demande vit dans Tâches et le dépôt dans Ad&Pro.
+///
+/// Ce registre est la couche TRANSVERSE : append-only, un fait par ligne, lisible sans
+/// connaître le module qui l'a produit. Il ne remplace aucun journal existant — il les
+/// TRAVERSE. C'est ce qui rend déterministes la réconciliation des tâches, la frise
+/// chronologique d'un produit, et la compréhension causale, au lieu de les laisser à un modèle.
+///
+/// ── CE QU'IL N'EST PAS ─────────────────────────────────────────────────────────────────────
+///
+/// Pas un bus de messages, pas Kafka, pas une file. Une TABLE. Les consommateurs la lisent ;
+/// le peu de réaction synchrone dont on a besoin passe par un appel de fonction ordinaire.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model BusinessEvent {
+  id            String      @id @default(cuid())
+  /// Le fait, en vocabulaire métier : CONTRACT_SIGNED, TENDER_AWARDED, PAYMENT_RECEIVED…
+  /// Volontairement une chaîne et non un enum : un domaine peut nommer un fait sans migration,
+  /// et les consommateurs n'écoutent que ce qu'ils connaissent.
+  type          String
+  /// QUAND le fait s'est produit — distinct de `createdAt`, qui dit quand on l'a inscrit.
+  /// Un import rétroactif renseigne le premier sans mentir sur le second.
+  occurredAt    DateTime    @default(now())
+  actorId       String?
+  actor         User?       @relation("BusinessEventActor", fields: [actorId], references: [id])
+  /// Le domaine émetteur (ADPRO_CONSULTING, LEGAL, REGULATORY…) — le « d'où ça vient ».
+  sourceDomain  String
+  entityType    EntityType?
+  entityId      String?
+  /// Les autres entités concernées, en « TYPE:id ». Un dépôt de contrat touche le consultant,
+  /// le document et la demande Ad&Pro : les trois doivent pouvoir retrouver ce fait.
+  relatedRefs   String[]    @default([])
+  /// Ce qui a changé, ou ce qu'il faut pour comprendre. JAMAIS le contenu d'un document ni
+  /// un secret : ce registre se lit largement, il ne doit rien porter qui ne se lise pas.
+  payload       Json?
+  /// Ce qui relie les faits d'une même intention — une mission Adam, un circuit de validation.
+  correlationId String?
+  missionId     String?
+  createdAt     DateTime    @default(now())
+
+  @@index([type, occurredAt])
+  @@index([entityType, entityId])
+  @@index([correlationId])
+  @@index([occurredAt])
 }
