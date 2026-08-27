@@ -9,10 +9,10 @@ import { DEFAULT_ZIP_LIMITS } from "../ingest/zip-inspector";
 import {
   presignPutUrl, presignUploadPartUrl, getObject, deleteObject, objectStorageConfigured,
   createMultipartUpload, completeMultipartUpload, abortMultipartUpload,
-} from "./object-storage";
+} from "@/lib/storage/object-storage";
 import { regAudit } from "../audit";
 
-export { objectStorageConfigured } from "./object-storage";
+export { objectStorageConfigured } from "@/lib/storage/object-storage";
 
 /**
  * UPLOAD RÉSUMABLE DE GROS FICHIERS (G14) — cœur logique.

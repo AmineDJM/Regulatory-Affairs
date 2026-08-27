@@ -2,7 +2,7 @@ import type { RegulatoryJob, RegJobType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
 import { extractText } from "../extract/extract-text";
-import { detectMime } from "../extract/mime";
+import { detectMime } from "@/lib/storage/mime";
 import { classifyDocument } from "../ctd/classify";
 import { detectContainedSections } from "../ctd/detect-sections";
 import { assessVersion, type TwinDoc } from "../rules/engine";

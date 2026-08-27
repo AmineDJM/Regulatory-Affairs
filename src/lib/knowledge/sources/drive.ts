@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
-import { detectMime } from "@/lib/regulatory/intelligence/extract/mime";
+import { detectMime } from "@/lib/storage/mime";
 import { heavyText, type HeavyKind } from "@/lib/regulatory/intelligence/extract/heavy-parse";
 import { contentHash, clip, looksLikePlainText } from "../text";
 import { chunkText, chunkUnits, renumber } from "../chunk";

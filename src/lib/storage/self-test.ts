@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from "crypto";
 import { describeConfig, type ConfigDescription } from "./s3-config";
-import { putObject, getObject, deleteObject, objectStorageConfigured } from "@/lib/regulatory/intelligence/upload/object-storage";
+import { putObject, getObject, deleteObject, objectStorageConfigured } from "@/lib/storage/object-storage";
 
 /**
  * LE TEST DE CONNEXION AU STOCKAGE — un aller-retour réel, pas une vérification de variables.

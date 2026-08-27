@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
 import { getGeneralMeans, resolveGeneralMeansDepartment, LIST_LIMIT } from "@/lib/queries/general-means";
-import { generalMeansBudgetTargets } from "@/lib/queries/general-means-budget";
+import { generalMeansBudgetTargets } from "@/lib/general-means/budget-targets";
 import { normalizeYear, DEPT_BUDGET_LABEL, budgetHealth, consumedPercent } from "@/lib/department-budget";
 import { currentPeriod } from "@/lib/petty-cash";
 import { PageHeader } from "@/components/shared/page-header";

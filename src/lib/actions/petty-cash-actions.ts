@@ -17,7 +17,7 @@ import {
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
-import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/queries/general-means-budget";
+import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/general-means/budget-targets";
 
 const PATH = "/moyens-generaux";
 

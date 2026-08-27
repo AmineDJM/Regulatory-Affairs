@@ -9,7 +9,7 @@ import { resolveDriveAccess, effectiveSpaceId, canCreateInSpace } from "@/lib/dr
 import { quotaVerdict } from "@/lib/drive/quota";
 import { userUsageBytes, physicalUsageBytes, addPhysicalUsage } from "@/lib/drive/usage";
 import { recordAudit } from "@/lib/audit";
-import { objectStorageConfigured } from "@/lib/regulatory/intelligence/upload/object-storage";
+import { objectStorageConfigured } from "@/lib/storage/object-storage";
 import { startTimer, formatTiming } from "@/lib/drive/timing";
 
 /** Upload a new file (under `parentId`) or a new version (of `nodeId`). */

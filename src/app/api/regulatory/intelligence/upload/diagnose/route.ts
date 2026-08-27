@@ -8,7 +8,7 @@ import {
   deleteObject,
   probeJurisdiction,
   configuredEndpointHost,
-} from "@/lib/regulatory/intelligence/upload/object-storage";
+} from "@/lib/storage/object-storage";
 
 /**
  * DIAGNOSTIC du stockage objet (R2/S3) — isole la cause d'un échec serveur → bucket :

@@ -4,6 +4,9 @@ import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import { buildProposal, resolveSpokenMailApproval } from "@/lib/assistant";
 import { solePendingMailIntent, approveAndExecuteIntent } from "./approve-execute";
+// Le transport RÉEL, volontairement : ce test prouve qu'un échec côté Google ne fabrique pas un
+// envoi. Un faux transport qui réussit toujours ne prouverait rien de ce qui est en jeu ici.
+import { gmailTransport } from "@/lib/google/gmail/transport";
 import { findPeople } from "@/lib/directory/resolve";
 import { setMailSendPolicy } from "./policy";
 
@@ -213,7 +216,7 @@ suite("flux rapide — une question au plus, une carte, un envoi", () => {
     const intentId = (carte.payload as { intentId: string }).intentId;
 
     // Le clic sur « Envoyer » — la première interface.
-    await approveAndExecuteIntent(user, intentId);
+    await approveAndExecuteIntent(user, intentId, gmailTransport);
     const apresClic = await prisma.outboundMailIntent.findUniqueOrThrow({ where: { id: intentId } });
     const tentativesApresClic = apresClic.attempts;
 

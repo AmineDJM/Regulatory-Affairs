@@ -4850,7 +4850,7 @@ export async function resolveSpokenMailApproval(
   if (classifyReply(lastUserMessage) !== "CONFIRM") return null;
   const pending = await solePendingMailIntent(user.id);
   if (!pending) return null;
-  return approveAndExecuteIntent(user, pending.id);
+  return approveAndExecuteIntent(user, pending.id, gmailTransport);
 }
 
 async function runAssistantStreamImpl(
@@ -5738,7 +5738,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     // LE CLIC SUR « ENVOYER » — l'une des DEUX interfaces de la même autorité. L'autre est la
     // parole (« vas-y, envoie »). Toutes deux appellent cette fonction-là, pas une logique
     // jumelle : c'est ce qui garantit qu'un durcissement profite aux deux sans qu'on y pense.
-    return approveAndExecuteIntent(user, payload.intentId);
+    return approveAndExecuteIntent(user, payload.intentId, gmailTransport);
   }
 
   if (payload?.kind === "set_mail_policy") {

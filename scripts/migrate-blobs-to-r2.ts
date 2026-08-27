@@ -21,7 +21,7 @@
 import { prisma } from "../src/lib/prisma";
 import {
   objectStorageConfigured, putObject, putObjectStream, MULTIPART_THRESHOLD_BYTES,
-} from "../src/lib/regulatory/intelligence/upload/object-storage";
+} from "../src/lib/storage/object-storage";
 import { describeConfig } from "../src/lib/storage/s3-config";
 
 const blobKey = (sha256: string) => `blobs/${sha256.slice(0, 2)}/${sha256}`;

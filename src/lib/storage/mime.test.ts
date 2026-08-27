@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectMime } from "./mime";
+import { detectMime } from "@/lib/storage/mime";
 
 const buf = (...bytes: number[]) => Buffer.from(bytes);
 

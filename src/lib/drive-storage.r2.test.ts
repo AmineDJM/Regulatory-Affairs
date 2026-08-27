@@ -15,7 +15,7 @@ const { store, calls, THRESHOLD } = vi.hoisted(() => ({
   THRESHOLD: 1024,
 }));
 
-vi.mock("./regulatory/intelligence/upload/object-storage", () => ({
+vi.mock("./storage/object-storage", () => ({
   objectStorageConfigured: () => true,
   MULTIPART_THRESHOLD_BYTES: THRESHOLD,
   putObject: async (key: string, body: Buffer) => { calls.put += 1; store.set(key, Buffer.from(body)); },

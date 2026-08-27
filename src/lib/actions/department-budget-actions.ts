@@ -17,7 +17,7 @@ import {
 } from "@/lib/department-budget";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
-import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/queries/general-means-budget";
+import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/general-means/budget-targets";
 import { pettyCashBalanceExcluding, pettyCashBalance, canSpendFromPettyCash, type PettyCashStatus } from "@/lib/petty-cash";
 import { resolveSource, sourceOf, sourceChange } from "@/lib/general-means/payment-source";
 import { toNumber } from "@/lib/utils";

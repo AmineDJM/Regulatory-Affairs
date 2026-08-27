@@ -4,7 +4,7 @@ import { readFile, stat } from "fs/promises";
 import { prisma } from "./prisma";
 import {
   objectStorageConfigured, putObject, putObjectStream, getObject, deleteObject, MULTIPART_THRESHOLD_BYTES,
-} from "./regulatory/intelligence/upload/object-storage";
+} from "./storage/object-storage";
 
 /**
  * Drive blob backend — content-addressed, encrypted at rest.

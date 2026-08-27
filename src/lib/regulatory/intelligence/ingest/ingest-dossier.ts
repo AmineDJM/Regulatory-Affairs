@@ -4,7 +4,7 @@ import { join } from "path";
 import type { RegDocExtractionStatus, RegDocSecurityStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { putBlob, putBlobFromFile, releaseBlob, sha256, sha256File } from "@/lib/drive-storage";
-import { objectStorageConfigured } from "../upload/object-storage";
+import { objectStorageConfigured } from "@/lib/storage/object-storage";
 import { regAudit } from "../audit";
 import { inspectZip, inspectZipFile, type ManifestEntry, type SecurityStatus, type ZipInspection } from "./zip-inspector";
 

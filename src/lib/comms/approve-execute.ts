@@ -1,8 +1,7 @@
 import { OutboundMailStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
-import { approveOutboundIntent, sendOutboundIntent } from "./outbound";
-import { gmailTransport } from "@/lib/google/gmail/transport";
+import { approveOutboundIntent, sendOutboundIntent, type MailTransport } from "./outbound";
 import { markMissionAsked } from "./missions";
 import { recordAudit } from "@/lib/audit";
 
@@ -71,10 +70,22 @@ export async function solePendingMailIntent(
  *
  * Le `userId` vient de la SESSION, jamais du client : c'est lui qui est enregistré comme
  * approbateur, et c'est ce qui rend l'accord opposable.
+ *
+ * POURQUOI LE TRANSPORT EST UN PARAMÈTRE. Ce module tranche la POLITIQUE d'envoi ; il n'a pas à
+ * savoir que le courrier part chez Google. Aller chercher `gmailTransport` ici créait le seul
+ * lien `comms → google` de tout le code, et donc un cycle : `google/` importe déjà la politique,
+ * l'analyse de courriel et les missions de `comms/`. Un cycle entre un adaptateur et son domaine
+ * empêche de remplacer l'adaptateur — exactement ce qu'on veut pouvoir faire le jour où un second
+ * transport arrive.
+ *
+ * On l'INJECTE plutôt que de le poser dans un registre parce que le typage rend alors l'oubli
+ * impossible : un appelant sans transport ne compile pas. Un registre, lui, se serait initialisé
+ * ailleurs — et un message aurait pu échouer en production pour un import manquant.
  */
 export async function approveAndExecuteIntent(
   user: CurrentUser,
   intentId: string,
+  transport: MailTransport,
 ): Promise<MailExecutionResult> {
   const intent = await prisma.outboundMailIntent.findFirst({
     where: { id: intentId, userId: user.id },
@@ -95,7 +106,7 @@ export async function approveAndExecuteIntent(
   const approved = await approveOutboundIntent(intentId, user.id);
   if ("error" in approved) return { ok: false, error: approved.error };
 
-  const sent = await sendOutboundIntent(intentId, gmailTransport);
+  const sent = await sendOutboundIntent(intentId, transport);
   if (!sent.ok) return { ok: false, error: "blocked" in sent && sent.blocked ? sent.message : sent.error };
 
   await recordAudit({

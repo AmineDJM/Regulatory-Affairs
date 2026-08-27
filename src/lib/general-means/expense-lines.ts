@@ -7,7 +7,7 @@
  * L'écrire deux fois, c'est se garantir deux comportements différents au premier correctif.
  */
 import { prisma } from "@/lib/prisma";
-import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/queries/general-means-budget";
+import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "./budget-targets";
 import { parseLinesField, validateReceipt, receiptTotal, receiptLabel, type ReceiptLine } from "./receipt";
 
 export interface ReceiptDraft {
